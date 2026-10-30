@@ -99,6 +99,29 @@ class Trials(unittest.TestCase):
             self.assertAlmostEqual(row["cost_usd"], 0.21, places=6)
             self.assertEqual(row["price_digest"], smoke.price_digest())
 
+    def test_a_trial_with_no_record_has_no_price_never_zero(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            d = trial(root, "fix-git", 1.0)
+            (d / "agent" / "efficiency.json").unlink()
+            (row,) = smoke.read_trials(root / "job")
+            self.assertIsNone(row["cost_usd"])
+            rows = tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False})
+            rows[0]["cost_usd"] = None
+            p = smoke.tb_part(rows, SLICE, floor=None, wall_s=600)
+            self.assertFalse(p["ok"])
+            self.assertIn("no price", p["note"])
+
+    def test_jevs_dollars_come_from_its_own_record_when_there(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            d = trial(root, "fix-git", 1.0, by_model={"claude-sonnet-5-5": {"cache_read": 1_000_000, "calls": 1}})
+            eff = json.loads((d / "agent" / "efficiency.json").read_text())
+            eff.update({"cost_usd": 0.2, "model_cost_usd": 0.2, "jev": {"cost_usd": 0.03}})
+            (d / "agent" / "efficiency.json").write_text(json.dumps(eff))
+            (row,) = smoke.read_trials(root / "job")
+            self.assertAlmostEqual(row["cost_usd"], 0.23, places=6)
+
     def test_a_trial_with_no_verifier_reward_did_not_pass(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
@@ -228,12 +251,20 @@ class OtherParts(unittest.TestCase):
 
     def test_resume_needs_three_kills_three_resumes_and_no_repeated_effect(self):
         good = {"kills": 3, "resumed": 3, "effects": [1, 2, 3, 4, 5, 6], "starts": [1, 2, 3, 4, 5, 6],
-                "steps": 6, "settled": True, "wall_s": 30.0, "interrupted_rows": 3, "notes": []}
+                "steps": 6, "settled": True, "wall_s": 30.0, "interrupted_rows": 3, "notes": [],
+                "turn_ended": 1, "turn_failed": 0, "unknown_rows": 0, "succeeded_rows": 6, "seen": [1, 2, 3, 4, 5, 6]}
         self.assertTrue(smoke.resume_part(good)["ok"])
         self.assertFalse(smoke.resume_part({**good, "kills": 2, "resumed": 2})["ok"])
         self.assertFalse(smoke.resume_part({**good, "resumed": 2})["ok"])
         self.assertFalse(smoke.resume_part({**good, "settled": False})["ok"])
         self.assertFalse(smoke.resume_part({**good, "interrupted_rows": 2})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "interrupted_rows": None})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "turn_failed": 1})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "turn_ended": 0})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "succeeded_rows": 5})["ok"])
+        unknown = smoke.resume_part({**good, "unknown_rows": 1, "seen": [1, 2, 3, 5, 6]})
+        self.assertFalse(unknown["ok"])
+        self.assertIn("never saw the output of steps [4]", unknown["note"])
         self.assertFalse(smoke.resume_part({**good, "notes": ["step 4 never started"]})["ok"])
         repeated = smoke.resume_part({**good, "effects": [1, 2, 3, 4, 4, 5, 6]})
         self.assertFalse(repeated["ok"])
@@ -254,6 +285,9 @@ class OtherParts(unittest.TestCase):
         wrong = smoke.dm_part(good[:4] + [{"turn": 4, "seconds": 3.0, "footer": True, "expected": False}], 0)
         self.assertFalse(wrong["ok"])
         self.assertIn("unexpected reply", wrong["note"])
+        self.assertTrue(smoke.dm_part(good, alarms=0, turns_ended=5, unread=[])["ok"])
+        self.assertFalse(smoke.dm_part(good, alarms=0, turns_ended=0, unread=[])["ok"])
+        self.assertFalse(smoke.dm_part(good, alarms=0, turns_ended=5, unread=["ses_x"])["ok"])
 
 
 def part(name, ok, cost=0.0, wall=1.0):
@@ -323,6 +357,18 @@ class Floor(unittest.TestCase):
         self.assertEqual(f["route"], previous["route"])
         self.assertEqual(f["tb"]["sha"], "new")
         self.assertIn("FAIL", f["written"]["verdict"])
+
+    def test_the_floor_only_moves_down(self):
+        tb, route = self.passing()
+        previous = {"tb": {"cost_per_solved_usd": 0.10, "wall_s": 500, "price_digest": smoke.price_digest()},
+                    "route": {"wall_s": 10.0, "model_worst": 57.0}}
+        f = smoke.floor_from([tb, route], sha="new", date="d1", previous=previous)
+        self.assertEqual((f["tb"]["cost_per_solved_usd"], f["tb"]["wall_s"]), (0.10, 500))
+        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (10.0, 57.0))
+        # A floor on another price table is re-based on this run's dollars.
+        previous["tb"]["price_digest"] = "000000000000"
+        f = smoke.floor_from([tb, route], sha="new", date="d1", previous=previous)
+        self.assertAlmostEqual(f["tb"]["cost_per_solved_usd"], 0.125)
 
     def test_no_floor_when_nothing_a_floor_reads_passed(self):
         bad = smoke.tb_part([], SLICE, floor=None, wall_s=0)

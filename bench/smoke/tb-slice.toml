@@ -4,7 +4,7 @@
 # Picked from the runs below, Theseus as shipped (routed) at the frozen 1.0.3 build: the HIGH tier's 89 tasks x 3
 # and the MAX tier's 30 hard tasks x 3. A stable task passed every trial of every run that has it (3 of 3, or 6 of 6
 # where MAX ran it too); a control failed every one, with the agent running and no exception, so that a control is a
-# task the agent attempts and gets wrong, not one the harness never starts. Among the 61 stable tasks, the eight are
+# task the agent attempts and gets wrong, not one the harness never starts. Among the 56 stable tasks, the eight are
 # one per category, two easy, three medium and three hard, and the cheapest and quickest of their kind (the HIGH
 # run's median trial below), because the smoke is a release check, not a measurement. test_smoke.py holds every
 # line here against the CSVs.

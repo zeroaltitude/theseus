@@ -16,6 +16,9 @@
 #   ANTHROPIC_API_KEY, TYPESAFE_API_KEY  tb only: the routed arm's keys, handed to Harbor's process and never written
 #   THESEUS_BENCH_BIN_DIR   the static (musl) theseus and theseusd tb uploads (default bench/bin; bench/build.sh)
 #   SMOKE_BIN_DIR           the candidate's theseus, theseusd and theseus-index (default: where theseusd is on PATH)
+#   SMOKE_SHA               the candidate's commit (default: SMOKE_BIN_DIR's name when it is an install's
+#                           /usr/local/lib/theseus/<sha>, else this checkout's HEAD); tb fails when the static build's
+#                           Rust sources (bench/bin/build-commit) are not the candidate's
 #   SMOKE_SIM               theseus-sim, for resume's stand-in model and recall's driver tests
 #   SMOKE_SOCKET            the live daemon's socket, for route and dm (default: the CLI's own)
 #   SMOKE_HARBOR            Harbor's `harbor` (default: on PATH, else .venv/bin/harbor)
@@ -23,8 +26,8 @@
 #   SMOKE_QUIET_WAIT_S      how long tb waits for a quiet host before it gives up (default 900)
 #
 # Writes bench/smoke/runs/<date>-<sha8>/: report.md (the verdict is its first heading), parts/<part>.json, and each
-# part's logs. Exit 0 on PASS, 1 on FAIL, 2 on usage. `--write-floor` writes bench/smoke/floor.json from a PASS only:
-# the release step does that at each tag. Every pipeline's status is read from PIPESTATUS, never a bare pipe's exit.
+# part's logs. Exit 0 on PASS, 1 on FAIL, 2 on usage. `--write-floor` writes bench/smoke/floor.json from the parts
+# that passed (the release step does that at each tag). No status is read from a pipeline: each command's own is.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -34,7 +37,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --parts) parts="${2:?--parts needs a list}"; shift 2 ;;
     --write-floor) write_floor=--write-floor; shift ;;
-    -h | --help) sed -n '2,29p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "release-smoke: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -48,11 +51,17 @@ for c in python3.13 python3.12 python3.11 python3; do
 done
 [ -n "$py" ] || { echo "release-smoke: needs Python >= 3.11 (tomllib)" >&2; exit 2; }
 
-sha="$(git rev-parse HEAD)"
-run="bench/smoke/runs/$(date +%F)-${sha:0:8}"
-[ ! -e "$run/report.md" ] || run="$run-$(date +%H%M)"
-mkdir -p "$run"
 bin="${SMOKE_BIN_DIR:-$(dirname "$(command -v theseusd 2> /dev/null || echo target/release/theseusd)")}"
+sha="${SMOKE_SHA:-}"
+if [ -z "$sha" ]; then
+  sha="$(basename "$(realpath "$bin")")"
+  [[ "$sha" =~ ^[0-9a-f]{8,40}$ ]] && git cat-file -e "$sha^{commit}" 2> /dev/null || sha="$(git rev-parse HEAD)"
+fi
+sha="$(git rev-parse "$sha^{commit}")" || { echo "release-smoke: $sha is no commit here" >&2; exit 2; }
+# A fresh directory every run: an aborted run's parts must never enter another's verdict.
+run="bench/smoke/runs/$(date +%F)-${sha:0:8}"
+[ ! -e "$run" ] || run="$run-$(date +%H%M%S)"
+mkdir -p "$run"
 sim="${SMOKE_SIM:-}"
 for c in "$bin/theseus-sim" target/release/theseus-sim target/debug/theseus-sim; do
   [ -n "$sim" ] || { [ -x "$c" ] && sim=$c; }
@@ -60,6 +69,8 @@ done
 sock=()
 [ -z "${SMOKE_SOCKET:-}" ] || sock=(--socket "$SMOKE_SOCKET")
 musl="${THESEUS_BENCH_BIN_DIR:-$PWD/bench/bin}"
+# The candidate's own static build for tb: its Rust sources must be the candidate's, whatever commit built them.
+build="$(sed 's/-dirty$//' "$musl/build-commit" 2> /dev/null)" || build=unknown
 smoke() { PYTHONDONTWRITEBYTECODE=1 "$py" bench/smoke/smoke.py "$@"; }
 now() { date +%s; }
 echo "release-smoke: $run (candidate $bin, tb's static binaries $musl, sim ${sim:-none})"
@@ -73,6 +84,11 @@ part_tb() {
   fi
   [ -x "$harbor" ] || { smoke fail "$run" tb "no harbor at $harbor (SMOKE_HARBOR)"; return; }
   [ -x "$musl/theseusd" ] || { smoke fail "$run" tb "no static theseusd in $musl (bench/build.sh)"; return; }
+  if ! git cat-file -e "$build^{commit}" 2> /dev/null \
+    || ! git diff --quiet "$build" "$sha" -- crates Cargo.toml Cargo.lock; then
+    smoke fail "$run" tb "the static build ($build) is not the candidate's sources (${sha:0:12}): run bench/build.sh"
+    return
+  fi
   local line=("$py" bench/harbor/run.py --plan bench/plans/smoke-tb10.json -- harbor run -d terminal-bench@2.0
     --agent-setup-timeout-multiplier 3 -a theseus_agent:TheseusRouted -m anthropic/claude-sonnet-5-5 -n 4
     --job-name smoke-tb10 -o "$jobs")
@@ -88,13 +104,15 @@ part_tb() {
     waited=$((waited + 30))
   done
   t0=$(now)
-  "${env[@]}" "${line[@]}" > "$run/tb.log" 2>&1 &
+  # Its own process group, so a stop reaches Harbor itself (which cancels its trials), not only run.py.
+  setsid "${env[@]}" "${line[@]}" > "$run/tb.log" 2>&1 &
   local pid=$!
   while kill -0 "$pid" 2> /dev/null; do
-    spent="$(smoke spent "$jobs")"
-    if "$py" -c "import sys; sys.exit(float('$spent') < float('${SMOKE_TB_STOP_USD:-6}'))"; then
-      echo "release-smoke: tb stopped at \$$spent of finished trials" | tee -a "$run/tb.log"
-      kill -INT "$pid" 2> /dev/null
+    # A spend that cannot be read stops the run: the stop must never be silently off.
+    spent="$(smoke spent "$jobs" 2> /dev/null)" || spent=unread
+    if [ "$spent" = unread ] || "$py" -c "import sys; sys.exit(float('$spent') < float('${SMOKE_TB_STOP_USD:-6}'))"; then
+      echo "release-smoke: tb stopped at $spent dollars of finished trials" >> "$run/tb.log"
+      kill -INT -- "-$pid" 2> /dev/null
     fi
     sleep 30
   done
@@ -104,15 +122,16 @@ part_tb() {
 }
 
 part_route() {
-  local cases=crates/theseus-judge/packs/route.v10.cases.toml i t0 rc args=()
-  if ! "$bin/theseus" judge replay --help 2>&1 | grep -q -- '--cases'; then
+  local cases=crates/theseus-judge/packs/route.v10.cases.toml i t0 rc help args=()
+  help="$("$bin/theseus" judge replay --help 2>&1)"
+  if [[ "$help" != *--cases* ]]; then
     smoke fail "$run" route "this binary has no \`judge replay --cases\` (it came with 1.0.4's wave 3')"
     return
   fi
   for i in 1 2 3; do
     t0=$(now)
     rc=0
-    "$bin/theseus" "${sock[@]}" --json judge replay --cases "$cases" > "$run/route-$i.json" 2> "$run/route-$i.err" || rc=$?
+    "$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge replay --cases "$cases" > "$run/route-$i.json" 2> "$run/route-$i.err" || rc=$?
     if [ "$rc" -ne 0 ]; then
       # A pack the build dispatches cannot be replayed as a candidate: once route.v10 is live, say so plainly.
       smoke fail "$run" route "replay $i exited $rc: $(head -c 200 "$run/route-$i.err" | tr '\n' ' ')"
@@ -127,8 +146,12 @@ part_recall() {
   local t0 rc=0 sim_dir="$run/recall-bin" b
   # recall's driver tests run the binaries in THESEUS_RECALL_BIN_DIR, and skip when one is missing.
   mkdir -p "$sim_dir"
-  for b in theseus theseusd theseus-index; do ln -sf "$(realpath "$bin/$b")" "$sim_dir/$b"; done
+  for b in theseus theseusd theseus-index; do [ ! -x "$bin/$b" ] || ln -sf "$(realpath "$bin/$b")" "$sim_dir/$b"; done
   [ -z "$sim" ] || ln -sf "$(realpath "$sim")" "$sim_dir/theseus-sim"
+  # A missing binary skips every driver test silently, and the run would still pass: refuse instead.
+  for b in theseus theseusd theseus-index theseus-sim; do
+    [ -x "$sim_dir/$b" ] || { smoke fail "$run" recall "no $b for the driver tests (SMOKE_BIN_DIR, SMOKE_SIM)"; return; }
+  done
   t0=$(now)
   THESEUS_RECALL_BIN_DIR="$PWD/$sim_dir" scripts/recall-tests.sh > "$run/recall.log" 2>&1 || rc=$?
   smoke recall "$run" "$rc" "$(($(now) - t0))" "$run/recall.log"
@@ -136,15 +159,18 @@ part_recall() {
 
 part_resume() {
   [ -n "$sim" ] || { smoke fail "$run" resume "no theseus-sim (SMOKE_SIM)"; return; }
+  local rc=0
   "$py" bench/smoke/resume.py --bin-dir "$bin" --sim "$sim" --work "$run/resume" --out "$run/resume.json" \
-    > "$run/resume.log" 2>&1
+    > "$run/resume.log" 2>&1 || rc=$?
+  [ -s "$run/resume.json" ] || { smoke fail "$run" resume "resume.py exited $rc and wrote nothing"; return; }
   smoke resume "$run" "$run/resume.json"
 }
 
 part_dm() {
+  local rc=0
   "$py" bench/smoke/dm.py --theseus "$bin/theseus" ${SMOKE_SOCKET:+--socket "$SMOKE_SOCKET"} --out "$run/dm.json" \
-    > "$run/dm.log" 2>&1
-  [ -s "$run/dm.json" ] || { smoke fail "$run" dm "dm.py wrote nothing: $(tail -1 "$run/dm.log" | cut -c1-160)"; return; }
+    > "$run/dm.log" 2>&1 || rc=$?
+  [ -s "$run/dm.json" ] || { smoke fail "$run" dm "dm.py exited $rc and wrote nothing"; return; }
   smoke dm "$run" "$run/dm.json"
 }
 
@@ -154,5 +180,5 @@ for p in $parts; do
     *) echo "release-smoke: no part $p" >&2; exit 2 ;;
   esac
 done
-build="$(cat "$musl/build-commit" 2> /dev/null || echo unknown)"
-smoke report "$run" "$sha" "$bin; tb's static build ${build:0:12}" $write_floor
+smoke report "$run" "$sha" "candidate ${sha:0:12}, $("$bin/theseusd" --version 2>&1 | head -1); tb's static build ${build:0:12}" \
+  $write_floor

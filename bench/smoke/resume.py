@@ -14,10 +14,20 @@ before the restart, not after, because a job still running at the restart is
 adopted as background and its late result comes back as a message of its own,
 which the stand-in, matching a turn's last text, cannot follow.
 
+Each step also prints `done-k`, and the stand-in keeps every request it gets
+(`--dump`), so the driver checks that the job's own output, not "the outcome
+cannot be established", reached the model after each restart: the stand-in
+picks its next step by counting tool results and never reads them, so without
+this a resume that lost every result would pass. This covers the
+settled-while-down path of the resume; a job still running at the restart
+(adopted as background) is not covered here.
+
 The record (`--out`): `kills`, `resumed` (kills after which the task went on:
-the next step started, or after the last, the turn settled), `starts` and
+the next step started, or after the last, the turn ended), `starts` and
 `effects` (the lines on disk: a step run twice shows twice), `steps`,
-`settled`, `interrupted_rows` (the ledger's `execution.interrupted`), `wall_s`.
+`settled`, `seen` (the `done-k` the model saw), and from the scratch ledger
+`interrupted_rows`, `turn_ended`, `turn_failed`, `unknown_rows` and
+`succeeded_rows`; `wall_s`.
 
     python3 bench/smoke/resume.py --bin-dir DIR --sim PATH --work DIR --out FILE
 
@@ -29,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -55,7 +66,7 @@ def rules(work: Path) -> list[dict[str, Any]]:
     for k in range(1, STEPS + 1):
         gate = (f"n=0; while [ ! -e {work}/go-{k} ] && [ $n -lt {GATE_TICKS} ]; do sleep 0.05; n=$((n+1)); done; "
                 if k in KILLED else "")
-        script = f"echo {k} >> {work}/starts; {gate}echo {k} >> {work}/effects"
+        script = f"echo {k} >> {work}/starts; {gate}echo {k} >> {work}/effects; echo done-{k}"
         steps.append({"calls": [{"name": "proc_run", "input": {"argv": ["sh", "-c", script], "timeout_secs": 600}}]})
     steps.append({"text": "All six steps done."})
     return [{"when": PROMPT, "steps": steps}, {"when": "hello", "text": "Hello."}]
@@ -72,6 +83,15 @@ def config(work: Path, api_base: str) -> dict[str, Any]:
     t["tools"]["proc_sync_secs"] = 120
     t["judge"] = {"enabled": False}
     return t
+
+
+def seen(dump: Path) -> list[int]:
+    """The steps whose `done-k` reached the model, from the requests the stand-in kept."""
+    found: set[int] = set()
+    for f in dump.rglob("*"):
+        if f.is_file():
+            found.update(int(m) for m in re.findall(r"done-(\d)", f.read_text(errors="replace")))
+    return sorted(found)
 
 
 def lines(path: Path) -> list[int]:
@@ -137,7 +157,7 @@ class Scratch:
 def start_model(sim: Path, work: Path) -> tuple[subprocess.Popen, str]:
     (work / "rules.json").write_text(json.dumps(rules(work)))
     p = subprocess.Popen([str(sim), "fake-model", "--addr", "127.0.0.1:0", "--rules", str(work / "rules.json"),
-                          "--log", str(work / "fake-model.log")],
+                          "--log", str(work / "fake-model.log"), "--dump", str(work / "requests")],
                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
     first = p.stdout.readline().strip()
     if not first.startswith("fake model on "):
@@ -146,7 +166,20 @@ def start_model(sim: Path, work: Path) -> tuple[subprocess.Popen, str]:
     return p, first.removeprefix("fake model on ")
 
 
+def count(d: "Scratch", session: str, kind: str, producer: str | None = None) -> int | None:
+    """The session's ledger rows of `kind` (whose producer starts with `producer`, when named: a job's
+    wrapper is `wrapper:<pid>`, a model call `provider:<name>`); None when the ledger could not be read."""
+    r = d.cli("--json", "ledger", "-n", "1000", "-s", session, "-k", kind, timeout=30)
+    if r.returncode != 0:
+        return None
+    rows = json.loads(r.stdout).get("rows", [])
+    if producer:
+        rows = [x for x in rows if str((x.get("data") or {}).get("producer", "")).startswith(producer)]
+    return len(rows)
+
+
 def run(bin_dir: Path, sim: Path, work: Path) -> dict[str, Any]:
+    work = work.resolve()
     work.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     model, base = start_model(sim, work)
@@ -171,7 +204,10 @@ def run(bin_dir: Path, sim: Path, work: Path) -> dict[str, Any]:
             if not until(lambda: k in lines(effects)):
                 rec["notes"].append(f"step {k}'s job left no effect while the daemon was down")
             d.start()
-            went_on = (lambda: k + 1 in lines(starts)) if k < STEPS else (lambda: k in lines(effects))
+            if k < STEPS:
+                went_on = lambda: k + 1 in lines(starts)  # noqa: E731
+            else:
+                went_on = lambda: bool(count(d, session, "turn.ended"))  # noqa: E731
             if until(went_on):
                 rec["resumed"] += 1
             else:
@@ -181,8 +217,12 @@ def run(bin_dir: Path, sim: Path, work: Path) -> dict[str, Any]:
         rec["settled"] = w.returncode == 0
         # Let any late result land before counting what is on disk.
         time.sleep(3)
-        rows = d.cli("--json", "ledger", "-n", "200", "-k", "execution.interrupted", timeout=30)
-        rec["interrupted_rows"] = len(json.loads(rows.stdout).get("rows", [])) if rows.returncode == 0 else None
+        rec["interrupted_rows"] = count(d, session, "execution.interrupted")
+        rec["turn_ended"] = count(d, session, "turn.ended")
+        rec["turn_failed"] = count(d, session, "turn.failed")
+        rec["unknown_rows"] = count(d, session, "action.outcome_unknown")
+        rec["succeeded_rows"] = count(d, session, "action.succeeded", producer="wrapper:")
+        rec["seen"] = seen(work / "requests")
         rec["starts"], rec["effects"] = lines(starts), lines(effects)
     finally:
         for k in KILLED:
@@ -204,11 +244,16 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--work", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
+
+    def stop(signum, frame):  # a SIGTERM or SIGHUP runs the cleanup in `run`'s finally, as Ctrl-C does
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGHUP, stop)
     try:
         rec = run(a.bin_dir, a.sim, a.work)
-    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as e:
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired, KeyboardInterrupt) as e:
         rec = {"kills": 0, "resumed": 0, "steps": STEPS, "settled": False, "starts": [], "effects": [],
-               "notes": [f"the driver failed: {e}"], "wall_s": 0.0}
+               "seen": [], "notes": [f"the driver failed: {e!r}"], "wall_s": 0.0}
     a.out.write_text(json.dumps(rec, indent=1) + "\n")
     print(f"resume: {rec['kills']} kills, {rec['resumed']} resumed, effects {rec['effects']}"
           + (f"; {'; '.join(rec['notes'])}" if rec["notes"] else ""))

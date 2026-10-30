@@ -105,9 +105,13 @@ def read_trials(job_dir: Path) -> list[dict[str, Any]]:
         eff = json.loads(eff_path.read_text()) if eff_path.exists() else {}
         reward = ((r.get("verifier_result") or {}).get("rewards") or {}).get("reward")
         by_model = eff.get("by_model") or {}
-        model = price_basis.reprice(by_model, table)
-        jev = float(eff.get("cost_usd") or 0) - float(eff.get("model_cost_usd") or eff.get("cost_usd") or 0)
-        cost = None if model is None else round(model + max(jev, 0.0), 6)
+        # No record, or one with no model tokens, is "no price", never $0.00: free trials would lower the cost per
+        # solved task.
+        model = price_basis.reprice(by_model, table) if by_model else None
+        jev = (eff.get("jev") or {}).get("cost_usd")
+        if jev is None and eff.get("model_cost_usd") is not None:
+            jev = float(eff.get("cost_usd") or 0) - float(eff["model_cost_usd"])
+        cost = None if model is None else round(model + max(float(jev or 0), 0.0), 6)
         rows.append({
             "task": r.get("task_name") or res.parent.name.split("__")[0],
             "trial": res.parent.name,
@@ -264,8 +268,21 @@ def resume_part(r: dict[str, Any]) -> dict[str, Any]:
         extra = len(seen) - len(set(seen))
         if extra:
             problems.append(f"{extra} repeated {name} ({sorted(seen)})")
-    if r.get("interrupted_rows") is not None and r["interrupted_rows"] != kills:
-        problems.append(f"{r['interrupted_rows']} execution.interrupted rows for {kills} kills")
+    ledger = {k: r.get(k) for k in ("interrupted_rows", "turn_ended", "turn_failed", "unknown_rows", "succeeded_rows")}
+    if None in ledger.values():
+        problems.append("the scratch ledger was not read: " + ", ".join(k for k, v in ledger.items() if v is None))
+    else:
+        if ledger["interrupted_rows"] != kills:
+            problems.append(f"{ledger['interrupted_rows']} execution.interrupted rows for {kills} kills")
+        if not ledger["turn_ended"] or ledger["turn_failed"]:
+            problems.append(f"the turn ended {ledger['turn_ended']} times and failed {ledger['turn_failed']}")
+        if ledger["unknown_rows"]:
+            problems.append(f"{ledger['unknown_rows']} calls answered 'outcome unknown' after a restart")
+        if ledger["succeeded_rows"] != steps:
+            problems.append(f"{ledger['succeeded_rows']} proc runs succeeded for {steps} steps")
+    unseen = sorted(set(range(1, steps + 1)) - set(r.get("seen") or []))
+    if unseen:
+        problems.append(f"the model never saw the output of steps {unseen}")
     problems += r.get("notes") or []
     missing = sorted(set(range(1, steps + 1)) - set(r["effects"]))
     if missing:
@@ -276,8 +293,15 @@ def resume_part(r: dict[str, Any]) -> dict[str, Any]:
             "cost_usd": 0.0, "wall_s": r.get("wall_s") or 0.0, "record": r}
 
 
-def dm_part(replies: list[dict[str, Any]], alarms: int, cost_usd: float = 0.0) -> dict[str, Any]:
+def dm_part(replies: list[dict[str, Any]], alarms: int, cost_usd: float = 0.0, turns_ended: int | None = None,
+            unread: list[str] | None = None) -> dict[str, Any]:
+    """`turns_ended` (the session's `turn.ended` rows) is the positive count behind "no alarms": an alarm count
+    from a ledger that was not read, or read empty, is not a zero."""
     problems = []
+    if unread:
+        problems.append(f"the ledger of {', '.join(unread)} was not read")
+    if turns_ended is not None and turns_ended < len(replies):
+        problems.append(f"{turns_ended} turn.ended rows for {len(replies)} replies: the ledger read is short")
     if len(replies) != DM_TURNS:
         problems.append(f"{len(replies)} of {DM_TURNS} replies arrived")
     slow = [r["turn"] for r in replies if r["seconds"] > DM_REPLY_S]
@@ -320,7 +344,7 @@ def _fmt(v: Any) -> str:
 def report_md(parts: list[dict[str, Any]], run: dict[str, Any]) -> str:
     by = {p["part"]: p for p in parts}
     out = [f"# {verdict(parts)}", "",
-           f"Release smoke of `{run['sha']}` on {run['date']} (binary: {run['binary']}). Not reportable: a release "
+           f"Release smoke of `{run['sha']}` on {run['date']} ({run['binary']}). Not reportable: a release "
            "check against the floor in `bench/smoke/floor.json`.", "",
            "| part | result | number | floor | delta |", "|---|---|---|---|---|"]
     for n in PARTS:
@@ -348,19 +372,26 @@ def report_md(parts: list[dict[str, Any]], run: dict[str, Any]) -> str:
 
 def floor_from(parts: list[dict[str, Any]], sha: str, date: str, previous: dict | None = None) -> dict[str, Any]:
     """The floor after this run: each part's entry from this run when the part
-    passed, else the previous floor's (a failed reading is never a floor).
-    Nothing passed that a floor reads (tb, route): no floor at all."""
+    passed, else the previous floor's (a failed part's reading is never a floor),
+    and never higher than the previous one. Nothing passed that a floor reads
+    (tb, route): no floor at all."""
     f: dict[str, Any] = {k: v for k, v in (previous or {}).items() if k in ("tb", "route")}
     wrote = []
     for p in parts:
         if not p["ok"]:
             continue
+        # A reading within the slack but over the floor does not raise it: the floor only moves down, so +30% is
+        # never compounded release on release (a new price table re-bases dollars, by hand or by its digest).
         if p["part"] == "tb":
-            f["tb"] = {"cost_per_solved_usd": round(p["number"], 6), "wall_s": p["wall_s"],
+            old = f.get("tb") if (f.get("tb") or {}).get("price_digest") == p["price_digest"] else None
+            f["tb"] = {"cost_per_solved_usd": round(min(p["number"], old["cost_per_solved_usd"] if old else math.inf), 6),
+                       "wall_s": min(p["wall_s"], (f.get("tb") or {}).get("wall_s", math.inf)),
                        "price_digest": p["price_digest"], "sha": sha, "date": date}
             wrote.append("tb")
         elif p["part"] == "route":
-            f["route"] = {"wall_s": p["slowest_s"], "model_worst": p["number"], "sha": sha, "date": date}
+            old = f.get("route") or {}
+            f["route"] = {"wall_s": min(p["slowest_s"], old.get("wall_s", math.inf)),
+                          "model_worst": max(p["number"], old.get("model_worst", 0)), "sha": sha, "date": date}
             wrote.append("route")
     if not wrote:
         raise SmokeError("no part a floor reads passed, so no floor is written: " + verdict(parts))
@@ -405,7 +436,8 @@ def main(argv: list[str]) -> int:
         return _save(run_dir, resume_part(json.loads(Path(rest[0]).read_text())))
     if cmd == "dm":
         d = json.loads(Path(rest[0]).read_text())
-        return _save(run_dir, dm_part(d["replies"], int(d["alarms"]), float(d.get("cost_usd") or 0)))
+        return _save(run_dir, dm_part(d["replies"], int(d["alarms"]), float(d.get("cost_usd") or 0),
+                                      d.get("turns_ended", 0), d.get("ledger_unread")))
     if cmd == "report":
         sha, binary = rest[0], rest[1]
         parts = [json.loads((run_dir / "parts" / f"{n}.json").read_text())

@@ -15,8 +15,8 @@ scripts/release-smoke.sh --write-floor        # at a tag: the floor is each pass
 | `tb` | Terminal-Bench 2.0's slice (`tb-slice.toml`, plan `bench/plans/smoke-tb10.json`): 8 stable tasks and 2 controls, k=1 at HIGH, 4 at once, through `bench/harbor/run.py` on the candidate's static binaries | 10 trials ran; every stable task passed; both controls failed; dollars per solved task and the part's wall within +30% of the floor | about $1 |
 | `route` | `theseus judge replay --cases` over route.v10's 58 cases, three runs, on the live daemon | 3 runs answered; each 54 of 60 on the model (the two pin tests, W39 and W40, counted as met, as the design's 60 does) and every must; the slowest run within +30% of the floor | about $0.02 |
 | `recall` | `scripts/recall-tests.sh`, as the gate runs it, with the candidate's binaries for the driver tests | it ran tests (a "skipped" exit 0 is a FAIL) and they passed | $0 |
-| `resume` | `resume.py`: a scratch daemon on the stand-in model runs a six-step tool task and is SIGKILLed mid-tool at steps 2, 4 and 6 | 3 kills, 3 resumes, 3 `execution.interrupted` rows, each step's effect on disk exactly once, the turn settled | $0 |
-| `dm` | `dm.py`: five turns through the live daemon's CLI (a greeting, a quick fact, a tool call, a task start, the task's answer) | 5 replies, each within 60 s, with its footer and the reply it should have; no alarm rows in the session's or the task's ledger | cents |
+| `resume` | `resume.py`: a scratch daemon on the stand-in model runs a six-step tool task and is SIGKILLed mid-tool at steps 2, 4 and 6; each job finishes while the daemon is down | 3 kills, 3 resumes, 3 `execution.interrupted` rows, each step's effect on disk exactly once, every job's own output seen by the model after the restart, 6 jobs succeeded and no "outcome unknown", the turn ended | $0 |
+| `dm` | `dm.py`: five turns through the live daemon's CLI (a greeting, a quick fact, a tool call, a task start, the task's answer) | 5 replies, each within 60 s, with its footer and the reply it should have; a task really started and ended; the session's `turn.ended` rows read, and no alarm rows in its or the task's ledger | cents |
 
 Every PASS needs a positive count first (10 trials, 3 runs, tests found, 3 kills, 5 replies): an empty set meets
 every "no failures" bar, so it never counts as one.
@@ -27,14 +27,26 @@ tasks x 3) of 1.0.3 as shipped, and is not re-picked per release: `tb-slice.toml
 Theseus learned the task; either way the slice is read again before the release is called.
 
 **The floor** (`floor.json`) is written only by `--write-floor`, and only from parts that passed: a part that failed
-keeps the previous floor's entry, so a bad reading never becomes the bar. Dollars are compared only on one price
-table (`bench/harbor/price_basis.py`); a floor on another is said, not compared.
+keeps the previous floor's entry. A passing reading never raises the floor either (cost, wall: the lower; route's
+worst model score: the higher), so the +30% slack is never compounded release on release. Dollars are compared only
+on one price table (`bench/harbor/price_basis.py`); a floor on another is said, not compared, and the next floor
+re-bases them.
+
+**The candidate** is named by its commit: `SMOKE_SHA`, else the install directory's name
+(`/usr/local/lib/theseus/<sha>`). The tb part fails when the static build it uploads (`bench/bin/build-commit`) has
+other Rust sources than the candidate's.
 
 **Route on a live pack.** `judge replay --cases` refuses a pack the build dispatches ("… is wired"), so once a
 release makes route.v10 live, the route part fails with that refusal until the replay can take a live pack.
 
 **The DM part drives the CLI, not Discord**: the test channel needs the owner's own hand. The task it starts posts
-as any task does; the locked DM task flow is observed, never changed.
+as any task does; the locked DM task flow is observed, never changed. On the live daemon each run leaves two
+sessions (the conversation and its task's), the task's report wherever a CLI task reports, and three `judge.replay`
+rows from the route part.
+
+**Resume covers one path**: each job finishes while the daemon is down, so the restart reads its settled result. A
+job still running at the restart is adopted as background and its result comes back later as a message of its own,
+which the stand-in model (matching a turn's last text) cannot follow; that path is the daemon's tests' alone.
 
 The keys the tb part needs (`ANTHROPIC_API_KEY`, `TYPESAFE_API_KEY`) come from the environment, reach only Harbor's
 process, and are never written. Each run writes `runs/<date>-<sha8>/`, of which only `report.md` is committed: the
