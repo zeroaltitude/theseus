@@ -35,11 +35,11 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::builders::{Prepared, INBOUND_VERSION};
+use crate::builders::Prepared;
 use crate::client::Answer;
 use crate::judge::{Ask, Judgment, Mode};
-use crate::pack::{Dynamic, Pack};
-use crate::state::{Keep, NoScrub, Scrub, StateBuilder};
+use crate::pack::Pack;
+use crate::state::{NoScrub, Scrub};
 
 /// The test set, as the pack's directory holds it.
 pub const V10: &str = include_str!("../packs/route.v10.cases.toml");
@@ -290,31 +290,40 @@ impl CaseSet {
     }
 }
 
-/// The state Jev reads for a case: the message, who sent it and where, and
-/// the design's fields. `task_models` is left out when the task has none.
-pub fn state(case: &Case, cap: u64, scrub: &dyn Scrub) -> crate::state::BuiltState {
+/// A case's input as the daemon builds one: the message and the facts, through
+/// `builders::route_input`, so a replay's state and the daemon's are one
+/// definition (`builders::ROUTE_STATE_KEYS`, held by `tests_route_state`).
+pub fn input(case: &Case) -> crate::builders::InboundInput {
+    use crate::builders::{PricePeriod, RestrictedModels, RouteFacts};
     let s = &case.state;
-    let mut b = StateBuilder::new("inbound", INBOUND_VERSION, cap, scrub);
-    b.text("message", 10, cap * 30 / 100, Keep::Both, &case.message)
-        .scalar("author", "operator")
-        .scalar("place_kind", s.place_kind.as_str())
-        .scalar("price_period", s.price_period.as_str())
-        .scalar("restricted_models", s.restricted_models.as_str())
-        .scalar("est_tokens", s.est_tokens)
-        .scalar("last_reply_model", s.last_reply_model.as_str());
-    if !s.task_models.is_empty() {
-        b.scalar("task_models", json!(s.task_models));
-    }
-    b.build()
+    crate::builders::route_input(
+        &case.message,
+        &s.place_kind,
+        RouteFacts {
+            price_period: match s.price_period.as_str() {
+                "peak" => PricePeriod::Peak,
+                _ => PricePeriod::OffPeak,
+            },
+            restricted_models: RestrictedModels::allowed_if(s.restricted_models == "allowed"),
+            last_reply_model: Some(s.last_reply_model.clone()).filter(|m| !m.is_empty()),
+            task_models: s.task_models.clone(),
+            est_tokens: Some(s.est_tokens),
+        },
+    )
 }
 
-/// A case's state and its (empty) dynamic items: `persona` and `seal` are
-/// asked of nothing here, as of a message with one persona and no thread.
+/// The state Jev reads for a case: `builders::inbound` over [`input`], never a
+/// state built beside it.
+pub fn state(case: &Case, cap: u64, scrub: &dyn Scrub) -> crate::state::BuiltState {
+    let built = crate::builders::inbound(&input(case), cap, scrub).state;
+    Arc::try_unwrap(built).unwrap_or_else(|a| (*a).clone())
+}
+
+/// A case's state and its dynamic items, from the daemon's own builder:
+/// `persona` and `seal` are asked of nothing here, as of a message with one
+/// persona and no thread.
 pub fn prepared(pack: &Pack, case: &Case) -> Prepared {
-    Prepared {
-        state: Arc::new(state(case, pack.state_cap_tokens, &NoScrub)),
-        dynamic: Dynamic::default(),
-    }
+    crate::builders::inbound(&input(case), pack.state_cap_tokens, &NoScrub)
 }
 
 /// A case's ask: the pack's questions over its state, in shadow, with

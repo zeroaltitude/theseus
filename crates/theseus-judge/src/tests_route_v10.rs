@@ -445,3 +445,28 @@ fn the_bar_counts_the_two_pin_tests_as_met_and_needs_every_must_case() {
     // A file that is not the 58 has no bar to meet.
     assert_eq!(totals(&all[..10]).bar, None);
 }
+
+/// Finding B (theseus-h66v4 row 3): every case's state has exactly the fields
+/// the daemon's state has (`ROUTE_STATE_KEYS`, which `tests_route_state` holds
+/// the builder to), and a task's cases add `task_models` and nothing else.
+#[test]
+fn every_cases_state_is_the_daemons_shape() {
+    let pack = pack();
+    let set = CaseSet::parse(crate::route_cases::V10, &pack).unwrap();
+    assert!(!set.cases.is_empty());
+    for c in &set.cases {
+        let v = crate::route_cases::state(c, pack.state_cap_tokens, &crate::state::NoScrub).value();
+        let mut keys: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        let mut want: Vec<String> = crate::builders::ROUTE_STATE_KEYS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        if !c.state.task_models.is_empty() {
+            want.push("task_models".into());
+        }
+        want.sort();
+        assert_eq!(keys, want, "{}", c.id);
+        assert_eq!(v["est_tokens"], c.state.est_tokens, "{}", c.id);
+    }
+}
