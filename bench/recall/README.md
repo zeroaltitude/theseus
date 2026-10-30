@@ -252,7 +252,11 @@ probes of the 10-26 seeds, `date` recall 0.367; theseus-kyrgn). So the driver pi
 libfaketime is preloaded into every process an arm starts and reads `@YYYY-MM-DD 08:00:00` from a file the driver
 rewrites at each session (`progression.clock_plan`: the dates the progression already carries, so no digest moves), and
 the driver reads the date back from a fresh process and stops the run before a turn if the machine disagrees
-(`ClockDrift`). `pin` requires the library (`--faketime-lib`, `$LIBFAKETIME_LIB`, or the distribution's); `auto` pins when
+(`ClockDrift`). The library has to be the thread-safe `libfaketimeMT.so.1`: one of the arms is `theseusd`, and the plain
+`libfaketime.so.1`'s unsynchronized static state froze a daemon's own clock to 0.392 faked seconds across 262 real
+seconds, so no deadline it held ever arrived and the driver's real-time bounds expired instead (theseus-h1z44). A machine
+carrying only the plain build counts as carrying none, and the run says which and why. `pin` requires the library
+(`--faketime-lib`, `$LIBFAKETIME_LIB`, or the distribution's thread-safe build); `auto` pins when
 it is found and otherwise runs unpinned, recorded in `run.json`'s `clock`, and the scorer then sets that run's date
 probes aside as `clock_conflict` (counted, scored nowhere); `score.py --rescore-clock <scores.json>` applies the same
 rule to a saved run ($0). The clock ticks from the pin, so a run past 15 hours is refused rather than roll past midnight.

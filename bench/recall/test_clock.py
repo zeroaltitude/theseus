@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -173,6 +174,49 @@ class Modes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             c = clock.Clock(smoke(), mode="auto", lib="/x/lib.so", workdir=Path(t), runner=obedient)
         self.assertTrue(c.meta["pinned"])
+
+
+class WhichLibrary(unittest.TestCase):
+    """One of the arms is `theseusd`, so only the pthreads build may be preloaded (theseus-h1z44):
+    the plain build's unsynchronized static state froze a daemon's clock to 0.392 faked seconds
+    across 262 real seconds, and the phase then died on the driver's real-time bounds minutes later,
+    with nothing in the daemon's own log to say why."""
+
+    def dirs(self, *names: str) -> Path:
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        for n in names:
+            (d / n).write_text("")
+        old = clock.LIB_DIRS
+        clock.LIB_DIRS = (str(d),)
+        self.addCleanup(setattr, clock, "LIB_DIRS", old)
+        had = os.environ.pop(clock.LIB_ENV, None)
+        if had is not None:
+            self.addCleanup(os.environ.__setitem__, clock.LIB_ENV, had)
+        return d
+
+    def test_the_thread_safe_build_is_the_one_found(self):
+        d = self.dirs(clock.PLAIN_LIB, clock.MT_LIB)
+        self.assertEqual(clock.find_lib(), str(d / clock.MT_LIB))
+
+    def test_a_machine_with_only_the_plain_build_has_none(self):
+        d = self.dirs(clock.PLAIN_LIB)
+        self.assertIsNone(clock.find_lib(), "the build that freezes a daemon's clock is never chosen")
+        self.assertEqual(clock.plain_lib(), str(d / clock.PLAIN_LIB))
+        self.assertIn(clock.MT_LIB, clock.no_lib_reason())
+
+    def test_a_machine_with_neither_says_so_plainly(self):
+        self.dirs()
+        self.assertIsNone(clock.find_lib())
+        self.assertIsNone(clock.plain_lib())
+        self.assertIn("no libfaketime found", clock.no_lib_reason())
+
+    def test_pin_on_a_machine_with_only_the_plain_build_refuses_and_names_the_repair(self):
+        self.dirs(clock.PLAIN_LIB)
+        with tempfile.TemporaryDirectory() as t:
+            with self.assertRaises(SystemExit) as cm:
+                clock.Clock(smoke(), mode="pin", lib=clock.find_lib(), workdir=Path(t))
+        self.assertIn(clock.MT_LIB, str(cm.exception))
 
 
 class Live(unittest.TestCase):
