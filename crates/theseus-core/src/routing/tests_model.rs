@@ -35,12 +35,12 @@ fn five_options() -> Profiles {
     .collect()
 }
 
-fn pick(choice: &str, confidence: f64, sure: bool) -> Pick {
-    Pick {
+fn pick(choice: &str, confidence: f64, sure: bool) -> Box<Pick> {
+    Box::new(Pick {
         choice: choice.into(),
         confidence,
         sure,
-    }
+    })
 }
 
 /// route.v10's verdict: a sure `model` answer at 0.95, a sure `context` answer.
@@ -59,9 +59,10 @@ fn ask<'a>(v: &'a Verdict, base: &'a str, est: u64) -> Ask<'a> {
 }
 
 fn cfg() -> RoutingConfig {
-    let mut c = RoutingConfig::default();
-    c.cold_switch_tokens = COLD;
-    c
+    RoutingConfig {
+        cold_switch_tokens: COLD,
+        ..RoutingConfig::default()
+    }
 }
 
 fn d(v: &Verdict, base: &str, est: u64) -> Decision {

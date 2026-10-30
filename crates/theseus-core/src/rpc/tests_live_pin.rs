@@ -83,6 +83,7 @@ async fn profile_use_is_a_pin_when_route_v10_acts() {
     );
     assert_eq!(res.route.as_ref().unwrap().reason, "pinned");
     assert_eq!(o.r.claude.requests()[0].model, "claude-haiku-5-5");
+    crate::tests_route::until_calls(&jev, 2).await;
     let asked: Vec<String> = jev
         .seen()
         .iter()

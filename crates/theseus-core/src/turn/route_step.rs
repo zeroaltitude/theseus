@@ -373,6 +373,9 @@ impl TurnRunner {
     /// routing then picks the next usable one (theseus-oejh3, theseus-xs5ah).
     pub(super) fn route_profiles(&self, floor: super::data_step::Floor) -> routing::Profiles {
         let states = self.secrets.states();
+        // route.v10 only: a provider whose key names no item (the template's
+        // placeholder) has no key, so a pick on it falls back at pick time.
+        let open = self.judge.route_open();
         self.cfg
             .all_profiles()
             .iter()
@@ -390,7 +393,8 @@ impl TurnRunner {
                         states.get(&k),
                         None | Some(crate::secrets::SecretState::Ready(_))
                     )
-                }) {
+                }) || (open && self.cfg.provider_without_key(&p.provider).is_some())
+                {
                     Some("key")
                 } else if entry.is_none() {
                     Some("unpriced")
@@ -521,6 +525,18 @@ impl TurnRunner {
             floor: own.filter(|_| name != Self::effort_base(at.session, t)),
         };
         let carried = v.turn != t.tc.turn_id;
+        if v.open() {
+            // route.v10: Jev's level, or the model's own default; no bounds,
+            // gate or floor. The sticky rule below is a cache rule and stays.
+            let entry = self.catalog.get(model);
+            let open = effort::OpenRuns {
+                own,
+                default: entry.and_then(|e| e.default_effort),
+                takes: runs.takes,
+            };
+            let decided = effort::decide_open(open, answer, at.acts, carried);
+            return Some(self.stick(t, spec, decided, answer, (model, tokens), at.checkpoint));
+        }
         let r = &self.cfg.routing;
         let bounds = r.effort_bounds;
         let bars = effort::Bars {
@@ -640,7 +656,8 @@ impl TurnRunner {
         };
         Self::hold_next(session, &d.hold);
         if d.profile == base {
-            return self.keep_first(t, session, compiled, spec, i);
+            let said = (verdict.as_ref(), steering.as_ref());
+            return self.on_base(t, session, (spec, compiled), (d.detour, said), i);
         }
         let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
             Ok(tg) => tg.speaking_as(t.target),
@@ -663,6 +680,26 @@ impl TurnRunner {
             return self.compile_detour(t, session, spec, i);
         }
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
+    }
+
+    /// The turn stays on the session's own profile: the first compile is the
+    /// call's, or, for a `short` context, only the compile differs: the first
+    /// goes and the detour's runs on the target, spec and session record as
+    /// they are.
+    fn on_base(
+        &self,
+        t: &mut Turn<'_>,
+        session: &mut SessionRecord,
+        (spec, compiled): (&RequestSpec, Compiled),
+        (detour, (verdict, steering)): (bool, (Option<&Verdict>, Option<&Steering>)),
+        i: u32,
+    ) -> Result<Result<Compiled, Failure>> {
+        if !detour {
+            return self.keep_first(t, session, compiled, spec, i);
+        }
+        self.drop_first(t, &compiled);
+        Self::detouring(t, verdict, steering);
+        self.compile_detour(t, session, spec, i)
     }
 
     /// The decision's hold on the session's routed record, which goes once it
@@ -713,7 +750,10 @@ impl TurnRunner {
         t.route.keeps = Some(TargetRef::from(t.target));
         t.route.detour_kind = detour_word(steering.map(|s| &s.steer), verdict);
         t.route.detour_recall = steering.is_none()
-            && verdict.is_some_and(|v| crate::config::routing::detour_recalls(&v.mode));
+            && verdict.is_some_and(|v| {
+                // route.v10's `short` is today's `quick` compile: the recall rides.
+                v.open() || crate::config::routing::detour_recalls(&v.mode)
+            });
     }
 
     /// The verdict the turn reads, or why it has none: its own, else a late
@@ -840,7 +880,11 @@ impl TurnRunner {
             return self.decide_brief(t, v);
         }
         let profiles = self.route_profiles(t.route.floor());
-        let cap = Self::place_cap(t, &profiles);
+        // route.v10 has no place cap: the place's profile is a pin or nothing.
+        let cap = match v.open() {
+            true => None,
+            false => Self::place_cap(t, &profiles),
+        };
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
         // Jev's own move up from the base is what a step back down undoes.
         let from = session
@@ -911,8 +955,9 @@ impl TurnRunner {
         let cn = t.route.cn.word();
         let ran = self.ran_of(&profile);
         let origin = ran.origin;
+        let open = self.open_row(t, verdict, reason, decision);
         t.record(&fact::route::RouteDecided {
-            mode: verdict.map(|v| v.mode.as_str()),
+            mode: verdict.map(|v| v.mode.as_str()).filter(|m| !m.is_empty()),
             confidence: verdict.map(|v| v.confidence),
             judgment: verdict.map(|v| v.judgment.as_str()),
             from: &base,
@@ -944,11 +989,12 @@ impl TurnRunner {
                 gate,
                 draft_skip: t.route.draft_skip,
             }),
+            open,
         });
         let prior = t.route.result.take();
         let persona_shown = prior.and_then(|r| r.persona);
         t.route.result = Some(TurnRoute {
-            mode: verdict.map(|v| v.mode.clone()),
+            mode: verdict.map(|v| v.mode.clone()).filter(|m| !m.is_empty()),
             reason: reason.as_str().into(),
             from: base,
             source: source.map(str::to_string),
@@ -962,6 +1008,73 @@ impl TurnRunner {
                 origin: origin.into(),
             }),
         });
+    }
+
+    /// route.v10's part of the row: the acting pack, Jev's pick and the first
+    /// sentences of the block it picked, its context, and the words that qualify
+    /// the reason, so `theseus why` can name it honestly in every case.
+    fn open_row(
+        &self,
+        t: &Turn<'_>,
+        verdict: Option<&Verdict>,
+        reason: Reason,
+        d: Option<&Decision>,
+    ) -> Option<fact::route::RouteOpen> {
+        if !self.judge.route_open() {
+            return None;
+        }
+        let pack = self.judge.pack(ROUTE_PACK)?;
+        let v = verdict.filter(|v| v.open());
+        let m = v.and_then(|v| v.model.as_ref());
+        let block = m.and_then(|m| {
+            let q = pack.questions.iter().find(|q| q.id == "model")?;
+            let o = q.options.iter().find(|o| o.id == m.choice)?;
+            o.means.as_deref().map(routing::model::block_why)
+        });
+        let detail = match reason {
+            Reason::Pinned => t.target.chosen.as_deref().map(routing::pin_words),
+            Reason::DataGate => Some("restricted_models=not_allowed".to_string()),
+            Reason::Fallback => m.map(|m| self.fallback_words(t, &m.choice)),
+            Reason::CacheHold => d.and_then(|d| match &d.hold {
+                HoldNext::Set(h) => Some(format!("waits one agreeing turn for {}", h.mode)),
+                _ => None,
+            }),
+            _ => None,
+        };
+        let c = v.and_then(|v| v.context.as_ref());
+        Some(fact::route::RouteOpen {
+            pack: pack.name(),
+            pick: m.map(|m| m.choice.clone()),
+            pick_confidence: m.map(|m| m.confidence),
+            block,
+            context: c.map(|c| c.choice.clone()),
+            context_confidence: c.map(|c| c.confidence),
+            detail,
+        })
+    }
+
+    /// Why a pick could not run, in the words `theseus why` prints: no model
+    /// for the option, no profile that runs it, its provider without a key
+    /// (the whole message is `deepseek: no key`, never a reference), or a model
+    /// that cannot read the turn's images.
+    fn fallback_words(&self, t: &Turn<'_>, pick: &str) -> String {
+        let Some(model) = routing::model::model_of(pick) else {
+            return format!("no model is named {pick}");
+        };
+        let profiles = self.route_profiles(t.route.floor());
+        let Some(name) = routing::model::profile_for(pick, &profiles) else {
+            return format!("no profile runs {model}");
+        };
+        let p = &profiles[name];
+        match p.unusable {
+            Some("key" | "provider") => self
+                .cfg
+                .provider_without_key(&p.provider)
+                .unwrap_or_else(|| format!("{}: no key", p.provider)),
+            Some("unpriced") => format!("{model} is not priced"),
+            _ if t.route.images && !p.vision => format!("{model} cannot read the images"),
+            _ => format!("{name} cannot run it"),
+        }
     }
 
     /// Where the session's record says it runs: its own target through a
@@ -1178,7 +1291,10 @@ fn detour_word(steer: Option<&Steer>, verdict: Option<&Verdict>) -> String {
     match steer {
         Some(Steer::Mode(m)) => m.clone(),
         Some(_) => "steered".into(),
-        None => verdict.map_or_else(String::new, |v| v.mode.clone()),
+        None => verdict.map_or_else(String::new, |v| match v.open() {
+            true => routing::model::SHORT.to_string(),
+            false => v.mode.clone(),
+        }),
     }
 }
 

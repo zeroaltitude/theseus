@@ -197,9 +197,9 @@ pub struct Verdict {
     /// route.v10's `model` answer (theseus-h66v4): the option Jev chose, and
     /// whether its band reached the question's `confirm` bar. A verdict that
     /// carries one is decided by [`model::decide`], never by the class walk.
-    pub model: Option<Pick>,
+    pub model: Option<Box<Pick>>,
     /// route.v10's `context` answer: `short` or `full`.
-    pub context: Option<Pick>,
+    pub context: Option<Box<Pick>>,
 }
 
 /// One of route.v10's choice answers (`model`, `context`).
@@ -265,6 +265,26 @@ pub fn chosen(p: &theseus_protocol::TurnSubmitParams) -> Option<String> {
             .join(", "),
         ),
     }
+}
+
+/// What `theseus profile use` pins, as [`chosen`]'s words say it
+/// (`live profile haiku`): a pin of the live profile, not of a turn's own.
+pub const LIVE_PIN: &str = "live profile ";
+
+/// A pin as `theseus why` words it: `-P fable`, `-p zai`, `-m glm-5.3`,
+/// `profile use haiku`, from [`chosen`]'s own words.
+pub fn pin_words(chosen: &str) -> String {
+    chosen
+        .split(", ")
+        .map(|part| match part.split_once(' ') {
+            _ if part.starts_with(LIVE_PIN) => format!("profile use {}", &part[LIVE_PIN.len()..]),
+            Some(("profile", x)) => format!("-P {x}"),
+            Some(("provider", x)) => format!("-p {x}"),
+            Some(("model", x)) => format!("-m {x}"),
+            _ => part.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// A short turn's cost at a catalog row's prices, in dollars.

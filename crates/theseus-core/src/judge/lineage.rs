@@ -243,6 +243,14 @@ impl super::JudgeService {
             .or_else(|| self.lineage.get(&self.store, name).map(|l| l.pack))
     }
 
+    /// route.v10 acts: the acting route pack asks the `model` question, so
+    /// Jev chooses the model (theseus-h66v4). While `ROUTE_PACK` names an
+    /// earlier pack, false, and every decision is the class walk's.
+    pub fn route_open(&self) -> bool {
+        self.pack(super::inbound::ROUTE_PACK)
+            .is_some_and(|p| super::route_facts::asks_model(&p))
+    }
+
     /// A test's `pack` asked in `name`'s place, from the next ask on.
     #[cfg(test)]
     pub(crate) fn stand_in(&self, name: &str, pack: Pack) {

@@ -230,6 +230,23 @@ fn ran(i: &WhyInput) -> Vec<String> {
     };
     let s = |k: &str| r.get(k).and_then(Value::as_str);
     let reason = s("reason").unwrap_or("unknown");
+    if s("pack").is_some() {
+        out.push(open_routing(r));
+        if let Some(e) = s("effort") {
+            let how = s("effort_reason").unwrap_or("recorded");
+            let applied = match r.get("effort_ran").and_then(Value::as_str) {
+                Some(ran) if r["effort_applied"] == true => {
+                    format!(", the request carried {ran}")
+                }
+                _ => String::new(),
+            };
+            out.push(format!("effort: Jev said {e} ({how}){applied}"));
+        }
+        if let Some(i) = r.get("injection") {
+            out.push(injection_words(i));
+        }
+        return out;
+    }
     let mut why = match (s("source"), s("mode")) {
         (Some(src), Some(m)) => format!("task class {m}, placed by {src}"),
         (Some(src), None) => format!("placed by {src}"),
@@ -256,6 +273,43 @@ fn ran(i: &WhyInput) -> Vec<String> {
         out.push(injection_words(i));
     }
     out
+}
+
+/// The route line when route.v10 acted (theseus-h66v4): the model that ran, who
+/// chose it and the first sentences of the block it chose, the effort and
+/// context Jev named, and the reason, in every case, with what qualifies it
+/// (`restricted_models=not_allowed`, `-P fable`, `deepseek: no key`).
+///
+/// `routing: model=claude-opus-5-5 (jev 0.91: "Opus 5.5 (Anthropic, US). … For
+/// reviewing code, a plan or an argument for mistakes") effort=medium (0.84)
+/// context=full reason=verdict pack=route.v10`
+fn open_routing(r: &Value) -> String {
+    let s = |k: &str| r.get(k).and_then(Value::as_str);
+    let f = |k: &str| r.get(k).and_then(Value::as_f64);
+    let reason = s("reason").unwrap_or("unknown");
+    let ran = s("model").or(s("profile")).unwrap_or("?");
+    let mut line = format!("routing: model={ran}");
+    if let (Some(pick), Some(c)) = (s("pick"), f("pick_confidence")) {
+        match (reason, s("block")) {
+            ("verdict", Some(block)) => {
+                line.push_str(&format!(" (jev {c:.2}: \"{block}\")"));
+            }
+            ("verdict", None) => line.push_str(&format!(" (jev {c:.2})")),
+            _ => line.push_str(&format!(" (jev picked {pick} {c:.2})")),
+        }
+    }
+    if let (Some(e), Some(c)) = (s("effort"), f("effort_confidence")) {
+        line.push_str(&format!(" effort={e} ({c:.2})"));
+    }
+    if let Some(c) = s("context") {
+        line.push_str(&format!(" context={c}"));
+    }
+    line.push_str(&format!(" reason={reason}"));
+    if let Some(d) = s("detail") {
+        line.push_str(&format!(" ({d})"));
+    }
+    line.push_str(&format!(" pack={}", s("pack").unwrap_or("?")));
+    line
 }
 
 /// What the turn's tier gave it (theseus-d9je7): `injection: deep: recall 8,000
@@ -321,6 +375,8 @@ fn reason_words(r: &str) -> &str {
         "unreachable" => "the router could not be reached",
         "no_verdict" => "no verdict was read",
         "pinned" => "the profile is pinned",
+        "data_gate" => "the data rule kept it off a model of restricted origin",
+        "correction" => "the owner's correction placed it",
         "shadow" => "routing only watched",
         other => other,
     }

@@ -358,12 +358,13 @@ async fn a_short_pick_answers_from_the_last_exchange_and_leaves_the_session_alon
     );
 }
 
-/// A `short` pick on the session's own model is still the short compile.
+/// A `short` pick on the session's own model is still the short compile: only
+/// the last exchanges answer it, not the whole conversation.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_short_pick_on_the_sessions_own_model_is_still_the_short_compile() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "sonnet", "default", "full", 0.95);
-    let o = open(&jev, 3, |_| {});
+    let o = open(&jev, 6, |_| {});
     let first = turn(
         &o.r.core,
         None,
@@ -372,18 +373,27 @@ async fn a_short_pick_on_the_sessions_own_model_is_still_the_short_compile() {
     )
     .await;
     let sid = first.session_id.clone();
-    turn(&o.r.core, Some(&sid), "And where is it written?", None).await;
+    for ask in ["And where is it written?", "Who reads it?", "When?", "Why?"] {
+        turn(&o.r.core, Some(&sid), ask, None).await;
+    }
+    let before = session(&o.r.core, &sid);
     says(&jev, "sonnet", "default", "short", 0.95);
-    turn(&o.r.core, Some(&sid), "ok", None).await;
+    let res = turn(&o.r.core, Some(&sid), "ok", None).await;
+    assert_eq!(res.profile, "sonnet");
     let reqs = o.r.claude.requests();
-    assert_eq!(reqs[2].model, "claude-sonnet-5-5");
-    assert_eq!(
-        reqs[2].messages.len(),
-        3,
-        "the last exchange and the message: {:?}",
-        reqs[2].messages.len()
+    let (full, short) = (&reqs[4], &reqs[5]);
+    assert_eq!(short.model, "claude-sonnet-5-5");
+    assert!(
+        short.messages.len() < full.messages.len(),
+        "short {} against the whole conversation's {}",
+        short.messages.len(),
+        full.messages.len()
     );
-    assert!(reqs[2].messages.len() < reqs[1].messages.len());
+    let after = session(&o.r.core, &sid);
+    assert_eq!(after.compilation_id, before.compilation_id);
+    assert!(decided(&o.r.core.store).pop().unwrap()["detour"]
+        .as_bool()
+        .unwrap());
 }
 
 /// The cache hold, kept: a full pick over the cold line waits one agreeing
@@ -463,6 +473,7 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     .await;
     assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-1");
     assert_eq!(res.route.unwrap().reason, "pinned");
+    crate::tests_route::until_calls(&jev, 2).await;
     let asked = asked(&jev);
     assert!(
         asked.contains(&"route.v8/context".to_string()),

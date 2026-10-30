@@ -326,15 +326,42 @@ pub struct OpenRuns {
 /// what the request carries, whatever the level and wherever the model sits;
 /// `default`, or an answer under the bar, is the model's own default effort.
 pub fn decide_open(
-    _runs: OpenRuns,
-    _answer: &EffortAnswer,
-    _acts: bool,
-    _carried: bool,
+    runs: OpenRuns,
+    answer: &EffortAnswer,
+    acts: bool,
+    carried: bool,
 ) -> EffortDecision {
-    EffortDecision {
-        reason: EffortReason::Recorded,
-        ran: None,
+    let own = runs.takes.then_some(runs.own).flatten();
+    let stand = |reason| EffortDecision {
+        reason,
+        ran: own,
         sent: None,
+    };
+    if !acts {
+        return stand(EffortReason::Recorded);
+    }
+    if carried {
+        return stand(EffortReason::Carried);
+    }
+    if !runs.takes {
+        return EffortDecision {
+            reason: EffortReason::NoEffort,
+            ran: None,
+            sent: None,
+        };
+    }
+    match parse(&answer.level).filter(|_| answer.sure) {
+        Some(level) => EffortDecision {
+            reason: EffortReason::Applied,
+            ran: Some(level),
+            sent: None,
+        },
+        // `default`, or an answer under its bar: the model's own.
+        None => EffortDecision {
+            reason: EffortReason::ModelDefault,
+            ran: runs.default,
+            sent: None,
+        },
     }
 }
 

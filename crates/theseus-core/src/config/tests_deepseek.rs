@@ -80,7 +80,16 @@ fn a_provider_without_a_key_reads_as_no_key_and_nothing_fails() {
     // The catalog still names the provider of the model a pick would ask for.
     let c = Catalog::builtin();
     assert_eq!(c.get("deepseek-flash").unwrap().provider, "deepseek");
-    // Providers with keys are not keyless.
+    // Providers whose keys name a reference are not keyless; the template's
+    // placeholders are no key for any of them.
+    assert_eq!(
+        cfg.provider_without_key("anthropic").as_deref(),
+        Some("anthropic: no key")
+    );
+    for k in ["anthropic_api_key", "zai_api_key"] {
+        cfg.secrets
+            .insert(k.into(), "op://vault/item/notesPlain".into());
+    }
     assert_eq!(cfg.provider_without_key("anthropic"), None);
     assert_eq!(cfg.provider_without_key("zai"), None);
 }

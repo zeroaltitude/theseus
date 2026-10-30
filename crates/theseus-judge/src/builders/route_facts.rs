@@ -132,6 +132,9 @@ pub(super) fn state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
     };
     b.scalar("price_period", f.price_period.as_str());
     b.scalar("restricted_models", f.restricted_models.as_str());
+    if let Some(n) = f.est_tokens {
+        b.scalar("est_tokens", n);
+    }
     if let Some(m) = &f.last_reply_model {
         b.scalar("last_reply_model", c.clip(m, MODEL_CHARS))
             .cut_if("last_reply_model", c.cut());

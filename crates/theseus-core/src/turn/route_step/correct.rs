@@ -413,11 +413,16 @@ impl TurnRunner {
             }
         }
         let profiles = self.route_profiles(t.route.floor());
-        let cap =
-            t.tc.ceiling
-                .and_then(|c| c.profile.as_ref())
-                .and_then(|p| profiles.get(p))
-                .and_then(|p| p.short_cost);
+        // route.v10 has no place cap: the owner's word is not capped (design §1.4 step 2).
+        let cap = match self.judge.route_open() {
+            true => None,
+            false => {
+                t.tc.ceiling
+                    .and_then(|c| c.profile.as_ref())
+                    .and_then(|p| profiles.get(p))
+                    .and_then(|p| p.short_cost)
+            }
+        };
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
         let at_once = s.by == By::Owner;
         let v = Verdict {

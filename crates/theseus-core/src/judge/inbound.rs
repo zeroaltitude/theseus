@@ -703,7 +703,9 @@ impl JudgeService {
                 (true, _) => Mode::Shadow,
                 (false, _) => laddered,
             };
+            let pinned = pack.name() == ROUTE_PACK && msg.chosen.is_some();
             let mut ask = Ask::new(pack, &state, jmode, context);
+            unasked_when_pinned(&mut ask, pinned);
             ask.id = Some(id);
             asks.push(ask);
         }
@@ -885,10 +887,23 @@ struct Ready {
     beside: super::Beside,
 }
 
+/// The operator named the model, and with it the effort, so route.v10 does not
+/// ask Jev either (theseus-h66v4, design §1.4 step 1); `context`, `persona`,
+/// `seal` and `personal` still ask. A pack that asks no `model` is untouched.
+fn unasked_when_pinned(ask: &mut Ask, pinned: bool) {
+    if pinned && super::route_facts::asks_model(&ask.pack) {
+        ask.asked
+            .retain(|a| !matches!(a.def.as_str(), "model" | "effort"));
+    }
+}
+
 /// The route pack's verdict from its judgment: its `mode` answer, when it
 /// was answered by the model the pack pins, and route.v3's `reply_effort`
 /// answer beside it, sure when its band reached the question's confirm bar
-/// (theseus-qe3v).
+/// (theseus-qe3v). route.v10 answers `model`, `effort` and `context` instead
+/// of `mode` and `reply_effort` (theseus-h66v4): the verdict then carries those
+/// answers, the pick standing as its `mode` word, and a pinned turn (not asked
+/// the model or the effort) carries its `context` alone.
 ///
 /// The pack's `data` question is not read: whether a session may use a model
 /// of restricted origin is decided by the labels on it (`crate::content`),
@@ -907,11 +922,33 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
             _ => None,
         }
     };
-    let (mode, confidence, _) = choice("mode")?;
-    let effort = choice(QUESTION).map(|(level, confidence, band)| EffortAnswer {
+    let sure = |band| band != theseus_judge::band::Band::Escalate;
+    let pick = |q: &str| {
+        choice(q).map(|(choice, confidence, band)| {
+            Box::new(crate::routing::Pick {
+                choice,
+                confidence,
+                sure: sure(band),
+            })
+        })
+    };
+    let (model, context) = (pick("model"), pick("context"));
+    let (mode, confidence) = match (choice("mode"), &model, &context) {
+        (Some((mode, confidence, _)), _, _) => (mode, confidence),
+        (None, Some(m), _) => (m.choice.clone(), m.confidence),
+        (None, None, Some(c)) => (String::new(), c.confidence),
+        (None, None, None) => return None,
+    };
+    let open = model.is_some() || context.is_some();
+    let question = if open {
+        crate::routing::effort::OPEN_QUESTION
+    } else {
+        QUESTION
+    };
+    let effort = choice(question).map(|(level, confidence, band)| EffortAnswer {
         level,
         confidence,
-        sure: band != theseus_judge::band::Band::Escalate,
+        sure: sure(band),
     });
     Some(crate::routing::Verdict {
         mode,
@@ -928,8 +965,8 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
                 band,
             })
         }),
-        model: None,
-        context: None,
+        model,
+        context,
     })
 }
 

@@ -39,8 +39,41 @@ pub(crate) fn facts_of(
         restricted_models: restricted,
         last_reply_model: models().next_back().map(str::to_string),
         task_models,
-        est_tokens: None,
+        est_tokens: Some(est_tokens(before)),
     }
+}
+
+/// How many tokens the conversation holds: the last request's prompt as the
+/// provider counted it (new, cache-read and cache-written input), else a
+/// quarter of the text's bytes. The table's "a long context" and "above 100K"
+/// are read against it; Jev never works it out.
+fn est_tokens(before: &[Node]) -> u64 {
+    let counted = before.iter().rev().find_map(|n| match &n.body {
+        Body::AssistantMessage { usage, .. }
+            if usage.input_tokens
+                + usage.cache_read_input_tokens
+                + usage.cache_creation_input_tokens
+                > 0 =>
+        {
+            Some(
+                usage.input_tokens
+                    + usage.cache_read_input_tokens
+                    + usage.cache_creation_input_tokens,
+            )
+        }
+        _ => None,
+    });
+    counted.unwrap_or_else(|| {
+        let bytes: usize = before
+            .iter()
+            .map(|n| match &n.body {
+                Body::UserMessage { text, .. } => text.len(),
+                Body::AssistantMessage { blocks, .. } => crate::provider::text_of(blocks).len(),
+                _ => 0,
+            })
+            .sum();
+        (bytes / 4) as u64
+    })
 }
 
 /// Whether the pack asks the `model` question, so reads the facts. A pack that
