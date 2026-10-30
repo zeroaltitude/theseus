@@ -23,7 +23,6 @@ use crate::rpc::{Core, Parts};
 use crate::session::SessionRecord;
 use crate::tests_places::OWNER;
 use crate::store::Store;
-use crate::tests_places::OWNER;
 use crate::turn::clock_step::set_deadline;
 use crate::turn::progress_step::PROGRESS_STOP;
 use crate::turn::TurnRequest;
