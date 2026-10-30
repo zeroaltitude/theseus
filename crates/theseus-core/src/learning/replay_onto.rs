@@ -290,7 +290,7 @@ impl Core {
 
     /// The run's frame: each call's `judge.call` row and the `judge.replay`
     /// row, scoped `judge.replay:<pack id>`, as `replay`'s are.
-    fn write_onto_replay(
+    pub(super) fn write_onto_replay(
         &self,
         pack: &str,
         text: &str,

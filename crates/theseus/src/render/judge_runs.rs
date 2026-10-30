@@ -3,7 +3,8 @@
 //! whose length the shape budget caps.
 
 use theseus_protocol::judge_runs::{
-    JudgeAuditResult, JudgeBackfillResult, JudgeReplayResult, OntoReplayReport,
+    JudgeAuditResult, JudgeBackfillResult, JudgeReplayResult, OntoReplayReport, ReplayCase,
+    ReplayCases, ReplayCheck,
 };
 use theseus_protocol::learning::{PackReport, QuestionReport};
 
@@ -102,11 +103,88 @@ fn onto_lines(r: &JudgeReplayResult, o: &OntoReplayReport) -> Vec<String> {
     out
 }
 
+/// One question's miss, as `MISS` lists it: `model opus→sonnet 0.71`.
+fn miss(question: &str, c: &ReplayCheck) -> String {
+    let got = if c.got.is_empty() { "–" } else { &c.got };
+    format!("{question} {}→{got} {:.2}", c.want, c.confidence)
+}
+
+/// A case's line: `ok`, `ok` with an effort one rung off, or each question
+/// it missed. A case is right when its `model` and `context` agree and its
+/// `effort` is within one rung (the bar's own count).
+fn case_line(c: &ReplayCase) -> String {
+    let tag = if c.must { " [must]" } else { "" };
+    if !c.answered {
+        return format!("{:<4}{tag} NO ANSWER (no judgment came back)", c.id);
+    }
+    let misses: Vec<String> = [
+        ("model", &c.model, c.model.agrees),
+        ("effort", &c.effort, c.effort.close),
+        ("context", &c.context, c.context.agrees),
+    ]
+    .iter()
+    .filter(|(_, _, right)| !right)
+    .map(|(q, check, _)| miss(q, check))
+    .collect();
+    match (misses.is_empty(), c.effort.agrees) {
+        (false, _) => format!("{:<4}{tag} MISS {}", c.id, misses.join(", ")),
+        (true, true) => format!("{:<4}{tag} ok", c.id),
+        (true, false) => format!(
+            "{:<4}{tag} ok ({}, one rung off)",
+            c.id,
+            miss("effort", &c.effort)
+        ),
+    }
+}
+
+/// `theseus judge replay --cases`: a line for each case, then the totals, the
+/// `must` count and the bar.
+fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
+    let n = c.cases.len();
+    let mut out = vec![format!(
+        "{} replayed {} (sha256 {}) over its cases file: {n} cases · ${:.4} of an estimated ${:.4} \
+         (limit ${:.2})",
+        r.id,
+        r.candidate,
+        &r.candidate_sha256[..r.candidate_sha256.len().min(12)],
+        r.cost_usd,
+        r.estimate_usd,
+        r.limit_usd,
+    )];
+    out.extend(c.cases.iter().map(case_line));
+    out.push(format!(
+        "model {}/{n} · effort {}/{n} exact, {}/{n} within one rung · context {}/{n} · answered {}/{n}",
+        c.model_ok, c.effort_exact, c.effort_close, c.context_ok, c.answered
+    ));
+    out.push(format!(
+        "must {}/{}, {} under the confirm bar",
+        c.must_ok, c.must_total, c.must_under_confirm
+    ));
+    out.push(match c.bar {
+        Some(met) => format!(
+            "bar (model 54, effort within one rung 50, context 56 of 60, every must case, none \
+             under the confirm bar; the {} pin tests W39 and W40 counted as met): {}",
+            c.held_elsewhere,
+            if met { "met" } else { "NOT met" }
+        ),
+        None => "bar: not judged (the file is not the design's 58 replay cases)".to_string(),
+    });
+    out.extend(
+        r.left_out
+            .iter()
+            .map(|l| format!("  left out {}: {}", l.judgment, l.reason)),
+    );
+    out
+}
+
 /// `theseus judge replay`: the run, both versions side by side, what the
 /// candidate fixed and broke, and what was left out.
 pub fn judge_replay_lines(r: &JudgeReplayResult) -> Vec<String> {
     if let Some(o) = &r.onto {
         return onto_lines(r, o);
+    }
+    if let Some(c) = &r.cases {
+        return cases_lines(r, c);
     }
     let mut out = vec![format!(
         "{} replayed {} (sha256 {}) beside {} over the {}{}{}: {} judgments, labels {}.",

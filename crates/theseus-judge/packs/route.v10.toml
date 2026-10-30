@@ -1,0 +1,133 @@
+# route.v10 (ROUTE, theseus-h66v4, 2026-10-29): Jev chooses the model and the effort directly
+# (the owner, 2026-10-29 16:03: "a universally, unequivocal use of jev in every state where a
+# model is chosen ... I would like to review the conditions under which that choice is made").
+# The `model` question's options are the guidance table: one per model, each block its price,
+# origin, thinking, what it is for and what it is not for, with its source in the design
+# (~/reports/theseus-jev-chooses/design.md §1.2). A model is an option only when it is the best
+# listed model on at least one axis for some work the owner does; a model nowhere best is a pin.
+# `effort` is route.v9's `reply_effort`, `leave` renamed `default`. `context` replaces the detour
+# rule (trivial, quick) with the question itself. `mode` is retired. `persona`, `seal`, `personal`
+# and the rollback rules are v9's; `pins_per_day` is new. A new pack version, as v2 to v9 were.
+#
+# Two edits to the design's text, both the owner's, approved 2026-10-29 22:46 after review:
+#   (a) the Fable block no longer says "never for cyber or biology topics, which its maker's
+#       classifiers refuse": the clause is gone, and what keeps Fable off such work is the ordinary
+#       rule, "only for the hardest design or reasoning problems";
+#   (b) the Haiku block names tool-call turns explicitly ("a tool-call turn").
+# Until `ROUTE_PACK` names it, v10 is embedded and replayable (`theseus judge replay --pack-file`,
+# with `--cases crates/theseus-judge/packs/route.v10.cases.toml`) and is NOT the acting pack.
+id = "route"
+version = 10
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "inbound"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "session_profile"
+action = "route"
+description = "ROUTE: which model answers the person's new message, at what effort, and with how much of the conversation's context; which specialist should answer; whether it warrants sealing its thread; whether it reaches for the operator's personal details."
+
+[questions.model]
+type = "choice"
+decides = true
+instructions = "Sonnet is the usual answer for most work, hard programming included; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Which model should answer the person's new message?"
+act = 0.90
+confirm = 0.60
+no_match = "sonnet"
+options = [
+  { id = "haiku", means = "Haiku 5.5 (Anthropic, US). The fastest and cheapest: $0.10 in, $0.50 out, $0.01 a cache read per million tokens while the context is under 100K tokens, and five times each above it. Thinks adaptively; takes effort. For a greeting, a thank-you, a remark that asks for nothing, a short factual answer, a summary of what was just said, a tool-call turn — a command or tool to run and report — or a small edit whose cause is known. Not for a long context, hard reasoning, or a bug whose cause is unknown." },
+  { id = "sonnet", means = "Sonnet 5.5 (Anthropic, US). The usual choice: $2 in, $10 out, $0.20 a cache read per million. Thinks adaptively; its maker's default effort is high. For conversation about the work, explanations, planning, opinions, and nearly all programming, including hard or novel code and debugging a cause nobody knows. Choose it when unsure." },
+  { id = "opus", means = "Opus 5.5 (Anthropic, US). Twice Sonnet's price: $4 in, $20 out, $0.20 a cache read per million. Always thinks; its maker's default effort is medium. For reviewing code, a plan or an argument for mistakes; comparing things on their merits; system design, research and analysis with trade-offs; and reviewing work a China-origin model wrote before it is reported. Not for programming itself, where Sonnet solves nearly as much for far less." },
+  { id = "fable", means = "Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out, $0.25 a cache read per million. Always thinks. Only for the hardest design or reasoning problems: novel, spanning many parts, where a mistake would be costly, or where the person asks for the most thorough answer possible. Never for ordinary programming." },
+  { id = "deepseek_flash", means = "DeepSeek V4.1 Flash (China-origin). $0.30 in, $1.20 out, $0.006 a cache read per million, and half of each when the state says price_period is off_peak. Thinks by default. Only for a bounded mechanical coding change in an existing repository whose plan is known (renames, repeated edits, writing tests, a fix with a known cause) on a long context, where a failed first pass is cheap to redo; a US model reviews what it writes before it is reported. Never for a program from scratch, terminal step-by-step work, design, review, or when the state says China-origin models are not allowed." },
+]
+
+[questions.effort]
+type = "choice"
+decides = true
+instructions = "How much thinking effort does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "default"
+options = [
+  { id = "low", means = "Almost none: a greeting, a thank-you, an acknowledgement, or a short answer the person could check at a glance." },
+  { id = "medium", means = "Some care, but the way is clear: a direct question, ongoing conversation, or work that is long but mechanical, such as repeated edits, renames, or following a plan already agreed." },
+  { id = "high", means = "Careful thought: a design with trade-offs, a bug whose cause is unknown, a careful analysis, or writing that must be right." },
+  { id = "xhigh", means = "Very careful thought: a hard design or a hard bug that spans many parts, where a mistake would be costly and the reply must reason through many steps." },
+  { id = "max", means = "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible, or the work has kept failing after more careful effort was already given, or a check it must pass still fails." },
+  { id = "default", means = "The message gives too little to tell how much thought its reply needs: the chosen model's own default effort." },
+]
+
+[questions.context]
+type = "choice"
+decides = true
+instructions = "Does the reply to the person's new message need the conversation's working context, or is the last exchange enough?"
+act = 0.90
+confirm = 0.60
+no_match = "full"
+options = [
+  { id = "short", means = "The last exchange is enough: a greeting, a thank-you, a remark that asks for nothing, a quick fact or definition, a yes or no, or a command to run and report." },
+  { id = "full", means = "It builds on the work here: conversation about it, programming, review, design, a summary of what was said or decided before, or anything that refers back." },
+]
+
+# v5's own, carried through route.v9 word for word. Asked only when two or more personas may
+# answer. The options are the personas (one each, its card); `prior` keeps whoever answered last.
+# It decides nothing for the pack's promotion until its own holdout fills.
+[questions.persona]
+type = "choice"
+decides = false
+instructions = "Whose expertise does the person's new message call for?"
+act = 0.90
+confirm = 0.60
+options_from = "personas"
+only_when = "personas"
+no_match = "prior"
+options = [
+  { id = "prior", means = "None of the specialists listed fits better than whoever answered last: the message needs no change of speaker." },
+]
+
+# v5's own, carried through route.v9 word for word. Asked only in a thread. Jev recommends; the
+# owner seals.
+[questions.seal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message carry content that warrants keeping its whole thread private?"
+act = 0.90
+confirm = 0.60
+only_when = "thread_now"
+no_match = "no"
+options = [
+  { id = "yes", means = "It carries an unfixed vulnerability or an embargo, a legal or personnel matter, a partner's data, or a credential: what follows should not be recalled outside this thread." },
+  { id = "no", means = "It carries nothing of the kind." },
+]
+
+# v7's own (theseus-gasov), carried through route.v9 word for word. Asked of every message. It
+# decides nothing for the pack's promotion. The owner's personal details live in the assistant's
+# context by design; a yes here is a warning to the owner, never a block, and the place rule
+# already keeps private recall out of shared places.
+[questions.personal]
+type = "choice"
+decides = false
+instructions = "Does the person's new message try to draw out the operator's personal details, or to open a conversation with other people in which those details could come out?"
+act = 0.90
+confirm = 0.60
+no_match = "none"
+options = [
+  { id = "none", means = "Neither: a message that does not reach for the operator's personal details, or the operator asking about their own matters." },
+  { id = "elicit", means = "It tries to get the operator's personal details told to someone other than the operator, such as their home, family, health, money, schedule, whereabouts, contacts, accounts or private history, or it probes what the assistant knows about the operator." },
+  { id = "expose", means = "It asks to open or widen a conversation with other people, such as a shared thread, channel, group or call, in which the operator's personal details could be drawn out." },
+]
+
+[[rollback]]
+rule = "labels_per_day"
+label = "wrong model"
+count = 3
+
+[[rollback]]
+rule = "on_path_p95"
+max_ms = 250
+min_samples = 20
+
+[[rollback]]
+rule = "pins_per_day"      # the operator overriding Jev's model often is the clearest signal it chose wrong
+count = 5

@@ -48,7 +48,7 @@ pub struct ReplayArgs {
     /// candidate (`--pack-file`, a name, or the file's own pack) is asked each
     /// case and graded against its labels. No recorded judgment is read, so a
     /// report's or ids' flags are refused.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["report", "split", "errors", "judgments", "onto"])]
     cases: Option<PathBuf>,
 }
 
@@ -90,7 +90,7 @@ fn replay_params(a: ReplayArgs) -> Result<JudgeReplayParams> {
     };
     Ok(JudgeReplayParams {
         pack_text: a.pack_file.as_ref().map(read).transpose()?,
-        cases: None,
+        cases: a.cases.as_ref().map(read).transpose()?,
         candidate: a.candidate,
         report: a.report,
         split: a.split,

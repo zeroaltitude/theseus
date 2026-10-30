@@ -39,7 +39,9 @@ use crate::learn::RollbackRule;
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
 /// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8), and `content.v1` (the four content flags, theseus-9ymz0). Older versions
+/// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model, the effort and the context,
+/// theseus-h66v4; embedded and replayable, and not the acting pack: `ROUTE_PACK` names `route.v8`), and
+/// `content.v1` (the four content flags, theseus-9ymz0). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
@@ -63,6 +65,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v6", include_str!("../packs/route.v6.toml")),
     ("route.v7", include_str!("../packs/route.v7.toml")),
     ("route.v8", include_str!("../packs/route.v8.toml")),
+    ("route.v10", include_str!("../packs/route.v10.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("heard.v1", include_str!("../packs/heard.v1.toml")),
