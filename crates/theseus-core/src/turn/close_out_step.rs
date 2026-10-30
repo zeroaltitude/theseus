@@ -245,6 +245,7 @@ mod tests {
             "The fit is good, though the private set could land a little higher or lower.",
             "I wrote the timer and never ran it.",
             "I\u{2019}ve never run it against the real queue.",
+            "The score is on the private test set; I ran the public one and it passes.",
         ] {
             assert!(names_a_gap(said), "{said}");
         }
@@ -279,7 +280,7 @@ mod tests {
             "The reminder could land on Friday; I checked the schedule.",
             "The timer has never run on this host, which is why the log is empty.",
             "There is no torch in this sandbox, so I used numpy, and the check passes.",
-            "The score is on the private test set; I ran the public one and it passes.",
+            "The score comes from a held-out benchmark; the standard one runs clean too.",
         ] {
             assert!(!names_a_gap(said), "{said}");
         }
