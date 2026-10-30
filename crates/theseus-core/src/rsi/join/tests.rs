@@ -879,6 +879,33 @@ async fn the_independence_rule_refuses_a_jev_pick_that_is_the_builders_model() {
     );
 }
 
+/// Both sides Jev-chosen: the builder ran on Opus because Jev named it (its
+/// session's model says so), and the reviewer, asked, names Opus too. The rule
+/// is about the models, not about who chose them, so no review runs.
+#[tokio::test]
+async fn the_independence_rule_holds_when_both_sides_are_jevs_picks() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    let r = rig_jev(&jev, None);
+    let (branch, _) = r.seed("trim-the-sails", PROVED, "claude-opus-5-5");
+    let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
+    assert_eq!(pass.reviewed, [(branch, "refused".to_string())]);
+    let v = &r.rows("self.review.verdict")[0];
+    assert_eq!(v["model"], "claude-opus-5-5", "{v}");
+    assert!(
+        v["reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("the model that built the branch"),
+        "{v}"
+    );
+    assert_eq!(reviewer_asks(&jev).len(), 1, "Jev named the reviewer");
+    assert!(
+        r.stand.asks.lock().unwrap().is_empty(),
+        "no reviewer was asked"
+    );
+}
+
 /// A Jev that is slow never holds the review: past `max_wait_ms` the reviewer
 /// is the live profile.
 #[tokio::test]

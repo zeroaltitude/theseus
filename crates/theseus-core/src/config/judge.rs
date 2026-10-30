@@ -487,7 +487,16 @@ pub(crate) fn the_templates_judge_section(cfg: &crate::Config) {
         j.stop_nudge,
         "the stop nudge is on by default (theseus-fh0u)"
     );
-    assert_eq!(j.learn, LearnConfig::default());
+    // Un-commented, the template's writer line pins `opus`, the profile the key
+    // ran on before Jev chose (theseus-ej6bj); as written, it is the default.
+    assert_eq!(
+        j.learn,
+        LearnConfig {
+            writer_profile: Some("opus".into()),
+            ..LearnConfig::default()
+        }
+    );
+    assert_eq!(crate::Config::example().judge.learn, LearnConfig::default());
     j.validate(&cfg.secrets).unwrap();
 }
 
