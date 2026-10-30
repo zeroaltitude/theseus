@@ -411,6 +411,8 @@ mod tests_kept;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
+mod tests_ladder_route_v10;
+#[cfg(test)]
 mod tests_ladder_unread;
 #[cfg(test)]
 mod tests_layouts;
