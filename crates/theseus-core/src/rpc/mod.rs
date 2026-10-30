@@ -143,6 +143,8 @@ mod tests_lists;
 #[cfg(test)]
 mod tests_live_pin;
 #[cfg(test)]
+mod tests_live_release;
+#[cfg(test)]
 mod tests_named_by_reply;
 #[cfg(test)]
 mod tests_node_names;
@@ -952,6 +954,8 @@ impl Core {
         // A persisted runtime switch wins over config, if it still names a profile.
         let profiles = cfg.all_profiles();
         let live = match store.get_meta::<String>(META_LIVE_PROFILE)? {
+            // A release (`profile.release`) stores an empty word: the config's again.
+            Some(released) if released.is_empty() => (cfg.model.live.clone(), "config".to_string()),
             Some(name) if profiles.contains_key(&name) => (name, "runtime".to_string()),
             Some(stale) => {
                 tracing::warn!(profile = %stale, "persisted live profile no longer configured; using config");

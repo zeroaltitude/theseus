@@ -404,17 +404,22 @@ impl TurnRunner {
     }
 
     /// What a provider's answer cost: at its served model's prices, else the
-    /// asked model's, else `need` (the reservation).
+    /// asked model's, else `need` (the reservation). At the rate in force when
+    /// the call started, `at_ms` (Unix milliseconds): a model with an off-peak
+    /// row (DeepSeek's) is booked at half in its off-peak hours, as the turn's
+    /// own calls are (theseus-058cl). The reservation a site holds stays at the
+    /// peak price, so a settle is never over its hold.
     pub fn priced(
         &self,
         resp: &crate::provider::ModelResponse,
         asked: &str,
         need: Micros,
+        at_ms: u64,
     ) -> Micros {
         self.catalog
             .get(&resp.model)
             .or_else(|| self.catalog.get(asked))
-            .map_or(need, |e| e.cost_micros(&resp.usage))
+            .map_or(need, |e| e.cost_micros_at(&resp.usage, at_ms))
     }
 
     /// A call the day ceiling refused: logged, and the day's first writes its

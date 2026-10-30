@@ -1168,21 +1168,51 @@ impl Core {
         Ok(changed)
     }
 
+    /// Release the runtime live profile (theseus-ervz9): the pin `profile.use`
+    /// set ends and the live profile is the config's `[model] live` again,
+    /// source `config`. Persisted so it survives restart, as `use` is. With
+    /// nothing to release (the live profile is the config's already) it
+    /// answers the live profile as both `previous` and `live`, and writes
+    /// and tells nothing.
+    pub(super) fn profile_release(&self, conn: Conn<'_>) -> Result<ProfileChanged, RpcFailure> {
+        let (live, source) = self.live_profile();
+        if source != "runtime" {
+            return Ok(ProfileChanged {
+                previous: live.clone(),
+                live,
+                by: conn.actor(None),
+            });
+        }
+        let name = self.cfg.model.live.clone();
+        let changed = self
+            .set_live(&name, "config", "", &conn.actor(None))
+            .map_err(RpcFailure::invalid)?;
+        let m = Message::from(theseus_protocol::Event::ProfileChanged(changed.clone()));
+        conn.tx.notify(&crate::outbound::Note::new(&m), "policy");
+        Ok(changed)
+    }
+
     fn switch_profile(&self, name: &str, by: &str) -> Result<ProfileChanged> {
-        // The switch and when it was, in one frame: a session routing moved
-        // before it runs on the new live profile at its next message
-        // (theseus-9yyr).
+        self.set_live(name, "runtime", name, by)
+    }
+
+    /// The live profile set to `name` from `source` (`runtime` for a switch,
+    /// `config` for a release), `stored` the persisted word: the profile's
+    /// name, or empty for a release. The switch and when it was, in one
+    /// frame: a session routing moved before it runs on the new live profile
+    /// at its next message (theseus-9yyr).
+    fn set_live(&self, name: &str, source: &str, stored: &str, by: &str) -> Result<ProfileChanged> {
         let at = theseus_protocol::now_unix_ms();
         let meta = theseus_store::kinds::META;
         self.store.append(&[
-            theseus_store::NewRecord::json(meta, Some(META_LIVE_PROFILE), &name.to_string())?,
+            theseus_store::NewRecord::json(meta, Some(META_LIVE_PROFILE), &stored.to_string())?,
             theseus_store::NewRecord::json(meta, Some(crate::turn::SWITCHED), &at)?,
         ])?;
         self.runner.live_switched.moved(at);
         let previous = {
             let mut g = self.live.write().unwrap();
             let prev = g.0.clone();
-            *g = (name.to_string(), "runtime".into());
+            *g = (name.to_string(), source.into());
             prev
         };
         let changed = ProfileChanged {

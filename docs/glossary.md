@@ -141,7 +141,7 @@ never shown.
 **posture**: what the gate does with a tool: `open`, `notify` or `approve`; the floor always asks. Spec §3.9;
 `theseus policy` shows each tool's.
 
-**profile**: a model profile (`[profiles.*]`); one is live, `theseus profile use NAME` switches it.
+**profile**: a model profile (`[profiles.*]`); one is live, `theseus profile use NAME` switches it and `theseus profile release` gives the switch back to the config's.
 
 **project**: a long-running plan with a goal, dated milestones and a weekly review, a kind of plan, not a fourth
 container; its milestones and steps are records under it, and a *slice* of it rides every attached conversation

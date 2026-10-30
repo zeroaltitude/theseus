@@ -678,6 +678,7 @@ impl TurnRunner {
             return Outcome::Stopping;
         }
         let started = std::time::Instant::now();
+        let started_ms = theseus_protocol::now_unix_ms();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
         let resp = match read_call(sid, provider.as_ref(), &b.request, &mut quiet).await {
             Ok(r) => r,
@@ -689,7 +690,7 @@ impl TurnRunner {
                 ));
             }
         };
-        let cost = self.priced(&resp, &b.target.model, need);
+        let cost = self.priced(&resp, &b.target.model, need, started_ms);
         let u = &resp.usage;
         let mut data = json!({
             "provider": b.target.provider,

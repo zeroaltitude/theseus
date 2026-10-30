@@ -24,7 +24,7 @@ Commands:
   project  Projects (also `projects`): long-term work with a goal, dated milestones that remind you, a weekly review, and a slice in every session attached to it. `project` lists them (a bar of milestones done, the next one and its date, the review); `project show ID` (the tree with dates), `project new TITLE --milestone TITLE@WHEN`, `project attach SESSION ID`, `project detach SESSION`. The writes are yours alone (refused inside a job)
   thread   Threads: lines of work on virtual places `thread:<slug>`, each with a session of its own that runs beside the others. `thread` lists them; `thread new|show|edit|pause| resume|done|reopen`; address one with `ask --thread SLUG`. The writes are yours alone (refused inside a job)
   places   Each place Theseus speaks in, and its class (the place rule): private (the CLI, the web UI, a DM with you, a guild channel bound `private = true`) gets everything; shared (any other guild channel) gets its own conversation and the public tools alone
-  profile  Model profiles: list, or switch the live one (`theseus profile use glm`)
+  profile  Model profiles: list, switch the live one (`theseus profile use glm`), or release the switch
   health   Server health: version, live profile, providers, sessions, turns, provider errors, token totals
 
 Options:

@@ -1139,7 +1139,7 @@ impl ProfileConfig {
 pub struct ModelConfig {
     /// Name of the profile that is live at startup (a key of `[profiles]`,
     /// or "default" for the implicit profile built from this section).
-    /// A persisted runtime switch (`profile.use`) takes precedence.
+    /// A persisted runtime switch (`profile.use`) takes precedence, until `profile.release`.
     #[serde(default = "default_profile_name")]
     pub live: String,
     /// Default provider name: a key of `[providers]`, or "anthropic" for the implicit one.

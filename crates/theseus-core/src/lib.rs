@@ -411,6 +411,8 @@ mod tests_kept;
 #[cfg(test)]
 mod tests_ladder;
 #[cfg(test)]
+mod tests_ladder_route_v10;
+#[cfg(test)]
 mod tests_ladder_unread;
 #[cfg(test)]
 mod tests_layouts;
@@ -498,6 +500,8 @@ mod tests_personal_warn;
 mod tests_personas;
 #[cfg(test)]
 mod tests_places;
+#[cfg(test)]
+mod tests_priced_off_peak;
 #[cfg(test)]
 mod tests_private_authored;
 #[cfg(test)]

@@ -214,11 +214,12 @@ impl Core {
             let Ok(hold) = self.runner.day_hold(need, "initiative") else {
                 break;
             };
+            let started_ms = theseus_protocol::now_unix_ms();
             let mut quiet = |_: crate::provider::Delta<'_>| {};
             let answered = provider.stream_message(&request, &mut quiet).await;
-            let cost = answered
-                .as_ref()
-                .map_or(need, |r| self.runner.priced(r, &target.model, need));
+            let cost = answered.as_ref().map_or(need, |r| {
+                self.runner.priced(r, &target.model, need, started_ms)
+            });
             hold.settle(cost);
             spent = spent.saturating_add(cost);
             // A failed call may have been billed: booked at its reservation.

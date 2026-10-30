@@ -3091,7 +3091,9 @@ impl TurnRunner {
             output_tokens: cut.out_chars.div_ceil(CHARS_PER_TOKEN) * u64::from(cut.sent),
             ..usage
         };
-        let cost = price.cost_micros(&usage).min(action.reserved_micros);
+        let cost = price
+            .cost_micros_at(&usage, started_ms)
+            .min(action.reserved_micros);
         t.record(&fact::turn::ModelCallFailed {
             class: "stopped",
             message: format!("cut by a stop from {}", cut.by),

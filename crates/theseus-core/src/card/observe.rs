@@ -395,11 +395,12 @@ impl Core {
             Ok(h) => h,
             Err(why) => return Ok(Asked::Not(Seen::Stopped(format!("budget: {why}")))),
         };
+        let started_ms = theseus_protocol::now_unix_ms();
         let mut quiet = |_: crate::provider::Delta<'_>| {};
         let answered = provider.stream_message(&request, &mut quiet).await;
-        let cost = answered
-            .as_ref()
-            .map_or(need, |r| self.runner.priced(r, &target.model, need));
+        let cost = answered.as_ref().map_or(need, |r| {
+            self.runner.priced(r, &target.model, need, started_ms)
+        });
         hold.settle(cost);
         Ok(match answered {
             Ok(r) => Asked::Answer(Box::new(r), cost),

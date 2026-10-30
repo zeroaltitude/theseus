@@ -35,8 +35,12 @@ pub fn next_midnight(now: u64) -> u64 {
 }
 
 /// A pack version's rules: its file's, then those its adoption gives its
-/// pack id. A learned version (25f) keeps its parent's rules by
-/// construction (`propose::text_only`), so its rules are its lineage's
+/// pack id that its file does not already declare. A file's own rule wins
+/// over the adoption's of the same kind (route.v10 declares 5 pins a day, and
+/// adoption's 3 for every route version must not arm beside it, theseus-ervz9);
+/// the adoption's stays the rule of a version whose file names none (route.v5
+/// to v8 name no pins rule). A learned version (25f) keeps its parent's rules
+/// by construction (`propose::text_only`), so its rules are its lineage's
 /// compiled-in version's: the wired one of its id.
 pub fn rules_of(pack: &str) -> Vec<RollbackRule> {
     let root = || {
@@ -50,11 +54,23 @@ pub fn rules_of(pack: &str) -> Vec<RollbackRule> {
         .map(|p| p.rollback.clone())
         .unwrap_or_default();
     for r in adopt::rules(id_of(pack)) {
-        if !out.contains(&r) {
+        if !out.iter().any(|o| same_kind(o, &r)) {
             out.push(r);
         }
     }
     out
+}
+
+/// Whether two rules are the same rule with possibly different numbers: the
+/// same name, and for a label count the same label.
+fn same_kind(a: &RollbackRule, b: &RollbackRule) -> bool {
+    match (a, b) {
+        (
+            RollbackRule::LabelsPerDay { label: x, .. },
+            RollbackRule::LabelsPerDay { label: y, .. },
+        ) => x == y,
+        _ => a.name() == b.name(),
+    }
 }
 
 /// Pack ids braked today by their own step: the notices' brake is a

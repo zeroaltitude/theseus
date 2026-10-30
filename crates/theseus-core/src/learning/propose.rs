@@ -756,6 +756,7 @@ impl Core {
         // request starts (a DNS lookup) is a worker's child, never the
         // nightly run's SCHED_IDLE thread's, whose policy it would keep
         // (theseus-bgg5).
+        let started_ms = theseus_protocol::now_unix_ms();
         let reply = rt
             .block_on(rt.spawn(async move {
                 let mut quiet = |_: crate::provider::Delta<'_>| {};
@@ -763,9 +764,9 @@ impl Core {
             }))
             .unwrap_or_else(|e| Err(anyhow::anyhow!("the writer's request ended: {e}")));
         // A failed request may have been billed: booked at its reservation.
-        let cost = reply
-            .as_ref()
-            .map_or(need, |r| self.runner.priced(r, &target.model, need));
+        let cost = reply.as_ref().map_or(need, |r| {
+            self.runner.priced(r, &target.model, need, started_ms)
+        });
         hold.settle(cost);
         prop.writer_usd = micros_to_usd(cost);
         let reply = match reply {
