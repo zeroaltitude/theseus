@@ -5,10 +5,11 @@
 #
 #   tb      Terminal-Bench 2.0's smoke slice (bench/smoke/tb-slice.toml): 8 stable tasks and 2 controls, k=1 at HIGH,
 #           4 at once, through the Harbor driver (bench/harbor/run.py), on the candidate's static binaries
-#   route   `theseus judge replay --cases` over route.v10's cases, three runs: 54 of 60 on the model, every must
+#   route   `theseus judge replay --cases` over route.v10's cases, three runs: 54 of 60 on the model, every must;
+#           "n/a until the flip" on a daemon whose ladder routes with another pack (`theseus packs`)
 #   recall  scripts/recall-tests.sh, as the gate runs it
 #   resume  bench/smoke/resume.py: a scratch daemon SIGKILLed mid-tool three times, at $0
-#   dm      bench/smoke/dm.py: five scripted turns through the live daemon's CLI
+#   dm      bench/smoke/dm.py: five scripted turns through the live daemon's CLI, in a fresh session of their own
 #
 # Usage: scripts/release-smoke.sh [--parts "tb route recall resume dm"] [--write-floor]
 #
@@ -21,6 +22,7 @@
 #                           Rust sources (bench/bin/build-commit) are not the candidate's
 #   SMOKE_SIM               theseus-sim, for resume's stand-in model and recall's driver tests
 #   SMOKE_SOCKET            the live daemon's socket, for route and dm (default: the CLI's own)
+#   SMOKE_DM_DIR            dm's session directory, inside the daemon's workspace (default ~/projects/theseus)
 #   SMOKE_HARBOR            Harbor's `harbor` (default: on PATH, else .venv/bin/harbor)
 #   SMOKE_TB_STOP_USD       stop tb once its finished trials cost this much (default 6)
 #   SMOKE_QUIET_WAIT_S      how long tb waits for a quiet host before it gives up (default 900)
@@ -134,12 +136,17 @@ part_tb() {
 }
 
 part_route() {
-  local cases=crates/theseus-judge/packs/route.v10.cases.toml i t0 rc help args=()
+  local cases=crates/theseus-judge/packs/route.v10.cases.toml i t0 rc help live args=()
   help="$("$bin/theseus" judge replay --help 2>&1)"
   if [[ "$help" != *--cases* ]]; then
     smoke fail "$run" route "this binary has no \`judge replay --cases\` (it came with 1.0.4's wave 3')"
     return
   fi
+  # The route packs the daemon's ladder acts with now, live or canary ("" when unread: held to the bar).
+  live="$("$bin/theseus" ${sock[@]+"${sock[@]}"} --json packs 2> /dev/null | "$py" -c '
+import json, sys
+print(",".join(p["pack"] for p in json.load(sys.stdin)["packs"]
+               if p["pack"].startswith("route.") and p.get("acts") in ("live", "canary")))' 2> /dev/null)" || live=
   for i in 1 2 3; do
     t0=$(now)
     rc=0
@@ -151,7 +158,7 @@ part_route() {
     fi
     args+=("$run/route-$i.json" "$(($(now) - t0))")
   done
-  smoke route "$run" "${args[@]}"
+  smoke route "$run" --live "$live" "${args[@]}"
 }
 
 part_recall() {

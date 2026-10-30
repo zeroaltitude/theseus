@@ -6,6 +6,14 @@ a private place), which is the brief's named fallback: a greeting, a quick
 fact, a tool call, a task start, and the task's answer. It only observes the
 DM task flow (the task it starts posts as any task does) and changes nothing.
 
+It never touches the owner's own conversations: the first turn opens a fresh
+session (no `-s`, no THESEUS_SESSION), and a session that shows more turns than
+the smoke's is a FAIL. The session works in SMOKE_DM_DIR (default
+~/projects/theseus), which must sit inside the daemon's workspace
+([tools].projects_dir or roots): from outside it, even a file read asks the
+owner, and that card lands on the owner's surfaces (2026-10-30, from ~/lanes/smoke).
+Every turn's text starts with MARK, so it reads as the smoke's wherever it shows.
+
 Each turn is timed from the ask to its reply, and its footer is the CLI's
 status line (`[profile → provider/model · … · session ses_…]` on stderr). The
 fifth turn waits for the task to end first (that wait is recorded apart, and is
@@ -20,7 +28,7 @@ On the live daemon a run leaves two sessions (the conversation and the task's),
 the task's report wherever a CLI task reports, and three `judge.replay` rows
 from the route part.
 
-    python3 bench/smoke/dm.py --out FILE [--socket PATH] [--theseus PATH]
+    python3 bench/smoke/dm.py --out FILE [--socket PATH] [--theseus PATH] [--dir DIR]
 
 Standard library only.
 """
@@ -37,24 +45,28 @@ import time
 from pathlib import Path
 from typing import Any
 
-# The tool turns read a file with the file tools, never a shell: on the owner's daemon a command, even `ls -d /usr`,
-# can park the turn on an approval for the owner (both 2026-10-30 baselines), which a smoke must never leave behind.
-# The file is this checkout's Cargo.toml unless SMOKE_DM_FILE names one (it should sit under the daemon's
-# projects_dir, where reads are not asked); the expected text is its own second line, read here.
-DM_FILE = Path(os.environ.get("SMOKE_DM_FILE") or Path(__file__).resolve().parents[2] / "Cargo.toml")
+DM_DIR = Path(os.environ.get("SMOKE_DM_DIR") or Path.home() / "projects" / "theseus")
+MARK = "[release smoke: a scripted test turn, not the owner's]"
+
+
+def dm_file(directory: Path) -> Path:
+    """The file the tool turns read with the file tools, never a shell: on the owner's daemon a command, even
+    `ls -d /usr`, can park the turn on an approval (both 2026-10-30 baselines). It is the session directory's
+    Cargo.toml unless SMOKE_DM_FILE names one; the expected text is its own second line."""
+    return Path(os.environ.get("SMOKE_DM_FILE") or directory / "Cargo.toml")
 
 
 def turns(path: Path) -> list[tuple[str, str, str | None]]:
     want = path.read_text().splitlines()[1].strip()
-    return [
+    return [(name, f"{MARK} {prompt}", expect) for name, prompt, expect in [
         ("greeting", "Hello! This is the release smoke checking in; reply with one short sentence.", None),
         ("quick fact", "Quick fact, one word: what is the capital of France?", "paris"),
         ("tool call", f"With your file tools (not a shell), read {path} and quote its second line exactly.",
          want.lower()),
-        ("task start", f"Release smoke: please start a task that reads {path} with its file tools (not a shell) and "
-                       "reports its second line exactly. Nothing else; it needs no answer from me.", None),
+        ("task start", f"Please start a task that reads {path} with its file tools (not a shell) and reports its "
+                       "second line exactly. Nothing else; it needs no answer from me.", None),
         ("task answer", "What second line did that release-smoke task report?", want.lower()),
-    ]
+    ]]
 FOOTER = re.compile(r"^\[.+ · session (ses_[0-9a-f]+).*\]$")
 # The ledger's kinds that say a turn went wrong, read per session: there is no "notice" or "alarm" kind as such,
 # and daemon-wide rows (a crash, the day's spend) never carry a session.
@@ -65,12 +77,14 @@ TASK_WAIT = "120s"
 
 
 class Cli:
-    def __init__(self, theseus: str, socket: str | None):
+    def __init__(self, theseus: str, socket: str | None, directory: Path = DM_DIR):
         self.base = [theseus] + (["--socket", socket] if socket else [])
         self.env = {k: v for k, v in os.environ.items() if k != "THESEUS_SESSION"}
+        self.dir = directory
 
     def run(self, *args: str, timeout: float = 120.0) -> subprocess.CompletedProcess:
-        return subprocess.run([*self.base, *args], capture_output=True, text=True, timeout=timeout, env=self.env)
+        return subprocess.run([*self.base, *args], capture_output=True, text=True, timeout=timeout, env=self.env,
+                              cwd=self.dir)
 
     def rows(self, session: str, kind: str | None = None) -> list[dict[str, Any]] | None:
         """The session's ledger rows (of `kind`); None when the ledger could not be read."""
@@ -82,7 +96,8 @@ class Cli:
 
 
 def turn(cli: Cli, n: int, name: str, prompt: str, want: str | None, session: str | None) -> dict[str, Any]:
-    args = ["--no-stream", "ask"] + (["-s", session] if session else []) + [prompt]
+    # No session: a new one, in the smoke's directory. Never the owner's.
+    args = ["--no-stream", "ask"] + (["-s", session] if session else ["--dir", str(cli.dir)]) + [prompt]
     t0 = time.monotonic()
     try:
         r = cli.run(*args, timeout=180)
@@ -126,7 +141,8 @@ def decline_asked(cli: Cli, sessions: list[str]) -> list[str]:
     return asked
 
 
-def run(cli: Cli, path: Path = DM_FILE) -> dict[str, Any]:
+def run(cli: Cli, path: Path | None = None) -> dict[str, Any]:
+    path = path or dm_file(cli.dir)
     replies, session, task_session, task_ended, notes = [], None, None, False, []
     for n, (name, prompt, want) in enumerate(turns(path)):
         if name == "task answer" and session:
@@ -161,7 +177,7 @@ def run(cli: Cli, path: Path = DM_FILE) -> dict[str, Any]:
     alarms = [{"kind": r["kind"], "session": r["session_id"]} for r in rows if r["kind"] in ALARM_KINDS]
     turns_ended = sum(1 for r in (read.get(session) or []) if r["kind"] == "turn.ended")
     return {"replies": replies, "alarms": len(alarms) + len(asked), "alarm_rows": alarms, "asked": asked,
-            "sessions": sessions,
+            "sessions": sessions, "dir": str(cli.dir),
             "ledger_unread": [s for s, got in read.items() if got is None], "turns_ended": turns_ended,
             "cost_usd": round(dollars(rows), 4), "notes": notes}
 
@@ -171,8 +187,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--socket", default=None, help="the daemon's socket (default: the CLI's own, the live one)")
     ap.add_argument("--theseus", default="theseus", help="the CLI to drive it with")
+    ap.add_argument("--dir", type=Path, default=DM_DIR, help="the session's directory, inside the daemon's workspace")
     a = ap.parse_args(argv)
-    rec = run(Cli(a.theseus, a.socket))
+    if not a.dir.is_dir():
+        ap.error(f"{a.dir} is no directory (SMOKE_DM_DIR: a project inside the daemon's workspace)")
+    rec = run(Cli(a.theseus, a.socket, a.dir.resolve()))
     a.out.write_text(json.dumps(rec, indent=1) + "\n")
     print(f"dm: {len(rec['replies'])} replies, {rec['alarms']} alarms, ${rec['cost_usd']:.4f}"
           + (f"; {'; '.join(rec['notes'])}" if rec["notes"] else ""))

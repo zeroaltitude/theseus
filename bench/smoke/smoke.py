@@ -7,7 +7,7 @@ parts and calls this module to judge each one, write the run's report, and,
 with `--write-floor` only, the floor.
 
     python3 bench/smoke/smoke.py tb RUN_DIR JOB_DIR WALL_S
-    python3 bench/smoke/smoke.py route RUN_DIR (REPLAY.json WALL_S)...
+    python3 bench/smoke/smoke.py route RUN_DIR [--live PACK] (REPLAY.json WALL_S)...
     python3 bench/smoke/smoke.py recall RUN_DIR EXIT SECONDS LOG
     python3 bench/smoke/smoke.py resume RUN_DIR RESUME.json
     python3 bench/smoke/smoke.py dm RUN_DIR DM.json
@@ -28,6 +28,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 import sys
 import tomllib
 import unittest
@@ -202,11 +203,18 @@ def route_run(raw: dict[str, Any], wall_s: float) -> dict[str, Any]:
     return {"cases": len(c.get("cases") or []), "answered": int(c.get("answered") or 0),
             "model": int(c.get("model_ok") or 0) + held, "total": len(c.get("cases") or []) + held,
             "musts": int(c.get("must_total") or 0), "musts_held": int(c.get("must_ok") or 0),
-            "bar": c.get("bar"), "cost_usd": float(raw.get("cost_usd") or 0), "wall_s": wall_s}
+            "bar": c.get("bar"), "pack": c.get("pack") or raw.get("candidate"),
+            "cost_usd": float(raw.get("cost_usd") or 0), "wall_s": wall_s}
 
 
-def route_part(runs: list[dict[str, Any]], floor: dict | None) -> dict[str, Any]:
-    """Three replays of the route cases: each run 54 of 60 on the model, every must."""
+def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None = None) -> dict[str, Any]:
+    """Three replays of the route cases: each run 54 of 60 on the model, every must.
+
+    `live` is the route packs the daemon's ladder acts with (live or canary),
+    comma-separated. The cases are written for one pack (route.v10): on a daemon
+    whose ladder does not act with it, the bar does not apply, and three answered
+    runs are "n/a until the flip", their reading kept for the record, never a
+    FAIL and never a floor. An unknown or unreadable `live` is held to the bar."""
     problems = []
     real = [r for r in runs if r["cases"] and r["answered"]]
     if len(real) < RUNS_WANTED:
@@ -222,6 +230,19 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None) -> dict[str, Any]
     if fl and _over(wall, fl["wall_s"]):
         problems.append(f"slowest run's wall {wall:.0f} s > {SLACK:.0%} of the floor's {fl['wall_s']:.0f} s")
     met = sum(1 for r in real if r["bar"])
+    cases_pack = next((r["pack"] for r in real if r.get("pack")), None)
+    acting = (live or "").split(",") if live else []
+    if not acting or not all(re.fullmatch(r"route\.v\d+", p) for p in acting):
+        acting = []
+    if acting and cases_pack and cases_pack not in acting and len(real) >= RUNS_WANTED:
+        musts = min((f"{r['musts_held']}/{r['musts']}" for r in real), key=lambda m: int(m.split("/")[0]))
+        return {"part": "route", "ok": True, "na": True, "count": len(real), "number": worst,
+                "unit": "worst model/60", "floor": None, "delta": None,
+                "note": f"n/a until the flip: the daemon routes with {', '.join(acting)}, "
+                        f"the cases are {cases_pack}'s; "
+                        f"read {worst:.0f}/60 on the model and {musts} musts at worst, for the record",
+                "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
+                "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}
     note = (f"{len(real)} runs, worst {worst:.0f}/60 on the model, every must held; the daemon's whole bar met "
             f"{met}/{len(real)} (it asks effort, context and confidence too)")
     if problems:
@@ -307,6 +328,8 @@ def dm_part(replies: list[dict[str, Any]], alarms: int, cost_usd: float = 0.0, t
         problems.append(f"the ledger of {', '.join(unread)} was not read")
     if turns_ended is not None and turns_ended < len(replies):
         problems.append(f"{turns_ended} turn.ended rows for {len(replies)} replies: the ledger read is short")
+    if turns_ended is not None and turns_ended > len(replies):
+        problems.append(f"{turns_ended} turn.ended rows for {len(replies)} replies: not a fresh session")
     if len(replies) != DM_TURNS:
         problems.append(f"{len(replies)} of {DM_TURNS} replies arrived")
     slow = [r["turn"] for r in replies if r["seconds"] > DM_REPLY_S]
@@ -333,7 +356,8 @@ def verdict(parts: list[dict[str, Any]]) -> str:
     missing = [n for n in PARTS if n not in seen]
     failed = [n for n in PARTS if n in seen and not seen[n]["ok"]]
     if not missing and not failed:
-        return "PASS"
+        na = [n for n in PARTS if seen[n].get("na")]
+        return "PASS" + (f" ({', '.join(na)} n/a until the flip)" if na else "")
     bits = failed + ([", ".join(missing) + ": did not run"] if missing else [])
     return f"FAIL ({', '.join(bits)})"
 
@@ -357,7 +381,9 @@ def report_md(parts: list[dict[str, Any]], run: dict[str, Any]) -> str:
         if p is None:
             out.append(f"| {n} | did not run | - | - | - |")
             continue
-        out.append(f"| {n} | {'PASS' if p['ok'] else 'FAIL'}: {p['note']} | {_fmt(p['number'])} {p['unit']} "
+        # An n/a part's note says so itself ("n/a until the flip: ...").
+        result = p["note"] if p.get("na") else f"{'PASS' if p['ok'] else 'FAIL'}: {p['note']}"
+        out.append(f"| {n} | {result} | {_fmt(p['number'])} {p['unit']} "
                    f"(n={p['count']}) | {_fmt(p['floor'])} | {p['delta'] or '-'} |")
     cost = sum(p.get("cost_usd") or 0 for p in parts)
     wall = sum(p.get("wall_s") or 0 for p in parts)
@@ -383,7 +409,7 @@ def floor_from(parts: list[dict[str, Any]], sha: str, date: str, previous: dict 
     f: dict[str, Any] = {k: v for k, v in (previous or {}).items() if k in ("tb", "route")}
     wrote = []
     for p in parts:
-        if not p["ok"]:
+        if not p["ok"] or p.get("na"):
             continue
         # The floor is this release's passing reading, for the next release to be held to. The slack can compound
         # over releases; each tag's commit of floor.json shows the move, and a re-base is a hand edit.
@@ -408,7 +434,8 @@ def load_floor() -> dict | None:
 def _save(run_dir: Path, p: dict[str, Any]) -> int:
     (run_dir / "parts").mkdir(parents=True, exist_ok=True)
     (run_dir / "parts" / f"{p['part']}.json").write_text(json.dumps(p, indent=1) + "\n")
-    print(f"smoke {p['part']}: {'PASS' if p['ok'] else 'FAIL'} {_fmt(p['number'])} {p['unit']} "
+    label = "n/a" if p.get("na") else "PASS" if p["ok"] else "FAIL"
+    print(f"smoke {p['part']}: {label} {_fmt(p['number'])} {p['unit']} "
           f"(n={p['count']}): {p['note']}")
     return 0 if p["ok"] else 1
 
@@ -427,8 +454,11 @@ def main(argv: list[str]) -> int:
         print(f"{spent(run_dir):.4f}")
         return 0
     if cmd == "route":
+        live = None
+        if rest[:1] == ["--live"]:
+            live, rest = rest[1] or None, rest[2:]
         runs = [route_run(json.loads(Path(x).read_text()), float(w)) for x, w in zip(rest[::2], rest[1::2])]
-        return _save(run_dir, route_part(runs, load_floor()))
+        return _save(run_dir, route_part(runs, load_floor(), live))
     if cmd == "recall":
         log = Path(rest[2]).read_text() if Path(rest[2]).exists() else ""
         return _save(run_dir, recall_part(int(rest[0]), float(rest[1]), count_recall_tests(),
@@ -455,7 +485,7 @@ def main(argv: list[str]) -> int:
                 return 1
             FLOOR_FILE.write_text(json.dumps(f, indent=1) + "\n")
             print(f"smoke: floor written to {FLOOR_FILE} from {', '.join(f['written']['parts'])}")
-        return 0 if v == "PASS" else 1
+        return 0 if v.startswith("PASS") else 1
     print(f"smoke.py: unknown command {cmd!r}", file=sys.stderr)
     return 2
 
