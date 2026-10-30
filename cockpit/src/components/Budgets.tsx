@@ -4,14 +4,14 @@
 // questions waiting (answered with the Actions view's own card) are `BudgetQuestions`, which Money shows above its river
 // while one waits (theseus-v6vc); the panel points up to them. It shows the present: under the time machine it says so,
 // and the questions' buttons are off.
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { AlertTriangle, ArrowUp, Landmark, RotateCcw } from 'lucide-react'
 import type { AwsHandsStatus, BudgetListResult, BudgetRow, ConfirmRequest, DayCeilingBudget, Health, LedgerEntry } from '@protocol'
 import { useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { providerCalls } from '@/lib/derive'
-import { BURN_WINDOW_MS, burnPerHour, dayCeilingView, flatten, handsLines, limitWords, questionsWaiting, recentResets, sessionsOf, sums } from '@/lib/budgets'
+import { BURN_WINDOW_MS, burnPerHour, dayCeilingView, fanOutHeaders, flatten, groupLine, handsLines, limitWords, questionsWaiting, recentResets, sessionsOf, sums, waitingOn, waitingWords } from '@/lib/budgets'
 import { ago, cn, short, stamp, usd } from '@/lib/format'
 import { Empty, Panel, Pill } from '@/components/ui'
 import { ConfirmCard } from '@/components/ConfirmCard'
@@ -35,6 +35,9 @@ export function Budgets({ rows, past }: { rows: LedgerEntry[]; /** the time mach
   const allBurn = useMemo(() => burnPerHour(calls, new Set(flat.map((f) => f.row.session_id)), tick), [calls, flat, tick])
   const hands = (h?.aws?.accounts ?? []).flatMap((a) => (a.hands ? [{ account: a.account, hands: a.hands }] : []))
   const waiting = useMemo(() => questionsWaiting(tree), [tree])
+  // A fan-out's helpers draw under one header, and a parent that waits on its tasks says so (theseus-z9mze.6).
+  const heads = useMemo(() => fanOutHeaders(flat), [flat])
+  const waits = useMemo(() => waitingOn(rows), [rows])
 
   return (
     <Panel help="money.budgets" title={<>Budgets · limits, spend, burn, and the questions waiting</>} icon={<Landmark size={13} />} bodyClassName="p-3"
@@ -68,11 +71,18 @@ export function Budgets({ rows, past }: { rows: LedgerEntry[]; /** the time mach
 
           {!flat.length && <Empty>no execution is open</Empty>}
           <div className="flex flex-col gap-1.5">
-            {flat.map(({ row: r, depth }) => (
-              <BudgetLine key={r.execution_id} r={r} depth={depth} burn={depth === 0 && r.tasks?.length ? treeBurn(r) : burnOf.get(r.session_id) ?? 0}
-                withTasks={depth === 0 && !!r.tasks?.length} open={open === r.session_id} onOpen={() => setOpen(open === r.session_id ? null : r.session_id)}
-                onSession={() => nav(`/session/${r.session_id}`)} now={tick} />
-            ))}
+            {flat.map(({ row: r, depth }) => {
+              const head = heads.get(r.execution_id)
+              const wait = r.state === 'running' ? waits.get(r.session_id) : undefined
+              return (
+                <Fragment key={r.execution_id}>
+                  {head && <div className="num text-[11px] text-ink-dim" style={{ marginLeft: depth * 22 }} data-fan-out={head.id}>{groupLine(head)}</div>}
+                  <BudgetLine r={r} depth={depth} burn={depth === 0 && r.tasks?.length ? treeBurn(r) : burnOf.get(r.session_id) ?? 0}
+                    withTasks={depth === 0 && !!r.tasks?.length} open={open === r.session_id} onOpen={() => setOpen(open === r.session_id ? null : r.session_id)}
+                    onSession={() => nav(`/session/${r.session_id}`)} now={tick} waiting={wait ? waitingWords(wait, r) : undefined} />
+                </Fragment>
+              )
+            })}
           </div>
 
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -137,8 +147,8 @@ function Fig({ label, value, tone }: { label: string; value: string; tone?: 'mon
 }
 
 /** One execution: spent in gold, held as an amber pool, then the figures; a task is indented under its session. */
-function BudgetLine({ r, depth, burn, withTasks, open, onOpen, onSession, now }: {
-  r: BudgetRow; depth: number; burn: number; withTasks: boolean; open: boolean; onOpen: () => void; onSession: () => void; now: number
+function BudgetLine({ r, depth, burn, withTasks, open, onOpen, onSession, now, waiting }: {
+  r: BudgetRow; depth: number; burn: number; withTasks: boolean; open: boolean; onOpen: () => void; onSession: () => void; now: number; waiting?: string
 }) {
   const lim = Math.max(r.limit_usd, 1e-9)
   const spentF = Math.min(1, r.spent_usd / lim)
@@ -150,6 +160,7 @@ function BudgetLine({ r, depth, burn, withTasks, open, onOpen, onSession, now }:
         <Pill tone={r.kind === 'task' ? 'tool' : 'idle'}>{r.kind}</Pill>
         <span className="num text-[10.5px] text-ink-faint">{r.state}</span>
         {r.question && <Pill tone="wait">asks to reset</Pill>}
+        {waiting && <Pill tone="wait" title="its turn waits here for its tasks' reports, and goes on when they are in">{waiting}</Pill>}
         {r.mode === 'notify' && r.spent_usd >= r.limit_usd && (
           <Pill tone="wait" title="past its limit, it goes on: the limit notifies (theseus-usei); Stop on its deck ends the work">past its limit · goes on</Pill>
         )}

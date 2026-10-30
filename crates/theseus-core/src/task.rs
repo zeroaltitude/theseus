@@ -1357,6 +1357,7 @@ pub fn info(
         arrangement: None,
         check: task_of.and_then(|t| t.check.clone()),
         depth: 0,
+        fan_out: e.helper_of().map(str::to_string),
     }
 }
 

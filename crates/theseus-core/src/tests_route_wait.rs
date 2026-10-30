@@ -66,9 +66,9 @@ fn billed(body: &Value) -> Usage {
     }
 }
 
-/// (b): `route.v1` alone in one request, `classify.v4` and `role.v1` in
-/// the other; three judgments, each recorded once; `route.v1`'s cost is its
-/// whole request's, and the batch's two share theirs by question count.
+/// (b): `route.v1` alone in one request, `classify.v4`, `role.v1` and `split.v1` in
+/// the other; four judgments, each recorded once; `route.v1`'s cost is its
+/// whole request's, and the batch's three share theirs by question count.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() {
     let jev = FakeJev::start().unwrap();
@@ -77,7 +77,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     let res = turn(&r.core, None, "Weigh two designs for the log.", None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     until_calls(&jev, 2).await;
-    let rows = until_judged(&r.core.store, 3).await;
+    let rows = until_judged(&r.core.store, 4).await;
     let by_pack: BTreeMap<String, usize> = rows.iter().fold(BTreeMap::new(), |mut m, j| {
         *m.entry(j["pack"].as_str().unwrap().to_string())
             .or_default() += 1;
@@ -88,7 +88,8 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         BTreeMap::from([
             ("classify.v4".to_string(), 1),
             ("role.v1".to_string(), 1),
-            ("route.v8".to_string(), 1)
+            ("route.v8".to_string(), 1),
+            ("split.v1".to_string(), 1)
         ]),
         "each judgment once"
     );
@@ -131,8 +132,11 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         "one pack, its four questions"
     );
     assert_ne!(route["call"]["id"], batch[0]["call"]["id"], "two calls");
-    assert_eq!(batch[0]["call"]["id"], batch[1]["call"]["id"]);
-    assert_eq!(batch[0]["call"]["packs"], 2);
+    assert_eq!(batch.len(), 3, "classify, role and split");
+    assert!(batch
+        .iter()
+        .all(|j| j["call"]["id"] == batch[0]["call"]["id"]));
+    assert_eq!(batch[0]["call"]["packs"], 3);
     let cost = |j: &Value| j["cost_micros"].as_u64().unwrap();
     let tokens = |j: &Value, k: &str| j["usage"][k].as_u64().unwrap();
     let u = billed(&route_req.body);
@@ -153,7 +157,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     assert_eq!(
         batch.iter().map(|j| cost(j)).sum::<u64>(),
         price.cost_micros(&u),
-        "the batch's call, split between its two"
+        "the batch's call, split between its three"
     );
 }
 

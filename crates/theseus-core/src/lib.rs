@@ -358,6 +358,8 @@ mod tests_families;
 #[cfg(test)]
 mod tests_fan_out_cue;
 #[cfg(test)]
+mod tests_fan_out_ops;
+#[cfg(test)]
 mod tests_find_sticks;
 #[cfg(test)]
 mod tests_first_request;
@@ -617,6 +619,8 @@ mod tests_sink_flush;
 mod tests_sink_off_turn;
 #[cfg(test)]
 mod tests_situation;
+#[cfg(test)]
+mod tests_split_shadow;
 #[cfg(test)]
 mod tests_stack;
 #[cfg(test)]

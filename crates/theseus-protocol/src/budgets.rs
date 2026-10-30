@@ -91,6 +91,12 @@ pub struct BudgetRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub carve_held_usd: Option<f64>,
+    /// The fan-out call that opened this task as one of its helpers
+    /// (theseus-z9mze.6), which groups a call's helpers in the Money tree. The
+    /// only marker of a helper: a helper is a task with this set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub fan_out: Option<String>,
     /// Its open tasks, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<BudgetRow>,
