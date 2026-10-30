@@ -80,7 +80,9 @@ pub struct Signals {
     /// The steer reads this one.
     pub since_pass: u32,
     /// Loops since the last passing check, however much was read: the
-    /// stop reads this one, so reading never postpones a deadline.
+    /// stop reads this one, so reading never postpones a deadline. A loop
+    /// that waited on a build in the background holds it where it was
+    /// (theseus-duzha): waiting for a job is not a stall.
     pub since_check: u32,
     /// Of `since_pass`, the loops whose command failed.
     pub failing: u32,
@@ -438,8 +440,9 @@ pub(super) fn edited(t: &Turn<'_>) -> bool {
 
 /// A turn that worked and has not been sent back for a doubt yet, with less
 /// than `share` of its time and of its spend used (a share it has no measure
-/// of counts as none used): the numbers to tell it with, and the turn is
-/// marked sent back, so it is once.
+/// of counts as none used, so a turn with no deadline and no spend limit is
+/// held by the phrase list alone, `close_out_step`): the numbers to tell it
+/// with, and the turn is marked sent back, so it is once.
 pub(super) fn doubtful(
     t: &mut Turn<'_>,
     guarded: bool,
