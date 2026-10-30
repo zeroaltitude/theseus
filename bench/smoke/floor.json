@@ -1,0 +1,17 @@
+{
+ "written": {
+  "sha": "75012080769b14b4cdfa45d97d49107771ce85bc",
+  "date": "2026-10-30",
+  "parts": [
+   "tb"
+  ],
+  "verdict": "FAIL (route, dm)"
+ },
+ "tb": {
+  "cost_per_solved_usd": 0.085108,
+  "wall_s": 1113.0,
+  "price_digest": "8414028cd0f7",
+  "sha": "75012080769b14b4cdfa45d97d49107771ce85bc",
+  "date": "2026-10-30"
+ }
+}

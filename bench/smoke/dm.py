@@ -37,16 +37,24 @@ import time
 from pathlib import Path
 from typing import Any
 
-# The commands are `ls`, which the shipped policy runs without asking (`[policy] allow_argv`): any other command
-# parks the turn on an approval for the owner (seen in the first baseline, 2026-10-30), which a smoke must never do.
-TURNS = [
-    ("greeting", "Hello! This is the release smoke checking in; reply with one short sentence.", None),
-    ("quick fact", "Quick fact, one word: what is the capital of France?", "paris"),
-    ("tool call", "Run `ls -d /usr` and tell me exactly what it printed.", "/usr"),
-    ("task start", "Release smoke: please start a task that runs `ls -d /etc` and reports exactly what it printed. "
-                   "Nothing else; it needs no answer from me.", None),
-    ("task answer", "What did that release-smoke task report that `ls -d /etc` printed?", "/etc"),
-]
+# The tool turns read a file with the file tools, never a shell: on the owner's daemon a command, even `ls -d /usr`,
+# can park the turn on an approval for the owner (both 2026-10-30 baselines), which a smoke must never leave behind.
+# The file is this checkout's Cargo.toml unless SMOKE_DM_FILE names one (it should sit under the daemon's
+# projects_dir, where reads are not asked); the expected text is its own second line, read here.
+DM_FILE = Path(os.environ.get("SMOKE_DM_FILE") or Path(__file__).resolve().parents[2] / "Cargo.toml")
+
+
+def turns(path: Path) -> list[tuple[str, str, str | None]]:
+    want = path.read_text().splitlines()[1].strip()
+    return [
+        ("greeting", "Hello! This is the release smoke checking in; reply with one short sentence.", None),
+        ("quick fact", "Quick fact, one word: what is the capital of France?", "paris"),
+        ("tool call", f"With your file tools (not a shell), read {path} and quote its second line exactly.",
+         want.lower()),
+        ("task start", f"Release smoke: please start a task that reads {path} with its file tools (not a shell) and "
+                       "reports its second line exactly. Nothing else; it needs no answer from me.", None),
+        ("task answer", "What second line did that release-smoke task report?", want.lower()),
+    ]
 FOOTER = re.compile(r"^\[.+ · session (ses_[0-9a-f]+).*\]$")
 # The ledger's kinds that say a turn went wrong, read per session: there is no "notice" or "alarm" kind as such,
 # and daemon-wide rows (a crash, the day's spend) never carry a session.
@@ -105,9 +113,22 @@ def dollars(rows: list[dict[str, Any]]) -> float:
     return total
 
 
-def run(cli: Cli) -> dict[str, Any]:
+def decline_asked(cli: Cli, sessions: list[str]) -> list[str]:
+    """Decline every approval the smoke's sessions asked of the owner (they are the smoke's own), so none is left on
+    his surfaces; the asked ones are returned, and each is a failure of the part."""
+    asked = []
+    for s in sessions:
+        for r in cli.rows(s, "tool.confirm_requested") or []:
+            corr = (r.get("data") or {}).get("correlation_id")
+            if corr:
+                asked.append(corr)
+                cli.run("answer", corr, "decline", timeout=30)
+    return asked
+
+
+def run(cli: Cli, path: Path = DM_FILE) -> dict[str, Any]:
     replies, session, task_session, task_ended, notes = [], None, None, False, []
-    for n, (name, prompt, want) in enumerate(TURNS):
+    for n, (name, prompt, want) in enumerate(turns(path)):
         if name == "task answer" and session:
             created = cli.rows(session, "task.created") or []
             task_session = (created[-1].get("data") or {}).get("session") if created else None
@@ -132,11 +153,15 @@ def run(cli: Cli) -> dict[str, Any]:
             notes.append(f"turn {n} ({name}) got no reply; the rest are not sent")
             break
     sessions = [s for s in (session, task_session) if s]
+    asked = decline_asked(cli, sessions)
+    if asked:
+        notes.append(f"{len(asked)} approvals were asked of the owner, and declined")
     read = {s: cli.rows(s) for s in sessions}
     rows = [row for got in read.values() for row in (got or [])]
     alarms = [{"kind": r["kind"], "session": r["session_id"]} for r in rows if r["kind"] in ALARM_KINDS]
     turns_ended = sum(1 for r in (read.get(session) or []) if r["kind"] == "turn.ended")
-    return {"replies": replies, "alarms": len(alarms), "alarm_rows": alarms, "sessions": sessions,
+    return {"replies": replies, "alarms": len(alarms) + len(asked), "alarm_rows": alarms, "asked": asked,
+            "sessions": sessions,
             "ledger_unread": [s for s, got in read.items() if got is None], "turns_ended": turns_ended,
             "cost_usd": round(dollars(rows), 4), "notes": notes}
 
