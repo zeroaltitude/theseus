@@ -14,9 +14,10 @@ use theseus_client::{outcome, resolve, CallError, Conn};
 use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, JudgeListResult};
 use theseus_protocol::{
     method, notify, CatalogListResult, ConfirmListResult, Event, HealthResult, LedgerTailParams,
-    LedgerTailResult, Message, ProfileListResult, ProfileUseParams, SessionHistoryParams,
-    SessionHistoryResult, SessionListParams, SessionListResult, SessionOpenParams,
-    SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
+    LedgerTailResult, Message, ProfileListResult, ProfileReleaseResult, ProfileUseParams,
+    SessionHistoryParams, SessionHistoryResult, SessionListParams, SessionListResult,
+    SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams,
+    TurnSubmitResult,
 };
 
 use crate::pages::PageArgs;
@@ -1634,12 +1635,16 @@ pub async fn profile(conn: &mut Conn, json: bool, cmd: ProfileCmd) -> Result<()>
         }
         ProfileCmd::Release => {
             let v = conn.request(method::PROFILE_RELEASE, Value::Null).await?;
-            output(json, v, |v: Value| {
-                let word = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("?").to_string();
-                let (live, previous) = (word("live"), word("previous"));
-                match live == previous {
-                    true => println!("live profile: {live} (from config; nothing to release)"),
-                    false => println!("live profile: {live} (from config; was {previous})"),
+            output(json, v, |r: ProfileReleaseResult| {
+                match r.released {
+                    true => println!(
+                        "released the pin on {}; the live profile is {} (from config), and Jev chooses the model when route.v10 acts",
+                        r.previous, r.live
+                    ),
+                    false => println!(
+                        "nothing to release: the live profile {} was already the config's",
+                        r.live
+                    ),
                 }
                 Ok(())
             })

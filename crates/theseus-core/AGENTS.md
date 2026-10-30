@@ -1784,7 +1784,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `theseus profile release`): `profile.use` writes META `live_profile` and the source `runtime`, which `live_pin` reads
     as the operator's word for a model; `profile.release` writes an empty word there (read at start as "the config's
     `[model] live`, source `config`"), the same frame as the `SWITCHED` time, a `profile.changed` row and the
-    notification. With no runtime profile it answers the live profile as both `previous` and `live` and writes nothing.
+    notification. The answer, a `ProfileReleaseResult`, carries `released` (a pin was cleared), because `previous == live`
+    cannot say so (the pin and the config's profile are often one name). With no runtime profile it answers the live
+    profile as both with `released` false and writes nothing.
     Tests: `rpc/tests_live_release.rs`, the `profile_release*` goldens.
   - **A pack's own rollback rules win over adoption's** (theseus-ervz9; `ladder/rules.rs::rules_of`): the file's rules,
     then the adoption table's for the pack id that its file does not already declare (the same name, and for a label

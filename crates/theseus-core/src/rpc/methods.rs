@@ -1170,28 +1170,32 @@ impl Core {
 
     /// Release the runtime live profile (theseus-ervz9): the pin `profile.use`
     /// set ends and the live profile is the config's `[model] live` again,
-    /// source `config`. Persisted so it survives restart, as `use` is. With
-    /// nothing to release (the live profile is the config's already) it
-    /// answers the live profile as both `previous` and `live`, and writes
-    /// and tells nothing.
+    /// source `config`. Persisted so it survives restart, as `use` is. The
+    /// answer says whether a pin was cleared (`released`): `previous == live`
+    /// cannot, since the pin and the config's profile are often one name.
+    /// With nothing to release (the live profile is the config's already) it
+    /// answers the live profile as both `previous` and `live` with `released`
+    /// false, and writes and tells nothing.
     pub(super) fn profile_release(
         &self,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::ProfileReleaseResult, RpcFailure> {
-        let answer = |c: &ProfileChanged| theseus_protocol::ProfileReleaseResult {
-            // Red: the fact is not carried yet.
-            released: false,
+        let answer = |c: &ProfileChanged, released: bool| theseus_protocol::ProfileReleaseResult {
+            released,
             previous: c.previous.clone(),
             live: c.live.clone(),
             by: c.by.clone(),
         };
         let (live, source) = self.live_profile();
         if source != "runtime" {
-            return Ok(answer(&ProfileChanged {
-                previous: live.clone(),
-                live,
-                by: conn.actor(None),
-            }));
+            return Ok(answer(
+                &ProfileChanged {
+                    previous: live.clone(),
+                    live,
+                    by: conn.actor(None),
+                },
+                false,
+            ));
         }
         let name = self.cfg.model.live.clone();
         let changed = self
@@ -1199,7 +1203,7 @@ impl Core {
             .map_err(RpcFailure::invalid)?;
         let m = Message::from(theseus_protocol::Event::ProfileChanged(changed.clone()));
         conn.tx.notify(&crate::outbound::Note::new(&m), "policy");
-        Ok(answer(&changed))
+        Ok(answer(&changed, true))
     }
 
     fn switch_profile(&self, name: &str, by: &str) -> Result<ProfileChanged> {
