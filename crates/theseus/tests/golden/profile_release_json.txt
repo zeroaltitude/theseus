@@ -2,6 +2,6 @@ $ theseus --json profile release
 --- requests
 profile.release
 --- stdout
-{"live":"quick","previous":"deep"}
+{"by":"the CLI","live":"quick","previous":"deep","released":true}
 --- stderr
 --- exit 0

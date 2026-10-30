@@ -2,6 +2,6 @@ $ theseus profile release
 --- requests
 profile.release
 --- stdout
-live profile: quick (from config; nothing to release)
+nothing to release: the live profile quick was already the config's
 --- stderr
 --- exit 0

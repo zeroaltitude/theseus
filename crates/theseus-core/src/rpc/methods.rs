@@ -1174,14 +1174,24 @@ impl Core {
     /// nothing to release (the live profile is the config's already) it
     /// answers the live profile as both `previous` and `live`, and writes
     /// and tells nothing.
-    pub(super) fn profile_release(&self, conn: Conn<'_>) -> Result<ProfileChanged, RpcFailure> {
+    pub(super) fn profile_release(
+        &self,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::ProfileReleaseResult, RpcFailure> {
+        let answer = |c: &ProfileChanged| theseus_protocol::ProfileReleaseResult {
+            // Red: the fact is not carried yet.
+            released: false,
+            previous: c.previous.clone(),
+            live: c.live.clone(),
+            by: c.by.clone(),
+        };
         let (live, source) = self.live_profile();
         if source != "runtime" {
-            return Ok(ProfileChanged {
+            return Ok(answer(&ProfileChanged {
                 previous: live.clone(),
                 live,
                 by: conn.actor(None),
-            });
+            }));
         }
         let name = self.cfg.model.live.clone();
         let changed = self
@@ -1189,7 +1199,7 @@ impl Core {
             .map_err(RpcFailure::invalid)?;
         let m = Message::from(theseus_protocol::Event::ProfileChanged(changed.clone()));
         conn.tx.notify(&crate::outbound::Note::new(&m), "policy");
-        Ok(changed)
+        Ok(answer(&changed))
     }
 
     fn switch_profile(&self, name: &str, by: &str) -> Result<ProfileChanged> {

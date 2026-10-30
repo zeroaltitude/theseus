@@ -2021,7 +2021,7 @@ fn profile_list_and_use() {
 /// `[model] live`; it says what it replaced, or that there was nothing to release.
 #[test]
 fn profile_release() {
-    let released = json!({"live": "quick", "previous": "deep"});
+    let released = json!({"released": true, "live": "quick", "previous": "deep", "by": "the CLI"});
     golden(
         "profile_release",
         &run(
@@ -2036,13 +2036,24 @@ fn profile_release() {
             vec![step("profile.release", released)],
         ),
     );
+    // The pin and the config's live profile are one name: released is the fact, not live != previous.
+    golden(
+        "profile_release_same_name",
+        &run(
+            &["profile", "release"],
+            vec![step(
+                "profile.release",
+                json!({"released": true, "live": "quick", "previous": "quick", "by": "the CLI"}),
+            )],
+        ),
+    );
     golden(
         "profile_release_nothing",
         &run(
             &["profile", "release"],
             vec![step(
                 "profile.release",
-                json!({"live": "quick", "previous": "quick"}),
+                json!({"released": false, "live": "quick", "previous": "quick", "by": "the CLI"}),
             )],
         ),
     );

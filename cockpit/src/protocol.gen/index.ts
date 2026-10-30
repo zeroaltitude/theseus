@@ -482,6 +482,7 @@ export type * from './PrefixReportParams';
 export type * from './ProfileChanged';
 export type * from './ProfileInfo';
 export type * from './ProfileListResult';
+export type * from './ProfileReleaseResult';
 export type * from './ProfileTtl';
 export type * from './ProfileUseParams';
 export type * from './Progress';

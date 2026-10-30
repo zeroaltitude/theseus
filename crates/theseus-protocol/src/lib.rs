@@ -1964,6 +1964,19 @@ pub struct ProfileUseParams {
     pub name: String,
 }
 
+/// `profile.release`'s answer (theseus-ervz9): what the live profile was and is, and whether a runtime
+/// pin was actually cleared. `previous == live` says nothing about that (the pin and the config's
+/// `[model] live` are often the same name), so the fact is carried, not inferred.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProfileReleaseResult {
+    /// A runtime pin (`profile.use`) was cleared; false when the live profile was already the config's.
+    pub released: bool,
+    pub previous: String,
+    pub live: String,
+    pub by: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ProfileChanged {

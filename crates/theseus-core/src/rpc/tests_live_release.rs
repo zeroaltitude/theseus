@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_judge::fake::FakeJev;
-use theseus_protocol::ProfileChanged;
+use theseus_protocol::ProfileReleaseResult;
 
 use super::tests::roundtrip;
 use super::tests_live_pin::{ask, result};
@@ -37,7 +37,7 @@ fn core_on(store: Store) -> Arc<Core> {
     .unwrap()
 }
 
-fn changed(v: Value) -> ProfileChanged {
+fn changed(v: Value) -> ProfileReleaseResult {
     serde_json::from_value(v).unwrap()
 }
 
@@ -54,6 +54,7 @@ async fn a_release_returns_the_runtime_profile_to_the_configs_live() {
     );
     let c = changed(call(&core, "profile.release", Value::Null).await);
     assert_eq!((c.previous.as_str(), c.live.as_str()), ("glm", "sonnet"));
+    assert!(c.released, "a runtime pin was cleared");
     assert_eq!(
         core.live_profile(),
         ("sonnet".to_string(), "config".to_string())
@@ -111,11 +112,44 @@ async fn releasing_nothing_changes_nothing() {
     let core = core_on(Store::open(&dir.join("store")).unwrap());
     let c = changed(call(&core, "profile.release", Value::Null).await);
     assert_eq!((c.previous.as_str(), c.live.as_str()), ("sonnet", "sonnet"));
+    assert!(!c.released, "no runtime pin existed");
     assert_eq!(
         core.live_profile(),
         ("sonnet".to_string(), "config".to_string())
     );
     assert!(crate::test_support::rows(&core, "profile.changed").is_empty());
+}
+
+/// The case that fooled the first reading: the pin and the config's `[model] live` are the same
+/// name (`sonnet` is both). `previous == live` on either side, so only the carried fact tells a
+/// release from nothing to release: the first release clears the pin, the second finds none.
+#[tokio::test]
+async fn a_pin_on_the_configs_own_profile_is_still_released() {
+    let dir = crate::scratch::dir("t");
+    let core = core_on(Store::open(&dir.join("store")).unwrap());
+    call(&core, "profile.use", json!({"name": "sonnet"})).await;
+    assert_eq!(
+        core.live_profile(),
+        ("sonnet".to_string(), "runtime".to_string())
+    );
+    let first = changed(call(&core, "profile.release", Value::Null).await);
+    assert_eq!(
+        (first.previous.as_str(), first.live.as_str(), first.released),
+        ("sonnet", "sonnet", true)
+    );
+    assert_eq!(
+        core.live_profile(),
+        ("sonnet".to_string(), "config".to_string())
+    );
+    let second = changed(call(&core, "profile.release", Value::Null).await);
+    assert_eq!(
+        (
+            second.previous.as_str(),
+            second.live.as_str(),
+            second.released
+        ),
+        ("sonnet", "sonnet", false)
+    );
 }
 
 /// The whole point: under route.v10, `profile use haiku` pins (`reason =

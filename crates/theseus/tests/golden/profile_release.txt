@@ -2,6 +2,6 @@ $ theseus profile release
 --- requests
 profile.release
 --- stdout
-live profile: quick (from config; was deep)
+released the pin on deep; the live profile is quick (from config), and Jev chooses the model when route.v10 acts
 --- stderr
 --- exit 0
