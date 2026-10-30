@@ -135,3 +135,40 @@ async fn the_live_route_packs_state_carries_no_facts_yet() {
         assert!(state.get(k).is_none(), "{k} in route.v8's state: {state}");
     }
 }
+
+fn said_with(input: u64, read: u64, wrote: u64) -> Node {
+    let mut n = said("claude-sonnet-5-5", 0);
+    if let Body::AssistantMessage { usage, .. } = &mut n.body {
+        usage.input_tokens = input;
+        usage.cache_read_input_tokens = read;
+        usage.cache_creation_input_tokens = wrote;
+    }
+    n
+}
+
+/// theseus-h66v4 row 3, finding B: the table reads "a long context" and "above
+/// 100K tokens", so the state carries the conversation's size: the last
+/// request's prompt as the provider counted it (new, cached and written), else
+/// a quarter of the text's bytes.
+#[test]
+fn the_estimate_is_the_last_prompt_the_provider_counted() {
+    let nodes = [
+        asked("one"),
+        said_with(300, 90_000, 50_000),
+        asked("two"),
+        said_with(700, 130_000, 10_000),
+        asked("three"),
+    ];
+    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    assert_eq!(f.est_tokens, Some(700 + 130_000 + 10_000));
+}
+
+#[test]
+fn without_a_counted_reply_the_estimate_is_a_quarter_of_the_text() {
+    let text = "x".repeat(4_000);
+    let nodes = [asked(&text), said("claude-sonnet-5-5", 0), asked(&text)];
+    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    assert_eq!(f.est_tokens, Some(2_000), "8,002 bytes of text, a quarter");
+    let f = facts_of(&[], false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    assert_eq!(f.est_tokens, Some(0));
+}

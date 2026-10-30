@@ -242,6 +242,11 @@ pub struct JudgeService {
     /// A test's judge in Jev's place for the rerank (a channel for Jev).
     #[cfg(test)]
     rerank_judge: OnceLock<Arc<dyn Judge>>,
+    /// A test's pack in a name's place (`stand_in`): route.v10 acts as
+    /// `route.v8` while `ROUTE_PACK` still names v8, so every name the
+    /// daemon compares keeps meaning what it means.
+    #[cfg(test)]
+    stand_ins: Mutex<BTreeMap<String, Arc<Pack>>>,
     /// `security.v3`'s notices' brake (`notice`): today's notices and
     /// noise labels, and a pause.
     brake: notice::Brake,
@@ -326,6 +331,8 @@ impl JudgeService {
             corrections: Default::default(),
             #[cfg(test)]
             rerank_judge: OnceLock::new(),
+            #[cfg(test)]
+            stand_ins: Mutex::default(),
             brake: notice::Brake::default(),
             me: me.clone(),
             narrator: OnceLock::new(),

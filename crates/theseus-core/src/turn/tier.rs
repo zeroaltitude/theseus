@@ -287,6 +287,8 @@ mod tests {
             persona: None,
             seal: None,
             personal: None,
+            model: None,
+            context: None,
         }
     }
 

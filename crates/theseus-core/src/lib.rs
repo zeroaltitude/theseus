@@ -574,6 +574,8 @@ mod tests_route_measure;
 #[cfg(test)]
 mod tests_route_model;
 #[cfg(test)]
+mod tests_route_open;
+#[cfg(test)]
 mod tests_route_rows;
 #[cfg(test)]
 mod tests_route_vocab;

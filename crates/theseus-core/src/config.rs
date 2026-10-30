@@ -1899,6 +1899,26 @@ impl Config {
         self.resolved.profiles.insert(name.into(), p);
     }
 
+    /// A test's `dsflash` profile: Flash on the `deepseek` provider, whose key
+    /// is a real-looking `op://` reference (the template's is a placeholder).
+    #[cfg(test)]
+    pub(crate) fn serve_deepseek_flash(&mut self) {
+        self.copy_profile("dsflash", "sonnet");
+        let p = self.resolved.profiles.get_mut("dsflash").expect("copied");
+        p.provider = "deepseek".into();
+        p.model = "deepseek-flash".into();
+        self.secrets.insert(
+            "deepseek_api_key".into(),
+            "op://test-vault/deepseek/notesPlain".into(),
+        );
+    }
+
+    /// A test's config without profile `name`.
+    #[cfg(test)]
+    pub(crate) fn remove_profile(&mut self, name: &str) {
+        self.resolved.profiles.remove(name);
+    }
+
     /// A test's `glm` profile on `model` (US origin, on the `zai` fake), a
     /// second provider with a model of its own (theseus-a1wvq.10).
     #[cfg(test)]

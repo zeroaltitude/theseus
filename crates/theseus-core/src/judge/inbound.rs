@@ -928,6 +928,8 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
                 band,
             })
         }),
+        model: None,
+        context: None,
     })
 }
 

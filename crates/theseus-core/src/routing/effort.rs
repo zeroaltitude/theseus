@@ -124,6 +124,9 @@ pub enum EffortReason {
     /// A later answer that disagrees with a sticky hold ended it early: the
     /// request carries Jev's level (theseus-u5a37, [`reverts`]).
     StickyReverted,
+    /// route.v10: the model's own default effort ran, because Jev answered
+    /// `default` or its answer was under the question's confirm bar.
+    ModelDefault,
 }
 
 impl EffortReason {
@@ -145,6 +148,7 @@ impl EffortReason {
             EffortReason::StickyReverted => "sticky_reverted",
             EffortReason::Floored => "floored",
             EffortReason::Gated => "gated",
+            EffortReason::ModelDefault => "model_default",
         }
     }
 }
@@ -189,6 +193,7 @@ impl EffortDecision {
                 | EffortReason::StickyUnsure
                 | EffortReason::StickyReverted
                 | EffortReason::Floored
+                | EffortReason::ModelDefault
         )
     }
 }
@@ -296,6 +301,39 @@ pub fn decide(
             (false, false) => EffortReason::Clamped,
         },
         ran: Some(ran),
+        sent: None,
+    }
+}
+
+/// route.v10's effort question, by its id in the pack: route.v9's
+/// `reply_effort` with `leave` renamed `default`.
+pub const OPEN_QUESTION: &str = "effort";
+
+/// What the turn's profile and model say about effort, for route.v10, where
+/// Jev's answer is the effort: no bounds, no high-effort gate, no floor, no
+/// fixed profile (a pinned turn is not asked).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenRuns {
+    /// The profile's own `effort`, which a turn Jev did not decide runs at.
+    pub own: Option<Effort>,
+    /// The model's own default effort (`CatalogEntry.default_effort`).
+    pub default: Option<Effort>,
+    /// The model's catalog row takes effort.
+    pub takes: bool,
+}
+
+/// route.v10's effort rule. Jev's level, when the answer reached the bar, is
+/// what the request carries, whatever the level and wherever the model sits;
+/// `default`, or an answer under the bar, is the model's own default effort.
+pub fn decide_open(
+    _runs: OpenRuns,
+    _answer: &EffortAnswer,
+    _acts: bool,
+    _carried: bool,
+) -> EffortDecision {
+    EffortDecision {
+        reason: EffortReason::Recorded,
+        ran: None,
         sent: None,
     }
 }

@@ -235,8 +235,21 @@ pub fn is_placed(rung: Rung, has_row: bool) -> bool {
 impl super::JudgeService {
     /// A pack version by name: compiled in, else learned.
     pub fn pack(&self, name: &str) -> Option<Arc<Pack>> {
+        #[cfg(test)]
+        if let Some(p) = self.stand_ins.lock().unwrap().get(name) {
+            return Some(p.clone());
+        }
         theseus_judge::pack::by_name(name)
             .or_else(|| self.lineage.get(&self.store, name).map(|l| l.pack))
+    }
+
+    /// A test's `pack` asked in `name`'s place, from the next ask on.
+    #[cfg(test)]
+    pub(crate) fn stand_in(&self, name: &str, pack: Pack) {
+        self.stand_ins
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), Arc::new(pack));
     }
 
     /// The compiled-in version at the head of `name`'s lineage (itself for

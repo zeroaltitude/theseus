@@ -37,7 +37,27 @@ fn the_template_declares_deepseek_and_its_key_as_a_secret_ref() {
     let r = &cfg.secrets["deepseek_api_key"];
     assert!(r.starts_with("op://"), "{r}");
     cfg.validate().unwrap();
-    assert_eq!(cfg.provider_without_key("deepseek"), None);
+    // The shipped reference is a placeholder for the owner's own item: it is not a key.
+    assert_eq!(
+        cfg.provider_without_key("deepseek").as_deref(),
+        Some("deepseek: no key")
+    );
+    // Pointed at a real item (a name with no placeholder marks in it), it is one.
+    let mut real = Config::example();
+    real.secrets.insert(
+        "deepseek_api_key".into(),
+        "op://vault/deepseek/notesPlain".into(),
+    );
+    assert_eq!(real.provider_without_key("deepseek"), None);
+}
+
+/// The words are the whole message: no vault path, no item, no key.
+#[test]
+fn the_no_key_words_carry_no_reference() {
+    let cfg = Config::example();
+    let words = cfg.provider_without_key("deepseek").unwrap();
+    assert_eq!(words, "deepseek: no key");
+    assert!(!words.contains("op://") && !words.contains("vault"));
 }
 
 /// No provider block, or a block whose secret entry is gone: the config

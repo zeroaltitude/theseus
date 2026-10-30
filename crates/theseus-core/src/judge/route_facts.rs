@@ -39,6 +39,7 @@ pub(crate) fn facts_of(
         restricted_models: restricted,
         last_reply_model: models().next_back().map(str::to_string),
         task_models,
+        est_tokens: None,
     }
 }
 
