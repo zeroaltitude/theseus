@@ -1433,6 +1433,19 @@ mod tests {
                     "rollback [labels_per_day on_path_p95]",
                 ],
             ),
+            (
+                "route.v10",
+                &[
+                    "Inbound Inbound SessionProfile Route",
+                    "context Choice decides [short full]",
+                    "effort Choice decides [low medium high xhigh max default]",
+                    "model Choice decides [haiku sonnet opus fable deepseek_flash]",
+                    "persona Choice from Personas + [prior] only_when Personas",
+                    "personal Choice [none elicit expose]",
+                    "seal Choice [yes no] only_when ThreadNow",
+                    "rollback [labels_per_day on_path_p95 pins_per_day]",
+                ],
+            ),
         ];
         for (name, lines) in want {
             let p = by_name(name).unwrap_or_else(|| panic!("{name} is embedded"));
@@ -1550,8 +1563,8 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            32,
-            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, \
+            33,
+            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1 \
              and content.v1 to v3"

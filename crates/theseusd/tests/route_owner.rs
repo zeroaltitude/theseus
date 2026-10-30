@@ -215,3 +215,93 @@ fn jev_raises_a_session_and_two_chats_bring_it_back() {
     );
     assert_eq!(rows[4]["switch"], true);
 }
+
+// ---- the pins (theseus-h66v4, row 1): cases W39 and W40 of route.v10's test set
+//
+// The design's sixty cases are 58 replay cases (`crates/theseus-judge/packs/route.v10.cases.toml`)
+// and these two, because a pin is the operator's word and is never asked of Jev. They run on
+// today's acting pack, route.v8, whose `mode` verdict a pinned turn still records (it is
+// asked in shadow and never applied); once `decide()` reads route.v10's `model` answer
+// (row 3), the pinned turn asks no `model` question at all, and these two keep holding.
+// W40 is a `must` case of the design's fourteen: the pin wins over the Fable case.
+
+/// The ledger's `route.decided` rows, oldest turn first.
+fn decided(dir: &Path) -> Vec<Value> {
+    let (_, ledger, e) = theseus(dir, &["ledger", "-n", "1000", "-k", "route.decided"]);
+    let rows: Value =
+        serde_json::from_str(&ledger).unwrap_or_else(|x| panic!("{x}: {ledger}\n{e}"));
+    let mut rows: Vec<Value> = rows["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["data"].clone())
+        .collect();
+    rows.sort_by_key(|d| d["turn"].as_str().unwrap_or("").to_string());
+    rows
+}
+
+/// The `model` each request to the stand-in model named, in order.
+fn models_sent(model: &FakeModel) -> Vec<String> {
+    model
+        .requests()
+        .iter()
+        .filter_map(|q| q["model"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// W39: `-P fable` on "thanks!" is honored. The pin names the model, so the turn ran on Fable
+/// (`reason = pinned`) though Jev, asked, called the message a thank-you for Haiku.
+#[test]
+fn w39_a_pinned_fable_on_a_thank_you_is_honored() {
+    let model = FakeModel::start(|_| vec![]);
+    let jev = FakeJev::start().unwrap();
+    let dir = trial(&model, &jev);
+    let _daemon = daemon(dir.path());
+    script(&jev, "trivial", "low", 0.97);
+    let (code, out, err) = theseus(dir.path(), &["ask", "-P", "fable", "thanks!"]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let rows = decided(dir.path());
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["reason"], "pinned", "{:?}", rows[0]);
+    assert_eq!(rows[0]["profile"], "fable", "{:?}", rows[0]);
+    assert_eq!(
+        rows[0]["switch"], false,
+        "a pin is not a switch Jev made: {:?}",
+        rows[0]
+    );
+    assert_eq!(models_sent(&model), ["claude-fable-5-1"]);
+}
+
+/// W40 (`must`): a pinned Haiku beats a Fable-shaped design question: the operator's named model
+/// wins over the case the table would send to Fable.
+///
+/// The design words the pin as `theseus profile use haiku`. Today that command changes the
+/// daemon's *live* profile (the baseline Jev routes from, `[model] live`), which is no pin: with
+/// it set to Haiku, Jev's `sophisticated` verdict still moved this same question to Opus
+/// (`reason = verdict`, seen 2026-10-30 on this lane). The per-turn pin, `-P haiku`, is the one
+/// `routing::chosen` reads, so that is what this test pins. Making `profile use` a pin is a
+/// decision for the row that rewrites `decide()` (the report names it).
+#[test]
+fn w40_a_pinned_haiku_beats_a_fable_shaped_question() {
+    let model = FakeModel::start(|_| vec![]);
+    let jev = FakeJev::start().unwrap();
+    let dir = trial(&model, &jev);
+    let _daemon = daemon(dir.path());
+    // Jev, asked, calls it the hardest reasoning there is.
+    script(&jev, "sophisticated", "max", 0.97);
+    let (code, out, err) = theseus(
+        dir.path(),
+        &[
+            "ask",
+            "-P",
+            "haiku",
+            "design the memory layer for a million turns",
+        ],
+    );
+    assert_eq!(code, 0, "{out}\n{err}");
+    let rows = decided(dir.path());
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["profile"], "haiku", "{:?}", rows[0]);
+    assert_eq!(rows[0]["reason"], "pinned", "{:?}", rows[0]);
+    assert_eq!(models_sent(&model), ["claude-haiku-5-5"]);
+}
