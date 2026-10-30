@@ -370,9 +370,9 @@ impl Core {
             r.asked += 1;
             // The request is one judgment's state.
             let sent = send_on_runtime(rt, &provider, request);
-            let cost = sent
-                .as_ref()
-                .map_or(need, |resp| self.runner.priced(resp, &target.model, need));
+            let cost = sent.as_ref().map_or(need, |resp| {
+                self.runner.priced(resp, &target.model, need, 0)
+            });
             hold.settle(cost);
             // A failed request may have been billed: booked at its reservation.
             spent += cost;

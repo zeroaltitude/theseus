@@ -765,7 +765,7 @@ impl Core {
         // A failed request may have been billed: booked at its reservation.
         let cost = reply
             .as_ref()
-            .map_or(need, |r| self.runner.priced(r, &target.model, need));
+            .map_or(need, |r| self.runner.priced(r, &target.model, need, 0));
         hold.settle(cost);
         prop.writer_usd = micros_to_usd(cost);
         let reply = match reply {

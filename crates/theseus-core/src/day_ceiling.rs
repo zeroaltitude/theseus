@@ -410,6 +410,7 @@ impl TurnRunner {
         resp: &crate::provider::ModelResponse,
         asked: &str,
         need: Micros,
+        _at_ms: u64,
     ) -> Micros {
         self.catalog
             .get(&resp.model)

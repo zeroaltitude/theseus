@@ -329,7 +329,7 @@ impl Core {
         let answered = job.provider.stream_message(&request, &mut quiet).await;
         let cost = answered
             .as_ref()
-            .map_or(need, |r| self.runner.priced(r, &job.target.model, need));
+            .map_or(need, |r| self.runner.priced(r, &job.target.model, need, 0));
         hold.settle(cost);
         let cost_usd = micros_to_usd(cost);
         job.st.spend(&job.today, cost_usd);

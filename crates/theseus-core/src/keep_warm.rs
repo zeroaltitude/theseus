@@ -689,7 +689,7 @@ impl TurnRunner {
                 ));
             }
         };
-        let cost = self.priced(&resp, &b.target.model, need);
+        let cost = self.priced(&resp, &b.target.model, need, 0);
         let u = &resp.usage;
         let mut data = json!({
             "provider": b.target.provider,

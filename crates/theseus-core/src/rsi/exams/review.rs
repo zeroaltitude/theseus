@@ -164,7 +164,7 @@ impl Reviewer for CoreReviewer<'_> {
             let answered = provider.stream_message(&req, &mut quiet).await;
             let cost = answered
                 .as_ref()
-                .map_or(need, |r| c.runner.priced(r, &target.model, need));
+                .map_or(need, |r| c.runner.priced(r, &target.model, need, 0));
             hold.settle(cost);
             c.runner.self_budget.settle(held, micros_to_usd(cost))?;
             let r = answered?;

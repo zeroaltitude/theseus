@@ -219,7 +219,7 @@ impl Core {
         let answered = provider.stream_message(&request, &mut quiet).await;
         let cost = answered
             .as_ref()
-            .map_or(need, |r| self.runner.priced(r, &target.model, need));
+            .map_or(need, |r| self.runner.priced(r, &target.model, need, 0));
         hold.settle(cost);
         let cut = answered
             .as_ref()
