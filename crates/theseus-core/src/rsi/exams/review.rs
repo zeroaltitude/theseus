@@ -160,11 +160,12 @@ impl Reviewer for CoreReviewer<'_> {
                     return Err(anyhow!(e));
                 }
             };
+            let started_ms = theseus_protocol::now_unix_ms();
             let mut quiet = |_: crate::provider::Delta<'_>| {};
             let answered = provider.stream_message(&req, &mut quiet).await;
-            let cost = answered
-                .as_ref()
-                .map_or(need, |r| c.runner.priced(r, &target.model, need, 0));
+            let cost = answered.as_ref().map_or(need, |r| {
+                c.runner.priced(r, &target.model, need, started_ms)
+            });
             hold.settle(cost);
             c.runner.self_budget.settle(held, micros_to_usd(cost))?;
             let r = answered?;

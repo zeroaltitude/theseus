@@ -1776,6 +1776,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     step down, no detours, `CODING_BASE`); open, a checkpoint has no base, no `max_switches` and no step down (the cache
     hold is its one hysteresis), and a brief has no fixed first profile. Tests: `tests_job_ask.rs` (the rule),
     `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
+    **A background call settles at the rate in force when it started** (theseus-058cl): `TurnRunner::priced(resp,
+    asked, need, at_ms)` takes the call's start, as the turn's own calls do (`cost_micros_at`), so a DeepSeek call in its
+    off-peak hours books at half; every site passes the clock it read just before its request, and the reserve it holds
+    (`audit_reserve`) stays at the peak price. Tests: `tests_priced_off_peak.rs`.
   - **Routing** (step 25e, theseus-0j2.11): the route pack (`judge::inbound::ROUTE_PACK`: `route.v5` since
     theseus-c1uz, route.v4's `mode` (with its `review`) and `reply_effort` word for word and two questions that decide
     nothing for its promotion, `persona` and `seal` (below), live at once in place of `route.v4`, `route.v3`, `route.v2` and `route.v1`, which stay embedded) asks at the inbound point in a request of its own, beside

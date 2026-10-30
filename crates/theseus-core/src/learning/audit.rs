@@ -369,9 +369,10 @@ impl Core {
             };
             r.asked += 1;
             // The request is one judgment's state.
+            let started_ms = theseus_protocol::now_unix_ms();
             let sent = send_on_runtime(rt, &provider, request);
             let cost = sent.as_ref().map_or(need, |resp| {
-                self.runner.priced(resp, &target.model, need, 0)
+                self.runner.priced(resp, &target.model, need, started_ms)
             });
             hold.settle(cost);
             // A failed request may have been billed: booked at its reservation.
