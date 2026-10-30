@@ -71,13 +71,20 @@ pub const ROUTE_PACK: &str = "route.v8";
 /// `role.v1` (no request of its own), live: asked only for the owner's own
 /// message in a place only the owner writes in (`Inbound.capture`).
 pub const DIRECTIVE_PACK: &str = crate::capture::PACK;
+/// SPLIT (theseus-z9mze.5), at `inbound`, batched with `classify` and `role`
+/// (no request of its own), in shadow: whether the work a message asks for
+/// divides by area. It decides nothing; the static fan-out cue
+/// (`turn/route_step/fan_out_cue.rs`) does, and the two are read against each
+/// other by the turn their rows share.
+pub const SPLIT_PACK: &str = "split.v1";
 /// The packs asked at `inbound`, in the order they are asked.
-pub const PACKS: [&str; 5] = [
+pub const PACKS: [&str; 6] = [
     CLASSIFY_PACK,
     ROLE_PACK,
     ROUTE_PACK,
     DIRECTIVE_PACK,
     ONTO_PACK,
+    SPLIT_PACK,
 ];
 
 /// Whether `pack` is `onto.v1` or a learned version standing in its place.
@@ -384,6 +391,8 @@ impl JudgeService {
             .filter(|(m, _, _)| *m != PackMode::Off)
             .filter(|(_, _, root)| *root != DIRECTIVE_PACK || msg.capture)
             .filter(|(_, _, root)| *root != ONTO_PACK || (!route_only && self.onto_wanted(&msg)))
+            // A task's message is its parent's brief, never a person's ask to divide.
+            .filter(|(_, _, root)| *root != SPLIT_PACK || !msg.task)
             .filter(|(_, _, root)| !route_only || *root == ROUTE_PACK)
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))

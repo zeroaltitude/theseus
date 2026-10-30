@@ -2,6 +2,7 @@
 // task's spend is its parent's too, so adding every row would count it twice), the burn per hour over a window of
 // the history's `provider.call` rows, and the recent resets from its `budget.reset` rows. Pure, so `npm test` runs it.
 import type { AwsHandsStatus, BudgetRow, DayCeilingBudget, LedgerEntry } from '@protocol'
+import { usd } from './figures.ts'
 
 export const HOUR_MS = 3_600_000
 /** The window the burn is measured over: the last hour. */
@@ -19,6 +20,60 @@ export function flatten(rows: readonly BudgetRow[]): Flat[] {
   }
   for (const r of rows) walk(r, 0)
   return out
+}
+
+/** One fan-out's helpers (theseus-z9mze.6): what a call's rows add up to, for the one header above them. Worked out here
+ *  from the rows the daemon sent, never a row of its own, so each helper stays its own row with its own carve and spend,
+ *  and the money on screen is the kernel's. */
+export interface FanOutGroup { id: string; helpers: number; carved: number; spent: number; done: number }
+
+/** States a task does not leave: a helper in one of them has reported, or will not. */
+const ENDED = new Set(['complete', 'failed', 'cancelled', 'budget_exhausted'])
+
+/** The header each fan-out gets, keyed by the execution of its first helper in reading order: the line draws above that
+ *  row. Only a call's helpers that are in the tree count, so a helper the daemon has closed leaves its group's figures. */
+export function fanOutHeaders(flat: readonly Flat[]): Map<string, FanOutGroup> {
+  const groups = new Map<string, FanOutGroup>()
+  const first = new Map<string, string>()
+  for (const { row } of flat) {
+    const id = row.fan_out
+    if (!id) continue
+    let g = groups.get(id)
+    if (!g) { g = { id, helpers: 0, carved: 0, spent: 0, done: 0 }; groups.set(id, g); first.set(id, row.execution_id) }
+    g.helpers += 1
+    g.carved += row.limit_usd
+    g.spent += row.spent_usd
+    if (ENDED.has(row.state)) g.done += 1
+  }
+  return new Map([...first].map(([id, exe]) => [exe, groups.get(id)!]))
+}
+
+/** The header's words: "6 helpers · $16.00 carved · $9.20 spent · 4 done". */
+export function groupLine(g: FanOutGroup): string {
+  return `${g.helpers} helper${g.helpers === 1 ? '' : 's'} · ${usd(g.carved)} carved · ${usd(g.spent)} spent · ${g.done} done`
+}
+
+/** The sessions that wait on their tasks now, and on how many: the newest `task.wait.started` row of a session with no
+ *  `task.wait.ended` after it. A turn that is stopped mid-wait writes no `ended`, so a caller shows the wait only while
+ *  the session's own row is running. */
+export function waitingOn(rows: readonly LedgerEntry[]): Map<string, { tasks: number; fanOut?: string }> {
+  const open = new Map<string, { tasks: number; fanOut?: string }>()
+  for (const r of rows) {
+    if (!r.session_id) continue
+    if (r.kind === 'task.wait.started') {
+      const d = (r.data ?? {}) as { tasks?: number; fan_out?: string | null }
+      open.set(r.session_id, { tasks: Number(d.tasks ?? 0), fanOut: d.fan_out ?? undefined })
+    } else if (r.kind === 'task.wait.ended') open.delete(r.session_id)
+  }
+  return open
+}
+
+/** The parent row's words while it waits: "waiting on 6 tasks (4 done)", the done count from the tasks under it that
+ *  have ended, among those the wait named when it was one call's helpers. */
+export function waitingWords(w: { tasks: number; fanOut?: string }, r: BudgetRow): string {
+  const mine = (r.tasks ?? []).filter((t) => (w.fanOut ? t.fan_out === w.fanOut : true))
+  const done = mine.filter((t) => ENDED.has(t.state)).length
+  return `waiting on ${w.tasks} task${w.tasks === 1 ? '' : 's'} (${done} done)`
 }
 
 /** The rows whose budget question waits for the operator, in reading order: Money shows them above its river while any
