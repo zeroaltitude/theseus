@@ -1,25 +1,18 @@
 //! A task's base from its brief (theseus-ypnxt.7). A task starts with no
-//! message of its own, so the verdict the route pack gives its brief picks the model
-//! it runs on: the class's first usable profile under the place's cap, by
-//! [`decide`]'s rule with nothing to keep warm and nothing held.
+//! message of its own, so the verdict the route pack gives its brief (the
+//! brief is the message) picks the model it runs on: by [`decide`]'s rule with
+//! nothing to keep warm and nothing held. A task started with a profile is a
+//! pin and never comes here (`turn::brief_step::marked`).
 //!
-//! The pick is the task's base, not a move from its parent's model: it is
-//! kept as the session's target and routing's `from` is left empty, so only
-//! Jev elevates the task from it and a step back down never goes below it.
-//! A detour's class (`trivial`, `quick`) is a base here too: a task has no
-//! "next message" to leave the model for.
-//!
-//! A `routine_coding` brief starts on Haiku at high effort ([`CODING_BASE`],
-//! `haikuhi`), and its checkpoints move it up when it fails or stalls
-//! (theseus-ypnxt.9; the owner, 2026-10-18: start cheap, escalate). A `trivial`
-//! brief runs on Haiku.
+//! The pick is the task's starting model, not a move from its parent's: it is
+//! kept as the session's target and routing's `from` is left empty. A
+//! detour's class (`trivial`, `quick`) is a base here too: a task has no
+//! "next message" to leave the model for. Nothing here is fixed to a profile
+//! (theseus-ej6bj: `CODING_BASE` is gone): its checkpoints move a task up or
+//! down as Jev decides.
 
 use super::{decide, Ask, Decision, HoldNext, Profiles, Reason};
 use crate::config::RoutingConfig;
-
-/// The profile a `routine_coding` brief tries first, before the class's own
-/// list (a config without it falls through to that list).
-pub const CODING_BASE: &str = "haikuhi";
 
 /// The rule's answer for the brief `a.verdict` judged, `a.base` being the
 /// model the task would otherwise run on (its parent's). `switch` says the
@@ -31,21 +24,7 @@ pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Deci
         from: None,
         ..a.clone()
     };
-    let mut d = match fresh.verdict.mode.as_str() {
-        "routine_coding" => {
-            let mut c = cfg.clone();
-            c.classes
-                .routine_coding
-                .profiles
-                .retain(|p| p != CODING_BASE);
-            c.classes
-                .routine_coding
-                .profiles
-                .insert(0, CODING_BASE.to_string());
-            decide(&c, profiles, &fresh)
-        }
-        _ => decide(cfg, profiles, &fresh),
-    };
+    let mut d = decide(cfg, profiles, &fresh);
     if d.detour {
         let reason = match d.reason {
             Reason::Capped => Reason::Capped,

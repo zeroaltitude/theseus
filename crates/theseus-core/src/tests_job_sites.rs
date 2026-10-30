@@ -30,6 +30,8 @@ const SONNET: &str = "claude-sonnet-5-5";
 struct Site {
     /// Sets the site's key to a profile.
     set: fn(&mut Config, &str),
+    /// Leaves the site's key unset (the template may set one).
+    unset: fn(&mut Config),
     /// Runs the site's selection, and says the model it settled on.
     call: for<'a> fn(&'a Rig) -> BoxFuture<'a, String>,
     /// A key for the pin, and a profile for it that is not the legacy one.
@@ -53,7 +55,7 @@ async fn pinned(s: &Site) {
 async fn asks(s: &Site) {
     let jev = FakeJev::start().unwrap();
     pick(&jev, s.pick.0, 0.95);
-    let r = rig_job(&jev, |_| {});
+    let r = rig_job(&jev, s.unset);
     assert_eq!((s.call)(&r).await, s.pick.1);
     assert_eq!(jev.connections(), 1, "one ask");
     let state = jev.seen()[0].body["state"].to_string();
@@ -73,7 +75,10 @@ async fn slow(s: &Site) {
     let jev = FakeJev::start().unwrap();
     pick(&jev, s.pick.0, 0.95);
     jev.set_mode(FakeMode::Held);
-    let r = rig_job(&jev, |c| c.judge.total_secs = 30);
+    let r = rig_job(&jev, |c| {
+        (s.unset)(c);
+        c.judge.total_secs = 30;
+    });
     let t0 = Instant::now();
     assert_eq!((s.call)(&r).await, SONNET, "live");
     let waited = t0.elapsed();
@@ -85,7 +90,15 @@ async fn slow(s: &Site) {
 async fn legacy(s: &Site) {
     let jev = FakeJev::start().unwrap();
     pick(&jev, s.pick.0, 0.95);
-    let r = rig_parts(Some(&jev), 1, |c| c.routing.max_wait_ms = 300, |_| {});
+    let r = rig_parts(
+        Some(&jev),
+        1,
+        |c| {
+            (s.unset)(c);
+            c.routing.max_wait_ms = 300;
+        },
+        |_| {},
+    );
     assert_eq!((s.call)(&r).await, s.legacy);
     assert_eq!(
         jev.connections(),
@@ -97,7 +110,7 @@ async fn legacy(s: &Site) {
 async fn china(s: &Site) {
     let jev = FakeJev::start().unwrap();
     pick(&jev, "deepseek_flash", 0.97);
-    let r = rig_job(&jev, |_| {});
+    let r = rig_job(&jev, s.unset);
     assert_eq!((s.call)(&r).await, SONNET, "refused Flash, so live");
     assert!(jev.seen()[0].body["state"]
         .to_string()
@@ -138,6 +151,7 @@ site!(
     card,
     Site {
         set: |c, p| c.card.profile = Some(p.into()),
+        unset: |c| c.card.profile = None,
         call: |r| async { r.core.card_model(5).await.unwrap().0.model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
         pick: ("fable", "claude-fable-5-1"),
@@ -150,6 +164,7 @@ site!(
     people,
     Site {
         set: |c, p| c.people.extract_profile = Some(p.into()),
+        unset: |c| c.people.extract_profile = None,
         call: |r| async { r.core.people_extractor(12).await.unwrap().0.model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
         pick: ("fable", "claude-fable-5-1"),
@@ -162,6 +177,7 @@ site!(
     threads,
     Site {
         set: |c, p| c.threads.import_profile = Some(p.into()),
+        unset: |c| c.threads.import_profile = None,
         call: |r| async { r.core.import_model(3).await.unwrap().model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
         pick: ("fable", "claude-fable-5-1"),
@@ -174,6 +190,7 @@ site!(
     ontology,
     Site {
         set: |c, p| c.ontology.name_profile = Some(p.into()),
+        unset: |c| c.ontology.name_profile = None,
         call: |r| async { r.core.onto_model("project").await.unwrap().0.model }.boxed(),
         pin: ("opus", "claude-opus-5-5"),
         pick: ("fable", "claude-fable-5-1"),
@@ -186,6 +203,7 @@ site!(
     learn_writer,
     Site {
         set: |c, p| c.judge.learn.writer_profile = Some(p.into()),
+        unset: |c| c.judge.learn.writer_profile = None,
         call: |r| {
             async {
                 let core = r.core.clone();
@@ -209,6 +227,7 @@ site!(
     initiative,
     Site {
         set: |c, p| c.initiative.profile = Some(p.into()),
+        unset: |c| c.initiative.profile = None,
         call: |r| {
             async {
                 r.core

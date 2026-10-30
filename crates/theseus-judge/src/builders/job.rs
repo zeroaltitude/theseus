@@ -131,13 +131,34 @@ impl JobKind {
                 "Review this change to the assistant's own code before it merges: {}",
                 part(diff_summary, PART_CHARS)
             ),
-            // Row 4 stub: the §13 kinds have no paragraph yet.
-            JobKind::Card { .. }
-            | JobKind::Initiative { .. }
-            | JobKind::People { .. }
-            | JobKind::Threads { .. }
-            | JobKind::Learn { .. }
-            | JobKind::OntologyName { .. } => String::new(),
+            JobKind::Card { clusters } => format!(
+                "Read {clusters} clusters of the owner's recent activity and state, for each, \
+                 what it shows about how the owner works, as short statements for the owner's \
+                 card."
+            ),
+            JobKind::Initiative { kind } => format!(
+                "Write a short message in the assistant's own voice, speaking first to the \
+                 owner, about {}.",
+                part(kind, PART_CHARS)
+            ),
+            JobKind::People { lines } => format!(
+                "Read {lines} lines of one conversation and list the names of the people it \
+                 mentions, each with the line that names it."
+            ),
+            JobKind::Threads { episodes } => format!(
+                "Write the card of an imported conversation from {episodes} episodes of it: a \
+                 few short lines, each citing the episode it rests on."
+            ),
+            JobKind::Learn { pack } => format!(
+                "Rewrite the wording of the judge's pack {} so the mistakes the owner labelled \
+                 are not repeated, keeping every id, option and threshold.",
+                part(pack, PART_CHARS)
+            ),
+            JobKind::OntologyName { kind } => format!(
+                "Name a new category of {} for the owner's ontology: three names and a line \
+                 that says what it holds.",
+                part(kind, PART_CHARS)
+            ),
         }
     }
 
@@ -149,13 +170,14 @@ impl JobKind {
             JobKind::SelfBuilder { private, .. } | JobKind::SelfReviewer { private, .. } => {
                 *private
             }
-            // Row 4 stub: the §13 kinds are not floored yet.
+            // Each of these reads the owner's own material (the keys of
+            // `config::data_floor::owner_material_profiles`).
             JobKind::Card { .. }
             | JobKind::Initiative { .. }
             | JobKind::People { .. }
             | JobKind::Threads { .. }
             | JobKind::Learn { .. }
-            | JobKind::OntologyName { .. } => false,
+            | JobKind::OntologyName { .. } => true,
         }
     }
 }

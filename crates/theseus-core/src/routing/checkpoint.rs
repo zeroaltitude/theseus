@@ -5,19 +5,14 @@
 //! ([`Tally`]), what the pack reads ([`text`], at most [`MAX_TOKENS`]), and
 //! what the verdict does ([`decide`]), by routing's own rules, reused:
 //!
-//! - **Only Jev elevates.** The verdict's class picks its first usable
-//!   profile under the place's cap ([`super::decide`]'s walk), as a
-//!   conversation's switch does.
-//! - **The task's base** is its brief's pick or its parent's. A move up keeps
-//!   it (`Routed.from`), and the way back down goes to it after two agreeing
-//!   verdicts ([`super::STEP_DOWN`]'s hold), never below it.
-//! - **A cold switch up** waits for a second agreeing verdict when its
-//!   estimate (the warm prefix taken off by the caller) is at or above
-//!   `[routing] cold_switch_tokens`.
-//! - **No detours**: `trivial` and `quick` move nothing, and count toward the
-//!   step down when their pick is no dearer than the base.
-//! - **The cap**: `max_switches` moves per task; past it nothing moves up,
-//!   and the step back down to the base still does.
+//! - **Jev decides** at each trigger (`failing`, `quiet`, `phase`, `report`):
+//!   the verdict's pick is where the task goes, up or down. There is no base
+//!   the task returns to, no count of moves (`[routing.task_checkpoints]
+//!   max_switches` is read by nothing now), and no second verdict to step
+//!   down on (theseus-ej6bj).
+//! - **The cache hold** is the one hysteresis, and it is about money: a move
+//!   whose estimate (the warm prefix taken off by the caller) is at or above
+//!   `[routing] cold_switch_tokens` waits for a second agreeing verdict.
 
 use super::effort;
 use super::{decide as route_decide, Ask, Decision, Hold, HoldNext, Profiles, Reason, Verdict};
@@ -343,11 +338,14 @@ pub struct CheckpointAsk<'a> {
 
 /// The rule's answer for a checkpoint verdict. `switch` says the task moves
 /// to `profile`; a stay names `current`.
+///
+/// Jev decides at each trigger (theseus-ej6bj, the owner: "I categorically
+/// disagree with caps"): the verdict's pick is where the task goes, up or
+/// down, with no base to return to, no count of moves, and no second verdict
+/// to step down on. The one hysteresis is the cache hold, which is about money:
+/// a move whose estimate is at or above `cold_switch_tokens` waits for a second
+/// agreeing verdict (the next one, naming the same profile, makes it).
 pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -> Decision {
-    // Row 4 (red): the rule still reads `base` and `moves`; with no base but
-    // the task's own profile and no count, only the cap's and the step down's
-    // inputs are gone.
-    let (base, moves) = (a.current, 0u32);
     let stay = |reason, hold| Decision {
         profile: a.current.to_string(),
         reason,
@@ -355,11 +353,8 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
         switch: false,
         hold,
     };
-    if a.verdict.confidence < cfg.confidence_for(&a.verdict.mode) {
-        return stay(Reason::Unsure, HoldNext::Clear);
-    }
-    // The class's pick against the task's base, by the conversation's own
-    // walk with the cold hold left to this rule.
+    // The verdict's pick, by the conversation's own rule with the cold hold
+    // left to this one: the profile the task is on is the rule's base.
     let warm = RoutingConfig {
         cold_switch_tokens: u64::MAX,
         ..cfg.clone()
@@ -369,7 +364,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
         profiles,
         &Ask {
             verdict: a.verdict,
-            base,
+            base: a.current,
             est_tokens: a.est_tokens,
             hold: None,
             from: None,
@@ -380,51 +375,23 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
     );
     let target = match (d.switch || d.detour, d.reason) {
         (true, _) | (_, Reason::Verdict) => d.profile.clone(),
-        // Nothing usable under the cap, or none usable: the task stays.
+        // Under its bar, capped or none usable: the task stays.
         _ => return stay(d.reason, HoldNext::Clear),
     };
-    let cost = |p: &str| profiles.get(p).and_then(|p| p.short_cost);
-    let (Some(target_cost), Some(base_cost)) = (cost(&target), cost(base)) else {
-        return stay(Reason::Fallback, HoldNext::Clear);
-    };
-    if target_cost <= base_cost + 1e-12 {
-        // The pick is the base or cheaper: it counts toward the way back down.
-        if a.current == base {
-            return stay(Reason::Verdict, HoldNext::Clear);
-        }
-        let held = a
-            .hold
-            .is_some_and(|h| h.mode == super::STEP_DOWN && h.profile == base);
-        return match held {
-            true => Decision {
-                profile: base.to_string(),
-                reason: Reason::StepDown,
-                detour: false,
-                switch: true,
-                hold: HoldNext::Clear,
-            },
-            false => stay(
-                Reason::CacheHold,
-                HoldNext::Set(Hold {
-                    mode: super::STEP_DOWN.into(),
-                    profile: base.to_string(),
-                    turn: a.verdict.turn.clone(),
-                }),
-            ),
-        };
-    }
-    // A pick dearer than the base: only a verdict that is not a detour moves up.
-    if d.detour || target == a.current {
+    if target == a.current {
         return stay(Reason::Verdict, HoldNext::Clear);
-    }
-    if moves >= cfg.task_checkpoints.max_switches {
-        return stay(Reason::SwitchCap, HoldNext::Clear);
     }
     let agreed = a.hold.is_some_and(|h| h.profile == target);
     if a.est_tokens < cfg.cold_switch_tokens || agreed {
+        // A detour's class is a pick like another for a task: its move is a
+        // verdict's.
+        let reason = match d.reason {
+            Reason::Detour => Reason::Verdict,
+            other => other,
+        };
         return Decision {
             profile: target,
-            reason: d.reason,
+            reason,
             detour: false,
             switch: true,
             hold: HoldNext::Clear,
@@ -530,12 +497,13 @@ mod tests {
         assert_eq!(d.hold, HoldNext::Clear);
     }
 
-    /// A detour's class is a pick like another for a task: a quick verdict
-    /// from a task on opus moves it to the cheap profile Jev named.
+    /// A detour's class is a pick like another for a task: a trivial verdict
+    /// from a task on opus moves it to the cheap profile Jev named, as a
+    /// verdict, not a detour.
     #[test]
     fn a_detour_class_is_a_pick_like_another() {
-        let d = go("quick", "opus", 1_000, None);
-        assert!(d.switch && d.profile != "opus", "{d:?}");
+        let d = go("trivial", "opus", 1_000, None);
+        assert_eq!(up(&d), ("glm", Reason::Verdict, true));
         assert!(!d.detour, "{d:?}");
     }
 

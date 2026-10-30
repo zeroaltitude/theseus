@@ -268,7 +268,7 @@ pub struct JudgeService {
     /// A test's route pack that asks `model`, in the place of the acting one
     /// (route.v10's pack is not the acting pack until its row flips it).
     #[cfg(test)]
-    job_pack: OnceLock<Arc<Pack>>,
+    job_pack_test: OnceLock<Arc<Pack>>,
 }
 
 impl JudgeService {
@@ -340,7 +340,7 @@ impl JudgeService {
             #[cfg(test)]
             sink_timing: OnceLock::new(),
             #[cfg(test)]
-            job_pack: OnceLock::new(),
+            job_pack_test: OnceLock::new(),
         })
     }
 

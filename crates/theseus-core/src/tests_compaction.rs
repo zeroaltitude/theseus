@@ -1350,6 +1350,7 @@ fn rig_jev(
         .insert("deepseek".into(), Arc::new(FakeProvider::default()));
     parts.secrets = crate::tests_judge::board();
     let core = Core::build(parts).unwrap();
+    crate::tests_judge::warm(&core);
     if ask_model {
         core.runner
             .judge
@@ -1444,7 +1445,9 @@ async fn a_slow_jev_does_not_hold_a_compaction() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     jev_chat(&jev);
     crate::tests_job_ask::pick(&jev, "opus", 0.95);
-    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    // Only the summary's ask is held: the turns' own asks answer, so the one
+    // thing that is slow is the one under test.
+    jev.hold_when("Summarize the oldest");
     let r = rig_jev(&jev, None, true, |_| {});
     let sid = session(&r.core);
     let t0 = std::time::Instant::now();

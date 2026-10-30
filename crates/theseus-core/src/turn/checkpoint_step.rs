@@ -5,7 +5,8 @@
 //! (`routing::checkpoint::Tally`: it keeps failing, stalls, changes phase, or
 //! is about to report), and the verdict, applied at the first later loop
 //! boundary that finds it come (never waited for), moves its model up, or
-//! back down to its base, by the rule in `routing::checkpoint`.
+//! down, by the rule in `routing::checkpoint` (Jev decides each trigger; the
+//! cache hold is the one hysteresis).
 //!
 //! - **Which turns**: a task's started with no profile (the brief's mark,
 //!   `brief_step::marked`), or a conversation's turn the route placed (not
@@ -16,7 +17,7 @@
 //!   `match`.
 //! - **The switch** is a refusal's fallback's shape (`fallback_step`): a
 //!   slot of its own per allowed move ([`Slots`], bounded by
-//!   `[routing.task_checkpoints] max_switches`, validated at load), the spec
+//!   `SLOTS`), the spec
 //!   rebuilt as `route_to` builds it, the provider resolved as the first
 //!   compile's switch resolves it, and the next compile made on the new
 //!   model (a model change strips the thinking). "A turn routes once" stays
@@ -53,10 +54,12 @@ pub const SOURCE: &str = "task checkpoint";
 /// The `source` of a routed turn's checkpoint's row (theseus-a1wvq).
 pub const TURN_SOURCE: &str = "turn checkpoint";
 
-/// The slots a turn holds for its checkpoints' moves: at most
-/// `max_switches` moves and the step back down past the cap, which
-/// `TaskCheckpoints::validate` keeps within.
-pub(super) const SLOTS: usize = 8;
+/// The slots a turn holds for its checkpoints' moves, one each (a move needs
+/// a place for its target to live as long as the turn). Not a cap on policy
+/// (theseus-ej6bj: there is none): a task asks at most once in
+/// `min_loops_between` loops, so the slots outlast any real turn, and a
+/// move past them is recorded as the verdict and not applied.
+pub(super) const SLOTS: usize = 32;
 pub(super) type Slots = [OnceLock<Target>; SLOTS];
 
 /// A turn's slots.

@@ -1115,9 +1115,10 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # don't. A key of [profiles] sends it to that profile's provider, which may not be
 # the session's. "off" keeps the ring. A call that fails, or a summary that would
 # not fit, rings as before, and the row says why.
-# summary_profile = "session"             # "session", a key of [profiles], or "off"; "haikuhi" (Haiku 5.5
-#                                         # at high effort, 1M window) is the recommended choice, which
-#                                         # sends the range to Anthropic whatever the session's provider
+# summary_profile = "session"             # a pin: "session", a key of [profiles], or "off". Unset: Jev chooses the
+#                                         # model for each summary (until the route pack that asks him is acting,
+#                                         # unset runs as "session"). A key of [profiles] such as "haikuhi" sends the
+#                                         # range to that profile's provider whatever the session's provider
 # assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
 # Consolidation (step 31b): off every turn, nodes recall admits together in
 # three or more turns become one short synthesis per cluster, every sentence
@@ -1126,9 +1127,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # "session" (the default) writes it with the profile every source's session
 # last used, so no second provider reads a session's text; sources whose
 # sessions disagree wait. A key of [profiles] is the operator's choice.
-# synth_profile = "session"               # "session", or a key of [profiles]; "haikuhi" (Haiku 5.5 at
-#                                         # high effort) is the recommended choice: about 18x the clusters
-#                                         # of Sonnet 5.5 for the day's limit, each still checked by citation.v1
+# synth_profile = "session"               # a pin: "session", or a key of [profiles]. Unset: Jev chooses the model for
+#                                         # each cluster, from US options only (until the route pack that asks him is
+#                                         # acting, unset runs as "session"). "haikuhi" (Haiku 5.5 at high effort)
+#                                         # gets about 18x the clusters of Sonnet 5.5 for the day's limit, each still
+#                                         # checked by citation.v1
 # synth_limit_usd_per_day = 0.50          # what consolidation may spend in a local day, read from its rows
 # consolidate_hour = 4                    # the local hour of the nightly run (0 to 23); never within 10 minutes of a start
 # Tiering (step 33): decoded nodes stay in a cache shared across turns, so a
@@ -1203,7 +1206,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # max_live = 50                           # active and paused threads at once
 # discord_channel = "123456789012345678"  # a channel (text or forum) in your guild: each active thread gets a Discord thread there, made at its first message; unset: none
 # import_day_usd = 2.0                    # what the cards of `theseus thread import --apply` may spend a local day (one Haiku call a thread, cited to its episodes); past it a thread is made without a card
-# import_profile = "haiku"                # the profile whose model writes those cards
+# import_profile = "haiku"                # a pin: the profile whose model writes those cards; unset: Jev chooses (US options only)
 # cross_recall_penalty = 0.35             # in a threaded session, the share of its score a recalled note from another thread pays
 # cross_recall_bar = 0.75                 # ...and it is admitted only above this share of the query's best score, unless the message names that thread (slug, title, or a working-set entity)
 # cross_recall_beats_own = true           # ...and, once it has paid its penalty, only when it still outranks the asking thread's own best hit of the query (false: the bar alone decides)
@@ -1256,7 +1259,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # A 👍 or 👎 on such a message (`theseus persona rate`) is recorded, and
 # `theseus persona` shows the week's promises kept and verdicts.
 # [initiative]
-# profile = "haiku"                       # the profile whose model writes them (a cheap one); unset: the live profile
+# profile = "haiku"                       # a pin: the profile whose model writes them (a cheap one); unset: Jev chooses (US options only), and the live profile when he cannot
 # day_usd = 0.50                          # what those calls may spend a local day; past it a message goes out as its template (which reads the persona's name and emoji)
 # morning_hour = 8                        # the local hour from which the day's one morning note may go
 
@@ -1395,7 +1398,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # at `confirm` or above is proposed for the session) and whether a person not
 # held is; only at `gate` or above does the extractor read the exchange.
 # [people]
-# extract_profile = "haiku"               # the profile that extracts the candidates
+# extract_profile = "haiku"               # a pin: the profile that extracts the candidates; unset: Jev chooses (US options only)
 # not_people = []                         # names never proposed, e.g. ["Gullbot"], or
 #                                         # the owner's other names: ["Sable Thorn", "S. Thorn"]
 # act = 0.9                               # the least probability that proposes in the act band
@@ -1419,7 +1422,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # by itself. A partner-confidential episode is never read; a statement that
 # repeats a live standing record, or one already answered, is not asked again.
 # [card]
-# profile = "haiku"                       # the profile that states the clusters
+# profile = "haiku"                       # a pin: the profile that states the clusters; unset: Jev chooses (US options only)
 # day_usd = 2.0                           # the job's spend a local day; 0 turns it off
 # max_open = 30                           # the most proposals waiting at once
 # ask_days = 14                           # an unanswered proposal becomes "Not this" after this long
@@ -1442,7 +1445,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # judge = true                            # the rollback: off, onto.v1 is not asked and nothing is written
 # act = 0.80                              # at and above this, Jev's answer is written
 # confirm = 0.55                          # from this, you are asked
-# name_profile = "haiku"                  # names a new category when no mined name fits; once a session, kind and day
+# name_profile = "haiku"                  # a pin: names a new category when no mined name fits (once a session, kind and day); unset: Jev chooses (US options only)
 # request = "batch"                       # "own": onto.v1 in a request of its own, never waited on (if the batch slows)
 # recall_boost = 0.25                    # a note from a session sharing a category with this one gains up to this in recall's rank (0 off)
 # private_mark = false                    # on: a picture or message Jev judges to disclose a private matter, or to show
@@ -1490,8 +1493,10 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # exams_day_max = 10                      # the most exam items written a night from your corrections, wrong labels, failed tasks and over-budget turns
 # graduate_min_calls = 20                 # calls with no failure that graduate a loaded extension into a self item to port it into core
 # graduate_window_days = 14               # the days those calls are counted over
-# reviewer_profile = "fable"              # the self-join's independent reviewer: a profile whose model is
-#                                         # not the branch builder's (the same model is refused)
+# reviewer_profile = "fable"              # a pin: the self-join's independent reviewer, a profile whose model is
+#                                         # not the branch builder's (the same model is refused, pinned or chosen).
+#                                         # Unset: Jev chooses, from US options only (until the route pack that asks
+#                                         # him is acting, unset runs as "fable")
 # join_lock = "~/.theseus/self/join.lock" # unset: <state>/self/join.lock. A mkdir lock every self-join
 #                                         # holds; point it at the outer loop's so their joins never overlap
 # install = false                         # true: a joined merge is built and installed on this machine, and
@@ -1657,7 +1662,7 @@ stop_nudge = true                       # a private turn whose last message says
 # card; else held, with why. `theseus judge learn <pack>` runs it now.
 [judge.learn]
 enabled = true                          # on with the judge; false proposes nothing
-writer_profile = "opus"                 # the [profiles] key that writes the next version's text
+# writer_profile = "opus"               # a pin: the [profiles] key that writes the next version's text; unset: Jev chooses (US options only)
 writer_limit_usd_per_day = 2.0          # what the writer may spend in a local day; a proposal past it is skipped and reported
 min_errors = 10                         # new train errors a version needs before it is rewritten
 min_holdout = 5                         # labeled holdout judgments it needs too: nothing moves on no held-out evidence

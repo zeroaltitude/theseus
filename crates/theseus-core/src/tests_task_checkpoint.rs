@@ -240,6 +240,8 @@ async fn a_task_whose_loops_fail_moves_to_sonnet_at_a_later_loop() {
         |_| {},
         |j| {
             on_trigger(j, "failing: 3 failed", "deep_coding");
+            // The second ask still reads deep: a routine one moves it down.
+            on_trigger(j, "failing: 7 failed", "deep_coding");
         },
     )
     .await;
@@ -531,6 +533,7 @@ async fn the_board_says_a_moved_task_is_on_its_new_model() {
         |_| {},
         |j| {
             on_trigger(j, "failing: 3 failed", "deep_coding");
+            on_trigger(j, "failing: 7 failed", "deep_coding");
         },
     )
     .await;
@@ -581,6 +584,8 @@ async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
     on_trigger(&jev, ASKED, "deep_coding");
+    // The ask after the window still reads deep: a routine one moves it down.
+    on_trigger(&jev, "failing: 15 failed", "deep_coding");
     jev.hold_when(ASKED);
     let rig = task_rig(&jev, claude.clone(), |c| {
         c.routing.task_checkpoints.min_loops_between = 12;

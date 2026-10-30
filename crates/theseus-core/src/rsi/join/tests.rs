@@ -812,6 +812,7 @@ fn rig_jev(jev: &theseus_judge::fake::FakeJev, reviewer: Option<&str>) -> Rig {
         .runner
         .judge
         .job_pack_with(crate::tests_job_ask::model_pack());
+    crate::tests_judge::warm(&r.core);
     r
 }
 
@@ -879,9 +880,9 @@ async fn the_independence_rule_refuses_a_jev_pick_that_is_the_builders_model() {
 }
 
 /// A Jev that is slow never holds the review: past `max_wait_ms` the reviewer
-/// is the live profile, and the independence rule holds of it as of any.
+/// is the live profile.
 #[tokio::test]
-async fn a_slow_jev_does_not_hold_the_review_and_the_rule_still_holds() {
+async fn a_slow_jev_does_not_hold_the_review() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     crate::tests_job_ask::pick(&jev, "opus", 0.95);
     jev.set_mode(theseus_judge::fake::FakeMode::Held);
@@ -899,13 +900,21 @@ async fn a_slow_jev_does_not_hold_the_review_and_the_rule_still_holds() {
     assert!(t0.elapsed() < Duration::from_secs(30), "{:?}", t0.elapsed());
     let v = &r.rows("self.review.verdict")[0];
     assert_eq!(v["model"], SONNET, "the live profile reviewed: {v}");
-    // Built on the live profile's model: refused, not hung.
+    jev.release();
+}
+
+/// The independence rule holds of the live profile as of any: built on the
+/// model that is live, and with Jev slow, the review is refused, not hung.
+#[tokio::test]
+async fn a_slow_jev_and_a_live_profile_that_built_the_branch_is_refused_not_hung() {
+    let jev = theseus_judge::fake::FakeJev::start().unwrap();
+    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    let r = rig_jev(&jev, None);
     r.seed("mend-the-nets", PROVED, SONNET);
     let pass = r.core.self_join_pass(&r.seams()).await.unwrap();
-    assert!(
-        pass.reviewed.iter().any(|(_, v)| v == "refused"),
-        "{pass:?}"
-    );
+    assert_eq!(pass.reviewed[0].1, "refused", "{pass:?}");
+    assert_eq!(reviewer_asks(&jev).len(), 1, "Jev was asked");
     jev.release();
 }
 

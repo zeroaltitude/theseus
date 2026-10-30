@@ -502,7 +502,15 @@ pub fn bucket(session_id: &str, experiment: &str) -> f64 {
 #[cfg(test)]
 pub(crate) fn the_templates_memory_section(m: &MemoryConfig) {
     assert_eq!(m.mode, MemoryMode::Live);
-    assert_eq!(*m, MemoryConfig::default());
+    // Un-commented, the two profile lines pin `session`, the word an unset key
+    // meant before Jev chose (theseus-ej6bj); everything else is the default.
+    let pinned = MemoryConfig {
+        summary_profile: Some(SUMMARY_SESSION.into()),
+        synth_profile: Some(SUMMARY_SESSION.into()),
+        ..MemoryConfig::default()
+    };
+    assert_eq!(*m, pinned);
+    // As written, with its lines commented, the template is the default.
     assert_eq!(crate::Config::example().memory, MemoryConfig::default());
 }
 

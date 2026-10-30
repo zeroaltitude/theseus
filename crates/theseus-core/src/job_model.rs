@@ -13,12 +13,19 @@
 //!   did (`config::legacy`), so nothing changes a live decision until the row
 //!   that flips the pack.
 //!
-//! STUB (red commit): pins and the legacy profile only; Jev is never asked.
+//! The data rule is never loosened here. A job over the owner's material is
+//! told `restricted_models = not_allowed` by the job builder whatever the
+//! caller says, a pick of restricted origin is refused for it, and private
+//! material goes only to a model the catalog lists as of US origin
+//! (`cleared_for_sensitive`); the provider chokepoint stays under all of it.
 
 use std::fmt;
+use std::time::Duration;
 
 use theseus_judge::builders::{JobKind, RestrictedModels};
 
+use crate::judge::inbound::ROUTE_PACK;
+use crate::judge::job::{model_of, JobAnswer};
 use crate::turn::{Target, TurnRunner};
 
 /// One site's ask.
@@ -53,7 +60,8 @@ pub(crate) enum Why {
     Late,
     /// The answer was under the pack's confirm bar.
     Unsure,
-    /// Jev could not be asked: routing or the judge is off, the breaker is open, or the key is not there.
+    /// Jev could not be asked: routing or the judge is off, the breaker is
+    /// open, or the key is not there.
     Unasked,
     /// The pick is of restricted origin and the job's material may not go there.
     DataGate,
@@ -114,21 +122,96 @@ impl TurnRunner {
         }
     }
 
+    /// Whether private data may go to `model` on `provider`
+    /// (`catalog::cleared_for_sensitive`); a provider that is not configured
+    /// is not cleared.
+    pub(crate) fn model_cleared(&self, provider: &str, model: &str) -> bool {
+        self.cfg.all_providers().get(provider).is_some_and(|p| {
+            crate::catalog::cleared_for_sensitive(
+                &p.api_base,
+                p.origin,
+                model,
+                self.catalog.get(model),
+            )
+        })
+    }
+
     /// Whether `model` on `provider` is of restricted origin (`cn` or `unknown`).
     pub(crate) fn restricted_model(&self, provider: &str, model: &str) -> bool {
         self.model_origin(provider, model).restricted()
     }
 
-    /// Settle the site's model: the pin, else Jev's pick, else `live`.
+    /// Settle the site's model: the pin, else Jev's pick, else `live`. Never
+    /// waits on Jev past `[routing] max_wait_ms`.
     pub(crate) async fn job_choice(&self, live: &str, site: Site<'_>) -> (Choice, How) {
-        let _ = (site.name, &site.job, site.restricted);
-        match site.pin {
-            Some(p) => (Choice::Profile(p.to_string()), How::Pinned),
-            None => (
-                Choice::Profile(site.legacy.unwrap_or(live).to_string()),
-                How::Legacy,
-            ),
+        if let Some(p) = site.pin {
+            return (Choice::Profile(p.to_string()), How::Pinned);
         }
+        if !self.judge.asks_jev() {
+            let profile = site.legacy.unwrap_or(live);
+            return (Choice::Profile(profile.to_string()), How::Legacy);
+        }
+        let (private, name) = (site.job.private(), site.name);
+        let on_live = |why: Why| {
+            tracing::debug!(
+                site = name,
+                why = why.word(),
+                "a background job runs on live"
+            );
+            (Choice::Profile(live.to_string()), How::Live(why))
+        };
+        let restricted = if private {
+            RestrictedModels::NotAllowed
+        } else {
+            site.restricted
+        };
+        let mode = self
+            .cfg
+            .routing
+            .pack_mode(self.judge.mode_for(ROUTE_PACK, "").mode);
+        let wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
+        let answer = self.judge.job_ask(site.job, restricted, mode, wait).await;
+        let (option, confidence) = match answer {
+            JobAnswer::Picked { option, confidence } => (option, confidence),
+            JobAnswer::Unsure => return on_live(Why::Unsure),
+            JobAnswer::Late => return on_live(Why::Late),
+            JobAnswer::Unasked => return on_live(Why::Unasked),
+        };
+        let Some(model) = model_of(&option) else {
+            return on_live(Why::Unsure);
+        };
+        let Some(provider) = self.catalog.get(model).map(|e| e.provider.clone()) else {
+            return on_live(Why::Fallback);
+        };
+        // The data rule, for the pick as for any model: restricted origin only
+        // where the labels allow it, and private material only to a model the
+        // catalog lists as of US origin.
+        let refused = (restricted == RestrictedModels::NotAllowed
+            && self.restricted_model(&provider, model))
+            || (private && !self.model_cleared(&provider, model));
+        if refused {
+            self.judge.record_data_gate(name, "restricted_origin");
+            return on_live(Why::DataGate);
+        }
+        if !self.providers.contains_key(&provider)
+            || self.cfg.provider_without_key(&provider).is_some()
+        {
+            return on_live(Why::Fallback);
+        }
+        tracing::debug!(
+            site = name,
+            option,
+            confidence,
+            model,
+            "a background job's model: Jev's pick"
+        );
+        (
+            Choice::Model {
+                provider,
+                model: model.to_string(),
+            },
+            How::Jev { option, confidence },
+        )
     }
 
     /// [`Self::job_choice`], resolved to a target on `live`'s settings.
