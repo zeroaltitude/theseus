@@ -310,6 +310,26 @@ impl Core {
         }
     }
 
+    /// The profile a cluster is planned to be written with, or the word for why
+    /// it is skipped. With the key unset and a pack that asks `model`, none is
+    /// named: Jev chooses the model when the cluster is written.
+    fn plan_profile(
+        &self,
+        digest: &str,
+        sources: &[Source],
+        report: &mut SynthesisReport,
+    ) -> Result<String, &'static str> {
+        if self.synth_asks_jev() {
+            return Ok(String::new());
+        }
+        let profile = self.synth_profile(sources).map_err(|(why, words)| {
+            tracing::debug!(cluster = %digest, why = %words, "consolidation: a cluster waits");
+            why
+        })?;
+        self.unrestricted(profile, report)
+            .ok_or("restricted_origin")
+    }
+
     /// Whether an unset `synth_profile` asks Jev: the key is unset and the
     /// acting route pack asks the `model` question (route.v10).
     pub(crate) fn synth_asks_jev(&self) -> bool {
@@ -455,24 +475,12 @@ impl Core {
                 }),
                 ..SynthesisReport::default()
             };
-            // An unset key with a pack that asks `model`: Jev chooses the
-            // model when the cluster is written, so no profile is named yet.
-            let profile = if self.synth_asks_jev() {
-                String::new()
-            } else {
-                let profile = match self.synth_profile(&sources) {
-                    Ok(p) => p,
-                    Err((why, words)) => {
-                        skip(&mut r, why);
-                        tracing::debug!(cluster = %c.digest, why = %words, "consolidation: a cluster waits");
-                        continue;
-                    }
-                };
-                let Some(profile) = self.unrestricted(profile, &mut report) else {
-                    skip(&mut r, "restricted_origin");
+            let profile = match self.plan_profile(&c.digest, &sources, &mut report) {
+                Ok(p) => p,
+                Err(why) => {
+                    skip(&mut r, why);
                     continue;
-                };
-                profile
+                }
             };
             report.profile.clone_from(&profile);
             if dry {

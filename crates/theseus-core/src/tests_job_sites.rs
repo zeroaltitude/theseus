@@ -3,7 +3,8 @@
 //! key asks Jev, and a job never waits on Jev past `max_wait_ms`. The rule's
 //! own cases are `tests_job_ask`'s; these prove each site is wired to it.
 //!
-//! For every site that takes a profile key, four behaviours:
+//! For every site that takes a profile key, five behaviours:
+//!
 //! - **pinned**: the key set, Jev is asked nothing, the job runs on the pin;
 //! - **asks**: the key unset, Jev is asked once (through the job builder) and
 //!   the job runs on the model it names;
@@ -11,8 +12,8 @@
 //!   `max_wait_ms`, not when Jev answers;
 //! - **legacy**: while the acting pack asks no `model`, an unset key runs on
 //!   the profile it always did, and Jev is asked nothing;
-//! plus the data rule: the owner's material is told `not_allowed`, and a pick
-//! of Flash runs on `live` all the same.
+//! - **the data rule**: the owner's material is told `not_allowed`, and a pick
+//!   of Flash runs on `live` all the same.
 
 use std::time::{Duration, Instant};
 

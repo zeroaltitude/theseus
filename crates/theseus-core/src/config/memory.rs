@@ -269,6 +269,11 @@ pub const SUMMARY_OFF: &str = "off";
 /// by default), and the pin that keeps it.
 pub const SUMMARY_SESSION: &str = "session";
 
+/// A key that is set to nothing: an error (an unset key is `None`).
+fn blank(p: Option<&str>) -> bool {
+    p.is_some_and(|p| p.trim().is_empty())
+}
+
 /// What `[memory] summary_profile` says to do (route.v10, theseus-ej6bj).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Summary<'a> {
@@ -371,11 +376,7 @@ impl MemoryConfig {
                 bail!("memory.{key} = {items} is outside 1 to {MAX_RECALL_ITEMS}");
             }
         }
-        if self
-            .summary_profile
-            .as_deref()
-            .is_some_and(|p| p.trim().is_empty())
-        {
+        if blank(self.summary_profile.as_deref()) {
             bail!("memory.summary_profile is empty: name a profile, or \"off\" to keep the ring");
         }
         if self.assembled_budget_tokens == 0 {
@@ -402,11 +403,7 @@ impl MemoryConfig {
                 self.recall_vector_tokens
             );
         }
-        if self
-            .synth_profile
-            .as_deref()
-            .is_some_and(|p| p.trim().is_empty())
-        {
+        if blank(self.synth_profile.as_deref()) {
             bail!("memory.synth_profile is empty: name a profile, or \"session\"");
         }
         if !(0.0..=100.0).contains(&self.synth_limit_usd_per_day) {

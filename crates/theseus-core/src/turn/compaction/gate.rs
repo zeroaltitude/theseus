@@ -54,7 +54,7 @@ impl TurnRunner {
                             .map(|d| d.tokens)
                             .sum(),
                         summary_tokens: u64::from(SUMMARY_MAX_TOKENS),
-                        labels: self.session_labels(t),
+                        labels: Self::session_labels(t),
                     },
                     restricted: RestrictedModels::allowed_if(self.cn_read(t) == Cn::Allowed),
                 };
@@ -68,7 +68,7 @@ impl TurnRunner {
     }
 
     /// The words of the labels the session carries (`confidential`, ...).
-    fn session_labels(&self, t: &Turn<'_>) -> Vec<String> {
+    fn session_labels(t: &Turn<'_>) -> Vec<String> {
         let Ok(Some(rec)) = t.tc.store.get_session::<SessionRecord>(t.tc.session_id) else {
             return Vec::new();
         };
