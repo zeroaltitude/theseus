@@ -1,0 +1,7 @@
+$ theseus profile release
+--- requests
+profile.release
+--- stdout
+live profile: quick (from config; was deep)
+--- stderr
+--- exit 0

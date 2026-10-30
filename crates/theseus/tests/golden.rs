@@ -2017,6 +2017,37 @@ fn profile_list_and_use() {
     );
 }
 
+/// `theseus profile release` (theseus-ervz9): the pin `profile use` set is given back to the config's
+/// `[model] live`; it says what it replaced, or that there was nothing to release.
+#[test]
+fn profile_release() {
+    let released = json!({"live": "quick", "previous": "deep"});
+    golden(
+        "profile_release",
+        &run(
+            &["profile", "release"],
+            vec![step("profile.release", released.clone())],
+        ),
+    );
+    golden(
+        "profile_release_json",
+        &run(
+            &["--json", "profile", "release"],
+            vec![step("profile.release", released)],
+        ),
+    );
+    golden(
+        "profile_release_nothing",
+        &run(
+            &["profile", "release"],
+            vec![step(
+                "profile.release",
+                json!({"live": "quick", "previous": "quick"}),
+            )],
+        ),
+    );
+}
+
 #[test]
 fn ledger_prints_rows_and_the_total() {
     let rows = json!({"total": 2048, "rows": [

@@ -1168,6 +1168,13 @@ impl Core {
         Ok(changed)
     }
 
+    /// Release the runtime live profile (theseus-ervz9). Stub: red.
+    pub(super) fn profile_release(&self, _conn: Conn<'_>) -> Result<ProfileChanged, RpcFailure> {
+        Err(RpcFailure::invalid(anyhow::anyhow!(
+            "profile.release is not built"
+        )))
+    }
+
     fn switch_profile(&self, name: &str, by: &str) -> Result<ProfileChanged> {
         // The switch and when it was, in one frame: a session routing moved
         // before it runs on the new live profile at its next message

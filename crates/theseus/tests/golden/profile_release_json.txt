@@ -1,0 +1,7 @@
+$ theseus --json profile release
+--- requests
+profile.release
+--- stdout
+{"live":"quick","previous":"deep"}
+--- stderr
+--- exit 0

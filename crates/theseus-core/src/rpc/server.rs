@@ -315,6 +315,7 @@ impl Core {
             method::TURN_SUBMIT => reply(self.turn_submit(parse(params)?, conn, true).await?),
             method::PROFILE_LIST => reply(self.profile_list()),
             method::PROFILE_USE => route(params, |p| self.profile_use(p, conn)),
+            method::PROFILE_RELEASE => reply(self.profile_release(conn)?),
             method::SESSION_HISTORY => route(params, |p| self.session_history(p)),
             // The first watch of any kind seeds the push (theseus-tq04).
             method::SESSION_WATCH => reply(self.session_watch(parse(params)?, conn).await?),

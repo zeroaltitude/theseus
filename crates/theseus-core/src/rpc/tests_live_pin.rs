@@ -24,7 +24,7 @@ fn use_profile(id: u64, name: &str) -> Request {
     )
 }
 
-fn ask(id: u64, input: &str, profile: Option<&str>) -> Request {
+pub(super) fn ask(id: u64, input: &str, profile: Option<&str>) -> Request {
     Request::new(
         Id::Num(id),
         method::TURN_SUBMIT,
@@ -67,7 +67,7 @@ async fn after_use(
     result(&roundtrip(core.clone(), vec![turn]).await, 2)
 }
 
-fn result(msgs: &[Message], id: u64) -> TurnSubmitResult {
+pub(super) fn result(msgs: &[Message], id: u64) -> TurnSubmitResult {
     msgs.iter()
         .find_map(|m| match m {
             Message::Response(r) if r.id == Id::Num(id) => Some(r),
