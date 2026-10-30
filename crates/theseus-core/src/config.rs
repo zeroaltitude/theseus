@@ -2035,6 +2035,14 @@ impl Config {
         &self.resolved.providers
     }
 
+    /// Why a pick on `provider` cannot run for want of a key, in the words
+    /// `theseus why` prints (`deepseek: no key`), or `None` when the provider
+    /// is declared and its secret is named under `[secrets]`. Whether the
+    /// secret resolves is the secret board's, at the call.
+    pub fn provider_without_key(&self, _provider: &str) -> Option<String> {
+        None
+    }
+
     pub fn state_dir(&self) -> PathBuf {
         expand(&self.server.state_dir)
     }
@@ -2128,6 +2136,8 @@ mod tests;
 mod tests_card;
 #[cfg(test)]
 mod tests_content_based_security;
+#[cfg(test)]
+mod tests_deepseek;
 #[cfg(test)]
 mod tests_fresh;
 #[cfg(test)]

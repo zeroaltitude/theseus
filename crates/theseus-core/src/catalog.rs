@@ -42,6 +42,11 @@ use serde::{Deserialize, Serialize};
 use theseus_kernel::{usd_to_micros, Micros, MICROS_PER_USD};
 use theseus_protocol::Usage;
 
+use crate::config::Effort;
+
+mod peak;
+pub use peak::price_period_at;
+
 pub const BUILTIN_VERSION: &str = "2026-10-25.2";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
@@ -272,6 +277,28 @@ pub struct CatalogEntry {
     /// Where the model was made; `unknown` (restricted) unless a row says.
     #[serde(default)]
     pub origin: ModelOrigin,
+    /// The effort the model runs at when Jev answers `default` or is under the
+    /// confirm bar (theseus-9f72b): the model's own default, none where no
+    /// vendor figure is on record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<Effort>,
+    /// The provider's off-peak prices, where it has them (DeepSeek's): the
+    /// ledger prices a call at the rate in force when it was made. The row's
+    /// own prices stay the peak ones, which reserves and budgets use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off_peak: Option<OffPeak>,
+}
+
+/// A provider's off-peak prices, in dollars per million tokens (DeepSeek's
+/// are half its peak ones). Cache writes follow the input price: a model whose
+/// writes cost its input price (DeepSeek's) pays the off-peak input price for
+/// them.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OffPeak {
+    pub input_per_mtok: f64,
+    pub output_per_mtok: f64,
+    pub cache_read_per_mtok: f64,
 }
 
 fn yes() -> bool {
@@ -392,6 +419,16 @@ impl CatalogEntry {
     /// up to the next micro-dollar (theseus-0sg).
     pub fn cost_micros(&self, u: &Usage) -> Micros {
         micros_of(&self.terms(u))
+    }
+
+    /// [`cost_usd`](Self::cost_usd) at the rate in force at `at_ms`.
+    pub fn cost_usd_at(&self, u: &Usage, _at_ms: u64) -> f64 {
+        self.cost_usd(u)
+    }
+
+    /// [`cost_micros`](Self::cost_micros) at the rate in force at `at_ms`.
+    pub fn cost_micros_at(&self, u: &Usage, _at_ms: u64) -> Micros {
+        self.cost_micros(u)
     }
 
     /// The prices a call with a prompt of `prompt_tokens` pays: the long
@@ -560,6 +597,13 @@ pub struct CatalogRow {
     /// `cn` row's cannot be loosened (`Config::validate`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<ModelOrigin>,
+    /// The effort a model runs at when Jev leaves it to the model; omitted on a
+    /// new model: none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<Effort>,
+    /// The provider's off-peak prices, whole (`[catalog."<id>".off_peak]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off_peak: Option<OffPeak>,
 }
 
 impl CatalogRow {
@@ -629,6 +673,8 @@ impl CatalogRow {
                     source: String::new(),
                     bytes_per_token: TokenRates::default(),
                     origin: ModelOrigin::Unknown,
+                    default_effort: None,
+                    off_peak: None,
                 }
             }
         };
@@ -658,6 +704,8 @@ impl CatalogRow {
             source: r.source.unwrap_or_else(|| "config".into()),
             bytes_per_token: r.bytes_per_token.unwrap_or(entry.bytes_per_token),
             origin: r.origin.unwrap_or(entry.origin),
+            default_effort: r.default_effort.or(entry.default_effort),
+            off_peak: r.off_peak.or(entry.off_peak),
         })
     }
 }
@@ -703,6 +751,8 @@ fn claude(
         source: "Claude API reference (2026-06-24 model table; model-migration pricing)".into(),
         bytes_per_token: TokenRates::CLAUDE,
         origin: ModelOrigin::Us,
+        default_effort: None,
+        off_peak: None,
     }
 }
 
@@ -741,6 +791,8 @@ fn glm(
         source: "docs.z.ai pricing and model pages, 2026-10-17".into(),
         bytes_per_token: TokenRates::GLM,
         origin: ModelOrigin::Cn,
+        default_effort: None,
+        off_peak: None,
     }
 }
 
@@ -776,6 +828,8 @@ fn deepseek(input: f64, output: f64, cache_read: f64, vision: bool, served: &str
         ),
         bytes_per_token: TokenRates::of("deepseek-"),
         origin: ModelOrigin::Cn,
+        default_effort: None,
+        off_peak: None,
     }
 }
 
@@ -811,6 +865,8 @@ fn kimi(input: f64, output: f64, served: &str) -> CatalogEntry {
         source: format!("Moonshot AI Kimi API docs and a live probe, 2026-10-24; {served}"),
         bytes_per_token: TokenRates::of("kimi-"),
         origin: ModelOrigin::Cn,
+        default_effort: None,
+        off_peak: None,
     }
 }
 
@@ -1040,6 +1096,11 @@ impl Catalog {
     /// Dollars for a call, or `None` when the model is not in the catalog.
     pub fn cost_usd(&self, model: &str, usage: &Usage) -> Option<f64> {
         self.get(model).map(|e| e.cost_usd(usage))
+    }
+
+    /// [`cost_usd`](Self::cost_usd) at the rate in force at `at_ms`.
+    pub fn cost_usd_at(&self, model: &str, usage: &Usage, at_ms: u64) -> Option<f64> {
+        self.get(model).map(|e| e.cost_usd_at(usage, at_ms))
     }
 }
 
@@ -2158,3 +2219,5 @@ mod tests {
 
 #[cfg(test)]
 mod tests_moonshot;
+#[cfg(test)]
+mod tests_peak;

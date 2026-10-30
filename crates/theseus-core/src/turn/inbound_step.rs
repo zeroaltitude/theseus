@@ -114,6 +114,9 @@ impl TurnRunner {
                     capture,
                     data_names: self.cfg.privacy.data_names(),
                     attachments: attachments.clone(),
+                    restricted: theseus_judge::builders::RestrictedModels::allowed_if(
+                        self.cn_read(t) == super::data_step::Cn::Allowed,
+                    ),
                 })
                 .map(|e| (e, None)),
         };

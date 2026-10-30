@@ -32,7 +32,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use theseus_judge::builders::{
-    DataNames, InboundInput, PersonaInput, RoleInput, TaskInput, ThreadInput, ThreadNow, TurnInput,
+    DataNames, InboundInput, PersonaInput, RestrictedModels, RoleInput, RouteFacts, TaskInput,
+    ThreadInput, ThreadNow, TurnInput,
 };
 use theseus_judge::{Ask, DecisionPoint, Input, Judge, Mode, Outcome, Pack, Urgency};
 use theseus_kernel::Kernel;
@@ -270,6 +271,10 @@ pub struct Inbound {
     /// ones' first characters (theseus-p6zgq). Only a turn that has its
     /// node carries them.
     pub attachments: Vec<crate::node::Attachment>,
+    /// Whether the session's labels let a model of restricted origin read the
+    /// turn (`data_step::cn_read`), for route.v10's `restricted_models`
+    /// (theseus-9f72b). Fail-closed where no turn read the labels.
+    pub restricted: RestrictedModels,
 }
 
 /// The workload class (§2.2) an inbound judgment records. The turn has not
@@ -848,6 +853,7 @@ pub fn input(nodes: &[Node], msg: &Inbound, live_tasks: Vec<TaskInput>) -> Inbou
         current_role: None,
         data_names: msg.data_names.clone(),
         onto: None,
+        route: None,
         roles: SEED_ROLES
             .iter()
             .map(|(id, stance)| RoleInput {
