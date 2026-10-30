@@ -1,0 +1,4 @@
+# A run's own files stay on the host: the Harbor jobs, the scratch daemons, the live daemon's replies (which may
+# name a person). Only each run's report.md is committed, beside the floor it was compared with.
+runs/*/*
+!runs/*/report.md

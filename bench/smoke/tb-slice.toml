@@ -1,0 +1,32 @@
+# The release smoke's Terminal-Bench 2.0 slice (theseus-yf6pj), picked ONCE on 2026-10-30 and not re-picked per
+# release: a release is compared with the floor of the last, and a moving slice would make that meaningless.
+#
+# Picked from the runs below, Theseus as shipped (routed) at the frozen 1.0.3 build: the HIGH tier's 89 tasks x 3
+# and the MAX tier's 30 hard tasks x 3. A stable task passed every trial of every run that has it (3 of 3, or 6 of 6
+# where MAX ran it too); a control failed every one, with the agent running and no exception, so that a control is a
+# task the agent attempts and gets wrong, not one the harness never starts. Among the 61 stable tasks, the eight are
+# one per category, two easy, three medium and three hard, and the cheapest and quickest of their kind (the HIGH
+# run's median trial below), because the smoke is a release check, not a measurement. test_smoke.py holds every
+# line here against the CSVs.
+#
+# A stable task that fails is a regression; a control that passes means the grader or the slice is broken, or
+# Theseus learned the task, and either way the slice is re-read before the release is called.
+
+sources = [
+  "docs/benchmarks/2026-10-26-terminal-bench-theseus-1.0.3-high-k3.csv",
+  "docs/benchmarks/2026-10-27-terminal-bench-theseus-1.0.3-max-k3.csv",
+]
+
+[stable]
+fix-git = "easy, software-engineering: 3 of 3 on HIGH; median trial $0.048, 18 s"
+overfull-hbox = "easy, debugging: 3 of 3 on HIGH; median trial $0.091, 73 s"
+regex-log = "medium, data-processing: 3 of 3 on HIGH; median trial $0.032, 20 s"
+db-wal-recovery = "medium, file-operations: 3 of 3 on HIGH; median trial $0.035, 20 s"
+git-multibranch = "medium, system-administration: 3 of 3 on HIGH; median trial $0.039, 24 s"
+sparql-university = "hard, data-querying: 6 of 6 on HIGH and MAX; median trial $0.116, 47 s"
+password-recovery = "hard, security: 6 of 6 on HIGH and MAX; median trial $0.056, 32 s"
+bn-fit-modify = "hard, scientific-computing: 6 of 6 on HIGH and MAX; median trial $0.093, 68 s"
+
+[controls]
+configure-git-webserver = "hard, system-administration: 0 of 6 on HIGH and MAX, the agent ran every time; median trial $0.066, 80 s"
+raman-fitting = "medium, scientific-computing: 0 of 3 on HIGH, the agent ran every time; median trial $0.102, 87 s"

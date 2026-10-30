@@ -171,35 +171,52 @@ class TbPart(unittest.TestCase):
         self.assertIn("price table", p["note"])
 
 
+def replay(model_ok=53, must_ok=13, must_total=13, answered=58, held=2, bar=True, cost=0.01):
+    """`theseus --json judge replay --cases`'s result, the fields the part reads."""
+    return {"set": "cases", "cost_usd": cost,
+            "cases": {"cases": [{}] * 58, "answered": answered, "model_ok": model_ok, "held_elsewhere": held,
+                      "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar}}
+
+
 class RoutePart(unittest.TestCase):
-    def test_cases_mode_needs_54_of_60_and_every_must_in_every_run(self):
-        good = [{"total": 60, "model_correct": 55, "musts": 14, "musts_held": 14, "p95_ms": 900}] * 3
-        self.assertTrue(smoke.route_part("cases", good, floor=None)["ok"])
-        low = good[:2] + [{"total": 60, "model_correct": 53, "musts": 14, "musts_held": 14, "p95_ms": 900}]
-        self.assertFalse(smoke.route_part("cases", low, floor=None)["ok"])
-        must = good[:2] + [{"total": 60, "model_correct": 60, "musts": 14, "musts_held": 13, "p95_ms": 900}]
-        self.assertFalse(smoke.route_part("cases", must, floor=None)["ok"])
+    def runs(self, *raws, wall=20.0):
+        return [smoke.route_run(r, wall) for r in raws]
 
-    def test_replay_mode_compares_agreement_and_p95_with_the_floor(self):
-        runs = [{"total": 40, "agree": 38, "p95_ms": 1000}] * 3
-        self.assertTrue(smoke.route_part("replay", runs, floor=None)["ok"])
-        floor = {"route": {"mode": "replay", "agreement": 0.95, "p95_ms": 1000}}
-        self.assertTrue(smoke.route_part("replay", runs, floor=floor)["ok"])
-        worse = [{"total": 40, "agree": 34, "p95_ms": 1000}] * 3
-        self.assertFalse(smoke.route_part("replay", worse, floor=floor)["ok"])
-        slow = [{"total": 40, "agree": 38, "p95_ms": 1400}] * 3
-        self.assertFalse(smoke.route_part("replay", slow, floor=floor)["ok"])
+    def test_the_bar_is_54_of_60_on_the_model_with_the_two_pin_tests_counted_and_every_must(self):
+        self.assertTrue(smoke.route_part(self.runs(*[replay(model_ok=52)] * 3), floor=None)["ok"])
+        low = smoke.route_part(self.runs(replay(), replay(), replay(model_ok=51)), floor=None)
+        self.assertFalse(low["ok"])
+        self.assertIn("53/60", low["note"])
+        must = smoke.route_part(self.runs(replay(), replay(), replay(must_ok=12)), floor=None)
+        self.assertFalse(must["ok"])
+        self.assertIn("12/13", must["note"])
 
-    def test_fewer_than_three_runs_or_an_empty_run_is_a_fail(self):
-        self.assertFalse(smoke.route_part("replay", [{"total": 40, "agree": 40, "p95_ms": 1}] * 2, None)["ok"])
-        self.assertFalse(smoke.route_part("replay", [{"total": 0, "agree": 0, "p95_ms": 0}] * 3, None)["ok"])
+    def test_the_number_is_the_worst_run_on_the_model_out_of_60(self):
+        p = smoke.route_part(self.runs(replay(model_ok=56), replay(model_ok=53), replay(model_ok=55)), None)
+        self.assertEqual(p["number"], 55.0)
 
-    def test_a_floor_from_the_other_mode_is_not_compared(self):
-        runs = [{"total": 60, "model_correct": 58, "musts": 14, "musts_held": 14, "p95_ms": 5000}] * 3
-        floor = {"route": {"mode": "replay", "agreement": 0.99, "p95_ms": 100}}
-        p = smoke.route_part("cases", runs, floor=floor)
-        self.assertTrue(p["ok"], p)
-        self.assertIn("mode", p["note"])
+    def test_fewer_than_three_runs_or_a_run_with_no_answers_is_a_fail(self):
+        self.assertFalse(smoke.route_part(self.runs(replay(), replay()), None)["ok"])
+        self.assertFalse(smoke.route_part(self.runs(replay(), replay(), replay(answered=0)), None)["ok"])
+
+    def test_a_run_slower_than_the_floor_by_more_than_thirty_percent_fails(self):
+        floor = {"route": {"wall_s": 20.0}}
+        self.assertTrue(smoke.route_part(self.runs(*[replay()] * 3, wall=26.0), floor)["ok"])
+        slow = smoke.route_part(self.runs(*[replay()] * 3, wall=26.5), floor)
+        self.assertFalse(slow["ok"])
+        self.assertIn("wall", slow["note"])
+
+    def test_the_daemons_whole_bar_is_said_but_does_not_decide(self):
+        p = smoke.route_part(self.runs(*[replay(bar=False)] * 3), None)
+        self.assertTrue(p["ok"])
+        self.assertIn("whole bar met 0/3", p["note"])
+
+    def test_a_part_that_could_not_run_is_a_fail_that_says_why(self):
+        p = smoke.unavailable("route", "this binary has no `judge replay --cases`")
+        self.assertFalse(p["ok"])
+        self.assertEqual(p["count"], 0)
+        self.assertIn("--cases", p["note"])
+        self.assertEqual(smoke.verdict([p]), "FAIL (route, tb, recall, resume, dm: did not run)")
 
 
 class OtherParts(unittest.TestCase):
@@ -210,27 +227,50 @@ class OtherParts(unittest.TestCase):
         self.assertFalse(smoke.recall_part(exit_code=1, seconds=9.0, tests=120, skipped=False)["ok"])
 
     def test_resume_needs_three_kills_three_resumes_and_no_repeated_effect(self):
-        self.assertTrue(smoke.resume_part(kills=3, resumed=3, effects=6, expected_effects=6)["ok"])
-        self.assertFalse(smoke.resume_part(kills=2, resumed=2, effects=6, expected_effects=6)["ok"])
-        self.assertFalse(smoke.resume_part(kills=3, resumed=2, effects=6, expected_effects=6)["ok"])
-        repeated = smoke.resume_part(kills=3, resumed=3, effects=7, expected_effects=6)
+        good = {"kills": 3, "resumed": 3, "effects": [1, 2, 3, 4, 5, 6], "starts": [1, 2, 3, 4, 5, 6],
+                "steps": 6, "settled": True, "wall_s": 30.0, "interrupted_rows": 3, "notes": []}
+        self.assertTrue(smoke.resume_part(good)["ok"])
+        self.assertFalse(smoke.resume_part({**good, "kills": 2, "resumed": 2})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "resumed": 2})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "settled": False})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "interrupted_rows": 2})["ok"])
+        self.assertFalse(smoke.resume_part({**good, "notes": ["step 4 never started"]})["ok"])
+        repeated = smoke.resume_part({**good, "effects": [1, 2, 3, 4, 4, 5, 6]})
         self.assertFalse(repeated["ok"])
         self.assertIn("repeated", repeated["note"])
-        self.assertFalse(smoke.resume_part(kills=3, resumed=3, effects=5, expected_effects=6)["ok"])
+        rerun = smoke.resume_part({**good, "starts": [1, 2, 3, 4, 4, 5, 6]})
+        self.assertFalse(rerun["ok"])
+        self.assertIn("repeated", rerun["note"])
+        self.assertFalse(smoke.resume_part({**good, "effects": [1, 2, 3, 5, 6]})["ok"])
 
     def test_dm_needs_five_replies_in_time_with_footers_and_no_alarms(self):
-        good = [{"turn": n, "seconds": 8.0, "footer": True} for n in range(5)]
+        good = [{"turn": n, "seconds": 8.0, "footer": True, "expected": True} for n in range(5)]
         self.assertTrue(smoke.dm_part(good, alarms=0)["ok"])
         self.assertFalse(smoke.dm_part(good[:4], alarms=0)["ok"])
-        self.assertFalse(smoke.dm_part(good[:4] + [{"turn": 4, "seconds": 61.0, "footer": True}], 0)["ok"])
-        self.assertFalse(smoke.dm_part(good[:4] + [{"turn": 4, "seconds": 3.0, "footer": False}], 0)["ok"])
+        self.assertFalse(smoke.dm_part(good[:4] + [{**good[4], "seconds": 61.0}], 0)["ok"])
+        self.assertFalse(smoke.dm_part(good[:4] + [{**good[4], "footer": False}], 0)["ok"])
         self.assertFalse(smoke.dm_part(good, alarms=1)["ok"])
         self.assertFalse(smoke.dm_part([], alarms=0)["ok"])
+        wrong = smoke.dm_part(good[:4] + [{"turn": 4, "seconds": 3.0, "footer": True, "expected": False}], 0)
+        self.assertFalse(wrong["ok"])
+        self.assertIn("unexpected reply", wrong["note"])
 
 
 def part(name, ok, cost=0.0, wall=1.0):
     return {"part": name, "ok": ok, "count": 1, "number": 1.0, "unit": "x", "floor": None,
             "delta": None, "note": "", "cost_usd": cost, "wall_s": wall}
+
+
+class Spent(unittest.TestCase):
+    def test_spent_sums_the_finished_trials_turn_traces_only(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            a = trial(root, "fix-git", 1.0, suffix="a1")
+            (a / "agent" / "theseus-turn.json").write_text(json.dumps({"cost_usd": 0.25}))
+            b = trial(root, "regex-log", 1.0, suffix="b2")
+            (b / "agent" / "theseus-turn.json").write_text(json.dumps({"cost_usd": 0.5}))
+            trial(root, "db-wal-recovery", None, suffix="c3")  # in flight: no trace yet
+            self.assertAlmostEqual(smoke.spent(root), 0.75)
 
 
 class Verdict(unittest.TestCase):
@@ -256,18 +296,35 @@ class Verdict(unittest.TestCase):
 
 
 class Floor(unittest.TestCase):
-    def test_floor_from_a_run_holds_what_the_comparisons_read(self):
+    def passing(self):
         tb = smoke.tb_part(tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False}),
                            SLICE, floor=None, wall_s=600)
-        route = smoke.route_part("replay", [{"total": 40, "agree": 38, "p95_ms": 1000}] * 3, None)
+        route = smoke.route_part([smoke.route_run(replay(), 20.0)] * 3, None)
+        return tb, route
+
+    def test_floor_from_a_run_holds_what_the_comparisons_read(self):
+        tb, route = self.passing()
         f = smoke.floor_from([tb, route], sha="75012080", date="2026-10-30")
-        self.assertEqual(f["sha"], "75012080")
+        self.assertEqual(f["written"]["parts"], ["tb", "route"])
         self.assertEqual(f["tb"]["wall_s"], 600)
         self.assertEqual(f["tb"]["price_digest"], smoke.price_digest())
         self.assertAlmostEqual(f["tb"]["cost_per_solved_usd"], 0.125)
-        self.assertEqual(f["route"], {"mode": "replay", "agreement": 0.95, "p95_ms": 1000})
+        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, 55.0))
+        # What the next run compares with is what this run wrote.
+        self.assertTrue(smoke.tb_part(tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False}),
+                                      SLICE, floor=f, wall_s=600)["ok"])
 
-    def test_a_failed_run_never_writes_a_floor(self):
+    def test_a_failed_part_keeps_the_previous_floors_entry(self):
+        tb, _ = self.passing()
+        bad_route = smoke.route_part([smoke.route_run(replay(model_ok=30), 99.0)] * 3, None)
+        previous = {"route": {"wall_s": 20.0, "model_worst": 56.0, "sha": "old", "date": "d0"}}
+        f = smoke.floor_from([tb, bad_route], sha="new", date="d1", previous=previous)
+        self.assertEqual(f["written"]["parts"], ["tb"])
+        self.assertEqual(f["route"], previous["route"])
+        self.assertEqual(f["tb"]["sha"], "new")
+        self.assertIn("FAIL", f["written"]["verdict"])
+
+    def test_no_floor_when_nothing_a_floor_reads_passed(self):
         bad = smoke.tb_part([], SLICE, floor=None, wall_s=0)
         with self.assertRaises(smoke.SmokeError):
             smoke.floor_from([bad], sha="x", date="d")

@@ -1,0 +1,19 @@
+{
+  "name": "smoke-tb10",
+  "attempts": {
+    "fix-git": 1,
+    "overfull-hbox": 1,
+    "regex-log": 1,
+    "db-wal-recovery": 1,
+    "git-multibranch": 1,
+    "sparql-university": 1,
+    "password-recovery": 1,
+    "bn-fit-modify": 1,
+    "configure-git-webserver": 1,
+    "raman-fitting": 1
+  },
+  "effort_bounds": [
+    "low",
+    "high"
+  ]
+}
