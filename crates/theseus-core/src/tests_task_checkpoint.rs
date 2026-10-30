@@ -62,6 +62,32 @@ fn on_trigger(jev: &FakeJev, trigger: &str, class: &str) {
     );
 }
 
+/// The same, for a pack that asks `model` (the acting pack once the unified
+/// switch is open, `JudgeService::route_open`): the verdict is Jev's pick of an
+/// option, not a class.
+fn on_trigger_pick(jev: &FakeJev, trigger: &str, option: &str) {
+    jev.script_when(
+        trigger,
+        None,
+        "model",
+        Jev::Choice {
+            option: option.into(),
+            confidence: 0.95,
+        },
+    );
+}
+
+/// Jev's pick of `option` for every ask that has no trigger of its own.
+fn pick_baseline(jev: &FakeJev, option: &str) {
+    jev.script(
+        "model",
+        Jev::Choice {
+            option: option.into(),
+            confidence: 0.95,
+        },
+    );
+}
+
 struct Task {
     rig: Rig,
     claude: Arc<FakeProvider>,
@@ -100,13 +126,26 @@ async fn task_gated(
     verdicts: impl FnOnce(&FakeJev),
 ) -> Task {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
+    // Open, the pack asks `model` and a verdict is a pick: the baseline is the
+    // cheap one a routine brief starts on, as the class's was.
+    match open {
+        true => pick_baseline(&jev, "haiku"),
+        false => mode(&jev, "routine_coding", 0.95),
+    }
     verdicts(&jev);
     let claude = Arc::new(FakeProvider {
         delay_ms: 60,
         ..FakeProvider::scripted(script)
     });
-    let rig = task_rig(&jev, claude.clone(), tweak).await;
+    // A pick runs only where the provider's key is named (a placeholder is no
+    // key, `Config::provider_without_key`): the open rule's picks must be able to run.
+    let rig = task_rig(&jev, claude.clone(), |c| {
+        if open {
+            c.name_every_provider_key();
+        }
+        tweak(c);
+    })
+    .await;
     if open {
         rig.core
             .runner
@@ -412,8 +451,8 @@ async fn an_open_task_follows_a_cheaper_verdict_down_at_once() {
         None,
         |_| {},
         |j| {
-            on_trigger(j, "failing: 3 failed", "deep_coding");
-            on_trigger(j, "failing: 7 failed", "routine_coding");
+            on_trigger_pick(j, "failing: 3 failed", "sonnet");
+            on_trigger_pick(j, "failing: 7 failed", "haiku");
         },
     )
     .await;
@@ -448,8 +487,8 @@ async fn an_open_cheap_verdict_takes_a_task_below_where_it_started() {
         None,
         |_| {},
         |j| {
-            mode(j, "deep_coding", 0.95);
-            on_trigger(j, "failing: ", "trivial");
+            pick_baseline(j, "sonnet");
+            on_trigger_pick(j, "failing: ", "haiku");
         },
     )
     .await;
@@ -474,10 +513,10 @@ async fn an_open_task_has_no_cap_on_moves() {
         None,
         |c| c.routing.task_checkpoints.max_switches = 1,
         |j| {
-            on_trigger(j, "failing: 3 failed", "deep_coding");
-            on_trigger(j, "failing: 7 failed", "sophisticated");
-            on_trigger(j, "failing: 11 failed", "routine_coding");
-            on_trigger(j, "failing: 15 failed", "deep_coding");
+            on_trigger_pick(j, "failing: 3 failed", "sonnet");
+            on_trigger_pick(j, "failing: 7 failed", "opus");
+            on_trigger_pick(j, "failing: 11 failed", "haiku");
+            on_trigger_pick(j, "failing: 15 failed", "sonnet");
         },
     )
     .await;

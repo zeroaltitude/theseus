@@ -1365,6 +1365,22 @@ fn rig_jev(
     }
 }
 
+/// Jev's `model` answer for the summary's ask alone. The route pack that asks
+/// `model` is the acting one for every ask (the unified switch,
+/// `JudgeService::route_open`), so the turns' own asks must not answer it too:
+/// they stay on their profile, as the tests under them assume.
+fn pick_summary(jev: &theseus_judge::fake::FakeJev, option: &str, confidence: f64) {
+    jev.script_when(
+        "Summarize the oldest",
+        None,
+        "model",
+        theseus_judge::fake::Scripted::Choice {
+            option: option.into(),
+            confidence,
+        },
+    );
+}
+
 fn summary_for_glm() -> Scripted {
     summary("The keeper logged six tides.", 9_000, 120)
 }
@@ -1393,7 +1409,7 @@ fn models_asked(r: &Rig) -> Vec<String> {
 async fn an_unset_summary_profile_asks_jev_and_writes_on_its_pick() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     jev_chat(&jev);
-    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    pick_summary(&jev, "opus", 0.95);
     let r = rig_jev(&jev, None, true, |_| {});
     let sid = session(&r.core);
     until_recompiled(&r, &sid, 6_000).await;
@@ -1415,7 +1431,7 @@ async fn an_unset_summary_profile_asks_jev_and_writes_on_its_pick() {
 async fn a_set_summary_profile_asks_jev_nothing() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     jev_chat(&jev);
-    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    pick_summary(&jev, "opus", 0.95);
     let r = rig_jev(&jev, Some("glm"), true, |_| {});
     let sid = session(&r.core);
     until_recompiled(&r, &sid, 6_000).await;
@@ -1430,7 +1446,7 @@ async fn a_set_summary_profile_asks_jev_nothing() {
 async fn an_unset_summary_profile_is_session_while_the_pack_asks_no_model() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     jev_chat(&jev);
-    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    pick_summary(&jev, "opus", 0.95);
     let r = rig_jev(&jev, None, false, |_| {});
     let sid = session(&r.core);
     until_recompiled(&r, &sid, 6_000).await;
@@ -1445,7 +1461,7 @@ async fn an_unset_summary_profile_is_session_while_the_pack_asks_no_model() {
 async fn a_slow_jev_does_not_hold_a_compaction() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     jev_chat(&jev);
-    crate::tests_job_ask::pick(&jev, "opus", 0.95);
+    pick_summary(&jev, "opus", 0.95);
     // Only the summary's ask is held: the turns' own asks answer, so the one
     // thing that is slow is the one under test.
     jev.hold_when("Summarize the oldest");
@@ -1478,7 +1494,7 @@ async fn a_slow_jev_does_not_hold_a_compaction() {
 async fn a_labelled_session_is_told_not_allowed_and_never_summarized_on_flash() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     jev_chat(&jev);
-    crate::tests_job_ask::pick(&jev, "deepseek_flash", 0.97);
+    pick_summary(&jev, "deepseek_flash", 0.97);
     // `cn_models = never`: no model of restricted origin reads any session.
     let r = rig_jev(&jev, None, true, |c| {
         c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;

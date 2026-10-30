@@ -191,14 +191,18 @@ async fn a_closed_routine_brief_still_starts_on_haikuhi() {
 }
 
 /// Open (theseus-ej6bj: the acting pack asks `model`, `CODING_BASE` no longer
-/// stands): a routine-coding brief starts where the class's list sends it, and
-/// a config that moved `haikuhi` out of that list does not get it back.
+/// stands): a brief starts on the model Jev picks, and a config that moved
+/// `haikuhi` out of the class list does not get it back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_open_routine_brief_starts_where_its_class_sends_it() {
     let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
+    // Open, the verdict is Jev's pick of an option (the unified switch,
+    // `route_open`): the class list no longer decides, and a config that moved
+    // `haikuhi` out of it changes nothing.
+    crate::tests_job_ask::pick(&jev, "sonnet", 0.95);
     let r = rig_from(Some(&jev), "fable", |c| {
-        c.routing.classes.routine_coding.profiles = vec!["sonnet".into()];
+        c.name_every_provider_key();
+        c.routing.classes.routine_coding.profiles = vec!["haiku".into()];
     });
     r.core
         .runner
