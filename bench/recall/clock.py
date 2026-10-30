@@ -9,6 +9,10 @@ time from a one-line file (`@YYYY-MM-DD HH:MM:SS`, ticking from there) that the 
 session opens. The runner then reads the date back from a fresh process under the same environment and
 refuses to run a session whose machine date is not the narrated one.
 
+The library has to be the thread-safe `libfaketimeMT.so.1`: an arm here is `theseusd`, and the plain
+build's unsynchronized clock froze a daemon's own time to a standstill (theseus-h1z44). A machine with
+only the plain build counts as having none, and the run says which and why rather than hanging.
+
 `mode`: `pin` requires the library, `off` never pins, `auto` (the default) pins when the library is found
 and otherwise runs unpinned and says so: `run.json`'s `clock` records which, and the scorer sets the date
 probes of an unpinned run aside (`score.py`).
@@ -30,12 +34,22 @@ from typing import Callable
 import progression as pg
 
 LIB_ENV = "LIBFAKETIME_LIB"
-LIB_PATHS = (
-    "/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1",
-    "/usr/lib/aarch64-linux-gnu/faketime/libfaketime.so.1",
-    "/usr/lib/faketime/libfaketime.so.1",
-    "/usr/local/lib/faketime/libfaketime.so.1",
+# The thread-safe build is the only one this harness picks for itself (theseus-h1z44). An arm here is
+# `theseusd`, a multithreaded Tokio daemon, and libfaketime's own README says the plain build keeps
+# "several variables ... statically cached by the library [which] could cause issues when accessed
+# without synchronization", while `libfaketimeMT.so.1` is the pthreads build that adds that
+# synchronization. Preloaded into `theseusd`, the plain build froze its clock: 0.392 faked seconds
+# measured across 262 real seconds, so no deadline the daemon holds - an 8 s turn timeout, a TTL, a
+# readiness wait - can ever arrive, and the driver's own real-time bounds expire instead, as a
+# `ledger.tail` TimeoutExpired or "theseusd did not serve in time", seven to fourteen minutes in.
+LIB_DIRS = (
+    "/usr/lib/x86_64-linux-gnu/faketime",
+    "/usr/lib/aarch64-linux-gnu/faketime",
+    "/usr/lib/faketime",
+    "/usr/local/lib/faketime",
 )
+MT_LIB = "libfaketimeMT.so.1"      # the pthreads build: the only one this harness preloads
+PLAIN_LIB = "libfaketime.so.1"     # the single-threaded build: never selected, only reported
 # From 08:00, sixteen hours to midnight, less an hour's margin.
 MAX_RUN_S = 15 * 3600
 MODES = ("auto", "pin", "off")
@@ -49,13 +63,40 @@ class ClockDrift(RuntimeError):
 
 def find_lib(explicit: str | os.PathLike | None = None) -> str | None:
     """The libfaketime to preload: `explicit` (taken at its word: a path that is not there is None, never
-    another library), else `$LIBFAKETIME_LIB`, else the distribution's."""
+    another library), else `$LIBFAKETIME_LIB`, else the distribution's **thread-safe** build. A machine
+    that has only the single-threaded build has none as far as this harness is concerned, however many
+    directories hold it: `plain_lib()` says so, and the caller says it out loud."""
     if explicit:
         return str(explicit) if Path(explicit).is_file() else None
-    for cand in (os.environ.get(LIB_ENV), *LIB_PATHS):
-        if cand and Path(cand).is_file():
-            return str(cand)
+    cand = os.environ.get(LIB_ENV)
+    if cand and Path(cand).is_file():
+        return str(cand)
+    for d in LIB_DIRS:
+        p = Path(d) / MT_LIB
+        if p.is_file():
+            return str(p)
     return None
+
+
+def plain_lib() -> str | None:
+    """The single-threaded build, when that is all the machine has: the reason `find_lib` came back
+    empty, and worth naming, because the repair is to install `libfaketimeMT.so.1` beside it rather
+    than to preload the one that freezes a daemon's clock."""
+    for d in LIB_DIRS:
+        p = Path(d) / PLAIN_LIB
+        if p.is_file():
+            return str(p)
+    return None
+
+
+def no_lib_reason() -> str:
+    """Why no library was found, in the words the run records and the operator acts on."""
+    plain = plain_lib()
+    if plain:
+        return (f"only the single-threaded {PLAIN_LIB} is installed ({plain}), and preloading it into "
+                f"the multithreaded daemon freezes its clock (theseus-h1z44): install {MT_LIB} beside "
+                f"it, or pass that build as --faketime-lib")
+    return "no libfaketime found (set LIBFAKETIME_LIB or pass --faketime-lib)"
 
 
 def machine_date(env: dict) -> str:
@@ -87,7 +128,7 @@ def smoke(pin: str, lib: str | None = None, workdir: Path | None = None,
     the pin or the control does, and `ValueError` when the pin is too near the real date to tell."""
     lib = lib or find_lib()
     if lib is None:
-        raise SystemExit("smoke: no libfaketime found (set LIBFAKETIME_LIB or pass --faketime-lib)")
+        raise SystemExit(f"smoke: {no_lib_reason()}")
     runner = runner if runner is not None else machine_date
     real = host()
     if abs((dt.date.fromisoformat(pin) - dt.date.fromisoformat(real)).days) < MIN_GAP_DAYS:
@@ -120,10 +161,9 @@ class Clock:
         if mode == "off":
             reason = "--clock off: the arm reads the machine's own clock"
         elif lib is None:
-            reason = ("no libfaketime found (set LIBFAKETIME_LIB or pass --faketime-lib): the arm reads the "
-                      "machine's own clock")
+            reason = f"{no_lib_reason()}: the arm reads the machine's own clock"
             if mode == "pin":
-                raise SystemExit(f"drive: --clock pin needs libfaketime, and {reason}")
+                raise SystemExit(f"drive: --clock pin needs a thread-safe libfaketime, and {reason}")
             print(f"drive: WARNING {reason}; the run's date probes will be set aside by the scorer",
                   file=sys.stderr)
         self.pinned = reason is None
