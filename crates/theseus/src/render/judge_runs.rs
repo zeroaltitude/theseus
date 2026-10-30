@@ -103,37 +103,70 @@ fn onto_lines(r: &JudgeReplayResult, o: &OntoReplayReport) -> Vec<String> {
     out
 }
 
-/// One question's miss, as `MISS` lists it: `model opus→sonnet 0.71`.
+/// One question's miss, as `MISS` lists it: `model opus→sonnet 0.71`. A pick
+/// that fell under the confirm bar says so, with what Jev said: the line
+/// would otherwise show an answer Jev never gave (theseus-mir9c).
 fn miss(question: &str, c: &ReplayCheck) -> String {
     let got = if c.got.is_empty() { "–" } else { &c.got };
-    format!("{question} {}→{got} {:.2}", c.want, c.confidence)
+    let line = format!("{question} {}→{got} {:.2}", c.want, c.confidence);
+    match c.sub_confirm {
+        true => format!(
+            "{line} (under confirm {:.2}: Jev said {}, graded as no_match {got})",
+            c.confirm, c.raw
+        ),
+        false => line,
+    }
+}
+
+/// A question that fell under the confirm bar and was right all the same
+/// (the `no_match` is the label): a line that showed `ok` before and shows
+/// `ok` now still says the answer graded is the `no_match`, not Jev's.
+fn fell(question: &str, c: &ReplayCheck) -> String {
+    format!(
+        "{question} fell under confirm {:.2}: Jev said {} at {:.2}, graded as no_match {}",
+        c.confirm, c.raw, c.confidence, c.got
+    )
 }
 
 /// A case's line: `ok`, `ok` with an effort one rung off, or each question
 /// it missed. A case is right when its `model` and `context` agree and its
-/// `effort` is within one rung (the bar's own count).
+/// `effort` is within one rung (the bar's own count). A question that fell
+/// under its confirm bar is named wherever it landed.
 fn case_line(c: &ReplayCase) -> String {
     let tag = if c.must { " [must]" } else { "" };
     if !c.answered {
         return format!("{:<4}{tag} NO ANSWER (no judgment came back)", c.id);
     }
-    let misses: Vec<String> = [
+    let qs = [
         ("model", &c.model, c.model.agrees),
         ("effort", &c.effort, c.effort.close),
         ("context", &c.context, c.context.agrees),
-    ]
-    .iter()
-    .filter(|(_, _, right)| !right)
-    .map(|(q, check, _)| miss(q, check))
-    .collect();
+    ];
+    let misses: Vec<String> = qs
+        .iter()
+        .filter(|(_, _, right)| !right)
+        .map(|(q, check, _)| miss(q, check))
+        .collect();
+    let mut notes: Vec<String> = qs
+        .iter()
+        .filter(|(_, check, right)| *right && check.sub_confirm)
+        .map(|(q, check, _)| fell(q, check))
+        .collect();
     match (misses.is_empty(), c.effort.agrees) {
-        (false, _) => format!("{:<4}{tag} MISS {}", c.id, misses.join(", ")),
-        (true, true) => format!("{:<4}{tag} ok", c.id),
-        (true, false) => format!(
-            "{:<4}{tag} ok ({}, one rung off)",
+        (false, _) if notes.is_empty() => format!("{:<4}{tag} MISS {}", c.id, misses.join(", ")),
+        (false, _) => format!(
+            "{:<4}{tag} MISS {} · also {}",
             c.id,
-            miss("effort", &c.effort)
+            misses.join(", "),
+            notes.join("; ")
         ),
+        (true, true) if notes.is_empty() => format!("{:<4}{tag} ok", c.id),
+        (true, agrees) => {
+            if !agrees && !c.effort.sub_confirm {
+                notes.push(format!("{}, one rung off", miss("effort", &c.effort)));
+            }
+            format!("{:<4}{tag} ok ({})", c.id, notes.join("; "))
+        }
     }
 }
 
@@ -155,6 +188,18 @@ fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
     out.push(format!(
         "model {}/{n} · effort {}/{n} exact, {}/{n} within one rung · context {}/{n} · answered {}/{n}",
         c.model_ok, c.effort_exact, c.effort_close, c.context_ok, c.answered
+    ));
+    let fell_in = |f: &dyn Fn(&ReplayCase) -> bool| c.cases.iter().filter(|x| f(x)).count();
+    out.push(format!(
+        "under the confirm bar, graded as the question's no_match: model {}, effort {}, context {}",
+        fell_in(&|x| x.model.sub_confirm),
+        fell_in(&|x| x.effort.sub_confirm),
+        fell_in(&|x| x.context.sub_confirm),
+    ));
+    out.push(format!(
+        "raw top picks, no bar applied: model {}/{n} · effort {}/{n} exact, {}/{n} within one rung · \
+         context {}/{n}",
+        c.raw_model_ok, c.raw_effort_exact, c.raw_effort_close, c.raw_context_ok
     ));
     out.push(format!(
         "must {}/{}, {} under the confirm bar",

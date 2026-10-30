@@ -18,12 +18,19 @@
 //!   needs no live turn; the fields' names are the ones the daemon's own
 //!   state takes when the state-and-catalog row lands, and the replay's
 //!   builder follows it there.
-//! - **The grade** compares Jev's top option for each of the three deciding
-//!   questions to the label. `effort` is graded to the exact rung and to
-//!   within one rung (`low`, `medium`, `high`, `xhigh`, `max` in order);
-//!   `default` is on no rung, so it agrees with `default` only. The pack's
-//!   confirm bar is counted apart: a `must` case whose `model` answer sits
-//!   under it would run on the no-match option, whatever its top option.
+//! - **The grade** compares what routing would decide for each of the three
+//!   deciding questions to the label: Jev's top option when its band reached
+//!   the question's `confirm` bar, else the question's `no_match`, both read
+//!   from the pack replayed (theseus-mir9c; before it the raw top option was
+//!   graded, which under-credited `context` and over-credited `model`). The
+//!   raw option and its grade stay beside it. `effort` is graded to the exact
+//!   rung and to within one rung (`low`, `medium`, `high`, `xhigh`, `max` in
+//!   order); `default` is on no rung, so it agrees with `default` only. The
+//!   daemon applies an `effort` under the bar anyway when its confidence is
+//!   at least `[routing] effort_confidence` (`routing::effort::decide`); this
+//!   grade does not model that second bar. A `must` case whose `model` answer
+//!   sits under the confirm bar is counted apart too: it runs on the no-match
+//!   option, whatever its top option.
 //! - **The bar** is the design's (§4.3), counted over all sixty cases, with
 //!   the two pin cases W39 and W40 (daemon tests, [`PINNED`]) counted as met:
 //!   `model` at least 54, `effort` within one rung at least 50, `context` at
@@ -35,6 +42,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::band::{confidence_band, Band};
 use crate::builders::Prepared;
 use crate::client::Answer;
 use crate::judge::{Ask, Judgment, Mode};
@@ -380,6 +388,22 @@ fn rung(effort: &str) -> Option<usize> {
     RUNGS.iter().position(|r| *r == effort)
 }
 
+/// `got` is the label, and `got` is within one rung of it (`effort` only).
+fn agrees_close(q: &str, want: &str, got: &str) -> (bool, bool) {
+    let agrees = got == want;
+    let close = agrees
+        || match (rung(want), rung(got)) {
+            (Some(a), Some(b)) if q == "effort" => a.abs_diff(b) <= 1,
+            _ => false,
+        };
+    (agrees, close)
+}
+
+/// One deciding question graded the way routing decides it
+/// (`inbound::verdict`'s `sure`, `Verdict::short`; theseus-mir9c): Jev's top
+/// option stands when its band reached the question's `confirm` bar, and
+/// otherwise the answer is the question's `no_match`. Both come from the
+/// pack replayed, through the band function the daemon's own judgments use.
 fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
     let top = j.and_then(|j| j.answer(q)).and_then(|a| match &a.answer {
         Answer::Choice {
@@ -387,24 +411,30 @@ fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
         } => Some((choice.clone(), *confidence)),
         _ => None,
     });
-    let (got, confidence) = top.unwrap_or_default();
-    let agrees = got == want;
-    let close = agrees
-        || match (rung(want), rung(&got)) {
-            (Some(a), Some(b)) if q == "effort" => a.abs_diff(b) <= 1,
-            _ => false,
-        };
+    let answered = top.is_some();
+    let (raw, confidence) = top.unwrap_or_default();
+    let def = pack.question(q);
+    let no_match = def.and_then(|d| d.no_match.clone());
+    let sub_confirm = answered
+        && no_match.is_some()
+        && def.is_some_and(|d| confidence_band(confidence, d.thresholds) == Band::Escalate);
+    let got = match (&no_match, sub_confirm) {
+        (Some(no_match), true) => no_match.clone(),
+        _ => raw.clone(),
+    };
+    let (agrees, close) = agrees_close(q, want, &got);
+    let (raw_agrees, raw_close) = agrees_close(q, want, &raw);
     Check {
         want: want.to_string(),
-        raw: got.clone(),
         got,
         confidence,
         agrees,
         close,
-        confirm: pack.question(q).map_or(0.0, |d| d.thresholds.confirm),
-        sub_confirm: false,
-        raw_agrees: agrees,
-        raw_close: close,
+        raw,
+        confirm: def.map_or(0.0, |d| d.thresholds.confirm),
+        sub_confirm,
+        raw_agrees,
+        raw_close,
     }
 }
 
@@ -413,12 +443,11 @@ fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
 pub fn grade(pack: &Pack, case: &Case, j: Option<&Judgment>) -> Graded {
     let j = j.filter(|j| j.actionable());
     let model = check(&case.want.model, j, pack, "model");
-    let confirm = pack.question("model").map_or(0.0, |q| q.thresholds.confirm);
     Graded {
         id: case.id.clone(),
         must: case.must,
         answered: j.is_some(),
-        under_confirm: j.is_some() && model.confidence < confirm,
+        under_confirm: model.sub_confirm,
         model,
         effort: check(&case.want.effort, j, pack, "effort"),
         context: check(&case.want.context, j, pack, "context"),
