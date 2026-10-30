@@ -409,3 +409,53 @@ fn a_blocks_why_is_its_first_sentence_and_the_one_that_says_what_it_is_for() {
     assert_eq!(model::block_why("Only a name."), "Only a name.");
     assert_eq!(model::block_why(""), "");
 }
+
+fn fixture() -> theseus_judge::Pack {
+    theseus_judge::Pack::parse(include_str!("../../fixtures/packs/route.open.toml")).unwrap()
+}
+
+/// Every option a pack's `model` question offers is one the daemon can run, and
+/// the table names no model the pack does not offer: the two lists are one. The
+/// fixture is route.v10's shape, so the check bites here; the embedded sweep
+/// below bites on the real route.v10 once it is in the build, and on any pack
+/// that later asks `model`.
+#[test]
+fn the_models_options_and_the_daemons_table_are_one_list() {
+    let pack = fixture();
+    assert_eq!(model::unknown_options(&pack), Vec::<String>::new());
+    let offered: Vec<String> = pack
+        .questions
+        .iter()
+        .find(|q| q.id == "model")
+        .unwrap()
+        .options
+        .iter()
+        .map(|o| o.id.clone())
+        .collect();
+    let named: Vec<String> = model::OPTIONS.iter().map(|(o, _)| o.to_string()).collect();
+    assert_eq!(offered, named, "same options, same order");
+}
+
+#[test]
+fn a_foreign_option_is_found() {
+    let text = include_str!("../../fixtures/packs/route.open.toml")
+        .replace("{ id = \"fable\"", "{ id = \"kimi\"");
+    let pack = theseus_judge::Pack::parse(&text).unwrap();
+    assert_eq!(model::unknown_options(&pack), ["kimi"]);
+}
+
+/// Any embedded pack that asks `model` (route.v10 once it is embedded) names only
+/// options the table can run: a pack that gained a `model` question with foreign
+/// options would flip the whole regime and fall back on every turn.
+#[test]
+fn every_embedded_pack_that_asks_model_names_only_what_the_table_runs() {
+    let packs = theseus_judge::pack::embedded().as_ref().unwrap();
+    for p in packs {
+        assert_eq!(
+            model::unknown_options(p),
+            Vec::<String>::new(),
+            "{} offers a model the daemon cannot run",
+            p.name()
+        );
+    }
+}

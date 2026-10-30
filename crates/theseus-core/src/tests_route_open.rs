@@ -383,11 +383,15 @@ async fn a_short_pick_on_the_sessions_own_model_is_still_the_short_compile() {
     let reqs = o.r.claude.requests();
     let (full, short) = (&reqs[4], &reqs[5]);
     assert_eq!(short.model, "claude-sonnet-5-5");
+    // The last two exchanges (`trivial_context_turns`), the turn's recall node
+    // (a short compile keeps the recall, as `quick`'s did) and the message: six
+    // messages, from the third exchange, where the whole conversation is ten.
+    assert_eq!(full.messages.len(), 10);
+    assert_eq!(short.messages.len(), 6);
     assert!(
-        short.messages.len() < full.messages.len(),
-        "short {} against the whole conversation's {}",
-        short.messages.len(),
-        full.messages.len()
+        short.messages[0].to_string().contains("When?"),
+        "{:?}",
+        short.messages[0]
     );
     let after = session(&o.r.core, &sid);
     assert_eq!(after.compilation_id, before.compilation_id);
@@ -661,4 +665,107 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
     assert_eq!(keys, theseus_judge::builders::ROUTE_STATE_KEYS, "{state}");
     assert!(state["est_tokens"].as_u64().unwrap() > 0, "{state}");
     assert_eq!(state["restricted_models"], "allowed");
+}
+
+// ------------------------------------------- the data floor, on the v10 path
+
+/// The data rule on route.v10's own path, not v8's: a session whose labels keep
+/// a China-origin model off it, and a turn that would run on one (its base is
+/// `dsflash`, because the session was moved there, or the operator pinned it),
+/// runs the `[model]` default with `data_gate`, and nothing reaches the
+/// restricted provider or the chokepoint. Whatever Jev picks or whether it is
+/// sure. The floor is `data_floor`, which every pack's turn meets; this test
+/// goes red if a refactor takes route.v10 off it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restricted_base_runs_the_default_with_data_gate_under_route_v10() {
+    use crate::content::Flag;
+    use crate::content_wait::judging::Judging;
+    use crate::routing::Routed;
+    use crate::session::SessionRecord;
+    use theseus_protocol::SessionKind;
+
+    #[derive(Debug, Clone, Copy)]
+    enum Base {
+        /// The session was moved to Flash; Jev is unsure, so the base stays.
+        MovedUnsure,
+        /// The session was moved to Flash; Jev names Flash again, sure.
+        MovedNamesFlash,
+        /// The session was moved to Flash; Jev says a US model but says it unsure of context: stays.
+        MovedNoModel,
+        /// The operator pinned Flash for the turn.
+        Pinned,
+        /// A fresh session; Jev names Flash, sure.
+        FreshNamesFlash,
+    }
+    for case in [
+        Base::MovedUnsure,
+        Base::MovedNamesFlash,
+        Base::MovedNoModel,
+        Base::Pinned,
+        Base::FreshNamesFlash,
+    ] {
+        let jev = FakeJev::start().unwrap();
+        match case {
+            Base::MovedUnsure => says(&jev, "opus", "default", "full", 0.2),
+            Base::MovedNamesFlash | Base::FreshNamesFlash => {
+                says(&jev, "deepseek_flash", "low", "full", 0.97)
+            }
+            Base::MovedNoModel => says(&jev, "sonnet", "default", "full", 0.2),
+            Base::Pinned => says(&jev, "sonnet", "default", "full", 0.97),
+        }
+        let o = open(&jev, 2, |_| {});
+        crate::tests_dm_rig::judging_with(&o.r, Judging::with(|_, _| vec![Flag::Confidential]));
+        let moved = matches!(
+            case,
+            Base::MovedUnsure | Base::MovedNamesFlash | Base::MovedNoModel
+        );
+        let res = match case {
+            _ if moved => {
+                let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+                rec.routed = Some(Box::new(Routed {
+                    profile: Some("dsflash".into()),
+                    from: Some("sonnet".into()),
+                    hold: None,
+                }));
+                o.r.core.store.put_session(&rec.session_id, &rec).unwrap();
+                turn(
+                    &o.r.core,
+                    Some(&rec.session_id),
+                    "Rename the call sites.",
+                    None,
+                )
+                .await
+            }
+            Base::Pinned => turn(&o.r.core, None, "Rename the call sites.", Some("dsflash")).await,
+            _ => turn(&o.r.core, None, "Rename the call sites.", None).await,
+        };
+        // A restricted base is replaced by the default; a fresh session's pick of
+        // Flash never leaves Sonnet.
+        let (profile, model) = match case {
+            Base::FreshNamesFlash => ("sonnet", "claude-sonnet-5-5"),
+            _ => ("default", "claude-sonnet-5-5"),
+        };
+        assert_eq!(
+            (res.profile.as_str(), res.model.as_str()),
+            (profile, model),
+            "{case:?}"
+        );
+        let rows = decided(&o.r.core.store);
+        let last = rows.last().unwrap_or_else(|| panic!("{case:?}: no row"));
+        assert_eq!(last["reason"], "data_gate", "{case:?}: {rows:?}");
+        assert_eq!(res.route.as_ref().unwrap().reason, "data_gate", "{case:?}");
+        assert!(
+            o.deepseek.requests().is_empty(),
+            "{case:?}: Flash was sent nothing"
+        );
+        assert!(
+            crate::tests_dm_rig::blocked(&o.r.core) == 0,
+            "{case:?}: it never reached the chokepoint"
+        );
+        assert!(!o.r.claude.requests().is_empty(), "{case:?}");
+        assert_ne!(
+            last["origin"], "cn",
+            "{case:?}: the turn did not run a China-origin model"
+        );
+    }
 }

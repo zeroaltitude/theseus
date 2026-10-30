@@ -40,6 +40,20 @@ pub const OPTIONS: [(&str, &str); 5] = [
     ("deepseek_flash", "deepseek-flash"),
 ];
 
+/// The options of a pack's `model` question that [`OPTIONS`] does not name: a
+/// pack that asks `model` (what makes route.v10 act, `JudgeService::route_open`,
+/// by whatever path the pack reached the daemon) must name only models the
+/// daemon can run, or every pick of the unnamed one is a silent `fallback`.
+/// Empty for a pack that asks no `model` question.
+pub fn unknown_options(pack: &theseus_judge::Pack) -> Vec<String> {
+    pack.questions
+        .iter()
+        .filter(|q| q.id == "model")
+        .flat_map(|q| q.options.iter().map(|o| o.id.clone()))
+        .filter(|id| model_of(id).is_none())
+        .collect()
+}
+
 /// The catalog model an option names.
 pub fn model_of(option: &str) -> Option<&'static str> {
     OPTIONS.iter().find(|(o, _)| *o == option).map(|(_, m)| *m)

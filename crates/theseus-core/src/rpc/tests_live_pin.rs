@@ -52,6 +52,21 @@ fn ask(id: u64, input: &str, profile: Option<&str>) -> Request {
     )
 }
 
+/// `profile use`, answered, and only then the turn: the daemon does not order
+/// the two on one connection (`profile.use` names no session), so a test that
+/// means "after" waits for the answer.
+async fn after_use(
+    core: &std::sync::Arc<crate::rpc::Core>,
+    name: &str,
+    turn: Request,
+) -> TurnSubmitResult {
+    let used = roundtrip(core.clone(), vec![use_profile(1, name)]).await;
+    assert!(used
+        .iter()
+        .any(|m| matches!(m, Message::Response(r) if r.error.is_none())));
+    result(&roundtrip(core.clone(), vec![turn]).await, 2)
+}
+
 fn result(msgs: &[Message], id: u64) -> TurnSubmitResult {
     msgs.iter()
         .find_map(|m| match m {
@@ -71,12 +86,7 @@ async fn profile_use_is_a_pin_when_route_v10_acts() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "fable", "max", "full", 0.97);
     let o = open(&jev, 1, |_| {});
-    let msgs = roundtrip(
-        o.r.core.clone(),
-        vec![use_profile(1, "haiku"), ask(2, DESIGN, None)],
-    )
-    .await;
-    let res = result(&msgs, 2);
+    let res = after_use(&o.r.core, "haiku", ask(2, DESIGN, None)).await;
     assert_eq!(
         (res.profile.as_str(), res.model.as_str()),
         ("haiku", "claude-haiku-5-5")
@@ -126,12 +136,7 @@ async fn a_named_profile_beats_the_live_pin() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "haiku", "low", "full", 0.97);
     let o = open(&jev, 1, |_| {});
-    let msgs = roundtrip(
-        o.r.core.clone(),
-        vec![use_profile(1, "haiku"), ask(2, DESIGN, Some("opus"))],
-    )
-    .await;
-    let res = result(&msgs, 2);
+    let res = after_use(&o.r.core, "haiku", ask(2, DESIGN, Some("opus"))).await;
     assert_eq!(res.profile, "opus");
     let d = &decided(&o.r.core.store)[0];
     assert_eq!(
@@ -147,12 +152,7 @@ async fn under_route_v8_profile_use_is_still_only_the_baseline() {
     let jev = FakeJev::start().unwrap();
     crate::tests_route::mode(&jev, "sophisticated", 0.95);
     let r = rig(Some(&jev), 1, |_| {});
-    let msgs = roundtrip(
-        r.core.clone(),
-        vec![use_profile(1, "haiku"), ask(2, DESIGN, None)],
-    )
-    .await;
-    let res = result(&msgs, 2);
+    let res = after_use(&r.core, "haiku", ask(2, DESIGN, None)).await;
     assert_eq!(res.profile, "opus");
     assert_eq!(res.route.unwrap().reason, "verdict");
 }
