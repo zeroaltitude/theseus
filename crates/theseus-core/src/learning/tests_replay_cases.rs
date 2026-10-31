@@ -39,13 +39,7 @@ fn set() -> (CaseSet, std::sync::Arc<theseus_judge::Pack>) {
 /// Scripts Jev to answer one case with these top options, each at 0.9; the
 /// state the rule matches is the case's whole state, so W11 and W14 (one
 /// message, two states) are told apart.
-fn script_case(
-    jev: &FakeJev,
-    state_json: &str,
-    model: &str,
-    effort: &str,
-    conf: f64,
-) {
+fn script_case(jev: &FakeJev, state_json: &str, model: &str, effort: &str, conf: f64) {
     for (q, option) in [("model", model), ("effort", effort)] {
         jev.script_when(
             state_json,

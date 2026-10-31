@@ -209,7 +209,8 @@ fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
             c.held_elsewhere,
             if met { "met" } else { "NOT met" }
         ),
-        None => "bar: not judged (the file is not the design's 58 replay cases; read the counts)".to_string(),
+        None => "bar: not judged (the file is not the design's 58 replay cases; read the counts)"
+            .to_string(),
     });
     out.extend(
         r.left_out
@@ -405,12 +406,7 @@ mod tests {
         }
     }
 
-    fn case(
-        id: &str,
-        must: bool,
-        model: ReplayCheck,
-        effort: ReplayCheck,
-    ) -> ReplayCase {
+    fn case(id: &str, must: bool, model: ReplayCheck, effort: ReplayCheck) -> ReplayCase {
         ReplayCase {
             id: id.into(),
             must,

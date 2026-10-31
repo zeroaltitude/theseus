@@ -188,16 +188,28 @@ fn said_on(model: &str, prompt: u64) -> Node {
 #[test]
 fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() {
     // A thank-you on a 200K Sonnet session: a cheaper model is dearer, stay.
-    let nodes = [asked("one"), said_on("claude-sonnet-5-5", 200_000), asked("thanks")];
+    let nodes = [
+        asked("one"),
+        said_on("claude-sonnet-5-5", 200_000),
+        asked("thanks"),
+    ];
     let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
     assert_eq!(f.current_model.as_deref(), Some("claude-sonnet-5-5"));
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
     // The same model on 40K: a cheaper one is cheaper.
-    let nodes = [asked("one"), said_on("claude-sonnet-5-5", 40_000), asked("two")];
+    let nodes = [
+        asked("one"),
+        said_on("claude-sonnet-5-5", 40_000),
+        asked("two"),
+    ];
     let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToSwitch));
     // A long Haiku session: the cheapest already, stay.
-    let nodes = [asked("one"), said_on("claude-haiku-5-5", 150_000), asked("two")];
+    let nodes = [
+        asked("one"),
+        said_on("claude-haiku-5-5", 150_000),
+        asked("two"),
+    ];
     let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
     assert_eq!(f.current_model.as_deref(), Some("claude-haiku-5-5"));
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
@@ -217,7 +229,12 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
 /// `current_model`, and the cost reads `about_the_same`.
 #[test]
 fn a_fresh_session_has_no_warm_model_and_a_switch_costs_about_the_same() {
-    let f = facts_of(&[asked("what port is postgres on?")], false, RestrictedModels::Allowed, 0);
+    let f = facts_of(
+        &[asked("what port is postgres on?")],
+        false,
+        RestrictedModels::Allowed,
+        0,
+    );
     assert_eq!(f.current_model, None);
     assert_eq!(f.switch_cost, Some(SwitchCost::AboutTheSame));
 }
@@ -230,7 +247,11 @@ fn route_v8_is_handed_no_facts_and_its_state_is_unchanged() {
     use theseus_judge::builders::{prepare, Input};
     use theseus_judge::state::NoScrub;
     let facts = facts_of(
-        &[asked("one"), said_on("claude-sonnet-5-5", 200_000), asked("two")],
+        &[
+            asked("one"),
+            said_on("claude-sonnet-5-5", 200_000),
+            asked("two"),
+        ],
         false,
         RestrictedModels::Allowed,
         TUE_0200_PHOENIX,
@@ -250,10 +271,16 @@ fn route_v8_is_handed_no_facts_and_its_state_is_unchanged() {
     let expected = state_of(&v8, &Input::Inbound(without));
     assert_eq!(state_of(&v8, carried.for_route(&v8)), expected);
     for field in ["current_model", "switch_cost", "price_period", "est_tokens"] {
-        assert!(!expected.contains(field), "{field} in route.v8's state: {expected}");
+        assert!(
+            !expected.contains(field),
+            "{field} in route.v8's state: {expected}"
+        );
     }
     let v10_state = state_of(&v10, carried.for_route(&v10));
     for field in ["current_model", "switch_cost"] {
-        assert!(v10_state.contains(field), "{field} missing from route.v10's: {v10_state}");
+        assert!(
+            v10_state.contains(field),
+            "{field} missing from route.v10's: {v10_state}"
+        );
     }
 }

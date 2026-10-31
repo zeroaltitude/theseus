@@ -277,7 +277,11 @@ fn the_cache_hold_defers_a_full_switch_one_turn_and_never_longer() {
 /// compiles the whole working context on the model that answers it.
 #[test]
 fn a_pick_is_never_a_detour_every_turn_compiles_the_whole_context() {
-    for (pick, base) in [("haiku", "sonnet"), ("sonnet", "sonnet"), ("opus", "sonnet")] {
+    for (pick, base) in [
+        ("haiku", "sonnet"),
+        ("sonnet", "sonnet"),
+        ("opus", "sonnet"),
+    ] {
         for est in [0, 1_000, 29_999, 200_000, 900_000] {
             let got = d(&open(pick), base, est);
             assert!(!got.detour, "{pick} on {base} at {est}");

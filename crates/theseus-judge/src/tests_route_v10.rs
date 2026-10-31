@@ -99,7 +99,10 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
 #[test]
 fn the_owners_22_50_answers_are_in_the_pack() {
     let p = pack();
-    assert!(p.question("context").is_none(), "the context question is gone");
+    assert!(
+        p.question("context").is_none(),
+        "the context question is gone"
+    );
     let model = p.question("model").unwrap().instructions.clone();
     assert!(
         model.contains(
@@ -111,15 +114,19 @@ fn the_owners_22_50_answers_are_in_the_pack() {
     );
     let effort = p.question("effort").unwrap();
     assert!(
-        effort
-            .instructions
-            .starts_with("High is the usual effort; choose less only for a reason the message gives."),
+        effort.instructions.starts_with(
+            "High is the usual effort; choose less only for a reason the message gives."
+        ),
         "{}",
         effort.instructions
     );
     let ids: Vec<&str> = effort.options.iter().map(|o| o.id.as_str()).collect();
     assert_eq!(ids, ["low", "medium", "high", "xhigh", "max"], "no default");
-    assert!(!p.description.to_lowercase().contains("context"), "{}", p.description);
+    assert!(
+        !p.description.to_lowercase().contains("context"),
+        "{}",
+        p.description
+    );
 }
 
 #[test]
@@ -317,7 +324,12 @@ fn a_case_asks_the_two_deciding_questions_and_personal_and_its_state_is_under_th
             ("last_reply_model", &c.state.last_reply_model),
             ("current_model", &c.state.current_model),
         ] {
-            assert_eq!(v.get(field).is_some(), !model.is_empty(), "{}: {field}", c.id);
+            assert_eq!(
+                v.get(field).is_some(),
+                !model.is_empty(),
+                "{}: {field}",
+                c.id
+            );
         }
         assert_eq!(
             v.get("task_models").is_some(),
@@ -356,7 +368,11 @@ fn a_case_file_that_breaks_a_rule_is_refused() {
     assert!(CaseSet::parse(&one("context = \"short\"", "haiku"), &p).is_err());
     // An unknown key, and a duplicate id.
     assert!(CaseSet::parse(&one("colour = \"red\"", "haiku"), &p).is_err());
-    let twice = format!("{}{}", one("", "haiku"), "[[case]]\nid = \"X1\"\nmessage = \"x\"\nmodel = \"haiku\"\neffort = \"low\"\n");
+    let twice = format!(
+        "{}{}",
+        one("", "haiku"),
+        "[[case]]\nid = \"X1\"\nmessage = \"x\"\nmodel = \"haiku\"\neffort = \"low\"\n"
+    );
     let e = CaseSet::parse(&twice, &p).unwrap_err();
     assert!(e.contains("twice"), "{e}");
     // Written for another pack.
@@ -468,9 +484,7 @@ fn graded(model: bool, effort_close: bool, must: bool, under: bool) -> Graded {
 #[test]
 fn the_bar_counts_the_two_pin_tests_as_met_and_needs_every_must_case() {
     // 58 cases, all right: met. The bar's 54 is 52 here, with the two pins.
-    let mut all: Vec<Graded> = (0..58)
-        .map(|i| graded(true, true, i < 13, false))
-        .collect();
+    let mut all: Vec<Graded> = (0..58).map(|i| graded(true, true, i < 13, false)).collect();
     assert_eq!(totals(&all).bar, Some(true));
     assert_eq!(totals(&all).must_total, 13);
     // 52 of 58 on model is 54 of 60: met; 51 is not.
@@ -553,13 +567,7 @@ fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
     let (p, s) = (pack(), set());
     let ask = |id: &str, pick: &str, conf: f64| {
         let c = by_id(&s, id);
-        let j = judged(
-            c,
-            &[
-                ("model", pick, conf),
-                ("effort", &c.want.effort, 0.9),
-            ],
-        );
+        let j = judged(c, &[("model", pick, conf), ("effort", &c.want.effort, 0.9)]);
         grade(&p, c, Some(&j))
     };
     // W18 wants opus. Opus at 0.55 is a right pick the daemon would not act
@@ -609,10 +617,7 @@ fn an_effort_pick_under_the_bar_is_graded_as_high() {
     let (p, s) = (pack(), set());
     let ask = |id: &str, pick: &str, conf: f64| {
         let c = by_id(&s, id);
-        let j = judged(
-            c,
-            &[("model", &c.want.model, 0.9), ("effort", pick, conf)],
-        );
+        let j = judged(c, &[("model", &c.want.model, 0.9), ("effort", pick, conf)]);
         grade(&p, c, Some(&j))
     };
     // L11 wants high. A `medium` at 0.55 is `high` to the daemon: a hit that
@@ -685,10 +690,7 @@ fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
     // The same answers sit above the stock bars (0.60) and are graded as given.
     let (stock, stock_set) = (pack(), set());
     let c = by_id(&stock_set, "W18");
-    let j = judged(
-        c,
-        &[("model", "sonnet", 0.70), ("effort", "high", 0.70)],
-    );
+    let j = judged(c, &[("model", "sonnet", 0.70), ("effort", "high", 0.70)]);
     let g = grade(&stock, c, Some(&j));
     assert!(!g.model.sub_confirm && !g.effort.sub_confirm);
 }
@@ -707,7 +709,10 @@ fn the_totals_count_the_graded_answer_and_the_raw_pick_apart() {
             let conf = if c.id == "L11" { 0.5 } else { 0.9 };
             let j = judged(
                 c,
-                &[("model", &c.want.model, conf), ("effort", &c.want.effort, conf)],
+                &[
+                    ("model", &c.want.model, conf),
+                    ("effort", &c.want.effort, conf),
+                ],
             );
             grade(&p, c, Some(&j))
         })
