@@ -280,7 +280,13 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
 
 #[tokio::test]
 async fn only_the_sessions_own_outputs_become_readable() {
-    let r = rig(vec![]);
+    // What keeps one session out of another's outputs is the approve list's
+    // hold on the state dir (the default `~/.theseus`), not the roots, which
+    // only label a read outside them (theseus-m9fdg).
+    let r = rig_with(vec![], |cfg| {
+        let outputs = std::path::Path::new(&cfg.server.state_dir).join("outputs");
+        cfg.tools.approve_paths = vec![outputs.to_string_lossy().into_owned()];
+    });
     let (mine, other) = (session(&r.core), session(&r.core));
     let out = r.state.join("outputs");
     assert_eq!(
@@ -288,8 +294,8 @@ async fn only_the_sessions_own_outputs_become_readable() {
         "open"
     );
     // Another session's, the outputs folder itself, a climb out of the
-    // session's folder, and the store all wait, as any path outside the
-    // roots does.
+    // session's folder, and the store all wait: the approve list holds the
+    // outputs, and the store is the floor.
     for p in [
         out.join(&other).join("t1.out"),
         out.join("t1.out"),
