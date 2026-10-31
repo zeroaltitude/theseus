@@ -11,7 +11,7 @@ use theseus_protocol::{
 };
 
 use super::tests::roundtrip;
-use crate::tests_route::{decided, rig};
+use crate::tests_route::decided;
 use crate::tests_route_open::{open, says};
 
 const DESIGN: &str = "design the memory layer for a million turns";
@@ -145,14 +145,3 @@ async fn a_named_profile_beats_the_live_pin() {
     );
 }
 
-/// Under route.v8 nothing changed: `profile use haiku` is the baseline Jev
-/// routes from, and a `sophisticated` verdict still moves the turn to Opus.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn under_route_v8_profile_use_is_still_only_the_baseline() {
-    let jev = FakeJev::start().unwrap();
-    crate::tests_route::mode(&jev, "sophisticated", 0.95);
-    let r = rig(Some(&jev), 1, |_| {});
-    let res = after_use(&r.core, "haiku", ask(2, DESIGN, None)).await;
-    assert_eq!(res.profile, "opus");
-    assert_eq!(res.route.unwrap().reason, "verdict");
-}

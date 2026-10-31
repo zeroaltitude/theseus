@@ -14,7 +14,7 @@ use crate::tests_route::{mode, rig, turn};
 
 fn effort(jev: &FakeJev, level: &str) {
     jev.script(
-        "reply_effort",
+        "effort",
         Jev::Choice {
             option: level.into(),
             confidence: 0.95,

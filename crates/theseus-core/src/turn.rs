@@ -81,7 +81,6 @@ mod defer_step;
 mod deferred_step;
 mod detour_step;
 mod digest_step;
-mod draft_step;
 pub mod effort_step;
 pub mod end_note_step;
 mod end_step;
@@ -845,7 +844,7 @@ impl TurnRunner {
     ) -> RequestSpec {
         // A shared place carries only the files marked public (the place
         // rule): the rest are their headers and why.
-        if place.content_class() == crate::places::PlaceClass::Shared {
+        if place.class == crate::places::PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
         let (system_text, persona_text, context_text) = self.system_blocks(target, &files, place);
@@ -1344,9 +1343,6 @@ impl TurnRunner {
             Err(e) => tracing::warn!(error = %e, "ledger append failed"),
         }
         drop(session_hold);
-        if session_ended && task_of.is_some() {
-            self.draft_ended(&failure_sink.session_id).await;
-        }
         self.keep_warm.turn_ended(&failure_sink.session_id);
         clock_step::turn_ended(&failure_sink.session_id);
         if let Ok((res, _, _)) = &r {
@@ -1635,7 +1631,6 @@ impl TurnRunner {
             // Taken again once the turn has read its wakes and reports.
             class: place.class,
             ceiling: place.ceiling,
-            draft: None,
             places: crate::places::Places {
                 rule: &self.place_rule,
                 cfg: &self.cfg,
@@ -1739,7 +1734,7 @@ impl TurnRunner {
         // Where the turn's words go, now that it has taken its wakes and
         // reports: their place, when the session's own has moved on.
         let here = self.view_of(sid);
-        (t.tc.class, t.tc.ceiling, t.tc.draft) = (here.class, here.ceiling, self.reach_of(session));
+        (t.tc.class, t.tc.ceiling) = (here.class, here.ceiling);
 
         // 2. The new input, with its files in the same node and frame.
         if let Some(p) = prompt {
@@ -1800,7 +1795,7 @@ impl TurnRunner {
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
         spec.session_text = self.session_block(t.tc.dir, t.tc.place());
-        spec.walk = self.walk(sid, t.tc.place().content_class());
+        spec.walk = self.walk(sid, t.tc.place().class);
         self.stand(t, &mut spec);
         self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
         self.families_ready(t, &spec.model).await;
@@ -1929,9 +1924,6 @@ impl TurnRunner {
                 Self::hold_reply(t, i)?;
                 break;
             };
-            if Self::drafted(t) {
-                break;
-            }
             if let Some(o) = overflow.take() {
                 // The ring dropped nothing, so the same request would pass the
                 // window again: the turn fails without the call.

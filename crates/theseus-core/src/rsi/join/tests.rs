@@ -194,6 +194,8 @@ pub(crate) fn rig_parts(
     cfg.self_improve.mode = mode;
     cfg.self_improve.repo = Some(f.place.repo.display().to_string());
     cfg.self_improve.remote = Some("origin".into());
+    // The owner's standing choice, a pin: an unset key asks Jev, who is not here.
+    cfg.self_improve.reviewer_profile = Some("fable".into());
     edit(&mut cfg);
     let store = Store::open(&f.place.state.join("store")).unwrap();
     let says = Arc::new(Says {
@@ -960,25 +962,3 @@ async fn the_reviewer_is_never_a_china_origin_model() {
     assert!(reviewer_asks(&jev)[0].contains("not_allowed"));
 }
 
-/// While the acting pack asks no `model`, an unset key reviews on the profile
-/// it always did (fable) and asks Jev nothing.
-#[tokio::test]
-async fn an_unset_reviewer_profile_is_fable_while_the_pack_asks_no_model() {
-    let jev = theseus_judge::fake::FakeJev::start().unwrap();
-    crate::tests_job_ask::pick(&jev, "haiku", 0.95);
-    let r = rig_parts(
-        SelfMode::Act,
-        |c| {
-            c.self_improve.reviewer_profile = None;
-            c.judge.enabled = true;
-            c.judge.api_base = jev.base();
-            c.routing.max_wait_ms = 300;
-        },
-        |p| p.secrets = crate::tests_judge::board(),
-    );
-    r.seed("trim-the-sails", PROVED, SONNET);
-    r.core.self_join_pass(&r.seams()).await.unwrap();
-    let v = &r.rows("self.review.verdict")[0];
-    assert_eq!(v["model"], "claude-fable-5-1", "{v}");
-    assert!(reviewer_asks(&jev).is_empty());
-}

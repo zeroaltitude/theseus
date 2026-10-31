@@ -8,10 +8,6 @@
 //!   refuses, a provider with no key, no answer in time, or an answer under
 //!   the pack's confirm bar runs on `live`, the profile the caller names (a
 //!   job has no conversation to keep: `[model] live`).
-//! - **Legacy**: while the acting route pack asks no `model` question (every
-//!   pack before route.v10), an unset key still runs on the profile it always
-//!   did (`config::legacy`), so nothing changes a live decision until the row
-//!   that flips the pack.
 //!
 //! The data rule is never loosened here. A job over the owner's material is
 //! told `restricted_models = not_allowed` by the job builder whatever the
@@ -37,9 +33,6 @@ pub(crate) struct Site<'a> {
     pub name: &'static str,
     /// The configured key: a pin when set.
     pub pin: Option<&'a str>,
-    /// The profile an unset key ran on before Jev chose (`config::legacy`);
-    /// none: the live profile.
-    pub legacy: Option<&'static str>,
     /// The work, as the job builder says it to Jev.
     pub job: JobKind,
     /// What the session's labels allow (`allowed` only where a label read said
@@ -89,8 +82,6 @@ impl Why {
 pub(crate) enum How {
     /// A configured key.
     Pinned,
-    /// An unset key, and the acting pack asks no `model`: the profile it always ran on.
-    Legacy,
     /// Jev's pick: the option, and how sure.
     Jev { option: String, confidence: f64 },
     /// Asked and not used: the profile the caller named as `live`.
@@ -149,10 +140,6 @@ impl TurnRunner {
     pub(crate) async fn job_choice(&self, live: &str, site: Site<'_>) -> (Choice, How) {
         if let Some(p) = site.pin {
             return (Choice::Profile(p.to_string()), How::Pinned);
-        }
-        if !self.judge.route_open() {
-            let profile = site.legacy.unwrap_or(live);
-            return (Choice::Profile(profile.to_string()), How::Legacy);
         }
         let (private, name) = (site.job.private(), site.name);
         let on_live = |why: Why| {

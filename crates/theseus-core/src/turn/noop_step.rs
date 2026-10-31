@@ -27,9 +27,6 @@ impl TurnRunner {
             && NO_CALL.contains(&result.stop_reason.as_str())
             && t.wakes.is_empty()
             && t.woke_by.is_empty();
-        if let Some(line) = &t.route.drafted {
-            return self.stage_drafted(t, line);
-        }
         if !no_call {
             return self.stage_reply(t, result);
         }

@@ -266,15 +266,14 @@ impl Core {
         sessions: &[&str],
     ) -> Result<String, (&'static str, String)> {
         // Unset reads as `session` here: where Jev is not asked (the dream's
-        // guidance; a cluster's plan while the pack asks no `model`), the
-        // key's old default stands.
+        // guidance, theseus-xdi65), the key's old default stands.
         let word = self
             .runner
             .memory
             .cfg()
             .synth_profile
             .clone()
-            .unwrap_or_else(|| crate::config::legacy::SESSION.to_string());
+            .unwrap_or_else(|| SUMMARY_SESSION.to_string());
         if word != SUMMARY_SESSION {
             return Ok(word);
         }
@@ -330,10 +329,9 @@ impl Core {
             .ok_or("restricted_origin")
     }
 
-    /// Whether an unset `synth_profile` asks Jev: the key is unset and the
-    /// acting route pack asks the `model` question (route.v10).
+    /// Whether an unset `synth_profile` asks Jev: the key is unset (route.v10).
     pub(crate) fn synth_asks_jev(&self) -> bool {
-        self.runner.memory.cfg().synth_profile.is_none() && self.runner.judge.route_open()
+        self.runner.memory.cfg().synth_profile.is_none()
     }
 
     /// A cluster's target: the profile planned for it, or with none (the key
@@ -354,7 +352,6 @@ impl Core {
         let site = crate::job_model::Site {
             name: "consolidation",
             pin: None,
-            legacy: None,
             job: theseus_judge::builders::JobKind::Synthesis {
                 subject: sources
                     .first()

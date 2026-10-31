@@ -35,7 +35,6 @@ use crate::scrub::Scrubber;
 
 mod guarded;
 use guarded::guarded_paths;
-pub(crate) mod draft_roots;
 pub use guarded::sandbox_for;
 pub(crate) mod batch;
 mod calls;
@@ -294,8 +293,6 @@ pub struct ToolRuntime {
     /// `[places] public_paths`, expanded and canonical: all a shared place's
     /// file tools reach (the place rule, theseus-nbsh).
     pub public_roots: Vec<PathBuf>,
-    /// The draft trees' root: a root, but not in the tools note (theseus-iilre).
-    pub drafts_root: Option<PathBuf>,
     /// The sealed holdout sets' path, which the gate refuses every call that
     /// reaches (theseus-pw1q.5).
     pub sealed: crate::rsi::sealed::Guard,
@@ -469,7 +466,6 @@ impl ToolRuntime {
             sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
-            drafts_root: None,
             sealed: Default::default(),
             job_waits: Arc::default(),
             outputs: crate::outputs::Outputs::off(),
@@ -618,9 +614,6 @@ impl ToolRuntime {
                 })
                 .collect::<Vec<_>>(),
         );
-        if let Some(reach) = place.draft {
-            return reach.note(&postures, &ceiling_note);
-        }
         if class == crate::places::PlaceClass::Shared {
             let files = match self.public_roots.is_empty() {
                 true => "no files".to_string(),
@@ -642,7 +635,6 @@ impl ToolRuntime {
             .ctx
             .roots
             .iter()
-            .filter(|r| Some(*r) != self.drafts_root.as_ref())
             .map(|r| r.display().to_string())
             .collect();
         let allowed: Vec<String> = self.policy.allow_argv.iter().map(|a| a.join(" ")).collect();
@@ -1778,8 +1770,7 @@ impl ToolRuntime {
                 true => u64::MAX,
                 false => e.budget.available(),
             });
-        // A draft's reads reach a model outside the trust: held too.
-        let shared = tc.class != crate::places::PlaceClass::Private || tc.draft.is_some();
+        let shared = tc.class != crate::places::PlaceClass::Private;
         self.files.run(
             &nodes,
             tc.store.blobs_handle(),
@@ -1898,7 +1889,7 @@ pub fn build_runtime(
         .as_ref()
         .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| cfg.state_dir());
-    let (roots, floor_paths, approve) = draft_roots::guarded_with_drafts(cfg, &state);
+    let (roots, floor_paths, approve) = guarded_paths(cfg, &state);
     // Proposed extensions are frozen beside the store (M7 43a).
     let extend = Arc::new(crate::extend::Extensions::new(
         state.join("extensions"),
@@ -2117,7 +2108,6 @@ pub fn build_runtime(
         sandbox,
         stops: Default::default(),
         public_roots: crate::places::public_roots(cfg),
-        drafts_root: crate::config::routing_cn::drafts_root(cfg),
         sealed: crate::rsi::sealed::guard_of(cfg).unwrap_or_default(),
         job_waits: Arc::new(waits::JobWaits::steered(terms.steers.clone())),
         admission: crate::turn::admission::Admission::new(

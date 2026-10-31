@@ -59,7 +59,6 @@ impl Core {
         let site = crate::job_model::Site {
             name: "people",
             pin: self.runner.cfg.people.extract_profile.as_deref(),
-            legacy: Some(crate::config::legacy::CHEAP),
             job: theseus_judge::builders::JobKind::People { lines },
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };
@@ -72,22 +71,16 @@ impl Core {
     }
 
     /// The model a plan prices its passes on before any is asked: the pin, or
-    /// the profile the extraction always ran on. Each pass asks for its own
-    /// model, and is priced and held on that.
+    /// the live profile (where a pass Jev gave no pick runs). Each pass asks
+    /// for its own model, and is priced and held on that.
     pub(crate) fn people_priced_on(
         &self,
     ) -> Result<(crate::turn::Target, Arc<dyn Provider>), String> {
-        let profile = self
-            .runner
-            .cfg
-            .people
-            .extract_profile
-            .as_deref()
-            .unwrap_or(crate::config::legacy::CHEAP);
+        let profile = self.runner.cfg.people.extract_profile.as_deref();
         let (live, _) = self.live_profile();
         let target = self
             .runner
-            .resolve_target(&live, Some(profile), None, None)
+            .resolve_target(&live, profile, None, None)
             .map_err(|e| format!("[people] extract_profile {profile:?} does not resolve: {e:#}"))?;
         self.people_provider(target)
     }

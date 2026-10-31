@@ -29,7 +29,7 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
     if offers(crate::memory_lookup::LOOKUP) {
         lines.push("You can look up past conversations.".into());
     }
-    if place.content_class() == crate::places::PlaceClass::Private && cfg.web.enabled {
+    if place.class == crate::places::PlaceClass::Private && cfg.web.enabled {
         let host = match cfg.web.bind.contains(':') {
             true => format!("[{}]", cfg.web.bind),
             false => cfg.web.bind.clone(),

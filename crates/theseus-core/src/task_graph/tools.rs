@@ -202,17 +202,6 @@ fn close_in(input: &Value) -> Result<CloseIn, String> {
     Ok(i)
 }
 
-/// Whether a call's `id` names the record of the very session that makes
-/// it. The id may be the whole id or the end of it, as `resolve` takes it.
-pub fn is_own_record(input: &Value, session: &str) -> bool {
-    let own = super::of_session(session);
-    input
-        .get("id")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .is_some_and(|id| id == own || (id.len() >= 6 && own.ends_with(id)))
-}
-
 /// What the gate's card says of a layer-1 call: the change, before and
 /// after, as far as the input says it.
 fn authority_of(name: &str, input: &Value) -> Option<String> {

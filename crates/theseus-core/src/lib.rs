@@ -45,8 +45,6 @@ pub mod crash;
 pub mod data_gate;
 pub mod day_ceiling;
 pub mod disk;
-pub mod draft;
-pub mod draft_view;
 pub mod egress;
 pub mod engage;
 pub mod exits;
@@ -325,19 +323,7 @@ mod tests_dispatch;
 #[cfg(test)]
 mod tests_dm_rig;
 #[cfg(test)]
-mod tests_draft;
-#[cfg(test)]
-mod tests_draft_first_pass;
-#[cfg(test)]
-mod tests_draft_hardening;
-#[cfg(test)]
-mod tests_draft_home;
-#[cfg(test)]
-mod tests_draft_reach;
-#[cfg(test)]
 mod tests_effort_beta;
-#[cfg(test)]
-mod tests_effort_gate;
 #[cfg(test)]
 mod tests_effort_lapse;
 #[cfg(test)]
@@ -356,8 +342,6 @@ mod tests_failures;
 mod tests_fallback;
 #[cfg(test)]
 mod tests_families;
-#[cfg(test)]
-mod tests_fan_out_cue;
 #[cfg(test)]
 mod tests_fan_out_ops;
 #[cfg(test)]
@@ -565,15 +549,11 @@ mod tests_route;
 #[cfg(test)]
 mod tests_route_base;
 #[cfg(test)]
-mod tests_route_cap;
-#[cfg(test)]
 mod tests_route_correct;
 #[cfg(test)]
 mod tests_route_data;
 #[cfg(test)]
 mod tests_route_defer;
-#[cfg(test)]
-mod tests_route_down;
 #[cfg(test)]
 mod tests_route_effort;
 #[cfg(test)]

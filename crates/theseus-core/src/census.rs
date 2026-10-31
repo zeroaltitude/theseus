@@ -170,14 +170,14 @@ impl TurnRunner {
             None::<&[theseus_ontology::MembershipUsed]>,
         );
         if rec.is_some() {
-            spec.walk = self.walk(&sid, view.content_class());
+            spec.walk = self.walk(&sid, view.class);
         } else {
             notes.push("a fresh session has no category guidance yet".to_string());
         }
         let standing = self.census_standing(
             &sid,
             target.persona.as_deref(),
-            view.content_class(),
+            view.class,
             &mut spec,
         );
         let mut nodes = match rec {
@@ -285,13 +285,9 @@ impl TurnRunner {
     ) -> (SessionKind, PlaceView, String, Vec<String>) {
         let mut notes = Vec::new();
         match rec {
-            // A draft's next request is the draft view's (theseus-a1wvq.13).
             Some(r) => (
                 r.kind,
-                PlaceView {
-                    draft: self.reach_of(r),
-                    ..self.view_of(&r.session_id)
-                },
+                self.view_of(&r.session_id),
                 r.session_id.clone(),
                 notes,
             ),

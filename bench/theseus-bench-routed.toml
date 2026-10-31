@@ -3,17 +3,12 @@
 # (`theseus-bench.toml`: no vault, every tool open, L0, the same caps, retries
 # and output cap) holds, and these differ, which makes this arm a
 # diamond on the Benchmarks tab ("conditions its peers did not share"):
-#   - `[judge]` is on, and the route pack (acting since
-#     theseus-p8dy, with a `review` class) asks at the message which task class it needs and the effort
-#     its reply needs; the turn runs on that class's first usable profile
-#     (`[routing.classes.*]`, the owner's table), at Jev's effort where its
-#     confidence reaches `[routing] effort_confidence`, xhigh and max only
-#     above `high_effort_confidence` (within `effort_bounds`, the full range here);
+#   - `[judge]` is on, and the route pack (route.v10: Jev chooses the model and
+#     its effort) asks at the message which model it needs and the effort its
+#     reply needs; the turn runs on the profile that runs the model Jev picked
+#     (a profile the pick names that this file lacks is passed over);
 #   - the session's own profile, `bench`, stays Sonnet 5.5 at medium effort,
-#     as the plain arm's: `chat` and `other` run on it, and a profile the
-#     table names that this file lacks is passed over (the Z.ai entries,
-#     `glm`, are left out: the bench has no Z.ai key, so trivial is
-#     ["haiku"] here);
+#     as the plain arm's: it runs when Jev gives no answer;
 #   - `max_wait_ms` is 2000, not the shipped 200: a trial is one message, and a
 #     verdict that comes after the wait applies to the next message alone
 #     (there is none), so at 200 ms the router would mostly not act;
@@ -162,19 +157,3 @@ key_secret = "jev_api_key"
 enabled = true
 rung = "live"
 max_wait_ms = 2000
-# the owner's live bars, 2026-10-22
-high_effort_confidence = 0.40
-effort_confidence = 0.35
-
-[routing.classes.trivial]
-profiles = ["haiku"]
-[routing.classes.quick]
-profiles = ["haiku"]
-[routing.classes.chat]
-profiles = []
-[routing.classes.sophisticated]
-profiles = ["opus", "fable"]
-[routing.classes.deep_coding]
-profiles = ["sonnethi", "opus"]
-[routing.classes.routine_coding]
-profiles = ["haikuhi", "sonnet"]

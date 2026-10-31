@@ -1769,12 +1769,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     paragraph, the place `job`, the route facts. `TurnRunner::job_choice(live, Site)` settles it and never waits past
     `[routing] max_wait_ms`: no answer, an answer under the pack's confirm bar, a pick the data rule refuses (private
     material lists `not_allowed` and goes only to a model the catalog lists as of US origin, whatever the caller says) or
-    a provider with no key all run on `live`. **While the acting route pack asks no `model`** (every pack before
-    route.v10) an unset key runs the profile it always did (`config::legacy`) and asks nothing, so the row changes no live
-    decision until the pack flips. **The same gate holds for a task's checkpoints and brief** (`CheckpointAsk::open`, the
-    brief's `open`, both `JudgeService::asks_jev()`): closed, the class rule is today's (`max_switches`, the base and
-    step down, no detours, `CODING_BASE`); open, a checkpoint has no base, no `max_switches` and no step down (the cache
-    hold is its one hysteresis), and a brief has no fixed first profile. Tests: `tests_job_ask.rs` (the rule),
+    a provider with no key all run on `live`. **A task's checkpoints and brief take Jev's pick the same way** (row 6,
+    theseus-kn9or, deleted the class rule they had beside it: `max_switches`, the base and step down, `CODING_BASE`): a
+    checkpoint has no base, no cap on moves and no step down (the cache hold is its one hysteresis), and a brief has no
+    fixed first profile. **The one site that is not Jev's** is the dream's guidance (`consolidate/guidance.rs`): an
+    unset `[memory] synth_profile` reads as `session` there and never asks Jev (theseus-xdi65). Tests: `tests_job_ask.rs` (the rule),
     `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
     **A background call settles at the rate in force when it started** (theseus-058cl): `TurnRunner::priced(resp,
     asked, need, at_ms)` takes the call's start, as the turn's own calls do (`cost_micros_at`), so a DeepSeek call in its
@@ -1800,12 +1799,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     (`RouteWait`, an `Answered` with the time it came) the moment its request answers, and the call waits for a
     permit rather than being shed. The turn waits for it beside its first compile, at most
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
-    late detour's (`trivial`, `quick`) to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
-    (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely, at the
-    mode's own bar (`[routing.classes.<class>] switch_confidence`, else trivial's 0.4, else the section's 0.6:
-    `RoutingConfig::confidence_for`): the mode's first usable profile under a place's cap, a detour (the modes of
-    `config::routing::DETOURS`, `trivial` and `quick`: that turn alone, compiled outside the session's compilation,
-    which it never writes; never test a mode by name, ask `is_detour`), or a switch of the session's
+    late `short` one's to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
+    (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely (`routing::decide` is
+    `routing::model::decide`: Jev's `model` pick at the pack's own confirm bar, under the data rule's floor and the cache hold; row 6
+    deleted the class table, the place cap, the dear tier's guard and the step down): a `short` context (that turn alone, compiled
+    outside the session's compilation, which it never writes), or a switch of the session's
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. A turn whose
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
@@ -1816,8 +1814,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). The row is `route.decided`
     (`fact/route.rs`: `wait_ms`, `late` when the verdict missed the wait, `answered_ms` when the request came back
     after the turn's start, if it had; each live turn's wait is `theseus.route.wait` by `theseus.route.late`,
-    `tests_route_late.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and a place's
-    profile caps it (`tests_route_cap.rs`). `routed` holds only while route.v1
+    `tests_route_late.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and no place
+    caps it. `routed` holds only while route.v1
     acts live for the session (theseus-9yyr, `route_base`): routing off or in shadow, the ladder's rollback, the
     judge off, or Jev unreachable (`JudgeService::reachable`) clear it at the next turn, in the turn's own session
     write, and so does a `profile.use` (or `profile.release`) after the session's last turn began (META `live_profile.switched_ms`
@@ -1826,26 +1824,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     base is another (the live profile or a place's changed) clears the move (`same_base`). The pane's carried
     profile, when it is the routed one, stands for `from` (`turn_submit`), never a new base. Tests:
     `tests_route.rs`, `tests_route_base.rs`, `routing::tests`, `turn::route_step::tests`.
-    **China-origin profiles** (theseus-a1wvq.4; `config/routing_cn.rs`, `routing/tests_cn.rs`): a restricted profile (origin `cn`
-    or `unknown`) enters a class only through `trivial`'s `cn_profiles` (`cn_after` places them; `RoutingClasses::effective`)
-    and runs only for a cleared ask (`Ask.cleared`, false until the open-request row), `cheapest` never picks one, and a
-    class's `profiles` naming one fails the load, as does `cn_profiles` on any other class.
-    Routing refuses a restricted profile only in these mode lists and `cn_profiles`: a restricted session base, `-P` pin,
-    place profile or `[model]` default is not refused by routing, and the floor moves or fails that turn (theseus-1v7fl).
-    **Only Jev elevates, and it steps down** (theseus-p8dy): a session Jev moved above its base (`Routed.from`)
-    goes back to it after two verdicts in a row whose mode's first profile is the base or cheaper (`chat`,
-    `routine_coding`, `other`): the first sets a `Hold` of mode `step_down` toward the base, the second makes the
-    switch (`Reason::StepDown`), at any context size; a dearer verdict or one under its bar breaks the row, a detour
-    leaves it, and never below the base (`routing::step_down`). The owner's correction passes no base, so this path
-    never steps it down; a session an owner's correction raised is not told apart from Jev's (no stored field).
+    **Restricted profiles** (the data rule, never loosened): a pick whose profile the session's labels keep off, or that is of
+    restricted origin (`cn` or `unknown`) for an ask that is not cleared, runs the turn's own profile with `data_gate`
+    (`routing::model::refusal`); a restricted session base, `-P` pin, place profile or `[model]` default is not refused by routing,
+    and the floor moves or fails that turn (theseus-1v7fl). The class lists' `cn_profiles` and their load checks
+    (`config/routing_cn.rs`) went with the class table.
     **A task's base from its brief** (theseus-ypnxt.7; `turn/brief_step.rs`, `routing/brief.rs`): a task the owner starts
     with no profile (`task.start`; META `task.route.<session>`, written in the open's frame) asks the route pack alone about its
-    brief on its first turn (`JudgeService::at_brief`), waits for it as a message does, and `brief_base` makes the class's
-    first usable profile, under the cap, the task's base (`last_target`, no `routed`), a detour's class included; no verdict
+    brief on its first turn (`JudgeService::at_brief`), waits for it as a message does, and `brief_base` makes Jev's
+    pick the task's base (`last_target`, no `routed`), a `short` context included; no verdict
     in time, under the bar, or no usable profile leaves the parent's. A profile asked for pins. The row says `source: task brief`.
-    The dear tier's guard (`[routing] dear_tier_max_tokens`, 200,000): over it, a `sophisticated` or `review`
-    verdict skips a profile whose catalog input price is above the next usable one's (`Reason::ContextGuard`).
-    Tests: `tests_route_down.rs`, `routing::tests`.
+    Tests: `routing::tests`, `routing::tests_model`.
     **A running task's checkpoints** (theseus-ypnxt.9; `turn/checkpoint_step.rs`, `routing/checkpoint.rs`, `[routing.task_checkpoints]`
     in `config/routing_checkpoints.rs`; on by default): a task started with no profile (the brief's mark, `brief_step::marked`; a
     pinned one has no state and asks nothing), and since theseus-a1wvq a conversation's turn the route placed (not the owner's
@@ -1858,10 +1847,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `min_loops_between` loops and one in flight, never waited on: the answer is read with `try_recv` at the first later loop
     boundary (`checkpoint_apply`, beside `steer_in`), and a flight a window old is dropped. The text is the brief's first 600
     characters, the plan (12 steps), the last 6 loops' lines and the trigger, within 1,500 tokens (`checkpoint::text`); no
-    pack's wording changes. `checkpoint::decide` is the rule beside `decide` and `step_down`: only Jev elevates, the base
-    (`Routed.from`, else the brief's pick) is the floor, two agreeing verdicts step back down to it, a cold switch up waits for
-    a second, a detour's class moves nothing, `max_switches` bounds the moves up (`Reason::SwitchCap`; a step down past it
-    is allowed). A move is a refusal's fallback's shape: one slot of `checkpoint_step::Slots` a move, `route_to`, the
+    pack's wording changes. `checkpoint::decide` is the rule beside `decide`: Jev's pick is where the task goes, up or down (no base,
+    no step down, no cap on moves; `max_switches` is a retired key), and a cold move waits for a second agreeing verdict. A move is a refusal's fallback's shape: one slot of `checkpoint_step::Slots` a move, `route_to`, the
     next compile on the new model; each verdict is a `route.decided` row (`source: task checkpoint`, `trigger`, `loop`,
     and on a switch `cold_tokens` and `cache_usd`). The judgment's settled cost is charged to the task's execution by the
     judge (`Kernel::charge_execution`: no row, no word to the day ceiling, since `judge.budget` already holds it), a task
@@ -2082,46 +2069,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the test `serve` answers by), so an event outside it is never kept or told, and a window cut at `MAX_EVENTS`
     drops its token; a 5xx, a rate limit or the network is `CalendarStatus::Unreachable`, a real 403 `Forbidden`. Tests:
     `google/tests_calendar_cache.rs`, `tests_sensitive.rs`, `tests_morning.rs`, `tests_calendar.rs`.
-  - **The draft view** (theseus-a1wvq.7, narrowed to drafts by theseus-9ymz0; `draft_view.rs`): a draft is a model of restricted
-    origin reading a session, so its requests keep the stripped prefix and a bounded tool reach that the open view gave every
-    open request, and only drafts get them. `PlaceView.draft` / `TurnCtx.draft` (`DraftReach`: the draft's own tree as its
-    roots, `draft_view::draft_roots`, never the owner's directory) makes `content_class()` the shared class (context files marked
-    public, standing orders only, the walk, the session block only within the tree, no task view or project slice, the prefix
-    key), while approvals, cards, asks and glides keep `class`. Its tools are `DraftReach::offers` (the public tools that start
-    no later work, `open_public`: never `task.create`, `task.split`, `task.claim` or `wake.at`; the file tools under the tree;
-    never a program), and the gate refuses the rest (`DraftReach::refusal`, never a path through `.git`); `task.update` and
-    `task.close` stay and reach only the draft's own record (`toolrun::batch::own_record_only`). Recall draws on no session
-    (`drawn_place`). A turn is a draft's when its session's META record says so (`draft::is_draft`, `TurnRunner::reach_of`),
-    which a task's session alone can be. The open task (`task.create { open }`) and the open detour are gone: `open` is refused
-    in words (`task::OPEN_RETIRED`). Guards: `tests_private_view.rs` (the private view's golden, byte for byte; a draft's request
-    carries none of the owner's material; a draft's recall), `tests_draft_reach.rs`.
+  - **The private view** (theseus-a1wvq.7, theseus-9ymz0): `tests_private_view.rs` holds a private session's request byte for
+    byte (the golden). The draft's narrower view (`draft_view.rs`, `PlaceView.draft`, `DraftReach`) is gone with the drafts
+    (row 6, theseus-kn9or): a place's content class is `PlaceView.class`. The open task (`task.create { open }`) and the open detour
+    were gone before it: `open` is refused in words (`task::OPEN_RETIRED`).
     A task's turn is private while its parent holds the Google mark, however late the parent took it
     (`private_session` reads every task above it on a task's turn alone, `google::private::lineage`; theseus-y8k3u); the learning writer and a thread
     import's card are scoped over every session they hold (`over_sessions`). Tests: `tests_private_background.rs`,
     `tests_private_lineage.rs`.
     Consolidation never runs on a restricted model (`restricted_origin`), keep-warm skips a restricted target, and
     `turn.replay` refuses one. Tests: `tests_bg_gate.rs`.
-    **Drafts** (theseus-a1wvq.13; `draft.rs`, `turn/draft_step.rs`, `fact/draft.rs`; no store format change: a META record
-    `draft.<session>` and the ledger kind `task.draft`; that record is what marks a draft's session, `draft::is_draft`): a
-    China-origin model only drafts code, in its own tree, with no programs, and a Claude check always reviews it; nothing is
-    applied or posted before that review. A coding class's
-    `[routing.classes.<class>] cn_draft` (a restricted profile; `routine_coding` and `deep_coding` only) and `final` (its
-    Claude reviewers, first usable wins; required with it) make an ask of a conversation whose labels do not keep a restricted
-    model off (no task, no wake, its `dir` in a git repository: the tree is the whole repository, and it is applied
-    at that top; the ask is the turn's own message) open a draft instead of a model call: a task session on the `cn_draft` profile in a
-    worktree at `<drafts_dir>/<short>` on branch `draft/<short>` (`[server] drafts_dir`, default `~/.cache/theseus/drafts`: outside the state dir and every approve-list entry, refused at load otherwise, and a root of the workspace while a class drafts, so the review's runs there take the tool's posture; a draft made before keeps its tree under `<state>/drafts` where `tree_of` finds it; theseus-iilre), which is its roots alone (never the owner's directory,
-    and never a path through `.git`), briefed by the core with the turn's own message. Each failed condition is the route row's
-    `draft_skip` (`labelled`, `in_task`, `wake`, `not_git`, `draft_unusable`, `no_reviewer`). `DraftReach::offers` withholds programs from a draft, and where the floor would move it its turn ends
-    (`draft_stopped`: `draft_not_admitted` for a brief whose session the labels did not allow a restricted model, `draft_stopped` for a label that landed after). Its report is never posted (`TaskOf::target_for`); its end opens the review (`draft_ended`: a
-    check on a `final` profile in the tree, the draft's claim, a correlation id from the draft's), whose end commits,
-    applies `git diff <base>..<final>` with `git apply --check` first and never `--index` or `--3way`, removes the
-    tree, and writes the line and the `task.draft` row. `first_pass` (a restricted profile, needs `cn_draft`;
-    theseus-a1wvq.17) opens a second draft-kind task on the draft's diff before the review (`draft/first_pass.rs`): its
-    report is in the review's brief and nowhere else, it is bounded at 10 minutes, and one that cannot open lets the
-    review open without it, its tree removed. The core's git in a draft's tree is pinned to the git dir recorded at open,
-    with fsmonitor, external diff and textconv off; `sweep_drafts` settles drafts a crash or cancel left (at start and
-    after each cancel); one step of a draft runs at a time (`draft/flight.rs`; theseus-b0ozi). Tests: `tests_draft.rs`,
-    `tests_draft_first_pass.rs` (a `first_pass` equal to the `cn_draft` is refused: the drafting model would review its own draft; the bound's timer path, theseus-ms3hd), `tests_draft_hardening.rs`, `tests_draft_home.rs`.
+    **Drafts are gone** (row 6, theseus-kn9or; theseus-a1wvq.13 built them): the China-origin draft in its own git tree, its
+    `final` review and `first_pass`, `[server] drafts_dir` and the `DraftReach` view (`draft.rs`, `turn/draft_step.rs`,
+    `fact/draft.rs`, `draft_view.rs`) were deleted with the class table that opened them. Flash is a `model` option Jev may
+    pick for a session whose labels allow it; the review is Jev's pick at a task's `report` checkpoint. History keeps the
+    ledger kind `task.draft` and the route row's `draft_skip`, which `own_bench/drafts.rs` still reads.
   - **Privacy warnings** (theseus-gasov; `routing/personal.rs`, `turn/personal_step.rs`, `fact/privacy.rs`): route.v7 asks
     `personal` of every message (`none`, `elicit`: it tries to draw out the operator's personal details; `expose`: it asks to
     open a conversation with others where they could come out). The owner's personal details live in the context by design
@@ -3111,7 +3073,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     night once, never within 10 minutes of a start; before each replay it waits for the machine to be quiet
     (`pressure`). Per (model, effort) cell of the last seven days' turns (`turn.ended` rows and `route.decided`'s
     `effort_ran`), the newest `PER_CELL` (3) not yet judged, replayed on the rung down the routing table
-    (`own_bench/rung.rs`: `[routing.classes.*]`'s profiles, a model once, by catalog price). The day's spend is read back
+    (`own_bench/rung.rs`: the profiles that run a model Jev chooses among, a model once, by catalog price). The day's spend is read back
     from today's `route.replay.judged` rows (replay plus judgment, a failed call at its reservation) against `[route_bench]
     replay_day_usd` (1.00; 0 is off), and a replay whose reservation passes what is left is not made: the check is
     before the call (`CapReached`). Each result is a `route.replay.judged` row.

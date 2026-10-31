@@ -549,7 +549,10 @@ async fn the_day_ceiling_stops_a_synthesis_before_its_call() {
 /// profiles wait, counted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sources_whose_sessions_disagree_wait() {
-    let r = rig(MemoryMode::Shadow, None, |_| {});
+    // An unset key asks Jev (route.v10); the word `session` is the rule under test.
+    let r = rig(MemoryMode::Shadow, None, |c| {
+        c.memory.synth_profile = Some(crate::config::memory::SUMMARY_SESSION.into());
+    });
     let c = &r.core;
     let facts = kestrel(c).await;
     let mut rec: SessionRecord = c.store.get_session(&facts[1]).unwrap().unwrap();

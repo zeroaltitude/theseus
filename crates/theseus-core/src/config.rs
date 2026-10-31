@@ -30,7 +30,6 @@ pub mod content_based_security;
 mod data_floor;
 pub(crate) mod import;
 mod judge;
-pub mod legacy;
 mod limits;
 mod lookup;
 pub(crate) mod lsp;
@@ -47,7 +46,6 @@ pub(crate) mod route;
 mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
-pub(crate) mod routing_cn;
 pub mod self_improve;
 pub mod self_mint;
 mod self_sealed;
@@ -1252,11 +1250,10 @@ impl Retries {
 pub struct ServerConfig {
     #[serde(default = "default_state_dir")]
     pub state_dir: String,
-    /// Where a draft review's git worktrees live (theseus-iilre): outside the
-    /// state dir and every approve-list entry, so the review's runs there ask
-    /// nothing. Persistent: a draft waits for its review.
-    #[serde(default = "default_drafts_dir")]
-    pub drafts_dir: String,
+    /// Retired (route.v10, theseus-h66v4: the China-origin draft is gone):
+    /// read, warned of (`Config::parse`), ignored and never written back.
+    #[serde(default, skip_serializing)]
+    pub drafts_dir: Option<String>,
     #[serde(default = "default_socket")]
     pub socket: String,
     /// Index engine behind the WAL: "redb", the only one (theseus-0g4). Still
@@ -1326,9 +1323,6 @@ pub const DEFAULT_STATE_DIR: &str = "~/.theseus";
 fn default_state_dir() -> String {
     DEFAULT_STATE_DIR.into()
 }
-fn default_drafts_dir() -> String {
-    "~/.cache/theseus/drafts".into()
-}
 fn default_socket() -> String {
     "~/.theseus/theseus.sock".into()
 }
@@ -1359,7 +1353,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             state_dir: default_state_dir(),
-            drafts_dir: default_drafts_dir(),
+            drafts_dir: None,
             socket: default_socket(),
             store_engine: theseus_store::Engine::Redb,
             stop_grace_ms: default_stop_grace_ms(),
@@ -1427,6 +1421,25 @@ impl Config {
         cfg.validate()?;
         let mut warnings = Vec::new();
         warnings.extend(cfg.persona_warnings());
+        let retired = cfg.routing.retired();
+        if !retired.is_empty() {
+            warnings.push(format!(
+                "{} retired in 1.0.5 (Jev chooses the model and its effort): read and ignored, \
+                 remove {}",
+                retired.join(", "),
+                match retired.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
+        if cfg.server.drafts_dir.is_some() {
+            warnings.push(
+                "[server] drafts_dir is retired: the China-origin draft is gone, so the key \
+                 does nothing; remove it"
+                    .into(),
+            );
+        }
         if cfg.policy.earned.is_some() {
             warnings.push(
                 "[policy.earned] is retired: earned autonomy and its weekly card are gone, so the \
@@ -1561,7 +1574,7 @@ impl Config {
         self.validate_places()?;
         self.memory.validate()?;
         self.routing
-            .validate(|p| self.all_profiles().contains_key(p))?;
+            .validate()?;
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;
@@ -1778,7 +1791,6 @@ impl Config {
                 );
             }
         }
-        routing_cn::validate(self, &catalog)?;
         // The web UI has no auth yet (§3.14): whoever reaches it is the
         // operator, so it listens on loopback only (theseus-2fo).
         let bind = &self.web.bind;
@@ -1952,18 +1964,6 @@ impl Config {
         z.origin = Some(origin);
     }
 
-    /// A test's profile on a model the catalog does not price, so routing
-    /// finds it unusable (theseus-a1wvq.3).
-    #[cfg(test)]
-    pub(crate) fn unprice_profile(&mut self, profile: &str) {
-        let p = self
-            .resolved
-            .profiles
-            .get_mut(profile)
-            .expect("the profile");
-        p.model = "claude-unlisted-9".into();
-    }
-
     /// Every profile by name, with the implicit `default` synthesized from
     /// `[model]` unless `[profiles.default]` overrides it.
     pub fn all_profiles(&self) -> &BTreeMap<String, ProfileConfig> {
@@ -2087,9 +2087,6 @@ impl Config {
 
     pub fn state_dir(&self) -> PathBuf {
         expand(&self.server.state_dir)
-    }
-    pub fn drafts_dir(&self) -> PathBuf {
-        expand(&self.server.drafts_dir)
     }
     pub fn socket_path(&self) -> PathBuf {
         expand(&self.server.socket)

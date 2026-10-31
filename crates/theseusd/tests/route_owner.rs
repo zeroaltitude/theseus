@@ -1,11 +1,9 @@
-//! Only Jev elevates, and a raised session steps back down (theseus-p8dy), on
-//! a real daemon: one session on the routed bench profile, one `theseus ask`
-//! a message, with the stand-in model and a scripted fake Jev. One daemon
-//! serves them all, as the owner's does, and the first message waits for its
-//! ladder's first read: before it route.v4 judges in shadow (theseus-289c), so
-//! a daemon a message (`--spawn`) would race it. Jev answers `max` at
-//! 0.65 and then 0.9, then `sophisticated`, then `chat` twice; the ledger's
-//! `route.decided` rows say what each turn ran on and why.
+//! The operator's pin on a real daemon: one session on the routed bench
+//! profile, one `theseus ask` a message, with the stand-in model and a
+//! scripted fake Jev. The daemon is the owner's shape, and the first message
+//! waits for its ladder's first read: before it the route pack judges in
+//! shadow (theseus-289c), so a daemon a message (`--spawn`) would race it. The
+//! ledger's `route.decided` rows say what each turn ran on and why.
 
 mod common;
 
@@ -83,7 +81,7 @@ fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
     )
 }
 
-/// The conversation's daemon, once its ladder has read route.v8 live.
+/// The conversation's daemon, once its ladder has read the route pack live.
 fn daemon(dir: &Path) -> common::Daemon {
     let theseusd = PathBuf::from(env!("CARGO_BIN_EXE_theseusd"));
     let d = common::Daemon::spawn(
@@ -109,15 +107,17 @@ fn daemon(dir: &Path) -> common::Daemon {
             .ok()
             .and_then(Value::as_array)
             .is_some_and(|p| {
-                p.iter()
-                    .any(|l| l.as_str().is_some_and(|l| l.starts_with("route.v8: live")))
+                p.iter().any(|l| {
+                    l.as_str()
+                        .is_some_and(|l| l.starts_with("route.v") && l.contains(": live"))
+                })
             });
         if code == 0 && live {
             return d;
         }
         assert!(
             t0.elapsed() < Duration::from_secs(60),
-            "the ladder never read route.v8 live: {out}"
+            "the ladder never read the route pack live: {out}"
         );
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -133,87 +133,6 @@ fn script(jev: &FakeJev, mode: &str, effort: &str, confidence: f64) {
             },
         );
     }
-}
-
-#[test]
-fn jev_raises_a_session_and_two_chats_bring_it_back() {
-    let model = FakeModel::start(|_| vec![]);
-    let jev = FakeJev::start().unwrap();
-    let dir = trial(&model, &jev);
-    let _daemon = daemon(dir.path());
-    let mut session: Option<String> = None;
-    let steps = [
-        ("chat", "max", 0.65),
-        ("chat", "max", 0.9),
-        ("sophisticated", "medium", 0.95),
-        ("chat", "medium", 0.95),
-        ("chat", "medium", 0.95),
-    ];
-    for (i, (mode, effort, c)) in steps.into_iter().enumerate() {
-        script(&jev, mode, effort, c);
-        let mut args = vec!["ask"];
-        if let Some(s) = &session {
-            args.extend(["-s", s]);
-        }
-        args.push("and what comes after that?");
-        let (code, out, err) = theseus(dir.path(), &args);
-        assert_eq!(code, 0, "message {i}: {out}\n{err}");
-        let v: Value = serde_json::from_str(out.lines().last().unwrap()).unwrap();
-        session = Some(v["session_id"].as_str().unwrap().to_string());
-    }
-    let (_, ledger, e) = theseus(dir.path(), &["ledger", "-n", "1000", "-k", "route.decided"]);
-    let rows: Value =
-        serde_json::from_str(&ledger).unwrap_or_else(|x| panic!("{x}: {ledger}\n{e}"));
-    let mut rows: Vec<Value> = rows["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|r| r["data"].clone())
-        .collect();
-    rows.sort_by_key(|d| d["turn"].as_str().unwrap_or("").to_string());
-    let line = |d: &Value| {
-        format!(
-            "{} {:.2} → {} {} switch={} | effort {} {:.2} {} ran {}",
-            d["mode"],
-            d["confidence"].as_f64().unwrap_or(0.0),
-            d["profile"],
-            d["reason"],
-            d["switch"],
-            d["effort"],
-            d["effort_confidence"].as_f64().unwrap_or(0.0),
-            d["effort_reason"],
-            d["effort_ran"]
-        )
-    };
-    for d in &rows {
-        eprintln!("{}", line(d));
-    }
-    assert_eq!(rows.len(), 5, "{ledger}");
-    let get = |i: usize, k: &str| rows[i][k].as_str().unwrap_or("").to_string();
-    // Max at 0.65 runs high; at 0.9 it runs max.
-    assert_eq!(
-        (get(0, "effort_reason"), get(0, "effort_ran")),
-        ("held_high".into(), "high".into())
-    );
-    assert_eq!(
-        (get(1, "effort_reason"), get(1, "effort_ran")),
-        ("applied".into(), "max".into())
-    );
-    // Sophisticated raises the session; the first chat holds, the second steps down.
-    assert_eq!(
-        (get(2, "profile"), get(2, "reason")),
-        ("opus".into(), "verdict".into())
-    );
-    assert_eq!(rows[2]["switch"], true);
-    assert_eq!(
-        (get(3, "profile"), get(3, "reason")),
-        ("opus".into(), "cache_hold".into())
-    );
-    assert_eq!(
-        (get(4, "profile"), get(4, "reason")),
-        ("bench".into(), "step_down".into())
-    );
-    assert_eq!(rows[4]["switch"], true);
 }
 
 // ---- the pins (theseus-h66v4, row 1): cases W39 and W40 of route.v10's test set

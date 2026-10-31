@@ -157,7 +157,7 @@ async fn a_held_compile_failure_records_its_route() {
     let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
     let routed = rows(&r.core, "route.decided");
     assert_eq!(routed.len(), 1, "{routed:?}");
-    assert_eq!(routed[0]["mode"], "chat");
+    assert_eq!(routed[0]["mode"], "sonnet");
     assert_eq!(res.output, HELD);
 }
 
@@ -216,7 +216,7 @@ async fn a_held_compile_failure_records_its_steer() {
     r.core.runner.judge.corrections.set_pending(
         &sid,
         Steering {
-            steer: Steer::Mode("chat".into()),
+            steer: Steer::Profile("sonnet".into()),
             follows: "quick".into(),
             by: By::Owner,
         },

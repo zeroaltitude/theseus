@@ -53,23 +53,6 @@ fn example_template_parses_and_validates() {
     assert_eq!(cfg.telemetry.otlp_endpoint, None);
 }
 
-/// The template's draft guidance is commented (theseus-a1wvq.12): with no `cn_draft` in any class, nothing drafts.
-#[test]
-fn the_templates_draft_guidance_is_off_by_default() {
-    let c = &Config::example().routing.classes;
-    for class in [
-        &c.trivial,
-        &c.quick,
-        &c.chat,
-        &c.sophisticated,
-        &c.deep_coding,
-        &c.routine_coding,
-        &c.review,
-    ] {
-        assert!(class.cn_draft.is_none() && class.final_review.is_empty());
-    }
-}
-
 /// theseus-0hufe: the template's three caps of a response's calls are the
 /// defaults a config without them gets, so neither drifts from the other
 /// (a planted default of 8 for `parallel_runs` passed every test before).
@@ -1265,13 +1248,12 @@ fn a_config_table_cannot_loosen_a_builtin_cn_origin() {
         }
         with(id, ModelOrigin::Cn).unwrap();
     }
-    // Tightening a Claude row is allowed: one no class names loads, and one a
-    // class lists is refused only by routing's own check (theseus-a1wvq.4).
+    // Tightening a Claude row is allowed: no class table lists a profile any
+    // more (row 6 deleted it, with its load check), so none refuses one.
     with("claude-opus-5", ModelOrigin::Cn).unwrap();
     with("claude-opus-5", ModelOrigin::Unknown).unwrap();
     for tight in [ModelOrigin::Cn, ModelOrigin::Unknown] {
-        let e = format!("{:#}", with("claude-sonnet-5-5", tight).unwrap_err());
-        assert!(e.contains("is of restricted origin"), "{tight:?}: {e}");
+        with("claude-sonnet-5-5", tight).unwrap();
     }
     // A word that is none of the four fails the load.
     let toml = format!(
@@ -1398,4 +1380,34 @@ fn external_text_and_external_programs_fail_to_load_naming_the_injection_label()
             "the template still sets a retired key: {l}"
         );
     }
+}
+
+/// The keys Jev's choice retired (route.v10, theseus-h66v4, row 6) load with a
+/// one-line warning each and do nothing: the live config named three of them
+/// before the row, and a refusal at load would have stopped the daemon.
+#[test]
+fn the_retired_routing_and_draft_keys_load_and_warn() {
+    let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\
+                [server]\ndrafts_dir = \"~/.cache/theseus/drafts\"\n\
+                [routing]\nhigh_effort_confidence = 0.40\nmax_wait_ms = 300\n\
+                [routing.classes.deep_coding]\nprofiles = [\"sonnethi\", \"opus\"]\n\
+                [routing.classes.trivial]\nprofiles = [\"haiku\"]\n";
+    let (cfg, warnings) = Config::parse(text).unwrap();
+    assert_eq!(cfg.routing.max_wait_ms, 300, "what stays still loads");
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    let routing = warnings.iter().find(|w| w.contains("routing")).unwrap();
+    for key in [
+        "routing.high_effort_confidence",
+        "routing.classes.deep_coding",
+        "routing.classes.trivial",
+    ] {
+        assert!(routing.contains(key), "{routing}");
+    }
+    assert!(routing.contains("remove them"), "{routing}");
+    assert!(warnings.iter().any(|w| w.contains("[server] drafts_dir")));
+    let (_, none) = Config::parse(
+        "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n[routing]\nmax_wait_ms = 300\n",
+    )
+    .unwrap();
+    assert!(none.is_empty(), "no warning for a config with none: {none:?}");
 }

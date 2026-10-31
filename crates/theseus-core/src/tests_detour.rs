@@ -10,14 +10,13 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use theseus_judge::fake::FakeJev;
 use theseus_protocol::context::{ContextExplainParams, ContextExplainResult};
-use theseus_protocol::why::{why_lines, WhyInput};
 use theseus_protocol::SessionKind;
 
 use crate::provider::{FakeProvider, ProviderRequest};
 use crate::session::SessionRecord;
 use crate::tests_judge::texts;
 use crate::tests_places::rows;
-use crate::tests_route::{decided, mode, rig_parts, turn, Rig};
+use crate::tests_route::{mode, rig_parts, turn, Rig};
 use crate::Core;
 
 /// A rig whose every `anthropic` turn is a Haiku stand-in that answers `n`
@@ -104,7 +103,7 @@ async fn a_quick_detour_in_a_project_conversation_carries_the_slice() {
     let route = res.route.as_ref().unwrap();
     assert_eq!(
         (res.profile.as_str(), route.reason.as_str()),
-        ("haiku", "detour")
+        ("haiku", "verdict")
     );
     let blocks = tail_blocks(&haiku.requests()[0]);
     let slice = blocks
@@ -115,7 +114,7 @@ async fn a_quick_detour_in_a_project_conversation_carries_the_slice() {
     assert!(slice.contains("Survey the moorings"), "{slice}");
     // A plain conversation's detour carries none: its request is as before.
     let plain = turn(&r.core, None, "And what is the tide now?", None).await;
-    assert_eq!(plain.route.as_ref().unwrap().reason, "detour");
+    assert_eq!(plain.route.as_ref().unwrap().reason, "verdict");
     let blocks = tail_blocks(&haiku.requests()[1]);
     assert!(
         !blocks
@@ -134,118 +133,6 @@ fn explain(core: &Core, sid: &str, turn_id: Option<&str>) -> ContextExplainResul
         true,
     )
     .unwrap()
-}
-
-fn why(core: &Core, x: &ContextExplainResult) -> Vec<String> {
-    let route = decided(&core.store).pop();
-    why_lines(&WhyInput {
-        explain: x,
-        policy: None,
-        route: route.as_ref(),
-        tools: &[],
-        hide_sources: false,
-    })
-}
-
-/// theseus-r5ydi: a detoured turn is explained from the `context.detoured`
-/// row its loop wrote: the detour field, the routed profile and model, the
-/// parts with their tokens, and the words that name what it left out.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn why_explains_a_detoured_turn() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "quick", 0.92);
-    let (r, _haiku) = rig_haiku(&jev, 2, |_| {});
-    let sid = attached(&r.core);
-    turn(
-        &r.core,
-        Some(&sid),
-        "Which mooring did we survey first?",
-        None,
-    )
-    .await;
-    let res = turn(
-        &r.core,
-        Some(&sid),
-        "And what is the goal of the project this conversation serves?",
-        None,
-    )
-    .await;
-    let x = explain(&r.core, &sid, None);
-    assert_eq!(x.turn_id.as_deref(), Some(res.turn_id.as_str()));
-    let d = x.detour.as_ref().expect("a detour");
-    assert_eq!(
-        (d.kind.as_str(), d.profile.as_str(), d.model.as_str()),
-        ("quick", "haiku", "claude-haiku-5-5")
-    );
-    assert_eq!(
-        (x.profile.as_str(), x.model.as_str()),
-        ("haiku", "claude-haiku-5-5")
-    );
-    assert!(x.compiled.is_none() && x.compilation.is_none());
-    let tokens = |block: &str| {
-        x.parts
-            .iter()
-            .filter(|p| p.block == block)
-            .map(|p| p.tokens)
-            .sum::<u64>()
-    };
-    for block in ["header", "tools", "exchanges", "message", "project"] {
-        assert!(tokens(block) > 0, "{block}: {:?}", x.parts);
-    }
-    let exchanges = x.parts.iter().find(|p| p.block == "exchanges").unwrap();
-    assert!(
-        exchanges.name.starts_with("1 earlier exchange"),
-        "{exchanges:?}"
-    );
-    // The turn list holds both turns, each marked, newest first.
-    assert_eq!(x.turns.len(), 2, "{:?}", x.turns);
-    assert!(x.turns.iter().all(|t| t.detoured));
-    assert_eq!(x.turns[0].turn_id, res.turn_id);
-    // The row's parts add up to the request's estimate.
-    let row = rows(&r.core, "context.detoured");
-    let last = row.last().unwrap();
-    assert_eq!(last["turn_id"], res.turn_id);
-    assert_eq!(
-        last["parts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| p["tokens"].as_u64().unwrap())
-            .sum::<u64>(),
-        last["est_tokens"].as_u64().unwrap(),
-        "{last}"
-    );
-    // The words: it detoured, and what it left out.
-    let lines = why(&r.core, &x).join("\n");
-    assert!(
-        !lines.contains("no turn of this session has compiled"),
-        "{lines}"
-    );
-    assert!(
-        lines.contains("ran as a quick detour on haiku (claude-haiku-5-5)"),
-        "{lines}"
-    );
-    assert!(
-        lines.contains("routing: task class quick, a detour, outside the session's compilation"),
-        "{lines}"
-    );
-    for left in [
-        "context files",
-        "the persona's body",
-        "summary and older turns",
-        "earlier recall",
-    ] {
-        assert!(lines.contains(left), "{left}: {lines}");
-    }
-    assert!(
-        !lines.contains("this turn's own recall: a trivial"),
-        "a quick detour carries the turn's own recall: {lines}"
-    );
-    let short = theseus_protocol::fill::context_short(&x).join("\n");
-    assert!(
-        short.contains("quick detour") && short.contains("project slice"),
-        "{short}"
-    );
 }
 
 /// A turn that compiled explains as it always did: no `detour` field on the
@@ -276,7 +163,7 @@ async fn a_detoured_plain_turn_keeps_its_frames() {
     let first = turn(&r.core, None, "warm up", None).await;
     let before = r.core.store.stats().unwrap().frames_appended;
     let res = turn(&r.core, Some(&first.session_id), "hi", None).await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
+    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     assert_eq!(res.loops, 1);
     let frames = r.core.store.stats().unwrap().frames_appended - before;
     assert!(frames <= 4, "a detoured plain turn wrote {frames} frames");
@@ -343,7 +230,7 @@ async fn a_detour_naming_a_family_stays_within_its_place_budget() {
         None,
     )
     .await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
+    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     let first = &haiku.requests()[0];
     let names = crate::tests_places::offered(first);
     assert!(names.contains(&"owner_ask".to_string()), "{names:?}");
@@ -358,25 +245,3 @@ async fn a_detour_naming_a_family_stays_within_its_place_budget() {
     );
 }
 
-/// theseus-nfrlj: a turn the owner's words steer to the quick mode detours with
-/// no recall (a steered turn sends none): its row says so, and `why` lists
-/// the line about its own recall, which a quick detour's row without the field
-/// would have left out.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_steered_detour_names_its_kind_and_its_left_out_recall() {
-    use crate::tests_route_correct::{ask, owned};
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let (r, _haiku) = rig_haiku(&jev, 3, owned);
-    let one = ask(&r.core, None, "Which mooring did we survey first?").await;
-    let sid = one.session_id;
-    let two = ask(&r.core, Some(&sid), "that should have been on quick").await;
-    let row = rows(&r.core, "context.detoured").pop().expect("a detour");
-    assert_eq!(row["turn_id"], two.turn_id);
-    assert_eq!(row["kind"], "quick");
-    assert_eq!(row["recall"], false, "{row}");
-    let lines = why(&r.core, &explain(&r.core, &sid, None)).join("\n");
-    assert!(lines.contains("ran as a quick detour"), "{lines}");
-    assert!(!lines.contains("a  detour"), "{lines}");
-    assert!(lines.contains("this turn's own recall"), "{lines}");
-}

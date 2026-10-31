@@ -205,7 +205,7 @@ impl TurnRunner {
         // Outside a turn: no model of restricted origin; the labels' floor is the turn's.
         let floor = crate::turn::data_step::Floor { cn_ok: false };
         let resolved =
-            correction::resolve(to, &last, &self.cfg.routing, &self.route_profiles(floor));
+            correction::resolve(to, &last, &self.route_profiles(floor));
         let asked = resolved.question != "persona" || last.persona_asked;
         let label = match (&resolved.label, &last.judgment) {
             (Some(words), Some(_)) if asked => {
@@ -413,23 +413,10 @@ impl TurnRunner {
             }
         }
         let profiles = self.route_profiles(t.route.floor());
-        // route.v10 has no place cap: the owner's word is not capped (design §1.4 step 2).
-        let cap = match self.judge.route_open() {
-            true => None,
-            false => {
-                t.tc.ceiling
-                    .and_then(|c| c.profile.as_ref())
-                    .and_then(|p| profiles.get(p))
-                    .and_then(|p| p.short_cost)
-            }
-        };
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
         let at_once = s.by == By::Owner;
         let v = Verdict {
-            mode: match &s.steer {
-                Steer::Mode(m) => m.clone(),
-                Steer::Profile(_) | Steer::Thread(_) | Steer::Persona(_) => "correction".into(),
-            },
+            mode: "correction".into(),
             confidence: 1.0,
             judgment: s.follows.clone(),
             turn: t.tc.turn_id.to_string(),
@@ -445,16 +432,14 @@ impl TurnRunner {
             base: &t.target.profile,
             est_tokens: if at_once { 0 } else { est_tokens },
             hold: hold.as_ref(),
-            from: None,
             images: t.route.images,
-            cap,
             cleared: t.route.floor().cn_ok,
         };
         match &s.steer {
             Steer::Profile(p) => routing::steer_to(&self.cfg.routing, &profiles, &a, p, at_once),
             // A thread's entry steers a message to a thread, before a turn
             // exists (the router reads it), never a turn's profile.
-            Steer::Mode(_) | Steer::Thread(_) | Steer::Persona(_) => {
+            Steer::Thread(_) | Steer::Persona(_) => {
                 let mut d = routing::decide(&self.cfg.routing, &profiles, &a);
                 if matches!(d.reason, Reason::Verdict | Reason::Detour) {
                     d.reason = Reason::Correction;

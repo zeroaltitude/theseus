@@ -111,13 +111,9 @@ pub(crate) fn item_slug(store: &Store, session: &str) -> Option<String> {
 /// The tree directory the self task that owns `session` works in, or none:
 /// the session is no self session, or it has no task of the self principal.
 pub(crate) fn of(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
-    let mine = || {
-        let (core, trees) = self_session(rt, session)?;
-        let root = root_of(rt, &core.store, session)?;
-        Some(trees.join(tree::slug(&root)))
-    };
-    // A draft and its review work in the draft's tree alike (theseus-a1wvq.13).
-    mine().or_else(|| crate::draft::own_tree(rt, session))
+    let (core, trees) = self_session(rt, session)?;
+    let root = root_of(rt, &core.store, session)?;
+    Some(trees.join(tree::slug(&root)))
 }
 
 /// What the approve list's hold on the state dir leaves open to `tool` in
@@ -128,9 +124,7 @@ pub(crate) fn open_to(rt: &ToolRuntime, session: &str, tool: &dyn Tool) -> Optio
     let name = tool.name();
     match tool.class() {
         ToolClass::Read if name.starts_with("fs.") || name.starts_with("git.") => {
-            self_session(rt, session)
-                .map(|(_, trees)| trees)
-                .or_else(|| crate::draft::own_tree(rt, session))
+            self_session(rt, session).map(|(_, trees)| trees)
         }
         _ if name.starts_with("fs.") => of(rt, session),
         _ => None,

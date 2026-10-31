@@ -91,8 +91,6 @@ pub struct RouteData<'a> {
     /// use a model of restricted origin, as the turn found its labels.
     pub cn: &'a str,
     pub gate: Option<&'a str>,
-    /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13).
-    pub draft_skip: Option<&'a str>,
 }
 
 /// What a task checkpoint's `route.decided` row adds to the turn's own.
@@ -128,9 +126,6 @@ impl Fact for RouteDecided<'_> {
             row["cn"] = json!(d.cn);
             if let Some(g) = d.gate {
                 row["data_gate"] = json!(g);
-            }
-            if let Some(w) = d.draft_skip {
-                row["draft_skip"] = json!(w);
             }
         }
         if let Some(s) = self.effort_sent {

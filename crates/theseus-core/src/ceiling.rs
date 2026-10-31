@@ -167,9 +167,6 @@ pub struct PlaceView {
     /// channel the bindings file binds (the self card, theseus-slvl.8). Only
     /// `PlaceRule::place` knows it: a turn's own view leaves it off.
     pub voice: bool,
-    /// A China-origin draft's request (theseus-a1wvq.13, `draft_view.rs`):
-    /// its content is the shared view's, and its tools reach only this.
-    pub draft: Option<&'static crate::draft_view::DraftReach>,
 }
 
 impl From<PlaceClass> for PlaceView {
@@ -178,31 +175,16 @@ impl From<PlaceClass> for PlaceView {
             class,
             ceiling: None,
             voice: false,
-            draft: None,
         }
     }
 }
 
 impl PlaceView {
     /// Whether the model here is offered the tool `name`: the place rule's
-    /// set, or a draft's, narrowed by the ceiling (never widened).
+    /// set, narrowed by the ceiling (never widened).
     pub fn offered(&self, name: &str, public: &[std::path::PathBuf]) -> bool {
-        let rule = match self.draft {
-            Some(reach) => reach.offers(name),
-            None => crate::places::offered(self.class, name, public),
-        };
-        rule && (name == "tools.find" || self.ceiling.is_none_or(|c| c.offers(name)))
-    }
-
-    /// The class whose content rules a request here takes: the shared
-    /// view's for a draft, else the place's own. Approvals, cards, asks
-    /// and gliding read `class`.
-    pub fn content_class(&self) -> PlaceClass {
-        if self.draft.is_some() {
-            PlaceClass::Shared
-        } else {
-            self.class
-        }
+        crate::places::offered(self.class, name, public)
+            && (name == "tools.find" || self.ceiling.is_none_or(|c| c.offers(name)))
     }
 }
 
@@ -363,7 +345,6 @@ mod tests {
             class: PlaceClass::Shared,
             ceiling: Some(c),
             voice: false,
-            draft: None,
         };
         for name in ["proc.run", "aws.call", "fs.read"] {
             assert!(!shared.offered(name, &[]), "{name}");
@@ -374,7 +355,6 @@ mod tests {
             class: PlaceClass::Private,
             ceiling: Some(c),
             voice: false,
-            draft: None,
         };
         assert!(private.offered("proc.run", &[]));
         assert!(!private.offered("git.diff", &[]), "private, but not listed");

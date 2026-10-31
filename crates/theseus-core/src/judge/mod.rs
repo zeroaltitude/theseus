@@ -865,13 +865,6 @@ impl JudgeService {
         self.pins_wait.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// A test's pins wait for their verdicts (theseus-fpvn8).
-    #[cfg(test)]
-    pub(crate) fn pins_wait_for_verdicts(&self) {
-        self.pins_wait
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-
     /// Whether Jev is known unreachable now (theseus-otny): its last try,
     /// a call or a warm-up, failed to connect or timed out, and nothing has
     /// answered since. A turn does not wait for a verdict then.

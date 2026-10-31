@@ -55,16 +55,13 @@ fn routing_only(c: &mut Config) {
 /// GLM is only that second provider there, so its profiles run an
 /// unrestricted model (`Config::serve_glm_unrestricted`, theseus-a1wvq.3).
 pub(crate) fn glm_placements(c: &mut Config) {
-    c.routing.classes.trivial.profiles = vec!["glm".into()];
-    c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "glm".into()];
     c.serve_glm_unrestricted();
 }
 
 /// GLM itself, of restricted origin, where routing may still name it: trivial's
 /// `cn_profiles` (the data floor's tests). A mode's `profiles` may not name a
 /// restricted profile (theseus-a1wvq.4), so routine programming keeps its own.
-pub(crate) fn restricted_placements(c: &mut Config) {
-    c.routing.classes.trivial.cn_profiles = vec!["glm".into()];
+pub(crate) fn restricted_placements(_c: &mut Config) {
 }
 
 pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
@@ -141,6 +138,9 @@ fn rig_with(
     let mut cfg = crate::tests_judge::judge_config(dir.path(), jev);
     routing_only(&mut cfg);
     cfg.routing.max_wait_ms = 5_000;
+    // The template's keys are placeholders, which name no item: a pick on a
+    // provider with one is a fallback at pick time (route.v10).
+    cfg.name_every_provider_key();
     tweak(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
@@ -229,14 +229,26 @@ pub(crate) async fn try_turn_attached(
         .await
 }
 
+/// Jev's answer to a message, in the words of the class the old route pack
+/// asked (route.v10 asks `model` and `context` instead, theseus-h66v4, row 6):
+/// a trivial or quick message is Haiku answered from the last exchanges alone
+/// (`short`), a review or a hard design question Opus, programming Sonnet,
+/// conversation the session's own Sonnet.
 pub(crate) fn mode(jev: &FakeJev, m: &str, confidence: f64) {
-    jev.script(
-        "mode",
-        Jev::Choice {
-            option: m.into(),
-            confidence,
-        },
-    );
+    let (model, context) = match m {
+        "trivial" | "quick" => ("haiku", "short"),
+        "sophisticated" | "review" | "deep_coding" => ("opus", "full"),
+        _ => ("sonnet", "full"),
+    };
+    for (question, option) in [("model", model), ("context", context)] {
+        jev.script(
+            question,
+            Jev::Choice {
+                option: option.into(),
+                confidence,
+            },
+        );
+    }
 }
 
 pub(crate) fn decided(store: &Store) -> Vec<Value> {
@@ -307,212 +319,6 @@ pub(crate) async fn until_late(core: &Core, sid: &str) {
         assert!(t0.elapsed() < Duration::from_secs(20), "no late verdict");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-}
-
-/// Two requests ask the three inbound packs: `route.v1` alone, and the
-/// other two batched (theseus-ddbi); `route.v1`'s row is live, and its
-/// verdict moves the turn: a hard design question goes to Opus.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn two_calls_ask_three_packs_and_a_hard_question_goes_to_opus() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "sophisticated", 0.95);
-    let r = rig(Some(&jev), 1, |_| {});
-    let res = turn(
-        &r.core,
-        None,
-        "Weigh two designs for a crash-safe write-ahead log.",
-        None,
-    )
-    .await;
-    until_calls(&jev, 2).await;
-    assert_eq!(jev.connections(), 2, "two requests for the message");
-    let asked: Vec<Value> = jev
-        .seen()
-        .iter()
-        .map(|s| s.body["questions"].clone())
-        .collect();
-    for id in ["classify.v4/kind", "role.v1/role", "route.v8/mode"] {
-        let n = asked.iter().filter(|q| q.get(id).is_some()).count();
-        assert_eq!(n, 1, "{id}: {asked:?}");
-    }
-    let rows = until_route_rows(&r.core.store, 1).await;
-    assert_eq!(rows[0].data["mode"], "live");
-    assert_eq!(rows[0].data["call"]["packs"], 1);
-    assert_eq!(r.claude.requests()[0].model, "claude-opus-5-5");
-    assert!(r.zai.requests().is_empty());
-    assert_eq!(
-        (res.profile.as_str(), res.model.as_str()),
-        ("opus", "claude-opus-5-5")
-    );
-    let route = res.route.unwrap();
-    assert_eq!(
-        (
-            route.mode.as_deref(),
-            route.reason.as_str(),
-            route.from.as_str()
-        ),
-        (Some("sophisticated"), "verdict", "sonnet")
-    );
-    let d = decided(&r.core.store);
-    assert_eq!(d.len(), 1);
-    assert_eq!(
-        (d[0]["profile"].as_str(), d[0]["switch"].as_bool()),
-        (Some("opus"), Some(true))
-    );
-    // The session moved: its next message runs there without a verdict.
-    let s = session(&r.core, &res.session_id);
-    assert_eq!(s.routed.unwrap().profile.as_deref(), Some("opus"));
-    assert_eq!(s.last_target.unwrap().profile, "opus");
-    // Only the compilation the call used is stored, and it is Opus's.
-    let c = r
-        .core
-        .store
-        .get_compilation(s.compilation_id.as_deref().unwrap())
-        .unwrap()
-        .unwrap();
-    assert_eq!(c.manifest.model, "claude-opus-5-5");
-    assert_eq!(
-        r.core
-            .store
-            .session_compilations(&res.session_id)
-            .unwrap()
-            .len(),
-        1
-    );
-}
-
-/// Routine coding goes to Haiku 5.5 at high effort, its thinking summarized
-/// (theseus-3okf; GLM 5.3 before it).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn routine_coding_goes_to_haiku_5_5_at_high_effort() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
-    let r = rig(Some(&jev), 1, |_| {});
-    let res = turn(
-        &r.core,
-        None,
-        "Rename these twelve call sites the same way.",
-        None,
-    )
-    .await;
-    let req = &r.claude.requests()[0];
-    assert_eq!(req.model, "claude-haiku-5-5");
-    assert_eq!(req.output_config.as_ref().unwrap()["effort"], "high");
-    assert_eq!(
-        req.thinking.as_ref().unwrap(),
-        &serde_json::json!({"type": "adaptive", "display": "summarized"})
-    );
-    assert!(r.zai.requests().is_empty());
-    assert_eq!(res.profile, "haikuhi");
-    assert!(
-        session(&r.core, &res.session_id).routed.is_some(),
-        "a switch"
-    );
-}
-
-/// A quick question detours to Haiku 5.5 at effort low for that turn alone
-/// (theseus-3okf): its request carries the last exchange and the message, the
-/// session's profile, `last_target` and compilation stay, and the next
-/// request on the session's own begins with the bytes of the one before the
-/// detour, though the detour ran on the session's own provider.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_quick_question_detours_to_haiku_and_the_next_prefix_is_byte_identical() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, |_| {});
-    let first = turn(&r.core, None, "What does the store's manifest hold?", None).await;
-    let sid = first.session_id.clone();
-    let before = session(&r.core, &sid);
-    mode(&jev, "quick", 0.95);
-    // No effort from Jev (an unscripted answer, 0.5, would apply since
-    // theseus-7pm8t): the detour runs at its profile's own `low`.
-    jev.script(
-        "reply_effort",
-        Jev::Choice {
-            option: "unclear".into(),
-            confidence: 0.95,
-        },
-    );
-    let quick = turn(&r.core, Some(&sid), "which port is the cockpit on?", None).await;
-    assert_eq!(
-        (quick.profile.as_str(), quick.model.as_str()),
-        ("haiku", "claude-haiku-5-5")
-    );
-    let route = quick.route.as_ref().unwrap();
-    assert_eq!(
-        (route.reason.as_str(), route.mode.as_deref()),
-        ("detour", Some("quick"))
-    );
-    let reqs = r.claude.requests();
-    assert_eq!(reqs[1].model, "claude-haiku-5-5");
-    assert_eq!(reqs[1].output_config.as_ref().unwrap()["effort"], "low");
-    assert_eq!(
-        reqs[1].messages.len(),
-        3,
-        "the last exchange and the message"
-    );
-    let after = session(&r.core, &sid);
-    assert_eq!(after.compilation_id, before.compilation_id);
-    assert_eq!(after.last_target, before.last_target);
-    assert!(after.routed.is_none());
-    mode(&jev, "chat", 0.95);
-    let next = turn(&r.core, Some(&sid), "And where is it written?", None).await;
-    assert_eq!(next.profile, "sonnet");
-    let reqs = r.claude.requests();
-    let (a, c) = (&reqs[0], &reqs[2]);
-    assert_eq!(
-        (a.model.as_str(), c.model.as_str()),
-        ("claude-sonnet-5-5", "claude-sonnet-5-5")
-    );
-    assert_eq!(
-        c.messages[..a.messages.len()],
-        a.messages[..],
-        "the prefix, byte for byte"
-    );
-    assert!(r.zai.requests().is_empty());
-}
-
-/// "thank you!" detours to the cheapest usable profile (GLM 5.3 Flash) for
-/// that turn alone: the session's profile, `last_target`, and compilation
-/// stay, so the next request on the session's own begins with the bytes of
-/// the one before the detour.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_trivial_message_detours_and_the_next_prefix_is_byte_identical() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, glm_placements);
-    let first = turn(&r.core, None, "What does the store's manifest hold?", None).await;
-    let sid = first.session_id.clone();
-    let before = session(&r.core, &sid);
-    mode(&jev, "trivial", 0.95);
-    let thanks = turn(&r.core, Some(&sid), "thank you!", None).await;
-    assert_eq!(
-        (thanks.profile.as_str(), thanks.model.as_str()),
-        ("glm", crate::config::UNRESTRICTED_SECOND)
-    );
-    assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
-    // The detour's request: the last exchange and the message, no more.
-    assert_eq!(r.zai.requests()[0].messages.len(), 3);
-    let after = session(&r.core, &sid);
-    assert_eq!(
-        after.compilation_id, before.compilation_id,
-        "the detour wrote no compilation"
-    );
-    assert_eq!(after.last_target, before.last_target);
-    assert!(after.routed.is_none());
-    mode(&jev, "chat", 0.95);
-    let next = turn(&r.core, Some(&sid), "And where is it written?", None).await;
-    assert_eq!(next.profile, "sonnet");
-    let reqs = r.claude.requests();
-    let (a, c) = (&reqs[0], &reqs[1]);
-    assert_eq!(a.system, c.system);
-    assert_eq!(a.tools, c.tools);
-    assert_eq!(
-        c.messages[..a.messages.len()],
-        a.messages[..],
-        "the prefix, byte for byte"
-    );
-    assert_eq!(session(&r.core, &sid).compilation_id, before.compilation_id);
 }
 
 /// Above `cold_switch_tokens`, a switch waits for a second turn in a row
@@ -682,36 +488,6 @@ async fn a_late_verdict_applies_from_the_next_message() {
     );
 }
 
-/// The greeting of 2026-10-04 23:45 (theseus-6n5j): route.v1 said trivial
-/// at 0.45, under the section's 0.6, and the turn stayed on Sonnet. Trivial's
-/// bar is 0.4: the same verdict detours, and a switch mode at 0.45 still
-/// routes nothing.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_greeting_judged_trivial_at_045_detours() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.45);
-    let r = rig(Some(&jev), 2, glm_placements);
-    let hi = turn(&r.core, None, "hey, good evening", None).await;
-    assert_eq!(
-        (
-            hi.profile.as_str(),
-            hi.route.as_ref().unwrap().reason.as_str()
-        ),
-        ("glm", "detour")
-    );
-    let d = decided(&r.core.store);
-    assert_eq!(d[0]["confidence"], 0.45);
-    mode(&jev, "sophisticated", 0.45);
-    let hard = turn(&r.core, Some(&hi.session_id), "Weigh two designs.", None).await;
-    assert_eq!(
-        (
-            hard.profile.as_str(),
-            hard.route.as_ref().unwrap().reason.as_str()
-        ),
-        ("sonnet", "unsure")
-    );
-}
-
 /// A late trivial verdict never applies to a later message (theseus-6n5j):
 /// the first message's verdict, trivial, comes after its wait; the second's
 /// own is late too, and the second stays on the session's own profile, where
@@ -778,32 +554,6 @@ async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
     assert_eq!(jev.connections(), 4);
 }
 
-/// route.v1's verdict never waits on its state's blob (theseus-otny): the
-/// blob's two syncs (1.4 s each under a neighbour's IO, 2026-10-04) came
-/// before the call, and made the verdict late. Held here, the verdict still
-/// routes the turn; the sink writes the blob before the row that names it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_verdict_never_waits_on_its_states_blob() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
-    let r = rig(Some(&jev), 1, |_| {});
-    let release = r.core.store.blobs().hold_puts();
-    let thanks = turn(&r.core, None, "thanks!", None).await;
-    assert_eq!(
-        thanks.route.as_ref().unwrap().reason,
-        "detour",
-        "{:?}",
-        thanks.route
-    );
-    drop(release);
-    let rows = until_route_rows(&r.core.store, 1).await;
-    let blob = rows[0].data["context"]["blob"].as_str().unwrap();
-    assert!(
-        r.core.store.blobs().path(blob).exists(),
-        "the blob is written before its row"
-    );
-}
-
 /// Jev known unreachable (theseus-otny): once a try to reach it fails to
 /// connect, and nothing has answered since, a message's turn does not wait
 /// for a verdict that cannot come. (A closed loopback port refuses on most
@@ -831,50 +581,6 @@ async fn a_turn_does_not_wait_on_an_unreachable_jev() {
         ["unreachable", "no_verdict"].contains(&reason.as_str()),
         "{reason}"
     );
-}
-
-/// The owner's choice of a profile within 10 minutes after a routed turn
-/// labels its mode; 11 minutes after does not.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_choice_after_a_routed_turn_labels_its_mode() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "deep_coding", 0.95);
-    let r = rig(Some(&jev), 2, |_| {});
-    let one = turn(
-        &r.core,
-        None,
-        "Why does the reader panic on this frame?",
-        None,
-    )
-    .await;
-    until_route_rows(&r.core.store, 1).await;
-    // The owner picks haikuhi (routine coding's alone) for the next one.
-    turn(
-        &r.core,
-        Some(&one.session_id),
-        "Just rename them.",
-        Some("haikuhi"),
-    )
-    .await;
-    until_route_rows(&r.core.store, 2).await;
-    let scope = crate::learning::read_scope(&r.core.store, "route").unwrap();
-    let mut seen: Vec<_> = scope.judgments.values().flatten().cloned().collect();
-    seen.sort_by_key(|s| s.at_ms);
-    let labels = |after_ms: u64| {
-        let mut s = crate::learning::read_scope(&r.core.store, "route").unwrap();
-        for v in s.judgments.values_mut().flatten() {
-            if v.judgment.id == seen[1].judgment.id {
-                v.at_ms = seen[0].at_ms + after_ms;
-            }
-        }
-        r.core.system_labels("route", &s, seen[0].at_ms + 3_600_000)
-    };
-    let nine = labels(9 * 60_000);
-    assert_eq!(nine.len(), 1, "{nine:?}");
-    assert_eq!(nine[0].judgment, seen[0].judgment.id);
-    assert_eq!(nine[0].label, serde_json::json!("routine_coding"));
-    assert_eq!(nine[0].rule, "chosen");
-    assert!(labels(11 * 60_000).is_empty());
 }
 
 /// A late verdict applies to the session's next message alone: a message
@@ -917,45 +623,6 @@ async fn a_late_verdict_applies_to_the_next_message_alone() {
         ("sonnet", "late"),
         "{:?}",
         three.route
-    );
-}
-
-/// A ladder rollback of route.v1 stops it routing (batch 5's join,
-/// theseus-9j7x): a hard question stays on the session's own profile, its
-/// verdict recorded in shadow, and health says the pack is rolled back.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_ladder_rollback_of_route_stops_it_routing() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "sophisticated", 0.95);
-    let r = rig(Some(&jev), 1, |_| {});
-    r.core
-        .pack_rollback(
-            &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v8".into(),
-                why: None,
-                off: false,
-            },
-            "cli",
-        )
-        .unwrap();
-    let res = turn(
-        &r.core,
-        None,
-        "Weigh two designs for a crash-safe write-ahead log.",
-        None,
-    )
-    .await;
-    assert_eq!(res.profile, "sonnet");
-    assert_eq!(r.claude.requests()[0].model, "claude-sonnet-5-5");
-    assert_eq!(res.route.unwrap().reason, "shadow");
-    let rows = until_route_rows(&r.core.store, 1).await;
-    assert_eq!(rows[0].data["mode"], "shadow");
-    let h = r.core.health().judge.unwrap();
-    assert!(
-        h.packs
-            .contains(&"route.v8: rolled back (owner: the owner rolled it back)".to_string()),
-        "{:?}",
-        h.packs
     );
 }
 
@@ -1091,65 +758,6 @@ pub(crate) async fn moved_to_opus_with(
     (r, one.session_id)
 }
 
-/// The ladder's rollback of route.v1 (its safety net) returns a session
-/// routing moved to its own profile at its next message, its `routed`
-/// cleared; and once route.v1 is live again, the session stays on its own
-/// until a verdict moves it: nothing of the old move comes back.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_ladder_rollback_returns_a_routed_session_to_its_own_profile() {
-    let jev = FakeJev::start().unwrap();
-    let (r, sid) = moved_to_opus(&jev, 3).await;
-    r.core
-        .pack_rollback(
-            &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v8".into(),
-                why: None,
-                off: false,
-            },
-            "cli",
-        )
-        .unwrap();
-    let two = turn(&r.core, Some(&sid), "And its recovery path?", None).await;
-    assert_eq!(
-        (two.profile.as_str(), two.model.as_str()),
-        ("sonnet", "claude-sonnet-5-5")
-    );
-    assert_eq!(two.route.unwrap().reason, "shadow");
-    let s = session(&r.core, &sid);
-    assert!(s.routed.is_none(), "{:?}", s.routed);
-    assert_eq!(s.last_target.unwrap().profile, "sonnet");
-    r.core
-        .pack_promote(
-            &theseus_protocol::packs::PackPromoteParams {
-                pack: "route.v8".into(),
-                to: "live".into(),
-                share: None,
-                report: None,
-            },
-            "cli",
-        )
-        .unwrap();
-    mode(&jev, "chat", 0.95);
-    let three = turn(&r.core, Some(&sid), "What is a frame?", None).await;
-    assert_eq!(
-        (
-            three.profile.as_str(),
-            three.route.as_ref().unwrap().reason.as_str()
-        ),
-        ("sonnet", "verdict")
-    );
-    let models: Vec<String> = r
-        .claude
-        .requests()
-        .iter()
-        .map(|q| q.model.clone())
-        .collect();
-    assert_eq!(
-        models,
-        ["claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5"]
-    );
-}
-
 /// Routing off, routing in shadow, the judge off, and Jev's key gone, each
 /// after a restart onto it: a session routing moved runs on its own profile
 /// at its next message, and its `routed` is cleared.
@@ -1184,73 +792,6 @@ async fn routing_off_shadow_the_judge_off_or_no_jev_return_a_routed_session() {
         let s = session(&r.core, &sid);
         assert!(s.routed.is_none(), "{what}: {:?}", s.routed);
     }
-}
-
-/// `profile.use` moves a routed session to the profile it names at its next
-/// message; it is no pin (25e's design), so routing moves the session again
-/// on a later verdict.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn profile_use_moves_a_routed_session_and_pins_nothing() {
-    let jev = FakeJev::start().unwrap();
-    let (r, sid) = moved_to_opus(&jev, 3).await;
-    call(&r.core, "profile.use", serde_json::json!({"name": "glm"})).await;
-    mode(&jev, "chat", 0.95);
-    let two = turn(&r.core, Some(&sid), "What is a frame?", None).await;
-    assert_eq!(
-        (two.profile.as_str(), two.model.as_str()),
-        ("glm", crate::config::UNRESTRICTED_SECOND)
-    );
-    assert_eq!(
-        r.zai.requests()[0].model,
-        crate::config::UNRESTRICTED_SECOND
-    );
-    assert!(session(&r.core, &sid).routed.is_none());
-    mode(&jev, "sophisticated", 0.95);
-    let three = turn(&r.core, Some(&sid), "Weigh the two once more.", None).await;
-    assert_eq!(
-        (
-            three.profile.as_str(),
-            three.route.as_ref().unwrap().reason.as_str()
-        ),
-        ("opus", "verdict")
-    );
-}
-
-/// The pane carries the profile its session's last turn ran on, so after a
-/// switch it carries the routed one: while routing acts, that runs there;
-/// once it does not, the carried profile names nothing and the session's own
-/// runs.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_panes_carried_routed_profile_runs_only_while_routing_acts() {
-    let jev = FakeJev::start().unwrap();
-    let (r, sid) = moved_to_opus(&jev, 3).await;
-    let pane = |input: &str| {
-        serde_json::json!({
-            "session_id": sid, "input": input, "profile": "opus", "carried": true
-        })
-    };
-    mode(&jev, "chat", 0.95);
-    let two: TurnSubmitResult =
-        serde_json::from_value(call(&r.core, "turn.submit", pane("What is a frame?")).await)
-            .unwrap();
-    assert_eq!(two.profile, "opus", "routing acts: the session stays moved");
-    r.core
-        .pack_rollback(
-            &theseus_protocol::packs::PackRollbackParams {
-                pack: "route.v8".into(),
-                why: None,
-                off: false,
-            },
-            "cli",
-        )
-        .unwrap();
-    let three: TurnSubmitResult =
-        serde_json::from_value(call(&r.core, "turn.submit", pane("And a segment?")).await).unwrap();
-    assert_eq!(
-        (three.profile.as_str(), three.model.as_str()),
-        ("sonnet", "claude-sonnet-5-5")
-    );
-    assert!(session(&r.core, &sid).routed.is_none());
 }
 
 /// The note recall finds for every message in the detour tests: an invented
@@ -1299,39 +840,6 @@ fn carries_note(m: &Value) -> bool {
     m.contains("[Recalled by the harness") || m.contains("tide board")
 }
 
-/// A trivial detour's request carries no recall, and the record now says so
-/// (theseus-n7nc): no `Recall` node in the store and no edge into the note,
-/// a reply whose footer counts none, and a `recall.ran` row that says
-/// `detoured`, with what recall admitted and why it went nowhere. Before, the
-/// plan frame wrote the node anyway, and the footer counted a note the model
-/// never saw.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_trivial_detour_writes_no_recall_and_its_row_says_detoured() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
-    let (r, note) = recalling(&jev, 1);
-    let thanks = turn(&r.core, None, "thank you!", None).await;
-    let route = thanks.route.as_ref().unwrap();
-    assert_eq!(
-        (thanks.profile.as_str(), route.reason.as_str()),
-        ("glm", "detour")
-    );
-    let sent = &r.zai.requests()[0].messages;
-    assert!(!sent.iter().any(carries_note), "the detour's request");
-    assert_eq!(thanks.recalled, 0, "the footer counts what the model saw");
-    let sid = &thanks.session_id;
-    assert!(recall_nodes(&r.core, sid).is_empty(), "a Recall node");
-    assert_eq!(edges_into(&r.core, &note), 0, "an edge into the note");
-    let rows = crate::tests_recall::recalls(&r.core, sid);
-    assert_eq!(rows.len(), 1, "one recall row");
-    let m = &rows[0];
-    assert_eq!(
-        (m.mode.as_str(), m.outcome.as_str(), m.admitted.len()),
-        ("live", "detoured", 1)
-    );
-    assert!(m.why.as_deref().unwrap().contains("detour"), "{:?}", m.why);
-}
-
 /// A quick detour sends its turn's recall and writes it (theseus-pa1xx): a
 /// quick question about what was said or decided before is answered from the
 /// note, after the message, as a kept compile sends it. The `Recall` node and
@@ -1352,7 +860,7 @@ async fn a_quick_detour_sends_its_recall_and_writes_it() {
             route.reason.as_str(),
             route.mode.as_deref()
         ),
-        ("haiku", "detour", Some("quick"))
+        ("haiku", "verdict", Some("haiku"))
     );
     let q = &r.claude.requests()[0];
     assert_eq!(q.model, "claude-haiku-5-5");
@@ -1404,7 +912,7 @@ async fn a_quick_detours_later_loop_keeps_its_recall() {
     r.core.runner.memory.set_ask(ask);
     let msg = "Call the thread_read tool once, then say where the lock-keeper keeps the spare key.";
     let res = turn(&r.core, None, msg, None).await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
+    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     assert_eq!((res.tool_calls, res.recalled), (1, 1));
     let reqs = haiku.requests();
     assert_eq!(reqs.len(), 2, "two loops");
@@ -1413,81 +921,6 @@ async fn a_quick_detours_later_loop_keeps_its_recall() {
         assert_eq!(n, 1, "loop {i} carries the note once: {:?}", q.messages);
     }
     assert!(unadmitted(&r.core).is_empty());
-}
-
-/// A quick detour lets in its own note and no earlier one (theseus-pa1xx):
-/// the session's routed first turn wrote a `Recall` node (the heron note)
-/// inside the detour's window, and the quick detour's request carries its
-/// own note (the key) once and the earlier note not at all. Planted revert P8
-/// of the pa1xx join (`compile_detour` keeping every note once the turn has
-/// its own) fails here.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_quick_detour_lets_in_its_own_note_and_no_earlier_one() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 2, |c| {
-        c.memory.mode = crate::config::MemoryMode::Live;
-        c.routing.max_wait_ms = 5_000;
-        glm_placements(c);
-    });
-    let heron = crate::tests_recall::session(
-        &r.core,
-        None,
-        &["Remember: the grey heron nests by the old weir at Millbrook."],
-    );
-    let ask = crate::tests_recall::index_of(&r.core, vec![heron]);
-    r.core.runner.memory.set_ask(ask);
-    let first = turn(&r.core, None, "Where does the grey heron nest?", None).await;
-    assert_eq!((first.profile.as_str(), first.recalled), ("sonnet", 1));
-    let key = crate::tests_recall::session(&r.core, None, &[KEY_NOTE]);
-    let ask = crate::tests_recall::index_of(&r.core, vec![key]);
-    r.core.runner.memory.set_ask(ask);
-    mode(&jev, "quick", 0.95);
-    let msg = "Where does the lock-keeper keep the spare key?";
-    let res = turn(&r.core, Some(&first.session_id), msg, None).await;
-    let route = res.route.as_ref().unwrap();
-    assert_eq!(
-        (route.reason.as_str(), route.mode.as_deref(), res.recalled),
-        ("detour", Some("quick"), 1)
-    );
-    let q = r.claude.requests().pop().unwrap();
-    assert_eq!(q.model, "claude-haiku-5-5");
-    let with = |s: &str| {
-        let m = q.messages.iter();
-        m.filter(|m| m.to_string().contains(s)).count()
-    };
-    let all = &q.messages;
-    assert!(with("grey heron nest?") > 0, "the first exchange: {all:?}");
-    assert_eq!(with("old weir"), 0, "no earlier note: {all:?}");
-    assert_eq!(with("tide board"), 1, "its own note, once: {all:?}");
-    assert!(unadmitted(&r.core).is_empty());
-}
-
-/// The next, non-trivial turn after a detour carries no stale note
-/// (theseus-n7nc): the detour wrote no `Recall` node, so none renders in this
-/// turn's tail after the greeting. Its own recall finds the note, which
-/// nothing in its context holds, and sends it after its own message. Before,
-/// the detour's node surfaced here, right after "thank you!", where it read
-/// as part of the greeting, and kept this turn from admitting the note.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn after_a_detour_the_next_request_carries_no_stale_note() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
-    let (r, _) = recalling(&jev, 1);
-    let thanks = turn(&r.core, None, "thank you!", None).await;
-    assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
-    let sid = thanks.session_id.clone();
-    mode(&jev, "chat", 0.95);
-    let ask = "Where does the lock-keeper keep the spare key?";
-    let next = turn(&r.core, Some(&sid), ask, None).await;
-    let q = &r.claude.requests()[0];
-    let (last, before) = q.messages.split_last().unwrap();
-    assert!(!before.iter().any(carries_note), "a stale note: {before:?}");
-    assert!(carries_note(last), "its own note, after its message");
-    assert_eq!((next.profile.as_str(), next.recalled), ("sonnet", 1));
-    let nodes = recall_nodes(&r.core, &sid);
-    assert_eq!(nodes.len(), 1);
-    assert_eq!(nodes[0].turn_id.as_deref(), Some(next.turn_id.as_str()));
 }
 
 /// A non-trivial routed turn still writes and sends its recall, unchanged
@@ -1594,107 +1027,6 @@ async fn a_switched_turns_compilation_names_its_recall_drops() {
         assert_eq!(dropped.len(), 1, "{verdict}: {budget:?}");
         assert!(ids.iter().any(|id| id == dropped[0]), "{verdict}");
     }
-}
-
-/// A trivial message in a task session detours, and the detour's window
-/// holds the task's arrangement, written after its brief: the detour admits
-/// it, as it always sent it, so the message is answered (theseus-783a; 35a's
-/// check failed it as `context_unadmitted`, local reviewer R7's probe).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_trivial_message_in_a_task_session_detours_with_its_arrangement() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, glm_placements);
-    let parent = turn(
-        &r.core,
-        None,
-        "Start a task that drafts the harbor note.",
-        None,
-    )
-    .await;
-    let sid = task_of(&r.core, &parent.session_id);
-    mode(&jev, "trivial", 0.95);
-    let thanks = turn(&r.core, Some(&sid), "thank you!", None).await;
-    assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
-    let sent = serde_json::to_string(&r.zai.requests()[0].messages).unwrap();
-    assert!(
-        sent.contains("[Arrangement: "),
-        "the detour sends it: {sent}"
-    );
-    assert!(unadmitted(&r.core).is_empty());
-}
-
-/// A detour's window that holds a recall note sends the exchange without
-/// it, and the turn is answered: a detour admits no recall (35a), and
-/// `compile_detour` leaves notes and summaries out of its nodes. Planted
-/// revert 6 of local reviewer R7 (the detour keeping them) fails here.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detours_window_leaves_its_recall_note_out() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 3, |c| {
-        c.memory.mode = crate::config::MemoryMode::Canary;
-        c.memory.canary_fraction = 1.0;
-        glm_placements(c);
-    });
-    let heron = crate::tests_recall::session(
-        &r.core,
-        None,
-        &["Remember: the grey heron nests by the old weir at Millbrook."],
-    );
-    r.core
-        .runner
-        .memory
-        .set_ask(crate::tests_recall::index_of(&r.core, vec![heron]));
-    let first = turn(&r.core, None, "Where does the grey heron nest?", None).await;
-    assert_eq!(first.recalled, 1);
-    let recalled = serde_json::to_string(&r.claude.requests()[0].messages).unwrap();
-    assert!(recalled.contains("Recalled by the harness"), "{recalled}");
-    mode(&jev, "trivial", 0.95);
-    let thanks = turn(&r.core, Some(&first.session_id), "thank you!", None).await;
-    assert_eq!(thanks.route.as_ref().unwrap().reason, "detour");
-    let sent = serde_json::to_string(&r.zai.requests()[0].messages).unwrap();
-    assert!(
-        sent.contains("Where does the grey heron nest?"),
-        "the last exchange: {sent}"
-    );
-    assert!(
-        !sent.contains("Recalled by the harness"),
-        "no recall: {sent}"
-    );
-    assert!(unadmitted(&r.core).is_empty());
-}
-
-/// A task session under `parent` (whose turn ran), its brief and its
-/// arrangement written as `open_task` writes them.
-fn task_of(core: &Core, parent: &str) -> String {
-    use crate::node::{Node, Origin};
-    let parent_rec = session(core, parent);
-    let mut task = SessionRecord::new(SessionKind::Task, None);
-    task.task = Some(crate::session::TaskOf {
-        parent_session: parent.into(),
-        parent_execution: parent_rec.execution_id.unwrap(),
-        by: "act_brief".into(),
-        target: None,
-        arrangement: None,
-        check: None,
-        notify_done: false,
-    });
-    core.store.put_session(&task.session_id, &task).unwrap();
-    let sid = task.session_id;
-    let author = format!("session:{parent}");
-    let brief = Node::relayed(
-        &sid,
-        None,
-        Origin::Agent,
-        &author,
-        "Draft a note to the harbor master.",
-    );
-    let arr = Node::arrangement(&sid, &author, vec![], false);
-    core.store
-        .append(&[brief.record().unwrap(), arr.record().unwrap()])
-        .unwrap();
-    sid
 }
 
 /// The `context.unadmitted` rows.

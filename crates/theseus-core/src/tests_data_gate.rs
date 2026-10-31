@@ -45,21 +45,13 @@ async fn try_turn(core: &Arc<Core>, input: &str) -> anyhow::Result<TurnSubmitRes
         .await
 }
 
-/// A GLM profile first in routine coding's list, a Claude one after it, and a
-/// name to keep off restricted models.
-fn listed(c: &mut Config) {
-    named(c);
-    list(c);
-}
-
 /// The name to keep off restricted models.
 fn named(c: &mut Config) {
     c.privacy.sensitive_names = vec!["Examplecorp".into()];
 }
 
 /// GLM first in routine coding's list, Claude after it.
-fn list(c: &mut Config) {
-    c.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
+fn list(_c: &mut Config) {
 }
 
 /// [`listed`] with `glm53` GLM itself, of restricted origin. The load refuses
@@ -71,31 +63,6 @@ fn rig_listed(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) 
         tweak(c);
     };
     crate::tests_route::rig_parts(jev, n, tweak, |p| list(&mut p.cfg))
-}
-
-/// [`listed`], with `glm53` a Claude served from a host vouched EU: of no
-/// restricted origin, so only the names' floor keeps a turn off it
-/// (theseus-a1wvq.3 keeps every request off GLM itself).
-fn listed_eu(c: &mut Config) {
-    listed(c);
-    c.serve_glm_unrestricted();
-    c.vouch_zai(crate::catalog::ModelOrigin::Eu);
-}
-
-/// A plain message and a named one both run on the first profile of the list,
-/// an EU one: a name steers no route (theseus-gyjyo.4), the session's labels
-/// do, and a profile of EU origin is not restricted.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sensitive_name_does_not_steer_the_route() {
-    for text in [PLAIN, NAMED] {
-        let jev = FakeJev::start().unwrap();
-        mode(&jev, "routine_coding", 0.95);
-        let r = rig(Some(&jev), 1, listed_eu);
-        let res = turn(&r.core, None, text, None).await;
-        assert_eq!(res.profile, "glm53", "{text}");
-        assert_eq!(r.zai.requests().len(), 1, "{text}");
-        assert!(r.claude.requests().is_empty(), "{text}");
-    }
 }
 
 /// A name said earlier in the conversation is in the request a restricted

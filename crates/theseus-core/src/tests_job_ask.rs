@@ -5,9 +5,8 @@
 //! builder (one paragraph, the place `job`), waiting at most `[routing]
 //! max_wait_ms` (the design's 300 ms), and a job that cannot use the answer
 //! runs on `live`. Private material never reaches a model of China origin.
-//! The pack that asks `model` is route.v10's, which is not the acting route
-//! pack until its row flips it, so these tests install a small one with
-//! `JudgeService::job_pack_with`.
+//! The pack that asks `model` is route.v10's; these tests install a small one
+//! with `JudgeService::job_pack_with`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -63,7 +62,6 @@ pub(crate) fn owner_site<'a>(pin: Option<&'a str>) -> Site<'a> {
     Site {
         name: "card",
         pin,
-        legacy: Some(crate::config::legacy::CHEAP),
         job: JobKind::Card { clusters: 7 },
         restricted: RestrictedModels::NotAllowed,
     }
@@ -75,7 +73,6 @@ fn open_site<'a>() -> Site<'a> {
     Site {
         name: "compaction",
         pin: None,
-        legacy: None,
         job: JobKind::Compaction {
             oldest_tokens: 9_000,
             summary_tokens: 4_096,
@@ -141,28 +138,6 @@ async fn a_configured_key_is_a_pin_and_asks_nothing() {
         .job_choice("sonnet", owner_site(Some("opus")))
         .await;
     assert_eq!((choice, how), (Choice::Profile("opus".into()), How::Pinned));
-    assert_eq!(jev.connections(), 0);
-}
-
-/// While the acting pack asks no `model` (every pack before route.v10), an
-/// unset key runs on the profile it always did and asks nothing: installing
-/// the row changes no live decision.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn while_the_pack_asks_no_model_an_unset_key_runs_its_legacy_profile() {
-    let jev = FakeJev::start().unwrap();
-    pick(&jev, "opus", 0.95);
-    let r = rig_parts(Some(&jev), 1, |c| c.routing.max_wait_ms = 300, |_| {});
-    let (choice, how) = r.core.runner.job_choice("sonnet", owner_site(None)).await;
-    assert_eq!(
-        (choice, how),
-        (Choice::Profile("haiku".into()), How::Legacy)
-    );
-    // A site whose legacy is the live profile runs on it.
-    let (choice, how) = r.core.runner.job_choice("sonnet", open_site()).await;
-    assert_eq!(
-        (choice, how),
-        (Choice::Profile("sonnet".into()), How::Legacy)
-    );
     assert_eq!(jev.connections(), 0);
 }
 
@@ -329,26 +304,4 @@ async fn with_routing_off_no_ask_is_made() {
         (Choice::Profile("sonnet".into()), How::Live(Why::Unasked))
     );
     assert_eq!(jev.connections(), 0);
-}
-
-/// One switch (theseus-h66v4's join): the background sites, a task's checkpoints
-/// and brief, and the turn path all read `route_open`, so a pack that asks
-/// `model` opens every one of them and a pack that does not opens none.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_sites_the_checkpoints_and_the_turn_path_read_one_switch() {
-    let jev = FakeJev::start().unwrap();
-    let closed = rig_parts(Some(&jev), 1, |_| {}, |_| {});
-    let judge = &closed.core.runner.judge;
-    assert!(!judge.route_open(), "route.v8 asks no `model`");
-    assert!(judge.route_pack().is_none(), "and a job has no pack to ask");
-    let open = rig_job(&jev, |_| {});
-    let judge = &open.core.runner.judge;
-    assert!(
-        judge.route_open(),
-        "a pack that asks `model` opens the turn path"
-    );
-    assert!(
-        judge.route_pack().is_some(),
-        "and the job's ask, from one lookup"
-    );
 }

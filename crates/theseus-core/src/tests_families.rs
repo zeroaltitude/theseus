@@ -29,7 +29,7 @@ async fn detour(
         c.tools.defer.admit_ceiling_small = c.tools.defer.admit_ceiling;
     });
     let res = turn(&r.core, None, message, None).await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
+    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     let names = offered(&haiku.requests()[0]);
     let detoured = rows(&r.core, "context.detoured").remove(0);
     let used = rows(&r.core, "tools.used").remove(0);
@@ -338,7 +338,7 @@ async fn one_families_judgment_per_prompt() {
         None,
     )
     .await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
+    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     assert_eq!(res.loops, 3, "{res:?}");
     assert_eq!(families_calls(&jev).len(), 1);
     turn(&r.core, Some(&res.session_id), "And now say done.", None).await;

@@ -1304,18 +1304,6 @@ impl TurnRunner {
         }
     }
 
-    /// Where a turn's recall reads `session_id`'s nodes: as `place_of` does,
-    /// or, for a draft's turn (theseus-a1wvq.13), as `Unknown`, which a draft
-    /// draws on none of: the stripped view it carries holds nothing of any
-    /// other session, since no session is marked open any more
-    /// (theseus-9ymz0).
-    pub fn drawn_place(&self, draft: bool, session_id: &str) -> Place {
-        match draft {
-            true => Place::Unknown,
-            false => self.place_of(session_id),
-        }
-    }
-
     /// Whether `session_id` speaks in a private place (the CLI, the web UI,
     /// the owner's DM, a channel bound private), as `place_of` reads it. The
     /// guild calendar names an event for its title only then (theseus-4zc4d).

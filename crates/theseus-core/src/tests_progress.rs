@@ -250,7 +250,6 @@ async fn the_plan_sentence_is_in_the_brief_and_the_system_note() {
         class: crate::places::PlaceClass::Private,
         ceiling: None,
         voice: false,
-        draft: None,
     });
     assert!(note.contains(crate::task_graph::PLAN_NOTE), "{note}");
 }

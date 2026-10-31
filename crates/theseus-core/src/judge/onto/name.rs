@@ -174,7 +174,6 @@ impl Core {
         let site = crate::job_model::Site {
             name: "ontology",
             pin: self.cfg.ontology.name_profile.as_deref(),
-            legacy: Some(crate::config::legacy::CHEAP),
             job: theseus_judge::builders::JobKind::OntologyName { kind: kind.into() },
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };

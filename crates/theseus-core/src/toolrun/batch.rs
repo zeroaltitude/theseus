@@ -42,10 +42,6 @@ impl ToolRuntime {
         if let Some(why) = self.sealed.refusal_of_input(input) {
             return Err(Turned::Place(why));
         }
-        if let Some(why) = own_record_only(at.place.draft.is_some(), at.session, tool.name(), input)
-        {
-            return Err(Turned::Place(why));
-        }
         let Some(steps) = tool.steps(input) else {
             if let Some(why) = self.refusal_at(at, tool, plan) {
                 return Err(Turned::Place(why));
@@ -90,27 +86,6 @@ impl ToolRuntime {
         d.granted = (!granted.is_empty()).then(|| granted.join("; "));
         Ok((d, b))
     }
-}
-
-/// An open request's `task.update` and `task.close` reach only its own
-/// task's record (theseus-ol8w0): a call naming another is refused before
-/// any write.
-pub(crate) fn own_record_only(
-    open: bool,
-    session: Option<&str>,
-    tool: &str,
-    input: &Value,
-) -> Option<String> {
-    use crate::task_graph::tools::{is_own_record, CLOSE, UPDATE};
-    if !open || !matches!(tool, UPDATE | CLOSE) {
-        return None;
-    }
-    let own = session.is_some_and(|s| is_own_record(input, s));
-    (!own).then(|| {
-        format!(
-            "an open request may change only its own task, so {tool} of another task was not run"
-        )
-    })
 }
 
 /// The floor over approve over notify over open: a tie keeps the earlier

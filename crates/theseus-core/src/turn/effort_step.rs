@@ -120,19 +120,13 @@ impl TurnRunner {
                     .filter(|held| !(checkpoint && asked > *held))
             });
         let window = self.keep_warm.last_hold(t.tc.session_id, model);
-        let bar = self.cfg.routing.effort_confidence;
         match held {
-            Some(_) if !checkpoint && effort::reverts(window, answer, bar) => EffortDecision {
+            Some(_) if !checkpoint && effort::reverts(window, answer) => EffortDecision {
                 reason: EffortReason::StickyReverted,
                 ..d
             },
             Some(sent) => EffortDecision {
-                reason: match d.reason {
-                    EffortReason::AppliedUnsure | EffortReason::HeldHighUnsure => {
-                        EffortReason::StickyUnsure
-                    }
-                    _ => EffortReason::Sticky,
-                },
+                reason: EffortReason::Sticky,
                 sent: Some(sent),
                 ..d
             },
@@ -151,7 +145,6 @@ impl TurnRunner {
                 .filter(|d| d.sent == spec.effort)
                 .and_then(|d| match d.reason {
                     EffortReason::Sticky => Some(effort::Hold::Sticky),
-                    EffortReason::StickyUnsure => Some(effort::Hold::Unsure),
                     _ => None,
                 });
             self.keep_warm

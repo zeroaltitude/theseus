@@ -74,10 +74,7 @@ impl ToolRuntime {
         // The sealed holdout sets come first, in every place (theseus-pw1q.5).
         self.sealed
             .refusal(plan)
-            .or_else(|| match place.draft {
-                Some(reach) => reach.refusal(tool, plan),
-                None => crate::places::refusal(place.class, tool, plan, &self.public_roots),
-            })
+            .or_else(|| crate::places::refusal(place.class, tool, plan, &self.public_roots))
             .or_else(|| place.ceiling.and_then(|c| c.refusal(tool)))
     }
 

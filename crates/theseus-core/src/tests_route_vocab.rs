@@ -92,7 +92,7 @@ async fn the_quick_route_gets_the_owners_definition_of_rsi() {
             route.reason.as_str(),
             route.mode.as_deref()
         ),
-        ("haiku", "detour", Some("quick"))
+        ("haiku", "verdict", Some("haiku"))
     );
     let q = &r.claude.requests()[0];
     assert_eq!(q.model, "claude-haiku-5-5");
@@ -139,7 +139,7 @@ async fn a_short_or_all_caps_term_still_reaches_the_quick_route() {
         let route = res.route.as_ref().unwrap();
         assert_eq!(
             (route.reason.as_str(), route.mode.as_deref()),
-            ("detour", Some("quick")),
+            ("verdict", Some("haiku")),
             "{ask}"
         );
         let q = &r.claude.requests()[0];
@@ -149,15 +149,3 @@ async fn a_short_or_all_caps_term_still_reaches_the_quick_route() {
     }
 }
 
-/// A trivial detour still sends no recall (a greeting needs none), even when
-/// the message names the term: the rule is the route's, not the word's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_trivial_detour_sends_no_definition() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
-    let (r, _) = rig_with_records(&jev);
-    let res = turn(&r.core, None, "thanks, RSI is great", None).await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
-    let sent = &r.zai.requests()[0].messages;
-    assert!(!sent.iter().any(defines_rsi), "{sent:?}");
-}

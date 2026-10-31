@@ -1440,21 +1440,6 @@ async fn a_set_summary_profile_asks_jev_nothing() {
     assert!(!r.glm.requests().is_empty(), "glm wrote the summary");
 }
 
-/// While the acting pack asks no `model`, an unset key is `session`, as it
-/// was: the turn's own model summarizes, and Jev is asked nothing about it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_unset_summary_profile_is_session_while_the_pack_asks_no_model() {
-    let jev = theseus_judge::fake::FakeJev::start().unwrap();
-    jev_chat(&jev);
-    pick_summary(&jev, "opus", 0.95);
-    let r = rig_jev(&jev, None, false, |_| {});
-    let sid = session(&r.core);
-    until_recompiled(&r, &sid, 6_000).await;
-    assert!(summary_asks(&jev).is_empty());
-    assert!(!models_asked(&r).contains(&"claude-opus-5-5".to_string()));
-    assert!(r.glm.requests().is_empty());
-}
-
 /// A slow Jev never holds a compaction: past `max_wait_ms` the summary is
 /// written on the turn's own model, and the turn goes on.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

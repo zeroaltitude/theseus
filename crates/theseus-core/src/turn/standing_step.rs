@@ -30,7 +30,7 @@ impl TurnRunner {
     pub(super) fn stand(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
         (t.standing.block, t.standing.here) = self.standing_blocks(
             t.tc.session_id,
-            t.tc.place().content_class(),
+            t.tc.place().class,
             t.standing.surface,
             t.target.persona.as_deref(),
             self.restricted_profile(&t.target.profile),

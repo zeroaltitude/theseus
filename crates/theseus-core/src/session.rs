@@ -292,7 +292,7 @@ pub struct TaskOf {
 impl TaskOf {
     /// Where its report is posted: its target, but not for a routine's run
     /// whose report says there is nothing new when its routine speaks only
-    /// when notable (theseus-pvm5c): that one only logs; nor for a draft.
+    /// when notable (theseus-pvm5c): that one only logs.
     pub fn target_for(
         &self,
         store: &crate::store::Store,
@@ -303,8 +303,6 @@ impl TaskOf {
             .filter(|_| !crate::routine::quiet(store, &report.task, report.text.as_deref()))
             // A run that did not complete is told by its routine (theseus-52tut).
             .filter(|_| !crate::routine::watch::replaced(store, &report.task, report.outcome))
-            // A draft's report is never posted: its review's is (theseus-a1wvq.13).
-            .filter(|_| !crate::draft::is_draft_session(store, &report.task))
     }
 }
 

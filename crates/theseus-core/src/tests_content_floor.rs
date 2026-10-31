@@ -10,209 +10,22 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use theseus_judge::fake::{FakeJev, FakeMode};
+use theseus_judge::fake::FakeJev;
 use theseus_protocol::{SessionKind, TurnSubmitResult};
 
 use crate::bus::EventSink;
-use crate::config::{JudgePackConfig, PackMode};
 use crate::content::{ContentFlags, Flag};
 use crate::content_wait::judging::{Judging, Silent};
 use crate::provider::Scripted;
-use crate::routing::Routed;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
-use crate::tests_dm_rig::{blocked, dm, judging_with, rig_with, say, text};
+use crate::tests_dm_rig::{blocked, judging_with};
 use crate::tests_route::{
-    call, decided, mode, restricted_placements, rig, rig_parts, turn, until_late, Rig,
+    decided, mode, rig, rig_parts, turn, Rig,
 };
 use crate::turn::TurnRequest;
 
 const PLAIN: &str = "Rename the call sites in the billing module.";
-
-/// How a turn comes to be bound for GLM.
-#[derive(Debug, Clone, Copy)]
-enum Case {
-    NoVerdict,
-    Late,
-    Unsure,
-    Shadow,
-    Pin,
-    Correction,
-    Hold,
-    RoutedBase,
-    TrivialDetour,
-    RoutingOff,
-}
-
-/// One case's turn, on a fresh rig, its judge `judge`: its result.
-async fn bound_for_glm(case: Case, judge: Option<Arc<Judging>>) -> (Rig, TurnSubmitResult) {
-    let jev = FakeJev::start().unwrap();
-    let verdict = match case {
-        Case::Unsure => ("sophisticated", 0.2),
-        Case::Hold => ("routine_coding", 0.95),
-        Case::TrivialDetour => ("trivial", 0.95),
-        _ => ("chat", 0.95),
-    };
-    mode(&jev, verdict.0, verdict.1);
-    let r = match case {
-        Case::RoutingOff => rig(None, 2, |_| {}),
-        Case::Late => rig(Some(&jev), 2, |c| {
-            c.routing.max_wait_ms = 200;
-            c.judge.total_secs = 30;
-        }),
-        Case::Shadow => rig(Some(&jev), 2, |c| {
-            let shadow = JudgePackConfig {
-                mode: Some(PackMode::Shadow),
-                sample: None,
-                notices: None,
-            };
-            let pack = crate::judge::inbound::ROUTE_PACK;
-            c.judge.packs.insert(pack.into(), shadow);
-        }),
-        _ => rig(Some(&jev), 2, restricted_placements),
-    };
-    if let Some(j) = judge {
-        judging_with(&r, j);
-    }
-    match case {
-        Case::NoVerdict => jev.set_mode(FakeMode::Down),
-        Case::Late => jev.set_mode(FakeMode::Held),
-        _ => {}
-    }
-    let on_glm = !matches!(case, Case::Pin | Case::Correction | Case::RoutedBase);
-    if on_glm {
-        call(&r.core, "profile.use", json!({"name": "glm"})).await;
-    }
-    let res = match case {
-        Case::Pin => turn(&r.core, None, PLAIN, Some("glm")).await,
-        Case::Correction => {
-            let one = turn(&r.core, None, PLAIN, None).await;
-            assert_eq!(one.profile, "sonnet", "the live profile");
-            let words = "hey, that should have been on glm";
-            crate::tests_route_correct::ask(&r.core, Some(&one.session_id), words).await
-        }
-        Case::Hold | Case::RoutedBase => {
-            let mut rec = SessionRecord::new(SessionKind::Conversation, None);
-            rec.routed = Some(Box::new(match case {
-                Case::Hold => Routed {
-                    profile: None,
-                    from: None,
-                    hold: Some(crate::routing::Hold {
-                        mode: "routine_coding".into(),
-                        profile: "glm".into(),
-                        turn: "trn_earlier".into(),
-                    }),
-                },
-                _ => Routed {
-                    profile: Some("glm".into()),
-                    from: Some("sonnet".into()),
-                    hold: None,
-                },
-            }));
-            r.core.store.put_session(&rec.session_id, &rec).unwrap();
-            turn(&r.core, Some(&rec.session_id), PLAIN, None).await
-        }
-        _ => turn(&r.core, None, PLAIN, None).await,
-    };
-    jev.release();
-    if matches!(case, Case::Late) {
-        until_late(&r.core, &res.session_id).await;
-    }
-    (r, res)
-}
-
-const EVERY_CASE: [Case; 10] = [
-    Case::NoVerdict,
-    Case::Late,
-    Case::Unsure,
-    Case::Shadow,
-    Case::Pin,
-    Case::Correction,
-    Case::Hold,
-    Case::RoutedBase,
-    Case::TrivialDetour,
-    Case::RoutingOff,
-];
-
-/// Every way a turn comes to be bound for a restricted profile, its session
-/// carrying a label by the time it has waited for its asks: it runs on the
-/// `[model]` default instead, with a `route.decided` row whose reason is
-/// `data_gate`, and nothing reaches the restricted model. Ported from the open
-/// view's floor test, whose cases it keeps: only the reason for the move
-/// differs (the session's label, not a missing open verdict; theseus-gyjyo.6).
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_restricted_base_moves_to_the_fallback_with_data_gate() {
-    for case in EVERY_CASE {
-        let labels = Judging::with(|_, _| vec![Flag::Confidential]);
-        let (r, res) = bound_for_glm(case, Some(labels)).await;
-        // A hold or a trivial detour toward GLM meets routing's own gate first:
-        // a mode's pick never yields a restricted profile for a session that
-        // may not use one (theseus-a1wvq.4), so the verdict takes the mode's
-        // next usable profile, and the floor has nothing to move.
-        let (profile, model, reason) = match case {
-            Case::Hold => ("haikuhi", "claude-haiku-5-5", "verdict"),
-            Case::TrivialDetour => ("haiku", "claude-haiku-5-5", "detour"),
-            _ => ("default", "claude-sonnet-5-5", "data_gate"),
-        };
-        assert_eq!(
-            res.profile, profile,
-            "{case:?}: {} {:?}",
-            res.output, res.route
-        );
-        assert_eq!(res.model, model, "{case:?}");
-        let rows = decided(&r.core.store);
-        let last = rows.last().unwrap_or_else(|| panic!("{case:?}: no row"));
-        assert_eq!(last["reason"], reason, "{case:?}: {rows:?}");
-        assert_eq!(
-            res.route.as_ref().map(|r| r.reason.as_str()),
-            Some(reason),
-            "{case:?}"
-        );
-        assert!(
-            r.zai.requests().is_empty(),
-            "{case:?}: GLM was sent nothing"
-        );
-        assert!(
-            blocked(&r.core) == 0,
-            "{case:?}: it never reached the chokepoint"
-        );
-        assert!(!r.claude.requests().is_empty(), "{case:?}");
-    }
-}
-
-/// The same cases with a judge that finds nothing: the session carries no
-/// label and its items are judged, so the pinned, held and routed ones run on
-/// GLM itself, and the chokepoint sends them. **This is the case the open view
-/// could not pass**: a restricted model, a session with nothing found in it,
-/// and the turn on it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_judged_clean_session_runs_on_the_restricted_model() {
-    for case in [
-        Case::Pin,
-        Case::RoutedBase,
-        Case::RoutingOff,
-        Case::NoVerdict,
-    ] {
-        let judge = Judging::clean();
-        let (r, res) = bound_for_glm(case, Some(judge.clone())).await;
-        assert_eq!(
-            res.profile, "glm",
-            "{case:?}: {} {:?}",
-            res.output, res.route
-        );
-        assert!(!r.zai.requests().is_empty(), "{case:?}: GLM was sent it");
-        assert_eq!(blocked(&r.core), 0, "{case:?}: nothing was refused");
-        // A turn that asked no route says nothing of its data.
-        if let Some(data) = res.route.and_then(|r| r.data) {
-            assert_eq!(data.cn, "allowed", "{case:?}");
-            assert_eq!(data.origin, "cn", "{case:?}");
-        }
-        assert!(
-            !judge.waits.lock().unwrap().is_empty(),
-            "{case:?}: the turn waited on a verdict that was not there yet"
-        );
-    }
-}
 
 /// Test 22: a turn bound for Claude never waits, however long `wait_ms` is and
 /// whatever the judge is doing: the notify is not asked, the turn is not
@@ -274,47 +87,6 @@ async fn a_label_found_before_the_turn_moves_it_to_claude() {
     assert_eq!(blocked(&r.core), 0, "it never met the chokepoint");
     let flags = crate::content_wait::flags_of(&r.core.store, &res.session_id).unwrap();
     assert!(flags.has(Flag::Confidential));
-}
-
-/// A later loop re-reads the session: a tool's result is an item, its verdict
-/// is waited for, and a label it raises moves the turn off the restricted model
-/// to the `[model]` default with `data_gate`, instead of failing it at the
-/// chokepoint. The first loop reaches `dsflash`, the second does not. (Ported
-/// from the open view's later-loop test.)
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_later_loop_after_a_flagged_tool_result_leaves_the_restricted_model() {
-    let jev = crate::tests_dm_rig::jev(&[]);
-    let calls = vec![
-        Scripted::tools(
-            "Looking.",
-            &[("f1", "tools_find", json!({"query": "clock"}))],
-        ),
-        Scripted::text("Done: from dsflash."),
-    ];
-    let (r, zai, _dir) = rig_with(&jev, Some(calls), |_| {});
-    judging_with(
-        &r,
-        Judging::with(|kind, _| match kind {
-            crate::content::ItemKind::ToolResult => vec![Flag::Secret],
-            _ => vec![],
-        }),
-    );
-    let sid = dm(&r.core);
-    let res = say(&r.core, &sid, crate::tests_dm_rig::OPEN_A, None).await;
-    assert_eq!(zai.requests().len(), 1, "the first loop alone");
-    assert_eq!(res.profile, "default", "{:?}", res.route);
-    let rows = decided(&r.core.store);
-    assert_eq!(rows.last().unwrap()["reason"], "data_gate", "{rows:?}");
-    assert_eq!(rows.last().unwrap()["data_gate"], "secret", "{rows:?}");
-    let to_claude = r.claude.requests();
-    let after = text(to_claude.last().unwrap());
-    assert!(
-        after.contains("tools_find") || after.contains("f1"),
-        "{after}"
-    );
-    assert_eq!(blocked(&r.core), 0, "the chokepoint was never asked");
-    let flags = crate::content_wait::flags_of(&r.core.store, &sid).unwrap();
-    assert!(flags.has(Flag::Secret), "the label stands for the session");
 }
 
 /// Through a whole turn: a session's stored labels are the same after a plain
@@ -419,43 +191,6 @@ async fn no_usable_fallback_fails_the_turn_and_sends_nothing() {
         assert!(said.contains("data_gate"), "{said}");
         assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
     }
-}
-
-/// The code's `trivial` list no longer names `glm` (theseus-a1wvq.4); GLM
-/// comes in only by `cn_profiles`, and only for a session that may use a model
-/// of restricted origin: with its first profile unusable, a trivial verdict
-/// for a session carrying a label skips GLM to `cheapest`, which is Haiku's
-/// profile, never GLM; a session with no label is let take it (theseus-gyjyo.6:
-/// an item nobody judged no longer keeps a session off it).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_trivial_default_skips_glm_for_a_labelled_session() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
-    let r = rig_parts(
-        Some(&jev),
-        1,
-        |c| {
-            c.routing.classes.trivial = crate::config::RoutingConfig::default().classes.trivial;
-            c.routing.classes.trivial.cn_profiles = vec!["glm".into()];
-        },
-        // After the load's check, which refuses an unknown model for the
-        // owner-material keys that name `haiku`.
-        |p| p.cfg.unprice_profile("haiku"),
-    );
-    let list = &r.core.runner.cfg.routing.classes.trivial.profiles;
-    assert_eq!(list, &["haiku", "cheapest"], "the code's default");
-    let rec = labelled(&r.core);
-    let res = turn(&r.core, Some(&rec.session_id), "Hi there!", None).await;
-    assert_eq!(
-        (res.profile.as_str(), res.model.as_str()),
-        ("haikuhi", "claude-haiku-5-5"),
-        "{:?}",
-        res.route
-    );
-    assert!(r.zai.requests().is_empty());
-    let res = turn(&r.core, None, "Hi there!", None).await;
-    assert_eq!(res.profile, "glm", "no label, so it may: {:?}", res.route);
-    assert_eq!(r.zai.requests().len(), 1);
 }
 
 /// A named message runs on a Claude served from a host vouched EU: the names'

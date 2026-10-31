@@ -51,7 +51,6 @@ pub mod content;
 pub mod data;
 pub mod detour;
 pub mod disk;
-pub mod draft;
 pub mod driver;
 pub mod durability;
 pub mod extend;
@@ -417,7 +416,6 @@ facts![
     arrangement::TaskArrangementRefused<'static>,
     check::TaskCheckOpened<'static>,
     check::TaskCheckRefused<'static>,
-    draft::TaskDraft<'static>,
     task_graph::TaskCreated<'static>,
     task_graph::TaskUpdated<'static>,
     task_graph::TaskSplit<'static>,

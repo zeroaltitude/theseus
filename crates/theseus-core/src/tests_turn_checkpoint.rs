@@ -59,7 +59,6 @@ fn routed(tweak: impl FnOnce(&mut crate::Config)) -> (Rig, Arc<FakeProvider>, Fa
         Some(&jev),
         4,
         |c| {
-            c.routing.classes.deep_coding.profiles = vec!["sonnet".into()];
             tweak(c);
         },
         move |p| {
@@ -90,43 +89,6 @@ pub(crate) fn checkpoints(rig: &Rig) -> Vec<Value> {
                 .is_some_and(|s| s.starts_with("turn checkpoint"))
         })
         .collect()
-}
-
-/// A routine verdict whose loops fail three times in a row moves the turn to
-/// Sonnet at a later loop boundary, recorded as the turn's checkpoint.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_routed_turn_whose_loops_fail_moves_up() {
-    let (rig, claude, _jev) = routed(|_| {});
-    let res = turn(&rig.core, None, ASK, None).await;
-    let models = models(&claude);
-    assert_eq!(models.len(), 9, "{}", res.output);
-    assert!(models[..3].iter().all(|m| *m == "haiku"), "{models:?}");
-    let at = models
-        .iter()
-        .position(|m| *m == "sonnet")
-        .expect("it moved");
-    assert!((3..=6).contains(&at), "{models:?}");
-    assert!(models[at..].iter().all(|m| *m == "sonnet"), "{models:?}");
-    let rows = checkpoints(&rig);
-    assert_eq!(
-        (
-            rows[0]["trigger"].as_str(),
-            rows[0]["from"].as_str(),
-            rows[0]["profile"].as_str()
-        ),
-        (Some("failing"), Some("haikuhi"), Some("sonnet")),
-        "{rows:?}"
-    );
-}
-
-/// With checkpoints off, the same turn runs every loop on its first guess,
-/// as every routed turn did before.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn with_checkpoints_off_a_routed_turn_stays_on_its_first_guess() {
-    let (rig, claude, _jev) = routed(|c| c.routing.task_checkpoints.enabled = false);
-    turn(&rig.core, None, ASK, None).await;
-    assert_eq!(models(&claude), ["haiku"; 9]);
-    assert!(checkpoints(&rig).is_empty());
 }
 
 /// A turn on the owner's pinned profile runs every loop there and asks no

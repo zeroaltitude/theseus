@@ -84,15 +84,12 @@ impl TurnRunner {
             .get_session::<crate::session::SessionRecord>(session)
             .ok()
             .flatten();
-        let place = PlaceView {
-            draft: rec.as_ref().and_then(|r| self.reach_of(r)),
-            ..self.view_of(session)
-        };
+        let place = self.view_of(session);
         let paths =
             self.cfg
                 .context_paths(&self.personas(), target.persona.as_deref(), target.engages);
         let mut files = self.context_files.peek(&paths);
-        if place.content_class() == PlaceClass::Shared {
+        if place.class == PlaceClass::Shared {
             crate::context_files::withhold_shared(&mut files);
         }
         let mut spec = self.spec_of(target, kind, place, files.clone());
@@ -105,7 +102,7 @@ impl TurnRunner {
         spec.defer = self.deferral(session, kind == SessionKind::Task, &spec);
         let owned = !target.engages && crate::persona::owned(&files);
         let header = self.header_parts(target, place, owned);
-        let Some(walk) = self.walk(session, place.content_class()) else {
+        let Some(walk) = self.walk(session, place.class) else {
             return Built {
                 header,
                 files,

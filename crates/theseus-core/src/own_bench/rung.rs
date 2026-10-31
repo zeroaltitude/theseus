@@ -2,13 +2,17 @@
 //! dearest first, and the rung one down from a model. Pure: the profiles and
 //! prices are given.
 //!
-//! The table is `[routing.classes.*]`'s profiles (the keyword `cheapest` names
-//! none), one rung a distinct model, ordered by the catalog's input price. A
+//! The table is the configured profiles that run a model Jev can choose
+//! (`routing::model::OPTIONS`), one rung a distinct model, ordered by the
+//! catalog's input price. A
 //! cell's rung down is the dearest model strictly cheaper than its own; a
 //! model the table does not hold has its rung down all the same, from its
 //! price, and a cell on the table's cheapest model has none.
 
-use crate::config::routing::RoutingClasses;
+use std::collections::BTreeMap;
+
+use crate::config::ProfileConfig;
+use crate::routing::model::OPTIONS;
 
 /// One rung: the profile that runs a model, and the model's price.
 #[derive(Debug, Clone, PartialEq)]
@@ -19,25 +23,18 @@ pub struct Rung {
     pub price: (f64, f64),
 }
 
-/// Every profile name `[routing.classes.*]` lists, first mention first.
-pub fn profiles_of(modes: &RoutingClasses) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for m in [
-        &modes.trivial,
-        &modes.quick,
-        &modes.chat,
-        &modes.sophisticated,
-        &modes.deep_coding,
-        &modes.routine_coding,
-        &modes.review,
-    ] {
-        for p in &m.profiles {
-            if p != crate::config::routing::CHEAPEST && !out.contains(p) {
-                out.push(p.clone());
-            }
-        }
-    }
-    out
+/// Every configured profile that runs a model Jev can choose, the options'
+/// order first, then by name.
+pub fn profiles_of(profiles: &BTreeMap<String, ProfileConfig>) -> Vec<String> {
+    OPTIONS
+        .iter()
+        .flat_map(|(_, model)| {
+            profiles
+                .iter()
+                .filter(move |(_, p)| p.model == *model)
+                .map(|(name, _)| name.clone())
+        })
+        .collect()
 }
 
 /// The table: each profile with its model and price (`of` gives them; none:
@@ -107,11 +104,13 @@ mod tests {
         assert_eq!(down(&t, (5.0, 25.0)).unwrap().profile, "sonnet");
     }
 
-    /// The default routing modes name profiles, never the keyword.
+    /// Each option's model is reachable through the profiles that run it.
     #[test]
-    fn the_default_modes_give_profiles_and_never_cheapest() {
-        let got = profiles_of(&crate::config::routing::RoutingClasses::default());
+    fn the_options_profiles_are_those_that_run_a_choosable_model() {
+        let cfg = crate::Config::example();
+        let got = profiles_of(cfg.all_profiles());
         assert!(!got.is_empty());
-        assert!(!got.iter().any(|p| p == "cheapest"));
+        assert!(got.iter().any(|p| p == "sonnet"), "{got:?}");
+        assert!(!got.iter().any(|p| p == "glm"), "{got:?}");
     }
 }

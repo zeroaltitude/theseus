@@ -426,7 +426,6 @@ impl Core {
         let site = crate::job_model::Site {
             name: "card",
             pin: self.cfg.card.profile.as_deref(),
-            legacy: Some(crate::config::legacy::CHEAP),
             job,
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };

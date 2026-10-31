@@ -26,14 +26,9 @@ impl TurnRunner {
     /// Block 3's text for a session in `dir` (its own, as its client sent
     /// it; none is `[tools] cwd`) speaking in `place`: its directory. Empty,
     /// and so no block, without tools, and in a shared place, where nothing
-    /// of the owner's paths goes (the place rule); in a draft, unless the
-    /// directory is under the draft's tree (theseus-a1wvq.13).
+    /// of the owner's paths goes (the place rule).
     pub fn session_block(&self, dir: Option<&str>, place: PlaceView) -> String {
-        let withheld = match place.draft {
-            Some(reach) => !reach.within,
-            None => place.class == PlaceClass::Shared,
-        };
-        if withheld || !self.tools.enabled() {
+        if place.class == PlaceClass::Shared || !self.tools.enabled() {
             return String::new();
         }
         format!(
