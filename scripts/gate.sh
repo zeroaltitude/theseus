@@ -549,6 +549,28 @@ keel_tests() {
   PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_keel_guard.py
 }
 
+# The name scrub over what the branch adds (theseus-ev3ir): a `.cases.toml` is a case file, not a pack, so the pack-text
+# test never read the one two sensitive names got through in. The scrubber is outside the repo (its patterns are the
+# names; see scripts/scrub-added.sh), so a host without it fails here and says so, and a deliberate skip is
+# THESEUS_GATE_NO_SCRUB=1, printed. The scripts' own tests run first, so a scrubber that stopped finding a planted
+# fake name fails this phase and not just the next branch's review. The base is the merge base of origin/main and HEAD (a staged
+# join merge is judged whole, as a working-tree diff), and a branch that adds nothing has nothing to scan: exit 3 is that, and only here.
+scrub_added() {
+  if [ -n "${THESEUS_GATE_NO_SCRUB:-}" ]; then
+    echo "scrub: SKIPPED (THESEUS_GATE_NO_SCRUB): the added lines were NOT scrubbed for names"
+    return 0
+  fi
+  local code
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_scrub_added.py || return 1
+  scripts/scrub-added.sh
+  code=$?
+  if [ "$code" -eq 3 ]; then
+    echo "scrub: nothing added since the merge base of origin/main: nothing to scan"
+    return 0
+  fi
+  return "$code"
+}
+
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
 # the log's last 40 lines, where the phase table alone said only "cockpit <- failed here". A passing `test` tees
 # node's own summary (`ℹ tests N`, `ℹ pass N`, ...) into the gate's own output, which `arm.sh tail` keeps even
@@ -802,6 +824,9 @@ fi
 phase keel keel_guard
 phase "keel tests" keel_tests
 phase fmt cargo fmt --all -- --check
+# Names a branch adds, before the heavy compiles: it fails in seconds (theseus-ev3ir). After fmt, which is the
+# phase the guard's own gate tests expect to fail next in a throwaway repository.
+phase scrub scrub_added
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh

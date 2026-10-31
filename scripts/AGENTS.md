@@ -8,6 +8,14 @@
   says "size: skipped: no release build of <commit>". It fails on growth over 1 MB, not on §9's 60 MB.
   `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
+- `scrub-added.sh`, `test_scrub_added.py` (theseus-ev3ir): the gate's `scrub` phase. The name scrub (`scrub_check.py --strict`)
+  over the lines a branch ADDS since the range's base (committed, uncommitted, and untracked new files, which is what a new
+  `.cases.toml` is) and its commit messages; a hit in a blocking family (employer, the vault's names, a person's name, the
+  configured `[privacy] sensitive_names`) exits 1 and prints file:line, never the match. The scrubber is outside the repo,
+  because its patterns are the names: `THESEUS_SCRUB_CHECK` (default `~/reports/theseus-docs-v076/scrub_check.py`). A host
+  without it fails the phase; `THESEUS_GATE_NO_SCRUB=1` skips it, loudly. `test_scrub_added.py` plants a FAKE name
+  (through `SCRUB_EXTRA_NAMES`) in a scratch repo and runs both this and the cloud reviewers' `scrub-branch.sh`
+  (`THESEUS_SCRUB_BRANCH`), which exits 1 on the same hits and 3 when it scanned nothing. Never put a real name in a test.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.

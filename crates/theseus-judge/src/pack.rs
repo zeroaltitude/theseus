@@ -2191,8 +2191,11 @@ mod tests {
             !crate::names::names_an_old_name(template, &mut Default::default()),
             "the template names an old name"
         );
-        for (name, text) in EMBEDDED {
-            assert_eq!(hits(text, &names), Vec::<String>::new(), "{name}");
+        // The directory, not `EMBEDDED`: a case file beside a pack is no pack, and
+        // is where two names got through (theseus-ev3ir).
+        let packs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs");
+        for (name, text) in swept_texts(&packs) {
+            assert_eq!(hits(&text, &names), Vec::<String>::new(), "{name}");
         }
         let planted = format!("{}\nExampleCorp's private plans", EMBEDDED[0].1);
         assert_eq!(hits(&planted, &names), ["examplecorp"]);
@@ -2200,11 +2203,18 @@ mod tests {
 
     /// The text of every `.toml` in the packs directory: a pack, its cases,
     /// anything put beside them (theseus-ev3ir).
-    fn swept_texts(_dir: &std::path::Path) -> Vec<(String, String)> {
-        EMBEDDED
-            .iter()
-            .map(|(name, text)| (name.to_string(), text.to_string()))
-            .collect()
+    fn swept_texts(dir: &std::path::Path) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|x| x == "toml"))
+            .map(|path| {
+                let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+                (name, std::fs::read_to_string(&path).unwrap())
+            })
+            .collect();
+        out.sort();
+        out
     }
 
     /// A `.cases.toml` is a case file, not a pack, so it is not in
@@ -2245,10 +2255,18 @@ mod tests {
             })
             .count();
         let texts = swept_texts(&dir);
-        assert!(on_disk > EMBEDDED.len(), "no file beside the packs to sweep");
+        assert!(
+            on_disk > EMBEDDED.len(),
+            "no file beside the packs to sweep"
+        );
         assert_eq!(texts.len(), on_disk, "the sweep missed a file in packs/");
-        let names = ["examplecorp", "examplecorpinc", "example-repo", "example-utils"]
-            .map(String::from);
+        let names = [
+            "examplecorp",
+            "examplecorpinc",
+            "example-repo",
+            "example-utils",
+        ]
+        .map(String::from);
         let mut clean = Default::default();
         for (name, text) in &texts {
             assert_eq!(hits(text, &names), Vec::<String>::new(), "{name}");
