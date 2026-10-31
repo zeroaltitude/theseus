@@ -1,5 +1,5 @@
-# A TEST FIXTURE shaped like route.v10 (theseus-h66v4 row 3), not the pack: the three deciding
-# questions (`model`, `effort`, `context`) with option ids and a block's sentence structure as the
+# A TEST FIXTURE shaped like route.v10 (theseus-h66v4 row 3), not the pack: the two deciding
+# questions (`model`, `effort`; the `context` question went in theseus-h66v4.1) with option ids and a block's sentence structure as the
 # design's table has them, and v8's `persona`, `seal` and `personal`. The daemon's tests ask it as
 # `route.v8` (`JudgeService::stand_in`) so every name the daemon compares keeps its meaning while
 # `ROUTE_PACK` is still v8; the real route.v10 is row 1's file and never read here.
@@ -12,7 +12,7 @@ state_cap_tokens = 3000
 sample = 1.0
 baseline = "session_profile"
 action = "route"
-description = "ROUTE (test fixture shaped like route.v10): which model answers the person's new message, at what effort, and with how much of the conversation's context; which specialist should answer; whether it warrants sealing its thread; whether it reaches for the operator's personal details."
+description = "ROUTE (test fixture shaped like route.v10): which model answers the person's new message, and at what effort; which specialist should answer; whether it warrants sealing its thread; whether it reaches for the operator's personal details."
 
 [questions.model]
 type = "choice"
@@ -32,29 +32,16 @@ options = [
 [questions.effort]
 type = "choice"
 decides = true
-instructions = "How much thinking effort does the reply to the person's new message need?"
+instructions = "High is the usual effort; choose less only for a reason the message gives. How much thinking effort does the reply to the person's new message need?"
 act = 0.90
 confirm = 0.60
-no_match = "default"
+no_match = "high"
 options = [
   { id = "low", means = "Almost none: a greeting, a thank-you, or a short answer the person could check at a glance." },
   { id = "medium", means = "Some care, but the way is clear." },
   { id = "high", means = "Careful thought: a design with trade-offs or a bug whose cause is unknown." },
   { id = "xhigh", means = "Very careful thought: a hard design that spans many parts." },
   { id = "max", means = "The most thought there is: the hardest or most novel problems." },
-  { id = "default", means = "The message gives too little to tell how much thought its reply needs: the chosen model's own default effort." },
-]
-
-[questions.context]
-type = "choice"
-decides = true
-instructions = "Does the reply to the person's new message need the conversation's working context, or is the last exchange enough?"
-act = 0.90
-confirm = 0.60
-no_match = "full"
-options = [
-  { id = "short", means = "The last exchange is enough: a greeting, a thank-you, a quick fact, or a command to run and report." },
-  { id = "full", means = "It builds on the work here: conversation about it, programming, review, design, or anything that refers back." },
 ]
 
 # v5's own. Asked only when two or more personas may answer. The options are

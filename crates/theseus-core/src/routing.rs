@@ -198,11 +198,9 @@ pub struct Verdict {
     /// whether its band reached the question's `confirm` bar. A verdict that
     /// carries one is decided by [`model::decide`], never by the class walk.
     pub model: Option<Box<Pick>>,
-    /// route.v10's `context` answer: `short` or `full`.
-    pub context: Option<Box<Pick>>,
 }
 
-/// One of route.v10's choice answers (`model`, `context`).
+/// One of route.v10's choice answers (`model`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pick {
     /// The option Jev chose.
@@ -214,19 +212,9 @@ pub struct Pick {
 }
 
 impl Verdict {
-    /// The verdict is route.v10's: it answers `model` or `context`, and says
-    /// no `mode`.
+    /// The verdict is route.v10's: it answers `model`, and says no `mode`.
     pub fn open(&self) -> bool {
-        self.model.is_some() || self.context.is_some()
-    }
-
-    /// Jev said `short` and its band reached the bar: this message alone is
-    /// answered from the persona, the last exchanges and the recall (the
-    /// detour compile), never from the session's compilation.
-    pub fn short(&self) -> bool {
-        self.context
-            .as_ref()
-            .is_some_and(|c| c.choice == model::SHORT && c.sure)
+        self.model.is_some()
     }
 }
 
@@ -662,8 +650,8 @@ pub fn steer_to(
 /// `trivial` or `quick` never applies to another message (theseus-3okf).
 pub fn carries(v: &Verdict) -> bool {
     match v.open() {
-        // route.v10: a `short` pick is its message's alone, as a detour's mode was.
-        true => !v.short(),
+        // route.v10 has no detour: a pick carries like a switch's mode.
+        true => true,
         false => !is_detour(&v.mode),
     }
 }
@@ -718,7 +706,6 @@ mod tests {
             seal: None,
             personal: None,
             model: None,
-            context: None,
         }
     }
 

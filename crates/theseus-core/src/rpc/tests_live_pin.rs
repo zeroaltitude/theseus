@@ -84,7 +84,7 @@ pub(super) fn result(msgs: &[Message], id: u64) -> TurnSubmitResult {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn profile_use_is_a_pin_when_route_v10_acts() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "fable", "max", "full", 0.97);
+    says(&jev, "fable", "max", 0.97);
     let o = open(&jev, 1, |_| {});
     let res = after_use(&o.r.core, "haiku", ask(2, DESIGN, None)).await;
     assert_eq!(
@@ -121,7 +121,7 @@ async fn profile_use_is_a_pin_when_route_v10_acts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_configured_live_profile_is_not_a_pin() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "fable", "high", "full", 0.97);
+    says(&jev, "fable", "high", 0.97);
     let o = open(&jev, 1, |_| {});
     assert_eq!(o.r.core.live_profile().1, "config");
     let msgs = roundtrip(o.r.core.clone(), vec![ask(1, DESIGN, None)]).await;
@@ -134,7 +134,7 @@ async fn the_configured_live_profile_is_not_a_pin() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_named_profile_beats_the_live_pin() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "haiku", "low", "full", 0.97);
+    says(&jev, "haiku", "low", 0.97);
     let o = open(&jev, 1, |_| {});
     let res = after_use(&o.r.core, "haiku", ask(2, DESIGN, Some("opus"))).await;
     assert_eq!(res.profile, "opus");

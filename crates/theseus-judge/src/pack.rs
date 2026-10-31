@@ -39,8 +39,8 @@ use crate::learn::RollbackRule;
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
 /// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model, the effort and the context,
-/// theseus-h66v4; embedded and replayable, and not the acting pack: `ROUTE_PACK` names `route.v8`),
+/// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model and the effort,
+/// theseus-h66v4, revised in place by theseus-h66v4.1; embedded and replayable, and not the acting pack: `ROUTE_PACK` names `route.v8`),
 /// `content.v1` (the four content flags, theseus-9ymz0), and `split.v1` (whether the work divides by area, in shadow,
 /// theseus-z9mze.5). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
@@ -1442,8 +1442,7 @@ mod tests {
                 "route.v10",
                 &[
                     "Inbound Inbound SessionProfile Route",
-                    "context Choice decides [short full]",
-                    "effort Choice decides [low medium high xhigh max default]",
+                    "effort Choice decides [low medium high xhigh max]",
                     "model Choice decides [haiku sonnet opus fable deepseek_flash]",
                     "persona Choice from Personas + [prior] only_when Personas",
                     "personal Choice [none elicit expose]",

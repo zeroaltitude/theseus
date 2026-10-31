@@ -12,23 +12,19 @@
 //!   A pick with no usable profile (no profile for the model, its provider or
 //!   key not ready, a model that cannot read the turn's images) is `fallback`.
 //! - **The cache hold** (design §1.4 step 7, the one hysteresis, money's and
-//!   not a cap): a `full` pick that differs from the session's model, at an
+//!   not a cap): a pick that differs from the session's model, at an
 //!   estimate at or above `cold_switch_tokens`, waits one agreeing turn;
 //!   the next agreeing pick switches. It defers a switch by one turn and never
 //!   refuses a model.
-//! - **`short`** is the `context` answer: the message alone is answered from the
-//!   persona, the last exchanges and the recall, on the profile the pick (or the
-//!   turn's own) names. Never a switch of the session, never held.
+//! - **Every turn compiles the whole working context**, on whatever model
+//!   answers it. There is no `context` question and no short compile
+//!   (theseus-h66v4.1: the owner's 22:50 answers); what a switch costs is the
+//!   state's `switch_cost`, which Jev reads.
 //!
 //! No place cap, class list, dear-tier guard, step down or switch limit is read.
 
 use super::{Ask, Decision, Hold, HoldNext, Profile, Profiles, Reason};
 use crate::config::RoutingConfig;
-
-/// route.v10's `context` option for a message answered from the last exchanges.
-pub const SHORT: &str = "short";
-/// ... and for one answered from the session's compilation.
-pub const FULL: &str = "full";
 
 /// The `model` question's options, and the catalog model each names. A model
 /// nowhere best is not here: it is reachable only as the operator's pin.
@@ -124,17 +120,12 @@ fn refusal(p: &Profile, a: &Ask<'_>) -> Option<Reason> {
 /// route.v10's switch rule.
 pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision {
     let v = a.verdict;
-    let short = v.short();
     let stay = |reason: Reason| Decision {
         profile: a.base.to_string(),
         reason,
-        // A short context is the base's own detour; a full one keeps nothing.
-        detour: short,
+        detour: false,
         switch: false,
-        hold: match short {
-            true => HoldNext::Keep,
-            false => HoldNext::Clear,
-        },
+        hold: HoldNext::Clear,
     };
     let Some(m) = v.model.as_ref() else {
         // No `model` answer (a pin, or Jev left it): the turn's own profile.
@@ -148,17 +139,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     };
     if let Some(why) = refusal(&profiles[name], a) {
         return stay(why);
-    }
-    if short {
-        // This message alone, on the pick: the session's profile, its last
-        // target and its compilation stay, and nothing is held.
-        return Decision {
-            profile: name.to_string(),
-            reason: Reason::Verdict,
-            detour: true,
-            switch: false,
-            hold: HoldNext::Keep,
-        };
     }
     if name == a.base {
         return stay(Reason::Verdict);

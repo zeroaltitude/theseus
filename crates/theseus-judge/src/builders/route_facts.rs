@@ -11,6 +11,11 @@
 //!   to save the ask.
 //! - **last_reply_model**: the model that answered the previous turn.
 //! - **task_models**: every model that has written in the task (a checkpoint's).
+//! - **current_model** and **switch_cost** (theseus-h66v4.1): the session's warm
+//!   model, and whether a cheaper model is cheaper *for this message*, which the
+//!   daemon works out from the resident prefix and the catalog's prices. They
+//!   replace route.v10's `context` question: Jev reads the fact, it never
+//!   works the arithmetic out.
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +45,40 @@ impl PricePeriod {
             PricePeriod::Peak => "peak",
             PricePeriod::OffPeak => "off_peak",
         }
+    }
+}
+
+/// What switching to a cheaper model would cost this message, against staying
+/// on the warm one: the resident prefix at the cheapest other model's input
+/// price, against the same prefix at the current model's cache-read price
+/// (`catalog::switch_cost`). `AboutTheSame` is within 20 percent either way,
+/// and where no model is warm (a fresh session has nothing to keep).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwitchCost {
+    CheaperToStay,
+    CheaperToSwitch,
+    AboutTheSame,
+}
+
+impl SwitchCost {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SwitchCost::CheaperToStay => "cheaper_to_stay",
+            SwitchCost::CheaperToSwitch => "cheaper_to_switch",
+            SwitchCost::AboutTheSame => "about_the_same",
+        }
+    }
+
+    /// The word's value, or none for a word outside the set.
+    pub fn parse(word: &str) -> Option<Self> {
+        [
+            SwitchCost::CheaperToStay,
+            SwitchCost::CheaperToSwitch,
+            SwitchCost::AboutTheSame,
+        ]
+        .into_iter()
+        .find(|s| s.as_str() == word)
     }
 }
 
@@ -90,6 +129,13 @@ pub struct RouteFacts {
     /// where there is none (a job).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub est_tokens: Option<u64>,
+    /// The session's warm model: the one that answered last, whose prompt
+    /// cache holds the prefix. Left out when none has answered (and for a job).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_model: Option<String>,
+    /// What a switch would cost this message; left out for a job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub switch_cost: Option<SwitchCost>,
 }
 
 /// The fields of a route ask's state beyond a message's own dynamic ones
@@ -97,8 +143,9 @@ pub struct RouteFacts {
 /// for a plain message in a conversation that has had a reply and is no
 /// task: the one list the daemon's state and a replay case's state are both
 /// held to (`tests_route_state`).
-pub const ROUTE_STATE_KEYS: [&str; 9] = [
+pub const ROUTE_STATE_KEYS: [&str; 11] = [
     "author",
+    "current_model",
     "current_role",
     "est_tokens",
     "last_reply_model",
@@ -107,6 +154,7 @@ pub const ROUTE_STATE_KEYS: [&str; 9] = [
     "place_kind",
     "price_period",
     "restricted_models",
+    "switch_cost",
 ];
 
 /// A replay case's input: the message and the facts, as the daemon would send
@@ -125,7 +173,7 @@ pub fn route_input(message: &str, place_kind: &str, facts: RouteFacts) -> Inboun
 
 /// The facts in the inbound state, when the input carries them. Every one is
 /// a scalar, which the state keeps until everything else is gone, and each is
-/// bounded here: two enum words, one model id and at most [`TASK_MODELS`] more.
+/// bounded here: three enum words, two model ids and at most [`TASK_MODELS`] more.
 pub(super) fn state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
     let Some(f) = &i.route else {
         return;
@@ -134,6 +182,13 @@ pub(super) fn state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
     b.scalar("restricted_models", f.restricted_models.as_str());
     if let Some(n) = f.est_tokens {
         b.scalar("est_tokens", n);
+    }
+    if let Some(m) = &f.current_model {
+        b.scalar("current_model", c.clip(m, MODEL_CHARS))
+            .cut_if("current_model", c.cut());
+    }
+    if let Some(w) = f.switch_cost {
+        b.scalar("switch_cost", w.as_str());
     }
     if let Some(m) = &f.last_reply_model {
         b.scalar("last_reply_model", c.clip(m, MODEL_CHARS))

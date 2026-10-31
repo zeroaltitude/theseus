@@ -3,7 +3,7 @@
 //! so a replay cannot pass against a state shape the daemon never sends.
 
 use crate::builders::{
-    inbound, route_input, PricePeriod, RestrictedModels, RouteFacts, ROUTE_STATE_KEYS,
+    inbound, route_input, PricePeriod, RestrictedModels, RouteFacts, SwitchCost, ROUTE_STATE_KEYS,
 };
 use crate::state::NoScrub;
 use serde_json::Value;
@@ -15,6 +15,8 @@ fn facts() -> RouteFacts {
         last_reply_model: Some("claude-sonnet-5-5".into()),
         task_models: Vec::new(),
         est_tokens: Some(140_000),
+        current_model: Some("claude-sonnet-5-5".into()),
+        switch_cost: Some(SwitchCost::CheaperToStay),
     }
 }
 
@@ -34,6 +36,8 @@ fn a_cases_state_has_exactly_the_fields_the_list_names() {
         v["est_tokens"], 140_000,
         "the context size Jev reads the table against"
     );
+    assert_eq!(v["current_model"], "claude-sonnet-5-5");
+    assert_eq!(v["switch_cost"], "cheaper_to_stay");
     assert_eq!(v["author"], "operator");
     assert_eq!(v["place_kind"], "discord_dm");
 }

@@ -240,7 +240,8 @@ pub struct ThreadInput {
 
 mod route_facts;
 pub use route_facts::{
-    route_input, PricePeriod, RestrictedModels, RouteFacts, ROUTE_STATE_KEYS, TASK_MODELS,
+    route_input, PricePeriod, RestrictedModels, RouteFacts, SwitchCost, ROUTE_STATE_KEYS,
+    TASK_MODELS,
 };
 mod onto;
 pub use onto::{

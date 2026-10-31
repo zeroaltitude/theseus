@@ -91,6 +91,9 @@ impl JudgeService {
             task_models: Vec::new(),
             // A job has no conversation to estimate (the field is left out of its state).
             est_tokens: None,
+            // No warm model, no switch to price: a job is one call of its own.
+            current_model: None,
+            switch_cost: None,
         };
         let (tx, rx) = oneshot::channel();
         rt.spawn(judge_job(

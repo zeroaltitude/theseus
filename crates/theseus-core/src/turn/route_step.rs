@@ -750,10 +750,7 @@ impl TurnRunner {
         t.route.keeps = Some(TargetRef::from(t.target));
         t.route.detour_kind = detour_word(steering.map(|s| &s.steer), verdict);
         t.route.detour_recall = steering.is_none()
-            && verdict.is_some_and(|v| {
-                // route.v10's `short` is today's `quick` compile: the recall rides.
-                v.open() || crate::config::routing::detour_recalls(&v.mode)
-            });
+            && verdict.is_some_and(|v| crate::config::routing::detour_recalls(&v.mode));
     }
 
     /// The verdict the turn reads, or why it has none: its own, else a late
@@ -1011,7 +1008,7 @@ impl TurnRunner {
     }
 
     /// route.v10's part of the row: the acting pack, Jev's pick and the first
-    /// sentences of the block it picked, its context, and the words that qualify
+    /// sentences of the block it picked, and the words that qualify
     /// the reason, so `theseus why` can name it honestly in every case.
     fn open_row(
         &self,
@@ -1041,14 +1038,11 @@ impl TurnRunner {
             }),
             _ => None,
         };
-        let c = v.and_then(|v| v.context.as_ref());
         Some(fact::route::RouteOpen {
             pack: pack.name(),
             pick: m.map(|m| m.choice.clone()),
             pick_confidence: m.map(|m| m.confidence),
             block,
-            context: c.map(|c| c.choice.clone()),
-            context_confidence: c.map(|c| c.confidence),
             detail,
         })
     }
@@ -1291,10 +1285,7 @@ fn detour_word(steer: Option<&Steer>, verdict: Option<&Verdict>) -> String {
     match steer {
         Some(Steer::Mode(m)) => m.clone(),
         Some(_) => "steered".into(),
-        None => verdict.map_or_else(String::new, |v| match v.open() {
-            true => routing::model::SHORT.to_string(),
-            false => v.mode.clone(),
-        }),
+        None => verdict.map_or_else(String::new, |v| v.mode.clone()),
     }
 }
 
@@ -1386,7 +1377,6 @@ mod tests {
             seal: None,
             personal: None,
             model: None,
-            context: None,
         }
     }
 

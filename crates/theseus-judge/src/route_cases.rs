@@ -1,6 +1,6 @@
 //! `route.v10`'s labelled cases (theseus-h66v4, design §4): a case is a
-//! message, the state the daemon puts beside it, and the model, effort and
-//! context the owner (or the design) says Jev should choose. This is the pure
+//! message, the state the daemon puts beside it, and the model and effort the
+//! owner (or the design) says Jev should choose. This is the pure
 //! half of `theseus judge replay --cases`: read the file, build each case's
 //! ask, and grade the judgment that comes back. The core makes the calls
 //! ([`crate::replay`]'s way: the core reads the record, these say what it
@@ -10,31 +10,35 @@
 //!   `[[case]]` for each case. A case names only the state fields that differ
 //!   from the defaults. [`CaseSet::parse`] refuses an unknown key, a
 //!   duplicate id, a state word outside its set, and a label that is not an
-//!   option of the pack's `model`, `effort` or `context` question.
+//!   option of the pack's `model` or `effort` question.
 //! - **The state** is [`state`]'s: the message, `author`, `place_kind`, and
-//!   the design's four new fields (`price_period`, `restricted_models`,
-//!   `est_tokens`, `last_reply_model`, and `task_models` when there are
-//!   any). It is built here, beside `builders::inbound`, so that a replay
+//!   the daemon's route facts (`price_period`, `restricted_models`,
+//!   `est_tokens`, `last_reply_model`, `current_model`, `switch_cost`, and
+//!   `task_models` when there are any). It is built here, beside `builders::inbound`, so that a replay
 //!   needs no live turn; the fields' names are the ones the daemon's own
 //!   state takes when the state-and-catalog row lands, and the replay's
 //!   builder follows it there.
-//! - **The grade** compares what routing would decide for each of the three
+//! - **The grade** compares what routing would decide for each of the two
 //!   deciding questions to the label: Jev's top option when its band reached
 //!   the question's `confirm` bar, else the question's `no_match`, both read
 //!   from the pack replayed (theseus-mir9c; before it the raw top option was
-//!   graded, which under-credited `context` and over-credited `model`). The
+//!   graded, which over-credited `model`). The
 //!   raw option and its grade stay beside it. `effort` is graded to the exact
 //!   rung and to within one rung (`low`, `medium`, `high`, `xhigh`, `max` in
-//!   order); `default` is on no rung, so it agrees with `default` only. The
+//!   order). The
 //!   daemon applies an `effort` under the bar anyway when its confidence is
 //!   at least `[routing] effort_confidence` (`routing::effort::decide`); this
 //!   grade does not model that second bar. A `must` case whose `model` answer
 //!   sits under the confirm bar is counted apart too: it runs on the no-match
 //!   option, whatever its top option.
-//! - **The bar** is the design's (§4.3), counted over all sixty cases, with
-//!   the two pin cases W39 and W40 (daemon tests, [`PINNED`]) counted as met:
-//!   `model` at least 54, `effort` within one rung at least 50, `context` at
-//!   least 56, every `must` case right and none under the confirm bar.
+//! - **The bar** is the design's (§4.3) as it stood before the owner's 16:01
+//!   decision, over the design's sixty cases with the two pin cases W39 and W40
+//!   (daemon tests, [`PINNED`]) counted as met: `model` at least 54, `effort`
+//!   within one rung at least 50, every `must` case right and none under the
+//!   confirm bar. It is judged only on a file of exactly those 58 cases; the
+//!   file now holds 61 (W41 to W43), so no bar is judged until the owner's 80%
+//!   bars are written (theseus-h66v4.4, theseus-h66v4.1 phase 2) and the
+//!   counts are the numbers to read.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -56,12 +60,11 @@ pub const V10: &str = include_str!("../packs/route.v10.cases.toml");
 pub const PINNED: u32 = 2;
 /// Cases in the design's set; the file holds this many less [`PINNED`].
 pub const DESIGN_TOTAL: u32 = 60;
-/// The bar over the design's sixty: `model`, `effort` within one rung, `context`.
+/// The bar over the design's sixty: `model` and `effort` within one rung.
 pub const BAR_MODEL: u32 = 54;
 pub const BAR_EFFORT: u32 = 50;
-pub const BAR_CONTEXT: u32 = 56;
 
-/// The efforts on a rung, lowest first. `default` is on none.
+/// The efforts on a rung, lowest first.
 const RUNGS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// What the owner or the design says Jev should choose.
@@ -69,7 +72,6 @@ const RUNGS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 pub struct Want {
     pub model: String,
     pub effort: String,
-    pub context: String,
 }
 
 /// The state a case carries beside its message.
@@ -86,6 +88,12 @@ pub struct CaseState {
     pub price_period: String,
     pub est_tokens: u64,
     pub last_reply_model: String,
+    /// The session's warm model: the case's own, else the last reply's; empty
+    /// for none.
+    pub current_model: String,
+    /// What the daemon says a switch would cost this message
+    /// (`builders::SwitchCost`'s words).
+    pub switch_cost: String,
     /// Every model that has written in the task.
     pub task_models: Vec<String>,
 }
@@ -117,6 +125,7 @@ struct FileDefaults {
     price_period: Option<String>,
     est_tokens: Option<u64>,
     last_reply_model: Option<String>,
+    switch_cost: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,11 +139,12 @@ struct FileCase {
     price_period: Option<String>,
     est_tokens: Option<u64>,
     last_reply_model: Option<String>,
+    current_model: Option<String>,
+    switch_cost: Option<String>,
     #[serde(default)]
     task_models: Vec<String>,
     model: String,
     effort: String,
-    context: String,
     #[serde(default)]
     must: bool,
     #[serde(default)]
@@ -176,11 +186,7 @@ fn field(
 
 /// A label must be an option of the pack's question of that name.
 fn check_labels(c: &FileCase, pack: &Pack) -> Result<(), String> {
-    for (q, label) in [
-        ("model", &c.model),
-        ("effort", &c.effort),
-        ("context", &c.context),
-    ] {
+    for (q, label) in [("model", &c.model), ("effort", &c.effort)] {
         let def = pack
             .question(q)
             .ok_or_else(|| format!("{} asks no `{q}` question", pack.name()))?;
@@ -225,18 +231,31 @@ fn state_of(c: &FileCase, d: &FileDefaults) -> Result<CaseState, String> {
             "dm" => "discord_dm".into(),
             _ => "discord_channel".into(),
         });
+    let switch_cost = field(id, "switch_cost", &c.switch_cost, d.switch_cost.as_ref())?;
+    one_of(
+        id,
+        "switch_cost",
+        &switch_cost,
+        &["cheaper_to_stay", "cheaper_to_switch", "about_the_same"],
+    )?;
+    let last_reply_model = field(
+        id,
+        "last_reply_model",
+        &c.last_reply_model,
+        d.last_reply_model.as_ref(),
+    )?;
     Ok(CaseState {
         place,
         place_kind,
         restricted_models,
         price_period,
         est_tokens,
-        last_reply_model: field(
-            id,
-            "last_reply_model",
-            &c.last_reply_model,
-            d.last_reply_model.as_ref(),
-        )?,
+        current_model: c
+            .current_model
+            .clone()
+            .unwrap_or_else(|| last_reply_model.clone()),
+        last_reply_model,
+        switch_cost,
         task_models: c.task_models.clone(),
     })
 }
@@ -253,7 +272,7 @@ pub fn declared_pack(text: &str) -> Result<String, String> {
 
 impl CaseSet {
     /// The cases in `text`, each label checked against the pack's own
-    /// `model`, `effort` and `context` options.
+    /// `model` and `effort` options.
     pub fn parse(text: &str, pack: &Pack) -> Result<CaseSet, String> {
         let file: File = toml::from_str(text).map_err(|e| format!("the cases file: {e}"))?;
         if file.pack != pack.name() {
@@ -269,6 +288,7 @@ impl CaseSet {
             price_period: None,
             est_tokens: None,
             last_reply_model: None,
+            switch_cost: None,
         });
         let mut seen = BTreeSet::new();
         let mut cases = Vec::new();
@@ -287,7 +307,6 @@ impl CaseSet {
                 want: Want {
                     model: c.model,
                     effort: c.effort,
-                    context: c.context,
                 },
             });
         }
@@ -302,7 +321,7 @@ impl CaseSet {
 /// `builders::route_input`, so a replay's state and the daemon's are one
 /// definition (`builders::ROUTE_STATE_KEYS`, held by `tests_route_state`).
 pub fn input(case: &Case) -> crate::builders::InboundInput {
-    use crate::builders::{PricePeriod, RestrictedModels, RouteFacts};
+    use crate::builders::{PricePeriod, RestrictedModels, RouteFacts, SwitchCost};
     let s = &case.state;
     crate::builders::route_input(
         &case.message,
@@ -316,6 +335,8 @@ pub fn input(case: &Case) -> crate::builders::InboundInput {
             last_reply_model: Some(s.last_reply_model.clone()).filter(|m| !m.is_empty()),
             task_models: s.task_models.clone(),
             est_tokens: Some(s.est_tokens),
+            current_model: Some(s.current_model.clone()).filter(|m| !m.is_empty()),
+            switch_cost: SwitchCost::parse(&s.switch_cost),
         },
     )
 }
@@ -335,7 +356,7 @@ pub fn prepared(pack: &Pack, case: &Case) -> Prepared {
 }
 
 /// A case's ask: the pack's questions over its state, in shadow, with
-/// `context`'s fields beside the case's id.
+/// `context`'s fields beside the case's id (the judgment's own context).
 pub fn ask(pack: &Arc<Pack>, case: &Case, context: &Value) -> Ask {
     let mut ctx = json!({"case": case.id});
     if let (Some(m), Some(c)) = (ctx.as_object_mut(), context.as_object()) {
@@ -356,7 +377,7 @@ pub struct Check {
     pub confidence: f64,
     /// `got` is the label.
     pub agrees: bool,
-    /// Within one rung (`effort`); as `agrees` for the others.
+    /// Within one rung (`effort`); as `agrees` for `model`.
     pub close: bool,
     /// Jev's own top option, before the bar; empty when it did not answer.
     pub raw: String,
@@ -379,7 +400,6 @@ pub struct Graded {
     pub answered: bool,
     pub model: Check,
     pub effort: Check,
-    pub context: Check,
     /// The `model` answer is under the pack's confirm bar.
     pub under_confirm: bool,
 }
@@ -450,7 +470,6 @@ pub fn grade(pack: &Pack, case: &Case, j: Option<&Judgment>) -> Graded {
         under_confirm: model.sub_confirm,
         model,
         effort: check(&case.want.effort, j, pack, "effort"),
-        context: check(&case.want.context, j, pack, "context"),
     }
 }
 
@@ -461,7 +480,6 @@ pub struct Totals {
     pub model_ok: u32,
     pub effort_exact: u32,
     pub effort_close: u32,
-    pub context_ok: u32,
     pub must_total: u32,
     pub must_ok: u32,
     pub must_under_confirm: u32,
@@ -470,7 +488,6 @@ pub struct Totals {
     pub raw_model_ok: u32,
     pub raw_effort_exact: u32,
     pub raw_effort_close: u32,
-    pub raw_context_ok: u32,
     /// The design's bar met, counting [`PINNED`] as met; none unless the run
     /// is the file's whole set (`DESIGN_TOTAL - PINNED` cases).
     pub bar: Option<bool>,
@@ -483,21 +500,18 @@ pub fn totals(graded: &[Graded]) -> Totals {
         model_ok: count(&|g| g.model.agrees),
         effort_exact: count(&|g| g.effort.agrees),
         effort_close: count(&|g| g.effort.close),
-        context_ok: count(&|g| g.context.agrees),
         must_total: count(&|g| g.must),
         must_ok: count(&|g| g.must && g.model.agrees),
         must_under_confirm: count(&|g| g.must && g.under_confirm),
         raw_model_ok: count(&|g| g.model.raw_agrees),
         raw_effort_exact: count(&|g| g.effort.raw_agrees),
         raw_effort_close: count(&|g| g.effort.raw_close),
-        raw_context_ok: count(&|g| g.context.raw_agrees),
         bar: None,
     };
     if graded.len() as u32 == DESIGN_TOTAL - PINNED {
         t.bar = Some(
             t.model_ok + PINNED >= BAR_MODEL
                 && t.effort_close + PINNED >= BAR_EFFORT
-                && t.context_ok + PINNED >= BAR_CONTEXT
                 && t.must_ok == t.must_total
                 && t.must_under_confirm == 0,
         );

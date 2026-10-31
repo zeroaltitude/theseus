@@ -288,7 +288,6 @@ mod tests {
             seal: None,
             personal: None,
             model: None,
-            context: None,
         }
     }
 

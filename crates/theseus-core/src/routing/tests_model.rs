@@ -1,6 +1,7 @@
 //! route.v10's `model` path, purely (theseus-h66v4 row 3, design §1.4 steps 3, 4,
-//! 6 and 7): the pick Jev names, the floor, the cache hold, a `short` pick, and
-//! the rules that are gone (the place cap, the class walk, the step down).
+//! 6 and 7): the pick Jev names, the floor, the cache hold, and the rules that
+//! are gone (the place cap, the class walk, the step down, and the detour: a
+//! pick never trims the context, theseus-h66v4.1).
 
 use super::*;
 
@@ -43,13 +44,12 @@ fn pick(choice: &str, confidence: f64, sure: bool) -> Box<Pick> {
     })
 }
 
-/// route.v10's verdict: a sure `model` answer at 0.95, a sure `context` answer.
-fn open(model: &str, context: &str) -> Verdict {
+/// route.v10's verdict: a sure `model` answer at 0.95.
+fn open(model: &str) -> Verdict {
     Verdict {
         mode: model.into(),
         confidence: 0.95,
         model: Some(pick(model, 0.95, true)),
-        context: Some(pick(context, 0.95, true)),
         ..super::tests::verdict("", 0.95)
     }
 }
@@ -111,7 +111,7 @@ fn an_option_names_a_catalog_model_and_the_profile_that_runs_it() {
 
 #[test]
 fn a_sure_pick_runs_and_switches_a_small_session() {
-    let v = open("opus", "full");
+    let v = open("opus");
     let got = d(&v, "sonnet", 12_000);
     assert_eq!(
         got,
@@ -127,7 +127,7 @@ fn a_sure_pick_runs_and_switches_a_small_session() {
 
 #[test]
 fn a_pick_at_the_base_stays_and_clears_a_hold() {
-    let v = open("sonnet", "full");
+    let v = open("sonnet");
     let got = d(&v, "sonnet", 400_000);
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch, got.detour),
@@ -140,7 +140,7 @@ fn a_pick_at_the_base_stays_and_clears_a_hold() {
 fn a_pick_under_the_bar_stays_and_says_unsure() {
     let v = Verdict {
         model: Some(pick("opus", 0.45, false)),
-        ..open("opus", "full")
+        ..open("opus")
     };
     let got = d(&v, "sonnet", 1_000);
     assert_eq!(
@@ -151,7 +151,7 @@ fn a_pick_under_the_bar_stays_and_says_unsure() {
 
 #[test]
 fn the_floor_refuses_a_restricted_pick_whatever_jev_said() {
-    let v = open("deepseek_flash", "full");
+    let v = open("deepseek_flash");
     // The daemon's own marking: the floor made the profile unusable.
     let mut ps = five_options();
     ps.get_mut("dsflash").unwrap().unusable = Some("data_gate");
@@ -185,7 +185,7 @@ fn the_floor_refuses_a_restricted_pick_whatever_jev_said() {
 
 #[test]
 fn a_pick_that_cannot_run_says_fallback() {
-    let v = open("opus", "full");
+    let v = open("opus");
     // No key: the profile is unusable for it.
     let mut ps = five_options();
     ps.get_mut("opus").unwrap().unusable = Some("key");
@@ -215,7 +215,7 @@ fn a_pick_that_cannot_run_says_fallback() {
         ("sonnet", Reason::Fallback)
     );
     // A pick no option names (a pack newer than the table).
-    let v = open("kimi", "full");
+    let v = open("kimi");
     let got = d(&v, "sonnet", 1_000);
     assert_eq!(
         (got.profile.as_str(), got.reason),
@@ -225,7 +225,7 @@ fn a_pick_that_cannot_run_says_fallback() {
 
 #[test]
 fn the_cache_hold_defers_a_full_switch_one_turn_and_never_longer() {
-    let v = open("opus", "full");
+    let v = open("opus");
     // Over the cold line: held one turn.
     let first = d(&v, "sonnet", COLD);
     assert_eq!(
@@ -272,66 +272,29 @@ fn the_cache_hold_defers_a_full_switch_one_turn_and_never_longer() {
     );
 }
 
+/// theseus-h66v4.1: the `context` question is gone, and with it the detour. A
+/// pick, sure or not, on any size of session, is never a detour: every turn
+/// compiles the whole working context on the model that answers it.
 #[test]
-fn a_short_pick_is_a_detour_that_never_holds_and_never_switches() {
-    let v = open("haiku", "short");
-    let got = d(&v, "sonnet", 200_000);
-    assert_eq!(
-        got,
-        Decision {
-            profile: "haiku".into(),
-            reason: Reason::Verdict,
-            detour: true,
-            switch: false,
-            hold: HoldNext::Keep,
-        },
-        "200K on Sonnet, a thank-you: Haiku for this message alone, no hold"
-    );
-    // The session's own model: the detour compile still answers from the
-    // last exchanges (the context question is its own).
-    let v = open("sonnet", "short");
-    let got = d(&v, "sonnet", 200_000);
-    assert_eq!(
-        (got.profile.as_str(), got.detour, got.switch),
-        ("sonnet", true, false)
-    );
-    // A hold set by an earlier full pick is left as it was.
-    assert_eq!(got.hold, HoldNext::Keep);
-}
-
-#[test]
-fn a_short_answer_under_the_bar_is_full() {
-    let v = Verdict {
-        context: Some(pick("short", 0.40, false)),
-        ..open("haiku", "short")
-    };
-    assert!(!v.short());
-    let got = d(&v, "sonnet", 200_000);
-    assert_eq!(
-        (got.reason, got.detour, got.switch),
-        (Reason::CacheHold, false, false),
-        "no_match is full: a full pick over the line holds"
-    );
-}
-
-#[test]
-fn a_short_context_applies_whatever_became_of_the_model() {
-    // An unsure model and a sure `short`: the base answers from the last exchanges.
+fn a_pick_is_never_a_detour_every_turn_compiles_the_whole_context() {
+    for (pick, base) in [("haiku", "sonnet"), ("sonnet", "sonnet"), ("opus", "sonnet")] {
+        for est in [0, 1_000, 29_999, 200_000, 900_000] {
+            let got = d(&open(pick), base, est);
+            assert!(!got.detour, "{pick} on {base} at {est}");
+        }
+    }
+    // Nor an unsure one, nor one the floor refused.
     let v = Verdict {
         model: Some(pick("opus", 0.4, false)),
-        ..open("opus", "short")
+        ..open("opus")
     };
-    let got = d(&v, "sonnet", 100_000);
-    assert_eq!(
-        (got.profile.as_str(), got.reason, got.detour, got.switch),
-        ("sonnet", Reason::Unsure, true, false)
-    );
+    assert!(!d(&v, "sonnet", 100_000).detour);
 }
 
 #[test]
 fn nothing_of_the_old_walk_is_left() {
     // A cap that would refuse every profile is not read.
-    let v = open("fable", "full");
+    let v = open("fable");
     let a = Ask {
         cap: Some(0.0),
         ..ask(&v, "haiku", 1_000)
@@ -343,7 +306,7 @@ fn nothing_of_the_old_walk_is_left() {
     );
     // No step down: a session Jev moved up goes down only because Jev says so,
     // at once, with no row of agreeing verdicts.
-    let v = open("sonnet", "full");
+    let v = open("sonnet");
     let a = Ask {
         from: Some("sonnet"),
         ..ask(&v, "opus", 1_000)
@@ -356,7 +319,7 @@ fn nothing_of_the_old_walk_is_left() {
     // No class list: the answer names a model, whatever `[routing.classes]` says.
     let mut c = cfg();
     c.classes.trivial.profiles = vec!["sonnet".into()];
-    let v = open("haiku", "full");
+    let v = open("haiku");
     let got = decide(&c, &five_options(), &ask(&v, "sonnet", 1_000));
     assert_eq!(got.profile, "haiku");
 }
@@ -374,12 +337,9 @@ fn a_verdict_without_a_model_answer_still_walks_the_classes() {
 }
 
 #[test]
-fn a_late_short_verdict_carries_to_no_other_message() {
-    assert!(
-        !carries(&open("haiku", "short")),
-        "a short pick is its message's alone"
-    );
-    assert!(carries(&open("opus", "full")));
+fn a_late_pick_carries_like_a_switch_and_v8s_detour_modes_do_not() {
+    assert!(carries(&open("haiku")), "no pick is its message's alone");
+    assert!(carries(&open("opus")));
     assert!(
         carries(&super::tests::verdict("chat", 0.9)),
         "v8's rule is unchanged"
@@ -470,7 +430,7 @@ fn every_embedded_pack_that_asks_model_names_only_what_the_table_runs() {
 fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
     let ps = five_options();
     for (pick, from, to) in [("opus", "sonnet", "opus"), ("haiku", "opus", "haiku")] {
-        let v = open(pick, "full");
+        let v = open(pick);
         let got = checkpoint::decide(
             &cfg(),
             &ps,
@@ -501,7 +461,7 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
 #[test]
 fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
     let ps = five_options();
-    let v = open("opus", "full");
+    let v = open("opus");
     let ask = |hold| checkpoint::CheckpointAsk {
         verdict: &v,
         base: "sonnet",
@@ -532,7 +492,7 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
 /// parent runs on and however big the parent's conversation is.
 #[test]
 fn a_brief_starts_a_task_on_jevs_pick() {
-    let v = open("haiku", "full");
+    let v = open("haiku");
     let got = brief::brief_base(&cfg(), &five_options(), &ask(&v, "opus", 1_000_000), true);
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch),

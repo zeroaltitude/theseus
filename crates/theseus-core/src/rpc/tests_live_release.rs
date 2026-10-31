@@ -158,7 +158,7 @@ async fn a_pin_on_the_configs_own_profile_is_still_released() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn after_a_release_jev_chooses_again() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "fable", "high", "full", 0.97);
+    says(&jev, "fable", "high", 0.97);
     let o = open(&jev, 2, |_| {});
     let core = &o.r.core;
     call(core, "profile.use", json!({"name": "haiku"})).await;

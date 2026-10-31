@@ -1,6 +1,7 @@
 //! route.v10 acting (theseus-h66v4 row 3), on the daemon's own turn path and the
-//! fake Jev: the pack asks `model`, `effort` and `context`, and the turn runs on
-//! the model Jev named, at the effort it named, from the context it named.
+//! fake Jev: the pack asks `model` and `effort`, and the turn runs on the model
+//! Jev named, at the effort it named, from the whole working context (there is
+//! no `context` question and no detour: theseus-h66v4.1).
 //!
 //! `ROUTE_PACK` still names route.v8, so these tests ask a fixture shaped like
 //! route.v10 in its place (`JudgeService::stand_in`, which keeps every name the
@@ -51,9 +52,14 @@ pub(crate) fn open(jev: &FakeJev, n: usize, tweak: impl FnOnce(&mut Config)) -> 
     Open { r, deepseek }
 }
 
-/// Jev's three answers at one confidence.
-pub(crate) fn says(jev: &FakeJev, model: &str, effort: &str, context: &str, confidence: f64) {
-    for (q, option) in [("model", model), ("effort", effort), ("context", context)] {
+/// Jev's two answers at one confidence.
+pub(crate) fn says(jev: &FakeJev, model: &str, effort: &str, confidence: f64) {
+    says_at(jev, (model, confidence), (effort, confidence));
+}
+
+/// Jev's two answers, each at its own confidence.
+pub(crate) fn says_at(jev: &FakeJev, model: (&str, f64), effort: (&str, f64)) {
+    for (q, (option, confidence)) in [("model", model), ("effort", effort)] {
         jev.script(
             q,
             Jev::Choice {
@@ -84,13 +90,12 @@ fn asked(jev: &FakeJev) -> Vec<String> {
 // ---------------------------------------------------------------- the verdict
 
 #[test]
-fn the_verdict_reads_model_effort_and_context_from_a_v10_judgment() {
+fn the_verdict_reads_model_and_effort_from_a_v10_judgment() {
     use crate::tests_route_data::{choice, judgment};
     let j = judgment(
         vec![
             choice("model", "opus", 0.91),
             choice("effort", "medium", 0.84),
-            choice("context", "short", 0.77),
         ],
         false,
     );
@@ -100,8 +105,6 @@ fn the_verdict_reads_model_effort_and_context_from_a_v10_judgment() {
         (m.choice.as_str(), m.confidence, m.sure),
         ("opus", 0.91, true)
     );
-    let c = v.context.as_ref().expect("the context answer");
-    assert_eq!((c.choice.as_str(), c.sure), ("short", true));
     let e = v
         .effort
         .as_ref()
@@ -113,24 +116,17 @@ fn the_verdict_reads_model_effort_and_context_from_a_v10_judgment() {
     assert!(v.open());
     assert_eq!(v.mode, "opus", "the row's `mode` word is the pick");
     // An answer under the confirm bar is read, and not sure.
-    let j = judgment(
-        vec![
-            choice("model", "opus", 0.45),
-            choice("context", "short", 0.30),
-        ],
-        false,
-    );
+    let j = judgment(vec![choice("model", "opus", 0.45)], false);
     let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
-    assert!(!v.model.as_ref().unwrap().sure && !v.short());
-    // A pinned turn is not asked the model or the effort: its verdict is the context alone.
-    let j = judgment(vec![choice("context", "short", 0.95)], false);
-    let v = crate::judge::inbound::verdict(&j, "trn_1").expect("a context-only verdict");
-    assert!(v.model.is_none() && v.effort.is_none() && v.short());
+    assert!(!v.model.as_ref().unwrap().sure);
+    // A pinned turn is not asked the model or the effort: it has no verdict.
+    let j = judgment(vec![choice("personal", "none", 0.95)], false);
+    assert!(crate::judge::inbound::verdict(&j, "trn_1").is_none());
     // route.v8's judgment reads as it always did.
     let j = judgment(vec![choice("mode", "chat", 0.95)], false);
     let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
     assert_eq!(v.mode, "chat");
-    assert!(!v.open() && v.model.is_none() && v.context.is_none());
+    assert!(!v.open() && v.model.is_none());
 }
 
 // ------------------------------------------------------------------ the turn
@@ -140,7 +136,7 @@ fn the_verdict_reads_model_effort_and_context_from_a_v10_judgment() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "high", "full", 0.95);
+    says(&jev, "opus", "high", 0.95);
     let o = open(&jev, 1, |_| {});
     let res = turn(
         &o.r.core,
@@ -154,13 +150,8 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(req.output_config.as_ref().unwrap()["effort"], "high");
     assert_eq!(
         asked(&jev),
-        [
-            "route.v8/context",
-            "route.v8/effort",
-            "route.v8/model",
-            "route.v8/personal"
-        ],
-        "the three deciding questions, and no `mode`"
+        ["route.v8/effort", "route.v8/model", "route.v8/personal"],
+        "the two deciding questions, and no `mode` and no `context`"
     );
     let route = res.route.unwrap();
     assert_eq!(
@@ -173,7 +164,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     );
     let d = &decided(&o.r.core.store)[0];
     assert_eq!(d["pick"], "opus");
-    assert_eq!(d["context"], "full");
+    assert!(d.get("context").is_none(), "no context answer on the row");
     assert_eq!(d["profile"], "opus");
     assert_eq!(d["switch"], true);
     assert_eq!(d["effort_ran"], "high");
@@ -194,13 +185,15 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert!(o.deepseek.requests().is_empty());
 }
 
-/// `default` effort is the model's own default, not the profile's `effort`
-/// (the template's sonnet profile sets none, haiku's sets `low`: Haiku's
-/// catalog default is medium).
+/// An effort answer under the confirm bar runs the model's own default effort,
+/// not the profile's `effort` (the template's sonnet profile sets none, haiku's
+/// sets `low`: Haiku's catalog default is medium). The pack's `no_match` for
+/// `effort` is `high` (theseus-h66v4.1) and the replay grades an under-bar
+/// answer as it; this is what the daemon does today (see the h66v4.1 report).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_default_effort_is_the_models_own_and_not_the_profiles() {
+async fn an_effort_under_the_bar_is_the_models_own_and_not_the_profiles() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "haiku", "default", "full", 0.95);
+    says_at(&jev, ("haiku", 0.95), ("high", 0.40));
     let o = open(&jev, 1, |_| {});
     turn(
         &o.r.core,
@@ -225,7 +218,7 @@ async fn a_default_effort_is_the_models_own_and_not_the_profiles() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pick_under_the_confirm_bar_runs_the_live_profile() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "default", "full", 0.45);
+    says(&jev, "opus", "high", 0.45);
     let o = open(&jev, 1, |_| {});
     let res = turn(&o.r.core, None, "hm, what about the other thing", None).await;
     assert_eq!(o.r.claude.requests()[0].model, "claude-sonnet-5-5");
@@ -238,7 +231,7 @@ async fn a_pick_under_the_confirm_bar_runs_the_live_profile() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_flash_pick_runs_on_deepseek_when_the_session_may_use_it() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "deepseek_flash", "low", "full", 0.95);
+    says(&jev, "deepseek_flash", "low", 0.95);
     let o = open(&jev, 1, |_| {});
     let res = turn(
         &o.r.core,
@@ -259,7 +252,7 @@ async fn a_flash_pick_runs_on_deepseek_when_the_session_may_use_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_flash_pick_the_floor_refuses_runs_the_live_profile_with_data_gate() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "deepseek_flash", "low", "full", 0.99);
+    says(&jev, "deepseek_flash", "low", 0.99);
     let o = open(&jev, 1, |c| {
         c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
     });
@@ -287,7 +280,7 @@ async fn a_flash_pick_the_floor_refuses_runs_the_live_profile_with_data_gate() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pick_no_profile_runs_is_a_fallback_that_says_why() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "fable", "low", "full", 0.95);
+    says(&jev, "fable", "low", 0.95);
     let o = open(&jev, 1, |c| c.remove_profile("fable"));
     let res = turn(&o.r.core, None, "Design a thing nobody has designed.", None).await;
     assert_eq!(o.r.claude.requests()[0].model, "claude-sonnet-5-5");
@@ -298,72 +291,14 @@ async fn a_pick_no_profile_runs_is_a_fallback_that_says_why() {
     );
 }
 
-/// A `short` pick answers from the persona and the last exchange on the model
-/// it names, for this message alone: the session's compilation, profile and
-/// `last_target` stay, and the next full turn's prefix is byte for byte the
-/// one before.
+/// theseus-h66v4.1: there is no detour. A thank-you that Jev sends to Haiku on
+/// a long session compiles the session's whole working context, on Haiku: the
+/// request carries every message, the session's compilation is written as
+/// ever, and the row says it is no detour.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_short_pick_answers_from_the_last_exchange_and_leaves_the_session_alone() {
+async fn a_pick_for_a_thank_you_still_compiles_the_whole_context() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "sonnet", "default", "full", 0.95);
-    let o = open(&jev, 3, |_| {});
-    let first = turn(
-        &o.r.core,
-        None,
-        "What does the store's manifest hold?",
-        None,
-    )
-    .await;
-    let sid = first.session_id.clone();
-    let before = session(&o.r.core, &sid);
-    says(&jev, "haiku", "default", "short", 0.95);
-    let thanks = turn(&o.r.core, Some(&sid), "thank you!", None).await;
-    assert_eq!(
-        (thanks.profile.as_str(), thanks.model.as_str()),
-        ("haiku", "claude-haiku-5-5")
-    );
-    assert_eq!(thanks.route.as_ref().unwrap().reason, "verdict");
-    let reqs = o.r.claude.requests();
-    assert_eq!(reqs[1].model, "claude-haiku-5-5");
-    assert_eq!(
-        reqs[1].messages.len(),
-        3,
-        "the last exchange and the message"
-    );
-    let after = session(&o.r.core, &sid);
-    assert_eq!(
-        after.compilation_id, before.compilation_id,
-        "no compilation written"
-    );
-    assert_eq!(after.last_target, before.last_target);
-    assert!(
-        after.routed.is_none(),
-        "`short` is never a switch of the session"
-    );
-    let d = decided(&o.r.core.store).pop().unwrap();
-    assert_eq!(
-        (d["detour"].clone(), d["context"].clone()),
-        (Value::Bool(true), "short".into())
-    );
-    // The next full turn: the session's own prefix, undisturbed.
-    says(&jev, "sonnet", "default", "full", 0.95);
-    let next = turn(&o.r.core, Some(&sid), "And where is it written?", None).await;
-    assert_eq!(next.profile, "sonnet");
-    let reqs = o.r.claude.requests();
-    let (a, c) = (&reqs[0], &reqs[2]);
-    assert_eq!(
-        c.messages[..a.messages.len()],
-        a.messages[..],
-        "the prefix, byte for byte"
-    );
-}
-
-/// A `short` pick on the session's own model is still the short compile: only
-/// the last exchanges answer it, not the whole conversation.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_short_pick_on_the_sessions_own_model_is_still_the_short_compile() {
-    let jev = FakeJev::start().unwrap();
-    says(&jev, "sonnet", "default", "full", 0.95);
+    says(&jev, "sonnet", "high", 0.95);
     let o = open(&jev, 6, |_| {});
     let first = turn(
         &o.r.core,
@@ -376,37 +311,31 @@ async fn a_short_pick_on_the_sessions_own_model_is_still_the_short_compile() {
     for ask in ["And where is it written?", "Who reads it?", "When?", "Why?"] {
         turn(&o.r.core, Some(&sid), ask, None).await;
     }
-    let before = session(&o.r.core, &sid);
-    says(&jev, "sonnet", "default", "short", 0.95);
+    says(&jev, "sonnet", "low", 0.95);
     let res = turn(&o.r.core, Some(&sid), "ok", None).await;
     assert_eq!(res.profile, "sonnet");
     let reqs = o.r.claude.requests();
-    let (full, short) = (&reqs[4], &reqs[5]);
-    assert_eq!(short.model, "claude-sonnet-5-5");
-    // The last two exchanges (`trivial_context_turns`), the turn's recall node
-    // (a short compile keeps the recall, as `quick`'s did) and the message: six
-    // messages, from the third exchange, where the whole conversation is ten.
-    assert_eq!(full.messages.len(), 10);
-    assert_eq!(short.messages.len(), 6);
-    assert!(
-        short.messages[0].to_string().contains("When?"),
-        "{:?}",
-        short.messages[0]
+    let (before, thanks) = (&reqs[4], &reqs[5]);
+    assert_eq!(
+        thanks.messages.len(),
+        before.messages.len() + 2,
+        "every earlier message rides: the whole conversation and the new one"
     );
-    let after = session(&o.r.core, &sid);
-    assert_eq!(after.compilation_id, before.compilation_id);
-    assert!(decided(&o.r.core.store).pop().unwrap()["detour"]
-        .as_bool()
-        .unwrap());
+    assert_eq!(
+        thanks.messages[..before.messages.len()],
+        before.messages[..],
+        "the prefix, byte for byte"
+    );
+    let d = decided(&o.r.core.store).pop().unwrap();
+    assert_eq!(d["detour"], false);
 }
 
-/// The cache hold, kept: a full pick over the cold line waits one agreeing
-/// turn, and the next agreeing pick switches. A `short` pick between never
-/// holds and never breaks it.
+/// The cache hold, kept: a pick over the cold line waits one agreeing turn,
+/// and the next agreeing pick switches.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_full_pick_over_the_cold_line_waits_one_agreeing_turn() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "default", "full", 0.95);
+    says(&jev, "opus", "high", 0.95);
     let o = open(&jev, 4, |c| c.routing.cold_switch_tokens = 1);
     let one = turn(
         &o.r.core,
@@ -426,17 +355,7 @@ async fn a_full_pick_over_the_cold_line_waits_one_agreeing_turn() {
         (hold.profile.as_str(), hold.mode.as_str()),
         ("opus", "opus")
     );
-    // A short pick between: runs, holds nothing, leaves the hold.
-    says(&jev, "haiku", "default", "short", 0.95);
-    let mid = turn(&o.r.core, Some(&one.session_id), "ok", None).await;
-    assert_eq!(mid.route.as_ref().unwrap().reason, "verdict");
-    let kept = session(&o.r.core, &one.session_id).routed.unwrap().hold;
-    assert_eq!(
-        kept.map(|h| h.profile),
-        Some("opus".into()),
-        "a short pick leaves the hold"
-    );
-    says(&jev, "opus", "default", "full", 0.95);
+    says(&jev, "opus", "high", 0.95);
     let two = turn(
         &o.r.core,
         Some(&one.session_id),
@@ -465,7 +384,7 @@ async fn a_full_pick_over_the_cold_line_waits_one_agreeing_turn() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "haiku", "low", "full", 0.97);
+    says(&jev, "haiku", "low", 0.97);
     let o = open(&jev, 1, |_| {});
     // `route.v8/...` ids are read off the requests the fake Jev saw.
     let res = turn(
@@ -480,7 +399,7 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     crate::tests_route::until_calls(&jev, 2).await;
     let asked = asked(&jev);
     assert!(
-        asked.contains(&"route.v8/context".to_string()),
+        asked.contains(&"route.v8/personal".to_string()),
         "the other questions still ask: {asked:?}"
     );
     for gone in ["route.v8/model", "route.v8/effort"] {
@@ -523,25 +442,25 @@ fn routing_line(lines: &[String]) -> &str {
         .expect("a routing line")
 }
 
-/// `theseus why` names the model, the quoted block, the effort, the context
-/// and the reason in every case, honestly.
+/// `theseus why` names the model, the quoted block, the effort and the reason
+/// in every case, honestly.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn why_names_the_block_and_the_reason_in_every_case() {
     // A verdict.
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "medium", "full", 0.95);
+    says(&jev, "opus", "medium", 0.95);
     let o = open(&jev, 1, |_| {});
     let res = turn(&o.r.core, None, "Review this plan for mistakes.", None).await;
     let lines = why(&o, &res.session_id);
     let l = routing_line(&lines);
     assert!(l.contains("model=claude-opus-5-5 (jev 0.95: \"Opus 5.5 (Anthropic, US). … For reviewing code, a plan or an argument for mistakes"), "{l}");
     assert!(
-        l.contains("effort=medium (0.95) context=full reason=verdict pack="),
+        l.contains("effort=medium (0.95) reason=verdict pack="),
         "{l}"
     );
     // The data gate.
     let jev = FakeJev::start().unwrap();
-    says(&jev, "deepseek_flash", "low", "full", 0.9);
+    says(&jev, "deepseek_flash", "low", 0.9);
     let o = open(&jev, 1, |c| {
         c.content_based_security.cn_models = crate::config::content_based_security::CnModels::Never;
     });
@@ -556,7 +475,7 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     assert!(l.contains("model=claude-sonnet-5-5"), "what ran: {l}");
     // A pin.
     let jev = FakeJev::start().unwrap();
-    says(&jev, "haiku", "low", "full", 0.9);
+    says(&jev, "haiku", "low", 0.9);
     let o = open(&jev, 1, |_| {});
     let res = turn(&o.r.core, None, "design the memory layer", Some("fable")).await;
     let lines = why(&o, &res.session_id);
@@ -567,7 +486,7 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     );
     // The cache hold.
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "medium", "full", 0.95);
+    says(&jev, "opus", "medium", 0.95);
     let o = open(&jev, 1, |c| c.routing.cold_switch_tokens = 1);
     let res = turn(&o.r.core, None, "Review the segment format.", None).await;
     let lines = why(&o, &res.session_id);
@@ -577,7 +496,7 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     );
     // A fallback.
     let jev = FakeJev::start().unwrap();
-    says(&jev, "fable", "low", "full", 0.95);
+    says(&jev, "fable", "low", 0.95);
     let o = open(&jev, 1, |c| c.remove_profile("fable"));
     let res = turn(&o.r.core, None, "Design a thing.", None).await;
     let lines = why(&o, &res.session_id);
@@ -594,7 +513,7 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_placeholder_key_is_no_key_at_pick_time() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "deepseek_flash", "low", "full", 0.95);
+    says(&jev, "deepseek_flash", "low", 0.95);
     let o = open(&jev, 1, |c| {
         c.secrets.insert(
             "deepseek_api_key".into(),
@@ -626,7 +545,7 @@ async fn a_placeholder_key_is_no_key_at_pick_time() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "sonnet", "default", "full", 0.95);
+    says(&jev, "sonnet", "high", 0.95);
     let o = open(&jev, 2, |_| {});
     let first = turn(
         &o.r.core,
@@ -706,12 +625,12 @@ async fn a_restricted_base_runs_the_default_with_data_gate_under_route_v10() {
     ] {
         let jev = FakeJev::start().unwrap();
         match case {
-            Base::MovedUnsure => says(&jev, "opus", "default", "full", 0.2),
+            Base::MovedUnsure => says(&jev, "opus", "high", 0.2),
             Base::MovedNamesFlash | Base::FreshNamesFlash => {
-                says(&jev, "deepseek_flash", "low", "full", 0.97)
+                says(&jev, "deepseek_flash", "low", 0.97)
             }
-            Base::MovedNoModel => says(&jev, "sonnet", "default", "full", 0.2),
-            Base::Pinned => says(&jev, "sonnet", "default", "full", 0.97),
+            Base::MovedNoModel => says(&jev, "sonnet", "high", 0.2),
+            Base::Pinned => says(&jev, "sonnet", "high", 0.97),
         }
         let o = open(&jev, 2, |_| {});
         crate::tests_dm_rig::judging_with(&o.r, Judging::with(|_, _| vec![Flag::Confidential]));

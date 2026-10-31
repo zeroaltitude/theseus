@@ -63,7 +63,7 @@ pub struct JudgeReplayParams {
     pub limit: Option<u32>,
     /// `--cases`: a labelled case file's text (`route.v10.cases.toml`). The
     /// candidate is asked each case's message and state, and its `model`,
-    /// `effort` and `context` answers are compared to the case's labels. No
+    /// and `effort` answers are compared to the case's labels. No
     /// recorded judgment is read; the daemon opens no path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cases: Option<String>,
@@ -226,7 +226,6 @@ pub struct ReplayCase {
     pub answered: bool,
     pub model: ReplayCheck,
     pub effort: ReplayCheck,
-    pub context: ReplayCheck,
 }
 
 /// `judge.replay --cases`' numbers: each case, the totals, and the bar.
@@ -240,7 +239,6 @@ pub struct ReplayCases {
     pub model_ok: u32,
     pub effort_exact: u32,
     pub effort_close: u32,
-    pub context_ok: u32,
     /// Cases marked `must`, those whose `model` is right, and those whose
     /// `model` answer sits under the pack's confirm bar.
     pub must_total: u32,
@@ -254,8 +252,6 @@ pub struct ReplayCases {
     pub raw_effort_exact: u32,
     #[serde(default)]
     pub raw_effort_close: u32,
-    #[serde(default)]
-    pub raw_context_ok: u32,
     /// Cases the daemon's own tests hold instead (W39 and W40, the pins),
     /// counted as met in `bar`.
     pub held_elsewhere: u32,

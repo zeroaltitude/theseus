@@ -54,6 +54,10 @@ use crate::config::Effort;
 
 mod peak;
 pub use peak::price_period_at;
+mod switch;
+pub use switch::{switch_cost, CANDIDATES as SWITCH_CANDIDATES};
+#[cfg(test)]
+mod tests_switch;
 
 pub const BUILTIN_VERSION: &str = "2026-10-29.1";
 
@@ -440,6 +444,17 @@ impl CatalogEntry {
     /// the ledger charges a call made then.
     pub fn cost_micros_at(&self, u: &Usage, at_ms: u64) -> Micros {
         micros_of(&self.terms_at(u, Some(at_ms)))
+    }
+
+    /// The uncached input price per million tokens of a prompt of
+    /// `prompt_tokens`: the long tier's past its threshold (theseus-h66v4.1).
+    pub fn input_price_at(&self, prompt_tokens: u64) -> f64 {
+        self.tier(prompt_tokens).input
+    }
+
+    /// The cache-read price per million tokens of a prompt of `prompt_tokens`.
+    pub fn cache_read_price_at(&self, prompt_tokens: u64) -> f64 {
+        self.tier(prompt_tokens).cache_read
     }
 
     /// The prices a call with a prompt of `prompt_tokens` pays: the long
