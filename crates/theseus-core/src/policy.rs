@@ -903,13 +903,14 @@ mod tests {
     }
 
     /// theseus-ewi (the owner, 2026-09-30: one rule for writes outside the
-    /// roots): a write outside the roots takes the tool's posture, whether
-    /// fs.write makes it or a shell script through proc.run does, so the file
-    /// tool no longer asks where the shell never did. A read or a working
-    /// directory outside the roots still asks, and so do the approve list
-    /// and the floor, for every tool and posture.
+    /// roots), widened by theseus-m9fdg (the owner, 2026-10-30 12:04: "That
+    /// whole system of project folders should work that way generally"): an
+    /// access outside the roots, a read or a working directory as much as a
+    /// write, takes the tool's posture, whichever tool makes it, and says
+    /// where it went. The approve list and the floor still ask, for every
+    /// tool and posture.
     #[test]
-    fn a_write_outside_the_roots_takes_the_posture_whichever_tool_makes_it() {
+    fn an_access_outside_the_roots_takes_the_posture_whichever_tool_makes_it() {
         let (_d, root) = workspace();
         let (_o, outside) = workspace();
         let write = plan(outside.join("scratch/config.toml"), Access::Write, None);
@@ -930,21 +931,73 @@ mod tests {
                 assert!(out.reason.contains("(enforcement = "), "{}", out.reason);
             }
         }
-        let p = policy(&root, Posture::Notify);
-        let asks = |tool: &'static str, pl: &Plan, says: &str| {
-            let out = p.decide(&T(tool), pl);
-            assert_eq!(out.posture, Posture::Approve, "{tool}");
-            assert!(out.reason.contains(says), "{}", out.reason);
-        };
-        asks(
-            "fs.read",
-            &plan(outside.join("notes.txt"), Access::Read, None),
-            "is outside the workspace roots",
+        let read = plan(outside.join("notes.txt"), Access::Read, None);
+        let ls = plan(outside.clone(), Access::Exec, Some(vec!["ls"]));
+        let r = root.display();
+        for e in Posture::ALL {
+            let p = policy(&root, e);
+            for (tool, pl, says) in [
+                (
+                    "fs.read",
+                    &read,
+                    format!(
+                        "read outside your project folder: {} (roots: {r})",
+                        outside.join("notes.txt").display()
+                    ),
+                ),
+                (
+                    "proc.run",
+                    &ls,
+                    format!(
+                        "ran outside your project folder: {} (roots: {r})",
+                        outside.display()
+                    ),
+                ),
+                (
+                    "fs.write",
+                    &write,
+                    format!(
+                        "wrote outside your project folder: {} (roots: {r})",
+                        outside.join("scratch/config.toml").display()
+                    ),
+                ),
+            ] {
+                let out = p.decide(&T(tool), pl);
+                assert_eq!((out.posture, out.floor), (e, false), "{tool} at {e:?}");
+                assert!(out.reason.contains(&says), "{}", out.reason);
+                if e == Posture::Notify {
+                    let notice = out.notify.expect("a notify names the path");
+                    assert!(notice.rule.contains(&says), "{}", notice.rule);
+                    assert_eq!(notice.setting, "enforcement = notify");
+                }
+            }
+        }
+        // With no roots configured, everything is outside, and says so.
+        let mut bare = policy(&root, Posture::Notify);
+        bare.roots.clear();
+        let out = bare.decide(&T("fs.read"), &read);
+        assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
+        assert!(
+            out.reason.contains("(roots: none configured, set [tools].projects_dir)"),
+            "{}",
+            out.reason
         );
-        asks(
-            "proc.run",
-            &plan(outside.clone(), Access::Exec, Some(vec!["ls"])),
-            "is outside the workspace roots",
+        // An argument outside the roots is labelled the same way, and the
+        // allow list does not run it open.
+        let out = policy(&root, Posture::Notify).decide(
+            &T("proc.run"),
+            &plan(
+                root.clone(),
+                Access::Exec,
+                Some(vec!["git", "status", "/etc"]),
+            ),
+        );
+        assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
+        assert!(
+            out.reason
+                .contains(&format!("ran outside your project folder: /etc (roots: {r})")),
+            "{}",
+            out.reason
         );
         let mut listed = policy(&root, Posture::Open);
         listed.approve_paths.push(outside.join("keys"));
@@ -1293,7 +1346,8 @@ mod tests {
             own,
         );
         assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
-        // The own tree is no way around the roots: a read outside them asks.
+        // Outside the roots the own tree is labelled, as any path is, and asks
+        // for nothing: the roots are no gate (theseus-m9fdg).
         inner.roots = vec![root.join("elsewhere")];
         let out = inner.decide_in(
             &T("fs.read"),
@@ -1301,7 +1355,12 @@ mod tests {
             None,
             own,
         );
-        assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
+        assert_eq!(out.posture, Posture::Open, "{}", out.reason);
+        assert!(
+            out.reason.contains("read outside your project folder: "),
+            "{}",
+            out.reason
+        );
     }
 
     /// A self session's soft holds open and its hard ones stay (theseus-cudar):
@@ -1379,10 +1438,6 @@ mod tests {
             let read = |path: PathBuf| p.decide(&T("fs.read"), &plan(path, Access::Read, None));
             for (out, why) in [
                 (
-                    read("/etc/passwd".into()),
-                    "the call: fs.read — approve (/etc/passwd is outside the workspace roots: ",
-                ),
-                (
                     read(root.join("secret/key")),
                     "the call: fs.read — approve (",
                 ),
@@ -1405,6 +1460,16 @@ mod tests {
                 assert!(!out.floor && out.notify.is_none(), "{}", out.reason);
                 assert!(out.reason.starts_with(why), "{}", out.reason);
             }
+            // Outside the roots is a label, not a hold: the read follows its
+            // override (open here) and names the path.
+            let out = read("/etc/passwd".into());
+            assert_eq!(out.posture, Posture::Open, "{}", out.reason);
+            assert!(
+                out.reason
+                    .contains("read outside your project folder: /etc/passwd (roots: "),
+                "{}",
+                out.reason
+            );
             let r = root.display();
             assert_eq!(
                 read(root.join("secret/key")).reason,
@@ -1439,8 +1504,10 @@ mod tests {
                 let out = run(argv);
                 assert_eq!(out.posture, e, "{}", out.reason);
                 assert!(
-                    out.reason
-                        .ends_with(&format!("proc.run — {0} (enforcement = {0})", e.as_str())),
+                    out.reason.contains(&format!(
+                        "proc.run — {0} (enforcement = {0}; ran outside your project folder: ",
+                        e.as_str()
+                    )),
                     "{}",
                     out.reason
                 );

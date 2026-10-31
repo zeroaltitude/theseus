@@ -508,7 +508,8 @@ async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
         ),
         Scripted::text("Those were errors."),
     ]);
-    // Outside the roots: the call waits, and runs once approved.
+    // Outside the roots the call takes the posture (approve in this rig), says
+    // where it went, and runs once approved.
     let res = turn(&r.core, None, "read the notes").await;
     let sid = res.session_id.clone();
     let corr = res
@@ -519,7 +520,7 @@ async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
     assert!(!pending[0].floor);
     assert!(
         pending[0].reason.ends_with(&format!(
-            "fs.read — approve ({} is outside the workspace roots: {})",
+            "fs.read — approve (enforcement = approve; read outside your project folder: {} (roots: {}))",
             file.display(),
             r.root.display()
         )),
@@ -639,17 +640,13 @@ async fn the_token_file_the_daemon_was_given_is_on_the_floor() {
         results(&r.core, &res.session_id)[0].0,
         ResultStatus::Declined
     );
-    // The same file, not named as the token file, is only outside the roots.
+    // The same file, not named as the token file, is only outside the roots:
+    // a label, so under open it runs unasked (theseus-m9fdg).
     let r = rig_with(script(), |cfg| cfg.policy.enforcement = Posture::Open);
     let res = turn(&r.core, None, "read the token").await;
-    assert!(res.awaiting_confirm.is_some());
-    let pending = r.core.pending_confirms(&res.session_id).unwrap();
-    assert!(!pending[0].floor, "{}", pending[0].reason);
-    assert!(
-        pending[0].reason.contains("is outside the workspace roots"),
-        "{}",
-        pending[0].reason
-    );
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
 }
 
 #[tokio::test]
