@@ -163,4 +163,3 @@ fn a_loaded_tool_is_named_in_the_allowlist_with_its_reason() {
         }
     }
 }
-

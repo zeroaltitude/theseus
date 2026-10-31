@@ -170,7 +170,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, profiles: &Profiles) -> Resolved {
             let leads = last.profile == *p;
             Resolved {
                 profile: Some(p.clone()),
-                    steer: Some(Steer::Profile(p.clone())),
+                steer: Some(Steer::Profile(p.clone())),
                 question: QUESTION,
                 label: not(leads),
                 to: p.clone(),
@@ -182,7 +182,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, profiles: &Profiles) -> Resolved {
             Resolved {
                 steer: profile.clone().map(Steer::Profile),
                 profile,
-                    question: QUESTION,
+                question: QUESTION,
                 label: not(false),
                 to: if up { "stronger" } else { "cheaper" }.into(),
             }

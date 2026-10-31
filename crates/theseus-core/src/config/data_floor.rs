@@ -24,39 +24,25 @@ impl Config {
         [
             (
                 "[people] extract_profile",
-                self.people
-                    .extract_profile
-                    .as_deref(),
+                self.people.extract_profile.as_deref(),
             ),
-            (
-                "[card] profile",
-                self.card.profile.as_deref(),
-            ),
+            ("[card] profile", self.card.profile.as_deref()),
             (
                 "[threads] import_profile",
-                self.threads
-                    .import_profile
-                    .as_deref(),
+                self.threads.import_profile.as_deref(),
             ),
             (
                 "[judge.learn] writer_profile",
-                self.judge
-                    .learn
-                    .writer_profile
-                    .as_deref(),
+                self.judge.learn.writer_profile.as_deref(),
             ),
             (
                 "[self] reviewer_profile",
-                self.self_improve
-                    .reviewer_profile
-                    .as_deref(),
+                self.self_improve.reviewer_profile.as_deref(),
             ),
             ("[initiative] profile", self.initiative.profile.as_deref()),
             (
                 "[ontology] name_profile",
-                self.ontology
-                    .name_profile
-                    .as_deref(),
+                self.ontology.name_profile.as_deref(),
             ),
             (
                 "[memory] synth_profile",

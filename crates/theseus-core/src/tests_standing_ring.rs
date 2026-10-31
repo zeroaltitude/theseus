@@ -152,4 +152,3 @@ async fn the_block_survives_three_compactions() {
         }
     }
 }
-

@@ -14,9 +14,7 @@ use theseus_protocol::{SessionKind, TurnSubmitResult};
 use crate::routing::Routed;
 use crate::session::SessionRecord;
 use crate::tests_judge::board;
-use crate::tests_route::{
-    call, mode, rig, rig_on, session, until_route_rows, Rig,
-};
+use crate::tests_route::{call, mode, rig, rig_on, session, until_route_rows, Rig};
 
 async fn submit(r: &Rig, params: Value) -> TurnSubmitResult {
     serde_json::from_value(call(&r.core, "turn.submit", params).await).unwrap()
@@ -70,4 +68,3 @@ async fn a_routed_record_without_its_base_reads_as_before() {
 }
 
 // ------------------------------------------- a second switch, and a switch back (theseus-zvpl)
-

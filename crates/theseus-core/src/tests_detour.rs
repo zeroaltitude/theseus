@@ -244,4 +244,3 @@ async fn a_detour_naming_a_family_stays_within_its_place_budget() {
         row[0]
     );
 }
-

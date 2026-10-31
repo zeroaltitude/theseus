@@ -111,8 +111,8 @@ impl Core {
         let Some(pack) = self.runner.judge.pack(&pack_name) else {
             return none(&format!("this build has no pack {pack_name}"));
         };
-        let label: Value =
-            labels::check(&pack, Some("model"), &json!(option)).map_err(|e| format!("none: {e}"))?;
+        let label: Value = labels::check(&pack, Some("model"), &json!(option))
+            .map_err(|e| format!("none: {e}"))?;
         let id = format!(
             "lbl_wt_{}",
             &crate::blobs::digest(format!("whole|{judgment}|model|{}", p.turn).as_bytes())[..24]

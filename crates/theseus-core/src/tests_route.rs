@@ -61,8 +61,7 @@ pub(crate) fn glm_placements(c: &mut Config) {
 /// GLM itself, of restricted origin, where routing may still name it: trivial's
 /// `cn_profiles` (the data floor's tests). A mode's `profiles` may not name a
 /// restricted profile (theseus-a1wvq.4), so routine programming keeps its own.
-pub(crate) fn restricted_placements(_c: &mut Config) {
-}
+pub(crate) fn restricted_placements(_c: &mut Config) {}
 
 pub(crate) fn rig(jev: Option<&FakeJev>, n: usize, tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = Arc::new(crate::scratch::tempdir());

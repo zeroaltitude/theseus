@@ -351,7 +351,11 @@ fn nothing_of_the_old_walk_is_left() {
 fn a_verdict_without_a_model_answer_stays_on_the_base() {
     let v = super::tests::verdict("sophisticated", 0.95);
     assert!(!v.open());
-    let got = decide(&cfg(), &five_options(), &super::tests::ask(&v, "sonnet", 1_000));
+    let got = decide(
+        &cfg(),
+        &five_options(),
+        &super::tests::ask(&v, "sonnet", 1_000),
+    );
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch),
         ("sonnet", Reason::NoVerdict, false)

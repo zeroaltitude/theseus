@@ -961,4 +961,3 @@ async fn the_reviewer_is_never_a_china_origin_model() {
     assert_eq!(v["model"], SONNET, "{v}");
     assert!(reviewer_asks(&jev)[0].contains("not_allowed"));
 }
-
