@@ -29,7 +29,6 @@ use theseus_tools::{
 
 use super::tools::{at_schema, deadline, locate, plan_read, At};
 use super::{lock, Board};
-use crate::policy::{Decision, ToolPolicy};
 
 /// One file a rename writes: as the plan read it, and after.
 #[derive(Debug, Clone)]
