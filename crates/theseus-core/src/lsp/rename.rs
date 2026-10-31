@@ -9,8 +9,8 @@
 //!   import), the rename is asked at the definition, and the answer says so.
 //! - `lsp.rename {digest}`, a write and not repeatable: exactly that edit.
 //!   Its plan's resources are every file it writes, so the gate judges it as
-//!   an `fs.patch` of each (the floor, the approve list), and a file outside
-//!   the workspace roots waits too ([`outside_roots`]). It writes nothing
+//!   an `fs.patch` of each (the floor, the approve list, and the label a file
+//!   outside the workspace roots gets). It writes nothing
 //!   unless every file is as the plan read it, then writes each, tells the
 //!   servers, and returns the diff.
 
@@ -517,28 +517,6 @@ async fn told(board: &Board, wrote: &[PathBuf]) {
             let _ = l.client.file_changed(p).await;
         }
     }
-}
-
-/// The gate's step for `lsp.rename`: a write outside the workspace roots is
-/// labelled with its path and keeps the posture the call was given, as an
-/// `fs.patch` there does (theseus-m9fdg: the roots are a label, not a gate; a
-/// rename reaches files the model never named, so the label names each).
-pub(super) fn outside_roots(policy: &ToolPolicy, tool: &str, plan: &Plan, d: Decision) -> Decision {
-    if tool != "lsp.rename" {
-        return d;
-    }
-    plan.resources
-        .iter()
-        .filter(|r| r.access == Access::Write)
-        .filter(|r| {
-            !policy
-                .roots
-                .iter()
-                .any(|root| theseus_tools::paths::within(&r.path, root))
-        })
-        .fold(d, |d, r| {
-            d.labelled(&policy.outside_label(Access::Write, &r.path))
-        })
 }
 
 #[cfg(test)]

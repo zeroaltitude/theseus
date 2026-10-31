@@ -281,8 +281,9 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
 #[tokio::test]
 async fn only_the_sessions_own_outputs_become_readable() {
     // What keeps one session out of another's outputs is the approve list's
-    // hold on the state dir (the default `~/.theseus`), not the roots, which
-    // only label a read outside them (theseus-m9fdg).
+    // hold on the outputs dir (this rig lists it itself; a deployment lists
+    // the state dir's children in its own `approve_paths`), not the roots,
+    // which only label a read outside them (theseus-m9fdg).
     let r = rig_with(vec![], |cfg| {
         let outputs = std::path::Path::new(&cfg.server.state_dir).join("outputs");
         cfg.tools.approve_paths = vec![outputs.to_string_lossy().into_owned()];

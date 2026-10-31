@@ -509,7 +509,7 @@ async fn outside_the_roots_runs_and_approve_paths_wait_with_a_clear_reason() {
         Scripted::text("Those were errors."),
     ]);
     // Outside the roots is a label, not a gate (theseus-m9fdg): the read takes
-    // its tool's posture (open in this rig) and runs unasked.
+    // its tool's posture, notify at least (a notice, no ask), and runs unasked.
     let res = turn(&r.core, None, "read the notes").await;
     let sid = res.session_id.clone();
     assert!(res.awaiting_confirm.is_none(), "{res:?}");
@@ -616,7 +616,7 @@ async fn the_token_file_the_daemon_was_given_is_on_the_floor() {
         ResultStatus::Declined
     );
     // The same file, not named as the token file, is only outside the roots:
-    // a label, so under open it runs unasked (theseus-m9fdg).
+    // a label, so under open it is a notice and runs unasked (theseus-m9fdg).
     let r = rig_with(script(), |cfg| cfg.policy.enforcement = Posture::Open);
     let res = turn(&r.core, None, "read the token").await;
     assert!(res.awaiting_confirm.is_none(), "{res:?}");

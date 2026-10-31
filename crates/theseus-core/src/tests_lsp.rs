@@ -592,8 +592,9 @@ async fn a_rename_is_gated_on_every_file_it_writes() {
         .iter()
         .all(|r| r.access == theseus_tools::Access::Write));
 
-    // Outside the roots: the gate's step labels the write and keeps the
-    // posture it was given (theseus-m9fdg: the roots are no gate).
+    // Outside the roots: the call's own order labels the write once, and
+    // the language server's step adds none (theseus-m9fdg: the roots are a
+    // label, not a gate).
     let outside = theseus_tools::Plan {
         resources: vec![theseus_tools::Resource {
             path: PathBuf::from("/elsewhere/x.fake"),
@@ -603,18 +604,14 @@ async fn a_rename_is_gated_on_every_file_it_writes() {
         ..Default::default()
     };
     let tool = rt.registry.get("lsp.rename").unwrap().clone();
-    let open = crate::policy::Decision {
-        posture: Posture::Open,
-        reason: "open".into(),
-        notify: None,
-        floor: false,
-        granted: None,
-    };
-    let d = crate::lsp::gate(rt, tool.as_ref(), &outside, open);
-    assert_eq!(d.posture, Posture::Open, "{}", d.reason);
-    assert!(
+    let own = rt.policy.decide_with(tool.as_ref(), &outside, None);
+    let d = crate::lsp::gate(rt, tool.as_ref(), &outside, own);
+    assert_ne!(d.posture, Posture::Approve, "{}", d.reason);
+    assert_eq!(
         d.reason
-            .contains("wrote outside your project folder: /elsewhere/x.fake (roots: "),
+            .matches("wrote outside your project folder: /elsewhere/x.fake (roots: ")
+            .count(),
+        1,
         "{}",
         d.reason
     );
