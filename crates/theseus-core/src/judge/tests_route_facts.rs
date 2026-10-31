@@ -257,9 +257,11 @@ fn route_v8_is_handed_no_facts_and_its_state_is_unchanged() {
         TUE_0200_PHOENIX,
     );
     assert!(facts.current_model.is_some() && facts.switch_cost.is_some());
-    let mut with = InboundInput::default();
-    with.message = "two".into();
-    with.route = Some(facts);
+    let with = InboundInput {
+        message: "two".into(),
+        route: Some(facts),
+        ..InboundInput::default()
+    };
     let mut without = with.clone();
     without.route = None;
     let carried = super::route_facts::Carried::of(with);

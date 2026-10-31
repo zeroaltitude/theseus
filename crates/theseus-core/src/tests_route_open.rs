@@ -10,7 +10,6 @@
 
 use std::sync::Arc;
 
-use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use theseus_judge::Pack;
 
