@@ -1025,13 +1025,13 @@ async fn idle_stop(board: Weak<Board>, live: Weak<Live>, idle: Duration) {
 /// a call that would start its server for a root none was started for is
 /// judged at `proc.run`'s posture for the server's argv too, the stricter
 /// winning, since a language server runs build scripts and proc macros as
-/// `cargo build` would; and a rename's write outside the workspace roots
-/// waits. It never loosens the call's own decision.
+/// `cargo build` would; and a rename's write outside the workspace roots is
+/// labelled with its path. It never loosens the call's own decision.
 pub(crate) fn gate(rt: &ToolRuntime, tool: &dyn Tool, plan: &Plan, d: Decision) -> Decision {
     let Some(board) = rt.lsp.as_ref().filter(|_| tool.family() == "lsp") else {
         return d;
     };
-    let d = rename::outside_roots(&rt.policy.roots, tool.name(), plan, d);
+    let d = rename::outside_roots(&rt.policy, tool.name(), plan, d);
     let Some(path) = plan
         .resources
         .iter()

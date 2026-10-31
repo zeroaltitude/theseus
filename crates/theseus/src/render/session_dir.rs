@@ -14,15 +14,16 @@ pub(super) fn column(s: &SessionInfo) -> String {
 }
 
 /// What `ask` says once, on stderr, when the daemon puts its session in a
-/// directory outside every workspace root: the gate's policy is unchanged,
-/// so a read or a command there waits for the owner's answer.
+/// directory outside every workspace root: the roots are a label and no gate
+/// (theseus-m9fdg), so a read or a command there follows the policy's posture
+/// and names the path.
 pub fn outside_line(dir: &str, roots: &[String]) -> String {
     let roots = match roots.is_empty() {
         true => "none configured".to_string(),
         false => roots.join(", "),
     };
     format!(
-        "{dir} is outside the workspace roots ({roots}): reads and commands there will ask you first"
+        "{dir} is outside the workspace roots ({roots}): what runs there follows your policy and names the path"
     )
 }
 
@@ -34,11 +35,11 @@ mod tests {
     fn the_notice_names_the_directory_and_the_roots() {
         assert_eq!(
             outside_line("/tmp/x", &["/work".into()]),
-            "/tmp/x is outside the workspace roots (/work): reads and commands there will ask you first"
+            "/tmp/x is outside the workspace roots (/work): what runs there follows your policy and names the path"
         );
         assert_eq!(
             outside_line("/tmp/x", &[]),
-            "/tmp/x is outside the workspace roots (none configured): reads and commands there will ask you first"
+            "/tmp/x is outside the workspace roots (none configured): what runs there follows your policy and names the path"
         );
     }
 

@@ -243,8 +243,8 @@ impl ToolRuntime {
     /// A session's own job is its own wherever its directory is (theseus-zntlw):
     /// the directory a job tool's plan names is no file the call reads and no
     /// program it starts, so one outside the workspace roots is left off the
-    /// plan, and the call does not wait for the owner as a read or run of that
-    /// directory does. The job itself was gated when `proc.run` started it. The
+    /// plan, and the call carries no outside-your-project-folder label for it,
+    /// as a read or run of that directory would. The job itself was gated when `proc.run` started it. The
     /// conversation's directory is not made a root for it: that is the owner's
     /// to decide.
     fn own_job_outside_roots(&self, plan: &mut Plan) {

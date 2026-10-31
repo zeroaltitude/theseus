@@ -520,9 +520,9 @@ fn conditions(core: &Core, s: &Scene, tool: &dyn Tool) -> Vec<ExplainCondition> 
     if tool.class() != ToolClass::Write || argv {
         out.push(cond(
             "outside_roots",
-            "a read or a working directory outside the workspace roots (a write outside them takes the posture)",
+            "a read, a write, a working directory or a path argument outside the workspace roots (labelled with its path; the posture decides)",
             shown(&p.roots),
-            "approve",
+            "the posture, with the path named",
         ));
     }
     // `[policy] private_addresses = "open"` judges it as any other address.

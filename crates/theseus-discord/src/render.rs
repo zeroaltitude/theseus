@@ -2500,7 +2500,7 @@ mod tests {
                 "input": {"path": "/etc/hosts"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
             r.on_notification("confirm.requested", &json!({"correlation_id": "act_9",
                 "session_id": "s", "execution_id": "e", "tool": "fs.read", "input": {"path": "/etc/hosts"},
-                "reason": "read /etc/hosts: fs.read — approve (/etc/hosts is outside the workspace roots: /w)",
+                "reason": "read /etc/hosts: fs.read — approve (/etc/hosts is protected: /etc is on the approve list)",
                 "by": "operator", "requested_at_ms": 0, "expires_at_ms": 60_000}));
             r.on_notification(
                 "confirm.resolved",

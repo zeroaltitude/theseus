@@ -29,7 +29,7 @@ use theseus_tools::{
 
 use super::tools::{at_schema, deadline, locate, plan_read, At};
 use super::{lock, Board};
-use crate::policy::{Decision, Posture};
+use crate::policy::{Decision, ToolPolicy};
 
 /// One file a rename writes: as the plan read it, and after.
 #[derive(Debug, Clone)]
@@ -519,29 +519,26 @@ async fn told(board: &Board, wrote: &[PathBuf]) {
     }
 }
 
-/// The gate's step for `lsp.rename`: a write outside the workspace roots
-/// waits, as the brief for the rename asks (an `fs.patch` there takes its
-/// posture; a rename reaches files the model never named).
-pub(super) fn outside_roots(roots: &[PathBuf], tool: &str, plan: &Plan, d: Decision) -> Decision {
+/// The gate's step for `lsp.rename`: a write outside the workspace roots is
+/// labelled with its path and keeps the posture the call was given, as an
+/// `fs.patch` there does (theseus-m9fdg: the roots are a label, not a gate; a
+/// rename reaches files the model never named, so the label names each).
+pub(super) fn outside_roots(policy: &ToolPolicy, tool: &str, plan: &Plan, d: Decision) -> Decision {
     if tool != "lsp.rename" {
         return d;
     }
-    let outside = plan.resources.iter().find(|r| {
-        r.access == Access::Write
-            && !roots
+    plan.resources
+        .iter()
+        .filter(|r| r.access == Access::Write)
+        .filter(|r| {
+            !policy
+                .roots
                 .iter()
                 .any(|root| theseus_tools::paths::within(&r.path, root))
-    });
-    match outside {
-        Some(r) => d.at_least(
-            Posture::Approve,
-            &format!("{} is outside the workspace roots", r.path.display()),
-            "lsp.rename: a write outside the workspace roots waits",
-            tool,
-            &plan.summary,
-        ),
-        None => d,
-    }
+        })
+        .fold(d, |d, r| {
+            d.labelled(&policy.outside_label(Access::Write, &r.path))
+        })
 }
 
 #[cfg(test)]
