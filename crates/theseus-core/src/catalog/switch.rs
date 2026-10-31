@@ -29,14 +29,35 @@ const BAND: f64 = 0.20;
 
 /// The cost of a switch against the cost of staying, as a word.
 pub(super) fn classify(stay: f64, switch: f64) -> SwitchCost {
-    let _ = (stay, switch, BAND);
-    SwitchCost::AboutTheSame
+    if stay <= 0.0 {
+        // Nothing to compare with: no claim either way.
+        SwitchCost::AboutTheSame
+    } else if switch > stay * (1.0 + BAND) {
+        SwitchCost::CheaperToStay
+    } else if switch < stay * (1.0 - BAND) {
+        SwitchCost::CheaperToSwitch
+    } else {
+        SwitchCost::AboutTheSame
+    }
 }
 
 /// What switching costs `prefix_tokens` of resident prefix, from the `current`
 /// warm model: `about_the_same` where none is warm, or the catalog does not
 /// price it, or no other candidate is priced.
 pub fn switch_cost(catalog: &Catalog, current: Option<&str>, prefix_tokens: u64) -> SwitchCost {
-    let _ = (catalog, current, prefix_tokens);
-    SwitchCost::AboutTheSame
+    let Some((current, warm)) = current.and_then(|m| Some((m, catalog.get(m)?))) else {
+        return SwitchCost::AboutTheSame;
+    };
+    // Per million tokens: the same prefix, so the million cancels out of the ratio.
+    let stay = warm.cache_read_price_at(prefix_tokens);
+    let cheapest = CANDIDATES
+        .iter()
+        .filter(|m| **m != current)
+        .filter_map(|m| catalog.get(m))
+        .map(|e| e.input_price_at(prefix_tokens))
+        .min_by(f64::total_cmp);
+    match cheapest {
+        Some(switch) => classify(stay, switch),
+        None => SwitchCost::AboutTheSame,
+    }
 }
