@@ -2198,6 +2198,67 @@ mod tests {
         assert_eq!(hits(&planted, &names), ["examplecorp"]);
     }
 
+    /// The text of every `.toml` in the packs directory: a pack, its cases,
+    /// anything put beside them (theseus-ev3ir).
+    fn swept_texts(_dir: &std::path::Path) -> Vec<(String, String)> {
+        EMBEDDED
+            .iter()
+            .map(|(name, text)| (name.to_string(), text.to_string()))
+            .collect()
+    }
+
+    /// A `.cases.toml` is a case file, not a pack, so it is not in
+    /// `EMBEDDED`: two sensitive names reached public refs in one, and the
+    /// pack-text test never read it (theseus-ev3ir). The sweep reads the
+    /// directory, and a fake name planted in a new file there is found.
+    #[test]
+    fn a_cases_file_beside_the_packs_is_swept() {
+        let dir = std::env::temp_dir().join(format!("theseus-ev3ir-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("zz.cases.toml"),
+            "[[case]]\nlabel = \"ExampleCorp's private plans\"\n",
+        )
+        .unwrap();
+        let names = vec!["examplecorp".to_string()];
+        let texts = swept_texts(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        let found: Vec<&str> = texts
+            .iter()
+            .filter(|(_, text)| !hits(text, &names).is_empty())
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(found, ["zz.cases"], "the planted name was not found");
+    }
+
+    /// The real packs directory: every `.toml` in it is swept (the count is
+    /// asserted, so an empty sweep cannot pass), and none names the template's
+    /// organisations or one of the old names held as digests.
+    #[test]
+    fn the_packs_directory_names_no_organisation() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs");
+        let on_disk = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter(|e| {
+                let path = e.as_ref().unwrap().path();
+                path.extension().is_some_and(|x| x == "toml")
+            })
+            .count();
+        let texts = swept_texts(&dir);
+        assert!(on_disk > EMBEDDED.len(), "no file beside the packs to sweep");
+        assert_eq!(texts.len(), on_disk, "the sweep missed a file in packs/");
+        let names = ["examplecorp", "examplecorpinc", "example-repo", "example-utils"]
+            .map(String::from);
+        let mut clean = Default::default();
+        for (name, text) in &texts {
+            assert_eq!(hits(text, &names), Vec::<String>::new(), "{name}");
+            assert!(
+                !crate::names::names_an_old_name(text, &mut clean),
+                "{name} names an old name"
+            );
+        }
+    }
+
     /// A judgment's record of its dynamic sources (theseus-gyjyo.1): every
     /// source the pack's questions draw on, an empty one included, and only
     /// those; read back for a pack that needs the same, and refused, naming
