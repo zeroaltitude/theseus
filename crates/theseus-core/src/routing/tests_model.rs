@@ -1,6 +1,7 @@
 //! route.v10's `model` path, purely (theseus-h66v4 row 3, design §1.4 steps 3, 4,
 //! 6 and 7): the pick Jev names, the floor, the cache hold, a `short` pick, and
-//! the rules that are gone (the place cap, the class walk, the step down).
+//! the rules that are gone (the place cap, the class walk, the step down; row 6
+//! deleted them).
 
 use super::*;
 
@@ -59,10 +60,9 @@ fn ask<'a>(v: &'a Verdict, base: &'a str, est: u64) -> Ask<'a> {
 }
 
 fn cfg() -> RoutingConfig {
-    RoutingConfig {
-        cold_switch_tokens: COLD,
-        ..RoutingConfig::default()
-    }
+    let mut c = RoutingConfig::default();
+    c.cold_switch_tokens = COLD;
+    c
 }
 
 fn d(v: &Verdict, base: &str, est: u64) -> Decision {
@@ -330,46 +330,31 @@ fn a_short_context_applies_whatever_became_of_the_model() {
 
 #[test]
 fn nothing_of_the_old_walk_is_left() {
-    // A cap that would refuse every profile is not read.
-    let v = open("fable", "full");
-    let a = Ask {
-        cap: Some(0.0),
-        ..ask(&v, "haiku", 1_000)
-    };
-    let got = decide(&cfg(), &five_options(), &a);
-    assert_eq!(
-        (got.profile.as_str(), got.reason, got.switch),
-        ("fable", Reason::Verdict, true)
-    );
     // No step down: a session Jev moved up goes down only because Jev says so,
     // at once, with no row of agreeing verdicts.
     let v = open("sonnet", "full");
-    let a = Ask {
-        from: Some("sonnet"),
-        ..ask(&v, "opus", 1_000)
-    };
-    let got = decide(&cfg(), &five_options(), &a);
+    let got = decide(&cfg(), &five_options(), &ask(&v, "opus", 1_000));
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch),
         ("sonnet", Reason::Verdict, true)
     );
-    // No class list: the answer names a model, whatever `[routing.classes]` says.
-    let mut c = cfg();
-    c.classes.trivial.profiles = vec!["sonnet".into()];
-    let v = open("haiku", "full");
-    let got = decide(&c, &five_options(), &ask(&v, "sonnet", 1_000));
-    assert_eq!(got.profile, "haiku");
+    // The answer names a model: the dearest on offer, from the cheapest.
+    let v = open("fable", "full");
+    let got = decide(&cfg(), &five_options(), &ask(&v, "haiku", 1_000));
+    assert_eq!(
+        (got.profile.as_str(), got.reason, got.switch),
+        ("fable", Reason::Verdict, true)
+    );
 }
 
 #[test]
-fn a_verdict_without_a_model_answer_still_walks_the_classes() {
+fn a_verdict_without_a_model_answer_stays_on_the_base() {
     let v = super::tests::verdict("sophisticated", 0.95);
     assert!(!v.open());
-    let ps = super::tests::five();
-    let got = decide(&cfg(), &ps, &super::tests::ask(&v, "sonnet", 1_000));
+    let got = decide(&cfg(), &five_options(), &super::tests::ask(&v, "sonnet", 1_000));
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch),
-        ("opus", Reason::Verdict, true)
+        ("sonnet", Reason::NoVerdict, false)
     );
 }
 
@@ -380,11 +365,6 @@ fn a_late_short_verdict_carries_to_no_other_message() {
         "a short pick is its message's alone"
     );
     assert!(carries(&open("opus", "full")));
-    assert!(
-        carries(&super::tests::verdict("chat", 0.9)),
-        "v8's rule is unchanged"
-    );
-    assert!(!carries(&super::tests::verdict("trivial", 0.9)));
 }
 
 #[test]
@@ -463,9 +443,8 @@ fn every_embedded_pack_that_asks_model_names_only_what_the_table_runs() {
 // The seam between row 3's `model` path and row 4's checkpoint and brief rules
 // (theseus-h66v4's join): each was green alone, against a different `decide`.
 
-/// A task's checkpoint takes Jev's `model` pick whatever the place's cap, up or
-/// down, with no base to return to: the cap field is still carried by the ask
-/// but the `model` path never reads it.
+/// A task's checkpoint takes Jev's `model` pick, up or down, with no base to
+/// return to and no place cap to refuse it.
 #[test]
 fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
     let ps = five_options();
@@ -476,14 +455,10 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
             &ps,
             &checkpoint::CheckpointAsk {
                 verdict: &v,
-                base: "sonnet",
                 current: from,
                 est_tokens: 1_000,
                 hold: None,
                 images: false,
-                cap: Some(0.000_001),
-                moves: 9,
-                open: true,
             },
         );
         assert_eq!(
@@ -504,14 +479,10 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
     let v = open("opus", "full");
     let ask = |hold| checkpoint::CheckpointAsk {
         verdict: &v,
-        base: "sonnet",
         current: "sonnet",
         est_tokens: COLD + 1,
         hold,
         images: false,
-        cap: None,
-        moves: 0,
-        open: true,
     };
     let first = checkpoint::decide(&cfg(), &ps, &ask(None));
     assert_eq!(
@@ -533,7 +504,7 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
 #[test]
 fn a_brief_starts_a_task_on_jevs_pick() {
     let v = open("haiku", "full");
-    let got = brief::brief_base(&cfg(), &five_options(), &ask(&v, "opus", 1_000_000), true);
+    let got = brief::brief_base(&cfg(), &five_options(), &ask(&v, "opus", 1_000_000));
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch),
         ("haiku", Reason::Verdict, true)

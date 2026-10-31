@@ -1477,8 +1477,6 @@ impl Core {
     /// blocking pool. Between sweeps it holds the core only weakly, so a
     /// stopped daemon's core is dropped as before.
     pub fn sweep_spool_after_serving(self: &Arc<Self>) {
-        // And the drafts a crash left unsettled, once (theseus-b0ozi).
-        self.settle_drafts_after_serving();
         let core = Arc::downgrade(self);
         tokio::spawn(async move {
             let mut first = true;

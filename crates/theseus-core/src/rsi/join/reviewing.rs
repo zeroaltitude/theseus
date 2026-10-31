@@ -45,7 +45,6 @@ impl Run<'_> {
         let site = crate::job_model::Site {
             name: "self reviewer",
             pin: core.cfg.self_improve.reviewer_profile.as_deref(),
-            legacy: Some(crate::config::legacy::SELF_REVIEWER),
             job: theseus_judge::builders::JobKind::SelfReviewer {
                 diff_summary: self.b.why.clone(),
                 builder_model: builder.clone(),

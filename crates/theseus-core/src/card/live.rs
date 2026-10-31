@@ -430,12 +430,7 @@ impl Core {
         let ids: Vec<String> = made.iter().map(|p| p.id.clone()).collect();
         let f = CardProposed {
             run,
-            profile: self
-                .cfg
-                .card
-                .profile
-                .as_deref()
-                .unwrap_or(crate::config::legacy::CHEAP),
+            profile: self.cfg.card.profile.as_deref().unwrap_or_default(),
             model: "",
             cost_usd: 0.0,
             input_tokens: 0,

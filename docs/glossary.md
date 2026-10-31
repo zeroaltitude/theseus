@@ -95,14 +95,16 @@ cached prefix and so keeps it from expiring (`crates/theseus-core/src/keep_warm.
 
 ## M
 
-**mode**: a conversation's mode: `ask`, `edits`, `plan`, `auto`. The word used to name more: a routing *task class*
-(`[routing.classes.<name>]`), a pack's *rung* (`[routing] rung`, `[judge.packs.*] rung`), and `on_max_loops` are the new names.
+**mode**: a conversation's mode: `ask`, `edits`, `plan`, `auto`. The word used to name more: a pack's *rung*
+(`[routing] rung`, `[judge.packs.*] rung`) and `on_max_loops` are the new names (a routing *task class*, once
+`[routing.classes.<name>]`, is gone: Jev chooses the model).
 That leaves `[memory] mode` (`off`, `shadow`, `canary`, `live`), `[self] mode` (`off` or `act`) and the spend-limit modes
 (`[kernel] spend_limit_mode`, `daily_spend_ceiling_mode`) to rename later.
 
-**task class**: what the route pack decides a message needs (`trivial`, `quick`, `chat`, `sophisticated`, `deep_coding`,
-`routine_coding`, `review`, `other`), with the profiles that serve it in `[routing.classes.<name>]`; `[routing] rung` is a
-different value, `live` or `shadow`. `theseus why` prints it as "task class".
+**task class**: retired in 1.0.5 (route.v10, theseus-h66v4). The route pack used to decide which of eight classes a
+message needed (`trivial`, `quick`, `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`), with
+the profiles that served it in `[routing.classes.<name>]`; Jev now chooses the model itself, and `theseus why` prints the
+pick (`model=`). A config that still sets `[routing.classes.*]` loads, warns once and ignores it.
 
 ## N
 

@@ -86,15 +86,19 @@ pub struct InjectionBudget {
 /// What a `deep_coding` turn's request carries in its tail (theseus-tdkcn).
 pub const CODING_HINT: &str = "[The harness: for this work, map the code before reading it: list a file's or crate's functions first (fs_grep for function signatures). Read in slices of 100-300 lines with offset and limit, not whole files. After each slice, write a line of what you checked and what you found, so your findings survive when old results are cleared. Keep going until the areas you were asked about are covered.]";
 
+/// A verdict folds to a tier only at this confidence or more (`[routing]
+/// switch_confidence`'s default, retired with the class table).
+const TIER_CONFIDENCE: f64 = 0.6;
+
 /// The tier a verdict folds to, and why it is ordinary when it fell back.
-pub fn tier_of(seen: Seen<'_>, cfg: &Config) -> (Tier, Option<&'static str>) {
+pub fn tier_of(seen: Seen<'_>) -> (Tier, Option<&'static str>) {
     let v = match seen {
         Seen::Verdict(v) => v,
         Seen::Late => return (Tier::Ordinary, Some("verdict late")),
         Seen::Missing => return (Tier::Ordinary, Some("no verdict")),
         Seen::Off => return (Tier::Ordinary, Some("routing off")),
     };
-    if v.confidence < cfg.routing.confidence_for(&v.mode) {
+    if v.confidence < TIER_CONFIDENCE {
         return (Tier::Ordinary, Some("unsure"));
     }
     let tier = match v.mode.as_str() {
@@ -131,7 +135,7 @@ impl InjectionBudget {
     /// coding flag when an acting verdict's mode is `deep_coding`.
     pub fn read(seen: Seen<'_>, cfg: &Config) -> Self {
         let coding = matches!(seen, Seen::Verdict(v) if v.mode == "deep_coding");
-        let mut b = Self::of(tier_of(seen, cfg), cfg);
+        let mut b = Self::of(tier_of(seen), cfg);
         b.coding = coding && b.fallback.is_none();
         b
     }
@@ -294,7 +298,6 @@ mod tests {
 
     #[test]
     fn each_mode_folds_to_its_tier_and_the_rest_to_ordinary() {
-        let cfg = Config::example();
         for (mode, tier) in [
             ("trivial", Tier::Small),
             ("quick", Tier::Ordinary),
@@ -306,19 +309,19 @@ mod tests {
             ("review", Tier::Deep),
         ] {
             assert_eq!(
-                tier_of(Seen::Verdict(&v(mode, 0.95)), &cfg),
+                tier_of(Seen::Verdict(&v(mode, 0.95))),
                 (tier, None),
                 "{mode}"
             );
         }
         let unsure = v("deep_coding", 0.1);
         assert_eq!(
-            tier_of(Seen::Verdict(&unsure), &cfg),
+            tier_of(Seen::Verdict(&unsure)),
             (Tier::Ordinary, Some("unsure"))
         );
-        assert_eq!(tier_of(Seen::Late, &cfg).1, Some("verdict late"));
-        assert_eq!(tier_of(Seen::Missing, &cfg).1, Some("no verdict"));
-        assert_eq!(tier_of(Seen::Off, &cfg).1, Some("routing off"));
+        assert_eq!(tier_of(Seen::Late).1, Some("verdict late"));
+        assert_eq!(tier_of(Seen::Missing).1, Some("no verdict"));
+        assert_eq!(tier_of(Seen::Off).1, Some("routing off"));
     }
 
     /// The approved numbers (the owner, 2026-10-22: "far more generous").

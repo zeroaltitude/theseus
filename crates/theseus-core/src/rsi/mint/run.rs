@@ -294,7 +294,6 @@ impl Core {
         let site = Site {
             name: "self builder",
             pin: None,
-            legacy: None,
             job: JobKind::SelfBuilder { brief, private },
             restricted: RestrictedModels::allowed_if(!private),
         };

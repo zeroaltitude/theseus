@@ -212,7 +212,7 @@ impl TurnRunner {
     /// The route's answer, kept where the floor lets the turn run: the
     /// decision stands when the floor lets its profile (else the turn's own)
     /// run, else the `[model]` default runs if the floor lets it and it is
-    /// usable, else the turn ends (a draft's ends rather than leave its model).
+    /// usable, else the turn ends.
     pub(super) fn data_floor(
         &self,
         t: &mut Turn<'_>,
@@ -225,9 +225,6 @@ impl TurnRunner {
         let Some(why) = self.floor_refuses(floor, ran) else {
             return Ok(decision);
         };
-        if let Some(f) = Self::draft_stopped(t, &why, true) {
-            return Err(f);
-        }
         t.route.gated = Some(t.route.cn.word());
         let usable = self
             .route_profiles(floor)
@@ -272,10 +269,6 @@ impl TurnRunner {
         self.cn_settle(t).await;
         if t.route.cn == Cn::Allowed {
             return Ok(None);
-        }
-        let why = format!("its session's labels: {}", t.route.cn.word());
-        if let Some(f) = Self::draft_stopped(t, &why, false) {
-            return Ok(Some(f));
         }
         let d = Decision {
             profile: DEFAULT_PROFILE.into(),

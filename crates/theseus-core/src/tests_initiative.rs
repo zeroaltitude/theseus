@@ -321,7 +321,6 @@ async fn a_tasks_request_carries_its_parents_persona() {
             class: crate::places::PlaceClass::Private,
             ceiling: None,
             voice: false,
-            draft: None,
         },
     );
     assert!(

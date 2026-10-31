@@ -44,7 +44,6 @@ impl TurnRunner {
                 let site = Site {
                     name: "compaction",
                     pin: None,
-                    legacy: None,
                     job: JobKind::Compaction {
                         oldest_tokens: ring
                             .budget

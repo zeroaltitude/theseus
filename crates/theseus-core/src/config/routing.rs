@@ -1,25 +1,24 @@
-//! `[routing]` (M5 step 25e): Jev's model per task class. The route
-//! pack (`route.v4` since theseus-p8dy; `route.v3`, `route.v2` and `route.v1` before it)
-//! asks, at `inbound`, which task class a person's message needs, and the turn runs
-//! on that class's first usable profile; since route.v3 it also asks the
-//! effort the reply needs, which the turn's model runs at, within
-//! `effort_bounds`. It acts only while `[judge]` is on, and
-//! `rung = "shadow"` (or `[judge.packs."route.v4"] rung = "shadow"`) records
-//! the verdict and routes nothing. Every key has a default, so a sparse note
-//! holds only what differs.
-
-use std::borrow::Cow;
+//! `[routing]` (M5 step 25e): the switch's few knobs. Jev chooses the model and
+//! its effort (route.v10, theseus-h66v4); this section holds what the daemon
+//! keeps of routing around those answers: whether it acts, how long a turn waits
+//! for the verdict, the exchanges a `short` context carries, the cache's one
+//! hysteresis (`cold_switch_tokens`), the owner's corrections and a task's
+//! checkpoint triggers. It acts only while `[judge]` is on, and `rung = "shadow"`
+//! (or `[judge.packs."route.v10"] rung = "shadow"`) records the verdict and
+//! routes nothing. Every key has a default, so a sparse note holds only what
+//! differs.
+//!
+//! The keys of the routing that Jev's choice replaced (a table of profiles per
+//! class, the confidence bars, the effort bounds and bars, the dear tier's
+//! guard, a task's switch cap) still load: they warn once ([`RoutingConfig::retired`]),
+//! do nothing, and are never written back, for one release.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::{Effort, PackMode};
+use super::PackMode;
 
 pub use super::routing_checkpoints::TaskCheckpoints;
-
-/// The profile name that means the usable profile cheapest for a short
-/// turn at catalog prices (reserved: no profile may take it).
-pub const CHEAPEST: &str = "cheapest";
 
 /// `[routing]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,8 +33,7 @@ pub struct RoutingConfig {
     /// How long the turn waits for the verdict after its first compile ends.
     #[serde(default = "max_wait_ms")]
     pub max_wait_ms: u64,
-    /// The exchanges a detour's request (`trivial`, `quick`) carries before
-    /// the message.
+    /// The exchanges a `short` context's request carries before the message.
     #[serde(default = "trivial_context_turns")]
     pub trivial_context_turns: u32,
     /// A switch of the session's profile at a compile of this many estimated
@@ -43,48 +41,30 @@ pub struct RoutingConfig {
     /// it, the cache a switch leaves cold costs more.
     #[serde(default = "cold_switch_tokens")]
     pub cold_switch_tokens: u64,
-    /// A verdict routes only at this confidence or more (detours included),
-    /// unless its mode sets its own bar (`[routing.classes.<class>]`).
-    #[serde(default = "switch_confidence")]
-    pub switch_confidence: f64,
-    /// The efforts Jev's answer may set, lowest and highest, inclusive
-    /// (route.v3, theseus-qe3v): an answer outside them is clamped to the
-    /// nearer one. The full range by default.
-    #[serde(default = "effort_bounds")]
-    pub effort_bounds: [Effort; 2],
-    /// Jev's answer of `xhigh` or `max` applies only when its confidence is
-    /// strictly above this (theseus-p8dy; 0.40 since the owner's 2026-10-22
-    /// "reduce required confidence"); at or below, the turn runs at `high`.
-    #[serde(default = "high_effort_confidence")]
-    pub high_effort_confidence: f64,
-    /// An effort answer whose band is under the question's confirm bar still
-    /// applies at this confidence or more (theseus-7pm8t): an effort level is
-    /// not held to the model switch's bar. At most `high_effort_confidence`.
-    #[serde(default = "effort_confidence")]
-    pub effort_confidence: f64,
-    /// The bar under which an effort answer applies nothing, so the turn runs
-    /// at its profile's own effort and the row says `gated` (theseus-l7i9k,
-    /// regress R4). Unset (the default) is off: `floored`, `applied_unsure`
-    /// and `held_high_unsure` apply as they do. Above `effort_confidence`,
-    /// at most 1. Off because its own verification is a pass-rate comparison
-    /// no bench has run; the template says what would turn it on.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort_floor_confidence: Option<f64>,
-    /// The dear tier's context guard (theseus-p8dy): at a compile of more
-    /// estimated tokens than this, a `sophisticated` or `review` verdict skips
-    /// a profile whose input price is above the next usable one's in the
-    /// mode's list.
-    #[serde(default = "dear_tier_max_tokens")]
-    pub dear_tier_max_tokens: u64,
-    /// Each task class's profiles, in order: the first usable wins.
-    #[serde(default)]
-    pub classes: RoutingClasses,
     /// The owner's corrections of routing (theseus-q31l).
     #[serde(default)]
     pub corrections: CorrectionsConfig,
     /// A running task's model ranges (theseus-ypnxt.9).
     #[serde(default)]
     pub task_checkpoints: TaskCheckpoints,
+    /// The keys Jev's choice retired (route.v10, theseus-h66v4): read, warned
+    /// of ([`Self::retired`]), ignored and never written back. `classes` is
+    /// the table of profiles per class, with its `cn_*`, `final` and
+    /// `first_pass` keys.
+    #[serde(default, skip_serializing)]
+    switch_confidence: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    effort_bounds: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    high_effort_confidence: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    effort_confidence: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    effort_floor_confidence: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    dear_tier_max_tokens: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    classes: Option<toml::Table>,
 }
 
 /// `[routing.corrections]` (theseus-q31l): the owner's corrections in a
@@ -125,105 +105,6 @@ pub enum RoutingMode {
     Shadow,
 }
 
-/// `[routing.classes.<class>]`, one per mode the route pack answers (`other`
-/// is routed as `chat`; `quick` is route.v2's, theseus-3okf).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RoutingClasses {
-    #[serde(default = "trivial")]
-    pub trivial: ClassProfiles,
-    #[serde(default = "quick")]
-    pub quick: ClassProfiles,
-    #[serde(default)]
-    pub chat: ClassProfiles,
-    #[serde(default = "sophisticated")]
-    pub sophisticated: ClassProfiles,
-    #[serde(default = "deep_coding")]
-    pub deep_coding: ClassProfiles,
-    #[serde(default = "routine_coding")]
-    pub routine_coding: ClassProfiles,
-    /// route.v4's `review` (theseus-p8dy): verification of work already made.
-    #[serde(default = "review")]
-    pub review: ClassProfiles,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ClassProfiles {
-    /// Profile names (or `cheapest`), in order; empty: the session's own.
-    #[serde(default)]
-    pub profiles: Vec<String>,
-    /// The confidence this mode's verdict needs to route (theseus-6n5j).
-    /// Unset: `[routing] switch_confidence`, except `trivial`, whose bar is
-    /// [`TRIVIAL_CONFIDENCE`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub switch_confidence: Option<f64>,
-    /// Restricted (China-origin or unknown-origin) profiles this class may
-    /// use, only for an ask that an open request can be built for
-    /// (theseus-a1wvq.4). `trivial` alone takes any; they never enter by
-    /// `profiles`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub cn_profiles: Vec<String>,
-    /// The entry of `profiles` the `cn_profiles` go right after; unset, they
-    /// go first.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cn_after: Option<String>,
-    /// A restricted profile that drafts this class's coding asks in a tree of
-    /// its own, never applied until a `final` profile has reviewed it
-    /// (theseus-a1wvq.13): `routine_coding` and `deep_coding` only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cn_draft: Option<String>,
-    /// The Claude profiles that review and finish every draft: the first
-    /// usable runs. Required with `cn_draft`, refused without it.
-    #[serde(default, rename = "final", skip_serializing_if = "Vec::is_empty")]
-    pub final_review: Vec<String>,
-    /// A restricted profile that reads the draft's diff for bugs before the
-    /// `final` review opens, on open content only; its findings go to that
-    /// review and nowhere else (theseus-a1wvq.17). Refused without `cn_draft`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub first_pass: Option<String>,
-}
-
-/// `trivial`'s bar when its table sets none (theseus-6n5j, the owner's
-/// "about 40% for trivial only", 2026-10-04): a wrong trivial call is cheap,
-/// since a detour carries only the last `trivial_context_turns` exchanges to
-/// the trivial profile, for that turn alone.
-pub const TRIVIAL_CONFIDENCE: f64 = 0.4;
-
-/// The classes, in the pack's order.
-pub const MODES: [&str; 7] = [
-    "trivial",
-    "quick",
-    "chat",
-    "sophisticated",
-    "deep_coding",
-    "routine_coding",
-    "review",
-];
-
-/// The classes whose turn is a detour (theseus-3okf; `trivial` alone before
-/// it): that turn alone runs on the mode's profile, with the last
-/// `trivial_context_turns` exchanges, and the session stays where it was, its
-/// cache warm. A late verdict of one of them applies to no message
-/// (`routing::carries`). Every other mode switches the session.
-pub const DETOURS: [&str; 2] = ["trivial", "quick"];
-
-/// Whether `mode`'s turn is a detour ([`DETOURS`]).
-pub fn is_detour(mode: &str) -> bool {
-    DETOURS.contains(&mode)
-}
-
-/// The detours whose request carries the turn's recall (theseus-pa1xx): a
-/// quick question is often about what was said or decided before, which only
-/// recall holds. A trivial one (a greeting, a thanks) carries none
-/// (theseus-n7nc).
-pub const RECALLING_DETOURS: [&str; 1] = ["quick"];
-
-/// Whether `mode`'s detour carries the turn's recall ([`RECALLING_DETOURS`]).
-pub fn detour_recalls(mode: &str) -> bool {
-    RECALLING_DETOURS.contains(&mode)
-}
-
 fn yes() -> bool {
     true
 }
@@ -239,113 +120,11 @@ fn trivial_context_turns() -> u32 {
 fn cold_switch_tokens() -> u64 {
     30_000
 }
-fn switch_confidence() -> f64 {
-    0.6
-}
 fn similarity() -> f64 {
     0.5
 }
 fn max_entries() -> u32 {
     64
-}
-fn effort_bounds() -> [Effort; 2] {
-    [Effort::Low, Effort::Max]
-}
-fn high_effort_confidence() -> f64 {
-    0.40
-}
-fn effort_confidence() -> f64 {
-    0.35
-}
-fn dear_tier_max_tokens() -> u64 {
-    200_000
-}
-fn list(names: &[&str]) -> ClassProfiles {
-    ClassProfiles {
-        profiles: names.iter().map(|s| (*s).to_string()).collect(),
-        ..Default::default()
-    }
-}
-/// Haiku 5.5, then the cheapest usable profile, so a config without Haiku
-/// still detours as it did before (theseus-3okf). GLM-5.3 Flash comes back
-/// only through `cn_profiles`, for a request that carries open content,
-/// behind Haiku (theseus-a1wvq.4).
-fn trivial() -> ClassProfiles {
-    list(&["haiku", CHEAPEST])
-}
-/// Haiku 5.5 alone: a config without it runs a quick message on the
-/// session's own profile, as it did while `chat` held them.
-fn quick() -> ClassProfiles {
-    list(&["haiku"])
-}
-fn sophisticated() -> ClassProfiles {
-    list(&["opus", "fable"])
-}
-fn deep_coding() -> ClassProfiles {
-    list(&["opus", "sonnet"])
-}
-/// Haiku 5.5 at high effort, then Sonnet 5.5 (theseus-3okf): a config
-/// without `haikuhi` runs routine programming on `sonnet`, or the session's
-/// own.
-fn routine_coding() -> ClassProfiles {
-    list(&["haikuhi", "sonnet"])
-}
-/// Opus 5.5 at high effort, then Fable 5.1 (theseus-p8dy): a config without
-/// `opushi` reviews on `fable`, or the session's own.
-fn review() -> ClassProfiles {
-    list(&["opushi", "fable"])
-}
-
-impl Default for RoutingClasses {
-    fn default() -> Self {
-        Self {
-            trivial: trivial(),
-            quick: quick(),
-            chat: ClassProfiles::default(),
-            sophisticated: sophisticated(),
-            deep_coding: deep_coding(),
-            routine_coding: routine_coding(),
-            review: review(),
-        }
-    }
-}
-
-impl RoutingClasses {
-    /// A mode's table; `other` and any unknown mode are `chat`'s.
-    pub fn table(&self, mode: &str) -> &ClassProfiles {
-        match mode {
-            "trivial" => &self.trivial,
-            "quick" => &self.quick,
-            "sophisticated" => &self.sophisticated,
-            "deep_coding" => &self.deep_coding,
-            "routine_coding" => &self.routine_coding,
-            "review" => &self.review,
-            _ => &self.chat,
-        }
-    }
-
-    /// A mode's profiles; `other` and any unknown mode are `chat`'s.
-    pub fn of(&self, mode: &str) -> &[String] {
-        &self.table(mode).profiles
-    }
-
-    /// The list a verdict walks: `profiles`, and for a cleared ask the
-    /// `cn_profiles` too, first or right after `cn_after`. Borrowed whenever
-    /// nothing is added (theseus-a1wvq.4).
-    pub fn effective(&self, mode: &str, cleared: bool) -> Cow<'_, [String]> {
-        let t = self.table(mode);
-        if !cleared || t.cn_profiles.is_empty() {
-            return Cow::Borrowed(&t.profiles);
-        }
-        let at = t
-            .cn_after
-            .as_ref()
-            .and_then(|a| t.profiles.iter().position(|p| p == a))
-            .map_or(0, |i| i + 1);
-        let mut out = t.profiles.clone();
-        out.splice(at..at, t.cn_profiles.iter().cloned());
-        Cow::Owned(out)
-    }
 }
 
 impl Default for RoutingConfig {
@@ -356,15 +135,15 @@ impl Default for RoutingConfig {
             max_wait_ms: max_wait_ms(),
             trivial_context_turns: trivial_context_turns(),
             cold_switch_tokens: cold_switch_tokens(),
-            switch_confidence: switch_confidence(),
-            effort_bounds: effort_bounds(),
-            high_effort_confidence: high_effort_confidence(),
-            effort_confidence: effort_confidence(),
-            effort_floor_confidence: None,
-            dear_tier_max_tokens: dear_tier_max_tokens(),
-            classes: RoutingClasses::default(),
             corrections: CorrectionsConfig::default(),
             task_checkpoints: TaskCheckpoints::default(),
+            switch_confidence: None,
+            effort_bounds: None,
+            high_effort_confidence: None,
+            effort_confidence: None,
+            effort_floor_confidence: None,
+            dear_tier_max_tokens: None,
+            classes: None,
         }
     }
 }
@@ -374,62 +153,12 @@ impl RoutingConfig {
         *self == Self::default()
     }
 
-    /// The checks as the config loads. A profile a mode names need not be
-    /// configured (the defaults name `haiku`, `haikuhi`, `opus` and `fable`,
-    /// which a sparse note may lack): one that is not is skipped as unusable.
-    pub fn validate(&self, profiles: impl Fn(&str) -> bool) -> Result<()> {
-        let c = self.switch_confidence;
-        if !(c > 0.0 && c <= 1.0) {
-            anyhow::bail!("routing.switch_confidence must be above 0 and at most 1");
-        }
-        for m in MODES {
-            if let Some(c) = self.classes.table(m).switch_confidence {
-                if !(c > 0.0 && c <= 1.0) {
-                    anyhow::bail!(
-                        "routing.classes.{m}.switch_confidence must be above 0 and at most 1"
-                    );
-                }
-            }
-        }
-        if self.effort_bounds[0] > self.effort_bounds[1] {
-            anyhow::bail!(
-                "routing.effort_bounds is [lowest, highest]: its first is above its second"
-            );
-        }
-        let h = self.high_effort_confidence;
-        if !(h > 0.0 && h <= 1.0) {
-            anyhow::bail!("routing.high_effort_confidence must be above 0 and at most 1");
-        }
-        let e = self.effort_confidence;
-        if !(e > 0.0 && e <= h) {
-            anyhow::bail!(
-                "routing.effort_confidence must be above 0 and at most routing.high_effort_confidence"
-            );
-        }
-        if let Some(f) = self.effort_floor_confidence {
-            if !(f > e && f <= 1.0) {
-                anyhow::bail!(
-                    "routing.effort_floor_confidence must be above routing.effort_confidence and at most 1"
-                );
-            }
-        }
-        if self.dear_tier_max_tokens == 0 {
-            anyhow::bail!("routing.dear_tier_max_tokens must be at least 1");
-        }
+    /// The checks as the config loads.
+    pub fn validate(&self) -> Result<()> {
         if self.max_wait_ms > 5_000 {
             anyhow::bail!(
                 "routing.max_wait_ms must be at most 5000: the turn waits that long for its verdict"
             );
-        }
-        if profiles(CHEAPEST) {
-            anyhow::bail!(
-                "[profiles.{CHEAPEST}] takes a reserved name: [routing] uses it for the cheapest usable profile"
-            );
-        }
-        for m in MODES {
-            if let Some(p) = self.classes.of(m).iter().find(|p| p.trim().is_empty()) {
-                anyhow::bail!("routing.classes.{m}.profiles has an empty name {p:?}");
-            }
         }
         self.task_checkpoints.validate()?;
         let c = &self.corrections;
@@ -442,15 +171,38 @@ impl RoutingConfig {
         Ok(())
     }
 
-    /// The confidence a verdict of `mode` needs to route: its mode's own
-    /// bar, else trivial's [`TRIVIAL_CONFIDENCE`], else the section's
-    /// `switch_confidence` (theseus-6n5j).
-    pub fn confidence_for(&self, mode: &str) -> f64 {
-        let own = self.classes.table(mode).switch_confidence;
-        own.unwrap_or(match mode {
-            "trivial" => TRIVIAL_CONFIDENCE,
-            _ => self.switch_confidence,
-        })
+    /// The retired keys this section sets, by the name the config gives
+    /// them: what [`crate::Config::parse`] warns of, once.
+    pub fn retired(&self) -> Vec<String> {
+        let keys = [
+            ("switch_confidence", self.switch_confidence.is_some()),
+            ("effort_bounds", self.effort_bounds.is_some()),
+            (
+                "high_effort_confidence",
+                self.high_effort_confidence.is_some(),
+            ),
+            ("effort_confidence", self.effort_confidence.is_some()),
+            (
+                "effort_floor_confidence",
+                self.effort_floor_confidence.is_some(),
+            ),
+            ("dear_tier_max_tokens", self.dear_tier_max_tokens.is_some()),
+        ];
+        let mut out: Vec<String> = keys
+            .iter()
+            .filter(|(_, set)| *set)
+            .map(|(k, _)| format!("routing.{k}"))
+            .collect();
+        if let Some(classes) = &self.classes {
+            out.extend(classes.keys().map(|c| format!("routing.classes.{c}")));
+            if classes.is_empty() {
+                out.push("routing.classes".into());
+            }
+        }
+        if self.task_checkpoints.max_switches.is_some() {
+            out.push("routing.task_checkpoints.max_switches".into());
+        }
+        out
     }
 
     /// What the route pack may do: the judge's mode for it, lowered by this
@@ -466,23 +218,9 @@ impl RoutingConfig {
     }
 }
 
-/// The China-origin guidance is real (theseus-a1wvq.12): a draft for routine coding, the pair deep coding keeps
-/// off by default, and the trivial class's GLM after Haiku.
-#[cfg(test)]
-fn the_templates_china_origin_guidance(cfg: &crate::Config) {
-    let classes = &cfg.routing.classes;
-    assert_eq!(classes.routine_coding.cn_draft.as_deref(), Some("dsflash"));
-    assert_eq!(classes.routine_coding.final_review, ["sonnet"]);
-    assert_eq!(classes.deep_coding.cn_draft.as_deref(), Some("dsflashmax"));
-    assert_eq!(classes.deep_coding.final_review, ["sonnethi", "opus"]);
-    assert_eq!(classes.trivial.cn_profiles, ["glm"]);
-}
-
-/// The template's `[routing]`, un-commented: its defaults, and the
-/// profiles its classes name configured.
+/// The template's `[routing]`, un-commented: its defaults.
 #[cfg(test)]
 pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
-    the_templates_china_origin_guidance(cfg);
     let r = &cfg.routing;
     assert!(r.enabled);
     assert_eq!(r.mode, RoutingMode::Live);
@@ -490,39 +228,9 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
         (r.max_wait_ms, r.trivial_context_turns, r.cold_switch_tokens),
         (200, 2, 30_000)
     );
-    assert_eq!(r.switch_confidence, 0.6);
-    assert_eq!(r.effort_bounds, effort_bounds(), "the full range");
-    assert_eq!(r.high_effort_confidence, 0.40);
-    assert_eq!(r.effort_confidence, 0.35);
-    assert_eq!(r.dear_tier_max_tokens, 200_000);
-    for m in MODES {
-        assert_eq!(r.classes.of(m), RoutingClasses::default().of(m), "{m}");
-    }
     assert_eq!(r.corrections, CorrectionsConfig::default());
     assert_eq!(r.task_checkpoints, TaskCheckpoints::default());
-    // Its one commented bar is trivial's, at the default it documents.
-    assert_eq!(
-        r.classes.trivial.switch_confidence,
-        Some(TRIVIAL_CONFIDENCE)
-    );
-    assert_eq!(r.confidence_for("trivial"), TRIVIAL_CONFIDENCE);
-    assert_eq!(r.confidence_for("sophisticated"), 0.6);
-    for (p, model) in [
-        ("opus", "claude-opus-5-5"),
-        ("fable", "claude-fable-5-1"),
-        ("glm53", "glm-5.3"),
-        ("haiku", "claude-haiku-5-5"),
-        ("haikuhi", "claude-haiku-5-5"),
-        ("opushi", "claude-opus-5-5"),
-    ] {
-        assert_eq!(cfg.all_profiles()[p].model, model, "[profiles.{p}]");
-    }
-    // Every profile a mode names is the template's, but `cheapest`.
-    for m in MODES {
-        for p in r.classes.of(m).iter().filter(|p| *p != CHEAPEST) {
-            assert!(cfg.all_profiles().contains_key(p), "{m}: {p}");
-        }
-    }
+    assert!(r.retired().is_empty(), "the template sets no retired key");
 }
 
 #[cfg(test)]
@@ -537,15 +245,7 @@ mod tests {
     fn the_defaults_are_the_steps_table() {
         let d = cfg("").unwrap();
         assert_eq!(d, RoutingConfig::default());
-        assert_eq!(d.classes.of("trivial"), ["haiku", "cheapest"]);
-        assert_eq!(d.classes.of("quick"), ["haiku"]);
-        assert!(d.classes.of("chat").is_empty());
-        assert_eq!(d.classes.of("other"), d.classes.of("chat"));
-        assert_eq!(d.classes.of("sophisticated"), ["opus", "fable"]);
-        assert_eq!(d.classes.of("deep_coding"), ["opus", "sonnet"]);
-        assert_eq!(d.classes.of("routine_coding"), ["haikuhi", "sonnet"]);
-        assert_eq!(d.classes.of("review"), ["opushi", "fable"]);
-        d.validate(|_| false).unwrap();
+        d.validate().unwrap();
         assert_eq!(
             (
                 d.corrections.enabled,
@@ -563,217 +263,64 @@ mod tests {
             cfg("[corrections]\nthreshold = 0.7").is_err(),
             "an unknown key"
         );
-    }
-
-    #[test]
-    fn one_mode_set_keeps_the_others_defaults() {
-        let c = cfg("[classes.chat]\nprofiles = [\"sonnet\"]").unwrap();
-        assert_eq!(c.classes.of("chat"), ["sonnet"]);
-        assert_eq!(c.classes.of("sophisticated"), ["opus", "fable"]);
-        assert!(
-            cfg("[classes.poetry]\nprofiles = []").is_err(),
-            "no such mode"
-        );
         assert!(cfg("wait_ms = 1").is_err(), "an unknown key");
     }
 
+    /// Every key Jev's choice retired (theseus-h66v4, row 6): it loads, is
+    /// named by `retired()`, validates whatever its value was, and is never
+    /// written back. The live config named three of them before the row.
     #[test]
-    fn the_checks_refuse_what_cannot_hold() {
-        for bad in [
-            "switch_confidence = 0.0",
-            "switch_confidence = 1.5",
-            "high_effort_confidence = 0.0",
-            "high_effort_confidence = 1.1",
-            "effort_confidence = 0.0",
-            "effort_confidence = 0.5",
-            "dear_tier_max_tokens = 0",
-            "max_wait_ms = 9000",
-            "[corrections]\nsimilarity = 0.0",
-            "[corrections]\nsimilarity = 1.2",
-            "[corrections]\nmax_entries = 0",
-        ] {
-            assert!(cfg(bad).unwrap().validate(|_| false).is_err(), "{bad}");
-        }
-        let empty = cfg("[classes.trivial]\nprofiles = [\" \"]").unwrap();
-        assert!(empty.validate(|_| false).is_err());
-        for bad in ["0.0", "1.5", "-0.1"] {
-            let c = cfg(&format!("[classes.chat]\nswitch_confidence = {bad}")).unwrap();
-            let e = c.validate(|_| false).unwrap_err();
-            assert!(
-                format!("{e:#}").contains("routing.classes.chat.switch_confidence"),
-                "{bad}: {e:#}"
-            );
-        }
-        let e = cfg("").unwrap().validate(|p| p == CHEAPEST).unwrap_err();
-        assert!(format!("{e:#}").contains("reserved"));
-    }
-
-    /// Each mode's bar (theseus-6n5j): trivial's is 0.4 when its table sets
-    /// none, a table naming only its profiles included (the owner's config
-    /// names trivial's profiles); every other mode takes the section's; a
-    /// mode's own bar wins, the section's raised or lowered.
-    #[test]
-    fn each_mode_routes_at_its_own_bar_and_trivial_at_four_tenths() {
-        let d = cfg("").unwrap();
-        assert_eq!(d.confidence_for("trivial"), 0.4);
-        for m in [
-            "quick",
-            "chat",
-            "sophisticated",
-            "deep_coding",
-            "routine_coding",
-            "review",
-            "other",
-        ] {
-            assert_eq!(d.confidence_for(m), 0.6, "{m}");
-        }
-        let named = cfg("[classes.trivial]\nprofiles = [\"haiku\", \"glm\"]").unwrap();
-        assert_eq!(named.confidence_for("trivial"), 0.4);
-        let raised = cfg("switch_confidence = 0.8").unwrap();
-        assert_eq!(raised.confidence_for("chat"), 0.8, "the section's bar");
-        assert_eq!(raised.confidence_for("trivial"), 0.4, "trivial's own");
-        let own = cfg(
-            "[classes.trivial]\nswitch_confidence = 0.55\n[classes.sophisticated]\nswitch_confidence = 0.75",
-        )
-        .unwrap();
-        assert_eq!(own.confidence_for("trivial"), 0.55);
-        assert_eq!(own.confidence_for("sophisticated"), 0.75);
-        assert_eq!(own.confidence_for("deep_coding"), 0.6);
-        own.validate(|_| false).unwrap();
-        // An unset bar is left out when the section is written back.
-        let text = toml::to_string(&d).unwrap();
-        assert!(
-            !text.contains("classes.trivial.switch") && !text.contains("switch_confidence = 0.4"),
-            "{text}"
-        );
-    }
-
-    /// The detours (theseus-3okf): `trivial` and `quick`, each its own
-    /// message's; every other mode, `other` and an unknown one included,
-    /// switches. `quick` takes its own table.
-    #[test]
-    fn trivial_and_quick_are_the_detours() {
+    fn a_retired_key_loads_warns_and_is_never_written_back() {
+        let text = "switch_confidence = 0.0\n\
+                    effort_bounds = [\"medium\", \"high\"]\n\
+                    high_effort_confidence = 0.40\n\
+                    effort_confidence = 0.5\n\
+                    effort_floor_confidence = 1.1\n\
+                    dear_tier_max_tokens = 0\n\
+                    [classes.deep_coding]\nprofiles = [\"sonnethi\", \"opus\"]\n\
+                    [classes.trivial]\nprofiles = [\"haiku\"]\ncn_draft = \"dsflash\"\n\
+                    [task_checkpoints]\nmax_switches = 99\n";
+        let c = cfg(text).unwrap();
+        c.validate().unwrap();
         assert_eq!(
-            MODES.iter().filter(|m| is_detour(m)).collect::<Vec<_>>(),
-            [&"trivial", &"quick"]
+            c.retired(),
+            [
+                "routing.switch_confidence",
+                "routing.effort_bounds",
+                "routing.high_effort_confidence",
+                "routing.effort_confidence",
+                "routing.effort_floor_confidence",
+                "routing.dear_tier_max_tokens",
+                "routing.classes.deep_coding",
+                "routing.classes.trivial",
+                "routing.task_checkpoints.max_switches",
+            ]
         );
-        for m in ["chat", "other", "sophisticated", "routine_coding", "poetry"] {
-            assert!(!is_detour(m), "{m}");
+        let written = toml::to_string(&c).unwrap();
+        for gone in ["switch_confidence", "classes", "max_switches", "effort_bounds"] {
+            assert!(!written.contains(gone), "{gone} written back: {written}");
         }
-        let c = cfg("[classes.quick]\nprofiles = [\"glm\"]\nswitch_confidence = 0.7").unwrap();
-        assert_eq!(c.classes.of("quick"), ["glm"]);
-        assert_eq!(c.confidence_for("quick"), 0.7);
-        assert_eq!(c.classes.of("trivial"), ["haiku", "cheapest"]);
-        c.validate(|_| false).unwrap();
-    }
-
-    /// A quick detour carries the turn's recall, a trivial one none
-    /// (theseus-pa1xx); every recalling mode is a detour.
-    #[test]
-    fn a_quick_detour_recalls_and_a_trivial_one_does_not() {
-        assert!(detour_recalls("quick"));
-        assert!(!detour_recalls("trivial"));
-        assert!(RECALLING_DETOURS.iter().all(|m| is_detour(m)));
-    }
-
-    /// `effort_bounds` (route.v3, theseus-qe3v): the full range by default,
-    /// any two levels lowest first, and a pair the wrong way round refused.
-    #[test]
-    fn the_effort_bounds_default_to_the_full_range_and_go_lowest_first() {
-        assert_eq!(cfg("").unwrap().effort_bounds, [Effort::Low, Effort::Max]);
-        let c = cfg("effort_bounds = [\"medium\", \"high\"]").unwrap();
-        assert_eq!(c.effort_bounds, [Effort::Medium, Effort::High]);
-        c.validate(|_| false).unwrap();
-        cfg("effort_bounds = [\"high\", \"high\"]")
-            .unwrap()
-            .validate(|_| false)
-            .unwrap();
-        let e = cfg("effort_bounds = [\"max\", \"low\"]")
-            .unwrap()
-            .validate(|_| false);
-        assert!(format!("{:#}", e.unwrap_err()).contains("effort_bounds"));
-        assert!(cfg("effort_bounds = [\"low\"]").is_err(), "two levels");
+        assert!(cfg("").unwrap().retired().is_empty());
         assert!(
-            cfg("effort_bounds = [\"low\", \"huge\"]").is_err(),
-            "levels only"
+            cfg("[classes.poetry]\nprofiles = []").unwrap().retired()
+                == ["routing.classes.poetry"],
+            "a class of the old table's no longer refused, only retired"
         );
     }
 
-    /// `high_effort_confidence` (theseus-p8dy): 0.40 by default since
-    /// theseus-7pm8t, above 0 and at most 1.
     #[test]
-    fn xhigh_and_max_need_confidence_above_a_bar_that_defaults_to_four_tenths() {
-        assert_eq!(cfg("").unwrap().high_effort_confidence, 0.40);
-        let c = cfg("high_effort_confidence = 0.85").unwrap();
-        assert_eq!(c.high_effort_confidence, 0.85);
-        c.validate(|_| false).unwrap();
-        cfg("high_effort_confidence = 1.0")
-            .unwrap()
-            .validate(|_| false)
-            .unwrap();
+    fn a_wait_past_five_seconds_is_refused() {
+        assert!(cfg("max_wait_ms = 5000").unwrap().validate().is_ok());
+        let e = cfg("max_wait_ms = 5001").unwrap().validate().unwrap_err();
+        assert!(format!("{e:#}").contains("routing.max_wait_ms"));
     }
 
-    /// `effort_confidence` (theseus-7pm8t): 0.35 by default, above 0 and no
-    /// higher than `high_effort_confidence`, and the error says so.
     #[test]
-    fn an_unsure_effort_applies_at_its_own_bar_under_the_high_one() {
-        let d = cfg("").unwrap();
-        assert_eq!(
-            (d.effort_confidence, d.high_effort_confidence),
-            (0.35, 0.40)
-        );
-        d.validate(|_| false).unwrap();
-        cfg("effort_confidence = 0.40")
-            .unwrap()
-            .validate(|_| false)
-            .unwrap();
-        let e = cfg("effort_confidence = 0.5").unwrap().validate(|_| false);
-        assert!(format!("{:#}", e.unwrap_err()).contains("at most routing.high_effort_confidence"));
-        cfg("effort_confidence = 0.5\nhigh_effort_confidence = 0.6")
-            .unwrap()
-            .validate(|_| false)
-            .unwrap();
-    }
-
-    /// `effort_floor_confidence` (theseus-l7i9k): unset (off) by default and
-    /// never written out unset; set, it is above `effort_confidence` and at
-    /// most 1, and the error says so.
-    #[test]
-    fn the_effort_floor_bar_is_off_unless_set_and_sits_above_the_effort_bar() {
-        let off = cfg("").unwrap();
-        assert!(!toml::to_string(&off)
-            .unwrap()
-            .contains("effort_floor_confidence"));
-        cfg("effort_floor_confidence = 0.6")
-            .unwrap()
-            .validate(|_| false)
-            .unwrap();
-        cfg("effort_floor_confidence = 1.0")
-            .unwrap()
-            .validate(|_| false)
-            .unwrap();
-        for bad in [
-            "effort_floor_confidence = 0.35",
-            "effort_floor_confidence = 0.2",
-            "effort_floor_confidence = 1.1",
-        ] {
-            let e = cfg(bad).unwrap().validate(|_| false);
-            assert!(
-                format!("{:#}", e.unwrap_err()).contains(
-                    "routing.effort_floor_confidence must be above routing.effort_confidence"
-                ),
-                "{bad}"
-            );
+    fn the_corrections_bounds_are_checked() {
+        for bad in ["similarity = 0.0", "similarity = 1.5", "max_entries = 0", "max_entries = 5000"] {
+            let c = cfg(&format!("[corrections]\n{bad}")).unwrap();
+            assert!(c.validate().is_err(), "{bad}");
         }
-    }
-
-    /// `dear_tier_max_tokens` (theseus-p8dy): 200,000 by default, at least 1.
-    #[test]
-    fn the_dear_tiers_context_guard_defaults_to_two_hundred_thousand_tokens() {
-        assert_eq!(cfg("").unwrap().dear_tier_max_tokens, 200_000);
-        let c = cfg("dear_tier_max_tokens = 150000").unwrap();
-        assert_eq!(c.dear_tier_max_tokens, 150_000);
-        c.validate(|_| false).unwrap();
     }
 
     #[test]

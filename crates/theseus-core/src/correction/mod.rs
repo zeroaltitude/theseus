@@ -36,15 +36,16 @@ pub use layer::{Entry, Layer, Steer};
 pub use words::{Said, To};
 
 use crate::config::routing::CorrectionsConfig;
-use crate::config::RoutingConfig;
-use crate::routing::{pick, Picked, Profiles};
+use crate::routing::Profiles;
 
 /// The `route.corrected` rows' scope: the layer's truth.
 pub const SCOPE: &str = "route.corrections";
 /// The routed turns kept for a correction, a reaction or a press to find.
 pub const RECENT: usize = 256;
-/// The question every route pack version asks of the mode.
-pub const QUESTION: &str = "mode";
+/// The question the route pack asks of the model (route.v10, theseus-h66v4;
+/// the packs before it asked `mode`, retired with the class table in row 6): a
+/// correction's label says the pick was wrong (`not:<option>`).
+pub const QUESTION: &str = "model";
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -95,8 +96,6 @@ pub struct Steering {
 pub struct Resolved {
     /// The profile the session moves to, when there is one to move to.
     pub profile: Option<String>,
-    /// The mode the owner named.
-    pub mode: Option<String>,
     pub steer: Option<Steer>,
     /// The question the label is on: `mode`, or `persona` (theseus-c1uz).
     pub question: &'static str,
@@ -107,23 +106,14 @@ pub struct Resolved {
 }
 
 /// What a correction may name in words: every configured profile with its
-/// model, and the acting route pack's modes.
-pub fn names(
-    cfg: &crate::Config,
-    book: &crate::personas::Book,
-    pack: Option<&theseus_judge::Pack>,
-) -> words::Names {
-    let modes = pack
-        .and_then(|p| p.question(QUESTION))
-        .map(|q| q.options.iter().map(|o| o.id.clone()).collect())
-        .unwrap_or_default();
+/// model, and each persona.
+pub fn names(cfg: &crate::Config, book: &crate::personas::Book) -> words::Names {
     words::Names {
         profiles: cfg
             .all_profiles()
             .iter()
             .map(|(n, p)| (n.clone(), p.model.clone()))
             .collect(),
-        modes,
         personas: book
             .live()
             .map(|(k, v)| (k.clone(), v.name.clone()))
@@ -131,7 +121,7 @@ pub fn names(
     }
 }
 
-/// Read a correction's target from a protocol word: a profile, a mode,
+/// Read a correction's target from a protocol word: a profile,
 /// `stronger` (`up`), or `cheaper` (`down`).
 pub fn to_of(word: &str, names: &words::Names) -> Option<To> {
     let w = word.trim().to_lowercase();
@@ -155,17 +145,13 @@ pub fn to_of(word: &str, names: &words::Names) -> Option<To> {
     {
         return Some(To::Profile(p.clone()));
     }
-    names
-        .modes
-        .iter()
-        .find(|m| m.to_lowercase() == w)
-        .map(|m| To::Mode(m.clone()))
+    None
 }
 
 /// The correction, against the turn it corrects: where the session moves,
-/// and the label, which says the verdict's mode was wrong only when the
-/// place the owner names is not one that mode leads to.
-pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profiles) -> Resolved {
+/// and the label, which says the verdict's pick was wrong only when the
+/// profile the owner names is not the one the turn ran on.
+pub fn resolve(to: &To, last: &RoutedTurn, profiles: &Profiles) -> Resolved {
     let not = |leads: bool| {
         last.mode
             .as_ref()
@@ -175,38 +161,19 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
     match to {
         To::Persona(k) => Resolved {
             profile: None,
-            mode: None,
             steer: Some(Steer::Persona(k.clone())),
             question: "persona",
             label: Some(k.clone()),
             to: format!("persona {k}"),
         },
         To::Profile(p) => {
-            let leads = last
-                .mode
-                .as_ref()
-                .is_some_and(|m| cfg.classes.of(m).contains(p));
+            let leads = last.profile == *p;
             Resolved {
                 profile: Some(p.clone()),
-                mode: None,
-                steer: Some(Steer::Profile(p.clone())),
+                    steer: Some(Steer::Profile(p.clone())),
                 question: QUESTION,
                 label: not(leads),
                 to: p.clone(),
-            }
-        }
-        To::Mode(m) => {
-            let profile = match pick(cfg.classes.of(m), profiles, false, None, false) {
-                Picked::Profile(p) | Picked::Capped(Some(p)) => p,
-                _ => last.from.clone(),
-            };
-            Resolved {
-                profile: Some(profile),
-                mode: Some(m.clone()),
-                steer: Some(Steer::Mode(m.clone())),
-                question: QUESTION,
-                label: not(last.mode.as_deref() == Some(m.as_str())),
-                to: format!("mode {m}"),
             }
         }
         To::Stronger | To::Cheaper => {
@@ -215,8 +182,7 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
             Resolved {
                 steer: profile.clone().map(Steer::Profile),
                 profile,
-                mode: None,
-                question: QUESTION,
+                    question: QUESTION,
                 label: not(false),
                 to: if up { "stronger" } else { "cheaper" }.into(),
             }
@@ -430,7 +396,6 @@ pub fn entry_of(d: &Value) -> Option<Entry> {
 /// A steer's words, as a line or a listing says it.
 pub fn steer_line(s: &Steer) -> String {
     match s {
-        Steer::Mode(m) => format!("mode {m}"),
         Steer::Profile(p) => p.clone(),
         Steer::Thread(t) => format!("thread {t}"),
         Steer::Persona(p) => format!("persona {p}"),
@@ -485,40 +450,27 @@ mod tests {
         }
     }
 
-    /// The label says the mode was wrong only when the place the owner
-    /// names is not one the mode leads to.
+    /// The label says the pick was wrong only when the profile the owner
+    /// names is not the one the turn ran on.
     #[test]
     fn a_correction_labels_the_mode_only_when_the_mode_was_wrong() {
-        let cfg = RoutingConfig::default();
         let ps = profiles();
         let r = resolve(
             &To::Profile("fable".into()),
             &last(Some("chat"), "sonnet"),
-            &cfg,
             &ps,
         );
         assert_eq!(r.label.as_deref(), Some("not:chat"));
         assert_eq!(r.steer, Some(Steer::Profile("fable".into())));
-        // sophisticated leads to opus, then fable: the mode was right.
+        // It ran on opus, and the owner names opus: the pick was right.
         let r = resolve(
-            &To::Profile("fable".into()),
-            &last(Some("sophisticated"), "opus"),
-            &cfg,
+            &To::Profile("opus".into()),
+            &last(Some("opus"), "opus"),
             &ps,
         );
         assert_eq!(r.label, None);
-        let r = resolve(
-            &To::Mode("deep_coding".into()),
-            &last(Some("quick"), "haiku"),
-            &cfg,
-            &ps,
-        );
-        assert_eq!(
-            (r.label.as_deref(), r.profile.as_deref()),
-            (Some("not:quick"), Some("opus"))
-        );
         // No verdict, no label.
-        let r = resolve(&To::Stronger, &last(None, "sonnet"), &cfg, &ps);
+        let r = resolve(&To::Stronger, &last(None, "sonnet"), &ps);
         assert_eq!((r.label, r.profile.as_deref()), (None, Some("opus")));
     }
 
@@ -534,10 +486,9 @@ mod tests {
     }
 
     #[test]
-    fn a_protocol_word_names_a_profile_a_mode_or_a_direction() {
+    fn a_protocol_word_names_a_profile_or_a_direction() {
         let n = words::Names {
             profiles: vec![("fable".into(), "claude-fable-5-1".into())],
-            modes: vec!["deep_coding".into()],
             personas: vec![("birch".into(), "Birch".into())],
         };
         assert_eq!(to_of("Fable", &n), Some(To::Profile("fable".into())));
@@ -545,10 +496,7 @@ mod tests {
             to_of("claude-fable-5-1", &n),
             Some(To::Profile("fable".into()))
         );
-        assert_eq!(
-            to_of("deep_coding", &n),
-            Some(To::Mode("deep_coding".into()))
-        );
+        assert_eq!(to_of("deep_coding", &n), None, "a mode is no name");
         assert_eq!(to_of("up", &n), Some(To::Stronger));
         assert_eq!(to_of("cheaper", &n), Some(To::Cheaper));
         assert_eq!(to_of("mars", &n), None);

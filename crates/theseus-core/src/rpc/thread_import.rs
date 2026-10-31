@@ -277,7 +277,6 @@ impl Core {
         let site = crate::job_model::Site {
             name: "threads",
             pin: self.cfg.threads.import_profile.as_deref(),
-            legacy: Some(crate::config::legacy::CHEAP),
             job: theseus_judge::builders::JobKind::Threads { episodes },
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };

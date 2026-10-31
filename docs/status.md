@@ -696,6 +696,14 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-10-30: the old routing is deleted** (theseus-kn9or, row 6 of route.v10, theseus-h66v4). Jev chooses the model
+  and its effort, so what chose them before is gone: the class table (`[routing.classes.*]`) and the walk over it, the
+  place cap, the dear tier's guard, the step back down, a task's `max_switches`, the effort bounds and bars, the
+  China-origin draft with its review (`cn_draft`, `final`, `first_pass`, `[server] drafts_dir`), the `config::legacy`
+  profiles an unset key used to run on, and the closed branch of every site that had both. The retired `[routing]`
+  keys, and `[server] drafts_dir`, still load: they warn once and do nothing for one release. The data rule, the
+  operator's pin, the money backstops and the refusal fallback are unchanged.
+
 - **2026-10-24: v1 patch2's live learning** (theseus-6f8t0; Item 257). The owner card now learns from live
   conversations, not only the imported history. When a private conversation the owner is alone in pauses (the CLI, the
   web UI, the owner's DM; never a task or a shared place), one cheap call on `[card] profile` reads the owner's own

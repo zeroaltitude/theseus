@@ -620,8 +620,10 @@ impl Core {
             .collect()
     }
 
-    /// `route.v1`'s rule (`chosen`): the session's next judged message, a
-    /// pinned one within [`CHOSEN_MS`] after a routed turn, labels its mode.
+    /// The route pack's rule (`chosen`): the session's next judged message, a
+    /// pinned one within [`CHOSEN_MS`] after a routed turn, labels its `model`
+    /// answer: right when the pin runs the model the answer named, wrong
+    /// (`not`) or another option's otherwise.
     fn route_labels(&self, s: &Seen, scope: &Scope) -> Vec<SystemLabel> {
         let j = &s.judgment;
         let routed = j.mode != theseus_judge::Mode::Shadow
@@ -629,7 +631,7 @@ impl Core {
         let (Some(session), true) = (s.context("session"), routed) else {
             return vec![];
         };
-        let Some(mode) = j.answer("mode").and_then(|a| match &a.answer {
+        let Some(mode) = j.answer("model").and_then(|a| match &a.answer {
             theseus_judge::Answer::Choice { choice, .. } => Some(choice.clone()),
             _ => None,
         }) else {
@@ -652,22 +654,22 @@ impl Core {
             .split(", ")
             .find_map(|c| c.strip_prefix("profile "))
             .unwrap_or_default();
-        let modes = &self.cfg.routing.classes;
-        let owning: Vec<&str> = crate::config::routing::MODES
-            .into_iter()
-            .filter(|m| modes.of(m).iter().any(|p| p == profile))
-            .collect();
-        let label = match owning.as_slice() {
-            [one] if *one == mode => return vec![],
-            [one] => json!(one),
-            _ => json!({"not": mode}),
+        let owning = self
+            .cfg
+            .profile(profile)
+            .ok()
+            .and_then(|p| crate::own_bench::whole::label::option_for(&p.model));
+        let label = match owning {
+            Some(one) if one == mode => return vec![],
+            Some(one) => json!(one),
+            None => json!({"not": mode}),
         };
         vec![SystemLabel {
-            id: system_key(&j.id, "mode", "chosen"),
+            id: system_key(&j.id, "model", "chosen"),
             judgment: j.id.clone(),
             pack: j.pack.clone(),
             session: Some(session.to_string()),
-            question: "mode".into(),
+            question: "model".into(),
             about: None,
             label,
             rule: "chosen",

@@ -24,8 +24,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Steer {
-    /// The mode's first usable profile, as a verdict of that mode would.
-    Mode(String),
     /// The profile itself.
     Profile(String),
     /// The thread (a slug) a close message belongs in (theseus-rha2): the

@@ -24,10 +24,8 @@ const KEPT: usize = 8;
 /// What a place's catalog was made from.
 struct Key {
     class: PlaceClass,
-    /// A ceiling is leaked once and never freed, so its address names it;
-    /// so is a draft view's reach.
+    /// A ceiling is leaked once and never freed, so its address names it.
     ceiling: usize,
-    draft: usize,
     mcp: Arc<Vec<Arc<McpTool>>>,
     flows: Vec<Arc<flow::load::Entry>>,
     roots: Vec<PathBuf>,
@@ -39,7 +37,6 @@ impl Key {
     fn is(&self, other: &Key) -> bool {
         self.class == other.class
             && self.ceiling == other.ceiling
-            && self.draft == other.draft
             && Arc::ptr_eq(&self.mcp, &other.mcp)
             && self.flows.len() == other.flows.len()
             && self
@@ -74,7 +71,6 @@ impl ToolRuntime {
         let key = Key {
             class: place.class,
             ceiling: place.ceiling.map_or(0, |c| std::ptr::from_ref(c) as usize),
-            draft: place.draft.map_or(0, |o| std::ptr::from_ref(o) as usize),
             mcp: self.mcp.all(),
             flows: self.flows.all(),
             roots: self.public_roots.clone(),

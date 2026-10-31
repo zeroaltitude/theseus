@@ -673,7 +673,6 @@ impl Core {
         let site = crate::job_model::Site {
             name: "learn",
             pin: self.cfg.judge.learn.writer_profile.as_deref(),
-            legacy: Some(crate::config::legacy::LEARN_WRITER),
             job: theseus_judge::builders::JobKind::Learn { pack: pack.into() },
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };

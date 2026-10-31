@@ -21,48 +21,15 @@ use serde_json::{json, Value};
 use theseus_protocol::own_bench::TurnReplayResult;
 use theseus_protocol::LedgerKind;
 
-use crate::config::routing::RoutingClasses;
 use crate::fact;
 use crate::learning::{labels, REPLAY_SOURCE, REPLAY_WEIGHT};
+use crate::routing::model::OPTIONS;
 use crate::rpc::Core;
 
-/// The classes, in the order a rung that leads several is read as one of
-/// them: coding first, since a whole-turn replay is coding work.
-pub const CLASS_ORDER: [&str; 7] = [
-    "routine_coding",
-    "deep_coding",
-    "chat",
-    "sophisticated",
-    "review",
-    "quick",
-    "trivial",
-];
-
-/// The classes whose first profile is `profile`.
-pub fn leading_to<'a>(modes: &RoutingClasses, profile: &str) -> Vec<&'a str> {
-    let of = |c: &str| match c {
-        "routine_coding" => &modes.routine_coding,
-        "deep_coding" => &modes.deep_coding,
-        "chat" => &modes.chat,
-        "sophisticated" => &modes.sophisticated,
-        "review" => &modes.review,
-        "quick" => &modes.quick,
-        _ => &modes.trivial,
-    };
-    CLASS_ORDER
-        .iter()
-        .copied()
-        .filter(|c| of(c).profiles.first().is_some_and(|p| p == profile))
-        .collect()
-}
-
-/// The class to label: the pack's own when it leads to the profile, else the
-/// first that does.
-pub fn class_for(modes: &RoutingClasses, profile: &str, gave: Option<&str>) -> Option<String> {
-    let leading = leading_to(modes, profile);
-    gave.filter(|g| leading.contains(g))
-        .or_else(|| leading.first().copied())
-        .map(str::to_string)
+/// The `model` option whose catalog model `model` is: what a rung's replay
+/// labels the turn's route judgment with.
+pub fn option_for(model: &str) -> Option<&'static str> {
+    OPTIONS.iter().find(|(_, m)| *m == model).map(|(o, _)| *o)
 }
 
 impl Core {
@@ -123,31 +90,32 @@ impl Core {
         {
             if let Some(j) = row.data["judgment"].as_str() {
                 if let Ok(jrow) = self.judgment_row(j) {
-                    found = Some((row, j.to_string(), jrow));
+                    found = Some((j.to_string(), jrow));
                     break;
                 }
             }
         }
-        let Some((row, judgment, jrow)) = found else {
+        let Some((judgment, jrow)) = found else {
             return none("the turn has no route judgment the ledger can read");
         };
         let judgment = judgment.as_str();
-        let Some(class) = class_for(
-            &self.cfg.routing.classes,
-            profile,
-            row.data["mode"].as_str(),
-        ) else {
-            return none(&format!("no routing mode leads with {profile}"));
+        let Some(option) = self
+            .cfg
+            .profile(profile)
+            .ok()
+            .and_then(|p| option_for(&p.model))
+        else {
+            return none(&format!("no `model` option names the model {profile} runs"));
         };
         let pack_name = jrow.data["pack"].as_str().unwrap_or_default().to_string();
         let Some(pack) = self.runner.judge.pack(&pack_name) else {
             return none(&format!("this build has no pack {pack_name}"));
         };
         let label: Value =
-            labels::check(&pack, Some("mode"), &json!(class)).map_err(|e| format!("none: {e}"))?;
+            labels::check(&pack, Some("model"), &json!(option)).map_err(|e| format!("none: {e}"))?;
         let id = format!(
             "lbl_wt_{}",
-            &crate::blobs::digest(format!("whole|{judgment}|mode|{}", p.turn).as_bytes())[..24]
+            &crate::blobs::digest(format!("whole|{judgment}|model|{}", p.turn).as_bytes())[..24]
         );
         if self.store.ledger_by_key(&id).ok().flatten().is_some() {
             return none("this turn's replay already labeled it");
@@ -157,7 +125,7 @@ impl Core {
             id: &id,
             judgment,
             pack: &pack_name,
-            question: Some("mode"),
+            question: Some("model"),
             about: None,
             label,
             source: REPLAY_SOURCE,
@@ -174,6 +142,6 @@ impl Core {
         self.store
             .append(&[rec.scoped(&crate::rpc::judge::scope_of(&pack_name))])
             .map_err(|e| format!("none: the label was not written: {e}"))?;
-        Ok(format!("{pack_name} mode={class} on {judgment}"))
+        Ok(format!("{pack_name} model={option} on {judgment}"))
     }
 }

@@ -174,21 +174,6 @@ async fn say_on_terminal(r: &Rig, sid: &str, input: &str) -> theseus_protocol::T
         .unwrap()
 }
 
-/// A detour (a plain DM session on Claude whose trivial message goes to
-/// dsflash) holds back the same record, and its check passes.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detour_to_a_restricted_model_holds_back_the_same_records() {
-    let (r, zai, _dir, _jev) = rig_mode("trivial");
-    let _ = orders(&r, StandingScope::Everywhere).await;
-    let s = dm(&r.core);
-    let res = say(&r.core, &s, OPEN_A, None).await;
-    assert_eq!(res.profile, "dsflash", "{:?}", res.route);
-    let body = text(&zai.requests()[0]);
-    assert!(body.contains(SHORT), "{body}");
-    assert!(!body.contains("Heronsgate"), "{body}");
-    assert_eq!(blocked(&r.core), 0);
-}
-
 /// Two pending wakes: the session's own and a milestone's due reminder. A
 /// restricted request shows the first and counts one; Claude's shows both.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

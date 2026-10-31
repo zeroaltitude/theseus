@@ -293,8 +293,7 @@ async fn a_mark_taken_after_the_hold_still_cannot_reach_the_model() {
 async fn a_mark_taken_after_the_hold_moves_a_routed_turn_off_it() {
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
     crate::tests_route::mode(&jev, "routine_coding", 0.95);
-    let r = crate::tests_route::rig_parts(Some(&jev), 2, google_on(false), |p| {
-        p.cfg.routing.classes.routine_coding.profiles = vec!["glm53".into(), "sonnet".into()];
+    let r = crate::tests_route::rig_parts(Some(&jev), 2, google_on(false), |_p| {
     });
     let sid = session(&r.core);
     hold(&r.core, &sid, Some("glm53"));

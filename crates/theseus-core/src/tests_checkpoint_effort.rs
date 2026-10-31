@@ -15,7 +15,7 @@ use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use crate::catalog::CatalogRow;
 use crate::config::Effort;
 use crate::provider::{FakeProvider, ProviderRequest};
-use crate::tests_route::{decided, mode, rig, rig_parts, turn, Rig};
+use crate::tests_route::{mode, rig_parts, turn, Rig};
 use crate::tests_turn_checkpoint::{checkpoints, loops, ASK};
 use crate::Config;
 
@@ -66,10 +66,10 @@ fn routed(
 ) -> (Rig, Arc<FakeProvider>, FakeJev) {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    jev.script("reply_effort", choice("high", 0.95));
+    jev.script("effort", choice("high", 0.95));
     let at = "failing: 3 failed";
     jev.script_when(at, None, "mode", choice(checkpoint_mode, 0.95));
-    jev.script_when(at, None, "reply_effort", choice(level, confidence));
+    jev.script_when(at, None, "effort", choice(level, confidence));
     let claude = Arc::new(FakeProvider {
         delay_ms: 60,
         ..FakeProvider::scripted(loops(8))
@@ -81,8 +81,6 @@ fn routed(
         |c| {
             sonnethi(c, live);
             // The gate's line the tests draw between 0.69 and 0.71.
-            c.routing.high_effort_confidence = 0.70;
-            c.routing.classes.routine_coding.profiles = vec!["sonnethi".into()];
         },
         move |p| {
             p.providers.insert("anthropic".into(), provider);
@@ -131,60 +129,6 @@ fn row(d: &Value) -> (Value, Value, Value, Value, Value) {
     )
 }
 
-/// The key test: a routed turn on `sonnethi` at high whose loops keep
-/// failing gets a verdict that keeps `sonnethi` and asks `xhigh` above 0.70.
-/// Its next request carries `xhigh` though the prompt is past the sticky
-/// floor, no move is made, and the row and the result say it applied.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_checkpoint_raises_effort_without_a_move() {
-    let (rig, claude, _jev) = routed("sonnet", "routine_coding", ("xhigh", 0.9));
-    let res = turn(&rig.core, None, ASK, None).await;
-    assert_eq!(res.profile, "sonnethi", "{}", res.output);
-    let levels = levels(&claude);
-    assert_eq!(levels.len(), 9, "{}", res.output);
-    raised_at(&levels, "high", "xhigh");
-    let rows = checkpoints(&rig);
-    assert_eq!(
-        row(&rows[0]),
-        (
-            json!("sonnethi"),
-            json!(false),
-            json!("applied"),
-            json!(true),
-            json!("xhigh")
-        ),
-        "{rows:?}"
-    );
-    assert_eq!(rows[0]["from"], "sonnethi");
-    let route = res.route.expect("the checkpoint's route");
-    assert_eq!(route.effort_applied.as_deref(), Some("xhigh"));
-    assert_eq!(route.from, "sonnethi");
-}
-
-/// `xhigh` and `max` still need confidence above `high_effort_confidence`
-/// at a checkpoint: `max` at 0.69 is held at `high`, which the turn already
-/// runs at, so nothing changes; at 0.71 the turn runs at `max`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn xhigh_and_max_still_need_high_confidence_at_a_checkpoint() {
-    let (rig, claude, _jev) = routed("sonnet", "routine_coding", ("max", 0.69));
-    turn(&rig.core, None, ASK, None).await;
-    assert_eq!(levels(&claude), ["high"; 9]);
-    assert_eq!(
-        row(&checkpoints(&rig)[0]),
-        (
-            json!("sonnethi"),
-            json!(false),
-            json!("held_high"),
-            json!(false),
-            json!("high")
-        )
-    );
-    let (rig, claude, _jev) = routed("sonnet", "routine_coding", ("max", 0.71));
-    turn(&rig.core, None, ASK, None).await;
-    raised_at(&levels(&claude), "high", "max");
-    assert_eq!(checkpoints(&rig)[0]["effort_ran"], "max");
-}
-
 /// A verdict asking less of a turn at `high` (on the session's base, where
 /// no floor holds it) leaves it at `high`: a checkpoint never lowers. `low`,
 /// two steps down, which the sticky rule would not hold (`medium`, one step,
@@ -216,10 +160,10 @@ async fn a_checkpoint_never_lowers_effort() {
 async fn a_model_with_per_message_effort_is_not_raised_mid_turn() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
-    jev.script("reply_effort", choice("high", 0.95));
+    jev.script("effort", choice("high", 0.95));
     let at = "failing: 3 failed";
     jev.script_when(at, None, "mode", choice("routine_coding", 0.95));
-    jev.script_when(at, None, "reply_effort", choice("xhigh", 0.9));
+    jev.script_when(at, None, "effort", choice("xhigh", 0.9));
     let claude = Arc::new(FakeProvider {
         delay_ms: 60,
         ..FakeProvider::scripted(loops(8))
@@ -231,7 +175,6 @@ async fn a_model_with_per_message_effort_is_not_raised_mid_turn() {
         |c| {
             sonnethi(c, "sonnet");
             c.catalog.remove("claude-sonnet-5-5");
-            c.routing.classes.routine_coding.profiles = vec!["sonnethi".into()];
         },
         move |p| {
             p.providers.insert("anthropic".into(), provider);
@@ -251,54 +194,6 @@ async fn a_model_with_per_message_effort_is_not_raised_mid_turn() {
     let rows = checkpoints(&rig);
     assert_eq!(rows[0]["effort_ran"], "xhigh", "{rows:?}");
     assert_eq!(rows[0]["effort_applied"], false, "{rows:?}");
-}
-
-/// A routed profile never runs below its own effort: routine coding on
-/// `haikuhi` (high) with a sure `medium` runs at high, `floored`; the
-/// session's base profile with a sure `low` still runs at low; and under
-/// bounds of `[low, medium]` `haikuhi` runs at medium (the bounds win).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_routed_profile_never_runs_below_its_own_effort() {
-    let cases = [
-        (
-            "routine_coding",
-            "medium",
-            None,
-            "haikuhi",
-            "high",
-            "floored",
-        ),
-        ("chat", "low", None, "sonnet", "low", "applied"),
-        (
-            "routine_coding",
-            "medium",
-            Some([Effort::Low, Effort::Medium]),
-            "haikuhi",
-            "medium",
-            "applied",
-        ),
-    ];
-    for (class, level, bounds, profile, ran, reason) in cases {
-        let jev = FakeJev::start().unwrap();
-        mode(&jev, class, 0.95);
-        jev.script("reply_effort", choice(level, 0.95));
-        let r = rig(Some(&jev), 1, |c| {
-            if let Some(b) = bounds {
-                c.routing.effort_bounds = b;
-            }
-        });
-        let res = turn(&r.core, None, "Rename these twelve call sites.", None).await;
-        assert_eq!(res.profile, profile, "{class} {level}");
-        let req = &r.claude.requests()[0];
-        let sent = crate::compiler::effort::effective(req).map(crate::routing::effort::name);
-        assert_eq!(sent, Some(ran), "{class} {level} {bounds:?}");
-        let d = &decided(&r.core.store)[0];
-        assert_eq!(
-            (&d["effort_reason"], &d["effort_ran"]),
-            (&json!(reason), &json!(ran)),
-            "{class} {level} {bounds:?}"
-        );
-    }
 }
 
 /// What Jev read at each checkpoint of a turn: the text's effort and

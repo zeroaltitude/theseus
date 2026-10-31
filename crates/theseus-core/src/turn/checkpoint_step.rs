@@ -15,8 +15,7 @@
 //!   or a turn on the owner's pin, asks nothing; a turn of one loop pays one
 //!   `match`.
 //! - **The switch** is a refusal's fallback's shape (`fallback_step`): a
-//!   slot of its own per allowed move ([`Slots`], bounded by
-//!   `[routing.task_checkpoints] max_switches`, validated at load), the spec
+//!   slot of its own per move ([`Slots`]), the spec
 //!   rebuilt as `route_to` builds it, the provider resolved as the first
 //!   compile's switch resolves it, and the next compile made on the new
 //!   model (a model change strips the thinking). "A turn routes once" stays
@@ -26,9 +25,8 @@
 //!   never applied after the next ask.
 //! - **Effort without a move** (theseus-53ujg.3): a verdict that keeps the
 //!   profile and asks more effort than the turn runs at raises it, by the
-//!   rule a move's effort takes (`route_effort`: the bounds, the effort bar
-//!   (`effort_confidence`), the `high_effort_confidence` gate for `xhigh` and
-//!   `max`), on the spec for the loop about to run, with no slot. The sticky rule never holds a checkpoint's raise: the
+//!   rule a move's effort takes (`route_effort`: Jev's level, or the model's
+//!   default), on the spec for the loop about to run, with no slot. The sticky rule never holds a checkpoint's raise: the
 //!   work's evidence is what it waits for, so the top-level effort changes
 //!   and the messages' cache is written once. A model that takes per-message
 //!   effort cannot be given a level mid-turn: there the row says not applied
@@ -44,7 +42,7 @@ use crate::config::PackMode;
 use crate::judge::inbound::{author_of, place_kind, Inbound, RouteWait};
 use crate::routing::checkpoint::{self as cp, CheckpointAsk, LoopLine, Seen, Tally, Trigger};
 use crate::routing::effort::{self, EffortDecision};
-use crate::routing::{self, Decision, Hold, HoldNext, Reason, Verdict};
+use crate::routing::{Decision, Hold, HoldNext, Reason, Verdict};
 use theseus_protocol::modes::PlanState;
 use theseus_protocol::route::TurnRoute;
 
@@ -53,10 +51,8 @@ pub const SOURCE: &str = "task checkpoint";
 /// The `source` of a routed turn's checkpoint's row (theseus-a1wvq).
 pub const TURN_SOURCE: &str = "turn checkpoint";
 
-/// The slots a turn holds for its checkpoints' moves, one each. With the
-/// class rule, at most `max_switches` moves and the step back down past the
-/// cap, which `TaskCheckpoints::validate` keeps within. With Jev deciding
-/// (theseus-ej6bj) there is no policy cap, and the slots are a structural
+/// The slots a turn holds for its checkpoints' moves, one each. Jev decides
+/// (theseus-ej6bj), so there is no policy cap, and the slots are a structural
 /// bound past any real turn: a move past them is recorded as the verdict and
 /// not applied.
 pub(super) const SLOTS: usize = 32;
@@ -132,8 +128,6 @@ struct Active {
     /// its route put it.
     base: String,
     tally: Tally,
-    /// Moves made, up or down.
-    moves: u32,
     /// Slots used.
     used: usize,
     /// What the last checkpoint's verdict left held.
@@ -275,7 +269,6 @@ impl TurnRunner {
             task,
             base,
             tally: Tally::default(),
-            moves: 0,
             used: 0,
             hold: None,
             flight: None,
@@ -537,7 +530,7 @@ impl TurnRunner {
                 Some((to, p))
             })
             .flatten();
-        let at = EffortAt::checkpoint(session);
+        let at = EffortAt::checkpoint();
         let effort = (keeps || target.is_some())
             .then(|| self.route_effort(t, v, Some(&d), (&*spec, a.est), at))
             .flatten();
@@ -584,7 +577,6 @@ impl TurnRunner {
                 spec.effort = e.sent.or(e.ran);
             }
         }
-        a.moves += u32::from(d.switch);
         Self::checkpoint_routed(t, a, (v, f), &d, from, (effort.as_ref(), applied));
         Ok(None)
     }
@@ -634,24 +626,16 @@ impl TurnRunner {
         v: &Verdict,
     ) -> Decision {
         let profiles = self.route_profiles(t.route.floor());
-        let cap = Self::place_cap(t, &profiles);
         let ask = |est_tokens| {
             cp::decide(
                 &self.cfg.routing,
                 &profiles,
                 &CheckpointAsk {
                     verdict: v,
-                    base: &a.base,
                     current: &t.target.profile,
                     est_tokens,
                     hold: a.hold.as_ref(),
                     images: t.route.images,
-                    cap,
-                    moves: a.moves,
-                    // Jev decides each trigger only once the acting route pack
-                    // asks `model` (theseus-ej6bj); until then the class rule
-                    // (cap, base, step down) is today's.
-                    open: self.judge.route_open(),
                 },
             )
         };
@@ -659,9 +643,6 @@ impl TurnRunner {
         let (Reason::CacheHold, HoldNext::Set(h)) = (d.reason, &d.hold) else {
             return d;
         };
-        if h.mode == routing::STEP_DOWN {
-            return d;
-        }
         let warm = self
             .resolve_target(&t.target.profile, Some(&h.profile), None, None)
             .map_or(0, |to| self.warm_of(t, session, &to));

@@ -239,15 +239,6 @@ fn two_providers() -> (Rig, Arc<FakeProvider>) {
         },
         move |p| {
             p.providers.insert("zai".into(), z);
-            // The sampler's ladder is the modes' lists. Since theseus-a1wvq.4
-            // no default list names GLM and the load refuses one that does, so
-            // the rung on another provider goes in after the load's check.
-            p.cfg
-                .routing
-                .classes
-                .trivial
-                .profiles
-                .insert(1, "glm".into());
         },
     );
     (r, zai)

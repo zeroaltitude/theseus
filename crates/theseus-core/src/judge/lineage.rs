@@ -243,19 +243,8 @@ impl super::JudgeService {
             .or_else(|| self.lineage.get(&self.store, name).map(|l| l.pack))
     }
 
-    /// route.v10 acts: the acting route pack asks the `model` question, so
-    /// Jev chooses the model (theseus-h66v4). While `ROUTE_PACK` names an
-    /// earlier pack, false, and every decision is the class walk's.
-    ///
-    /// The one switch: a turn's routing, a task's checkpoints and brief, the
-    /// background sites' unset keys and a job's ask all read this and
-    /// [`Self::route_pack`], so no path can be open while another is not.
-    pub fn route_open(&self) -> bool {
-        self.route_pack().is_some()
-    }
-
-    /// The acting route pack when it asks `model`: what `route_open` is the
-    /// presence of, and the pack a background job is asked on.
+    /// The acting route pack when it asks `model` (route.v10, theseus-h66v4,
+    /// where Jev chooses the model): the pack a background job is asked on.
     pub(crate) fn route_pack(&self) -> Option<Arc<Pack>> {
         self.pack(super::inbound::ROUTE_PACK)
             .filter(|p| super::route_facts::asks_model(p))

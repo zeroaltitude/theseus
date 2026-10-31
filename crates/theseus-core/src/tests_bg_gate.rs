@@ -65,9 +65,6 @@ fn rig_with(
         60,
         |c| {
             c.copy_profile("dsflash", "glm");
-            c.routing.classes.trivial.profiles = vec!["cheapest".into()];
-            c.routing.classes.trivial.cn_profiles = vec!["dsflash".into()];
-            c.routing.classes.trivial.cn_after = None;
             c.places.owner = Some(vec![format!("discord:{OWNER}")]);
             for model in ["glm-5.3-flash", "claude-sonnet-5-5"] {
                 c.catalog.insert(

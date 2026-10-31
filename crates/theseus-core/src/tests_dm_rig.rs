@@ -41,9 +41,6 @@ pub(crate) const OPEN_B: &str = "And how many grams in a kilogram?";
 /// without Haiku, the owner's DM, the private notes.
 pub(crate) fn config(c: &mut crate::Config, notes: &std::path::Path) {
     c.copy_profile("dsflash", "glm");
-    c.routing.classes.trivial.profiles = vec!["cheapest".into()];
-    c.routing.classes.trivial.cn_profiles = vec!["dsflash".into()];
-    c.routing.classes.trivial.cn_after = None;
     c.routing.trivial_context_turns = 6;
     c.places.owner = Some(vec![format!("discord:{OWNER}")]);
     c.context.files = vec![ContextEntry::Path(notes.to_string_lossy().into_owned())];
@@ -130,28 +127,6 @@ pub(crate) fn judging_with(r: &Rig, j: Arc<Judging>) -> Arc<Judging> {
     j.attach(&r.core.store);
     r.core.runner.verdicts.set(j.clone());
     j
-}
-
-/// Make `sid` a draft's session as the core's own opening does: a task's
-/// record with the draft's META record beside it (`draft::is_draft`).
-pub(crate) fn mark_draft(core: &Core, sid: &str) {
-    let mut rec = record(core, sid);
-    rec.task = Some(crate::session::TaskOf {
-        parent_session: "ses_parent".into(),
-        parent_execution: "exe_parent".into(),
-        by: "act_draft".into(),
-        target: None,
-        arrangement: None,
-        check: None,
-        notify_done: false,
-    });
-    core.store.put_session(sid, &rec).unwrap();
-    core.store
-        .put_meta(
-            &crate::draft::meta_key(sid),
-            &crate::draft::Draft::default(),
-        )
-        .unwrap();
 }
 
 /// A session on `dsflash`, the live profile: fresh, in no place.

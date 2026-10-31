@@ -40,6 +40,8 @@ pub(crate) fn rig(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     cfg.memory.mode = MemoryMode::Off;
+    // A pin: an unset key asks Jev, who is not here, and runs on `live`.
+    cfg.threads.import_profile = Some("haiku".into());
     cfg.personas.insert(
         "wren".into(),
         PersonaConfig {
