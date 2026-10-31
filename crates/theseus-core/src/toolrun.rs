@@ -648,7 +648,7 @@ impl ToolRuntime {
         let allowed: Vec<String> = self.policy.allow_argv.iter().map(|a| a.join(" ")).collect();
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
-             - Workspace roots: {}. Reading, writing or running a program outside them takes its tool's posture (at least notify: the operator is told, with the path) and does not wait; touching a path on the operator's approve list waits for the operator's approval.\n\
+             - Workspace roots: {}. Reading, writing or running outside them takes its tool's posture, at least notify (the operator sees the path) and never waits; a path on the operator's approve list waits for approval.\n\
              - Relative paths resolve against the session's directory, which its own block names.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
