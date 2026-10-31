@@ -1050,10 +1050,6 @@ mod tests {
         assert_eq!((out.posture, out.floor), (Posture::Approve, true));
     }
 
-    /// What a call reaches outside the roots is named in its decision, as the
-    /// owner's footer line: `<verb> outside your project folder: <path>
-    /// (roots: ...)`, in the reason at every posture and in the notice at
-    /// notify (theseus-m9fdg).
     /// The owner's config shape (theseus-m9fdg): `enforcement = "notify"`
     /// with the read tools set to `open` in `[policy.tools]`. A read outside
     /// the roots there must still tell the operator, and the label never
@@ -1100,6 +1096,10 @@ mod tests {
         assert_eq!(out.posture, Posture::Approve, "the approve list still asks");
     }
 
+    /// What a call reaches outside the roots is named in its decision, as the
+    /// owner's footer line: `<verb> outside your project folder: <path>
+    /// (roots: ...)`, in the reason at every posture and in the notice at
+    /// notify (theseus-m9fdg).
     #[test]
     fn what_a_call_reaches_outside_the_roots_is_named_in_its_decision() {
         let (_d, root) = workspace();

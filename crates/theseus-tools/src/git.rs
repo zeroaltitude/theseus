@@ -56,9 +56,9 @@ fn open(ctx: &ToolCtx, path: Option<&str>) -> Result<Repo, ToolFailure> {
         .map(|p| ctx.resolve(p))
         .unwrap_or_else(|| ctx.cwd.clone());
     // The root that holds the path, the outermost where roots nest. A path
-    // outside every root runs only once the operator approves it (the gate
-    // asks for any such path), so it stands as its own root: what was
-    // approved is what is read.
+    // outside every root runs at its tool's posture, with the operator told
+    // (the gate labels any such path), so it stands as its own root: what
+    // the operator was told of is what is read.
     let root = ctx
         .roots
         .iter()
@@ -1086,8 +1086,8 @@ mod tests {
         };
         let out = Diff.run(&json!({"untracked": true}), &nested).unwrap();
         assert!(out.text.starts_with(&note) && out.text.contains("svc/new.txt"));
-        // A path outside every root (one the operator approved) is its own
-        // root: what was approved is what is read.
+        // A path outside every root (one the operator was told of) is its own
+        // root: what they were told of is what is read.
         let elsewhere = d.path().join("elsewhere");
         fs::create_dir_all(&elsewhere).unwrap();
         let approved = ToolCtx::for_tests(&elsewhere);
