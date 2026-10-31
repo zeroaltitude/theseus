@@ -79,8 +79,7 @@ async fn an_unsure_verdict_that_stays_on_its_base_shows_no_data_gate() {
     let (rx, tel) = telemetry().await;
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.3);
-    let (r, _zai, _d) = rig_telemetry_with(&jev, tel, |_c| {
-    });
+    let (r, _zai, _d) = rig_telemetry_with(&jev, tel, |_c| {});
     judging_with(&r, finds_private());
     let res = say(&r.core, &dm(&r.core), PRIVATE, None).await;
     let d = &decided(&r.core.store)[0];

@@ -924,10 +924,7 @@ impl TurnRunner {
                 .as_ref()
                 .map(super::tier::InjectionBudget::row),
             ran,
-            data: Some(fact::route::RouteData {
-                cn,
-                gate,
-            }),
+            data: Some(fact::route::RouteData { cn, gate }),
             open,
         });
         let prior = t.route.result.take();

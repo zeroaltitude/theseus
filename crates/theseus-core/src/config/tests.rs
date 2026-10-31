@@ -1409,5 +1409,8 @@ fn the_retired_routing_and_draft_keys_load_and_warn() {
         "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n[routing]\nmax_wait_ms = 300\n",
     )
     .unwrap();
-    assert!(none.is_empty(), "no warning for a config with none: {none:?}");
+    assert!(
+        none.is_empty(),
+        "no warning for a config with none: {none:?}"
+    );
 }

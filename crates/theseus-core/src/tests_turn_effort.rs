@@ -144,4 +144,3 @@ async fn a_400_on_the_messages_asks_again_without_them_and_remembers() {
     assert_eq!(effective(&next), Some(Effort::Medium));
     assert_eq!(r.claude.requests().len(), 3, "no further failed call");
 }
-

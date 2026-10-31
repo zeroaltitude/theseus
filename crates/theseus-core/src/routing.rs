@@ -484,5 +484,4 @@ mod tests {
         let d = steer_to(&cfg, &ps, &ask(&v, "fable", 10), "fable", true);
         assert_eq!((d.reason, d.switch), (Reason::Correction, false));
     }
-
 }

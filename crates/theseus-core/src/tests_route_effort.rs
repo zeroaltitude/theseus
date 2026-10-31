@@ -163,4 +163,3 @@ async fn a_detour_runs_at_jevs_effort() {
         ("claude-haiku-5-5", Some("medium"))
     );
 }
-

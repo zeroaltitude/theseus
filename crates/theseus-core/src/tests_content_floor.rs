@@ -20,9 +20,7 @@ use crate::provider::Scripted;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::tests_dm_rig::{blocked, judging_with};
-use crate::tests_route::{
-    decided, mode, rig, rig_parts, turn, Rig,
-};
+use crate::tests_route::{decided, mode, rig, rig_parts, turn, Rig};
 use crate::turn::TurnRequest;
 
 const PLAIN: &str = "Rename the call sites in the billing module.";

@@ -51,8 +51,7 @@ fn named(c: &mut Config) {
 }
 
 /// GLM first in routine coding's list, Claude after it.
-fn list(_c: &mut Config) {
-}
+fn list(_c: &mut Config) {}
 
 /// [`listed`] with `glm53` GLM itself, of restricted origin. The load refuses
 /// a restricted profile in a mode's list (theseus-a1wvq.4), so the list goes

@@ -89,21 +89,14 @@ mod tests {
 
     #[test]
     fn a_count_of_zero_is_an_error_and_an_unknown_key_is_refused() {
-        for key in [
-            "failing_streak",
-            "quiet_loops",
-            "min_loops_between",
-        ] {
+        for key in ["failing_streak", "quiet_loops", "min_loops_between"] {
             let r: RoutingConfig =
                 toml::from_str(&format!("[task_checkpoints]\n{key} = 0")).unwrap();
             let e = r.validate().unwrap_err().to_string();
             assert!(e.contains(key) && e.contains("enabled = false"), "{e}");
         }
         let r: RoutingConfig = toml::from_str("[task_checkpoints]\nenabled = false").unwrap();
-        assert!(
-            r.validate().is_ok(),
-            "off is `enabled`, not a zero"
-        );
+        assert!(r.validate().is_ok(), "off is `enabled`, not a zero");
         assert!(toml::from_str::<RoutingConfig>("[task_checkpoints]\nloud = 1").is_err());
         let r: RoutingConfig = toml::from_str("[task_checkpoints]\nmax_switches = 8").unwrap();
         assert!(r.validate().is_ok(), "retired: no slot bounds it any more");

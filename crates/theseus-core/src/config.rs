@@ -1573,8 +1573,7 @@ impl Config {
         }
         self.validate_places()?;
         self.memory.validate()?;
-        self.routing
-            .validate()?;
+        self.routing.validate()?;
         self.lsp.validate()?;
         self.sessions.validate()?;
         self.threads.validate()?;

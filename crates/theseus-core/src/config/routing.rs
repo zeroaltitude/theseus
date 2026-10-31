@@ -297,13 +297,17 @@ mod tests {
             ]
         );
         let written = toml::to_string(&c).unwrap();
-        for gone in ["switch_confidence", "classes", "max_switches", "effort_bounds"] {
+        for gone in [
+            "switch_confidence",
+            "classes",
+            "max_switches",
+            "effort_bounds",
+        ] {
             assert!(!written.contains(gone), "{gone} written back: {written}");
         }
         assert!(cfg("").unwrap().retired().is_empty());
         assert!(
-            cfg("[classes.poetry]\nprofiles = []").unwrap().retired()
-                == ["routing.classes.poetry"],
+            cfg("[classes.poetry]\nprofiles = []").unwrap().retired() == ["routing.classes.poetry"],
             "a class of the old table's no longer refused, only retired"
         );
     }
@@ -317,7 +321,12 @@ mod tests {
 
     #[test]
     fn the_corrections_bounds_are_checked() {
-        for bad in ["similarity = 0.0", "similarity = 1.5", "max_entries = 0", "max_entries = 5000"] {
+        for bad in [
+            "similarity = 0.0",
+            "similarity = 1.5",
+            "max_entries = 0",
+            "max_entries = 5000",
+        ] {
             let c = cfg(&format!("[corrections]\n{bad}")).unwrap();
             assert!(c.validate().is_err(), "{bad}");
         }

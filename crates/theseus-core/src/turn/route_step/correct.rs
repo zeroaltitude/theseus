@@ -204,8 +204,7 @@ impl TurnRunner {
     ) -> anyhow::Result<Correcting> {
         // Outside a turn: no model of restricted origin; the labels' floor is the turn's.
         let floor = crate::turn::data_step::Floor { cn_ok: false };
-        let resolved =
-            correction::resolve(to, &last, &self.route_profiles(floor));
+        let resolved = correction::resolve(to, &last, &self.route_profiles(floor));
         let asked = resolved.question != "persona" || last.persona_asked;
         let label = match (&resolved.label, &last.judgment) {
             (Some(words), Some(_)) if asked => {

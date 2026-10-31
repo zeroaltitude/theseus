@@ -148,4 +148,3 @@ async fn a_short_or_all_caps_term_still_reaches_the_quick_route() {
         assert_eq!(res.recalled, 1, "{ask}");
     }
 }
-

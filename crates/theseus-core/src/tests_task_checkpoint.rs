@@ -216,7 +216,6 @@ impl Task {
             .filter(|d| d["source"] == "task checkpoint")
             .collect()
     }
-
 }
 
 // A. What a task did before checkpoints, pinned.
@@ -401,4 +400,3 @@ async fn a_checkpoints_text_is_bounded_for_a_task_of_long_loops() {
         text.chars().count()
     );
 }
-

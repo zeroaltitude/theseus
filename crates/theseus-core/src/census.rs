@@ -174,12 +174,7 @@ impl TurnRunner {
         } else {
             notes.push("a fresh session has no category guidance yet".to_string());
         }
-        let standing = self.census_standing(
-            &sid,
-            target.persona.as_deref(),
-            view.class,
-            &mut spec,
-        );
+        let standing = self.census_standing(&sid, target.persona.as_deref(), view.class, &mut spec);
         let mut nodes = match rec {
             Some(r) => self.store.transcript(&r.session_id)?,
             None => Vec::new(),

@@ -144,4 +144,3 @@ async fn a_named_profile_beats_the_live_pin() {
         (Value::from("pinned"), Value::from("-P opus"))
     );
 }
-
