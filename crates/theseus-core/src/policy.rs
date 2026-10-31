@@ -1010,8 +1010,23 @@ mod tests {
             let p = policy(&root, e);
             for (tool, pl) in [("fs.write", &write), ("proc.run", &script)] {
                 let out = p.decide(&T(tool), pl);
-                assert_eq!((out.posture, out.floor), (e, false), "{tool} at {e:?}");
-                assert!(out.reason.contains("(enforcement = "), "{}", out.reason);
+                // `open` is raised to a notice by what a call reaches outside
+                // (the script's cwd is inside, so only the write is).
+                let want = if tool == "fs.write" {
+                    e.max(Posture::Notify)
+                } else {
+                    e
+                };
+                assert_eq!((out.posture, out.floor), (want, false), "{tool} at {e:?}");
+                assert!(
+                    out.reason.contains(if want == e {
+                        "(enforcement = "
+                    } else {
+                        "(outside [tools].roots"
+                    }),
+                    "{}",
+                    out.reason
+                );
             }
         }
         let mut listed = policy(&root, Posture::Open);
@@ -1126,10 +1141,15 @@ mod tests {
                 let want = e.max(Posture::Notify);
                 assert_eq!((out.posture, out.floor), (want, false), "{tool} at {e:?}");
                 assert!(out.reason.contains(&says), "{}", out.reason);
-                let notice = out.notify.expect("a notify names the path");
-                assert!(notice.rule.contains(&says), "{}", notice.rule);
-                if e == Posture::Notify {
-                    assert_eq!(notice.setting, "enforcement = notify");
+                if want == Posture::Notify {
+                    let notice = out.notify.expect("a notify names the path");
+                    assert!(notice.rule.contains(&says), "{}", notice.rule);
+                    let set = if e == Posture::Notify {
+                        "enforcement = notify"
+                    } else {
+                        "outside [tools].roots"
+                    };
+                    assert_eq!(notice.setting, set);
                 }
             }
         }
@@ -1499,7 +1519,7 @@ mod tests {
             None,
             own,
         );
-        assert_eq!(out.posture, Posture::Open, "{}", out.reason);
+        assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
         assert!(
             out.reason.contains("read outside your project folder: "),
             "{}",
@@ -1648,11 +1668,17 @@ mod tests {
                 vec!["git", "status", ".."],
             ] {
                 let out = run(argv);
-                assert_eq!(out.posture, e, "{}", out.reason);
+                let want = e.max(Posture::Notify);
+                assert_eq!(out.posture, want, "{}", out.reason);
+                let setting = if want == e {
+                    format!("enforcement = {}", e.as_str())
+                } else {
+                    "outside [tools].roots; the config says enforcement = open".into()
+                };
                 assert!(
                     out.reason.contains(&format!(
-                        "proc.run — {0} (enforcement = {0}; ran outside your project folder: ",
-                        e.as_str()
+                        "proc.run — {} ({setting}; ran outside your project folder: ",
+                        want.as_str()
                     )),
                     "{}",
                     out.reason
