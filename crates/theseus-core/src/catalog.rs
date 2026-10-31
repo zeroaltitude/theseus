@@ -56,8 +56,6 @@ mod peak;
 pub use peak::price_period_at;
 mod switch;
 pub use switch::{switch_cost, CANDIDATES as SWITCH_CANDIDATES};
-#[cfg(test)]
-mod tests_switch;
 
 pub const BUILTIN_VERSION: &str = "2026-10-29.1";
 
@@ -2309,3 +2307,5 @@ mod tests {
 mod tests_moonshot;
 #[cfg(test)]
 mod tests_peak;
+#[cfg(test)]
+mod tests_switch;
