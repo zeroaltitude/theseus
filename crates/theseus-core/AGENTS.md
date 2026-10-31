@@ -1000,7 +1000,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`lsp/rename.rs`, as the stack tools: `lsp.rename.plan` keeps the edit by digest, `lsp.rename` writes exactly
   it, its files the plan's resources). `lsp::gate`, after the call's own order in `toolrun`'s gate, judges a call
   that would start a server at `proc.run`'s posture for its argv (once per root in a daemon's life) and makes a
-  rename's write outside the roots wait. A cancel or `/stop` aborts the call's task, so the client sends
+  rename's write outside the roots label it with its path (theseus-m9fdg). A cancel or `/stop` aborts the call's task, so the client sends
   `$/cancelRequest`. Each request is an `lsp.request` span under its call (`Board::bind`, `spans`) and the metric
   `theseus.lsp.request.duration`; the facts are `fact/lsp.rs`; health's `lsp` block is `Board::health`. Never
   offered in a shared place (`places::offered`). Config: `config/lsp.rs`. Tests: `tests_lsp.rs` (the fake in
