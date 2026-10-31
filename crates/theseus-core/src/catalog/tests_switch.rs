@@ -72,3 +72,20 @@ fn the_band_is_plus_or_minus_twenty_percent_inclusive() {
     // No stay price to compare with: no claim.
     assert_eq!(classify(0.0, 5.0), AboutTheSame);
 }
+
+/// theseus-h66v4.1: every case's `switch_cost` in the route.v10 test set is
+/// what the daemon's own rule says for that case's state. The judge crate
+/// cannot see the catalog, so the file is held to the function here.
+#[test]
+fn every_cases_switch_cost_is_what_the_daemons_rule_says() {
+    let pack = theseus_judge::pack::by_name("route.v10").unwrap();
+    let set =
+        theseus_judge::route_cases::CaseSet::parse(theseus_judge::route_cases::V10, &pack).unwrap();
+    let catalog = Catalog::builtin();
+    for c in &set.cases {
+        let s = &c.state;
+        let current = Some(s.current_model.as_str()).filter(|m| !m.is_empty());
+        let got = switch_cost(&catalog, current, s.est_tokens);
+        assert_eq!(got.as_str(), s.switch_cost, "{}: {s:?}", c.id);
+    }
+}
