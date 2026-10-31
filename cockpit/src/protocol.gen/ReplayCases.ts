@@ -8,7 +8,7 @@ export type ReplayCases = { pack: string, cases: Array<ReplayCase>,
 /**
  * Cases whose judgment answered.
  */
-answered: number, model_ok: number, effort_exact: number, effort_close: number, context_ok: number, 
+answered: number, model_ok: number, effort_exact: number, effort_close: number, 
 /**
  * Cases marked `must`, those whose `model` is right, and those whose
  * `model` answer sits under the pack's confirm bar.
@@ -18,7 +18,7 @@ must_total: number, must_ok: number, must_under_confirm: number,
  * The same counts for the raw top pick, before the confirm bar and
  * `no_match` (how `--cases` graded until theseus-mir9c).
  */
-raw_model_ok: number, raw_effort_exact: number, raw_effort_close: number, raw_context_ok: number, 
+raw_model_ok: number, raw_effort_exact: number, raw_effort_close: number, 
 /**
  * Cases the daemon's own tests hold instead (W39 and W40, the pins),
  * counted as met in `bar`.

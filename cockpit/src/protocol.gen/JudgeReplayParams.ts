@@ -43,7 +43,7 @@ limit?: number | null,
 /**
  * `--cases`: a labelled case file's text (`route.v10.cases.toml`). The
  * candidate is asked each case's message and state, and its `model`,
- * `effort` and `context` answers are compared to the case's labels. No
+ * and `effort` answers are compared to the case's labels. No
  * recorded judgment is read; the daemon opens no path.
  */
 cases?: string | null, };

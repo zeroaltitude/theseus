@@ -13,4 +13,4 @@ must: boolean,
  * The candidate's judgment answered; false when it failed or the run's
  * limit stopped before it.
  */
-answered: boolean, model: ReplayCheck, effort: ReplayCheck, context: ReplayCheck, };
+answered: boolean, model: ReplayCheck, effort: ReplayCheck, };
