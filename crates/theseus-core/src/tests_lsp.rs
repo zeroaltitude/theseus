@@ -613,7 +613,8 @@ async fn a_rename_is_gated_on_every_file_it_writes() {
     let d = crate::lsp::gate(rt, tool.as_ref(), &outside, open);
     assert_eq!(d.posture, Posture::Open, "{}", d.reason);
     assert!(
-        d.reason.contains("wrote outside your project folder: /elsewhere/x.fake (roots: "),
+        d.reason
+            .contains("wrote outside your project folder: /elsewhere/x.fake (roots: "),
         "{}",
         d.reason
     );

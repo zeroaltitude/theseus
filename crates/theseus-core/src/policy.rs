@@ -1045,7 +1045,8 @@ mod tests {
         let out = bare.decide(&T("fs.read"), &read);
         assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
         assert!(
-            out.reason.contains("(roots: none configured, set [tools].projects_dir)"),
+            out.reason
+                .contains("(roots: none configured, set [tools].projects_dir)"),
             "{}",
             out.reason
         );
@@ -1061,8 +1062,9 @@ mod tests {
         );
         assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
         assert!(
-            out.reason
-                .contains(&format!("ran outside your project folder: /etc (roots: {r})")),
+            out.reason.contains(&format!(
+                "ran outside your project folder: /etc (roots: {r})"
+            )),
             "{}",
             out.reason
         );
