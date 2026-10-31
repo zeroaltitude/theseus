@@ -998,6 +998,36 @@ mod tests {
                 assert!(out.reason.contains("(enforcement = "), "{}", out.reason);
             }
         }
+        let mut listed = policy(&root, Posture::Open);
+        listed.approve_paths.push(outside.join("keys"));
+        let out = listed.decide(
+            &T("fs.write"),
+            &plan(outside.join("keys/id"), Access::Write, None),
+        );
+        assert_eq!(out.posture, Posture::Approve);
+        assert!(
+            out.reason.contains("is on the approve list"),
+            "{}",
+            out.reason
+        );
+        let mut floor = policy(&root, Posture::Open);
+        floor.floor_paths.push(outside.join("state"));
+        let out = floor.decide(
+            &T("fs.write"),
+            &plan(outside.join("state/store/0.wal"), Access::Write, None),
+        );
+        assert_eq!((out.posture, out.floor), (Posture::Approve, true));
+    }
+
+    /// What a call reaches outside the roots is named in its decision, as the
+    /// owner's footer line: `<verb> outside your project folder: <path>
+    /// (roots: ...)`, in the reason at every posture and in the notice at
+    /// notify (theseus-m9fdg).
+    #[test]
+    fn what_a_call_reaches_outside_the_roots_is_named_in_its_decision() {
+        let (_d, root) = workspace();
+        let (_o, outside) = workspace();
+        let write = plan(outside.join("scratch/config.toml"), Access::Write, None);
         let read = plan(outside.join("notes.txt"), Access::Read, None);
         let ls = plan(outside.clone(), Access::Exec, Some(vec!["ls"]));
         let r = root.display();
@@ -1068,25 +1098,6 @@ mod tests {
             "{}",
             out.reason
         );
-        let mut listed = policy(&root, Posture::Open);
-        listed.approve_paths.push(outside.join("keys"));
-        let out = listed.decide(
-            &T("fs.write"),
-            &plan(outside.join("keys/id"), Access::Write, None),
-        );
-        assert_eq!(out.posture, Posture::Approve);
-        assert!(
-            out.reason.contains("is on the approve list"),
-            "{}",
-            out.reason
-        );
-        let mut floor = policy(&root, Posture::Open);
-        floor.floor_paths.push(outside.join("state"));
-        let out = floor.decide(
-            &T("fs.write"),
-            &plan(outside.join("state/store/0.wal"), Access::Write, None),
-        );
-        assert_eq!((out.posture, out.floor), (Posture::Approve, true));
     }
 
     #[test]
