@@ -9,7 +9,7 @@ use theseus_protocol::task_start::TaskStartParams;
 
 use crate::approval::{Answerer, Surface};
 use crate::provider::{ProviderRequest, Scripted};
-use crate::tests_tasks::{answers_a_call, exec, first_user, rig, until};
+use crate::tests_tasks::{answers_a_call, exec, first_user, rig_deferring, until};
 use crate::tools_defer::SEARCH_TOOL;
 
 /// A task whose first answer searches and calls a tool in the same message,
@@ -49,7 +49,8 @@ fn kinds(m: &Value) -> Vec<String> {
 
 #[tokio::test]
 async fn a_task_that_searches_in_its_first_loop_sends_the_result_back_with_its_call() {
-    let r = rig(script, |_| {});
+    // A request with the tool search tool, as a daemon's task has: one without it replays no search.
+    let r = rig_deferring(script, |_| {});
     let started = r
         .core
         .task_start(

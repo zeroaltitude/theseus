@@ -1369,7 +1369,13 @@ fn implicit_thinking_sends_no_thinking_field() {
 /// leaves the open server call out; an answered one stays.
 #[test]
 fn a_server_call_the_provider_never_answered_is_not_replayed() {
-    let sp = spec("claude-opus-5", "You are Theseus.");
+    // A request with the tool search tool: the answered search stays (theseus-it6th).
+    let mut sp = spec("claude-opus-5", "You are Theseus.");
+    sp.tools = vec![
+        json!({"type": "tool_search_tool_bm25_20251119", "name": "tool_search_tool_bm25"}),
+        json!({"name": "fs_read", "description": "d", "input_schema": {"type": "object"}}),
+    ]
+    .into();
     let search = |id: &str| {
         json!({"type": "server_tool_use", "id": id, "name": "tool_search_tool_bm25",
                "input": {"query": "ask the owner"}})

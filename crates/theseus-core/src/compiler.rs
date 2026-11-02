@@ -62,6 +62,8 @@ mod tests_replay;
 pub(crate) mod tests_ring;
 #[cfg(test)]
 mod tests_ring_sums;
+#[cfg(test)]
+mod tests_search_refs;
 pub use clearing::Pass;
 pub mod situation;
 pub use effort::{output_config, BETA_TURN_EFFORT};
@@ -948,12 +950,14 @@ fn render_kept(
     let media = media_of(spec, catalog, blobs, hidden);
     let (retrying, cleared) = (retrying.or(fallback.and_then(|f| f.1)), clearing::of(c));
     let strip = c.manifest.strip_thinking;
+    // A replayed tool search stands only on a request that offers what it found (theseus-it6th).
+    let offers = server_calls::Offers::of(&spec.tools);
     let mut rendered = match held {
         Some((kept, session, view)) => kept::render(
             kept::Kept1 {
                 kept,
                 session,
-                key: kept::Key::of(&c.id, strip, &spec.provider, &media, view),
+                key: kept::Key::of(&c.id, strip, &spec.provider, &media, view, &offers),
             },
             &prefix,
             &tail,
@@ -964,6 +968,7 @@ fn render_kept(
                 retrying,
                 sources,
                 cleared: &cleared,
+                offers: &offers,
             },
         ),
         None => render_messages(
@@ -973,7 +978,7 @@ fn render_kept(
             &spec.provider,
             &media,
             retrying,
-            (sources, &cleared),
+            (sources, &cleared, &offers),
         ),
     };
     card::attach(spec, &mut rendered);

@@ -29,6 +29,7 @@ use crate::node::Node;
 use crate::provider::Census;
 use crate::stub::Stub;
 
+use super::super::server_calls::Offers;
 use super::super::{clearing, media_of, render_messages, CompileInput};
 use super::Ring;
 
@@ -54,6 +55,7 @@ pub(super) fn guess(at: &At<'_, '_>, seq: &[&Stub], cuts: &[usize], target: u64)
     let cleared: HashSet<&str> = clearing::drops(r.carried)
         .filter_map(|d| d.node_id.as_deref())
         .collect();
+    let offers = Offers::of(&spec.tools);
     let (mut census, mut images) = at.base;
     for i in (0..cuts.len().saturating_sub(1)).rev() {
         let nodes: Vec<&Node> = seq[cuts[i]..cuts[i + 1]].iter().map(|n| &***n).collect();
@@ -64,7 +66,7 @@ pub(super) fn guess(at: &At<'_, '_>, seq: &[&Stub], cuts: &[usize], target: u64)
             &spec.provider,
             &media,
             retrying,
-            (input.sources, &cleared),
+            (input.sources, &cleared, &offers),
         );
         add(&mut census, &Census::of_messages(&m.messages));
         images += m.image_tokens;

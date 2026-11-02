@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Value};
 
+use super::server_calls::Offers;
 use super::{clearing, compaction};
 use crate::attach::Media;
 use crate::config::Effort;
@@ -98,6 +99,8 @@ pub(super) struct Ctx<'a, 'n> {
     pub cleared: &'a HashSet<&'a str>,
     /// What the model wrote after each cleared result, by its call's id.
     pub notes: &'a HashMap<String, String>,
+    /// What the request's tools let a replayed tool search stand on.
+    pub offers: &'a Offers,
 }
 
 /// Each call's result among `nodes`: its last one that is not late.
@@ -132,7 +135,7 @@ pub fn render_messages(
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
-    (sources, cleared): (&crate::recall::render::Sources, &HashSet<&str>),
+    (sources, cleared, offers): (&crate::recall::render::Sources, &HashSet<&str>, &Offers),
 ) -> Messages {
     let all = || prefix.iter().chain(tail.iter()).copied();
     let results = results_of(all());
@@ -147,6 +150,7 @@ pub fn render_messages(
         sources,
         cleared,
         notes: &notes,
+        offers,
     };
     let mut st = State::default();
     let items = prefix
@@ -200,7 +204,7 @@ impl State {
                 };
                 // The provider's own calls go back whole and in order, or its
                 // API refuses the request (theseus-s0s4x).
-                let bl = super::server_calls::closed(bl);
+                let bl = super::server_calls::closed(bl, ctx.offers);
                 if bl.is_empty() {
                     return;
                 }
