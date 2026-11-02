@@ -1663,36 +1663,62 @@ pub async fn profile(conn: &mut Conn, json: bool, cmd: ProfileCmd) -> Result<()>
     }
 }
 
-/// The count line of a `profile.pins` answer, as `pins` and `unpin` print it.
+/// How many of `p`'s `task_pins` are of `kind`.
+fn task_pins_of(p: &ProfilePinsResult, kind: &str) -> usize {
+    p.task_pins.iter().filter(|t| t.kind == kind).count()
+}
+
+/// The one headline of a `profile.pins` answer, as `pins` and `unpin` print it. It leads with every task
+/// no brief or checkpoint routes, not the holds alone, so a reader who stops at it before a flip is not told
+/// "nothing is pinned" beside a pinned task: tasks held to a profile, tasks the owner started on one, and
+/// tasks Theseus made on a model of its own choosing, each counted once in the total and again in its part.
 fn pinned_line(what: &str, p: &ProfilePinsResult) -> String {
+    let mut tasks: std::collections::HashSet<&str> = p
+        .pins
+        .iter()
+        .filter(|t| t.kind == "task")
+        .map(|t| t.session_id.as_str())
+        .collect();
+    tasks.extend(p.task_pins.iter().map(|t| t.session_id.as_str()));
+    let unknown = task_pins_of(p, "task-unknown");
     format!(
-        "{what}: {} of {} sessions pinned, {} of {} tasks pinned",
-        p.pinned_sessions, p.sessions, p.pinned_tasks, p.tasks
-    )
-}
-
-/// The count of tasks started on a named profile whose first turn has not run: a pin the brief never moves,
-/// though nothing holds it (`task.start --profile`). Printed always, so "0" is a count and not a silence.
-fn start_line(what: &str, p: &ProfilePinsResult) -> String {
-    format!(
-        "{what}: {} of {} tasks started on a named profile, first turn not yet run",
-        p.task_pins.len(),
-        p.tasks
-    )
-}
-
-/// One start-pinned task, as `pins` and `unpin` name it.
-fn start_pin_text(pin: &PinnedSession) -> String {
-    format!(
-        "task {} started on {}{}",
-        render::short_id(&pin.session_id),
-        pin.profile,
-        if pin.configured {
-            ""
-        } else {
-            " (no longer configured)"
+        "{what}: {} of {} tasks, {} of {} sessions ({} held to a profile, {} started by you on a profile, {} on a fixed model Theseus chose{})",
+        tasks.len(),
+        p.tasks,
+        p.pinned_sessions,
+        p.sessions,
+        p.pinned_sessions + p.pinned_tasks,
+        task_pins_of(p, "task-start"),
+        task_pins_of(p, "task-fixed"),
+        match unknown {
+            0 => String::new(),
+            n => format!(", {n} of unknown origin"),
         }
     )
+}
+
+/// One task of `task_pins`, as `pins` and `unpin` name it: who made it decides the words.
+fn task_pin_text(pin: &PinnedSession) -> String {
+    let id = render::short_id(&pin.session_id);
+    let gone = if pin.configured {
+        ""
+    } else {
+        " (no longer configured)"
+    };
+    match pin.kind.as_str() {
+        "task-start" => format!(
+            "task {id} started by you on {} (task start --profile){gone}",
+            pin.profile
+        ),
+        "task-fixed" => format!(
+            "task {id} made by Theseus on a fixed model, {} (a child task, a check, a reviewer, a routine run or a retry){gone}",
+            pin.profile
+        ),
+        _ => format!(
+            "task {id} on {}, maker not read (the ledger could not be read){gone}",
+            pin.profile
+        ),
+    }
 }
 
 /// `theseus profile pins`: what is held, one line each, then the count.
@@ -1710,11 +1736,10 @@ fn print_pins(p: &ProfilePinsResult) {
             }
         );
     }
-    println!("{}", pinned_line("pinned", p));
     for pin in &p.task_pins {
-        println!("{}", start_pin_text(pin));
+        println!("{}", task_pin_text(pin));
     }
-    println!("{}", start_line("started on a profile", p));
+    println!("{}", pinned_line("pinned", p));
     eprintln!("[live: {} (from {})]", p.live, p.live_source);
 }
 
@@ -1737,14 +1762,20 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
             ),
         }
         println!("{}", pinned_line("before", &r.before));
-        println!("{}", start_line("before", &r.before));
         for c in &r.cleared {
-            println!(
-                "let go: {} {} (was held to {})",
-                c.kind,
-                render::short_id(&c.session_id),
-                c.profile
-            );
+            match c.kind.as_str() {
+                "task-start" => println!(
+                    "let go: task {} (was started on {}; the brief and checkpoints choose its model from its next turn)",
+                    render::short_id(&c.session_id),
+                    c.profile
+                ),
+                _ => println!(
+                    "let go: {} {} (was held to {})",
+                    c.kind,
+                    render::short_id(&c.session_id),
+                    c.profile
+                ),
+            }
         }
         for f in &r.failed {
             match f.session_id.is_empty() {
@@ -1756,22 +1787,26 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
                 ),
             }
         }
-        for pin in &r.after.task_pins {
+        for pin in r.after.task_pins.iter().filter(|p| p.kind != "task-start") {
             println!(
-                "not cleared: {}: a named choice, not a hold; cancel it and start it again without --profile to let the brief choose",
-                start_pin_text(pin)
+                "not cleared: {}: {}",
+                task_pin_text(pin),
+                match pin.kind.as_str() {
+                    "task-fixed" => "Theseus's own choice, not yours to drop; there is no --profile on it, so leave it",
+                    _ => "left alone; find out what made it before cancelling anything",
+                }
             );
         }
         println!("{}", pinned_line("after", &r.after));
-        println!("{}", start_line("after", &r.after));
         if r.all {
             eprintln!(
                 "[not touched: routing's own moves (Jev's verdicts) and one-turn route.correct steers; these are not holds]"
             );
         }
-        if !r.all && !r.after.pins.is_empty() {
+        let starts = task_pins_of(&r.after, "task-start");
+        if !r.all && !(r.after.pins.is_empty() && starts == 0) {
             eprintln!(
-                "[{} held profiles remain; `theseus profile unpin --all` lets go of them]",
+                "[{} held profiles and {starts} tasks started on a profile remain; `theseus profile unpin --all` lets go of them]",
                 r.after.pins.len()
             );
         }

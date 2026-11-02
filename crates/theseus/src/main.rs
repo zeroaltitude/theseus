@@ -637,7 +637,7 @@ enum Cmd {
     #[command(hide = true)]
     Mode(mode_cmd::ModeArgs),
     /// Model profiles: list, switch the live one (`theseus profile use glm`), release the switch, or see
-    /// and let go of every pin (`theseus profile pins`, `theseus profile unpin --all`).
+    /// every pin and let go of yours (`theseus profile pins`, `theseus profile unpin --all`).
     #[command(display_order = 18)]
     Profile {
         #[command(subcommand)]

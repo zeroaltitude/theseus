@@ -9,7 +9,7 @@ export type PinnedSession = {
  */
 session_id: string, 
 /**
- * `session`, or `task` when the session is a task's own; `task-start` in `start_pinned`.
+ * `session`, or `task` when the session is a task's own; `task-start`, `task-fixed` or `task-unknown` in `task_pins`.
  */
 kind: string, 
 /**

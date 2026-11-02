@@ -15,9 +15,12 @@ live_source: string,
  */
 sessions: number, tasks: number, pinned_sessions: number, pinned_tasks: number, pins: Array<PinnedSession>, 
 /**
- * Tasks started on a named profile whose first turn has not run: `task.start --profile` is a pin the
- * brief's route never moves (`turn/brief_step.rs`), though no `session.profile` hold records it. Their
- * own kind (`task-start`), counted beside the holds and never inside them; `profile.unpin` does not clear
- * them. Each one's `profile` is the one it was started on.
+ * Live tasks no brief or checkpoint ever routes: each has a model fixed when it was made and no
+ * `task.route.<session>` mark (`turn/brief_step.rs`), whatever turn it is on. Beside the holds, never inside
+ * them, and told apart by `kind`: `task-start` (`task.start --profile`: the owner named the model; `unpin
+ * --all` clears it by writing the mark), `task-fixed` (Theseus made it on a model of its own choosing: an
+ * agent's child task, a check, a draft's reviewer, a routine's run, a retry; not cleared, nothing to drop)
+ * and `task-unknown` (the ledger could not say who made it; not cleared). Each one's `profile` is the one
+ * it was made on.
  */
-start_pinned: Array<PinnedSession>, };
+task_pins: Array<PinnedSession>, };

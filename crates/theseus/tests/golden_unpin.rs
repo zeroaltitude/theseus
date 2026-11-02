@@ -83,18 +83,31 @@ fn pins(pinned: &[Value]) -> Value {
     pins_with(pinned, &[])
 }
 
-/// The same, with `start` the tasks started on a named profile whose first turn has not run.
+/// The same, with `start` the tasks no brief or checkpoint routes (`task_pins`).
 fn pins_with(pinned: &[Value], start: &[Value]) -> Value {
     let of = |kind: &str| pinned.iter().filter(|p| p["kind"] == kind).count();
     json!({"live": "quick", "live_source": "config", "sessions": 5, "tasks": 3,
            "pinned_sessions": of("session"), "pinned_tasks": of("task"), "pins": pinned,
-           "start_pinned": start})
+           "task_pins": start})
 }
 
+/// One task the owner started on a profile.
 fn started() -> Vec<Value> {
     vec![
         json!({"session_id": "ses_startstart0001", "kind": "task-start", "profile": "opus", "configured": true}),
     ]
+}
+
+/// One task Theseus made on a fixed model, and one whose maker the ledger could not name.
+fn theirs() -> Vec<Value> {
+    vec![
+        json!({"session_id": "ses_fixedfixed0002", "kind": "task-fixed", "profile": "opus", "configured": true}),
+        json!({"session_id": "ses_unknownunk0003", "kind": "task-unknown", "profile": "glm", "configured": true}),
+    ]
+}
+
+fn all_tasks() -> Vec<Value> {
+    [started(), theirs()].concat()
 }
 
 fn held() -> Vec<Value> {
@@ -149,20 +162,32 @@ fn a_hold_that_was_not_let_go_is_named_and_the_exit_is_one() {
 }
 
 #[test]
-fn pins_names_a_task_started_on_a_profile_though_nothing_holds_it() {
+fn pins_names_each_task_by_who_made_it_though_nothing_holds_them() {
     golden(
-        "profile_pins_start_pinned",
-        &run(&["profile", "pins"], pins_with(&[], &started())),
+        "profile_pins_task_pins",
+        &run(&["profile", "pins"], pins_with(&[], &all_tasks())),
     );
 }
 
 #[test]
-fn unpin_all_names_a_started_on_task_it_does_not_clear() {
+fn unpin_all_clears_the_owners_task_and_names_the_ones_it_leaves() {
+    let cleared: Vec<Value> = [held(), started()].concat();
     let answer = json!({"released": false, "previous": "quick", "live": "quick", "by": "the CLI",
-        "all": true, "before": pins_with(&held(), &started()), "cleared": held(), "failed": [],
+        "all": true, "before": pins_with(&held(), &all_tasks()), "cleared": cleared, "failed": [],
+        "after": pins_with(&[], &theirs())});
+    golden(
+        "profile_unpin_all_task_pins",
+        &run(&["profile", "unpin", "--all"], answer),
+    );
+}
+
+#[test]
+fn unpin_without_all_says_how_many_started_on_a_profile_remain() {
+    let answer = json!({"released": false, "previous": "quick", "live": "quick", "by": "the CLI",
+        "all": false, "before": pins_with(&[], &started()), "cleared": [], "failed": [],
         "after": pins_with(&[], &started())});
     golden(
-        "profile_unpin_all_start_pinned",
-        &run(&["profile", "unpin", "--all"], answer),
+        "profile_unpin_tasks_remain",
+        &run(&["profile", "unpin"], answer),
     );
 }
