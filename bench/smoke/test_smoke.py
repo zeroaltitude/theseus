@@ -223,9 +223,20 @@ def replay(model_ok=55, must_ok=13, must_total=13, answered=61, n=61, held=2, ba
     return {"set": "cases", "cost_usd": cost, "cases": c}
 
 
+def effort_replay(effort_ok=58, n=61, answered=61, cost=0.01, bars=True):
+    """`theseus --json judge replay --pack-file effort.v1.toml --cases route.v10.cases.toml` as Phase 2 prints it: the
+    same cases, one bar, `effort` within one rung of the label, `need` the ratio of its own `of`."""
+    c = {"cases": [{}] * n, "answered": answered, "pack": "effort.v1", "asked": ["effort"], "bar": True}
+    if bars:
+        c["bars"] = [{"question": "effort", "ok": effort_ok, "of": n, "need": need80(n),
+                      "met": n > 0 and effort_ok >= need80(n)}]
+    return {"set": "cases", "cost_usd": cost, "cases": c}
+
+
 class RoutePart(unittest.TestCase):
-    def runs(self, *raws, wall=20.0):
-        return [smoke.route_run(r, wall) for r in raws]
+    def runs(self, *raws, wall=20.0, effort=True):
+        """Each route replay with the effort replay the tag gate takes beside it (`effort=False`: none)."""
+        return [smoke.route_run(r, wall, effort_replay() if effort is True else effort or None) for r in raws]
 
     def part(self, *raws, live=None):
         return smoke.route_part(self.runs(*raws), floor=None, live=live)
@@ -329,9 +340,11 @@ class RoutePart(unittest.TestCase):
     def test_the_command_line_exits_1_for_a_zero_case_grading_and_0_for_the_owners_bar(self):
         with tempfile.TemporaryDirectory() as t:
             def go(raw):
-                r = Path(t) / "r.json"
+                r, e = Path(t) / "r.json", Path(t) / "e.json"
                 r.write_text(json.dumps(raw))
-                return smoke.main(["route", t, "--live", "route.v10", str(r), "1", str(r), "1", str(r), "1"])
+                e.write_text(json.dumps(effort_replay()))
+                pair = [str(r), "1", "--effort", str(e)]
+                return smoke.main(["route", t, "--live", "route.v10"] + pair * 3)
             self.assertEqual(go(replay(model_ok=49, must_ok=11)), 0)
             self.assertEqual(go(replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0)), 1)
             self.assertEqual(go(replay(model_ok=40, must_ok=9)), 1)
@@ -515,11 +528,139 @@ class Verdict(unittest.TestCase):
         self.assertLess(md.index("| part |"), md.index("$2.50"))
 
 
+class RouteEffort(unittest.TestCase):
+    """theseus-h66v4.4's fix pass: `Jev chooses the model and effort` is graded at the tag. Each run is a route.v10
+    replay and an effort.v1 replay over the same cases file; the effort bar joins that run's bars."""
+
+    def part(self, route, effort, live="route.v10", n=3):
+        return smoke.route_part([smoke.route_run(route, 20.0, effort)] * n, None, live=live)
+
+    def test_effort_within_one_rung_is_graded_at_80_percent_of_its_own_count(self):
+        ok = self.part(replay(), effort_replay(effort_ok=49))
+        self.assertTrue(ok["ok"], ok["note"])
+        self.assertIn("49/61 on effort", ok["note"])
+        bad = self.part(replay(), effort_replay(effort_ok=48))
+        self.assertFalse(bad["ok"])
+        self.assertIn("48/61 on effort < 49", bad["note"])
+        # The case that would have passed READY TO TAG silently: effort far under the bar, model and musts fine.
+        self.assertFalse(self.part(replay(), effort_replay(effort_ok=30))["ok"])
+
+    def test_the_effort_bar_follows_its_own_denominator(self):
+        for n in (61, 65, 70):
+            self.assertTrue(self.part(replay(), effort_replay(effort_ok=need80(n), n=n, answered=n))["ok"], n)
+            self.assertFalse(self.part(replay(), effort_replay(effort_ok=need80(n) - 1, n=n, answered=n))["ok"], n)
+
+    def test_a_missing_effort_replay_is_a_fail_the_gate_never_stops_covering_effort_silently(self):
+        p = self.part(replay(), None)
+        self.assertFalse(p["ok"])
+        self.assertIn("no effort bar", p["note"])
+        # One run of three without it is as bad.
+        runs = [smoke.route_run(replay(), 20.0, effort_replay())] * 2 + [smoke.route_run(replay(), 20.0)]
+        q = smoke.route_part(runs, None, live="route.v10")
+        self.assertFalse(q["ok"])
+        self.assertIn("run 3: the replay graded no effort bar", q["note"])
+        # An effort replay that printed no bar (an older binary), or one over no cases, is not a pass either.
+        self.assertFalse(self.part(replay(), effort_replay(bars=False))["ok"])
+        self.assertFalse(self.part(replay(), effort_replay(effort_ok=0, n=0, answered=0))["ok"])
+
+    def test_only_the_effort_bar_is_taken_from_the_effort_replay_and_its_bar_must_be_80_percent(self):
+        both = effort_replay()
+        both["cases"]["bars"].append({"question": "model", "ok": 0, "of": 61, "need": 49, "met": False})
+        p = self.part(replay(), both)
+        self.assertTrue(p["ok"], p["note"])
+        self.assertEqual(sorted(b["question"] for b in p["runs"][0]["bars"]), ["effort", "model", "must"])
+        lax = effort_replay(effort_ok=40)
+        lax["cases"]["bars"][0].update(need=40, met=True)
+        q = self.part(replay(), lax)
+        self.assertFalse(q["ok"])
+        self.assertIn("is not 80% of 61", q["note"])
+
+    def test_the_cases_pack_and_the_run_count_stay_the_route_replays(self):
+        # The na decision reads the route pack; an effort replay beside it does not make the run `effort.v1`'s.
+        run = smoke.route_run(replay(), 20.0, effort_replay())
+        self.assertEqual(run["pack"], "route.v10")
+        self.assertAlmostEqual(run["cost_usd"], 0.02)
+        na = self.part(replay(model_ok=37, must_ok=9), effort_replay(effort_ok=30), live="route.v8")
+        self.assertTrue(na["ok"] and na["na"], na)
+        # n/a with no effort replay at all is still n/a: the pack does not act, nothing is judged.
+        self.assertTrue(self.part(replay(model_ok=37), None, live="route.v8")["na"])
+        self.assertEqual(self.part(replay(), effort_replay(), live="route.v10")["count"], 3)
+
+    def test_the_effort_reading_is_in_the_note_and_the_part_keeps_its_worst(self):
+        p = smoke.route_part([smoke.route_run(replay(), 20.0, effort_replay(effort_ok=k)) for k in (58, 50, 55)],
+                             None, live="route.v10")
+        self.assertTrue(p["ok"])
+        self.assertIn("50/61 on effort", p["note"])
+        self.assertEqual(p["worst"]["effort"], {"ok": 50, "of": 61})
+
+    def test_the_command_line_takes_the_effort_replay_beside_each_route_replay(self):
+        with tempfile.TemporaryDirectory() as t:
+            r, e, gone = Path(t) / "r.json", Path(t) / "e.json", Path(t) / "gone.json"
+            r.write_text(json.dumps(replay()))
+
+            def go(effort_json, *, args=None):
+                if effort_json is not None:
+                    e.write_text(json.dumps(effort_json))
+                pair = args if args is not None else [str(r), "1", "--effort", str(e)]
+                return smoke.main(["route", t, "--live", "route.v10"] + pair * 3)
+            self.assertEqual(go(effort_replay(effort_ok=49)), 0)
+            self.assertEqual(go(effort_replay(effort_ok=48)), 1)
+            self.assertEqual(go(None, args=[str(r), "1"]), 1)  # no --effort
+            self.assertEqual(go(None, args=[str(r), "1", "--effort", str(gone)]), 1)  # an effort replay never written
+            self.assertIn("no effort bar", json.loads((Path(t) / "parts" / "route.json").read_text())["note"])
+            e.write_text("not json")
+            self.assertEqual(go(None), 1)
+
+
+class RouteNotes(unittest.TestCase):
+    def test_a_fail_note_numbers_every_run_by_its_place_among_all_runs(self):
+        # theseus-h66v4.4 finding 2: [no cases, 40/61, ok, ok] named the 40/61 run "run 1" (numbered over the runs
+        # that answered) beside the zero-case run's "run 1".
+        runs = [smoke.route_run(replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0), 1.0, effort_replay()),
+                smoke.route_run(replay(model_ok=40), 1.0, effort_replay()),
+                smoke.route_run(replay(), 1.0, effort_replay()), smoke.route_run(replay(), 1.0, effort_replay())]
+        p = smoke.route_part(runs, None, live="route.v10")
+        self.assertFalse(p["ok"])
+        self.assertIn("run 2: 40/61 on the model < 49", p["note"])
+        self.assertIn("run 1: no cases graded", p["note"])
+        self.assertNotIn("run 1: 40/61", p["note"])
+        low_effort = [smoke.route_run(replay(), 1.0, effort_replay()), smoke.route_run(replay(), 1.0, effort_replay(effort_ok=40)),
+                      smoke.route_run(replay(), 1.0, effort_replay())]
+        self.assertIn("run 2: 40/61 on effort", smoke.route_part(low_effort, None, live="route.v10")["note"])
+
+    def test_the_passing_note_does_not_say_the_daemons_bar_asks_more_than_the_part_grades(self):
+        # Under Phase 2 route.v10's whole bar is exactly the model's, and the part grades model, must and effort.
+        p = smoke.route_part([smoke.route_run(replay(), 1.0, effort_replay())] * 3, None, live="route.v10")
+        self.assertTrue(p["ok"])
+        self.assertNotIn("effort and confidence too", p["note"])
+        self.assertIn("whole bar met 3/3", p["note"])
+
+
+class RouteFloor(unittest.TestCase):
+    def test_the_floor_keeps_each_worst_reading_with_its_own_count(self):
+        # theseus-h66v4.4 finding 3: a bare 49 beside a later 52/65 is the defect this row exists to remove.
+        runs = [smoke.route_run(replay(model_ok=k), 20.0, effort_replay(effort_ok=k + 2)) for k in (55, 49, 52)]
+        route = smoke.route_part(runs, None, live="route.v10")
+        tb, _ = Floor().passing()
+        f = smoke.floor_from([tb, route], sha="x", date="d")
+        self.assertEqual(f["route"]["model_worst"], {"ok": 49, "of": 61})
+        self.assertEqual(f["route"]["effort_worst"], {"ok": 51, "of": 61})
+
+    def test_the_next_release_prints_the_floor_with_its_count_and_a_legacy_bare_count_as_it_is(self):
+        run = [smoke.route_run(replay(model_ok=55, n=65, answered=65), 20.0, effort_replay(n=65, answered=65))] * 3
+        floor = {"route": {"wall_s": 20.0, "model_worst": {"ok": 49, "of": 61}}}
+        p = smoke.route_part(run, floor, live="route.v10")
+        self.assertEqual(p["floor"], "49/61")
+        self.assertTrue(p["ok"], p["note"])
+        legacy = smoke.route_part(run, {"route": {"wall_s": 20.0, "model_worst": 49.0}}, live="route.v10")
+        self.assertEqual(legacy["floor"], 49.0)
+
+
 class Floor(unittest.TestCase):
     def passing(self):
         tb = smoke.tb_part(tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False}),
                            SLICE, floor=None, wall_s=600)
-        route = smoke.route_part([smoke.route_run(replay(), 20.0)] * 3, None)
+        route = smoke.route_part([smoke.route_run(replay(), 20.0, effort_replay())] * 3, None)
         return tb, route
 
     def test_floor_from_a_run_holds_what_the_comparisons_read(self):
@@ -529,15 +670,15 @@ class Floor(unittest.TestCase):
         self.assertEqual(f["tb"]["wall_s"], 600)
         self.assertEqual(f["tb"]["price_digest"], smoke.price_digest())
         self.assertAlmostEqual(f["tb"]["cost_per_solved_usd"], 0.125)
-        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, 55.0))
+        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, {"ok": 55, "of": 61}))
         # What the next run compares with is what this run wrote.
         self.assertTrue(smoke.tb_part(tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False}),
                                       SLICE, floor=f, wall_s=600)["ok"])
 
     def test_a_failed_part_keeps_the_previous_floors_entry(self):
         tb, _ = self.passing()
-        bad_route = smoke.route_part([smoke.route_run(replay(model_ok=30), 99.0)] * 3, None)
-        previous = {"route": {"wall_s": 20.0, "model_worst": 56.0, "sha": "old", "date": "d0"}}
+        bad_route = smoke.route_part([smoke.route_run(replay(model_ok=30), 99.0, effort_replay())] * 3, None)
+        previous = {"route": {"wall_s": 20.0, "model_worst": {"ok": 56, "of": 61}, "sha": "old", "date": "d0"}}
         f = smoke.floor_from([tb, bad_route], sha="new", date="d1", previous=previous)
         self.assertEqual(f["written"]["parts"], ["tb"])
         self.assertEqual(f["route"], previous["route"])
@@ -547,10 +688,10 @@ class Floor(unittest.TestCase):
     def test_the_floor_is_this_releases_passing_reading(self):
         tb, route = self.passing()
         previous = {"tb": {"cost_per_solved_usd": 0.10, "wall_s": 500, "price_digest": smoke.price_digest()},
-                    "route": {"wall_s": 10.0, "model_worst": 57.0}}
+                    "route": {"wall_s": 10.0, "model_worst": {"ok": 57, "of": 61}}}
         f = smoke.floor_from([tb, route], sha="new", date="d1", previous=previous)
         self.assertEqual((f["tb"]["cost_per_solved_usd"], f["tb"]["wall_s"]), (0.125, 600))
-        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, 55.0))
+        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, {"ok": 55, "of": 61}))
 
     def test_no_floor_when_nothing_a_floor_reads_passed(self):
         bad = smoke.tb_part([], SLICE, floor=None, wall_s=0)
