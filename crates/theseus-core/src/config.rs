@@ -1424,7 +1424,7 @@ impl Config {
         let retired = cfg.routing.retired();
         if !retired.is_empty() {
             warnings.push(format!(
-                "{} retired in 1.0.5 (Jev chooses the model and its effort): read and ignored, \
+                "{} retired in 1.0.4 (Jev chooses the model and its effort): read and ignored, \
                  remove {}",
                 retired.join(", "),
                 match retired.len() {

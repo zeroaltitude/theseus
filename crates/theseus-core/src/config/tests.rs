@@ -1404,7 +1404,10 @@ fn the_retired_routing_and_draft_keys_load_and_warn() {
         assert!(routing.contains(key), "{routing}");
     }
     assert!(routing.contains("remove them"), "{routing}");
-    assert!(routing.contains("retired in 1.0.4"), "the release that retires them: {routing}");
+    assert!(
+        routing.contains("retired in 1.0.4"),
+        "the release that retires them: {routing}"
+    );
     assert!(warnings.iter().any(|w| w.contains("[server] drafts_dir")));
     let (_, none) = Config::parse(
         "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n[routing]\nmax_wait_ms = 300\n",

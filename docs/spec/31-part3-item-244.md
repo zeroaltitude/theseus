@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 259 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits)) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 260 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles)) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -850,3 +850,37 @@ whose items named a word before R3's install carries no label for it, and it has
 it (R3's O3). (12) A retired session's label counts as agreement after a day rather than at once: a departure
 from the review's section 6.2, taken by the conductor and the owner's to veto (R2). (13) The config spells the
 injection freeze `refuse`; `freeze` is the owner's own word for it, and no config writes either today (R1).
+
+### Item 260. The old routing is deleted: the class walk, the caps, the China-origin draft and the legacy profiles (theseus-kn9or, row 6 of theseus-h66v4; the owner's decisions of 2026-10-29 16:03, 22:38 and 22:46; route.v10's wave 3-prime)
+
+**Why.** The owner's words of 2026-10-29 16:03: "a universally, unequivocal use of jev in every state where a model is
+chosen ... I categorically disagree with caps. Same with thinking/effort." Jev now chooses the model and its effort
+(route.v10; the Items before this one built the pack, its facts and its replay), so what chose them before has nothing
+left to do. It is deleted rather than left as a second opinion: a rule that can overrule the one source of choice the
+owner asked for is the cap the owner disagreed with.
+
+**What goes.** (1) The class table and the walk over it: `[routing.classes.*]`, `cheapest`, the place cap, the dear
+tier's guard, the step back down, and their `Reason`s (`routing::decide` is `model::decide`; `Ask` loses `from` and
+`cap`). (2) The effort bounds, the high-effort gate, the routed floor and every confidence bar
+(`high_effort_confidence`, `effort_confidence`, `effort_floor_confidence`, `effort_bounds`, `dear_tier_max_tokens`),
+and a task's `max_switches`. (3) The China-origin draft with its review: `draft.rs` and `draft/*`, `draft_view.rs`,
+`turn/draft_step.rs`, `fact/draft.rs`, `config/routing_cn.rs` (the admission by name: `cn_profiles`, `cn_draft`,
+`final`, `first_pass`), the draft's reach in the place view, its tool gate and its recall, and `[server] drafts_dir`.
+Item 259's "the drafts flow stays" is superseded by this. (4) `config::legacy`: the profiles an unset key used to run
+on, and the closed branch of every site that had both (an unset key now asks Jev; `route_open` is gone). (5) The
+correction vocabulary of modes, and the coding base of the brief. (6) The tests of those rules. Net, on the branch's
+final head: 150 files, 889 lines in and 13,152 out, about 7,000 of them tests (the design's 6,100 counted whole files
+and the production lines; the mixed test files' share was "not taken" there).
+
+**What stays, unchanged.** The data rule, the operator's pin, the money backstops and the refusal fallback. The
+retired `[routing]` keys (`high_effort_confidence`, `[routing.classes.*]`, `effort_*`, `switch_confidence`,
+`dear_tier_max_tokens`) and `[server] drafts_dir` still LOAD: `Config::parse` returns one warning line for the routing
+keys and one for `drafts_dir`, and they do nothing, for one release. A daemon on the pre-edit config therefore starts
+and says so; the `/etc` edit (design 5.1, after the install) makes it silent. `[memory] synth_profile` is not part of
+the edit: an unset one reads as the session's own profile and never asks Jev, so the live line pins that site until
+theseus-xdi65 settles it.
+
+**Divergences.** (1) `fan_out_cue.rs` still reads the verdict's `mode` as its class; route.v10 has no `mode`, so the
+cue does not fire until its replacement lands (the `split.v1` label, theseus-h66v4.6), and `tests_fan_out_cue.rs`,
+which drove it through the class, was removed with the class. (2) The warning says "retired in 1.0.4", not the
+design's "1.0.5": the release these rows ship in is 1.0.4.

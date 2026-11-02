@@ -101,7 +101,7 @@ cached prefix and so keeps it from expiring (`crates/theseus-core/src/keep_warm.
 That leaves `[memory] mode` (`off`, `shadow`, `canary`, `live`), `[self] mode` (`off` or `act`) and the spend-limit modes
 (`[kernel] spend_limit_mode`, `daily_spend_ceiling_mode`) to rename later.
 
-**task class**: retired in 1.0.5 (route.v10, theseus-h66v4). The route pack used to decide which of eight classes a
+**task class**: retired in 1.0.4 (route.v10, theseus-h66v4). The route pack used to decide which of eight classes a
 message needed (`trivial`, `quick`, `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`), with
 the profiles that served it in `[routing.classes.<name>]`; Jev now chooses the model itself, and `theseus why` prints the
 pick (`model=`). A config that still sets `[routing.classes.*]` loads, warns once and ignores it.
