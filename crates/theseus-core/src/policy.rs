@@ -19,14 +19,17 @@
 //!    token, and an AWS guardrail: AWS design §3.6) waits for approval at
 //!    every posture, and is marked as the floor;
 //! 2. an AWS session mint (STS `AssumeRole*` and its kin, theseus-a3s3), the
-//!    operator's approve lists (`approve_argv`, `approve_paths`), a read
-//!    or a working directory outside the roots, a URL whose host is a
-//!    private address (DD5), and an AWS call that deletes what holds state
-//!    (§3.9) wait for approval. A write outside the roots follows the tool's
-//!    posture, whichever tool makes it (theseus-ewi);
-//! 3. the operator's explicit allow (`allow_argv`) runs, when every path
-//!    argument is inside the roots. An entry is a prefix (`["ls"]` also runs
-//!    `ls -la src`), so entries should be narrow;
+//!    operator's approve lists (`approve_argv`, `approve_paths`), a URL whose
+//!    host is a private address (DD5), and an AWS call that deletes what
+//!    holds state (§3.9) wait for approval. The roots wait for nothing: a
+//!    read, a working directory, an argument or a write outside them follows
+//!    the tool's posture, whichever tool makes it (theseus-ewi, theseus-m9fdg),
+//!    and the decision names the path as `<verb> outside your project folder:
+//!    <path> (roots: ...)`, a label and no gate. An `open` posture is raised
+//!    to `notify` there, never higher, so the access is never silent;
+//! 3. the operator's explicit allow (`allow_argv`) runs, when the call and
+//!    every path argument are inside the roots. An entry is a prefix (`["ls"]`
+//!    also runs `ls -la src`), so entries should be narrow;
 //! 4. otherwise the tool's posture: `[policy.tools]`, then for an MCP tool
 //!    `[policy.mcp]` "server/tool" and "server", for an AWS call
 //!    `[policy.aws]` "service:Operation", "service", and its class (AWS
@@ -165,6 +168,22 @@ impl Decision {
         }
     }
 
+    /// This decision with `label` in its reason and its notice, at the
+    /// posture it had: a label never changes what the gate decided
+    /// (theseus-m9fdg). The label goes inside the reason's parenthesis, where
+    /// `narrative::gate_why` reads the rule from.
+    pub fn labelled(mut self, label: &str) -> Self {
+        let put = |text: &str| match text.strip_suffix(')') {
+            Some(head) => format!("{head}; {label})"),
+            None => format!("{text} ({label})"),
+        };
+        self.reason = put(&self.reason);
+        if let Some(n) = &mut self.notify {
+            n.rule = put(&n.rule);
+        }
+        self
+    }
+
     /// This decision at no looser a posture than `need` (theseus-dcy): a call
     /// given a secret runs at least at the secret's posture, whatever chose
     /// its own. `why` is the parenthesis of the new reason, and `setting` the
@@ -206,8 +225,8 @@ impl Decision {
 
 #[derive(Debug, Clone)]
 pub struct ToolPolicy {
-    /// Canonical workspace roots: a read or a working directory outside them
-    /// waits for approval, and a write there follows the posture.
+    /// Canonical workspace roots: what a call reaches outside them follows the
+    /// posture and is labelled with its path (theseus-m9fdg).
     pub roots: Vec<PathBuf>,
     /// Canonical paths that wait for approval, even under a root.
     pub approve_paths: Vec<PathBuf>,
@@ -416,7 +435,8 @@ impl ToolPolicy {
     /// The same, for a call made inside `own`, a self task's own tree
     /// (theseus-pw1q.21.9): what the approve list protects of the state dir
     /// is open to the call there, and only there. Nothing else changes: the
-    /// floor, the roots, and every other path ask as they did.
+    /// floor and every other approve-listed path ask as they did, and the
+    /// roots only label.
     pub fn decide_in(
         &self,
         tool: &dyn Tool,
@@ -430,10 +450,14 @@ impl ToolPolicy {
         if let Some(d) = self.preempted(tool, plan, &resources, &nargv, &args, own) {
             return d;
         }
-        // The allow list runs a command outright when its path arguments stay
-        // inside the roots; otherwise the tool's posture decides.
+        // Nothing outside the roots waits for that alone: the posture below
+        // decides, and the decision names the path (theseus-m9fdg).
+        let outside = self.outside_roots(plan, &resources, &args);
+        // The allow list runs a command outright when it and its path
+        // arguments stay inside the roots; otherwise the tool's posture
+        // decides.
         if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
-            if args.iter().all(|(_, p)| self.within_roots(p)) {
+            if outside.is_empty() {
                 return Decision::new(
                     Posture::Open,
                     format!(
@@ -455,7 +479,24 @@ impl ToolPolicy {
             Some(line) => Self::now_from(line, tightened),
             None => self.posture_now(name, tightened),
         };
-        let reason = format!("{name} — {} ({})", now.posture.as_str(), now.why());
+        // An access outside the roots is at least a notice, so an `open`
+        // line (the read tools') cannot make it silent; it is never raised
+        // past `notify`, because the roots label and never block
+        // (theseus-m9fdg).
+        let now = if now.posture == Posture::Open && !outside.is_empty() {
+            PostureNow {
+                posture: Posture::Notify,
+                setting: "outside [tools].roots".into(),
+                ..now
+            }
+        } else {
+            now
+        };
+        let why = std::iter::once(now.why())
+            .chain(outside)
+            .collect::<Vec<_>>()
+            .join("; ");
+        let reason = format!("{name} — {} ({why})", now.posture.as_str());
         match now.posture {
             Posture::Approve => Decision::new(now.posture, format!("{}: {reason}", plan.summary)),
             Posture::Notify => Decision {
@@ -554,9 +595,9 @@ impl ToolPolicy {
     /// Whether a call of a self session that waits for approval may go ahead
     /// with a notice instead (theseus-cudar; the owner, 2026-10-19 20:08 and
     /// 2026-10-20 07:26: self-improvement fails open, no answer means go
-    /// ahead). Only the soft holds open: a tool's own `approve` posture, a
-    /// read outside the roots, and a read of the state dir the approve list
-    /// holds. Everything the owner keeps stays a wait: the floor (store,
+    /// ahead). Only the soft holds open: a tool's own `approve` posture and
+    /// a read of the state dir the approve list holds (the roots hold
+    /// nothing, theseus-m9fdg). Everything the owner keeps stays a wait: the floor (store,
     /// spool, bindings, the 1Password token, sealed sets), a task's layer 1,
     /// an AWS call, a private address, an approve-listed program, any path
     /// on the approve list but the state dir's own (keys, credentials), and
@@ -615,6 +656,61 @@ impl ToolPolicy {
         self.roots.iter().any(|root| paths::within(p, root))
     }
 
+    /// The roots as a label shows them.
+    fn roots_shown(&self) -> String {
+        if self.roots.is_empty() {
+            "none configured, set [tools].projects_dir".into()
+        } else {
+            let roots: Vec<String> = self.roots.iter().map(|r| r.display().to_string()).collect();
+            roots.join(", ")
+        }
+    }
+
+    /// The label for one path the call reaches outside the roots, in the
+    /// owner's words: `read outside your project folder: /etc/hosts (roots:
+    /// /w)` (theseus-m9fdg; the owner, 2026-10-30 12:04: "I think this also
+    /// should be a 'i did this outside of my project folder' notify, not a
+    /// block", and "That whole system of project folders should work that
+    /// way generally"). The roots are a label, not a gate: the label rides on
+    /// the decision the posture made, in its reason, its notice and so the
+    /// ledger, and never changes the posture.
+    pub(crate) fn outside_label(&self, access: Access, p: &Path) -> String {
+        let verb = match access {
+            Access::Read => "read",
+            Access::Write => "wrote",
+            Access::Exec => "ran",
+        };
+        format!(
+            "{verb} outside your project folder: {} (roots: {})",
+            p.display(),
+            self.roots_shown()
+        )
+    }
+
+    /// The labels of what a call reaches outside the roots: its resources
+    /// (a path read or written, a working directory) and a command's path
+    /// arguments, each once.
+    fn outside_roots(
+        &self,
+        plan: &Plan,
+        resources: &[PathBuf],
+        args: &[(String, PathBuf)],
+    ) -> Vec<String> {
+        let mut seen: Vec<&Path> = vec![];
+        let mut labels = vec![];
+        let reached = resources
+            .iter()
+            .zip(plan.resources.iter().map(|r| r.access))
+            .chain(args.iter().map(|(_, p)| (p, Access::Exec)));
+        for (p, access) in reached {
+            if !self.within_roots(p) && !seen.contains(&p.as_path()) {
+                seen.push(p);
+                labels.push(self.outside_label(access, p));
+            }
+        }
+        labels
+    }
+
     /// What of the call is on the floor: a resource, the program, or a path
     /// argument.
     fn floor(
@@ -639,18 +735,19 @@ impl ToolPolicy {
     }
 
     /// What of the call the operator listed for approval: a path on the
-    /// approve list, a read or a working directory outside the roots, a URL
-    /// whose host is a private address (DD5, unless `private_addresses` is
-    /// open), an approve-listed program, or a path argument on the approve
-    /// list.
+    /// approve list, a URL whose host is a private address (DD5, unless
+    /// `private_addresses` is open), an approve-listed program, or a path
+    /// argument on the approve list.
     ///
-    /// A write outside the roots is not listed: it follows the tool's
-    /// posture, whichever tool makes it (theseus-ewi; the owner, 2026-09-30: one
-    /// rule for writes outside the roots). `proc.run`'s commands write
-    /// anywhere at theirs, and the gate never guesses what a command does,
-    /// so asking for a file tool's write there guarded nothing and taught a
-    /// model to write through the shell. The approve list and the floor
-    /// still ask, for every tool.
+    /// Nothing outside the roots is listed: a read, a working directory or a
+    /// write there follows the tool's posture, whichever tool makes it, and
+    /// `outside_roots` names the path (theseus-ewi for writes, the owner,
+    /// 2026-09-30: one rule for writes outside the roots; theseus-m9fdg for
+    /// the rest), and a notify at least: an `open` line cannot make it silent.
+    /// `proc.run`'s commands write anywhere at theirs, and the
+    /// gate never guesses what a command does, so asking for a file tool's
+    /// write there guarded nothing and taught a model to write through the
+    /// shell. The approve list and the floor still ask, for every tool.
     ///
     /// `own` is a self task's own tree (theseus-pw1q.21.9): a resource in it
     /// is not held by an approve-list entry that holds the tree itself (the
@@ -665,29 +762,15 @@ impl ToolPolicy {
         own: Option<&Path>,
     ) -> Option<String> {
         let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
-        let access = plan.resources.iter().map(|r| r.access);
         let held = |p: &Path, d: &Path| {
             paths::within(p, d) && !own.is_some_and(|t| paths::within(p, t) && paths::within(t, d))
         };
-        for (p, a) in resources.iter().zip(access) {
+        for p in resources {
             if let Some(d) = self.approve_paths.iter().find(|d| held(p, d)) {
                 return Some(format!(
                     "{} is protected: {} is on the approve list",
                     p.display(),
                     d.display()
-                ));
-            }
-            if a != Access::Write && !self.within_roots(p) {
-                let roots: Vec<String> =
-                    self.roots.iter().map(|r| r.display().to_string()).collect();
-                return Some(format!(
-                    "{} is outside the workspace roots: {}",
-                    p.display(),
-                    if roots.is_empty() {
-                        "none configured, set [tools].projects_dir".into()
-                    } else {
-                        roots.join(", ")
-                    }
                 ));
             }
         }
@@ -903,13 +986,14 @@ mod tests {
     }
 
     /// theseus-ewi (the owner, 2026-09-30: one rule for writes outside the
-    /// roots): a write outside the roots takes the tool's posture, whether
-    /// fs.write makes it or a shell script through proc.run does, so the file
-    /// tool no longer asks where the shell never did. A read or a working
-    /// directory outside the roots still asks, and so do the approve list
-    /// and the floor, for every tool and posture.
+    /// roots), widened by theseus-m9fdg (the owner, 2026-10-30 12:04: "That
+    /// whole system of project folders should work that way generally"): an
+    /// access outside the roots, a read or a working directory as much as a
+    /// write, takes the tool's posture, whichever tool makes it, and says
+    /// where it went. The approve list and the floor still ask, for every
+    /// tool and posture.
     #[test]
-    fn a_write_outside_the_roots_takes_the_posture_whichever_tool_makes_it() {
+    fn an_access_outside_the_roots_takes_the_posture_whichever_tool_makes_it() {
         let (_d, root) = workspace();
         let (_o, outside) = workspace();
         let write = plan(outside.join("scratch/config.toml"), Access::Write, None);
@@ -926,26 +1010,25 @@ mod tests {
             let p = policy(&root, e);
             for (tool, pl) in [("fs.write", &write), ("proc.run", &script)] {
                 let out = p.decide(&T(tool), pl);
-                assert_eq!((out.posture, out.floor), (e, false), "{tool} at {e:?}");
-                assert!(out.reason.contains("(enforcement = "), "{}", out.reason);
+                // `open` is raised to a notice by what a call reaches outside
+                // (the script's cwd is inside, so only the write is).
+                let want = if tool == "fs.write" {
+                    e.max(Posture::Notify)
+                } else {
+                    e
+                };
+                assert_eq!((out.posture, out.floor), (want, false), "{tool} at {e:?}");
+                assert!(
+                    out.reason.contains(if want == e {
+                        "(enforcement = "
+                    } else {
+                        "(outside [tools].roots"
+                    }),
+                    "{}",
+                    out.reason
+                );
             }
         }
-        let p = policy(&root, Posture::Notify);
-        let asks = |tool: &'static str, pl: &Plan, says: &str| {
-            let out = p.decide(&T(tool), pl);
-            assert_eq!(out.posture, Posture::Approve, "{tool}");
-            assert!(out.reason.contains(says), "{}", out.reason);
-        };
-        asks(
-            "fs.read",
-            &plan(outside.join("notes.txt"), Access::Read, None),
-            "is outside the workspace roots",
-        );
-        asks(
-            "proc.run",
-            &plan(outside.clone(), Access::Exec, Some(vec!["ls"])),
-            "is outside the workspace roots",
-        );
         let mut listed = policy(&root, Posture::Open);
         listed.approve_paths.push(outside.join("keys"));
         let out = listed.decide(
@@ -965,6 +1048,140 @@ mod tests {
             &plan(outside.join("state/store/0.wal"), Access::Write, None),
         );
         assert_eq!((out.posture, out.floor), (Posture::Approve, true));
+    }
+
+    /// The owner's config shape (theseus-m9fdg): `enforcement = "notify"`
+    /// with the read tools set to `open` in `[policy.tools]`. A read outside
+    /// the roots there must still tell the operator, and the label never
+    /// asks: `open` is raised to `notify` and no further. A rig on default
+    /// postures cannot see this, which is how it once ran silent.
+    #[test]
+    fn an_open_read_tool_outside_the_roots_is_a_notice_not_silence() {
+        let (_d, root) = workspace();
+        let mut p = policy(&root, Posture::Notify);
+        let reads = [
+            "fs.read", "fs.list", "fs.glob", "fs.grep", "git.diff", "git.log",
+        ];
+        for t in reads {
+            p.tools.insert(t.into(), Posture::Open);
+        }
+        let outside = plan("/etc/passwd".into(), Access::Read, None);
+        let inside = plan(root.join("src/lib.rs"), Access::Read, None);
+        for t in reads {
+            let out = p.decide(&T(t), &outside);
+            assert_eq!(out.posture, Posture::Notify, "{t}: {}", out.reason);
+            assert!(!out.floor, "{t}");
+            let notice = out.notify.expect("the notice names the path");
+            assert_eq!(notice.setting, "outside [tools].roots", "{t}");
+            for text in [&out.reason, &notice.rule] {
+                assert!(
+                    text.contains("read outside your project folder: /etc/passwd (roots: "),
+                    "{t}: {text}"
+                );
+                assert!(
+                    text.contains("the config says [policy.tools]"),
+                    "{t}: {text}"
+                );
+            }
+            // Inside the roots the override still runs open and silent.
+            let out = p.decide(&T(t), &inside);
+            assert_eq!(out.posture, Posture::Open, "{t}: {}", out.reason);
+            assert!(out.notify.is_none(), "{t}");
+        }
+        // Never raised past notify: no roots path asks, whatever the tool.
+        let out = p.decide(
+            &T("fs.read"),
+            &plan(root.join("secret/key"), Access::Read, None),
+        );
+        assert_eq!(out.posture, Posture::Approve, "the approve list still asks");
+    }
+
+    /// What a call reaches outside the roots is named in its decision, as the
+    /// owner's footer line: `<verb> outside your project folder: <path>
+    /// (roots: ...)`, in the reason at every posture and in the notice at
+    /// notify (theseus-m9fdg).
+    #[test]
+    fn what_a_call_reaches_outside_the_roots_is_named_in_its_decision() {
+        let (_d, root) = workspace();
+        let (_o, outside) = workspace();
+        let write = plan(outside.join("scratch/config.toml"), Access::Write, None);
+        let read = plan(outside.join("notes.txt"), Access::Read, None);
+        let ls = plan(outside.clone(), Access::Exec, Some(vec!["ls"]));
+        let r = root.display();
+        for e in Posture::ALL {
+            let p = policy(&root, e);
+            for (tool, pl, says) in [
+                (
+                    "fs.read",
+                    &read,
+                    format!(
+                        "read outside your project folder: {} (roots: {r})",
+                        outside.join("notes.txt").display()
+                    ),
+                ),
+                (
+                    "proc.run",
+                    &ls,
+                    format!(
+                        "ran outside your project folder: {} (roots: {r})",
+                        outside.display()
+                    ),
+                ),
+                (
+                    "fs.write",
+                    &write,
+                    format!(
+                        "wrote outside your project folder: {} (roots: {r})",
+                        outside.join("scratch/config.toml").display()
+                    ),
+                ),
+            ] {
+                let out = p.decide(&T(tool), pl);
+                // An `open` enforcement is raised to a notice, never higher.
+                let want = e.max(Posture::Notify);
+                assert_eq!((out.posture, out.floor), (want, false), "{tool} at {e:?}");
+                assert!(out.reason.contains(&says), "{}", out.reason);
+                if want == Posture::Notify {
+                    let notice = out.notify.expect("a notify names the path");
+                    assert!(notice.rule.contains(&says), "{}", notice.rule);
+                    let set = if e == Posture::Notify {
+                        "enforcement = notify"
+                    } else {
+                        "outside [tools].roots"
+                    };
+                    assert_eq!(notice.setting, set);
+                }
+            }
+        }
+        // With no roots configured, everything is outside, and says so.
+        let mut bare = policy(&root, Posture::Notify);
+        bare.roots.clear();
+        let out = bare.decide(&T("fs.read"), &read);
+        assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
+        assert!(
+            out.reason
+                .contains("(roots: none configured, set [tools].projects_dir)"),
+            "{}",
+            out.reason
+        );
+        // An argument outside the roots is labelled the same way, and the
+        // allow list does not run it open.
+        let out = policy(&root, Posture::Notify).decide(
+            &T("proc.run"),
+            &plan(
+                root.clone(),
+                Access::Exec,
+                Some(vec!["git", "status", "/etc"]),
+            ),
+        );
+        assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
+        assert!(
+            out.reason.contains(&format!(
+                "ran outside your project folder: /etc (roots: {r})"
+            )),
+            "{}",
+            out.reason
+        );
     }
 
     #[test]
@@ -1293,7 +1510,8 @@ mod tests {
             own,
         );
         assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
-        // The own tree is no way around the roots: a read outside them asks.
+        // Outside the roots the own tree is labelled, as any path is, and asks
+        // for nothing: the roots are no gate (theseus-m9fdg).
         inner.roots = vec![root.join("elsewhere")];
         let out = inner.decide_in(
             &T("fs.read"),
@@ -1301,7 +1519,12 @@ mod tests {
             None,
             own,
         );
-        assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
+        assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
+        assert!(
+            out.reason.contains("read outside your project folder: "),
+            "{}",
+            out.reason
+        );
     }
 
     /// A self session's soft holds open and its hard ones stay (theseus-cudar):
@@ -1379,10 +1602,6 @@ mod tests {
             let read = |path: PathBuf| p.decide(&T("fs.read"), &plan(path, Access::Read, None));
             for (out, why) in [
                 (
-                    read("/etc/passwd".into()),
-                    "the call: fs.read — approve (/etc/passwd is outside the workspace roots: ",
-                ),
-                (
                     read(root.join("secret/key")),
                     "the call: fs.read — approve (",
                 ),
@@ -1405,6 +1624,18 @@ mod tests {
                 assert!(!out.floor && out.notify.is_none(), "{}", out.reason);
                 assert!(out.reason.starts_with(why), "{}", out.reason);
             }
+            // Outside the roots is a label, not a hold: an `open` override
+            // is raised to a notice, never higher, and the decision names
+            // the path.
+            let out = read("/etc/passwd".into());
+            assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
+            assert!(out.notify.is_some(), "{}", out.reason);
+            assert!(
+                out.reason
+                    .contains("read outside your project folder: /etc/passwd (roots: "),
+                "{}",
+                out.reason
+            );
             let r = root.display();
             assert_eq!(
                 read(root.join("secret/key")).reason,
@@ -1437,10 +1668,18 @@ mod tests {
                 vec!["git", "status", ".."],
             ] {
                 let out = run(argv);
-                assert_eq!(out.posture, e, "{}", out.reason);
+                let want = e.max(Posture::Notify);
+                assert_eq!(out.posture, want, "{}", out.reason);
+                let setting = if want == e {
+                    format!("enforcement = {}", e.as_str())
+                } else {
+                    "outside [tools].roots; the config says enforcement = open".into()
+                };
                 assert!(
-                    out.reason
-                        .ends_with(&format!("proc.run — {0} (enforcement = {0})", e.as_str())),
+                    out.reason.contains(&format!(
+                        "proc.run — {} ({setting}; ran outside your project folder: ",
+                        want.as_str()
+                    )),
                     "{}",
                     out.reason
                 );
