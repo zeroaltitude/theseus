@@ -1787,6 +1787,42 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     cannot say so (the pin and the config's profile are often one name). With no runtime profile it answers the live
     profile as both with `released` false and writes nothing.
     Tests: `rpc/tests_live_release.rs`, the `profile_release*` goldens.
+  - **`profile.pins` counts every held profile, and `profile.unpin [all]` lets go of them** (theseus-h66v4.2;
+    `rpc/profile_pins.rs`, `theseus profile pins`, `theseus profile unpin [--all]`): a session or a task (a task's own
+    session) is pinned when `session.profile` holds it to a profile, META `session.profile.<id>`. The read walks every
+    session record and answers the pinned counts beside the totals (zero pinned must read differently from zero
+    sessions), each pin's kind and profile, and `configured` false for a hold on a profile the config dropped (still on
+    record, so still counted); a failed read is an error, not a zero (`TurnRunner::held_profile`). `unpin` is `release`
+    and more, never less (`release` is unchanged and stays the owner's pre-flip command): the same live release with its
+    `released` fact carried, and with `all` each hold let go through `session_set_profile`'s own let-go, so each is its
+    own `session.profile_set` row in its own frame and restores the target the session ran on before the hold. The answer
+    is `before`, `cleared`, `failed` and `after`, counted by the read; a hold that cannot be let go (the caller may not
+    choose a session's model, a place that is not private) is named in `failed`, the CLI prints it and exits 1, and
+    `after` still counts it. Not cleared: routing's own `routed.profile` move and the one-turn `route.correct` pending
+    steer (memory only), which are verdicts, not holds; `unpin --all` says so on stderr. A task with a model of its own
+    is a pin with no hold (`task_start.rs` calls `--profile` one; `brief_point` and `checkpoint_step` ask Jev nothing
+    about a task with no `task.route.<session>` mark, on every turn of its life): the read counts every live task with no
+    mark and a `last_target`, on whatever turn, running or asleep, in `task_pins`, told apart by who made it from what
+    the code writes: `task.start` alone writes a `task.started_by_owner` row (kind `task-start`, the owner's: it also
+    writes the mark exactly when no profile was named); `task.create`, a check, a draft's reviewer and a routine's run
+    write `last_target` from the model they were given and neither (`task-fixed`, Theseus's). A retry copies `last_target`
+    and writes neither, so it inherits `task-start` through its `task.retried` row (`failed_session`) when the task it
+    retries is the owner's and unmarked, down a chain; the retry of a task the brief chose the model of (marked) stays
+    `task-fixed`. A ledger that cannot be read, or a `task.started_by_owner` or `task.retried` row that cannot be
+    decoded, leaves `task-unknown` for every task not already shown to be the owner's: counted and named, never cleared.
+    Each task pin carries its `state` (`pending` no turn yet, `asleep` past its first turn and idle, `running`), because
+    what the mark changes depends on it: the brief runs on a first turn only (`brief_step.rs`), and a turn's checkpoint
+    state is latched once when it starts (`checkpoint_step.rs`), so a `running` task finishes its current turn on the
+    model it started on, and an `asleep` one is moved by checkpoints alone (never below its profile until route.v10
+    acts); the CLI words each `let go:` line by the state. `unpin --all` clears a `task-start` task by writing the mark
+    and a `session.profile_set` row (`from` its profile, `to` none) in one frame, under `session.profile`'s authority, so
+    a running task is not cancelled; it never writes a mark on a `task-fixed` or `task-unknown` task and names them
+    ("not cleared"). The headline leads with every task counted, not the holds alone.
+    An unreadable hold fails `unpin` as an internal error after the live release, and the message carries how many holds
+    were let go and which failed, even when the `after` read is the one that failed. Tests: `rpc/tests_profile_pins.rs`
+    (each asserts N pinned before, N rows, 0 after, and the totals; the pin and the hold on one name are `dq3m1`'s case;
+    one makes a real `task.start`, `task.start --profile` and `task.create` and reads them), the `profile_unpin*` and
+    `profile_pins*` goldens.
   - **A pack's own rollback rules win over adoption's** (theseus-ervz9; `ladder/rules.rs::rules_of`): the file's rules,
     then the adoption table's for the pack id that its file does not already declare (the same name, and for a label
     count the same label). route.v10 declares 5 pins a day, so adoption's 3 for every route version no longer arms

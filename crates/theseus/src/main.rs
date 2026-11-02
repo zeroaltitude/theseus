@@ -636,7 +636,8 @@ enum Cmd {
     /// made wait runs with a notice). With no MODE, says the current one and the plan's checklist.
     #[command(hide = true)]
     Mode(mode_cmd::ModeArgs),
-    /// Model profiles: list, switch the live one (`theseus profile use glm`), or release the switch.
+    /// Model profiles: list, switch the live one (`theseus profile use glm`), release the switch, or see
+    /// every pin and let go of yours (`theseus profile pins`, `theseus profile unpin --all`).
     #[command(display_order = 18)]
     Profile {
         #[command(subcommand)]
@@ -1245,6 +1246,18 @@ enum ProfileCmd {
     /// End that pin: the live profile is the config's `[model] live` again, and Jev chooses the
     /// model for a turn that names none (persists across restarts).
     Release,
+    /// `release` and, with `--all`, more: every session's and task's held profile
+    /// (`sessions model`) let go too, each in its own `session.profile_set` ledger row. It prints
+    /// how many were pinned before, which it cleared, and how many are pinned after, counted, not
+    /// assumed. Without `--all` it is `release` and says how many holds remain.
+    Unpin {
+        /// Also let go every session's and task's held profile.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Count the sessions and tasks held to a profile (a read): the pinned and the totals, and
+    /// which, one line each.
+    Pins,
 }
 
 #[derive(Subcommand, Debug)]

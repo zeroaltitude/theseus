@@ -56,6 +56,86 @@ pub struct SessionProfileResult {
     pub note: Option<String>,
 }
 
+/// One session or task held to a profile (`session.profile`, META `session.profile.<id>`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct PinnedSession {
+    /// The session's id; a task's own session is its `task_id`.
+    pub session_id: String,
+    /// `session`, or `task` when the session is a task's own; `task-start`, `task-fixed` or `task-unknown` in `task_pins`.
+    pub kind: String,
+    /// The profile it is held to, as stored.
+    pub profile: String,
+    /// False when the profile is no longer configured: the hold stays on record but no turn follows it.
+    pub configured: bool,
+    /// Where a task in `task_pins` is in its life, which decides what letting go of its model changes:
+    /// `pending` (no turn yet: the brief may still choose), `asleep` (past its first turn, no turn running:
+    /// only checkpoints, from its next turn) or `running` (a turn is running now and finishes on the model
+    /// it started on). Absent on a hold, and from a daemon that did not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub state: Option<String>,
+}
+
+/// `profile.pins`' answer (theseus-h66v4.2): how many sessions and tasks carry a held profile, and which.
+/// The totals ride beside the pinned counts, so "0 pinned" can be told from "0 sessions".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProfilePinsResult {
+    pub live: String,
+    /// `runtime` when the live profile is itself a pin (`profile.use`); `config` otherwise.
+    pub live_source: String,
+    /// Session records that are not tasks' own, and task sessions.
+    pub sessions: u64,
+    pub tasks: u64,
+    pub pinned_sessions: u64,
+    pub pinned_tasks: u64,
+    pub pins: Vec<PinnedSession>,
+    /// Live tasks no brief or checkpoint ever routes: each has a model fixed when it was made and no
+    /// `task.route.<session>` mark (`turn/brief_step.rs`), whatever turn it is on. Beside the holds, never inside
+    /// them, and told apart by `kind`: `task-start` (`task.start --profile`: the owner named the model; `unpin
+    /// --all` clears it by writing the mark), `task-fixed` (Theseus made it on a model of its own choosing: an
+    /// agent's child task, a check, a draft's reviewer, a routine's run, a retry; not cleared, nothing to drop)
+    /// and `task-unknown` (the ledger could not say who made it; not cleared). Each one's `profile` is the one
+    /// it was made on.
+    #[serde(default)]
+    pub task_pins: Vec<PinnedSession>,
+}
+
+/// `profile.unpin`'s params.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProfileUnpinParams {
+    /// Also let go every session's and task's held profile, each in its own `session.profile_set` row.
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// A hold `profile.unpin --all` could not let go.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct UnpinFailure {
+    pub session_id: String,
+    pub error: String,
+}
+
+/// `profile.unpin`'s answer (theseus-h66v4.2). The live half is `ProfileReleaseResult`'s, field for field
+/// (`released` is carried, never `previous != live`); `before` and `after` are counted, not inferred, and
+/// `cleared` lists the holds let go, each of which wrote its own `session.profile_set` row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProfileUnpinResult {
+    pub released: bool,
+    pub previous: String,
+    pub live: String,
+    pub by: String,
+    pub all: bool,
+    pub before: ProfilePinsResult,
+    pub cleared: Vec<PinnedSession>,
+    pub failed: Vec<UnpinFailure>,
+    pub after: ProfilePinsResult,
+}
+
 /// `task.rehome`'s params.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

@@ -254,7 +254,11 @@ build.
 - The route footer (theseus-q31l): `src/components/RouteFooter.tsx`, under the composer after a turn it sent,
   `routed: quick · haiku` and the owner's one-tap correction (⬆ stronger, ⬇ cheaper, or a profile), each confirmed and
   `route.correct`; the live correction layer is Judgment's Corrections panel (`src/components/Corrections.tsx`, over
-  `route.corrections`). Their words are `src/lib/routefooter.ts` (`test/routefooter.test.ts`).
+  `route.corrections`). Their words are `src/lib/routefooter.ts` (`test/routefooter.test.ts`). A model the operator named
+  says `pinned` in the route footer and in the transcript's turn chip, with the mode worded as Jev's read (`Jev: quick`), and
+  never `routed:` (`pinned · sonnet` when Jev read nothing) (theseus-h66v4.3). `pinFooter` and `modeWords` in `src/lib/route.ts` are the **one place the cockpit decides it**, the
+  mirror of Rust's `TurnRoute::pin_footer` (the route's `reason`, never the model): a new surface calls them, and a
+  hover title is not a footer (`test/route.test.ts`).
 - Desktop notices (theseus-go4ig): the Shell's bell turns on `src/components/DesktopNotices.tsx`, which holds the page's `work.watch` (only while it is on) and shows the daemon's `work.notice` pushes (the notification policy is the daemon's, `theseus_protocol::notices::policy`, as for the chat and the TUI) and a set reminder's `wake.noticed`, through `src/lib/notices.ts`: a port of `deliver` (the session on screen is no ping) and of the reminder's notice. Never port the policy's table here. Test: `test/notices.test.ts`.
 - `src/components/PromptPicker.tsx` (beside the composer; its pure parts are `src/lib/prompts.ts`): runs an MCP server's
   prompt as the next turn, a field per argument, through `turn.submit { prompt }`.

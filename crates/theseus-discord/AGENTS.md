@@ -487,7 +487,11 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   that turn, `stronger` or `cheaper`, with the reactor's place, so the core judges it (the owner, from a private
   place); a counted one gets ✅. The reply's footer says `routed: <mode>` (or `correction`). There are no footer buttons
   on Discord: a reaction does the same without a button row under every reply. The gateway asks for both reaction
-  intents (not privileged).
+  intents (not privileged). A model the operator named reads ` · pinned` right after the model (theseus-h66v4.3), and the
+  mode beside it is Jev's read, `Jev: quick`, not `routed: quick`; a pinned turn is never `routed:` at all (`pinned · task brief`). **`theseus_protocol::TurnRoute::pin_footer` is the one
+  place that is decided** (the route's recorded `reason == "pinned"`; never a model or profile compared with a default,
+  which is theseus-dq3m1), and `TurnRoute::mode_words` words the mode from it: a surface calls them and never re-derives
+  either. The cockpit's mirror is `pinFooter` and `modeWords` in `cockpit/src/lib/route.ts`. Tests: `render/tests_pin.rs`.
 - **A task's messages are one-tap controls** (theseus-bh3t.2, `runtime/task_react.rs`, a child of `runtime`; the module the
   👎 entry below belongs to). A reaction on a message that carries a task acts on the task, from a private place, as the
   owner's own press would: every call carries the reaction's `DiscordOrigin` and `discord:<user id>` as its `author`, so the

@@ -347,3 +347,117 @@ async fn a_limit_under_the_estimate_refuses_the_run_before_any_call() {
     );
     assert!(jev.seen().is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_embedded_pack_is_replayed_by_its_cases_and_counted() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    let c = &r.core;
+    script_all(&jev, |_| None);
+    let out = c.judge_replay(params(), "cli").await.unwrap();
+    // The positive counts, not only an Ok: a run that graded nothing is no pass.
+    assert_eq!(
+        (out.candidate.as_str(), out.judgments, out.called),
+        ("route.v10", 58, 58)
+    );
+    let cases = out.cases.expect("a cases replay's numbers");
+    assert_eq!((cases.cases.len(), cases.answered), (58, 58));
+    assert_eq!(cases.bar, Some(true));
+    assert_eq!(jev.seen().len(), 58);
+    let rows = c.store.scope_after("judge.replay:route", 0).unwrap();
+    let run = rows
+        .iter()
+        .filter_map(|r| r.decode::<LedgerRow>().ok())
+        .filter(|r| r.kind == "judge.replay")
+        .count();
+    assert_eq!(run, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cases_file_with_no_cases_is_refused_not_passed() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    let c = &r.core;
+    let header = V10.split("[[case]]").next().unwrap();
+    let e = c
+        .judge_replay(
+            JudgeReplayParams {
+                cases: Some(header.to_string()),
+                ..Default::default()
+            },
+            "cli",
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("no cases"), "{e}");
+    assert!(jev.seen().is_empty());
+    assert!(c
+        .store
+        .scope_after("judge.replay:route", 0)
+        .unwrap()
+        .is_empty());
+}
+
+/// What `replay` refuses for a recorded set, `--cases` refuses too: a text
+/// under an embedded version's name that is not the embedded text, wired or not
+/// (theseus-8ouns, the review's finding 1). route.v10 was unwired when this was
+/// written and is wired after the flip; the guard asks neither.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_text_that_takes_an_embedded_versions_name_is_refused_with_cases_wired_or_not() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    let c = &r.core;
+    let (_, embedded) = theseus_judge::pack::EMBEDDED
+        .iter()
+        .find(|(n, _)| *n == "route.v10")
+        .expect("route.v10 is embedded");
+    let posing = format!("{embedded}\n# an edited text under route.v10's name\n");
+    let e = c
+        .judge_replay(
+            JudgeReplayParams {
+                pack_text: Some(posing),
+                ..params()
+            },
+            "cli",
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("route.v10") && e.contains("under another text"),
+        "{e}"
+    );
+    assert!(jev.seen().is_empty(), "a refused run sent a call");
+    assert!(c
+        .store
+        .scope_after("judge.replay:route", 0)
+        .unwrap()
+        .is_empty());
+}
+
+/// The other side: the embedded text itself, handed over as `--pack-file`,
+/// is the build's own version and replays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    let c = &r.core;
+    script_all(&jev, |_| None);
+    let (_, embedded) = theseus_judge::pack::EMBEDDED
+        .iter()
+        .find(|(n, _)| *n == "route.v10")
+        .expect("route.v10 is embedded");
+    let out = c
+        .judge_replay(
+            JudgeReplayParams {
+                pack_text: Some(embedded.to_string()),
+                ..params()
+            },
+            "cli",
+        )
+        .await
+        .unwrap();
+    assert_eq!((out.judgments, out.called), (58, 58));
+    assert_eq!(out.cases.expect("a cases replay's numbers").answered, 58);
+}
