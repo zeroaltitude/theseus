@@ -94,7 +94,8 @@ fn kinds(c: &Compiled) -> Vec<String> {
 
 fn replays_a_search(c: &Compiled) -> bool {
     let k = kinds(c);
-    k.iter().any(|t| t == "server_tool_use" || t == "tool_search_tool_result")
+    k.iter()
+        .any(|t| t == "server_tool_use" || t == "tool_search_tool_result")
 }
 
 #[test]

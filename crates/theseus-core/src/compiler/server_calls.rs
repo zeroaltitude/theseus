@@ -24,7 +24,7 @@ use crate::tools_defer::{scan, SEARCH_TOOL};
 
 /// What a request's tools let a replayed tool search stand on.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Offers {
+pub enum Offers {
     /// No tool search tool: no search is replayed.
     Without,
     /// The tool search tool, and the wire names of the tools it sits beside.
@@ -32,9 +32,12 @@ pub(crate) enum Offers {
 }
 
 impl Offers {
-    pub(crate) fn of(tools: &[Value]) -> Offers {
+    pub fn of(tools: &[Value]) -> Offers {
         let name = |t: &Value| t.get("name").and_then(Value::as_str).map(str::to_string);
-        match tools.iter().any(|t| name(t).as_deref() == Some(SEARCH_TOOL)) {
+        match tools
+            .iter()
+            .any(|t| name(t).as_deref() == Some(SEARCH_TOOL))
+        {
             true => Offers::Search(tools.iter().filter_map(name).collect()),
             false => Offers::Without,
         }
