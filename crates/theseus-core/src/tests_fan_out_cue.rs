@@ -111,9 +111,10 @@ async fn a_split_answer_under_the_bar_does_not_fire_the_cue() {
     says(&jev, "sonnet", "high", 0.95);
     split(&jev, "splits_by_area", 0.40);
     let o = open(&jev, 1, |_| {});
-    let _ = turn(&o.r.core, None, ASK, None).await;
-    assert!(!carries(&o.r.claude.requests()[0]));
-    let got = rows(&o.r);
+    let r = &o.r;
+    let _ = turn(&r.core, None, ASK, None).await;
+    assert!(!carries(&r.claude.requests()[0]));
+    let got = rows(r);
     assert_eq!(got.len(), 1);
     assert_eq!(
         (got[0]["fired"].clone(), got[0]["sure"].clone()),
@@ -129,9 +130,10 @@ async fn no_room_for_two_helpers_holds_the_cue_back() {
     says(&jev, "sonnet", "high", 0.95);
     split(&jev, "splits_by_area", 0.95);
     let o = open(&jev, 1, |c| c.kernel.admission_ceiling = 2);
-    let _ = turn(&o.r.core, None, ASK, None).await;
-    assert!(!carries(&o.r.claude.requests()[0]));
-    let got = rows(&o.r);
+    let r = &o.r;
+    let _ = turn(&r.core, None, ASK, None).await;
+    assert!(!carries(&r.claude.requests()[0]));
+    let got = rows(r);
     assert_eq!(got[0]["fired"], false);
     assert_eq!(got[0]["split"], "splits_by_area");
 }

@@ -490,7 +490,6 @@ mod tests {
     /// missed with Jev's option and confidence), then the totals, the
     /// `must` count and the bar.
     #[test]
-    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn a_cases_replay_prints_a_line_a_case_then_the_totals_and_the_bar() {
         let cases = vec![
             case(
@@ -589,15 +588,28 @@ mod tests {
                 "  left out W9: the run reached [judge] replay_limit_usd",
             ]
         );
-        // Met bars say so; a run that graded nothing says it judges none.
-        let mut met = r.clone();
-        met.cases.as_mut().unwrap().bar = Some(true);
-        assert!(judge_replay_lines(&met)
+    }
+
+    /// Met bars say so; a run that graded nothing says it judges none.
+    #[test]
+    fn met_bars_say_so_and_a_run_that_grades_nothing_says_it_judges_none() {
+        let mut r = JudgeReplayResult {
+            id: "rpl_1".into(),
+            candidate: "route.v10".into(),
+            candidate_sha256: "abcdef0123456789".into(),
+            cases: Some(ReplayCases {
+                pack: "route.v10".into(),
+                held_elsewhere: 2,
+                bar: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(judge_replay_lines(&r)
             .iter()
             .any(|l| l.ends_with("): all met")));
-        let mut other = r;
-        other.cases.as_mut().unwrap().bar = None;
-        assert!(judge_replay_lines(&other)
+        r.cases.as_mut().unwrap().bar = None;
+        assert!(judge_replay_lines(&r)
             .iter()
             .any(|l| l.starts_with("bar: not judged (this run graded no question")));
     }
