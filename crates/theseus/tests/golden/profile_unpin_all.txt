@@ -4,8 +4,11 @@ profile.unpin
 --- stdout
 released the pin on quick; the live profile is quick (from config), and Jev chooses the model when route.v10 acts
 before: 1 of 5 sessions pinned, 1 of 3 tasks pinned
+before: 0 of 3 tasks started on a named profile, first turn not yet run
 let go: session …q7f3k2 (was held to quick)
 let go: task …task01 (was held to gone)
 after: 0 of 5 sessions pinned, 0 of 3 tasks pinned
+after: 0 of 3 tasks started on a named profile, first turn not yet run
 --- stderr
+[not touched: routing's own moves (Jev's verdicts) and one-turn route.correct steers; these are not holds]
 --- exit 0

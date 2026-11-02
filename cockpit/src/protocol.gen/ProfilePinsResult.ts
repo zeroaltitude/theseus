@@ -13,4 +13,11 @@ live_source: string,
 /**
  * Session records that are not tasks' own, and task sessions.
  */
-sessions: number, tasks: number, pinned_sessions: number, pinned_tasks: number, pins: Array<PinnedSession>, };
+sessions: number, tasks: number, pinned_sessions: number, pinned_tasks: number, pins: Array<PinnedSession>, 
+/**
+ * Tasks started on a named profile whose first turn has not run: `task.start --profile` is a pin the
+ * brief's route never moves (`turn/brief_step.rs`), though no `session.profile` hold records it. Their
+ * own kind (`task-start`), counted beside the holds and never inside them; `profile.unpin` does not clear
+ * them. Each one's `profile` is the one it was started on.
+ */
+start_pinned: Array<PinnedSession>, };

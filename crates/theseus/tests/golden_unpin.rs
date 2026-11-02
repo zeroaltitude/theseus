@@ -80,9 +80,21 @@ fn golden(name: &str, got: &str) {
 
 /// A `profile.pins` answer over 5 sessions and 3 tasks, holding `pinned`.
 fn pins(pinned: &[Value]) -> Value {
+    pins_with(pinned, &[])
+}
+
+/// The same, with `start` the tasks started on a named profile whose first turn has not run.
+fn pins_with(pinned: &[Value], start: &[Value]) -> Value {
     let of = |kind: &str| pinned.iter().filter(|p| p["kind"] == kind).count();
     json!({"live": "quick", "live_source": "config", "sessions": 5, "tasks": 3,
-           "pinned_sessions": of("session"), "pinned_tasks": of("task"), "pins": pinned})
+           "pinned_sessions": of("session"), "pinned_tasks": of("task"), "pins": pinned,
+           "start_pinned": start})
+}
+
+fn started() -> Vec<Value> {
+    vec![
+        json!({"session_id": "ses_startstart0001", "kind": "task-start", "profile": "opus", "configured": true}),
+    ]
 }
 
 fn held() -> Vec<Value> {
@@ -133,5 +145,24 @@ fn a_hold_that_was_not_let_go_is_named_and_the_exit_is_one() {
             &["profile", "unpin", "--all"],
             unpinned(true, &held()[..1], failed, &held()[1..]),
         ),
+    );
+}
+
+#[test]
+fn pins_names_a_task_started_on_a_profile_though_nothing_holds_it() {
+    golden(
+        "profile_pins_start_pinned",
+        &run(&["profile", "pins"], pins_with(&[], &started())),
+    );
+}
+
+#[test]
+fn unpin_all_names_a_started_on_task_it_does_not_clear() {
+    let answer = json!({"released": false, "previous": "quick", "live": "quick", "by": "the CLI",
+        "all": true, "before": pins_with(&held(), &started()), "cleared": held(), "failed": [],
+        "after": pins_with(&[], &started())});
+    golden(
+        "profile_unpin_all_start_pinned",
+        &run(&["profile", "unpin", "--all"], answer),
     );
 }

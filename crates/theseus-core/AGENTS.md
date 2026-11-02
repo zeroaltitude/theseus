@@ -1800,7 +1800,12 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     is `before`, `cleared`, `failed` and `after`, counted by the read; a hold that cannot be let go (the caller may not
     choose a session's model, a place that is not private) is named in `failed`, the CLI prints it and exits 1, and
     `after` still counts it. Not cleared: routing's own `routed.profile` move and the one-turn `route.correct` pending
-    steer (memory only), which are verdicts, not holds. Tests: `rpc/tests_profile_pins.rs` (each asserts N pinned
+    steer (memory only), which are verdicts, not holds; `unpin --all` says so on stderr. A task started with `--profile`
+    is a pin with no hold (`task_start.rs` calls it one; `brief_step::brief_point` never asks the brief about it): the read
+    counts it as `start_pinned`, kind `task-start`, while the task has run no turn, has no `brief_step` mark and its
+    execution has neither ended nor begun; `unpin` names it ("not cleared") and does not clear it, since the profile was
+    the owner's named choice for that task. An unreadable hold fails `unpin` as an internal error after the live release,
+    which the message names. Tests: `rpc/tests_profile_pins.rs` (each asserts N pinned
     before, N rows, 0 after, and the totals; the pin and the hold on one name are `dq3m1`'s case), the `profile_unpin*`
     and `profile_pins` goldens.
   - **A pack's own rollback rules win over adoption's** (theseus-ervz9; `ladder/rules.rs::rules_of`): the file's rules,

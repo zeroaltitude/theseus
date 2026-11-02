@@ -5,6 +5,7 @@ profile.pins
 session …q7f3k2 held to quick
 task …task01 held to gone (no longer configured)
 pinned: 1 of 5 sessions pinned, 1 of 3 tasks pinned
+started on a profile: 0 of 3 tasks started on a named profile, first turn not yet run
 --- stderr
 [live: quick (from config)]
 --- exit 0

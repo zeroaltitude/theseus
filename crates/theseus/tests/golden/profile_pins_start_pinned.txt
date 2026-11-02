@@ -1,0 +1,10 @@
+$ theseus profile pins
+--- requests
+profile.pins
+--- stdout
+task …rt0001 started on opus
+pinned: 0 of 5 sessions pinned, 0 of 3 tasks pinned
+started on a profile: 1 of 3 tasks started on a named profile, first turn not yet run
+--- stderr
+[live: quick (from config)]
+--- exit 0

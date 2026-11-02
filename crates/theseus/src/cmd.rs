@@ -12,7 +12,9 @@ use serde_json::Value;
 use theseus_client::render::{self, Frame};
 use theseus_client::{outcome, resolve, CallError, Conn};
 use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, JudgeListResult};
-use theseus_protocol::ops::{ProfilePinsResult, ProfileUnpinParams, ProfileUnpinResult};
+use theseus_protocol::ops::{
+    PinnedSession, ProfilePinsResult, ProfileUnpinParams, ProfileUnpinResult,
+};
 use theseus_protocol::{
     method, notify, CatalogListResult, ConfirmListResult, Event, HealthResult, LedgerTailParams,
     LedgerTailResult, Message, ProfileListResult, ProfileReleaseResult, ProfileUseParams,
@@ -1669,6 +1671,30 @@ fn pinned_line(what: &str, p: &ProfilePinsResult) -> String {
     )
 }
 
+/// The count of tasks started on a named profile whose first turn has not run: a pin the brief never moves,
+/// though nothing holds it (`task.start --profile`). Printed always, so "0" is a count and not a silence.
+fn start_line(what: &str, p: &ProfilePinsResult) -> String {
+    format!(
+        "{what}: {} of {} tasks started on a named profile, first turn not yet run",
+        p.start_pinned.len(),
+        p.tasks
+    )
+}
+
+/// One start-pinned task, as `pins` and `unpin` name it.
+fn start_pin_text(pin: &PinnedSession) -> String {
+    format!(
+        "task {} started on {}{}",
+        render::short_id(&pin.session_id),
+        pin.profile,
+        if pin.configured {
+            ""
+        } else {
+            " (no longer configured)"
+        }
+    )
+}
+
 /// `theseus profile pins`: what is held, one line each, then the count.
 fn print_pins(p: &ProfilePinsResult) {
     for pin in &p.pins {
@@ -1685,6 +1711,10 @@ fn print_pins(p: &ProfilePinsResult) {
         );
     }
     println!("{}", pinned_line("pinned", p));
+    for pin in &p.start_pinned {
+        println!("{}", start_pin_text(pin));
+    }
+    println!("{}", start_line("started on a profile", p));
     eprintln!("[live: {} (from {})]", p.live, p.live_source);
 }
 
@@ -1707,6 +1737,7 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
             ),
         }
         println!("{}", pinned_line("before", &r.before));
+        println!("{}", start_line("before", &r.before));
         for c in &r.cleared {
             println!(
                 "let go: {} {} (was held to {})",
@@ -1716,13 +1747,28 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
             );
         }
         for f in &r.failed {
+            match f.session_id.is_empty() {
+                true => println!("not let go: ({})", f.error),
+                false => println!(
+                    "not let go: {} ({})",
+                    render::short_id(&f.session_id),
+                    f.error
+                ),
+            }
+        }
+        for pin in &r.after.start_pinned {
             println!(
-                "not let go: {} ({})",
-                render::short_id(&f.session_id),
-                f.error
+                "not cleared: {}: a named choice, not a hold; cancel it and start it again without --profile to let the brief choose",
+                start_pin_text(pin)
             );
         }
         println!("{}", pinned_line("after", &r.after));
+        println!("{}", start_line("after", &r.after));
+        if r.all {
+            eprintln!(
+                "[not touched: routing's own moves (Jev's verdicts) and one-turn route.correct steers; these are not holds]"
+            );
+        }
         if !r.all && !r.after.pins.is_empty() {
             eprintln!(
                 "[{} held profiles remain; `theseus profile unpin --all` lets go of them]",

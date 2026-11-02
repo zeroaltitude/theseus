@@ -636,7 +636,8 @@ enum Cmd {
     /// made wait runs with a notice). With no MODE, says the current one and the plan's checklist.
     #[command(hide = true)]
     Mode(mode_cmd::ModeArgs),
-    /// Model profiles: list, switch the live one (`theseus profile use glm`), or release the switch.
+    /// Model profiles: list, switch the live one (`theseus profile use glm`), release the switch, or see
+    /// and let go of every pin (`theseus profile pins`, `theseus profile unpin --all`).
     #[command(display_order = 18)]
     Profile {
         #[command(subcommand)]

@@ -102,7 +102,9 @@ fn exec_state(core: &Core, id: &str, state: theseus_kernel::ExecState) {
     e.state = state;
     core.store
         .inner()
-        .append(&[theseus_store::NewRecord::json(theseus_store::kinds::EXECUTION, Some(id), &e).unwrap()])
+        .append(&[
+            theseus_store::NewRecord::json(theseus_store::kinds::EXECUTION, Some(id), &e).unwrap(),
+        ])
         .unwrap();
 }
 
@@ -444,7 +446,11 @@ async fn a_task_started_on_a_profile_is_counted_as_its_own_kind_beside_the_holds
     let (pinned, _) = start_pinned(&core, "opus");
     // Not start-pinned: its turn has run,
     let (ran, _) = start_pinned(&core, "opus");
-    let mut rec = core.store.get_session::<SessionRecord>(&ran).unwrap().unwrap();
+    let mut rec = core
+        .store
+        .get_session::<SessionRecord>(&ran)
+        .unwrap()
+        .unwrap();
     rec.turns = 1;
     core.store.put_session(&ran, &rec).unwrap();
     // it carries the brief's mark,
