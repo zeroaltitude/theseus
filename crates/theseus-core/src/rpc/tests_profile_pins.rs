@@ -453,11 +453,13 @@ async fn a_refused_unpin_reports_the_failures_and_leaves_the_holds() {
 }
 
 /// Over a wire that is not a private place (a Discord channel, an MCP client) the whole `all` is refused
-/// per hold: the live half still releases, the answer says four failed, and the counts hold at four.
+/// per pin: the live half still releases, the answer says five failed (four holds and the task started on a
+/// profile, which `unpin_start` judges as `session.profile` does), and the counts hold.
 #[tokio::test]
 async fn unpin_all_from_a_surface_that_is_not_private_fails_each_hold_visibly() {
     let core = core();
     rig(&core);
+    let (started, _) = start_pinned(&core, "opus");
     let used = wire(&core, Surface::Cli, "profile.use", json!({"name": "glm"})).await;
     assert!(used.error.is_none());
     let resp = wire(
@@ -473,8 +475,14 @@ async fn unpin_all_from_a_surface_that_is_not_private_fails_each_hold_visibly() 
     )
     .unwrap();
     assert!(r.released);
-    assert_eq!((r.cleared.len(), r.failed.len()), (0, 4), "{r:?}");
+    assert_eq!((r.cleared.len(), r.failed.len()), (0, 5), "{r:?}");
     assert_eq!(r.after.pins.len(), 4, "{r:?}");
+    assert!(
+        r.failed.iter().any(|f| f.session_id == started),
+        "the start-pin's refusal is named, not silently succeeded: {r:?}"
+    );
+    assert_eq!(r.after.task_pins.len(), 1, "still pinned: {r:?}");
+    assert!(!crate::turn::brief_step::marked(&core.store, &started));
 }
 
 /// The exact set no brief or checkpoint routes: a live task with no brief mark and a model of its own, on
@@ -689,6 +697,7 @@ fn a_failed_after_read_still_says_what_was_cleared_and_what_failed() {
         kind: "task".into(),
         profile: "glm".into(),
         configured: true,
+        state: None,
     };
     let failed = vec![theseus_protocol::ops::UnpinFailure {
         session_id: "ses_refused".into(),
@@ -831,4 +840,138 @@ async fn an_unreadable_hold_does_not_keep_unpin_from_releasing_the_live_pin() {
         e.message
     );
     assert_eq!(core.live_profile().1, "config", "the live pin is released");
+}
+
+fn state_of(r: &ProfilePinsResult, sid: &str) -> Option<String> {
+    r.task_pins
+        .iter()
+        .find(|p| p.session_id == sid)
+        .and_then(|p| p.state.clone())
+}
+
+/// R1: what letting go of a model changes depends on where the task is in its life, so the read says it:
+/// no turn yet (`pending`: the brief may still choose), past its first turn and idle (`asleep`: the brief
+/// never runs again, checkpoints only) and a turn running now (`running`: it finishes on the model it
+/// started on). The state rides on the pin before and in `cleared`, where the CLI words each line.
+#[tokio::test]
+async fn a_pinned_task_says_where_in_its_life_it_is() {
+    let core = core();
+    rig(&core);
+    let (pending, _) = start_pinned(&core, "opus");
+    let (asleep, exec) = start_pinned(&core, "opus");
+    past_first_turn(&core, &asleep, &exec, theseus_kernel::ExecState::Waiting);
+    let (running, exec) = start_pinned(&core, "opus");
+    past_first_turn(&core, &running, &exec, theseus_kernel::ExecState::Running);
+    let (queued_again, exec) = start_pinned(&core, "opus");
+    past_first_turn(&core, &queued_again, &exec, theseus_kernel::ExecState::Queued);
+    let r = unpin(&core, true).await;
+    for (sid, want) in [
+        (&pending, "pending"),
+        (&asleep, "asleep"),
+        (&running, "running"),
+        (&queued_again, "asleep"),
+    ] {
+        assert_eq!(state_of(&r.before, sid).as_deref(), Some(want), "{sid}");
+        let c = r.cleared.iter().find(|c| &c.session_id == sid).unwrap();
+        assert_eq!(c.state.as_deref(), Some(want), "cleared: {c:?}");
+    }
+    // A hold is not a task's life: it carries none.
+    assert!(r.before.pins.iter().all(|p| p.state.is_none()), "{r:?}");
+}
+
+/// R2: a `task.started_by_owner` row that is on record but cannot be decoded says nothing sure about who made
+/// the task it names. The old read dropped it and called the task Theseus's ("not yours to drop"), which is
+/// the wrong direction for an owner's `--profile` task. It is `task-unknown` now: counted, named, and not
+/// cleared. A task whose own row reads well stays the owner's.
+#[tokio::test]
+async fn an_unreadable_started_row_leaves_the_task_unknown_not_theirs() {
+    let core = core();
+    let (mine, _) = start_pinned(&core, "opus");
+    let (blind, _) = fixed(&core, "opus");
+    // Tagged by its kind and session (so the index finds it) but with no time: it cannot be decoded.
+    core.store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::LEDGER,
+            None,
+            &json!({"kind": "task.started_by_owner", "session_id": blind}),
+        )
+        .unwrap()])
+        .unwrap();
+    let r = core.profile_pins().unwrap();
+    let kind = |sid: &str| {
+        r.task_pins
+            .iter()
+            .find(|p| p.session_id == sid)
+            .map(|p| p.kind.clone())
+    };
+    assert_eq!(kind(&mine).as_deref(), Some("task-start"), "{r:?}");
+    assert_eq!(kind(&blind).as_deref(), Some("task-unknown"), "{r:?}");
+    let (cleared, failed) = core.unpin_holds(&owner_cli());
+    assert_eq!(
+        (cleared.len(), failed.len()),
+        (1, 0),
+        "only the readable one: {cleared:?} {failed:?}"
+    );
+    assert_eq!(cleared[0].session_id, mine);
+    assert!(!crate::turn::brief_step::marked(&core.store, &blind));
+}
+
+/// A `task.retried` row as `retry_failed` writes it: the new task's session, `failed_session` in its data.
+fn retried(core: &Core, new: &str, failed: &str) {
+    let fact = crate::fact::retry::TaskRetried {
+        failed_execution: "exe_failed",
+        failed_session: failed,
+        execution_id: "exe_new",
+        session_id: new,
+        limit: 0,
+        failed_limit: 0,
+        note: None,
+        by: "the CLI",
+    };
+    core.store
+        .append(&[crate::fact::row(&fact, Some(new), None).unwrap()])
+        .unwrap();
+}
+
+/// R2: a retry copies the failed task's `last_target` and writes no mark and no `started_by_owner` row, so a
+/// retry of the owner's `--profile` task is the owner's choice carried forward and reads as theirs. It
+/// inherits "the owner's" through its `task.retried` row, down a chain of retries, and `--all` clears it. A
+/// retry of a task Theseus made, or of one the brief chose the model of (marked: the owner never named it),
+/// stays Theseus's.
+#[tokio::test]
+async fn a_retry_of_a_task_started_on_a_profile_is_the_owners_choice_carried_forward() {
+    let core = core();
+    let (origin, _) = start_pinned(&core, "opus");
+    let (first, _) = fixed(&core, "opus");
+    retried(&core, &first, &origin);
+    let (second, _) = fixed(&core, "opus");
+    retried(&core, &second, &first);
+    // Not inherited: the failed one was Theseus's, or the brief chose its model.
+    let (theirs, _) = fixed(&core, "sonnet");
+    let (retry_of_theirs, _) = fixed(&core, "sonnet");
+    retried(&core, &retry_of_theirs, &theirs);
+    let (briefed, _) = start_pinned(&core, "haiku");
+    core.store
+        .append(&[crate::turn::brief_step::mark(&briefed).unwrap()])
+        .unwrap();
+    let (retry_of_briefed, _) = fixed(&core, "haiku");
+    retried(&core, &retry_of_briefed, &briefed);
+    let r = core.profile_pins().unwrap();
+    let kind = |sid: &str| {
+        r.task_pins
+            .iter()
+            .find(|p| p.session_id == sid)
+            .map(|p| p.kind.clone())
+    };
+    assert_eq!(kind(&origin).as_deref(), Some("task-start"));
+    assert_eq!(kind(&first).as_deref(), Some("task-start"), "{r:?}");
+    assert_eq!(kind(&second).as_deref(), Some("task-start"), "{r:?}");
+    assert_eq!(kind(&retry_of_theirs).as_deref(), Some("task-fixed"));
+    assert_eq!(kind(&retry_of_briefed).as_deref(), Some("task-fixed"));
+    let (cleared, failed) = core.unpin_holds(&owner_cli());
+    assert_eq!((cleared.len(), failed.len()), (3, 0), "{cleared:?}");
+    for sid in [&origin, &first, &second] {
+        assert!(crate::turn::brief_step::marked(&core.store, sid), "{sid}");
+    }
+    assert!(!crate::turn::brief_step::marked(&core.store, &retry_of_theirs));
 }

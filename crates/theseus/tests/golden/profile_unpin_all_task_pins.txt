@@ -6,9 +6,9 @@ nothing to release: the live profile quick was already the config's
 before: 4 of 5 tasks, 1 of 5 sessions (2 held to a profile, 1 started by you on a profile, 1 on a fixed model Theseus chose, 1 of unknown origin)
 let go: session …q7f3k2 (was held to quick)
 let go: task …task01 (was held to gone)
-let go: task …rt0001 (was started on opus; the brief and checkpoints choose its model from its next turn)
+let go: task …rt0001 (was started on opus; the brief may choose its model when it starts, once route.v10 acts)
 not cleared: task …ed0002 made by Theseus on a fixed model, opus (a child task, a check, a reviewer, a routine run or a retry): Theseus's own choice, not yours to drop; there is no --profile on it, so leave it
-not cleared: task …nk0003 on glm, maker not read (the ledger could not be read): left alone; find out what made it before cancelling anything
+not cleared: task …nk0003 on glm, maker not known (the ledger could not say who made it): left alone; find out what made it before cancelling anything
 after: 2 of 5 tasks, 0 of 5 sessions (0 held to a profile, 0 started by you on a profile, 1 on a fixed model Theseus chose, 1 of unknown origin)
 --- stderr
 [not touched: routing's own moves (Jev's verdicts) and one-turn route.correct steers; these are not holds]

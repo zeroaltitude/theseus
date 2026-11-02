@@ -75,6 +75,7 @@ impl Core {
                 kind: if task { "task" } else { "session" }.into(),
                 session_id: rec.session_id,
                 profile,
+                state: None,
             });
         }
         out.pins.sort_by(|a, b| a.session_id.cmp(&b.session_id));
@@ -123,6 +124,7 @@ impl Core {
             kind: String::new(),
             session_id: sid.clone(),
             profile: target.profile.clone(),
+            state: None,
         }))
     }
 

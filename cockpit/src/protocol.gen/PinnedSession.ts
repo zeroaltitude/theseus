@@ -19,4 +19,11 @@ profile: string,
 /**
  * False when the profile is no longer configured: the hold stays on record but no turn follows it.
  */
-configured: boolean, };
+configured: boolean, 
+/**
+ * Where a task in `task_pins` is in its life, which decides what letting go of its model changes:
+ * `pending` (no turn yet: the brief may still choose), `asleep` (past its first turn, no turn running:
+ * only checkpoints, from its next turn) or `running` (a turn is running now and finishes on the model
+ * it started on). Absent on a hold, and from a daemon that did not say.
+ */
+state?: string, };

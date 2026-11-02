@@ -68,6 +68,13 @@ pub struct PinnedSession {
     pub profile: String,
     /// False when the profile is no longer configured: the hold stays on record but no turn follows it.
     pub configured: bool,
+    /// Where a task in `task_pins` is in its life, which decides what letting go of its model changes:
+    /// `pending` (no turn yet: the brief may still choose), `asleep` (past its first turn, no turn running:
+    /// only checkpoints, from its next turn) or `running` (a turn is running now and finishes on the model
+    /// it started on). Absent on a hold, and from a daemon that did not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub state: Option<String>,
 }
 
 /// `profile.pins`' answer (theseus-h66v4.2): how many sessions and tasks carry a held profile, and which.

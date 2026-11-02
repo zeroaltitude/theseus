@@ -94,8 +94,20 @@ fn pins_with(pinned: &[Value], start: &[Value]) -> Value {
 /// One task the owner started on a profile.
 fn started() -> Vec<Value> {
     vec![
-        json!({"session_id": "ses_startstart0001", "kind": "task-start", "profile": "opus", "configured": true}),
+        json!({"session_id": "ses_startstart0001", "kind": "task-start", "profile": "opus", "configured": true, "state": "pending"}),
     ]
+}
+
+/// The owner's tasks in each stage of a task's life: no turn yet, asleep after its first, running now.
+fn stages() -> Vec<Value> {
+    ["pending", "asleep", "running"]
+        .iter()
+        .enumerate()
+        .map(|(i, state)| {
+            let sid = format!("ses_{state}{state}000{}", i + 1);
+            json!({"session_id": sid, "kind": "task-start", "profile": "opus", "configured": true, "state": state})
+        })
+        .collect()
 }
 
 /// One task Theseus made on a fixed model, and one whose maker the ledger could not name.
@@ -189,5 +201,25 @@ fn unpin_without_all_says_how_many_started_on_a_profile_remain() {
     golden(
         "profile_unpin_tasks_remain",
         &run(&["profile", "unpin"], answer),
+    );
+}
+
+/// R1: what letting go changes depends on where the task is. A pending one still meets the brief; an asleep
+/// one never does again, only its checkpoints (and, until `route.v10` acts, never below its profile); a
+/// running one finishes the turn it is in on the model it started on, which the footer counts. A pin with no
+/// state (a daemon that did not say) gets the one sentence true of all three.
+#[test]
+fn unpin_all_words_each_cleared_task_by_where_it_is_in_its_life() {
+    let mut cleared = stages();
+    let mut unsaid = stages()[0].clone();
+    unsaid["session_id"] = json!("ses_nostatenost0004");
+    unsaid.as_object_mut().unwrap().remove("state");
+    cleared.push(unsaid);
+    let answer = json!({"released": false, "previous": "quick", "live": "quick", "by": "the CLI",
+        "all": true, "before": pins_with(&[], &cleared), "cleared": cleared, "failed": [],
+        "after": pins_with(&[], &[])});
+    golden(
+        "profile_unpin_all_task_states",
+        &run(&["profile", "unpin", "--all"], answer),
     );
 }
