@@ -146,21 +146,6 @@ impl Core {
         who: &str,
         via: &str,
     ) -> anyhow::Result<JudgeReplayResult> {
-        self.cases_replay_with(rt, p, who, via, &|n| {
-            crate::judge::WIRED.iter().any(|(w, _)| *w == n)
-        })
-    }
-
-    /// [`cases_replay`](Self::cases_replay) with which versions are wired
-    /// given, so a test can wire one (`WIRED` is a const).
-    pub(crate) fn cases_replay_with(
-        &self,
-        rt: &tokio::runtime::Handle,
-        p: &JudgeReplayParams,
-        who: &str,
-        via: &str,
-        wired: &dyn Fn(&str) -> bool,
-    ) -> anyhow::Result<JudgeReplayResult> {
         let _rt = rt.enter();
         let text = p.cases.as_deref().context("no cases file was sent")?;
         let mut named = p.clone();
@@ -170,17 +155,17 @@ impl Core {
         let (pack, pack_text) = candidate_of(&named)?;
         // A wired version replays by its cases: the run reads no recorded
         // judgment and names its own pack, so "this build dispatches it" says
-        // nothing of the replay. What stays refused is a text under a wired
-        // name that is not the dispatched one: its rows would record a name
-        // under two texts, and `replay` refuses the name afterwards.
-        if wired(&pack.name()) {
-            let dispatched = theseus_judge::pack::by_name(&pack.name()).map(|e| e.sha256.clone());
-            if dispatched.as_deref() != Some(pack.sha256.as_str()) {
+        // nothing of the replay. What stays refused is what `replay` refuses of
+        // an embedded name, wired or not: a text that is not the embedded one,
+        // whose rows would record a name under two texts (and `replay` refuses
+        // the name afterwards).
+        if let Some(e) = theseus_judge::pack::by_name(&pack.name()) {
+            if e.sha256 != pack.sha256 {
                 bail!(
-                    "{} is wired, and this text is not the one this build dispatches (sha256 {}): \
-                     give the candidate a version of its own",
+                    "{} is this build's embedded version, under another text (sha256 {}); give \
+                     the candidate a version of its own",
                     pack.name(),
-                    pack.sha256
+                    e.sha256
                 );
             }
         }

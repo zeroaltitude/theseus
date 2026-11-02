@@ -152,7 +152,7 @@ print(",".join(p["pack"] for p in json.load(sys.stdin)["packs"]
     rc=0
     "$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge replay --cases "$cases" > "$run/route-$i.json" 2> "$run/route-$i.err" || rc=$?
     if [ "$rc" -ne 0 ]; then
-      # A pack the build dispatches cannot be replayed as a candidate: once route.v10 is live, say so plainly.
+      # A non-zero exit is the replay's own refusal or failure (a wired pack replays by its cases): say so plainly.
       smoke fail "$run" route "replay $i exited $rc: $(head -c 200 "$run/route-$i.err" | tr '\n' ' ')"
       return
     fi
