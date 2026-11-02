@@ -36,7 +36,7 @@ description = "ROUTE: which model answers the person's new message; which specia
 [questions.model]
 type = "choice"
 decides = true
-instructions = "Sonnet is the usual answer for most work, hard programming included; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Quality decides first. When more than one model fits the work, the cheaper one at this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a cheaper model is not cheaper for this message. Which model should answer the person's new message?"
+instructions = "Sonnet is the usual answer; when a block's description names the work at hand, that model wins. Never choose a model the state lists as not allowed. Quality decides first. When more than one model fits the work, the cheaper one at this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a cheaper model is not cheaper for this message. Which model should answer the person's new message?"
 act = 0.90
 confirm = 0.60
 no_match = "sonnet"

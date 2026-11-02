@@ -1,3 +1,9 @@
+# VERSION 2 (theseus-h66v4.7, 2026-11-02). The owner settled the sonnet-default question on 2026-11-02
+# ("All your recommendations seem good"), choosing option (a): the route.v10 model instruction was softened so a
+# block's own description beats the sonnet default, and NO case in this file was relabelled. The labels below are
+# therefore unchanged from version 1; only the pack's instruction moved. Alongside it, split.v1's confirm bar went
+# 0.60 -> 0.40 and the effort bar became "within one rung". Grade this file against the softened pack only.
+#
 # route.v10's test set (theseus-h66v4, design §4): the labelled cases `theseus judge replay --pack-file
 # route.v10.toml --cases route.v10.cases.toml` asks the pack, and compares its `model` answer to; the same file's
 # `effort` labels are graded by `effort.v1` (`--pack-file effort.v1.toml --cases route.v10.cases.toml`, the `also`
