@@ -8,6 +8,21 @@
   says "size: skipped: no release build of <commit>". It fails on growth over 1 MB, not on §9's 60 MB.
   `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
+- `scrub-added.sh`, `test_scrub_added.py` (theseus-ev3ir): the gate's `scrub` phase. The name scrub (`scrub_check.py --strict`)
+  over the lines a branch ADDS since the range's base (committed, uncommitted, and untracked new files, which is what a new
+  `.cases.toml` is) and its commit messages (at a staged join, MERGE_HEAD's too); a hit in a blocking family (employer, the
+  vault's names, a person's name, the configured `[privacy] sensitive_names`) exits 1 and prints the SOURCE file:line
+  (a message: its commit and line), never the match. The scrubber is outside the repo, because its patterns are the names:
+  `THESEUS_SCRUB_CHECK` (default `~/reports/theseus-docs-v076/scrub_check.py`), and only the WSL host has it. **Present: the
+  phase runs and must pass; absent (L1 self-build view, ARM, cloud): it SKIPS LOUDLY, `gate: scrub SKIPPED`, and the
+  table reads `scrub skipped` where a pass reads `scrub ok`. A join gate showing `scrub skipped` is not evidence for a push:
+  the guard is the scrub run on the WSL host at the join** (`scripts/scrub-branch.sh` over the staged merge).
+  `THESEUS_GATE_NO_SCRUB=1` skips it by choice (the ARM runner sets it). The driver's exit codes: 0 clean, 1 a hit, 2 no
+  base or unreadable names, 3 nothing added (main's own tip: accepted, `scrub empty`), 4 no scrubber. A branch is judged by
+  MAIN's copy of the driver when main has one, and both files are in the keel guard's `KEEL_FILES`. `test_scrub_added.py`
+  plants a FAKE name (through `SCRUB_EXTRA_NAMES`) in a scratch repo, runs gate.sh's own `scrub_added` under `set -e`,
+  and runs the cloud reviewers' `scrub-branch.sh` (`THESEUS_SCRUB_BRANCH`; its tests are skipped where it is absent). Its
+  git calls ignore the developer's global config (a signing agent that is locked hung it). Never put a real name in a test.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.

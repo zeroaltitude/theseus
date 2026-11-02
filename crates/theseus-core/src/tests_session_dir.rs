@@ -215,11 +215,12 @@ async fn two_sessions_share_the_header_and_differ_only_in_block_3() {
     }
 }
 
-/// A directory outside the workspace roots changes no policy: the run
-/// there waits for the owner's approval, as a run outside the roots always
-/// did, and the answer names the roots for the CLI's one notice.
+/// A directory outside the workspace roots changes no policy: the run there
+/// takes the posture (notify in this rig) and does not wait (theseus-m9fdg:
+/// the roots are a label, not a gate), and the answer names the roots for
+/// the CLI's one notice.
 #[tokio::test]
-async fn a_directory_outside_the_roots_waits_as_today() {
+async fn a_directory_outside_the_roots_runs_at_the_posture() {
     let r = rig(vec![pwd("t1"), Scripted::text("Done.")]);
     let elsewhere = project(r.dir.path(), "elsewhere");
     let res = submit(
@@ -228,8 +229,8 @@ async fn a_directory_outside_the_roots_waits_as_today() {
     )
     .await;
     assert!(
-        res.awaiting_confirm.is_some(),
-        "the run outside the roots waits: {res:?}"
+        res.awaiting_confirm.is_none(),
+        "the run outside the roots does not wait: {res:?}"
     );
     assert_eq!(res.outside_roots, Some(vec![r.root.display().to_string()]));
 }
