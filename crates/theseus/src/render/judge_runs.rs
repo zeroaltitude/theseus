@@ -128,19 +128,46 @@ fn fell(question: &str, c: &ReplayCheck) -> String {
     )
 }
 
+/// The questions a cases run graded: its own list, or the two a run before
+/// theseus-h66v4.6 graded when it names none.
+fn asked_of(c: &ReplayCases) -> Vec<&str> {
+    match c.asked.is_empty() {
+        true => vec!["model", "effort"],
+        false => c.asked.iter().map(String::as_str).collect(),
+    }
+}
+
+/// The check of one deciding question of a case.
+fn check_of<'a>(c: &'a ReplayCase, q: &str) -> &'a ReplayCheck {
+    match q {
+        "model" => &c.model,
+        "effort" => &c.effort,
+        "work" => &c.work,
+        _ => &c.split,
+    }
+}
+
 /// A case's line: `ok`, `ok` with an effort one rung off, or each question
-/// it missed. A case is right when its `model` agrees and its
-/// `effort` is within one rung (the bar's own count). A question that fell
-/// under its confirm bar is named wherever it landed.
-fn case_line(c: &ReplayCase) -> String {
+/// it missed. A case is right on a question when its answer agrees (`effort`:
+/// is within one rung, the bar's own count). A question that fell under its
+/// confirm bar is named wherever it landed.
+fn case_line(c: &ReplayCase, asked: &[&str]) -> String {
     let tag = if c.must { " [must]" } else { "" };
     if !c.answered {
         return format!("{:<4}{tag} NO ANSWER (no judgment came back)", c.id);
     }
-    let qs = [
-        ("model", &c.model, c.model.agrees),
-        ("effort", &c.effort, c.effort.close),
-    ];
+    let qs: Vec<(&str, &ReplayCheck, bool)> = asked
+        .iter()
+        .map(|q| {
+            let check = check_of(c, q);
+            let right = if *q == "effort" {
+                check.close
+            } else {
+                check.agrees
+            };
+            (*q, check, right)
+        })
+        .collect();
     let misses: Vec<String> = qs
         .iter()
         .filter(|(_, _, right)| !right)
@@ -151,7 +178,8 @@ fn case_line(c: &ReplayCase) -> String {
         .filter(|(_, check, right)| *right && check.sub_confirm)
         .map(|(q, check, _)| fell(q, check))
         .collect();
-    match (misses.is_empty(), c.effort.agrees) {
+    let effort_exact = !asked.contains(&"effort") || c.effort.agrees;
+    match (misses.is_empty(), effort_exact) {
         (false, _) if notes.is_empty() => format!("{:<4}{tag} MISS {}", c.id, misses.join(", ")),
         (false, _) => format!(
             "{:<4}{tag} MISS {} · also {}",
@@ -160,8 +188,8 @@ fn case_line(c: &ReplayCase) -> String {
             notes.join("; ")
         ),
         (true, true) if notes.is_empty() => format!("{:<4}{tag} ok", c.id),
-        (true, agrees) => {
-            if !agrees && !c.effort.sub_confirm {
+        (true, exact) => {
+            if !exact && !c.effort.sub_confirm {
                 notes.push(format!("{}, one rung off", miss("effort", &c.effort)));
             }
             format!("{:<4}{tag} ok ({})", c.id, notes.join("; "))
@@ -170,9 +198,10 @@ fn case_line(c: &ReplayCase) -> String {
 }
 
 /// `theseus judge replay --cases`: a line for each case, then the totals, the
-/// `must` count and the bar.
+/// `must` count and each bar, a ratio of its own set with its rounding rule.
 fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
     let n = c.cases.len();
+    let asked = asked_of(c);
     let mut out = vec![format!(
         "{} replayed {} (sha256 {}) over its cases file: {n} cases · ${:.4} of an estimated ${:.4} \
          (limit ${:.2})",
@@ -183,34 +212,74 @@ fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
         r.estimate_usd,
         r.limit_usd,
     )];
-    out.extend(c.cases.iter().map(case_line));
+    out.extend(c.cases.iter().map(|x| case_line(x, &asked)));
+    let part = |q: &str, raw: bool| match (q, raw) {
+        ("model", false) => format!("model {}/{n}", c.model_ok),
+        ("model", true) => format!("model {}/{n}", c.raw_model_ok),
+        ("effort", false) => format!(
+            "effort {}/{n} exact, {}/{n} within one rung",
+            c.effort_exact, c.effort_close
+        ),
+        ("effort", true) => format!(
+            "effort {}/{n} exact, {}/{n} within one rung",
+            c.raw_effort_exact, c.raw_effort_close
+        ),
+        ("work", false) => format!("work {}/{n}", c.work_ok),
+        ("work", true) => format!("work {}/{n}", c.raw_work_ok),
+        (_, false) => format!("split {}/{n}", c.split_ok),
+        (_, true) => format!("split {}/{n}", c.raw_split_ok),
+    };
+    let join = |raw: bool| {
+        asked
+            .iter()
+            .map(|q| part(q, raw))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    };
+    out.push(format!("{} · answered {}/{n}", join(false), c.answered));
+    let fell_in = |q: &str| {
+        c.cases
+            .iter()
+            .filter(|x| check_of(x, q).sub_confirm)
+            .count()
+    };
     out.push(format!(
-        "model {}/{n} · effort {}/{n} exact, {}/{n} within one rung · answered {}/{n}",
-        c.model_ok, c.effort_exact, c.effort_close, c.answered
+        "under the confirm bar, graded as the question's no_match: {}",
+        asked
+            .iter()
+            .map(|q| format!("{q} {}", fell_in(q)))
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
-    let fell_in = |f: &dyn Fn(&ReplayCase) -> bool| c.cases.iter().filter(|x| f(x)).count();
-    out.push(format!(
-        "under the confirm bar, graded as the question's no_match: model {}, effort {}",
-        fell_in(&|x| x.model.sub_confirm),
-        fell_in(&|x| x.effort.sub_confirm),
-    ));
-    out.push(format!(
-        "raw top picks, no bar applied: model {}/{n} · effort {}/{n} exact, {}/{n} within one rung",
-        c.raw_model_ok, c.raw_effort_exact, c.raw_effort_close
-    ));
-    out.push(format!(
-        "must {}/{}, {} under the confirm bar",
-        c.must_ok, c.must_total, c.must_under_confirm
-    ));
+    out.push(format!("raw top picks, no bar applied: {}", join(true)));
+    if asked.contains(&"model") {
+        out.push(format!(
+            "must {}/{}, {} under the confirm bar",
+            c.must_ok, c.must_total, c.must_under_confirm
+        ));
+    }
+    for b in &c.bars {
+        let what = match b.question.as_str() {
+            "effort" => "effort within one rung",
+            "must" => "must (W40 is the daemon's test, outside this set)",
+            q => q,
+        };
+        out.push(format!(
+            "bar {what}: {}/{} against {} (80% of {}, rounded up): {}",
+            b.ok,
+            b.of,
+            b.need,
+            b.of,
+            if b.met { "met" } else { "NOT met" }
+        ));
+    }
     out.push(match c.bar {
         Some(met) => format!(
-            "bar (model 54, effort within one rung 50 of 60, every must case, none \
-             under the confirm bar; the {} pin tests W39 and W40 counted as met): {}",
+            "bars of this run ({} W39 and W40 are the daemon's tests, outside every denominator): {}",
             c.held_elsewhere,
-            if met { "met" } else { "NOT met" }
+            if met { "all met" } else { "NOT all met" }
         ),
-        None => "bar: not judged (the file is not the design's 58 replay cases; read the counts)"
-            .to_string(),
+        None => "bar: not judged (this run graded no question; read the counts)".to_string(),
     });
     out.extend(
         r.left_out
@@ -369,7 +438,7 @@ pub fn judge_backfill_lines(r: &JudgeBackfillResult) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use theseus_protocol::judge_runs::{
-        ReplayCase, ReplayCases, ReplayCheck, ReplayLeftOut, UndoRate,
+        ReplayBar, ReplayCase, ReplayCases, ReplayCheck, ReplayLeftOut, UndoRate,
     };
 
     use super::*;
@@ -413,6 +482,7 @@ mod tests {
             answered: true,
             model,
             effort,
+            ..Default::default()
         }
     }
 
@@ -420,6 +490,7 @@ mod tests {
     /// missed with Jev's option and confidence), then the totals, the
     /// `must` count and the bar.
     #[test]
+    #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     fn a_cases_replay_prints_a_line_a_case_then_the_totals_and_the_bar() {
         let cases = vec![
             case(
@@ -477,7 +548,24 @@ mod tests {
                 raw_effort_exact: 2,
                 raw_effort_close: 3,
                 held_elsewhere: 2,
+                bars: vec![
+                    ReplayBar {
+                        question: "model".into(),
+                        ok: 3,
+                        of: 5,
+                        need: 4,
+                        met: false,
+                    },
+                    ReplayBar {
+                        question: "must".into(),
+                        ok: 0,
+                        of: 2,
+                        need: 2,
+                        met: false,
+                    },
+                ],
                 bar: Some(false),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -495,21 +583,23 @@ mod tests {
                 "under the confirm bar, graded as the question's no_match: model 0, effort 0",
                 "raw top picks, no bar applied: model 3/5 · effort 2/5 exact, 3/5 within one rung",
                 "must 0/2, 0 under the confirm bar",
-                "bar (model 54, effort within one rung 50 of 60, every must case, none under the confirm bar; the 2 pin tests W39 and W40 counted as met): NOT met",
+                "bar model: 3/5 against 4 (80% of 5, rounded up): NOT met",
+                "bar must (W40 is the daemon's test, outside this set): 0/2 against 2 (80% of 2, rounded up): NOT met",
+                "bars of this run (2 W39 and W40 are the daemon's tests, outside every denominator): NOT all met",
                 "  left out W9: the run reached [judge] replay_limit_usd",
             ]
         );
-        // A met bar says so; a file that is not the 58 says it judges none.
+        // Met bars say so; a run that graded nothing says it judges none.
         let mut met = r.clone();
         met.cases.as_mut().unwrap().bar = Some(true);
         assert!(judge_replay_lines(&met)
             .iter()
-            .any(|l| l.ends_with("): met")));
+            .any(|l| l.ends_with("): all met")));
         let mut other = r;
         other.cases.as_mut().unwrap().bar = None;
         assert!(judge_replay_lines(&other)
             .iter()
-            .any(|l| l.starts_with("bar: not judged")));
+            .any(|l| l.starts_with("bar: not judged (this run graded no question")));
     }
 
     /// A pick under the confirm bar says so: the line names the question, what
@@ -561,6 +651,7 @@ mod tests {
                 raw_effort_close: 2,
                 held_elsewhere: 2,
                 bar: None,
+                ..Default::default()
             }),
             ..Default::default()
         };

@@ -21,10 +21,11 @@ use crate::band::{band, Band};
 use crate::builders::{prepare, InboundInput, Input};
 use crate::builders::{
     ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION, CONTINUE_VERSION,
-    FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION, MEMORY_VERSION,
-    NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION, RECALL_CROSS_VERSION,
-    RERANK_VERSION, SAME_KIND_VERSION, SAME_THING_VERSION, SECURITY2_VERSION, SECURITY_VERSION,
-    TWO_THINGS_VERSION,
+    EFFORT_SLICE_VERSION, FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION,
+    MEMORY_VERSION, NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION,
+    RECALL_CROSS_VERSION, RERANK_VERSION, ROUTE_SLICE_VERSION, SAME_KIND_VERSION,
+    SAME_THING_VERSION, SECURITY2_VERSION, SECURITY_VERSION, TWO_THINGS_VERSION,
+    WORK_SLICE_VERSION,
 };
 use crate::client::{Answer, Urgency};
 use crate::judge::{AnswerRecord, Ask, DecisionPoint, Judge, Mode, StateRecord};
@@ -82,6 +83,9 @@ pub fn builder_identity(pack: &Pack) -> (&'static str, u32) {
         Builder::Security => ("security", SECURITY_VERSION),
         Builder::Security2 => ("security2", SECURITY2_VERSION),
         Builder::Inbound => ("inbound", INBOUND_VERSION),
+        Builder::Route => ("route", ROUTE_SLICE_VERSION),
+        Builder::Effort => ("effort", EFFORT_SLICE_VERSION),
+        Builder::Work => ("work", WORK_SLICE_VERSION),
         Builder::Continue => ("continue", CONTINUE_VERSION),
         Builder::Categorize => ("categorize", CATEGORIZE_VERSION),
         Builder::Rerank => ("rerank", RERANK_VERSION),

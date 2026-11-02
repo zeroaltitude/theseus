@@ -74,6 +74,8 @@ mod tests_replay_onto;
 #[cfg(test)]
 mod tests_route_facts;
 #[cfg(test)]
+mod tests_route_family;
+#[cfg(test)]
 mod tests_route_state;
 #[cfg(test)]
 mod tests_route_v10;

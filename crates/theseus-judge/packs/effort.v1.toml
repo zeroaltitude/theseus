@@ -1,0 +1,40 @@
+# effort.v1 (EFFORT, theseus-h66v4.6, 2026-10-30): how much thinking the reply to a message needs.
+# One of the three calls the owner named on 2026-10-30 at 16:01: "classifying the desired model,
+# the desired level of effort, and the task type at hand are three distinct jev calls with
+# noticeably different contexts for each". This pack is the effort call, and its state is its own:
+# the message, the previous human message and the last reply, and nothing the daemon knows about
+# models or prices (`builders::slices::effort`). It is `route.v10`'s old `effort` question moved
+# whole, with its two decisions of 2026-10-29 22:50 ("I think the average/median/mode effort/thinking
+# is high -- that should be the center"): the instructions open "High is the usual effort", the
+# `default` option does not exist, and an answer under the confirm bar is `high`. A pack of its own
+# is asked in the same inbound batch as the model call, so it adds no step to the turn's wait.
+#
+# Nothing post-processes the answer (the owner, 2026-10-29 20:51, "Unscheduled==unadulterated"): only
+# the operator's pin, the data rule and the money backstops sit outside it. Embedded and replayable
+# (`theseus judge replay --pack-file effort.v1.toml --cases route.v10.cases.toml`); it is asked
+# only once `ROUTE_PACK` names a pack that asks `model`.
+id = "effort"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "effort"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "EFFORT: how much thinking effort the reply to the person's new message needs."
+
+[questions.effort]
+type = "choice"
+decides = true
+instructions = "High is the usual effort; choose less only for a reason the message gives. How much thinking effort does the reply to the person's new message need?"
+act = 0.90
+confirm = 0.60
+no_match = "high"
+options = [
+  { id = "low", means = "Almost none: a greeting, a thank-you, an acknowledgement, or a short answer the person could check at a glance." },
+  { id = "medium", means = "Some care, but the way is clear: a direct question, ongoing conversation, or work that is long but mechanical, such as repeated edits, renames, or following a plan already agreed." },
+  { id = "high", means = "Careful thought: a design with trade-offs, a bug whose cause is unknown, a careful analysis, or writing that must be right." },
+  { id = "xhigh", means = "Very careful thought: a hard design or a hard bug that spans many parts, where a mistake would be costly and the reply must reason through many steps." },
+  { id = "max", means = "The most thought there is: the hardest or most novel problems, or high-stakes work where every step must be checked, or the person asks for the most thorough reply possible, or the work has kept failing after more careful effort was already given, or a check it must pass still fails." },
+]

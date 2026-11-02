@@ -138,18 +138,15 @@ pub struct RouteFacts {
     pub switch_cost: Option<SwitchCost>,
 }
 
-/// The fields of a route ask's state beyond a message's own dynamic ones
-/// (`previous_human_message`, `last_reply`, `minutes_since_last_message`),
-/// for a plain message in a conversation that has had a reply and is no
-/// task: the one list the daemon's state and a replay case's state are both
-/// held to (`tests_route_state`).
-pub const ROUTE_STATE_KEYS: [&str; 11] = [
+/// The keys of the `route` slice's state (`route.v10`, the model) for a plain message in a
+/// conversation that has had a reply and is no task: the one list the daemon's state and a replay
+/// case's state are both held to (`tests_route_state`). The slice has no live tasks and no current
+/// role; the previous human message and the last reply are dynamic and left out.
+pub const ROUTE_STATE_KEYS: [&str; 9] = [
     "author",
     "current_model",
-    "current_role",
     "est_tokens",
     "last_reply_model",
-    "live_tasks",
     "message",
     "place_kind",
     "price_period",

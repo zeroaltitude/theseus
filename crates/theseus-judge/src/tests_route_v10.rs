@@ -33,6 +33,18 @@ fn set() -> CaseSet {
     CaseSet::parse(V10, &pack()).unwrap_or_else(|e| panic!("{e}"))
 }
 
+fn effort_pack() -> Arc<Pack> {
+    by_name("effort.v1").expect("effort.v1 is embedded")
+}
+
+/// One judgment graded by the two packs that answer the model file's two labels: `route.v10` for
+/// the model, `effort.v1` for the effort (a replay of each over the same file does the same).
+fn both(model: &Pack, effort: &Pack, case: &crate::route_cases::Case, j: &Judgment) -> Graded {
+    let mut g = grade(model, case, Some(j));
+    g.effort = grade(effort, case, Some(j)).effort;
+    g
+}
+
 fn means(pack: &Pack, q: &str, option: &str) -> String {
     pack.question(q)
         .unwrap()
@@ -56,22 +68,23 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
         .filter(|q| q.decides)
         .map(|q| q.id.as_str())
         .collect();
-    assert_eq!(
-        decides,
-        ["effort", "model"],
-        "the loader keeps questions by id"
-    );
+    assert_eq!(decides, ["model"], "route.v10 is the model call alone");
+    assert!(p.question("effort").is_none(), "the effort is effort.v1's");
     let model = p.question("model").unwrap();
     let ids: Vec<&str> = model.options.iter().map(|o| o.id.as_str()).collect();
     assert_eq!(ids, ["haiku", "sonnet", "opus", "fable", "deepseek_flash"]);
     assert_eq!(model.no_match.as_deref(), Some("sonnet"));
     assert_eq!(
-        p.question("effort").unwrap().no_match.as_deref(),
+        effort_pack()
+            .question("effort")
+            .unwrap()
+            .no_match
+            .as_deref(),
         Some("high")
     );
     // The two act at 0.90 and confirm at 0.60: v8's and v9's bars.
-    for q in ["model", "effort"] {
-        let t = p.question(q).unwrap().thresholds;
+    for (pack, q) in [(&p, "model"), (&effort_pack(), "effort")] {
+        let t = pack.question(q).unwrap().thresholds;
         assert_eq!((t.act, t.confirm), (0.90, 0.60), "{q}");
     }
     // Not the acting pack, and the three rollback rules the design names.
@@ -112,7 +125,8 @@ fn the_owners_22_50_answers_are_in_the_pack() {
         ),
         "{model}"
     );
-    let effort = p.question("effort").unwrap();
+    let effort_pack = effort_pack();
+    let effort = effort_pack.question("effort").unwrap();
     assert!(
         effort.instructions.starts_with(
             "High is the usual effort; choose less only for a reason the message gives."
@@ -172,7 +186,7 @@ fn persona_seal_and_personal_are_the_earlier_packs_word_for_word() {
         );
     }
     // The retired questions are gone.
-    for q in ["mode", "reply_effort", "data"] {
+    for q in ["mode", "reply_effort", "data", "effort", "work", "split"] {
         assert!(v10.question(q).is_none(), "{q}");
     }
 }
@@ -292,7 +306,7 @@ fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
 }
 
 #[test]
-fn a_case_asks_the_two_deciding_questions_and_personal_and_its_state_is_under_the_cap() {
+fn a_case_asks_model_and_personal_of_the_route_pack_and_its_state_is_under_the_cap() {
     let p = pack();
     for c in &set().cases {
         let prepared = prepared(&p, c);
@@ -301,10 +315,10 @@ fn a_case_asks_the_two_deciding_questions_and_personal_and_its_state_is_under_th
             .iter()
             .map(|a| a.id.clone())
             .collect();
-        for q in ["model", "effort", "personal"] {
+        for q in ["model", "personal"] {
             assert!(asked.contains(&q.to_string()), "{}: {q} in {asked:?}", c.id);
         }
-        for q in ["persona", "seal", "context"] {
+        for q in ["persona", "seal", "context", "effort"] {
             assert!(!asked.contains(&q.to_string()), "{}: {q}", c.id);
         }
         assert!(prepared.state.tokens <= p.state_cap_tokens, "{}", c.id);
@@ -415,14 +429,14 @@ fn judged(case: &crate::route_cases::Case, answers: &[(&str, &str, f64)]) -> Jud
 
 #[test]
 fn a_judgment_is_graded_on_model_and_effort_apart() {
-    let (p, s) = (pack(), set());
+    let (p, e, s) = (pack(), effort_pack(), set());
     let case = |id: &str| s.cases.iter().find(|c| c.id == id).unwrap();
     // W18 wants opus, medium.
     let right = judged(
         case("W18"),
         &[("model", "opus", 0.95), ("effort", "medium", 0.9)],
     );
-    let g = grade(&p, case("W18"), Some(&right));
+    let g = both(&p, &e, case("W18"), &right);
     assert!(g.answered && g.model.agrees && g.effort.agrees && !g.under_confirm);
     assert!(g.must);
     // A wrong model is a miss with Jev's top option and its confidence; one rung of effort is close, two is not.
@@ -430,7 +444,7 @@ fn a_judgment_is_graded_on_model_and_effort_apart() {
         case("W18"),
         &[("model", "sonnet", 0.71), ("effort", "high", 0.9)],
     );
-    let g = grade(&p, case("W18"), Some(&off));
+    let g = both(&p, &e, case("W18"), &off);
     assert_eq!(
         (g.model.agrees, g.model.got.as_str(), g.model.confidence),
         (false, "sonnet", 0.71)
@@ -440,14 +454,14 @@ fn a_judgment_is_graded_on_model_and_effort_apart() {
         case("W18"),
         &[("model", "opus", 0.9), ("effort", "max", 0.9)],
     );
-    assert!(!grade(&p, case("W18"), Some(&far)).effort.close);
+    assert!(!both(&p, &e, case("W18"), &far).effort.close);
     // A model answer under the confirm bar is graded as the question's
     // `no_match`, not as Jev's pick (theseus-mir9c), and counted apart.
     let shy = judged(
         case("W18"),
         &[("model", "opus", 0.55), ("effort", "medium", 0.9)],
     );
-    let g = grade(&p, case("W18"), Some(&shy));
+    let g = both(&p, &e, case("W18"), &shy);
     assert!(!g.model.agrees && g.model.raw_agrees && g.under_confirm);
     assert_eq!(
         (g.model.raw.as_str(), g.model.got.as_str()),
@@ -455,7 +469,9 @@ fn a_judgment_is_graded_on_model_and_effort_apart() {
     );
     // No judgment, no answer: every question a miss.
     let g = grade(&p, case("W18"), None);
-    assert!(!g.answered && !g.model.agrees && !g.effort.close);
+    assert!(!g.answered && !g.model.agrees);
+    let g = grade(&e, case("W18"), None);
+    assert!(!g.answered && !g.effort.close);
 }
 
 fn graded(model: bool, effort_close: bool, must: bool, under: bool) -> Graded {
@@ -477,37 +493,86 @@ fn graded(model: bool, effort_close: bool, must: bool, under: bool) -> Graded {
         answered: true,
         model: c(model, model),
         effort: c(effort_close, effort_close),
+        work: c(false, false),
+        split: c(false, false),
         under_confirm: under,
     }
 }
 
+/// The owner's 80% (2026-10-30 16:01) as a ratio with a rounding rule: `bar_need(n)` is
+/// `ceil(n * 4 / 5)` in integers, over the set's own count, never a number written down. The
+/// musts' mapping is stated in `route_cases`' doc: 13 replayed, 11 needed, W40 the daemon's.
 #[test]
-fn the_bar_counts_the_two_pin_tests_as_met_and_needs_every_must_case() {
-    // 58 cases, all right: met. The bar's 54 is 52 here, with the two pins.
-    let mut all: Vec<Graded> = (0..58).map(|i| graded(true, true, i < 13, false)).collect();
-    assert_eq!(totals(&all).bar, Some(true));
-    assert_eq!(totals(&all).must_total, 13);
-    // 52 of 58 on model is 54 of 60: met; 51 is not.
-    for (n, met) in [(52usize, true), (51, false)] {
+fn a_bar_is_four_fifths_of_its_own_set_rounded_up() {
+    use crate::route_cases::{bar_need, BAR_DEN, BAR_NUM};
+    assert_eq!((BAR_NUM, BAR_DEN), (4, 5));
+    // Rounded UP: 61 is 48.8, 60 is exactly 48, 13 is 10.4, 62 is 49.6, 65 is exactly 52.
+    for (n, need) in [
+        (0, 0),
+        (1, 1),
+        (5, 4),
+        (13, 11),
+        (60, 48),
+        (61, 49),
+        (62, 50),
+        (65, 52),
+    ] {
+        assert_eq!(bar_need(n), need, "{n}");
+    }
+    // No bar is under 80% of its set, and none is more than a case over it.
+    for n in 1..=200u32 {
+        let need = bar_need(n);
+        assert!(need * 5 >= n * 4 && (need - 1) * 5 < n * 4, "{n}: {need}");
+    }
+}
+
+#[test]
+fn the_bars_are_ratios_over_the_replayed_set_and_the_musts_map_to_thirteen() {
+    let all: Vec<Graded> = (0..61).map(|i| graded(true, true, i < 13, false)).collect();
+    let t = totals(&all, &["model", "effort"]);
+    let bar = |q: &str| t.bars.iter().find(|b| b.question == q).unwrap().clone();
+    // model and effort are over the 61 replayed, with no credit for the pins: 49, not 54 and not 48.
+    assert_eq!(
+        (bar("model").ok, bar("model").of, bar("model").need),
+        (61, 61, 49)
+    );
+    assert_eq!((bar("effort").of, bar("effort").need), (61, 49));
+    // The must bar is the 13 replayed, 11 of them: W40 is the daemon test, outside the denominator.
+    assert_eq!(
+        (bar("must").ok, bar("must").of, bar("must").need),
+        (13, 13, 11)
+    );
+    assert_eq!(t.bar, Some(true));
+    assert_eq!(PINNED, 2, "W39 and W40 are held by the daemon's tests");
+    // 49 of 61 meets the model bar; 48 does not.
+    for (right, met) in [(49usize, true), (48, false)] {
         let mut g = all.clone();
-        for x in g.iter_mut().skip(13).take(58 - 13 - (n - 13)) {
+        for x in g.iter_mut().skip(13).take(61 - 13 - (right - 13)) {
             x.model.agrees = false;
         }
-        let t = totals(&g);
-        assert_eq!(t.model_ok as usize, n);
-        assert_eq!(t.bar, Some(met), "{n}");
+        let t = totals(&g, &["model", "effort"]);
+        assert_eq!(t.model_ok as usize, right);
+        assert_eq!(t.bars[0].met, met, "{right}");
+        assert_eq!(t.bar, Some(met), "{right}");
     }
-    // One `must` case wrong, or under the confirm bar, fails the bar whatever the rest.
-    all[0].model.agrees = false;
-    assert_eq!(totals(&all).bar, Some(false));
-    all[0].model.agrees = true;
-    all[1].under_confirm = true;
-    let t = totals(&all);
-    assert_eq!((t.must_under_confirm, t.bar), (1, Some(false)));
-    // A file that is not the 58 has no bar to meet; nor does the 61 it is now.
-    assert_eq!(totals(&all[..10]).bar, None);
-    let sixty_one: Vec<Graded> = (0..61).map(|i| graded(true, true, i < 13, false)).collect();
-    assert_eq!(totals(&sixty_one).bar, None);
+    // 11 of 13 musts meet the must bar, 10 do not, whatever the rest.
+    for (right, met) in [(11usize, true), (10, false)] {
+        let mut g = all.clone();
+        for x in g.iter_mut().take(13 - right) {
+            x.model.agrees = false;
+        }
+        let t = totals(&g, &["model"]);
+        let must = t.bars.iter().find(|b| b.question == "must").unwrap();
+        assert_eq!((must.ok as usize, must.met), (right, met));
+    }
+    // A bar over an empty set is not met, and a run that grades nothing has no verdict.
+    assert_eq!(totals(&[], &["model"]).bar, Some(false));
+    assert_eq!(totals(&all, &[]).bar, None);
+    // effort is judged within one rung; the exact count is beside it.
+    let mut g = all;
+    g[0].effort.agrees = false;
+    let t = totals(&g, &["effort"]);
+    assert_eq!((t.effort_exact, t.effort_close), (60, 61));
 }
 
 /// Finding B (theseus-h66v4 row 3): every case's state has exactly the fields
@@ -564,11 +629,11 @@ fn graded_q(g: &Graded, q: &str) -> (String, bool, String, bool) {
 /// is the `no_match`; at or above the bar nothing changes.
 #[test]
 fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
-    let (p, s) = (pack(), set());
+    let (p, e, s) = (pack(), effort_pack(), set());
     let ask = |id: &str, pick: &str, conf: f64| {
         let c = by_id(&s, id);
         let j = judged(c, &[("model", pick, conf), ("effort", &c.want.effort, 0.9)]);
-        grade(&p, c, Some(&j))
+        both(&p, &e, c, &j)
     };
     // W18 wants opus. Opus at 0.55 is a right pick the daemon would not act
     // on: it runs `sonnet`, a miss.
@@ -614,11 +679,11 @@ fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
 /// (the usual effort; the `default` option is gone, theseus-h66v4.1).
 #[test]
 fn an_effort_pick_under_the_bar_is_graded_as_high() {
-    let (p, s) = (pack(), set());
+    let (p, e, s) = (pack(), effort_pack(), set());
     let ask = |id: &str, pick: &str, conf: f64| {
         let c = by_id(&s, id);
         let j = judged(c, &[("model", &c.want.model, 0.9), ("effort", pick, conf)]);
-        grade(&p, c, Some(&j))
+        both(&p, &e, c, &j)
     };
     // L11 wants high. A `medium` at 0.55 is `high` to the daemon: a hit that
     // the raw grade called one rung off.
@@ -656,23 +721,23 @@ fn an_effort_pick_under_the_bar_is_graded_as_high() {
 /// code: a pack with other bars and other `no_match`s grades by its own.
 #[test]
 fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
-    let text = include_str!("../packs/route.v10.toml")
-        .replacen(
-            "confirm = 0.60\nno_match = \"sonnet\"",
-            "confirm = 0.80\nno_match = \"opus\"",
-            1,
-        )
-        .replacen(
-            "confirm = 0.60\nno_match = \"high\"",
-            "confirm = 0.75\nno_match = \"medium\"",
-            1,
-        );
+    let text = include_str!("../packs/route.v10.toml").replacen(
+        "confirm = 0.60\nno_match = \"sonnet\"",
+        "confirm = 0.80\nno_match = \"opus\"",
+        1,
+    );
     let p = Pack::parse(&text).unwrap();
+    let etext = include_str!("../packs/effort.v1.toml").replacen(
+        "confirm = 0.60\nno_match = \"high\"",
+        "confirm = 0.75\nno_match = \"medium\"",
+        1,
+    );
+    let ep = Pack::parse(&etext).unwrap();
     let s = CaseSet::parse(V10, &p).unwrap();
     let ask = |id: &str, m: (&str, f64), e: (&str, f64)| {
         let case = by_id(&s, id);
         let j = judged(case, &[("model", m.0, m.1), ("effort", e.0, e.1)]);
-        grade(&p, case, Some(&j))
+        both(&p, &ep, case, &j)
     };
     // W18 wants opus, medium. Sonnet at 0.70 is under this model bar
     // (0.80): the `no_match` is opus, a hit. High at 0.70 is under 0.75:
@@ -688,10 +753,10 @@ fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
     );
     assert_eq!((g.model.confirm, g.effort.confirm), (0.80, 0.75));
     // The same answers sit above the stock bars (0.60) and are graded as given.
-    let (stock, stock_set) = (pack(), set());
+    let (stock, stock_e, stock_set) = (pack(), effort_pack(), set());
     let c = by_id(&stock_set, "W18");
     let j = judged(c, &[("model", "sonnet", 0.70), ("effort", "high", 0.70)]);
-    let g = grade(&stock, c, Some(&j));
+    let g = both(&stock, &stock_e, c, &j);
     assert!(!g.model.sub_confirm && !g.effort.sub_confirm);
 }
 
@@ -699,7 +764,7 @@ fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
 /// change the fix makes, on the same judgments.
 #[test]
 fn the_totals_count_the_graded_answer_and_the_raw_pick_apart() {
-    let (p, s) = (pack(), set());
+    let (p, e, s) = (pack(), effort_pack(), set());
     let all: Vec<Graded> = s
         .cases
         .iter()
@@ -714,10 +779,10 @@ fn the_totals_count_the_graded_answer_and_the_raw_pick_apart() {
                     ("effort", &c.want.effort, conf),
                 ],
             );
-            grade(&p, c, Some(&j))
+            both(&p, &e, c, &j)
         })
         .collect();
-    let t = totals(&all);
+    let t = totals(&all, &["model", "effort"]);
     let n = s.cases.len() as u32;
     // Model fell (opus to sonnet); effort fell to `high`, which L11 wants.
     assert_eq!((t.model_ok, t.effort_exact, t.effort_close), (n - 1, n, n));

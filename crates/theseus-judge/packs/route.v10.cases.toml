@@ -1,6 +1,7 @@
 # route.v10's test set (theseus-h66v4, design §4): the labelled cases `theseus judge replay --pack-file
-# route.v10.toml --cases route.v10.cases.toml` asks the pack, and compares its `model` and `effort`
-# answers to. 61 cases here: the design's sixty less W39 and W40 (daemon tests, crates/theseusd/tests/route_owner.rs:
+# route.v10.toml --cases route.v10.cases.toml` asks the pack, and compares its `model` answer to; the same file's
+# `effort` labels are graded by `effort.v1` (`--pack-file effort.v1.toml --cases route.v10.cases.toml`, the `also`
+# key below), because the two packs read the same messages and the labels were written once. 61 cases here: the design's sixty less W39 and W40 (daemon tests, crates/theseusd/tests/route_owner.rs:
 # a pin is not asked of Jev) and plus W41 to W43. The `context` label (short or full) the mapping rule below still
 # names is gone with the question (theseus-h66v4.1): the daemon says what a switch costs instead (`switch_cost`).
 #
@@ -22,10 +23,13 @@
 # case does not name takes the default below. `must` marks a case the pack must pass on every run.
 #
 # Fourteen cases are `must` (W1, W8, W9, W11, W14 to W18, W22, W26, W30, W31, W40); W40 is a daemon test, so
-# thirteen are here. W26 and W27 (cyber and biology topics, Sonnet) rest on the ordinary rule only: the Fable
+# thirteen are here, and THE MAPPING IS: the replay grades these 13 and its `must` bar is 11 of 13 (80%, rounded
+# up: `route_cases::bar_need`); W40 is asserted by the daemon test (`route_owner.rs`) and is not in the replay's
+# denominator. `model` and `effort` are 80% of the replay's own 61, rounded up, with no credit for W39 or W40. W26 and W27 (cyber and biology topics, Sonnet) rest on the ordinary rule only: the Fable
 # block does not name them, by the owner's edit of 2026-10-29 22:46. A miss on either is a finding about the
 # table's text, never a reason to edit the case.
 pack = "route.v10"
+also = ["effort.v1"]
 derivation = "design §4.1 (L1 to L20, the owner's 2026-10-26 labels by the mapping rule) and §4.2 (W1 to W38)"
 
 [defaults]

@@ -526,6 +526,7 @@ export type * from './RecallRetention';
 export type * from './RecallTimings';
 export type * from './RecallWhen';
 export type * from './ReliabilityBin';
+export type * from './ReplayBar';
 export type * from './ReplayCase';
 export type * from './ReplayCases';
 export type * from './ReplayCheck';

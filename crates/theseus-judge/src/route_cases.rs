@@ -31,14 +31,22 @@
 //!   grade does not model that second bar. A `must` case whose `model` answer
 //!   sits under the confirm bar is counted apart too: it runs on the no-match
 //!   option, whatever its top option.
-//! - **The bar** is the design's (§4.3) as it stood before the owner's 16:01
-//!   decision, over the design's sixty cases with the two pin cases W39 and W40
-//!   (daemon tests, [`PINNED`]) counted as met: `model` at least 54, `effort`
-//!   within one rung at least 50, every `must` case right and none under the
-//!   confirm bar. It is judged only on a file of exactly those 58 cases; the
-//!   file now holds 61 (W41 to W43), so no bar is judged until the owner's 80%
-//!   bars are written (theseus-h66v4.4, theseus-h66v4.1 phase 2) and the
-//!   counts are the numbers to read.
+//! - **The four sets** (theseus-h66v4.6): `route.v10.cases.toml` labels `model` and `effort` on the
+//!   same cases (it is graded by `route.v10` for the model and, through its `also` key, by
+//!   `effort.v1` for the effort); `work.v1.cases.toml` and `split.v1.cases.toml` are each pack's own.
+//!   One run replays one pack over one file, as before; a pack is graded on the deciding questions
+//!   it asks and the file labels.
+//! - **The bars** are the owner's of 2026-10-30 16:01 ("the bars should all be set to about 80% of
+//!   the total cases"): each is a RATIO of its own set with an explicit rounding rule, never an
+//!   integer written down: [`bar_need`] is `ceil(cases * 4 / 5)`. A fixed integer is how
+//!   `bench/smoke/smoke.py` came to gate on a retired 54 (theseus-h66v4.4). A pack's bars are the
+//!   questions it asks, plus `must` for the pack that asks `model`. `effort` is judged within one
+//!   rung, as the design's bar was; the exact count is printed beside it.
+//! - **The must mapping.** The file carries 13 `must` cases; the design's fourteenth, W40 (the
+//!   operator pin), is a daemon test (`crates/theseusd/tests/route_owner.rs`) and is not in the
+//!   replay. The replay grades the 13 and its bar is `bar_need(13)` = 11 of 13; W40 is asserted by
+//!   the daemon test, outside this denominator. W39 (the other pin) is held the same way, and the
+//!   `model` and `effort` bars are over the replay's own cases, with no credit for the two pins.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -47,7 +55,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::band::{confidence_band, Band};
-use crate::builders::Prepared;
+use crate::builders::{Input, Prepared};
 use crate::client::Answer;
 use crate::judge::{Ask, Judgment, Mode};
 use crate::pack::Pack;
@@ -56,13 +64,26 @@ use crate::state::{NoScrub, Scrub};
 /// The test set, as the pack's directory holds it.
 pub const V10: &str = include_str!("../packs/route.v10.cases.toml");
 
-/// The design's cases that are daemon tests, not replay cases (W39, W40).
+/// The work set and the split set, as the pack's directory holds them.
+pub const WORK: &str = include_str!("../packs/work.v1.cases.toml");
+pub const SPLIT: &str = include_str!("../packs/split.v1.cases.toml");
+
+/// The design's cases that are daemon tests, not replay cases (W39, W40): the operator's pin is
+/// never asked of Jev. They are outside every denominator here.
 pub const PINNED: u32 = 2;
-/// Cases in the design's set; the file holds this many less [`PINNED`].
-pub const DESIGN_TOTAL: u32 = 60;
-/// The bar over the design's sixty: `model` and `effort` within one rung.
-pub const BAR_MODEL: u32 = 54;
-pub const BAR_EFFORT: u32 = 50;
+
+/// Every bar is this fraction of its own set, rounded up: 4 over 5, the owner's "about 80%".
+pub const BAR_NUM: u32 = 4;
+pub const BAR_DEN: u32 = 5;
+
+/// The least a bar over `of` cases needs: `of * 4 / 5` rounded UP, in integers (`div_ceil`), so
+/// 13 musts need 11 and 61 cases need 49. Written as a rule, not a number.
+pub fn bar_need(of: u32) -> u32 {
+    (of * BAR_NUM).div_ceil(BAR_DEN)
+}
+
+/// The deciding questions a cases file can label, in the order they are graded.
+pub const QUESTIONS: [&str; 4] = ["model", "effort", "work", "split"];
 
 /// The efforts on a rung, lowest first.
 const RUNGS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -72,6 +93,21 @@ const RUNGS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 pub struct Want {
     pub model: String,
     pub effort: String,
+    pub work: String,
+    pub split: String,
+}
+
+impl Want {
+    /// The label for a deciding question; empty when the file does not label it.
+    pub fn of(&self, q: &str) -> &str {
+        match q {
+            "model" => &self.model,
+            "effort" => &self.effort,
+            "work" => &self.work,
+            "split" => &self.split,
+            _ => "",
+        }
+    }
 }
 
 /// The state a case carries beside its message.
@@ -96,6 +132,8 @@ pub struct CaseState {
     pub switch_cost: String,
     /// Every model that has written in the task.
     pub task_models: Vec<String>,
+    /// The live tasks beside the message (`work.v1`'s state); none for most cases.
+    pub live_tasks: Vec<crate::builders::TaskInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +168,14 @@ struct FileDefaults {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct FileTask {
+    id: String,
+    brief: String,
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FileCase {
     id: String,
     message: String,
@@ -143,8 +189,12 @@ struct FileCase {
     switch_cost: Option<String>,
     #[serde(default)]
     task_models: Vec<String>,
-    model: String,
-    effort: String,
+    #[serde(default)]
+    live_tasks: Vec<FileTask>,
+    model: Option<String>,
+    effort: Option<String>,
+    work: Option<String>,
+    split: Option<String>,
     #[serde(default)]
     must: bool,
     #[serde(default)]
@@ -155,6 +205,9 @@ struct FileCase {
 #[serde(deny_unknown_fields)]
 struct File {
     pack: String,
+    /// Other packs the file's labels also grade (`effort.v1` over the model file's `effort`).
+    #[serde(default)]
+    also: Vec<String>,
     /// Where the labels came from; the file's own words, never read by code.
     #[serde(default, rename = "derivation")]
     _derivation: String,
@@ -184,9 +237,36 @@ fn field(
         .ok_or_else(|| format!("{case}: no {name}, and the file's [defaults] name none"))
 }
 
-/// A label must be an option of the pack's question of that name.
+/// A case's label for `q`, from its own column.
+fn label_of<'a>(c: &'a FileCase, q: &str) -> Option<&'a String> {
+    match q {
+        "model" => c.model.as_ref(),
+        "effort" => c.effort.as_ref(),
+        "work" => c.work.as_ref(),
+        "split" => c.split.as_ref(),
+        _ => None,
+    }
+}
+
+/// The deciding questions of `pack` this module grades, in [`QUESTIONS`]' order.
+pub fn graded_questions(pack: &Pack) -> Vec<&'static str> {
+    QUESTIONS
+        .iter()
+        .copied()
+        .filter(|q| pack.question(q).is_some_and(|d| d.decides))
+        .collect()
+}
+
+/// A label must be an option of the pack's question of that name, for every question the pack
+/// grades, and a case labels nothing the pack does not ask.
 fn check_labels(c: &FileCase, pack: &Pack) -> Result<(), String> {
-    for (q, label) in [("model", &c.model), ("effort", &c.effort)] {
+    let asked = graded_questions(pack);
+    if asked.is_empty() {
+        return Err(format!("{} decides none of {QUESTIONS:?}", pack.name()));
+    }
+    for q in asked {
+        let label = label_of(c, q)
+            .ok_or_else(|| format!("{}: no `{q}` label, which {} grades", c.id, pack.name()))?;
         let def = pack
             .question(q)
             .ok_or_else(|| format!("{} asks no `{q}` question", pack.name()))?;
@@ -257,6 +337,15 @@ fn state_of(c: &FileCase, d: &FileDefaults) -> Result<CaseState, String> {
         last_reply_model,
         switch_cost,
         task_models: c.task_models.clone(),
+        live_tasks: c
+            .live_tasks
+            .iter()
+            .map(|t| crate::builders::TaskInput {
+                id: t.id.clone(),
+                brief: t.brief.clone(),
+                state: t.state.clone(),
+            })
+            .collect(),
     })
 }
 
@@ -275,7 +364,7 @@ impl CaseSet {
     /// `model` and `effort` options.
     pub fn parse(text: &str, pack: &Pack) -> Result<CaseSet, String> {
         let file: File = toml::from_str(text).map_err(|e| format!("the cases file: {e}"))?;
-        if file.pack != pack.name() {
+        if file.pack != pack.name() && !file.also.contains(&pack.name()) {
             return Err(format!(
                 "the cases are written for {}, not {}",
                 file.pack,
@@ -305,8 +394,10 @@ impl CaseSet {
                 must: c.must,
                 state,
                 want: Want {
-                    model: c.model,
-                    effort: c.effort,
+                    model: c.model.unwrap_or_default(),
+                    effort: c.effort.unwrap_or_default(),
+                    work: c.work.unwrap_or_default(),
+                    split: c.split.unwrap_or_default(),
                 },
             });
         }
@@ -323,7 +414,7 @@ impl CaseSet {
 pub fn input(case: &Case) -> crate::builders::InboundInput {
     use crate::builders::{PricePeriod, RestrictedModels, RouteFacts, SwitchCost};
     let s = &case.state;
-    crate::builders::route_input(
+    let mut input = crate::builders::route_input(
         &case.message,
         &s.place_kind,
         RouteFacts {
@@ -338,21 +429,24 @@ pub fn input(case: &Case) -> crate::builders::InboundInput {
             current_model: Some(s.current_model.clone()).filter(|m| !m.is_empty()),
             switch_cost: SwitchCost::parse(&s.switch_cost),
         },
-    )
+    );
+    input.live_tasks = s.live_tasks.clone();
+    input
 }
 
-/// The state Jev reads for a case: `builders::inbound` over [`input`], never a
-/// state built beside it.
+/// The state Jev reads for a case under `route.v10` (the model slice): the daemon's own builder
+/// over [`input`], never a state built beside it. The other packs' slices are [`prepared`]'s.
 pub fn state(case: &Case, cap: u64, scrub: &dyn Scrub) -> crate::state::BuiltState {
-    let built = crate::builders::inbound(&input(case), cap, scrub).state;
+    let built = crate::builders::route_state(&input(case), cap, scrub).state;
     Arc::try_unwrap(built).unwrap_or_else(|a| (*a).clone())
 }
 
-/// A case's state and its dynamic items, from the daemon's own builder:
-/// `persona` and `seal` are asked of nothing here, as of a message with one
-/// persona and no thread.
+/// A case's state and its dynamic items, from the daemon's own builder for `pack`: its slice of
+/// [`input`]. `persona` and `seal` are asked of nothing here, as of a message with one persona and
+/// no thread.
 pub fn prepared(pack: &Pack, case: &Case) -> Prepared {
-    crate::builders::inbound(&input(case), pack.state_cap_tokens, &NoScrub)
+    crate::builders::prepare(pack, &Input::Inbound(input(case)), &NoScrub)
+        .expect("a route family pack's builder reads the inbound input")
 }
 
 /// A case's ask: the pack's questions over its state, in shadow, with
@@ -366,7 +460,7 @@ pub fn ask(pack: &Arc<Pack>, case: &Case, context: &Value) -> Ask {
 }
 
 /// One question of one case, graded.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Check {
     pub want: String,
     /// The answer graded: Jev's top option when its band reached the
@@ -398,10 +492,26 @@ pub struct Graded {
     pub id: String,
     pub must: bool,
     pub answered: bool,
+    /// One per deciding question; the default (nothing wanted, nothing graded) for a question
+    /// the replayed pack does not ask ([`graded_questions`]).
     pub model: Check,
     pub effort: Check,
+    pub work: Check,
+    pub split: Check,
     /// The `model` answer is under the pack's confirm bar.
     pub under_confirm: bool,
+}
+
+impl Graded {
+    /// The check of one deciding question.
+    pub fn check(&self, q: &str) -> &Check {
+        match q {
+            "model" => &self.model,
+            "effort" => &self.effort,
+            "work" => &self.work,
+            _ => &self.split,
+        }
+    }
 }
 
 fn rung(effort: &str) -> Option<usize> {
@@ -459,27 +569,64 @@ fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
 }
 
 /// A case graded by the judgment that answered it (none, or one that did not
-/// answer, grades every question a miss).
+/// answer, grades every question a miss). Only the questions `pack` decides are graded.
 pub fn grade(pack: &Pack, case: &Case, j: Option<&Judgment>) -> Graded {
     let j = j.filter(|j| j.actionable());
-    let model = check(&case.want.model, j, pack, "model");
+    let asked = graded_questions(pack);
+    let one = |q: &str| match asked.contains(&q) {
+        true => check(case.want.of(q), j, pack, q),
+        false => Check::default(),
+    };
+    let model = one("model");
     Graded {
         id: case.id.clone(),
         must: case.must,
         answered: j.is_some(),
         under_confirm: model.sub_confirm,
         model,
-        effort: check(&case.want.effort, j, pack, "effort"),
+        effort: one("effort"),
+        work: one("work"),
+        split: one("split"),
     }
 }
 
-/// The numbers over a run, and the bar.
+/// One bar: `ok` of `of` cases, against what the rule needs ([`bar_need`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bar {
+    /// `model`, `effort`, `work`, `split` or `must`.
+    pub question: String,
+    pub ok: u32,
+    pub of: u32,
+    /// `bar_need(of)`, computed, not written down.
+    pub need: u32,
+    pub met: bool,
+}
+
+impl Bar {
+    fn new(question: &str, ok: u32, of: u32) -> Self {
+        let need = bar_need(of);
+        Self {
+            question: question.into(),
+            ok,
+            of,
+            need,
+            // A bar over no cases is not met: an empty set proves nothing.
+            met: of > 0 && ok >= need,
+        }
+    }
+}
+
+/// The numbers over a run, and the bars.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Totals {
+    /// The deciding questions the run graded.
+    pub asked: Vec<String>,
     pub answered: u32,
     pub model_ok: u32,
     pub effort_exact: u32,
     pub effort_close: u32,
+    pub work_ok: u32,
+    pub split_ok: u32,
     pub must_total: u32,
     pub must_ok: u32,
     pub must_under_confirm: u32,
@@ -488,33 +635,61 @@ pub struct Totals {
     pub raw_model_ok: u32,
     pub raw_effort_exact: u32,
     pub raw_effort_close: u32,
-    /// The design's bar met, counting [`PINNED`] as met; none unless the run
-    /// is the file's whole set (`DESIGN_TOTAL - PINNED` cases).
+    pub raw_work_ok: u32,
+    pub raw_split_ok: u32,
+    /// Answers under the question's confirm bar, per question: those graded as its `no_match`.
+    pub under_model: u32,
+    pub under_effort: u32,
+    pub under_work: u32,
+    pub under_split: u32,
+    /// One bar per asked question, and `must` beside `model`; empty for no cases.
+    pub bars: Vec<Bar>,
+    /// Every bar met; none when there is no bar to judge.
     pub bar: Option<bool>,
 }
 
-pub fn totals(graded: &[Graded]) -> Totals {
+pub fn totals(graded: &[Graded], asked: &[&str]) -> Totals {
     let count = |f: &dyn Fn(&Graded) -> bool| graded.iter().filter(|g| f(g)).count() as u32;
+    let n = graded.len() as u32;
     let mut t = Totals {
+        asked: asked.iter().map(|q| (*q).to_string()).collect(),
         answered: count(&|g| g.answered),
         model_ok: count(&|g| g.model.agrees),
         effort_exact: count(&|g| g.effort.agrees),
         effort_close: count(&|g| g.effort.close),
+        work_ok: count(&|g| g.work.agrees),
+        split_ok: count(&|g| g.split.agrees),
         must_total: count(&|g| g.must),
         must_ok: count(&|g| g.must && g.model.agrees),
         must_under_confirm: count(&|g| g.must && g.under_confirm),
         raw_model_ok: count(&|g| g.model.raw_agrees),
         raw_effort_exact: count(&|g| g.effort.raw_agrees),
         raw_effort_close: count(&|g| g.effort.raw_close),
+        raw_work_ok: count(&|g| g.work.raw_agrees),
+        raw_split_ok: count(&|g| g.split.raw_agrees),
+        under_model: count(&|g| g.model.sub_confirm),
+        under_effort: count(&|g| g.effort.sub_confirm),
+        under_work: count(&|g| g.work.sub_confirm),
+        under_split: count(&|g| g.split.sub_confirm),
+        bars: Vec::new(),
         bar: None,
     };
-    if graded.len() as u32 == DESIGN_TOTAL - PINNED {
-        t.bar = Some(
-            t.model_ok + PINNED >= BAR_MODEL
-                && t.effort_close + PINNED >= BAR_EFFORT
-                && t.must_ok == t.must_total
-                && t.must_under_confirm == 0,
-        );
+    for q in asked {
+        let ok = match *q {
+            "model" => t.model_ok,
+            // Within one rung, as the design's bar was; the exact count is `effort_exact`.
+            "effort" => t.effort_close,
+            "work" => t.work_ok,
+            _ => t.split_ok,
+        };
+        t.bars.push(Bar::new(q, ok, n));
+        if *q == "model" {
+            // The 13 replayed musts, not the design's 14: W40 is the daemon's test (see the module's doc).
+            t.bars.push(Bar::new("must", t.must_ok, t.must_total));
+        }
+    }
+    if !t.bars.is_empty() {
+        t.bar = Some(t.bars.iter().all(|b| b.met));
     }
     t
 }

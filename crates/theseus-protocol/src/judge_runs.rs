@@ -224,21 +224,67 @@ pub struct ReplayCase {
     /// The candidate's judgment answered; false when it failed or the run's
     /// limit stopped before it.
     pub answered: bool,
+    /// One check per deciding question; empty (nothing wanted) for a question the replayed pack
+    /// does not ask (`ReplayCases::asked` names the ones it does).
     pub model: ReplayCheck,
     pub effort: ReplayCheck,
+    #[serde(default)]
+    pub work: ReplayCheck,
+    #[serde(default)]
+    pub split: ReplayCheck,
 }
 
-/// `judge.replay --cases`' numbers: each case, the totals, and the bar.
+/// One bar of a `--cases` run (theseus-h66v4.6): a ratio of the question's own cases with its
+/// rounding rule, so the number needed is computed from the set and never written down.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ReplayBar {
+    /// `model`, `effort` (within one rung), `work`, `split` or `must`.
+    pub question: String,
+    /// Cases right, and the cases the bar is over.
+    pub ok: u32,
+    pub of: u32,
+    /// `ceil(of * 4 / 5)`.
+    pub need: u32,
+    pub met: bool,
+}
+
+/// `judge.replay --cases`' numbers: each case, the totals, and the bars.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ReplayCases {
     pub pack: String,
     pub cases: Vec<ReplayCase>,
+    /// The deciding questions this run graded (`model`, `effort`, `work`, `split`): one per
+    /// pack replayed, so a run that grades one pack prints one.
+    #[serde(default)]
+    pub asked: Vec<String>,
     /// Cases whose judgment answered.
     pub answered: u32,
     pub model_ok: u32,
     pub effort_exact: u32,
     pub effort_close: u32,
+    #[serde(default)]
+    pub work_ok: u32,
+    #[serde(default)]
+    pub split_ok: u32,
+    /// Answers under each question's confirm bar, graded as its `no_match`.
+    #[serde(default)]
+    pub under_model: u32,
+    #[serde(default)]
+    pub under_effort: u32,
+    #[serde(default)]
+    pub under_work: u32,
+    #[serde(default)]
+    pub under_split: u32,
+    /// The raw top picks that are right, for the questions beside `model`.
+    #[serde(default)]
+    pub raw_work_ok: u32,
+    #[serde(default)]
+    pub raw_split_ok: u32,
+    /// One bar per asked question, and `must` beside `model`: each 80% of its own cases, rounded up.
+    #[serde(default)]
+    pub bars: Vec<ReplayBar>,
     /// Cases marked `must`, those whose `model` is right, and those whose
     /// `model` answer sits under the pack's confirm bar.
     pub must_total: u32,
@@ -252,11 +298,10 @@ pub struct ReplayCases {
     pub raw_effort_exact: u32,
     #[serde(default)]
     pub raw_effort_close: u32,
-    /// Cases the daemon's own tests hold instead (W39 and W40, the pins),
-    /// counted as met in `bar`.
+    /// Cases the daemon's own tests hold instead (W39 and W40, the pins): outside every
+    /// denominator and every bar (theseus-h66v4.6).
     pub held_elsewhere: u32,
-    /// The design's bar met by this run (its numbers, over all sixty with the
-    /// pin tests counted); none when the file is not the sixty's 58.
+    /// Every bar met by this run; none when it has none to judge.
     pub bar: Option<bool>,
 }
 

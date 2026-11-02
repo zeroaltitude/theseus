@@ -33,7 +33,7 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a gate state's input is the gate's decision at the call (posture and reason) and the \
              session's hold at that moment, which the record keeps only in part",
         ),
-        Builder::Inbound => Some(
+        Builder::Inbound | Builder::Route | Builder::Effort | Builder::Work => Some(
             "an inbound state's input reads the live tasks and the roles table as they stood at the \
              message, which the record does not keep by time",
         ),

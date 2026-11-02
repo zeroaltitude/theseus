@@ -1,0 +1,391 @@
+# split.v1's test set (theseus-h66v4.6): the labelled cases `theseus judge replay --pack-file split.v1.toml
+# --cases split.v1.cases.toml` asks the pack, and compares its `split` answer to. The labels are WRITTEN by the
+# builder of theseus-h66v4.6, from the option wording, before the pack was run over them; none was changed after a
+# run. S1 to S40 are the forty labelled asks of the fan-out cue's own test (`fan_out_cue.rs`, deleted with its word
+# list in this row), kept verbatim as the set's core so the label that replaces the list is measured on the asks
+# the list was: "splits_by_area" where the list fired, "one_area" where it stayed silent. Eight cases are
+# route.v10.cases.toml's (the ids L12, W14, W8, W9, W7, W26, W28, L9), carried byte for byte, and S41 to S54 are new:
+# four more that split, two single threads, and eight asks that name nothing (`unclear`).
+
+pack = "split.v1"
+
+[defaults]
+place = "dm"
+restricted_models = "allowed"
+price_period = "off_peak"
+est_tokens = 40000
+last_reply_model = "claude-sonnet-5-5"
+switch_cost = "cheaper_to_switch"
+
+[[case]]
+id = "S1"
+message = "audit every crate for unwrap calls on user input"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S2"
+message = "survey the repository and report which modules lack tests"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S3"
+message = "explore how errors propagate across the daemon and the cli"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S4"
+message = "investigate why the startup is slow and check each phase"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S5"
+message = "review all the open changes under crates and list the risky ones"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S6"
+message = "inventory the config keys used throughout the workspace"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S7"
+message = "do a comprehensive review of the store's recovery paths"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S8"
+message = "exhaustively check the protocol methods for missing docs"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S9"
+message = "look everywhere for places that read the wall clock"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S10"
+message = "go through each toollet and say what it refuses"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S11"
+message = "find every caller of the retry helper and judge its bound"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S12"
+message = "thoroughly review the admission queue and its tests"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S13"
+message = "check the entire cockpit for stale protocol types"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S14"
+message = "read the whole spec chapter set and list contradictions"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S15"
+message = "audit the gate across all the scripts"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S16"
+message = "survey how each provider handles refusals"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S17"
+message = "explore the bench adapters and compare their reports"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S18"
+message = "investigate every failing test in the suite"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S19"
+message = "go through the repository and report the dead modules"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S20"
+message = "find who calls the retry decision from anywhere in the tree"
+split = "splits_by_area"
+why = "from the deleted fan-out cue's forty labelled asks: work spread over areas that can be read apart"
+
+[[case]]
+id = "S21"
+message = "fix the typo in the readme"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S22"
+message = "rename the function load_cfg to load_config in config.rs"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S23"
+message = "why does the build fail with a linker error"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S24"
+message = "what does the steer module do"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S25"
+message = "add a test for the empty case of parse_ask"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S26"
+message = "bump the version line in the first chapter"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S27"
+message = "explain this stack trace"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S28"
+message = "write a commit message for my staged changes"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S29"
+message = "make the footer line one character shorter"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S30"
+message = "run the formatter and tell me what changed"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S31"
+message = "change the default timeout from 30 to 45 seconds"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S32"
+message = "summarise this function in two sentences"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S33"
+message = "revert the last commit"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S34"
+message = "can you check that the socket path is right"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S35"
+message = "open the config and show me the models section"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S36"
+message = "implement the todo on line 120 of kernel.rs"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S37"
+message = "update the changelog with today's fix"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S38"
+message = "make the whole line say ready instead"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S39"
+message = "review my diff for the typo fix"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "S40"
+message = "fix all the typos in the readme"
+split = "one_area"
+why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+
+[[case]]
+id = "L12"
+message = "Start two background tasks, $1 each: A) bash ~/projects/walkthrough/slow.sh census 3; B) slow.sh load 3"
+split = "splits_by_area"
+why = "two independent background runs, each needing nothing from the other"
+
+[[case]]
+id = "W14"
+message = "rename `cn_profiles` to `restricted_profiles` across the crate and fix the tests"
+split = "one_area"
+why = "one mechanical rename, one thread"
+
+[[case]]
+id = "W8"
+message = "the daemon panics on startup with 'store format 23 unknown' after the install, cause unknown"
+split = "one_area"
+why = "one bug of unknown cause"
+
+[[case]]
+id = "W9"
+message = "write a new CLI subcommand `theseus pins` that lists every place's pinned profile with its origin"
+split = "one_area"
+why = "one new command"
+
+[[case]]
+id = "W7"
+message = "why does the join queue deadlock when two reviewers hold the lock? walk me through it"
+split = "one_area"
+why = "one question about one mechanism"
+
+[[case]]
+id = "W26"
+message = "triage CVE-2026-31337 in our openssl pin and tell me if we're exposed"
+split = "one_area"
+why = "one vulnerability, one answer"
+
+[[case]]
+id = "W28"
+message = "Task brief: Port the 14 remaining `#[test]`s in tests_route_effort.rs to the v10 rig, same assertions"
+place_kind = "task_brief"
+split = "one_area"
+why = "one file of tests to port"
+
+[[case]]
+id = "L9"
+message = "can you sketch for me the manual redeployment process for the gateway?"
+split = "one_area"
+why = "one process to sketch"
+
+[[case]]
+id = "S41"
+message = "summarise each of the six open pull requests and flag the risky ones"
+split = "splits_by_area"
+why = "several independent reports asked in one message"
+
+[[case]]
+id = "S42"
+message = "check every directory under docs for pages that still use the old pack name"
+split = "splits_by_area"
+why = "one check repeated over separate directories"
+
+[[case]]
+id = "S43"
+message = "add a doc comment to every public function in the store, kernel and ledger modules"
+split = "splits_by_area"
+why = "independent work in separate modules"
+
+[[case]]
+id = "S44"
+message = "tell me how the gateway, the daemon and the cockpit each handle a dropped connection"
+split = "splits_by_area"
+why = "three separate questions about three separate systems"
+
+[[case]]
+id = "S45"
+message = "should the retry bound live in config or in code, and why"
+split = "one_area"
+why = "a design question that is one line of reasoning"
+
+[[case]]
+id = "S46"
+message = "find out why a_met_watch_pings_where_notices_are_silent times out under load"
+split = "one_area"
+why = "one failing test to chase"
+
+[[case]]
+id = "S47"
+message = "do the thing we talked about"
+split = "unclear"
+why = "a bare instruction that points at nothing"
+
+[[case]]
+id = "S48"
+message = "go ahead"
+split = "unclear"
+why = "a bare instruction that points at nothing"
+
+[[case]]
+id = "S49"
+message = "audit it"
+split = "unclear"
+why = "a verb with no object"
+
+[[case]]
+id = "S50"
+message = "fix it"
+split = "unclear"
+why = "no target named"
+
+[[case]]
+id = "S51"
+message = "look into this"
+split = "unclear"
+why = "no target named"
+
+[[case]]
+id = "S52"
+message = "same for the others"
+split = "unclear"
+why = "refers to others it does not name"
+
+[[case]]
+id = "S53"
+message = "make it better"
+split = "unclear"
+why = "no work asked for"
+
+[[case]]
+id = "S54"
+message = "sort it out"
+split = "unclear"
+why = "no target named"
