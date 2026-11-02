@@ -561,14 +561,14 @@ mod tests {
         );
         assert_eq!(
             gate_why(
-                "read /etc/hosts: fs.read — approve (/etc/hosts is outside the workspace roots: /w)",
+                "fs.read — notify (enforcement = notify; read outside your project folder: /etc/hosts (roots: /w))",
                 "read /etc/hosts",
                 "fs.read",
-                "approve",
+                "notify",
                 None,
                 "s"
             ),
-            "/etc/hosts is outside the workspace roots: /w"
+            "enforcement = notify; read outside your project folder: /etc/hosts (roots: /w)"
         );
         assert_eq!(
             gate_why("something else", "", "fs.read", "open", None, "the setting"),

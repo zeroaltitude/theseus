@@ -6,7 +6,7 @@
 //!
 //! A directory changes no policy: the gate judges a call's resolved paths
 //! against the workspace roots as always, so a read or a run outside them
-//! waits for approval wherever the session works.
+//! is labelled in its decision wherever the session works.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};

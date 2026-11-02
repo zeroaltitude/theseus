@@ -9,8 +9,8 @@
 //!   import), the rename is asked at the definition, and the answer says so.
 //! - `lsp.rename {digest}`, a write and not repeatable: exactly that edit.
 //!   Its plan's resources are every file it writes, so the gate judges it as
-//!   an `fs.patch` of each (the floor, the approve list), and a file outside
-//!   the workspace roots waits too ([`outside_roots`]). It writes nothing
+//!   an `fs.patch` of each (the floor, the approve list, and the label a file
+//!   outside the workspace roots gets). It writes nothing
 //!   unless every file is as the plan read it, then writes each, tells the
 //!   servers, and returns the diff.
 
@@ -29,7 +29,6 @@ use theseus_tools::{
 
 use super::tools::{at_schema, deadline, locate, plan_read, At};
 use super::{lock, Board};
-use crate::policy::{Decision, Posture};
 
 /// One file a rename writes: as the plan read it, and after.
 #[derive(Debug, Clone)]
@@ -516,31 +515,6 @@ async fn told(board: &Board, wrote: &[PathBuf]) {
         for p in wrote.iter().filter(|p| p.starts_with(l.root())) {
             let _ = l.client.file_changed(p).await;
         }
-    }
-}
-
-/// The gate's step for `lsp.rename`: a write outside the workspace roots
-/// waits, as the brief for the rename asks (an `fs.patch` there takes its
-/// posture; a rename reaches files the model never named).
-pub(super) fn outside_roots(roots: &[PathBuf], tool: &str, plan: &Plan, d: Decision) -> Decision {
-    if tool != "lsp.rename" {
-        return d;
-    }
-    let outside = plan.resources.iter().find(|r| {
-        r.access == Access::Write
-            && !roots
-                .iter()
-                .any(|root| theseus_tools::paths::within(&r.path, root))
-    });
-    match outside {
-        Some(r) => d.at_least(
-            Posture::Approve,
-            &format!("{} is outside the workspace roots", r.path.display()),
-            "lsp.rename: a write outside the workspace roots waits",
-            tool,
-            &plan.summary,
-        ),
-        None => d,
     }
 }
 
