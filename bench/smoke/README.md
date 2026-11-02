@@ -40,8 +40,9 @@ and names any trial that errored before its agent ran as the host's failure, not
 (`/usr/local/lib/theseus/<sha>`). The tb part fails when the static build it uploads (`bench/bin/build-commit`) has
 other Rust sources than the candidate's.
 
-**Route on a live pack.** `judge replay --cases` refuses a pack the build dispatches ("… is wired"), so once a
-release makes route.v10 live, the route part fails with that refusal until the replay can take a live pack.
+**Route on a live pack.** `judge replay --cases` replays a pack the build dispatches (theseus-8ouns): the run reads no
+recorded judgment and names its own pack. So once a release makes route.v10 live, the route part reaches its bar
+instead of an error; before that it reads "n/a until the flip". A cases file with no cases is refused, never a pass.
 
 **The DM part drives the CLI, not Discord**: the test channel needs the owner's own hand. It never uses one of the
 owner's conversations, and it runs from inside the daemon's workspace: from outside it (2026-10-30, a lane under
