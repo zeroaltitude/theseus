@@ -1,4 +1,4 @@
-//! The six readers outside routing that matched route.v8's class names (theseus-h66v4.6; the
+//! The seven readers outside routing that matched route.v8's class names (theseus-h66v4.6; the
 //! omnibus review's structural finding). route.v10's verdict carries a model name in the old `mode`
 //! word, so each reader either reads the new fact or is dead on purpose, and every test here is
 //! green only because it says which:
@@ -9,6 +9,9 @@
 //! 4. the fan-out cue reads `split.v1`: `tests_fan_out_cue`;
 //! 5. the learning report's acting list reads the pack's own options: here;
 //! 6. the correction's `To::Mode` has no mode vocabulary under route.v10: dead on purpose, here.
+//! 7. the task offer's `trivial`/`quick` exemption (`turn/reply_step.rs::offer_for`, theseus-h66v4.9):
+//!    retired on purpose under route.v10: `tests_offer`. A task's brief and checkpoint ask `work.v1`
+//!    too, or reader 1 and 2 would have no answer on a task turn: `tests_task_checkpoint`.
 
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
