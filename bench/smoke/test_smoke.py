@@ -466,6 +466,16 @@ class RouteOnAWiredPack(unittest.TestCase):
             self.assertFalse(p.get("na"), live)
             self.assertIn("0 of 3 runs answered any case", p["note"])
 
+    def test_a_replay_that_exits_clean_with_no_answer_is_a_fail_not_a_pass(self):
+        # The CLI exits 0 on "bar: not judged" (a breaker tripped, the limit cut every case): the 58 cases
+        # are there and Jev answered none. Three of those must not read as a pass, nor as "n/a until the flip".
+        mute = replay(answered=0, model_ok=0, must_ok=0, bar=None)
+        for live in ("route.v10", "route.v8", None):
+            p = smoke.route_part([smoke.route_run(mute, 1.0)] * 3, None, live=live)
+            self.assertFalse(p["ok"], live)
+            self.assertFalse(p.get("na"), live)
+            self.assertIn("0 of 3 runs answered any case", p["note"])
+
 
 if __name__ == "__main__":
     unittest.main()
