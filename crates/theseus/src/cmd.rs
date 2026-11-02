@@ -1806,7 +1806,7 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
         let starts = task_pins_of(&r.after, "task-start");
         if !r.all && !(r.after.pins.is_empty() && starts == 0) {
             eprintln!(
-                "[{} held profiles and {starts} tasks started on a profile remain; `theseus profile unpin --all` lets go of them]",
+                "[still pinned: {} held, {starts} started on a profile; `theseus profile unpin --all` lets go of them]",
                 r.after.pins.len()
             );
         }

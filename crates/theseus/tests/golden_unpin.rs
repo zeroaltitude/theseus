@@ -86,7 +86,7 @@ fn pins(pinned: &[Value]) -> Value {
 /// The same, with `start` the tasks no brief or checkpoint routes (`task_pins`).
 fn pins_with(pinned: &[Value], start: &[Value]) -> Value {
     let of = |kind: &str| pinned.iter().filter(|p| p["kind"] == kind).count();
-    json!({"live": "quick", "live_source": "config", "sessions": 5, "tasks": 3,
+    json!({"live": "quick", "live_source": "config", "sessions": 5, "tasks": 5,
            "pinned_sessions": of("session"), "pinned_tasks": of("task"), "pins": pinned,
            "task_pins": start})
 }
