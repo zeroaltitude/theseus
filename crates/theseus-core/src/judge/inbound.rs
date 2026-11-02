@@ -78,6 +78,30 @@ pub const DIRECTIVE_PACK: &str = crate::capture::PACK;
 /// (`turn/route_step/fan_out_cue.rs`) does, and the two are read against each
 /// other by the turn their rows share.
 pub const SPLIT_PACK: &str = "split.v1";
+/// EFFORT (theseus-h66v4.6), at `inbound`: how much thinking the reply needs. One of the three
+/// calls the owner named (model, effort, task type), asked in the same batch as the route pack
+/// once that pack asks `model` (`JudgeService::route_open`), and never before.
+pub const EFFORT_PACK: &str = "effort.v1";
+/// WORK (theseus-h66v4.6), at `inbound`: what kind of task the message asks for. Asked as
+/// [`EFFORT_PACK`] is; its label is what the injection tier and the coding hint read.
+pub const WORK_PACK: &str = "work.v1";
+/// The packs asked beside the route pack once it asks `model`, and waited for by the turn with it:
+/// the effort, the task type, and the split (promoted from shadow, its answer the fan-out cue).
+/// While `ROUTE_PACK` names a pack that asks no `model`, none of them is asked in the route lane
+/// (`split.v1` stays the shadow batch pack it was).
+pub const FAMILY: [&str; 3] = [EFFORT_PACK, WORK_PACK, SPLIT_PACK];
+
+/// Whether `pack` is asked in the route lane, whose answers the turn waits for: the route pack, and
+/// the family beside it when `family` (the route pack asks `model` and the turn is not pinned).
+pub(super) fn in_route_lane(pack: &str, family: bool) -> bool {
+    pack == ROUTE_PACK || (family && FAMILY.contains(&pack))
+}
+
+/// Whether a point's asks are the route family's: the effort pack is among them.
+fn family_of(packs: &[(Arc<Pack>, String, PackMode)]) -> bool {
+    packs.iter().any(|(p, _, _)| p.name() == EFFORT_PACK)
+}
+
 /// The packs asked at `inbound`, in the order they are asked.
 pub const PACKS: [&str; 6] = [
     CLASSIFY_PACK,
@@ -375,35 +399,75 @@ impl JudgeService {
             .adopt(trace, None)
     }
 
-    fn inbound_early_of(&self, msg: Inbound, point: Point) -> Option<Early> {
-        let route_only = point != Point::All;
-        if slash_command(&msg.text) {
-            return None;
-        }
+    /// The packs a point asks of this message, each with its id and mode: every root (or the learned
+    /// version standing in its place, 25f) the message's place and turn call for, and the route
+    /// family beside the route pack once it asks `model`.
+    fn inbound_packs(&self, msg: &Inbound, route_only: bool) -> Vec<(Arc<Pack>, String, PackMode)> {
+        // The route family is asked with the route pack once it asks `model`; a pinned turn is the
+        // operator's choice of model and effort, so Jev is asked neither (and nothing else of the family).
+        let family = self.route_open() && msg.chosen.is_none();
         let mode_of = |p: &str| match p {
             ROUTE_PACK => msg.route,
+            p if family && FAMILY.contains(&p) => msg.route,
             _ => self.mode_for(p, &msg.session_id).mode,
         };
         // Each root, or the learned version standing in its place (25f);
         // route.v1 is left alone.
-        let packs: Vec<(Arc<Pack>, String, PackMode)> = PACKS
+        let beside: &[&str] = match family {
+            true => &[EFFORT_PACK, WORK_PACK],
+            false => &[],
+        };
+        PACKS
             .iter()
+            .chain(beside)
             .map(|root| match *root {
-                ROUTE_PACK => ((*root).to_string(), *root),
+                ROUTE_PACK | EFFORT_PACK | WORK_PACK => ((*root).to_string(), *root),
                 _ => (self.placed(root, &msg.session_id), *root),
             })
             .map(|(p, root)| (mode_of(&p), p, root))
             .filter(|(m, _, _)| *m != PackMode::Off)
             .filter(|(_, _, root)| *root != DIRECTIVE_PACK || msg.capture)
-            .filter(|(_, _, root)| *root != ONTO_PACK || (!route_only && self.onto_wanted(&msg)))
+            .filter(|(_, _, root)| *root != ONTO_PACK || (!route_only && self.onto_wanted(msg)))
             // A task's message is its parent's brief, never a person's ask to divide.
             .filter(|(_, _, root)| *root != SPLIT_PACK || !msg.task)
-            .filter(|(_, _, root)| !route_only || *root == ROUTE_PACK)
+            // A task's brief and checkpoint ask the route pack, and the effort beside it.
+            .filter(|(_, _, root)| {
+                !route_only || *root == ROUTE_PACK || (family && *root == EFFORT_PACK)
+            })
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))
             .map(|(p, m, _)| (p, m))
             .map(|(p, m)| (p, theseus_judge::judge::new_id(), m))
-            .collect();
+            .collect()
+    }
+
+    /// The mode a judgment of `pack` is asked in. route.v1 asks in the mode its turn gave it: shadow
+    /// for a pin or `[routing]` in shadow, else the ladder's (live, or canary in a canary's arm); the
+    /// others in the ladder's. Each records its arm (26a). The route family rides the route pack's
+    /// arm: its answers are the turn's verdict, so it acts when the route pack does (a pack of its
+    /// own is not on the ladder).
+    fn lane_mode(
+        &self,
+        pack: &str,
+        family: bool,
+        mode: PackMode,
+        context: &mut serde_json::Value,
+    ) -> Mode {
+        let lane = in_route_lane(pack, family);
+        let laddered = self.ask_mode(if lane { ROUTE_PACK } else { pack }, context);
+        match (lane, mode) {
+            (true, PackMode::Live | PackMode::Canary) => laddered,
+            (true, _) => Mode::Shadow,
+            (false, _) => laddered,
+        }
+    }
+
+    fn inbound_early_of(&self, msg: Inbound, point: Point) -> Option<Early> {
+        let route_only = point != Point::All;
+        if slash_command(&msg.text) {
+            return None;
+        }
+        let packs = self.inbound_packs(&msg, route_only);
         if packs.is_empty() {
             return None;
         }
@@ -643,6 +707,7 @@ impl JudgeService {
         // every other pack's state is the one it always was.
         let carried = super::route_facts::Carried::of(input);
         let (plain, shared) = (&carried.plain, &carried.shared);
+        let family = family_of(&packs);
         let mut asks = Vec::with_capacity(packs.len());
         for (pack, id, mode) in packs {
             if is_onto(&pack) && !onto {
@@ -651,6 +716,9 @@ impl JudgeService {
             let carries = match (is_onto(&pack), pack.name() == ROUTE_PACK) {
                 (true, _) => shared,
                 (false, true) => carried.for_route(&pack),
+                // The effort and the task type read their own slices of the input, which carry
+                // no onto fields and no facts.
+                (false, false) if matches!(pack.name().as_str(), EFFORT_PACK | WORK_PACK) => plain,
                 (false, false) => {
                     if own {
                         plain
@@ -702,16 +770,7 @@ impl JudgeService {
                     context["chosen"] = json!(c);
                 }
             }
-            // route.v1 asks in the mode its turn gave it: shadow for a pin or
-            // `[routing]` in shadow, else the ladder's (live, or canary in a
-            // canary's arm); the others in the ladder's. Each records its arm
-            // (26a).
-            let laddered = self.ask_mode(&pack.name(), &mut context);
-            let jmode = match (pack.name() == ROUTE_PACK, mode) {
-                (true, PackMode::Live | PackMode::Canary) => laddered,
-                (true, _) => Mode::Shadow,
-                (false, _) => laddered,
-            };
+            let jmode = self.lane_mode(&pack.name(), family, mode, &mut context);
             let pinned = pack.name() == ROUTE_PACK && msg.chosen.is_some();
             let mut ask = Ask::new(pack, &state, jmode, context);
             unasked_when_pinned(&mut ask, pinned);
@@ -720,8 +779,9 @@ impl JudgeService {
         }
         // Two requests, each reserved as it goes out (theseus-ddbi), and a
         // third for onto.v1 when the owner moved it out of the batch.
-        let (route, rest): (Vec<&Ask>, Vec<&Ask>) =
-            asks.iter().partition(|a| a.pack.name() == ROUTE_PACK);
+        let (route, rest): (Vec<&Ask>, Vec<&Ask>) = asks
+            .iter()
+            .partition(|a| in_route_lane(&a.pack.name(), family));
         let (alone, rest): (Vec<&Ask>, Vec<&Ask>) =
             rest.into_iter().partition(|a| own && is_onto(&a.pack));
         let reserve = |a: Vec<&Ask>| {
@@ -947,17 +1007,16 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         (None, Some(m)) => (m.choice.clone(), m.confidence),
         (None, None) => return None,
     };
-    let open = model.is_some();
-    let question = if open {
-        crate::routing::effort::OPEN_QUESTION
-    } else {
-        QUESTION
+    // route.v10's route pack asks no effort: `effort.v1` answers it in a judgment of its own,
+    // laid over by `verdict_of`. route.v8's `reply_effort` is read here, as it always was.
+    let effort = match model.is_some() {
+        true => None,
+        false => choice(QUESTION).map(|(level, confidence, band)| EffortAnswer {
+            level,
+            confidence,
+            sure: sure(band),
+        }),
     };
-    let effort = choice(question).map(|(level, confidence, band)| EffortAnswer {
-        level,
-        confidence,
-        sure: sure(band),
-    });
     Some(crate::routing::Verdict {
         mode,
         confidence,
@@ -974,7 +1033,65 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
             })
         }),
         model,
+        // The task type and the split are laid over by `verdict_of`, from their own judgments.
+        work: None,
+        split: None,
     })
+}
+
+/// The turn's verdict from its route lane's judgments (theseus-h66v4.6): the route pack's own
+/// ([`verdict`]: the model, and persona, seal and personal), with the effort that `effort.v1`
+/// answered, the task type `work.v1` answered and the split `split.v1` answered laid over it. Each
+/// is its own judgment with its own state, asked in the same batch; a judgment that did not answer
+/// (a failure, a skip, a shadow ask) leaves its field out, and nothing here post-processes an
+/// answer. With no route verdict there is none, whatever the others said.
+pub fn verdict_of(
+    judgments: &[theseus_judge::Judgment],
+    turn: &str,
+) -> Option<crate::routing::Verdict> {
+    let named = |name: &str| {
+        judgments
+            .iter()
+            .find(|j| j.pack == name)
+            .filter(|j| j.actionable())
+    };
+    let mut v = judgments
+        .iter()
+        .find(|j| j.pack != EFFORT_PACK && j.pack != WORK_PACK && j.pack != SPLIT_PACK)
+        .and_then(|j| verdict(j, turn))?;
+    let sure = |band| band != theseus_judge::band::Band::Escalate;
+    let choice = |j: &theseus_judge::Judgment, q: &str| {
+        let a = j.answer(q)?;
+        match &a.answer {
+            theseus_judge::Answer::Choice {
+                choice, confidence, ..
+            } => Some((choice.clone(), *confidence, a.band.band)),
+            _ => None,
+        }
+    };
+    if let Some((level, confidence, band)) =
+        named(EFFORT_PACK).and_then(|j| choice(j, crate::routing::effort::OPEN_QUESTION))
+    {
+        v.effort = Some(crate::routing::effort::EffortAnswer {
+            level,
+            confidence,
+            sure: sure(band),
+        });
+    }
+    let pick = |pack: &str, q: &str| {
+        named(pack)
+            .and_then(|j| choice(j, q))
+            .map(|(choice, confidence, band)| {
+                Box::new(crate::routing::Pick {
+                    choice,
+                    confidence,
+                    sure: sure(band),
+                })
+            })
+    };
+    v.work = pick(WORK_PACK, "work");
+    v.split = pick(SPLIT_PACK, "split");
+    Some(v)
 }
 
 /// The message names one of the operator's sensitive names
@@ -1113,10 +1230,11 @@ fn seal_of(me: &Weak<JudgeService>, session: &str, judgments: &[theseus_judge::J
 
 /// The urgency of `route.v1`'s ask and of the batch beside it.
 fn urgencies(packs: &[(Arc<Pack>, String, PackMode)], total: u64) -> (Urgency, Urgency) {
+    let family = family_of(packs);
     let of = |route: bool| {
         let modes = packs
             .iter()
-            .filter(|(p, _, _)| (p.name() == ROUTE_PACK) == route)
+            .filter(|(p, _, _)| in_route_lane(&p.name(), family) == route)
             .map(|(_, _, m)| *m);
         urgency_of(modes, total)
     };
@@ -1160,6 +1278,7 @@ async fn judge_inbound(
     let own = svc.onto_own();
     let total = svc.cfg.total_secs;
     let (route_urgency, rest_urgency) = urgencies(&packs, total);
+    let family = family_of(&packs);
     let (turn, brief) = (msg.turn_id.clone(), msg.text.clone());
     let session = msg.session_id.clone();
     let to_task = charged.then(|| (msg.kernel.clone(), msg.execution_id.clone()));
@@ -1181,8 +1300,9 @@ async fn judge_inbound(
     // (theseus-otny).
     let wrote = beside.spawn(&me);
     let t0 = Instant::now();
-    let (route_asks, rest_asks): (Vec<Ask>, Vec<Ask>) =
-        asks.into_iter().partition(|a| a.pack.name() == ROUTE_PACK);
+    let (route_asks, rest_asks): (Vec<Ask>, Vec<Ask>) = asks
+        .into_iter()
+        .partition(|a| in_route_lane(&a.pack.name(), family));
     let (own_asks, rest_asks): (Vec<Ask>, Vec<Ask>) =
         rest_asks.into_iter().partition(|a| own && is_onto(&a.pack));
     let routed = async {
@@ -1204,7 +1324,7 @@ async fn judge_inbound(
         }
         if let Some(tx) = route {
             let _ = tx.send(Answered {
-                verdict: judgments.first().and_then(|j| verdict(j, &turn)),
+                verdict: verdict_of(&judgments, &turn),
                 at: tokio::time::Instant::now(),
                 cost_micros,
             });

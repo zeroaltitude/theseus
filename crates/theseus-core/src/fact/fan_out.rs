@@ -8,29 +8,29 @@ use theseus_protocol::LedgerKind;
 use super::Fact;
 use crate::trace::Trace;
 
-/// The cue looked at a turn whose route class may fan out, and fired or did not. Both outcomes
-/// are written, so a reader of the log sees the misses beside the hits.
+/// The cue looked at a turn whose verdict carries Jev's `split` answer, and fired or did not.
+/// Both outcomes are written, so a reader of the log sees the misses beside the hits.
 pub struct FanOutCue<'a> {
-    pub class: &'a str,
-    /// The open-ended words the ask used, in the cue's list order.
-    pub words: &'a [&'static str],
+    /// The option Jev chose (`splits_by_area`, `one_area`, `unclear`).
+    pub split: &'a str,
+    pub confidence: f64,
+    /// Its band reached the question's confirm bar.
+    pub sure: bool,
     pub fired: bool,
-    /// The revision of the cue's word list that decided.
-    pub words_rev: u32,
 }
 
 impl Fact for FanOutCue<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::FanOutCue);
 
     fn row(&self) -> Value {
-        json!({"class": self.class, "words": self.words, "fired": self.fired, "words_rev": self.words_rev})
+        json!({"split": self.split, "confidence": self.confidence, "sure": self.sure, "fired": self.fired})
     }
 
     fn span(&self, trace: &mut Trace) {
         trace.mark(
             "fan_out_cue",
             "mark",
-            json!({"class": self.class, "words": self.words.len(), "fired": self.fired}),
+            json!({"split": self.split, "sure": self.sure, "fired": self.fired}),
         );
     }
 }

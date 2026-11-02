@@ -88,17 +88,32 @@ fn asked(jev: &FakeJev) -> Vec<String> {
 
 // ---------------------------------------------------------------- the verdict
 
+/// A judgment of `pack` with these answers (the route family's packs each answer in their own).
+fn judgment_of(
+    pack: &str,
+    answers: Vec<theseus_judge::judge::AnswerRecord>,
+) -> theseus_judge::Judgment {
+    let mut j = crate::tests_route_data::judgment(answers, false);
+    j.pack = pack.into();
+    j
+}
+
 #[test]
-fn the_verdict_reads_model_and_effort_from_a_v10_judgment() {
+fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_own() {
     use crate::tests_route_data::{choice, judgment};
-    let j = judgment(
+    let route = judgment(
         vec![
             choice("model", "opus", 0.91),
-            choice("effort", "medium", 0.84),
+            choice("personal", "none", 0.9),
         ],
         false,
     );
-    let v = crate::judge::inbound::verdict(&j, "trn_1").expect("a verdict");
+    let effort = judgment_of("effort.v1", vec![choice("effort", "medium", 0.84)]);
+    let work = judgment_of("work.v1", vec![choice("work", "coding", 0.88)]);
+    let split = judgment_of("split.v1", vec![choice("split", "splits_by_area", 0.77)]);
+    // Order is the lane's, not a contract: the route judgment is found by what it is.
+    let all = [split.clone(), effort.clone(), route.clone(), work.clone()];
+    let v = crate::judge::inbound::verdict_of(&all, "trn_1").expect("a verdict");
     let m = v.model.as_ref().expect("the model answer");
     assert_eq!(
         (m.choice.as_str(), m.confidence, m.sure),
@@ -107,25 +122,44 @@ fn the_verdict_reads_model_and_effort_from_a_v10_judgment() {
     let e = v
         .effort
         .as_ref()
-        .expect("the effort answer, under route.v10's own id");
+        .expect("the effort answer, from effort.v1's own judgment");
     assert_eq!(
         (e.level.as_str(), e.confidence, e.sure),
         ("medium", 0.84, true)
     );
+    let w = v.work.as_ref().expect("the work answer");
+    assert_eq!(
+        (w.choice.as_str(), w.confidence, w.sure),
+        ("coding", 0.88, true)
+    );
+    let s = v.split.as_ref().expect("the split answer");
+    assert_eq!(
+        (s.choice.as_str(), s.confidence, s.sure),
+        ("splits_by_area", 0.77, true)
+    );
     assert!(v.open());
     assert_eq!(v.mode, "opus", "the row's `mode` word is the pick");
-    // An answer under the confirm bar is read, and not sure.
-    let j = judgment(vec![choice("model", "opus", 0.45)], false);
-    let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
-    assert!(!v.model.as_ref().unwrap().sure);
-    // A pinned turn is not asked the model or the effort: it has no verdict.
-    let j = judgment(vec![choice("personal", "none", 0.95)], false);
-    assert!(crate::judge::inbound::verdict(&j, "trn_1").is_none());
+    // Under the confirm bar each is read, and not sure; nothing is post-processed.
+    let shy = judgment_of("work.v1", vec![choice("work", "coding", 0.45)]);
+    let v = crate::judge::inbound::verdict_of(&[route.clone(), shy], "trn_1").unwrap();
+    assert!(!v.work.as_ref().unwrap().sure);
+    assert_eq!(
+        v.work.as_ref().unwrap().choice,
+        "coding",
+        "the pick stands as said"
+    );
+    // A family judgment that did not answer leaves its field out, and the model's verdict stands.
+    let v = crate::judge::inbound::verdict_of(std::slice::from_ref(&route), "trn_1").unwrap();
+    assert!(v.effort.is_none() && v.work.is_none() && v.split.is_none());
+    // No route verdict, no verdict, whatever the others said (a pinned turn asks none of them).
+    assert!(crate::judge::inbound::verdict_of(&[effort, work, split], "trn_1").is_none());
+    let pinned = judgment(vec![choice("personal", "none", 0.95)], false);
+    assert!(crate::judge::inbound::verdict(&pinned, "trn_1").is_none());
     // route.v8's judgment reads as it always did.
     let j = judgment(vec![choice("mode", "chat", 0.95)], false);
     let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
     assert_eq!(v.mode, "chat");
-    assert!(!v.open() && v.model.is_none());
+    assert!(!v.open() && v.model.is_none() && v.work.is_none() && v.split.is_none());
 }
 
 // ------------------------------------------------------------------ the turn
@@ -149,9 +183,26 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(req.output_config.as_ref().unwrap()["effort"], "high");
     assert_eq!(
         asked(&jev),
-        ["route.v8/effort", "route.v8/model", "route.v8/personal"],
-        "the two deciding questions, and no `mode` and no `context`"
+        ["route.v8/model", "route.v8/personal"],
+        "the route pack asks the model: no `effort`, no `mode`, no `context`"
     );
+    // The effort, the task type and the split are each asked of a pack of their own, in the batch.
+    let beside: std::collections::BTreeSet<String> = jev
+        .seen()
+        .iter()
+        .flat_map(|s| {
+            s.body["questions"]
+                .as_object()
+                .map(|q| q.keys().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        })
+        .filter(|id| {
+            !id.starts_with("route.v8/") && !id.starts_with("classify.") && !id.starts_with("role.")
+        })
+        .collect();
+    for q in ["effort.v1/effort", "work.v1/work", "split.v1/split"] {
+        assert!(beside.contains(q), "{q} in {beside:?}");
+    }
     let route = res.route.unwrap();
     assert_eq!(
         (
@@ -184,13 +235,13 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert!(o.deepseek.requests().is_empty());
 }
 
-/// An effort answer under the confirm bar runs the model's own default effort,
-/// not the profile's `effort` (the template's sonnet profile sets none, haiku's
-/// sets `low`: Haiku's catalog default is medium). The pack's `no_match` for
-/// `effort` is `high` (theseus-h66v4.1) and the replay grades an under-bar
-/// answer as it; this is what the daemon does today (see the h66v4.1 report).
+/// An effort answer under the confirm bar runs the pack's `no_match`, `high`, for every model,
+/// not the model's own default and not the profile's `effort` (the template's haiku profile
+/// sets `low`, and Haiku's catalog default is medium). The replay grades an under-bar answer as
+/// `high`, and so does the daemon now (theseus-h66v4.6.1; before it, Haiku, Opus and Flash ran
+/// their own defaults while the grade said `high`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_effort_under_the_bar_is_the_models_own_and_not_the_profiles() {
+async fn an_effort_under_the_bar_is_the_packs_no_match_high_for_every_model() {
     let jev = FakeJev::start().unwrap();
     says_at(&jev, ("haiku", 0.95), ("high", 0.40));
     let o = open(&jev, 1, |_| {});
@@ -205,11 +256,11 @@ async fn an_effort_under_the_bar_is_the_models_own_and_not_the_profiles() {
     assert_eq!(req.model, "claude-haiku-5-5");
     assert_eq!(
         req.output_config.as_ref().unwrap()["effort"],
-        "medium",
-        "Haiku 5.5's default effort, not the haiku profile's `low`"
+        "high",
+        "the pack's no_match, not Haiku 5.5's own medium and not the haiku profile's `low`"
     );
     let d = &decided(&o.r.core.store)[0];
-    assert_eq!(d["effort_reason"], "model_default");
+    assert_eq!(d["effort_reason"], "no_match");
 }
 
 /// A pick under the confirm bar routes nothing: the live profile runs, and the

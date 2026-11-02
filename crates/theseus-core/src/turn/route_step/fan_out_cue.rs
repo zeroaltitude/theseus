@@ -1,91 +1,56 @@
-//! The static fan-out cue (theseus-z9mze.4): after the route verdict, a turn that may split its work
-//! by area is told it can, and the helpers family (`task_fan_out`, `task_wait`) is admitted for it.
+//! The fan-out cue (theseus-z9mze.4, promoted by theseus-h66v4.6): after the route verdict, a turn whose
+//! work Jev labelled `splits_by_area` is told it may fan out, and the helpers family (`task_fan_out`,
+//! `task_wait`) is admitted for it. The owner's word (2026-10-30 16:01): "jev should also classify a fan out;
+//! that would be the label that would trigger the llm to then use async calls and consider which were likely
+//! to be embarrassingly parallel." Jev labels; the model decides how to split.
 //!
-//! Four things must hold: the route class is one of `deep_coding`, `review` or `sophisticated`;
-//! the ask uses an open-ended word (`OPEN_WORDS`, a list in this file and nothing else: no model,
-//! no judge, no spend); the turn is not a task's; and there is room for two helpers, which is what
-//! `task_fan_out` itself would ask for (a task turn's free admission slots, and a carve of half
-//! what the session may spend that affords two helpers at its floor).
+//! The cue was a class match (`deep_coding`, `review`, `sophisticated`) plus a list of open-ended words
+//! (`OPEN_WORDS`); both are deleted, and with them the cue's own test set of forty asks (it measured a word
+//! list; `split.v1.cases.toml` carries the same forty as the label's cases). Three things must hold now: the
+//! verdict carries `split.v1`'s answer and it is `splits_by_area` at the question's confirm bar; the turn is
+//! not a task's; and there is room for two helpers, which is what `task_fan_out` itself would ask for (a task
+//! turn's free admission slots, and a carve of half what the session may spend that affords two helpers at its
+//! floor). Those last two are limits of the machinery, not readings of the ask.
 //!
-//! Every verdict of an eligible class is a `fan_out.cue` row, fired or not, so the misses can be
-//! read beside the hits. The line the model reads is one tail block (`attach_hint`, as the
-//! coding hint is), never the cached prefix.
+//! Every verdict that carries a split answer is a `fan_out.cue` row, fired or not, so the misses can be read
+//! beside the hits. The line the model reads is one tail block (`attach_hint`, as the coding hint is), never
+//! the cached prefix. Under route.v8 no verdict carries a split answer, so the cue is silent there: the word
+//! list that fired it is gone, and that is a deliberate line, not a gap.
 
 use crate::compiler::{Compiled, RequestSpec};
 use crate::fact::fan_out::FanOutCue;
+use crate::routing::Verdict;
 use crate::tools_defer::{family, fit::Fit, want};
 use crate::turn::{Turn, TurnRunner};
 
-/// The route classes (the verdict's `mode`) that may fan out.
-pub const CLASSES: [&str; 3] = ["deep_coding", "review", "sophisticated"];
+/// The option of `split.v1` that is the cue.
+pub const SPLITS: &str = "splits_by_area";
 
-/// The revision of `OPEN_WORDS`, written on every row (`words_rev`).
-pub const WORDS_REV: u32 = 1;
-
-/// Words that open a piece of work out across many places: asking for these, a person usually means
-/// more areas than one turn reads well. Whole words, lower case; a word is said when it is a token
-/// of the ask.
-pub const OPEN_WORDS: &[&str] = &[
-    "audit",
-    "survey",
-    "explore",
-    "investigate",
-    "inventory",
-    "across",
-    "everywhere",
-    "throughout",
-    "comprehensive",
-    "exhaustive",
-    "exhaustively",
-    "thoroughly",
-    "every",
-    "each",
-    "entire",
-    "whole",
-    "all",
-];
-
-/// The line a firing cue adds to the request's tail.
-pub const LINE: &str = "You may fan out: if this work divides by area, `task_fan_out` starts helpers that \
-each read one area at once and `task_wait` collects their reports (`tools_find` loads them if they are \
-not listed). Do it only when the areas are independent; a small job is quicker done yourself.";
-
-/// The open-ended words `ask` uses, in the list's order.
-pub fn words_in(ask: &str) -> Vec<&'static str> {
-    let said: Vec<String> = ask
-        .chars()
-        .take(want::ASK_CHARS)
-        .collect::<String>()
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .map(str::to_string)
-        .collect();
-    OPEN_WORDS
-        .iter()
-        .copied()
-        .filter(|w| said.iter().any(|s| s == w))
-        .collect()
-}
+/// The line a firing cue adds to the request's tail: the owner's hint to the model, then how.
+pub const LINE: &str = "This request looks parallelizable: consider starting tasks for the independent parts. \
+`task_fan_out` starts helpers that each read one area at once and `task_wait` collects their reports \
+(`tools_find` loads them if they are not listed). Do it only when the areas are independent; a small job is \
+quicker done yourself.";
 
 /// What the cue reads, and nothing else.
 #[derive(Clone, Copy)]
-pub struct Look<'a> {
-    pub class: &'a str,
-    pub ask: &'a str,
+pub struct Look {
+    /// Jev's `split` answer is `splits_by_area` and reached its confirm bar.
+    pub splits: bool,
     pub task: bool,
     pub room: bool,
 }
 
-/// Whether the class is one that may fan out.
-pub fn eligible(class: &str) -> bool {
-    CLASSES.contains(&class)
+/// Whether the verdict's split answer is the cue: `splits_by_area`, at the bar.
+pub fn splits(v: &Verdict) -> bool {
+    v.split
+        .as_deref()
+        .is_some_and(|p| p.sure && p.choice == SPLITS)
 }
 
-/// The cue's verdict: its words, and whether all four conditions hold.
-pub fn decide(look: &Look<'_>) -> (Vec<&'static str>, bool) {
-    let words = words_in(look.ask);
-    let fired = eligible(look.class) && !words.is_empty() && !look.task && look.room;
-    (words, fired)
+/// Whether all three conditions hold.
+pub fn decide(look: &Look) -> bool {
+    look.splits && !look.task && look.room
 }
 
 /// Room for two helpers: two task-class slots free beside this turn and none waiting, and a carve
@@ -126,29 +91,29 @@ impl TurnRunner {
     }
 
     /// After the route verdict: look, write the row, and on a fire note it on the turn (the tail
-    /// line, `fan_out_line`) and admit the helpers family into the request's deferral.
+    /// line, `fan_out_line`) and admit the helpers family into the request's deferral. A verdict
+    /// with no split answer (route.v8, a pinned turn, a failed ask) writes nothing.
     pub(in crate::turn) fn fan_out_cue(
         &self,
         t: &mut Turn<'_>,
         spec: &mut RequestSpec,
-        class: Option<&str>,
+        verdict: Option<&Verdict>,
     ) {
-        let Some(class) = class.filter(|c| eligible(c)) else {
+        let Some((v, pick)) = verdict.and_then(|v| Some((v, v.split.as_deref()?))) else {
             return;
         };
         let look = Look {
-            class,
-            ask: &t.route.ask,
+            splits: splits(v),
             task: t.tc.task.is_some(),
             room: self.room_for_helpers(t),
         };
-        let (words, fired) = decide(&look);
+        let fired = decide(&look);
         t.route.fan_out = fired;
         t.record(&FanOutCue {
-            class,
-            words: &words,
+            split: &pick.choice,
+            confidence: pick.confidence,
+            sure: pick.sure,
             fired,
-            words_rev: WORDS_REV,
         });
         if fired {
             self.defer_cued(t, spec);
@@ -198,179 +163,85 @@ impl TurnRunner {
 mod tests {
     use super::*;
 
-    /// 40 asks, each labelled as one that should fire the cue (work that spreads over areas, said
-    /// in open-ended words) or not. Offline: the cue is a word list, so this set is the whole
-    /// check of its precision and recall, with no model and no spend.
-    const SET: [(&str, bool); 40] = [
-        ("audit every crate for unwrap calls on user input", true),
-        (
-            "survey the repository and report which modules lack tests",
-            true,
-        ),
-        (
-            "explore how errors propagate across the daemon and the cli",
-            true,
-        ),
-        (
-            "investigate why the startup is slow and check each phase",
-            true,
-        ),
-        (
-            "review all the open changes under crates and list the risky ones",
-            true,
-        ),
-        (
-            "inventory the config keys used throughout the workspace",
-            true,
-        ),
-        (
-            "do a comprehensive review of the store's recovery paths",
-            true,
-        ),
-        (
-            "exhaustively check the protocol methods for missing docs",
-            true,
-        ),
-        ("look everywhere for places that read the wall clock", true),
-        ("go through each toollet and say what it refuses", true),
-        (
-            "find every caller of the retry helper and judge its bound",
-            true,
-        ),
-        ("thoroughly review the admission queue and its tests", true),
-        ("check the entire cockpit for stale protocol types", true),
-        (
-            "read the whole spec chapter set and list contradictions",
-            true,
-        ),
-        ("audit the gate across all the scripts", true),
-        ("survey how each provider handles refusals", true),
-        ("explore the bench adapters and compare their reports", true),
-        ("investigate every failing test in the suite", true),
-        (
-            "go through the repository and report the dead modules",
-            true,
-        ),
-        (
-            "find who calls the retry decision from anywhere in the tree",
-            true,
-        ),
-        ("fix the typo in the readme", false),
-        (
-            "rename the function load_cfg to load_config in config.rs",
-            false,
-        ),
-        ("why does the build fail with a linker error", false),
-        ("what does the steer module do", false),
-        ("add a test for the empty case of parse_ask", false),
-        ("bump the version line in the first chapter", false),
-        ("explain this stack trace", false),
-        ("write a commit message for my staged changes", false),
-        ("make the footer line one character shorter", false),
-        ("run the formatter and tell me what changed", false),
-        ("change the default timeout from 30 to 45 seconds", false),
-        ("summarise this function in two sentences", false),
-        ("revert the last commit", false),
-        ("can you check that the socket path is right", false),
-        ("open the config and show me the models section", false),
-        ("implement the todo on line 120 of kernel.rs", false),
-        ("update the changelog with today's fix", false),
-        ("make the whole line say ready instead", false),
-        ("review my diff for the typo fix", false),
-        ("fix all the typos in the readme", false),
-    ];
-
-    fn fires(ask: &str) -> bool {
-        let look = Look {
-            class: "deep_coding",
-            ask,
-            task: false,
-            room: true,
-        };
-        decide(&look).1
-    }
-
-    /// The cue's precision and recall on the labelled set, held at a floor so a word added or cut
-    /// that makes it worse fails here. It prints both (`--nocapture`). The bar is design §18.4's:
-    /// at least 18 of the 20 labelled-true asks fire and at least 18 of the 20 labelled-false stay
-    /// silent. The set is the author's own, so it guards the word list's stability, not the cue's
-    /// accuracy.
-    #[test]
-    fn the_labelled_set_of_forty_asks_scores_as_reported() {
-        let (mut tp, mut fp, mut fn_) = (0u32, 0u32, 0u32);
-        for (ask, should) in SET {
-            match (fires(ask), should) {
-                (true, true) => tp += 1,
-                (true, false) => {
-                    fp += 1;
-                    println!("false positive: {ask}");
-                }
-                (false, true) => {
-                    fn_ += 1;
-                    println!("miss: {ask}");
-                }
-                (false, false) => {}
-            }
+    fn verdict(split: Option<(&str, bool)>) -> Verdict {
+        Verdict {
+            mode: "sonnet".into(),
+            confidence: 0.9,
+            effort: None,
+            judgment: "jdg_x".into(),
+            turn: "trn_x".into(),
+            persona: None,
+            seal: None,
+            personal: None,
+            model: Some(Box::new(crate::routing::Pick {
+                choice: "sonnet".into(),
+                confidence: 0.9,
+                sure: true,
+            })),
+            work: None,
+            split: split.map(|(c, sure)| {
+                Box::new(crate::routing::Pick {
+                    choice: c.into(),
+                    confidence: 0.9,
+                    sure,
+                })
+            }),
         }
-        let precision = f64::from(tp) / f64::from((tp + fp).max(1));
-        let recall = f64::from(tp) / f64::from((tp + fn_).max(1));
-        println!("precision {precision:.3} recall {recall:.3} (tp {tp}, fp {fp}, fn {fn_})");
-        assert_eq!(SET.len(), 40);
-        let fired = SET
-            .iter()
-            .filter(|(ask, should)| *should && fires(ask))
-            .count();
-        let silent = SET
-            .iter()
-            .filter(|(ask, should)| !*should && !fires(ask))
-            .count();
-        assert_eq!(SET.iter().filter(|(_, should)| *should).count(), 20);
-        assert!(fired >= 18, "{fired} of the 20 labelled-true asks fired");
-        assert!(
-            silent >= 18,
-            "{silent} of the 20 labelled-false asks stayed silent"
-        );
     }
 
     #[test]
-    fn the_four_conditions_each_hold_the_cue_back() {
-        let ask = "audit every crate for unwrap";
+    fn only_a_sure_splits_by_area_is_the_cue() {
+        assert!(splits(&verdict(Some(("splits_by_area", true)))));
+        // Under the confirm bar it is not a label to act on.
+        assert!(!splits(&verdict(Some(("splits_by_area", false)))));
+        for other in ["one_area", "unclear"] {
+            assert!(!splits(&verdict(Some((other, true)))), "{other}");
+        }
+        // No answer: route.v8, a pinned turn, a failed ask.
+        assert!(!splits(&verdict(None)));
+    }
+
+    #[test]
+    fn the_three_conditions_each_hold_the_cue_back() {
         let base = Look {
-            class: "deep_coding",
-            ask,
+            splits: true,
             task: false,
             room: true,
         };
-        assert!(decide(&base).1);
-        for class in ["review", "sophisticated"] {
-            assert!(decide(&Look { class, ..base }).1, "{class}");
-        }
-        for class in ["trivial", "quick", "chat", "routine_coding", "other", ""] {
-            assert!(!decide(&Look { class, ..base }).1, "{class}");
-        }
-        assert!(
-            !decide(&Look {
-                ask: "fix the typo",
-                ..base
-            })
-            .1
-        );
+        assert!(decide(&base));
+        assert!(!decide(&Look {
+            splits: false,
+            ..base
+        }));
         // A task's own turn never fans out (theseus-z9mze.4: not already a task's).
-        assert!(!decide(&Look { task: true, ..base }).1);
-        // And with no room for two helpers the words alone do not fire it.
-        assert!(
-            !decide(&Look {
-                room: false,
-                ..base
-            })
-            .1
-        );
-        // The words are returned whether or not it fired, for the row.
-        let (words, fired) = decide(&Look {
+        assert!(!decide(&Look { task: true, ..base }));
+        // And with no room for two helpers the label alone does not fire it.
+        assert!(!decide(&Look {
             room: false,
             ..base
-        });
-        assert_eq!((words, fired), (vec!["audit", "every"], false));
+        }));
+    }
+
+    /// The owner's hint is the first thing the model reads, and no word list decides the cue:
+    /// the module holds neither a class name nor an open-word list any more.
+    #[test]
+    fn the_line_opens_with_the_owners_hint_and_no_word_list_remains() {
+        assert!(LINE.starts_with(
+            "This request looks parallelizable: consider starting tasks for the independent parts."
+        ));
+        let src = include_str!("fan_out_cue.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        for gone in [
+            "OPEN_WORDS",
+            "CLASSES",
+            "WORDS_REV",
+            "words_in",
+            "deep_coding",
+        ] {
+            let n = code.matches(gone).count();
+            // The doc names what was deleted, once each at most.
+            assert!(n <= 1, "{gone} appears {n} times in the cue's code");
+        }
     }
 
     #[test]
@@ -384,15 +255,5 @@ mod tests {
         // The carve must afford two floors: 2,000,000 / 2 is one floor, and one is short.
         assert!(room_for_two(5, 0, 2_000_000, 1_000_000));
         assert!(!room_for_two(5, 0, 1_999_998, 1_000_000));
-    }
-
-    #[test]
-    fn words_are_whole_tokens_of_the_ask() {
-        assert_eq!(words_in("Audit EVERY crate"), ["audit", "every"]);
-        assert!(words_in("the eachother caller, a vacation").is_empty());
-        assert!(words_in("").is_empty());
-        for w in OPEN_WORDS {
-            assert_eq!(*w, w.to_lowercase(), "{w}");
-        }
     }
 }

@@ -77,7 +77,7 @@ pub struct InjectionBudget {
     /// The multiple of the place's first-request budget admitted families may
     /// raise a request to.
     pub admit_ceiling: f64,
-    /// The verdict acts and its mode is `deep_coding` (theseus-tdkcn): the
+    /// The verdict acts and says the work is code, `work = coding` (theseus-tdkcn; route.v8: `deep_coding`): the
     /// request's tail carries [`CODING_HINT`] and a bare `fs.read` is narrower.
     /// Not in the row.
     pub coding: bool,
@@ -94,6 +94,23 @@ pub fn tier_of(seen: Seen<'_>, cfg: &Config) -> (Tier, Option<&'static str>) {
         Seen::Missing => return (Tier::Ordinary, Some("no verdict")),
         Seen::Off => return (Tier::Ordinary, Some("routing off")),
     };
+    // route.v10 (theseus-h66v4.6): the class names are gone, and `work.v1`'s label is what the
+    // tier reads. It is the same fold the names gave: the work that wants the deep recall (code,
+    // research or design, a review) is Deep, the rest Ordinary. `trivial` had no label to carry
+    // (Small was route.v8's "no recall for a greeting"); a `conversation` can be substantive, so
+    // it stays Ordinary, and that is a deliberate line, not a gap. A work answer under the
+    // question's confirm bar is "unsure", as a class under its bar was.
+    if v.open() {
+        return match v.work.as_deref() {
+            None => (Tier::Ordinary, Some("no work answer")),
+            Some(w) if !w.sure => (Tier::Ordinary, Some("unsure")),
+            Some(w) => match w.choice.as_str() {
+                "coding" | "research_or_design" | "review" => (Tier::Deep, None),
+                _ => (Tier::Ordinary, None),
+            },
+        };
+    }
+    // route.v8's class names, until row 6 removes the class walk with them.
     if v.confidence < cfg.routing.confidence_for(&v.mode) {
         return (Tier::Ordinary, Some("unsure"));
     }
@@ -103,6 +120,18 @@ pub fn tier_of(seen: Seen<'_>, cfg: &Config) -> (Tier, Option<&'static str>) {
         _ => Tier::Ordinary,
     };
     (tier, None)
+}
+
+/// The verdict says the work is code: `work.v1`'s `coding` at its confirm bar under route.v10, or
+/// route.v8's `deep_coding` class (the class path goes with the class walk, row 6).
+pub fn is_coding(v: &Verdict) -> bool {
+    match v.open() {
+        true => v
+            .work
+            .as_deref()
+            .is_some_and(|w| w.sure && w.choice == "coding"),
+        false => v.mode == "deep_coding",
+    }
 }
 
 impl InjectionBudget {
@@ -130,7 +159,7 @@ impl InjectionBudget {
     /// The budget a verdict (or its absence) gives: `of` its tier, and the
     /// coding flag when an acting verdict's mode is `deep_coding`.
     pub fn read(seen: Seen<'_>, cfg: &Config) -> Self {
-        let coding = matches!(seen, Seen::Verdict(v) if v.mode == "deep_coding");
+        let coding = matches!(seen, Seen::Verdict(v) if is_coding(v));
         let mut b = Self::of(tier_of(seen, cfg), cfg);
         b.coding = coding && b.fallback.is_none();
         b
@@ -288,6 +317,8 @@ mod tests {
             seal: None,
             personal: None,
             model: None,
+            work: None,
+            split: None,
         }
     }
 
@@ -361,6 +392,78 @@ mod tests {
         for s in [Seen::Late, Seen::Missing, Seen::Off] {
             assert!(!coding(s));
         }
+    }
+
+    /// A route.v10 verdict: `model` answered (so `open()`), the class `mode` word is only the pick,
+    /// and `work` is `work.v1`'s answer (`None`: not answered).
+    fn open(work: Option<(&str, bool)>) -> Verdict {
+        let mut x = v("sonnet", 0.9);
+        x.model = Some(Box::new(crate::routing::Pick {
+            choice: "sonnet".into(),
+            confidence: 0.9,
+            sure: true,
+        }));
+        x.work = work.map(|(c, sure)| {
+            Box::new(crate::routing::Pick {
+                choice: c.into(),
+                confidence: 0.9,
+                sure,
+            })
+        });
+        x
+    }
+
+    /// Dark reader 1-3 (theseus-h66v4.6): under route.v10 the tier reads `work.v1`'s label, and the
+    /// class names are never matched against a model pick (`mode` is "opus", "haiku": a retired key).
+    #[test]
+    fn under_route_v10_the_tier_and_the_coding_hint_read_the_work_label() {
+        let cfg = Config::example();
+        for (work, tier) in [
+            ("coding", Tier::Deep),
+            ("research_or_design", Tier::Deep),
+            ("review", Tier::Deep),
+            ("writing", Tier::Ordinary),
+            ("conversation", Tier::Ordinary),
+            ("tool_run", Tier::Ordinary),
+        ] {
+            let x = open(Some((work, true)));
+            assert_eq!(tier_of(Seen::Verdict(&x), &cfg), (tier, None), "{work}");
+            let b = InjectionBudget::read(Seen::Verdict(&x), &cfg);
+            assert_eq!(
+                b.coding,
+                work == "coding",
+                "{work}: only `coding` is the hint"
+            );
+        }
+        // The pick's word is no class: a model called `opus` is not the retired `sophisticated`,
+        // and a pick that happens to spell a class name is no more one.
+        for pick in ["opus", "haiku", "deep_coding", "review"] {
+            let mut x = open(Some(("conversation", true)));
+            x.mode = pick.into();
+            assert_eq!(tier_of(Seen::Verdict(&x), &cfg).0, Tier::Ordinary, "{pick}");
+            assert!(
+                !InjectionBudget::read(Seen::Verdict(&x), &cfg).coding,
+                "{pick}"
+            );
+        }
+        // Under the bar, or unanswered: ordinary, with the reason said, and no hint.
+        let x = open(Some(("coding", false)));
+        assert_eq!(
+            tier_of(Seen::Verdict(&x), &cfg),
+            (Tier::Ordinary, Some("unsure"))
+        );
+        assert!(!InjectionBudget::read(Seen::Verdict(&x), &cfg).coding);
+        let x = open(None);
+        assert_eq!(
+            tier_of(Seen::Verdict(&x), &cfg),
+            (Tier::Ordinary, Some("no work answer"))
+        );
+        assert!(!InjectionBudget::read(Seen::Verdict(&x), &cfg).coding);
+        // route.v8's class path is untouched until row 6 removes the class walk.
+        assert_eq!(
+            tier_of(Seen::Verdict(&v("deep_coding", 0.95)), &cfg),
+            (Tier::Deep, None)
+        );
     }
 
     #[tokio::test]

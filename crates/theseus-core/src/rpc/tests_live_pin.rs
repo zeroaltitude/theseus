@@ -130,6 +130,49 @@ async fn the_configured_live_profile_is_not_a_pin() {
     assert_eq!(res.route.unwrap().reason, "verdict");
 }
 
+/// theseus-h66v4.6 (the owner, 2026-10-30 16:01: "always, yes"): `profile use` is a pin whatever
+/// it names, the config's own default among it: the word the operator typed is a pin, and the
+/// config's `[model] live` is the only thing that is not one. After `profile release` the live
+/// profile is the config's again and Jev chooses.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn profile_use_always_pins_even_the_profile_the_config_already_names() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "fable", "max", 0.97);
+    let o = open(&jev, 2, |_| {});
+    let (default, source) = o.r.core.live_profile();
+    assert_eq!(source, "config");
+    // Naming the default is still the operator's word: pinned, Jev not asked the model.
+    let res = after_use(&o.r.core, &default, ask(2, DESIGN, None)).await;
+    assert_eq!(res.profile, default, "stays where the operator put it");
+    assert_eq!(res.route.as_ref().unwrap().reason, "pinned");
+    assert_eq!(
+        o.r.core.live_profile(),
+        (default.clone(), "runtime".to_string())
+    );
+    // Released, the config's default is a baseline again and Jev's word moves the turn.
+    let released = roundtrip(
+        o.r.core.clone(),
+        vec![Request::new(
+            Id::Num(3),
+            method::PROFILE_RELEASE,
+            Value::Null,
+        )],
+    )
+    .await;
+    assert!(
+        released
+            .iter()
+            .any(|m| matches!(m, Message::Response(r) if r.error.is_none())),
+        "{released:?}"
+    );
+    assert_eq!(o.r.core.live_profile().1, "config");
+    let res = result(
+        &roundtrip(o.r.core.clone(), vec![ask(4, DESIGN, None)]).await,
+        4,
+    );
+    assert_eq!(res.route.unwrap().reason, "verdict");
+}
+
 /// An explicit profile for the turn beats the pin, as it beats the live one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_named_profile_beats_the_live_pin() {

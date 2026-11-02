@@ -198,9 +198,16 @@ pub struct Verdict {
     /// whether its band reached the question's `confirm` bar. A verdict that
     /// carries one is decided by [`model::decide`], never by the class walk.
     pub model: Option<Box<Pick>>,
+    /// `work.v1`'s answer (theseus-h66v4.6): what kind of task the message asks for, and whether
+    /// its band reached the question's `confirm` bar. What the injection tier and the coding hint
+    /// read where route.v8's `mode` class names were read; none under route.v8 or a pinned turn.
+    pub work: Option<Box<Pick>>,
+    /// `split.v1`'s answer (theseus-h66v4.6): whether the work splits by area. `splits_by_area`
+    /// at the bar is the hint to the model and the cue for the fan-out machinery.
+    pub split: Option<Box<Pick>>,
 }
 
-/// One of route.v10's choice answers (`model`).
+/// One of the route family's choice answers (`model`, `work`, `split`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pick {
     /// The option Jev chose.
@@ -706,6 +713,8 @@ mod tests {
             seal: None,
             personal: None,
             model: None,
+            work: None,
+            split: None,
         }
     }
 

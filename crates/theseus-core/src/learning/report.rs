@@ -42,12 +42,35 @@ pub const ACTING: &[(&str, &str, &[&str])] = &[
             "review",
         ],
     ),
+    // route.v10 and its family (theseus-h66v4.6): the same pack id as route.v8's, a different
+    // deciding question, so a row applies to a pack only when the pack asks that question
+    // (`acting`). The report counts per option, as design 5.2 says, where it counted per class.
+    (
+        "route",
+        "model",
+        &["haiku", "sonnet", "opus", "fable", "deepseek_flash"],
+    ),
+    (
+        "effort",
+        "effort",
+        &["low", "medium", "high", "xhigh", "max"],
+    ),
+    // The labels the injection tier and the coding hint read: the three that fold to Deep, of
+    // which `coding` is also the hint.
+    ("work", "work", &["coding", "research_or_design", "review"]),
+    // The label that is the fan-out cue.
+    ("split", "split", &["splits_by_area"]),
 ];
 
-fn acting(pack_id: &str) -> Option<(&'static str, &'static [&'static str])> {
+/// The acting classes of `pack_id` among the questions its pack asks: the one row whose question
+/// the pack has (route.v8's `mode`, or route.v10's `model`, under the one id `route`).
+fn acting<'q>(
+    pack_id: &str,
+    asks: impl Iterator<Item = &'q str> + Clone,
+) -> Option<(&'static str, &'static [&'static str])> {
     ACTING
         .iter()
-        .find(|(p, _, _)| *p == pack_id)
+        .find(|(p, q, _)| *p == pack_id && asks.clone().any(|a| a == *q))
         .map(|(_, q, c)| (*q, *c))
 }
 
@@ -399,7 +422,7 @@ fn holdout(
     let mut label_ids: BTreeSet<String> = BTreeSet::new();
     let mut per_question: BTreeMap<String, usize> = BTreeMap::new();
     let mut per_class: BTreeMap<String, usize> = BTreeMap::new();
-    let act = acting(pack_id);
+    let act = acting(pack_id, qs.iter().map(|(q, ..)| q.as_str()));
     for s in &inside {
         let ls = labels.get(&s.judgment.id).map_or(&[][..], Vec::as_slice);
         for (q, ..) in qs {

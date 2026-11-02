@@ -577,6 +577,8 @@ mod tests_route_down;
 #[cfg(test)]
 mod tests_route_effort;
 #[cfg(test)]
+mod tests_route_family;
+#[cfg(test)]
 mod tests_route_keep;
 #[cfg(test)]
 mod tests_route_late;

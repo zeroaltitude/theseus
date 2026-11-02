@@ -526,12 +526,10 @@ impl TurnRunner {
         };
         let carried = v.turn != t.tc.turn_id;
         if v.open() {
-            // route.v10: Jev's level, or the model's own default; no bounds,
+            // route.v10: Jev's level, or the pack's `no_match` under its bar; no bounds,
             // gate or floor. The sticky rule below is a cache rule and stays.
-            let entry = self.catalog.get(model);
             let open = effort::OpenRuns {
                 own,
-                default: entry.and_then(|e| e.default_effort),
                 takes: runs.takes,
             };
             let decided = effort::decide_open(open, answer, at.acts, carried);
@@ -637,7 +635,7 @@ impl TurnRunner {
         );
         self.note_routed(t, verdict.as_ref(), decision.as_ref());
         let class = verdict.as_ref().filter(|_| reason.is_none());
-        self.fan_out_cue(t, spec, class.map(|v| v.mode.as_str()));
+        self.fan_out_cue(t, spec, class);
         Self::fan_out_line(t, &mut compiled);
         if self.draft_open(t, drafting) {
             self.drop_first(t, &compiled);
@@ -1377,6 +1375,8 @@ mod tests {
             seal: None,
             personal: None,
             model: None,
+            work: None,
+            split: None,
         }
     }
 
