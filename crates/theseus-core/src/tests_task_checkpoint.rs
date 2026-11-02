@@ -517,7 +517,11 @@ async fn an_open_task_asks_the_work_question_at_its_brief_and_each_checkpoint() 
         work >= 2,
         "the work label beside the model, at the brief and at a checkpoint: {work}"
     );
-    assert_eq!(asked("split.v1/split"), 0, "a task's message is no ask to divide");
+    assert_eq!(
+        asked("split.v1/split"),
+        0,
+        "a task's message is no ask to divide"
+    );
 }
 
 /// Nothing is a floor: a trivial verdict takes a task whose brief picked
