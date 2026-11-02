@@ -33,6 +33,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use super::render::{cut_answers, render_messages, results_of, Ctx, Messages, State};
+use super::server_calls::Offers;
 use crate::attach::Media;
 use crate::node::{Body, Node};
 use crate::provider::tool_uses_in;
@@ -53,6 +54,8 @@ pub(super) struct Key {
     pub hidden: String,
     /// The caller's view of the nodes (`CompileInput::kept`).
     pub view: u64,
+    /// What the request's tools let a replayed tool search stand on.
+    pub offers: Offers,
 }
 
 impl Key {
@@ -62,6 +65,7 @@ impl Key {
         provider: &str,
         media: &Media,
         view: u64,
+        offers: &Offers,
     ) -> Key {
         Key {
             compilation: compilation.into(),
@@ -74,6 +78,7 @@ impl Key {
             pdf_pages: media.pdf_pages,
             hidden: format!("{:?}", media.hidden),
             view,
+            offers: offers.clone(),
         }
     }
 }
@@ -184,6 +189,7 @@ pub(super) struct Args<'a> {
     pub retrying: Option<&'a str>,
     pub sources: &'a crate::recall::render::Sources,
     pub cleared: &'a HashSet<&'a str>,
+    pub offers: &'a Offers,
 }
 
 /// `render_messages`, taking up the session's kept render where it holds,
@@ -197,7 +203,7 @@ pub(super) fn render(k: Kept1<'_>, prefix: &[&Node], tail: &[&Node], a: Args<'_>
             a.provider,
             a.media,
             a.retrying,
-            (a.sources, a.cleared),
+            (a.sources, a.cleared, a.offers),
         );
     }
     let items: Vec<(&Node, bool)> = prefix
@@ -232,6 +238,7 @@ pub(super) fn render(k: Kept1<'_>, prefix: &[&Node], tail: &[&Node], a: Args<'_>
         sources: a.sources,
         cleared: a.cleared,
         notes: &notes,
+        offers: a.offers,
     };
     for (n, in_prefix) in new {
         st.item(n, *in_prefix, &ctx);

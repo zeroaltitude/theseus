@@ -39,15 +39,7 @@ pub fn searches_in(blocks: &[Value]) -> Vec<Found> {
             }
             Some("tool_search_tool_result") => {
                 let id = b.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
-                let names: Vec<String> = match b.get("content") {
-                    Some(Value::Object(o)) => o
-                        .get("tool_references")
-                        .and_then(Value::as_array)
-                        .map(|a| names_of(a))
-                        .unwrap_or_default(),
-                    Some(Value::Array(a)) => names_of(a),
-                    _ => vec![],
-                };
+                let names = referenced(b);
                 match out.iter_mut().find(|(i, _)| i == id) {
                     Some((_, f)) => f.tools = names,
                     // A result with no call in this response (the call was in
@@ -65,6 +57,19 @@ pub fn searches_in(blocks: &[Value]) -> Vec<Found> {
         }
     }
     out.into_iter().map(|(_, f)| f).collect()
+}
+
+/// The tools a `tool_search_tool_result` block names, by wire name.
+pub fn referenced(result: &Value) -> Vec<String> {
+    match result.get("content") {
+        Some(Value::Object(o)) => o
+            .get("tool_references")
+            .and_then(Value::as_array)
+            .map(|a| names_of(a))
+            .unwrap_or_default(),
+        Some(Value::Array(a)) => names_of(a),
+        _ => vec![],
+    }
 }
 
 fn names_of(a: &[Value]) -> Vec<String> {
