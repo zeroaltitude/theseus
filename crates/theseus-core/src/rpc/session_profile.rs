@@ -53,6 +53,14 @@ impl TurnRunner {
             .filter(|p| self.cfg.all_profiles().contains_key(p))
     }
 
+    /// The profile `session_id` is held to as stored, configured or not, and a read that fails said, not
+    /// turned into "not held" (`profile.pins` counts with it, theseus-h66v4.2).
+    pub(crate) fn held_profile(&self, session_id: &str) -> anyhow::Result<Option<String>> {
+        let key = format!("{KEY}{session_id}");
+        let held = self.store.get_meta::<Option<Sticky>>(&key)?;
+        Ok(held.flatten().map(|s| s.profile))
+    }
+
     fn sticky(&self, session_id: &str) -> Option<Sticky> {
         let key = format!("{KEY}{session_id}");
         match self.store.get_meta::<Option<Sticky>>(&key) {
