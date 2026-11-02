@@ -272,7 +272,9 @@ impl Core {
         // not for `release`. The read fails after, and says the pin is released.
         let (was, was_source) = self.live_profile();
         let live = self.profile_release(conn)?;
-        let mut before = self.profile_pins().map_err(|e| Self::unread(&live, (&[], &[]), e))?;
+        let mut before = self
+            .profile_pins()
+            .map_err(|e| Self::unread(&live, (&[], &[]), e))?;
         // The live half of `before` is as it stood when the call came, not as the release left it.
         (before.live, before.live_source) = (was, was_source);
         let (cleared, failed) = match p.all {

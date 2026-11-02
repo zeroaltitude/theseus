@@ -528,7 +528,10 @@ async fn a_task_asleep_after_its_first_turn_is_counted_as_one() {
     let r = pins(&core).await;
     assert_eq!(r.task_pins.len(), 1, "{r:?}");
     assert_eq!(
-        (r.task_pins[0].session_id.as_str(), r.task_pins[0].kind.as_str()),
+        (
+            r.task_pins[0].session_id.as_str(),
+            r.task_pins[0].kind.as_str()
+        ),
         (t.as_str(), "task-start")
     );
 }
@@ -561,22 +564,36 @@ async fn unpin_all_clears_a_task_started_on_a_profile_with_a_mark_and_a_row_each
     assert_eq!(rows_before, 4, "the four holds' own rows");
     let r = unpin(&core, true).await;
     assert_eq!(r.before.task_pins.len(), 3, "{r:?}");
-    assert_eq!(r.cleared.len(), 4 + 3, "four holds and three start-pins: {r:?}");
+    assert_eq!(
+        r.cleared.len(),
+        4 + 3,
+        "four holds and three start-pins: {r:?}"
+    );
     assert!(r.failed.is_empty(), "{r:?}");
     assert_eq!(r.after.task_pins.len(), 0, "{r:?}");
     assert_eq!((r.after.pinned_sessions, r.after.pinned_tasks), (0, 0));
     // The totals did not move.
-    assert_eq!((r.after.sessions, r.after.tasks), (r.before.sessions, r.before.tasks));
+    assert_eq!(
+        (r.after.sessions, r.after.tasks),
+        (r.before.sessions, r.before.tasks)
+    );
     let all = rows(&core, "session.profile_set");
     assert_eq!(all.len() - rows_before, 7, "one row each: {all:?}");
     for (sid, from) in [(&pending, "opus"), (&asleep, "opus"), (&running, "sonnet")] {
-        assert!(crate::turn::brief_step::marked(&core.store, sid), "{sid} is marked");
+        assert!(
+            crate::turn::brief_step::marked(&core.store, sid),
+            "{sid} is marked"
+        );
         let row = all
             .iter()
             .rev()
             .find(|d| d["session_id"] == json!(sid))
             .unwrap_or_else(|| panic!("a row for {sid}: {all:?}"));
-        assert_eq!((row["from"].as_str(), row["to"].is_null()), (Some(from), true), "{row}");
+        assert_eq!(
+            (row["from"].as_str(), row["to"].is_null()),
+            (Some(from), true),
+            "{row}"
+        );
     }
     // The read after agrees, and a second `--all` has nothing left to do or write.
     let again = unpin(&core, true).await;
@@ -619,11 +636,17 @@ async fn a_task_whose_maker_the_ledger_cannot_name_is_unknown_and_not_cleared() 
     let r = core.profile_pins().unwrap();
     assert_eq!(r.task_pins.len(), 1, "counted, never hidden: {r:?}");
     assert_eq!(
-        (r.task_pins[0].session_id.as_str(), r.task_pins[0].kind.as_str()),
+        (
+            r.task_pins[0].session_id.as_str(),
+            r.task_pins[0].kind.as_str()
+        ),
         (t.as_str(), "task-unknown")
     );
     let (cleared, failed) = core.unpin_holds(&owner_cli());
-    assert!(cleared.is_empty() && failed.is_empty(), "{cleared:?} {failed:?}");
+    assert!(
+        cleared.is_empty() && failed.is_empty(),
+        "{cleared:?} {failed:?}"
+    );
     assert!(!crate::turn::brief_step::marked(&core.store, &t));
 }
 
@@ -671,7 +694,11 @@ fn a_failed_after_read_still_says_what_was_cleared_and_what_failed() {
         session_id: "ses_refused".into(),
         error: "not yours".into(),
     }];
-    let e = Core::unread(&live, (&[pin("ses_a"), pin("ses_b")], &failed), anyhow::anyhow!("disk"));
+    let e = Core::unread(
+        &live,
+        (&[pin("ses_a"), pin("ses_b")], &failed),
+        anyhow::anyhow!("disk"),
+    );
     assert!(e.message.contains("2 let go"), "{}", e.message);
     assert!(e.message.contains("1 not let go"), "{}", e.message);
     assert!(e.message.contains("ses_refused"), "{}", e.message);
@@ -686,7 +713,9 @@ fn a_failed_after_read_still_says_what_was_cleared_and_what_failed() {
 #[tokio::test]
 async fn the_read_matches_what_task_start_and_task_create_really_write() {
     use crate::provider::Scripted;
-    use crate::tests_tasks::{answers_a_call, arranged, first_user, last_user, parent_session, rig, ASK};
+    use crate::tests_tasks::{
+        answers_a_call, arranged, first_user, last_user, parent_session, rig, ASK,
+    };
     use theseus_protocol::task_start::TaskStartParams;
     let r = rig(
         |req| {
@@ -751,19 +780,27 @@ async fn the_read_matches_what_task_start_and_task_create_really_write() {
     want.sort();
     assert_eq!(seen, want, "{got:?}");
     assert!(
-        got.task_pins.iter().all(|p| p.session_id != briefed.session_id),
+        got.task_pins
+            .iter()
+            .all(|p| p.session_id != briefed.session_id),
         "a task started with no profile carries the mark and is not a pin: {got:?}"
     );
     let (cleared, failed) = core.unpin_holds(&owner_cli());
     assert!(failed.is_empty(), "{failed:?}");
     assert_eq!(
-        cleared.iter().map(|c| c.session_id.as_str()).collect::<Vec<_>>(),
+        cleared
+            .iter()
+            .map(|c| c.session_id.as_str())
+            .collect::<Vec<_>>(),
         vec![named.session_id.as_str()]
     );
     let after = core.profile_pins().unwrap();
     assert_eq!(after.task_pins.len(), 1, "{after:?}");
     assert_eq!(after.task_pins[0].session_id, child);
-    assert!(crate::turn::brief_step::marked(&core.store, &named.session_id));
+    assert!(crate::turn::brief_step::marked(
+        &core.store,
+        &named.session_id
+    ));
     r.model.gate.add_permits(16);
 }
 
