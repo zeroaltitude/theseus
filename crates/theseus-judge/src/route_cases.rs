@@ -47,6 +47,15 @@
 //!   replay. The replay grades the 13 and its bar is `bar_need(13)` = 11 of 13; W40 is asserted by
 //!   the daemon test, outside this denominator. W39 (the other pin) is held the same way, and the
 //!   `model` and `effort` bars are over the replay's own cases, with no credit for the two pins.
+//! - **What the old must rule had that this one does not** (theseus-h66v4.6 fix pass, F8). Before,
+//!   a pack passed `must` only when every must was ok AND no must sat under the confirm bar
+//!   (`must_under_confirm == 0`). The owner replaced "every must" with a ratio, and the second
+//!   clause went with it: a must graded ok by the `no_match` (an answer under the bar, run as the
+//!   no-match option, which is the must's label) now counts, as the same answer counts for every
+//!   other case, because the grade models what the daemon would run. The count of musts under the
+//!   bar is still counted (`must_under_confirm`) and printed beside the bar, so a "met" that leans
+//!   on under-bar musts shows it; putting the clause back is one subtraction in `Bar::new("must", ..)`,
+//!   and the owner's to ask for.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

@@ -383,14 +383,14 @@ impl JudgeService {
     }
 
     /// A task's brief, whose first turn has no message of its own: the route pack
-    /// alone judges it (no `classify`, no `role`), so the verdict can pick
-    /// the task's model (theseus-ypnxt.7, `turn/brief_step.rs`).
+    /// (and, once it asks `model`, the effort and the work beside it) alone judges it (no `classify`,
+    /// no `role`), so the verdict can pick the task's model (theseus-ypnxt.7, `turn/brief_step.rs`).
     pub fn at_brief(&self, trace: &mut Trace, msg: Inbound) -> Option<RouteWait> {
         self.inbound_early_of(msg, Point::Brief)?.adopt(trace, None)
     }
 
     /// A running task's checkpoint (theseus-ypnxt.9, `turn/checkpoint_step.rs`):
-    /// the route pack alone judges `msg.text`, the task's recent state, as it
+    /// the route pack (and its family's effort and work) alone judges `msg.text`, the task's recent state, as it
     /// judges a brief. What the call settles at is the task's, charged to its
     /// execution when it lands ([`charge`]); the verdict's cost rides
     /// `Answered`. A message with no node of its own: `msg.node_id` is empty.
@@ -430,9 +430,15 @@ impl JudgeService {
             .filter(|(_, _, root)| *root != ONTO_PACK || (!route_only && self.onto_wanted(msg)))
             // A task's message is its parent's brief, never a person's ask to divide.
             .filter(|(_, _, root)| *root != SPLIT_PACK || !msg.task)
-            // A task's brief and checkpoint ask the route pack, and the effort beside it.
+            // A task's brief and checkpoint ask the route pack, and the effort and the work beside it:
+            // the work label is what gives a turn the Deep tier, the coding hint and the narrow reads,
+            // so a task turn that never asked it would get none of the three, where route.v8's
+            // `deep_coding` task brief got all three (theseus-h66v4.6 fix pass, F5). The split is not
+            // asked: a task's message is its parent's brief (above).
             .filter(|(_, _, root)| {
-                !route_only || *root == ROUTE_PACK || (family && *root == EFFORT_PACK)
+                !route_only
+                    || *root == ROUTE_PACK
+                    || (family && matches!(*root, EFFORT_PACK | WORK_PACK))
             })
             .filter_map(|(m, p, root)| Some((self.pack(&p)?, m, root)))
             .filter(|(p, _, root)| sampled(&msg.turn_id, self.cfg.sample_of(root, p.sample)))

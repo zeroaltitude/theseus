@@ -80,14 +80,23 @@ impl TurnRunner {
 
     /// The brief of the task this reply offers (theseus-bh3t.5): `classify.v3`
     /// found the owner's message to be work for later, at the act bar, and
-    /// the batch had landed by now. Not on a trivial or quick turn, a task's
-    /// turn, a message not alone with the owner, or a turn that made a task
-    /// itself.
+    /// the batch had landed by now. Not on a trivial or quick turn (route.v8's
+    /// class names), a task's turn, a message not alone with the owner, or a
+    /// turn that made a task itself.
+    ///
+    /// The seventh reader of the old class names (theseus-h66v4.9, taken in the
+    /// theseus-h66v4.6 fix pass), retired under route.v10 on purpose: there the
+    /// verdict's `mode` is the model Jev picked, and no pack says "short" (`work.v1`'s
+    /// `conversation` labels substantive talk too, so exempting it would lose the offers a
+    /// "we should ... later" message earns). What guards a "thanks" after a long exchange is
+    /// `classify.v3`'s act bar. Row 6 deletes the class match with the class walk; the test is
+    /// `tests_offer::under_route_v10_a_turn_is_never_exempt_by_a_class_name`.
     fn offer_for(&self, t: &Turn<'_>, result: &TurnSubmitResult, target: &str) -> Option<String> {
-        let detour = matches!(
-            result.route.as_ref().and_then(|r| r.mode.as_deref()),
-            Some("trivial" | "quick")
-        );
+        let detour = !self.judge.route_open()
+            && matches!(
+                result.route.as_ref().and_then(|r| r.mode.as_deref()),
+                Some("trivial" | "quick")
+            );
         if detour || t.tc.task.is_some() || !crate::capture::owner_alone(t.tc.class, Some(target)) {
             return None;
         }

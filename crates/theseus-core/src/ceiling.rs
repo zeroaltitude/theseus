@@ -262,11 +262,15 @@ impl crate::rpc::Core {
     /// The profile a turn in `session_id` runs under when it names none:
     /// its place's (step 38a), else the live one.
     pub fn place_profile(&self, session_id: &str, live: String) -> String {
+        self.place_own_profile(session_id).unwrap_or(live)
+    }
+
+    /// The profile `session_id`'s place configures for itself, if it does: a place's own word, which
+    /// is not the operator's (theseus-h66v4.6 fix pass, F6: `profile use` pins only a turn that
+    /// took the live profile, so the turn has to know where its profile came from).
+    pub fn place_own_profile(&self, session_id: &str) -> Option<String> {
         let place = self.runner.view_of(session_id);
-        match place.ceiling.and_then(|c| c.profile.clone()) {
-            Some(p) => p,
-            None => live,
-        }
+        place.ceiling.and_then(|c| c.profile.clone())
     }
 
     /// Each ceiling's `tools` entry that names no tool this daemon has, as
