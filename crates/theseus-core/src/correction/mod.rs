@@ -195,6 +195,9 @@ pub fn resolve(to: &To, last: &RoutedTurn, cfg: &RoutingConfig, profiles: &Profi
                 to: p.clone(),
             }
         }
+        // Dead under route.v10 on purpose (theseus-h66v4.6, the sixth reader of the old class names): `names`
+        // reads the acting pack's `mode` question, route.v10 has none, so no word resolves to a mode and
+        // this arm is never reached; `tests_route_family` holds that. It goes with the class table (row 6).
         To::Mode(m) => {
             let profile = match pick(cfg.classes.of(m), profiles, false, None, false) {
                 Picked::Profile(p) | Picked::Capped(Some(p)) => p,
