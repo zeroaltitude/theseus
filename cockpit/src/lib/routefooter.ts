@@ -2,27 +2,30 @@
 // corrections of it (`route.correct`, judged by the core as any surface's: the owner, from a private place), and
 // the live layer `route.corrections` lists. Pure: `test/routefooter.test.ts` runs it.
 import type { RouteCorrectionInfo, RouteCorrectionsResult, TurnRoute } from '@protocol'
-import { pinFooter } from './route.ts'
+import { modeWords, pinFooter } from './route.ts'
 
 /** `routed: quick · haiku`, `routed: correction · fable`, with where the session ran before routing when it moved, and
  *  `· pinned` when the operator named the model; none when routing read nothing for the turn. */
 export function routeLine(route: TurnRoute | undefined, profile: string): string | null {
   if (!route) return null
+  const mode = route.mode ? modeWords(route.reason, route.mode) : undefined
   const what =
     route.source === 'correction'
       ? 'correction'
-      : route.source === 'task brief' && route.mode
-        ? `${route.mode} (task brief)`
-        : (route.source?.startsWith('task checkpoint') || route.source?.startsWith('turn checkpoint')) && route.mode
-          ? `${route.mode} (${route.source})`
-          : (route.mode ?? route.reason)
+      : route.source === 'task brief' && mode
+        ? `${mode} (task brief)`
+        : (route.source?.startsWith('task checkpoint') || route.source?.startsWith('turn checkpoint')) && mode
+          ? `${mode} (${route.source})`
+          : (mode ?? route.reason)
   const from = route.from && route.from !== profile ? ` (from ${route.from})` : ''
   const who = personaWords(route)
   if (!what) return who ? `answered by: ${who}` : null
   // The operator's model, not Jev's verdict (theseus-h66v4.3): `pinFooter`, the route's own `reason` and never the model
   // compared with a default. A turn whose words are already `pinned` (no mode) says it once.
   const pin = pinFooter(route.reason) && what !== 'pinned' ? ' · pinned' : ''
-  return who ? `routed: ${who} · ${what} · ${profile}${from}${pin}` : `routed: ${what} · ${profile}${from}${pin}`
+  // A pinned turn's mode is Jev's read, not a placement, so `Jev: chat` stands without `routed:` (F2).
+  const lead = !who && mode && mode !== route.mode ? '' : 'routed: '
+  return who ? `routed: ${who} · ${what} · ${profile}${from}${pin}` : `${lead}${what} · ${profile}${from}${pin}`
 }
 
 /** Who answered, and why when the verdict was not sure enough to stay quiet: `Birch`,

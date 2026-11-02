@@ -79,6 +79,18 @@ impl TurnRoute {
     pub fn pin_footer(&self) -> Option<&'static str> {
         (self.reason == "pinned").then_some("pinned")
     }
+
+    /// The mode in words, for a surface that shows it beside the model
+    /// (theseus-h66v4.3): on a pinned turn the model was not routed, so the
+    /// mode is only Jev's shadow read and says so (`Jev: quick`); on every
+    /// other reason it is the bare mode, as each surface always worded it.
+    /// Decided by `pin_footer` and nothing else.
+    pub fn mode_words(&self, mode: &str) -> String {
+        match self.pin_footer() {
+            Some(_) => format!("Jev: {mode}"),
+            None => mode.to_string(),
+        }
+    }
 }
 
 /// What the data rule did for a turn, for the route line.
@@ -477,6 +489,21 @@ mod tests {
         ] {
             assert_eq!(on(other).pin_footer(), None, "{other}");
         }
+    }
+
+    /// A pinned turn's mode is Jev's read and not a placement (theseus-h66v4.3):
+    /// `Jev: quick` for a pin, the bare mode for every other reason, decided by
+    /// `pin_footer` and nothing else.
+    #[test]
+    fn a_pinned_turns_mode_words_are_jevs_read() {
+        let on = |reason: &str| TurnRoute {
+            reason: reason.into(),
+            from: "sonnet".into(),
+            ..Default::default()
+        };
+        assert_eq!(on("pinned").mode_words("quick"), "Jev: quick");
+        assert_eq!(on("verdict").mode_words("quick"), "quick");
+        assert_eq!(on("no_verdict").mode_words("quick"), "quick");
     }
 
     /// The one line every surface shows, by how the turn ended (the cockpit's

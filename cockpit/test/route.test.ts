@@ -55,9 +55,9 @@ test("a turn chip says a model was pinned, by its reason and never by its model 
   for (const other of ['verdict', 'no_verdict', 'late', 'unsure', 'fallback', 'shadow', 'correction', 'data_gate', '']) {
     assert.equal(pinFooter(other), null, other)
   }
-  // Same mode, same profile: only the recorded reason differs.
+  // Same mode, same profile: only the recorded reason differs. A pin words the mode as Jev's read, not as a placement.
   assert.equal(chipHead({ mode: 'quick', reason: 'verdict', from: 'sonnet', profile: 'sonnet' }), 'quick')
-  assert.equal(chipHead({ mode: 'quick', reason: 'pinned', from: 'sonnet', profile: 'sonnet' }), 'pinned · quick')
+  assert.equal(chipHead({ mode: 'quick', reason: 'pinned', from: 'sonnet', profile: 'sonnet' }), 'pinned · Jev: quick')
   // No verdict on an unpinned turn is Jev's silence; on a pinned one Jev was not asked, so it says only the pin.
   assert.equal(chipHead({ reason: 'no_verdict', from: 'sonnet', profile: 'sonnet' }), 'no verdict')
   assert.equal(chipHead({ reason: 'pinned', from: 'sonnet', profile: 'sonnet' }), 'pinned')

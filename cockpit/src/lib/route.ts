@@ -13,6 +13,12 @@ export function pinFooter(reason: string | undefined): 'pinned' | null {
   return reason === 'pinned' ? 'pinned' : null
 }
 
+/** The mode in words (theseus-h66v4.3), the mirror of `TurnRoute::mode_words`: on a pinned turn the model was not routed,
+ *  so the mode is Jev's shadow read (`Jev: quick`); on every other reason it is the bare mode. */
+export function modeWords(reason: string | undefined, mode: string): string {
+  return pinFooter(reason) ? `Jev: ${mode}` : mode
+}
+
 /** What a `route.decided` row says of its turn: the mode Jev judged, why the turn ran where it ran, the effort Jev
  *  answered and why the turn ran at its effort, and the effort its requests carried when Jev's applied. */
 export interface TurnRouted {
@@ -47,12 +53,12 @@ export function effortWords(t: TurnRouted): string {
   return `Jev: ${t.effort}, ${(t.effortReason ?? '').replaceAll('_', ' ')}`.replace(/, $/, '')
 }
 
-/** The turn chip's head: Jev's mode, or `no verdict`; for a pinned turn `pinned` first (`pinned · quick`), or alone when
- *  Jev read nothing (theseus-h66v4.3). The effort follows in the chip. */
+/** The turn chip's head: Jev's mode, or `no verdict`; for a pinned turn `pinned`, with the mode worded as Jev's read
+ *  (`pinned · Jev: quick`), since the model was not routed (theseus-h66v4.3). The effort follows in the chip. */
 export function chipHead(t: TurnRouted): string {
   const pin = pinFooter(t.reason)
   if (!pin) return t.mode ?? 'no verdict'
-  return t.mode ? `${pin} · ${t.mode}` : pin
+  return t.mode ? `${pin} · ${modeWords(t.reason, t.mode)}` : pin
 }
 
 /** The ledger's line for a `route.decided` row: `chat → sonnet (verdict) · effort high (Jev) · waited 12 ms`. */

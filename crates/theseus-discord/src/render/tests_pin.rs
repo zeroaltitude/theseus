@@ -98,7 +98,7 @@ fn the_pinned_word_joins_the_route_words_and_rides_the_reply() {
     });
     let f = footer(&r);
     assert!(
-        f.contains("claude-sonnet-5-5 · pinned · routed: Birch · quick · 1 loop"),
+        f.contains("claude-sonnet-5-5 · pinned · routed: Birch · Jev: quick · 1 loop"),
         "{f}"
     );
     let parts = reply_parts("t1", &[(0, "Done.".to_string())], Some(&r));
@@ -107,4 +107,41 @@ fn the_pinned_word_joins_the_route_words_and_rides_the_reply() {
         last.starts_with("Done.\n-# sonnet · claude-sonnet-5-5 · pinned"),
         "{last}"
     );
+}
+
+/// On a pinned turn the model was not routed: `quick` is only Jev's shadow
+/// read, so the footer words it as that and not as `routed: quick`, which sat
+/// beside `pinned` and contradicted it (theseus-h66v4.3, F2). Every other
+/// reason keeps `routed:` byte for byte.
+#[test]
+fn a_pinned_turns_mode_is_jevs_read_and_an_unpinned_turns_stays_routed() {
+    let with_mode = |reason: &str| {
+        let mut r = ran(reason);
+        r.route.as_mut().unwrap().mode = Some("quick".into());
+        r
+    };
+    let pinned = footer(&with_mode("pinned"));
+    assert!(
+        pinned.starts_with("-# sonnet · claude-sonnet-5-5 · pinned · Jev: quick · 1 loop"),
+        "{pinned}"
+    );
+    assert!(!pinned.contains("routed:"), "{pinned}");
+    for not_a_pin in [
+        "verdict",
+        "detour",
+        "no_verdict",
+        "late",
+        "unsure",
+        "fallback",
+        "shadow",
+    ] {
+        let f = footer(&with_mode(not_a_pin));
+        assert!(
+            f.starts_with("-# sonnet · claude-sonnet-5-5 · routed: quick · 1 loop"),
+            "{not_a_pin}: {f}"
+        );
+        assert!(!f.contains("Jev:"), "{not_a_pin}: {f}");
+    }
+    // Nothing to reword when Jev read nothing: no mode, no words, as before.
+    assert!(!footer(&ran("pinned")).contains("Jev:"));
 }

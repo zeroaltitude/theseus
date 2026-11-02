@@ -31,13 +31,14 @@ test("a turn's route line names its mode, or the correction that placed it", () 
 test('a pinned turn says so, by its reason and never by its model (theseus-h66v4.3)', () => {
   // Same profile, same `from`: the default's model on both sides, and only the recorded reason differs.
   assert.equal(routeLine({ reason: 'pinned', from: 'sonnet' }, 'sonnet'), 'routed: pinned · sonnet')
-  assert.equal(routeLine({ mode: 'chat', reason: 'pinned', from: 'sonnet' }, 'sonnet'), 'routed: chat · sonnet · pinned')
+  // The model was not routed: the mode is Jev's read, worded so (theseus-h66v4.3, F2).
+  assert.equal(routeLine({ mode: 'chat', reason: 'pinned', from: 'sonnet' }, 'sonnet'), 'Jev: chat · sonnet · pinned')
   assert.equal(routeLine({ mode: 'chat', reason: 'verdict', from: 'sonnet' }, 'sonnet'), 'routed: chat · sonnet')
   assert.equal(routeLine({ mode: 'chat', reason: 'no_verdict', from: 'sonnet' }, 'sonnet'), 'routed: chat · sonnet')
   // Beside a persona, a correction's source, and a moved session: the clause is added, nothing is replaced.
   assert.equal(
     routeLine({ mode: 'chat', reason: 'pinned', from: 'fable', persona: { name: 'Birch', how: 'explicit', why: '' } }, 'sonnet'),
-    'routed: Birch · chat · sonnet (from fable) · pinned',
+    'routed: Birch · Jev: chat · sonnet (from fable) · pinned',
   )
 })
 
