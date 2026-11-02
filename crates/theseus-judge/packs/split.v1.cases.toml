@@ -3,7 +3,13 @@
 # builder of theseus-h66v4.6, from the option wording, before the pack was run over them; none was changed after a
 # run. S1 to S40 are the forty labelled asks of the fan-out cue's own test (`fan_out_cue.rs`, deleted with its word
 # list in this row), kept verbatim as the set's core so the label that replaces the list is measured on the asks
-# the list was: "splits_by_area" where the list fired, "one_area" where it stayed silent. Eight cases are
+# the list was: "splits_by_area" where the list fired, "one_area" where it stayed silent. The list's "stayed
+# silent" lumped two things the pack tells apart, so the fix pass of theseus-h66v4.6 (review finding F11) mapped
+# its twenty negatives again by the pack's own wording of `unclear` ("a bare instruction that points at
+# nothing"), from the messages alone and before any answer of Jev's on them was read: S27, S32 and S38 name
+# nothing a reader could look up ("this stack trace", "this function", "the whole line" of no file) and are
+# `unclear`; the other seventeen name their object (a file, a function, a commit, my diff, the staged
+# changes) and stay `one_area`. This is a mapping bug mended, not a label moved toward an answer. Eight cases are
 # route.v10.cases.toml's (the ids L12, W14, W8, W9, W7, W26, W28, L9), carried byte for byte, and S41 to S54 are new:
 # four more that split, two single threads, and eight asks that name nothing (`unclear`).
 
@@ -176,8 +182,8 @@ why = "from the deleted fan-out cue's forty labelled asks: one thread, or a sing
 [[case]]
 id = "S27"
 message = "explain this stack trace"
-split = "one_area"
-why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+split = "unclear"
+why = "from the deleted fan-out cue's forty labelled asks, relabelled in the fix pass: the ask points at something the message does not give ('this' with nothing attached, 'the whole line' of no named file), the pack's own 'a bare instruction that points at nothing'"
 
 [[case]]
 id = "S28"
@@ -206,8 +212,8 @@ why = "from the deleted fan-out cue's forty labelled asks: one thread, or a sing
 [[case]]
 id = "S32"
 message = "summarise this function in two sentences"
-split = "one_area"
-why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+split = "unclear"
+why = "from the deleted fan-out cue's forty labelled asks, relabelled in the fix pass: the ask points at something the message does not give ('this' with nothing attached, 'the whole line' of no named file), the pack's own 'a bare instruction that points at nothing'"
 
 [[case]]
 id = "S33"
@@ -242,8 +248,8 @@ why = "from the deleted fan-out cue's forty labelled asks: one thread, or a sing
 [[case]]
 id = "S38"
 message = "make the whole line say ready instead"
-split = "one_area"
-why = "from the deleted fan-out cue's forty labelled asks: one thread, or a single small change"
+split = "unclear"
+why = "from the deleted fan-out cue's forty labelled asks, relabelled in the fix pass: the ask points at something the message does not give ('this' with nothing attached, 'the whole line' of no named file), the pack's own 'a bare instruction that points at nothing'"
 
 [[case]]
 id = "S39"

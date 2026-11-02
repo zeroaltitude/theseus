@@ -114,9 +114,10 @@ fn the_split_set_is_sixty_two_cases_and_its_core_is_the_deleted_cues_forty() {
     let by = counts(&split, "split");
     assert_eq!(
         (by["splits_by_area"], by["one_area"], by["unclear"]),
-        (25, 29, 8)
+        (25, 26, 11)
     );
-    // S1 to S40 are the cue's own labelled asks: twenty that fired, twenty that did not.
+    // S1 to S40 are the cue's own labelled asks: twenty that fired, twenty that did not (of which
+    // the pack's own wording of `unclear` takes three, the fix pass's F11).
     let core: Vec<_> = split
         .cases
         .iter()
@@ -131,8 +132,14 @@ fn the_split_set_is_sixty_two_cases_and_its_core_is_the_deleted_cues_forty() {
     );
     assert_eq!(
         core.iter().filter(|c| c.want.split == "one_area").count(),
-        20
+        17
     );
+    let unclear: Vec<_> = core
+        .iter()
+        .filter(|c| c.want.split == "unclear")
+        .map(|c| c.id.as_str())
+        .collect();
+    assert_eq!(unclear, ["S27", "S32", "S38"]);
     assert_eq!(bar_need(split.cases.len() as u32), 50);
     // The ones taken from the model set are byte for byte its own.
     let model = parse(V10, "route.v10");
