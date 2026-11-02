@@ -59,6 +59,8 @@ mod tests_layers;
 #[cfg(test)]
 mod tests_replay;
 #[cfg(test)]
+mod tests_search_refs;
+#[cfg(test)]
 pub(crate) mod tests_ring;
 #[cfg(test)]
 mod tests_ring_sums;
