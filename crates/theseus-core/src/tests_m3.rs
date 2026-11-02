@@ -487,7 +487,7 @@ async fn a_call_approved_before_theseus_0g4_resumes_from_its_node() {
 }
 
 #[tokio::test]
-async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
+async fn outside_the_roots_runs_and_approve_paths_wait_with_a_clear_reason() {
     let outside = tempfile::tempdir().unwrap();
     let file = outside.path().canonicalize().unwrap().join("notes.txt");
     std::fs::write(&file, "outside the workspace\n").unwrap();
@@ -508,36 +508,12 @@ async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
         ),
         Scripted::text("Those were errors."),
     ]);
-    // Outside the roots: the call waits, and runs once approved.
+    // Outside the roots is a label, not a gate (theseus-m9fdg): the read takes
+    // its tool's posture, notify at least (a notice, no ask), and runs unasked.
     let res = turn(&r.core, None, "read the notes").await;
     let sid = res.session_id.clone();
-    let corr = res
-        .awaiting_confirm
-        .clone()
-        .expect("outside the roots waits");
-    let pending = r.core.pending_confirms(&sid).unwrap();
-    assert!(!pending[0].floor);
-    assert!(
-        pending[0].reason.ends_with(&format!(
-            "fs.read — approve ({} is outside the workspace roots: {})",
-            file.display(),
-            r.root.display()
-        )),
-        "{}",
-        pending[0].reason
-    );
-    assert!(
-        results(&r.core, &sid).is_empty(),
-        "nothing runs before the answer"
-    );
-    r.core.confirm_action(&corr, true, None, "test").unwrap();
-    let cont = r
-        .core
-        .continue_execution(res.execution_id.as_deref().unwrap())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(cont.output, "Read it.");
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    assert_eq!(res.output, "Read it.");
     let rs = results(&r.core, &sid);
     assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
     assert!(rs[0].1.contains("outside the workspace"), "{}", rs[0].1);
@@ -588,7 +564,7 @@ async fn outside_the_roots_and_approve_paths_wait_with_a_clear_reason() {
         ledgered(&r, "tool.denied").is_empty(),
         "the gate refused nothing"
     );
-    assert_eq!(ledgered(&r, "tool.confirm_requested").len(), 2);
+    assert_eq!(ledgered(&r, "tool.confirm_requested").len(), 1);
     assert_eq!(ledgered(&r, "tool.invalid_input").len(), 1);
 }
 
@@ -639,17 +615,13 @@ async fn the_token_file_the_daemon_was_given_is_on_the_floor() {
         results(&r.core, &res.session_id)[0].0,
         ResultStatus::Declined
     );
-    // The same file, not named as the token file, is only outside the roots.
+    // The same file, not named as the token file, is only outside the roots:
+    // a label, so under open it is a notice and runs unasked (theseus-m9fdg).
     let r = rig_with(script(), |cfg| cfg.policy.enforcement = Posture::Open);
     let res = turn(&r.core, None, "read the token").await;
-    assert!(res.awaiting_confirm.is_some());
-    let pending = r.core.pending_confirms(&res.session_id).unwrap();
-    assert!(!pending[0].floor, "{}", pending[0].reason);
-    assert!(
-        pending[0].reason.contains("is outside the workspace roots"),
-        "{}",
-        pending[0].reason
-    );
+    assert!(res.awaiting_confirm.is_none(), "{res:?}");
+    let rs = results(&r.core, &res.session_id);
+    assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
 }
 
 #[tokio::test]
