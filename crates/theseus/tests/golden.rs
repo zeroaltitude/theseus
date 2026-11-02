@@ -2059,6 +2059,81 @@ fn profile_release() {
     );
 }
 
+/// `theseus profile unpin [--all]` and `profile pins` (theseus-h66v4.2): the counts before and after come
+/// off the wire as numbers, and the lines say what was let go; the pin and the hold on one name (`quick`)
+/// still read as cleared; a hold that could not be let go exits 1.
+#[test]
+fn profile_unpin() {
+    let pins = |pinned: Vec<Value>| {
+        let (ps, pt) = (
+            pinned.iter().filter(|p| p["kind"] == "session").count(),
+            pinned.iter().filter(|p| p["kind"] == "task").count(),
+        );
+        json!({"live": "quick", "live_source": "config", "sessions": 5, "tasks": 3,
+               "pinned_sessions": ps, "pinned_tasks": pt, "pins": pinned})
+    };
+    let held = vec![
+        json!({"session_id": S, "kind": "session", "profile": "quick", "configured": true}),
+        json!({"session_id": "ses_tasktasktask01", "kind": "task", "profile": "gone", "configured": false}),
+    ];
+    let unpinned = |all: bool, cleared: Vec<Value>, failed: Vec<Value>, after: Vec<Value>| {
+        json!({"released": true, "previous": "quick", "live": "quick", "by": "the CLI", "all": all,
+               "before": pins(held.clone()), "cleared": cleared, "failed": failed, "after": pins(after)})
+    };
+    golden(
+        "profile_pins",
+        &run(
+            &["profile", "pins"],
+            vec![step("profile.pins", pins(held.clone()))],
+        ),
+    );
+    golden(
+        "profile_unpin_all",
+        &run(
+            &["profile", "unpin", "--all"],
+            vec![step(
+                "profile.unpin",
+                unpinned(true, held.clone(), vec![], vec![]),
+            )],
+        ),
+    );
+    golden(
+        "profile_unpin_all_json",
+        &run(
+            &["--json", "profile", "unpin", "--all"],
+            vec![step(
+                "profile.unpin",
+                unpinned(true, held.clone(), vec![], vec![]),
+            )],
+        ),
+    );
+    golden(
+        "profile_unpin_holds_remain",
+        &run(
+            &["profile", "unpin"],
+            vec![step(
+                "profile.unpin",
+                unpinned(false, vec![], vec![], held.clone()),
+            )],
+        ),
+    );
+    golden(
+        "profile_unpin_all_failed",
+        &run(
+            &["profile", "unpin", "--all"],
+            vec![step(
+                "profile.unpin",
+                unpinned(
+                    true,
+                    held[..1].to_vec(),
+                    vec![json!({"session_id": "ses_tasktasktask01", "error": "refused"})],
+                    held[1..].to_vec(),
+                ),
+            )],
+        ),
+    );
+}
+
 #[test]
 fn ledger_prints_rows_and_the_total() {
     let rows = json!({"total": 2048, "rows": [

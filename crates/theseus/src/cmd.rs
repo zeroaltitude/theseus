@@ -14,7 +14,8 @@ use theseus_client::{outcome, resolve, CallError, Conn};
 use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, JudgeListResult};
 use theseus_protocol::{
     method, notify, CatalogListResult, ConfirmListResult, Event, HealthResult, LedgerTailParams,
-    LedgerTailResult, Message, ProfileListResult, ProfileReleaseResult, ProfileUseParams,
+    LedgerTailResult, Message, ProfileListResult, ProfilePinsResult, ProfileReleaseResult,
+    ProfileUnpinParams, ProfileUnpinResult, ProfileUseParams,
     SessionHistoryParams, SessionHistoryResult, SessionListParams, SessionListResult,
     SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams,
     TurnSubmitResult,
@@ -1599,7 +1600,7 @@ pub async fn cancel(conn: &mut Conn, json: bool, name: String) -> Result<()> {
     })
 }
 
-/// `theseus profile`: list, switch the live one, or release the switch.
+/// `theseus profile`: list, switch the live one, release the switch, or unpin.
 pub async fn profile(conn: &mut Conn, json: bool, cmd: ProfileCmd) -> Result<()> {
     match cmd {
         ProfileCmd::List => {
@@ -1633,6 +1634,14 @@ pub async fn profile(conn: &mut Conn, json: bool, cmd: ProfileCmd) -> Result<()>
                 Ok(())
             })
         }
+        ProfileCmd::Pins => {
+            let v = conn.request(method::PROFILE_PINS, Value::Null).await?;
+            output(json, v, |p: ProfilePinsResult| {
+                print_pins(&p);
+                Ok(())
+            })
+        }
+        ProfileCmd::Unpin { all } => unpin(conn, json, all).await,
         ProfileCmd::Release => {
             let v = conn.request(method::PROFILE_RELEASE, Value::Null).await?;
             output(json, v, |r: ProfileReleaseResult| {
@@ -1649,6 +1658,82 @@ pub async fn profile(conn: &mut Conn, json: bool, cmd: ProfileCmd) -> Result<()>
                 Ok(())
             })
         }
+    }
+}
+
+/// The count line of a `profile.pins` answer, as `pins` and `unpin` print it.
+fn pinned_line(what: &str, p: &ProfilePinsResult) -> String {
+    format!(
+        "{what}: {} of {} sessions pinned, {} of {} tasks pinned",
+        p.pinned_sessions, p.sessions, p.pinned_tasks, p.tasks
+    )
+}
+
+/// `theseus profile pins`: what is held, one line each, then the count.
+fn print_pins(p: &ProfilePinsResult) {
+    for pin in &p.pins {
+        println!(
+            "{} {} held to {}{}",
+            pin.kind,
+            render::short_id(&pin.session_id),
+            pin.profile,
+            if pin.configured {
+                ""
+            } else {
+                " (no longer configured)"
+            }
+        );
+    }
+    println!("{}", pinned_line("pinned", p));
+    eprintln!("[live: {} (from {})]", p.live, p.live_source);
+}
+
+/// `theseus profile unpin [--all]`: the live pin released as `release` does, and with `--all` each held
+/// profile let go. A hold that could not be let go is printed and the exit is 1.
+async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
+    let v = conn
+        .request(method::PROFILE_UNPIN, ProfileUnpinParams { all })
+        .await?;
+    let mut failed = 0;
+    output(json, v.clone(), |r: ProfileUnpinResult| {
+        match r.released {
+            true => println!(
+                "released the pin on {}; the live profile is {} (from config), and Jev chooses the model when route.v10 acts",
+                r.previous, r.live
+            ),
+            false => println!(
+                "nothing to release: the live profile {} was already the config's",
+                r.live
+            ),
+        }
+        println!("{}", pinned_line("before", &r.before));
+        for c in &r.cleared {
+            println!(
+                "let go: {} {} (was held to {})",
+                c.kind,
+                render::short_id(&c.session_id),
+                c.profile
+            );
+        }
+        for f in &r.failed {
+            println!("not let go: {} ({})", render::short_id(&f.session_id), f.error);
+        }
+        println!("{}", pinned_line("after", &r.after));
+        if !r.all && !r.after.pins.is_empty() {
+            eprintln!(
+                "[{} held profiles remain; `theseus profile unpin --all` lets go of them]",
+                r.after.pins.len()
+            );
+        }
+        failed = r.failed.len();
+        Ok(())
+    })?;
+    if json {
+        failed = v["failed"].as_array().map_or(0, Vec::len);
+    }
+    match failed {
+        0 => Ok(()),
+        n => anyhow::bail!("{n} held profiles were not let go"),
     }
 }
 

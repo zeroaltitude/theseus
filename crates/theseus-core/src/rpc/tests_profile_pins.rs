@@ -117,7 +117,7 @@ async fn unpin(core: &Arc<Core>, all: bool) -> ProfileUnpinResult {
     serde_json::from_value(r.result.unwrap_or_else(|| panic!("an answer: {:?}", r.error))).unwrap()
 }
 
-/// Two conversations and two tasks held, a third of each left alone: the read counts the pinned and the
+/// Two conversations and two tasks held, one of each left alone (and a parent conversation for each task): the read counts the pinned and the
 /// totals, and names each pin's kind and profile.
 fn rig(core: &Core) -> (Vec<String>, Vec<String>) {
     let (a, b, free) = (session(core), session(core), session(core));
@@ -135,7 +135,8 @@ async fn pins_counts_the_held_sessions_and_tasks_beside_their_totals() {
     let core = core();
     let (ses, tasks) = rig(&core);
     let r = pins(&core).await;
-    assert_eq!((r.sessions, r.tasks), (4, 3), "{r:?}");
+    // Each task opens beside a parent conversation, so six conversations and three tasks.
+    assert_eq!((r.sessions, r.tasks), (6, 3), "{r:?}");
     assert_eq!((r.pinned_sessions, r.pinned_tasks), (2, 2), "{r:?}");
     assert_eq!(r.pins.len(), 4, "{r:?}");
     for s in &ses {
@@ -215,7 +216,7 @@ async fn unpin_all_lets_go_of_every_hold_and_writes_a_row_for_each() {
         (0, 0, 0)
     );
     // The totals did not move: nothing was deleted to get to zero.
-    assert_eq!((r.after.sessions, r.after.tasks), (4, 3));
+    assert_eq!((r.after.sessions, r.after.tasks), (6, 3));
     let all = rows(&core, "session.profile_set");
     let lets_go: Vec<&Value> = all.iter().filter(|d| d["to"].is_null()).collect();
     assert_eq!(all.len() - before_rows, 4, "one row each: {all:?}");
@@ -287,7 +288,7 @@ async fn unpin_all_with_nothing_pinned_writes_nothing() {
     let r = unpin(&core, true).await;
     assert!(!r.released);
     assert!(r.cleared.is_empty() && r.failed.is_empty(), "{r:?}");
-    assert_eq!((r.before.sessions, r.before.tasks), (1, 1));
+    assert_eq!((r.before.sessions, r.before.tasks), (2, 1));
     assert!(rows(&core, "session.profile_set").is_empty());
     assert!(rows(&core, "profile.changed").is_empty());
 }

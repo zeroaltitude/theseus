@@ -1245,6 +1245,18 @@ enum ProfileCmd {
     /// End that pin: the live profile is the config's `[model] live` again, and Jev chooses the
     /// model for a turn that names none (persists across restarts).
     Release,
+    /// `release` and, with `--all`, more: every session's and task's held profile
+    /// (`sessions model`) let go too, each in its own `session.profile_set` ledger row. It prints
+    /// how many were pinned before, which it cleared, and how many are pinned after, counted, not
+    /// assumed. Without `--all` it is `release` and says how many holds remain.
+    Unpin {
+        /// Also let go every session's and task's held profile.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Count the sessions and tasks held to a profile (a read): the pinned and the totals, and
+    /// which, one line each.
+    Pins,
 }
 
 #[derive(Subcommand, Debug)]
