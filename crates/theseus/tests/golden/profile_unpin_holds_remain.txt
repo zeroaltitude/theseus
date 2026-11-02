@@ -1,0 +1,10 @@
+$ theseus profile unpin
+--- requests
+profile.unpin
+--- stdout
+released the pin on quick; the live profile is quick (from config), and Jev chooses the model when route.v10 acts
+before: 1 of 5 sessions pinned, 1 of 3 tasks pinned
+after: 1 of 5 sessions pinned, 1 of 3 tasks pinned
+--- stderr
+[2 held profiles remain; `theseus profile unpin --all` lets go of them]
+--- exit 0
