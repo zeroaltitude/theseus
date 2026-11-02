@@ -699,5 +699,37 @@ class Floor(unittest.TestCase):
             smoke.floor_from([bad], sha="x", date="d")
 
 
+class RouteOnAWiredPack(unittest.TestCase):
+    """theseus-8ouns: `judge replay --cases` replays a wired pack, so with route.v10 live the part reaches its bar."""
+
+    def test_a_live_cases_pack_that_meets_the_bar_passes_and_is_not_na(self):
+        runs = [smoke.route_run(replay(), 20.0) for _ in range(3)]
+        p = smoke.route_part(runs, None, live="route.v10")
+        self.assertTrue(p["ok"], p)
+        self.assertFalse(p.get("na"))
+        self.assertEqual(p["count"], 3)
+
+    def test_runs_that_graded_no_case_never_read_as_a_pass(self):
+        # A replay of a file with no cases (the command refuses it now; an older binary did not): zero graded
+        # cases, bar "not judged". Three of them are three runs that answered nothing.
+        empty = {"set": "cases", "cost_usd": 0.0, "cases": {"cases": [], "answered": 0, "model_ok": 0,
+                 "held_elsewhere": 2, "must_total": 0, "must_ok": 0, "bar": None, "pack": "route.v10"}}
+        for live in ("route.v10", "route.v8", None):
+            p = smoke.route_part([smoke.route_run(empty, 1.0)] * 3, None, live=live)
+            self.assertFalse(p["ok"], live)
+            self.assertFalse(p.get("na"), live)
+            self.assertIn("0 of 3 runs answered any case", p["note"])
+
+    def test_a_replay_that_exits_clean_with_no_answer_is_a_fail_not_a_pass(self):
+        # The CLI exits 0 on "bar: not judged" (a breaker tripped, the limit cut every case): the 58 cases
+        # are there and Jev answered none. Three of those must not read as a pass, nor as "n/a until the flip".
+        mute = replay(answered=0, model_ok=0, must_ok=0, bar=None)
+        for live in ("route.v10", "route.v8", None):
+            p = smoke.route_part([smoke.route_run(mute, 1.0)] * 3, None, live=live)
+            self.assertFalse(p["ok"], live)
+            self.assertFalse(p.get("na"), live)
+            self.assertIn("0 of 3 runs answered any case", p["note"])
+
+
 if __name__ == "__main__":
     unittest.main()

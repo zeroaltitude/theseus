@@ -7,8 +7,9 @@
 //!
 //! - **The candidate** is `candidate_of`'s: an embedded version by name, a pack
 //!   file's text, or, when neither is given, the pack the cases file says it
-//!   is written for. A wired version is refused as `replay` refuses it: a
-//!   candidate is one this build does not dispatch.
+//!   is written for. A wired version replays (the flip makes the pack in use
+//!   the one to measure, theseus-8ouns); only a text under a wired name that is
+//!   not the dispatched one is refused. A file with no cases is refused.
 //! - **The run** is [`replay`](super::replay)'s: each call a `judge.call` row
 //!   (`purpose: replay`) scoped `judge.replay:<pack id>`, the run a
 //!   `judge.replay` row in the same frame, priced and reserved against
@@ -152,13 +153,32 @@ impl Core {
             named.candidate = Some(route_cases::declared_pack(text).map_err(anyhow::Error::msg)?);
         }
         let (pack, pack_text) = candidate_of(&named)?;
-        if crate::judge::WIRED.iter().any(|(n, _)| *n == pack.name()) {
+        // A wired version replays by its cases: the run reads no recorded
+        // judgment and names its own pack, so "this build dispatches it" says
+        // nothing of the replay. What stays refused is what `replay` refuses of
+        // an embedded name, wired or not: a text that is not the embedded one,
+        // whose rows would record a name under two texts (and `replay` refuses
+        // the name afterwards).
+        if let Some(e) = theseus_judge::pack::by_name(&pack.name()) {
+            if e.sha256 != pack.sha256 {
+                bail!(
+                    "{} is this build's embedded version, under another text (sha256 {}); give \
+                     the candidate a version of its own",
+                    pack.name(),
+                    e.sha256
+                );
+            }
+        }
+        let set = CaseSet::parse(text, &pack).map_err(anyhow::Error::msg)?;
+        // A run that grades nothing is not a pass: `bar` reads "not judged" for
+        // any set but the design's, and a client that reads only the exit
+        // code would take an empty file for a clean run.
+        if set.cases.is_empty() {
             bail!(
-                "{} is wired: a candidate is a version this build does not dispatch",
+                "the cases file holds no cases: nothing to replay over {}. Nothing was sent.",
                 pack.name()
             );
         }
-        let set = CaseSet::parse(text, &pack).map_err(anyhow::Error::msg)?;
         let id = crate::new_id("rpl");
         let context = json!({"purpose": "replay", "run": id});
         let asks: Vec<_> = set
