@@ -44,8 +44,13 @@ PARTS = ("tb", "route", "recall", "resume", "dm")
 FLOOR_FILE = HERE / "floor.json"
 # How far a release's cost per solved task and its wall may rise over the floor.
 SLACK = 1.30
-# The routing bar of the 1.0.4 cases (spec §4.3): 54 of the 60 on the model, every must.
-CASES_MODEL_BAR = 54
+# The routing bars (the owner, 2026-10-30 16:01: "the bars should all be set to about 80% of the total cases"):
+# each bar is this ratio of ITS OWN count, rounded up, never an integer written down (a fixed 54 is how this part came
+# to gate on a retired bar, theseus-h66v4.4). The replay prints its own bars (`ceil(of * 4 / 5)`, route_cases.rs'
+# `bar_need`) and this part reads the counts from them; the rule is written here again only to catch a replay whose
+# bar is not the owner's.
+BAR_NUM = 4
+BAR_DEN = 5
 RUNS_WANTED = 3
 DM_TURNS = 5
 DM_REPLY_S = 60.0
@@ -194,21 +199,79 @@ def tb_part(rows: list[dict[str, Any]], s: dict[str, Any], floor: dict | None, w
 
 # --- part 2: routing ------------------------------------------------------
 
+def bar_need(of: int) -> int:
+    """The least a bar over `of` cases needs: `of * 4 / 5` rounded up, in integers (route_cases.rs' `bar_need`)."""
+    return -(-of * BAR_NUM // BAR_DEN)
+
+
+def _bar(question: str, ok: int, of: int) -> dict[str, Any]:
+    return {"question": question, "ok": ok, "of": of, "need": bar_need(of)}
+
+
 def route_run(raw: dict[str, Any], wall_s: float) -> dict[str, Any]:
-    """One `theseus --json judge replay --cases` result, as the part reads it. The two
-    pin tests (W39, W40) are daemon tests held elsewhere, and count as met, as the
-    design's 60 does."""
+    """One `theseus --json judge replay --cases` result, as the part reads it.
+
+    The counts come from the replay's own `bars` (one per question it graded, `model` and `must`, each `ok` of `of`
+    with the `need` it computed), so the denominators are the ones the replay reports: its graded cases for the
+    model (the two pins, W39 and W40, are daemon tests outside every denominator), and its `must_total` for the
+    musts: the 13 the cases file holds, not the design's 14 (W40 is asserted by `route_owner.rs`). A replay with no
+    `bars` (a binary before theseus-h66v4.6) is read the same way from its totals."""
     c = raw.get("cases") or {}
-    held = int(c.get("held_elsewhere") or 0)
-    return {"cases": len(c.get("cases") or []), "answered": int(c.get("answered") or 0),
-            "model": int(c.get("model_ok") or 0) + held, "total": len(c.get("cases") or []) + held,
-            "musts": int(c.get("must_total") or 0), "musts_held": int(c.get("must_ok") or 0),
+    graded = len(c.get("cases") or [])
+    bars = [{"question": str(b.get("question") or ""), "ok": int(b.get("ok") or 0), "of": int(b.get("of") or 0),
+             "need": int(b.get("need") or 0)} for b in c.get("bars") or []]
+    if not bars:
+        bars = [_bar("model", int(c.get("model_ok") or 0), graded),
+                _bar("must", int(c.get("must_ok") or 0), int(c.get("must_total") or 0))]
+    by = {b["question"]: b for b in bars}
+    model, must = by.get("model"), by.get("must")
+    return {"cases": graded, "answered": int(c.get("answered") or 0), "bars": bars,
+            "model": model["ok"] if model else 0, "total": model["of"] if model else 0,
+            "musts": must["of"] if must else 0, "musts_held": must["ok"] if must else 0,
             "bar": c.get("bar"), "pack": c.get("pack") or raw.get("candidate"),
             "cost_usd": float(raw.get("cost_usd") or 0), "wall_s": wall_s}
 
 
+def _label(question: str) -> str:
+    return {"model": "on the model", "must": "musts"}.get(question, f"on {question}")
+
+
+def _run_problems(i: int, r: dict[str, Any]) -> list[str]:
+    """What stops run `i` from meeting the owner's bars. A bar over no cases is never met: the empty set holds every
+    "nothing missed" bar, so the positive counts (cases graded, a model bar, musts found) are asserted here."""
+    out = []
+    if not r["cases"]:
+        out.append(f"run {i}: no cases graded")
+    by = {b["question"]: b for b in r["bars"]}
+    if "model" not in by:
+        out.append(f"run {i}: the replay graded no model bar")
+    for q, b in by.items():
+        if not b["of"]:
+            out.append(f"run {i}: no musts in the cases file" if q == "must" else f"run {i}: no cases graded for {q}")
+            continue
+        need = bar_need(b["of"])
+        if b["need"] != need:
+            out.append(f"run {i}: the replay's {q} bar of {b['need']} is not 80% of {b['of']} ({need})")
+        if b["ok"] < need:
+            out.append(f"run {i}: {b['ok']}/{b['of']} {_label(q)} < {need}")
+    if "model" in by and "must" not in by:
+        out.append(f"run {i}: the replay graded no must bar")
+    return out
+
+
+def _worst(real: list[dict[str, Any]], question: str) -> dict[str, Any] | None:
+    """The bar of `question` that came closest to failing across the runs: the fewest right, as a share of its count."""
+    bars = [b for r in real for b in r["bars"] if b["question"] == question and b["of"]]
+    return min(bars, key=lambda b: (b["ok"] / b["of"], b["ok"]), default=None)
+
+
+def _reading(b: dict[str, Any] | None, question: str) -> str:
+    return f"{b['ok']}/{b['of']} {_label(question)}" if b else f"no {question} graded"
+
+
 def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None = None) -> dict[str, Any]:
-    """Three replays of the route cases: each run 54 of 60 on the model, every must.
+    """Three replays of the route cases, each meeting the owner's bars: 80% of its own count, rounded up, on the
+    model (over the cases the replay graded) and on the musts (over the musts it graded).
 
     `live` is the route packs the daemon's ladder acts with (live or canary),
     comma-separated. The cases are written for one pack (route.v10): on a daemon
@@ -219,12 +282,15 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
     real = [r for r in runs if r["cases"] and r["answered"]]
     if len(real) < RUNS_WANTED:
         problems.append(f"{len(real)} of {RUNS_WANTED} runs answered any case")
-    for i, r in enumerate(real):
-        if r["model"] < CASES_MODEL_BAR:
-            problems.append(f"run {i + 1}: {r['model']}/{r['total']} on the model < {CASES_MODEL_BAR}")
-        if r["musts_held"] < r["musts"] or not r["musts"]:
-            problems.append(f"run {i + 1}: {r['musts_held']}/{r['musts']} musts")
-    worst = float(min((r["model"] for r in real), default=0))
+    for i, r in enumerate(real, 1):
+        problems += _run_problems(i, r)
+    for i, r in enumerate(runs, 1):
+        if not r["cases"]:
+            problems.append(f"run {i}: no cases graded")
+    problems = list(dict.fromkeys(problems))
+    wm, wu = _worst(real, "model"), _worst(real, "must")
+    worst = float(wm["ok"]) if wm else 0.0
+    unit = "worst model ok"
     wall = max((r["wall_s"] for r in real), default=0.0)
     fl = (floor or {}).get("route")
     if fl and _over(wall, fl["wall_s"]):
@@ -235,19 +301,19 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
     if not acting or not all(re.fullmatch(r"route\.v\d+", p) for p in acting):
         acting = []
     if acting and cases_pack and cases_pack not in acting and len(real) >= RUNS_WANTED:
-        musts = min((f"{r['musts_held']}/{r['musts']}" for r in real), key=lambda m: int(m.split("/")[0]))
         return {"part": "route", "ok": True, "na": True, "count": len(real), "number": worst,
-                "unit": "worst model/60", "floor": None, "delta": None,
+                "unit": unit, "floor": None, "delta": None,
                 "note": f"n/a until the flip: the daemon routes with {', '.join(acting)}, "
                         f"the cases are {cases_pack}'s; "
-                        f"read {worst:.0f}/60 on the model and {musts} musts at worst, for the record",
+                        f"read {_reading(wm, 'model')} and {_reading(wu, 'must')} at worst, for the record",
                 "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
                 "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}
-    note = (f"{len(real)} runs, worst {worst:.0f}/60 on the model, every must held; the daemon's whole bar met "
-            f"{met}/{len(real)} (it asks effort, context and confidence too)")
+    note = (f"{len(real)} runs, worst {_reading(wm, 'model')} (bar {wm['need'] if wm else 0}) and "
+            f"{_reading(wu, 'must')} (bar {wu['need'] if wu else 0}), each 80% of its own count rounded up; "
+            f"the daemon's whole bar met {met}/{len(real)} (it asks effort and confidence too)")
     if problems:
         note = "; ".join(problems) + f"; the daemon's whole bar met {met}/{len(real)}"
-    return {"part": "route", "ok": not problems, "count": len(real), "number": worst, "unit": "worst model/60",
+    return {"part": "route", "ok": not problems, "count": len(real), "number": worst, "unit": unit,
             "floor": fl.get("model_worst") if fl else None, "delta": None, "note": note,
             "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
             "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}

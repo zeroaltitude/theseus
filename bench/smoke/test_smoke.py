@@ -243,6 +243,17 @@ class RoutePart(unittest.TestCase):
         self.assertIn("40/61 on the model < 49", p["note"])
         self.assertIn("9/13 musts < 11", p["note"])
 
+    def test_the_release_verdict_passes_on_three_runs_that_meet_the_owners_bar_and_fails_on_three_that_miss_it(self):
+        # What the tag gate reads, end to end through smoke.verdict: the READY TO TAG line. A run of 49/61 on the model
+        # and 11/13 on the musts is the owner's bar to the case and was a FAIL under the retired 54 of 60 + every must.
+        others = [part(n, True) for n in smoke.PARTS if n != "route"]
+        meets = smoke.route_part(self.runs(*[replay(model_ok=49, must_ok=11)] * 3), None, live="route.v10")
+        self.assertEqual(smoke.verdict(others + [meets]), "PASS")
+        self.assertEqual((meets["count"], meets["number"]), (3, 49.0))
+        misses = smoke.route_part(self.runs(*[replay(model_ok=48, must_ok=11)] * 3), None, live="route.v10")
+        self.assertEqual(smoke.verdict(others + [misses]), "FAIL (route)")
+        self.assertIn("48/61 on the model < 49", misses["note"])
+
     def test_the_bar_is_the_edge_of_80_percent_rounded_up_of_each_questions_own_count(self):
         self.assertTrue(self.part(*[replay(model_ok=49, must_ok=11)] * 3)["ok"])
         low = self.part(replay(), replay(), replay(model_ok=48))
@@ -327,7 +338,7 @@ class RoutePart(unittest.TestCase):
 
     def test_the_number_is_the_worst_run_on_the_model(self):
         p = smoke.route_part(self.runs(replay(model_ok=56), replay(model_ok=53), replay(model_ok=55)), None)
-        self.assertEqual(p["number"], 55.0)
+        self.assertEqual(p["number"], 53.0)  # no pin credit: 53 of 61
 
     def test_fewer_than_three_runs_or_a_run_with_no_answers_is_a_fail(self):
         self.assertFalse(smoke.route_part(self.runs(replay(), replay()), None)["ok"])

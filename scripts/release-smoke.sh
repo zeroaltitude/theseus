@@ -5,7 +5,7 @@
 #
 #   tb      Terminal-Bench 2.0's smoke slice (bench/smoke/tb-slice.toml): 8 stable tasks and 2 controls, k=1 at HIGH,
 #           4 at once, through the Harbor driver (bench/harbor/run.py), on the candidate's static binaries
-#   route   `theseus judge replay --cases` over route.v10's cases, three runs: 54 of 60 on the model, every must;
+#   route   `theseus judge replay --cases` over route.v10's cases, three runs: the owner's 80% bars, each of its own count;
 #           "n/a until the flip" on a daemon whose ladder routes with another pack (`theseus packs`)
 #   recall  scripts/recall-tests.sh, as the gate runs it
 #   resume  bench/smoke/resume.py: a scratch daemon SIGKILLed mid-tool three times, at $0
