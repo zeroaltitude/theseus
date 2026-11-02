@@ -7,7 +7,7 @@ parts and calls this module to judge each one, write the run's report, and,
 with `--write-floor` only, the floor.
 
     python3 bench/smoke/smoke.py tb RUN_DIR JOB_DIR WALL_S
-    python3 bench/smoke/smoke.py route RUN_DIR [--live PACK] (REPLAY.json WALL_S)...
+    python3 bench/smoke/smoke.py route RUN_DIR [--live PACK] (REPLAY.json WALL_S [--effort EFFORT.json])...
     python3 bench/smoke/smoke.py recall RUN_DIR EXIT SECONDS LOG
     python3 bench/smoke/smoke.py resume RUN_DIR RESUME.json
     python3 bench/smoke/smoke.py dm RUN_DIR DM.json
@@ -208,14 +208,19 @@ def _bar(question: str, ok: int, of: int) -> dict[str, Any]:
     return {"question": question, "ok": ok, "of": of, "need": bar_need(of)}
 
 
-def route_run(raw: dict[str, Any], wall_s: float) -> dict[str, Any]:
+def route_run(raw: dict[str, Any], wall_s: float, effort: dict[str, Any] | None = None) -> dict[str, Any]:
     """One `theseus --json judge replay --cases` result, as the part reads it.
 
     The counts come from the replay's own `bars` (one per question it graded, `model` and `must`, each `ok` of `of`
     with the `need` it computed), so the denominators are the ones the replay reports: its graded cases for the
     model (the two pins, W39 and W40, are daemon tests outside every denominator), and its `must_total` for the
-    musts: the 13 the cases file holds, not the design's 14 (W40 is asserted by `route_owner.rs`). A replay with no
-    `bars` (a binary before theseus-h66v4.6) is read the same way from its totals."""
+    musts: the ones the cases file holds, not the design's 14th (W40 is asserted by `route_owner.rs`). A replay with no
+    `bars` (a binary before theseus-h66v4.6) is read the same way from its totals.
+
+    `effort` is the `effort.v1` replay of the same cases file (`--pack-file effort.v1.toml --cases route.v10.cases.toml`):
+    "Jev chooses the model and effort" is graded at the tag, so its `effort` bar joins this run's bars and is graded
+    like the others. Only that bar is taken, and an `effort` that is missing, or printed none, leaves the run with no
+    effort bar, which `_run_problems` fails."""
     c = raw.get("cases") or {}
     graded = len(c.get("cases") or [])
     bars = [{"question": str(b.get("question") or ""), "ok": int(b.get("ok") or 0), "of": int(b.get("of") or 0),
@@ -223,25 +228,27 @@ def route_run(raw: dict[str, Any], wall_s: float) -> dict[str, Any]:
     if not bars:
         bars = [_bar("model", int(c.get("model_ok") or 0), graded),
                 _bar("must", int(c.get("must_ok") or 0), int(c.get("must_total") or 0))]
+    ec = (effort or {}).get("cases") or {}
+    bars += [{"question": "effort", "ok": int(b.get("ok") or 0), "of": int(b.get("of") or 0),
+              "need": int(b.get("need") or 0)} for b in ec.get("bars") or [] if b.get("question") == "effort"]
     by = {b["question"]: b for b in bars}
     model, must = by.get("model"), by.get("must")
     return {"cases": graded, "answered": int(c.get("answered") or 0), "bars": bars,
             "model": model["ok"] if model else 0, "total": model["of"] if model else 0,
             "musts": must["of"] if must else 0, "musts_held": must["ok"] if must else 0,
             "bar": c.get("bar"), "pack": c.get("pack") or raw.get("candidate"),
-            "cost_usd": float(raw.get("cost_usd") or 0), "wall_s": wall_s}
+            "cost_usd": float(raw.get("cost_usd") or 0) + float((effort or {}).get("cost_usd") or 0),
+            "wall_s": wall_s}
 
 
 def _label(question: str) -> str:
-    return {"model": "on the model", "must": "musts"}.get(question, f"on {question}")
+    return {"model": "on the model", "must": "musts", "effort": "on effort"}.get(question, f"on {question}")
 
 
 def _run_problems(i: int, r: dict[str, Any]) -> list[str]:
     """What stops run `i` from meeting the owner's bars. A bar over no cases is never met: the empty set holds every
     "nothing missed" bar, so the positive counts (cases graded, a model bar, musts found) are asserted here."""
     out = []
-    if not r["cases"]:
-        out.append(f"run {i}: no cases graded")
     by = {b["question"]: b for b in r["bars"]}
     if "model" not in by:
         out.append(f"run {i}: the replay graded no model bar")
@@ -256,6 +263,8 @@ def _run_problems(i: int, r: dict[str, Any]) -> list[str]:
             out.append(f"run {i}: {b['ok']}/{b['of']} {_label(q)} < {need}")
     if "model" in by and "must" not in by:
         out.append(f"run {i}: the replay graded no must bar")
+    if "effort" not in by:
+        out.append(f"run {i}: the replay graded no effort bar (is the effort.v1 replay beside it?)")
     return out
 
 
@@ -269,9 +278,17 @@ def _reading(b: dict[str, Any] | None, question: str) -> str:
     return f"{b['ok']}/{b['of']} {_label(question)}" if b else f"no {question} graded"
 
 
+def _floor_reading(v: Any) -> Any:
+    """A floor's worst reading as the report prints it: `ok/of` (a floor written before the counts were kept holds a
+    bare number, printed as it is)."""
+    return f"{v['ok']}/{v['of']}" if isinstance(v, dict) else v
+
+
 def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None = None) -> dict[str, Any]:
-    """Three replays of the route cases, each meeting the owner's bars: 80% of its own count, rounded up, on the
-    model (over the cases the replay graded) and on the musts (over the musts it graded).
+    """Three runs of the route cases, each meeting the owner's bars: 80% of its own count, rounded up, on the
+    model (over the cases the replay graded), on the musts (over the musts it graded) and on effort within one
+    rung (the `effort.v1` replay of the same cases, theseus-h66v4.4). Work and split are not graded here: whether
+    their packs act in 1.0.4 is an open owner question, and a pack that does not act is "n/a" by the rule below.
 
     `live` is the route packs the daemon's ladder acts with (live or canary),
     comma-separated. The cases are written for one pack (route.v10): on a daemon
@@ -282,16 +299,18 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
     real = [r for r in runs if r["cases"] and r["answered"]]
     if len(real) < RUNS_WANTED:
         problems.append(f"{len(real)} of {RUNS_WANTED} runs answered any case")
-    for i, r in enumerate(real, 1):
-        problems += _run_problems(i, r)
+    # Every note names a run by its place among all of them, answered or not.
     for i, r in enumerate(runs, 1):
         if not r["cases"]:
             problems.append(f"run {i}: no cases graded")
+        elif r["answered"]:
+            problems += _run_problems(i, r)
     problems = list(dict.fromkeys(problems))
-    wm, wu = _worst(real, "model"), _worst(real, "must")
+    wm, wu, we = _worst(real, "model"), _worst(real, "must"), _worst(real, "effort")
     worst = float(wm["ok"]) if wm else 0.0
     unit = "worst model ok"
     wall = max((r["wall_s"] for r in real), default=0.0)
+    worst_bars = {q: {"ok": b["ok"], "of": b["of"]} for q, b in (("model", wm), ("must", wu), ("effort", we)) if b}
     fl = (floor or {}).get("route")
     if fl and _over(wall, fl["wall_s"]):
         problems.append(f"slowest run's wall {wall:.0f} s > {SLACK:.0%} of the floor's {fl['wall_s']:.0f} s")
@@ -302,19 +321,21 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
         acting = []
     if acting and cases_pack and cases_pack not in acting and len(real) >= RUNS_WANTED:
         return {"part": "route", "ok": True, "na": True, "count": len(real), "number": worst,
-                "unit": unit, "floor": None, "delta": None,
+                "unit": unit, "floor": None, "delta": None, "worst": worst_bars,
                 "note": f"n/a until the flip: the daemon routes with {', '.join(acting)}, "
-                        f"the cases are {cases_pack}'s; "
-                        f"read {_reading(wm, 'model')} and {_reading(wu, 'must')} at worst, for the record",
+                        f"the cases are {cases_pack}'s; read {_reading(wm, 'model')}, {_reading(wu, 'must')} "
+                        f"and {_reading(we, 'effort')} at worst, for the record",
                 "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
                 "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}
-    note = (f"{len(real)} runs, worst {_reading(wm, 'model')} (bar {wm['need'] if wm else 0}) and "
-            f"{_reading(wu, 'must')} (bar {wu['need'] if wu else 0}), each 80% of its own count rounded up; "
-            f"the daemon's whole bar met {met}/{len(real)} (it asks effort and confidence too)")
+    note = (f"{len(real)} runs, worst {_reading(wm, 'model')} (bar {wm['need'] if wm else 0}), "
+            f"{_reading(wu, 'must')} (bar {wu['need'] if wu else 0}) and "
+            f"{_reading(we, 'effort')} (bar {we['need'] if we else 0}), each 80% of its own count rounded up; "
+            f"the daemon's whole bar met {met}/{len(real)} (for route.v10 that is the model's, as graded here)")
     if problems:
         note = "; ".join(problems) + f"; the daemon's whole bar met {met}/{len(real)}"
     return {"part": "route", "ok": not problems, "count": len(real), "number": worst, "unit": unit,
-            "floor": fl.get("model_worst") if fl else None, "delta": None, "note": note,
+            "floor": _floor_reading(fl.get("model_worst")) if fl else None, "delta": None, "note": note,
+            "worst": worst_bars,
             "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
             "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}
 
@@ -484,7 +505,10 @@ def floor_from(parts: list[dict[str, Any]], sha: str, date: str, previous: dict 
                        "price_digest": p["price_digest"], "sha": sha, "date": date}
             wrote.append("tb")
         elif p["part"] == "route":
-            f["route"] = {"wall_s": p["slowest_s"], "model_worst": p["number"], "sha": sha, "date": date}
+            # Each worst reading keeps the count it was over: a bare 49 beside a later 52/65 means nothing.
+            w = p.get("worst") or {}
+            f["route"] = {"wall_s": p["slowest_s"], "model_worst": w["model"],
+                          **({"effort_worst": w["effort"]} if w.get("effort") else {}), "sha": sha, "date": date}
             wrote.append("route")
     if not wrote:
         raise SmokeError("no part a floor reads passed, so no floor is written: " + verdict(parts))
@@ -492,6 +516,15 @@ def floor_from(parts: list[dict[str, Any]], sha: str, date: str, previous: dict 
 
 
 # --- the command line -----------------------------------------------------
+
+def _read_json(path: str) -> dict | None:
+    """A replay the shell could not write, or wrote half of, is no replay: the part fails it as a missing bar."""
+    try:
+        v = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    return v if isinstance(v, dict) else None
+
 
 def load_floor() -> dict | None:
     return json.loads(FLOOR_FILE.read_text()) if FLOOR_FILE.exists() else None
@@ -523,7 +556,13 @@ def main(argv: list[str]) -> int:
         live = None
         if rest[:1] == ["--live"]:
             live, rest = rest[1] or None, rest[2:]
-        runs = [route_run(json.loads(Path(x).read_text()), float(w)) for x, w in zip(rest[::2], rest[1::2])]
+        runs = []
+        while rest:
+            replay_json, wall, rest = rest[0], float(rest[1]), rest[2:]
+            effort = None
+            if rest[:1] == ["--effort"]:
+                effort, rest = _read_json(rest[1]), rest[2:]
+            runs.append(route_run(json.loads(Path(replay_json).read_text()), wall, effort))
         return _save(run_dir, route_part(runs, load_floor(), live))
     if cmd == "recall":
         log = Path(rest[2]).read_text() if Path(rest[2]).exists() else ""
