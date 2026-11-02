@@ -109,7 +109,8 @@ async fn jevs_label_fires_the_cue_not_the_words_and_moves_no_prefix_byte() {
 async fn a_split_answer_under_the_bar_does_not_fire_the_cue() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "sonnet", "high", 0.95);
-    split(&jev, "splits_by_area", 0.40);
+    // split.v1's confirm bar is 0.40 (theseus-h66v4.7), so 0.30 is the answer under it.
+    split(&jev, "splits_by_area", 0.30);
     let o = open(&jev, 1, |_| {});
     let r = &o.r;
     let _ = turn(&r.core, None, ASK, None).await;
