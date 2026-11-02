@@ -1788,6 +1788,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     cannot say so (the pin and the config's profile are often one name). With no runtime profile it answers the live
     profile as both with `released` false and writes nothing.
     Tests: `rpc/tests_live_release.rs`, the `profile_release*` goldens.
+  - **`profile.pins` counts every held profile, and `profile.unpin [all]` lets go of them** (theseus-h66v4.2;
+    `rpc/profile_pins.rs`, `theseus profile pins`, `theseus profile unpin [--all]`): a session or a task (a task's own
+    session) is pinned when `session.profile` holds it to a profile, META `session.profile.<id>`. The read walks every
+    session record and answers the pinned counts beside the totals (zero pinned must read differently from zero
+    sessions), each pin's kind and profile, and `configured` false for a hold on a profile the config dropped (still on
+    record, so still counted); a failed read is an error, not a zero (`TurnRunner::held_profile`). `unpin` is `release`
+    and more, never less (`release` is unchanged and stays the owner's pre-flip command): the same live release with its
+    `released` fact carried, and with `all` each hold let go through `session_set_profile`'s own let-go, so each is its
+    own `session.profile_set` row in its own frame and restores the target the session ran on before the hold. The answer
+    is `before`, `cleared`, `failed` and `after`, counted by the read; a hold that cannot be let go (the caller may not
+    choose a session's model, a place that is not private) is named in `failed`, the CLI prints it and exits 1, and
+    `after` still counts it. Not cleared: routing's own `routed.profile` move and the one-turn `route.correct` pending
+    steer (memory only), which are verdicts, not holds. Tests: `rpc/tests_profile_pins.rs` (each asserts N pinned
+    before, N rows, 0 after, and the totals; the pin and the hold on one name are `dq3m1`'s case), the `profile_unpin*`
+    and `profile_pins` goldens.
   - **A pack's own rollback rules win over adoption's** (theseus-ervz9; `ladder/rules.rs::rules_of`): the file's rules,
     then the adoption table's for the pack id that its file does not already declare (the same name, and for a label
     count the same label). route.v10 declares 5 pins a day, so adoption's 3 for every route version no longer arms
