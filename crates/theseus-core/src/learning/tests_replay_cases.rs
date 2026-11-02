@@ -347,3 +347,89 @@ async fn a_limit_under_the_estimate_refuses_the_run_before_any_call() {
     );
     assert!(jev.seen().is_empty());
 }
+
+/// `--cases` as `judge.replay` runs it, with route.v10 wired: `WIRED` is a
+/// const, so the flip's state is given to the run (theseus-8ouns).
+async fn replay_with_v10_wired(
+    c: &std::sync::Arc<crate::rpc::Core>,
+    p: JudgeReplayParams,
+) -> anyhow::Result<JudgeReplayResult> {
+    let (core, rt) = (c.clone(), tokio::runtime::Handle::current());
+    tokio::task::spawn_blocking(move || {
+        core.cases_replay_with(&rt, &p, "cli", "cli", &|n| n == "route.v10")
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wired_pack_is_replayed_by_its_cases_and_counted() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    let c = &r.core;
+    script_all(&jev, |_| None);
+    let out = replay_with_v10_wired(c, params()).await.unwrap();
+    // The positive counts, not only an Ok: a run that graded nothing is no pass.
+    assert_eq!(
+        (out.candidate.as_str(), out.judgments, out.called),
+        ("route.v10", 58, 58)
+    );
+    let cases = out.cases.expect("a cases replay's numbers");
+    assert_eq!((cases.cases.len(), cases.answered), (58, 58));
+    assert_eq!(cases.bar, Some(true));
+    assert_eq!(jev.seen().len(), 58);
+    let rows = c.store.scope_after("judge.replay:route", 0).unwrap();
+    let run = rows
+        .iter()
+        .filter_map(|r| r.decode::<LedgerRow>().ok())
+        .filter(|r| r.kind == "judge.replay")
+        .count();
+    assert_eq!(run, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_text_that_takes_a_wired_versions_name_is_still_refused_with_cases() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    let c = &r.core;
+    let (_, embedded) = theseus_judge::pack::EMBEDDED
+        .iter()
+        .find(|(n, _)| *n == "route.v10")
+        .expect("route.v10 is embedded");
+    let posing = format!("{embedded}\n# a different text under the wired name\n");
+    let e = replay_with_v10_wired(
+        c,
+        JudgeReplayParams {
+            pack_text: Some(posing),
+            ..params()
+        },
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("route.v10 is wired"), "{e}");
+    assert!(jev.seen().is_empty(), "a refused run sent a call");
+    assert!(c.store.scope_after("judge.replay:route", 0).unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cases_file_with_no_cases_is_refused_not_passed() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    let c = &r.core;
+    let header = V10.split("[[case]]").next().unwrap();
+    let e = c
+        .judge_replay(
+            JudgeReplayParams {
+                cases: Some(header.to_string()),
+                ..Default::default()
+            },
+            "cli",
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("no cases"), "{e}");
+    assert!(jev.seen().is_empty());
+    assert!(c.store.scope_after("judge.replay:route", 0).unwrap().is_empty());
+}

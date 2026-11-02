@@ -145,6 +145,21 @@ impl Core {
         who: &str,
         via: &str,
     ) -> anyhow::Result<JudgeReplayResult> {
+        self.cases_replay_with(rt, p, who, via, &|n| {
+            crate::judge::WIRED.iter().any(|(w, _)| *w == n)
+        })
+    }
+
+    /// [`cases_replay`](Self::cases_replay) with which versions are wired
+    /// given, so a test can wire one (`WIRED` is a const).
+    pub(crate) fn cases_replay_with(
+        &self,
+        rt: &tokio::runtime::Handle,
+        p: &JudgeReplayParams,
+        who: &str,
+        via: &str,
+        wired: &dyn Fn(&str) -> bool,
+    ) -> anyhow::Result<JudgeReplayResult> {
         let _rt = rt.enter();
         let text = p.cases.as_deref().context("no cases file was sent")?;
         let mut named = p.clone();
@@ -152,7 +167,7 @@ impl Core {
             named.candidate = Some(route_cases::declared_pack(text).map_err(anyhow::Error::msg)?);
         }
         let (pack, pack_text) = candidate_of(&named)?;
-        if crate::judge::WIRED.iter().any(|(n, _)| *n == pack.name()) {
+        if wired(&pack.name()) {
             bail!(
                 "{} is wired: a candidate is a version this build does not dispatch",
                 pack.name()
