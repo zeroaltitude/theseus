@@ -23,8 +23,9 @@ export function routeLine(route: TurnRoute | undefined, profile: string): string
   // The operator's model, not Jev's verdict (theseus-h66v4.3): `pinFooter`, the route's own `reason` and never the model
   // compared with a default. A turn whose words are already `pinned` (no mode) says it once.
   const pin = pinFooter(route.reason) && what !== 'pinned' ? ' · pinned' : ''
-  // A pinned turn's mode is Jev's read, not a placement, so `Jev: chat` stands without `routed:` (F2).
-  const lead = !who && mode && mode !== route.mode ? '' : 'routed: '
+  // A pinned turn was not routed, so nothing on it is `routed:`: its mode is Jev's read (`Jev: chat`, F2), and with no
+  // mode the line is `pinned · sonnet` (N1). The same rule as Rust's `runtime::route::routed`, decided by `pinFooter`.
+  const lead = !who && pinFooter(route.reason) ? '' : 'routed: '
   return who ? `routed: ${who} · ${what} · ${profile}${from}${pin}` : `${lead}${what} · ${profile}${from}${pin}`
 }
 

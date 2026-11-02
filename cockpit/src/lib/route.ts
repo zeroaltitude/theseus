@@ -54,11 +54,26 @@ export function effortWords(t: TurnRouted): string {
 }
 
 /** The turn chip's head: Jev's mode, or `no verdict`; for a pinned turn `pinned`, with the mode worded as Jev's read
- *  (`pinned · Jev: quick`), since the model was not routed (theseus-h66v4.3). The effort follows in the chip. */
+ *  (`pinned · Jev: quick`), since the model was not routed (theseus-h66v4.3). When Jev also answered an effort that did
+ *  not apply, it folds into that read (`pinned · Jev: quick, high, unsure`) and not a second `Jev:` (N3); `chipEffort`
+ *  is then empty. */
 export function chipHead(t: TurnRouted): string {
   const pin = pinFooter(t.reason)
   if (!pin) return t.mode ?? 'no verdict'
-  return t.mode ? `${pin} · ${modeWords(t.reason, t.mode)}` : pin
+  if (!t.mode) return pin
+  const read = modeWords(t.reason, t.mode)
+  const folded = foldedEffort(t)
+  return `${pin} · ${folded ? `${read}, ${folded}` : read}`
+}
+
+/** What follows the chip's head: the effort in words, unless `chipHead` already carried it. */
+export function chipEffort(t: TurnRouted): string {
+  return pinFooter(t.reason) && t.mode && foldedEffort(t) ? '' : effortWords(t)
+}
+
+/** Jev's effort that did not apply, without its `Jev: ` lead (`high, unsure`): what a pinned chip folds into its read. */
+function foldedEffort(t: TurnRouted): string {
+  return t.effortApplied ? '' : effortWords(t).replace(/^Jev: /, '')
 }
 
 /** The ledger's line for a `route.decided` row: `chat → sonnet (verdict) · effort high (Jev) · waited 12 ms`. */
