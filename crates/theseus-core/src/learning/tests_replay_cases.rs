@@ -374,17 +374,17 @@ async fn an_embedded_pack_is_replayed_by_its_cases_and_counted() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script_all(&jev, |_| None);
+    script(&jev, "route.v10", V10, "model", &nothing);
     let out = c.judge_replay(params(), "cli").await.unwrap();
     // The positive counts, not only an Ok: a run that graded nothing is no pass.
     assert_eq!(
         (out.candidate.as_str(), out.judgments, out.called),
-        ("route.v10", 58, 58)
+        ("route.v10", 61, 61)
     );
     let cases = out.cases.expect("a cases replay's numbers");
-    assert_eq!((cases.cases.len(), cases.answered), (58, 58));
+    assert_eq!((cases.cases.len(), cases.answered), (61, 61));
     assert_eq!(cases.bar, Some(true));
-    assert_eq!(jev.seen().len(), 58);
+    assert_eq!(jev.seen().len(), 61);
     let rows = c.store.scope_after("judge.replay:route", 0).unwrap();
     let run = rows
         .iter()
@@ -464,7 +464,7 @@ async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script_all(&jev, |_| None);
+    script(&jev, "route.v10", V10, "model", &nothing);
     let (_, embedded) = theseus_judge::pack::EMBEDDED
         .iter()
         .find(|(n, _)| *n == "route.v10")
@@ -479,6 +479,6 @@ async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
         )
         .await
         .unwrap();
-    assert_eq!((out.judgments, out.called), (58, 58));
-    assert_eq!(out.cases.expect("a cases replay's numbers").answered, 58);
+    assert_eq!((out.judgments, out.called), (61, 61));
+    assert_eq!(out.cases.expect("a cases replay's numbers").answered, 61);
 }
