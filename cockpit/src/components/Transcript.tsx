@@ -15,7 +15,7 @@ import type { TurnRow } from '@/lib/derive'
 import { inspectCallHref, inspectMsgHref } from '@/lib/explorer'
 import { fallbackLine } from '@/lib/fallback'
 import { nudgeLine } from '@/lib/nudge'
-import { effortWords, type TurnRouted } from '@/lib/route'
+import { chipHead, effortWords, type TurnRouted } from '@/lib/route'
 import { byteWords, callSummary, diffLines, l1Words, looksLikeDiff, resultWords, wireToName } from '@/lib/toolwords'
 import { JsonView } from './JsonView'
 import { LiveDot, Pill } from './ui'
@@ -337,12 +337,12 @@ function AssistantItem({ n, cites, away }: { n: NodeInfo; cites?: Citation[]; aw
 }
 
 /** How routing placed the turn (`route.decided`): Jev's mode, and the effort it set or why it stood aside (route.v3,
- *  theseus-qe3v). */
+ *  theseus-qe3v); `pinned` first when the model was the operator's (theseus-h66v4.3), in the chip and not only the tooltip. */
 function TurnRoute({ r }: { r: TurnRouted }) {
   const effort = effortWords(r)
   return (
     <span className="num text-[11px] text-ink-faint" title={`routing: ${r.reason}`}>
-      {r.mode ?? 'no verdict'}{effort && <> · <span className={r.effortApplied ? 'text-think' : undefined}>{effort}</span></>}
+      {chipHead(r)}{effort && <> · <span className={r.effortApplied ? 'text-think' : undefined}>{effort}</span></>}
     </span>
   )
 }
