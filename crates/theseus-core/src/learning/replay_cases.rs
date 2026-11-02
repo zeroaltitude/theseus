@@ -125,7 +125,11 @@ fn report(pack: &theseus_judge::Pack, graded: &[Graded]) -> ReplayCases {
         raw_effort_close: t.raw_effort_close,
         raw_work_ok: t.raw_work_ok,
         raw_split_ok: t.raw_split_ok,
-        held_elsewhere: route_cases::PINNED,
+        // The two pins are the model file's: a work or split file holds none.
+        held_elsewhere: match t.asked.iter().any(|q| q == "model" || q == "effort") {
+            true => route_cases::PINNED,
+            false => 0,
+        },
         bar: t.bar,
     }
 }

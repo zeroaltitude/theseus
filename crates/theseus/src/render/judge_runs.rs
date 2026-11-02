@@ -273,13 +273,17 @@ fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
             if b.met { "met" } else { "NOT met" }
         ));
     }
-    out.push(match c.bar {
-        Some(met) => format!(
-            "bars of this run ({} W39 and W40 are the daemon's tests, outside every denominator): {}",
-            c.held_elsewhere,
+    out.push(match (c.bar, c.held_elsewhere) {
+        // A run whose cases file holds no pin has none to name (work and split).
+        (Some(met), 0) => format!(
+            "bars of this run: {}",
             if met { "all met" } else { "NOT all met" }
         ),
-        None => "bar: not judged (this run graded no question; read the counts)".to_string(),
+        (Some(met), n) => format!(
+            "bars of this run ({n} W39 and W40 are the daemon's tests, outside every denominator): {}",
+            if met { "all met" } else { "NOT all met" }
+        ),
+        (None, _) => "bar: not judged (this run graded no question; read the counts)".to_string(),
     });
     out.extend(
         r.left_out
@@ -612,6 +616,27 @@ mod tests {
         assert!(judge_replay_lines(&r)
             .iter()
             .any(|l| l.starts_with("bar: not judged (this run graded no question")));
+    }
+
+    /// A run over a cases file with no pin in it (work, split) does not name the two the model
+    /// file's tests hold elsewhere (theseus-h66v4.6 fix pass).
+    #[test]
+    fn a_run_with_no_pin_cases_does_not_name_the_pins() {
+        let r = JudgeReplayResult {
+            id: "rpl_1".into(),
+            candidate: "split.v1".into(),
+            candidate_sha256: "abcdef0123456789".into(),
+            cases: Some(ReplayCases {
+                pack: "split.v1".into(),
+                held_elsewhere: 0,
+                bar: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let lines = judge_replay_lines(&r);
+        assert!(lines.iter().any(|l| l == "bars of this run: NOT all met"));
+        assert!(!lines.iter().any(|l| l.contains("W39")), "{lines:?}");
     }
 
     /// A pick under the confirm bar says so: the line names the question, what

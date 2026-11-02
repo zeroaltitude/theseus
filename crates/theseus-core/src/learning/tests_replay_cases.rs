@@ -158,6 +158,12 @@ async fn effort_work_and_split_are_each_replayed_over_their_own_labels() {
         );
         assert_eq!((cases.bars.len(), cases.bar), (1, Some(true)), "{pack}");
         assert_eq!(cases.under_effort + cases.under_work + cases.under_split, 0);
+        // The two pins are the model file's: the effort run over it names them, work and split do not.
+        assert_eq!(
+            cases.held_elsewhere,
+            if pack == "effort.v1" { 2 } else { 0 },
+            "{pack}"
+        );
     }
     // split.v1 is wired (in shadow), and a cases run still replays it: it names no incumbent.
     assert!(crate::judge::WIRED.iter().any(|(n, _)| *n == "split.v1"));
