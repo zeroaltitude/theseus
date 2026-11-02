@@ -409,7 +409,11 @@ async fn a_text_that_takes_a_wired_versions_name_is_still_refused_with_cases() {
     .to_string();
     assert!(e.contains("route.v10 is wired"), "{e}");
     assert!(jev.seen().is_empty(), "a refused run sent a call");
-    assert!(c.store.scope_after("judge.replay:route", 0).unwrap().is_empty());
+    assert!(c
+        .store
+        .scope_after("judge.replay:route", 0)
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -431,5 +435,9 @@ async fn a_cases_file_with_no_cases_is_refused_not_passed() {
         .to_string();
     assert!(e.contains("no cases"), "{e}");
     assert!(jev.seen().is_empty());
-    assert!(c.store.scope_after("judge.replay:route", 0).unwrap().is_empty());
+    assert!(c
+        .store
+        .scope_after("judge.replay:route", 0)
+        .unwrap()
+        .is_empty());
 }
