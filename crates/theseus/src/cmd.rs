@@ -15,10 +15,9 @@ use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, J
 use theseus_protocol::{
     method, notify, CatalogListResult, ConfirmListResult, Event, HealthResult, LedgerTailParams,
     LedgerTailResult, Message, ProfileListResult, ProfilePinsResult, ProfileReleaseResult,
-    ProfileUnpinParams, ProfileUnpinResult, ProfileUseParams,
-    SessionHistoryParams, SessionHistoryResult, SessionListParams, SessionListResult,
-    SessionOpenParams, SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams,
-    TurnSubmitResult,
+    ProfileUnpinParams, ProfileUnpinResult, ProfileUseParams, SessionHistoryParams,
+    SessionHistoryResult, SessionListParams, SessionListResult, SessionOpenParams,
+    SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
 };
 
 use crate::pages::PageArgs;
@@ -1716,7 +1715,11 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
             );
         }
         for f in &r.failed {
-            println!("not let go: {} ({})", render::short_id(&f.session_id), f.error);
+            println!(
+                "not let go: {} ({})",
+                render::short_id(&f.session_id),
+                f.error
+            );
         }
         println!("{}", pinned_line("after", &r.after));
         if !r.all && !r.after.pins.is_empty() {

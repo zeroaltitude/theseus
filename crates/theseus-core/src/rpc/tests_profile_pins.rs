@@ -12,9 +12,9 @@ use theseus_protocol::ops::SessionProfileParams;
 use theseus_protocol::{ProfilePinsResult, ProfileUnpinResult, SessionKind};
 
 use super::Core;
-use crate::rpc::Parts;
 use crate::approval::{Client, Surface};
 use crate::provider::FakeProvider;
+use crate::rpc::Parts;
 use crate::session::{SessionRecord, TaskOf};
 use crate::store::Store;
 use crate::test_support::{owner_cli, rows, stranger};
@@ -23,7 +23,12 @@ use crate::Config;
 fn core_on(store: Store) -> Arc<Core> {
     let mut c = Config::example();
     c.serve_glm_unrestricted();
-    Core::build(Parts::for_tests(c, Arc::new(FakeProvider::default()), store)).unwrap()
+    Core::build(Parts::for_tests(
+        c,
+        Arc::new(FakeProvider::default()),
+        store,
+    ))
+    .unwrap()
 }
 
 fn core() -> Arc<Core> {
@@ -114,7 +119,11 @@ async fn pins(core: &Arc<Core>) -> ProfilePinsResult {
 
 async fn unpin(core: &Arc<Core>, all: bool) -> ProfileUnpinResult {
     let r = wire(core, Surface::Cli, "profile.unpin", json!({"all": all})).await;
-    serde_json::from_value(r.result.unwrap_or_else(|| panic!("an answer: {:?}", r.error))).unwrap()
+    serde_json::from_value(
+        r.result
+            .unwrap_or_else(|| panic!("an answer: {:?}", r.error)),
+    )
+    .unwrap()
 }
 
 /// Two conversations and two tasks held, one of each left alone (and a parent conversation for each task): the read counts the pinned and the
@@ -212,7 +221,11 @@ async fn unpin_all_lets_go_of_every_hold_and_writes_a_row_for_each() {
     assert_eq!(r.cleared.len(), 4, "{r:?}");
     assert!(r.failed.is_empty(), "{r:?}");
     assert_eq!(
-        (r.after.pinned_sessions, r.after.pinned_tasks, r.after.pins.len()),
+        (
+            r.after.pinned_sessions,
+            r.after.pinned_tasks,
+            r.after.pins.len()
+        ),
         (0, 0, 0)
     );
     // The totals did not move: nothing was deleted to get to zero.
@@ -222,8 +235,14 @@ async fn unpin_all_lets_go_of_every_hold_and_writes_a_row_for_each() {
     assert_eq!(all.len() - before_rows, 4, "one row each: {all:?}");
     assert_eq!(lets_go.len(), 4, "{all:?}");
     for sid in ses.iter().chain(tasks.iter()) {
-        let row = lets_go.iter().find(|d| d["session_id"] == json!(sid)).unwrap();
-        assert!(row["from"].is_string(), "the row names what it let go: {row}");
+        let row = lets_go
+            .iter()
+            .find(|d| d["session_id"] == json!(sid))
+            .unwrap();
+        assert!(
+            row["from"].is_string(),
+            "the row names what it let go: {row}"
+        );
         assert_eq!(held(&core, sid), Value::Null, "{sid} is let go");
     }
     let again = pins(&core).await;
@@ -263,10 +282,19 @@ async fn a_pin_on_the_same_name_as_the_config_is_still_cleared_and_said_so() {
     let core = core();
     let s = session(&core);
     hold(&core, &s, "sonnet");
-    let used = wire(&core, Surface::Cli, "profile.use", json!({"name": "sonnet"})).await;
+    let used = wire(
+        &core,
+        Surface::Cli,
+        "profile.use",
+        json!({"name": "sonnet"}),
+    )
+    .await;
     assert!(used.error.is_none());
     let first = unpin(&core, true).await;
-    assert_eq!((first.previous.as_str(), first.live.as_str()), ("sonnet", "sonnet"));
+    assert_eq!(
+        (first.previous.as_str(), first.live.as_str()),
+        ("sonnet", "sonnet")
+    );
     assert!(first.released, "{first:?}");
     assert_eq!(first.cleared.len(), 1, "{first:?}");
     assert_eq!(first.cleared[0].profile, "sonnet");
@@ -274,7 +302,10 @@ async fn a_pin_on_the_same_name_as_the_config_is_still_cleared_and_said_so() {
     assert_eq!(first.after.pins.len(), 0);
     assert_eq!(held(&core, &s), Value::Null);
     let second = unpin(&core, true).await;
-    assert_eq!((second.previous.as_str(), second.live.as_str()), ("sonnet", "sonnet"));
+    assert_eq!(
+        (second.previous.as_str(), second.live.as_str()),
+        ("sonnet", "sonnet")
+    );
     assert!(!second.released, "{second:?}");
     assert!(second.cleared.is_empty(), "{second:?}");
     assert_eq!((second.before.sessions, second.before.pins.len()), (1, 0));
@@ -338,7 +369,13 @@ async fn unpin_all_from_a_surface_that_is_not_private_fails_each_hold_visibly() 
     rig(&core);
     let used = wire(&core, Surface::Cli, "profile.use", json!({"name": "glm"})).await;
     assert!(used.error.is_none());
-    let resp = wire(&core, Surface::Unnamed, "profile.unpin", json!({"all": true})).await;
+    let resp = wire(
+        &core,
+        Surface::Unnamed,
+        "profile.unpin",
+        json!({"all": true}),
+    )
+    .await;
     let r: ProfileUnpinResult = serde_json::from_value(
         resp.result
             .unwrap_or_else(|| panic!("an answer: {:?}", resp.error)),
