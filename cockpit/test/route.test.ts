@@ -2,7 +2,7 @@
 // route.v3's effort, applied, clamped, or recorded with why it stood aside (theseus-qe3v). Invented ids.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chipHead, effortWords, pinFooter, routedOf, routeLine } from '../src/lib/route.ts'
+import { chipEffort, chipHead, effortWords, pinFooter, routedOf, routeLine } from '../src/lib/route.ts'
 
 const row = (data: Record<string, unknown>) =>
   ({ position: 1, at_unix_ms: 1, kind: 'route.decided', session_id: 'ses_a', turn_id: 'turn_a', data }) as any
@@ -61,4 +61,22 @@ test("a turn chip says a model was pinned, by its reason and never by its model 
   // No verdict on an unpinned turn is Jev's silence; on a pinned one Jev was not asked, so it says only the pin.
   assert.equal(chipHead({ reason: 'no_verdict', from: 'sonnet', profile: 'sonnet' }), 'no verdict')
   assert.equal(chipHead({ reason: 'pinned', from: 'sonnet', profile: 'sonnet' }), 'pinned')
+})
+
+test('a pinned turn says "Jev:" once in its chip, however much Jev answered (theseus-h66v4.3, N3)', () => {
+  const t = { mode: 'quick', reason: 'pinned', from: 'sonnet', profile: 'sonnet', effort: 'high', effortReason: 'not_applied' }
+  assert.equal(chipHead(t), 'pinned · Jev: quick, high, not applied')
+  assert.equal(chipEffort(t), '')
+  // An unpinned turn keeps its two words: the mode, then Jev's effort and why it stood aside.
+  const u = { ...t, reason: 'verdict' }
+  assert.equal(chipHead(u), 'quick')
+  assert.equal(chipEffort(u), 'Jev: high, not applied')
+  // A pinned turn whose effort applied has no second "Jev:" to fold: the effort stays its own part.
+  const a = { mode: 'quick', reason: 'pinned', from: 'sonnet', profile: 'sonnet', effort: 'high', effortApplied: 'high' }
+  assert.equal(chipHead(a), 'pinned · Jev: quick')
+  assert.equal(chipEffort(a), 'effort high (Jev)')
+  // A pinned turn with no mode has nothing to fold into: the effort stays as it was.
+  const n = { reason: 'pinned', from: 'sonnet', profile: 'sonnet', effort: 'high', effortReason: 'not_applied' }
+  assert.equal(chipHead(n), 'pinned')
+  assert.equal(chipEffort(n), 'Jev: high, not applied')
 })
