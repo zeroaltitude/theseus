@@ -2191,8 +2191,11 @@ mod tests {
             !crate::names::names_an_old_name(template, &mut Default::default()),
             "the template names an old name"
         );
-        // The directory, not `EMBEDDED`: a case file beside a pack is no pack, and
-        // is where two names got through (theseus-ev3ir).
+        // The directory, not `EMBEDDED`: a case file beside a pack is no pack, and it is where two
+        // names got through (theseus-ev3ir). That is the LOCATION: neither of those two names is one this
+        // test's name sets match (they are the template's three organisations and `names::OLD`'s digests).
+        // The name scrub the gate runs over a branch's added lines (`scripts/scrub-added.sh`) is what holds
+        // the configured and vault names; this test holds the public-safety floor over the whole directory.
         let packs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs");
         for (name, text) in swept_texts(&packs) {
             assert_eq!(hits(&text, &names), Vec::<String>::new(), "{name}");
@@ -2201,18 +2204,28 @@ mod tests {
         assert_eq!(hits(&planted, &names), ["examplecorp"]);
     }
 
-    /// The text of every `.toml` in the packs directory: a pack, its cases,
-    /// anything put beside them (theseus-ev3ir).
+    /// The text of every file under the packs directory, subdirectories and any extension
+    /// included: a pack, its cases, anything put beside them or below them (theseus-ev3ir). Named
+    /// by the path relative to `dir`.
     fn swept_texts(dir: &std::path::Path) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = std::fs::read_dir(dir)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|x| x == "toml"))
-            .map(|path| {
-                let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-                (name, std::fs::read_to_string(&path).unwrap())
-            })
-            .collect();
+        fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(root, &path, out);
+                } else {
+                    let name = path
+                        .strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned();
+                    let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
+                    out.push((name, text));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(dir, dir, &mut out);
         out.sort();
         out
     }
@@ -2220,16 +2233,17 @@ mod tests {
     /// A `.cases.toml` is a case file, not a pack, so it is not in
     /// `EMBEDDED`: two sensitive names reached public refs in one, and the
     /// pack-text test never read it (theseus-ev3ir). The sweep reads the
-    /// directory, and a fake name planted in a new file there is found.
+    /// directory, and a fake name planted in a new file there is found, in a
+    /// subdirectory and in a file that is no `.toml` too.
     #[test]
     fn a_cases_file_beside_the_packs_is_swept() {
         let dir = std::env::temp_dir().join(format!("theseus-ev3ir-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("zz.cases.toml"),
-            "[[case]]\nlabel = \"ExampleCorp's private plans\"\n",
-        )
-        .unwrap();
+        std::fs::create_dir_all(dir.join("cases")).unwrap();
+        let planted = "[[case]]\nlabel = \"ExampleCorp's private plans\"\n";
+        for file in ["zz.cases.toml", "cases/nested.cases.toml", "notes.md"] {
+            std::fs::write(dir.join(file), planted).unwrap();
+        }
+        std::fs::write(dir.join("clean.toml"), "label = \"nothing\"\n").unwrap();
         let names = vec!["examplecorp".to_string()];
         let texts = swept_texts(&dir);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2238,28 +2252,32 @@ mod tests {
             .filter(|(_, text)| !hits(text, &names).is_empty())
             .map(|(name, _)| name.as_str())
             .collect();
-        assert_eq!(found, ["zz.cases"], "the planted name was not found");
+        assert_eq!(
+            found,
+            ["cases/nested.cases.toml", "notes.md", "zz.cases.toml"],
+            "the planted name was not found everywhere it was put"
+        );
     }
 
-    /// The real packs directory: every `.toml` in it is swept (the count is
-    /// asserted, so an empty sweep cannot pass), and none names the template's
-    /// organisations or one of the old names held as digests.
+    /// The real packs directory: the sweep reads every embedded pack (byte for byte), and at
+    /// least one case file, so it is not an empty or a pack-only sweep; and nothing in it names
+    /// the template's organisations or one of the old names held as digests.
     #[test]
     fn the_packs_directory_names_no_organisation() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs");
-        let on_disk = std::fs::read_dir(&dir)
-            .unwrap()
-            .filter(|e| {
-                let path = e.as_ref().unwrap().path();
-                path.extension().is_some_and(|x| x == "toml")
-            })
-            .count();
         let texts = swept_texts(&dir);
+        for (name, text) in EMBEDDED {
+            let swept = texts.iter().find(|(n, _)| n == &format!("{name}.toml"));
+            assert_eq!(
+                swept.map(|(_, t)| t.as_str()),
+                Some(*text),
+                "the sweep does not hold the embedded pack {name}"
+            );
+        }
         assert!(
-            on_disk > EMBEDDED.len(),
-            "no file beside the packs to sweep"
+            texts.iter().any(|(n, _)| n.ends_with(".cases.toml")),
+            "the sweep reads no case file"
         );
-        assert_eq!(texts.len(), on_disk, "the sweep missed a file in packs/");
         let names = [
             "examplecorp",
             "examplecorpinc",
