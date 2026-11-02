@@ -478,6 +478,48 @@ async fn an_open_task_follows_a_cheaper_verdict_down_at_once() {
     assert!(down - up >= 3, "up for the loops between: {models:?}");
 }
 
+/// A task's brief and each checkpoint ask the work question beside the model and the effort
+/// (theseus-h66v4.6 fix pass, F5). The work label is what gives a turn the Deep tier, the coding
+/// hint and the narrow reads; a task turn that never asked it got none of them, where route.v8's
+/// `deep_coding` task brief got all three. A task's message is its parent's brief, so the split
+/// question is not asked of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_task_asks_the_work_question_at_its_brief_and_each_checkpoint() {
+    let t = task_with_open(
+        loops(12, 0),
+        None,
+        |_| {},
+        |j| {
+            on_trigger_pick(j, "failing: 3 failed", "sonnet");
+            on_trigger_pick(j, "failing: 7 failed", "haiku");
+        },
+    )
+    .await;
+    let asked = |q: &str| {
+        t.jev
+            .seen()
+            .iter()
+            .filter(|s| {
+                s.body["questions"]
+                    .as_object()
+                    .is_some_and(|m| m.keys().any(|k| k == q))
+            })
+            .count()
+    };
+    let (model, effort, work) = (
+        asked("route.v8/model"),
+        asked("effort.v1/effort"),
+        asked("work.v1/work"),
+    );
+    assert!(model >= 2, "the brief and a checkpoint at least: {model}");
+    assert!(effort >= 2, "the effort beside the model: {effort}");
+    assert!(
+        work >= 2,
+        "the work label beside the model, at the brief and at a checkpoint: {work}"
+    );
+    assert_eq!(asked("split.v1/split"), 0, "a task's message is no ask to divide");
+}
+
 /// Nothing is a floor: a trivial verdict takes a task whose brief picked
 /// Sonnet below it, to the profile the verdict names.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

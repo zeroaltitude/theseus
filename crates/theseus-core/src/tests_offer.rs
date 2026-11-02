@@ -158,6 +158,28 @@ async fn a_trivial_or_quick_turn_offers_nothing() {
     }
 }
 
+/// The seventh dark reader (theseus-h66v4.9, taken in the h66v4.6 fix pass): the exemption read
+/// route.v8's `trivial` and `quick` class names off the verdict's `mode`. Under route.v10 that word
+/// is the model Jev picked, no class, and nothing in the three packs says "short": `work.v1`'s
+/// `conversation` is a label for a lot of substantive talk, and exempting it would lose the offers
+/// the owner's own "we should ... later" messages earn. So the exemption is retired under v10,
+/// on purpose, and what guards a "thanks" after a long exchange is `classify.v3`'s act bar. A model
+/// pick whose name is a class's (the fixture's `quick` is not a model) is no exemption either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn under_route_v10_a_turn_is_never_exempt_by_a_class_name() {
+    let jev = FakeJev::start().unwrap();
+    offer(&jev, 0.95);
+    crate::tests_route_open::says(&jev, "haiku", "low", 0.95);
+    let r = rig(&jev, crate::tests_judge::texts(1), true);
+    r.core
+        .runner
+        .judge
+        .stand_in("route.v8", crate::tests_route_open::open_pack());
+    let body = reply(&r, "dm:42", LATER).await;
+    assert_eq!(body["result"]["route"]["mode"], "haiku", "{body}");
+    assert_eq!(body["offer"], json!({"brief": LATER}), "{body}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_message_in_a_shared_place_offers_nothing() {
     let jev = FakeJev::start().unwrap();
