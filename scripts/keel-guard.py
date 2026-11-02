@@ -93,7 +93,8 @@ The rules, by the name the report and the ack use:
                   The same for the sealed scorer's code, its runner and relay, and the exam set (theseus-pw1q.21.2):
                   the files of KEEL_FILES after the guard's three (`sealed::KEEL_PATHS` in theseus-core lists them
                   too, and a Rust test holds the lists together) and any file under KEEL_PREFIXES
-                  (crates/theseus-exam/exam/); there a file added is a finding too.
+                  (crates/theseus-exam/exam/); there a file added is a finding too. The last two of KEEL_FILES are the
+                  name scrub's driver and tests (theseus-ev3ir), not the sealed set's.
   sealed-reach    an added line, in a Rust file outside those and outside cfg(test) code, that names the sealed set:
                   `sealed_dir`, `.sealed.dir` (`[self.sealed] dir`), `sealed::` or `Sealed::`. Defence in depth (L1 is
                   the boundary for a candidate's code): how a self branch linked into the daemon could read the set.
@@ -130,6 +131,10 @@ KEEL_FILES = (
     "crates/theseus-core/src/config/self_improve.rs",
     "crates/theseus-core/src/rsi/sealed/tests.rs",
     "crates/theseus-core/src/rsi/sealed/tests_reach.rs",
+    # The name scrub's driver and its tests (theseus-ev3ir): a branch that edits the scrub it is judged by weakens its
+    # own gate. Not sealed::KEEL_PATHS: the gate also takes main's copy of the driver, so this is the second lock.
+    "scripts/scrub-added.sh",
+    "scripts/test_scrub_added.py",
 )
 KEEL_PREFIXES = ("crates/theseus-exam/exam/",)
 GUARD_ITSELF = KEEL_FILES[:3]

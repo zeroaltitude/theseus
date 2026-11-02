@@ -235,7 +235,7 @@ class GatePhase(unittest.TestCase):
 
     def gate(self, s, **extra):
         src = open(GATE, encoding="utf-8").read()
-        funcs = "\n".join(extract(src, n) for n in ("keel_main", "phase", "scrub_added"))
+        funcs = "\n".join(extract(src, n) for n in ("phase", "scrub_added"))
         script = (f'set -euo pipefail\n{funcs}\nphase_names=(); phase_secs=(); phase_label=""; '
                   'gate_tmp=$(mktemp -d); trap \'rm -rf "$gate_tmp"\' EXIT\n'
                   'phase scrub scrub_added\necho "TABLE: ${phase_names[*]}"\n')

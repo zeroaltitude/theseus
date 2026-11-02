@@ -140,12 +140,15 @@ phase_secs=()
 phase_now=""
 phase_began=0
 summary_printed=""
+# A phase that passed may name how, in the table: `scrub ok` and `scrub skipped` read differently at a glance.
+phase_label=""
 phase() {
   phase_now="$1"
   phase_began=$SECONDS
+  phase_label=""
   shift
   "$@"
-  phase_names+=("$phase_now")
+  phase_names+=("${phase_label:-$phase_now}")
   phase_secs+=("$((SECONDS - phase_began))")
   phase_now=""
 }
@@ -551,24 +554,49 @@ keel_tests() {
 
 # The name scrub over what the branch adds (theseus-ev3ir): a `.cases.toml` is a case file, not a pack, so the pack-text
 # test never read the one two sensitive names got through in. The scrubber is outside the repo (its patterns are the
-# names; see scripts/scrub-added.sh), so a host without it fails here and says so, and a deliberate skip is
-# THESEUS_GATE_NO_SCRUB=1, printed. The scripts' own tests run first, so a scrubber that stopped finding a planted
-# fake name fails this phase and not just the next branch's review. The base is the merge base of origin/main and HEAD (a staged
-# join merge is judged whole, as a working-tree diff), and a branch that adds nothing has nothing to scan: exit 3 is that, and only here.
+# names; see scripts/scrub-added.sh), and only the WSL host has it. Where it is PRESENT the phase runs and must pass;
+# where it is ABSENT (the daemon's L1 self-build view, the ARM and cloud hosts) the phase SKIPS LOUDLY and the gate
+# goes on, and the table says `scrub skipped`: a join gate showing that is not evidence for a push. The guard is the
+# scrub the conductor runs at the JOIN on the WSL host (scripts/scrub-branch.sh), over the staged merge; this phase is
+# the convenience that catches a hit earlier. THESEUS_GATE_NO_SCRUB=1 skips it by choice (the ARM runner sets it).
+# The judge is MAIN's scripts/scrub-added.sh when main has one (as the guard phase takes main's copy): a branch that edits
+# the driver is not judged by its own copy. The base is the merge base of origin/main and HEAD; a staged join merge is
+# judged whole, as a working-tree diff. A tree that adds nothing (main's own tip) has nothing to scan: exit 3, accepted.
+# The exit code is read with `|| code=$?`, because under errexit a bare call stops the gate before `$?` is read.
 scrub_added() {
+  local code=0 driver=scripts/scrub-added.sh main
   if [ -n "${THESEUS_GATE_NO_SCRUB:-}" ]; then
-    echo "scrub: SKIPPED (THESEUS_GATE_NO_SCRUB): the added lines were NOT scrubbed for names"
+    echo "gate: scrub SKIPPED (THESEUS_GATE_NO_SCRUB) — the added lines were NOT scrubbed for names; a join must be gated on the WSL host"
+    phase_label="scrub skipped"
     return 0
   fi
-  local code
-  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_scrub_added.py || return 1
-  scripts/scrub-added.sh
-  code=$?
-  if [ "$code" -eq 3 ]; then
-    echo "scrub: nothing added since the merge base of origin/main: nothing to scan"
-    return 0
+  main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
+  if [ -n "$main" ] && git cat-file -e "$main:scripts/scrub-added.sh" 2>/dev/null; then
+    git show "$main:scripts/scrub-added.sh" >"$gate_tmp/scrub-added.sh"
+    driver="$gate_tmp/scrub-added.sh"
   fi
+  bash "$driver" || code=$?
+  case "$code" in
+    0) phase_label="scrub ok" ;;
+    3)
+      echo "gate: scrub: nothing added since the merge base of origin/main: nothing to scan"
+      phase_label="scrub empty"
+      code=0
+      ;;
+    4)
+      echo "gate: scrub SKIPPED — no scrubber on this host: the added lines were NOT scrubbed for names; a join must be gated on the WSL host, where it is"
+      phase_label="scrub skipped"
+      code=0
+      ;;
+  esac
   return "$code"
+}
+# The phase: the driver, then the driver's own tests (a scrubber that stopped finding a planted fake name fails here,
+# not just at the next branch's review), which need the scrubber too, so a skipped phase runs neither.
+scrub_phase() {
+  scrub_added
+  [ "$phase_label" != "scrub skipped" ] || return 0
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_scrub_added.py
 }
 
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
@@ -826,7 +854,7 @@ phase "keel tests" keel_tests
 phase fmt cargo fmt --all -- --check
 # Names a branch adds, before the heavy compiles: it fails in seconds (theseus-ev3ir). After fmt, which is the
 # phase the guard's own gate tests expect to fail next in a throwaway repository.
-phase scrub scrub_added
+phase scrub scrub_phase
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
