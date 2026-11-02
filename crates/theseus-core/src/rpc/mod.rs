@@ -89,6 +89,7 @@ mod server;
 mod session_dir;
 mod session_find;
 mod session_profile;
+mod profile_pins;
 mod sessions;
 mod standing;
 mod standing_proposals;
