@@ -168,8 +168,11 @@ impl Core {
     ) -> Result<ProfileUnpinResult, RpcFailure> {
         // `release` first: one hold that cannot be read must not keep the live pin from going, as it does
         // not for `release`. The read fails after, and says the pin is released.
+        let (was, was_source) = self.live_profile();
         let live = self.profile_release(conn)?;
-        let before = self.profile_pins().map_err(|e| self.unread(&live, e))?;
+        let mut before = self.profile_pins().map_err(|e| self.unread(&live, e))?;
+        // The live half of `before` is as it stood when the call came, not as the release left it.
+        (before.live, before.live_source) = (was, was_source);
         let (cleared, failed) = match p.all {
             true => self.unpin_holds(&conn.answerer(None, None)),
             false => (vec![], vec![]),

@@ -2,6 +2,6 @@ $ theseus --json profile unpin --all
 --- requests
 profile.unpin
 --- stdout
-{"after":{"live":"quick","live_source":"config","pinned_sessions":0,"pinned_tasks":0,"pins":[],"sessions":5,"tasks":3},"all":true,"before":{"live":"quick","live_source":"config","pinned_sessions":1,"pinned_tasks":1,"pins":[{"configured":true,"kind":"session","profile":"quick","session_id":"ses_q7f3k2"},{"configured":false,"kind":"task","profile":"gone","session_id":"ses_tasktasktask01"}],"sessions":5,"tasks":3},"by":"the CLI","cleared":[{"configured":true,"kind":"session","profile":"quick","session_id":"ses_q7f3k2"},{"configured":false,"kind":"task","profile":"gone","session_id":"ses_tasktasktask01"}],"failed":[],"live":"quick","previous":"quick","released":true}
+{"after":{"live":"quick","live_source":"config","pinned_sessions":0,"pinned_tasks":0,"pins":[],"sessions":5,"start_pinned":[],"tasks":3},"all":true,"before":{"live":"quick","live_source":"config","pinned_sessions":1,"pinned_tasks":1,"pins":[{"configured":true,"kind":"session","profile":"quick","session_id":"ses_q7f3k2"},{"configured":false,"kind":"task","profile":"gone","session_id":"ses_tasktasktask01"}],"sessions":5,"start_pinned":[],"tasks":3},"by":"the CLI","cleared":[{"configured":true,"kind":"session","profile":"quick","session_id":"ses_q7f3k2"},{"configured":false,"kind":"task","profile":"gone","session_id":"ses_tasktasktask01"}],"failed":[],"live":"quick","previous":"quick","released":true}
 --- stderr
 --- exit 0
