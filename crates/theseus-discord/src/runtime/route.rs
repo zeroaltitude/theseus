@@ -149,7 +149,8 @@ pub(crate) fn persona_emoji<'a>(
 }
 
 /// The footer's word on where routing ran a turn: `routed: quick`, or
-/// `routed: correction` when the owner's correction placed it.
+/// `routed: correction` when the owner's correction placed it. On a pinned
+/// turn the mode is Jev's read: `Jev: quick`.
 pub(crate) fn routed(r: &theseus_protocol::TurnSubmitResult) -> Option<String> {
     let t = r.route.as_ref()?;
     let who = t.persona.as_ref().map(|p| p.words());
@@ -162,9 +163,21 @@ pub(crate) fn routed(r: &theseus_protocol::TurnSubmitResult) -> Option<String> {
         }
         (src, mode) => src.map(str::to_string).or_else(|| mode.clone()),
     };
+    // On a pinned turn the mode is Jev's read, not a placement, so it is not
+    // `routed:` (theseus-h66v4.3): `pinned · Jev: quick`. The `correction`
+    // arm cannot meet a pin today: a steer exists only when routing is live
+    // (`route_step.rs`, `steering ... .filter(|_| live)`), while `Reason::Pinned`
+    // is recorded only when it is not (`read_verdict`, `(_, false)`). It stays so
+    // that a correction's words, `correction`, are never worded as Jev's read if
+    // that ever changes; `pin_footer` below still drops `routed:` for it.
+    let what = match (&t.mode, t.source.as_deref()) {
+        (Some(_), Some("correction")) | (None, _) => what,
+        (Some(_), _) => what.map(|m| t.mode_words(&m)),
+    };
     let words = match (who, what) {
         (Some(w), Some(m)) => Some(format!("routed: {w} · {m}")),
         (Some(w), None) => Some(format!("routed: {w}")),
+        (None, Some(m)) if t.pin_footer().is_some() => Some(m),
         (None, Some(m)) => Some(format!("routed: {m}")),
         (None, None) => None,
     };

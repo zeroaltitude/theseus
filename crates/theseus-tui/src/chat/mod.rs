@@ -53,6 +53,8 @@ mod tests_ask;
 #[cfg(test)]
 mod tests_mode;
 #[cfg(test)]
+mod tests_pin;
+#[cfg(test)]
 mod tests_reopen;
 #[cfg(test)]
 mod tests_rewind;
