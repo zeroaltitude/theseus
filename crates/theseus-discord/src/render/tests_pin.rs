@@ -145,3 +145,27 @@ fn a_pinned_turns_mode_is_jevs_read_and_an_unpinned_turns_stays_routed() {
     // Nothing to reword when Jev read nothing: no mode, no words, as before.
     assert!(!footer(&ran("pinned")).contains("Jev:"));
 }
+
+/// A task brief with no Jev mode names where the turn came from and nothing
+/// else. On a pinned turn that is `pinned · task brief`, with no `routed:`
+/// beside the pin (it read `pinned · routed: task brief` before the N1 pass of
+/// theseus-h66v4.3); an unpinned brief still reads `routed: task brief`.
+#[test]
+fn a_task_brief_with_no_mode_is_not_routed_when_it_was_pinned() {
+    let brief = |reason: &str| {
+        let mut r = ran(reason);
+        r.route.as_mut().unwrap().source = Some("task brief".into());
+        r
+    };
+    let pinned = footer(&brief("pinned"));
+    assert!(
+        pinned.starts_with("-# sonnet · claude-sonnet-5-5 · pinned · task brief · 1 loop"),
+        "{pinned}"
+    );
+    assert!(!pinned.contains("routed:"), "{pinned}");
+    let plain = footer(&brief("verdict"));
+    assert!(
+        plain.starts_with("-# sonnet · claude-sonnet-5-5 · routed: task brief · 1 loop"),
+        "{plain}"
+    );
+}
