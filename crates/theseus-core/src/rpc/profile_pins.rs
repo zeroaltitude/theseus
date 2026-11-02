@@ -8,7 +8,7 @@
 //!   false), and a read that fails is an error, never a zero.
 //! - **A task started on a profile is a pin too** (`task.start --profile`: `task_start.rs` calls it one,
 //!   `turn/brief_step.rs` never asks the brief about it), though no hold records it. `profile.pins` counts
-//!   it under its own kind, `task-start`, in `start_pinned`: a task, no turn run, no brief mark
+//!   it under its own kind, `task-start`, in `task_pins`: a task, no turn run, no brief mark
 //!   (`brief_step::marked`), whose execution has not begun or ended. `profile.unpin` does **not** clear it,
 //!   and says so: the owner chose that model for that task by name, and a bulk let-go does not undo a named
 //!   choice. Zero holds is not zero pins.
@@ -41,7 +41,7 @@ impl Core {
             pinned_sessions: 0,
             pinned_tasks: 0,
             pins: vec![],
-            start_pinned: vec![],
+            task_pins: vec![],
         };
         for rec in self.store.list_sessions::<SessionRecord>()? {
             let task = rec.task.is_some();
@@ -50,7 +50,7 @@ impl Core {
                 false => out.sessions += 1,
             }
             if let Some(pin) = self.start_pin(&rec)? {
-                out.start_pinned.push(pin);
+                out.task_pins.push(pin);
             }
             let Some(profile) = self.runner.held_profile(&rec.session_id)? else {
                 continue;
@@ -67,7 +67,7 @@ impl Core {
             });
         }
         out.pins.sort_by(|a, b| a.session_id.cmp(&b.session_id));
-        out.start_pinned
+        out.task_pins
             .sort_by(|a, b| a.session_id.cmp(&b.session_id));
         Ok(out)
     }
@@ -146,7 +146,11 @@ impl Core {
 
     /// A failed read of the holds, after the live pin's release: a store failure, and the answer says what
     /// was done.
-    fn unread(live: &theseus_protocol::ProfileReleaseResult, e: anyhow::Error) -> RpcFailure {
+    fn unread(
+        live: &theseus_protocol::ProfileReleaseResult,
+        _done: (&[PinnedSession], &[UnpinFailure]),
+        e: anyhow::Error,
+    ) -> RpcFailure {
         let did = match live.released {
             true => format!(
                 "the live pin was released (from {}, now {})",
@@ -166,14 +170,16 @@ impl Core {
         // not for `release`. The read fails after, and says the pin is released.
         let (was, was_source) = self.live_profile();
         let live = self.profile_release(conn)?;
-        let mut before = self.profile_pins().map_err(|e| Self::unread(&live, e))?;
+        let mut before = self.profile_pins().map_err(|e| Self::unread(&live, (&[], &[]), e))?;
         // The live half of `before` is as it stood when the call came, not as the release left it.
         (before.live, before.live_source) = (was, was_source);
         let (cleared, failed) = match p.all {
             true => self.unpin_holds(&conn.answerer(None, None)),
             false => (vec![], vec![]),
         };
-        let after = self.profile_pins().map_err(|e| Self::unread(&live, e))?;
+        let after = self
+            .profile_pins()
+            .map_err(|e| Self::unread(&live, (&cleared, &failed), e))?;
         Ok(ProfileUnpinResult {
             released: live.released,
             previous: live.previous,

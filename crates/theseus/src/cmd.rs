@@ -1676,7 +1676,7 @@ fn pinned_line(what: &str, p: &ProfilePinsResult) -> String {
 fn start_line(what: &str, p: &ProfilePinsResult) -> String {
     format!(
         "{what}: {} of {} tasks started on a named profile, first turn not yet run",
-        p.start_pinned.len(),
+        p.task_pins.len(),
         p.tasks
     )
 }
@@ -1711,7 +1711,7 @@ fn print_pins(p: &ProfilePinsResult) {
         );
     }
     println!("{}", pinned_line("pinned", p));
-    for pin in &p.start_pinned {
+    for pin in &p.task_pins {
         println!("{}", start_pin_text(pin));
     }
     println!("{}", start_line("started on a profile", p));
@@ -1756,7 +1756,7 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
                 ),
             }
         }
-        for pin in &r.after.start_pinned {
+        for pin in &r.after.task_pins {
             println!(
                 "not cleared: {}: a named choice, not a hold; cancel it and start it again without --profile to let the brief choose",
                 start_pin_text(pin)

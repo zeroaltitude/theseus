@@ -63,8 +63,19 @@ fn task(core: &Core) -> String {
 }
 
 /// A task `task.start --profile` opened and whose first turn has not run: its own execution, no brief mark,
-/// the model it was started on in `last_target`. Returns the task's session and its execution.
+/// the model it was started on in `last_target`, and the `task.started_by_owner` row only that call writes.
+/// Returns the task's session and its execution.
 fn start_pinned(core: &Core, profile: &str) -> (String, String) {
+    made(core, profile, true)
+}
+
+/// A task Theseus made on a model of its own choosing (a child task, a check, a reviewer, a routine's run, a
+/// retry): the same record, and no `task.started_by_owner` row.
+fn fixed(core: &Core, profile: &str) -> (String, String) {
+    made(core, profile, false)
+}
+
+fn made(core: &Core, profile: &str, by_owner: bool) -> (String, String) {
     let parent = session(core);
     let rec = core
         .open_session(theseus_protocol::SessionOpenParams {
@@ -93,7 +104,37 @@ fn start_pinned(core: &Core, profile: &str) -> (String, String) {
         model: "m".into(),
     });
     core.store.put_session(&rec.session_id, &rec).unwrap();
+    if by_owner {
+        let fact = crate::fact::task_start::TaskStartedByOwner {
+            short: "abc123",
+            title: "t",
+            session_id: &rec.session_id,
+            home_session: "ses_home",
+            limit: 0,
+            available_before: 0,
+            quotes: 0,
+            board: false,
+            starts_at_ms: None,
+            by: "the CLI",
+            via: "cli",
+        };
+        core.store
+            .append(&[crate::fact::row(&fact, Some(&rec.session_id), None).unwrap()])
+            .unwrap();
+    }
     (rec.session_id, exec)
+}
+
+/// A task as it stands after its first turn: `turns` run, its execution in `state`.
+fn past_first_turn(core: &Core, sid: &str, exec: &str, state: theseus_kernel::ExecState) {
+    let mut rec = core
+        .store
+        .get_session::<SessionRecord>(sid)
+        .unwrap()
+        .unwrap();
+    rec.turns = 1;
+    core.store.put_session(sid, &rec).unwrap();
+    exec_state(core, exec, state);
 }
 
 fn exec_state(core: &Core, id: &str, state: theseus_kernel::ExecState) {
@@ -436,39 +477,31 @@ async fn unpin_all_from_a_surface_that_is_not_private_fails_each_hold_visibly() 
     assert_eq!(r.after.pins.len(), 4, "{r:?}");
 }
 
-/// The exact set `task.start --profile` pins: a task, no turn run, no brief mark, an execution that has not
-/// begun or ended. Each other shape is built beside it and must not be counted, so the count is 1 and not
+/// The exact set no brief or checkpoint routes: a live task with no brief mark and a model of its own, on
+/// whatever turn. Each other shape is built beside it and must not be counted, so the count is 1 and not
 /// "whatever is not zero".
 #[tokio::test]
 async fn a_task_started_on_a_profile_is_counted_as_its_own_kind_beside_the_holds() {
     let core = core();
     rig(&core);
     let (pinned, _) = start_pinned(&core, "opus");
-    // Not start-pinned: its turn has run,
-    let (ran, _) = start_pinned(&core, "opus");
-    let mut rec = core
-        .store
-        .get_session::<SessionRecord>(&ran)
-        .unwrap()
-        .unwrap();
-    rec.turns = 1;
-    core.store.put_session(&ran, &rec).unwrap();
-    // it carries the brief's mark,
+    // Not counted: it carries the brief's mark (its model came from the brief, and checkpoints may move it),
     let (marked, _) = start_pinned(&core, "opus");
     core.store
         .append(&[crate::turn::brief_step::mark(&marked).unwrap()])
         .unwrap();
-    // it ended or was cancelled,
-    let (_, done) = start_pinned(&core, "opus");
-    exec_state(&core, &done, theseus_kernel::ExecState::Complete);
-    let (_, cancelled) = start_pinned(&core, "opus");
-    exec_state(&core, &cancelled, theseus_kernel::ExecState::Cancelled);
-    // or its first turn is running (a turn fixes its model once it starts).
-    let (_, running) = start_pinned(&core, "opus");
-    exec_state(&core, &running, theseus_kernel::ExecState::Running);
+    // or it has ended.
+    for state in [
+        theseus_kernel::ExecState::Complete,
+        theseus_kernel::ExecState::Cancelled,
+        theseus_kernel::ExecState::Failed,
+    ] {
+        let (_, done) = start_pinned(&core, "opus");
+        past_first_turn(&core, &_s(&core, &done), &done, state);
+    }
     let r = pins(&core).await;
-    assert_eq!(r.start_pinned.len(), 1, "{r:?}");
-    let p = &r.start_pinned[0];
+    assert_eq!(r.task_pins.len(), 1, "{r:?}");
+    let p = &r.task_pins[0];
     assert_eq!(
         (p.session_id.as_str(), p.kind.as_str(), p.profile.as_str()),
         (pinned.as_str(), "task-start", "opus")
@@ -479,25 +512,132 @@ async fn a_task_started_on_a_profile_is_counted_as_its_own_kind_beside_the_holds
     assert!(r.pins.iter().all(|p| p.session_id != pinned), "{r:?}");
 }
 
+/// The session of an execution, for a test that holds the execution only.
+fn _s(core: &Core, exec: &str) -> String {
+    core.kernel.execution(exec).unwrap().unwrap().session_id
+}
+
+/// N1: Monday he starts a task on opus; it runs a turn and sleeps. The brief and the checkpoints still never
+/// ask about it (`checkpoint_step` asks every turn of an unmarked task nothing), so it is a pin, and `pins`
+/// counts it: one.
 #[tokio::test]
-async fn unpin_all_counts_a_start_pinned_task_before_and_after_and_does_not_clear_it() {
+async fn a_task_asleep_after_its_first_turn_is_counted_as_one() {
+    let core = core();
+    let (t, exec) = start_pinned(&core, "opus");
+    past_first_turn(&core, &t, &exec, theseus_kernel::ExecState::Waiting);
+    let r = pins(&core).await;
+    assert_eq!(r.task_pins.len(), 1, "{r:?}");
+    assert_eq!(
+        (r.task_pins[0].session_id.as_str(), r.task_pins[0].kind.as_str()),
+        (t.as_str(), "task-start")
+    );
+}
+
+/// N1: a task whose turn is running now is a pin too: its model is the one it was started on, and from its
+/// next turn on no checkpoint asks.
+#[tokio::test]
+async fn a_running_task_started_on_a_profile_is_counted_as_one() {
+    let core = core();
+    let (t, exec) = start_pinned(&core, "opus");
+    past_first_turn(&core, &t, &exec, theseus_kernel::ExecState::Running);
+    let r = pins(&core).await;
+    assert_eq!(r.task_pins.len(), 1, "{r:?}");
+    assert_eq!(r.task_pins[0].session_id, t);
+}
+
+/// N1 and the owner's words, "unpin all current live profiles and tasks and sessions": `--all` clears a
+/// start-pin by writing the brief's mark, one `session.profile_set` row each, so a running task is let go
+/// without being cancelled. N before, N rows, 0 after, counted.
+#[tokio::test]
+async fn unpin_all_clears_a_task_started_on_a_profile_with_a_mark_and_a_row_each() {
     let core = core();
     rig(&core);
-    let (t, _) = start_pinned(&core, "opus");
+    let (pending, _) = start_pinned(&core, "opus");
+    let (asleep, exec) = start_pinned(&core, "opus");
+    past_first_turn(&core, &asleep, &exec, theseus_kernel::ExecState::Waiting);
+    let (running, exec) = start_pinned(&core, "sonnet");
+    past_first_turn(&core, &running, &exec, theseus_kernel::ExecState::Running);
+    let rows_before = rows(&core, "session.profile_set").len();
+    assert_eq!(rows_before, 4, "the four holds' own rows");
     let r = unpin(&core, true).await;
-    assert_eq!(r.before.start_pinned.len(), 1, "{r:?}");
-    assert_eq!(r.before.start_pinned[0].session_id, t);
-    assert_eq!(r.cleared.len(), 4, "only the holds: {r:?}");
-    assert!(r.cleared.iter().all(|c| c.session_id != t), "{r:?}");
+    assert_eq!(r.before.task_pins.len(), 3, "{r:?}");
+    assert_eq!(r.cleared.len(), 4 + 3, "four holds and three start-pins: {r:?}");
     assert!(r.failed.is_empty(), "{r:?}");
-    // Not cleared, and said: still counted after, still without a brief mark.
-    assert_eq!(r.after.start_pinned.len(), 1, "{r:?}");
-    assert!(!crate::turn::brief_step::marked(&core.store, &t));
+    assert_eq!(r.after.task_pins.len(), 0, "{r:?}");
+    assert_eq!((r.after.pinned_sessions, r.after.pinned_tasks), (0, 0));
+    // The totals did not move.
+    assert_eq!((r.after.sessions, r.after.tasks), (r.before.sessions, r.before.tasks));
+    let all = rows(&core, "session.profile_set");
+    assert_eq!(all.len() - rows_before, 7, "one row each: {all:?}");
+    for (sid, from) in [(&pending, "opus"), (&asleep, "opus"), (&running, "sonnet")] {
+        assert!(crate::turn::brief_step::marked(&core.store, sid), "{sid} is marked");
+        let row = all
+            .iter()
+            .rev()
+            .find(|d| d["session_id"] == json!(sid))
+            .unwrap_or_else(|| panic!("a row for {sid}: {all:?}"));
+        assert_eq!((row["from"].as_str(), row["to"].is_null()), (Some(from), true), "{row}");
+    }
+    // The read after agrees, and a second `--all` has nothing left to do or write.
+    let again = unpin(&core, true).await;
+    assert_eq!((again.before.task_pins.len(), again.cleared.len()), (0, 0));
+    assert_eq!(rows(&core, "session.profile_set").len(), all.len());
+}
+
+/// N2: a task Theseus made on a model of its own choosing is counted, under its own kind, and not cleared:
+/// nobody named its model and there is no `--profile` to drop. The mark stays absent and no row is written.
+#[tokio::test]
+async fn unpin_all_names_a_task_theseus_made_and_leaves_it_alone() {
+    let core = core();
+    let (mine, _) = start_pinned(&core, "opus");
+    let (theirs, _) = fixed(&core, "glm");
+    let r = unpin(&core, true).await;
+    let kind_of = |p: &ProfilePinsResult, sid: &str| {
+        p.task_pins
+            .iter()
+            .find(|t| t.session_id == sid)
+            .map(|t| t.kind.clone())
+    };
+    assert_eq!(r.before.task_pins.len(), 2, "{r:?}");
+    assert_eq!(kind_of(&r.before, &mine).as_deref(), Some("task-start"));
+    assert_eq!(kind_of(&r.before, &theirs).as_deref(), Some("task-fixed"));
+    assert_eq!(r.cleared.len(), 1, "only the owner's: {r:?}");
+    assert_eq!(r.cleared[0].session_id, mine);
+    assert_eq!(r.after.task_pins.len(), 1, "{r:?}");
+    assert_eq!(kind_of(&r.after, &theirs).as_deref(), Some("task-fixed"));
+    assert!(!crate::turn::brief_step::marked(&core.store, &theirs));
+    assert_eq!(rows(&core, "session.profile_set").len(), 1);
+}
+
+/// A path the ledger cannot classify is neither the owner's nor Theseus's: counted, called unknown, and left
+/// alone, because writing a mark on a task nobody can name the maker of could undo a check's model.
+#[tokio::test]
+async fn a_task_whose_maker_the_ledger_cannot_name_is_unknown_and_not_cleared() {
+    let core = core();
+    let (t, _) = start_pinned(&core, "opus");
+    core.store.fail_ledger_pages();
+    let r = core.profile_pins().unwrap();
+    assert_eq!(r.task_pins.len(), 1, "counted, never hidden: {r:?}");
     assert_eq!(
-        (r.after.pinned_sessions, r.after.pinned_tasks),
-        (0, 0),
-        "{r:?}"
+        (r.task_pins[0].session_id.as_str(), r.task_pins[0].kind.as_str()),
+        (t.as_str(), "task-unknown")
     );
+    let (cleared, failed) = core.unpin_holds(&owner_cli());
+    assert!(cleared.is_empty() && failed.is_empty(), "{cleared:?} {failed:?}");
+    assert!(!crate::turn::brief_step::marked(&core.store, &t));
+}
+
+/// A person who is not the owner clears no start-pin either: the refusal is named, the mark is not written.
+#[tokio::test]
+async fn a_stranger_cannot_clear_a_task_started_on_a_profile() {
+    let core = core();
+    let (t, _) = start_pinned(&core, "opus");
+    let (cleared, failed) = core.unpin_holds(&stranger());
+    assert!(cleared.is_empty(), "{cleared:?}");
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert_eq!(failed[0].session_id, t);
+    assert!(!crate::turn::brief_step::marked(&core.store, &t));
+    assert_eq!(core.profile_pins().unwrap().task_pins.len(), 1);
 }
 
 #[tokio::test]
@@ -505,9 +645,126 @@ async fn unpin_without_all_reports_a_start_pinned_task_too() {
     let core = core();
     let (t, _) = start_pinned(&core, "opus");
     let r = unpin(&core, false).await;
-    assert_eq!(r.before.start_pinned.len(), 1, "{r:?}");
-    assert_eq!(r.after.start_pinned.len(), 1, "{r:?}");
-    assert_eq!(r.after.start_pinned[0].session_id, t);
+    assert_eq!(r.before.task_pins.len(), 1, "{r:?}");
+    assert_eq!(r.after.task_pins.len(), 1, "{r:?}");
+    assert_eq!(r.after.task_pins[0].session_id, t);
+    assert!(!crate::turn::brief_step::marked(&core.store, &t));
+}
+
+/// N5: the `after` read failing must not hide what `--all` did: the message carries how many holds were let
+/// go and which were refused.
+#[test]
+fn a_failed_after_read_still_says_what_was_cleared_and_what_failed() {
+    let live = theseus_protocol::ProfileReleaseResult {
+        released: false,
+        previous: "sonnet".into(),
+        live: "sonnet".into(),
+        by: "the CLI".into(),
+    };
+    let pin = |id: &str| theseus_protocol::ops::PinnedSession {
+        session_id: id.into(),
+        kind: "task".into(),
+        profile: "glm".into(),
+        configured: true,
+    };
+    let failed = vec![theseus_protocol::ops::UnpinFailure {
+        session_id: "ses_refused".into(),
+        error: "not yours".into(),
+    }];
+    let e = Core::unread(&live, (&[pin("ses_a"), pin("ses_b")], &failed), anyhow::anyhow!("disk"));
+    assert!(e.message.contains("2 let go"), "{}", e.message);
+    assert!(e.message.contains("1 not let go"), "{}", e.message);
+    assert!(e.message.contains("ses_refused"), "{}", e.message);
+    assert!(e.message.contains("disk"), "{}", e.message);
+}
+
+/// N6: the predicate against what the real paths write, not what we believe they write. A `task.start
+/// --profile` (deferred, so it sleeps), a `task.start` with no profile and a model's `task.create` (its child
+/// held at the gate, so it runs) are made by their own code; `pins` must find exactly the first and the last,
+/// each under its own kind, and `unpin --all` must clear only the first. If `task.start` ever wrote a mark
+/// for a profile, or stopped writing `last_target`, or `task.create` began writing the mark, this goes red.
+#[tokio::test]
+async fn the_read_matches_what_task_start_and_task_create_really_write() {
+    use crate::provider::Scripted;
+    use crate::tests_tasks::{answers_a_call, arranged, first_user, last_user, parent_session, rig, ASK};
+    use theseus_protocol::task_start::TaskStartParams;
+    let r = rig(
+        |req| {
+            if first_user(req).contains("CHILD") {
+                return Scripted::text("done");
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started it.");
+            }
+            match last_user(req).as_str() {
+                l if l.starts_with("START") => Scripted::tools(
+                    "Starting it.",
+                    &[(
+                        "t_task",
+                        "task_create",
+                        json!({"brief": "CHILD: count", "arrangement": arranged()}),
+                    )],
+                ),
+                _ => Scripted::text("ok"),
+            }
+        },
+        |_| {},
+    );
+    let core = &r.core;
+    *r.model.hold.lock().unwrap() = Some("CHILD".into());
+    let later = core.kernel.now_ms() + 86_400_000;
+    let named = core
+        .task_start(
+            &TaskStartParams {
+                brief: "Count the boats".into(),
+                profile: Some("opus".into()),
+                start_at_ms: Some(later),
+                ..Default::default()
+            },
+            owner_cli(),
+        )
+        .unwrap();
+    let briefed = core
+        .task_start(
+            &TaskStartParams {
+                brief: "Count the gulls".into(),
+                start_at_ms: Some(later),
+                ..Default::default()
+            },
+            owner_cli(),
+        )
+        .unwrap();
+    let parent = parent_session(core);
+    crate::tests_tasks::turn(core, &parent, ASK).await;
+    let child = crate::tests_tasks::only_task(core, &parent).session_id;
+    let got = core.profile_pins().unwrap();
+    let mut seen: Vec<(&str, &str)> = got
+        .task_pins
+        .iter()
+        .map(|p| (p.session_id.as_str(), p.kind.as_str()))
+        .collect();
+    seen.sort();
+    let mut want = vec![
+        (named.session_id.as_str(), "task-start"),
+        (child.as_str(), "task-fixed"),
+    ];
+    want.sort();
+    assert_eq!(seen, want, "{got:?}");
+    assert!(
+        got.task_pins.iter().all(|p| p.session_id != briefed.session_id),
+        "a task started with no profile carries the mark and is not a pin: {got:?}"
+    );
+    let (cleared, failed) = core.unpin_holds(&owner_cli());
+    assert!(failed.is_empty(), "{failed:?}");
+    assert_eq!(
+        cleared.iter().map(|c| c.session_id.as_str()).collect::<Vec<_>>(),
+        vec![named.session_id.as_str()]
+    );
+    let after = core.profile_pins().unwrap();
+    assert_eq!(after.task_pins.len(), 1, "{after:?}");
+    assert_eq!(after.task_pins[0].session_id, child);
+    assert!(crate::turn::brief_step::marked(&core.store, &named.session_id));
+    r.model.gate.add_permits(16);
 }
 
 /// One `session.profile.<id>` row that cannot be read: `release` still works, so `unpin` releases the live
