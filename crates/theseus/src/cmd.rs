@@ -1733,7 +1733,7 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
     }
     match failed {
         0 => Ok(()),
-        n => anyhow::bail!("{n} held profiles were not let go"),
+        n => anyhow::bail!("{n} held profile(s) not let go"),
     }
 }
 
