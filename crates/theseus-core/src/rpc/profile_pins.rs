@@ -146,11 +146,7 @@ impl Core {
 
     /// A failed read of the holds, after the live pin's release: a store failure, and the answer says what
     /// was done.
-    fn unread(
-        &self,
-        live: &theseus_protocol::ProfileReleaseResult,
-        e: anyhow::Error,
-    ) -> RpcFailure {
+    fn unread(live: &theseus_protocol::ProfileReleaseResult, e: anyhow::Error) -> RpcFailure {
         let did = match live.released {
             true => format!(
                 "the live pin was released (from {}, now {})",
@@ -170,14 +166,14 @@ impl Core {
         // not for `release`. The read fails after, and says the pin is released.
         let (was, was_source) = self.live_profile();
         let live = self.profile_release(conn)?;
-        let mut before = self.profile_pins().map_err(|e| self.unread(&live, e))?;
+        let mut before = self.profile_pins().map_err(|e| Self::unread(&live, e))?;
         // The live half of `before` is as it stood when the call came, not as the release left it.
         (before.live, before.live_source) = (was, was_source);
         let (cleared, failed) = match p.all {
             true => self.unpin_holds(&conn.answerer(None, None)),
             false => (vec![], vec![]),
         };
-        let after = self.profile_pins().map_err(|e| self.unread(&live, e))?;
+        let after = self.profile_pins().map_err(|e| Self::unread(&live, e))?;
         Ok(ProfileUnpinResult {
             released: live.released,
             previous: live.previous,
