@@ -12,7 +12,7 @@ use theseus_protocol::ops::SessionProfileParams;
 use theseus_protocol::{ProfilePinsResult, ProfileUnpinResult, SessionKind};
 
 use super::Core;
-use super::Parts;
+use crate::rpc::Parts;
 use crate::approval::{Client, Surface};
 use crate::provider::FakeProvider;
 use crate::session::{SessionRecord, TaskOf};
