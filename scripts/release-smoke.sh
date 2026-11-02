@@ -5,7 +5,8 @@
 #
 #   tb      Terminal-Bench 2.0's smoke slice (bench/smoke/tb-slice.toml): 8 stable tasks and 2 controls, k=1 at HIGH,
 #           4 at once, through the Harbor driver (bench/harbor/run.py), on the candidate's static binaries
-#   route   `theseus judge replay --cases` over route.v10's cases, three runs: 54 of 60 on the model, every must;
+#   route   `theseus judge replay --cases` over route.v10's cases, three runs, and beside each run effort.v1's replay of the
+#           same file (its `also` key): the owner's 80% bars on model, musts and effort, each of its own count;
 #           "n/a until the flip" on a daemon whose ladder routes with another pack (`theseus packs`)
 #   recall  scripts/recall-tests.sh, as the gate runs it
 #   resume  bench/smoke/resume.py: a scratch daemon SIGKILLed mid-tool three times, at $0
@@ -136,7 +137,8 @@ part_tb() {
 }
 
 part_route() {
-  local cases=crates/theseus-judge/packs/route.v10.cases.toml i t0 rc help live args=()
+  local cases=crates/theseus-judge/packs/route.v10.cases.toml effort_pack=crates/theseus-judge/packs/effort.v1.toml
+  local i t0 rc help live args=()
   help="$("$bin/theseus" judge replay --help 2>&1)"
   if [[ "$help" != *--cases* ]]; then
     smoke fail "$run" route "this binary has no \`judge replay --cases\` (it came with 1.0.4's wave 3')"
@@ -156,7 +158,15 @@ print(",".join(p["pack"] for p in json.load(sys.stdin)["packs"]
       smoke fail "$run" route "replay $i exited $rc: $(head -c 200 "$run/route-$i.err" | tr '\n' ' ')"
       return
     fi
-    args+=("$run/route-$i.json" "$(($(now) - t0))")
+    # The same cases, graded by effort.v1 through the file's `also` key: Jev chooses the effort too, and the tag gate
+    # grades it. Its bars join this run's.
+    "$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge replay --pack-file "$effort_pack" --cases "$cases" \
+      > "$run/effort-$i.json" 2> "$run/effort-$i.err" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      smoke fail "$run" route "effort replay $i exited $rc: $(head -c 200 "$run/effort-$i.err" | tr '\n' ' ')"
+      return
+    fi
+    args+=("$run/route-$i.json" "$(($(now) - t0))" --effort "$run/effort-$i.json")
   done
   smoke route "$run" --live "$live" "${args[@]}"
 }
