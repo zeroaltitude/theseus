@@ -37,6 +37,8 @@ pub(crate) mod process;
 mod reply;
 pub(crate) mod snapshot;
 pub(crate) mod task_view;
+#[cfg(test)]
+mod tests_pin;
 pub(crate) mod v2;
 mod wakes;
 pub use approval::strip_ask;

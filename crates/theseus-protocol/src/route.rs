@@ -434,6 +434,39 @@ mod tests {
         assert_eq!(gated("allowed", None).footer(), None);
     }
 
+    /// The footer's `pinned` is the route's own `reason` and nothing else: the
+    /// same profile, `from` and model read pinned when routing recorded a pin
+    /// and unpinned for every other reason (theseus-h66v4.3, theseus-dq3m1).
+    #[test]
+    fn a_route_is_pinned_by_its_reason_alone() {
+        let on = |reason: &str| TurnRoute {
+            reason: reason.into(),
+            from: "sonnet".into(),
+            ..Default::default()
+        };
+        assert_eq!(on("pinned").pin_footer(), Some("pinned"));
+        for other in [
+            "verdict",
+            "detour",
+            "capped",
+            "fallback",
+            "cache_hold",
+            "unsure",
+            "late",
+            "unreachable",
+            "no_verdict",
+            "shadow",
+            "correction",
+            "context_guard",
+            "step_down",
+            "data_gate",
+            "switch_cap",
+            "",
+        ] {
+            assert_eq!(on(other).pin_footer(), None, "{other}");
+        }
+    }
+
     /// The one line every surface shows, by how the turn ended (the cockpit's
     /// `test/fallback.test.ts` holds the same strings).
     #[test]

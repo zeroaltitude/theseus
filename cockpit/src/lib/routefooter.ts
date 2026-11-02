@@ -3,8 +3,8 @@
 // the live layer `route.corrections` lists. Pure: `test/routefooter.test.ts` runs it.
 import type { RouteCorrectionInfo, RouteCorrectionsResult, TurnRoute } from '@protocol'
 
-/** `routed: quick · haiku`, `routed: correction · fable`, with where the session ran before routing when it moved;
- *  none when routing read nothing for the turn. */
+/** `routed: quick · haiku`, `routed: correction · fable`, with where the session ran before routing when it moved, and
+ *  `· pinned` when the operator named the model; none when routing read nothing for the turn. */
 export function routeLine(route: TurnRoute | undefined, profile: string): string | null {
   if (!route) return null
   const what =
