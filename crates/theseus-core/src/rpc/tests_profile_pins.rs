@@ -863,7 +863,12 @@ async fn a_pinned_task_says_where_in_its_life_it_is() {
     let (running, exec) = start_pinned(&core, "opus");
     past_first_turn(&core, &running, &exec, theseus_kernel::ExecState::Running);
     let (queued_again, exec) = start_pinned(&core, "opus");
-    past_first_turn(&core, &queued_again, &exec, theseus_kernel::ExecState::Queued);
+    past_first_turn(
+        &core,
+        &queued_again,
+        &exec,
+        theseus_kernel::ExecState::Queued,
+    );
     let r = unpin(&core, true).await;
     for (sid, want) in [
         (&pending, "pending"),
@@ -973,5 +978,8 @@ async fn a_retry_of_a_task_started_on_a_profile_is_the_owners_choice_carried_for
     for sid in [&origin, &first, &second] {
         assert!(crate::turn::brief_step::marked(&core.store, sid), "{sid}");
     }
-    assert!(!crate::turn::brief_step::marked(&core.store, &retry_of_theirs));
+    assert!(!crate::turn::brief_step::marked(
+        &core.store,
+        &retry_of_theirs
+    ));
 }

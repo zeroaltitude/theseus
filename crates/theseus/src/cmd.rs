@@ -1715,9 +1715,29 @@ fn task_pin_text(pin: &PinnedSession) -> String {
             pin.profile
         ),
         _ => format!(
-            "task {id} on {}, maker not read (the ledger could not be read){gone}",
+            "task {id} on {}, maker not known (the ledger could not say who made it){gone}",
             pin.profile
         ),
+    }
+}
+
+/// What letting go of a started-on-a-profile task changes, by where the task is in its life: the brief runs
+/// on a first turn only, and a turn's checkpoints are read once, when it starts. A pin that does not say
+/// where gets the one thing true of every stage.
+fn let_go_effect(c: &PinnedSession) -> String {
+    match c.state.as_deref() {
+        Some("pending") => {
+            "the brief may choose its model when it starts, once route.v10 acts".into()
+        }
+        Some("asleep") => format!(
+            "the brief does not run again, so only Jev's checkpoints may move it, from its next turn; until route.v10 acts they never go below {}",
+            c.profile
+        ),
+        Some("running") => format!(
+            "its current turn finishes on {}, and Jev's checkpoints may move it from its next turn",
+            c.profile
+        ),
+        _ => "Jev may move it from a later turn".into(),
     }
 }
 
@@ -1765,9 +1785,10 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
         for c in &r.cleared {
             match c.kind.as_str() {
                 "task-start" => println!(
-                    "let go: task {} (was started on {}; the brief and checkpoints choose its model from its next turn)",
+                    "let go: task {} (was started on {}; {})",
                     render::short_id(&c.session_id),
-                    c.profile
+                    c.profile,
+                    let_go_effect(c)
                 ),
                 _ => println!(
                     "let go: {} {} (was held to {})",
@@ -1802,6 +1823,16 @@ async fn unpin(conn: &mut Conn, json: bool, all: bool) -> Result<()> {
             eprintln!(
                 "[not touched: routing's own moves (Jev's verdicts) and one-turn route.correct steers; these are not holds]"
             );
+            let running = r
+                .cleared
+                .iter()
+                .filter(|c| c.state.as_deref() == Some("running"))
+                .count();
+            match running {
+                0 => {}
+                1 => eprintln!("[1 running turn finishes on the model it started on]"),
+                n => eprintln!("[{n} running turns finish on the models they started on]"),
+            }
         }
         let starts = task_pins_of(&r.after, "task-start");
         if !r.all && !(r.after.pins.is_empty() && starts == 0) {

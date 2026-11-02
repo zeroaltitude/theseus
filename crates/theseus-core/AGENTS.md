@@ -1805,12 +1805,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     about a task with no `task.route.<session>` mark, on every turn of its life): the read counts every live task with no
     mark and a `last_target`, on whatever turn, running or asleep, in `task_pins`, told apart by who made it from what
     the code writes: `task.start` alone writes a `task.started_by_owner` row (kind `task-start`, the owner's: it also
-    writes the mark exactly when no profile was named); `task.create`, a check, a draft's reviewer, a routine's run and a
-    retry write `last_target` from the model they were given and neither (`task-fixed`, Theseus's); a ledger that cannot
-    be read leaves `task-unknown`. `unpin --all` clears a `task-start` task by writing the mark and a `session.profile_set`
-    row (`from` its profile, `to` none) in one frame, under `session.profile`'s authority, so a running task is not
-    cancelled and the brief and checkpoints decide from its next turn; it never writes a mark on a `task-fixed` or
-    `task-unknown` task and names them ("not cleared"). The headline leads with every task counted, not the holds alone.
+    writes the mark exactly when no profile was named); `task.create`, a check, a draft's reviewer and a routine's run
+    write `last_target` from the model they were given and neither (`task-fixed`, Theseus's). A retry copies `last_target`
+    and writes neither, so it inherits `task-start` through its `task.retried` row (`failed_session`) when the task it
+    retries is the owner's and unmarked, down a chain; the retry of a task the brief chose the model of (marked) stays
+    `task-fixed`. A ledger that cannot be read, or a `task.started_by_owner` or `task.retried` row that cannot be
+    decoded, leaves `task-unknown` for every task not already shown to be the owner's: counted and named, never cleared.
+    Each task pin carries its `state` (`pending` no turn yet, `asleep` past its first turn and idle, `running`), because
+    what the mark changes depends on it: the brief runs on a first turn only (`brief_step.rs`), and a turn's checkpoint
+    state is latched once when it starts (`checkpoint_step.rs`), so a `running` task finishes its current turn on the
+    model it started on, and an `asleep` one is moved by checkpoints alone (never below its profile until route.v10
+    acts); the CLI words each `let go:` line by the state. `unpin --all` clears a `task-start` task by writing the mark
+    and a `session.profile_set` row (`from` its profile, `to` none) in one frame, under `session.profile`'s authority, so
+    a running task is not cancelled; it never writes a mark on a `task-fixed` or `task-unknown` task and names them
+    ("not cleared"). The headline leads with every task counted, not the holds alone.
     An unreadable hold fails `unpin` as an internal error after the live release, and the message carries how many holds
     were let go and which failed, even when the `after` read is the one that failed. Tests: `rpc/tests_profile_pins.rs`
     (each asserts N pinned before, N rows, 0 after, and the totals; the pin and the hold on one name are `dq3m1`'s case;
