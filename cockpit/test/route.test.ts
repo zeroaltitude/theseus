@@ -2,7 +2,7 @@
 // route.v3's effort, applied, clamped, or recorded with why it stood aside (theseus-qe3v). Invented ids.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { effortWords, routedOf, routeLine } from '../src/lib/route.ts'
+import { chipHead, effortWords, pinFooter, routedOf, routeLine } from '../src/lib/route.ts'
 
 const row = (data: Record<string, unknown>) =>
   ({ position: 1, at_unix_ms: 1, kind: 'route.decided', session_id: 'ses_a', turn_id: 'turn_a', data }) as any
@@ -47,4 +47,18 @@ test("a task checkpoint's line says why it was asked and what the switch wrote c
   // A routed conversation turn's (theseus-a1wvq).
   const turn = row({ mode: 'deep_coding', reason: 'cache_hold', from: 'haikuhi', profile: 'haikuhi', source: 'turn checkpoint', trigger: 'failing' })
   assert.equal(routeLine(turn), 'deep_coding · haikuhi (cache_hold) · turn checkpoint: failing')
+})
+
+test("a turn chip says a model was pinned, by its reason and never by its model (theseus-h66v4.3)", () => {
+  // The chip shows the turn's model beside it, so a pin must not hide in a tooltip.
+  assert.equal(pinFooter('pinned'), 'pinned')
+  for (const other of ['verdict', 'no_verdict', 'late', 'unsure', 'fallback', 'shadow', 'correction', 'data_gate', '']) {
+    assert.equal(pinFooter(other), null, other)
+  }
+  // Same mode, same profile: only the recorded reason differs.
+  assert.equal(chipHead({ mode: 'quick', reason: 'verdict', from: 'sonnet', profile: 'sonnet' }), 'quick')
+  assert.equal(chipHead({ mode: 'quick', reason: 'pinned', from: 'sonnet', profile: 'sonnet' }), 'pinned · quick')
+  // No verdict on an unpinned turn is Jev's silence; on a pinned one Jev was not asked, so it says only the pin.
+  assert.equal(chipHead({ reason: 'no_verdict', from: 'sonnet', profile: 'sonnet' }), 'no verdict')
+  assert.equal(chipHead({ reason: 'pinned', from: 'sonnet', profile: 'sonnet' }), 'pinned')
 })
