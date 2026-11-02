@@ -116,7 +116,7 @@ const CLOSE: &str = "write a parser for the harbour log format in rust";
 /// The brief's first test: "that should have been on fable", in a private
 /// place, labels the corrected turn's route judgment `not:sonnet` as the
 /// owner's (its provenance the message, by id) and runs on Fable at once;
-/// the session stays there; a close message in another session runs there
+/// the next turn is Jev's again; a close message in another session runs there
 /// too, ahead of the verdict, as `source: correction`; a message not close
 /// to it does not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -189,8 +189,9 @@ async fn words_in_a_private_place_label_switch_and_steer_a_close_message() {
     // The session stays on Fable.
     let s = session(&r.core, &sid);
     assert_eq!(s.routed.unwrap().profile.as_deref(), Some("fable"));
+    // Nothing holds it there afterwards: no step down is left, so the next turn goes where Jev says.
     let three = ask(&r.core, Some(&sid), "and what about the tests for it?").await;
-    assert_eq!(three.profile, "fable");
+    assert_eq!(three.profile, "sonnet", "Jev chooses again, at once");
     // A close message in another session, ahead of Jev's `chat`.
     let four = ask(&r.core, None, CLOSE).await;
     assert_eq!(four.profile, "fable", "the layer steers it");

@@ -119,6 +119,7 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     // route.v10's state is the batch's and the facts it alone reads (row 2).
     let mut route_state = route_req.body["state"].clone();
     for fact in [
+        "est_tokens",
         "price_period",
         "restricted_models",
         "last_reply_model",
