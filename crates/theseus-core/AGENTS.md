@@ -1840,7 +1840,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     pinned one has no state and asks nothing), and since theseus-a1wvq a conversation's turn the route placed (not the owner's
     pin, not a detour: `placed_by_route`; its base is where the route put it, its text the message's first characters, its rows'
     source `turn checkpoint`; a turn the owner's correction placed asks nothing; a move persists in the session's `routed` as
-    a route switch does, so the next message starts on the moved profile until the step-down), asks the route pack about its
+    a route switch does, so the next message starts on the moved profile until Jev chooses again), asks the route pack about its
     recent state at a loop's end (`checkpoint_ended`, after
     `advance`) when it fails `failing_streak` loops in a row (a result `ResultStatus::is_error` marks), makes no progress for
     `quiet_loops`, changes its current plan step, or marks the last open one done (`Tally`, pure), at most one verdict per
@@ -1859,24 +1859,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     effort. An ineligible turn's checkpoint state stays `Off` (`checkpoint_apply` no longer puts it back as `Unread`).
     Tests: `tests_task_checkpoint.rs`, `tests_checkpoint_effort.rs`,
     `routing::checkpoint::tests`. Not covered: a task a model made with `task.create` (it has no brief mark).
-    **A routed profile's effort floor** (theseus-53ujg.3; `routing/effort.rs`): on a profile a routing class chose (not the
-    session's base), the turn runs at no less than the profile's own `effort`. It applies after the xhigh/max gate and before
-    `effort_bounds`, is not gated, and `effort_reason` is `floored` only when it raised the level; on the base profile Jev
-    may still go below.
-    **The effort** (route.v3, theseus-qe3v; xhigh and max only above `[routing] high_effort_confidence`, 0.40, else
-    `high` with `effort_reason` `held_high`, theseus-p8dy; xhigh also only on a sure answer, so an unsure xhigh runs
-    `high` as `held_high_unsure` at any confidence, theseus-goq94, while max keeps the bar alone): `reply_effort` rides the route pack's one request beside `mode`;
-    `routing/effort.rs` decides, purely: Jev's level over the profile's `effort` unless `effort_fixed`, clamped to
-    `[routing] effort_bounds`, only for a model whose catalog row takes effort; an answer below the question's confirm
-    band still applies at `[routing] effort_confidence` (0.35) or more, as `applied_unsure` (theseus-7pm8t: an effort
-    is not held to the model switch's bar); under it, `unclear`, a pin, shadow, or a late (carried) verdict leave the
-    profile's own. **`[routing] effort_floor_confidence`** (theseus-l7i9k, regress R4; unset = off, ships off): an answer
-    under it applies nothing, the profile's own effort stands, `effort_reason` is `gated`; it comes after `fixed` and
-    `no_effort` and stops `floored`, `applied_unsure` and `held_high_unsure` together (a gated `floored` runs at the same
-    level: the floor is the routed profile's own effort). The flip condition is in the template beside the knob. `apply_effort` sets it on the spec
-    and the first compile's request (`compiler::output_config`), and takes that request's digest again, which the
-    turn records and the overflow retry compares. `route.decided`'s `effort_*` fields and `TurnRoute`
-    say which. Tests: `tests_route_effort.rs`, `routing::effort::tests`.
+    **The effort** (route.v10, theseus-h66v4, row 6 theseus-kn9or deleted the bounds, the high-effort gate, the routed
+    profile's floor, `effort_fixed`'s clamp, the confidence bars and the `floored`, `gated`, `held_high*` and
+    `applied_unsure` reasons; `[routing] high_effort_confidence`, `effort_bounds`, `effort_confidence` and
+    `effort_floor_confidence` load, warn once and do nothing): `reply_effort` rides the route pack's one request beside
+    the model; `routing/effort.rs::decide_open` decides, purely: Jev's level, when its answer reached the question's
+    confirm bar, is the effort, whatever the level (`applied`); `default`, or an answer under the bar, is the model's
+    own default effort (`model_default`); only for a model whose catalog row takes effort, else the answer is recorded
+    and the request carries none (`no_effort`); a pin, shadow, or a late (carried) verdict leave the profile's own.
+    `apply_effort` sets it on the spec and the first compile's request (`compiler::output_config`), and takes that
+    request's digest again, which the turn records and the overflow retry compares. `route.decided`'s `effort_*`
+    fields and `TurnRoute` say which. Tests: `tests_effort_open.rs`, `routing::effort::tests`.
     **A turn's effort keeps the cache** (theseus-o719, `compiler/effort.rs`): a change of the top-level
     `output_config.effort` restarts the provider's cache of the messages (only tools and system stay: a 625k DM on
     Fable 5.1 wrote 612k again for one `low` turn). On a model that takes per-message effort (`effort::default_of`:
@@ -1894,15 +1887,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     them answers the 400 below, and the hold lands on the request's model, not on the fallback's.
     A 400 naming `output_config` on a request that carries one is asked again once without them, the level at the
     top, and the model takes none for an hour, `REFUSAL_HOLDS_MS` (`turn/effort_step.rs`, `provider.effort_refused`).
-    A one-step change held on a model without per-message effort (`stick`) says `sticky`, or `sticky_unsure` when the
-    held answer was `applied_unsure`, so the row keeps the bar that admitted it (theseus-8zgji). An `xhigh` or `max` held at `high` says `held_high` for
-    a sure answer and `held_high_unsure` for one under the confirm bar; a held one then held again by `stick` says
-    `sticky`, or `sticky_unsure` for a `held_high_unsure` one (theseus-t7b96).
+    A one-step change held on a model without per-message effort (`stick`) says `sticky`.
     **A sticky hold has a way out** (theseus-u5a37): `keep_warm.sent` keeps, beside the level a request carried, the
-    kind of hold that carried it (`effort::Hold`: `Sticky`, or `Unsure` for `sticky_unsure`), in memory. On a later turn
+    kind of hold that carried it (`effort::Hold`: `Sticky`), in memory. On a later turn
     a held change whose answer is sure enough ends the hold: `effort::reverts` wants a `sure` answer in a `sticky`
-    window and `confidence >= [routing] effort_confidence` in a `sticky_unsure` one (the lower bar the owner asked
-    for); the request then carries Jev's level and the row says `sticky_reverted`. The turn that opens a hold never
+    window; the request then carries Jev's level and the row says `sticky_reverted`. The turn that opens a hold never
     reverts it, and a checkpoint's raise is never held or reverted. A revert rewrites the messages' cache once, as a
     two-step change does.
     **The checkpoint says what effort the work ran at** (theseus-ujzuh): `checkpoint::text_with` adds two lines before
@@ -3677,5 +3666,5 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   model, so origin comes from the endpoint as well as the id (`catalog::origin_of`). A config row cannot loosen a
   built-in China-origin row's origin (`Config::validate`). `deepseek-flash` is a floating alias: its served model can
   change under the same id. A later loop on a restricted model whose session was labelled meanwhile moves to the `[model]` default (`cn_move`).
-  `final` without `cn_draft` fails the load, so deep_coding's pair goes on together. `[routing.data] private_topics` was
-  renamed `[privacy] sensitive_names`.
+  `[routing.data] private_topics` was renamed `[privacy] sensitive_names`. (`cn_draft`, `first_pass`, `final` and
+  `[routing.classes.*]` are retired keys: they load and warn, theseus-kn9or.)

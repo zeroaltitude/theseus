@@ -696,13 +696,28 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
-- **2026-10-30: the old routing is deleted** (theseus-kn9or, row 6 of route.v10, theseus-h66v4). Jev chooses the model
-  and its effort, so what chose them before is gone: the class table (`[routing.classes.*]`) and the walk over it, the
-  place cap, the dear tier's guard, the step back down, a task's `max_switches`, the effort bounds and bars, the
-  China-origin draft with its review (`cn_draft`, `final`, `first_pass`, `[server] drafts_dir`), the `config::legacy`
-  profiles an unset key used to run on, and the closed branch of every site that had both. The retired `[routing]`
-  keys, and `[server] drafts_dir`, still load: they warn once and do nothing for one release. The data rule, the
-  operator's pin, the money backstops and the refusal fallback are unchanged.
+- **2026-11: the old routing is deleted** (theseus-kn9or, row 6 of route.v10, theseus-h66v4; lands with route.v10's flip,
+  in one sequence). Jev chooses the model and its effort, so what chose them before is gone: the class table
+  (`[routing.classes.*]`) and the walk over it, the place cap, the dear tier's guard, the step back down, a task's
+  `max_switches`, the effort bounds and bars, the China-origin draft with its review (`cn_draft`, `final`,
+  `first_pass`, `[server] drafts_dir`), the `config::legacy` profiles an unset key used to run on, and the closed
+  branch of every site that had both. The retired `[routing]` keys, and `[server] drafts_dir`, still load: they warn
+  once ("retired in 1.0.4") and do nothing for one release. The data rule, the operator's pin, the money backstops and
+  the refusal fallback are unchanged. **What the owner will meet:**
+  - *The people sweep reserves more per session.* With `[people] extract_profile` unset, the nightly sweep prices each
+    session's worst case on the live profile (Sonnet), where it was Haiku, because a pass Jev gives no pick runs on
+    live. Against the day's cap (`sweep_usd_per_day`) a night's sweep begins about a third as many sessions; what each
+    pass really costs is unchanged. Set `extract_profile = "haiku"` to price and run it on Haiku as before.
+  - *A correction no longer holds the session.* After "that should have been on fable", the next message in the same
+    session is Jev's choice again (a close message in another session is still steered by the correction). It was the
+    design's "correction first, unchanged"; this is the owner's to confirm or to ask for a hold.
+  - *`theseus route correct --to <mode>` and "should have been deep_coding" no longer resolve.* The error says to name
+    a configured profile, `stronger` or `cheaper`.
+  - *Two small changes of an unset key:* the self-join's reviewer is no longer Fable by default (`[self]
+    reviewer_profile` unset reads as live; `/etc` sets it), and a card's `card.proposed` row records an empty profile
+    where it said `haiku`.
+  - *`/etc/theseus/theseus.toml` is edited by a prepared script after the install*, not by the daemon: it drops the
+    three class-walk profiles and the retired keys, and adds the DeepSeek provider for Flash.
 
 - **2026-10-24: v1 patch2's live learning** (theseus-6f8t0; Item 257). The owner card now learns from live
   conversations, not only the imported history. When a private conversation the owner is alone in pauses (the CLI, the

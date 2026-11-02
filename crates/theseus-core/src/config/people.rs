@@ -4,7 +4,8 @@
 //! default, so an owner's config names none of them unless it differs.
 //!
 //! - `extract_profile`: the profile whose model reads a session's text and
-//!   returns its candidate people through a tool schema (`haiku`).
+//!   returns its candidate people through a tool schema. Unset: Jev picks per
+//!   pass, and the plan prices the sweep on the live profile (theseus-kn9or).
 //! - `not_people`: names that are never proposed, beside the owner, the
 //!   personas, the agents the store knows and the house's names (folded:
 //!   case, spaces and a leading "@"): the names the store cannot know, the

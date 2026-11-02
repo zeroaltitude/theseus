@@ -884,3 +884,21 @@ theseus-xdi65 settles it.
 cue does not fire until its replacement lands (the `split.v1` label, theseus-h66v4.6), and `tests_fan_out_cue.rs`,
 which drove it through the class, was removed with the class. (2) The warning says "retired in 1.0.4", not the
 design's "1.0.5": the release these rows ship in is 1.0.4.
+
+**Fallbacks that moved with `config::legacy` (the review of 2026-11-02).** Removing it changes three sites that were not
+behind `route_open()`, so the flip alone would not have changed them. (1) `judge/people/run.rs::people_priced_on`: with
+`[people] extract_profile` unset the nightly sweep prices a session's worst case on the live profile, where it was
+Haiku. A pass Jev gives no pick runs on live, so the live price is the honest reserve; it is kept, not worked around by
+a cheapest-model rule (which would under-reserve a pass that does run on live and let the day's cap be passed). The
+price is per session against the day's cap, so a night's sweep begins about a third as many sessions; what a pass costs
+is unchanged. (2) `rsi/join.rs`: with `[self] reviewer_profile` unset the prior-verdict match reads the live model,
+where it read Fable; the review itself is Jev's pick, so a "changes" or "refused" verdict from a Jev-picked reviewer
+that differs from live never matches and is reviewed again on every pass (an `accept` or `reject` always matches).
+Latent before, moved here, and not live (`/etc` sets `reviewer_profile = "fable"`); recorded, not fixed. (3)
+`card/live.rs`: `CardProposed.profile` records the empty string for an unset `[card] profile`, where it was `haiku`
+(the `model` field beside it is already empty there). Cosmetic; recorded.
+
+**Test coverage this row left to Phase 2.** The tier's cache invariant (`the_tier_never_changes_a_cached_prefix_byte`),
+`admission_follows_the_tier`, `why_names_the_tier_and_its_pack` and the route-level data-gate metric lost their only
+tests with `tests_injection_tiers.rs` and `tests_observability.rs`: the tier code they cover is live, only its class
+names are gone. They are restored on `work.v1`'s Deep tier at the Phase 2 join (theseus-h66v4.9), not here.

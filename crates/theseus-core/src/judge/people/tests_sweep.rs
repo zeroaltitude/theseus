@@ -179,3 +179,22 @@ fn the_sweeps_cap_has_its_default_and_refuses_a_negative() {
         assert!(e.to_string().contains("sweep_usd_per_day"), "{e}");
     }
 }
+
+/// With `[people] extract_profile` unset the plan is priced on the live
+/// profile, where a pass Jev gave no pick runs (theseus-kn9or: it was Haiku
+/// under the retired legacy fallback, so a night's sweep reserves about three
+/// times as much per session and begins fewer). A pin still prices on itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unset_extract_profile_prices_the_sweep_on_the_live_profile() {
+    let r = rig(None, EVERY, people_on);
+    let (live, _) = r.core.live_profile();
+    let (priced, _) = r.core.people_priced_on().unwrap();
+    assert_eq!(priced.profile, live, "unset: the live profile");
+
+    let r = rig(None, EVERY, |c| {
+        people_on(c);
+        c.people.extract_profile = Some("haiku".into());
+    });
+    let (priced, _) = r.core.people_priced_on().unwrap();
+    assert_eq!(priced.profile, "haiku", "a pin prices on itself");
+}
