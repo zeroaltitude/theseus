@@ -717,6 +717,13 @@ impl Chat {
             true => "held: no model ran".to_string(),
             false => model_words(&r.model),
         });
+        // A model the operator named, not Jev's verdict (theseus-h66v4.3).
+        parts.extend(
+            r.route
+                .as_ref()
+                .and_then(|t| t.pin_footer())
+                .map(Into::into),
+        );
         if let Some(c) = r.cost_words() {
             parts.push(c);
         }

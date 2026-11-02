@@ -75,6 +75,7 @@ mod persona_view;
 mod persona_write;
 mod policy;
 mod prefix;
+mod profile_pins;
 mod projects;
 mod proposal_groups;
 mod proposals;
@@ -158,6 +159,8 @@ mod tests_peek;
 mod tests_persona_import;
 #[cfg(test)]
 mod tests_persona_threads;
+#[cfg(test)]
+mod tests_pin_footer;
 #[cfg(test)]
 mod tests_place_digest;
 #[cfg(test)]

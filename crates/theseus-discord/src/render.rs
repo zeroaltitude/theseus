@@ -37,6 +37,8 @@ pub(crate) mod process;
 mod reply;
 pub(crate) mod snapshot;
 pub(crate) mod task_view;
+#[cfg(test)]
+mod tests_pin;
 pub(crate) mod v2;
 mod wakes;
 pub use approval::strip_ask;
@@ -1210,6 +1212,13 @@ fn footer(r: &TurnSubmitResult) -> String {
     }
     // A held turn made no model call (theseus-2rvwv).
     bits.push(["held: no model ran", &r.model][usize::from(r.stop_reason != "held")].into());
+    // A model the operator named, not Jev's verdict (theseus-h66v4.3).
+    bits.extend(
+        r.route
+            .as_ref()
+            .and_then(|t| t.pin_footer())
+            .map(Into::into),
+    );
     // Where routing ran it: ⬆️ or ⬇️ on the reply corrects it (theseus-q31l).
     bits.extend(crate::runtime::route::routed(r));
     // Which thread it ran in, with a move handle when the router was unsure
@@ -2500,7 +2509,7 @@ mod tests {
                 "input": {"path": "/etc/hosts"}, "gate": {"result": {"gate": "needs_confirm", "by": "operator"}}}));
             r.on_notification("confirm.requested", &json!({"correlation_id": "act_9",
                 "session_id": "s", "execution_id": "e", "tool": "fs.read", "input": {"path": "/etc/hosts"},
-                "reason": "read /etc/hosts: fs.read — approve (/etc/hosts is outside the workspace roots: /w)",
+                "reason": "read /etc/hosts: fs.read — approve (/etc/hosts is protected: /etc is on the approve list)",
                 "by": "operator", "requested_at_ms": 0, "expires_at_ms": 60_000}));
             r.on_notification(
                 "confirm.resolved",

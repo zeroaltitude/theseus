@@ -1,0 +1,10 @@
+$ theseus profile pins
+--- requests
+profile.pins
+--- stdout
+session …q7f3k2 held to quick
+task …task01 held to gone (no longer configured)
+pinned: 1 of 5 tasks, 1 of 5 sessions (2 held to a profile, 0 started by you on a profile, 0 on a fixed model Theseus chose)
+--- stderr
+[live: quick (from config)]
+--- exit 0

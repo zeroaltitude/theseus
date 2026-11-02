@@ -202,30 +202,156 @@ class TbPart(unittest.TestCase):
         self.assertIn("price table", p["note"])
 
 
-def replay(model_ok=53, must_ok=13, must_total=13, answered=58, held=2, bar=True, cost=0.01, pack="route.v10"):
-    """`theseus --json judge replay --cases`'s result, the fields the part reads."""
-    return {"set": "cases", "cost_usd": cost,
-            "cases": {"cases": [{}] * 58, "answered": answered, "model_ok": model_ok, "held_elsewhere": held,
-                      "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar,
-                      "pack": pack}}
+def need80(of):
+    """The owner's bar, written out here a second time on purpose: 80% of `of`, rounded up."""
+    return -(-of * 4 // 5)
+
+
+def replay(model_ok=55, must_ok=13, must_total=13, answered=61, n=61, held=2, bar=True, cost=0.01,
+           pack="route.v10", bars=True):
+    """`theseus --json judge replay --cases`'s result as Phase 2 prints it (theseus-h66v4.6): `n` cases
+    graded, the pins outside every denominator, and one bar per question (`model`, then `must`),
+    each `need` the ratio of its own `of`."""
+    c = {"cases": [{}] * n, "answered": answered, "model_ok": model_ok, "held_elsewhere": held,
+         "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar, "pack": pack,
+         "asked": ["model"]}
+    if bars:
+        c["bars"] = [{"question": "model", "ok": model_ok, "of": n, "need": need80(n),
+                      "met": n > 0 and model_ok >= need80(n)},
+                     {"question": "must", "ok": must_ok, "of": must_total, "need": need80(must_total),
+                      "met": must_total > 0 and must_ok >= need80(must_total)}]
+    return {"set": "cases", "cost_usd": cost, "cases": c}
+
+
+def effort_replay(effort_ok=58, n=61, answered=61, cost=0.01, bars=True):
+    """`theseus --json judge replay --pack-file effort.v1.toml --cases route.v10.cases.toml` as Phase 2 prints it: the
+    same cases, one bar, `effort` within one rung of the label, `need` the ratio of its own `of`."""
+    c = {"cases": [{}] * n, "answered": answered, "pack": "effort.v1", "asked": ["effort"], "bar": True}
+    if bars:
+        c["bars"] = [{"question": "effort", "ok": effort_ok, "of": n, "need": need80(n),
+                      "met": n > 0 and effort_ok >= need80(n)}]
+    return {"set": "cases", "cost_usd": cost, "cases": c}
 
 
 class RoutePart(unittest.TestCase):
-    def runs(self, *raws, wall=20.0):
-        return [smoke.route_run(r, wall) for r in raws]
+    def runs(self, *raws, wall=20.0, effort=True):
+        """Each route replay with the effort replay the tag gate takes beside it (`effort=False`: none)."""
+        return [smoke.route_run(r, wall, effort_replay() if effort is True else effort or None) for r in raws]
 
-    def test_the_bar_is_54_of_60_on_the_model_with_the_two_pin_tests_counted_and_every_must(self):
-        self.assertTrue(smoke.route_part(self.runs(*[replay(model_ok=52)] * 3), floor=None)["ok"])
-        low = smoke.route_part(self.runs(replay(), replay(), replay(model_ok=51)), floor=None)
+    def part(self, *raws, live=None):
+        return smoke.route_part(self.runs(*raws), floor=None, live=live)
+
+    def test_a_candidate_that_meets_the_owners_bar_passes(self):
+        # The regression this row exists for: 80% of the model's 61 is 49, of the 13 musts 11. The retired
+        # bar (54 of 60, every must) failed a run that read 49 and 11.
+        p = self.part(*[replay(model_ok=49, must_ok=11)] * 3)
+        self.assertTrue(p["ok"], p["note"])
+        self.assertEqual(p["number"], 49.0)
+
+    def test_a_candidate_that_misses_the_owners_bar_fails_and_says_by_how_much(self):
+        p = self.part(*[replay(model_ok=40, must_ok=9)] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("40/61 on the model < 49", p["note"])
+        self.assertIn("9/13 musts < 11", p["note"])
+
+    def test_the_release_verdict_passes_on_three_runs_that_meet_the_owners_bar_and_fails_on_three_that_miss_it(self):
+        # What the tag gate reads, end to end through smoke.verdict: the READY TO TAG line. A run of 49/61 on the model
+        # and 11/13 on the musts is the owner's bar to the case and was a FAIL under the retired 54 of 60 + every must.
+        others = [part(n, True) for n in smoke.PARTS if n != "route"]
+        meets = smoke.route_part(self.runs(*[replay(model_ok=49, must_ok=11)] * 3), None, live="route.v10")
+        self.assertEqual(smoke.verdict(others + [meets]), "PASS")
+        self.assertEqual((meets["count"], meets["number"]), (3, 49.0))
+        misses = smoke.route_part(self.runs(*[replay(model_ok=48, must_ok=11)] * 3), None, live="route.v10")
+        self.assertEqual(smoke.verdict(others + [misses]), "FAIL (route)")
+        self.assertIn("48/61 on the model < 49", misses["note"])
+
+    def test_the_bar_is_the_edge_of_80_percent_rounded_up_of_each_questions_own_count(self):
+        self.assertTrue(self.part(*[replay(model_ok=49, must_ok=11)] * 3)["ok"])
+        low = self.part(replay(), replay(), replay(model_ok=48))
         self.assertFalse(low["ok"])
-        self.assertIn("53/60", low["note"])
-        must = smoke.route_part(self.runs(replay(), replay(), replay(must_ok=12)), floor=None)
+        self.assertIn("48/61 on the model < 49", low["note"])
+        must = self.part(replay(), replay(), replay(must_ok=10))
         self.assertFalse(must["ok"])
-        self.assertIn("12/13", must["note"])
+        self.assertIn("10/13 musts < 11", must["note"])
 
-    def test_the_number_is_the_worst_run_on_the_model_out_of_60(self):
+    def test_the_bar_follows_the_denominator_the_replay_reports_and_no_count_is_written_in_the_output(self):
+        for n in (61, 62, 65, 70, 100):
+            need = need80(n)
+            ok = self.part(*[replay(n=n, answered=n, model_ok=need)] * 3)
+            self.assertTrue(ok["ok"], (n, ok["note"]))
+            bad = self.part(*[replay(n=n, answered=n, model_ok=need - 1)] * 3)
+            self.assertFalse(bad["ok"], n)
+            self.assertIn(f"{need - 1}/{n} on the model < {need}", bad["note"])
+        p = self.part(*[replay(n=65, answered=65, model_ok=60)] * 3)
+        for text in (p["note"], p["unit"], p["runs"] and json.dumps(p["runs"])):
+            self.assertNotIn("/60", text)
+            self.assertNotIn("54", text)
+        self.assertIn("/65", p["note"])
+
+    def test_the_pin_tests_get_no_credit_the_bar_is_over_the_replays_own_cases(self):
+        # Before Phase 2 the 58 + 2 held read as 60; the pins are outside every denominator now.
+        p = self.part(*[replay(model_ok=49, held=2)] * 3)
+        self.assertEqual(p["runs"][0]["total"], 61)
+        self.assertEqual(p["runs"][0]["model"], 49)
+        self.assertFalse(self.part(*[replay(model_ok=48, held=2)] * 3)["ok"])
+
+    def test_the_musts_are_the_13_the_replay_grades_not_14_with_the_daemon_pin_test(self):
+        p = self.part(*[replay(model_ok=55, must_ok=11, must_total=13)] * 3)
+        self.assertTrue(p["ok"], p["note"])
+        self.assertIn("11/13 musts", p["note"])
+
+    def test_a_replay_whose_bar_is_not_the_80_percent_rule_is_a_fail_not_a_trust(self):
+        raw = replay(model_ok=40)
+        raw["cases"]["bars"][0]["need"] = 40  # a replay that graded itself against a lower bar
+        raw["cases"]["bars"][0]["met"] = True
+        p = self.part(*[raw] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("is not 80% of 61", p["note"])
+
+    def test_a_replay_without_bars_is_read_from_its_totals_by_the_same_rule(self):
+        # A binary from before Phase 2 prints no `bars`: model_ok over the cases it graded, the musts over must_total.
+        ok = self.part(*[replay(model_ok=49, must_ok=11, bars=False)] * 3)
+        self.assertTrue(ok["ok"], ok["note"])
+        bad = self.part(*[replay(model_ok=48, must_ok=11, bars=False)] * 3)
+        self.assertFalse(bad["ok"])
+        self.assertIn("48/61 on the model < 49", bad["note"])
+
+    def test_grading_no_cases_is_a_fail_not_a_pass(self):
+        # An empty set meets every "nothing missed" bar; a zero denominator must not.
+        empty = replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0)
+        self.assertFalse(self.part(*[empty] * 3)["ok"])
+        # Answered, but the replay reported a bar over zero cases.
+        zero = replay(model_ok=0, must_ok=0, must_total=0)
+        zero["cases"]["bars"] = [{"question": "model", "ok": 0, "of": 0, "need": 0, "met": True},
+                                 {"question": "must", "ok": 0, "of": 0, "need": 0, "met": True}]
+        p = self.part(*[zero] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("no cases graded", p["note"])
+        # Cases graded but no must in the file: the must bar is over nothing.
+        nomust = replay(must_ok=0, must_total=0)
+        p = self.part(*[nomust] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("no must", p["note"])
+        # Bars present but none of them the model's.
+        nomodel = replay()
+        nomodel["cases"]["bars"] = [b for b in nomodel["cases"]["bars"] if b["question"] != "model"]
+        self.assertFalse(self.part(*[nomodel] * 3)["ok"])
+
+    def test_the_command_line_exits_1_for_a_zero_case_grading_and_0_for_the_owners_bar(self):
+        with tempfile.TemporaryDirectory() as t:
+            def go(raw):
+                r, e = Path(t) / "r.json", Path(t) / "e.json"
+                r.write_text(json.dumps(raw))
+                e.write_text(json.dumps(effort_replay()))
+                pair = [str(r), "1", "--effort", str(e)]
+                return smoke.main(["route", t, "--live", "route.v10"] + pair * 3)
+            self.assertEqual(go(replay(model_ok=49, must_ok=11)), 0)
+            self.assertEqual(go(replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0)), 1)
+            self.assertEqual(go(replay(model_ok=40, must_ok=9)), 1)
+
+    def test_the_number_is_the_worst_run_on_the_model(self):
         p = smoke.route_part(self.runs(replay(model_ok=56), replay(model_ok=53), replay(model_ok=55)), None)
-        self.assertEqual(p["number"], 55.0)
+        self.assertEqual(p["number"], 53.0)  # no pin credit: 53 of 61
 
     def test_fewer_than_three_runs_or_a_run_with_no_answers_is_a_fail(self):
         self.assertFalse(smoke.route_part(self.runs(replay(), replay()), None)["ok"])
@@ -249,7 +375,7 @@ class RoutePart(unittest.TestCase):
         self.assertTrue(p["na"])
         self.assertIn("n/a until the flip", p["note"])
         self.assertIn("route.v8", p["note"])
-        self.assertIn("39/60", p["note"])
+        self.assertIn("37/61", p["note"])
         parts = [part(n, True) for n in smoke.PARTS if n != "route"] + [p]
         self.assertEqual(smoke.verdict(parts), "PASS (route n/a until the flip)")
         md = smoke.report_md(parts, run={"sha": "75012080", "date": "2026-10-30", "binary": "x"})
@@ -264,7 +390,7 @@ class RoutePart(unittest.TestCase):
             p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live=live)
             self.assertFalse(p["ok"], live)
             self.assertFalse(p.get("na"), live)
-            self.assertIn("39/60 on the model < 54", p["note"])
+            self.assertIn("37/61 on the model < 49", p["note"])
 
     def test_a_canary_of_the_cases_pack_or_an_unreadable_ladder_is_held_to_the_bar(self):
         for live in ("route.v8,route.v10", "None", "route.v8,", ""):
@@ -402,11 +528,139 @@ class Verdict(unittest.TestCase):
         self.assertLess(md.index("| part |"), md.index("$2.50"))
 
 
+class RouteEffort(unittest.TestCase):
+    """theseus-h66v4.4's fix pass: `Jev chooses the model and effort` is graded at the tag. Each run is a route.v10
+    replay and an effort.v1 replay over the same cases file; the effort bar joins that run's bars."""
+
+    def part(self, route, effort, live="route.v10", n=3):
+        return smoke.route_part([smoke.route_run(route, 20.0, effort)] * n, None, live=live)
+
+    def test_effort_within_one_rung_is_graded_at_80_percent_of_its_own_count(self):
+        ok = self.part(replay(), effort_replay(effort_ok=49))
+        self.assertTrue(ok["ok"], ok["note"])
+        self.assertIn("49/61 on effort", ok["note"])
+        bad = self.part(replay(), effort_replay(effort_ok=48))
+        self.assertFalse(bad["ok"])
+        self.assertIn("48/61 on effort < 49", bad["note"])
+        # The case that would have passed READY TO TAG silently: effort far under the bar, model and musts fine.
+        self.assertFalse(self.part(replay(), effort_replay(effort_ok=30))["ok"])
+
+    def test_the_effort_bar_follows_its_own_denominator(self):
+        for n in (61, 65, 70):
+            self.assertTrue(self.part(replay(), effort_replay(effort_ok=need80(n), n=n, answered=n))["ok"], n)
+            self.assertFalse(self.part(replay(), effort_replay(effort_ok=need80(n) - 1, n=n, answered=n))["ok"], n)
+
+    def test_a_missing_effort_replay_is_a_fail_the_gate_never_stops_covering_effort_silently(self):
+        p = self.part(replay(), None)
+        self.assertFalse(p["ok"])
+        self.assertIn("no effort bar", p["note"])
+        # One run of three without it is as bad.
+        runs = [smoke.route_run(replay(), 20.0, effort_replay())] * 2 + [smoke.route_run(replay(), 20.0)]
+        q = smoke.route_part(runs, None, live="route.v10")
+        self.assertFalse(q["ok"])
+        self.assertIn("run 3: the replay graded no effort bar", q["note"])
+        # An effort replay that printed no bar (an older binary), or one over no cases, is not a pass either.
+        self.assertFalse(self.part(replay(), effort_replay(bars=False))["ok"])
+        self.assertFalse(self.part(replay(), effort_replay(effort_ok=0, n=0, answered=0))["ok"])
+
+    def test_only_the_effort_bar_is_taken_from_the_effort_replay_and_its_bar_must_be_80_percent(self):
+        both = effort_replay()
+        both["cases"]["bars"].append({"question": "model", "ok": 0, "of": 61, "need": 49, "met": False})
+        p = self.part(replay(), both)
+        self.assertTrue(p["ok"], p["note"])
+        self.assertEqual(sorted(b["question"] for b in p["runs"][0]["bars"]), ["effort", "model", "must"])
+        lax = effort_replay(effort_ok=40)
+        lax["cases"]["bars"][0].update(need=40, met=True)
+        q = self.part(replay(), lax)
+        self.assertFalse(q["ok"])
+        self.assertIn("is not 80% of 61", q["note"])
+
+    def test_the_cases_pack_and_the_run_count_stay_the_route_replays(self):
+        # The na decision reads the route pack; an effort replay beside it does not make the run `effort.v1`'s.
+        run = smoke.route_run(replay(), 20.0, effort_replay())
+        self.assertEqual(run["pack"], "route.v10")
+        self.assertAlmostEqual(run["cost_usd"], 0.02)
+        na = self.part(replay(model_ok=37, must_ok=9), effort_replay(effort_ok=30), live="route.v8")
+        self.assertTrue(na["ok"] and na["na"], na)
+        # n/a with no effort replay at all is still n/a: the pack does not act, nothing is judged.
+        self.assertTrue(self.part(replay(model_ok=37), None, live="route.v8")["na"])
+        self.assertEqual(self.part(replay(), effort_replay(), live="route.v10")["count"], 3)
+
+    def test_the_effort_reading_is_in_the_note_and_the_part_keeps_its_worst(self):
+        p = smoke.route_part([smoke.route_run(replay(), 20.0, effort_replay(effort_ok=k)) for k in (58, 50, 55)],
+                             None, live="route.v10")
+        self.assertTrue(p["ok"])
+        self.assertIn("50/61 on effort", p["note"])
+        self.assertEqual(p["worst"]["effort"], {"ok": 50, "of": 61})
+
+    def test_the_command_line_takes_the_effort_replay_beside_each_route_replay(self):
+        with tempfile.TemporaryDirectory() as t:
+            r, e, gone = Path(t) / "r.json", Path(t) / "e.json", Path(t) / "gone.json"
+            r.write_text(json.dumps(replay()))
+
+            def go(effort_json, *, args=None):
+                if effort_json is not None:
+                    e.write_text(json.dumps(effort_json))
+                pair = args if args is not None else [str(r), "1", "--effort", str(e)]
+                return smoke.main(["route", t, "--live", "route.v10"] + pair * 3)
+            self.assertEqual(go(effort_replay(effort_ok=49)), 0)
+            self.assertEqual(go(effort_replay(effort_ok=48)), 1)
+            self.assertEqual(go(None, args=[str(r), "1"]), 1)  # no --effort
+            self.assertEqual(go(None, args=[str(r), "1", "--effort", str(gone)]), 1)  # an effort replay never written
+            self.assertIn("no effort bar", json.loads((Path(t) / "parts" / "route.json").read_text())["note"])
+            e.write_text("not json")
+            self.assertEqual(go(None), 1)
+
+
+class RouteNotes(unittest.TestCase):
+    def test_a_fail_note_numbers_every_run_by_its_place_among_all_runs(self):
+        # theseus-h66v4.4 finding 2: [no cases, 40/61, ok, ok] named the 40/61 run "run 1" (numbered over the runs
+        # that answered) beside the zero-case run's "run 1".
+        runs = [smoke.route_run(replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0), 1.0, effort_replay()),
+                smoke.route_run(replay(model_ok=40), 1.0, effort_replay()),
+                smoke.route_run(replay(), 1.0, effort_replay()), smoke.route_run(replay(), 1.0, effort_replay())]
+        p = smoke.route_part(runs, None, live="route.v10")
+        self.assertFalse(p["ok"])
+        self.assertIn("run 2: 40/61 on the model < 49", p["note"])
+        self.assertIn("run 1: no cases graded", p["note"])
+        self.assertNotIn("run 1: 40/61", p["note"])
+        low_effort = [smoke.route_run(replay(), 1.0, effort_replay()), smoke.route_run(replay(), 1.0, effort_replay(effort_ok=40)),
+                      smoke.route_run(replay(), 1.0, effort_replay())]
+        self.assertIn("run 2: 40/61 on effort", smoke.route_part(low_effort, None, live="route.v10")["note"])
+
+    def test_the_passing_note_does_not_say_the_daemons_bar_asks_more_than_the_part_grades(self):
+        # Under Phase 2 route.v10's whole bar is exactly the model's, and the part grades model, must and effort.
+        p = smoke.route_part([smoke.route_run(replay(), 1.0, effort_replay())] * 3, None, live="route.v10")
+        self.assertTrue(p["ok"])
+        self.assertNotIn("effort and confidence too", p["note"])
+        self.assertIn("whole bar met 3/3", p["note"])
+
+
+class RouteFloor(unittest.TestCase):
+    def test_the_floor_keeps_each_worst_reading_with_its_own_count(self):
+        # theseus-h66v4.4 finding 3: a bare 49 beside a later 52/65 is the defect this row exists to remove.
+        runs = [smoke.route_run(replay(model_ok=k), 20.0, effort_replay(effort_ok=k + 2)) for k in (55, 49, 52)]
+        route = smoke.route_part(runs, None, live="route.v10")
+        tb, _ = Floor().passing()
+        f = smoke.floor_from([tb, route], sha="x", date="d")
+        self.assertEqual(f["route"]["model_worst"], {"ok": 49, "of": 61})
+        self.assertEqual(f["route"]["effort_worst"], {"ok": 51, "of": 61})
+
+    def test_the_next_release_prints_the_floor_with_its_count_and_a_legacy_bare_count_as_it_is(self):
+        run = [smoke.route_run(replay(model_ok=55, n=65, answered=65), 20.0, effort_replay(n=65, answered=65))] * 3
+        floor = {"route": {"wall_s": 20.0, "model_worst": {"ok": 49, "of": 61}}}
+        p = smoke.route_part(run, floor, live="route.v10")
+        self.assertEqual(p["floor"], "49/61")
+        self.assertTrue(p["ok"], p["note"])
+        legacy = smoke.route_part(run, {"route": {"wall_s": 20.0, "model_worst": 49.0}}, live="route.v10")
+        self.assertEqual(legacy["floor"], 49.0)
+
+
 class Floor(unittest.TestCase):
     def passing(self):
         tb = smoke.tb_part(tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False}),
                            SLICE, floor=None, wall_s=600)
-        route = smoke.route_part([smoke.route_run(replay(), 20.0)] * 3, None)
+        route = smoke.route_part([smoke.route_run(replay(), 20.0, effort_replay())] * 3, None)
         return tb, route
 
     def test_floor_from_a_run_holds_what_the_comparisons_read(self):
@@ -416,15 +670,15 @@ class Floor(unittest.TestCase):
         self.assertEqual(f["tb"]["wall_s"], 600)
         self.assertEqual(f["tb"]["price_digest"], smoke.price_digest())
         self.assertAlmostEqual(f["tb"]["cost_per_solved_usd"], 0.125)
-        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, 55.0))
+        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, {"ok": 55, "of": 61}))
         # What the next run compares with is what this run wrote.
         self.assertTrue(smoke.tb_part(tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False}),
                                       SLICE, floor=f, wall_s=600)["ok"])
 
     def test_a_failed_part_keeps_the_previous_floors_entry(self):
         tb, _ = self.passing()
-        bad_route = smoke.route_part([smoke.route_run(replay(model_ok=30), 99.0)] * 3, None)
-        previous = {"route": {"wall_s": 20.0, "model_worst": 56.0, "sha": "old", "date": "d0"}}
+        bad_route = smoke.route_part([smoke.route_run(replay(model_ok=30), 99.0, effort_replay())] * 3, None)
+        previous = {"route": {"wall_s": 20.0, "model_worst": {"ok": 56, "of": 61}, "sha": "old", "date": "d0"}}
         f = smoke.floor_from([tb, bad_route], sha="new", date="d1", previous=previous)
         self.assertEqual(f["written"]["parts"], ["tb"])
         self.assertEqual(f["route"], previous["route"])
@@ -434,15 +688,47 @@ class Floor(unittest.TestCase):
     def test_the_floor_is_this_releases_passing_reading(self):
         tb, route = self.passing()
         previous = {"tb": {"cost_per_solved_usd": 0.10, "wall_s": 500, "price_digest": smoke.price_digest()},
-                    "route": {"wall_s": 10.0, "model_worst": 57.0}}
+                    "route": {"wall_s": 10.0, "model_worst": {"ok": 57, "of": 61}}}
         f = smoke.floor_from([tb, route], sha="new", date="d1", previous=previous)
         self.assertEqual((f["tb"]["cost_per_solved_usd"], f["tb"]["wall_s"]), (0.125, 600))
-        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, 55.0))
+        self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, {"ok": 55, "of": 61}))
 
     def test_no_floor_when_nothing_a_floor_reads_passed(self):
         bad = smoke.tb_part([], SLICE, floor=None, wall_s=0)
         with self.assertRaises(smoke.SmokeError):
             smoke.floor_from([bad], sha="x", date="d")
+
+
+class RouteOnAWiredPack(unittest.TestCase):
+    """theseus-8ouns: `judge replay --cases` replays a wired pack, so with route.v10 live the part reaches its bar."""
+
+    def test_a_live_cases_pack_that_meets_the_bar_passes_and_is_not_na(self):
+        runs = [smoke.route_run(replay(), 20.0) for _ in range(3)]
+        p = smoke.route_part(runs, None, live="route.v10")
+        self.assertTrue(p["ok"], p)
+        self.assertFalse(p.get("na"))
+        self.assertEqual(p["count"], 3)
+
+    def test_runs_that_graded_no_case_never_read_as_a_pass(self):
+        # A replay of a file with no cases (the command refuses it now; an older binary did not): zero graded
+        # cases, bar "not judged". Three of them are three runs that answered nothing.
+        empty = {"set": "cases", "cost_usd": 0.0, "cases": {"cases": [], "answered": 0, "model_ok": 0,
+                 "held_elsewhere": 2, "must_total": 0, "must_ok": 0, "bar": None, "pack": "route.v10"}}
+        for live in ("route.v10", "route.v8", None):
+            p = smoke.route_part([smoke.route_run(empty, 1.0)] * 3, None, live=live)
+            self.assertFalse(p["ok"], live)
+            self.assertFalse(p.get("na"), live)
+            self.assertIn("0 of 3 runs answered any case", p["note"])
+
+    def test_a_replay_that_exits_clean_with_no_answer_is_a_fail_not_a_pass(self):
+        # The CLI exits 0 on "bar: not judged" (a breaker tripped, the limit cut every case): the 58 cases
+        # are there and Jev answered none. Three of those must not read as a pass, nor as "n/a until the flip".
+        mute = replay(answered=0, model_ok=0, must_ok=0, bar=None)
+        for live in ("route.v10", "route.v8", None):
+            p = smoke.route_part([smoke.route_run(mute, 1.0)] * 3, None, live=live)
+            self.assertFalse(p["ok"], live)
+            self.assertFalse(p.get("na"), live)
+            self.assertIn("0 of 3 runs answered any case", p["note"])
 
 
 if __name__ == "__main__":

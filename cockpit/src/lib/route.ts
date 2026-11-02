@@ -5,6 +5,20 @@ import type { LedgerEntry } from '@protocol'
 
 type D = Record<string, any>
 
+/** The word a surface adds when the turn's model was the operator's and not Jev's verdict (theseus-h66v4.3): the route's
+ *  own `reason`, never the model compared with a default. The TypeScript mirror of `TurnRoute::pin_footer`
+ *  (`crates/theseus-protocol/src/route.rs`), and the one place the cockpit decides it: the route footer and the turn chip
+ *  both call it. */
+export function pinFooter(reason: string | undefined): 'pinned' | null {
+  return reason === 'pinned' ? 'pinned' : null
+}
+
+/** The mode in words (theseus-h66v4.3), the mirror of `TurnRoute::mode_words`: on a pinned turn the model was not routed,
+ *  so the mode is Jev's shadow read (`Jev: quick`); on every other reason it is the bare mode. */
+export function modeWords(reason: string | undefined, mode: string): string {
+  return pinFooter(reason) ? `Jev: ${mode}` : mode
+}
+
 /** What a `route.decided` row says of its turn: the mode Jev judged, why the turn ran where it ran, the effort Jev
  *  answered and why the turn ran at its effort, and the effort its requests carried when Jev's applied. */
 export interface TurnRouted {
@@ -37,6 +51,29 @@ export function effortWords(t: TurnRouted): string {
   }
   if (!t.effort) return ''
   return `Jev: ${t.effort}, ${(t.effortReason ?? '').replaceAll('_', ' ')}`.replace(/, $/, '')
+}
+
+/** The turn chip's head: Jev's mode, or `no verdict`; for a pinned turn `pinned`, with the mode worded as Jev's read
+ *  (`pinned · Jev: quick`), since the model was not routed (theseus-h66v4.3). When Jev also answered an effort that did
+ *  not apply, it folds into that read (`pinned · Jev: quick, high, unsure`) and not a second `Jev:` (N3); `chipEffort`
+ *  is then empty. */
+export function chipHead(t: TurnRouted): string {
+  const pin = pinFooter(t.reason)
+  if (!pin) return t.mode ?? 'no verdict'
+  if (!t.mode) return pin
+  const read = modeWords(t.reason, t.mode)
+  const folded = foldedEffort(t)
+  return `${pin} · ${folded ? `${read}, ${folded}` : read}`
+}
+
+/** What follows the chip's head: the effort in words, unless `chipHead` already carried it. */
+export function chipEffort(t: TurnRouted): string {
+  return pinFooter(t.reason) && t.mode && foldedEffort(t) ? '' : effortWords(t)
+}
+
+/** Jev's effort that did not apply, without its `Jev: ` lead (`high, unsure`): what a pinned chip folds into its read. */
+function foldedEffort(t: TurnRouted): string {
+  return t.effortApplied ? '' : effortWords(t).replace(/^Jev: /, '')
 }
 
 /** The ledger's line for a `route.decided` row: `chat → sonnet (verdict) · effort high (Jev) · waited 12 ms`. */

@@ -150,7 +150,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 
 ## Models
 
-- **`profile`**: model profiles: list, switch the live one, or release the switch. `theseus profile use glm`, `theseus profile release`. Under route.v10 a `use` is also your pin (Jev is not asked the model); `release` ends it and Jev chooses again.
+- **`profile`**: model profiles: list, switch the live one, release the switch, or see every pin and let go of yours. `theseus profile use glm`, `theseus profile release`, `theseus profile pins`, `theseus profile unpin [--all]`. Under route.v10 a `use` is also your pin (Jev is not asked the model); `release` ends it and Jev chooses again. `pins` counts every task and session Jev is not asked about: sessions and tasks held to a profile, tasks you started with `--profile` (on any turn, running or asleep), and tasks Theseus made on a fixed model of its own choosing (a child task, a check, a reviewer, a routine's run, a retry), each named by who made it. `unpin` is `release` and more (it also reads the count before and after); `--all` lets go of every held session and task and of every task you started on a profile (it writes the brief's mark, so a running task is not cancelled), and names the tasks Theseus made without touching them. Routing's own moves are not pins.
 - **`model`**: models and what they cost, one group:
   - `model catalog`: the model catalog: context windows, output limits, prices per million tokens.
     `theseus model catalog`.
