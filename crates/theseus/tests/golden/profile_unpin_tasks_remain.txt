@@ -3,8 +3,8 @@ $ theseus profile unpin
 profile.unpin
 --- stdout
 nothing to release: the live profile quick was already the config's
-before: 1 of 3 tasks, 0 of 5 sessions (0 held to a profile, 1 started by you on a profile, 0 on a fixed model Theseus chose)
-after: 1 of 3 tasks, 0 of 5 sessions (0 held to a profile, 1 started by you on a profile, 0 on a fixed model Theseus chose)
+before: 1 of 5 tasks, 0 of 5 sessions (0 held to a profile, 1 started by you on a profile, 0 on a fixed model Theseus chose)
+after: 1 of 5 tasks, 0 of 5 sessions (0 held to a profile, 1 started by you on a profile, 0 on a fixed model Theseus chose)
 --- stderr
-[0 held profiles and 1 tasks started on a profile remain; `theseus profile unpin --all` lets go of them]
+[still pinned: 0 held, 1 started on a profile; `theseus profile unpin --all` lets go of them]
 --- exit 0

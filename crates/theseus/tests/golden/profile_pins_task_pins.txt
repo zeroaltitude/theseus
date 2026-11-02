@@ -5,7 +5,7 @@ profile.pins
 task …rt0001 started by you on opus (task start --profile)
 task …ed0002 made by Theseus on a fixed model, opus (a child task, a check, a reviewer, a routine run or a retry)
 task …nk0003 on glm, maker not read (the ledger could not be read)
-pinned: 3 of 3 tasks, 0 of 5 sessions (0 held to a profile, 1 started by you on a profile, 1 on a fixed model Theseus chose, 1 of unknown origin)
+pinned: 3 of 5 tasks, 0 of 5 sessions (0 held to a profile, 1 started by you on a profile, 1 on a fixed model Theseus chose, 1 of unknown origin)
 --- stderr
 [live: quick (from config)]
 --- exit 0

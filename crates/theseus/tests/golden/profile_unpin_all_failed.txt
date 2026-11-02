@@ -3,10 +3,10 @@ $ theseus profile unpin --all
 profile.unpin
 --- stdout
 released the pin on quick; the live profile is quick (from config), and Jev chooses the model when route.v10 acts
-before: 1 of 3 tasks, 1 of 5 sessions (2 held to a profile, 0 started by you on a profile, 0 on a fixed model Theseus chose)
+before: 1 of 5 tasks, 1 of 5 sessions (2 held to a profile, 0 started by you on a profile, 0 on a fixed model Theseus chose)
 let go: session …q7f3k2 (was held to quick)
 not let go: …task01 (refused)
-after: 1 of 3 tasks, 0 of 5 sessions (1 held to a profile, 0 started by you on a profile, 0 on a fixed model Theseus chose)
+after: 1 of 5 tasks, 0 of 5 sessions (1 held to a profile, 0 started by you on a profile, 0 on a fixed model Theseus chose)
 --- stderr
 [not touched: routing's own moves (Jev's verdicts) and one-turn route.correct steers; these are not holds]
 theseus: 1 held profile(s) not let go
