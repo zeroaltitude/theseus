@@ -35,6 +35,7 @@ impl Core {
             pinned_sessions: 0,
             pinned_tasks: 0,
             pins: vec![],
+            start_pinned: vec![],
         };
         for rec in self.store.list_sessions::<SessionRecord>()? {
             let task = rec.task.is_some();

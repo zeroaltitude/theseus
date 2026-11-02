@@ -62,7 +62,7 @@ pub struct SessionProfileResult {
 pub struct PinnedSession {
     /// The session's id; a task's own session is its `task_id`.
     pub session_id: String,
-    /// `session`, or `task` when the session is a task's own.
+    /// `session`, or `task` when the session is a task's own; `task-start` in `start_pinned`.
     pub kind: String,
     /// The profile it is held to, as stored.
     pub profile: String,
@@ -84,6 +84,12 @@ pub struct ProfilePinsResult {
     pub pinned_sessions: u64,
     pub pinned_tasks: u64,
     pub pins: Vec<PinnedSession>,
+    /// Tasks started on a named profile whose first turn has not run: `task.start --profile` is a pin the
+    /// brief's route never moves (`turn/brief_step.rs`), though no `session.profile` hold records it. Their
+    /// own kind (`task-start`), counted beside the holds and never inside them; `profile.unpin` does not clear
+    /// them. Each one's `profile` is the one it was started on.
+    #[serde(default)]
+    pub start_pinned: Vec<PinnedSession>,
 }
 
 /// `profile.unpin`'s params.

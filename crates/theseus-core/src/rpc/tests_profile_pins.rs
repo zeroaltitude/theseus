@@ -55,7 +55,55 @@ fn task(core: &Core) -> String {
         notify_done: false,
     });
     core.store.put_session(&rec.session_id, &rec).unwrap();
+    // Opened with no profile: its brief picks its model, so it is not start-pinned.
+    core.store
+        .append(&[crate::turn::brief_step::mark(&rec.session_id).unwrap()])
+        .unwrap();
     rec.session_id
+}
+
+/// A task `task.start --profile` opened and whose first turn has not run: its own execution, no brief mark,
+/// the model it was started on in `last_target`. Returns the task's session and its execution.
+fn start_pinned(core: &Core, profile: &str) -> (String, String) {
+    let parent = session(core);
+    let rec = core
+        .open_session(theseus_protocol::SessionOpenParams {
+            kind: Some(SessionKind::Task),
+            ..Default::default()
+        })
+        .unwrap();
+    let exec = rec.execution_id.clone().unwrap();
+    let mut rec = core
+        .store
+        .get_session::<SessionRecord>(&rec.session_id)
+        .unwrap()
+        .unwrap();
+    rec.task = Some(TaskOf {
+        parent_session: parent,
+        parent_execution: "exe_none".into(),
+        by: "call_none".into(),
+        target: None,
+        arrangement: None,
+        check: None,
+        notify_done: false,
+    });
+    rec.last_target = Some(crate::session::TargetRef {
+        profile: profile.into(),
+        provider: "p".into(),
+        model: "m".into(),
+    });
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    (rec.session_id, exec)
+}
+
+fn exec_state(core: &Core, id: &str, state: theseus_kernel::ExecState) {
+    use theseus_store::Store as _;
+    let mut e = core.kernel.execution(id).unwrap().unwrap();
+    e.state = state;
+    core.store
+        .inner()
+        .append(&[theseus_store::NewRecord::json(theseus_store::kinds::EXECUTION, Some(id), &e).unwrap()])
+        .unwrap();
 }
 
 fn hold(core: &Core, sid: &str, profile: &str) {
@@ -384,4 +432,103 @@ async fn unpin_all_from_a_surface_that_is_not_private_fails_each_hold_visibly() 
     assert!(r.released);
     assert_eq!((r.cleared.len(), r.failed.len()), (0, 4), "{r:?}");
     assert_eq!(r.after.pins.len(), 4, "{r:?}");
+}
+
+/// The exact set `task.start --profile` pins: a task, no turn run, no brief mark, an execution that has not
+/// begun or ended. Each other shape is built beside it and must not be counted, so the count is 1 and not
+/// "whatever is not zero".
+#[tokio::test]
+async fn a_task_started_on_a_profile_is_counted_as_its_own_kind_beside_the_holds() {
+    let core = core();
+    rig(&core);
+    let (pinned, _) = start_pinned(&core, "opus");
+    // Not start-pinned: its turn has run,
+    let (ran, _) = start_pinned(&core, "opus");
+    let mut rec = core.store.get_session::<SessionRecord>(&ran).unwrap().unwrap();
+    rec.turns = 1;
+    core.store.put_session(&ran, &rec).unwrap();
+    // it carries the brief's mark,
+    let (marked, _) = start_pinned(&core, "opus");
+    core.store
+        .append(&[crate::turn::brief_step::mark(&marked).unwrap()])
+        .unwrap();
+    // it ended or was cancelled,
+    let (_, done) = start_pinned(&core, "opus");
+    exec_state(&core, &done, theseus_kernel::ExecState::Complete);
+    let (_, cancelled) = start_pinned(&core, "opus");
+    exec_state(&core, &cancelled, theseus_kernel::ExecState::Cancelled);
+    // or its first turn is running (a turn fixes its model once it starts).
+    let (_, running) = start_pinned(&core, "opus");
+    exec_state(&core, &running, theseus_kernel::ExecState::Running);
+    let r = pins(&core).await;
+    assert_eq!(r.start_pinned.len(), 1, "{r:?}");
+    let p = &r.start_pinned[0];
+    assert_eq!(
+        (p.session_id.as_str(), p.kind.as_str(), p.profile.as_str()),
+        (pinned.as_str(), "task-start", "opus")
+    );
+    // Beside the holds, never inside them: nothing held it with `session.profile`.
+    assert_eq!((r.pinned_sessions, r.pinned_tasks), (2, 2), "{r:?}");
+    assert_eq!(r.pins.len(), 4, "{r:?}");
+    assert!(r.pins.iter().all(|p| p.session_id != pinned), "{r:?}");
+}
+
+#[tokio::test]
+async fn unpin_all_counts_a_start_pinned_task_before_and_after_and_does_not_clear_it() {
+    let core = core();
+    rig(&core);
+    let (t, _) = start_pinned(&core, "opus");
+    let r = unpin(&core, true).await;
+    assert_eq!(r.before.start_pinned.len(), 1, "{r:?}");
+    assert_eq!(r.before.start_pinned[0].session_id, t);
+    assert_eq!(r.cleared.len(), 4, "only the holds: {r:?}");
+    assert!(r.cleared.iter().all(|c| c.session_id != t), "{r:?}");
+    assert!(r.failed.is_empty(), "{r:?}");
+    // Not cleared, and said: still counted after, still without a brief mark.
+    assert_eq!(r.after.start_pinned.len(), 1, "{r:?}");
+    assert!(!crate::turn::brief_step::marked(&core.store, &t));
+    assert_eq!(
+        (r.after.pinned_sessions, r.after.pinned_tasks),
+        (0, 0),
+        "{r:?}"
+    );
+}
+
+#[tokio::test]
+async fn unpin_without_all_reports_a_start_pinned_task_too() {
+    let core = core();
+    let (t, _) = start_pinned(&core, "opus");
+    let r = unpin(&core, false).await;
+    assert_eq!(r.before.start_pinned.len(), 1, "{r:?}");
+    assert_eq!(r.after.start_pinned.len(), 1, "{r:?}");
+    assert_eq!(r.after.start_pinned[0].session_id, t);
+}
+
+/// One `session.profile.<id>` row that cannot be read: `release` still works, so `unpin` releases the live
+/// pin first and names the read that failed, as an internal error, not as invalid params.
+#[tokio::test]
+async fn an_unreadable_hold_does_not_keep_unpin_from_releasing_the_live_pin() {
+    let core = core();
+    let bad = session(&core);
+    core.store
+        .append(&[theseus_store::NewRecord::json(
+            theseus_store::kinds::META,
+            Some(&format!("session.profile.{bad}")),
+            &json!("not a hold"),
+        )
+        .unwrap()])
+        .unwrap();
+    let used = wire(&core, Surface::Cli, "profile.use", json!({"name": "glm"})).await;
+    assert!(used.error.is_none());
+    assert_eq!(core.live_profile().1, "runtime", "the live pin is set");
+    let r = wire(&core, Surface::Cli, "profile.unpin", json!({"all": false})).await;
+    assert!(r.result.is_none(), "no false zero: {r:?}");
+    let e = r.error.expect("the read failure is the answer");
+    assert_eq!(e.code, theseus_protocol::error_code::INTERNAL, "{e:?}");
+    assert!(
+        e.message.contains("live pin was released"),
+        "it says what it did: {}",
+        e.message
+    );
+    assert_eq!(core.live_profile().1, "config", "the live pin is released");
 }
