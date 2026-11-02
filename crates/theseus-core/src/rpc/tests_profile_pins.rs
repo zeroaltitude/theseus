@@ -8,8 +8,10 @@
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use theseus_protocol::ops::SessionProfileParams;
-use theseus_protocol::{ProfilePinsResult, ProfileUnpinResult, SessionKind};
+use theseus_protocol::ops::{
+    ProfilePinsResult, ProfileUnpinResult, SessionProfileParams,
+};
+use theseus_protocol::SessionKind;
 
 use super::Core;
 use crate::approval::{Client, Surface};

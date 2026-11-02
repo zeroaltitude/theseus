@@ -14,7 +14,7 @@
 //! - **Authority** is `session.profile`'s, per hold: a caller who may not choose a session's model
 //!   fails every hold, and `failed` names each one.
 
-use theseus_protocol::{
+use theseus_protocol::ops::{
     PinnedSession, ProfilePinsResult, ProfileUnpinParams, ProfileUnpinResult, UnpinFailure,
 };
 

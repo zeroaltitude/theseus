@@ -11,11 +11,11 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use theseus_client::render::{self, Frame};
 use theseus_client::{outcome, resolve, CallError, Conn};
+use theseus_protocol::ops::{ProfilePinsResult, ProfileUnpinParams, ProfileUnpinResult};
 use theseus_protocol::judge::{JudgeGetParams, JudgeGetResult, JudgeListParams, JudgeListResult};
 use theseus_protocol::{
     method, notify, CatalogListResult, ConfirmListResult, Event, HealthResult, LedgerTailParams,
-    LedgerTailResult, Message, ProfileListResult, ProfilePinsResult, ProfileReleaseResult,
-    ProfileUnpinParams, ProfileUnpinResult, ProfileUseParams, SessionHistoryParams,
+    LedgerTailResult, Message, ProfileListResult, ProfileReleaseResult, ProfileUseParams, SessionHistoryParams,
     SessionHistoryResult, SessionListParams, SessionListResult, SessionOpenParams,
     SessionRecompileParams, SessionRef, ToolListResult, TurnSubmitParams, TurnSubmitResult,
 };

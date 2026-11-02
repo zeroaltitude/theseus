@@ -56,6 +56,70 @@ pub struct SessionProfileResult {
     pub note: Option<String>,
 }
 
+/// One session or task held to a profile (`session.profile`, META `session.profile.<id>`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct PinnedSession {
+    /// The session's id; a task's own session is its `task_id`.
+    pub session_id: String,
+    /// `session`, or `task` when the session is a task's own.
+    pub kind: String,
+    /// The profile it is held to, as stored.
+    pub profile: String,
+    /// False when the profile is no longer configured: the hold stays on record but no turn follows it.
+    pub configured: bool,
+}
+
+/// `profile.pins`' answer (theseus-h66v4.2): how many sessions and tasks carry a held profile, and which.
+/// The totals ride beside the pinned counts, so "0 pinned" can be told from "0 sessions".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProfilePinsResult {
+    pub live: String,
+    /// `runtime` when the live profile is itself a pin (`profile.use`); `config` otherwise.
+    pub live_source: String,
+    /// Session records that are not tasks' own, and task sessions.
+    pub sessions: u64,
+    pub tasks: u64,
+    pub pinned_sessions: u64,
+    pub pinned_tasks: u64,
+    pub pins: Vec<PinnedSession>,
+}
+
+/// `profile.unpin`'s params.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProfileUnpinParams {
+    /// Also let go every session's and task's held profile, each in its own `session.profile_set` row.
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// A hold `profile.unpin --all` could not let go.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct UnpinFailure {
+    pub session_id: String,
+    pub error: String,
+}
+
+/// `profile.unpin`'s answer (theseus-h66v4.2). The live half is `ProfileReleaseResult`'s, field for field
+/// (`released` is carried, never `previous != live`); `before` and `after` are counted, not inferred, and
+/// `cleared` lists the holds let go, each of which wrote its own `session.profile_set` row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProfileUnpinResult {
+    pub released: bool,
+    pub previous: String,
+    pub live: String,
+    pub by: String,
+    pub all: bool,
+    pub before: ProfilePinsResult,
+    pub cleared: Vec<PinnedSession>,
+    pub failed: Vec<UnpinFailure>,
+    pub after: ProfilePinsResult,
+}
+
 /// `task.rehome`'s params.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
