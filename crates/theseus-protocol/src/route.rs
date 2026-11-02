@@ -69,6 +69,18 @@ pub struct TurnRoute {
     pub data: Option<TurnData>,
 }
 
+impl TurnRoute {
+    /// The word a footer adds when the turn's model was the operator's and not
+    /// Jev's verdict (theseus-h66v4.3): `-P`, `-p`, `-m`, `theseus profile use`
+    /// under route.v10. It reads the route's own `reason`, the fact routing
+    /// recorded when it honored a pin, and never compares the model with the
+    /// config's default: a pin on the default model is still a pin, and the
+    /// default Jev's silence falls back to is not one (theseus-dq3m1).
+    pub fn pin_footer(&self) -> Option<&'static str> {
+        (self.reason == "pinned").then_some("pinned")
+    }
+}
+
 /// What the data rule did for a turn, for the route line.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

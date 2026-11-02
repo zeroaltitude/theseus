@@ -18,7 +18,10 @@ export function routeLine(route: TurnRoute | undefined, profile: string): string
   const from = route.from && route.from !== profile ? ` (from ${route.from})` : ''
   const who = personaWords(route)
   if (!what) return who ? `answered by: ${who}` : null
-  return who ? `routed: ${who} · ${what} · ${profile}${from}` : `routed: ${what} · ${profile}${from}`
+  // The operator's model, not Jev's verdict (theseus-h66v4.3): the route's own `reason`, never the model compared with a
+  // default. A turn whose words are already `pinned` (no mode) says it once.
+  const pin = route.reason === 'pinned' && what !== 'pinned' ? ' · pinned' : ''
+  return who ? `routed: ${who} · ${what} · ${profile}${from}${pin}` : `routed: ${what} · ${profile}${from}${pin}`
 }
 
 /** Who answered, and why when the verdict was not sure enough to stay quiet: `Birch`,

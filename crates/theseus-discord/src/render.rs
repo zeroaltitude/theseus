@@ -1212,6 +1212,13 @@ fn footer(r: &TurnSubmitResult) -> String {
     }
     // A held turn made no model call (theseus-2rvwv).
     bits.push(["held: no model ran", &r.model][usize::from(r.stop_reason != "held")].into());
+    // A model the operator named, not Jev's verdict (theseus-h66v4.3).
+    bits.extend(
+        r.route
+            .as_ref()
+            .and_then(|t| t.pin_footer())
+            .map(Into::into),
+    );
     // Where routing ran it: ⬆️ or ⬇️ on the reply corrects it (theseus-q31l).
     bits.extend(crate::runtime::route::routed(r));
     // Which thread it ran in, with a move handle when the router was unsure
