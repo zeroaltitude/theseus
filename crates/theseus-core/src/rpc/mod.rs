@@ -75,6 +75,7 @@ mod persona_view;
 mod persona_write;
 mod policy;
 mod prefix;
+mod profile_pins;
 mod projects;
 mod proposal_groups;
 mod proposals;

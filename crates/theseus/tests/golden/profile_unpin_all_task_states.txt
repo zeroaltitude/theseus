@@ -1,0 +1,15 @@
+$ theseus profile unpin --all
+--- requests
+profile.unpin
+--- stdout
+nothing to release: the live profile quick was already the config's
+before: 4 of 5 tasks, 0 of 5 sessions (0 held to a profile, 4 started by you on a profile, 0 on a fixed model Theseus chose)
+let go: task …ng0001 (was started on opus; the brief may choose its model when it starts, once route.v10 acts)
+let go: task …ep0002 (was started on opus; the brief does not run again, so only Jev's checkpoints may move it, from its next turn; until route.v10 acts they never go below opus)
+let go: task …ng0003 (was started on opus; its current turn finishes on opus, and Jev's checkpoints may move it from its next turn)
+let go: task …st0004 (was started on opus; Jev may move it from a later turn)
+after: 0 of 5 tasks, 0 of 5 sessions (0 held to a profile, 0 started by you on a profile, 0 on a fixed model Theseus chose)
+--- stderr
+[not touched: routing's own moves (Jev's verdicts) and one-turn route.correct steers; these are not holds]
+[1 running turn finishes on the model it started on]
+--- exit 0

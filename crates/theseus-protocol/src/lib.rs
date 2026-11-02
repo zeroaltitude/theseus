@@ -231,6 +231,10 @@ pub mod method {
         PROFILE_LIST = "profile.list", PROFILE_USE = "profile.use",
         /// The runtime live profile released, back to the config's `[model] live` (theseus-ervz9).
         PROFILE_RELEASE = "profile.release",
+        /// Every session's and task's held profile, counted (theseus-h66v4.2): the read side of `profile.unpin`.
+        PROFILE_PINS = "profile.pins",
+        /// The live pin released as `profile.release` does, and with `all` every held profile let go (theseus-h66v4.2).
+        PROFILE_UNPIN = "profile.unpin",
         EXECUTION_LIST = "execution.list", EXECUTION_CANCEL = "execution.cancel",
         /// `/stop` (W1): halt a conversation's work, and keep the conversation; a failure dismissed, a failed task retried (theseus-7zgsm).
         EXECUTION_STOP = "execution.stop", EXECUTION_DISMISS = "execution.dismiss", TASK_RETRY = "task.retry",
