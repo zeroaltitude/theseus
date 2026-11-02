@@ -150,7 +150,7 @@ impl Core {
 
     /// Every ledger row of `kind`, and how many of its rows could not be decoded. An error when the ledger's
     /// index cannot be read.
-    fn ledger_rows(
+    fn ledger_rows_counted(
         &self,
         kind: theseus_protocol::LedgerKind,
     ) -> anyhow::Result<(Vec<crate::ledger::LedgerRow>, usize)> {
@@ -192,8 +192,8 @@ impl Core {
     fn makers(&self) -> anyhow::Result<Makers> {
         use theseus_protocol::LedgerKind;
         let chosen = |sid: &str| !crate::turn::brief_step::marked(&self.store, sid);
-        let (started, mut unreadable) = self.ledger_rows(LedgerKind::TaskStartedByOwner)?;
-        let (retried, bad) = self.ledger_rows(LedgerKind::TaskRetried)?;
+        let (started, mut unreadable) = self.ledger_rows_counted(LedgerKind::TaskStartedByOwner)?;
+        let (retried, bad) = self.ledger_rows_counted(LedgerKind::TaskRetried)?;
         unreadable += bad;
         let mut owned = std::collections::HashSet::new();
         for r in started {
