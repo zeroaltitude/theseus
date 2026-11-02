@@ -202,28 +202,130 @@ class TbPart(unittest.TestCase):
         self.assertIn("price table", p["note"])
 
 
-def replay(model_ok=53, must_ok=13, must_total=13, answered=58, held=2, bar=True, cost=0.01, pack="route.v10"):
-    """`theseus --json judge replay --cases`'s result, the fields the part reads."""
-    return {"set": "cases", "cost_usd": cost,
-            "cases": {"cases": [{}] * 58, "answered": answered, "model_ok": model_ok, "held_elsewhere": held,
-                      "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar,
-                      "pack": pack}}
+def need80(of):
+    """The owner's bar, written out here a second time on purpose: 80% of `of`, rounded up."""
+    return -(-of * 4 // 5)
+
+
+def replay(model_ok=55, must_ok=13, must_total=13, answered=61, n=61, held=2, bar=True, cost=0.01,
+           pack="route.v10", bars=True):
+    """`theseus --json judge replay --cases`'s result as Phase 2 prints it (theseus-h66v4.6): `n` cases
+    graded, the pins outside every denominator, and one bar per question (`model`, then `must`),
+    each `need` the ratio of its own `of`."""
+    c = {"cases": [{}] * n, "answered": answered, "model_ok": model_ok, "held_elsewhere": held,
+         "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar, "pack": pack,
+         "asked": ["model"]}
+    if bars:
+        c["bars"] = [{"question": "model", "ok": model_ok, "of": n, "need": need80(n),
+                      "met": n > 0 and model_ok >= need80(n)},
+                     {"question": "must", "ok": must_ok, "of": must_total, "need": need80(must_total),
+                      "met": must_total > 0 and must_ok >= need80(must_total)}]
+    return {"set": "cases", "cost_usd": cost, "cases": c}
 
 
 class RoutePart(unittest.TestCase):
     def runs(self, *raws, wall=20.0):
         return [smoke.route_run(r, wall) for r in raws]
 
-    def test_the_bar_is_54_of_60_on_the_model_with_the_two_pin_tests_counted_and_every_must(self):
-        self.assertTrue(smoke.route_part(self.runs(*[replay(model_ok=52)] * 3), floor=None)["ok"])
-        low = smoke.route_part(self.runs(replay(), replay(), replay(model_ok=51)), floor=None)
-        self.assertFalse(low["ok"])
-        self.assertIn("53/60", low["note"])
-        must = smoke.route_part(self.runs(replay(), replay(), replay(must_ok=12)), floor=None)
-        self.assertFalse(must["ok"])
-        self.assertIn("12/13", must["note"])
+    def part(self, *raws, live=None):
+        return smoke.route_part(self.runs(*raws), floor=None, live=live)
 
-    def test_the_number_is_the_worst_run_on_the_model_out_of_60(self):
+    def test_a_candidate_that_meets_the_owners_bar_passes(self):
+        # The regression this row exists for: 80% of the model's 61 is 49, of the 13 musts 11. The retired
+        # bar (54 of 60, every must) failed a run that read 49 and 11.
+        p = self.part(*[replay(model_ok=49, must_ok=11)] * 3)
+        self.assertTrue(p["ok"], p["note"])
+        self.assertEqual(p["number"], 49.0)
+
+    def test_a_candidate_that_misses_the_owners_bar_fails_and_says_by_how_much(self):
+        p = self.part(*[replay(model_ok=40, must_ok=9)] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("40/61 on the model < 49", p["note"])
+        self.assertIn("9/13 musts < 11", p["note"])
+
+    def test_the_bar_is_the_edge_of_80_percent_rounded_up_of_each_questions_own_count(self):
+        self.assertTrue(self.part(*[replay(model_ok=49, must_ok=11)] * 3)["ok"])
+        low = self.part(replay(), replay(), replay(model_ok=48))
+        self.assertFalse(low["ok"])
+        self.assertIn("48/61 on the model < 49", low["note"])
+        must = self.part(replay(), replay(), replay(must_ok=10))
+        self.assertFalse(must["ok"])
+        self.assertIn("10/13 musts < 11", must["note"])
+
+    def test_the_bar_follows_the_denominator_the_replay_reports_and_no_count_is_written_in_the_output(self):
+        for n in (61, 62, 65, 70, 100):
+            need = need80(n)
+            ok = self.part(*[replay(n=n, answered=n, model_ok=need)] * 3)
+            self.assertTrue(ok["ok"], (n, ok["note"]))
+            bad = self.part(*[replay(n=n, answered=n, model_ok=need - 1)] * 3)
+            self.assertFalse(bad["ok"], n)
+            self.assertIn(f"{need - 1}/{n} on the model < {need}", bad["note"])
+        p = self.part(*[replay(n=65, answered=65, model_ok=60)] * 3)
+        for text in (p["note"], p["unit"], p["runs"] and json.dumps(p["runs"])):
+            self.assertNotIn("/60", text)
+            self.assertNotIn("54", text)
+        self.assertIn("/65", p["note"])
+
+    def test_the_pin_tests_get_no_credit_the_bar_is_over_the_replays_own_cases(self):
+        # Before Phase 2 the 58 + 2 held read as 60; the pins are outside every denominator now.
+        p = self.part(*[replay(model_ok=49, held=2)] * 3)
+        self.assertEqual(p["runs"][0]["total"], 61)
+        self.assertEqual(p["runs"][0]["model"], 49)
+        self.assertFalse(self.part(*[replay(model_ok=48, held=2)] * 3)["ok"])
+
+    def test_the_musts_are_the_13_the_replay_grades_not_14_with_the_daemon_pin_test(self):
+        p = self.part(*[replay(model_ok=55, must_ok=11, must_total=13)] * 3)
+        self.assertTrue(p["ok"], p["note"])
+        self.assertIn("11/13 musts", p["note"])
+
+    def test_a_replay_whose_bar_is_not_the_80_percent_rule_is_a_fail_not_a_trust(self):
+        raw = replay(model_ok=40)
+        raw["cases"]["bars"][0]["need"] = 40  # a replay that graded itself against a lower bar
+        raw["cases"]["bars"][0]["met"] = True
+        p = self.part(*[raw] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("is not 80% of 61", p["note"])
+
+    def test_a_replay_without_bars_is_read_from_its_totals_by_the_same_rule(self):
+        # A binary from before Phase 2 prints no `bars`: model_ok over the cases it graded, the musts over must_total.
+        ok = self.part(*[replay(model_ok=49, must_ok=11, bars=False)] * 3)
+        self.assertTrue(ok["ok"], ok["note"])
+        bad = self.part(*[replay(model_ok=48, must_ok=11, bars=False)] * 3)
+        self.assertFalse(bad["ok"])
+        self.assertIn("48/61 on the model < 49", bad["note"])
+
+    def test_grading_no_cases_is_a_fail_not_a_pass(self):
+        # An empty set meets every "nothing missed" bar; a zero denominator must not.
+        empty = replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0)
+        self.assertFalse(self.part(*[empty] * 3)["ok"])
+        # Answered, but the replay reported a bar over zero cases.
+        zero = replay(model_ok=0, must_ok=0, must_total=0)
+        zero["cases"]["bars"] = [{"question": "model", "ok": 0, "of": 0, "need": 0, "met": True},
+                                 {"question": "must", "ok": 0, "of": 0, "need": 0, "met": True}]
+        p = self.part(*[zero] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("no cases graded", p["note"])
+        # Cases graded but no must in the file: the must bar is over nothing.
+        nomust = replay(must_ok=0, must_total=0)
+        p = self.part(*[nomust] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("no must", p["note"])
+        # Bars present but none of them the model's.
+        nomodel = replay()
+        nomodel["cases"]["bars"] = [b for b in nomodel["cases"]["bars"] if b["question"] != "model"]
+        self.assertFalse(self.part(*[nomodel] * 3)["ok"])
+
+    def test_the_command_line_exits_1_for_a_zero_case_grading_and_0_for_the_owners_bar(self):
+        with tempfile.TemporaryDirectory() as t:
+            def go(raw):
+                r = Path(t) / "r.json"
+                r.write_text(json.dumps(raw))
+                return smoke.main(["route", t, "--live", "route.v10", str(r), "1", str(r), "1", str(r), "1"])
+            self.assertEqual(go(replay(model_ok=49, must_ok=11)), 0)
+            self.assertEqual(go(replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0)), 1)
+            self.assertEqual(go(replay(model_ok=40, must_ok=9)), 1)
+
+    def test_the_number_is_the_worst_run_on_the_model(self):
         p = smoke.route_part(self.runs(replay(model_ok=56), replay(model_ok=53), replay(model_ok=55)), None)
         self.assertEqual(p["number"], 55.0)
 
@@ -249,7 +351,7 @@ class RoutePart(unittest.TestCase):
         self.assertTrue(p["na"])
         self.assertIn("n/a until the flip", p["note"])
         self.assertIn("route.v8", p["note"])
-        self.assertIn("39/60", p["note"])
+        self.assertIn("37/61", p["note"])
         parts = [part(n, True) for n in smoke.PARTS if n != "route"] + [p]
         self.assertEqual(smoke.verdict(parts), "PASS (route n/a until the flip)")
         md = smoke.report_md(parts, run={"sha": "75012080", "date": "2026-10-30", "binary": "x"})
@@ -264,7 +366,7 @@ class RoutePart(unittest.TestCase):
             p = smoke.route_part(self.runs(*[replay(model_ok=37, must_ok=9)] * 3), None, live=live)
             self.assertFalse(p["ok"], live)
             self.assertFalse(p.get("na"), live)
-            self.assertIn("39/60 on the model < 54", p["note"])
+            self.assertIn("37/61 on the model < 49", p["note"])
 
     def test_a_canary_of_the_cases_pack_or_an_unreadable_ladder_is_held_to_the_bar(self):
         for live in ("route.v8,route.v10", "None", "route.v8,", ""):
