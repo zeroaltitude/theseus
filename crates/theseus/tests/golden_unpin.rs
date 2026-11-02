@@ -100,10 +100,7 @@ fn unpinned(all: bool, cleared: &[Value], failed: Vec<Value>, after: &[Value]) -
 
 #[test]
 fn pins_counts_what_is_held_beside_the_totals() {
-    golden(
-        "profile_pins",
-        &run(&["profile", "pins"], pins(&held())),
-    );
+    golden("profile_pins", &run(&["profile", "pins"], pins(&held())));
 }
 
 #[test]
@@ -123,10 +120,7 @@ fn unpin_all_says_what_it_let_go_and_the_counts_after() {
 fn unpin_without_all_says_how_many_holds_remain() {
     golden(
         "profile_unpin_holds_remain",
-        &run(
-            &["profile", "unpin"],
-            unpinned(false, &[], vec![], &held()),
-        ),
+        &run(&["profile", "unpin"], unpinned(false, &[], vec![], &held())),
     );
 }
 
