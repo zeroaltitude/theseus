@@ -134,6 +134,10 @@ KEEL_FILES = (
     # The scrub driver and its tests (theseus-h66v4.10): the gate already runs main's copy, so this is a second lock.
     "scripts/scrub-added.sh",
     "scripts/test_scrub_added.py",
+    # The route's decision and its data step (theseus-h66v4.14): the wave's written rule names both; five commits
+    # touched routing.rs with no trailer while the guard had nothing to say. NOT config/routing.rs.
+    "crates/theseus-core/src/routing.rs",
+    "crates/theseus-core/src/turn/data_step.rs",
 )
 KEEL_PREFIXES = ("crates/theseus-exam/exam/",)
 GUARD_ITSELF = KEEL_FILES[:3]
