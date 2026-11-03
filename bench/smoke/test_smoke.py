@@ -703,7 +703,8 @@ class RouteOnAWiredPack(unittest.TestCase):
     """theseus-8ouns: `judge replay --cases` replays a wired pack, so with route.v10 live the part reaches its bar."""
 
     def test_a_live_cases_pack_that_meets_the_bar_passes_and_is_not_na(self):
-        runs = [smoke.route_run(replay(), 20.0) for _ in range(3)]
+        # Each run carries its effort.v1 replay: a run without one is a FAIL (the effort bar, within one rung).
+        runs = [smoke.route_run(replay(), 20.0, effort_replay()) for _ in range(3)]
         p = smoke.route_part(runs, None, live="route.v10")
         self.assertTrue(p["ok"], p)
         self.assertFalse(p.get("na"))

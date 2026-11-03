@@ -1488,6 +1488,13 @@ mod tests {
                 _ => (0.90, 0.60),
             };
             for q in &p.questions {
+                // route.v10's `model` confirms at 0.40 (theseus-h66v4.7, the owner 2026-11-03: "adjust
+                // the instruction prompt, test assumptions and bar until we're safely good").
+                let bands = if (*name, q.id.as_str()) == ("route.v10", "model") {
+                    (0.90, 0.40)
+                } else {
+                    bands
+                };
                 assert_eq!(
                     (q.thresholds.act, q.thresholds.confirm),
                     bands,

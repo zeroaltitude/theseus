@@ -227,7 +227,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(d["effort_ran"], "high");
     let block = d["block"].as_str().unwrap();
     assert!(
-        block.starts_with("Opus 5.5 (Anthropic, US).") && block.contains("For reviewing code"),
+        block.starts_with("Opus 5.5 (Anthropic, US).") && block.contains("reviewing or checking code"),
         "the winning block, whole: {block}"
     );
     assert!(
@@ -272,7 +272,7 @@ async fn an_effort_under_the_bar_is_the_packs_no_match_high_for_every_model() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pick_under_the_confirm_bar_runs_the_live_profile() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "high", 0.45);
+    says(&jev, "opus", "high", 0.35);
     let o = open(&jev, 1, |_| {});
     let res = turn(&o.r.core, None, "hm, what about the other thing", None).await;
     assert_eq!(o.r.claude.requests()[0].model, "claude-sonnet-5-5");
@@ -614,7 +614,7 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     assert!(
         l.contains(
             "model=claude-opus-5-5 (jev 0.95: \"Opus 5.5 (Anthropic, US). Twice Sonnet's price"
-        ) && l.contains("For reviewing code, a plan or an argument for mistakes"),
+        ) && l.contains("reviewing or checking code, a plan or an argument for mistakes"),
         "the whole block, as the pack wrote it: {l}"
     );
     assert!(

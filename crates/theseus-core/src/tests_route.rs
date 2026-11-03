@@ -357,8 +357,8 @@ async fn above_cold_switch_tokens_a_switch_waits_for_a_second_agreeing_turn() {
         .unwrap()
         .hold
         .is_none());
-    // Under the confidence, the session stays where it is.
-    mode(&jev, "routine_coding", 0.5);
+    // Under the confidence (route.v10's model confirms at 0.40), the session stays where it is.
+    mode(&jev, "routine_coding", 0.3);
     let three = turn(&r.core, Some(&one.session_id), "Now tidy the names.", None).await;
     assert_eq!(
         (

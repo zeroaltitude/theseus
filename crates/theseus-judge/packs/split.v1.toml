@@ -34,7 +34,7 @@ type = "choice"
 decides = true
 instructions = "Would the work the person's new message asks for split cleanly into areas that several readers could each take on their own, at the same time, without needing each other's findings?"
 act = 0.90
-confirm = 0.60
+confirm = 0.40
 no_match = "unclear"
 options = [
   { id = "splits_by_area", means = "Yes: the work covers several parts that can be examined independently, such as several crates, directories, modules or concerns, and a reader given one part would need nothing from the others to do it. Auditing, reviewing or sweeping a whole codebase for a class of problem is the clearest case." },
