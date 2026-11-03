@@ -177,9 +177,10 @@ These hold whatever the model does:
 
 ## Where it stands
 
-Theseus is at v1 patch3 (version 1.0.3), runs on Linux, and has one daily user. Version 1.0.4, the build meant as
-a daily driver, is being closed out this week and is due stable by Friday, 2026-10-30, with the cost fix, the
-scheduling tool and tasks on the agenda; the benchmarks run again after it. **[The status page](docs/status.md)** says what works today, what is
+Theseus is at v1 patch4 (version 1.0.4), runs on Linux, and has one daily user. Version 1.0.4 is the build meant
+as a daily driver: Jev chooses the model and its effort on every turn, the approve lists are retired in favour of
+a notify list and the floor, and the scheduling tool and tasks on the agenda landed with it. Version 1.0.5 is a
+polish release over the core features, and the benchmarks run again after a release worth measuring. **[The status page](docs/status.md)** says what works today, what is
 still rough, and what comes next, and [the benchmarks](docs/benchmarks/omnibus.md) say where it loses. Those pages
 change with every step; this one doesn't.
 

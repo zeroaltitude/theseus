@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-10-28 21:27 MST. Version 1.0.3 (v1 patch3), tag `release-1.0.3`; v1 patch4 (version 1.0.4) is under way; the design document is at v0.92._
+_Updated 2026-11-03 15:2x MST. Version 1.0.4 (v1 patch4), tag `release-1.0.4`; the design document is at v0.92._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
@@ -18,6 +18,43 @@ This page changes with every step that lands. The [README](../README.md) stays t
 full record of each step (what it built, how it was proven, and where it diverged from the plan), see Part III
 of [The Ship of Theseus](the-ship-of-theseus.md). For the whole plan, see [the roadmap](design/roadmap-v2.md), and
 for the week after v1, [the v1.1 roadmap](design/roadmap-v1.1.md).
+
+## v1 patch4: Jev chooses the model, and the approve lists go
+
+**v1 patch4 (version 1.0.4)** is the build meant as a daily driver. Two things define it.
+
+**Jev chooses the model and its effort, everywhere.** `route.v10` replaces the old class walk, its caps, the
+China-origin draft and the legacy profiles: one reviewable table of published prices, one verdict per turn, no
+per-place or per-effort caps, and an operator pin still honoured. The reply footer says when a model came from a
+pin rather than from Jev. The state now names the *cheapest* model for the message (`cheaper_model`) rather than
+saying only that something is cheaper, so a one-line reply on a warm 200,000-token session is not sent to a small
+model that would cost more than staying.
+
+**The approve lists are retired.** `[tools].approve_paths` is gone with nothing in its place, and
+`[policy].approve_argv` becomes `[policy].notify_argv`: the same programs (`sudo`, `su`, `doas`, `rm -rf /`,
+`mkfs`, `dd`, `shutdown`, `reboot`) now run at a posture raised to at least `notify`, with the program named,
+instead of waiting for approval. The owner's reason, 2026-11-03: the environment Theseus is given is safe by
+definition, so a configurable list of special directories buys nothing the floor does not already refuse. **The
+floor is unchanged** and is now the whole of what a path can make a call wait for: Theseus's own binary, store,
+spool and bindings file; the 1Password CLI, its credentials and the token file the daemon was given; the sealed
+holdout sets. Both retired keys still load, are warned of once and are ignored, so a config that names them
+starts.
+
+Four things follow from that retirement, none of them separately asked for, each pinned by a test: `~/.ssh` and
+`~/.gnupg` are no longer hidden from an L1 job (`~/.aws` still is, by L1's own credentials rule); one session's
+kept outputs are readable by another; a self session's commands fail open where they used to ask; and the gate's
+`explain` surface loses its `approve_paths` layer.
+
+**Routing ships unbenchmarked, by design.** The benchmarks are parked until a release worth measuring. What
+routing has instead is a replay of 62 cases, three interleaved runs on the released tree: the model question
+49-52 of 62, the `must` cases 11 of 13 every run, effort 55 of 62, work 62 of 65, split 50-51 of 62, and a 34-case
+held-out set at 29-30 of 34 with no `must` misses. **Three cases miss every run and are named rather than
+hidden**: `W33`, the half of the owner's stalled-task ruling that should bump to Opus and answers Sonnet instead
+(its twin `W44`, which should stay, passes); `W15`, which answers Haiku where Sonnet is wanted; and `W28`, a Flash
+case lost because the state names only the single cheapest model, so Flash disappears from view between about 40K
+and 100K tokens while still being cheaper than staying.
+
+Next is **v1 patch5**.
 
 ## v1 patch3: trust, privacy and content
 
