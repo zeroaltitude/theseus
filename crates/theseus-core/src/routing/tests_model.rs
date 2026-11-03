@@ -377,8 +377,7 @@ fn every_embedded_pack_that_asks_model_names_only_what_the_table_runs() {
     }
 }
 
-// The seam between row 3's `model` path and row 4's checkpoint and brief rules
-// (theseus-h66v4's join): each was green alone, against a different `decide`.
+// A task's checkpoint and brief ask the same rule as a turn does (`decide`).
 
 /// A task's checkpoint takes Jev's `model` pick, up or down, with no base to
 /// return to and no place cap to refuse it.
@@ -387,15 +386,16 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
     let ps = five_options();
     for (pick, from, to) in [("opus", "sonnet", "opus"), ("haiku", "opus", "haiku")] {
         let v = open(pick);
-        let got = checkpoint::decide(
+        let got = decide(
             &cfg(),
             &ps,
-            &checkpoint::CheckpointAsk {
+            &Ask {
                 verdict: &v,
-                current: from,
+                base: from,
                 est_tokens: 1_000,
                 hold: None,
                 images: false,
+                cleared: false,
             },
         );
         assert_eq!(
@@ -406,22 +406,21 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
     }
 }
 
-/// The checkpoint's own cache hold sits on top of the `model` path's: a move at
-/// or above the cold-switch estimate waits one agreeing checkpoint, and the
-/// agreeing one moves (the `model` path's own hold is switched off for it, so
-/// the two never stack into a wait of two).
+/// A checkpoint's cache hold is the rule's: a move at or above the cold-switch
+/// estimate waits one agreeing checkpoint, and the agreeing one moves.
 #[test]
 fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
     let ps = five_options();
     let v = open("opus");
-    let ask = |hold| checkpoint::CheckpointAsk {
+    let ask = |hold| Ask {
         verdict: &v,
-        current: "sonnet",
+        base: "sonnet",
         est_tokens: COLD + 1,
         hold,
         images: false,
+        cleared: false,
     };
-    let first = checkpoint::decide(&cfg(), &ps, &ask(None));
+    let first = decide(&cfg(), &ps, &ask(None));
     assert_eq!(
         (first.profile.as_str(), first.reason),
         ("sonnet", Reason::CacheHold)
@@ -429,7 +428,7 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
     let HoldNext::Set(held) = first.hold else {
         panic!("the first sets a hold");
     };
-    let second = checkpoint::decide(&cfg(), &ps, &ask(Some(&held)));
+    let second = decide(&cfg(), &ps, &ask(Some(&held)));
     assert_eq!(
         (second.profile.as_str(), second.reason, second.switch),
         ("opus", Reason::Verdict, true)

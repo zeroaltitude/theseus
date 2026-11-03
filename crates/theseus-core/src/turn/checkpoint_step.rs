@@ -40,9 +40,9 @@ use super::*;
 use crate::config::Effort;
 use crate::config::PackMode;
 use crate::judge::inbound::{author_of, place_kind, Inbound, RouteWait};
-use crate::routing::checkpoint::{self as cp, CheckpointAsk, LoopLine, Seen, Tally, Trigger};
+use crate::routing::checkpoint::{self as cp, LoopLine, Seen, Tally, Trigger};
 use crate::routing::effort::{self, EffortDecision};
-use crate::routing::{Decision, Hold, HoldNext, Reason, Verdict};
+use crate::routing::{self, Ask, Decision, Hold, HoldNext, Reason, Verdict};
 use theseus_protocol::modes::PlanState;
 use theseus_protocol::route::TurnRoute;
 
@@ -615,8 +615,14 @@ impl TurnRunner {
         });
     }
 
-    /// The rule's answer, the warm prefix on the held target taken off the
-    /// estimate as `decide_route` takes it (theseus-rr15).
+    /// The rule's answer (`routing::decide`: Jev decides at each trigger, the
+    /// owner: "I categorically disagree with caps"; the verdict's pick is where
+    /// the task goes, up or down, and the cache hold is the one hysteresis),
+    /// the warm prefix on the held target taken off the estimate as
+    /// `decide_route` takes it (theseus-rr15). The labels are read as not
+    /// clearing a restricted model, as this step has always asked
+    /// (`cleared: false`; a brief's ask reads `floor().cn_ok`, theseus-7l8lr
+    /// pass 2, F3).
     fn checkpoint_decision(
         &self,
         t: &Turn<'_>,
@@ -626,15 +632,16 @@ impl TurnRunner {
     ) -> Decision {
         let profiles = self.route_profiles(t.route.floor());
         let ask = |est_tokens| {
-            cp::decide(
+            routing::decide(
                 &self.cfg.routing,
                 &profiles,
-                &CheckpointAsk {
+                &Ask {
                     verdict: v,
-                    current: &t.target.profile,
+                    base: &t.target.profile,
                     est_tokens,
                     hold: a.hold.as_ref(),
                     images: t.route.images,
+                    cleared: false,
                 },
             )
         };
