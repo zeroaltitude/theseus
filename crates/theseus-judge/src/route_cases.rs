@@ -13,7 +13,8 @@
 //!   option of the pack's `model` or `effort` question.
 //! - **The state** is [`state`]'s: the message, `author`, `place_kind`, and
 //!   the daemon's route facts (`price_period`, `restricted_models`,
-//!   `est_tokens`, `last_reply_model`, `current_model`, `switch_cost`, and
+//!   `est_tokens`, `last_reply_model`, `current_model`, `switch_cost`,
+//!   `cheaper_model` where the word is `cheaper_to_switch`, and
 //!   `task_models` when there are any). It is built here, beside `builders::inbound`, so that a replay
 //!   needs no live turn; the fields' names are the ones the daemon's own
 //!   state takes when the state-and-catalog row lands, and the replay's
@@ -97,6 +98,24 @@ pub const QUESTIONS: [&str; 4] = ["model", "effort", "work", "split"];
 /// The efforts on a rung, lowest first.
 const RUNGS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
+/// Every value `cheaper_model` can take (theseus-h66v4.8): a `model` option,
+/// and the same with the mark the daemon adds where the price it compared was
+/// the provider's off-peak one. This crate cannot see the catalog, so the shape
+/// is checked here and the value itself is held to the daemon's own rule by
+/// `catalog::tests_switch`.
+const CHEAPER_MODELS: [&str; 10] = [
+    "haiku",
+    "sonnet",
+    "opus",
+    "fable",
+    "deepseek_flash",
+    "haiku (off-peak)",
+    "sonnet (off-peak)",
+    "opus (off-peak)",
+    "fable (off-peak)",
+    "deepseek_flash (off-peak)",
+];
+
 /// What the owner or the design says Jev should choose.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Want {
@@ -139,6 +158,10 @@ pub struct CaseState {
     /// What the daemon says a switch would cost this message
     /// (`builders::SwitchCost`'s words).
     pub switch_cost: String,
+    /// The cheapest other model at this message's cost, as the daemon names it
+    /// (`haiku`, `deepseek_flash (off-peak)`); empty where the daemon names
+    /// none, which is every state but `cheaper_to_switch`.
+    pub cheaper_model: String,
     /// Every model that has written in the task.
     pub task_models: Vec<String>,
     /// The live tasks beside the message (`work.v1`'s state); none for most cases.
@@ -173,6 +196,7 @@ struct FileDefaults {
     est_tokens: Option<u64>,
     last_reply_model: Option<String>,
     switch_cost: Option<String>,
+    cheaper_model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,6 +220,7 @@ struct FileCase {
     last_reply_model: Option<String>,
     current_model: Option<String>,
     switch_cost: Option<String>,
+    cheaper_model: Option<String>,
     #[serde(default)]
     task_models: Vec<String>,
     #[serde(default)]
@@ -327,6 +352,32 @@ fn state_of(c: &FileCase, d: &FileDefaults) -> Result<CaseState, String> {
         &switch_cost,
         &["cheaper_to_stay", "cheaper_to_switch", "about_the_same"],
     )?;
+    // `cheaper_model` goes with `cheaper_to_switch` and with nothing else: the
+    // daemon names a model only where switching saves money (theseus-h66v4.8),
+    // so a file that names one beside any other word has drifted from the rule.
+    // The file's default is read only for the word that takes one, and a file
+    // whose pack does not read the facts (work.v1's, split.v1's) names none at
+    // all. That the route file names the RIGHT one is `catalog::tests_switch`'s
+    // `every_cases_switch_cost_is_what_the_daemons_rule_says`, which is the only
+    // place the catalog's prices can be seen.
+    let named = c.cheaper_model.clone().or_else(|| {
+        (switch_cost == "cheaper_to_switch")
+            .then(|| d.cheaper_model.clone())
+            .flatten()
+    });
+    let cheaper_model = match named.as_deref() {
+        None | Some("") => String::new(),
+        Some(m) if switch_cost == "cheaper_to_switch" => {
+            one_of(id, "cheaper_model", m, &CHEAPER_MODELS)?;
+            m.to_string()
+        }
+        Some(m) => {
+            return Err(format!(
+                "{id}: cheaper_model = {m:?} with switch_cost = {switch_cost:?}; the daemon names \
+                 a cheaper model only with cheaper_to_switch"
+            ))
+        }
+    };
     let last_reply_model = field(
         id,
         "last_reply_model",
@@ -345,6 +396,7 @@ fn state_of(c: &FileCase, d: &FileDefaults) -> Result<CaseState, String> {
             .unwrap_or_else(|| last_reply_model.clone()),
         last_reply_model,
         switch_cost,
+        cheaper_model,
         task_models: c.task_models.clone(),
         live_tasks: c
             .live_tasks
@@ -387,6 +439,7 @@ impl CaseSet {
             est_tokens: None,
             last_reply_model: None,
             switch_cost: None,
+            cheaper_model: None,
         });
         let mut seen = BTreeSet::new();
         let mut cases = Vec::new();
@@ -437,6 +490,9 @@ pub fn input(case: &Case) -> crate::builders::InboundInput {
             est_tokens: Some(s.est_tokens),
             current_model: Some(s.current_model.clone()).filter(|m| !m.is_empty()),
             switch_cost: SwitchCost::parse(&s.switch_cost),
+            cheaper_model: Some(s.cheaper_model.as_str())
+                .filter(|m| !m.is_empty())
+                .map(Box::from),
         },
     );
     input.live_tasks = s.live_tasks.clone();

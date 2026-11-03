@@ -11,11 +11,15 @@
 //!   to save the ask.
 //! - **last_reply_model**: the model that answered the previous turn.
 //! - **task_models**: every model that has written in the task (a checkpoint's).
-//! - **current_model** and **switch_cost** (theseus-h66v4.1): the session's warm
-//!   model, and whether a cheaper model is cheaper *for this message*, which the
-//!   daemon works out from the resident prefix and the catalog's prices. They
-//!   replace route.v10's `context` question: Jev reads the fact, it never
-//!   works the arithmetic out.
+//! - **current_model**, **switch_cost** and **cheaper_model** (theseus-h66v4.1,
+//!   theseus-h66v4.8): the session's warm model, whether a cheaper model is
+//!   cheaper *for this message*, and which one that is, all worked out by the
+//!   daemon from the resident prefix and the catalog's prices at the hour. They
+//!   replace route.v10's `context` question: Jev reads the fact, it never works
+//!   the arithmetic out. The name is there because the word alone does not say
+//!   what to switch *to*, and the cheapest model is not the right model for
+//!   every message: `cheaper_model` lets the instructions ask whether this
+//!   message is work that model should do.
 
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +34,9 @@ pub const TASK_MODELS: usize = 8;
 
 /// A model id in the state.
 const MODEL_CHARS: usize = 48;
+
+/// `cheaper_model`'s longest value: an option id and its ` (off-peak)` mark.
+const CHEAPER_CHARS: usize = 32;
 
 /// Whether the model's provider charges its peak or its off-peak price now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,12 +143,27 @@ pub struct RouteFacts {
     /// What a switch would cost this message; left out for a job.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub switch_cost: Option<SwitchCost>,
+    /// The cheapest other model at this message's cost, as the `model`
+    /// question names it, with `(off-peak)` where that is the price used
+    /// (`catalog::switch_cost`; theseus-h66v4.8). Present only with
+    /// `cheaper_to_switch`, so a name in the state always means money saved;
+    /// left out otherwise, and for a job.
+    ///
+    /// `Box<str>` and not `String` on purpose: `Input::Inbound` is the largest
+    /// variant of `Input`, and these facts ride inside it. A `String` here (24
+    /// bytes) puts the enum 208 bytes past its second-largest variant and
+    /// clippy's `large_enum_variant` refuses the build at `-D warnings`; 8
+    /// bytes leaves it 192. The next field this struct grows by more than a
+    /// pointer has to box `Input::Inbound` (36 call sites) or shrink something.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cheaper_model: Option<Box<str>>,
 }
 
 /// The keys of the `route` slice's state (`route.v10`, the model) for a plain message in a
 /// conversation that has had a reply and is no task: the one list the daemon's state and a replay
 /// case's state are both held to (`tests_route_state`). The slice has no live tasks and no current
-/// role; the previous human message and the last reply are dynamic and left out.
+/// role; the previous human message and the last reply are dynamic and left out. `task_models` and
+/// `cheaper_model` are the two conditional keys, each added only where there is one to name.
 pub const ROUTE_STATE_KEYS: [&str; 9] = [
     "author",
     "current_model",
@@ -186,6 +208,10 @@ pub(super) fn state(b: &mut StateBuilder, c: &Clipper, i: &InboundInput) {
     }
     if let Some(w) = f.switch_cost {
         b.scalar("switch_cost", w.as_str());
+    }
+    if let Some(m) = &f.cheaper_model {
+        b.scalar("cheaper_model", c.clip(m, CHEAPER_CHARS))
+            .cut_if("cheaper_model", c.cut());
     }
     if let Some(m) = &f.last_reply_model {
         b.scalar("last_reply_model", c.clip(m, MODEL_CHARS))

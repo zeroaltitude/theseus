@@ -34,8 +34,12 @@ fn asked(text: &str) -> Node {
     Node::user("s", None, "operator", text)
 }
 
-/// 2026-10-27 is a Tuesday: 09:00 UTC is 02:00 in Phoenix.
+/// 2026-10-27 is a Tuesday: 09:00 UTC is 02:00 in Phoenix, and a peak hour.
 const TUE_0200_PHOENIX: u64 = 1_793_091_600_000;
+
+/// Two hours later: 11:00 UTC, off-peak, where Flash's prices halve
+/// (theseus-h66v4.8).
+const TUE_0400_PHOENIX: u64 = TUE_0200_PHOENIX + 2 * 3_600_000;
 
 #[test]
 fn the_last_reply_model_is_the_newest_assistant_nodes() {
@@ -232,6 +236,53 @@ fn the_warm_model_and_the_switch_cost_come_from_the_last_reply_and_its_prompt() 
     ];
     let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
     assert_eq!(f.current_model.as_deref(), Some("claude-sonnet-5-5"));
+}
+
+/// theseus-h66v4.8: the facts are priced at the hour the ask is made and under
+/// the session's data rule, and they name the cheaper model. The same 200K
+/// Sonnet session reads differently at peak and off-peak, which is the whole
+/// point of Flash being a candidate at all.
+#[test]
+fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
+    let nodes = [
+        asked("one"),
+        said_on("claude-sonnet-5-5", 200_000),
+        asked("thanks"),
+    ];
+    // Peak: Flash's $0.30 input is dearer than the $0.20 cache read of staying.
+    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0200_PHOENIX);
+    assert_eq!(f.price_period, PricePeriod::Peak);
+    assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
+    assert_eq!(f.cheaper_model, None);
+    // Off-peak: $0.15, and the state says which model that is. Haiku, whose
+    // block names a thank-you, is $0.50 at this length and is not named.
+    let f = facts_of(&nodes, false, RestrictedModels::Allowed, TUE_0400_PHOENIX);
+    assert_eq!(f.price_period, PricePeriod::OffPeak);
+    assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToSwitch));
+    assert_eq!(
+        f.cheaper_model.as_deref(),
+        Some("deepseek_flash (off-peak)")
+    );
+    // The same hour with the labels keeping restricted models off names
+    // nothing: the state never recommends what the data rule forbids.
+    let f = facts_of(
+        &nodes,
+        false,
+        RestrictedModels::NotAllowed,
+        TUE_0400_PHOENIX,
+    );
+    assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
+    assert_eq!(f.cheaper_model, None);
+    // On a short session the cheaper model is Haiku, at either hour.
+    let short = [
+        asked("one"),
+        said_on("claude-sonnet-5-5", 40_000),
+        asked("two"),
+    ];
+    for at in [TUE_0200_PHOENIX, TUE_0400_PHOENIX] {
+        let f = facts_of(&short, false, RestrictedModels::Allowed, at);
+        assert_eq!(f.cheaper_model.as_deref(), Some("haiku"), "{at}");
+    }
 }
 
 /// A fresh session has no warm model, so nothing is lost by switching: no

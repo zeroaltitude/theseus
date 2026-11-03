@@ -745,7 +745,23 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
         .cloned()
         .collect();
     keys.sort();
-    assert_eq!(keys, theseus_judge::builders::ROUTE_STATE_KEYS, "{state}");
+    // theseus-h66v4.8: the daemon adds `cheaper_model` where it has one to
+    // name, which on this short warm Sonnet session it does — Haiku's $0.10
+    // input under Sonnet's $0.20 cache read. The name reaching Jev through the
+    // live path, and not only through a replay, is what this asserts.
+    let mut want: Vec<String> = theseus_judge::builders::ROUTE_STATE_KEYS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(
+        state["switch_cost"], "cheaper_to_switch",
+        "a short warm Sonnet session: Haiku's $0.10 input beats a $0.20 cache read at either \
+         hour, so this does not depend on when the test runs: {state}"
+    );
+    assert_eq!(state["cheaper_model"], "haiku", "{state}");
+    want.push("cheaper_model".into());
+    want.sort();
+    assert_eq!(keys, want, "{state}");
     assert!(state["est_tokens"].as_u64().unwrap() > 0, "{state}");
     assert_eq!(state["restricted_models"], "allowed");
 }

@@ -55,7 +55,7 @@ use crate::config::Effort;
 mod peak;
 pub use peak::price_period_at;
 mod switch;
-pub use switch::{switch_cost, CANDIDATES as SWITCH_CANDIDATES};
+pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
 
 pub const BUILTIN_VERSION: &str = "2026-10-29.1";
 
@@ -445,14 +445,28 @@ impl CatalogEntry {
     }
 
     /// The uncached input price per million tokens of a prompt of
-    /// `prompt_tokens`: the long tier's past its threshold (theseus-h66v4.1).
-    pub fn input_price_at(&self, prompt_tokens: u64) -> f64 {
-        self.tier(prompt_tokens).input
+    /// `prompt_tokens` in `period`: the long tier's past its threshold
+    /// (theseus-h66v4.1), at the provider's off-peak rate where it has one
+    /// (theseus-h66v4.8). What a switch costs is weighed at the hour's price,
+    /// so the hour's price is what a comparison asks for.
+    pub fn input_price_in(&self, prompt_tokens: u64, period: PricePeriod) -> f64 {
+        self.priced_tier(prompt_tokens, period).input
     }
 
-    /// The cache-read price per million tokens of a prompt of `prompt_tokens`.
-    pub fn cache_read_price_at(&self, prompt_tokens: u64) -> f64 {
-        self.tier(prompt_tokens).cache_read
+    /// The cache-read price per million tokens of a prompt of `prompt_tokens`
+    /// in `period`.
+    pub fn cache_read_price_in(&self, prompt_tokens: u64, period: PricePeriod) -> f64 {
+        self.priced_tier(prompt_tokens, period).cache_read
+    }
+
+    /// [`Self::tier`] at `period`: a model with no off-peak prices, or a peak
+    /// hour, pays the tier's own.
+    fn priced_tier(&self, prompt_tokens: u64, period: PricePeriod) -> Tier {
+        let t = self.tier(prompt_tokens);
+        match (period, self.off_peak) {
+            (PricePeriod::OffPeak, Some(off)) => self.off_peak_tier(t, off),
+            _ => t,
+        }
     }
 
     /// The prices a call with a prompt of `prompt_tokens` pays: the long

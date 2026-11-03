@@ -9,8 +9,14 @@
 # task type is `work.v1`'s, three calls with three states, asked in the one inbound batch (theseus-h66v4.6,
 # the owner 2026-10-30 16:01: "classifying the desired model, the desired level of effort, and the task
 # type at hand are three distinct jev calls with noticeably different contexts for each"). There is no
-# `context` question: the daemon puts `current_model` and `switch_cost` in the state, and the `model`
-# instructions say what to do with them (theseus-h66v4.1, the owner 2026-10-29 22:50). `mode` is retired.
+# `context` question: the daemon puts `current_model`, `switch_cost` and `cheaper_model` in the state, and
+# the `model` instructions say what to do with them (theseus-h66v4.1, the owner 2026-10-29 22:50;
+# `cheaper_model` is theseus-h66v4.8, the owner 2026-11-03: "Can we fix flash in 1.0.4 instead of 1.0.5?
+# I'm not sure I get this one, maybe another try by itself"). The word alone was not enough twice over: with
+# Flash left out of the price rule a 180K mechanical rename read `cheaper_to_stay`, and with Flash counted
+# but unnamed a thank-you on a 200K session read `cheaper_to_switch` and went to Haiku, which at that length
+# costs more than staying. The name plus "cheaper only for work it should do" is what makes the fact usable.
+# `mode` is retired.
 # `persona`, `seal`, `personal` and the rollback rules are v9's, still asked here (they are not one of the
 # three calls); `pins_per_day` is new. A new pack version, as v2 to v9 were; this one was revised in place
 # before it ever acted, so it stays 10. Its state is its own slice (`builders::slices::route`).
@@ -51,7 +57,7 @@ description = "ROUTE: which model answers the person's new message; which specia
 [questions.model]
 type = "choice"
 decides = true
-instructions = "Sonnet is the usual answer for most work, hard programming included; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Quality decides first: a model whose description names the work beats a cheaper one that merely could do it. Among models that fit equally well, the cheaper one at this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a cheaper model is not cheaper for this message. When the state's task_models lists a China-origin model, the work is its: a checkpoint report of that work goes to Opus for review, whatever the work is, and a task that keeps failing on it goes to Sonnet. When a checkpoint says a task has stalled, read its loops for why: a stall from bad planning, strategy or tactics is worth a better model, and any other stall — waiting on input, waiting on an external job, a flake — is not, so the task stays on the model it is on. Which model should answer the person's new message?"
+instructions = "Sonnet is the usual answer for most work, hard programming included; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Quality decides first: a model whose description names the work beats a cheaper one that merely could do it. Among models that fit equally well, the cheaper one at this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a cheaper model is not cheaper for this message. When it says `cheaper_to_switch`, `cheaper_model` names the cheapest model for this message and is the only saving the state vouches for: a model it does not name may cost more than staying, however cheap that model is elsewhere. A cheaper model is cheaper only for work it should do — a one-line reply on a warm 200,000-token session is no Flash and no Haiku job, a crate-wide mechanical rename may be — so a name is a reason to switch only where that model's own description names this work, and otherwise price is no reason to move at all. When the state's task_models lists a China-origin model, the work is its: a checkpoint report of that work goes to Opus for review, whatever the work is, and a task that keeps failing on it goes to Sonnet. When a checkpoint says a task has stalled, read its loops for why: a stall from bad planning, strategy or tactics is worth a better model, and any other stall — waiting on input, waiting on an external job, a flake — is not, so the task stays on the model it is on. Which model should answer the person's new message?"
 act = 0.90
 confirm = 0.40
 no_match = "sonnet"

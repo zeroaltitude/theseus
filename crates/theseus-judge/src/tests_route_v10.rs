@@ -214,7 +214,15 @@ fn the_stalled_checkpoint_pair_carries_its_cause_and_differs_only_there() {
     for c in [bad, waiting] {
         assert_eq!(c.state.place_kind, "task_checkpoint", "{}", c.id);
         assert_eq!(c.state.task_models, ["claude-sonnet-5-5"], "{}", c.id);
-        assert_eq!(c.state.switch_cost, "cheaper_to_stay", "{}", c.id);
+        // Both halves are one task at 220K, so the daemon's own rule gives
+        // them the same answer (`every_cases_switch_cost_is_what_the_daemons_rule_says`
+        // holds the declared fact to it); what must be equal is that they agree.
+        assert_eq!(c.state.switch_cost, "cheaper_to_switch", "{}", c.id);
+        assert_eq!(
+            c.state.cheaper_model, "deepseek_flash (off-peak)",
+            "{}",
+            c.id
+        );
         assert_eq!(c.want.effort, "high", "{}", c.id);
         // The cause is in the loops, which is where the daemon's checkpoint text puts it.
         assert!(
@@ -335,9 +343,17 @@ fn the_cases_carry_the_states_the_design_gives_them() {
 }
 
 /// theseus-h66v4.1: the three switch-cost cases the owner named (22:50), and
-/// the states that make each a fair test: a long Sonnet session where
-/// switching costs more, a long Haiku session where it does too, and a fresh
-/// session with nothing warm.
+/// the states that make each a fair test: a long Sonnet session where the
+/// cheaper model is one a thank-you is not for, a long Haiku session where
+/// nothing is cheaper at all, and a fresh session with nothing warm.
+///
+/// theseus-h66v4.8 moved W1's and W41's state, not their labels. They now read
+/// `cheaper_to_switch` with Flash named, which is the arithmetic: at 200K
+/// off-peak Flash's $0.15 input undercuts Sonnet's $0.20 cache read. The label
+/// stays Sonnet because a thank-you is no work Flash is for, and because Haiku,
+/// whose block does name a thank-you, costs $0.50 a million at that length —
+/// more than staying. These two cases are the reason the state names the model
+/// instead of saying "something is cheaper".
 #[test]
 fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
     let s = set();
@@ -347,7 +363,9 @@ fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
         let c = case(id);
         assert_eq!(c.state.est_tokens, 200_000, "{id}");
         assert_eq!(c.state.current_model, "claude-sonnet-5-5", "{id}");
-        assert_eq!(c.state.switch_cost, "cheaper_to_stay", "{id}");
+        assert_eq!(c.state.price_period, "off_peak", "{id}");
+        assert_eq!(c.state.switch_cost, "cheaper_to_switch", "{id}");
+        assert_eq!(c.state.cheaper_model, "deepseek_flash (off-peak)", "{id}");
         assert_eq!(c.want.model, "sonnet", "{id}");
     }
     // A hard design question on a long Haiku session moves to Opus despite cheaper_to_stay.
@@ -367,6 +385,11 @@ fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
     assert_eq!(st("W42")["switch_cost"], "cheaper_to_stay");
     assert!(st("W43").get("current_model").is_none());
     assert_eq!(st("W43")["switch_cost"], "about_the_same");
+    // Neither names a cheaper model: there is none to name (theseus-h66v4.8).
+    for id in ["W42", "W43"] {
+        assert!(st(id).get("cheaper_model").is_none(), "{id}");
+    }
+    assert_eq!(st("W1")["cheaper_model"], "deepseek_flash (off-peak)");
     // No case asks Jev about a context any more, and L20 (once `default`) wants high.
     assert_eq!(case("L20").want.effort, "high");
 }
@@ -417,6 +440,14 @@ fn a_case_asks_model_and_personal_of_the_route_pack_and_its_state_is_under_the_c
             "{}",
             c.id
         );
+        // theseus-h66v4.8: the cheaper model is named where there is one, and
+        // there is one exactly where the word says a switch saves money.
+        assert_eq!(
+            v.get("cheaper_model").is_some(),
+            c.state.switch_cost == "cheaper_to_switch",
+            "{}: {v}",
+            c.id
+        );
         assert_eq!(v["message"], json!(c.message), "{}", c.id);
     }
 }
@@ -444,6 +475,24 @@ fn a_case_file_that_breaks_a_rule_is_refused() {
     assert!(e.contains("restricted_models"), "{e}");
     let e = CaseSet::parse(&one("switch_cost = \"dearer\"", "haiku"), &p).unwrap_err();
     assert!(e.contains("switch_cost"), "{e}");
+    // theseus-h66v4.8: a cheaper model outside the set, and one named beside a
+    // word the daemon never names a model with.
+    let e = CaseSet::parse(&one("cheaper_model = \"glm\"", "haiku"), &p).unwrap_err();
+    assert!(e.contains("cheaper_model"), "{e}");
+    let e = CaseSet::parse(
+        &one(
+            "switch_cost = \"cheaper_to_stay\"\ncheaper_model = \"haiku\"",
+            "haiku",
+        ),
+        &p,
+    )
+    .unwrap_err();
+    assert!(
+        e.contains("cheaper_model") && e.contains("cheaper_to_switch"),
+        "{e}"
+    );
+    // And `cheaper_to_stay` alone is fine: the daemon names nothing there.
+    assert!(CaseSet::parse(&one("switch_cost = \"cheaper_to_stay\"", "haiku"), &p).is_ok());
     // The deleted question's label is an unknown key now.
     assert!(CaseSet::parse(&one("context = \"short\"", "haiku"), &p).is_err());
     // An unknown key, and a duplicate id.
@@ -659,6 +708,10 @@ fn every_cases_state_is_the_daemons_shape() {
             .collect();
         if !c.state.task_models.is_empty() {
             want.push("task_models".into());
+        }
+        // theseus-h66v4.8: and the cheaper model where the daemon names one.
+        if !c.state.cheaper_model.is_empty() {
+            want.push("cheaper_model".into());
         }
         // A fresh session or a job has no model that answered: neither key.
         want.retain(|k| match k.as_str() {
