@@ -42,9 +42,9 @@ pub struct DeferConfig {
     /// 1.5 (12,000) the tasks could never load at the cli. A multiple keeps
     /// one set of numbers, the keel's budgets. It is a ceiling, not a target.
     /// 1.0 is the cap as it was: the rollback. It is an ordinary prompt's
-    /// (theseus-d9je7, `turn::tier`); a small one (`trivial`) takes
-    /// `admit_ceiling_small`, a deep one (`sophisticated`, `deep_coding`,
-    /// `review`) `admit_ceiling_deep`. The three alike are the rollback.
+    /// (theseus-d9je7, `turn::tier`); a deep one (`work.v1`'s `coding`)
+    /// takes `admit_ceiling_deep`. `admit_ceiling_small` was a `trivial`
+    /// prompt's and is read by nothing since route.v10 (no small tier).
     #[serde(default = "admit_ceiling")]
     pub admit_ceiling: f64,
     #[serde(default = "admit_ceiling_small")]

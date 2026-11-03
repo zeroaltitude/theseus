@@ -1,17 +1,17 @@
 //! What a turn injects, sized to its prompt (theseus-d9je7, rows 2 and 4): one
-//! [`InjectionBudget`] from the route pack's mode, folded into three tiers.
+//! [`InjectionBudget`] from `work.v1`'s answer, folded into two tiers.
 //!
-//! - **The fold** ([`tier_of`]): `trivial` is small; `sophisticated`,
-//!   `deep_coding` and `review` are deep; every other mode is ordinary, and so
-//!   is a verdict that is late, missing, under its mode's bar, or not acting,
-//!   and a turn routing does not decide (off, pinned, a continuation).
+//! - **The fold** ([`tier_of`]): `work = coding` at its bar is deep; every other
+//!   label is ordinary, and so is a verdict that is late, missing, under its
+//!   bar, or not acting, and a turn routing does not decide (off, pinned, a
+//!   continuation). There is no small tier: it was route.v8's `trivial` class,
+//!   whose detour dropped the pack, and no pack says "short" any more.
 //! - **Recall** packs at the tier's tokens and items (`[memory]
 //!   recall_budget_tokens`/`recall_max_items` ordinary, `deep_recall_tokens`/
-//!   `deep_recall_items` deep). Small's request carries none: its trivial
-//!   detour drops the pack (`recall_routed`, theseus-n7nc), so it packs as
-//!   ordinary, and a trivial verdict that does not detour keeps today's recall.
+//!   `deep_recall_items` deep).
 //! - **Tool admission** raises the place's budget to the tier's multiple
-//!   (`[tools.defer] admit_ceiling_small`, `admit_ceiling`, `admit_ceiling_deep`).
+//!   (`[tools.defer] admit_ceiling`, `admit_ceiling_deep`; `admit_ceiling_small`
+//!   is read by nothing since the small tier went).
 //! - **Never a wait**: the pack reads the verdict if it has landed (a peek that
 //!   leaves it for the compile's wait, [`peek`]) and is ordinary when it has
 //!   not; the budget is then fixed for the turn, recorded on its
@@ -35,7 +35,6 @@ use crate::toolrun::session_dir::read_window;
 /// The size of what a prompt needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    Small,
     Ordinary,
     Deep,
 }
@@ -43,7 +42,6 @@ pub enum Tier {
 impl Tier {
     pub fn as_str(self) -> &'static str {
         match self {
-            Tier::Small => "small",
             Tier::Ordinary => "ordinary",
             Tier::Deep => "deep",
         }
@@ -126,7 +124,6 @@ impl InjectionBudget {
     pub fn of((tier, fallback): (Tier, Option<&'static str>), cfg: &Config) -> Self {
         let (m, d) = (&cfg.memory, &cfg.tools.defer);
         let (recall_tokens, recall_items, admit_ceiling) = match tier {
-            Tier::Small => (0, 0, d.admit_ceiling_small),
             Tier::Ordinary => (m.recall_budget_tokens, m.recall_max_items, d.admit_ceiling),
             Tier::Deep => (
                 m.deep_recall_tokens,
@@ -151,15 +148,6 @@ impl InjectionBudget {
         let mut b = Self::of(tier_of(seen), cfg);
         b.coding = coding && b.fallback.is_none();
         b
-    }
-
-    /// The pack's tokens and items: small packs as ordinary, and its detour
-    /// drops the pack (theseus-n7nc).
-    pub fn pack(&self, cfg: &Config) -> (u64, usize) {
-        match self.tier {
-            Tier::Small => (cfg.memory.recall_budget_tokens, cfg.memory.recall_max_items),
-            _ => (self.recall_tokens, self.recall_items),
-        }
     }
 
     /// The `route.decided` row's `injection`, which `theseus why` words.
@@ -316,14 +304,8 @@ mod tests {
         let cfg = Config::example();
         let at = |t| InjectionBudget::of((t, None), &cfg);
         let sizes = |b: InjectionBudget| (b.recall_tokens, b.recall_items, b.admit_ceiling);
-        assert_eq!(sizes(at(Tier::Small)), (0, 0, 1.0));
         assert_eq!(sizes(at(Tier::Ordinary)), (3_000, 8, 2.0));
         assert_eq!(sizes(at(Tier::Deep)), (8_000, 16, 3.0));
-        assert_eq!(
-            at(Tier::Small).pack(&cfg),
-            (3_000, 8),
-            "its detour drops it"
-        );
         assert_eq!(cfg.memory.session_recall_cap_tokens, 64_000);
     }
 

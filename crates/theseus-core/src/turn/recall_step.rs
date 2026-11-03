@@ -234,7 +234,7 @@ impl TurnRunner {
                 .route
                 .injection
                 .as_ref()
-                .map(|b| b.pack(&self.cfg))
+                .map(|b| (b.recall_tokens, b.recall_items))
                 .unzip(),
         };
         Scene {
