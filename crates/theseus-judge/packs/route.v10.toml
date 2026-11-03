@@ -20,6 +20,12 @@
 #       classifiers refuse": the clause is gone, and what keeps Fable off such work is the ordinary
 #       rule, "only for the hardest design or reasoning problems";
 #   (b) the Haiku block names tool-call turns explicitly ("a tool-call turn").
+# Revised in place again (theseus-h66v4.7, 2026-11-03), before it acted, on the owner's "adjust the instruction prompt, test
+# assumptions and bar until we're safely good": the `model` instruction now says that a description that names the work beats a
+# cheaper model that merely could do it, and says what the state's `task_models` means; the Opus and Fable blocks name the work
+# they are for in the owner's words (reviewing, "is this right", comparing, "how should Theseus work", "think as hard as you can").
+# The measurements are in ~/reports/theseus-h66v4.7/tobar.md.
+#
 # Until `ROUTE_PACK` names it, v10 is embedded and replayable (`theseus judge replay --pack-file`,
 # with `--cases crates/theseus-judge/packs/route.v10.cases.toml`) and is NOT the acting pack.
 id = "route"
@@ -36,15 +42,15 @@ description = "ROUTE: which model answers the person's new message; which specia
 [questions.model]
 type = "choice"
 decides = true
-instructions = "Sonnet is the usual answer for most work, hard programming included; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Quality decides first. When more than one model fits the work, the cheaper one at this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a cheaper model is not cheaper for this message. Which model should answer the person's new message?"
+instructions = "Sonnet is the usual answer for most work, hard programming included; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Quality decides first: a model whose description names the work beats a cheaper one that merely could do it. Among models that fit equally well, the cheaper one at this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a cheaper model is not cheaper for this message. When the state's task_models lists a China-origin model, the work is its: a checkpoint report of that work goes to Opus for review, whatever the work is, and a task that keeps failing on it goes to Sonnet. Which model should answer the person's new message?"
 act = 0.90
 confirm = 0.60
 no_match = "sonnet"
 options = [
   { id = "haiku", means = "Haiku 5.5 (Anthropic, US). The fastest and cheapest: $0.10 in, $0.50 out, $0.01 a cache read per million tokens while the context is under 100K tokens, and five times each above it. Thinks adaptively; takes effort. For a greeting, a thank-you, a remark that asks for nothing, a short factual answer, a summary of what was just said, a tool-call turn — a command or tool to run and report — or a small edit whose cause is known. Not for a long context, hard reasoning, or a bug whose cause is unknown." },
   { id = "sonnet", means = "Sonnet 5.5 (Anthropic, US). The usual choice: $2 in, $10 out, $0.20 a cache read per million. Thinks adaptively; its maker's default effort is high. For conversation about the work, explanations, planning, opinions, and nearly all programming, including hard or novel code and debugging a cause nobody knows. Choose it when unsure." },
-  { id = "opus", means = "Opus 5.5 (Anthropic, US). Twice Sonnet's price: $4 in, $20 out, $0.20 a cache read per million. Always thinks; its maker's default effort is medium. For reviewing code, a plan or an argument for mistakes; comparing things on their merits; system design, research and analysis with trade-offs; and reviewing work a China-origin model wrote before it is reported. Not for programming itself, where Sonnet solves nearly as much for far less." },
-  { id = "fable", means = "Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out, $0.25 a cache read per million. Always thinks. Only for the hardest design or reasoning problems: novel, spanning many parts, where a mistake would be costly, or where the person asks for the most thorough answer possible. Never for ordinary programming." },
+  { id = "opus", means = "Opus 5.5 (Anthropic, US). Twice Sonnet's price: $4 in, $20 out, $0.20 a cache read per million. Always thinks; its maker's default effort is medium. For work whose point is judgement: reviewing or checking code, a plan or an argument for mistakes, or saying whether something is right; comparing things on their merits; system design, research and analysis with trade-offs; and reviewing work a China-origin model wrote before it is reported. At these the extra care is worth twice Sonnet's price. Not for programming itself, where Sonnet solves nearly as much for far less." },
+  { id = "fable", means = "Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out, $0.25 a cache read per million. Always thinks. Only for the hardest design or reasoning problems, the kind that asks how a whole system should work: novel, spanning many parts, where a mistake would be costly; or where the person asks for the most thorough answer possible or tells it to think as hard as it can. Never for ordinary programming." },
   { id = "deepseek_flash", means = "DeepSeek V4.1 Flash (China-origin). $0.30 in, $1.20 out, $0.006 a cache read per million, and half of each when the state says price_period is off_peak. Thinks by default. Only for a bounded mechanical coding change in an existing repository whose plan is known (renames, repeated edits, writing tests, a fix with a known cause) on a long context, where a failed first pass is cheap to redo; a US model reviews what it writes before it is reported. Never for a program from scratch, terminal step-by-step work, design, review, or when the state says China-origin models are not allowed." },
 ]
 
