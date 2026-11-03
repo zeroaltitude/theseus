@@ -1,10 +1,10 @@
 //! What a turn injects, sized to its prompt (theseus-d9je7, rows 2 and 4): one
 //! [`InjectionBudget`] from `work.v1`'s answer, folded into two tiers.
 //!
-//! - **The fold** ([`tier_of`]): `work = coding` at its bar is deep; every other
-//!   label is ordinary, and so is a verdict that is late, missing, under its
-//!   bar, or not acting, and a turn routing does not decide (off, pinned, a
-//!   continuation). There is no small tier: it was route.v8's `trivial` class,
+//! - **The fold** ([`tier_of`]): `work` = `coding`, `research_or_design` or
+//!   `review` at its bar is deep; every other label is ordinary, and so is a
+//!   verdict that is late, missing, under its bar, or not acting, and a turn
+//!   routing does not decide (off, pinned, a continuation). There is no small tier: it was route.v8's `trivial` class,
 //!   whose detour dropped the pack, and no pack says "short" any more.
 //! - **Recall** packs at the tier's tokens and items (`[memory]
 //!   recall_budget_tokens`/`recall_max_items` ordinary, `deep_recall_tokens`/
@@ -94,20 +94,19 @@ pub fn tier_of(seen: Seen<'_>) -> (Tier, Option<&'static str>) {
     };
     // route.v10 (theseus-h66v4.6): the class names are gone, and `work.v1`'s label is what the
     // tier reads. The owner decided three separate classifications, with `work.v1` replacing the
-    // class names for the hint readers and the injection tier (2026-10-30 16:01). The narrowing to
-    // `work = coding` alone, so that code is Deep and every other label Ordinary, is the
-    // conductor's reading (16:1x) of that answer, not the owner's words, and it is an open
-    // question with him (decision 5 of the Phase 2 report). It is narrower than the names were:
-    // research, design and review were Deep under route.v8's `sophisticated` and `review`, and are
-    // Ordinary here until the owner says otherwise (the wider fold is one more arm, and his to ask
-    // for; theseus-h66v4.6 fix pass, F7). `trivial` had no label to carry (Small was
-    // route.v8's "no recall for a greeting"). A work answer under the question's confirm bar is
-    // "unsure", as a class under its bar was.
+    // class names for the hint readers and the injection tier (2026-10-30 16:01). `coding`,
+    // `research_or_design` and `review` are Deep: under route.v8 `sophisticated` and `review` were,
+    // and the owner approved folding them back in (2026-11-03 00:03, "your recommendation" to
+    // "add `research_or_design` and `review` to the Deep injection tier alongside `coding`?";
+    // the recommendation was yes). Only the tier widens: the coding hint (`is_coding`) stays
+    // `coding` alone. `trivial` had no label to carry (Small was route.v8's "no recall for a
+    // greeting"). A work answer under the question's confirm bar is "unsure", as a class under
+    // its bar was.
     match v.work.as_deref() {
         None => (Tier::Ordinary, Some("no work answer")),
         Some(w) if !w.sure => (Tier::Ordinary, Some("unsure")),
         Some(w) => match w.choice.as_str() {
-            "coding" => (Tier::Deep, None),
+            "coding" | "research_or_design" | "review" => (Tier::Deep, None),
             _ => (Tier::Ordinary, None),
         },
     }
@@ -334,14 +333,11 @@ mod tests {
     fn under_route_v10_the_tier_and_the_coding_hint_read_the_work_label() {
         let cfg = Config::example();
         for (work, tier) in [
-            // The owner decided that `work.v1` replaces the class names for the injection tier
-            // (2026-10-30 16:01); `work = coding` alone being Deep is the conductor's reading
-            // of that (16:1x), and an open question with him (decision 5). Research, design and
-            // review were Deep under route.v8's class names; folding them here is a decision the
-            // owner has not made (theseus-h66v4.6 fix pass, F7).
+            // `coding`, `research_or_design` and `review` are Deep, as `sophisticated` and `review`
+            // were under route.v8's class names; the owner approved the fold (2026-11-03 00:03).
             ("coding", Tier::Deep),
-            ("research_or_design", Tier::Ordinary),
-            ("review", Tier::Ordinary),
+            ("research_or_design", Tier::Deep),
+            ("review", Tier::Deep),
             ("writing", Tier::Ordinary),
             ("conversation", Tier::Ordinary),
             ("tool_run", Tier::Ordinary),
