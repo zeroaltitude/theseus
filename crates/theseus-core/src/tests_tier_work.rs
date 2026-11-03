@@ -261,3 +261,80 @@ async fn a_data_gate_turn_counts_once_on_the_route_data_gate_metric() {
         "one count, by caller and flag"
     );
 }
+
+/// A Flash pick for a session already marked as barred from restricted models (here by
+/// `cn_models = never`, which reads no label) counts once: the common route gate, found when
+/// the turn's floor is closed at its start (theseus-7l8lr.3, C6).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flash_pick_under_a_closed_floor_counts_once_on_the_route_data_gate_metric() {
+    assert_eq!(flash_under_never(1_000_000).await, [("route".into(), "never".into(), "1".to_string())]);
+}
+
+/// Characterizes the counterfactual decision C6 replaces: a closed floor and a Flash pick that
+/// the cache would have held on the profile with the floor open. The counterfactual did not
+/// count it; reading the decision's own reason does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flash_pick_the_cache_would_have_held_under_a_closed_floor_is_counted_by_the_counterfactual() {
+    assert_eq!(flash_under_never(1).await, []);
+}
+
+/// And a Flash pick whose provider is not wired: with the floor open it falls back, so the
+/// counterfactual did not count the refusal either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flash_pick_with_no_provider_under_a_closed_floor_is_counted_by_the_counterfactual() {
+    use crate::config::content_based_security::CnModels;
+    use crate::tests_dm_rig::{gate_counts, telemetry};
+
+    let (rx, tel) = telemetry().await;
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "deepseek_flash", "low", 0.97);
+    let r = crate::tests_route::rig_parts(
+        Some(&jev),
+        1,
+        |c| {
+            c.serve_deepseek_flash();
+            c.content_based_security.cn_models = CnModels::Never;
+        },
+        move |p| p.telemetry = Some(tel),
+    );
+    act_open(&r);
+    let res = turn(&r.core, None, "Rename the call sites.", None).await;
+    eprintln!("no provider: reason {}", res.route.as_ref().unwrap().reason);
+    assert_eq!(gate_counts(&r.core, &rx).await, vec![]);
+}
+
+async fn flash_under_never(cold: u64) -> Vec<(Value, Value, String)> {
+    use crate::config::content_based_security::CnModels;
+    use crate::provider::FakeProvider;
+    use crate::tests_dm_rig::{gate_counts, telemetry};
+    use crate::tests_judge::texts;
+    use std::sync::Arc;
+
+    let (rx, tel) = telemetry().await;
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "deepseek_flash", "low", 0.97);
+    let deepseek = Arc::new(FakeProvider::scripted(texts(1)));
+    let ds = deepseek.clone();
+    let r = crate::tests_route::rig_parts(
+        Some(&jev),
+        1,
+        |c| {
+            c.serve_deepseek_flash();
+            c.content_based_security.cn_models = CnModels::Never;
+            c.routing.cold_switch_tokens = cold;
+        },
+        move |p| {
+            p.providers.insert("deepseek".into(), ds);
+            p.telemetry = Some(tel);
+        },
+    );
+    act_open(&r);
+    let res = turn(&r.core, None, "Rename the call sites.", None).await;
+    assert!(deepseek.requests().is_empty(), "Flash was sent nothing");
+    eprintln!("cold {cold}: reason {}", res.route.as_ref().unwrap().reason);
+    gate_counts(&r.core, &rx)
+        .await
+        .into_iter()
+        .map(|(what, why, n)| (what, why, n.to_string().replace('"', "")))
+        .collect()
+}
