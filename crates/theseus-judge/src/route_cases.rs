@@ -86,7 +86,7 @@ pub const BAR_NUM: u32 = 4;
 pub const BAR_DEN: u32 = 5;
 
 /// The least a bar over `of` cases needs: `of * 4 / 5` rounded UP, in integers (`div_ceil`), so
-/// 13 musts need 11 and 61 cases need 49. Written as a rule, not a number.
+/// 13 musts need 11 and 62 cases need 50. Written as a rule, not a number.
 pub fn bar_need(of: u32) -> u32 {
     (of * BAR_NUM).div_ceil(BAR_DEN)
 }

@@ -83,17 +83,17 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
     assert_eq!(out.candidate, "route.v10");
     assert_eq!(
         (out.set.as_str(), out.judgments, out.called),
-        ("cases", 61, 61)
+        ("cases", 62, 62)
     );
     let cases = out.cases.expect("a cases replay's numbers");
-    assert_eq!(cases.cases.len(), 61);
+    assert_eq!(cases.cases.len(), 62);
     assert_eq!(cases.asked, ["model"], "the model pack grades the model");
-    assert_eq!((cases.answered, cases.model_ok), (61, 61));
+    assert_eq!((cases.answered, cases.model_ok), (62, 62));
     assert_eq!(
         (cases.must_total, cases.must_ok, cases.must_under_confirm),
         (13, 13, 0)
     );
-    // Two bars, each a ratio of its own set: 49 of 61, and 11 of the 13 replayed musts.
+    // Two bars, each a ratio of its own set: 50 of 62, and 11 of the 13 replayed musts.
     let bars: Vec<(&str, u32, u32, u32, bool)> = cases
         .bars
         .iter()
@@ -101,13 +101,13 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
         .collect();
     assert_eq!(
         bars,
-        [("model", 61, 61, 49, true), ("must", 13, 13, 11, true)]
+        [("model", 62, 62, 50, true), ("must", 13, 13, 11, true)]
     );
     assert_eq!(cases.bar, Some(true));
     assert!(out.left_out.is_empty());
     // One call per case, each with its own message in the state.
     let seen = jev.seen();
-    assert_eq!(seen.len(), 61);
+    assert_eq!(seen.len(), 62);
     // The rows: a judge.call each and the run, all scoped to the pack's id.
     let rows: Vec<LedgerRow> = c
         .store
@@ -117,7 +117,7 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
         .filter_map(|r| r.decode().ok())
         .collect();
     let calls: Vec<&LedgerRow> = rows.iter().filter(|r| r.kind == "judge.call").collect();
-    assert_eq!(calls.len(), 61);
+    assert_eq!(calls.len(), 62);
     for row in &calls {
         assert_eq!(row.data["context"]["purpose"], "replay");
         assert_eq!(row.data["context"]["run"], out.id);
@@ -137,7 +137,7 @@ async fn effort_work_and_split_are_each_replayed_over_their_own_labels() {
     script(&jev, "work.v1", WORK, "work", &nothing);
     script(&jev, "split.v1", SPLIT, "split", &nothing);
     for (pack, text, q, n, need) in [
-        ("effort.v1", V10, "effort", 61, 49),
+        ("effort.v1", V10, "effort", 62, 50),
         ("work.v1", WORK, "work", 65, 52),
         ("split.v1", SPLIT, "split", 62, 50),
     ] {
@@ -193,7 +193,7 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
     );
     assert_eq!(
         (cases.model_ok, cases.must_ok, cases.must_total),
-        (60, 12, 13)
+        (61, 12, 13)
     );
     // 12 of 13 musts is over the 11 the bar needs: one wrong must case does not fail the run.
     assert_eq!(cases.bar, Some(true));
@@ -246,7 +246,7 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     // The model run: one lost (W18), one under the bar; the raw picks lose none.
     assert_eq!(
         (cases.model_ok, cases.raw_model_ok, cases.under_model),
-        (60, 61, 1)
+        (61, 62, 1)
     );
     // W18 is a `must` case: its model fell, so a must case is wrong and under the bar.
     assert_eq!(
@@ -285,10 +285,10 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     // every rung close; two answers fell under the bar.
     assert_eq!(
         (cases.effort_exact, cases.effort_close, cases.under_effort),
-        (60, 61, 2)
+        (61, 62, 2)
     );
     // L3's raw `medium` is right and L11's is one rung off: the raw exact count loses L11 alone.
-    assert_eq!((cases.raw_effort_exact, cases.raw_effort_close), (60, 61));
+    assert_eq!((cases.raw_effort_exact, cases.raw_effort_close), (61, 62));
     assert_eq!(cases.asked, ["effort"]);
     assert_eq!(cases.bar, Some(true));
 }
@@ -379,12 +379,12 @@ async fn an_embedded_pack_is_replayed_by_its_cases_and_counted() {
     // The positive counts, not only an Ok: a run that graded nothing is no pass.
     assert_eq!(
         (out.candidate.as_str(), out.judgments, out.called),
-        ("route.v10", 61, 61)
+        ("route.v10", 62, 62)
     );
     let cases = out.cases.expect("a cases replay's numbers");
-    assert_eq!((cases.cases.len(), cases.answered), (61, 61));
+    assert_eq!((cases.cases.len(), cases.answered), (62, 62));
     assert_eq!(cases.bar, Some(true));
-    assert_eq!(jev.seen().len(), 61);
+    assert_eq!(jev.seen().len(), 62);
     let rows = c.store.scope_after("judge.replay:route", 0).unwrap();
     let run = rows
         .iter()
@@ -479,6 +479,6 @@ async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
         )
         .await
         .unwrap();
-    assert_eq!((out.judgments, out.called), (61, 61));
-    assert_eq!(out.cases.expect("a cases replay's numbers").answered, 61);
+    assert_eq!((out.judgments, out.called), (62, 62));
+    assert_eq!(out.cases.expect("a cases replay's numbers").answered, 62);
 }
