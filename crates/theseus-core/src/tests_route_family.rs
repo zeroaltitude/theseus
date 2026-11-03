@@ -90,6 +90,7 @@ async fn work_coding_is_what_puts_the_coding_hint_in_the_tail() {
         "the system"
     );
     assert_eq!(a.tools, b.tools, "the tools");
+    assert_eq!(a.messages[0], b.messages[0], "the first message");
     let last = b.messages.last().unwrap()["content"]
         .as_array()
         .unwrap()
