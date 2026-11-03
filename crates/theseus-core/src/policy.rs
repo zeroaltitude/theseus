@@ -29,12 +29,12 @@
 //! 3. the operator's explicit allow (`allow_argv`) runs, when the call and
 //!    every path argument are inside the roots, and nothing on `notify_argv`
 //!    matches. An entry is a prefix (`["ls"]` also runs `ls -la src`), so
-//!    entries should be narrow;
-//! 3a. the operator's notify list (`notify_argv`) raises the posture to at
-//!    least `notify`, never higher, and the decision names the program. It
-//!    labels rather than gates, as the roots do: the environment Theseus is
-//!    given is safe by definition, so `sudo` is worth hearing about and is
-//!    not worth waiting on (the owner, 2026-11-03 09:01);
+//!    entries should be narrow. The notify list (`notify_argv`) is read first
+//!    and raises the posture to at least `notify`, never higher, with the
+//!    decision naming the program: it labels rather than gates, as the roots
+//!    do, since the environment Theseus is given is safe by definition, so
+//!    `sudo` is worth hearing about and is not worth waiting on (the owner,
+//!    2026-11-03 09:01);
 //! 4. otherwise the tool's posture: `[policy.tools]`, then for an MCP tool
 //!    `[policy.mcp]` "server/tool" and "server", for an AWS call
 //!    `[policy.aws]` "service:Operation", "service", and its class (AWS
@@ -1450,20 +1450,23 @@ mod tests {
         }
         // And a self session's fail-open reads the same line: the tree and
         // the rest of the state dir open, the store never.
-        assert_eq!(p.fails_open(&at(mine.join("a.rs"), Access::Write)), true);
-        assert_eq!(
-            p.fails_open(&at(state.join("notes.txt"), Access::Write)),
-            true
+        assert!(
+            p.fails_open(&at(mine.join("a.rs"), Access::Write)),
+            "its tree"
         );
-        assert_eq!(
-            p.fails_open(&at(state.join("store/x"), Access::Read)),
-            false
+        assert!(
+            p.fails_open(&at(state.join("notes.txt"), Access::Write)),
+            "the rest of the state dir"
+        );
+        assert!(
+            !p.fails_open(&at(state.join("store/x"), Access::Read)),
+            "the store"
         );
         // Outside the roots the tree is labelled, as any path is, and asks for
         // nothing: the roots are no gate (theseus-m9fdg).
         let outside = ToolPolicy {
             roots: vec![root.join("elsewhere")],
-            ..p.clone()
+            ..p
         };
         let out = outside.decide(&T("fs.read"), &at(mine.join("a.rs"), Access::Read));
         assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
