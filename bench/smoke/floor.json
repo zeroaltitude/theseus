@@ -13,5 +13,28 @@
   "price_digest": "8414028cd0f7",
   "sha": "75012080769b14b4cdfa45d97d49107771ce85bc",
   "date": "2026-10-30"
+ },
+ "route": {
+  "model_range": {
+   "low": 48,
+   "high": 51,
+   "of": 62,
+   "runs": 3
+  },
+  "model_worst": {
+   "ok": 48,
+   "of": 62
+  },
+  "must_worst": {
+   "ok": 11,
+   "of": 13
+  },
+  "effort_worst": {
+   "ok": 55,
+   "of": 62
+  },
+  "sha": "d8d8c33a",
+  "date": "2026-11-03",
+  "measured": "theseus-h66v4.7 round 2, ~/reports/theseus-h66v4.7/tobar.md: three interleaved replays of route.v10 on its 62 cases, M1 Max lane h66v47, jev-1.13.0, model confirm 0.40 -- 48 / 51 / 50, musts 11 / 11 / 11, effort 55 / 55 / 55. wall_s is 0 because these runs were not release-smoke.sh's; the next --write-floor run replaces this entry with its own."
  }
 }

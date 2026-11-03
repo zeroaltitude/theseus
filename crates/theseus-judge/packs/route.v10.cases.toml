@@ -1,3 +1,15 @@
+# VERSION 3 (theseus-h66v4.7 round 2, 2026-11-03). The owner read VERSION 2's report and ruled on the three cases it put to him
+# (Discord DM 09:18). His rulings, and what each did here:
+#   - W34 and W35 (a 140K-token compaction) KEEP their Haiku key: "Haiku can do long, that's an instruction update. It should
+#     have been a complexity judgement not length. So let's use haiku here." The pack's Haiku block moved, not these keys.
+#   - W33 (a stalled design task) is SPLIT in two: "Stalling can mean a lot of things. I think this is more nuanced. If a stall
+#     is due to bad planning, strategy or tactics, then it's a model bump, but not otherwise." W33 is now a checkpoint whose
+#     loops show the task going round on its own strategy (key: opus, the bump), and W44 is one whose loops show it waiting on
+#     an external job (key: sonnet, it stays). Each carries the cause in the checkpoint text the daemon already renders
+#     (`routing::checkpoint::text_with`: the brief, the plan, the recent loops' own lines, then the trigger).
+#   - L10 ("I want to introduce you to my coworker!") moves from sonnet to HAIKU: "That example sounds like haiku to me".
+# 62 cases now, so the model and effort bars are 50 (ceil(62 * 4/5)), not 49. The must list is unchanged at 13.
+#
 # VERSION 2 (theseus-h66v4.7, 2026-11-03). One key moved: W13 went from deepseek_flash to sonnet, because its own state says
 # `cheaper_to_stay` at peak and the owner's switch-cost rule (2026-10-29 22:50) makes a cheaper model not cheaper for that message.
 # Every other label is the one the design and the owner gave; the pack's text moved, not the keys. W11 and W12 carry `cheaper_to_stay`
@@ -7,8 +19,9 @@
 # route.v10's test set (theseus-h66v4, design §4): the labelled cases `theseus judge replay --pack-file
 # route.v10.toml --cases route.v10.cases.toml` asks the pack, and compares its `model` answer to; the same file's
 # `effort` labels are graded by `effort.v1` (`--pack-file effort.v1.toml --cases route.v10.cases.toml`, the `also`
-# key below), because the two packs read the same messages and the labels were written once. 61 cases here: the design's sixty less W39 and W40 (daemon tests, crates/theseusd/tests/route_owner.rs:
-# a pin is not asked of Jev) and plus W41 to W43. The `context` label (short or full) the mapping rule below still
+# key below), because the two packs read the same messages and the labels were written once. 62 cases here: the design's sixty less W39 and W40 (daemon tests, crates/theseusd/tests/route_owner.rs:
+# a pin is not asked of Jev) and plus W41 to W43 — 62 since the owner split W33, W44 being the second half of that
+# pair and sitting at the end, after W43. The `context` label (short or full) the mapping rule below still
 # names is gone with the question (theseus-h66v4.1): the daemon says what a switch costs instead (`switch_cost`).
 #
 # L1 to L20 come from the owner's labels of 2026-10-26 (07:19 to 08:11), by the design's mapping rule (§4.1):
@@ -31,7 +44,7 @@
 # Fourteen cases are `must` (W1, W8, W9, W11, W14 to W18, W22, W26, W30, W31, W40); W40 is a daemon test, so
 # thirteen are here, and THE MAPPING IS: the replay grades these 13 and its `must` bar is 11 of 13 (80%, rounded
 # up: `route_cases::bar_need`); W40 is asserted by the daemon test (`route_owner.rs`) and is not in the replay's
-# denominator. `model` and `effort` are 80% of the replay's own 61, rounded up, with no credit for W39 or W40. W26 and W27 (cyber and biology topics, Sonnet) rest on the ordinary rule only: the Fable
+# denominator. `model` and `effort` are 80% of the replay's own 62, rounded up, with no credit for W39 or W40. W26 and W27 (cyber and biology topics, Sonnet) rest on the ordinary rule only: the Fable
 # block does not name them, by the owner's edit of 2026-10-29 22:46. A miss on either is a finding about the
 # table's text, never a reason to edit the case.
 pack = "route.v10"
@@ -116,9 +129,9 @@ why = "item 11 chat medium"
 [[case]]
 id = "L10"
 message = "I want to introduce you to my coworker!"
-model = "sonnet"
+model = "haiku"
 effort = "low"
-why = "item 15 chat low (the colleague's name is left out)"
+why = "item 15, the owner labelled it chat; he re-read it 2026-11-03 09:18 and ruled \"That example sounds like haiku to me\" -- it is a remark that asks for nothing, which the Haiku block names (the colleague's name is left out)"
 
 [[case]]
 id = "L11"
@@ -462,14 +475,26 @@ why = "no China-origin author: the task's own model reports"
 
 [[case]]
 id = "W33"
-message = "Checkpoint quiet(4): the design task \"How should the daemon schedule its background jobs?\" has made no progress for four loops."
+message = """
+Task: How should the daemon schedule its background jobs?
+Plan:
+- [doing] Settle the scheduling approach
+- [open] Write the design note
+Recent loops:
+- loop 7: Weighing scheduling by priority against scheduling by deadline; each sketch breaks the other's best case.
+- loop 8: Went back to priority. Same objection as loop 5. Starting the sketch over.
+- loop 9: (no words)
+- loop 10: Still the same two approaches, no new ground; I keep re-deciding what I already decided.
+Effort: high
+Checkpoints this turn: 2, failing 0 in a row
+Now: no progress for 4 loops"""
 place_kind = "task_checkpoint"
 est_tokens = 220000
 task_models = ["claude-sonnet-5-5"]
 switch_cost = "cheaper_to_stay"
 model = "opus"
 effort = "high"
-why = "stalled design: up to Opus"
+why = "the owner, 2026-11-03 09:18: \"If a stall is due to bad planning, strategy or tactics, then it's a model bump, but not otherwise.\" The loops show the task going round on its own strategy and re-deciding settled ground, so this half of the pair is the bump: up to Opus. Its twin is W44."
 
 [[case]]
 id = "W34"
@@ -557,3 +582,27 @@ switch_cost = "about_the_same"
 model = "haiku"
 effort = "low"
 why = "switch_cost: a fresh session's quick fact goes to Haiku; no model is warm, so nothing is lost by choosing the cheapest"
+
+[[case]]
+id = "W44"
+message = """
+Task: How should the daemon schedule its background jobs?
+Plan:
+- [done] Settle the scheduling approach
+- [doing] Measure the current queue on the bench host
+- [open] Write the design note
+Recent loops:
+- loop 7: Queued the bench run; I need its numbers before the note can say anything.
+- loop 8: Bench still running.
+- loop 9: Bench still running.
+- loop 10: Bench still running; nothing to do here until it reports.
+Effort: high
+Checkpoints this turn: 2, failing 0 in a row
+Now: no progress for 4 loops"""
+place_kind = "task_checkpoint"
+est_tokens = 220000
+task_models = ["claude-sonnet-5-5"]
+switch_cost = "cheaper_to_stay"
+model = "sonnet"
+effort = "high"
+why = "the second half of the owner's W33 split (09:18): the same task, stalled the same number of loops, but the loops show it waiting on an external job, not failing to think. \"If a stall is due to bad planning, strategy or tactics, then it's a model bump, but not otherwise\" -- so this one is not, and the task stays on the Sonnet it is on."

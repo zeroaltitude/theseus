@@ -4,7 +4,7 @@
 //! owner's two edits of 2026-10-29 22:46, and carries v8's (so v9's)
 //! `persona`, `seal` and `personal` word for word; the owner's 22:50 answers
 //! (theseus-h66v4.1): no `context` question, the cost sentence in `model`'s
-//! instructions, `effort` with no `default` and `no_match = "high"`; the 61
+//! instructions, `effort` with no `default` and `no_match = "high"`; the 62
 //! replay cases parse, hold the counts, and are graded on `model` and `effort`.
 
 use std::collections::BTreeMap;
@@ -147,7 +147,7 @@ fn the_owners_22_50_answers_are_in_the_pack() {
 }
 
 #[test]
-fn the_owners_two_edits_are_in_the_text_and_nothing_else_moved() {
+fn the_owners_edits_are_in_the_text_and_nothing_else_moved() {
     let p = pack();
     // (a) the Fable block ends at "ordinary programming": no cyber or biology clause.
     let fable = means(&p, "model", "fable");
@@ -163,8 +163,17 @@ fn the_owners_two_edits_are_in_the_text_and_nothing_else_moved() {
     assert!(
         haiku.contains(
             "a summary of what was just said, a tool-call turn — a command or tool to run and \
-             report — or a small edit whose cause is known. Not for a long context"
+             report — or a small edit whose cause is known."
         ),
+        "{haiku}"
+    );
+    // (c) the owner, 2026-11-03 09:18: "Haiku can do long, that's an instruction update. It
+    // should have been a complexity judgement not length." So length never rules Haiku out,
+    // and what does is judgement.
+    assert!(!haiku.contains("Not for a long context"), "{haiku}");
+    assert!(
+        haiku.contains("however long the material it runs over")
+            && haiku.contains("What rules Haiku out is judgement, not length"),
         "{haiku}"
     );
     // The Sonnet, Opus and Flash blocks are the design's word for word.
@@ -176,6 +185,57 @@ fn the_owners_two_edits_are_in_the_text_and_nothing_else_moved() {
         .contains("half of each when the state says price_period is off_peak"));
     assert!(means(&p, "model", "deepseek_flash")
         .ends_with("or when the state says China-origin models are not allowed."));
+    // (d) the owner, 2026-11-03 09:18: "Stalling can mean a lot of things. I think this is more
+    // nuanced. If a stall is due to bad planning, strategy or tactics, then it's a model bump,
+    // but not otherwise." The instruction says so, and W33/W44 are the pair that tests it.
+    let model = p.question("model").unwrap().instructions.clone();
+    assert!(
+        model.contains(
+            "a stall from bad planning, strategy or tactics is worth a better model, and any \
+             other stall — waiting on input, waiting on an external job, a flake — is not, so \
+             the task stays on the model it is on."
+        ),
+        "{model}"
+    );
+}
+
+/// The owner's W33 split (2026-11-03 09:18): one stalled task, two checkpoints, the cause in
+/// the text the daemon already renders (`routing::checkpoint::text_with`). The pair differ in
+/// their recent loops and in nothing else that matters: same brief, same trigger, same state.
+#[test]
+fn the_stalled_checkpoint_pair_carries_its_cause_and_differs_only_there() {
+    let s = set();
+    let case = |id: &str| s.cases.iter().find(|c| c.id == id).unwrap();
+    let (bad, waiting) = (case("W33"), case("W44"));
+    assert_eq!(
+        (bad.want.model.as_str(), waiting.want.model.as_str()),
+        ("opus", "sonnet")
+    );
+    for c in [bad, waiting] {
+        assert_eq!(c.state.place_kind, "task_checkpoint", "{}", c.id);
+        assert_eq!(c.state.task_models, ["claude-sonnet-5-5"], "{}", c.id);
+        assert_eq!(c.state.switch_cost, "cheaper_to_stay", "{}", c.id);
+        assert_eq!(c.want.effort, "high", "{}", c.id);
+        // The cause is in the loops, which is where the daemon's checkpoint text puts it.
+        assert!(
+            c.message
+                .contains("Task: How should the daemon schedule its background jobs?"),
+            "{}",
+            c.id
+        );
+        assert!(c.message.contains("Recent loops:"), "{}", c.id);
+        assert!(
+            c.message.ends_with("Now: no progress for 4 loops"),
+            "{}",
+            c.id
+        );
+    }
+    // The bump's half shows the task re-deciding its own strategy; the other half shows it
+    // waiting on an external job, which his rule says is not a bump.
+    assert!(bad.message.contains("re-deciding what I already decided"));
+    assert!(waiting.message.contains("Bench still running"));
+    // (e) his third ruling, "That example sounds like haiku to me".
+    assert_eq!(case("L10").want.model, "haiku");
 }
 
 #[test]
@@ -198,18 +258,21 @@ fn persona_seal_and_personal_are_the_earlier_packs_word_for_word() {
 fn the_cases_hold_the_designs_counts_and_ids() {
     let s = set();
     assert_eq!(s.pack, "route.v10");
-    // 61 replay cases: L1 to L20, W1 to W38 (W39 and W40 are daemon tests) and
-    // the three switch-cost cases W41 to W43.
+    // 62 replay cases: L1 to L20, W1 to W38 (W39 and W40 are daemon tests), the
+    // three switch-cost cases W41 to W43, and W44, the second half of the pair
+    // the owner made of W33 on 2026-11-03 ("If a stall is due to bad planning,
+    // strategy or tactics, then it's a model bump, but not otherwise").
     let ids: Vec<&str> = s.cases.iter().map(|c| c.id.as_str()).collect();
     let want: Vec<String> = (1..=20)
         .map(|n| format!("L{n}"))
         .chain((1..=38).map(|n| format!("W{n}")))
-        .chain((41..=43).map(|n| format!("W{n}")))
+        .chain((41..=44).map(|n| format!("W{n}")))
         .collect();
     assert_eq!(ids, want.iter().map(String::as_str).collect::<Vec<_>>());
-    assert_eq!(s.cases.len() as u32 + PINNED, 63);
+    assert_eq!(s.cases.len() as u32 + PINNED, 64);
     // The design's table of counts, less the two pins (haiku W40, fable W39), with
-    // W1 and W13 relabelled to sonnet and W41 (sonnet), W42 (opus) and W43 (haiku) added.
+    // W1 and W13 relabelled to sonnet and W41 (sonnet), W42 (opus) and W43 (haiku) added;
+    // then the owner's 2026-11-03 rulings: L10 sonnet -> haiku, and W44 (sonnet) added.
     let counts: BTreeMap<String, u32> = model_counts(&s);
     let n = |m: &str| counts[m];
     assert_eq!(
@@ -220,7 +283,7 @@ fn the_cases_hold_the_designs_counts_and_ids() {
             n("fable"),
             n("deepseek_flash")
         ),
-        (18, 24, 12, 4, 3)
+        (19, 24, 12, 4, 3)
     );
     // The `must` cases: fourteen in the design, W40 being a daemon test.
     let must: Vec<&str> = s

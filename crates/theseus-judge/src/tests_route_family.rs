@@ -38,7 +38,7 @@ fn each_pack_grades_the_questions_it_decides() {
 fn the_model_file_grades_the_effort_too_and_no_other_pack_may_read_it() {
     let effort = parse(V10, "effort.v1");
     let model = parse(V10, "route.v10");
-    assert_eq!(effort.cases.len(), 61);
+    assert_eq!(effort.cases.len(), 62);
     assert_eq!(
         effort.cases, model.cases,
         "one file, two packs, the same cases"
@@ -48,8 +48,8 @@ fn the_model_file_grades_the_effort_too_and_no_other_pack_may_read_it() {
     assert!(CaseSet::parse(V10, &work)
         .unwrap_err()
         .contains("written for route.v10"));
-    // The effort bar over 61 within one rung needs 49: the ratio, not a number kept.
-    assert_eq!(bar_need(effort.cases.len() as u32), 49);
+    // The effort bar over 62 within one rung needs 50: the ratio, not a number kept.
+    assert_eq!(bar_need(effort.cases.len() as u32), 50);
 }
 
 #[test]
