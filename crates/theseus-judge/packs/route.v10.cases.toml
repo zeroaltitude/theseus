@@ -1,3 +1,9 @@
+# VERSION 2 (theseus-h66v4.7, 2026-11-03). One key moved: W13 went from deepseek_flash to sonnet, because its own state says
+# `cheaper_to_stay` at peak and the owner's switch-cost rule (2026-10-29 22:50) makes a cheaper model not cheaper for that message.
+# Every other label is the one the design and the owner gave; the pack's text moved, not the keys. W11 and W12 carry `cheaper_to_stay`
+# as a state fact that theseus-h66v4.8 (Flash joins the switch-cost candidates off-peak) is about to make false for them: their labels
+# stand, and their state follows the daemon when that lands.
+#
 # route.v10's test set (theseus-h66v4, design §4): the labelled cases `theseus judge replay --pack-file
 # route.v10.toml --cases route.v10.cases.toml` asks the pack, and compares its `model` answer to; the same file's
 # `effort` labels are graded by `effort.v1` (`--pack-file effort.v1.toml --cases route.v10.cases.toml`, the `also`
@@ -290,9 +296,9 @@ message = "the test `a_short_pick_never_holds` fails because the fixture's est_t
 est_tokens = 150000
 price_period = "peak"
 switch_cost = "cheaper_to_stay"
-model = "deepseek_flash"
+model = "sonnet"
 effort = "low"
-why = "Flash at peak: still the cheapest capable coder above 100K, where Haiku is $0.50 (repo open-source)"
+why = "the state says cheaper_to_stay at peak: Flash's $0.30 in on a cold 150K prefix is dearer than the $0.20 cache read of staying on Sonnet, so by the owner's switch-cost rule (2026-10-29 22:50, the one that made W1 and W41 Sonnet) a cheaper model is not cheaper for this message and Sonnet stays; relabelled from deepseek_flash (theseus-h66v4.7). Its off-peak twin W12 is still Flash."
 
 [[case]]
 id = "W14"

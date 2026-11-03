@@ -206,7 +206,7 @@ fn the_cases_hold_the_designs_counts_and_ids() {
     assert_eq!(ids, want.iter().map(String::as_str).collect::<Vec<_>>());
     assert_eq!(s.cases.len() as u32 + PINNED, 63);
     // The design's table of counts, less the two pins (haiku W40, fable W39), with
-    // W1 relabelled to sonnet and W41 (sonnet), W42 (opus) and W43 (haiku) added.
+    // W1 and W13 relabelled to sonnet and W41 (sonnet), W42 (opus) and W43 (haiku) added.
     let counts: BTreeMap<String, u32> = model_counts(&s);
     let n = |m: &str| counts[m];
     assert_eq!(
@@ -217,7 +217,7 @@ fn the_cases_hold_the_designs_counts_and_ids() {
             n("fable"),
             n("deepseek_flash")
         ),
-        (18, 23, 12, 4, 4)
+        (18, 24, 12, 4, 3)
     );
     // The `must` cases: fourteen in the design, W40 being a daemon test.
     let must: Vec<&str> = s
