@@ -16,7 +16,7 @@
 //!   the session's profile, `last_target` and compilation stay as they were.
 //! - **A late verdict** (one that came after its message's wait) applies to
 //!   the session's next message alone, and a `short` one's to none ([`carries`]).
-//! - **A task's brief** (theseus-ypnxt.7, [`brief::brief_base`]): the verdict
+//! - **A task's brief** (theseus-ypnxt.7, `TurnRunner::decide_brief`): the verdict
 //!   on a task's brief picks the task's base, at once and for good.
 //! - **A task's checkpoints** (theseus-ypnxt.9, [`checkpoint`]): a running task
 //!   asks the same pack again at a loop boundary, when it keeps failing, stalls,
@@ -32,7 +32,6 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::CatalogEntry;
 use crate::config::RoutingConfig;
 
-pub mod brief;
 pub mod checkpoint;
 pub mod effort;
 pub mod model;

@@ -436,11 +436,12 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
 }
 
 /// A task's brief takes Jev's pick as the task's starting model, whatever the
-/// parent runs on and however big the parent's conversation is.
+/// parent runs on: the step asks with nothing to keep warm (`est_tokens: 0`)
+/// and nothing held.
 #[test]
 fn a_brief_starts_a_task_on_jevs_pick() {
     let v = open("haiku");
-    let got = brief::brief_base(&cfg(), &five_options(), &ask(&v, "opus", 1_000_000));
+    let got = d(&v, "opus", 0);
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch),
         ("haiku", Reason::Verdict, true)
