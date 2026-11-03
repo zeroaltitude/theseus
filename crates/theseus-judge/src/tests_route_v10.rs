@@ -121,7 +121,8 @@ fn the_owners_22_50_answers_are_in_the_pack() {
     let model = p.question("model").unwrap().instructions.clone();
     assert!(
         model.contains(
-            "Quality decides first. When more than one model fits the work, the cheaper one at \
+            "Quality decides first: a model whose description names the work beats a cheaper one \
+             that merely could do it. Among models that fit equally well, the cheaper one at \
              this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a \
              cheaper model is not cheaper for this message."
         ),
@@ -461,7 +462,7 @@ fn a_judgment_is_graded_on_model_and_effort_apart() {
     // `no_match`, not as Jev's pick (theseus-mir9c), and counted apart.
     let shy = judged(
         case("W18"),
-        &[("model", "opus", 0.55), ("effort", "medium", 0.9)],
+        &[("model", "opus", 0.35), ("effort", "medium", 0.9)],
     );
     let g = both(&p, &e, case("W18"), &shy);
     assert!(!g.model.agrees && g.model.raw_agrees && g.under_confirm);
@@ -637,24 +638,24 @@ fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
         let j = judged(c, &[("model", pick, conf), ("effort", &c.want.effort, 0.9)]);
         both(&p, &e, c, &j)
     };
-    // W18 wants opus. Opus at 0.55 is a right pick the daemon would not act
+    // W18 wants opus. Opus at 0.35 is a right pick the daemon would not act
     // on: it runs `sonnet`, a miss.
     assert_eq!(by_id(&s, "W18").want.model, "opus");
-    let g = ask("W18", "opus", 0.55);
+    let g = ask("W18", "opus", 0.35);
     assert_eq!(
         graded_q(&g, "model"),
         ("sonnet".into(), true, "opus".into(), false)
     );
     assert!(g.model.raw_agrees && g.under_confirm);
-    // At the bar (0.60) the band is confirm, which routing acts on; below it
+    // At the bar (0.40) the band is confirm, which routing acts on; below it
     // by a hair, it is not.
-    let g = ask("W18", "opus", 0.60);
+    let g = ask("W18", "opus", 0.40);
     assert_eq!(
         graded_q(&g, "model"),
         ("opus".into(), false, "opus".into(), true)
     );
     assert!(!g.under_confirm);
-    assert!(!ask("W18", "opus", 0.59).model.agrees);
+    assert!(!ask("W18", "opus", 0.39).model.agrees);
     // Above the bar, a wrong pick stays wrong.
     let g = ask("W18", "sonnet", 0.95);
     assert_eq!(
@@ -664,16 +665,16 @@ fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
     // L3 wants sonnet: a pick of haiku under the bar runs `sonnet`, a hit that
     // the raw grade called a miss; sonnet itself under the bar is still a hit.
     assert_eq!(by_id(&s, "L3").want.model, "sonnet");
-    let g = ask("L3", "haiku", 0.55);
+    let g = ask("L3", "haiku", 0.35);
     assert_eq!(
         graded_q(&g, "model"),
         ("sonnet".into(), true, "haiku".into(), true)
     );
     assert!(!g.model.raw_agrees);
-    assert!(ask("L3", "sonnet", 0.55).model.agrees);
+    assert!(ask("L3", "sonnet", 0.35).model.agrees);
     // The grade is the bar's: a case whose model fell, effort at 0.9, grades
     // the effort as asked.
-    let g = ask("W18", "opus", 0.55);
+    let g = ask("W18", "opus", 0.35);
     assert!(g.effort.agrees);
 }
 
@@ -724,7 +725,7 @@ fn an_effort_pick_under_the_bar_is_graded_as_high() {
 #[test]
 fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
     let text = include_str!("../packs/route.v10.toml").replacen(
-        "confirm = 0.60\nno_match = \"sonnet\"",
+        "confirm = 0.40\nno_match = \"sonnet\"",
         "confirm = 0.80\nno_match = \"opus\"",
         1,
     );
@@ -754,7 +755,7 @@ fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
         ("medium".into(), true, "high".into(), true)
     );
     assert_eq!((g.model.confirm, g.effort.confirm), (0.80, 0.75));
-    // The same answers sit above the stock bars (0.60) and are graded as given.
+    // The same answers sit above the stock bars (0.40 for the model, 0.60 for the effort) and are graded as given.
     let (stock, stock_e, stock_set) = (pack(), effort_pack(), set());
     let c = by_id(&stock_set, "W18");
     let j = judged(c, &[("model", "sonnet", 0.70), ("effort", "high", 0.70)]);
@@ -771,14 +772,14 @@ fn the_totals_count_the_graded_answer_and_the_raw_pick_apart() {
         .cases
         .iter()
         .map(|c| {
-            // Every case answered as labelled at 0.9, but L11 (opus, high) at
-            // 0.5 on both.
-            let conf = if c.id == "L11" { 0.5 } else { 0.9 };
+            // Every case answered as labelled at 0.9, but L11 (opus, high) under
+            // both bars: 0.3 on the model (it confirms at 0.40), 0.5 on the effort (0.60).
+            let (mc, ec) = if c.id == "L11" { (0.3, 0.5) } else { (0.9, 0.9) };
             let j = judged(
                 c,
                 &[
-                    ("model", &c.want.model, conf),
-                    ("effort", &c.want.effort, conf),
+                    ("model", &c.want.model, mc),
+                    ("effort", &c.want.effort, ec),
                 ],
             );
             both(&p, &e, c, &j)
