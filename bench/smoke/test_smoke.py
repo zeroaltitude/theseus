@@ -300,6 +300,67 @@ class RoutePart(unittest.TestCase):
         self.assertTrue(p["ok"], p["note"])
         self.assertIn("11/13 musts", p["note"])
 
+    # --- the model bar as a statement about the measured distribution (theseus-h66v4.7 round 2) ------
+    # The owner, 2026-11-03 09:18, on the report's §9 proposal: "Range of measurement seems good too".
+
+    def rngfloor(self, low=48, high=51, of=62):
+        return {"route": {"model_range": {"low": low, "high": high, "of": of, "runs": 3},
+                          "model_worst": {"ok": low, "of": of}, "sha": "d8d8c33a", "date": "2026-11-03"}}
+
+    def ranged(self, *raws, live=None, floor=None):
+        return smoke.route_part(self.runs(*raws), floor=floor or self.rngfloor(), live=live)
+
+    def test_a_recorded_range_is_the_models_bar_and_the_80_percent_rule_no_longer_fails_it(self):
+        # 48 / 51 / 50 of 62 is what the candidate measured: under the 80% rule 48 is a FAIL (the bar is 50),
+        # under the range it is the floor itself, and passes.
+        runs = [replay(n=62, answered=62, model_ok=k, must_ok=11) for k in (48, 51, 50)]
+        self.assertFalse(smoke.route_part(self.runs(*runs), floor=None)["ok"])
+        p = self.ranged(*runs)
+        self.assertTrue(p["ok"], p["note"])
+        self.assertIn("the measured range 48-51 of 62", p["note"])
+        self.assertEqual(p["readings"]["model"], {"low": 48, "high": 51, "of": 62, "runs": 3})
+
+    def test_a_reading_under_the_recorded_range_fails_and_says_by_how_much(self):
+        p = self.ranged(*[replay(n=62, answered=62, model_ok=k, must_ok=11) for k in (47, 51, 50)])
+        self.assertFalse(p["ok"])
+        self.assertIn("worst 47/62 on the model is under the floor's measured range 48-51 of 62", p["note"])
+
+    def test_a_reading_over_the_recorded_range_passes_and_says_the_range_is_stale(self):
+        p = self.ranged(*[replay(n=62, answered=62, model_ok=k, must_ok=11) for k in (52, 54, 53)])
+        self.assertTrue(p["ok"], p["note"])
+        self.assertIn("is over the floor's measured range 48-51", p["note"])
+        self.assertIn("rewrite it with --write-floor", p["note"])
+
+    def test_a_range_measured_over_another_count_does_not_apply_and_the_80_percent_rule_holds(self):
+        # A range read over 62 cases says nothing about 61: changing the set underneath a bar never loosens it.
+        p = self.ranged(*[replay(n=61, answered=61, model_ok=48, must_ok=11)] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("48/61 on the model < 49", p["note"])
+
+    def test_a_malformed_range_is_ignored_and_the_80_percent_rule_holds(self):
+        for bad in ({"low": 51, "high": 48, "of": 62}, {"low": 48, "high": 51, "of": 0},
+                    {"low": -1, "high": 51, "of": 62}, {"low": 48, "high": 63, "of": 62},
+                    {"low": "48", "high": 51, "of": 62}, "48-51", None):
+            floor = {"route": {"model_range": bad}}
+            p = smoke.route_part(self.runs(*[replay(n=62, answered=62, model_ok=48, must_ok=11)] * 3), floor)
+            self.assertFalse(p["ok"], bad)
+            self.assertIn("48/62 on the model < 50", p["note"])
+
+    def test_the_musts_and_effort_keep_the_80_percent_rule_under_a_model_range(self):
+        # The range is the model's alone: his ruling was about the one question the instrument cannot promise.
+        p = self.ranged(*[replay(n=62, answered=62, model_ok=50, must_ok=10)] * 3)
+        self.assertFalse(p["ok"])
+        self.assertIn("10/13 musts < 11", p["note"])
+        q = smoke.route_part(self.runs(*[replay(n=62, answered=62, model_ok=50, must_ok=11)] * 3,
+                                       effort=effort_replay(effort_ok=48, n=62)), self.rngfloor())
+        self.assertFalse(q["ok"])
+        self.assertIn("48/62 on effort < 50", q["note"])
+
+    def test_a_range_never_excuses_a_run_that_graded_nothing(self):
+        # memory absence-bar-met-by-empty-set: the empty set holds every "nothing missed" bar.
+        p = self.ranged(*[replay(n=0, answered=0, model_ok=0, must_ok=0, must_total=0)] * 3)
+        self.assertFalse(p["ok"])
+
     def test_a_replay_whose_bar_is_not_the_80_percent_rule_is_a_fail_not_a_trust(self):
         raw = replay(model_ok=40)
         raw["cases"]["bars"][0]["need"] = 40  # a replay that graded itself against a lower bar
@@ -692,6 +753,19 @@ class Floor(unittest.TestCase):
         f = smoke.floor_from([tb, route], sha="new", date="d1", previous=previous)
         self.assertEqual((f["tb"]["cost_per_solved_usd"], f["tb"]["wall_s"]), (0.125, 600))
         self.assertEqual((f["route"]["wall_s"], f["route"]["model_worst"]), (20.0, {"ok": 55, "of": 61}))
+
+    def test_the_floor_records_the_runs_measured_range_for_the_model(self):
+        tb = smoke.tb_part(tb_rows({**{t: True for t in SLICE["stable"]}, "c0": False, "c1": False}),
+                           SLICE, floor=None, wall_s=600)
+        raws = [replay(n=62, answered=62, model_ok=k, must_ok=11) for k in (48, 51, 50)]
+        route = smoke.route_part([smoke.route_run(r, 20.0, effort_replay(n=62)) for r in raws],
+                                 {"route": {"model_range": {"low": 48, "high": 51, "of": 62, "runs": 3}}})
+        f = smoke.floor_from([tb, route], sha="new", date="2026-11-03")
+        self.assertEqual(f["route"]["model_range"], {"low": 48, "high": 51, "of": 62, "runs": 3})
+        self.assertEqual(f["route"]["model_worst"], {"ok": 48, "of": 62})
+        self.assertEqual(f["route"]["must_worst"], {"ok": 11, "of": 13})
+        # What this run wrote is what the next run is held to.
+        self.assertTrue(smoke.route_part([smoke.route_run(r, 20.0, effort_replay(n=62)) for r in raws], f)["ok"])
 
     def test_no_floor_when_nothing_a_floor_reads_passed(self):
         bad = smoke.tb_part([], SLICE, floor=None, wall_s=0)

@@ -21,6 +21,13 @@ Each part command writes `RUN_DIR/parts/<part>.json` and prints its one line;
 A PASS needs a positive count first (10 trials ran, 3 runs replayed, the recall
 tests ran, 3 kills happened, 5 replies arrived): an empty set meets every "no
 failures" bar, so it never counts as one. Standard library only; Python >= 3.11.
+
+The route part's bars are the owner's 80% of each question's own count, with one
+exception he made on 2026-11-03 09:18 ("Range of measurement seems good too"):
+the `model` question is held to the measured range the floor records
+(`route.model_range`), because three runs of it read 48-51 of 62 and a single
+number the instrument cannot promise is not a bar. `must` and `effort` keep the
+80% rule. See `model_range` for what a recorded range does and does not excuse.
 """
 
 from __future__ import annotations
@@ -208,6 +215,27 @@ def _bar(question: str, ok: int, of: int) -> dict[str, Any]:
     return {"question": question, "ok": ok, "of": of, "need": bar_need(of)}
 
 
+def model_range(floor: dict | None, of: int | None = None) -> dict[str, Any] | None:
+    """The `model` bar as a statement about the measured distribution, when the floor records one.
+
+    The owner, 2026-11-03 09:18, on the round-2 report's §9 proposal ("give the release smoke a bar for the
+    model that is a statement about the measured distribution ... not a number the instrument cannot
+    reach"): "Range of measurement seems good too". So `route.model_range` in the floor holds what three
+    runs of a release actually read -- `{"low", "high", "of"}` -- and the part fails when the worst of three
+    falls BELOW that low. A reading above `high` is not a failure; it is a note that the range is stale.
+
+    The 80% rule still governs every other question, and it still governs `model` itself when no range is
+    recorded, or when the range was measured over a different number of cases: a range read over 62 cases
+    says nothing about 70, and a release must never loosen a bar by changing the set underneath it.
+    `must` keeps the 80% rule, whose 11 of 13 is also its measured floor."""
+    r = ((floor or {}).get("route") or {}).get("model_range")
+    if not isinstance(r, dict) or not all(isinstance(r.get(k), int) for k in ("low", "high", "of")):
+        return None
+    if r["of"] <= 0 or not (0 <= r["low"] <= r["high"] <= r["of"]):
+        return None
+    return r if of is None or of == r["of"] else None
+
+
 def route_run(raw: dict[str, Any], wall_s: float, effort: dict[str, Any] | None = None) -> dict[str, Any]:
     """One `theseus --json judge replay --cases` result, as the part reads it.
 
@@ -245,9 +273,13 @@ def _label(question: str) -> str:
     return {"model": "on the model", "must": "musts", "effort": "on effort"}.get(question, f"on {question}")
 
 
-def _run_problems(i: int, r: dict[str, Any]) -> list[str]:
+def _run_problems(i: int, r: dict[str, Any], ranged: bool = False) -> list[str]:
     """What stops run `i` from meeting the owner's bars. A bar over no cases is never met: the empty set holds every
-    "nothing missed" bar, so the positive counts (cases graded, a model bar, musts found) are asserted here."""
+    "nothing missed" bar, so the positive counts (cases graded, a model bar, musts found) are asserted here.
+
+    `ranged`: the floor records a `model_range` over this run's own count, so the model question is held to that
+    range across the runs (`route_part`) instead of to the 80% rule here. The rule is still checked against the
+    replay's own printed bar, because a replay whose arithmetic is not the owner's is a finding either way."""
     out = []
     by = {b["question"]: b for b in r["bars"]}
     if "model" not in by:
@@ -259,7 +291,7 @@ def _run_problems(i: int, r: dict[str, Any]) -> list[str]:
         need = bar_need(b["of"])
         if b["need"] != need:
             out.append(f"run {i}: the replay's {q} bar of {b['need']} is not 80% of {b['of']} ({need})")
-        if b["ok"] < need:
+        if b["ok"] < need and not (q == "model" and ranged):
             out.append(f"run {i}: {b['ok']}/{b['of']} {_label(q)} < {need}")
     if "model" in by and "must" not in by:
         out.append(f"run {i}: the replay graded no must bar")
@@ -299,20 +331,37 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
     real = [r for r in runs if r["cases"] and r["answered"]]
     if len(real) < RUNS_WANTED:
         problems.append(f"{len(real)} of {RUNS_WANTED} runs answered any case")
+    # The model question's bar, when the floor records a range read over this candidate's own count.
+    counts = {b["of"] for r in real for b in r["bars"] if b["question"] == "model" and b["of"]}
+    rng = model_range(floor, next(iter(counts))) if len(counts) == 1 else None
+    oks = [b["ok"] for r in real for b in r["bars"] if b["question"] == "model" and b["of"]]
+    readings = ({"model": {"low": min(oks), "high": max(oks), "of": next(iter(counts)), "runs": len(oks)}}
+                if oks and len(counts) == 1 else {})
     # Every note names a run by its place among all of them, answered or not.
     for i, r in enumerate(runs, 1):
         if not r["cases"]:
             problems.append(f"run {i}: no cases graded")
         elif r["answered"]:
-            problems += _run_problems(i, r)
+            problems += _run_problems(i, r, ranged=rng is not None)
     problems = list(dict.fromkeys(problems))
     wm, wu, we = _worst(real, "model"), _worst(real, "must"), _worst(real, "effort")
+    stale = None
+    if rng and wm:
+        if wm["ok"] < rng["low"]:
+            problems.append(
+                f"worst {wm['ok']}/{wm['of']} on the model is under the floor's measured range "
+                f"{rng['low']}-{rng['high']} of {rng['of']}")
+        elif wm["ok"] > rng["high"]:
+            stale = (f"worst {wm['ok']}/{wm['of']} on the model is over the floor's measured range "
+                     f"{rng['low']}-{rng['high']}: the range is stale, rewrite it with --write-floor")
     worst = float(wm["ok"]) if wm else 0.0
     unit = "worst model ok"
     wall = max((r["wall_s"] for r in real), default=0.0)
     worst_bars = {q: {"ok": b["ok"], "of": b["of"]} for q, b in (("model", wm), ("must", wu), ("effort", we)) if b}
     fl = (floor or {}).get("route")
-    if fl and _over(wall, fl["wall_s"]):
+    # A floor entry written by hand to record a measured range carries no wall, and a wall of nothing is
+    # not a wall every run is over: the check applies only to a floor that actually timed itself.
+    if fl and fl.get("wall_s") and _over(wall, fl["wall_s"]):
         problems.append(f"slowest run's wall {wall:.0f} s > {SLACK:.0%} of the floor's {fl['wall_s']:.0f} s")
     met = sum(1 for r in real if r["bar"])
     cases_pack = next((r["pack"] for r in real if r.get("pack")), None)
@@ -321,21 +370,24 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
         acting = []
     if acting and cases_pack and cases_pack not in acting and len(real) >= RUNS_WANTED:
         return {"part": "route", "ok": True, "na": True, "count": len(real), "number": worst,
-                "unit": unit, "floor": None, "delta": None, "worst": worst_bars,
+                "unit": unit, "floor": None, "delta": None, "worst": worst_bars, "readings": readings,
                 "note": f"n/a until the flip: the daemon routes with {', '.join(acting)}, "
                         f"the cases are {cases_pack}'s; read {_reading(wm, 'model')}, {_reading(wu, 'must')} "
                         f"and {_reading(we, 'effort')} at worst, for the record",
                 "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
                 "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}
-    note = (f"{len(real)} runs, worst {_reading(wm, 'model')} (bar {wm['need'] if wm else 0}), "
+    model_bar = (f"the measured range {rng['low']}-{rng['high']} of {rng['of']}" if rng
+                 else f"bar {wm['need'] if wm else 0}")
+    note = (f"{len(real)} runs, worst {_reading(wm, 'model')} ({model_bar}), "
             f"{_reading(wu, 'must')} (bar {wu['need'] if wu else 0}) and "
-            f"{_reading(we, 'effort')} (bar {we['need'] if we else 0}), each 80% of its own count rounded up; "
-            f"the daemon's whole bar met {met}/{len(real)} (for route.v10 that is the model's, as graded here)")
+            f"{_reading(we, 'effort')} (bar {we['need'] if we else 0}), the last two 80% of their own count "
+            f"rounded up; the daemon's whole bar met {met}/{len(real)} (for route.v10 that is the model's, "
+            f"as graded here)" + (f"; {stale}" if stale else ""))
     if problems:
         note = "; ".join(problems) + f"; the daemon's whole bar met {met}/{len(real)}"
     return {"part": "route", "ok": not problems, "count": len(real), "number": worst, "unit": unit,
             "floor": _floor_reading(fl.get("model_worst")) if fl else None, "delta": None, "note": note,
-            "worst": worst_bars,
+            "worst": worst_bars, "readings": readings,
             "cost_usd": round(sum(r["cost_usd"] for r in real), 4),
             "wall_s": round(sum(r["wall_s"] for r in real), 1), "slowest_s": wall, "runs": runs}
 
@@ -507,7 +559,14 @@ def floor_from(parts: list[dict[str, Any]], sha: str, date: str, previous: dict 
         elif p["part"] == "route":
             # Each worst reading keeps the count it was over: a bare 49 beside a later 52/65 means nothing.
             w = p.get("worst") or {}
+            # `model_range` is the statement about the measured distribution the owner asked for on
+            # 2026-11-03 ("Range of measurement seems good too"): the lowest and highest of this run's
+            # readings, over the count they were read against. The next release's worst of three must not
+            # fall below `low`. `model_worst` stays beside it, as the one number the report prints.
+            rd = p.get("readings") or {}
             f["route"] = {"wall_s": p["slowest_s"], "model_worst": w["model"],
+                          **({"model_range": rd["model"]} if rd.get("model") else {}),
+                          **({"must_worst": w["must"]} if w.get("must") else {}),
                           **({"effort_worst": w["effort"]} if w.get("effort") else {}), "sha": sha, "date": date}
             wrote.append("route")
     if not wrote:

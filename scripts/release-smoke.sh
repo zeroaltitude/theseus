@@ -6,8 +6,10 @@
 #   tb      Terminal-Bench 2.0's smoke slice (bench/smoke/tb-slice.toml): 8 stable tasks and 2 controls, k=1 at HIGH,
 #           4 at once, through the Harbor driver (bench/harbor/run.py), on the candidate's static binaries
 #   route   `theseus judge replay --cases` over route.v10's cases, three runs, and beside each run effort.v1's replay of the
-#           same file (its `also` key): the owner's 80% bars on model, musts and effort, each of its own count;
-#           "n/a until the flip" on a daemon whose ladder routes with another pack (`theseus packs`)
+#           same file (its `also` key): the owner's 80% bars on musts and effort, each of its own count, and on the
+#           model the measured range the floor records (`route.model_range`; the owner, 2026-11-03 09:18, "Range of
+#           measurement seems good too") -- the worst of three must not fall below it, and a reading above it says the
+#           range is stale. "n/a until the flip" on a daemon whose ladder routes with another pack (`theseus packs`)
 #   recall  scripts/recall-tests.sh, as the gate runs it
 #   resume  bench/smoke/resume.py: a scratch daemon SIGKILLed mid-tool three times, at $0
 #   dm      bench/smoke/dm.py: five scripted turns through the live daemon's CLI, in a fresh session of their own
