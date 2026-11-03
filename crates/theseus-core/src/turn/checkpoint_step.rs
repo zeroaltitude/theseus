@@ -282,15 +282,14 @@ impl TurnRunner {
     }
 
     /// A conversation's turn the route placed: routing read it (a verdict, or
-    /// none, on the base), it is no detour, and neither the owner's pin nor the
-    /// owner's correction placed it (a corrected turn stays where the owner
-    /// said, as a pinned one does).
+    /// none, on the base), and neither the owner's pin nor the owner's
+    /// correction placed it (a corrected turn stays where the owner said, as a
+    /// pinned one does).
     fn placed_by_route(t: &Turn<'_>) -> bool {
         t.route
             .result
             .as_ref()
             .is_some_and(|r| r.source.as_deref() != Some("correction"))
-            && t.route.keeps.is_none()
             && t.target.chosen.is_none()
     }
 
@@ -684,7 +683,6 @@ impl TurnRunner {
             from: &cur,
             profile,
             reason: d.map_or("budget", |d| d.reason.as_str()),
-            detour: false,
             switch: moved && d.is_some_and(|d| d.switch),
             est_tokens: a.est,
             wait_ms: 0,

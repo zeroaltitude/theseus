@@ -342,7 +342,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
     let stay = |reason, hold| Decision {
         profile: a.current.to_string(),
         reason,
-        detour: false,
         switch: false,
         hold,
     };
@@ -362,7 +361,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
             cleared: false,
         },
     );
-    let target = match (d.switch || d.detour, d.reason) {
+    let target = match (d.switch, d.reason) {
         (true, _) | (_, Reason::Verdict) => d.profile.clone(),
         // Under its bar, capped or none usable: the task stays.
         _ => return stay(d.reason, HoldNext::Clear),
@@ -372,16 +371,9 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -
     }
     let agreed = a.hold.is_some_and(|h| h.profile == target);
     if a.est_tokens < cfg.cold_switch_tokens || agreed {
-        // A detour's class is a pick like another for a task: its move is a
-        // verdict's.
-        let reason = match d.reason {
-            Reason::Detour => Reason::Verdict,
-            other => other,
-        };
         return Decision {
             profile: target,
-            reason,
-            detour: false,
+            reason: d.reason,
             switch: true,
             hold: HoldNext::Clear,
         };
@@ -528,9 +520,9 @@ mod tests {
     }
 
     /// A Haiku pick over Opus is a pick like another for a task: it moves it, as a
-    /// verdict, not a detour.
+    /// verdict.
     #[test]
-    fn a_detour_class_is_a_pick_like_another() {
+    fn a_cheaper_pick_moves_a_task_as_a_verdict() {
         let ps = options();
         let v = open("haiku", true);
         let d = decide(
@@ -545,7 +537,6 @@ mod tests {
             },
         );
         assert_eq!(up(&d), ("haiku", Reason::Verdict, true));
-        assert!(!d.detour, "{d:?}");
     }
 
     /// No count of moves is an input: the same verdict answers the same at

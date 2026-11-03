@@ -123,7 +123,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     let stay = |reason: Reason| Decision {
         profile: a.base.to_string(),
         reason,
-        detour: false,
         switch: false,
         hold: HoldNext::Clear,
     };
@@ -148,7 +147,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
         return Decision {
             profile: name.to_string(),
             reason: Reason::Verdict,
-            detour: false,
             switch: true,
             hold: HoldNext::Clear,
         };
@@ -156,7 +154,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     Decision {
         profile: a.base.to_string(),
         reason: Reason::CacheHold,
-        detour: false,
         switch: false,
         hold: HoldNext::Set(Hold {
             mode: m.choice.clone(),

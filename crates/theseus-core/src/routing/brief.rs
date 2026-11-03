@@ -7,7 +7,7 @@
 //! kept as the session's target and routing's `from` is left empty. A `short`
 //! pick is a base here too: a task has no "next message" to leave the model for.
 
-use super::{decide, Ask, Decision, HoldNext, Profiles, Reason};
+use super::{decide, Ask, Decision, Profiles};
 use crate::config::RoutingConfig;
 
 /// The rule's answer for the brief `a.verdict` judged, `a.base` being the
@@ -19,15 +19,5 @@ pub fn brief_base(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Deci
         hold: None,
         ..a.clone()
     };
-    let mut d = decide(cfg, profiles, &fresh);
-    if d.detour {
-        d = Decision {
-            detour: false,
-            switch: true,
-            reason: Reason::Verdict,
-            hold: HoldNext::Clear,
-            ..d
-        };
-    }
-    d
+    decide(cfg, profiles, &fresh)
 }

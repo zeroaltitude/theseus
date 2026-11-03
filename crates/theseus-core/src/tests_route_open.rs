@@ -350,8 +350,8 @@ async fn a_pick_no_profile_runs_is_a_fallback_that_says_why() {
 
 /// theseus-h66v4.1: there is no detour. A thank-you that Jev sends to Haiku on
 /// a long session compiles the session's whole working context, on Haiku: the
-/// request carries every message, the session's compilation is written as
-/// ever, and the row says it is no detour.
+/// request carries every message, and the session's compilation is written as
+/// ever.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pick_for_a_thank_you_still_compiles_the_whole_context() {
     let jev = FakeJev::start().unwrap();
@@ -384,8 +384,6 @@ async fn a_pick_for_a_thank_you_still_compiles_the_whole_context() {
         before.messages[..],
         "the prefix, byte for byte"
     );
-    let d = decided(&o.r.core.store).pop().unwrap();
-    assert_eq!(d["detour"], false);
 }
 
 /// The cache hold, kept: a pick over the cold line waits one agreeing turn,

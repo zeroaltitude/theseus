@@ -21,14 +21,12 @@ use crate::tools_defer::fit::Fit;
 use crate::tools_defer::{self, scan, Deferral, Mechanism, PlaceKind};
 
 /// What a turn's message says about its tools: its text, the families Jev judged relevant to it,
-/// whether the request is a trivial detour's (a bare one), and the prompt tier's admission
-/// ceiling (`admit_ceiling` without one), and whether the turn has no input of a person's, so
+/// and the prompt tier's admission ceiling (`admit_ceiling` without one), and whether the turn has no input of a person's, so
 /// the work it sees is work Theseus noticed itself (theseus-o1h3f.3).
 #[derive(Default, Clone, Copy)]
 struct Said<'a> {
     ask: &'a str,
     jev: &'a [(String, f64)],
-    bare: bool,
     ceiling: Option<f64>,
     noticed: bool,
 }
@@ -55,23 +53,10 @@ impl TurnRunner {
     pub(super) fn defer_tools(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
         self.flows_in_scope(t, spec);
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
-        // A detour sends the spec less its context, persona and files
-        // (`detour_spec`, which its compile takes too): a named family is
-        // counted on the request that goes out (theseus-3bs4e).
-        let sent = t
-            .route
-            .keeps
-            .is_some()
-            .then(|| super::detour_step::detour_spec(spec));
-        let counted = sent.as_ref().unwrap_or(&*spec);
         let jev = t.route.families.relevant.as_deref().unwrap_or_default();
-        // A trivial detour carries `tools_find` and what its message names, and the prompt's
-        // tier sets how far admitted families may raise it (theseus-d9je7).
-        let bare = sent.is_some() && t.route.detour_kind == "trivial";
         let said = Said {
             ask: &t.route.ask,
             jev,
-            bare,
             ceiling: t.route.injection.as_ref().map(|b| b.admit_ceiling),
             // The turn's own read of "no input" (`Turn::continuation`: the wake, the task
             // report, the routine's run) or its author's (the pipeline's own turns carry an
@@ -79,7 +64,7 @@ impl TurnRunner {
             // person's (theseus-lmyvl).
             noticed: t.continuation || t.self_authored,
         };
-        spec.defer = self.deferral_in(t.tc.session_id, kind, (&*spec, counted), said);
+        spec.defer = self.deferral_in(t.tc.session_id, kind, spec, said);
     }
 
     /// A loaded flow's tool stays in the request only where the flow is
@@ -117,12 +102,7 @@ impl TurnRunner {
 
     /// The fresh choice for a session's request on `spec`.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
-        self.deferral_in(
-            sid,
-            self.place_kind(sid, task),
-            (spec, spec),
-            Said::default(),
-        )
+        self.deferral_in(sid, self.place_kind(sid, task), spec, Said::default())
     }
 
     /// The same for a census: a fresh session's first request on a kind of place the daemon has no
@@ -135,7 +115,7 @@ impl TurnRunner {
         spec: &RequestSpec,
     ) -> Option<Deferral> {
         match fresh.and_then(PlaceKind::parse) {
-            Some(kind) => self.deferral_in(sid, kind, (spec, spec), Said::default()),
+            Some(kind) => self.deferral_in(sid, kind, spec, Said::default()),
             None => self.deferral(sid, task, spec),
         }
     }
@@ -144,18 +124,15 @@ impl TurnRunner {
     /// `ask`: where the model has no tool search, the families the message
     /// names load too (`tools_defer::want`, theseus-jpjcd), and those Jev
     /// judged relevant to it (`jev`, theseus-xlri5), up to the prompt tier's
-    /// `ceiling` (`admit_ceiling` without one). `(spec, counted)` is the spec the
-    /// families are chosen from and the request whose size they are held to (a
-    /// detour's is smaller).
+    /// `ceiling` (`admit_ceiling` without one).
     fn deferral_in(
         &self,
         sid: &str,
         kind: PlaceKind,
-        (spec, counted): (&RequestSpec, &RequestSpec),
+        spec: &RequestSpec,
         Said {
             ask,
             jev,
-            bare,
             ceiling,
             noticed,
         }: Said<'_>,
@@ -173,8 +150,7 @@ impl TurnRunner {
         let board = &self.tools.defer;
         // A conversation in plan mode loads the family that holds the plan's
         // tools (theseus-lyxy), since the refusal in plan mode names one of them.
-        let mut extra: BTreeSet<String> = (!bare
-            && self.tools.modes.mode_of(sid) == SessionMode::Plan)
+        let mut extra: BTreeSet<String> = (self.tools.modes.mode_of(sid) == SessionMode::Plan)
             .then(|| tools_defer::PLAN_FAMILY.to_string())
             .into_iter()
             .collect();
@@ -184,7 +160,7 @@ impl TurnRunner {
             .get(&spec.model)
             .map_or_else(|| TokenRates::of(&spec.model), |e| e.bytes_per_token);
         let multiple = ceiling.unwrap_or(cfg.admit_ceiling);
-        let mut fit = Fit::of(kind, counted, rates, mechanism, multiple);
+        let mut fit = Fit::of(kind, spec, rates, mechanism, multiple);
         let offer = |extra: &BTreeSet<String>, fit: &Fit| {
             board
                 .select(
@@ -200,20 +176,11 @@ impl TurnRunner {
                 )
                 .loaded()
         };
-        // A bare request (a trivial detour's, on a model without tool search) loads nothing
-        // the place, the board or the conversation chose: only a family the message names, or
-        // Jev judged relevant, below. The provider's own search keeps the whole set (the API
-        // refuses a request whose tools are all deferred).
-        let bare = bare && mechanism == Mechanism::Find;
-        let mut loaded = match bare {
-            true => BTreeSet::new(),
-            false => offer(&extra, &fit),
-        };
+        let mut loaded = offer(&extra, &fit);
         // A message that asks for a task loads the tasks family whichever way the model reaches
         // the rest (theseus-gg78p), held to the ceiling as `want::extra` holds it. Left out, it
         // stays deferred and searchable (theseus-s48k6).
         if mechanism == Mechanism::Search
-            && !bare
             && known.contains(tools_defer::family::TASKS)
             && tools_defer::want::asks_for_task(ask)
             && !loaded.contains(tools_defer::family::TASKS)
@@ -227,7 +194,6 @@ impl TurnRunner {
         // (theseus-o1h3f.3). Not held to the place's ceiling: the ceiling is the owner's promise about
         // what a person's turn costs, and 13,290 tokens of tasks alone would break it.
         if noticed
-            && !bare
             && known.contains(tools_defer::family::TASKS)
             && !loaded.contains(tools_defer::family::TASKS)
         {
@@ -257,10 +223,7 @@ impl TurnRunner {
                 fit.raised = whole.saturating_sub(fit.budget);
                 raised = (fit.raised > 0).then(|| tools_defer::raised(&fit, base, whole, &wanted));
                 extra.extend(wanted.into_iter().map(|a| a.family));
-                loaded = match bare {
-                    true => extra,
-                    false => offer(&extra, &fit),
-                };
+                loaded = offer(&extra, &fit);
             }
         }
         // The converse of `added`: a person's turn drops a family only the loosening loaded, so the
@@ -277,7 +240,6 @@ impl TurnRunner {
             added,
             dropped,
             raised,
-            bare,
         })
     }
 

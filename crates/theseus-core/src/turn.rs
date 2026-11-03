@@ -79,7 +79,6 @@ mod cut_step;
 pub(crate) mod data_step;
 mod defer_step;
 mod deferred_step;
-mod detour_step;
 mod digest_step;
 pub mod effort_step;
 pub mod end_note_step;
@@ -119,7 +118,7 @@ pub(crate) mod tier;
 mod title_step;
 
 pub use request::TurnRequest;
-pub use route_step::{detour_start, LiveSwitched, SWITCHED};
+pub use route_step::{LiveSwitched, SWITCHED};
 
 /// The built-in persona at the front of the system prompt of a session whose
 /// persona in play has no readable file of its own (theseus-slvl.2): the

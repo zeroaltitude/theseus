@@ -133,21 +133,18 @@ impl TurnRunner {
     }
 
     /// Records the level a call's request carried: what the next turn's
-    /// sticky rule and a keep-warm read of this session replay. A detour's
-    /// request is outside the session's compilation and records none.
+    /// sticky rule and a keep-warm read of this session replay.
     pub(super) fn note_sent(&self, t: &Turn<'_>, spec: &RequestSpec, model: &str) {
-        if t.route.keeps.is_none() {
-            let hold = t
-                .route
-                .effort
-                .filter(|d| d.sent == spec.effort)
-                .and_then(|d| match d.reason {
-                    EffortReason::Sticky => Some(effort::Hold::Sticky),
-                    _ => None,
-                });
-            self.keep_warm
-                .sent(t.tc.session_id, model, spec.effort, hold);
-        }
+        let hold = t
+            .route
+            .effort
+            .filter(|d| d.sent == spec.effort)
+            .and_then(|d| match d.reason {
+                EffortReason::Sticky => Some(effort::Hold::Sticky),
+                _ => None,
+            });
+        self.keep_warm
+            .sent(t.tc.session_id, model, spec.effort, hold);
     }
 }
 

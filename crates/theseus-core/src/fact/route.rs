@@ -26,7 +26,6 @@ pub struct RouteDecided<'a> {
     pub from: &'a str,
     pub profile: &'a str,
     pub reason: &'a str,
-    pub detour: bool,
     pub switch: bool,
     pub est_tokens: u64,
     pub wait_ms: u64,
@@ -111,7 +110,7 @@ impl Fact for RouteDecided<'_> {
         let mut row = json!({
             "mode": self.mode, "confidence": self.confidence, "judgment": self.judgment,
             "from": self.from, "profile": self.profile, "reason": self.reason,
-            "detour": self.detour, "switch": self.switch, "est_tokens": self.est_tokens,
+            "switch": self.switch, "est_tokens": self.est_tokens,
             "wait_ms": self.wait_ms, "late": self.late, "answered_ms": self.answered_ms,
             "effort": self.effort, "effort_confidence": self.effort_confidence,
             "effort_reason": self.effort_reason, "effort_applied": self.effort_applied,
@@ -180,8 +179,8 @@ impl Fact for RouteDecided<'_> {
             (true, Some(e), None) => format!(" Jev set its effort to {e}."),
             _ => String::new(),
         };
-        let line = match (self.detour, self.switch) {
-            (_, true) if self.checkpoint.is_some() => {
+        let line = match self.switch {
+            true if self.checkpoint.is_some() => {
                 let c = self.checkpoint.as_ref().expect("checked");
                 let (source, what) = match self.source {
                     Some(s) if s.starts_with("turn checkpoint") => {
@@ -194,15 +193,11 @@ impl Fact for RouteDecided<'_> {
                     c.trigger, self.from, self.profile
                 )
             }
-            (true, _) => format!(
-                "Routing{mode}: this message alone runs on {}; the session stays on {}.",
-                self.profile, self.from
-            ),
-            (_, true) => format!(
+            true => format!(
                 "Routing{mode}: the session moves from {} to {}.",
                 self.from, self.profile
             ),
-            _ => format!(
+            false => format!(
                 "Routing{mode}: the turn stays on {} ({}).",
                 self.profile, self.reason
             ),
@@ -315,7 +310,6 @@ mod tests {
             from: "sonnet",
             profile: "fable",
             reason: "switch",
-            detour: false,
             switch: true,
             est_tokens: 0,
             wait_ms: 0,

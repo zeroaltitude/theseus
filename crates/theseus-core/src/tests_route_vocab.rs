@@ -2,7 +2,7 @@
 //! how RSI works?" went to Haiku in the v1 voice check and was answered as the
 //! trading indicator, because a quick detour then carried no recall; the
 //! owner's RSI is recursive self-improvement, which only a record says.
-//! theseus-pa1xx made a quick detour carry the turn's recall. These tests hold
+//! theseus-pa1xx made a quick pick carry the turn's recall. These tests hold
 //! that against the case the issue feared: the term is a short all-caps token
 //! the stand-in index matches by word (as BM25 does: letters and digits,
 //! lowercased), so a recall query that dropped the acronym, or a quick route
@@ -121,7 +121,7 @@ async fn the_quick_route_gets_the_owners_definition_of_rsi() {
 }
 
 /// The shapes the term comes in: a bare acronym, lowercase, a short question,
-/// one inside a longer sentence. Each is a quick detour whose request carries
+/// one inside a longer sentence. Each is a quick pick whose request carries
 /// the definition; a query that dropped short or all-caps tokens finds no
 /// note for any of them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

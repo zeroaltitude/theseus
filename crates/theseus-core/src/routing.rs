@@ -87,8 +87,6 @@ pub enum Reason {
     /// The verdict's mode picked the profile (or the session's own, for a
     /// mode with no list, or the one it is on).
     Verdict,
-    /// A detour's message (`trivial`, `quick`).
-    Detour,
     /// No profile in the mode's list was usable: the session's own.
     Fallback,
     /// A switch the cache held back, waiting for a second agreeing turn.
@@ -120,7 +118,6 @@ impl Reason {
     pub fn as_str(self) -> &'static str {
         match self {
             Reason::Verdict => "verdict",
-            Reason::Detour => "detour",
             Reason::Fallback => "fallback",
             Reason::CacheHold => "cache_hold",
             Reason::Unsure => "unsure",
@@ -287,8 +284,6 @@ pub struct Decision {
     /// The profile the turn runs on.
     pub profile: String,
     pub reason: Reason,
-    /// This turn alone (a detour's mode): the session stays where it was.
-    pub detour: bool,
     /// The session's routed profile moves to `profile`.
     pub switch: bool,
     pub hold: HoldNext,
@@ -313,7 +308,6 @@ pub fn steer_to(
     let stay = |reason| Decision {
         profile: a.base.to_string(),
         reason,
-        detour: false,
         switch: false,
         hold: HoldNext::Clear,
     };
@@ -330,7 +324,6 @@ pub fn steer_to(
         return Decision {
             profile: profile.to_string(),
             reason: Reason::Correction,
-            detour: false,
             switch: true,
             hold: HoldNext::Clear,
         };

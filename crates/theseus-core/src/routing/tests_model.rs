@@ -117,7 +117,6 @@ fn a_sure_pick_runs_and_switches_a_small_session() {
         Decision {
             profile: "opus".into(),
             reason: Reason::Verdict,
-            detour: false,
             switch: true,
             hold: HoldNext::Clear,
         }
@@ -129,8 +128,8 @@ fn a_pick_at_the_base_stays_and_clears_a_hold() {
     let v = open("sonnet");
     let got = d(&v, "sonnet", 400_000);
     assert_eq!(
-        (got.profile.as_str(), got.reason, got.switch, got.detour),
-        ("sonnet", Reason::Verdict, false, false)
+        (got.profile.as_str(), got.reason, got.switch),
+        ("sonnet", Reason::Verdict, false)
     );
     assert_eq!(got.hold, HoldNext::Clear);
 }
@@ -269,29 +268,6 @@ fn the_cache_hold_defers_a_full_switch_one_turn_and_never_longer() {
         decide(&cfg(), &five_options(), &a).reason,
         Reason::CacheHold
     );
-}
-
-/// theseus-h66v4.1: the `context` question is gone, and with it the detour. A
-/// pick, sure or not, on any size of session, is never a detour: every turn
-/// compiles the whole working context on the model that answers it.
-#[test]
-fn a_pick_is_never_a_detour_every_turn_compiles_the_whole_context() {
-    for (pick, base) in [
-        ("haiku", "sonnet"),
-        ("sonnet", "sonnet"),
-        ("opus", "sonnet"),
-    ] {
-        for est in [0, 1_000, 29_999, 200_000, 900_000] {
-            let got = d(&open(pick), base, est);
-            assert!(!got.detour, "{pick} on {base} at {est}");
-        }
-    }
-    // Nor an unsure one, nor one the floor refused.
-    let v = Verdict {
-        model: Some(pick("opus", 0.4, false)),
-        ..open("opus")
-    };
-    assert!(!d(&v, "sonnet", 100_000).detour);
 }
 
 #[test]

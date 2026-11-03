@@ -12,14 +12,6 @@
 //! - **A switch** rebuilds the spec and compiles again on the routed profile;
 //!   the first compile's compilation is persisted, and its `context.compiled`
 //!   and `loop.started` recorded, only when the call uses it (theseus-d13v).
-//! - **A detour** (`trivial`, `quick`) compiles the persona and the last
-//!   `trivial_context_turns` exchanges outside the session's compilation,
-//!   which it never writes; the session's profile, `last_target`, and
-//!   compilation stay as they were. Its loops record `loop.started` and no
-//!   `context.compiled`: its compilation is never stored, so its row is
-//!   `context.detoured` (names and counts, in the same frame), which
-//!   `context.explain` reads (theseus-r5ydi). The conversation's project slice
-//!   rides it as it rides any request (theseus-v4u66).
 //! - **The effort** (route.v3, `routing::effort`): decided with the route,
 //!   for the profile the turn moves to, and set on the spec and the first
 //!   loop's request once the compile the call uses is made (`apply_effort`),
@@ -27,11 +19,9 @@
 //!   profile's own again.
 //! - **Recorded** as one `route.decided` row, in the turn's next frame, and
 //!   on the turn's result (`TurnSubmitResult.route`).
-//! - **A trivial detour sends no recall** (theseus-n7nc): the turn's pending
-//!   `Recall` node rides nothing, the reply's footer counts none, and the
-//!   recall's row, held until the route is known, says `detoured`
-//!   (`TurnRunner::recall_routed`). (theseus-pa1xx's quick detour, which sent it, went with the
-//!   class table: under route.v10 no pick detours, and `detour_recall` is always false.)
+//! - **No pick sends a smaller request** (the detour, retired at 1.0.4): every
+//!   turn compiles the whole working context, and the recall's row, held until
+//!   the route is known, is recorded then (`TurnRunner::recall_routed`).
 //! - **The trace's root follows the move** (theseus-490i): `route_to` sets
 //!   its `profile`, `provider` and `model` to the routed target's, so the
 //!   exported root and the turn's metrics name the model the call went to.
@@ -77,14 +67,6 @@ pub(super) struct RouteState {
     /// The first compile's rows, recorded only when the call uses it
     /// (theseus-d13v).
     pub(super) deferred: Option<Box<super::compile_step::Deferred>>,
-    /// A detour: the session's own target, which its record keeps.
-    pub(super) keeps: Option<TargetRef>,
-    /// The detour's request carries the turn's recall (a quick one,
-    /// theseus-pa1xx).
-    pub(super) detour_recall: bool,
-    /// The mode that sent the turn on a detour (`trivial`, `quick`), for the
-    /// `context.detoured` row (theseus-r5ydi).
-    pub(super) detour_kind: String,
     /// What the turn's result says.
     pub(super) result: Option<TurnRoute>,
     /// What the turn injects, fixed at the pack or with `result` (theseus-d9je7).
@@ -408,9 +390,7 @@ impl TurnRunner {
 
     /// The loop's compile, routed: on the first loop of a turn that asked
     /// `route.v1`, the compile, the wait beside it, and the decision, then
-    /// what the turn's recall becomes (`recall_routed`: a detour sends none,
-    /// theseus-n7nc); on a detour's later loops, the detour's compile; else
-    /// the compile.
+    /// what the turn's recall becomes (`recall_routed`); else the compile.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn compile_routed<'a>(
         &self,
@@ -424,9 +404,6 @@ impl TurnRunner {
         overflow: Option<&Overflowed>,
         i: u32,
     ) -> Result<Result<Compiled, Failure>> {
-        if t.route.keeps.is_some() {
-            return self.compile_detour(t, session, spec, i);
-        }
         // The compile step's future is boxed (situations' join fix, 35a):
         // inline, the turn's future overflowed a 2 MiB stack in debug builds.
         let Some(rx) = t.route.wait.take().filter(|_| i == 0) else {
@@ -515,7 +492,7 @@ impl TurnRunner {
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the
-    /// decision: the first compile kept, a switch's compile, or a detour's.
+    /// decision: the first compile kept, or a switch's compile.
     #[allow(clippy::too_many_arguments)]
     async fn compile_first<'a>(
         &self,
@@ -606,8 +583,7 @@ impl TurnRunner {
         };
         Self::hold_next(session, &d.hold);
         if d.profile == base {
-            let said = (verdict.as_ref(), steering.as_ref());
-            return self.on_base(t, session, (spec, compiled), (d.detour, said), i);
+            return self.keep_first(t, session, compiled, spec, i);
         }
         let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
             Ok(tg) => tg.speaking_as(t.target),
@@ -621,35 +597,9 @@ impl TurnRunner {
         };
         // The first compile is not the call's: its rows go with it.
         self.drop_first(t, &compiled);
-        if d.detour {
-            Self::detouring(t, verdict.as_ref(), steering.as_ref());
-        }
         self.routed_to(t, session, spec, slot, target, &d).await?;
         *provider = Some(p);
-        if d.detour {
-            return self.compile_detour(t, session, spec, i);
-        }
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
-    }
-
-    /// The turn stays on the session's own profile: the first compile is the
-    /// call's, or, for a `short` context, only the compile differs: the first
-    /// goes and the detour's runs on the target, spec and session record as
-    /// they are.
-    fn on_base(
-        &self,
-        t: &mut Turn<'_>,
-        session: &mut SessionRecord,
-        (spec, compiled): (&RequestSpec, Compiled),
-        (detour, (verdict, steering)): (bool, (Option<&Verdict>, Option<&Steering>)),
-        i: u32,
-    ) -> Result<Result<Compiled, Failure>> {
-        if !detour {
-            return self.keep_first(t, session, compiled, spec, i);
-        }
-        self.drop_first(t, &compiled);
-        Self::detouring(t, verdict, steering);
-        self.compile_detour(t, session, spec, i)
     }
 
     /// The decision's hold on the session's routed record, which goes once it
@@ -690,17 +640,6 @@ impl TurnRunner {
         self.record_route(t, verdict.as_ref(), None, reason, timed, steering);
         self.note_routed(t, verdict.as_ref(), None);
         f
-    }
-
-    /// The turn detours: its record keeps the session's own target, and the
-    /// verdict's mode (none for a steered turn: it names the mode, but sends no
-    /// recall) says whether the detour's request carries the turn's recall
-    /// (theseus-pa1xx). The mode is the row's `kind` (theseus-r5ydi).
-    fn detouring(t: &mut Turn<'_>, verdict: Option<&Verdict>, steering: Option<&Steering>) {
-        t.route.keeps = Some(TargetRef::from(t.target));
-        t.route.detour_kind = detour_word(steering.map(|s| &s.steer), verdict);
-        // No route.v10 pick detours (it has no `short`), so a detour carries no recall.
-        t.route.detour_recall = false;
     }
 
     /// The verdict the turn reads, or why it has none: its own, else a late
@@ -897,7 +836,6 @@ impl TurnRunner {
             from: &base,
             profile: &profile,
             reason: reason.as_str(),
-            detour: decision.is_some_and(|d| d.detour),
             switch: decision.is_some_and(|d| d.switch),
             est_tokens: timed.est_tokens,
             wait_ms: timed.waited.as_millis() as u64,
@@ -1001,16 +939,11 @@ impl TurnRunner {
         }
     }
 
-    /// Where the session's record says it runs: its own target through a
-    /// detour, where it ran before a refusal's fallback (theseus-7gir.18),
-    /// else the turn's.
+    /// Where the session's record says it runs: where it ran before a
+    /// refusal's fallback (theseus-7gir.18), else the turn's.
     pub(super) fn ran_on(t: &Turn<'_>) -> TargetRef {
         let before = t.fallback.as_ref().map(|f| f.ran_on.clone());
-        t.route
-            .keeps
-            .clone()
-            .or(before)
-            .unwrap_or_else(|| TargetRef::from(t.target))
+        before.unwrap_or_else(|| TargetRef::from(t.target))
     }
 
     /// The first compile is not the call's: its deferred rows go, and its pick
@@ -1104,118 +1037,6 @@ impl TurnRunner {
         }
         Ok(())
     }
-
-    /// A detour's request: the profile's own header (`detour_spec`), the last
-    /// `trivial_context_turns` exchanges with the message, and the project's
-    /// slice, compiled
-    /// outside the session's compilation, which it never writes. A trivial
-    /// detour reads the transcript without `recall_view`, so the turn's recall
-    /// reaches no request, and `recall_routed` drops it; a quick one reads it
-    /// through `recall_view`, so the turn's own `Recall` node renders after
-    /// the message (theseus-pa1xx).
-    fn compile_detour(
-        &self,
-        t: &mut Turn<'_>,
-        session: &SessionRecord,
-        spec: &RequestSpec,
-        i: u32,
-    ) -> Result<Result<Compiled, Failure>> {
-        let sid = t.tc.session_id;
-        let nodes = t.tc.store.transcript(sid)?;
-        let from = detour_start(&nodes, self.cfg.routing.trivial_context_turns);
-        // A detour admits no summary and no earlier recall (35a): its last
-        // exchanges and the message, and a quick one's own recall, written by
-        // the plan frame once its first loop has gone out.
-        let own =
-            Some(t.recall.recall_id.as_str()).filter(|r| t.route.detour_recall && !r.is_empty());
-        let nodes: Vec<_> = nodes[from..]
-            .iter()
-            .filter(|(_, n)| match n.kind {
-                crate::stub::Kind::Summary => false,
-                crate::stub::Kind::Recall => own == Some(n.id.as_str()),
-                _ => true,
-            })
-            .cloned()
-            .collect();
-        let (nodes, sources) = match t.route.detour_recall {
-            true => self.recall_view(t, nodes, &spec.profile),
-            false => (nodes, crate::recall::render::Sources::default()),
-        };
-        // The owner's standing records ride a detour too (theseus-a7vi): they
-        // hold in every prompt of their scope, a cheap turn's included.
-        // (The standing block is in the header layer already.)
-        let detour = detour_step::detour_spec(spec);
-        let mut compiled = compile(CompileInput {
-            session_id: sid,
-            current: None,
-            nodes: &nodes,
-            last_position: self.store.last_position(),
-            spec: &detour,
-            catalog: &self.catalog,
-            force: None,
-            window_override: self.working_window(&detour),
-            blobs: Some(self.store.blobs()),
-            hidden: &session.not_shown,
-            strip: None,
-            overflowed: None,
-            sources: &sources,
-            signals: None,
-            assembled: None,
-            situation: &crate::compiler::situation::Situation::Detour,
-            kept: None,
-        });
-        if t.route.detour_recall {
-            Self::recall_compiled(t, &mut compiled);
-        }
-        let mut tail = detour_step::Tail::default();
-        let before = compiled.est_tokens;
-        Self::standing_here(t, &mut compiled);
-        tail.standing = compiled.est_tokens.saturating_sub(before);
-        let before = compiled.est_tokens;
-        Self::persona_line(t, &mut compiled);
-        tail.persona = compiled.est_tokens.saturating_sub(before);
-        // The project the conversation serves, last of all as `tail_blocks`
-        // does (theseus-v4u66): a cheap turn about it is as wrong without it.
-        let project = (!self.restricted_profile(&spec.profile))
-            .then(|| {
-                crate::project::slice::attach(&self.store, &self.kernel, session, &mut compiled)
-            })
-            .flatten();
-        // The board notes this request's loaded set (theseus-zs6mm).
-        self.defer_noted(t, &detour, &compiled);
-        let last = self.store.last_position();
-        if let Some(f) = Self::unadmitted(t, &compiled, &nodes, last, false, i) {
-            return Ok(Err(f));
-        }
-        if let Some(f) = Self::standing_dropped(t, &compiled, i) {
-            return Ok(Err(f));
-        }
-        let row = self.detoured_row(
-            t,
-            &detour,
-            &compiled,
-            (&nodes, &tail, project.map_or(0, |p| p.tokens)),
-            i,
-        );
-        t.record(&fact::detour::Detoured { request: &row });
-        t.record(&fact::turn::LoopStarted {
-            turn_id: t.tc.turn_id,
-            index: i,
-            model: &t.target.model,
-            tools_offered: detour.tools.len() as u32,
-        });
-        Ok(Ok(compiled))
-    }
-}
-
-/// A detour's `kind`: `steered` for any steer, else the verdict's (theseus-nfrlj).
-/// A steer is never a detour today (`steer_to` makes none), so the word is for a
-/// later one.
-fn detour_word(steer: Option<&Steer>, verdict: Option<&Verdict>) -> String {
-    match steer {
-        Some(_) => "steered".into(),
-        None => verdict.map_or_else(String::new, |v| v.mode.clone()),
-    }
 }
 
 /// The META key of the owner's last switch of the live profile, in Unix
@@ -1245,24 +1066,6 @@ impl LiveSwitched {
     }
 }
 
-/// Where a detour's nodes begin: at the person's message `turns` messages
-/// before the newest one (the turn's own), or the session's start.
-pub fn detour_start(nodes: &[(u64, crate::stub::Stub)], turns: u32) -> usize {
-    let asks: Vec<usize> = nodes
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, n))| {
-            n.origin == crate::node::Origin::Operator && n.kind == crate::stub::Kind::UserMessage
-        })
-        .map(|(i, _)| i)
-        .collect();
-    let back = turns as usize;
-    match asks.len().checked_sub(back + 1) {
-        Some(k) => asks[k],
-        None => 0,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1281,16 +1084,6 @@ mod tests {
         );
         assert!(ps["glm"].restricted, "GLM is of restricted origin");
         assert!(!ps["sonnet"].restricted, "Claude is not");
-    }
-
-    /// A detour's word is the verdict's, or `steered` for a steer
-    /// (theseus-nfrlj), never empty when a steer made it.
-    #[test]
-    fn a_detours_word_names_its_mode_or_says_steered() {
-        let quick = v("quick");
-        assert_eq!(detour_word(None, Some(&quick)), "quick");
-        let steer = Steer::Profile("haiku".into());
-        assert_eq!(detour_word(Some(&steer), None), "steered");
     }
 
     fn v(mode: &str) -> Verdict {
@@ -1383,28 +1176,5 @@ mod tests {
         assert!((before..=after).contains(&ms), "{before} {ms} {after}");
         assert_eq!(crate::id_ms("turn_c3"), None);
         assert_eq!(crate::id_ms("ses_old2"), None);
-    }
-
-    #[test]
-    fn a_detour_takes_the_last_exchanges_and_the_message() {
-        let n = |text: &str, op: bool| {
-            let mut node = Node::user_with("ses_1", None, "cli", text, vec![]);
-            if !op {
-                node.origin = crate::node::Origin::Agent;
-            }
-            (0u64, node.into())
-        };
-        let nodes = vec![
-            n("one", true),
-            n("reply", false),
-            n("two", true),
-            n("reply", false),
-            n("three", true),
-            n("reply", false),
-            n("thanks", true),
-        ];
-        assert_eq!(detour_start(&nodes, 2), 2);
-        assert_eq!(detour_start(&nodes, 0), 6);
-        assert_eq!(detour_start(&nodes, 9), 0);
     }
 }
