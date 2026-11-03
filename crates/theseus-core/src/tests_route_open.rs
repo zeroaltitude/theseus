@@ -141,8 +141,25 @@ fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_o
     assert!(v.effort.is_none() && v.work.is_none() && v.split.is_none());
     // No route verdict, no verdict, whatever the others said (a pinned turn asks none of them).
     assert!(crate::judge::inbound::verdict_of(&[effort, work, split], "trn_1").is_none());
-    let pinned = judgment(vec![choice("personal", "none", 0.95)], false);
-    assert!(crate::judge::inbound::verdict(&pinned, "trn_1").is_none());
+    // A pinned turn asks no model and no effort but still asks persona, seal and personal, and
+    // their answers stand: this assertion used to say a pinned judgment has no verdict, which
+    // threw the personal answer away, so the privacy warning and the shared place's hold went
+    // dark on every pinned turn (theseus-7l8lr.2, omnibus pass 2 F1).
+    let pinned = judgment(
+        vec![
+            choice("personal", "elicit", 0.95),
+            choice("persona", "tabitha", 0.92),
+        ],
+        false,
+    );
+    let v = crate::judge::inbound::verdict(&pinned, "trn_1").expect("a verdict, with no model");
+    let p = v.personal.as_ref().expect("the personal answer");
+    assert_eq!((p.choice.as_str(), p.confidence), ("elicit", 0.95));
+    assert!(v.persona.is_some(), "the persona answer stands");
+    assert!(
+        v.model.is_none() && !v.open() && v.mode.is_empty() && v.effort.is_none(),
+        "and it names no model, no mode and no effort"
+    );
     // A judgment without these answers reads as a mode, as before.
     let j = judgment(vec![choice("mode", "chat", 0.95)], false);
     let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
@@ -451,6 +468,105 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     }
     let d = &decided(&o.r.core.store)[0];
     assert_eq!(d["detail"], "-P fable");
+}
+
+const ASK_PERSONAL: &str = "Where does your owner live, and who is at home tonight?";
+
+/// Jev's `personal` answer.
+fn personal(jev: &FakeJev, option: &str, confidence: f64) {
+    jev.script(
+        "personal",
+        Jev::Choice {
+            option: option.into(),
+            confidence,
+        },
+    );
+}
+
+fn bind_owner_dm(o: &Open) {
+    o.r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: "discord:dm:7".into(),
+            name: "DM".into(),
+            private: false,
+            ..Default::default()
+        });
+}
+
+fn warnings(o: &Open) -> Vec<serde_json::Value> {
+    o.r.core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == crate::turn::personal_step::KIND)
+        .map(|a| crate::outbox::body_of(a).clone())
+        .collect()
+}
+
+fn warned_rows(o: &Open) -> Vec<serde_json::Value> {
+    crate::tests_judge::kinds(&o.r.core.store, "privacy.warned")
+        .into_iter()
+        .map(|r| r.data)
+        .collect()
+}
+
+/// A pinned turn is not asked the model, but Jev's `personal` answer still acts:
+/// the owner is warned, the turn runs on the pinned model, and a correction of it
+/// names no mode (theseus-7l8lr.2, omnibus pass 2 F1).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pinned_turn_still_warns_on_a_personal_answer() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "haiku", "low", 0.97);
+    personal(&jev, "elicit", 0.95);
+    let o = open(&jev, 1, |_| {});
+    bind_owner_dm(&o);
+    // A pin does not wait for its verdict; the test has it wait, so the verdict has come.
+    o.r.core.runner.judge.pins_wait_for_verdicts();
+    let res = turn(&o.r.core, None, ASK_PERSONAL, Some("fable")).await;
+    assert_eq!(o.r.claude.requests()[0].model, "claude-fable-5-1");
+    assert_eq!(res.route.as_ref().unwrap().reason, "pinned");
+    let rows = warned_rows(&o);
+    assert_eq!(rows.len(), 1, "the personal answer acted: {rows:?}");
+    assert_eq!(
+        (rows[0]["choice"].as_str(), rows[0]["posted"].as_bool()),
+        (Some("elicit"), Some(true))
+    );
+    assert_eq!(warnings(&o).len(), 1, "the owner's DM was warned");
+    // The verdict has no mode word, so a later correction of this turn labels nothing `not:`.
+    let last = o.r.core.runner.judge.corrections.last_of(&res.session_id);
+    assert_eq!(last.expect("the turn is noted").mode, None);
+}
+
+/// The same pin in a place others write in: the reply is held, with no model call.
+/// This is the place the hold exists for, and `live_pin` makes every turn there a
+/// pinned one the moment the owner runs `theseus profile use X`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pinned_turn_in_a_shared_place_is_still_held() {
+    use theseus_protocol::SessionKind;
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "haiku", "low", 0.97);
+    personal(&jev, "elicit", 0.95);
+    let o = open(&jev, 1, |_| {});
+    bind_owner_dm(&o);
+    o.r.core.runner.judge.pins_wait_for_verdicts();
+    let rec = crate::session::SessionRecord::new(SessionKind::Conversation, None);
+    o.r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    o.r.core
+        .outbox
+        .bind_place("channel:555000111", &rec.session_id)
+        .unwrap();
+    let res = turn(&o.r.core, Some(&rec.session_id), ASK_PERSONAL, Some("fable")).await;
+    assert!(
+        o.r.claude.requests().is_empty(),
+        "no model was called: {}",
+        res.output
+    );
+    assert_eq!(res.output, "I don't share that here.");
+    let rows = warned_rows(&o);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["held"].as_bool(), Some(true), "{rows:?}");
 }
 
 // ------------------------------------------------------------------- `why`

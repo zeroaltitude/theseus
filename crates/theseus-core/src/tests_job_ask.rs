@@ -276,6 +276,40 @@ async fn a_job_in_a_labelled_session_is_refused_a_china_origin_model() {
     assert_eq!(how, How::Live(Why::DataGate));
 }
 
+/// The data rule holds for the fallback as it does for the pick: where `[model] live` is a model
+/// the floor refuses (how every bench cell runs, and anyone who pins one model), a job over the
+/// owner's material whose Jev ask is late has nowhere to run, and says `data_gate`; it does not
+/// run the owner's material on `live`. Under `cn_models = always` the chokepoint would not stop
+/// it (theseus-7l8lr.2, omnibus pass 2 F2).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owner_material_is_not_run_on_a_live_model_the_floor_refuses() {
+    use crate::config::content_based_security::CnModels;
+    let jev = FakeJev::start().unwrap();
+    pick(&jev, "opus", 0.95);
+    jev.set_mode(FakeMode::Held);
+    let r = rig_job(&jev, |c| {
+        c.judge.total_secs = 30;
+        c.content_based_security.cn_models = CnModels::Always;
+    });
+    let run = &r.core.runner;
+    // The ask is late, so the job falls to `live`, and `glm` is of restricted origin.
+    assert!(run.restricted_profile("glm"), "the rig's `glm` is restricted");
+    let (_, how) = run.job_choice("glm", owner_site(None)).await;
+    assert_eq!(how, How::Live(Why::DataGate), "the fallback is refused, and says why");
+    let refused = run.job_target("glm", owner_site(None)).await;
+    let e = refused.expect_err("the owner's material has no model to run on").to_string();
+    assert!(e.contains("glm"), "{e}");
+    // The same late ask on a live model of US origin still runs there.
+    let (t, how) = run.job_target("sonnet", owner_site(None)).await.unwrap();
+    assert_eq!((t.profile.as_str(), how), ("sonnet", How::Live(Why::Late)));
+    // A job that is no one's private material, in a session whose labels allow it, may fall to
+    // a restricted `live`: the rule refuses what the data rule refuses, nothing more.
+    let (t, how) = run.job_target("glm", open_site()).await.unwrap();
+    assert_eq!((t.profile.as_str(), how), ("glm", How::Live(Why::Late)));
+    jev.release();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+}
+
 /// A pick whose provider is not configured runs on `live`
 /// (`reason = fallback`), not as a failed call.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
