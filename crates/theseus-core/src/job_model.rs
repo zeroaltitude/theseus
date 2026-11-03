@@ -13,7 +13,9 @@
 //! told `restricted_models = not_allowed` by the job builder whatever the
 //! caller says, a pick of restricted origin is refused for it, and private
 //! material goes only to a model the catalog lists as of US origin
-//! (`cleared_for_sensitive`); the provider chokepoint stays under all of it.
+//! (`cleared_for_sensitive`): the pick, and the `live` it falls back to, which
+//! when it is not one leaves the job with no model (`job_target` fails it,
+//! theseus-7l8lr.2); the provider chokepoint stays under all of it.
 
 use std::fmt;
 use std::time::Duration;
@@ -59,7 +61,8 @@ pub(crate) enum Why {
     /// Jev could not be asked: routing or the judge is off, the breaker is
     /// open, or the key is not there.
     Unasked,
-    /// The pick is of restricted origin and the job's material may not go there.
+    /// The pick is of restricted origin and the job's material may not go there; or, for a job
+    /// over the owner's material, so is `live`, and the job has no model to run on.
     DataGate,
     /// The pick's provider is not configured or has no key.
     Fallback,
@@ -135,6 +138,13 @@ impl TurnRunner {
         self.model_origin(provider, model).restricted()
     }
 
+    /// Whether `live` resolves to a model the owner's material may not go to
+    /// (`model_cleared`). A `live` that does not resolve is left to its own error.
+    fn live_refused(&self, live: &str) -> bool {
+        self.resolve_target(live, None, None, None)
+            .is_ok_and(|t| !self.model_cleared(&t.provider, &t.model))
+    }
+
     /// Settle the site's model: the pin, else Jev's pick, else `live`. Never
     /// waits on Jev past `[routing] max_wait_ms`.
     pub(crate) async fn job_choice(&self, live: &str, site: Site<'_>) -> (Choice, How) {
@@ -143,6 +153,17 @@ impl TurnRunner {
         }
         let (private, name) = (site.job.private(), site.name);
         let on_live = |why: Why| {
+            // The fallback is a model like any other: where it is one the owner's material may not
+            // go to, the job has nowhere to run (`job_target` fails it), whatever the pick said.
+            let why = match private && self.live_refused(live) {
+                true => {
+                    if why != Why::DataGate {
+                        self.judge.record_data_gate(name, "restricted_origin");
+                    }
+                    Why::DataGate
+                }
+                false => why,
+            };
             tracing::debug!(
                 site = name,
                 why = why.word(),
@@ -210,7 +231,14 @@ impl TurnRunner {
         live: &str,
         site: Site<'_>,
     ) -> Result<(Target, How), Unresolved> {
+        let private = site.job.private();
         let (choice, how) = self.job_choice(live, site).await;
+        if private && matches!(how, How::Live(_)) && self.live_refused(live) {
+            return Err(Unresolved {
+                profile: live.to_string(),
+                why: "the owner's material may not go to a model of restricted origin".into(),
+            });
+        }
         self.choice_target(live, &choice).map(|t| (t, how))
     }
 
