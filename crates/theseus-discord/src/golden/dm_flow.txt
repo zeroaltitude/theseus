@@ -41,7 +41,7 @@ post tags: running -> done
 === the approval card, as it asked
 --- card bot [v2]
 <@<owner>> ✋ **Approve?** task `task-1` · *Reef-chart: chart the reef* wants to **write** `outside/reef.txt` in Theseus's state folder (new file, 4 bytes)
-risk: writes a file · why it asks: <tmp>/outside/reef.txt is protected: <tmp>/outside is on the approve list
+risk: writes a file · why it asks: you set this kind of call to ask first
 ```diff
 <tmp>/outside/reef.txt:1
 @@ -0,0 +1,1 @@
