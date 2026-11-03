@@ -40,7 +40,7 @@ use crate::learn::RollbackRule;
 /// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
 /// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model and the effort,
-/// theseus-h66v4, revised in place by theseus-h66v4.1; embedded and replayable, and not the acting pack: `ROUTE_PACK` names `route.v8`),
+/// theseus-h66v4, revised in place by theseus-h66v4.1; the acting pack: `ROUTE_PACK` names it),
 /// `content.v1` (the four content flags, theseus-9ymz0), and `split.v1` (whether the work divides by area, in shadow,
 /// theseus-z9mze.5). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.

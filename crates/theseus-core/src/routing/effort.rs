@@ -190,7 +190,7 @@ pub fn decide_open(
 
 /// The sticky rule. A model without per-message effort pays a rewrite of its
 /// messages' cache for every change of the top-level effort, so `asked` (Jev's
-/// level after the bounds) is held at `previous`, the level the session's last
+/// level) is held at `previous`, the level the session's last
 /// request carried, when it differs by one step. It is not held when there is
 /// no previous level (a first request, or a model switch, which rewrites
 /// anyway), when the request is under `floor` tokens (little cache to lose), or
@@ -247,6 +247,7 @@ mod tests {
             EffortReason::Recorded,
             EffortReason::Sticky,
             EffortReason::StickyReverted,
+            EffortReason::NoMatch,
         ] {
             let word = format!("`{}`", r.as_str());
             let i = doc[at..].find(&word);

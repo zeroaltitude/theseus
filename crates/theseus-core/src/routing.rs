@@ -12,10 +12,8 @@
 //!   compile's estimate is under `cold_switch_tokens`, above it only when the
 //!   turn before agreed (a [`Hold`]): the switch recompiles, strips the prefix's
 //!   thinking, and leaves the cache cold.
-//! - **A `short` context** (`model::SHORT`): that turn alone runs on the pick;
-//!   the session's profile, `last_target` and compilation stay as they were.
 //! - **A late verdict** (one that came after its message's wait) applies to
-//!   the session's next message alone, and a `short` one's to none ([`carries`]).
+//!   the session's next message alone.
 //! - **A task's brief** (theseus-ypnxt.7, `TurnRunner::decide_brief`): the verdict
 //!   on a task's brief picks the task's base, at once and for good.
 //! - **A task's checkpoints** (theseus-ypnxt.9, [`checkpoint`]): a running task
@@ -42,7 +40,7 @@ mod tests_effort_open;
 mod tests_model;
 pub use personal::PersonalAnswer;
 
-/// A short turn's uncached input, in tokens, for `cheapest` and the cap.
+/// A short turn's uncached input, in tokens, for `short_cost`.
 pub const SHORT_INPUT: u64 = 4_000;
 /// A short turn's output, in tokens.
 pub const SHORT_OUTPUT: u64 = 500;
@@ -183,8 +181,8 @@ pub struct Profile {
     /// A short turn's cost at catalog prices, in dollars (none: unpriced).
     pub short_cost: Option<f64>,
     pub vision: bool,
-    /// Origin `cn` or `unknown`: such a profile runs only for a cleared ask,
-    /// and only when a class names it in `cn_profiles` (theseus-a1wvq.4).
+    /// Origin `cn` or `unknown`: such a profile runs only for a cleared ask
+    /// (theseus-a1wvq.4).
     pub restricted: bool,
 }
 

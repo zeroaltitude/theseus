@@ -69,7 +69,7 @@ pub struct InjectionBudget {
     /// `verdict late`, `no verdict`, `unsure`, `routing off`: ordinary
     /// without a verdict's say.
     pub fallback: Option<&'static str>,
-    /// What the request's recall may hold; 0 for small, whose detour sends none.
+    /// What the request's recall may hold.
     pub recall_tokens: u64,
     pub recall_items: usize,
     /// The multiple of the place's first-request budget admitted families may

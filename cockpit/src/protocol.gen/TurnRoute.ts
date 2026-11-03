@@ -7,14 +7,16 @@ import type { TurnData } from "./TurnData";
  */
 export type TurnRoute = { 
 /**
- * The task class the route pack answered (`trivial`, `quick` since route.v2,
- * `chat`, `sophisticated`, `deep_coding`, `routine_coding`, `review`, `other`),
- * when a verdict was read.
+ * The model Jev picked (route.v10's `model` answer: `haiku`, `sonnet`, `opus`,
+ * `fable` or `deepseek_flash`; before route.v10, the task class the route pack
+ * answered), when a verdict was read.
  */
 mode?: string, 
 /**
- * `verdict`, `detour`, `capped`, `fallback`, `cache_hold`, `unsure`,
- * `late`, `unreachable`, `no_verdict`, `pinned`, or `shadow`.
+ * `verdict`, `fallback`, `cache_hold`, `unsure`, `late`, `unreachable`,
+ * `no_verdict`, `pinned`, `shadow`, `correction` or `data_gate` (a row from
+ * before route.v10 may also say `detour`, `capped`, `context_guard`,
+ * `step_down` or `switch_cap`).
  */
 reason: string, 
 /**
@@ -31,30 +33,24 @@ from: string,
  */
 source?: string, 
 /**
- * route.v3's answer about the reply's effort (`low`, `medium`, `high`,
- * `xhigh`, `max`, or `unclear`), when a verdict was read (theseus-qe3v).
+ * Jev's answer about the reply's effort (`low`, `medium`, `high`, `xhigh` or
+ * `max`), when a verdict was read (theseus-qe3v).
  */
 effort?: string, 
 /**
- * Why the turn ran at its effort, beside `effort`: `applied`, `clamped`
- * (to `[routing] effort_bounds`), `held_high` (an `xhigh` or `max` at or
- * under `high_effort_confidence`, run at `high`), `held_high_unsure` (the
- * same, for an answer under its confirm bar), `unsure`, `applied_unsure`
- * (under the confirm bar, at or above `effort_confidence`), `unclear`,
- * `fixed` (the profile's `effort_fixed`), `no_effort` (its model takes
- * none), `carried` (a late verdict's), `recorded` (shadow, or a pin),
- * `sticky` (a one-step change held at the previous request's level to
- * keep the cache: `effort_applied` is the level sent), `sticky_unsure`
- * (that hold of an `applied_unsure` or `held_high_unsure` answer),
- * `sticky_reverted` (a later answer sure enough ended the hold early),
- * `floored` (raised to the routed profile's own effort), or `gated`
- * (the answer's confidence was under `effort_floor_confidence`: it
- * applied nothing).
+ * Why the turn ran at its effort, beside `effort`: `applied`, `no_effort`
+ * (its model takes none), `carried` (a late verdict's), `recorded` (shadow,
+ * or a pin), `sticky` (a one-step change held at the previous request's
+ * level to keep the cache: `effort_applied` is the level sent),
+ * `sticky_reverted` (a later answer sure enough ended the hold early), or
+ * `no_match` (the answer was under the pack's confirm bar, so the pack's own
+ * `high` ran). A row from before route.v10 may also say `clamped`,
+ * `held_high`, `held_high_unsure`, `unsure`, `applied_unsure`, `unclear`,
+ * `fixed`, `sticky_unsure`, `floored` or `gated`.
  */
 effort_reason?: string, 
 /**
- * The effort Jev's answer set on the turn's requests, when it applied:
- * `effort` itself, or the bound it was clamped to.
+ * The effort Jev's answer set on the turn's requests, when it applied.
  */
 effort_applied?: string, 
 /**

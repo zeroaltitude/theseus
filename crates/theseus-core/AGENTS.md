@@ -1847,7 +1847,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `context.detoured` (`ContextDetour` carries `recall`, whether the detour's request held the turn's own recall, and `kind` is `steered` for a steer that names no mode, theseus-nfrlj; the names and token counts of its request's parts and the families it loaded, `fact/detour.rs`, `turn/detour_step.rs`,
     in the one frame with `loop.started`) and no `context.compiled`, since its compilation is never stored (`tests_route_rows.rs`); `context.explain`
     explains a turn with no compile from that row (`ContextExplainResult.detour`, the turn list's `detoured`; theseus-r5ydi), and the
-    conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). The row is `route.decided`
+    conversation's project slice rides a detour's request as any (theseus-v4u66; `tests_detour.rs`). **(The detour is retired at
+    1.0.4, theseus-7l8lr.3: no pick sends a smaller request, nothing writes `context.detoured` any more, and `context.explain`
+    still reads the old rows.)** The row is `route.decided`
     (`fact/route.rs`: `wait_ms`, `late` when the verdict missed the wait, `answered_ms` when the request came back
     after the turn's start, if it had; each live turn's wait is `theseus.route.wait` by `theseus.route.late`,
     `tests_route_late.rs`); thinking goes back only to the model that wrote it (`tests_thinking_writer.rs`), and no place
@@ -1980,8 +1982,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     name). `ModelOrigin::cleared_for_sensitive` (theseus-xs5ah, "such data must be routed to us-based models") has one reader
     now, a private motif's model (`rsi::mint::data_rule`); whether that rule stays is the owner's. Tests:
     `judge/tests_content.rs`, `tests_content_gate.rs`, `data_gate.rs`'s own.
-    **route.v8** (theseus-f9qa8) is the acting route pack; its `data` question is asked and read by nothing since
-    theseus-9ymz0 (the labels on a session replaced it; route.v9 drops it, theseus-gezlj).
+    **route.v10** (theseus-h66v4) is the acting route pack; route.v8's `data` question was asked and read by nothing since
+    theseus-9ymz0 (the labels on a session replaced it) and is not in route.v10.
   - **Content flags and the restricted-origin floor** (theseus-9ymz0, replacing the open view of theseus-a1wvq.3 to .17;
     `content.rs`, `content_wait.rs`, `data_gate.rs`, `turn/data_step.rs`, `config/content_based_security.rs`, `fact/data.rs`): every item that
     enters a session (an operator's message, a tool result, a brief, a report) is classified once, by itself, and what is
@@ -2339,6 +2341,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     100-300 line slices, write down findings), and a bare `fs_read` returns 400 lines (`ToolCtx.default_read_lines`, set
     per session at the turn's budget and cleared by any other turn's); the schema and the footer are unchanged.
     Tests: `tests_coding_hint.rs`, `tests_narrow_read.rs` (theseus-tools).
+    **Retired (1.0.4, theseus-7l8lr.3): the detour is gone, so `recall_routed` only records the rows held while routing decided.**
     A trivial detour's request carries no recall (theseus-n7nc): while routing has the route to decide
     (`RouteState::deciding`) the row waits for it, and once it is known `recall_routed` drops a detour's node, its
     rides and its footer count, and the row says `detoured`. A quick detour's request carries it (theseus-pa1xx,
@@ -3032,6 +3035,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `tests_route_defer.rs::a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget`, run in the owner's DM since the whole-request
   rule: at the cli a detour's request is about 7,300 tokens before a named family, so no AWS family (900 to 1,300) fits beside it there and the
   model reaches one with `tools_find` (`tests_detour::a_detour_naming_a_family_stays_within_its_place_budget`).
+  **Retired (1.0.4, theseus-7l8lr.3): `Deferral.bare` and the detour's counted request (`detour_spec`) are gone; the next paragraph is the record.**
   **A trivial detour carries `tools_find` only** (theseus-d9je7, the owner, 2026-10-22; `Deferral.bare`, `defer_step::Said`):
   its `loaded` is empty save a family the message names or Jev judged relevant (`want::extra`), and `resolve` keeps the
   find tool instead of falling back to every tool; its `context.detoured` tools part reads `trivial: tools_find only`.
