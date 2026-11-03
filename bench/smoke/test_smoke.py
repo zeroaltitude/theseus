@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -208,10 +209,11 @@ def need80(of):
 
 
 def replay(model_ok=55, must_ok=13, must_total=13, answered=61, n=61, held=2, bar=True, cost=0.01,
-           pack="route.v10", bars=True):
+           pack="route.v10", bars=True, sha=None):
     """`theseus --json judge replay --cases`'s result as Phase 2 prints it (theseus-h66v4.6): `n` cases
     graded, the pins outside every denominator, and one bar per question (`model`, then `must`),
-    each `need` the ratio of its own `of`."""
+    each `need` the ratio of its own `of`. `sha` is the pack's digest (`candidate_sha256`), which
+    says which question Jev was actually asked; None is a replay that printed none."""
     c = {"cases": [{}] * n, "answered": answered, "model_ok": model_ok, "held_elsewhere": held,
          "must_total": must_total, "must_ok": must_ok, "must_under_confirm": 0, "bar": bar, "pack": pack,
          "asked": ["model"]}
@@ -220,17 +222,19 @@ def replay(model_ok=55, must_ok=13, must_total=13, answered=61, n=61, held=2, ba
                       "met": n > 0 and model_ok >= need80(n)},
                      {"question": "must", "ok": must_ok, "of": must_total, "need": need80(must_total),
                       "met": must_total > 0 and must_ok >= need80(must_total)}]
-    return {"set": "cases", "cost_usd": cost, "cases": c}
+    out = {"set": "cases", "cost_usd": cost, "cases": c}
+    return out if sha is None else {**out, "candidate_sha256": sha}
 
 
-def effort_replay(effort_ok=58, n=61, answered=61, cost=0.01, bars=True):
+def effort_replay(effort_ok=58, n=61, answered=61, cost=0.01, bars=True, sha=None):
     """`theseus --json judge replay --pack-file effort.v1.toml --cases route.v10.cases.toml` as Phase 2 prints it: the
     same cases, one bar, `effort` within one rung of the label, `need` the ratio of its own `of`."""
     c = {"cases": [{}] * n, "answered": answered, "pack": "effort.v1", "asked": ["effort"], "bar": True}
     if bars:
         c["bars"] = [{"question": "effort", "ok": effort_ok, "of": n, "need": need80(n),
                       "met": n > 0 and effort_ok >= need80(n)}]
-    return {"set": "cases", "cost_usd": cost, "cases": c}
+    out = {"set": "cases", "cost_usd": cost, "cases": c}
+    return out if sha is None else {**out, "candidate_sha256": sha}
 
 
 class RoutePart(unittest.TestCase):
@@ -804,6 +808,81 @@ class RouteOnAWiredPack(unittest.TestCase):
             self.assertFalse(p["ok"], live)
             self.assertFalse(p.get("na"), live)
             self.assertIn("0 of 3 runs answered any case", p["note"])
+
+
+class ThreeSamples(unittest.TestCase):
+    """theseus-h420q: three runs must be three Jev samples. The 1.0.4 release smoke's three route
+    runs each cost $0.004718 and each scored 51 of 62 to six decimal places -- one cached answer
+    served three times -- and would have written a floor of 51 from it. The driver gives each run
+    its own pack version (`smoke.bust`), and the part fails when two runs share a pack digest."""
+
+    PACK = REPO / "crates" / "theseus-judge" / "packs" / "route.v10.toml"
+    CASES = REPO / "crates" / "theseus-judge" / "packs" / "route.v10.cases.toml"
+    EFFORT = REPO / "crates" / "theseus-judge" / "packs" / "effort.v1.toml"
+
+    def runs(self, shas, effort_shas=None):
+        effort_shas = effort_shas or [None] * len(shas)
+        return [smoke.route_run(replay(sha=s), 20.0, effort_replay(sha=e))
+                for s, e in zip(shas, effort_shas)]
+
+    def test_three_distinct_digests_pass_and_two_equal_ones_fail(self):
+        ok = smoke.route_part(self.runs(["a" * 64, "b" * 64, "c" * 64]), None, live="route.v10")
+        self.assertTrue(ok["ok"], ok["note"])
+        same = smoke.route_part(self.runs(["a" * 64] * 3), None, live="route.v10")
+        self.assertFalse(same["ok"], same["note"])
+        self.assertIn("one cached sample", same["note"])
+        self.assertIn("runs 1 and 2", same["note"])
+        # Two of three is enough to fail it: the worst of three is then the worst of two.
+        two = smoke.route_part(self.runs(["a" * 64, "b" * 64, "a" * 64]), None, live="route.v10")
+        self.assertFalse(two["ok"], two["note"])
+
+    def test_the_effort_replays_count_too_and_a_replay_with_no_digest_is_not_judged(self):
+        shared = smoke.route_part(self.runs(["a" * 64, "b" * 64, "c" * 64], ["e" * 64] * 3),
+                                  None, live="route.v10")
+        self.assertFalse(shared["ok"], shared["note"])
+        # A binary that prints no digest: nothing to compare, and the rest of the part still holds.
+        quiet = smoke.route_part([smoke.route_run(replay(), 20.0, effort_replay())] * 3,
+                                 None, live="route.v10")
+        self.assertTrue(quiet["ok"], quiet["note"])
+
+    def test_bumping_the_version_renames_the_real_pack_and_changes_nothing_else(self):
+        text = self.PACK.read_text()
+        out, name = smoke.bump_version(text, smoke.BUMP_BASE + 7)
+        self.assertEqual(name, f"route.v{smoke.BUMP_BASE + 7}")
+        before, after = tomllib.loads(text), tomllib.loads(out)
+        self.assertNotEqual(before["version"], after["version"])
+        before.pop("version"), after.pop("version")
+        self.assertEqual(before, after, "only the version moves")
+        with self.assertRaises(smoke.SmokeError):
+            smoke.bump_version("id = 'route'\n", 5)
+
+    def test_the_bumped_packs_are_named_in_the_real_cases_files_also_and_its_pack_is_left_alone(self):
+        text = self.CASES.read_text()
+        out = smoke.also_grades(text, ["route.v1000007", "effort.v1000007"])
+        before, after = tomllib.loads(text), tomllib.loads(out)
+        self.assertEqual(after["pack"], before["pack"], "the set's own pack is what route_part reads")
+        self.assertEqual(after["also"], before["also"] + ["route.v1000007", "effort.v1000007"])
+        self.assertEqual(after["case"], before["case"], "the cases are untouched")
+        self.assertEqual(after["defaults"], before["defaults"])
+        # Idempotent, and a name the file already carries is not added twice.
+        self.assertEqual(smoke.also_grades(out, ["route.v1000007", before["pack"]]), out)
+
+    def test_bust_writes_a_runs_copies_and_every_run_gets_its_own_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            got = [smoke.bust(Path(d), i, [self.PACK, self.EFFORT], self.CASES, at=1_762_000_000)
+                   for i in (1, 2, 3)]
+            versions = [tomllib.loads(run[0].read_text())["version"] for run in got]
+            self.assertEqual(len(set(versions)), 3, versions)
+            for run, version in zip(got, versions):
+                self.assertEqual(len(run), 3)
+                route, effort, cases = (tomllib.loads(p.read_text()) for p in run)
+                # One version for the run, and both names in the cases file the run replays with.
+                self.assertEqual((route["version"], effort["version"]), (version, version))
+                self.assertIn(f"route.v{version}", cases["also"])
+                self.assertIn(f"effort.v{version}", cases["also"])
+                self.assertEqual(cases["pack"], "route.v10")
+            # Above every version anybody writes by hand, so a copy is never read as the pack's own.
+            self.assertTrue(all(v > smoke.BUMP_BASE for v in versions), versions)
 
 
 if __name__ == "__main__":

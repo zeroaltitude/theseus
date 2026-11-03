@@ -373,6 +373,15 @@ async fn exact_on_a_session_with_messages_counts_the_whole_request() {
 /// sends: the same tools, deferred as the turn defers them, each deferred
 /// line marked, and the parts still the compile's total (the deferred tools'
 /// constant on the first one's line, the search tool at its own).
+///
+/// But for what the turn *admits*. The census is the place's first-request
+/// budget — what a request costs before any family is admitted
+/// (`first_request`) — and a turn admits what its message names, what Jev
+/// judges relevant, and, in a private place, the standing list
+/// `[tools.defer] always_admitted_private` names (theseus-6su0y). Each of
+/// those rides past the budget by exactly its own size, under the ceiling,
+/// and is in the turn's request and not in the census's. This test holds the
+/// difference to exactly the standing list, and the rest byte for byte.
 #[tokio::test]
 async fn with_tools_deferred_the_census_is_the_request_a_turn_sends() {
     let dir = tempfile::tempdir().unwrap();
@@ -404,7 +413,42 @@ async fn with_tools_deferred_the_census_is_the_request_a_turn_sends() {
     assert_eq!(tools, c.tools_tokens);
     turn(&core, None, "Where is the harbour?").await;
     let sent = fake.requests().remove(0);
-    assert_eq!(sent.tools, ahead.tools, "the tools, deferred as sent");
+    // The cli is a private place, so the turn admitted the standing list and the census did
+    // not. Everything else is byte for byte.
+    let standing = |t: &Value| {
+        t["name"]
+            .as_str()
+            .map(crate::tools_defer::family::of_wire)
+            .is_some_and(|f| core.cfg.tools.defer.always_admitted_private.contains(&f))
+    };
+    assert!(
+        sent.tools.iter().any(standing)
+            && sent
+                .tools
+                .iter()
+                .filter(|t| standing(t))
+                .all(|t| t.get("defer_loading").is_none()),
+        "the turn admitted the standing list"
+    );
+    assert!(
+        ahead
+            .tools
+            .iter()
+            .filter(|t| standing(t))
+            .all(|t| t.get("defer_loading") == Some(&Value::Bool(true))),
+        "the census counted it deferred"
+    );
+    let rest = |ts: &[Value]| {
+        ts.iter()
+            .filter(|t| !standing(t))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        rest(&sent.tools),
+        rest(&ahead.tools),
+        "the tools, deferred as sent"
+    );
     assert_eq!(sent.system, ahead.system, "the system blocks");
 }
 

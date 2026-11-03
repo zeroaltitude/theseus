@@ -574,6 +574,7 @@ keep_background = true                  # false: every close ends everything the
 [tools.defer]
 enabled = true                          # false: every offered tool loads
 always_loaded = ["files", "commands"]   # families that load in every place
+always_admitted_private = ["tasks"]     # families every turn in a private place (the cli, the terminal and web UIs, a DM) admits, whatever the message says and whichever model answers; they ride past the place's budget by their own size, under the ceiling, as a named family does ([]: the rollback)
 load_share = 0.10                       # a family used in this share of a place kind's turns loads
 window_days = 14                        # ... over this many days
 hide_after_days = 14                    # a family loaded by default and unused this long hides

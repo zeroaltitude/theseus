@@ -250,6 +250,16 @@ impl PlaceKind {
         }
     }
 
+    /// Whether this kind of place is the owner's own conversation, which no
+    /// one else reads: the cli (with the terminal and the web UI) and a DM,
+    /// as the place rule has them (`places.rs`, `PlaceClass::Private`). A
+    /// shared channel is not; a task's session speaks where its parent does
+    /// and is its own kind here; a headless run is one client's. It is what
+    /// `[tools.defer] always_admitted_private` is read for.
+    pub fn private(self) -> bool {
+        matches!(self, PlaceKind::Cli | PlaceKind::Dm)
+    }
+
     /// The most tokens of tool definitions a request in this kind of place
     /// may carry when a message's words load more families for a model
     /// without tool search (theseus-jpjcd): the owner's first-request budget
@@ -369,6 +379,16 @@ mod tests {
         }
         assert!(summary(OTHER).is_none());
         assert_eq!(summary("mcp:docs").unwrap(), mcp_summary("docs"));
+    }
+
+    /// The private kinds are the place rule's private ones (theseus-6su0y): the owner's
+    /// own cli and DM, and nothing shared.
+    #[test]
+    fn the_private_kinds_are_the_owners_own_conversations() {
+        assert!(PlaceKind::Cli.private() && PlaceKind::Dm.private());
+        for k in [PlaceKind::Channel, PlaceKind::Task, PlaceKind::Headless] {
+            assert!(!k.private(), "{}", k.as_str());
+        }
     }
 
     #[test]

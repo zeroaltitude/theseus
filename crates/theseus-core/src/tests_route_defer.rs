@@ -110,11 +110,16 @@ async fn a_pick_without_tool_search_reaches_an_aws_tool_within_the_budget() {
             .any(|n| n.starts_with("aws_s3_") || n == "aws_hands_run"),
         "only the family that holds the tool loads: {names:?}"
     );
+    // The bound on the tools alone is the place's CEILING, not its budget. The budget is what
+    // the WHOLE first request costs before anything is admitted (`Fit`, `first_request`), and
+    // this request admits two families before the message's aws one: a private place's standing
+    // tasks (theseus-6su0y), each by exactly its own size. `raised` below is what names the
+    // admissions, and `Fit` is what holds the whole request to the ceiling.
     let tokens = crate::tools_defer::tools_bytes(&first.tools) * 10 / 24;
-    let budget = crate::first_request::CLI_TASK_TOKENS;
+    let ceiling = crate::first_request::CLI_TASK_TOKENS * 2;
     assert!(
-        tokens <= budget,
-        "the request's tools are {tokens} tokens, over {budget}"
+        tokens <= ceiling,
+        "the request's tools are {tokens} tokens, over the ceiling {ceiling}"
     );
     assert_eq!(res.tool_calls, 1, "the call reached the tool");
     assert!(rows(&r.core, "tools.missed").is_empty());

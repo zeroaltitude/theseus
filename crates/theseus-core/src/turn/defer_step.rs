@@ -29,6 +29,22 @@ struct Said<'a> {
     jev: &'a [(String, f64)],
     ceiling: Option<f64>,
     noticed: bool,
+    /// Whether this choice stands for a request the session will really send: a turn's, or the
+    /// keep-warm read and `context.explain`, which must say what the next turn sends. False for
+    /// the census, whose number is the place's first-request budget: what a request costs
+    /// *before* anything is admitted (`first_request`). Only the standing admissions of a place
+    /// read it; a message's own are the census's blind spot either way, since it has no message.
+    acting: bool,
+}
+
+impl Said<'_> {
+    /// The choice a request that will be sent makes with no message of its own.
+    fn acting() -> Said<'static> {
+        Said {
+            acting: true,
+            ..Said::default()
+        }
+    }
 }
 
 /// Whether a turn's author is Theseus's own pipeline (`self:backlog`, `self:mint`, `self:review`):
@@ -63,6 +79,7 @@ impl TurnRunner {
             // objective as input), never the session's kind: a task session's typed turn is a
             // person's (theseus-lmyvl).
             noticed: t.continuation || t.self_authored,
+            acting: true,
         };
         spec.defer = self.deferral_in(t.tc.session_id, kind, spec, said);
     }
@@ -100,13 +117,17 @@ impl TurnRunner {
         }
     }
 
-    /// The fresh choice for a session's request on `spec`.
+    /// The fresh choice for a session's next request on `spec`, with no message of its own: the
+    /// keep-warm read, whose request must be the next turn's prefix, and `context.explain`, which
+    /// says what that request carries. Both stand for a request that will be sent, so the place's
+    /// standing admissions are in it.
     pub(crate) fn deferral(&self, sid: &str, task: bool, spec: &RequestSpec) -> Option<Deferral> {
-        self.deferral_in(sid, self.place_kind(sid, task), spec, Said::default())
+        self.deferral_in(sid, self.place_kind(sid, task), spec, Said::acting())
     }
 
-    /// The same for a census: a fresh session's first request on a kind of place the daemon has no
-    /// session in is counted with that kind's families, not the CLI's.
+    /// The same for a census, which counts a *fresh* first request against the place's budget and
+    /// admits nothing (`first_request`): a fresh session's first request on a kind of place the
+    /// daemon has no session in is counted with that kind's families, not the CLI's.
     pub(crate) fn census_deferral(
         &self,
         sid: &str,
@@ -114,9 +135,46 @@ impl TurnRunner {
         fresh: Option<&str>,
         spec: &RequestSpec,
     ) -> Option<Deferral> {
-        match fresh.and_then(PlaceKind::parse) {
-            Some(kind) => self.deferral_in(sid, kind, spec, Said::default()),
-            None => self.deferral(sid, task, spec),
+        let kind = fresh
+            .and_then(PlaceKind::parse)
+            .unwrap_or_else(|| self.place_kind(sid, task));
+        self.deferral_in(sid, kind, spec, Said::default())
+    }
+
+    /// Admit the families `[tools.defer] always_admitted_private` names into a private place's
+    /// request — the owner's own cli, terminal UI, web UI or DM — before the message is read
+    /// (theseus-6su0y), so no discovery step stands between the owner and them. Whatever the
+    /// message says, whatever the ledger says, and whichever model answers.
+    ///
+    /// The 1.0.4 release smoke started a task in one run of three. The words were the same every
+    /// time and `want::asks_for_task` caught them every time, but `want::extra` admits nothing
+    /// once the fresh choice is already past the place's budget, and in the two that failed it
+    /// was. So the model was offered no task tool, said it had none, and then described work it
+    /// had never done.
+    ///
+    /// Each rides past the budget by exactly its own size, as a noticed turn's tasks do, and is
+    /// held to the place's ceiling as a named family is (`want::fits`). The first request's
+    /// budget is what a request costs before anything is admitted, which is what the census
+    /// measures, and is why only a request that will be sent reads this (`Said::acting`).
+    fn admit_standing(
+        &self,
+        known: &BTreeSet<String>,
+        fit: &mut Fit,
+        extra: &mut BTreeSet<String>,
+        loaded: &mut BTreeSet<String>,
+        offer: &impl Fn(&BTreeSet<String>, &Fit) -> BTreeSet<String>,
+    ) {
+        for fam in &self.cfg.tools.defer.always_admitted_private {
+            if !known.contains(fam)
+                || loaded.contains(fam)
+                || !tools_defer::want::fits(fit, loaded, fam)
+            {
+                continue;
+            }
+            let whole = fit.total(&*loaded) + fit.tokens(fam);
+            fit.raised = fit.raised.max(whole.saturating_sub(fit.budget));
+            extra.insert(fam.clone());
+            *loaded = offer(extra, fit);
         }
     }
 
@@ -135,6 +193,7 @@ impl TurnRunner {
             jev,
             ceiling,
             noticed,
+            acting,
         }: Said<'_>,
     ) -> Option<Deferral> {
         let cfg = &self.cfg.tools.defer;
@@ -177,6 +236,9 @@ impl TurnRunner {
                 .loaded()
         };
         let mut loaded = offer(&extra, &fit);
+        if acting && kind.private() {
+            self.admit_standing(&known, &mut fit, &mut extra, &mut loaded, &offer);
+        }
         // A message that asks for a task loads the tasks family whichever way the model reaches
         // the rest (theseus-gg78p), held to the ceiling as `want::extra` holds it. Left out, it
         // stays deferred and searchable (theseus-s48k6).
@@ -207,10 +269,22 @@ impl TurnRunner {
         }
         // An append keeps the families its compilation recorded, so the family joins as a find's
         // does (`Deferral::over`): the request changes once, where the wake's turn is.
-        let added: BTreeSet<String> = (noticed && loaded.contains(tools_defer::family::TASKS))
+        let mut added: BTreeSet<String> = (noticed && loaded.contains(tools_defer::family::TASKS))
             .then(|| tools_defer::family::TASKS.to_string())
             .into_iter()
             .collect();
+        // The place's own admissions join an append the same way, so a conversation that
+        // compiled before this was its place's rule carries them from its next turn rather than
+        // from its next recompile (theseus-6su0y). Once that compilation records them, the
+        // appended set and the fresh one agree again and nothing recompiles for this.
+        if acting && kind.private() {
+            added.extend(
+                cfg.always_admitted_private
+                    .iter()
+                    .filter(|f| loaded.contains(*f))
+                    .cloned(),
+            );
+        }
         let mut raised = None;
         if mechanism == Mechanism::Find {
             // A family the message names, or Jev judged relevant, is held to the whole request, as

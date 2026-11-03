@@ -21,6 +21,26 @@ pub struct DeferConfig {
     /// Families that always load, in every place and whatever the ledger says.
     #[serde(default = "always_loaded")]
     pub always_loaded: Vec<String>,
+    /// Families admitted for every turn in a private place — the owner's own
+    /// cli, terminal UI, web UI and DM (`PlaceKind::private`) — whatever the
+    /// message says, whatever the ledger says, and whichever model answers
+    /// (theseus-6su0y).
+    ///
+    /// *Admitted*, not loaded: as any admitted family does (theseus-xlri5)
+    /// they ride past the place's first-request budget by exactly their own
+    /// size, under its ceiling. The budget is what a request costs before
+    /// anything is admitted, which is what the census measures, and it is
+    /// unchanged. Empty: the rollback, a family reaches a private place only
+    /// when the message names it, when Jev judges it relevant, or when the
+    /// ledger's use learned it.
+    ///
+    /// The default names the tasks: the 1.0.4 release smoke started a task in
+    /// one of three runs on the same words, because in the two that failed
+    /// the fresh choice was already past the place's budget and nothing is
+    /// admitted past that, so the model was offered no task tool, said so,
+    /// and then described work it had not done.
+    #[serde(default = "always_admitted_private")]
+    pub always_admitted_private: Vec<String>,
     /// A family used in at least this share of a place kind's turns over the
     /// window loads there.
     #[serde(default = "load_share")]
@@ -72,6 +92,10 @@ fn always_loaded() -> Vec<String> {
     vec!["files".into(), "commands".into()]
 }
 
+fn always_admitted_private() -> Vec<String> {
+    vec![crate::tools_defer::family::TASKS.into()]
+}
+
 fn load_share() -> f64 {
     0.10
 }
@@ -106,6 +130,7 @@ impl Default for DeferConfig {
         Self {
             enabled: enabled(),
             always_loaded: always_loaded(),
+            always_admitted_private: always_admitted_private(),
             load_share: load_share(),
             window_days: window_days(),
             hide_after_days: hide_after_days(),
@@ -140,6 +165,18 @@ impl DeferConfig {
                 ));
             }
         }
+        // A name no family answers to would be silently ignored, which reads as the key
+        // doing nothing (theseus-6su0y). `always_loaded` is not checked here: it has
+        // shipped since theseus-7m7w.2 and a note may hold a name this build retired.
+        if let Some(f) = self
+            .always_admitted_private
+            .iter()
+            .find(|f| crate::tools_defer::family::summary(f).is_none())
+        {
+            return Err(format!(
+                "[tools.defer] always_admitted_private names {f:?}, which is no tool family"
+            ));
+        }
         if self.judge_wait_ms > 2_000 {
             return Err(format!(
                 "[tools.defer] judge_wait_ms = {} must be at most 2000",
@@ -172,6 +209,7 @@ mod tests {
         assert_eq!(cfg.tools.defer, DeferConfig::default());
         assert!(cfg.tools.defer.enabled);
         assert_eq!(cfg.tools.defer.always_loaded, ["files", "commands"]);
+        assert_eq!(cfg.tools.defer.always_admitted_private, ["tasks"]);
         assert_eq!(cfg.tools.defer.admit_ceiling, 2.0);
         assert!(cfg.tools.defer.retired().is_empty());
         assert_eq!(cfg.tools.defer.admit_ceiling_deep, 3.0);
@@ -219,6 +257,30 @@ mod tests {
         assert_eq!(c.retired(), ["tools.defer.admit_ceiling_small"]);
         assert!(!toml::to_string(&c).unwrap().contains("admit_ceiling_small"));
         assert!(DeferConfig::default().retired().is_empty());
+    }
+
+    /// theseus-6su0y: the private places' admitted families must name real families, and an
+    /// empty list is the rollback and loads.
+    #[test]
+    fn a_private_admission_that_names_no_family_is_refused() {
+        let bad = DeferConfig {
+            always_admitted_private: vec!["taskz".into()],
+            ..Default::default()
+        };
+        assert!(bad
+            .check()
+            .unwrap_err()
+            .contains("always_admitted_private names \"taskz\""));
+        let off = DeferConfig {
+            always_admitted_private: vec![],
+            ..Default::default()
+        };
+        assert!(off.check().is_ok());
+        let several = DeferConfig {
+            always_admitted_private: vec!["tasks".into(), "reminders".into()],
+            ..Default::default()
+        };
+        assert!(several.check().is_ok());
     }
 
     #[test]

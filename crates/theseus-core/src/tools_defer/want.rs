@@ -137,6 +137,12 @@ pub struct Admitted {
 /// admitted families' size. A family that does not fit is skipped and a
 /// smaller one after it is still tried. Nothing when the request without them
 /// already exceeds the place's budget (`fit.budget`), or nothing is asked.
+///
+/// The budget here is the place's plus what has already been admitted
+/// (`fit.raised`), as `Fit::demote`'s is: a family admitted before the message
+/// was read — the noticed turn's tasks, a private place's standing list
+/// (theseus-6su0y) — must not spend the headroom the message's own families are
+/// judged against, or admitting one would silently shut the rest out.
 pub fn extra(
     ask: &str,
     jev: &[(String, f64)],
@@ -145,7 +151,7 @@ pub fn extra(
     fit: &Fit,
 ) -> Vec<Admitted> {
     let mut out = Vec::new();
-    if fit.total(loaded) > fit.budget {
+    if fit.total(loaded) > fit.budget + fit.raised {
         return out;
     }
     let hidden: Vec<HiddenTool> = super::hidden_of(catalog, &[])

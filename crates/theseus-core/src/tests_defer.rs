@@ -16,7 +16,7 @@ use crate::compiler::Recompile;
 use crate::provider::{ProviderRequest, Scripted};
 use crate::session::SessionRecord;
 use crate::tests_places::{
-    answers_a_call, last_user, offered, result_of, rig_deferring, rows, session, Rig,
+    answers_a_call, last_user, offered, result_of, rig_deferring, rows, session, Rig, LAB,
 };
 use crate::tools_defer::{SEARCH_TOOL, SEARCH_TYPE};
 use crate::turn::TurnRequest;
@@ -157,8 +157,9 @@ async fn a_hidden_familys_tools_carry_defer_loading_and_the_search_tool_is_there
             "{loaded}"
         );
     }
-    // The tasks, the terminals and the web are declared, deferred.
-    for hidden in ["task_create", "term_open", "http_fetch"] {
+    // The reminders, the terminals and the web are declared, deferred. (Not the tasks: a
+    // private place admits them on every turn, theseus-6su0y.)
+    for hidden in ["wake_at", "term_open", "http_fetch"] {
         assert!(deferred(req, hidden), "{hidden}: {names:?}");
     }
     assert!(
@@ -317,7 +318,7 @@ async fn a_family_unused_for_the_hide_days_hides() {
     let sid = session(&r.core, None);
     say(&r.core, &sid, "hello").await;
     let req = &r.requests()[0];
-    for hidden in ["memory_lookup", "task_create"] {
+    for hidden in ["memory_lookup", "project_attach"] {
         assert!(
             deferred(req, hidden),
             "{hidden} is unused for 30 days: {:?}",
@@ -327,6 +328,12 @@ async fn a_family_unused_for_the_hide_days_hides() {
     assert!(
         !deferred(req, "fs_read"),
         "the always-loaded families never hide"
+    );
+    // Nor do the ones the place admits on every turn, unused or not (theseus-6su0y): the
+    // ledger's silence is what the place's rule overrides.
+    assert!(
+        !deferred(req, "task_create"),
+        "a private place's admitted families never hide"
     );
 }
 
@@ -355,6 +362,88 @@ async fn a_direct_message_loads_memory_and_the_web_and_defers_the_terminals() {
     assert!(!deferred(req, "memory_lookup") && !deferred(req, "http_fetch"));
     assert!(deferred(req, "term_open"));
     assert_eq!(rows(&r.core, "tools.used")[0]["place"], "dm");
+}
+
+/// theseus-6su0y, the 1.0.4 release smoke's RED 1: a turn in a private place — the owner's
+/// own cli or DM — carries the tasks family in its first request, whichever way the model
+/// reaches the rest and without a search or a `tools_find` of its own. The smoke's "start a
+/// task" turn started one in 1 run of 3 because the family was behind a discovery step the
+/// model did not always take; here there is no step to take.
+#[tokio::test]
+async fn a_private_places_turn_carries_the_tasks_family_with_no_discovery_step() {
+    // With the provider's tool search: the family's tools go out plain, not deferred.
+    for place in [None, Some("dm:271828182845904523")] {
+        let r = rig();
+        let sid = session(&r.core, place);
+        say(
+            &r.core,
+            &sid,
+            "Please start a task that reads the manifest.",
+        )
+        .await;
+        let req = &r.requests()[0];
+        let kind = if place.is_some() { "dm" } else { "cli" };
+        for t in ["task_create", "task_close", "task_split"] {
+            assert!(!deferred(req, t), "{kind}: {t} is deferred");
+        }
+        // Nothing was searched for and nothing was found: the first request already had them.
+        assert!(rows(&r.core, "tools.searched").is_empty(), "{kind}");
+        assert_eq!(rows(&r.core, "tools.used")[0]["place"], kind);
+    }
+    // Without it, where `tools_find` is the model's only way and install #29 saw Haiku never
+    // call it: the tools are in the request, not left out of it.
+    for place in [None, Some("dm:271828182845904523")] {
+        let r = rig_without_search();
+        let sid = session(&r.core, place);
+        say(
+            &r.core,
+            &sid,
+            "Please start a task that reads the manifest.",
+        )
+        .await;
+        let sent = offered(&r.requests()[0]);
+        let kind = if place.is_some() { "dm" } else { "cli" };
+        for t in ["task_create", "task_close", "task_split"] {
+            assert!(
+                sent.contains(&t.to_string()),
+                "{kind}: {t} was left out of {sent:?}"
+            );
+        }
+        assert!(rows(&r.core, "tools.searched").is_empty(), "{kind}");
+    }
+}
+
+/// And it is the place that decides, not the message: a message that says nothing about a task
+/// carries them too, and a shared channel admits nothing of the list (its own defaults are
+/// untouched). The list is the config's, so `[]` is the rollback.
+#[tokio::test]
+async fn only_a_private_place_admits_the_list_and_an_empty_list_is_the_rollback() {
+    // A family no place loads by default, so the admission is the only thing that could put it
+    // in the request.
+    let admitting = |c: &mut crate::Config| {
+        c.tools.defer.always_admitted_private = vec!["terminals".into()];
+    };
+    let r = rig_deferring(admitting, script);
+    let cli = session(&r.core, None);
+    say(&r.core, &cli, "hello").await;
+    assert!(
+        !deferred(&r.requests()[0], "term_open"),
+        "the cli is private and admits the terminals"
+    );
+    let r = rig_deferring(admitting, script);
+    let shared = session(&r.core, Some(&format!("channel:{LAB}")));
+    say(&r.core, &shared, "hello").await;
+    let req = &r.requests()[0];
+    assert_eq!(rows(&r.core, "tools.used")[0]["place"], "channel");
+    assert!(
+        !offered(req).contains(&"term_open".to_string()) || deferred(req, "term_open"),
+        "a shared channel admits nothing of the private list"
+    );
+    // Empty: a private place is as it was, and the tasks are behind the discovery step again.
+    let r = rig_deferring(|c| c.tools.defer.always_admitted_private = vec![], script);
+    let sid = session(&r.core, Some("dm:271828182845904523"));
+    say(&r.core, &sid, "hello").await;
+    assert!(deferred(&r.requests()[0], "task_create"), "the rollback");
 }
 
 #[tokio::test]

@@ -6,7 +6,9 @@
 #   tb      Terminal-Bench 2.0's smoke slice (bench/smoke/tb-slice.toml): 8 stable tasks and 2 controls, k=1 at HIGH,
 #           4 at once, through the Harbor driver (bench/harbor/run.py), on the candidate's static binaries
 #   route   `theseus judge replay --cases` over route.v10's cases, three runs, and beside each run effort.v1's replay of the
-#           same file (its `also` key): the owner's 80% bars on musts and effort, each of its own count, and on the
+#           same file (its `also` key). Each run asks with its own copy of the two packs, version bumped, so Jev
+#           answers three times instead of serving one cached answer three times (theseus-h420q); the part FAILS when
+#           two runs' pack digests are equal. The bars: the owner's 80% on musts and effort, each of its own count, and on the
 #           model the measured range the floor records (`route.model_range`; the owner, 2026-11-03 09:18, "Range of
 #           measurement seems good too") -- the worst of three must not fall below it, and a reading above it says the
 #           range is stale. "n/a until the flip" on a daemon whose ladder routes with another pack (`theseus packs`)
@@ -140,7 +142,8 @@ part_tb() {
 
 part_route() {
   local cases=crates/theseus-judge/packs/route.v10.cases.toml effort_pack=crates/theseus-judge/packs/effort.v1.toml
-  local i t0 rc help live args=()
+  local route_pack=crates/theseus-judge/packs/route.v10.toml
+  local i t0 rc help live args=() copies=()
   help="$("$bin/theseus" judge replay --help 2>&1)"
   if [[ "$help" != *--cases* ]]; then
     smoke fail "$run" route "this binary has no \`judge replay --cases\` (it came with 1.0.4's wave 3')"
@@ -154,7 +157,20 @@ print(",".join(p["pack"] for p in json.load(sys.stdin)["packs"]
   for i in 1 2 3; do
     t0=$(now)
     rc=0
-    "$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge replay --cases "$cases" > "$run/route-$i.json" 2> "$run/route-$i.err" || rc=$?
+    # Each run asks with its own copy of the two packs, version bumped, so Jev answers it instead
+    # of serving the last run's answer: without it the three runs are one sample read three times
+    # (theseus-h420q, `smoke.py bust`). The cases file's copy names the bumped packs in its `also`
+    # and keeps its own `pack`, which is what tells this part whether the ladder acts with it.
+    copies=()
+    mapfile -t copies < <(smoke bust "$run" "$i" "$cases" "$route_pack" "$effort_pack")
+    # mapfile reports its own status, never the pipe's, so the count is the check: a `bust` that
+    # failed wrote nothing and says so on stderr.
+    if [ "${#copies[@]}" -ne 3 ]; then
+      smoke fail "$run" route "run $i got ${#copies[@]} pack copies, not 3 (the route pack, the effort pack, the cases)"
+      return
+    fi
+    "$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge replay --pack-file "${copies[0]}" \
+      --cases "${copies[2]}" > "$run/route-$i.json" 2> "$run/route-$i.err" || rc=$?
     if [ "$rc" -ne 0 ]; then
       # A non-zero exit is the replay's own refusal or failure (a wired pack replays by its cases): say so plainly.
       smoke fail "$run" route "replay $i exited $rc: $(head -c 200 "$run/route-$i.err" | tr '\n' ' ')"
@@ -162,8 +178,8 @@ print(",".join(p["pack"] for p in json.load(sys.stdin)["packs"]
     fi
     # The same cases, graded by effort.v1 through the file's `also` key: Jev chooses the effort too, and the tag gate
     # grades it. Its bars join this run's.
-    "$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge replay --pack-file "$effort_pack" --cases "$cases" \
-      > "$run/effort-$i.json" 2> "$run/effort-$i.err" || rc=$?
+    "$bin/theseus" ${sock[@]+"${sock[@]}"} --json judge replay --pack-file "${copies[1]}" \
+      --cases "${copies[2]}" > "$run/effort-$i.json" 2> "$run/effort-$i.err" || rc=$?
     if [ "$rc" -ne 0 ]; then
       smoke fail "$run" route "effort replay $i exited $rc: $(head -c 200 "$run/effort-$i.err" | tr '\n' ' ')"
       return

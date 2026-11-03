@@ -336,15 +336,30 @@ pub fn forks<'a>(input: &CompileInput<'a>) -> (Option<Cow<'a, RequestSpec>>, Cow
     (app, tooled(guided_rec, Some(fresh)))
 }
 
-/// `spec` as an append to the compilation of `current` renders it: the
-/// families that compilation recorded loading, as `forks` takes them (a
-/// turn's request rebuilt, own-benchmark's replay). With deferral off now,
-/// `spec` as it is.
+/// `spec` with the tools the compilation of `current` recorded sending: its
+/// loaded set exactly (a turn's request rebuilt, own-benchmark's replay).
+/// With deferral off now, `spec` as it is.
+///
+/// The fresh choice decides only the mechanism here. Its `added` and
+/// `dropped` are a *later* turn's business — what an append would put on or
+/// take off that set (`Deferral::over`) — and reading them here rebuilt a
+/// request nobody sent: a turn that admitted a family its words asked for
+/// recorded it, and the fresh choice made with no words dropped it again, so
+/// the rebuilt tools digested to something else and the replay was refused
+/// (theseus-6su0y, found when a private place began admitting the tasks on
+/// every turn).
 pub fn as_recorded(spec: RequestSpec, current: &crate::compiler::Manifest) -> RequestSpec {
     let Some(fresh) = spec.defer.clone().filter(|d| !d.resolved) else {
         return spec;
     };
-    let sticky = current.loaded.as_ref().map(|l| fresh.over(l));
+    let sticky = current.loaded.as_ref().map(|l| Deferral {
+        mechanism: fresh.mechanism,
+        loaded: l.iter().cloned().collect(),
+        resolved: false,
+        added: BTreeSet::new(),
+        dropped: BTreeSet::new(),
+        raised: None,
+    });
     tooled(Cow::Owned(spec), sticky.as_ref()).into_owned()
 }
 
