@@ -135,16 +135,12 @@ impl TurnRunner {
     /// Records the level a call's request carried: what the next turn's
     /// sticky rule and a keep-warm read of this session replay.
     pub(super) fn note_sent(&self, t: &Turn<'_>, spec: &RequestSpec, model: &str) {
-        let hold = t
+        let held = t
             .route
             .effort
-            .filter(|d| d.sent == spec.effort)
-            .and_then(|d| match d.reason {
-                EffortReason::Sticky => Some(effort::Hold::Sticky),
-                _ => None,
-            });
+            .is_some_and(|d| d.sent == spec.effort && d.reason == EffortReason::Sticky);
         self.keep_warm
-            .sent(t.tc.session_id, model, spec.effort, hold);
+            .sent(t.tc.session_id, model, spec.effort, held);
     }
 }
 

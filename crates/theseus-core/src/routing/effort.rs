@@ -199,22 +199,12 @@ pub fn sticky(asked: Effort, previous: Option<Effort>, tokens: u64, floor: u64) 
     previous.filter(|p| *p != asked && tokens >= floor && (*p as i8).abs_diff(asked as i8) < 2)
 }
 
-/// The kind of sticky hold the session's last request carried: the window a
-/// later answer may end early (theseus-u5a37).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hold {
-    /// A held `applied` answer.
-    Sticky,
-}
-
-/// Whether an answer that disagrees with the held level ends the hold early.
-/// Inside a `sticky` window the answer must be `sure` (its band reached the
-/// question's own `confirm` bar). No window, no revert.
-pub fn reverts(window: Option<Hold>, answer: &EffortAnswer) -> bool {
-    match window {
-        None => false,
-        Some(Hold::Sticky) => answer.sure,
-    }
+/// Whether an answer that disagrees with the held level ends the hold early
+/// (theseus-u5a37). Inside a `sticky` window (`held`: the session's last
+/// request carried a held level) the answer must be `sure` (its band reached
+/// the question's own `confirm` bar). No window, no revert.
+pub fn reverts(held: bool, answer: &EffortAnswer) -> bool {
+    held && answer.sure
 }
 
 #[cfg(test)]
@@ -272,16 +262,16 @@ mod tests {
     /// answer; no window, none.
     #[test]
     fn a_sticky_hold_reverts_on_its_own_bar() {
-        for (window, sure, c, reverts_) in [
-            (Some(Hold::Sticky), true, 0.60, true),
-            (Some(Hold::Sticky), true, 0.95, true),
-            (Some(Hold::Sticky), false, 0.59, false),
-            (Some(Hold::Sticky), false, 0.35, false),
-            (None, true, 0.95, false),
-            (None, false, 0.59, false),
+        for (held, sure, c, reverts_) in [
+            (true, true, 0.60, true),
+            (true, true, 0.95, true),
+            (true, false, 0.59, false),
+            (true, false, 0.35, false),
+            (false, true, 0.95, false),
+            (false, false, 0.59, false),
         ] {
-            let got = reverts(window, &at("medium", c, sure));
-            assert_eq!(got, reverts_, "{window:?} sure={sure} at {c}");
+            let got = reverts(held, &at("medium", c, sure));
+            assert_eq!(got, reverts_, "held={held} sure={sure} at {c}");
         }
         assert_eq!(EffortReason::StickyReverted.as_str(), "sticky_reverted");
         let d = EffortDecision {
