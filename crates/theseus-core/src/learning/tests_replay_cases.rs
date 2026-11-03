@@ -213,9 +213,9 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let r = cases_rig(&jev);
     script(&jev, "route.v10", V10, "model", &|id| match id {
         // W18 wants opus: a right opus under the bar runs sonnet.
-        "W18" => Some(("opus", 0.55)),
-        // L2 wants haiku: haiku at the bar (0.60) stands.
-        "L2" => Some(("haiku", 0.60)),
+        "W18" => Some(("opus", 0.35)),
+        // L2 wants haiku: haiku at the bar (0.40, route.v10's model bar) stands.
+        "L2" => Some(("haiku", 0.40)),
         _ => None,
     });
     script(&jev, "effort.v1", V10, "effort", &|id| match id {
@@ -237,7 +237,7 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
             w18.model.confirm,
             w18.model.confidence
         ),
-        ("opus", "sonnet", true, 0.60, 0.55)
+        ("opus", "sonnet", true, 0.40, 0.35)
     );
     assert!(!w18.model.agrees && w18.model.raw_agrees);
     // At the bar, nothing changes.
