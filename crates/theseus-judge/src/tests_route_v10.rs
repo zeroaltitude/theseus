@@ -207,16 +207,28 @@ fn the_stalled_checkpoint_pair_carries_its_cause_and_differs_only_there() {
     let s = set();
     let case = |id: &str| s.cases.iter().find(|c| c.id == id).unwrap();
     let (bad, waiting) = (case("W33"), case("W44"));
-    assert_eq!((bad.want.model.as_str(), waiting.want.model.as_str()), ("opus", "sonnet"));
+    assert_eq!(
+        (bad.want.model.as_str(), waiting.want.model.as_str()),
+        ("opus", "sonnet")
+    );
     for c in [bad, waiting] {
         assert_eq!(c.state.place_kind, "task_checkpoint", "{}", c.id);
         assert_eq!(c.state.task_models, ["claude-sonnet-5-5"], "{}", c.id);
         assert_eq!(c.state.switch_cost, "cheaper_to_stay", "{}", c.id);
         assert_eq!(c.want.effort, "high", "{}", c.id);
         // The cause is in the loops, which is where the daemon's checkpoint text puts it.
-        assert!(c.message.contains("Task: How should the daemon schedule its background jobs?"), "{}", c.id);
+        assert!(
+            c.message
+                .contains("Task: How should the daemon schedule its background jobs?"),
+            "{}",
+            c.id
+        );
         assert!(c.message.contains("Recent loops:"), "{}", c.id);
-        assert!(c.message.ends_with("Now: no progress for 4 loops"), "{}", c.id);
+        assert!(
+            c.message.ends_with("Now: no progress for 4 loops"),
+            "{}",
+            c.id
+        );
     }
     // The bump's half shows the task re-deciding its own strategy; the other half shows it
     // waiting on an external job, which his rule says is not a bump.
@@ -825,13 +837,14 @@ fn the_totals_count_the_graded_answer_and_the_raw_pick_apart() {
         .map(|c| {
             // Every case answered as labelled at 0.9, but L11 (opus, high) under
             // both bars: 0.3 on the model (it confirms at 0.40), 0.5 on the effort (0.60).
-            let (mc, ec) = if c.id == "L11" { (0.3, 0.5) } else { (0.9, 0.9) };
+            let (mc, ec) = if c.id == "L11" {
+                (0.3, 0.5)
+            } else {
+                (0.9, 0.9)
+            };
             let j = judged(
                 c,
-                &[
-                    ("model", &c.want.model, mc),
-                    ("effort", &c.want.effort, ec),
-                ],
+                &[("model", &c.want.model, mc), ("effort", &c.want.effort, ec)],
             );
             both(&p, &e, c, &j)
         })
