@@ -1251,6 +1251,34 @@ esac
         assert_eq!(out["line"].as_ref().unwrap().expose(), "made-up-line");
     }
 
+    /// theseus-h66v4.5: the trim belongs to a resolved secret, not to everything the
+    /// reader returns. The config note is a document, compared byte for byte against
+    /// what was written, so the doorway the daemon reads it through keeps every byte,
+    /// a trailing newline included. The note is a literal typed here.
+    #[tokio::test]
+    async fn the_config_note_read_through_the_reader_keeps_its_bytes() {
+        use crate::config_gate::ReadNote;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let note = "\n[made_up]\nkey = 1\n\n# a made-up comment\n";
+        std::fs::write(dir.path().join("note.txt"), note).unwrap();
+        let mut reader = padded_op(dir.path());
+        std::fs::write(
+            &reader.op_bin,
+            "#!/bin/sh\ncat \"$(dirname \"$0\")/note.txt\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        reader.absent = None;
+        let reference = "op://V/note/notesPlain";
+        let got = reader.read_note(reference).await.unwrap();
+        assert!(got.ends_with('\n'), "the stored note ends in a newline: {got:?}");
+        assert_eq!(got, note);
+        // The same reference as a secret is trimmed: both halves of the boundary.
+        let r = SecretRef::parse(reference).unwrap();
+        assert_eq!(reader.read(&r).await.unwrap().expose(), note.trim());
+    }
+
     #[test]
     fn op_errors_lose_their_timestamp_prefix() {
         let e = op_error(b"[ERROR] 2026/09/29 08:58:19 could not find item x\n");
