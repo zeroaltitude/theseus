@@ -114,7 +114,8 @@ fire say what it cut. `bs` = generous backstop (keel-class).
 | `max_routines` 50, `max_watches` 20, `max_reminders` 100, `max_ahead_days` 365 | | refusal at creation | count | — | yes | — | keep: bounds on standing state, cheap and visible |
 | `task.fan_out` | no count cap (by the owner's word); a floor of `helper_floor_usd` | refused only for the floor, depth or bad input | — | — | yes | — | keep |
 | external-text hold `external.rs` | until the owner trusts again; under notify one notice | a call that acts waits (ask) or is told once (notify) | — | — | yes | yes (security) | **keep (keel: outward / secrets)** |
-| `approve_argv` / `approve_paths`, the floor, private data to CN-origin models, L1 egress for model-requested L1 jobs and self builds, sending outward or to shared places | per `[policy]` | a question | — | — | yes | yes | **keep (keel)** |
+| the floor, private data to CN-origin models, L1 egress for model-requested L1 jobs and self builds, sending outward or to shared places | per `[policy]` | a question | — | — | yes | yes | **keep (keel)** |
+| ~~`approve_argv` / `approve_paths`~~ → `notify_argv` | per `[policy]` | ~~a question~~ a notice naming the program | — | — | yes | — | **retired 1.0.4** (the owner, 2026-11-03 09:01; theseus-c4i8m). `approve_paths` is gone with nothing in its place; the floor is unchanged |
 | the thread misroute guard | notify, then write | notice + `files.restore` undo | — | — | yes | — | **done (g85jy)** |
 | self-improvement fail-open `toolrun/order.rs` (`ToolPolicy::fails_open`) | a self session's held call runs with a notice unless it is the floor / store / spool / layer 1 / AWS / L1 | notice | — | — | yes | yes (floor) | **done; keep the floor** |
 
@@ -131,7 +132,7 @@ Section B: **40 rows** (B1 9, B2 18, B3 13), counted once each. A row that repea
 
 | state | rows | which |
 |---|---|---|
-| keep | **24** | B1 9; B2 9 (`default_admission_ceiling`, `default_deadline_secs`, inproc deadline, `job_wait`, `fan_out_wait`, provider `Timeouts`, `task_lease`, the `UNKNOWN_AFTER` family, the AWS and Google settle clocks); B3 6 (progress steer, the project-review routine refusal, `max_routines` family, `task.fan_out`, external-text hold, `approve_argv`/`approve_paths`) |
+| keep | **24** | B1 9; B2 9 (`default_admission_ceiling`, `default_deadline_secs`, inproc deadline, `job_wait`, `fan_out_wait`, provider `Timeouts`, `task_lease`, the `UNKNOWN_AFTER` family, the AWS and Google settle clocks); B3 6 (progress steer, the project-review routine refusal, `max_routines` family, `task.fan_out`, external-text hold, `approve_argv`/`approve_paths` — the last of these retired in 1.0.4, theseus-c4i8m) |
 | done | **8** | B2 3 (`confirm_ttl_secs`, routine `run_deadline_secs`, `MAY_BUILD_WAIT`); B3 5 (`max_loops`, `max_wakes`, the misroute guard, the self-improvement fail-open, a task's routine in `routine_tool.rs`, which is this row's change) |
 | to change | **4** | admission for a wake or task turn; `proc_timeout_secs`' clock-only hour; the 2 h self-build clocks; `extend`'s 100 s trial abort |
 | optional / owner call | **1** | a task's repeating wake |

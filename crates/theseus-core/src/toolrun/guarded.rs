@@ -1,21 +1,26 @@
-//! The paths the gate guards and no L1 view shows: the workspace's roots,
-//! the floor (Theseus's own state, the vault's token, and the sealed
-//! holdout sets), and the approve list. Moved out of `toolrun.rs` to make
-//! room for the sealed dir's line (theseus-pw1q.5). While `[self]` builds
-//! (theseus-pw1q.8), the self trees join the roots, so a self session's file
-//! tools edit its tree (`crate::rsi::pr::trees_root`).
+//! The paths the gate guards and no L1 view shows: the workspace's roots and
+//! the floor (Theseus's own state, the vault's token, and the sealed holdout
+//! sets). Moved out of `toolrun.rs` to make room for the sealed dir's line
+//! (theseus-pw1q.5). While `[self]` builds (theseus-pw1q.8), the self trees
+//! join the roots, so a self session's file tools edit its tree
+//! (`crate::rsi::pr::trees_root`).
+//!
+//! The approve list was a third return here until 1.0.4 (the owner,
+//! 2026-11-03 09:01). It is gone, and with it the hiding it bought an L1 view
+//! beyond the floor's: `~/.aws` stays hidden, because `sandbox::CREDENTIALS`
+//! names it in every view whatever any list said, but `~/.ssh` and `~/.gnupg`
+//! are no longer hidden from an L1 job by this path.
 
 use std::path::PathBuf;
 
 use crate::sandbox::Sandbox;
 
-/// The workspace's roots, the floor's paths, and the approve list's, from
-/// `cfg` with `state` the state dir in use: what the gate guards, and what
-/// no L1 view shows (M4 17b).
+/// The workspace's roots and the floor's paths, from `cfg` with `state` the
+/// state dir in use: what the gate guards, and what no L1 view shows (M4 17b).
 pub(super) fn guarded_paths(
     cfg: &crate::Config,
     state: &std::path::Path,
-) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let t = &cfg.tools;
     let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
     // The workspace is what the config names: projects_dir first, then any
@@ -46,16 +51,15 @@ pub(super) fn guarded_paths(
     if let Some(s) = crate::rsi::sealed::guard_of(cfg) {
         floor_paths.extend(s.paths().iter().cloned());
     }
-    let approve: Vec<PathBuf> = t.approve_paths.iter().map(|p| canon(p)).collect();
-    (roots, floor_paths, approve)
+    (roots, floor_paths)
 }
 
 /// L1's state for `cfg`, with `state` the state dir in use, as the runtime
 /// builds it: `theseusd check` runs the self-test over the view a job gets
 /// (theseus-gyin).
 pub fn sandbox_for(cfg: &crate::Config, state: &std::path::Path) -> Sandbox {
-    let (roots, floor, approve) = guarded_paths(cfg, state);
-    Sandbox::new(&cfg.sandbox, &roots, &floor, &approve)
+    let (roots, floor) = guarded_paths(cfg, state);
+    Sandbox::new(&cfg.sandbox, &roots, &floor)
 }
 
 #[cfg(test)]

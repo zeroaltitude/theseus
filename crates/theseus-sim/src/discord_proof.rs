@@ -407,23 +407,13 @@ fn config(theseusd: &Path, ends: &Ends<'_>, projects: &Path) -> Result<String> {
     discord.insert("edit_interval_ms".into(), 250.into());
     table(&mut t, "web").insert("enabled".into(), false.into());
     table(&mut t, "tools").insert("projects_dir".into(), projects.display().to_string().into());
-    // A write outside the roots takes its tool's posture (theseus-ewi), so
-    // the approve list is what makes the proof's write wait for its card.
-    let tools = table(&mut t, "tools");
-    let mut approve: Vec<toml::Value> = tools
-        .get("approve_paths")
-        .and_then(toml::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    approve.push(
-        projects
-            .with_file_name("outside")
-            .display()
-            .to_string()
-            .into(),
-    );
-    tools.insert("approve_paths".into(), approve.into());
-    table(&mut t, "policy").insert("enforcement".into(), "notify".into());
+    // A write outside the roots takes its tool's posture (theseus-ewi), and
+    // the approve list that used to hold the proof's path was retired
+    // (2026-11-03, theseus-c4i8m), so `fs.write`'s own posture is what makes
+    // the proof's write wait for its card. The proof makes one write.
+    let policy = table(&mut t, "policy");
+    policy.insert("enforcement".into(), "notify".into());
+    table(policy, "tools").insert("fs.write".into(), "approve".into());
     table(&mut t, "places").insert(
         "owner".into(),
         vec![format!("discord:{ANA}"), format!("discord:{BEN}")].into(),

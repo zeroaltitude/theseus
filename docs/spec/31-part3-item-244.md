@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 260 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles)) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 261 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched)) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -902,3 +902,54 @@ Latent before, moved here, and not live (`/etc` sets `reviewer_profile = "fable"
 `admission_follows_the_tier`, `why_names_the_tier_and_its_pack` and the route-level data-gate metric lost their only
 tests with `tests_injection_tiers.rs` and `tests_observability.rs`: the tier code they cover is live, only its class
 names are gone. They are restored on `work.v1`'s Deep tier at the Phase 2 join (theseus-h66v4.9), not here.
+
+### Item 261. The approve lists are retired: `approve_paths` is deleted, `approve_argv` becomes `notify_argv`, the floor is untouched (theseus-c4i8m; the owner's decision of 2026-11-03 09:01, and his question of 08:44 the same morning)
+
+**Why.** The owner, 08:44: "why have a configurable list of special directories? We state that the environment theseus
+is presented is safe by definition … we're not shooting for zero trust or anything like that." And at 09:01, deciding:
+"I want notify_argv instead of approve_argv -- basically delete both, surviving with notify." A list of paths that an
+operator must curate is a gate whose premise the owner rejects; a list of programs is worth hearing about and is not
+worth waiting on.
+
+**What it is.** `[tools].approve_paths` is gone, with nothing in its place. `[policy].approve_argv` is gone and
+`[policy].notify_argv` takes its default unchanged (`sudo`, `su`, `doas`, `rm -rf /`, `mkfs`, `dd`, `shutdown`,
+`reboot`): a matching argv runs at a posture **raised to at least `notify`, never higher**, and the decision names the
+program (`` `sudo ls` matches the notify list entry `sudo` ``). It is read before `allow_argv`, so a program on both
+lists is still heard about, and it labels rather than gates, exactly as the workspace roots do since theseus-m9fdg.
+Both retired keys still **load**: each is read as an opaque value, named by `ToolsConfig::retired` /
+`PolicyConfig::retired`, warned of once by `Config::parse`, ignored, and never written back — the shape route.v10's
+retired routing keys use. So a config that was not renamed starts; it simply loses the notice.
+
+**The floor is untouched**, and is now the whole of what a path can make a call wait for: `guarded.rs`'s `floor_paths`
+(store, spool, bindings, the 1Password CLI's credentials, the token file the daemon was given, the config's
+last-known-good copy, the sealed holdout sets) and `floor_argv` (`theseusd`, `op`). It is a refusal, not an ask, and it
+does not touch self-build: the self-join installs through `rsi/join/install.rs` and `[self] install = true` is the
+owner's standing yes of 2026-10-06.
+
+**What the deletion carries with it.** Four consequences follow from the list going, none of them separately asked for,
+each recorded by a test that now pins the new behaviour rather than the old:
+
+1. **L1 views.** `guarded_paths` returned the approve list as a third value, and `Sandbox::new` hid it along with the
+   floor. Both lose the argument. `~/.aws` is still hidden in every view — `sandbox::CREDENTIALS` names it, and that is
+   now the only thing that does — but `~/.ssh` and `~/.gnupg` are no longer hidden from an L1 job by this path.
+2. **Kept outputs.** What kept one session out of another's kept outputs was the approve list's hold on the outputs
+   directory. With the template's `"fs.read" = "open"`, a read of another session's output is now open
+   (`tests_kept.rs`).
+3. **A self session's reach.** `ToolPolicy::fails_open` weighed the approve list, so a self session's write to the rest
+   of the state dir, a write in another task's tree, and a `proc.run` whose working directory was in its tree each
+   waited. Nothing but the floor reaches them now, so each runs with a notice (`rsi/tests_pr.rs`). With them goes the
+   whole `own` mechanism — `decide_in`'s `own` argument, `ToolPolicy::listed`, `own_tree::open_to` and
+   `sandbox::unbrokered`'s parameter — which existed only to carve a self task's tree out of the approve list's hold on
+   the state dir (theseus-pw1q.21.9). `own_tree::of` stays: L3 still judges an edit against the tree.
+4. **The explain surface.** The `approve_paths` condition is gone and `approve_argv` is `notify_argv`, whose `then` is
+   "the posture, at least notify, with the program named". `ExplainCondition`'s layer list, and the cockpit's generated
+   copy, say so.
+
+**The live `/etc` config** keeps its `approve_paths` and `approve_argv` lines until install, where the keys are renamed
+(a backup first). Until then the daemon starts and warns, and the notices the old `approve_argv` names would have
+raised do not fire.
+
+**Divergence.** Part I §3's "The operator's lists" said `approve_argv` names commands and `[tools].approve_paths` names
+paths that wait for approval, and the order's step 2 read both. Part I is rewritten to the gate as built; the earlier
+Part III Items that record the lists as they were (A3b's divergence table, Items 129, 171 and 204) stay as the record of
+what was true when each closed.

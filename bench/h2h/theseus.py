@@ -68,12 +68,11 @@ disk_floor_mb = 0
 [tools]
 projects_dir = "{work}"
 roots = ["/"]
-approve_paths = []
 
 [policy]
 enforcement = "open"
 allow_argv = []
-approve_argv = []
+notify_argv = []
 private_addresses = "open"
 
 [sandbox]

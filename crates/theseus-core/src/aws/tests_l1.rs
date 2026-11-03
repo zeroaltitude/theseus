@@ -4,8 +4,8 @@
 //! 17–18, L1"), through the whole core: the gate's record names the session
 //! and the class, the job's environment holds the session (named by the job's
 //! correlation id, under the guards) and no key, its wrapper is told to
-//! withhold the session from its output, its view hides `~/.aws` whatever the
-//! approve list says, and its egress list is the one its proposal binds, as
+//! withhold the session from its output, its view hides `~/.aws` by L1's own
+//! rule, and its egress list is the one its proposal binds, as
 //! for any host. A call that names its own AWS endpoint waits, and nothing is
 //! minted before the answer. A test launcher keeps each job's arguments and
 //! runs `true` in their place; the daemon's `tests/sandbox.rs` runs a real L1
@@ -65,8 +65,8 @@ struct Rig {
 
 /// A deployment whose `true` is granted a job session of the account, which
 /// the fake stands in for (its owner role made), with `egress` as
-/// `[sandbox] egress`. The approve list leaves out `~/.aws`, so only L1's
-/// own rule can hide it.
+/// `[sandbox] egress`. Since 1.0.4 retired the approve list, `sandbox::CREDENTIALS`
+/// is the only thing that hides `~/.aws` from a view.
 fn rig(script: Vec<Scripted>, egress: &[&str]) -> Rig {
     let fake = Fake::start(|s, n| {
         let f = form(&s.body);
@@ -84,7 +84,6 @@ fn rig(script: Vec<Scripted>, egress: &[&str]) -> Rig {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.tools.proc_sync_secs = 10;
-    cfg.tools.approve_paths.retain(|p| p != "~/.aws");
     cfg.policy.enforcement = Posture::Notify;
     cfg.policy.tools.remove("proc.run");
     cfg.sandbox.egress = egress.iter().map(|e| e.to_string()).collect();
@@ -270,8 +269,8 @@ fn aws_env(job: &WrapperArgs) -> BTreeMap<&str, &str> {
 /// file, never the key, and nothing else of the daemon's but `proc_env`; its
 /// wrapper withholds the three from its output; the session is minted once,
 /// named by the job's correlation id, under the job kind's guards, for the
-/// job's deadline; the view hides `~/.aws` though the approve list leaves it
-/// out; the job's list is the operator's, as its `sandbox.started` row says;
+/// job's deadline; the view hides `~/.aws` by L1's own rule, no list being
+/// left to do it; the job's list is the operator's, as its `sandbox.started` row says;
 /// and no file holds a secret.
 #[tokio::test]
 async fn an_l1_job_granted_aws_takes_its_session_at_launch_and_no_other_credential() {
@@ -338,7 +337,7 @@ async fn an_l1_job_granted_aws_takes_its_session_at_launch_and_no_other_credenti
         mint["DurationSeconds"], "3660",
         "3600 s (the default limit) and a minute"
     );
-    // The view: no ~/.aws, whatever the approve list says; the list its
+    // The view: no ~/.aws, by `sandbox::CREDENTIALS` alone; the list its
     // proposal binds, the operator's.
     let aws_dir = theseus_tools::paths::canonical_best_effort(&crate::config::expand("~/.aws"));
     assert!(view.hidden.contains(&aws_dir), "{:?}", view.hidden);

@@ -625,9 +625,8 @@ async fn the_byte_cap_truncates_and_the_timeout_fails_and_each_says_so() {
 fn open_policy() -> ToolPolicy {
     ToolPolicy {
         roots: vec![],
-        approve_paths: vec![],
         allow_argv: vec![],
-        approve_argv: vec![],
+        notify_argv: vec![],
         enforcement: Posture::Open,
         tools: BTreeMap::new(),
         mcp: BTreeMap::new(),

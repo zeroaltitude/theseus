@@ -18,9 +18,8 @@
 //! 1. the floor (Theseus's own binary and state, the 1Password CLI and its
 //!    token, and an AWS guardrail: AWS design §3.6) waits for approval at
 //!    every posture, and is marked as the floor;
-//! 2. an AWS session mint (STS `AssumeRole*` and its kin, theseus-a3s3), the
-//!    operator's approve lists (`approve_argv`, `approve_paths`), a URL whose
-//!    host is a private address (DD5), and an AWS call that deletes what
+//! 2. an AWS session mint (STS `AssumeRole*` and its kin, theseus-a3s3), a URL
+//!    whose host is a private address (DD5), and an AWS call that deletes what
 //!    holds state (§3.9) wait for approval. The roots wait for nothing: a
 //!    read, a working directory, an argument or a write outside them follows
 //!    the tool's posture, whichever tool makes it (theseus-ewi, theseus-m9fdg),
@@ -28,8 +27,14 @@
 //!    <path> (roots: ...)`, a label and no gate. An `open` posture is raised
 //!    to `notify` there, never higher, so the access is never silent;
 //! 3. the operator's explicit allow (`allow_argv`) runs, when the call and
-//!    every path argument are inside the roots. An entry is a prefix (`["ls"]`
-//!    also runs `ls -la src`), so entries should be narrow;
+//!    every path argument are inside the roots, and nothing on `notify_argv`
+//!    matches. An entry is a prefix (`["ls"]` also runs `ls -la src`), so
+//!    entries should be narrow;
+//! 3a. the operator's notify list (`notify_argv`) raises the posture to at
+//!    least `notify`, never higher, and the decision names the program. It
+//!    labels rather than gates, as the roots do: the environment Theseus is
+//!    given is safe by definition, so `sudo` is worth hearing about and is
+//!    not worth waiting on (the owner, 2026-11-03 09:01);
 //! 4. otherwise the tool's posture: `[policy.tools]`, then for an MCP tool
 //!    `[policy.mcp]` "server/tool" and "server", for an AWS call
 //!    `[policy.aws]` "service:Operation", "service", and its class (AWS
@@ -228,13 +233,12 @@ pub struct ToolPolicy {
     /// Canonical workspace roots: what a call reaches outside them follows the
     /// posture and is labelled with its path (theseus-m9fdg).
     pub roots: Vec<PathBuf>,
-    /// Canonical paths that wait for approval, even under a root.
-    pub approve_paths: Vec<PathBuf>,
     /// `proc.run` argv prefixes that run (open) when every path argument is
-    /// inside the roots.
+    /// inside the roots and no `notify_argv` entry matches.
     pub allow_argv: Vec<Vec<String>>,
-    /// `proc.run` argv prefixes that wait for approval.
-    pub approve_argv: Vec<Vec<String>>,
+    /// `proc.run` argv prefixes that run at a posture raised to at least
+    /// `notify`, with the program named.
+    pub notify_argv: Vec<Vec<String>>,
     /// The posture every tool and MCP inherits (`[policy].enforcement`).
     pub enforcement: Posture,
     /// Per-tool postures by canonical name (`[policy.tools]`).
@@ -429,35 +433,34 @@ impl ToolPolicy {
         plan: &Plan,
         tightened: Option<Tightened<'_>>,
     ) -> Decision {
-        self.decide_in(tool, plan, tightened, None)
-    }
-
-    /// The same, for a call made inside `own`, a self task's own tree
-    /// (theseus-pw1q.21.9): what the approve list protects of the state dir
-    /// is open to the call there, and only there. Nothing else changes: the
-    /// floor and every other approve-listed path ask as they did, and the
-    /// roots only label.
-    pub fn decide_in(
-        &self,
-        tool: &dyn Tool,
-        plan: &Plan,
-        tightened: Option<Tightened<'_>>,
-        own: Option<&Path>,
-    ) -> Decision {
         let name = tool.name();
         let (resources, nargv, args) = self.view(plan);
         let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
-        if let Some(d) = self.preempted(tool, plan, &resources, &nargv, &args, own) {
+        if let Some(d) = self.preempted(tool, plan, &resources, &nargv, &args) {
             return d;
         }
         // Nothing outside the roots waits for that alone: the posture below
         // decides, and the decision names the path (theseus-m9fdg).
         let outside = self.outside_roots(plan, &resources, &args);
+        // The notify list: the program runs, and is never silent about it.
+        // Read before the allow list, so an argv on both is still heard
+        // (the stricter of the two wins, as a tightening does).
+        let notify_listed = self
+            .notify_argv
+            .iter()
+            .find(|p| prefix_match(&nargv, p))
+            .map(|p| {
+                format!(
+                    "`{}` matches the notify list entry `{}`",
+                    argv.join(" "),
+                    p.join(" ")
+                )
+            });
         // The allow list runs a command outright when it and its path
         // arguments stay inside the roots; otherwise the tool's posture
         // decides.
         if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
-            if outside.is_empty() {
+            if outside.is_empty() && notify_listed.is_none() {
                 return Decision::new(
                     Posture::Open,
                     format!(
@@ -492,7 +495,19 @@ impl ToolPolicy {
         } else {
             now
         };
+        // A notify-listed program is at least a notice, for the same reason
+        // and in the same way: raised from `open` alone, never past `notify`,
+        // and the reason names the program (the owner, 2026-11-03 09:01).
+        let now = match (&notify_listed, now.posture) {
+            (Some(_), Posture::Open) => PostureNow {
+                posture: Posture::Notify,
+                setting: "[policy].notify_argv".into(),
+                ..now
+            },
+            _ => now,
+        };
         let why = std::iter::once(now.why())
+            .chain(notify_listed)
             .chain(outside)
             .collect::<Vec<_>>()
             .join("; ");
@@ -542,7 +557,7 @@ impl ToolPolicy {
     }
 
     /// The answers that come before the allow list and the posture: the floor,
-    /// a layer-1 change, the approve lists, and an AWS call's own asks. Each
+    /// a layer-1 change, a private address, and an AWS call's own asks. Each
     /// waits for approval whatever the tool's posture says.
     fn preempted(
         &self,
@@ -551,7 +566,6 @@ impl ToolPolicy {
         resources: &[PathBuf],
         nargv: &[String],
         args: &[(String, PathBuf)],
-        own: Option<&Path>,
     ) -> Option<Decision> {
         let name = tool.name();
         // The floor: Theseus's own state and the vault, and an AWS
@@ -575,7 +589,7 @@ impl ToolPolicy {
                 format!("{}: {name} — approve (layer 1: {what})", plan.summary),
             ));
         }
-        if let Some(why) = self.listed(plan, resources, nargv, args, own) {
+        if let Some(why) = self.private_address(plan) {
             return Some(Decision::new(
                 Posture::Approve,
                 format!("{}: {name} — approve ({why})", plan.summary),
@@ -595,45 +609,21 @@ impl ToolPolicy {
     /// Whether a call of a self session that waits for approval may go ahead
     /// with a notice instead (theseus-cudar; the owner, 2026-10-19 20:08 and
     /// 2026-10-20 07:26: self-improvement fails open, no answer means go
-    /// ahead). Only the soft holds open: a tool's own `approve` posture and
-    /// a read of the state dir the approve list holds (the roots hold
-    /// nothing, theseus-m9fdg). Everything the owner keeps stays a wait: the floor (store,
-    /// spool, bindings, the 1Password token, sealed sets), a task's layer 1,
-    /// an AWS call, a private address, an approve-listed program, any path
-    /// on the approve list but the state dir's own (keys, credentials), and
-    /// any write or run the approve list holds.
-    pub(crate) fn fails_open(&self, plan: &Plan, state: &Path) -> bool {
+    /// ahead). Only the soft holds open: a tool's own `approve` posture (the
+    /// roots hold nothing, theseus-m9fdg). Everything the owner keeps stays a
+    /// wait: the floor (store, spool, bindings, the 1Password token, sealed
+    /// sets), a task's layer 1, an AWS call, and a private address. Since
+    /// 1.0.4 the approve lists are gone, so nothing they used to hold —
+    /// `~/.ssh`, a program on `approve_argv` — reaches here to be weighed.
+    pub(crate) fn fails_open(&self, plan: &Plan) -> bool {
         if plan.authority.is_some() || plan.aws.is_some() {
             return false;
         }
-        if plan
-            .url
-            .as_deref()
-            .and_then(crate::web::net::private_url)
-            .is_some()
-        {
+        if self.private_address(plan).is_some() {
             return false;
         }
         let (resources, nargv, args) = self.view(plan);
-        if self.floor(&resources, &nargv, &args).is_some()
-            || self.approve_argv.iter().any(|p| prefix_match(&nargv, p))
-        {
-            return false;
-        }
-        let state = paths::canonical_best_effort(state);
-        // An entry that holds a path is the state dir's own when it is the
-        // state dir or inside it; any other entry (`~/.ssh`, `~`) keeps asking.
-        let state_only = |p: &Path, read: bool| {
-            let mut held = self.approve_paths.iter().filter(|d| paths::within(p, d));
-            held.clone().next().is_none() || (read && held.all(|d| paths::within(d, &state)))
-        };
-        resources
-            .iter()
-            .zip(plan.resources.iter().map(|r| r.access))
-            .all(|(p, a)| state_only(p, a == Access::Read))
-            && args
-                .iter()
-                .all(|(_, p)| !self.approve_paths.iter().any(|d| paths::within(p, d)))
+        self.floor(&resources, &nargv, &args).is_none()
     }
 
     /// Whether only the tool's posture would decide this call: nothing the
@@ -641,7 +631,7 @@ impl ToolPolicy {
     /// comes first. An edits mode (`modes`) loosens that alone.
     pub(crate) fn posture_only(&self, tool: &dyn Tool, plan: &Plan) -> bool {
         let (resources, nargv, args) = self.view(plan);
-        self.preempted(tool, plan, &resources, &nargv, &args, None)
+        self.preempted(tool, plan, &resources, &nargv, &args)
             .is_none()
     }
 
@@ -734,73 +724,29 @@ impl ToolPolicy {
             .map(|(a, _)| format!("argument `{a}` is {FLOOR_STATE}"))
     }
 
-    /// What of the call the operator listed for approval: a path on the
-    /// approve list, a URL whose host is a private address (DD5, unless
-    /// `private_addresses` is open), an approve-listed program, or a path
-    /// argument on the approve list.
+    /// A URL whose host is a private address (DD5), unless
+    /// `private_addresses` is open: the one thing left between the floor and
+    /// the posture that waits for approval on its own.
     ///
-    /// Nothing outside the roots is listed: a read, a working directory or a
-    /// write there follows the tool's posture, whichever tool makes it, and
-    /// `outside_roots` names the path (theseus-ewi for writes, the owner,
-    /// 2026-09-30: one rule for writes outside the roots; theseus-m9fdg for
-    /// the rest), and a notify at least: an `open` line cannot make it silent.
-    /// `proc.run`'s commands write anywhere at theirs, and the
-    /// gate never guesses what a command does, so asking for a file tool's
-    /// write there guarded nothing and taught a model to write through the
-    /// shell. The approve list and the floor still ask, for every tool.
-    ///
-    /// `own` is a self task's own tree (theseus-pw1q.21.9): a resource in it
-    /// is not held by an approve-list entry that holds the tree itself (the
-    /// state dir), and nothing else is loosened. An entry inside the tree
-    /// still asks.
-    fn listed(
-        &self,
-        plan: &Plan,
-        resources: &[PathBuf],
-        nargv: &[String],
-        args: &[(String, PathBuf)],
-        own: Option<&Path>,
-    ) -> Option<String> {
-        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
-        let held = |p: &Path, d: &Path| {
-            paths::within(p, d) && !own.is_some_and(|t| paths::within(p, t) && paths::within(t, d))
-        };
-        for p in resources {
-            if let Some(d) = self.approve_paths.iter().find(|d| held(p, d)) {
-                return Some(format!(
-                    "{} is protected: {} is on the approve list",
-                    p.display(),
-                    d.display()
-                ));
-            }
-        }
+    /// Nothing a path is or is under waits any more. Until 1.0.4 this read an
+    /// approve list of paths and of programs too; the owner retired both on
+    /// 2026-11-03 ("why have a configurable list of special directories? We
+    /// state that the environment theseus is presented is safe by
+    /// definition"), and `notify_argv` now notices the programs rather than
+    /// waiting on them. Nothing outside the roots is listed either: a read, a
+    /// working directory or a write there follows the tool's posture,
+    /// whichever tool makes it, and `outside_roots` names the path
+    /// (theseus-ewi for writes, the owner, 2026-09-30: one rule for writes
+    /// outside the roots; theseus-m9fdg for the rest), and a notify at least:
+    /// an `open` line cannot make it silent. The floor still refuses, for
+    /// every tool.
+    fn private_address(&self, plan: &Plan) -> Option<String> {
         let ask = self.private_addresses == crate::web::net::PrivateAddresses::Ask;
-        if let Some(why) = plan
-            .url
+        plan.url
             .as_deref()
             .filter(|_| ask)
             .and_then(crate::web::net::private_url)
-        {
-            return Some(format!("{why}, and a private address waits for approval"));
-        }
-        if let Some(p) = self.approve_argv.iter().find(|p| prefix_match(nargv, p)) {
-            return Some(format!(
-                "`{}` matches the approve list entry `{}`",
-                argv.join(" "),
-                p.join(" ")
-            ));
-        }
-        args.iter().find_map(|(a, p)| {
-            self.approve_paths
-                .iter()
-                .find(|d| paths::within(p, d))
-                .map(|d| {
-                    format!(
-                        "argument `{a}` is protected: {} is on the approve list",
-                        d.display()
-                    )
-                })
-        })
+            .map(|why| format!("{why}, and a private address waits for approval"))
     }
 
     /// Does any resource of this plan write?
@@ -868,9 +814,8 @@ mod tests {
     fn policy(root: &Path, enforcement: Posture) -> ToolPolicy {
         ToolPolicy {
             roots: vec![root.to_path_buf()],
-            approve_paths: vec![root.join("secret")],
             allow_argv: vec![vec!["git".into(), "status".into()]],
-            approve_argv: vec![vec!["sudo".into()]],
+            notify_argv: vec![vec!["sudo".into()]],
             enforcement,
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
@@ -891,9 +836,8 @@ mod tests {
     fn a_private_address_waits_unless_the_policy_opens_it() {
         let (_d, root) = workspace();
         let bench = |private_addresses| ToolPolicy {
-            approve_paths: vec![],
             allow_argv: vec![],
-            approve_argv: vec![],
+            notify_argv: vec![],
             private_addresses,
             ..policy(&root, Posture::Open)
         };
@@ -990,8 +934,7 @@ mod tests {
     /// whole system of project folders should work that way generally"): an
     /// access outside the roots, a read or a working directory as much as a
     /// write, takes the tool's posture, whichever tool makes it, and says
-    /// where it went. The approve list and the floor still ask, for every
-    /// tool and posture.
+    /// where it went. The floor still asks, for every tool and posture.
     #[test]
     fn an_access_outside_the_roots_takes_the_posture_whichever_tool_makes_it() {
         let (_d, root) = workspace();
@@ -1029,15 +972,16 @@ mod tests {
                 );
             }
         }
-        let mut listed = policy(&root, Posture::Open);
-        listed.approve_paths.push(outside.join("keys"));
+        // A write to a path that was once on the approve list is now the
+        // posture's alone, outside-the-roots label and all: no path waits.
+        let listed = policy(&root, Posture::Open);
         let out = listed.decide(
             &T("fs.write"),
             &plan(outside.join("keys/id"), Access::Write, None),
         );
-        assert_eq!(out.posture, Posture::Approve);
+        assert_eq!((out.posture, out.floor), (Posture::Notify, false));
         assert!(
-            out.reason.contains("is on the approve list"),
+            out.reason.contains("outside [tools].roots"),
             "{}",
             out.reason
         );
@@ -1088,12 +1032,14 @@ mod tests {
             assert_eq!(out.posture, Posture::Open, "{t}: {}", out.reason);
             assert!(out.notify.is_none(), "{t}");
         }
-        // Never raised past notify: no roots path asks, whatever the tool.
+        // Never raised past notify, and nothing a path is or is under asks
+        // any more: the approve list is retired (theseus-c4i8m), so an open
+        // override inside the roots is open, wherever the path sits.
         let out = p.decide(
             &T("fs.read"),
             &plan(root.join("secret/key"), Access::Read, None),
         );
-        assert_eq!(out.posture, Posture::Approve, "the approve list still asks");
+        assert_eq!(out.posture, Posture::Open, "{}", out.reason);
     }
 
     /// What a call reaches outside the roots is named in its decision, as the
@@ -1252,11 +1198,14 @@ mod tests {
             assert_eq!(allowed.posture, Posture::Open, "{}", allowed.reason);
             let floor = p.decide_with(&T("proc.run"), &cmd(vec!["op", "read", "x"]), Some(t));
             assert!(floor.floor, "{}", floor.reason);
+            // A notify-listed program keeps the tightening's posture and
+            // names the list: the tightening is the stricter of the two.
             let listed = p.decide_with(&T("proc.run"), &cmd(vec!["sudo", "ls"]), Some(t));
+            assert_eq!(listed.posture, Posture::Approve, "{}", listed.reason);
             assert!(
                 listed
                     .reason
-                    .ends_with("(`sudo ls` matches the approve list entry `sudo`)"),
+                    .ends_with("`sudo ls` matches the notify list entry `sudo`)"),
                 "{}",
                 listed.reason
             );
@@ -1406,11 +1355,10 @@ mod tests {
                 );
             }
         }
-        // The floor comes before the operator's approve lists and overrides:
-        // an overlap is still marked as the floor.
+        // The floor comes before the operator's notify list and overrides:
+        // an overlap still waits, and is still marked as the floor.
         let mut p = policy(&root, Posture::Open);
-        p.approve_argv.push(vec!["op".into()]);
-        p.approve_paths.push(root.join("state"));
+        p.notify_argv.push(vec!["op".into()]);
         p.tools.insert("proc.run".into(), Posture::Open);
         let out = p.decide(
             &T("proc.run"),
@@ -1432,11 +1380,13 @@ mod tests {
         );
     }
 
-    /// A self task's own tree (theseus-pw1q.21.9): the approve list's hold on
-    /// the state dir does not reach the one tree `own` names, and reaches
-    /// everything else of it, as it did.
+    /// A self task's own tree (theseus-pw1q.21.9) no longer needs a rule of
+    /// its own: the approve list that held the state dir is gone (the owner,
+    /// 2026-11-03 09:01), so the tree, the trees root and the rest of the
+    /// state dir are the posture's. What stays is the floor, and it stays
+    /// through a link and through `..`. Planted reverts: each `true` below.
     #[test]
-    fn a_self_tasks_own_tree_is_open_and_nothing_else_of_the_state_dir() {
+    fn the_state_dirs_floor_holds_through_a_link_and_a_dotdot_and_the_rest_is_open() {
         let (_d, root) = workspace();
         let state = root.join("state");
         let trees = state.join("self").join("trees");
@@ -1451,74 +1401,71 @@ mod tests {
         std::os::unix::fs::symlink(state.join("store"), mine.join("to-store")).unwrap();
         let p = ToolPolicy {
             roots: vec![root.clone(), trees.clone()],
-            approve_paths: vec![state.clone()],
             floor_paths: vec![state.join("store")],
             ..policy(&root, Posture::Open)
         };
         let at = |path: PathBuf, access| plan(path, access, None);
-        let decide = |tool: &'static str, path: PathBuf, access, own: Option<&Path>| {
-            p.decide_in(&T(tool), &at(path, access), None, own)
-        };
-        let own = Some(mine.as_path());
         for (tool, access) in [("fs.read", Access::Read), ("fs.write", Access::Write)] {
-            for file in ["a.rs", "new/deeper/b.rs"] {
-                let out = decide(tool, mine.join(file), access, own);
-                assert_eq!(out.posture, Posture::Open, "{tool} {file}: {}", out.reason);
-            }
-            // Planted reverts: each of these must still ask.
+            let decide = |path: PathBuf| p.decide(&T(tool), &at(path, access));
+            // The tree, another task's, the trees dir and the rest of the
+            // state dir are the posture's; the store is the floor, by name,
+            // through a link, and through `..`.
             for (what, path, floor) in [
+                ("its own tree", mine.join("a.rs"), false),
+                (
+                    "a new file in its tree",
+                    mine.join("new/deeper/b.rs"),
+                    false,
+                ),
                 ("another tree", other.join("x"), false),
-                ("the trees dir", trees.clone(), false),
+                ("the trees dir", trees.join("x"), false),
                 ("the rest of the state dir", state.join("notes.txt"), false),
                 ("a new file in the state dir", state.join("new.txt"), false),
-                ("the store", state.join("store/x"), true),
                 ("a link to the state dir", mine.join("to-notes"), false),
+                ("the store", state.join("store/x"), true),
                 ("a link to the store", mine.join("to-store/x"), true),
-                ("a .. out of the tree", mine.join("../other/x"), false),
                 ("a .. out to the store", mine.join("../../../store/x"), true),
             ] {
-                let out = decide(tool, path, access, own);
+                let out = decide(path);
+                let want = match floor {
+                    true => Posture::Approve,
+                    false => Posture::Open,
+                };
+                assert_eq!(out.posture, want, "{tool} {what}: {}", out.reason);
+                assert_eq!(out.floor, floor, "{tool} {what}: {}", out.reason);
+                // A floor decision says so, and an open one is silent.
                 assert_eq!(
-                    out.posture,
-                    Posture::Approve,
+                    out.reason.contains("(floor: "),
+                    floor,
                     "{tool} {what}: {}",
                     out.reason
                 );
-                assert_eq!(out.floor, floor, "{tool} {what}: {}", out.reason);
+                assert_eq!(
+                    out.notify.map(|n| n.kind),
+                    None,
+                    "{tool} {what}: {}",
+                    out.reason
+                );
             }
-            // A call with no own tree (a non-self principal's) asks in the tree too.
-            let out = decide(tool, mine.join("a.rs"), access, None);
-            assert_eq!(out.posture, Posture::Approve, "{tool}: {}", out.reason);
-            assert!(
-                out.reason.contains("is on the approve list"),
-                "{}",
-                out.reason
-            );
-            // Another task's tree is not mine, however its slug reads.
-            let out = decide(tool, mine.join("a.rs"), access, Some(other.as_path()));
-            assert_eq!(out.posture, Posture::Approve, "{tool}: {}", out.reason);
         }
-        // An approve-list entry inside the tree still asks.
-        let mut inner = ToolPolicy {
-            approve_paths: vec![state, mine.join("keys")],
+        // And a self session's fail-open reads the same line: the tree and
+        // the rest of the state dir open, the store never.
+        assert_eq!(p.fails_open(&at(mine.join("a.rs"), Access::Write)), true);
+        assert_eq!(
+            p.fails_open(&at(state.join("notes.txt"), Access::Write)),
+            true
+        );
+        assert_eq!(
+            p.fails_open(&at(state.join("store/x"), Access::Read)),
+            false
+        );
+        // Outside the roots the tree is labelled, as any path is, and asks for
+        // nothing: the roots are no gate (theseus-m9fdg).
+        let outside = ToolPolicy {
+            roots: vec![root.join("elsewhere")],
             ..p.clone()
         };
-        let out = inner.decide_in(
-            &T("fs.read"),
-            &at(mine.join("keys/k"), Access::Read),
-            None,
-            own,
-        );
-        assert_eq!(out.posture, Posture::Approve, "{}", out.reason);
-        // Outside the roots the own tree is labelled, as any path is, and asks
-        // for nothing: the roots are no gate (theseus-m9fdg).
-        inner.roots = vec![root.join("elsewhere")];
-        let out = inner.decide_in(
-            &T("fs.read"),
-            &at(mine.join("a.rs"), Access::Read),
-            None,
-            own,
-        );
+        let out = outside.decide(&T("fs.read"), &at(mine.join("a.rs"), Access::Read));
         assert_eq!(out.posture, Posture::Notify, "{}", out.reason);
         assert!(
             out.reason.contains("read outside your project folder: "),
@@ -1527,42 +1474,45 @@ mod tests {
         );
     }
 
-    /// A self session's soft holds open and its hard ones stay (theseus-cudar):
-    /// a read of the state dir the approve list holds, and a read outside the
-    /// roots, fail open; the floor, any other approve-listed path, a write or
-    /// a run in the state dir, an approve-listed program and a layer-1 change
-    /// still ask. Planted reverts: each `false` below.
+    /// A self session's soft holds open and its hard ones stay (theseus-cudar).
+    /// Since 1.0.4 retired the approve lists the soft set is wider: a read or
+    /// a write of the state dir, a read outside the roots and a once-listed
+    /// program all fail open. The floor, a private address and a layer-1
+    /// change still ask. Planted reverts: each `false` below.
     #[test]
     fn a_self_sessions_soft_holds_fail_open_and_the_hard_ones_stay() {
         let (_d, root) = workspace();
         let state = root.join("state");
         let keys = root.join("keys");
         let p = ToolPolicy {
-            approve_paths: vec![state.clone(), keys.clone()],
             floor_paths: vec![state.join("store")],
             ..policy(&root, Posture::Open)
         };
         let outside = tempfile::tempdir().unwrap();
         let outside = outside.path().canonicalize().unwrap();
-        let ok = |plan: &Plan| p.fails_open(plan, &state);
+        let ok = |plan: &Plan| p.fails_open(plan);
         let read = |path: PathBuf| plan(path, Access::Read, None);
         assert!(ok(&read(state.join("self/reports/r.md"))), "a report");
         assert!(ok(&read(state.join("self/gates/g.sh"))), "a gate script");
         assert!(ok(&read(outside.join("x"))), "a read outside the roots");
         assert!(!ok(&read(state.join("store/db"))), "the store is the floor");
-        assert!(!ok(&read(keys.join("id"))), "keys stay held");
-        assert!(!ok(&plan(state.join("n"), Access::Write, None)), "a write");
+        // What the retired approve list used to hold open now opens.
+        assert!(ok(&read(keys.join("id"))), "keys are no longer held");
+        assert!(
+            ok(&plan(state.join("n"), Access::Write, None)),
+            "a write to the state dir"
+        );
         let run = |cwd: PathBuf, argv: Vec<&str>| plan(cwd, Access::Exec, Some(argv));
         assert!(
-            !ok(&run(state.clone(), vec!["ls"])),
+            ok(&run(state.clone(), vec!["ls"])),
             "a run in the state dir"
         );
         assert!(
-            !ok(&run(root.clone(), vec!["sudo", "ls"])),
-            "an approve-listed program"
+            ok(&run(root.clone(), vec!["sudo", "ls"])),
+            "a notify-listed program notices and does not wait"
         );
         assert!(
-            !ok(&run(
+            ok(&run(
                 root.clone(),
                 vec!["cat", &keys.join("id").display().to_string()]
             )),
@@ -1572,26 +1522,33 @@ mod tests {
             ok(&run(root.clone(), vec!["cargo", "test"])),
             "an ordinary program"
         );
+        // The floor still refuses to fail open, by name and as an argument.
+        assert!(
+            !ok(&run(root.clone(), vec!["op", "read", "x"])),
+            "the 1Password CLI is the floor"
+        );
+        assert!(
+            !ok(&run(
+                root.clone(),
+                vec!["cat", &state.join("store/db").display().to_string()]
+            )),
+            "the store as an argument is the floor"
+        );
         let layer1 = Plan {
             authority: Some("abandon a task".into()),
             ..read(root.join("a"))
         };
         assert!(!ok(&layer1), "a layer-1 change");
-        // An entry that holds more than the state dir (`~`) opens nothing.
-        let wide = ToolPolicy {
-            approve_paths: vec![root],
-            ..p.clone()
-        };
-        assert!(!wide.fails_open(&read(state.join("self/reports/r.md")), &state));
     }
 
     #[test]
-    fn the_approve_lists_wait_and_the_allow_list_runs_at_every_posture() {
+    fn the_notify_list_notices_and_the_allow_list_runs_at_every_posture() {
         let (_d, root) = workspace();
         let secret = format!("{}/secret/key", root.display());
         for e in Posture::ALL {
             let mut p = policy(&root, e);
-            // An override does not lower an approve list: the list comes first.
+            // An override no longer meets an approve list here: nothing a path
+            // is or is under waits, so `open` means open.
             p.tools.insert("fs.read".into(), Posture::Open);
             let run = |argv: Vec<&str>| {
                 p.decide(
@@ -1600,30 +1557,39 @@ mod tests {
                 )
             };
             let read = |path: PathBuf| p.decide(&T("fs.read"), &plan(path, Access::Read, None));
-            for (out, why) in [
-                (
-                    read(root.join("secret/key")),
-                    "the call: fs.read — approve (",
-                ),
-                (
-                    run(vec!["/usr/bin/sudo", "ls"]),
-                    "the call: proc.run — approve (`/usr/bin/sudo ls` matches the approve list entry `sudo`)",
-                ),
-                (
-                    run(vec!["cat", &secret]),
-                    "the call: proc.run — approve (argument `",
-                ),
+            // A path that was on the approve list reads open now, at every
+            // posture, because the override says open and nothing preempts it.
+            let out = read(root.join("secret/key"));
+            assert_eq!(out.posture, Posture::Open, "{}", out.reason);
+            assert!(!out.floor && out.notify.is_none(), "{}", out.reason);
+            // A notify-listed program runs, and is never silent: raised from
+            // `open` to `notify`, never past it, and the reason names it.
+            for argv in [
+                vec!["/usr/bin/sudo", "ls"],
+                vec!["sudo", "-u", "root", "id"],
             ] {
+                let shown = argv.join(" ");
+                let out = run(argv);
+                let want = e.max(Posture::Notify);
+                assert_eq!(out.posture, want, "at {}: {}", e.as_str(), out.reason);
+                assert!(!out.floor, "{}", out.reason);
                 assert_eq!(
-                    out.posture,
-                    Posture::Approve,
-                    "waits at {}: {}",
-                    e.as_str(),
+                    out.notify.is_some(),
+                    want == Posture::Notify,
+                    "{}",
                     out.reason
                 );
-                assert!(!out.floor && out.notify.is_none(), "{}", out.reason);
-                assert!(out.reason.starts_with(why), "{}", out.reason);
+                assert!(
+                    out.reason
+                        .contains(&format!("`{shown}` matches the notify list entry `sudo`")),
+                    "{}",
+                    out.reason
+                );
             }
+            // A once-approve-listed path as an argument is the posture's too.
+            let out = run(vec!["cat", &secret]);
+            assert_eq!(out.posture, e.max(Posture::Open), "{}", out.reason);
+            assert!(!out.reason.contains("notify list"), "{}", out.reason);
             // Outside the roots is a label, not a hold: an `open` override
             // is raised to a notice, never higher, and the decision names
             // the path.
@@ -1635,15 +1601,6 @@ mod tests {
                     .contains("read outside your project folder: /etc/passwd (roots: "),
                 "{}",
                 out.reason
-            );
-            let r = root.display();
-            assert_eq!(
-                read(root.join("secret/key")).reason,
-                format!("the call: fs.read — approve ({r}/secret/key is protected: {r}/secret is on the approve list)")
-            );
-            assert_eq!(
-                run(vec!["cat", &secret]).reason,
-                format!("the call: proc.run — approve (argument `{secret}` is protected: {r}/secret is on the approve list)")
             );
             // The allow list runs a command outright, even under approve.
             for argv in [

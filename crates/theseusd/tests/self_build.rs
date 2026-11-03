@@ -50,13 +50,16 @@ impl Rig {
 
     /// `new`, with the tree a checkout of the caller's (`tree/` otherwise).
     fn on(checkout: Option<&Path>) -> Self {
-        Self::approving(checkout, &[])
+        Self::hiding(checkout, &[])
     }
 
-    /// `on`, with `approve` joined to the approve list the config carries, as
-    /// relative paths under the rig's directory: no L1 view shows an
-    /// approve-listed path, whatever binds it (theseus-cr481).
-    fn approving(checkout: Option<&Path>, approve: &[&str]) -> Self {
+    /// `on`, with `hidden` put on the floor, as relative paths under the
+    /// rig's directory: no L1 view shows a floor path, whatever binds it
+    /// (theseus-cr481). They went on the approve list until the owner retired
+    /// it (2026-11-03, theseus-c4i8m); the floor is the only config-driven
+    /// hiding left, and the token file and the config copy are its two slots
+    /// a test can point anywhere.
+    fn hiding(checkout: Option<&Path>, hidden: &[&str]) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let p = |s: &str| dir.path().join(s);
         let repo = p("repo");
@@ -73,14 +76,14 @@ impl Rig {
         }
         let mut cfg = theseus_core::Config::example();
         cfg.self_improve.sealed.dir = Some(p("repo/sealed").to_string_lossy().into_owned());
-        // Made before the sandbox, so the approve list's canonical path and
-        // the bind the test passes are the same path under a temp directory.
-        for a in approve {
+        // Made before the sandbox, so the floor's canonical path and the bind
+        // the test passes are the same path under a temp directory.
+        assert!(hidden.len() <= 2, "the floor has two slots a test can set");
+        for a in hidden {
             std::fs::create_dir_all(p(a)).unwrap();
         }
-        cfg.tools
-            .approve_paths
-            .extend(approve.iter().map(|a| p(a).to_string_lossy().into_owned()));
+        cfg.op_token_file = hidden.first().map(|a| p(a));
+        cfg.config_copy = hidden.get(1).map(|a| p(a));
         let sandbox = theseus_core::toolrun::sandbox_for(&cfg, &repo.join("state"));
         let tree = Tree {
             slug: "t".into(),
@@ -306,9 +309,12 @@ fn a_new_crate_fails_offline() {
 }
 
 /// theseus-cr481, end to end, in a real jail: the gate script the door
-/// writes out of main lives in the state dir's `self/gates`, which the
-/// approve list names, so no L1 view shows it — and the self build's view
-/// binds that very file read-only for the gate to run. Until the fix the
+/// writes out of main lives in the state dir's `self/gates`, a directory no
+/// L1 view shows — and the self build's view binds that very file read-only
+/// for the gate to run. The approve list named that directory until the
+/// owner retired it (2026-11-03, theseus-c4i8m); the rig puts it on the
+/// floor, which hides it the same way, and the filter under test is the
+/// view's and is unchanged. Until the fix the
 /// mask covered the bind, `bash` found no script, and the job exited 127 in
 /// 0 s: that is how all 69 self branches died from 2026-10-20 05:28 on.
 ///
@@ -319,14 +325,14 @@ fn a_new_crate_fails_offline() {
 /// bytes through `$0`, which proves the bind is readable and not merely
 /// present, and writes into the tree, which proves it ran.
 #[test]
-fn a_jailed_gate_script_runs_though_its_directory_is_approve_listed() {
+fn a_jailed_gate_script_runs_though_its_directory_is_hidden() {
     if refused_as_root() {
         return;
     }
     use std::os::unix::fs::PermissionsExt;
 
     let gates = "repo/state/self/gates";
-    let r = Rig::approving(None, &[gates]);
+    let r = Rig::hiding(None, &[gates]);
     let gate = r.path(gates).join("gate-abc.sh");
     // One script, one job: it reads its own bytes, then asks the floor for
     // the sealed set's item and the store's data, which must still be gone.

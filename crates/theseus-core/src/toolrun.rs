@@ -422,9 +422,8 @@ impl ToolRuntime {
             // No tools to call; were one to appear, it would wait.
             policy: ToolPolicy {
                 roots: vec![],
-                approve_paths: vec![],
                 allow_argv: vec![],
-                approve_argv: vec![],
+                notify_argv: vec![],
                 enforcement: crate::policy::Posture::Approve,
                 tools: BTreeMap::new(),
                 mcp: BTreeMap::new(),
@@ -463,7 +462,7 @@ impl ToolRuntime {
             watches: Default::default(),
             watches_cfg: Default::default(),
             forecasts: Default::default(),
-            sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[], &[])),
+            sandbox: Arc::new(Sandbox::new(&Default::default(), &[], &[])),
             stops: Default::default(),
             public_roots: Vec::new(),
             sealed: Default::default(),
@@ -640,7 +639,7 @@ impl ToolRuntime {
         let allowed: Vec<String> = self.policy.allow_argv.iter().map(|a| a.join(" ")).collect();
         format!(
             "Tools. You act through tools; every call is recorded, checked against policy, and may wait for the operator's confirmation.\n\
-             - Workspace roots: {}. A read, write or run outside them takes its tool's posture, at least notify (the operator sees the path); being outside adds no wait. A path on the operator's approve list always waits.\n\
+             - Workspace roots: {}. A read, write or run outside them takes its tool's posture, at least notify (the operator sees the path); being outside adds no wait. Theseus's own state and 1Password always wait.\n\
              - Relative paths resolve against the session's directory, which its own block names.\n\
              - Postures (open runs; notify runs and tells the operator; approve waits for the operator's approval): {}.{}\n\
              - Read a file before editing it; keep edits exact and minimal.\n\
@@ -1889,7 +1888,7 @@ pub fn build_runtime(
         .as_ref()
         .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| cfg.state_dir());
-    let (roots, floor_paths, approve) = guarded_paths(cfg, &state);
+    let (roots, floor_paths) = guarded_paths(cfg, &state);
     // Proposed extensions are frozen beside the store (M7 43a).
     let extend = Arc::new(crate::extend::Extensions::new(
         state.join("extensions"),
@@ -1906,8 +1905,8 @@ pub fn build_runtime(
         .map(canon)
         .or_else(|| roots.first().cloned())
         .unwrap_or_else(std::env::temp_dir);
-    // No L1 view shows the floor or the approve list's paths (M4 17b).
-    let sandbox = Arc::new(Sandbox::new(&cfg.sandbox, &roots, &floor_paths, &approve));
+    // No L1 view shows the floor's paths (M4 17b).
+    let sandbox = Arc::new(Sandbox::new(&cfg.sandbox, &roots, &floor_paths));
     let cpu = crate::cpu::CpuPool::for_host();
     // AWS (row 29, C1): its tools when the config binds an account. Nothing
     // runs until a call, or the daemon's check after serving.
@@ -2042,9 +2041,8 @@ pub fn build_runtime(
         registry,
         policy: ToolPolicy {
             roots: roots.clone(),
-            approve_paths: approve,
             allow_argv: cfg.policy.allow_argv.clone(),
-            approve_argv: cfg.policy.approve_argv.clone(),
+            notify_argv: cfg.policy.notify_argv.clone(),
             enforcement: cfg.policy.enforcement,
             tools: cfg.policy.tools.clone(),
             mcp: cfg.policy.mcp.clone(),

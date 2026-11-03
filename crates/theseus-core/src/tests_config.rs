@@ -108,7 +108,6 @@ fn note(root: &Path, state: &Path, tweak: impl FnOnce(&mut Config)) -> String {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.tools.approve_paths = vec![];
     cfg.policy.enforcement = Posture::Approve;
     tweak(&mut cfg);
     let text = toml::to_string_pretty(&cfg).unwrap();

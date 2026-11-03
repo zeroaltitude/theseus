@@ -504,15 +504,16 @@ task_depth = 10                         # levels of tasks below a conversation: 
 # roots) every path is outside it. The workspace labels and never blocks: any
 # access outside it (a read, a program run, a write) takes the tool's posture,
 # raised to at least notify, so you are told "outside your project folder" with
-# the path. Any path on approve_paths (even inside it) waits for your approval.
-# A script through proc.run writes anywhere, which the gate can't read, so
-# approve_paths, the floor, and the posture guard access, not the workspace.
+# the path. A script through proc.run writes anywhere, which the gate can't
+# read, so the floor and the posture guard access, not the workspace.
+# approve_paths is retired (1.0.4): there is no configurable list of special
+# directories any more. The floor still refuses Theseus's own state and the
+# 1Password CLI and its token, at every posture.
 [tools]
 enabled = true
 projects_dir = "/home/zeroaltitude/projects"   # the operator's projects directory: the workspace, and where relative paths resolve
 # roots = ["/home/zeroaltitude/reports"]   # more workspace roots beside projects_dir (default none)
 # cwd = "/home/zeroaltitude/projects/theseus"   # where relative paths resolve and programs run (default: projects_dir)
-approve_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "~/.config/op", "~/.openclaw-1password-service-token", "~/.theseus"]
 result_max_chars = 30000                # characters of a result the model sees (head and tail kept; fs_read has its own 100,000, a contiguous head)
 max_read_bytes = 262144                 # cap on one fs.read
 max_attachment_bytes = 33554432         # the largest attached file kept whole (a PDF is read for the model; 32 MiB)
@@ -662,15 +663,19 @@ judge_wait_ms = 200                     # the most a turn waits for that judgmen
 #   1. the floor always waits for your approval, at every posture, even open,
 #      and says so: Theseus's own binary, store, spool, and bindings file; the
 #      1Password CLI, its credentials, and the token file this daemon was given;
-#   2. your approve lists wait for your approval: approve_argv and
-#      [tools].approve_paths (the workspace roots only label: an access outside
-#      them runs at the tool's posture, at least notify);
+#   2. your notify list raises the posture to at least notify, and names the
+#      program: notify_argv (the workspace roots only label the same way: an
+#      access outside them runs at the tool's posture, at least notify). It
+#      labels and never blocks, so a notify-listed program still runs;
 #   3. your allow list runs: allow_argv. An entry is a prefix: ["ls"] also runs
-#      `ls -la src`, so keep entries narrow.
+#      `ls -la src`, so keep entries narrow. A program on both lists is heard
+#      about: notify_argv is read first.
+# approve_argv is retired (1.0.4) and notify_argv replaces it: the programs it
+# named now run with a notice instead of waiting for your approval.
 [policy]
 enforcement = "notify"                  # open | notify | approve: what every tool and MCP inherits (built-in default: open)
 allow_argv = [["ls"], ["pwd"]]          # proc.run runs these (open) when its working directory and every path argument are inside the roots (no git: its config can run programs; use git.diff / git.log)
-approve_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run waits for your approval on these (op and theseusd are on the floor)
+notify_argv = [["sudo"], ["su"], ["doas"], ["rm", "-rf", "/"], ["mkfs"], ["dd"], ["shutdown"], ["reboot"]]  # proc.run runs these at a posture raised to at least notify, naming the program (op and theseusd are on the floor, and wait)
 # A program that hosts an agent. `theseus answer` from a process under one, or
 # from a process with no controlling terminal, is recorded and shown as that
 # agent's answer ("answered by an agent (claude)"), never as yours, and an
@@ -1527,12 +1532,12 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # directories and ro_paths read-only; the workspace read-only, with what the
 # job writes there kept apart in scratch and discarded afterwards (its result
 # lists it); an empty HOME and /tmp; no network but the egress below; and
-# never Theseus's own state, socket, or token, the approve_paths, or cargo's
-# credentials files.
+# never Theseus's own state, socket, or token, ~/.aws, or cargo's credentials
+# files.
 # A job runs in L1 when the model asks for it (sandbox: true), when l1_argv
 # names its program, or when default is "l1", and nothing turns L1 back to
 # L0. An L1 job runs with a notice instead of waiting for approval, since
-# what the floor and the approve lists guard is not in its view. It still
+# what the floor guards is not in its view. It still
 # waits where you said so about proc.run itself (its line under policy.tools
 # above, or a "should have asked"), and in a session that has read web text,
 # as any call that acts does. A program in L1 gets its broker grant at its

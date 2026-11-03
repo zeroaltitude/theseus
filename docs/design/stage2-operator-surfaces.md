@@ -358,7 +358,7 @@ friendly to a phone over SSH.
    └ ◐ turn 2  task b4c5d6     $0.10 │ you: run the gate and push if green
  ◆ done  spec review           $1.20 │ ⚙ proc.run scripts/gate.sh · notify · 41 s
  ◐ sleeping until 16:00  task  $0.05 │ ⏸ confirm proc.run: git push origin main
- ○ ready  scratch              $0.00 │   why: approve_argv · expires in 4:12
+ ○ ready  scratch              $0.00 │   why: enforcement = approve · expires in 4:12
                                      │   [y] approve  [t] approve + trust  [n] decline
  > _                                                                [?] help  [q] quit
 ```

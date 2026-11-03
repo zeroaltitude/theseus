@@ -25,7 +25,7 @@ export interface ToolLine {
 }
 
 /** A tightening layer counts only when it names who tightened (its `setting`): its `raised` flag is the whole decision's
- *  against the config's posture, which a call outside the roots or on an approve list raises with no tightening at all. */
+ *  against the config's posture, which a call outside the roots or on the notify list raises with no tightening at all. */
 const raisedBy = (l: ExplainLayer): boolean => l.raised === true && (l.layer !== 'tightening' || !!l.setting)
 
 export const isTightened = (t: ToolExplain): boolean => t.layers.some((l) => l.layer === 'tightening' && !!l.setting)

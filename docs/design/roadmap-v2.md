@@ -631,7 +631,7 @@ item 2.
   - separated mode for his own daemon → his choice, any time (it needs sudo);
   - the owner set for labels → the local surfaces and `[approval] trusted_users`;
   - secrets an L1 job may request → `github_token` alone, at `notify`;
-  - noted, not asked: at L0, any job can use Docker. He may want `approve_argv = [["docker"]]`.
+  - noted, not asked: at L0, any job can use Docker. He may want `approve_argv = [["docker"]]`. _(Retired in 1.0.4 for `notify_argv`, which notices rather than waits: theseus-c4i8m.)_
 - **M5:**
   - may `security.v1` ever make a call wait → no: notices only;
   - `security.v1`'s promotion → a card for him, in the soak;

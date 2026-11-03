@@ -251,8 +251,8 @@ impl Rig {
     }
 }
 
-/// Where the scripted write goes: outside the workspace's roots, under a
-/// path on the approve list, so it waits (a write outside the roots alone
+/// Where the scripted write goes: outside the workspace's roots, with
+/// `fs.write` held by its own posture, so it waits (a write outside the roots alone
 /// takes its tool's posture, theseus-ewi).
 fn outside(dir: &Path) -> PathBuf {
     dir.join("outside").join("proof.txt")
@@ -276,10 +276,10 @@ fn core_at(
     std::fs::create_dir_all(dir.join("outside")).unwrap();
     cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.tools
-        .approve_paths
-        .push(dir.join("outside").to_string_lossy().into_owned());
     cfg.policy.enforcement = Posture::Notify;
+    // The approve list that held this path was retired (2026-11-03,
+    // theseus-c4i8m), so `fs.write`'s own line is what makes the proof wait.
+    cfg.policy.tools.insert("fs.write".into(), Posture::Approve);
     cfg.discord.rest_proxy = Some(fake.addr.clone());
     cfg.discord.gateway_proxy = fake.gateway().map(|g| g.url());
     cfg.discord.edit_interval_ms = 250;

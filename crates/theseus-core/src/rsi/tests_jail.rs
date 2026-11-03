@@ -17,7 +17,6 @@ fn sandbox() -> Sandbox {
         &cfg,
         &[PathBuf::from("/work")],
         &[PathBuf::from("/state/store"), PathBuf::from("/sealed")],
-        &[],
     )
 }
 
@@ -125,7 +124,7 @@ fn the_pinned_node_comes_first_on_a_self_builds_path() {
     assert!(path.unwrap().starts_with(&want), "{path:?}");
 }
 
-/// The approve list names the whole state directory (`~/.theseus`), which
+/// A hidden entry can name the whole state directory (`~/.theseus`), which
 /// also holds the gate's copy, the tree and the build tree. A mask over it
 /// would cover those binds and the gate would find no script (exit 127, every
 /// self branch red); the view hides what the directory holds that is secret
@@ -136,8 +135,12 @@ fn a_hidden_directory_that_holds_the_binds_is_not_masked_over_them() {
     let sb = Sandbox::new(
         &cfg,
         &[PathBuf::from("/work")],
-        &[PathBuf::from("/state/store"), PathBuf::from("/state/spool")],
-        &[PathBuf::from("/state"), PathBuf::from("/home/op/.ssh")],
+        &[
+            PathBuf::from("/state/store"),
+            PathBuf::from("/state/spool"),
+            PathBuf::from("/state"),
+            PathBuf::from("/home/op/.ssh"),
+        ],
     );
     let gate = PathBuf::from("/state/self/gates/gate-abc.sh");
     let ro = [gate];
@@ -174,8 +177,10 @@ fn a_self_builds_view_drops_the_one_mask_over_a_bind_and_no_other() {
         p("/srv/theseus-sealed"),
         p("/srv/theseus-sealed/behaviour"),
     ];
-    // The approve list, in the shape the operator's config has it.
-    let approve = [
+    // More of the hidden set, in the shape the operator's state directory has
+    // it. These were the approve list's until 1.0.4 retired it; the masking
+    // this test pins is the view's, whatever puts a path in the hidden set.
+    let hidden_too = [
         p("/state/self/gates"),
         p("/state/1password-service-token"),
         p("/state/config.last-good.toml"),
@@ -192,16 +197,16 @@ fn a_self_builds_view_drops_the_one_mask_over_a_bind_and_no_other() {
         p("/home/op/.gnupg"),
         p("/home/op/.aws"),
     ];
-    // The tree and the build tree are off the approve list on purpose, so no
+    // The tree and the build tree are out of the hidden set on purpose, so no
     // mask ever covered them: the gate script's directory was the only one.
     for off in ["/state/self/trees", "/state/self/target"] {
-        assert!(!approve.contains(&p(off)), "{off} is on the approve list");
+        assert!(!hidden_too.contains(&p(off)), "{off} is hidden");
     }
+    let all: Vec<PathBuf> = floor.iter().chain(&hidden_too).cloned().collect();
     let sb = Sandbox::new(
         &crate::sandbox::SandboxConfig::default(),
         &[p("/work")],
-        &floor,
-        &approve,
+        &all,
     );
     let gate = p("/state/self/gates/gate-abc.sh");
     let ro = [gate.clone()];
@@ -212,7 +217,7 @@ fn a_self_builds_view_drops_the_one_mask_over_a_bind_and_no_other() {
     let dropped: Vec<&PathBuf> = base.iter().filter(|h| !view.hidden.contains(h)).collect();
     assert_eq!(dropped, [&p("/state/self/gates")], "{base:?}");
     // And each of them said by name, the sealed sets among them.
-    for kept in floor.iter().chain(&approve[1..]) {
+    for kept in floor.iter().chain(&hidden_too[1..]) {
         assert!(view.hidden.contains(kept), "{}", kept.display());
     }
     // The bind the mask was covering is there, and reachable.
@@ -242,7 +247,6 @@ fn only_a_bind_below_a_mask_drops_it_and_the_prefix_is_component_wise() {
             // One component short of the tree.
             p("/state/self/tree"),
         ],
-        &[],
     );
     let ro = [p("/state/self/gates/gate-abc.sh")];
     let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
@@ -264,7 +268,7 @@ fn a_configured_ro_path_inside_a_mask_does_not_unmask_it_in_a_self_build() {
         ro_paths: vec!["/state/store/shared".into()],
         ..Default::default()
     };
-    let sb = Sandbox::new(&cfg, &[p("/work")], &[p("/state/store")], &[]);
+    let sb = Sandbox::new(&cfg, &[p("/work")], &[p("/state/store")]);
     let ro = [p("/state/self/gates/gate-abc.sh")];
     let view = sb.self_build_view(&build(&ro, Path::new("/home/op")));
     // The entry is still bound, and the directory above it still hidden.

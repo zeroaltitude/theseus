@@ -1386,12 +1386,6 @@ fn aws_rig(url: &str, port: u16) -> (Rig, String) {
         let mut proc_env = tools["proc_env"].as_array().unwrap().clone();
         proc_env.extend(DAEMON_AWS.iter().map(|(k, _)| toml::Value::from(*k)));
         tools.insert("proc_env".into(), proc_env.into());
-        if let Some(approve) = tools
-            .get_mut("approve_paths")
-            .and_then(|v| v.as_array_mut())
-        {
-            approve.retain(|p| p.as_str() != Some("~/.aws"));
-        }
     });
     use std::os::unix::fs::PermissionsExt;
     let aws = r.path("projects/bin/aws");

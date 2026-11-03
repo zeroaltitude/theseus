@@ -323,22 +323,21 @@ async fn a_step_on_the_floor_makes_the_batch_wait_as_the_floor() {
     );
 }
 
-/// The floor outranks an `approve_argv` entry at the same posture
-/// (theseus-grms): a batch whose first step is on the approve list and whose
-/// second is on the floor waits as the floor does, naming step 2, though
-/// both ask at `approve`; a tie keeps the earlier step, so posture alone
-/// would have named step 1.
+/// The floor outranks an earlier step at the same posture (theseus-grms): a
+/// batch whose first step asks by its posture and whose second is on the
+/// floor waits as the floor does, naming step 2, though both ask at
+/// `approve`; a tie keeps the earlier step, so posture alone would have
+/// named step 1. The earlier step asked by `approve_argv` until the owner
+/// retired it (2026-11-03, theseus-c4i8m); it asks by `enforcement` now, and
+/// the ordering under test is the same.
 #[tokio::test]
-async fn a_floor_step_outranks_an_earlier_step_on_the_approve_list() {
+async fn a_floor_step_outranks_an_earlier_step_at_the_same_posture() {
     let r = rig(
         vec![
             run(json!({"steps": [{"argv": ["touch", "first"]}, {"argv": ["op", "whoami"]}]})),
             Scripted::text("Done."),
         ],
-        |c| {
-            c.policy.enforcement = Posture::Open;
-            c.policy.approve_argv = vec![vec!["touch".into()]];
-        },
+        |c| c.policy.enforcement = Posture::Approve,
     );
     let res = r.turn("run").await;
     assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
@@ -472,11 +471,11 @@ async fn a_stop_during_a_step_starts_no_more() {
     );
 }
 
-/// A batch runs in one class (theseus-nrvq, option 1). An `l1_argv` step
-/// and an `approve_argv` step differ, so the batch is invalid input: no
-/// card, nothing run, and the result names each step's class. Before, the
-/// approve step's L0 bound both, and a yes ran the L1 program at L0. A batch
-/// whose steps share L1 runs as before, every step in L1.
+/// A batch runs in one class (theseus-nrvq, option 1). An `l1_argv` step and
+/// an L0 step differ, so the batch is invalid input: no card, nothing run,
+/// and the result names each step's class. Before, the L0 step's class bound
+/// both, and a yes ran the L1 program at L0. A batch whose steps share L1
+/// runs as before, every step in L1.
 #[tokio::test]
 async fn a_batch_whose_steps_differ_in_class_is_refused_and_one_class_runs() {
     let mixed = json!({"steps": [{"argv": ["true"]}, {"argv": ["printf", "two"]}]});
@@ -491,7 +490,7 @@ async fn a_batch_whose_steps_differ_in_class_is_refused_and_one_class_runs() {
         ],
         |c| {
             c.sandbox.l1_argv = vec![vec!["true".into()]];
-            c.policy.approve_argv = vec![vec!["printf".into(), "two".into()]];
+            c.policy.notify_argv = vec![vec!["printf".into(), "two".into()]];
         },
         classes.clone(),
     );

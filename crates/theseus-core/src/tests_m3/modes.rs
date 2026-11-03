@@ -193,7 +193,7 @@ async fn edits_runs_file_edits_in_the_directory_and_asks_for_everything_else() {
 #[tokio::test]
 async fn auto_is_notify_for_what_only_the_posture_asked_and_the_floor_still_asks() {
     let r = rig_with(vec![], |cfg| {
-        cfg.policy.approve_argv = vec![vec!["echo".into(), "listed".into()]];
+        cfg.policy.notify_argv = vec![vec!["echo".into(), "listed".into()]];
     });
     let sid = new_session(&r);
     let dir = r.root.clone();
@@ -218,9 +218,31 @@ async fn auto_is_notify_for_what_only_the_posture_asked_and_the_floor_still_asks
         &dir,
     );
     assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    // A notify-listed program is lowered by auto mode like any call the
+    // posture alone asked about. It was an approve-listed one until
+    // 2026-11-03 (theseus-c4i8m), and `posture_only` was false for it, so
+    // auto mode left it waiting; `notify_argv` is not read by `preempted`,
+    // so auto mode reaches it now.
+    let d = ordered(
+        &r,
+        &sid,
+        "proc.run",
+        run(&["echo", "listed"]),
+        PlaceClass::Private,
+        &dir,
+    );
+    assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    assert!(
+        d.notify
+            .as_ref()
+            .unwrap()
+            .setting
+            .starts_with("ran in auto mode"),
+        "{}",
+        d.reason
+    );
     for (why, input) in [
         ("the floor", run(&["theseusd", "status"])),
-        ("the approve list", run(&["echo", "listed"])),
         ("outside the roots", run(&["echo", "hi", "/etc/hosts"])),
         (
             "an env",

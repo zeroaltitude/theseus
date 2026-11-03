@@ -71,9 +71,8 @@ fn tool(aws: &Arc<Aws>, name: &str) -> Arc<dyn Tool> {
 fn policy(aws: &[(&str, Posture)]) -> ToolPolicy {
     ToolPolicy {
         roots: vec![],
-        approve_paths: vec![],
         allow_argv: vec![],
-        approve_argv: vec![],
+        notify_argv: vec![],
         enforcement: Posture::Notify,
         tools: BTreeMap::new(),
         mcp: BTreeMap::new(),

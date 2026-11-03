@@ -429,9 +429,13 @@ pub struct ToolsConfig {
     /// Where relative paths resolve and programs run by default (default: `projects_dir`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
-    /// Paths that wait for approval, even under a root.
-    #[serde(default = "default_approve_paths")]
-    pub approve_paths: Vec<String>,
+    /// `approve_paths` named paths that waited for approval, even under a
+    /// root. Retired in 1.0.4 (the owner, 2026-11-03 09:01): the environment
+    /// Theseus is given is safe by definition, so a configurable list of
+    /// special directories buys nothing the floor does not already refuse.
+    /// Read, warned of ([`Self::retired`]), ignored and never written back.
+    #[serde(default, skip_serializing)]
+    approve_paths: Option<toml::Value>,
     /// Characters of a tool result the model sees (head and tail kept).
     #[serde(default = "default_result_max_chars")]
     pub result_max_chars: usize,
@@ -518,19 +522,18 @@ pub struct ToolsConfig {
     pub defer: defer::DeferConfig,
 }
 
-fn default_approve_paths() -> Vec<String> {
-    [
-        "~/.ssh",
-        "~/.gnupg",
-        "~/.aws",
-        "~/.config/op",
-        "~/.openclaw-1password-service-token",
-        "~/.theseus",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+impl ToolsConfig {
+    /// The retired keys this section sets, by the name the config gives them:
+    /// what [`Config::parse`] warns of, once.
+    pub fn retired(&self) -> Vec<String> {
+        let keys = [("approve_paths", self.approve_paths.is_some())];
+        keys.iter()
+            .filter(|(_, set)| *set)
+            .map(|(k, _)| format!("tools.{k}"))
+            .collect()
+    }
 }
+
 fn default_result_max_chars() -> usize {
     30_000
 }
@@ -587,7 +590,7 @@ impl Default for ToolsConfig {
             projects_dir: None,
             roots: vec![],
             cwd: None,
-            approve_paths: default_approve_paths(),
+            approve_paths: None,
             result_max_chars: default_result_max_chars(),
             max_read_bytes: default_max_read_bytes(),
             max_attachment_bytes: default_max_attachment_bytes(),
@@ -677,9 +680,17 @@ pub struct PolicyConfig {
     /// inside the roots. A prefix covers any arguments after it.
     #[serde(default = "default_allow_argv")]
     pub allow_argv: Vec<Vec<String>>,
-    /// `proc.run` argv prefixes that wait for approval.
-    #[serde(default = "default_approve_argv")]
-    pub approve_argv: Vec<Vec<String>>,
+    /// `proc.run` argv prefixes that run at a posture raised to at least
+    /// `notify`, with the program named. A prefix covers any arguments after
+    /// it. It replaces `approve_argv`, which waited for approval (the owner,
+    /// 2026-11-03 09:01: "I want notify_argv instead of approve_argv").
+    #[serde(default = "default_notify_argv")]
+    pub notify_argv: Vec<Vec<String>>,
+    /// `approve_argv` named `proc.run` argv prefixes that waited for approval.
+    /// Retired in 1.0.4 for `notify_argv`: read, warned of
+    /// ([`Self::retired`]), ignored and never written back.
+    #[serde(default, skip_serializing)]
+    approve_argv: Option<toml::Value>,
     /// Per-tool postures by canonical name, e.g. `"proc.run" = "approve"`.
     #[serde(default)]
     pub tools: BTreeMap<String, crate::policy::Posture>,
@@ -722,7 +733,7 @@ fn default_allow_argv() -> Vec<Vec<String>> {
     // without the git binary.
     argvs(&[&["ls"], &["pwd"]])
 }
-fn default_approve_argv() -> Vec<Vec<String>> {
+fn default_notify_argv() -> Vec<Vec<String>> {
     // No `op` or `theseusd`: the floor asks for those whatever the lists say.
     argvs(&[
         &["sudo"],
@@ -741,12 +752,25 @@ fn default_agent_processes() -> Vec<String> {
         .to_vec()
 }
 
+impl PolicyConfig {
+    /// The retired keys this section sets, by the name the config gives them:
+    /// what [`Config::parse`] warns of, once.
+    pub fn retired(&self) -> Vec<String> {
+        let keys = [("approve_argv", self.approve_argv.is_some())];
+        keys.iter()
+            .filter(|(_, set)| *set)
+            .map(|(k, _)| format!("policy.{k}"))
+            .collect()
+    }
+}
+
 impl Default for PolicyConfig {
     fn default() -> Self {
         Self {
             enforcement: Default::default(),
             allow_argv: default_allow_argv(),
-            approve_argv: default_approve_argv(),
+            notify_argv: default_notify_argv(),
+            approve_argv: None,
             tools: BTreeMap::new(),
             mcp: BTreeMap::new(),
             agent_processes: default_agent_processes(),
@@ -1435,6 +1459,27 @@ impl Config {
                 }
             ));
         }
+        // The approve lists (the owner, 2026-11-03 09:01). Their own warning,
+        // because what replaces each one differs: `approve_paths` is gone with
+        // nothing in its place (the floor already refuses what it guarded),
+        // and `approve_argv` became `notify_argv`, which notices rather than
+        // waits — a config left unrenamed loses the notice, so the warning
+        // says so rather than only naming the key.
+        let mut gone = cfg.tools.retired();
+        gone.extend(cfg.policy.retired());
+        if !gone.is_empty() {
+            warnings.push(format!(
+                "{} retired in 1.0.4 (the approve lists are gone): read and ignored, remove {}. \
+                 The floor still refuses Theseus's own state and the 1Password CLI and its token; \
+                 `[policy] notify_argv` names the programs that run at a posture raised to at \
+                 least notify",
+                gone.join(", "),
+                match gone.len() {
+                    1 => "it",
+                    _ => "them",
+                }
+            ));
+        }
         if cfg.server.drafts_dir.is_some() {
             warnings.push(
                 "[server] drafts_dir is retired: the China-origin draft is gone, so the key \
@@ -1671,7 +1716,7 @@ impl Config {
             .policy
             .allow_argv
             .iter()
-            .chain(&self.policy.approve_argv)
+            .chain(&self.policy.notify_argv)
             .enumerate()
         {
             if argv.is_empty() {

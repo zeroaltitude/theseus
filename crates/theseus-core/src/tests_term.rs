@@ -135,13 +135,12 @@ fn only_terminal(core: &Core, sid: &str) -> (String, u32) {
     (ts[0].id.clone(), ts[0].pty.pid())
 }
 
-/// A policy whose approve list names `python3` and whose allow list `cat`.
+/// A policy whose notify list names `python3` and whose allow list `cat`.
 fn policy_in(root: &Path) -> ToolPolicy {
     ToolPolicy {
         roots: vec![root.to_path_buf()],
-        approve_paths: vec![],
         allow_argv: vec![vec!["cat".into()]],
-        approve_argv: vec![vec!["python3".into()]],
+        notify_argv: vec![vec!["python3".into()]],
         enforcement: Posture::Notify,
         tools: Default::default(),
         mcp: Default::default(),
@@ -153,10 +152,12 @@ fn policy_in(root: &Path) -> ToolPolicy {
     }
 }
 
-/// `term.open` is judged as `proc.run` is, by its argv: the approve list
-/// waits, the allow list runs, the floor asks; `term.send` is judged by the
-/// argv of its terminal's program, whatever keys it types; `term.read` and
-/// `term.close` take their own postures.
+/// `term.open` is judged as `proc.run` is, by its argv: the notify list
+/// notices and names the program, the allow list runs, the floor asks;
+/// `term.send` is judged by the argv of its terminal's program, whatever keys
+/// it types; `term.read` and `term.close` take their own postures. The list
+/// was `approve_argv` and waited until the owner retired it for `notify_argv`
+/// (2026-11-03, theseus-c4i8m).
 #[test]
 fn the_gate_judges_a_terminal_as_its_programs_run() {
     let d = tempfile::tempdir().unwrap();
@@ -173,18 +174,22 @@ fn the_gate_judges_a_terminal_as_its_programs_run() {
         (d.posture, d.reason, d.floor)
     };
     let open = tools::Open;
-    let (p, why, _) = decide(&open, json!({"argv": ["python3", "-q"]}));
-    assert_eq!(p, Posture::Approve, "{why}");
-    assert!(
-        why.starts_with("run `python3 -q` on a terminal in "),
-        "{why}"
+    // A notice carries no plan summary (only an `approve` reason does), so
+    // the whole reason is asserted, which still proves the argv was read.
+    let (p, why, floor) = decide(&open, json!({"argv": ["python3", "-q"]}));
+    assert_eq!(
+        (p, why.as_str()),
+        (
+            Posture::Notify,
+            "term.open — notify (enforcement = notify; `python3 -q` matches the notify list entry `python3`)"
+        )
     );
-    assert!(
-        why.ends_with(
-            "term.open — approve (`python3 -q` matches the approve list entry `python3`)"
-        ),
-        "{why}"
-    );
+    assert!(!floor, "the notify list is not the floor: {why}");
+    // Its argv decides it, not the terminal tool: an unlisted program is the
+    // enforcement's alone, with no clause naming a list.
+    let (p, why, _) = decide(&open, json!({"argv": ["python3x"]}));
+    assert_eq!(p, Posture::Notify, "{why}");
+    assert!(!why.contains("notify list"), "{why}");
     let (p, why, _) = decide(&open, json!({"argv": ["cat"]}));
     assert_eq!(
         (p, why.as_str()),
@@ -220,21 +225,15 @@ fn the_gate_judges_a_terminal_as_its_programs_run() {
         .unwrap()
         .0;
     let send = tools::Send(terms.clone());
-    let (p, why, _) = decide(&send, json!({"terminal": t_py.id, "text": "print(1)\n"}));
-    assert_eq!(p, Posture::Approve, "{why}");
-    assert!(
-        why.starts_with(&format!(
-            "type into terminal {}, which runs `python3 -q` in ",
-            t_py.id
-        )),
-        "{why}"
+    let (p, why, floor) = decide(&send, json!({"terminal": t_py.id, "text": "print(1)\n"}));
+    assert_eq!(
+        (p, why.as_str()),
+        (
+            Posture::Notify,
+            "term.send — notify (enforcement = notify; `python3 -q` matches the notify list entry `python3`)"
+        )
     );
-    assert!(
-        why.ends_with(
-            "term.send — approve (`python3 -q` matches the approve list entry `python3`)"
-        ),
-        "{why}"
-    );
+    assert!(!floor, "{why}");
     let (p, why, _) = decide(&send, json!({"terminal": t_cat.id, "keys": ["Ctrl-C"]}));
     assert_eq!(
         (p, why.as_str()),

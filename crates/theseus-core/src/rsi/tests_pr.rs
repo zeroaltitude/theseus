@@ -487,17 +487,24 @@ fn propose() -> Value {
     json!({"item": "trim-the-sails", "issue": "theseus-sail1", "why": "Trim the sails before the wind."})
 }
 
-/// A self task's own tree (theseus-pw1q.21.9), through the whole core with
-/// the state dir on the approve list, as a daemon's default has it: the self
-/// session's file tools work in the tree of its own task and nowhere else of
-/// the state dir. Each scenario is a self session of its own, with its task.
+/// A self session's work through the whole core, with a posture that asks
+/// before every call. The state dir was on the approve list until the owner
+/// retired it (2026-11-03, theseus-c4i8m), and that list is what used to
+/// single the tree out; the posture is what makes a call wait now, and
+/// self-improvement fails open past it (theseus-cudar), so a self session
+/// works in its tree, and in the rest of the state dir, with a notice. The
+/// floor is what still asks. Each scenario is a self session of its own,
+/// with its task.
 mod own_tree {
     use super::*;
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
     fn held(edit: impl FnOnce(&mut Config)) -> Rig {
         rig_with(SelfMode::Act, None, |cfg| {
-            cfg.tools.approve_paths = vec![cfg.server.state_dir.clone()];
+            // Every call waits, so a self session's soft hold is there to
+            // fail open and the floor's hard one is there to stay.
+            cfg.policy.enforcement = Posture::Approve;
+            cfg.policy.tools.clear();
             edit(cfg);
         })
     }
@@ -552,11 +559,14 @@ mod own_tree {
         assert!(said.contains("trimmed"), "{said}");
     }
 
-    /// Planted reverts: each of these asks the owner, from a self session
-    /// that can work in its own tree. (A read of the rest of the state dir
-    /// no longer asks: it runs with a notice, `a_self_sessions_soft_hold_...`.)
+    /// The floor is what a self session still asks about, by name and
+    /// through a link. Planted reverts: each `asked` below. The rest of the
+    /// state dir, and another task's tree, no longer ask: the approve list
+    /// that held them is retired (theseus-c4i8m), and a self session fails
+    /// open past the posture, so those runs are a notice. That half is
+    /// asserted here too, so the widening is read and not discovered.
     #[tokio::test]
-    async fn nothing_else_is_open_to_it() {
+    async fn only_the_floor_is_closed_to_it() {
         let r = held(|_| {});
         let state = r.f.place.state.canonicalize().unwrap();
         let (_, other) = task(&r, "tides");
@@ -582,9 +592,13 @@ mod own_tree {
             assert!(asked(&r, &sid), "{what} waits for the owner");
             let reason = &r.core.pending_confirms(&sid).unwrap()[0].reason;
             assert!(reason.contains("fs.read — approve"), "{what}: {reason}");
+            assert!(
+                r.core.pending_confirms(&sid).unwrap()[0].floor,
+                "{what}: the floor is what holds it"
+            );
         }
-        // A write to the state dir's other files asks too, and so does one
-        // in another task's tree (it may read there, never write).
+        // A write to the state dir's other files, and one in another task's
+        // tree, run with a notice now, where each used to ask.
         for (i, (what, path)) in [
             ("the rest of the state dir", state.join("planted.txt")),
             ("another task's tree", other.join("planted.txt")),
@@ -595,22 +609,20 @@ mod own_tree {
             let (sid, _) = task(&r, &format!("sails-w{i}"));
             r.turn(&sid, "fs_write", json!({"path": path, "content": "x"}))
                 .await;
-            assert!(asked(&r, &sid), "a write to {what}");
-            assert!(!path.exists(), "and it did not run");
+            assert!(!asked(&r, &sid), "a write to {what} asked");
+            assert!(path.exists(), "a write to {what} did not run");
         }
     }
 
     /// Self-improvement fails open (theseus-cudar): a self session's read the
-    /// approve list holds (the rest of the state dir: a report, a gate) runs
-    /// with a notice and no card, where the floor (the store), a key on the
-    /// approve list and a write still ask, and a session of another principal
-    /// asks for the same read. Planted reverts: each `asked` below.
+    /// posture holds (the rest of the state dir: a report, a gate) runs with
+    /// a notice and no card, where the floor (the store) still asks and a
+    /// session of another principal asks for the same read. The arm that
+    /// read a key on the approve list is gone with the list (theseus-c4i8m).
+    /// Planted reverts: each `asked` below.
     #[tokio::test]
     async fn a_self_sessions_soft_hold_runs_with_a_notice_and_no_card() {
-        let keys = tempfile::tempdir().unwrap();
-        let keys = keys.path().canonicalize().unwrap();
-        std::fs::write(keys.join("id"), "a key\n").unwrap();
-        let r = held(|cfg| cfg.tools.approve_paths.push(keys.display().to_string()));
+        let r = held(|_| {});
         let state = r.f.place.state.canonicalize().unwrap();
         std::fs::create_dir_all(state.join("self/reports")).unwrap();
         std::fs::write(state.join("self/reports/earlier.md"), "the 05:12 run\n").unwrap();
@@ -641,10 +653,7 @@ mod own_tree {
                 .any(|n| n["session_id"] == sid.as_str() && n.to_string().contains("fails open")),
             "{notified:?}"
         );
-        for (what, path) in [
-            ("the store", state.join("store/db")),
-            ("a key", keys.join("id")),
-        ] {
+        for (what, path) in [("the store", state.join("store/db"))] {
             let (sid, _) = task(&r, &format!("tides-{}", what.replace(' ', "-")));
             r.turn(&sid, "fs_read", json!({"path": path})).await;
             assert!(asked(&r, &sid), "{what} waits for the owner");
@@ -700,6 +709,12 @@ mod own_tree {
         assert!(asked(&r, &op), "an operator's grep of the trees root");
     }
 
+    /// A session of another principal asks in the tree, as it asks anywhere
+    /// the posture holds: failing open is the self principal's and no one
+    /// else's. A self session with no task of its own used to ask for a write
+    /// there, because the approve list held the state dir and `fails_open`
+    /// weighed it; with the list retired (theseus-c4i8m) nothing holds the
+    /// tree, so it writes with a notice, which the second arm pins.
     #[tokio::test]
     async fn a_session_that_is_not_self_asks_in_the_tree_too() {
         let r = held(|_| {});
@@ -709,22 +724,23 @@ mod own_tree {
         r.turn(&sid, "fs_read", json!({"path": tree.join("a.txt")}))
             .await;
         assert!(asked(&r, &sid), "an operator's read of the tree");
-        // And a self session with no task of its own has no tree to write in
-        // (it may read there, as every self session may).
         let sid = r.session("self");
-        r.turn(
-            &sid,
-            "fs_write",
-            json!({"path": tree.join("b.txt"), "content": "x"}),
-        )
-        .await;
-        assert!(asked(&r, &sid), "a self session of no task");
+        let path = tree.join("b.txt");
+        r.turn(&sid, "fs_write", json!({"path": path, "content": "x"}))
+            .await;
+        assert!(!asked(&r, &sid), "a self session of no task asked");
+        assert!(path.exists(), "and it ran");
     }
 
-    /// The rule loosens file tools only: a command in the tree still asks
-    /// (its code runs in L1 or nowhere), and the sealed sets stay refused.
+    /// A command in the tree runs with a notice now, and the sealed sets stay
+    /// refused. Until 1.0.4 the approve list's hold on the state dir reached
+    /// a run's working directory, so `fails_open` refused a command there and
+    /// it asked ("its code runs in L1 or nowhere"); the owner retired the
+    /// list (2026-11-03, theseus-c4i8m), so nothing but the floor reaches a
+    /// run's cwd and a self session's command fails open like its reads. The
+    /// sealed sets are the floor and are unmoved, which is the arm below.
     #[tokio::test]
-    async fn a_command_still_asks_and_the_sealed_sets_stay_refused() {
+    async fn a_command_runs_with_a_notice_and_the_sealed_sets_stay_refused() {
         let sealed = tempfile::tempdir().unwrap();
         let dir = sealed.path().canonicalize().unwrap();
         std::fs::write(dir.join("set.json"), "sealed\n").unwrap();
@@ -732,7 +748,7 @@ mod own_tree {
         let (sid, tree) = task(&r, "sails");
         let input = json!({"argv": ["ls"], "cwd": tree});
         r.turn(&sid, "proc_run", input).await;
-        assert!(asked(&r, &sid), "proc.run in the tree");
+        assert!(!asked(&r, &sid), "proc.run in the tree asked");
         let (sid, _) = task(&r, "sails2");
         let said = r
             .turn(&sid, "fs_read", json!({"path": dir.join("set.json")}))
@@ -744,22 +760,35 @@ mod own_tree {
 
 /// A self task's edit in its own tree starts no language server (theseus-kq4z4):
 /// the edit hook judged the server's start as a `proc.run` on the tree's
-/// root, which the state dir's approve-path hold asked for, though the edit
-/// itself was open. Through the whole core, with the language-server board
-/// on and rust-analyzer's preset starting on edit over a stand-in server.
+/// root, which the posture asked for, though the edit itself was open. The
+/// hold was the state dir's approve-path entry until the owner retired the
+/// list (2026-11-03, theseus-c4i8m); `[policy.tools] "proc.run" = "approve"`
+/// holds the start here now, and L3's own tree check is what the tests read. Through
+/// the whole core, with the language-server board on and rust-analyzer's
+/// preset starting on edit over a stand-in server.
 mod own_tree_edits {
     use super::*;
     use crate::tests_lsp::InProcess;
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
     use theseus_protocol::PolicyExplainParams;
 
+    /// `proc.run` waits, so the edit itself stays open and the language
+    /// server's start is what asks, as the row needs.
     fn held() -> (Rig, Arc<InProcess>) {
+        held_with(|cfg| {
+            cfg.policy.tools.insert("proc.run".into(), Posture::Approve);
+        })
+    }
+
+    /// The same board with the template's postures, for what must read the
+    /// layers rather than a hold.
+    fn held_with(edit: impl FnOnce(&mut Config)) -> (Rig, Arc<InProcess>) {
         let r = rig_with(SelfMode::Act, None, |cfg| {
-            cfg.tools.approve_paths = vec![cfg.server.state_dir.clone()];
             cfg.lsp = toml::from_str(
                 "enabled = true\n[servers.rust-analyzer]\ncommand = [\"theseus-lsp-fake\"]\n",
             )
             .unwrap();
+            edit(cfg);
         });
         let spawner = Arc::new(InProcess::default());
         r.core
@@ -833,9 +862,14 @@ mod own_tree_edits {
         assert_eq!(meta["lsp"]["not_started"], "self tree", "{meta}");
     }
 
+    /// Outside its own tree the rule does not fire, so the edit starts a
+    /// language server and waits on that start, and the edit does not run.
+    /// The edit itself asked until 1.0.4, because the approve list held the
+    /// state dir (theseus-c4i8m); L3 is what holds it now, which is why the
+    /// reason names the start and not `fs.edit`.
     #[tokio::test]
     async fn a_self_tasks_edit_outside_its_tree_still_asks() {
-        let (r, _) = held();
+        let (r, spawner) = held();
         let state = r.f.place.state.canonicalize().unwrap();
         let (_, theirs, _) = task(&r, "tides");
         std::fs::write(state.join("notes.rs"), "pub fn wind() -> u8 { 1 }\n").unwrap();
@@ -846,9 +880,13 @@ mod own_tree_edits {
             let (sid, _, _) = task(&r, &format!("sails-{}", what.len()));
             r.turn(&sid, "fs_edit", edit(&file)).await;
             let reason = asked(&r, &sid).unwrap_or_default();
-            assert!(reason.contains("fs.edit"), "{what}: {reason}");
+            assert!(
+                reason.contains("starts rust-analyzer") && reason.contains("proc.run — approve"),
+                "{what}: {reason}"
+            );
             assert!(!changed(&file), "{what}: it did not run");
         }
+        assert_eq!(spawner.count(), 0, "held before any server started");
     }
 
     #[tokio::test]
@@ -861,16 +899,19 @@ mod own_tree_edits {
         assert_eq!(spawner.count(), 0);
     }
 
-    /// The rule opens the edit alone: a command in the tree and an `lsp.*`
-    /// call (L2, whose own `own` is none) ask as before.
+    /// A command in the tree runs with a notice: a self session fails open
+    /// past the posture, and since 1.0.4 nothing but the floor reaches a
+    /// run's working directory (theseus-c4i8m), where the approve list used
+    /// to hold the state dir and make it ask. An `lsp.*` call still asks,
+    /// which is the layer order: L2 runs after the fail-open step, so a hold
+    /// it adds is not failed open.
     #[tokio::test]
-    async fn a_self_tasks_proc_run_and_lsp_start_in_its_tree_are_judged_as_today() {
+    async fn a_self_tasks_proc_run_fails_open_and_an_lsp_start_still_asks() {
         let (r, spawner) = held();
         let (sid, file, tree) = task(&r, "sails");
         r.turn(&sid, "proc_run", json!({"argv": ["ls"], "cwd": tree}))
             .await;
-        let reason = asked(&r, &sid).unwrap_or_default();
-        assert!(reason.contains("proc.run — approve"), "{reason}");
+        assert_eq!(asked(&r, &sid), None, "a command in its own tree asked");
         let (sid, file2, _) = task(&r, "sails2");
         let hover = json!({"path": file2, "line": 1, "symbol": "wind"});
         r.turn(&sid, "lsp_hover", hover).await;
@@ -886,7 +927,7 @@ mod own_tree_edits {
 
     #[tokio::test]
     async fn explain_names_the_self_tree_rule() {
-        let (r, _) = held();
+        let (r, _) = held_with(|_| {});
         let (sid, _, _) = task(&r, "sails");
         let said = r
             .core

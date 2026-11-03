@@ -19,20 +19,25 @@ struct Rig {
     fake: Arc<FakeProvider>,
     /// The workspace's root, where reads are open.
     root: PathBuf,
-    /// Outside the roots and on the approve list: a write here waits.
+    /// Inside Theseus's own spool, which is the floor: a write here waits at
+    /// every posture. It was an approve-listed directory outside the roots
+    /// until the owner retired the approve list (2026-11-03, theseus-c4i8m);
+    /// the floor is what still holds a path, so the flow under test is driven
+    /// from there now.
     guarded: PathBuf,
     _dir: tempfile::TempDir,
 }
 
 /// A core whose provider follows the script `script` writes for the
-/// workspace's root and the guarded directory, at the template's postures,
-/// with that one approve-listed directory outside the roots. Since
-/// theseus-ewi a write outside the roots takes the tool's posture (notify,
-/// here), so the approve list is what makes these writes wait.
+/// workspace's root and the guarded directory, at the template's postures.
+/// Since theseus-ewi a write outside the roots takes the tool's posture
+/// (notify, here), so the floor is what makes these writes wait.
 fn rig(script: impl FnOnce(&Path, &Path) -> Vec<Scripted>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
-    let guarded = dir.path().join("guarded");
+    // The spool is the floor (`toolrun::guarded::guarded_paths`), and
+    // `state_dir` is this directory, so a write under it waits.
+    let guarded = dir.path().join("spool").join("guarded");
     for d in [&root, &guarded] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -44,7 +49,6 @@ fn rig(script: impl FnOnce(&Path, &Path) -> Vec<Scripted>) -> Rig {
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.tools.approve_paths = vec![guarded.to_string_lossy().into_owned()];
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script(&root, &guarded)));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();

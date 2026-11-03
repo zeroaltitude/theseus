@@ -49,8 +49,8 @@ struct Rig {
 }
 
 impl Rig {
-    /// The template as a deployment that asks before every call that acts,
-    /// with `sudo` on the approve list.
+    /// The template as a deployment that asks before every call that acts:
+    /// `proc.run` has no line of its own, so it inherits `enforcement`.
     fn new(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config, &Path)) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("work");
@@ -63,7 +63,6 @@ impl Rig {
         cfg.tools.proc_sync_secs = 10;
         cfg.policy.enforcement = Posture::Approve;
         cfg.policy.tools.remove("proc.run");
-        cfg.policy.approve_argv = vec![vec!["sudo".into()]];
         tweak(&mut cfg, &root);
         let store = Store::open(&dir.path().join("store")).unwrap();
         let fake = Arc::new(FakeProvider::scripted(script));
@@ -171,10 +170,13 @@ fn run(input: Value) -> Scripted {
     Scripted::tools("", &[("t1", "proc_run", input)])
 }
 
-/// Decision 1 (the owner, 2026-10-02): an L1 job runs at notify, though the
-/// approve list, a path outside the roots, and the deployment's own posture
-/// would each make it wait at L0; and L0 keeps its postures. Before 17b the
-/// `sandbox` input was refused as unknown, and every call here waited.
+/// Decision 1 (the owner, 2026-10-02): an L1 job runs at notify, though a
+/// path outside the roots and the deployment's own posture would each make
+/// it wait at L0; and L0 keeps its postures. Before 17b the `sandbox` input
+/// was refused as unknown, and every call here waited. The approve list was
+/// a third thing that would have made `sudo` wait at L0 until the owner
+/// retired it (2026-11-03, theseus-c4i8m); `enforcement = "approve"` is what
+/// holds it now, which is what the L0 arm below reads.
 #[tokio::test]
 async fn l1_runs_at_notify_where_l0_waits() {
     let r = Rig::new(

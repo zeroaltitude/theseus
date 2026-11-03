@@ -509,14 +509,6 @@ fn conditions(core: &Core, s: &Scene, tool: &dyn Tool) -> Vec<ExplainCondition> 
         floor,
         "approve",
     ));
-    if !p.approve_paths.is_empty() {
-        out.push(cond(
-            "approve_paths",
-            "a resource or a path argument on the approve list",
-            shown(&p.approve_paths),
-            "approve",
-        ));
-    }
     if tool.class() != ToolClass::Write || argv {
         out.push(cond(
             "outside_roots",
@@ -552,17 +544,17 @@ fn conditions(core: &Core, s: &Scene, tool: &dyn Tool) -> Vec<ExplainCondition> 
     out
 }
 
-/// The allow and approve lists' entries, and the programs granted secrets:
+/// The allow and notify lists' entries, and the programs granted secrets:
 /// the layers a command's argv decides.
 fn argv_conditions(rt: &crate::toolrun::ToolRuntime) -> Vec<ExplainCondition> {
     let p = &rt.policy;
     let mut out = Vec::new();
-    if !p.approve_argv.is_empty() {
+    if !p.notify_argv.is_empty() {
         out.push(cond(
-            "approve_argv",
-            "its argv starts with an entry of the approve list",
-            argvs(&p.approve_argv),
-            "approve",
+            "notify_argv",
+            "its argv starts with an entry of the notify list",
+            argvs(&p.notify_argv),
+            "the posture, at least notify, with the program named",
         ));
     }
     if !p.allow_argv.is_empty() {

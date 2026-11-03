@@ -341,11 +341,12 @@ fn the_bench_profile_loads_and_opens_every_tool() {
     assert_eq!(cfg.policy.enforcement, Posture::Open);
     assert!(cfg.policy.tools.is_empty(), "{:?}", cfg.policy.tools);
     assert!(cfg.policy.mcp.is_empty() && cfg.policy.aws.is_empty());
-    assert!(cfg.policy.allow_argv.is_empty() && cfg.policy.approve_argv.is_empty());
+    assert!(cfg.policy.allow_argv.is_empty() && cfg.policy.notify_argv.is_empty());
     // A private address is judged as any other (theseus-7gir.20).
     assert_eq!(cfg.policy.private_addresses, PrivateAddresses::Open);
     assert_eq!(cfg.tools.roots, ["/"]);
-    assert!(cfg.tools.approve_paths.is_empty());
+    // It names neither retired approve list, so it loads with no warning.
+    assert!(cfg.tools.retired().is_empty() && cfg.policy.retired().is_empty());
     assert_eq!(cfg.tools.proc_sync_secs, 900);
     assert!(!cfg.discord.enabled && !cfg.web.enabled && !cfg.index.enabled);
     assert_eq!((cfg.server.disk_warn_mb, cfg.server.disk_floor_mb), (0, 0));

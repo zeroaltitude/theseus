@@ -372,7 +372,7 @@ fn example_template_lists_every_tool_under_policy_tools() {
 }
 
 /// The template's [policy] is the config to set (theseus-8az): notify
-/// everywhere, reads open, the default approve lists, no retired keys, a
+/// everywhere, reads open, the default notify list, no retired keys, a
 /// commented [policy.mcp], and no word of a deny.
 #[test]
 fn example_template_is_the_policy_to_set() {
@@ -380,8 +380,14 @@ fn example_template_is_the_policy_to_set() {
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(cfg.policy.enforcement, Posture::Notify);
     assert_eq!(cfg.policy.allow_argv, default_allow_argv());
-    assert_eq!(cfg.policy.approve_argv, default_approve_argv());
-    assert_eq!(cfg.tools.approve_paths, default_approve_paths());
+    assert_eq!(cfg.policy.notify_argv, default_notify_argv());
+    // The retired keys are named nowhere in the template, so it warns of none
+    // (the `warnings.is_empty()` above is the assertion; this pins the text).
+    assert!(
+        !Config::EXAMPLE_TOML.contains("\napprove_paths =")
+            && !Config::EXAMPLE_TOML.contains("\napprove_argv ="),
+        "the template still sets a retired approve list"
+    );
     assert!(cfg.policy.mcp.is_empty(), "[policy.mcp] stays commented");
     assert!(cfg.mcp.is_empty(), "[mcp.servers] stays commented");
     let section: Vec<&str> = Config::EXAMPLE_TOML
@@ -768,11 +774,11 @@ fn an_unknown_tool_name_still_fails_to_load() {
     assert!(policy_only("[policy.mcp]\n\"a/b/c\" = \"approve\"").is_err());
 }
 
-/// `op` and `theseusd` are not on the default approve list: the floor
-/// asks for them whatever the lists say.
+/// `op` and `theseusd` are not on the default notify list: the floor asks
+/// for them whatever the lists say, and a notice is not an ask.
 #[test]
-fn the_default_approve_argv_leaves_op_and_theseusd_to_the_floor() {
-    let d = default_approve_argv();
+fn the_default_notify_argv_leaves_op_and_theseusd_to_the_floor() {
+    let d = default_notify_argv();
     assert!(
         !d.iter().any(|a| a[0] == "op" || a[0] == "theseusd"),
         "{d:?}"

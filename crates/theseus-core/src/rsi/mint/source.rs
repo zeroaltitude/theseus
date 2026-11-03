@@ -277,13 +277,10 @@ impl Core {
         )
         .map_err(fail)?;
         let max = self.cfg.route_bench.whole_tree_mb * 1024 * 1024;
-        let skip: Vec<std::path::PathBuf> = rt
-            .policy
-            .approve_paths
-            .iter()
-            .chain(&rt.policy.floor_paths)
-            .cloned()
-            .collect();
+        // The floor's paths are never copied into a scratch tree. The approve
+        // list was skipped here too until 1.0.4 retired it; the floor still
+        // covers Theseus's own state, the vault's token and the sealed sets.
+        let skip: Vec<std::path::PathBuf> = rt.policy.floor_paths.clone();
         let s = scratch::copy(cwd, &std::env::temp_dir(), &o.turn, (max, &skip)).map_err(fail)?;
         undo::undo(cwd, &s.dir, &span.written).map_err(fail)?;
         Ok((s, span.written))

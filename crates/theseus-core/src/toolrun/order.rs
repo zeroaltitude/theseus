@@ -105,18 +105,13 @@ impl ToolRuntime {
         };
         let tightened = self.tightened.get(tool.name());
         let t = tightened.as_ref().map(crate::tighten::as_tightened);
-        // A self task's file tools work in its own tree: the approve list's
-        // hold on the state dir does not reach it (theseus-pw1q.21.9).
+        // A self task's own tree, which L3 (an edit that starts a language
+        // server) judges its edits against (theseus-pw1q.21.9).
         let own_tree = at
             .session
             .filter(|_| tool.name().starts_with("fs."))
             .and_then(|session| crate::rsi::own_tree::of(self, session));
-        // ... and its reads, and git's, reach the trees root (theseus-qh2tt).
-        let open_to = at
-            .session
-            .and_then(|session| crate::rsi::own_tree::open_to(self, session, tool));
-        let (decision, bound) =
-            crate::sandbox::unbrokered(self, tool, plan, input, t, open_to.as_deref());
+        let (decision, bound) = crate::sandbox::unbrokered(self, tool, plan, input, t);
         // A self session's soft hold is a notice that runs: self-improvement
         // fails open (theseus-cudar). The floor and the keel still wait, and
         // every later layer (web text, a place's floor) may still hold it.

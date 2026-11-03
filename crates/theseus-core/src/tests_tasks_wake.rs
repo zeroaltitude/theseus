@@ -298,9 +298,11 @@ async fn a_task_sessions_typed_turn_is_a_persons() {
 }
 
 const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
-const DM_PERSON_TOKENS: u64 = 9908;
+// 9908 and 7624 until 1.0.4: the tools note's line about the approve list
+// became one about the floor, four characters shorter (theseus-c4i8m).
+const DM_PERSON_TOKENS: u64 = 9906;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7624;
+const CLI_PERSON_TOKENS: u64 = 7622;
 
 /// A person's message that asks for a task still loads the family by the ask.
 #[tokio::test]

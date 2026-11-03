@@ -542,13 +542,16 @@ async fn a_shared_place_is_offered_no_lsp_tool() {
 
 /// A rename: its plan shows the diff and keeps it by digest, writing
 /// nothing; its apply is gated as a write of every file it names, so one on
-/// the approve list waits, and one outside the roots waits; applied, it
-/// writes exactly the plan's edit, and refuses a file changed since.
+/// the floor waits, and one outside the roots does not; applied, it writes
+/// exactly the plan's edit, and refuses a file changed since. The held file
+/// was on the approve list until the owner retired it (2026-11-03,
+/// theseus-c4i8m); the floor holds it now, and the token file is a floor
+/// path a test can point at one file.
 #[tokio::test]
 async fn a_rename_is_gated_on_every_file_it_writes() {
     let dir = tempfile::tempdir().unwrap();
     let (core, work, _) = core_in(dir.path(), |cfg, work| {
-        cfg.tools.approve_paths = vec![work.join("b.fake").to_string_lossy().into_owned()];
+        cfg.op_token_file = Some(work.join("b.fake"));
     });
     let rt = &core.tools;
     let plan_tool = rt.registry.get("lsp.rename.plan").unwrap().clone();
@@ -575,7 +578,8 @@ async fn a_rename_is_gated_on_every_file_it_writes() {
     let apply = json!({"digest": digest});
     let d = decided(&core, "lsp.rename", &apply);
     assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
-    assert!(d.reason.contains("b.fake is protected"), "{}", d.reason);
+    assert!(d.floor, "the floor holds b.fake: {}", d.reason);
+    assert!(d.reason.contains("b.fake"), "{}", d.reason);
     let plan = rt
         .registry
         .get("lsp.rename")

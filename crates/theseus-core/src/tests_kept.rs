@@ -49,7 +49,6 @@ fn rig_with(script: Vec<Scripted>, tweak: impl FnOnce(&mut Config)) -> Rig {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.tools.approve_paths = vec![];
     cfg.tools.proc_sync_secs = 10;
     // The gate's stops are what the read of a kept output must not meet.
     cfg.policy.enforcement = Posture::Approve;
@@ -278,33 +277,41 @@ fn posture(core: &Core, sid: &str, path: &Path) -> String {
     d.posture.as_str().into()
 }
 
+/// A session's own kept outputs are readable, and since 1.0.4 so is every
+/// other session's: what kept one session out of another's outputs was the
+/// approve list's hold on the outputs dir (a deployment listed the state
+/// dir's children in its own `approve_paths`), and the owner retired the
+/// approve list on 2026-11-03 (theseus-c4i8m). The roots never did it — they
+/// only label a read outside them (theseus-m9fdg) — and the floor is the
+/// store, the spool and the bindings, not the outputs. So with the template's
+/// `"fs.read" = "open"` a read of another session's output is now open.
+/// Nothing was added to the floor to replace it, by the row's scope; this
+/// test pins the new truth so the change is read and not discovered.
 #[tokio::test]
-async fn only_the_sessions_own_outputs_become_readable() {
-    // What keeps one session out of another's outputs is the approve list's
-    // hold on the outputs dir (this rig lists it itself; a deployment lists
-    // the state dir's children in its own `approve_paths`), not the roots,
-    // which only label a read outside them (theseus-m9fdg).
-    let r = rig_with(vec![], |cfg| {
-        let outputs = std::path::Path::new(&cfg.server.state_dir).join("outputs");
-        cfg.tools.approve_paths = vec![outputs.to_string_lossy().into_owned()];
-    });
+async fn a_sessions_kept_outputs_are_readable_and_so_are_another_sessions() {
+    let r = rig_with(vec![], |_| {});
     let (mine, other) = (session(&r.core), session(&r.core));
     let out = r.state.join("outputs");
     assert_eq!(
         posture(&r.core, &mine, &out.join(&mine).join("t1.out")),
         "open"
     );
-    // Another session's, the outputs folder itself, a climb out of the
-    // session's folder, and the store all wait: the approve list holds the
-    // outputs, and the store is the floor.
+    // Another session's, the outputs folder itself, and a climb out of the
+    // session's folder: each used to wait, and each is now the posture's,
+    // which the template sets open for `fs.read` and the outside-the-roots
+    // label raises to a notice. A notice is not a hold: the read runs.
     for p in [
         out.join(&other).join("t1.out"),
         out.join("t1.out"),
         out.join(&mine).join("..").join(&other).join("t1.out"),
-        r.state.join("store").join("index.redb"),
     ] {
-        assert_eq!(posture(&r.core, &mine, &p), "approve", "{}", p.display());
+        assert_eq!(posture(&r.core, &mine, &p), "notify", "{}", p.display());
     }
+    // The store is still the floor, and still waits.
+    assert_eq!(
+        posture(&r.core, &mine, &r.state.join("store").join("index.redb")),
+        "approve"
+    );
     // Inside the roots, as before.
     assert_eq!(posture(&r.core, &mine, &r.root.join("a.rs")), "open");
 }

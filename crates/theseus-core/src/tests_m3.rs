@@ -31,7 +31,6 @@ fn config(root: &Path, state: &Path) -> Config {
     cfg.server.state_dir = state.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
-    cfg.tools.approve_paths = vec![root.join("secret").to_string_lossy().into_owned()];
     cfg.tools.proc_sync_secs = 10;
     // The template is a deployment (enforcement = notify); these scenarios
     // test the gate's stops, so what the template leaves to enforcement (the
@@ -486,8 +485,14 @@ async fn a_call_approved_before_theseus_0g4_resumes_from_its_node() {
     );
 }
 
+/// Outside the roots is a label and runs unasked; a call the posture holds
+/// waits with a clear reason, and a decline means it never runs. The held
+/// call was a read of an `approve_paths` directory until the owner retired
+/// the approve list (2026-11-03, theseus-c4i8m); it is a write held by
+/// `enforcement = "approve"` now, which is the same flow through the same
+/// code and the reason the gate gives when no list preempts it.
 #[tokio::test]
-async fn outside_the_roots_runs_and_approve_paths_wait_with_a_clear_reason() {
+async fn outside_the_roots_runs_and_a_held_call_waits_with_a_clear_reason() {
     let outside = tempfile::tempdir().unwrap();
     let file = outside.path().canonicalize().unwrap().join("notes.txt");
     std::fs::write(&file, "outside the workspace\n").unwrap();
@@ -497,7 +502,14 @@ async fn outside_the_roots_runs_and_approve_paths_wait_with_a_clear_reason() {
             &[("t1", "fs_read", json!({"path": file.to_string_lossy()}))],
         ),
         Scripted::text("Read it."),
-        Scripted::tools("", &[("t2", "fs_read", json!({"path": "secret/key.pem"}))]),
+        Scripted::tools(
+            "",
+            &[(
+                "t2",
+                "fs_write",
+                json!({"path": "secret/key.pem", "content": "not for the model\n"}),
+            )],
+        ),
         Scripted::text("Skipped it."),
         Scripted::tools(
             "",
@@ -518,21 +530,18 @@ async fn outside_the_roots_runs_and_approve_paths_wait_with_a_clear_reason() {
     assert_eq!(rs[0].0, ResultStatus::Ok, "{rs:?}");
     assert!(rs[0].1.contains("outside the workspace"), "{}", rs[0].1);
 
-    // On approve_paths, inside the roots: the call waits; a decline means it never runs.
+    // A write inside the roots, held by the posture: the call waits; a
+    // decline means it never runs, and the file is never written.
     std::fs::create_dir_all(r.root.join("secret")).unwrap();
-    std::fs::write(r.root.join("secret/key.pem"), "not for the model\n").unwrap();
-    let res = turn(&r.core, Some(&sid), "read the key").await;
-    let corr = res
-        .awaiting_confirm
-        .clone()
-        .expect("an approve_paths hit waits");
+    let key = r.root.join("secret/key.pem");
+    let res = turn(&r.core, Some(&sid), "write the key").await;
+    let corr = res.awaiting_confirm.clone().expect("a held write waits");
     let pending = r.core.pending_confirms(&sid).unwrap();
     assert!(!pending[0].floor);
     assert!(
-        pending[0].reason.ends_with(&format!(
-            "fs.read — approve ({0}/secret/key.pem is protected: {0}/secret is on the approve list)",
-            r.root.display()
-        )),
+        pending[0]
+            .reason
+            .ends_with("fs.write — approve (enforcement = approve)"),
         "{}",
         pending[0].reason
     );
@@ -551,6 +560,7 @@ async fn outside_the_roots_runs_and_approve_paths_wait_with_a_clear_reason() {
         "declined, never run: {rs:?}"
     );
     assert!(!rs[1].1.contains("not for the model"), "{}", rs[1].1);
+    assert!(!key.exists(), "a declined write never ran");
 
     // Bad input and unknown tools are errors, as before.
     let res = turn(&r.core, Some(&sid), "try these").await;

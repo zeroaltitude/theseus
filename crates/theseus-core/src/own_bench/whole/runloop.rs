@@ -402,13 +402,10 @@ impl Core {
         let cwd = rt.cwd_for(original.session.dir.as_deref());
         let max = self.cfg.route_bench.whole_tree_mb * 1024 * 1024;
         let tag = p.turn.clone();
-        let skip: Vec<std::path::PathBuf> = rt
-            .policy
-            .approve_paths
-            .iter()
-            .chain(&rt.policy.floor_paths)
-            .cloned()
-            .collect();
+        // The floor's paths are never copied into a scratch tree. The approve
+        // list was skipped here too until 1.0.4 retired it; the floor still
+        // covers Theseus's own state, the vault's token and the sealed sets.
+        let skip: Vec<std::path::PathBuf> = rt.policy.floor_paths.clone();
         let copied = tokio::task::spawn_blocking(move || {
             let s = scratch::copy(&cwd, &std::env::temp_dir(), &tag, (max, &skip))?;
             let notes = undo::undo(&cwd, &s.dir, &span.written)?;

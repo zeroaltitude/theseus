@@ -63,7 +63,6 @@ daily_spend_ceiling_mode = "stop"       # set by the adapter: the ceiling stops 
 [tools]
 projects_dir = "/app"                   # set by the adapter: the task's working directory
 roots = ["/"]
-approve_paths = []
 # A command the task runs (a build, a test suite) keeps the turn waiting up to
 # this long; a headless run ends with its turn, so a job left running in the
 # background would never be read.
@@ -72,7 +71,7 @@ proc_sync_secs = 900                    # set by the adapter
 [policy]
 enforcement = "open"
 allow_argv = []
-approve_argv = []
+notify_argv = []
 private_addresses = "open"
 
 [sandbox]

@@ -19,7 +19,7 @@
 //!   conversation to `ask`, or `edits` when the person picked that.
 //!
 //! A mode only ever lowers a posture the posture alone raised, so it never
-//! passes the floor, `approve_paths`, the place rule's refusal, L1's own asks
+//! passes the floor, the place rule's refusal, L1's own asks
 //! (its egress) or any layer after the order's step for it. A shared place
 //! has no mode but `ask` (`rpc/modes.rs` refuses the rest, and the gate
 //! reads none for a shared place). The board is memory, one field read per

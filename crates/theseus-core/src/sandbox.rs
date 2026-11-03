@@ -8,8 +8,8 @@
 //!   `sandbox: false` overrides neither (the owner's decision 2, 2026-10-02).
 //! - **L1's posture is notify** (decision 1): an L1 job can reach nothing
 //!   (no capabilities, no network, scratch writes, and Theseus's floor and
-//!   the approve list's paths covered in its view), so neither the floor nor
-//!   the approve lists wait for it. A secret the broker grants its program
+//!   the credentials of `CREDENTIALS` covered in its view), so the floor does
+//!   not wait for it. A secret the broker grants its program
 //!   it takes at its launch, as at L0: the call runs at no looser a posture
 //!   than the secret's, so any approval comes before the launch (decision
 //!   15; theseus-w5op). Hosts its call names beyond `[sandbox] egress` are a
@@ -209,8 +209,8 @@ pub fn bind_class(p: &mut Proposal, class: Class) {
 /// The gate's decision for a call, and what its proposal binds (the gate in
 /// `toolrun`): its class, and an L1 job's egress list, whose hosts beyond
 /// `[sandbox] egress` are a notice that names them (18c). L1
-/// runs at notify: the floor and the approve lists guard what an L1 job
-/// cannot reach, so neither is asked. The operator's own word about the
+/// runs at notify: the floor guards what an L1 job cannot reach, so it is
+/// not asked. The operator's own word about the
 /// tool still is (the owner, 2026-10-02, theseus-jfs6): a `[policy.tools]` line
 /// for it, or a tightening, that asks makes an L1 call wait too, so the model
 /// cannot step around it with `sandbox: true`. The inherited
@@ -224,7 +224,6 @@ pub(crate) fn unbrokered(
     plan: &Plan,
     input: &Value,
     tightened: Option<crate::policy::Tightened<'_>>,
-    own: Option<&std::path::Path>,
 ) -> (Decision, Bound) {
     let l1 = (tool.backend() == Backend::Job)
         .then(|| {
@@ -245,7 +244,7 @@ pub(crate) fn unbrokered(
             (d, bound)
         }
         None => (
-            rt.policy.decide_in(tool, plan, tightened, own),
+            rt.policy.decide_with(tool, plan, tightened),
             Bound::default(),
         ),
     }
@@ -489,8 +488,9 @@ pub fn launch_of(detail: &Value, at_ms: u64) -> Option<SandboxLaunch> {
 }
 
 /// Credentials an `ro_paths` entry or a workspace root could bind: covered in
-/// every view, as the floor is, whatever the approve list says, since an L1
-/// job reads at notify what L0 would ask for. `~/.cargo` holds crates.io's
+/// every view, as the floor is, since an L1 job reads at notify what L0 would
+/// ask for. Since 1.0.4 retired the approve list this is the only cover they
+/// have in a view. `~/.cargo` holds crates.io's
 /// token after `cargo login`; `~/.aws` the operator's AWS keys, profiles, and
 /// cached sessions, so the job session an `aws` grant gives an L1 job is the
 /// only AWS credential it holds (18e). Each at its real path, as the view
@@ -525,21 +525,15 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    /// `roots` are the workspace's; no view shows the `floor`'s paths or the
-    /// `approve` list's, whatever binds them.
-    pub fn new(
-        cfg: &SandboxConfig,
-        roots: &[PathBuf],
-        floor: &[PathBuf],
-        approve: &[PathBuf],
-    ) -> Self {
+    /// `roots` are the workspace's; no view shows the `floor`'s paths,
+    /// whatever binds them.
+    pub fn new(cfg: &SandboxConfig, roots: &[PathBuf], floor: &[PathBuf]) -> Self {
         let canon =
             |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
         // The sandbox takes absolute paths alone, each once.
         let mut hidden: Vec<PathBuf> = Vec::new();
         for p in floor
             .iter()
-            .chain(approve)
             .filter_map(|p| std::path::absolute(p).ok())
             .chain(CREDENTIALS.iter().map(|p| canon(p)))
             .filter(|p| p.is_absolute())
@@ -767,7 +761,7 @@ mod tests {
     #[test]
     fn the_class_is_chosen_toward_l1_alone() {
         let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let sb = |cfg: SandboxConfig| Sandbox::new(&cfg, &[], &[], &[]);
+        let sb = |cfg: SandboxConfig| Sandbox::new(&cfg, &[], &[]);
         let plain = sb(SandboxConfig::default());
         assert_eq!(plain.l1_for(&argv(&["ls"]), &json!({})), None);
         assert_eq!(
@@ -824,7 +818,7 @@ mod tests {
     /// job's, and an older launch read later, change nothing.
     #[test]
     fn health_keeps_the_newest_l1_launch() {
-        let sb = Sandbox::new(&SandboxConfig::default(), &[], &[], &[]);
+        let sb = Sandbox::new(&SandboxConfig::default(), &[], &[]);
         assert_eq!(sb.health().last_launch, None, "no L1 job yet");
         sb.launched(&json!({"exit_code": 0}), 10);
         assert_eq!(sb.health().last_launch, None, "an L0 job's");
@@ -858,7 +852,7 @@ mod tests {
             ro_paths: vec!["~/.cargo".into()],
             ..Default::default()
         };
-        let hidden = Sandbox::new(&cfg, &[], &[], &[])
+        let hidden = Sandbox::new(&cfg, &[], &[])
             .view
             .lock()
             .unwrap()
@@ -870,19 +864,20 @@ mod tests {
         }
     }
 
-    /// `~/.aws` never shows in a view (18e), whatever `ro_paths` binds and
-    /// whatever the approve list says: an L1 job's AWS session is the only AWS
-    /// credential it holds. Each path is hidden once, though the approve list
-    /// names it too.
+    /// `~/.aws` never shows in a view (18e), whatever `ro_paths` binds: an L1
+    /// job's AWS session is the only AWS credential it holds. Since 1.0.4
+    /// retired the approve list, `CREDENTIALS` is the only thing that puts it
+    /// there, so this is the whole of the promise. Each path is hidden once,
+    /// though the floor may name it too.
     #[test]
-    fn the_operators_aws_files_are_hidden_in_every_view_whatever_the_approve_list_says() {
+    fn the_operators_aws_files_are_hidden_in_every_view_whatever_ro_paths_binds() {
         let cfg = SandboxConfig {
             ro_paths: vec!["~/.aws".into()],
             ..Default::default()
         };
         let aws = theseus_tools::paths::canonical_best_effort(&crate::config::expand("~/.aws"));
-        let hidden = |approve: &[PathBuf]| {
-            Sandbox::new(&cfg, &[], &[], approve)
+        let hidden = |floor: &[PathBuf]| {
+            Sandbox::new(&cfg, &[], floor)
                 .view
                 .lock()
                 .unwrap()
@@ -907,14 +902,14 @@ mod tests {
         let real = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
         let home = crate::config::expand("~");
         let home = Path::new(&home);
-        // The floor, the sealed set among it, and the approve list as the
-        // operator's own config has it: the state dir's subdirectories, not
-        // the state dir itself.
+        // The floor, the sealed set among it, and three more hidden entries:
+        // the state dir's subdirectories, not the state dir itself.
         let state = home.join(".theseus");
         let sealed = PathBuf::from("/srv/theseus-sealed");
         let floor = [state.join("store"), state.join("spool"), sealed.clone()];
-        let approve = [real("~/.aws"), real("~/.ssh"), state.join("self/gates")];
-        let sb = Sandbox::new(&SandboxConfig::default(), &[], &floor, &approve);
+        let more = [real("~/.aws"), real("~/.ssh"), state.join("self/gates")];
+        let all: Vec<PathBuf> = floor.iter().chain(&more).cloned().collect();
+        let sb = Sandbox::new(&SandboxConfig::default(), &[], &all);
         let (tree, target) = (state.join("self/trees/t"), state.join("self/target/t"));
         let gate = state.join("self/gates/gate-abc.sh");
         let ro = [gate.clone()];
@@ -931,8 +926,8 @@ mod tests {
         for f in CREDENTIALS {
             assert!(view.hidden.contains(&real(f)), "{f}: {:?}", view.hidden);
         }
-        // The floor, the sealed set and the rest of the approve list, by name.
-        for keep in floor.iter().chain(&approve[..2]) {
+        // The floor, the sealed set and the rest of the hidden set, by name.
+        for keep in floor.iter().chain(&more[..2]) {
             assert!(view.hidden.contains(keep), "{}", keep.display());
         }
         assert!(view.hidden.contains(&sealed), "the sealed set");

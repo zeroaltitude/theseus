@@ -101,9 +101,9 @@ pub struct ExplainLayer {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ExplainCondition {
-    /// `floor`, `approve_paths`, `outside_roots`, `private_address`,
-    /// `approve_argv`, `destructive`, `allow_argv`, `aws`, `l1`, `grant`,
-    /// `lsp_start`, `public_paths`.
+    /// `floor`, `outside_roots`, `private_address`, `notify_argv`,
+    /// `destructive`, `allow_argv`, `aws`, `l1`, `grant`, `lsp_start`,
+    /// `public_paths`.
     pub layer: String,
     /// When it applies, in words.
     pub when: String,

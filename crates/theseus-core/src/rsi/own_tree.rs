@@ -23,7 +23,7 @@
 
 use std::path::PathBuf;
 
-use theseus_tools::{paths, Tool, ToolClass};
+use theseus_tools::{paths, Tool};
 
 use super::{budget, pr, tree, SELF_PRINCIPAL};
 use crate::store::Store;
@@ -74,7 +74,7 @@ pub(crate) fn failing_open(
                 && !decision.floor
                 && !l1
                 && is_self(rt, s)
-                && rt.policy.fails_open(plan, rt.self_pr.state_dir()) =>
+                && rt.policy.fails_open(plan) =>
         {
             fail_open(decision, tool.name())
         }
@@ -114,21 +114,6 @@ pub(crate) fn of(rt: &ToolRuntime, session: &str) -> Option<PathBuf> {
     let (core, trees) = self_session(rt, session)?;
     let root = root_of(rt, &core.store, session)?;
     Some(trees.join(tree::slug(&root)))
-}
-
-/// What the approve list's hold on the state dir leaves open to `tool` in
-/// `session` (`ToolPolicy::decide_in`'s `own`): the trees root for a
-/// read-only file or git tool of a self session, its own tree for a file
-/// tool that writes, else nothing.
-pub(crate) fn open_to(rt: &ToolRuntime, session: &str, tool: &dyn Tool) -> Option<PathBuf> {
-    let name = tool.name();
-    match tool.class() {
-        ToolClass::Read if name.starts_with("fs.") || name.starts_with("git.") => {
-            self_session(rt, session).map(|(_, trees)| trees)
-        }
-        _ if name.starts_with("fs.") => of(rt, session),
-        _ => None,
-    }
 }
 
 /// The root task of the session's self task, found once and kept.

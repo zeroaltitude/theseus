@@ -241,13 +241,16 @@ async fn two_of_argv_steps_and_command_or_none_is_an_error_naming_the_three() {
 }
 
 /// The gate judges `{command: X}` as it judges `["bash", "-c", X]`: the same
-/// decision, reason and stored call, refused (asked) and run alike; and
-/// `bash {command}` as well.
+/// decision, reason and stored call; and `bash {command}` as well. The list
+/// that keys on the argv was `approve_argv` until the owner retired it for
+/// `notify_argv` (2026-11-03, theseus-c4i8m), so the three shapes now agree
+/// on a notice rather than on a wait; what is under test, that the argv is
+/// normalized the same way whichever shape names it, is unchanged.
 #[tokio::test]
 async fn the_gate_judges_command_as_the_bash_c_argv_it_runs_as() {
     let ask = |c: &mut Config| {
         c.policy.enforcement = Posture::Open;
-        c.policy.approve_argv = vec![vec!["bash".into(), "-c".into()]];
+        c.policy.notify_argv = vec![vec!["bash".into(), "-c".into()]];
     };
     let line = "echo gated";
     let mut seen = Vec::new();
@@ -258,9 +261,12 @@ async fn the_gate_judges_command_as_the_bash_c_argv_it_runs_as() {
     ] {
         let r = rig(vec![call(input.0, input.1), Scripted::text("ok")], ask);
         let res = r.turn().await;
-        assert_eq!(res.stop_reason, "awaiting_confirm", "{res:?}");
-        let (posture, _, _) = r.gate(&res.session_id);
-        assert_eq!(posture, "approve");
+        let (posture, _, reason) = r.gate(&res.session_id);
+        assert_eq!(posture, "notify", "{reason}");
+        assert!(
+            reason.contains("matches the notify list entry `bash -c`"),
+            "{reason}"
+        );
         // Each rig has a directory of its own, which its reason names.
         let (gate, call) = (r.gate(&res.session_id), r.stored_call(&res.session_id));
         let gate = (gate.0, gate.1, gate.2.replace(&r.dir(), "DIR"));
@@ -268,7 +274,7 @@ async fn the_gate_judges_command_as_the_bash_c_argv_it_runs_as() {
     }
     assert_eq!(seen[0], seen[1], "command is judged as its argv");
     assert_eq!(seen[0], seen[2], "bash {{command}} too");
-    // Not on the list, the same line runs, as the argv does.
+    // Not on the list, the same line runs open, with no notice.
     let r = rig(
         vec![
             call("proc_run", json!({"command": line})),

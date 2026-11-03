@@ -761,14 +761,17 @@ async fn the_creation_card_shows_the_grant() {
     assert!(e.contains("proc.run"), "{e}");
 }
 
-/// A grant never loosens the owner's approve list: a routine granted
-/// `fs.write` still asks before it writes a path the list names (a review's
-/// planted revert: the grant's posture-only check removed, the row's tests
-/// passed).
+/// A grant never loosens the floor: a routine granted `fs.write` still asks
+/// before it writes a path the floor keeps (a review's planted revert: the
+/// grant's posture-only check removed, the row's tests passed). It was the
+/// owner's approve list that held the path until he retired it on 2026-11-03
+/// (theseus-c4i8m); the floor is what a grant must not loosen now, and the
+/// token file is a floor path a test can point at one file.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_grant_never_loosens_the_approve_list() {
+async fn a_grant_never_loosens_the_floor() {
     let r = rig_cfg(digest, 900, |c| {
-        c.tools.approve_paths = vec![c.tools.projects_dir.clone().unwrap()];
+        let work = c.tools.projects_dir.clone().unwrap();
+        c.op_token_file = Some(std::path::Path::new(&work).join("note.txt"));
     })
     .await;
     let made = make(&r.core, json!({"grant": ["fs.write", "fs.edit"]}))

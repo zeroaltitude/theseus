@@ -50,9 +50,8 @@ fn answers(s: &Seen, n: usize) -> Reply {
 fn policy(aws: &[(&str, Posture)], tools: &[(&str, Posture)]) -> ToolPolicy {
     ToolPolicy {
         roots: vec![],
-        approve_paths: vec![],
         allow_argv: vec![],
-        approve_argv: vec![],
+        notify_argv: vec![],
         enforcement: Posture::Open,
         tools: tools.iter().map(|(k, p)| (k.to_string(), *p)).collect(),
         mcp: BTreeMap::new(),

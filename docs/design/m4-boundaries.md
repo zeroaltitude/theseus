@@ -1207,7 +1207,7 @@ None of these blocks the chain. Each says when it matters, and the default the c
 | 6 | **Switching his own daemon to separated mode** needs sudo, and is his choice | Never | Whenever he likes, after 22b | His daemon stays as it is |
 | 7 | **The owner set for labels**: confirm that it is `[approval] trusted_users` (his Discord id) and the local surfaces | No | 19a | As stated |
 | 8 | **Any secret he wants L1 jobs to request at run time** (for example a crates.io token), as a `[secrets]` line with a `[broker.secrets.<name>]` posture | No | After 18d | `github_token` alone, at `notify` |
-| 9 | **Noted, not asked:** at L0, any job of his user can use Docker, which is root on the host. L1 has no Docker socket. He may want Docker work to wait for approval (`approve_argv = [["docker"]]`) | No | — | Unchanged |
+| 9 | **Noted, not asked:** at L0, any job of his user can use Docker, which is root on the host. L1 has no Docker socket. He may want Docker work to wait for approval (`approve_argv = [["docker"]]`) | No | — | Unchanged. _(`approve_argv` was retired in 1.0.4 for `notify_argv`, which notices rather than waits: theseus-c4i8m.)_ |
 
 ## 5. Open questions, with defaults
 
