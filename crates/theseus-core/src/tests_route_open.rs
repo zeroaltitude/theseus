@@ -125,7 +125,7 @@ fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_o
         (s.choice.as_str(), s.confidence, s.sure),
         ("splits_by_area", 0.77, true)
     );
-    assert!(v.open());
+    assert!(v.model.is_some());
     assert_eq!(v.mode, "opus", "the row's `mode` word is the pick");
     // Under the confirm bar each is read, and not sure; nothing is post-processed.
     let shy = judgment_of("work.v1", vec![choice("work", "coding", 0.45)]);
@@ -157,14 +157,14 @@ fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_o
     assert_eq!((p.choice.as_str(), p.confidence), ("elicit", 0.95));
     assert!(v.persona.is_some(), "the persona answer stands");
     assert!(
-        v.model.is_none() && !v.open() && v.mode.is_empty() && v.effort.is_none(),
+        v.model.is_none() && v.mode.is_empty() && v.effort.is_none(),
         "and it names no model, no mode and no effort"
     );
     // A judgment without these answers reads as a mode, as before.
     let j = judgment(vec![choice("mode", "chat", 0.95)], false);
     let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
     assert_eq!(v.mode, "chat");
-    assert!(!v.open() && v.model.is_none() && v.work.is_none() && v.split.is_none());
+    assert!(v.model.is_none() && v.work.is_none() && v.split.is_none());
 }
 
 // ------------------------------------------------------------------ the turn

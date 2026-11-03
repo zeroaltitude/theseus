@@ -292,7 +292,7 @@ fn nothing_of_the_old_walk_is_left() {
 #[test]
 fn a_verdict_without_a_model_answer_stays_on_the_base() {
     let v = super::tests::verdict("sophisticated", 0.95);
-    assert!(!v.open());
+    assert!(v.model.is_none());
     let got = decide(
         &cfg(),
         &five_options(),

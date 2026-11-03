@@ -889,8 +889,7 @@ impl TurnRunner {
         d: Option<&Decision>,
     ) -> Option<fact::route::RouteOpen> {
         let pack = self.judge.route_pack()?;
-        let v = verdict.filter(|v| v.open());
-        let m = v.and_then(|v| v.model.as_ref());
+        let m = verdict.and_then(|v| v.model.as_ref());
         let block = m.and_then(|m| {
             let q = pack.questions.iter().find(|q| q.id == "model")?;
             let o = q.options.iter().find(|o| o.id == m.choice)?;

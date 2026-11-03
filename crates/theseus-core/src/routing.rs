@@ -173,13 +173,6 @@ pub struct Pick {
     pub sure: bool,
 }
 
-impl Verdict {
-    /// The verdict is route.v10's: it answers `model`, and says no `mode`.
-    pub fn open(&self) -> bool {
-        self.model.is_some()
-    }
-}
-
 /// One configured profile, as routing weighs it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Profile {
