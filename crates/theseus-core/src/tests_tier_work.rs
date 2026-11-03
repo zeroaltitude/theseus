@@ -10,16 +10,17 @@
 //! - a v10 turn the data rule kept off a restricted model counts once on `theseus.route.data_gate`.
 //!
 //! The rig is `tests_injection_tiers`'s (recall live over twenty harbour notes), with route.v10's
-//! shape standing in as the acting route pack (`tests_route_open::open_pack`).
+//! shape acting (`tests_act_open`: a stand-in while `ROUTE_PACK` names route.v8, nothing once it
+//! names route.v10).
 
 use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use theseus_protocol::context::ContextExplainParams;
 
-use crate::judge::inbound::ROUTE_PACK;
 use crate::tests_injection_tiers::tiered;
 use crate::tests_route::{decided, turn, Rig};
-use crate::tests_route_open::{open_pack, says};
+use crate::tests_act_open::act_open;
+use crate::tests_route_open::says;
 
 fn work(jev: &FakeJev, option: &str, confidence: f64) {
     jev.script(
@@ -34,7 +35,7 @@ fn work(jev: &FakeJev, option: &str, confidence: f64) {
 /// `tiered`, with route.v10 acting: its verdict lands before the pack reads it.
 fn tiered_open(jev: &FakeJev, n: usize) -> Rig {
     let r = tiered(jev, n, true, |_| {});
-    r.core.runner.judge.stand_in(ROUTE_PACK, open_pack());
+    act_open(&r);
     r
 }
 
@@ -132,7 +133,7 @@ async fn admitted_at(label: &str) -> Value {
         },
         |parts| parts.cfg.tools.defer.enabled = true,
     );
-    r.core.runner.judge.stand_in(ROUTE_PACK, open_pack());
+    act_open(&r);
     let ask = "Look over the harbour's whole setup and plan the next week's work.";
     let res = turn(&r.core, None, ask, None).await;
     assert_eq!(res.profile, "opus", "{:?}", res.route);
@@ -243,7 +244,7 @@ async fn a_data_gate_turn_counts_once_on_the_route_data_gate_metric() {
             p.telemetry = Some(tel);
         },
     );
-    r.core.runner.judge.stand_in(ROUTE_PACK, open_pack());
+    act_open(&r);
     judging_with(&r, Judging::with(|_, _| vec![Flag::Confidential]));
     let res = turn(&r.core, None, "Rename the call sites.", None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "data_gate");

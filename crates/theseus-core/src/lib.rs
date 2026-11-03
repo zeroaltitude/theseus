@@ -225,6 +225,8 @@ pub(crate) mod test_support;
 #[cfg(test)]
 mod tests_accept_batch;
 #[cfg(test)]
+mod tests_act_open;
+#[cfg(test)]
 mod tests_activation;
 #[cfg(test)]
 mod tests_activation_arm;
@@ -271,6 +273,8 @@ mod tests_check_view;
 #[cfg(test)]
 mod tests_checkpoint_effort;
 #[cfg(test)]
+mod tests_checkpoint_open;
+#[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
 mod tests_coding_hint;
@@ -308,6 +312,8 @@ mod tests_continue;
 mod tests_continue_slow;
 #[cfg(test)]
 mod tests_data_gate;
+#[cfg(test)]
+mod tests_data_open;
 #[cfg(test)]
 mod tests_day_ceiling;
 #[cfg(test)]
@@ -587,6 +593,8 @@ mod tests_route_measure;
 #[cfg(test)]
 mod tests_route_model;
 #[cfg(test)]
+mod tests_route_model_open;
+#[cfg(test)]
 mod tests_route_open;
 #[cfg(test)]
 mod tests_route_rows;
@@ -699,6 +707,8 @@ mod tests_term;
 #[cfg(test)]
 mod tests_thinking_writer;
 #[cfg(test)]
+mod tests_tier_manifest;
+#[cfg(test)]
 mod tests_tier_work;
 #[cfg(test)]
 mod tests_tiering;
@@ -712,6 +722,8 @@ mod tests_trivial_tools;
 mod tests_turn_checkpoint;
 #[cfg(test)]
 mod tests_turn_effort;
+#[cfg(test)]
+mod tests_turn_effort_open;
 #[cfg(test)]
 mod tests_turn_progress;
 #[cfg(test)]
