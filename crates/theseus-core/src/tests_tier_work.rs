@@ -61,7 +61,12 @@ async fn the_tier_never_changes_a_cached_prefix_byte() {
     );
     let tiers: Vec<(Value, Value)> = decided(&r.core.store)
         .iter()
-        .map(|d| (d["injection"]["tier"].clone(), d["injection"]["recall_tokens"].clone()))
+        .map(|d| {
+            (
+                d["injection"]["tier"].clone(),
+                d["injection"]["recall_tokens"].clone(),
+            )
+        })
         .collect();
     assert_eq!(
         tiers,
