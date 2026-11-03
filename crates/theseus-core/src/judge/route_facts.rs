@@ -36,17 +36,21 @@ pub(crate) fn facts_of(
     }
     let last = models().next_back();
     let est = est_tokens(before);
+    let period = price_period_at(now_ms);
+    // The warm model is the one that answered last: its cache holds the prefix.
+    // What a switch would cost this message, and which model the cheaper one
+    // is, is the catalog's arithmetic at this hour's prices and under the
+    // session's data rule, not Jev's (theseus-h66v4.1, theseus-h66v4.8).
+    let switch = switch_cost(builtin(), last, est, period, restricted);
     RouteFacts {
-        price_period: price_period_at(now_ms),
+        price_period: period,
         restricted_models: restricted,
         last_reply_model: last.map(str::to_string),
         task_models,
         est_tokens: Some(est),
-        // The warm model is the one that answered last: its cache holds the
-        // prefix. What a switch would cost this message is the catalog's
-        // arithmetic, not Jev's (theseus-h66v4.1).
         current_model: last.map(str::to_string),
-        switch_cost: Some(switch_cost(builtin(), last, est)),
+        switch_cost: Some(switch.cost),
+        cheaper_model: switch.cheaper_model,
     }
 }
 

@@ -92,6 +92,7 @@ impl JudgeService {
             // No warm model, no switch to price: a job is one call of its own.
             current_model: None,
             switch_cost: None,
+            cheaper_model: None,
         };
         let (tx, rx) = oneshot::channel();
         rt.spawn(judge_job(

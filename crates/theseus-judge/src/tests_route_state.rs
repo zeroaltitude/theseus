@@ -18,6 +18,7 @@ fn facts() -> RouteFacts {
         est_tokens: Some(140_000),
         current_model: Some("claude-sonnet-5-5".into()),
         switch_cost: Some(SwitchCost::CheaperToStay),
+        cheaper_model: None,
     }
 }
 
@@ -62,6 +63,31 @@ fn a_task_adds_its_models_and_no_other_field() {
     assert_eq!(keys(&p.state.value()), want);
 }
 
+/// theseus-h66v4.8: the daemon names the cheaper model beside the word, and the
+/// name is the only field that arrives with it. A state that says only
+/// `cheaper_to_switch` does not say what to switch to.
+#[test]
+fn a_cheaper_model_is_the_only_field_a_switch_adds() {
+    let mut f = facts();
+    f.switch_cost = Some(SwitchCost::CheaperToSwitch);
+    f.cheaper_model = Some("deepseek_flash (off-peak)".into());
+    let i = route_input("rename it everywhere", "discord_dm", f);
+    let v = route_state(&i, 3000, &NoScrub).state.value();
+    let mut want: Vec<String> = ROUTE_STATE_KEYS.iter().map(|s| s.to_string()).collect();
+    want.push("cheaper_model".into());
+    want.sort();
+    assert_eq!(keys(&v), want, "{v}");
+    assert_eq!(v["switch_cost"], "cheaper_to_switch");
+    assert_eq!(v["cheaper_model"], "deepseek_flash (off-peak)");
+    // And it is absent where the daemon names none, as `facts()` does.
+    let stay = route_state(
+        &route_input("thanks!", "discord_dm", facts()),
+        3000,
+        &NoScrub,
+    );
+    assert!(stay.state.value().get("cheaper_model").is_none());
+}
+
 #[test]
 fn the_estimate_is_left_out_where_there_is_none() {
     let mut f = facts();
@@ -75,7 +101,11 @@ fn the_estimate_is_left_out_where_there_is_none() {
 #[test]
 fn the_effort_and_work_slices_are_their_own_states() {
     use crate::builders::{InboundInput, TaskInput};
-    let mut i = route_input("thank you!", "discord_dm", facts());
+    let mut f = facts();
+    // A state that carries a cheaper model, so the check below is not vacuous.
+    f.switch_cost = Some(SwitchCost::CheaperToSwitch);
+    f.cheaper_model = Some("deepseek_flash (off-peak)".into());
+    let mut i = route_input("thank you!", "discord_dm", f);
     i.previous_human_message = Some("did the build pass?".into());
     i.last_reply = Some("yes, it passed".into());
     i.live_tasks = vec![TaskInput {
@@ -112,6 +142,7 @@ fn the_effort_and_work_slices_are_their_own_states() {
         for k in [
             "price_period",
             "switch_cost",
+            "cheaper_model",
             "current_model",
             "restricted_models",
             "est_tokens",

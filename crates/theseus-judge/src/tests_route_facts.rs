@@ -24,6 +24,7 @@ fn facts() -> RouteFacts {
         est_tokens: None,
         current_model: None,
         switch_cost: None,
+        cheaper_model: None,
     }
 }
 
@@ -72,6 +73,7 @@ fn the_last_reply_and_the_task_models_are_left_out_when_there_are_none() {
         est_tokens: None,
         current_model: None,
         switch_cost: None,
+        cheaper_model: None,
     });
     let (v, _, _) = state_of(i);
     assert_eq!(v["price_period"], "peak");
@@ -119,6 +121,7 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
         est_tokens: Some(u64::MAX),
         current_model: Some("m".repeat(5_000)),
         switch_cost: Some(SwitchCost::CheaperToStay),
+        cheaper_model: Some("c".repeat(5_000).into()),
     });
     let p = by_name("route.v8").unwrap();
     assert_eq!(p.state_cap_tokens, 3000);
@@ -131,10 +134,13 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
         "task_models",
         "current_model",
         "switch_cost",
+        "cheaper_model",
     ] {
         assert!(b.state.fields.iter().any(|f| f == k), "{k} was cut");
     }
     let v = b.state.value();
+    // theseus-h66v4.8: the name is clipped like the model ids beside it.
+    assert!(v["cheaper_model"].as_str().unwrap().chars().count() <= 40);
     let models = v["task_models"].as_array().unwrap();
     assert_eq!(models.len(), TASK_MODELS);
     assert!(models
