@@ -227,7 +227,8 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(d["effort_ran"], "high");
     let block = d["block"].as_str().unwrap();
     assert!(
-        block.starts_with("Opus 5.5 (Anthropic, US).") && block.contains("reviewing or checking code"),
+        block.starts_with("Opus 5.5 (Anthropic, US).")
+            && block.contains("reviewing or checking code"),
         "the winning block, whole: {block}"
     );
     assert!(
