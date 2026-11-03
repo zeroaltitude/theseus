@@ -255,9 +255,8 @@ impl ReadNote for OpReader {
     fn read_note<'a>(&'a self, reference: &'a str) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
             let r = SecretRef::parse(reference).map_err(|e| format!("{e:#}"))?;
-            self.read(&r)
+            self.read_document(&r)
                 .await
-                .map(|s| s.expose().to_string())
                 .map_err(|e| format!("{e:#}"))
         })
     }

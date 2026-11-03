@@ -5,10 +5,12 @@
 //! a container, CI, or anyone without a vault). Those resolve locally,
 //! before any `op` call, and `theseusd check` and health name each one with
 //! its source. Values live in zeroizing memory and are never logged, stored,
-//! or written anywhere but the header they belong in. A value is trimmed
-//! wherever it comes from (a variable, a file, `op read`, an `op inject` slice,
-//! a fetched note's line), because it rides unmodified in a request header and a
-//! header refuses a newline (theseus-h66v4.5).
+//! or written anywhere but the header they belong in. A resolved secret is
+//! trimmed wherever it comes from (a variable, a file, `op read`, an `op inject`
+//! slice, a fetched note's line), because it rides unmodified in a request
+//! header and a header refuses a newline (theseus-h66v4.5). A document is not a
+//! secret: the config note is read whole through `read_document`, byte for byte,
+//! because its copy is compared against what was written.
 //!
 //! Serve first (FAST, §2; theseus-qa0). The daemon answers its socket before
 //! any secret resolves: `resolve_into` fills a `SecretBoard` in the
@@ -232,7 +234,7 @@ pub fn check_local(reference: &str) -> Result<()> {
 
 /// The value of a local entry (`is_local`), or why it has none; `None` for an
 /// `op://` reference. A variable's value and a file's text are trimmed, as
-/// every value the vault gives is (`read_raw`, `split_injected`, `select`).
+/// every secret the vault gives is (`read_raw`, `split_injected`, `select`).
 pub(crate) fn local_value(reference: &str) -> Option<Result<Secret, String>> {
     if let Some(var) = reference.strip_prefix("env:") {
         return Some(match std::env::var(var) {
@@ -353,7 +355,8 @@ impl OpReader {
         c
     }
 
-    /// One reference, `#label` applied (the config note itself is read this way).
+    /// One secret, `#label` applied, trimmed (theseus-h66v4.5). A document, the
+    /// config note, is not a secret: it is read by `read_document`.
     pub async fn read(&self, r: &SecretRef) -> Result<Secret> {
         let raw = self
             .read_raw(r.op_ref())
@@ -362,7 +365,37 @@ impl OpReader {
         Ok(Secret::new(r.select(raw.to_string())?))
     }
 
+    /// One document, such as the config note, exactly as stored: no trim, so a
+    /// trailing newline and a leading blank line survive. It is a `String`, not a
+    /// `Secret`, so a document cannot be passed where a resolved secret is wanted.
+    /// A `#label` still selects a field, and a field is a value, so it is trimmed.
+    pub async fn read_document(&self, r: &SecretRef) -> Result<String> {
+        let text = self
+            .run_read(r.op_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!("op read {} failed: {e}", r.as_str()))?;
+        if r.line_label.is_some() {
+            return r.select(text.to_string());
+        }
+        Ok(text.to_string())
+    }
+
+    /// A secret's value from `op read`, trimmed: a stored value may end in a newline
+    /// of its own, with or without `--no-newline`, and the emptiness check is on what
+    /// is kept.
     async fn read_raw(&self, op_ref: &str) -> Result<Zeroizing<String>, String> {
+        let text = self.run_read(op_ref).await?;
+        let value = Zeroizing::new(text.trim().to_string());
+        if value.is_empty() {
+            return Err("op returned an empty value".into());
+        }
+        Ok(value)
+    }
+
+    /// What `op read` printed, untouched; empty is an error. The one place `op read`
+    /// runs: whoever calls it chooses whether the text is a secret (`read_raw`, which
+    /// trims) or a document (`read_document`, which does not).
+    async fn run_read(&self, op_ref: &str) -> Result<Zeroizing<String>, String> {
         if let Some(why) = &self.absent {
             return Err(format!("no 1Password access: {why}"));
         }
@@ -386,13 +419,10 @@ impl OpReader {
         let text = Zeroizing::new(
             String::from_utf8(out.stdout).map_err(|_| "op returned non-UTF-8".to_string())?,
         );
-        // A stored value may end in a newline of its own, with or without
-        // `--no-newline`; the check is on what is kept.
-        let value = Zeroizing::new(text.trim().to_string());
-        if value.is_empty() {
+        if text.is_empty() {
             return Err("op returned an empty value".into());
         }
-        Ok(value)
+        Ok(text)
     }
 
     /// Every reference through one `op inject`: one process and one vault
@@ -1277,6 +1307,25 @@ esac
         // The same reference as a secret is trimmed: both halves of the boundary.
         let r = SecretRef::parse(reference).unwrap();
         assert_eq!(reader.read(&r).await.unwrap().expose(), note.trim());
+    }
+
+    #[tokio::test]
+    async fn a_document_read_is_whole_and_a_field_of_it_is_a_trimmed_value() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let note = "title: x\nkey: made-up-line \n\n";
+        std::fs::write(dir.path().join("note.txt"), note).unwrap();
+        let reader = padded_op(dir.path());
+        std::fs::write(
+            &reader.op_bin,
+            "#!/bin/sh\ncat \"$(dirname \"$0\")/note.txt\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let whole = SecretRef::parse("op://V/note/notesPlain").unwrap();
+        assert_eq!(reader.read_document(&whole).await.unwrap(), note);
+        let field = SecretRef::parse("op://V/note/notesPlain#key").unwrap();
+        assert_eq!(reader.read_document(&field).await.unwrap(), "made-up-line");
     }
 
     #[test]
