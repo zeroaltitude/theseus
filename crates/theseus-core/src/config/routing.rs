@@ -33,9 +33,6 @@ pub struct RoutingConfig {
     /// How long the turn waits for the verdict after its first compile ends.
     #[serde(default = "max_wait_ms")]
     pub max_wait_ms: u64,
-    /// The exchanges a `short` context's request carries before the message.
-    #[serde(default = "trivial_context_turns")]
-    pub trivial_context_turns: u32,
     /// A switch of the session's profile at a compile of this many estimated
     /// tokens or more waits for a second turn in a row that agrees: above
     /// it, the cache a switch leaves cold costs more.
@@ -50,7 +47,8 @@ pub struct RoutingConfig {
     /// The keys Jev's choice retired (route.v10, theseus-h66v4): read, warned
     /// of ([`Self::retired`]), ignored and never written back. `classes` is
     /// the table of profiles per class, with its `cn_*`, `final` and
-    /// `first_pass` keys.
+    /// `first_pass` keys. `trivial_context_turns` was the detour's, and
+    /// the detour is gone.
     #[serde(default, skip_serializing)]
     switch_confidence: Option<toml::Value>,
     #[serde(default, skip_serializing)]
@@ -63,6 +61,8 @@ pub struct RoutingConfig {
     effort_floor_confidence: Option<toml::Value>,
     #[serde(default, skip_serializing)]
     dear_tier_max_tokens: Option<toml::Value>,
+    #[serde(default, skip_serializing)]
+    trivial_context_turns: Option<toml::Value>,
     #[serde(default, skip_serializing)]
     classes: Option<toml::Table>,
 }
@@ -114,9 +114,6 @@ fn live() -> RoutingMode {
 fn max_wait_ms() -> u64 {
     200
 }
-fn trivial_context_turns() -> u32 {
-    2
-}
 fn cold_switch_tokens() -> u64 {
     30_000
 }
@@ -133,7 +130,6 @@ impl Default for RoutingConfig {
             enabled: true,
             mode: live(),
             max_wait_ms: max_wait_ms(),
-            trivial_context_turns: trivial_context_turns(),
             cold_switch_tokens: cold_switch_tokens(),
             corrections: CorrectionsConfig::default(),
             task_checkpoints: TaskCheckpoints::default(),
@@ -143,6 +139,7 @@ impl Default for RoutingConfig {
             effort_confidence: None,
             effort_floor_confidence: None,
             dear_tier_max_tokens: None,
+            trivial_context_turns: None,
             classes: None,
         }
     }
@@ -187,6 +184,10 @@ impl RoutingConfig {
                 self.effort_floor_confidence.is_some(),
             ),
             ("dear_tier_max_tokens", self.dear_tier_max_tokens.is_some()),
+            (
+                "trivial_context_turns",
+                self.trivial_context_turns.is_some(),
+            ),
         ];
         let mut out: Vec<String> = keys
             .iter()
@@ -224,10 +225,7 @@ pub(crate) fn the_templates_routing_section(cfg: &crate::Config) {
     let r = &cfg.routing;
     assert!(r.enabled);
     assert_eq!(r.mode, RoutingMode::Live);
-    assert_eq!(
-        (r.max_wait_ms, r.trivial_context_turns, r.cold_switch_tokens),
-        (200, 2, 30_000)
-    );
+    assert_eq!((r.max_wait_ms, r.cold_switch_tokens), (200, 30_000));
     assert_eq!(r.corrections, CorrectionsConfig::default());
     assert_eq!(r.task_checkpoints, TaskCheckpoints::default());
     assert!(r.retired().is_empty(), "the template sets no retired key");
@@ -277,6 +275,7 @@ mod tests {
                     effort_confidence = 0.5\n\
                     effort_floor_confidence = 1.1\n\
                     dear_tier_max_tokens = 0\n\
+                    trivial_context_turns = 2\n\
                     [classes.deep_coding]\nprofiles = [\"sonnethi\", \"opus\"]\n\
                     [classes.trivial]\nprofiles = [\"haiku\"]\ncn_draft = \"dsflash\"\n\
                     [task_checkpoints]\nmax_switches = 99\n";
@@ -291,6 +290,7 @@ mod tests {
                 "routing.effort_confidence",
                 "routing.effort_floor_confidence",
                 "routing.dear_tier_max_tokens",
+                "routing.trivial_context_turns",
                 "routing.classes.deep_coding",
                 "routing.classes.trivial",
                 "routing.task_checkpoints.max_switches",

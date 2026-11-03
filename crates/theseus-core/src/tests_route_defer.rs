@@ -32,7 +32,6 @@ fn rig_no_search_to(jev: &FakeJev, tool: &str, aws: bool) -> (Rig, Arc<FakeProvi
         2,
         move |cfg| {
             cfg.places.owner = Some(vec![format!("discord:{}", crate::tests_places::OWNER)]);
-            cfg.tools.defer.admit_ceiling_small = 2.0;
             if aws {
                 cfg.aws = toml::from_str(
                     "[accounts.123456789012]\nregion = \"us-west-2\"\nendpoint = \"http://127.0.0.1:9\"\n",

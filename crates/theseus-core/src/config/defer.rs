@@ -43,12 +43,9 @@ pub struct DeferConfig {
     /// one set of numbers, the keel's budgets. It is a ceiling, not a target.
     /// 1.0 is the cap as it was: the rollback. It is an ordinary prompt's
     /// (theseus-d9je7, `turn::tier`); a deep one (`work.v1`'s `coding`)
-    /// takes `admit_ceiling_deep`. `admit_ceiling_small` was a `trivial`
-    /// prompt's and is read by nothing since route.v10 (no small tier).
+    /// takes `admit_ceiling_deep`.
     #[serde(default = "admit_ceiling")]
     pub admit_ceiling: f64,
-    #[serde(default = "admit_ceiling_small")]
-    pub admit_ceiling_small: f64,
     #[serde(default = "admit_ceiling_deep")]
     pub admit_ceiling_deep: f64,
     /// Jev judges each hidden family's relevance to the prompt in focus, once
@@ -60,6 +57,11 @@ pub struct DeferConfig {
     /// inbound point (as `[routing] max_wait_ms`); a later answer is dropped.
     #[serde(default = "judge_wait_ms")]
     pub judge_wait_ms: u64,
+    /// `admit_ceiling_small` was a `trivial` prompt's, and nothing reads it
+    /// since route.v10 (no small tier): read, warned of
+    /// ([`Self::retired`]), ignored and never written back.
+    #[serde(default, skip_serializing)]
+    admit_ceiling_small: Option<toml::Value>,
 }
 
 fn enabled() -> bool {
@@ -86,10 +88,6 @@ fn admit_ceiling() -> f64 {
     2.0
 }
 
-fn admit_ceiling_small() -> f64 {
-    1.0
-}
-
 /// The owner asked for more generous than the audit's 2.0 (theseus-d9je7).
 fn admit_ceiling_deep() -> f64 {
     3.0
@@ -112,10 +110,10 @@ impl Default for DeferConfig {
             window_days: window_days(),
             hide_after_days: hide_after_days(),
             admit_ceiling: admit_ceiling(),
-            admit_ceiling_small: admit_ceiling_small(),
             admit_ceiling_deep: admit_ceiling_deep(),
             judge_families: judge_families(),
             judge_wait_ms: judge_wait_ms(),
+            admit_ceiling_small: None,
         }
     }
 }
@@ -134,7 +132,6 @@ impl DeferConfig {
         }
         for (key, v) in [
             ("admit_ceiling", self.admit_ceiling),
-            ("admit_ceiling_small", self.admit_ceiling_small),
             ("admit_ceiling_deep", self.admit_ceiling_deep),
         ] {
             if !(1.0..=3.0).contains(&v) {
@@ -151,6 +148,16 @@ impl DeferConfig {
         }
         Ok(())
     }
+
+    /// The retired keys this section sets, by the name the config gives them:
+    /// what [`crate::Config::parse`] warns of, once.
+    pub fn retired(&self) -> Vec<String> {
+        let keys = [("admit_ceiling_small", self.admit_ceiling_small.is_some())];
+        keys.iter()
+            .filter(|(_, set)| *set)
+            .map(|(k, _)| format!("tools.defer.{k}"))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -166,7 +173,7 @@ mod tests {
         assert!(cfg.tools.defer.enabled);
         assert_eq!(cfg.tools.defer.always_loaded, ["files", "commands"]);
         assert_eq!(cfg.tools.defer.admit_ceiling, 2.0);
-        assert_eq!(cfg.tools.defer.admit_ceiling_small, 1.0);
+        assert!(cfg.tools.defer.retired().is_empty());
         assert_eq!(cfg.tools.defer.admit_ceiling_deep, 3.0);
         assert!(cfg.tools.defer.judge_families);
         assert_eq!(cfg.tools.defer.judge_wait_ms, 200);
@@ -201,6 +208,17 @@ mod tests {
             };
             assert!(ok.check().is_ok());
         }
+    }
+
+    /// `admit_ceiling_small` is retired: it loads whatever its value, is named by
+    /// `retired()`, and is never written back. The live config's section named it.
+    #[test]
+    fn a_retired_key_loads_warns_and_is_never_written_back() {
+        let c: DeferConfig = toml::from_str("admit_ceiling_small = 9.0").unwrap();
+        assert!(c.check().is_ok(), "validates whatever its value was");
+        assert_eq!(c.retired(), ["tools.defer.admit_ceiling_small"]);
+        assert!(!toml::to_string(&c).unwrap().contains("admit_ceiling_small"));
+        assert!(DeferConfig::default().retired().is_empty());
     }
 
     #[test]

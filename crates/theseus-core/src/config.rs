@@ -1422,7 +1422,8 @@ impl Config {
         cfg.validate()?;
         let mut warnings = Vec::new();
         warnings.extend(cfg.persona_warnings());
-        let retired = cfg.routing.retired();
+        let mut retired = cfg.routing.retired();
+        retired.extend(cfg.tools.defer.retired());
         if !retired.is_empty() {
             warnings.push(format!(
                 "{} retired in 1.0.4 (Jev chooses the model and its effort): read and ignored, \
