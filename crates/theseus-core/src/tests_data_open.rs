@@ -11,26 +11,32 @@
 //! - a judged-clean session runs on the restricted model it is pinned to, or kept on, and nothing
 //!   is refused;
 //! - a later loop after a flagged tool result leaves the restricted model, with `data_gate`;
-//! - `route.decided` records `cn`, the gate, provider, model and origin of where the turn ran;
-//! - `provider.call` records its origin, per request;
-//! - the turn's footer words only the gate.
+//! - `provider.call` records its origin, per request.
+//!
+//! Two of the seventeen are not restored, each covered at the flipped tree (theseus-h66v4.11
+//! proved it by a plant that goes red in a survivor with the test removed):
+//! `route_decided_records_cn_gate_provider_model_origin` (a route row that loses `origin` goes red
+//! in `tests_observability::a_plain_turns_route_row_gains_only_where_it_ran` and
+//! `tests_route_open::a_flash_pick_runs_on_deepseek_when_the_session_may_use_it`) and
+//! `the_turns_footer_words_only_the_gate` (a footer that never words the gate goes red in
+//! `TurnData::footer`'s own test, the status line's, and discord's two).
 
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, FakeMode};
+use theseus_protocol::SessionKind;
 
 use crate::content::{Flag, ItemKind};
 use crate::content_wait::judging::Judging;
 use crate::provider::{FakeProvider, Scripted};
 use crate::routing::Routed;
 use crate::session::SessionRecord;
-use crate::tests_dm_rig::{blocked, judging, judging_with, OPEN_A, PRIVATE};
-use crate::tests_judge::{kinds, texts};
-use crate::tests_route::{call, decided, restricted_placements, rig, rig_parts, turn, Rig};
 use crate::tests_act_open::act_open;
+use crate::tests_dm_rig::{blocked, judging_with, OPEN_A};
+use crate::tests_judge::kinds;
+use crate::tests_route::{call, decided, restricted_placements, rig, rig_parts, turn, Rig};
 use crate::tests_route_open::says;
-use theseus_protocol::SessionKind;
 
 const PLAIN: &str = "Rename the call sites in the billing module.";
 
@@ -50,14 +56,6 @@ fn flash_rig(jev: &FakeJev, script: Vec<Scripted>) -> (Rig, Arc<FakeProvider>) {
     );
     act_open(&r);
     (r, deepseek)
-}
-
-/// A judge that raises `confidential` on `PRIVATE`'s marker and nothing else.
-fn finds_private() -> Arc<Judging> {
-    Judging::with(|_, text| match text.contains("marker-7c1q") {
-        true => vec![Flag::Confidential],
-        false => vec![],
-    })
 }
 
 fn calls(core: &crate::Core) -> Vec<Value> {
@@ -184,44 +182,6 @@ async fn a_later_loop_after_a_flagged_tool_result_leaves_the_restricted_model() 
     assert!(flags.has(Flag::Secret), "the label stands for the session");
 }
 
-/// A message Jev sends to Flash runs there when the session carries no label: its route row says
-/// the session was allowed and where it ran (profile, provider, model, origin). A message the
-/// judge labelled stays on a US model, and its row says which flag left Flash out and where it
-/// ran instead.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn route_decided_records_cn_gate_provider_model_origin() {
-    let jev = FakeJev::start().unwrap();
-    let (r, _deepseek) = flash_rig(&jev, texts(2));
-    judging_with(&r, finds_private());
-    turn(&r.core, None, OPEN_A, None).await;
-    let res = turn(&r.core, None, PRIVATE, None).await;
-    assert_ne!(res.profile, "dsflash");
-    let rows = decided(&r.core.store);
-    let (a, b) = (&rows[0], &rows[1]);
-    assert_eq!(a["cn"], "allowed", "{a}");
-    assert_eq!(
-        (
-            a["profile"].as_str(),
-            a["provider"].as_str(),
-            a["model"].as_str(),
-            a["origin"].as_str()
-        ),
-        (
-            Some("dsflash"),
-            Some("deepseek"),
-            Some("deepseek-flash"),
-            Some("cn")
-        ),
-        "{a}"
-    );
-    assert!(a.get("data_gate").is_none(), "{a}");
-    assert_eq!(b["cn"], "confidential", "{b}");
-    assert_eq!(b["data_gate"], "confidential", "{b}");
-    assert_eq!(b["origin"], "us", "{b}");
-    assert_eq!(b["model"], res.model.as_str(), "{b}");
-    assert_eq!(b["provider"], res.provider.as_str(), "{b}");
-}
-
 /// A request to Flash says it went to a `cn` model; a Claude call says its origin alone; and the
 /// loop after a flagged tool result, moved off the restricted model, names its own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -252,25 +212,4 @@ async fn provider_call_records_origin_per_request() {
         first.get("pass").is_none() && moved.get("pass").is_none(),
         "no pass is minted any more: {first} {moved}"
     );
-}
-
-/// A turn that ran on a restricted model words nothing in its footer; one the data rule kept off
-/// it says `data gate: <why>`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_turns_footer_words_only_the_gate() {
-    let jev = FakeJev::start().unwrap();
-    let (r, _deepseek) = flash_rig(&jev, texts(1));
-    judging(&r);
-    let res = turn(&r.core, None, OPEN_A, None).await;
-    assert_eq!(res.profile, "dsflash", "{:?}", res.route);
-    let t = res.route.unwrap().data.expect("data");
-    assert_eq!((t.cn.as_str(), t.footer()), ("allowed", None));
-    // The same, the judge finding `PRIVATE` confidential.
-    let jev = FakeJev::start().unwrap();
-    let (r, deepseek) = flash_rig(&jev, texts(1));
-    judging_with(&r, finds_private());
-    let res = turn(&r.core, None, PRIVATE, None).await;
-    assert!(deepseek.requests().is_empty());
-    let t = res.route.unwrap().data.expect("data");
-    assert_eq!(t.footer().as_deref(), Some("data gate: confidential"));
 }

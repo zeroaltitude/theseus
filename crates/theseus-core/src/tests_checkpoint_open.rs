@@ -1,18 +1,22 @@
-//! A running task's and a turn's checkpoints, through route.v10 (theseus-h66v4.11). route.v8's
+//! A running task's checkpoints, through route.v10 (theseus-h66v4.11). route.v8's
 //! checkpoint tests reached their case through the class walk (`mode(&jev, "chat" |
 //! "deep_coding")`, whose verdict words are classes); the checkpoint machinery they tested did not
 //! go (`turn/checkpoint_step.rs`): a task or a routed turn whose loops keep failing asks the acting
 //! route pack about its recent state, and Jev's pick of a model, and of an effort, applies at the
 //! next loop boundary. Here the verdict is Jev's pick (`model`) and answer (`effort`), by the
 //! trigger line the checkpoint's text carries. The rig is `tests_task_brief`'s (the driver runs
-//! the tasks) and `tests_turn_checkpoint`'s, with a provider that answers a script of loops a
+//! the tasks), with a provider that answers a script of loops a
 //! little slowly, so a verdict lands at a loop boundary.
 //!
 //! - a checkpoint's cost is the task's (`spent`), and the row says how much;
 //! - a task that fails for twelve loops asks three times, one per four loops;
 //! - the work board says a task a checkpoint moved is on its new model, only that one;
-//! - a verdict that takes its time never holds a loop, and applies when it comes;
-//! - a checkpoint raises a turn's effort with no move, past the sticky rule, and never lowers it.
+//! - a verdict that takes its time never holds a loop, and applies when it comes.
+//!
+//! Not restored: `a_checkpoint_raises_effort_without_a_move`. A checkpoint that never raises a
+//! turn's effort goes red, at the flipped tree, in the surviving
+//! `tests_checkpoint_effort::a_checkpoint_tells_jev_the_effort_the_work_ran_at` ("never xhigh"), so
+//! it is covered (theseus-h66v4.11 proved it by that plant).
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -21,15 +25,13 @@ use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use theseus_kernel::ExecState;
 
-use crate::catalog::CatalogRow;
-use crate::provider::{FakeProvider, ProviderRequest, RequestGate};
+use crate::provider::{FakeProvider, RequestGate};
 use crate::session::{SessionRecord, TargetRef};
 use crate::test_support::until_event;
 use crate::tests_judge::kinds;
-use crate::tests_route::{decided, rig_parts, turn, Rig};
+use crate::tests_route::{decided, rig_parts, Rig};
 use crate::tests_task_brief::{cli, params, BRIEF};
 use crate::tests_tasks::exec;
-use crate::tests_turn_checkpoint::{checkpoints, loops as turn_loops, ASK};
 
 /// A loop whose one tool call fails: a call with no input is invalid.
 fn failing(n: usize) -> crate::provider::Scripted {
@@ -321,91 +323,5 @@ async fn a_slow_verdict_never_holds_a_loop_and_applies_when_it_comes() {
     assert!(
         models[3..at].iter().all(|m| *m == "haiku"),
         "the loops after the ask ran on: {models:?}"
-    );
-}
-
-// ------------------------------------------------------------------ a turn's checkpoint effort
-
-/// The template with Sonnet 5.5 taking no per-message effort (so a turn's level rides the top of
-/// the request), and every request long enough for the sticky rule.
-fn top_level_effort(c: &mut crate::Config) {
-    c.cache.keep_warm_min_tokens = 1;
-    let row = CatalogRow {
-        per_message_effort: Some(false),
-        ..Default::default()
-    };
-    c.catalog.insert("claude-sonnet-5-5".to_string(), row);
-}
-
-/// The top-level effort each request carried, and that every one went to Sonnet 5.5.
-fn levels(claude: &FakeProvider) -> Vec<String> {
-    let reqs: Vec<ProviderRequest> = claude.requests();
-    assert!(reqs.iter().all(|r| r.model == "claude-sonnet-5-5"));
-    reqs.iter()
-        .map(|r| {
-            r.output_config
-                .as_ref()
-                .and_then(|o| o["effort"].as_str())
-                .unwrap_or("none")
-                .to_string()
-        })
-        .collect()
-}
-
-/// Where the requests moved from `before` to `after` (at a loop after the third), and that they
-/// stayed.
-fn raised_at(levels: &[String], before: &str, after: &str) -> usize {
-    let at = levels
-        .iter()
-        .position(|l| l == after)
-        .unwrap_or_else(|| panic!("never {after}: {levels:?}"));
-    assert!((3..=6).contains(&at), "{levels:?}");
-    assert!(levels[..at].iter().all(|l| l == before), "{levels:?}");
-    assert!(levels[at..].iter().all(|l| l == after), "{levels:?}");
-    at
-}
-
-/// A conversation on Sonnet whose route picks Sonnet at `high`, and whose checkpoint, on three
-/// failed loops, picks Sonnet again and asks `level` at `confidence`.
-fn routed(level: &str, confidence: f64) -> (Rig, Arc<FakeProvider>, FakeJev) {
-    let jev = FakeJev::start().unwrap();
-    crate::tests_route_open::says(&jev, "sonnet", "high", 0.95);
-    let at = "failing: 3 failed";
-    jev.script_when(at, None, "model", pick("sonnet", 0.95));
-    jev.script_when(at, None, "effort", pick(level, confidence));
-    let claude = Arc::new(FakeProvider {
-        delay_ms: 60,
-        ..FakeProvider::scripted(turn_loops(8))
-    });
-    let provider = claude.clone();
-    let rig = rig_parts(Some(&jev), 4, top_level_effort, move |p| {
-        p.providers.insert("anthropic".into(), provider);
-    });
-    crate::tests_act_open::act_open(&rig);
-    (rig, claude, jev)
-}
-
-/// A turn whose loops keep failing gets a verdict that keeps its model and asks `xhigh`: its next
-/// request carries it though the prompt is past the sticky floor, no move is made, and the row
-/// says it applied.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_checkpoint_raises_effort_without_a_move() {
-    let (rig, claude, _jev) = routed("xhigh", 0.9);
-    let res = turn(&rig.core, None, ASK, None).await;
-    assert_eq!(res.profile, "sonnet", "{}", res.output);
-    let levels = levels(&claude);
-    assert_eq!(levels.len(), 9, "{}", res.output);
-    raised_at(&levels, "high", "xhigh");
-    let rows = checkpoints(&rig);
-    let row = &rows[0];
-    assert_eq!(
-        (
-            &row["profile"],
-            &row["switch"],
-            &row["effort_applied"],
-            &row["effort_ran"]
-        ),
-        (&json!("sonnet"), &json!(false), &json!(true), &json!("xhigh")),
-        "{rows:?}"
     );
 }
