@@ -75,7 +75,10 @@ enum Case {
 }
 
 /// One case's turn, on a fresh rig, its judge `judge`: the rig and the result.
-async fn bound_for_glm(case: Case, judge: Arc<Judging>) -> (Rig, theseus_protocol::TurnSubmitResult) {
+async fn bound_for_glm(
+    case: Case,
+    judge: Arc<Judging>,
+) -> (Rig, theseus_protocol::TurnSubmitResult) {
     let jev = FakeJev::start().unwrap();
     // A sure pick would move the session off GLM, so a case that asks the route is asked a pick
     // under the confirm bar, which keeps the session where it is; the pin asks none.

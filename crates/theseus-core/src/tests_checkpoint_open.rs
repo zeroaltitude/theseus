@@ -192,11 +192,18 @@ async fn a_task_failing_for_twelve_loops_asks_three_times() {
     // counted by the line each carries: the streak it found failing, at loops 3, 7 and 11.
     let seen: Vec<String> = t.jev.seen().iter().map(|s| s.body.to_string()).collect();
     let asked: Vec<usize> = (1..=12)
-        .filter(|n| seen.iter().any(|b| b.contains(&format!("failing: {n} failed"))))
+        .filter(|n| {
+            seen.iter()
+                .any(|b| b.contains(&format!("failing: {n} failed")))
+        })
         .collect();
     assert_eq!(asked, [3, 7, 11], "one per four loops of the twelve");
     assert_eq!(t.checkpoints().len(), 3);
-    assert_eq!(t.models(), ["haiku"; 13], "a Haiku pick keeps the task's own");
+    assert_eq!(
+        t.models(),
+        ["haiku"; 13],
+        "a Haiku pick keeps the task's own"
+    );
 }
 
 /// Jev's cost is the task's: its `spent` holds what the checkpoints settled at, and the row says

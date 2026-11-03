@@ -21,9 +21,9 @@ use theseus_protocol::TurnSubmitResult;
 use crate::provider::FakeProvider;
 use crate::telemetry::tests::Receiver;
 use crate::telemetry::{Telemetry, TelemetryConfig};
+use crate::tests_act_open::act_open;
 use crate::tests_judge::{kinds, texts};
 use crate::tests_route::{call, rig_parts, turn, until_route_rows, Rig};
-use crate::tests_act_open::act_open;
 use crate::tests_route_open::{open, says};
 
 /// `theseus.turns`'s points in the receiver's last metrics, each by its attributes (values as
@@ -109,11 +109,7 @@ async fn a_routed_turns_metrics_name_the_model_it_ran_on() {
     assert_eq!(deepseek.requests()[0].model, "deepseek-flash");
     assert_eq!(
         root(&thanks),
-        (
-            "dsflash".into(),
-            "deepseek".into(),
-            "deepseek-flash".into()
-        )
+        ("dsflash".into(), "deepseek".into(), "deepseek-flash".into())
     );
     until_route_rows(&r.core.store, 2).await;
     assert!(r.core.telemetry().flush(Duration::from_secs(10)).await);

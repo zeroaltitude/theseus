@@ -84,7 +84,12 @@ async fn a_deep_turn_gets_the_deep_recall_pack_in_the_manifest() {
                 &i["admit_ceiling"]
             ),
             (
-                &if label == "coding" { "deep" } else { "ordinary" }.into(),
+                &if label == "coding" {
+                    "deep"
+                } else {
+                    "ordinary"
+                }
+                .into(),
                 &Value::Null,
                 &tokens.into(),
                 &items.into(),
@@ -125,7 +130,10 @@ async fn the_request_sizes_follow_the_tier() {
     eprintln!("request sizes (est_tokens): {out:?}");
     let tokens = |i: usize| out[i].2;
     let hint = tokens(1) - tokens(0);
-    assert!(hint > 0, "the coding hint is the whole of the before difference: {out:?}");
+    assert!(
+        hint > 0,
+        "the coding hint is the whole of the before difference: {out:?}"
+    );
     assert!(
         tokens(2) > tokens(0),
         "ordinary's 3,000 tokens and 8 items beat 1,500 and 6: {out:?}"

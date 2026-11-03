@@ -88,7 +88,11 @@ async fn a_turn_at_jevs_effort_repeats_the_cached_prefix() {
     );
     // Jev's `high` is a level of its own (route.v10 never leaves the model's default: an answer
     // under the bar is `high` too), so the first request says it before its message, once.
-    let said: Vec<&Value> = r1.messages.iter().filter(|m| m["role"] == "system").collect();
+    let said: Vec<&Value> = r1
+        .messages
+        .iter()
+        .filter(|m| m["role"] == "system")
+        .collect();
     assert_eq!(said, [&level_message("high")], "{:?}", r1.messages);
     keeps(r1, r2, "the low turn");
     let n = r1.messages.len();

@@ -17,9 +17,9 @@ use serde_json::Value;
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
 use theseus_protocol::context::ContextExplainParams;
 
+use crate::tests_act_open::act_open;
 use crate::tests_injection_tiers::tiered;
 use crate::tests_route::{decided, turn, Rig};
-use crate::tests_act_open::act_open;
 use crate::tests_route_open::says;
 
 fn work(jev: &FakeJev, option: &str, confidence: f64) {
