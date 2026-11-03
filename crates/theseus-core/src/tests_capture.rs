@@ -169,8 +169,8 @@ async fn a_sure_preference_is_kept_with_a_notice_and_an_undo_revokes_it() {
     assert!(ids.iter().any(|i| *i == "classify.v4/kind"), "{ids:?}");
     assert_eq!(
         jev.connections(),
-        2,
-        "route's request and the batch: no call was added"
+        5,
+        "route's four requests (route, effort, work, split) and the batch: no call was added"
     );
     // The rows: the record's, the capture's, with the judgment that said so.
     let cap = rows(&r.core, "standing.captured");

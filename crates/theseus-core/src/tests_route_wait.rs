@@ -3,10 +3,10 @@
 //!
 //! - `route.v1` asks in a request of its own beside the batch of
 //!   `classify.v4` and `role.v1`, so its verdict comes when its questions
-//!   (route.v10's four: the model, the effort, the context and
-//!   the personal one) are
+//!   (route.v10's two: the model and the personal one) are
 //!   answered, never after the batch's; each judgment is recorded once,
-//!   with its own request's cost.
+//!   with its own request's cost; `effort.v1`, `work.v1` and `split.v1` each ask
+//!   in a request of their own beside it.
 //! - Jev's connections open once the socket serves (`Core::warm_judge`),
 //!   never on the start path, and are kept warm, so a fresh daemon's first
 //!   message pays no connection setup.
@@ -66,9 +66,10 @@ fn billed(body: &Value) -> Usage {
     }
 }
 
-/// (b): `route.v1` alone in one request, `classify.v4`, `role.v1` and `split.v1` in
-/// the other; four judgments, each recorded once; `route.v1`'s cost is its
-/// whole request's, and the batch's three share theirs by question count.
+/// (b): route.v10 alone in one request (the model and the personal question), `effort.v1`, `work.v1`
+/// and `split.v1` each alone in theirs, `classify.v4` and `role.v1` in the batch; six judgments, each
+/// recorded once, and each request's cost is its own packs' (the batch's two share theirs by question
+/// count).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() {
     let jev = FakeJev::start().unwrap();
@@ -76,8 +77,8 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
     let r = rig(Some(&jev), 1, |_| {});
     let res = turn(&r.core, None, "Weigh two designs for the log.", None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
-    until_calls(&jev, 2).await;
-    let rows = until_judged(&r.core.store, 4).await;
+    until_calls(&jev, 5).await;
+    let rows = until_judged(&r.core.store, 6).await;
     let by_pack: BTreeMap<String, usize> = rows.iter().fold(BTreeMap::new(), |mut m, j| {
         *m.entry(j["pack"].as_str().unwrap().to_string())
             .or_default() += 1;
@@ -87,86 +88,78 @@ async fn route_asks_alone_beside_the_batch_and_each_judgment_is_recorded_once() 
         by_pack,
         BTreeMap::from([
             ("classify.v4".to_string(), 1),
+            ("effort.v1".to_string(), 1),
             ("role.v1".to_string(), 1),
             ("route.v10".to_string(), 1),
-            ("split.v1".to_string(), 1)
+            ("split.v1".to_string(), 1),
+            ("work.v1".to_string(), 1)
         ]),
         "each judgment once"
     );
     let seen = jev.seen();
-    assert_eq!(seen.len(), 2);
+    assert_eq!(seen.len(), 5, "route, effort, work, split and the batch");
     let route_req = seen
         .iter()
         .find(|s| asked(&s.body).contains("route.v10/model"))
         .unwrap();
-    let batch_req = seen
-        .iter()
-        .find(|s| !asked(&s.body).contains("route.v10/model"))
-        .unwrap();
-    // route.v10's four questions, the model, the effort, the context and
-    // question and the personal one, in its one request (theseus-qe3v,
-    // theseus-a1wvq.2, theseus-gasov).
+    // route.v10's two questions, the model and the personal one, in its one request
+    // (theseus-qe3v, theseus-gasov; the effort and the context are not its any more).
     assert_eq!(
         asked(&route_req.body),
         BTreeSet::from([
-            "route.v10/context".to_string(),
-            "route.v10/effort".to_string(),
             "route.v10/model".to_string(),
             "route.v10/personal".to_string()
         ]),
-        "route.v10's four questions, one request"
+        "route.v10's two questions, one request"
     );
-    // route.v10's state is the batch's and the facts it alone reads (row 2).
-    let mut route_state = route_req.body["state"].clone();
-    for fact in [
-        "est_tokens",
-        "price_period",
-        "restricted_models",
-        "last_reply_model",
-        "task_models",
-    ] {
-        route_state.as_object_mut().unwrap().remove(fact);
-    }
-    assert_eq!(route_state, batch_req.body["state"], "one state");
+    // Every request's judgments: one call each, the call's own pack and question counts, and the
+    // request's own billed usage and price.
     let price = JevPrice::jev_1_13_0();
-    let route = rows.iter().find(|j| j["pack"] == "route.v10").unwrap();
-    let batch: Vec<&Value> = rows.iter().filter(|j| j["pack"] != "route.v10").collect();
-    assert_eq!(
-        (
-            route["call"]["packs"].as_u64(),
-            route["call"]["questions"].as_u64()
-        ),
-        (Some(1), Some(4)),
-        "one pack, its four questions"
-    );
-    assert_ne!(route["call"]["id"], batch[0]["call"]["id"], "two calls");
-    assert_eq!(batch.len(), 3, "classify, role and split");
-    assert!(batch
-        .iter()
-        .all(|j| j["call"]["id"] == batch[0]["call"]["id"]));
-    assert_eq!(batch[0]["call"]["packs"], 3);
-    let cost = |j: &Value| j["cost_micros"].as_u64().unwrap();
-    let tokens = |j: &Value, k: &str| j["usage"][k].as_u64().unwrap();
-    let u = billed(&route_req.body);
-    assert_eq!(
-        (
-            tokens(route, "input_tokens"),
-            tokens(route, "output_tokens")
-        ),
-        (u.input_tokens, u.output_tokens)
-    );
-    assert_eq!(cost(route), price.cost_micros(&u), "route.v10's whole call");
-    let u = billed(&batch_req.body);
-    let sum = |k: &str| batch.iter().map(|j| tokens(j, k)).sum::<u64>();
-    assert_eq!(
-        (sum("input_tokens"), sum("output_tokens")),
-        (u.input_tokens, u.output_tokens)
-    );
-    assert_eq!(
-        batch.iter().map(|j| cost(j)).sum::<u64>(),
-        price.cost_micros(&u),
-        "the batch's call, split between its three"
-    );
+    for req in &seen {
+        let questions = asked(&req.body);
+        let packs: BTreeSet<&str> = questions
+            .iter()
+            .map(|q| q.split('/').next().unwrap())
+            .collect();
+        let mine: Vec<&Value> = rows
+            .iter()
+            .filter(|j| packs.contains(j["pack"].as_str().unwrap()))
+            .collect();
+        assert_eq!(mine.len(), packs.len(), "{packs:?}");
+        assert!(
+            mine.iter()
+                .all(|j| j["call"]["id"] == mine[0]["call"]["id"]),
+            "one call for {packs:?}"
+        );
+        assert_eq!(
+            (
+                mine[0]["call"]["packs"].as_u64(),
+                mine[0]["call"]["questions"].as_u64()
+            ),
+            (Some(packs.len() as u64), Some(questions.len() as u64)),
+            "{packs:?}"
+        );
+        let u = billed(&req.body);
+        let tokens = |k: &str| {
+            mine.iter()
+                .map(|j| j["usage"][k].as_u64().unwrap())
+                .sum::<u64>()
+        };
+        assert_eq!(
+            (tokens("input_tokens"), tokens("output_tokens")),
+            (u.input_tokens, u.output_tokens),
+            "{packs:?}"
+        );
+        assert_eq!(
+            mine.iter()
+                .map(|j| j["cost_micros"].as_u64().unwrap())
+                .sum::<u64>(),
+            price.cost_micros(&u),
+            "the call of {packs:?}"
+        );
+    }
+    let calls: BTreeSet<String> = rows.iter().map(|j| j["call"]["id"].to_string()).collect();
+    assert_eq!(calls.len(), 5, "five calls");
 }
 
 /// With (b), `route.v1`'s verdict reaches the turn before the batch's
@@ -233,11 +226,11 @@ async fn jevs_connections_open_after_serving_and_a_first_message_pays_no_setup()
     assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
     let d = &decided(&r.core.store)[0];
     assert!(d["wait_ms"].as_u64().unwrap() < 1000, "no set-up paid: {d}");
-    until_calls(&jev, 2).await;
+    until_calls(&jev, 5).await;
     assert_eq!(
         jev.opened(),
         opened,
-        "both requests rode the kept connections"
+        "all five requests rode the kept connections"
     );
 }
 
@@ -256,7 +249,7 @@ async fn the_keeper_uses_its_connections_again_while_jev_is_silent() {
     assert_eq!(
         jev.opened(),
         crate::judge::warm::CONNECTIONS,
-        "the same two"
+        "the same ones"
     );
     assert_eq!(jev.connections(), 0, "nothing billed");
 }

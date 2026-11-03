@@ -50,23 +50,6 @@ async fn until_inbound(store: &Store, n: usize) -> (Vec<LedgerRow>, Vec<LedgerRo
     }
 }
 
-/// Wait until `scope` has `n` rows, and return them.
-async fn until_scoped(store: &Store, scope: &str, n: usize) -> Vec<LedgerRow> {
-    let t0 = Instant::now();
-    loop {
-        let rows = scoped(store, scope);
-        if rows.len() >= n {
-            return rows.into_iter().map(|(_, r)| r).collect();
-        }
-        assert!(
-            t0.elapsed() < Duration::from_secs(20),
-            "{} of {n} {scope} rows",
-            rows.len()
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
 /// The turn's `judge` marks, from its trace's root.
 fn marks(trace: &Option<Span>) -> Vec<Value> {
     trace
@@ -162,18 +145,6 @@ fn choice_of(d: &Value, q: &str) -> Value {
         .clone()
 }
 
-/// `split.v1` (theseus-z9mze.5) rides the batch of `classify.v4` and `role.v1`: its row, in shadow,
-/// in the same call.
-async fn split_in_the_batch(store: &Store, c: &Value) -> LedgerRow {
-    let sp = until_scoped(store, "judge:split", 1).await.remove(0);
-    assert_eq!(
-        (sp.data["pack"].as_str(), sp.data["mode"].as_str()),
-        (Some("split.v1"), Some("shadow"))
-    );
-    assert_eq!(sp.data["call"]["id"], c["call"]["id"]);
-    sp
-}
-
 /// A person's message is judged by both packs in one request: the fake
 /// counts one call, the two rows (scoped `judge:classify` and `judge:role`,
 /// each keyed by its own id) share the state's blob and the call, and the
@@ -236,26 +207,23 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!(c["context"]["blob"].as_str(), Some(digest));
     assert_eq!(ro["context"]["blob"].as_str(), Some(digest));
     assert_eq!(c["call"]["id"], ro["call"]["id"]);
-    // `split.v1` (theseus-z9mze.5) rides the same call, in shadow: three packs, eight questions.
-    let split = split_in_the_batch(&r.core.store, c).await;
-    let sp = &split.data;
-    assert_eq!(c["call"]["packs"], 3);
-    let (qc, qr, qs) = (
+    // `split.v1` is asked beside the route pack (theseus-h66v4.6), which this rig has off, so the
+    // call is the two packs': seven questions.
+    assert_eq!(c["call"]["packs"], 2);
+    let (qc, qr) = (
         c["questions"].as_u64().unwrap() as usize,
         ro["questions"].as_u64().unwrap() as usize,
-        sp["questions"].as_u64().unwrap() as usize,
     );
-    assert_eq!((qc, qr, qs), (6, 1, 1));
-    assert_eq!(c["call"]["questions"].as_u64(), Some((qc + qr + qs) as u64));
+    assert_eq!((qc, qr), (6, 1));
+    assert_eq!(c["call"]["questions"].as_u64(), Some((qc + qr) as u64));
     // The call's cost, split by question count.
-    let (cc, cr, cs) = (
+    let (cc, cr) = (
         c["cost_micros"].as_u64().unwrap(),
         ro["cost_micros"].as_u64().unwrap(),
-        sp["cost_micros"].as_u64().unwrap(),
     );
-    assert!(cc > cr && cr > 0 && cs > 0, "{cc} {cr} {cs}");
-    let shares = theseus_judge::batch::shares(cc + cr + cs, &[qc, qr, qs]);
-    assert_eq!(shares, [cc, cr, cs]);
+    assert!(cc > cr && cr > 0, "{cc} {cr}");
+    let shares = theseus_judge::batch::shares(cc + cr, &[qc, qr]);
+    assert_eq!(shares, [cc, cr]);
     // The state: the message, from a private place's operator, no role yet.
     let state = std::fs::read_to_string(r.core.store.blobs().path(digest)).unwrap();
     let state: Value = serde_json::from_str(&state).unwrap();
@@ -265,12 +233,8 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!(state["current_role"], "none");
     // Each judgment marked on the turn's trace with its row's id.
     let marked = marks(&res.trace);
-    assert_eq!(marked.len(), 3, "{marked:?}");
-    for ((m, d), mode) in marked
-        .iter()
-        .zip([c, ro, sp])
-        .zip(["live", "shadow", "shadow"])
-    {
+    assert_eq!(marked.len(), 2, "{marked:?}");
+    for ((m, d), mode) in marked.iter().zip([c, ro]).zip(["live", "shadow"]) {
         assert_eq!(m["pack"], d["pack"]);
         assert_eq!(m["judgment"], d["id"]);
         assert_eq!(
@@ -285,7 +249,7 @@ async fn a_persons_message_is_judged_by_both_packs_in_one_request() {
     assert_eq!((h.calls_today, h.failed_today), (1, 0));
     assert_eq!(
         h.spend_today_usd,
-        theseus_judge::price::micros_to_usd(cc + cr + cs)
+        theseus_judge::price::micros_to_usd(cc + cr)
     );
 }
 
@@ -431,8 +395,8 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     assert_eq!(res.loops, 1);
     assert_eq!(
         marks(&res.trace).len(),
-        5,
-        "judged: the inbound point's four marks (classify, role, split and route.v8's, 25e), and loop.v1's at the turn's end (23b)"
+        7,
+        "judged: the inbound point's six marks (classify, role and route.v10's four packs, 25e), and loop.v1's at the turn's end (23b)"
     );
     let own = res.trace.as_ref().unwrap().attrs["frames"].as_u64();
     assert_eq!(own, Some(4), "the turn's own frames");

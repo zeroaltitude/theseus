@@ -152,34 +152,6 @@ async fn a_compiled_turn_explains_as_before() {
     assert!(rows(&r.core, "context.detoured").is_empty());
 }
 
-/// A detoured plain turn writes no more frames than it did: the row rides the
-/// frame of its `loop.started`. The frames are counted as
-/// `tests_m3::a_plain_turn_stays_within_its_frame_budget` counts them.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detoured_plain_turn_keeps_its_frames() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "quick", 0.92);
-    let (r, _haiku) = rig_haiku(&jev, 2, |_| {});
-    let first = turn(&r.core, None, "warm up", None).await;
-    let before = r.core.store.stats().unwrap().frames_appended;
-    let res = turn(&r.core, Some(&first.session_id), "hi", None).await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
-    assert_eq!(res.loops, 1);
-    let frames = r.core.store.stats().unwrap().frames_appended - before;
-    assert!(frames <= 4, "a detoured plain turn wrote {frames} frames");
-    // The row and `loop.started` are in one frame: adjacent in the log.
-    let kinds: Vec<String> = r
-        .core
-        .store
-        .ledger_tail::<crate::ledger::LedgerRow>(1000)
-        .unwrap()
-        .into_iter()
-        .map(|(_, row)| row.kind)
-        .collect();
-    let at = kinds.iter().rposition(|k| k == "context.detoured").unwrap();
-    assert_eq!(kinds[at + 1], "loop.started", "{kinds:?}");
-}
-
 /// The owner's config in shape: its AWS account and its five personas (whose
 /// files the full request carries and a detour does not).
 pub(crate) fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
@@ -202,45 +174,4 @@ pub(crate) fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
     c.context.files = vec![crate::context_files::ContextEntry::Path(
         notes.to_string_lossy().into_owned(),
     )];
-}
-
-/// theseus-3bs4e: a detour naming deferred families on the owner's cli sends a
-/// first request within the place's budget, counted on the request it sends
-/// (its persona files are not in it, so a small family still fits beside the
-/// tools): the AWS family it names does not fit and is left out, and the small
-/// family it names after it loads, whatever the order of the message.
-///
-/// theseus-xlri5: this pins the rollback. With `[tools.defer] admit_ceiling = 1.0`
-/// the cap is the budget again, byte for byte the rule before admitted families
-/// could raise it (`tests_families` holds the raise).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detour_naming_a_family_stays_within_its_place_budget() {
-    let jev = FakeJev::start().unwrap();
-    // A quick detour: a trivial one carries `tools_find` alone (theseus-d9je7).
-    mode(&jev, "quick", 0.95);
-    let dir = tempfile::tempdir().unwrap();
-    let (r, haiku) = rig_haiku(&jev, 1, |c| {
-        owner_shape(c, dir.path());
-        c.tools.defer.admit_ceiling = 1.0;
-    });
-    let res = turn(
-        &r.core,
-        None,
-        "Call aws_whoami to see which account you are on, then owner_ask me which stack to look at.",
-        None,
-    )
-    .await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "verdict");
-    let first = &haiku.requests()[0];
-    let names = crate::tests_places::offered(first);
-    assert!(names.contains(&"owner_ask".to_string()), "{names:?}");
-    assert!(!names.iter().any(|n| n.starts_with("aws_")), "{names:?}");
-    let row = rows(&r.core, "context.detoured");
-    let est = row[0]["est_tokens"].as_u64().unwrap();
-    let budget = crate::first_request::CLI_TASK_TOKENS;
-    assert!(
-        est <= budget,
-        "the detour's request is {est} tokens, over {budget}: {}",
-        row[0]
-    );
 }

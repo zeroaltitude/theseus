@@ -197,7 +197,7 @@ async fn jevs_none_engages_the_default_persona() {
 }
 
 /// The persona question rides the inbound request that was already going out:
-/// the same two calls with personas as without, and the route request asks
+/// the same five calls with personas as without, and the route request asks
 /// it beside the mode and the effort.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_persona_question_adds_no_call() {
@@ -205,14 +205,14 @@ async fn the_persona_question_adds_no_call() {
     mode(&with, "chat", 0.95);
     let r = rig(Some(&with), 1, |c| personas(c, true));
     turn(&r.core, None, "Is this CVE a sandbox escape?", None).await;
-    crate::tests_route::until_calls(&with, 2).await;
+    crate::tests_route::until_calls(&with, 5).await;
     let without = FakeJev::start().unwrap();
     mode(&without, "chat", 0.95);
     let r2 = rig(Some(&without), 1, |_| {});
     turn(&r2.core, None, "Is this CVE a sandbox escape?", None).await;
-    crate::tests_route::until_calls(&without, 2).await;
+    crate::tests_route::until_calls(&without, 5).await;
     assert_eq!(with.connections(), without.connections(), "no call added");
-    assert_eq!(with.connections(), 2);
+    assert_eq!(with.connections(), 5);
     let asked = |j: &FakeJev| -> Vec<String> {
         j.seen()
             .iter()

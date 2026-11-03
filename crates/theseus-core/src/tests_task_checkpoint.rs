@@ -307,7 +307,7 @@ async fn an_open_task_asks_the_work_question_at_its_brief_and_each_checkpoint() 
             .count()
     };
     let (model, effort, work) = (
-        asked("route.v8/model"),
+        asked("route.v10/model"),
         asked("effort.v1/effort"),
         asked("work.v1/work"),
     );

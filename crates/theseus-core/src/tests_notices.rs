@@ -227,9 +227,13 @@ async fn a_failed_judgment_posts_nothing() {
     let sid = session(&r.core, None);
     turn(&r.core, &sid, "say hi", None).await;
     let rows = until_judged(&r.core.store, 1).await;
+    // Route's five requests fail first and open the breaker, so a gate's judgment after them is
+    // `skipped` (`circuit_open`) rather than `failed`: Jev down either way.
     assert!(
-        rows.iter()
-            .all(|j| j.data["outcome"]["outcome"] == "failed"),
+        rows.iter().all(|j| matches!(
+            j.data["outcome"]["outcome"].as_str(),
+            Some("failed" | "skipped")
+        )),
         "{rows:?}"
     );
     settle().await;

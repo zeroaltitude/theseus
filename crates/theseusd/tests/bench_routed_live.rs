@@ -269,8 +269,7 @@ fn at_two_dollars_an_opus_or_fable_route_is_refused_by_the_money_gate() {
     for (mode, profile, model, refused) in [
         ("opus", "opus", "claude-opus-5-5", true),
         ("fable", "fable", "claude-fable-5-1", true),
-        // The session's own model: the pick moves nothing, so the turn stays on `bench`.
-        ("sonnet", "bench", "claude-sonnet-5-5", false),
+        ("sonnet", "sonnet", "claude-sonnet-5-5", false),
         ("haiku", "haiku", "claude-haiku-5-5", false),
     ] {
         let stand_in = FakeModel::start(no_calls);

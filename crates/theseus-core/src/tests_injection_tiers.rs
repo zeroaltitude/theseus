@@ -143,11 +143,19 @@ async fn a_late_verdict_packs_ordinary_and_says_so() {
     );
 }
 
-/// An ordinary prompt (`chat`) packs 3,000 tokens and 8 items, from 1,500 and 6.
+/// An ordinary prompt (a `conversation` label) packs 3,000 tokens and 8 items, from 1,500 and 6.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ordinary_prompt_gets_three_thousand_and_eight() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
+    // `work.v1`'s label is what the tier reads: a conversation is ordinary, at its bar.
+    jev.script(
+        "work",
+        theseus_judge::fake::Scripted::Choice {
+            option: "conversation".into(),
+            confidence: 0.95,
+        },
+    );
     let r = tiered(&jev, 1, true, |_| {});
     let res = turn(
         &r.core,

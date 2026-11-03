@@ -849,7 +849,7 @@ impl JudgeService {
             let Some(built) = me.upgrade().and_then(|s| s.built().ok()) else {
                 return;
             };
-            if let Some((took, warm)) = built.jev().client().warm_up(2).await {
+            if let Some((took, warm)) = built.jev().client().warm_up(warm::CONNECTIONS).await {
                 tracing::debug!(
                     ms = took.as_millis() as u64,
                     warm,

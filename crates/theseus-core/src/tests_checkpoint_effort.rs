@@ -201,6 +201,9 @@ async fn a_model_with_per_message_effort_is_not_raised_mid_turn() {
 fn evidence_lines(jev: &FakeJev) -> Vec<(Option<String>, String)> {
     jev.seen()
         .iter()
+        // The model question's request: `work.v1` is asked at the same checkpoint and reads the
+        // same lines.
+        .filter(|s| s.body["questions"].get("route.v10/model").is_some())
         .filter_map(|s| {
             let body = s.body.to_string();
             let at = body.find("Checkpoints this turn:")?;

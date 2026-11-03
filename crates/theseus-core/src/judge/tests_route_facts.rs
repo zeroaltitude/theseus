@@ -126,9 +126,9 @@ async fn the_live_route_packs_state_carries_the_facts() {
     let state: serde_json::Value = serde_json::from_str(&state).unwrap();
     assert!(state["message"].is_string(), "{state}");
     for k in [
+        "est_tokens",
         "price_period",
         "restricted_models",
-        "current_model",
         "switch_cost",
     ] {
         assert!(
@@ -136,8 +136,10 @@ async fn the_live_route_packs_state_carries_the_facts() {
             "{k} not in route.v10's state: {state}"
         );
     }
-    // A fresh session has no last reply and no task: those two are left out by design.
-    for k in ["last_reply_model", "task_models"] {
+    // A fresh session has no warm model, no last reply and no task: those are left out by design
+    // (its `switch_cost` is `about_the_same`).
+    assert_eq!(state["switch_cost"], "about_the_same", "{state}");
+    for k in ["current_model", "last_reply_model", "task_models"] {
         assert!(
             state.get(k).is_none(),
             "{k} in a fresh session's state: {state}"

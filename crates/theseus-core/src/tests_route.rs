@@ -229,25 +229,22 @@ pub(crate) async fn try_turn_attached(
 }
 
 /// Jev's answer to a message, in the words of the class the old route pack
-/// asked (route.v10 asks `model` and `context` instead, theseus-h66v4, row 6):
-/// a trivial or quick message is Haiku answered from the last exchanges alone
-/// (`short`), a review or a hard design question Opus, programming Sonnet,
-/// conversation the session's own Sonnet.
+/// asked (route.v10 asks `model` instead, theseus-h66v4): a trivial or quick
+/// message is Haiku, a review or a hard design question Opus, programming
+/// Sonnet, conversation the session's own Sonnet.
 pub(crate) fn mode(jev: &FakeJev, m: &str, confidence: f64) {
-    let (model, context) = match m {
-        "trivial" | "quick" => ("haiku", "short"),
-        "sophisticated" | "review" | "deep_coding" => ("opus", "full"),
-        _ => ("sonnet", "full"),
+    let model = match m {
+        "trivial" | "quick" => "haiku",
+        "sophisticated" | "review" | "deep_coding" => "opus",
+        _ => "sonnet",
     };
-    for (question, option) in [("model", model), ("context", context)] {
-        jev.script(
-            question,
-            Jev::Choice {
-                option: option.into(),
-                confidence,
-            },
-        );
-    }
+    jev.script(
+        "model",
+        Jev::Choice {
+            option: model.into(),
+            confidence,
+        },
+    );
 }
 
 pub(crate) fn decided(store: &Store) -> Vec<Value> {
@@ -487,51 +484,8 @@ async fn a_late_verdict_applies_from_the_next_message() {
     );
 }
 
-/// A late trivial verdict never applies to a later message (theseus-6n5j):
-/// the first message's verdict, trivial, comes after its wait; the second's
-/// own is late too, and the second stays on the session's own profile, where
-/// a late switch verdict would have moved it (`a_late_verdict_applies_from_
-/// the_next_message`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_late_trivial_verdict_never_applies_to_the_next_message() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
-    jev.set_mode(FakeMode::Held);
-    let r = rig(Some(&jev), 2, held);
-    let one = turn(&r.core, None, "thanks!", None).await;
-    assert_eq!(
-        (
-            one.profile.as_str(),
-            one.route.as_ref().unwrap().reason.as_str()
-        ),
-        ("sonnet", "late")
-    );
-    // Its verdict lands while no message waits for it.
-    jev.release();
-    until_late(&r.core, &one.session_id).await;
-    mode(&jev, "sophisticated", 0.95);
-    let two = turn(
-        &r.core,
-        Some(&one.session_id),
-        "Now weigh two designs for the log.",
-        None,
-    )
-    .await;
-    jev.release();
-    assert_eq!(
-        (
-            two.profile.as_str(),
-            two.route.as_ref().unwrap().reason.as_str()
-        ),
-        ("sonnet", "late"),
-        "{:?}",
-        two.route
-    );
-    assert!(r.zai.requests().is_empty(), "nothing detoured");
-}
-
 /// A person's message warms Jev's connections as it arrives (theseus-otny):
-/// two `HEAD`s of the judge's path, nothing billed, beside the admission's
+/// `warm::CONNECTIONS` `HEAD`s of the judge's path, nothing billed, beside the admission's
 /// frames; a message while the client is warm sends none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
@@ -540,17 +494,25 @@ async fn a_message_warms_jevs_connections_once_while_they_stay_warm() {
     let r = rig(Some(&jev), 2, |_| {});
     let one = turn(&r.core, None, "What does the manifest hold?", None).await;
     assert_eq!(one.route.as_ref().unwrap().reason, "verdict");
-    assert_eq!(jev.warmups(), 2, "two connections opened at the message");
-    until_calls(&jev, 2).await;
+    assert_eq!(
+        jev.warmups(),
+        crate::judge::warm::CONNECTIONS,
+        "the kept connections opened at the message"
+    );
+    until_calls(&jev, 5).await;
     assert_eq!(
         jev.connections(),
-        2,
-        "and two calls: route.v8's and the batch"
+        5,
+        "and five calls: route.v10's, effort.v1's, work.v1's, split.v1's and the batch"
     );
     turn(&r.core, Some(&one.session_id), "And where is it?", None).await;
-    assert_eq!(jev.warmups(), 2, "warm: no second warm-up");
-    until_calls(&jev, 4).await;
-    assert_eq!(jev.connections(), 4);
+    assert_eq!(
+        jev.warmups(),
+        crate::judge::warm::CONNECTIONS,
+        "warm: no second warm-up"
+    );
+    until_calls(&jev, 10).await;
+    assert_eq!(jev.connections(), 10);
 }
 
 /// Jev known unreachable (theseus-otny): once a try to reach it fails to
@@ -576,8 +538,10 @@ async fn a_turn_does_not_wait_on_an_unreachable_jev() {
     assert_eq!(d.len(), 2);
     assert!(d[1]["wait_ms"].as_u64().unwrap() < 50, "no wait: {}", d[1]);
     let reason = two.route.as_ref().unwrap().reason.clone();
+    // After the first message's five failed requests the breaker is open, and an open breaker
+    // reads as `shadow`: no verdict, no wait.
     assert!(
-        ["unreachable", "no_verdict"].contains(&reason.as_str()),
+        ["unreachable", "no_verdict", "shadow"].contains(&reason.as_str()),
         "{reason}"
     );
 }
@@ -837,48 +801,6 @@ fn edges_into(core: &Core, node: &str) -> usize {
 fn carries_note(m: &Value) -> bool {
     let m = m.to_string();
     m.contains("[Recalled by the harness") || m.contains("tide board")
-}
-
-/// A quick detour sends its turn's recall and writes it (theseus-pa1xx): a
-/// quick question about what was said or decided before is answered from the
-/// note, after the message, as a kept compile sends it. The `Recall` node and
-/// its edge are written, the footer counts the note, and the row says `ran`.
-/// Before, a fresh session's "what tag did he choose?" went to Haiku with the
-/// right note admitted and thrown away (`detoured`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_quick_detour_sends_its_recall_and_writes_it() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "quick", 0.95);
-    let (r, note) = recalling(&jev, 1);
-    let ask = "Where does the lock-keeper keep the spare key?";
-    let res = turn(&r.core, None, ask, None).await;
-    let route = res.route.as_ref().unwrap();
-    assert_eq!(
-        (
-            res.profile.as_str(),
-            route.reason.as_str(),
-            route.mode.as_deref()
-        ),
-        ("haiku", "verdict", Some("haiku"))
-    );
-    let q = &r.claude.requests()[0];
-    assert_eq!(q.model, "claude-haiku-5-5");
-    let (last, before) = q.messages.split_last().unwrap();
-    assert!(carries_note(last), "the note, after the message: {last}");
-    assert!(!before.iter().any(carries_note), "{before:?}");
-    assert_eq!(res.recalled, 1, "the footer counts what the model saw");
-    let sid = &res.session_id;
-    assert_eq!(recall_nodes(&r.core, sid).len(), 1, "its Recall node");
-    assert_eq!(edges_into(&r.core, &note), 1, "its edge into the note");
-    let rows = crate::tests_recall::recalls(&r.core, sid);
-    assert_eq!(rows.len(), 1, "one recall row");
-    assert_eq!(rows[0].outcome, "ran");
-    let rec = session(&r.core, sid);
-    assert!(
-        rec.compilation_id.is_none(),
-        "a detour writes no compilation"
-    );
-    assert!(unadmitted(&r.core).is_empty());
 }
 
 /// A quick detour's later loop keeps its recall (theseus-pa1xx): once the

@@ -20,9 +20,12 @@ use theseus_judge::client::KEEP_WARM;
 
 use super::{inbound, rerank, JudgeService};
 
-/// The connections kept: route.v1's request and the inbound batch go out
-/// at once.
-pub const CONNECTIONS: usize = 2;
+/// The connections kept: under route.v10 a message's five requests go out at
+/// once (the route pack's, `effort.v1`'s, `work.v1`'s, `split.v1`'s and the
+/// inbound batch), and each must find a warm connection or the turn waits on
+/// the slowest set-up. (It was two while route.v8's request and the batch were
+/// all a message sent.)
+pub const CONNECTIONS: usize = 5;
 
 impl JudgeService {
     /// Whether a person's message waits on Jev, or rides beside a call that
