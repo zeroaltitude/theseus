@@ -1302,7 +1302,10 @@ esac
         reader.absent = None;
         let reference = "op://V/note/notesPlain";
         let got = reader.read_note(reference).await.unwrap();
-        assert!(got.ends_with('\n'), "the stored note ends in a newline: {got:?}");
+        assert!(
+            got.ends_with('\n'),
+            "the stored note ends in a newline: {got:?}"
+        );
         assert_eq!(got, note);
         // The same reference as a secret is trimmed: both halves of the boundary.
         let r = SecretRef::parse(reference).unwrap();
