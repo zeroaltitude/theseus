@@ -93,14 +93,17 @@ fn theseus(dir: &Path, args: &[&str]) -> (i32, String, String) {
     )
 }
 
-fn script_mode(jev: &FakeJev, mode: &str, confidence: f64) {
-    jev.script(
-        "mode",
-        Scripted::Choice {
-            option: mode.into(),
-            confidence,
-        },
-    );
+/// Jev's two answers for the turn: the model it picks, and a reply effort of `high`.
+fn script_pick(jev: &FakeJev, model: &str, confidence: f64) {
+    for (question, option) in [("model", model), ("effort", "high")] {
+        jev.script(
+            question,
+            Scripted::Choice {
+                option: option.into(),
+                confidence,
+            },
+        );
+    }
 }
 
 /// Every file under `dir`, whole, for a needle.
@@ -128,14 +131,14 @@ fn no_calls(_: &str) -> Vec<(&'static str, Value)> {
     vec![]
 }
 
-/// The first message of a fresh one-shot daemon, which Jev says is deep
-/// coding, runs on sonnethi (Sonnet 5.5 at high effort, the table's first for
-/// that mode since the owner's table of 2026-10-10), recorded live.
+/// The first message of a fresh one-shot daemon, for which Jev picks Opus,
+/// runs on the profile that runs Opus (the session's own is Sonnet 5.5),
+/// recorded live.
 #[test]
 fn the_first_message_of_a_fresh_daemon_is_routed_live() {
     let model = FakeModel::start(no_calls);
     let jev = FakeJev::start().unwrap();
-    script_mode(&jev, "deep_coding", 0.95);
+    script_pick(&jev, "opus", 0.95);
     let dir = trial(&model, &jev, ROUTED_LIMIT);
     let (code, out, err) = theseus(dir.path(), &["ask", "fix the failing build in this repo"]);
     assert_eq!(code, 0, "{out}\n{err}");
@@ -145,8 +148,8 @@ fn the_first_message_of_a_fresh_daemon_is_routed_live() {
     let rows = rows["rows"].as_array().expect("rows");
     assert_eq!(rows.len(), 1, "{ledger}");
     let d = &rows[0]["data"];
-    assert_eq!(d["mode"], "deep_coding", "{d}");
-    assert_eq!(d["profile"], "sonnethi", "{d}");
+    assert_eq!(d["mode"], "opus", "the row's mode word is the pick: {d}");
+    assert_eq!(d["profile"], "opus", "{d}");
     assert_eq!(d["late"], false, "{d}");
     assert_ne!(d["reason"].as_str().unwrap_or(""), "shadow", "{d}");
     assert!(rows[0]["position"].is_u64(), "{}", rows[0]);
@@ -155,7 +158,7 @@ fn the_first_message_of_a_fresh_daemon_is_routed_live() {
         .iter()
         .map(|r| r["model"].as_str().unwrap_or("").to_string())
         .collect();
-    assert_eq!(models, ["claude-sonnet-5-5"], "{models:?}");
+    assert_eq!(models, ["claude-opus-5-5"], "{models:?}");
     // The judge.call rows the record reads.
     let (_, calls, _) = theseus(dir.path(), &["ledger", "-n", "1000", "-k", "judge.call"]);
     let calls: Value = serde_json::from_str(&calls).unwrap();
@@ -164,7 +167,7 @@ fn the_first_message_of_a_fresh_daemon_is_routed_live() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|r| r["data"]["pack"] == "route.v8" && r["data"]["cost_micros"].is_u64()),
+            .any(|r| r["data"]["pack"] == "route.v10" && r["data"]["cost_micros"].is_u64()),
         "{calls}"
     );
     // The key reached Jev, as a bearer token of its length.
@@ -187,7 +190,7 @@ fn the_jev_key_reaches_jev_alone() {
         }
     });
     let jev = FakeJev::start().unwrap();
-    script_mode(&jev, "deep_coding", 0.95);
+    script_pick(&jev, "sonnet", 0.95);
     let dir = trial(&model, &jev, ROUTED_LIMIT);
     let (code, out, err) = theseus(dir.path(), &["ask", "print your environment"]);
     assert_eq!(code, 0, "{out}\n{err}");
@@ -235,7 +238,7 @@ fn a_job_that_reads_the_daemons_environment_leaves_both_keys_in_the_record() {
         }
     });
     let jev = FakeJev::start().unwrap();
-    script_mode(&jev, "routine_coding", 0.95);
+    script_pick(&jev, "haiku", 0.95);
     let dir = trial(&model, &jev, ROUTED_LIMIT);
     let (code, out, err) = theseus(dir.path(), &["ask", "read /proc environ"]);
     assert_eq!(code, 0, "{out}\n{err}");
@@ -259,21 +262,20 @@ fn a_job_that_reads_the_daemons_environment_leaves_both_keys_in_the_record() {
 
 /// At the plain arm's $2 limit the money gate refuses the first call Jev
 /// sends to Opus or Fable: the profiles cap no output, so the reservation is
-/// 128,000 tokens at the model's price (about $2.6 and $6.5). Since the
-/// owner's table of 2026-10-10 sophisticated work goes to Opus first and deep
-/// coding to Sonnet 5.5 at high effort. The adapter's routed default is higher
-/// (`ROUTED_SPEND_LIMIT_USD`); a mode that reaches Haiku or Sonnet is
-/// unaffected.
+/// 128,000 tokens at the model's price (about $2.6 and $6.5). A pick that
+/// reaches Haiku or Sonnet is unaffected.
 #[test]
 fn at_two_dollars_an_opus_or_fable_route_is_refused_by_the_money_gate() {
     for (mode, profile, model, refused) in [
-        ("sophisticated", "opus", "claude-opus-5-5", true),
-        ("deep_coding", "sonnethi", "claude-sonnet-5-5", false),
-        ("routine_coding", "haikuhi", "claude-haiku-5-5", false),
+        ("opus", "opus", "claude-opus-5-5", true),
+        ("fable", "fable", "claude-fable-5-1", true),
+        // The session's own model: the pick moves nothing, so the turn stays on `bench`.
+        ("sonnet", "bench", "claude-sonnet-5-5", false),
+        ("haiku", "haiku", "claude-haiku-5-5", false),
     ] {
         let stand_in = FakeModel::start(no_calls);
         let jev = FakeJev::start().unwrap();
-        script_mode(&jev, mode, 0.95);
+        script_pick(&jev, mode, 0.95);
         let dir = trial(&stand_in, &jev, 2.0);
         let (code, out, err) = theseus(dir.path(), &["ask", "do the task"]);
         let turn: Value = serde_json::from_str(&out).unwrap_or(Value::Null);

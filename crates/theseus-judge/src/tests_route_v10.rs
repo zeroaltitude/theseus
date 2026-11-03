@@ -87,11 +87,11 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
         let t = pack.question(q).unwrap().thresholds;
         assert_eq!((t.act, t.confirm), (0.90, 0.60), "{q}");
     }
-    // Not the acting pack, and the three rollback rules the design names.
+    // Its own pack, apart from route.v8's, and the three rollback rules the design names.
     assert_ne!(
         by_name("route.v8").unwrap().name(),
         p.name(),
-        "route.v8 stays what ROUTE_PACK names"
+        "route.v10 is not route.v8"
     );
     let rules: Vec<String> = p
         .rollback

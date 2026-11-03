@@ -59,6 +59,10 @@ pub const ADOPTED: &[Adopted] = &[
         why: WHY_ROUTE_V8,
     },
     Adopted {
+        pack: "route.v10",
+        why: WHY_ROUTE_V10,
+    },
+    Adopted {
         pack: "rerank.v1",
         why: WHY,
     },
@@ -87,6 +91,10 @@ pub const WHY_ROUTE_V7: &str = "the owner's decision of 2026-10-19";
 /// question's `open` and `unclear` options, which decides nothing for its
 /// promotion (theseus-f9qa8, v1 patch2).
 pub const WHY_ROUTE_V8: &str = "the owner's decision of 2026-10-23";
+
+/// `route.v10`'s adoption row's reason: Jev chooses the model and its effort
+/// (theseus-h66v4).
+pub const WHY_ROUTE_V10: &str = "the owner's decision of 2026-10-29";
 
 /// The rules adoption gives a pack id (every version of it):
 /// - `route`: the owner pins another profile on 3 routed turns in a local

@@ -1,8 +1,8 @@
 # A TEST FIXTURE shaped like route.v10 (theseus-h66v4 row 3), not the pack: the deciding
 # question (`model`; `effort` is `effort.v1`'s since theseus-h66v4.6, the `context` question went in theseus-h66v4.1) with option ids and a block's sentence structure as the
-# design's table has them, and v8's `persona`, `seal` and `personal`. The daemon's tests ask it as
-# `route.v8` (`JudgeService::stand_in`) so every name the daemon compares keeps its meaning while
-# `ROUTE_PACK` is still v8; the real route.v10 is row 1's file and never read here.
+# design's table has them, and v8's `persona`, `seal` and `personal`. `routing/tests_model.rs` and
+# `turn/tier.rs`'s tests read it for the shape of a pack that asks `model`; the daemon's tests ask
+# the real route.v10 (`ROUTE_PACK`), and this file is never the acting pack.
 id = "route"
 version = 10
 jev_model = "jev-1.13.0"

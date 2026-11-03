@@ -101,14 +101,13 @@ fn only_a_pack_that_asks_model_reads_the_facts() {
     }
 }
 
-/// Row 2 is inert: the live route pack is route.v8, which asks `mode`, so the
-/// state a turn sends it is the one it always was, with none of the facts. The
-/// daemon computes them for every ask, and the pack gate keeps them off.
+/// The flip is on: the live route pack is route.v10, which asks `model`, so the
+/// state a turn sends it carries the facts the daemon computes for every ask.
 #[tokio::test]
-async fn the_live_route_packs_state_carries_no_facts_yet() {
-    use crate::tests_route::{mode, rig, turn, until_calls, until_route_rows};
+async fn the_live_route_packs_state_carries_the_facts() {
+    use crate::tests_route::{rig, turn, until_calls, until_route_rows};
     let jev = theseus_judge::fake::FakeJev::start().unwrap();
-    mode(&jev, "sophisticated", 0.95);
+    crate::tests_route_open::says(&jev, "opus", "high", 0.95);
     let r = rig(Some(&jev), 1, |_| {});
     turn(
         &r.core,
@@ -129,12 +128,17 @@ async fn the_live_route_packs_state_carries_no_facts_yet() {
     for k in [
         "price_period",
         "restricted_models",
-        "last_reply_model",
-        "task_models",
         "current_model",
         "switch_cost",
     ] {
-        assert!(state.get(k).is_none(), "{k} in route.v8's state: {state}");
+        assert!(
+            state.get(k).is_some(),
+            "{k} not in route.v10's state: {state}"
+        );
+    }
+    // A fresh session has no last reply and no task: those two are left out by design.
+    for k in ["last_reply_model", "task_models"] {
+        assert!(state.get(k).is_none(), "{k} in a fresh session's state: {state}");
     }
 }
 
