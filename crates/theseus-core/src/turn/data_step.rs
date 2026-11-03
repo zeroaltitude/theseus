@@ -94,7 +94,7 @@ impl super::route_step::RouteState {
     /// The turn's floor: its labels.
     pub(super) fn floor(&self) -> Floor {
         Floor {
-            cn_ok: self.cn == Cn::Allowed || self.assume_cn,
+            cn_ok: self.cn == Cn::Allowed,
         }
     }
 }

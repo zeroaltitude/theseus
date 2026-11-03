@@ -82,9 +82,6 @@ pub(super) struct RouteState {
     /// Why the floor moved the turn off a restricted-origin profile, for its
     /// route row (`data_step`, theseus-a1wvq.11).
     pub(super) gated: Option<&'static str>,
-    /// While the counterfactual decision runs (`decide_floored`), the turn's
-    /// floor reads the session's labels as allowing a restricted profile.
-    pub(super) assume_cn: bool,
     /// The message's text, its first characters: what a model without tool
     /// search is given the tools for (theseus-jpjcd).
     pub(super) ask: String,
@@ -738,16 +735,13 @@ impl TurnRunner {
                     }
                 }
             }
-        } else {
-            // What the same decision would have named had the session's
-            // labels allowed it: only where that is a restricted profile does
-            // the rule cost the turn a model (theseus-b80si).
-            t.route.assume_cn = true;
-            let wanted = decide(t);
-            t.route.assume_cn = false;
-            if named(&wanted) && !named(&decision) {
-                t.route.gated = Some(t.route.cn.word());
-            }
+        } else if decision
+            .as_ref()
+            .is_some_and(|d| d.reason == Reason::DataGate)
+        {
+            // The labels already bar a restricted profile, and the rule said
+            // so: the decision's own reason is the gate (theseus-b80si).
+            t.route.gated = Some(t.route.cn.word());
         }
         self.data_floor(t, decision)
     }

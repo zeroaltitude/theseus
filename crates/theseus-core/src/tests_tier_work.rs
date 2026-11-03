@@ -270,21 +270,28 @@ async fn a_data_gate_turn_counts_once_on_the_route_data_gate_metric() {
 /// the turn's floor is closed at its start (theseus-7l8lr.3, C6).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_flash_pick_under_a_closed_floor_counts_once_on_the_route_data_gate_metric() {
-    assert_eq!(flash_under_never(1_000_000).await, [("route".into(), "never".into(), "1".to_string())]);
+    assert_eq!(
+        flash_under_never(1_000_000).await,
+        [("route".into(), "never".into(), "1".to_string())]
+    );
 }
 
-/// Characterizes the counterfactual decision C6 replaces: a closed floor and a Flash pick that
-/// the cache would have held on the profile with the floor open. The counterfactual did not
-/// count it; reading the decision's own reason does.
+/// A Flash pick the cache would have held on the profile with the floor open is still a
+/// refusal by the data rule, and counts: the route row says `data_gate`, and so does the count.
+/// (The counterfactual decision C6 removed asked the rule again with the floor open and counted
+/// only a pick it would then have taken: a held pick went uncounted under a row that said
+/// `data_gate`. theseus-7l8lr.3 chose the row's own word.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_flash_pick_the_cache_would_have_held_under_a_closed_floor_is_counted_by_the_counterfactual() {
-    assert_eq!(flash_under_never(1).await, []);
+async fn a_flash_pick_the_cache_would_have_held_under_a_closed_floor_counts_once() {
+    assert_eq!(
+        flash_under_never(1).await,
+        [("route".into(), "never".into(), "1".to_string())]
+    );
 }
 
-/// And a Flash pick whose provider is not wired: with the floor open it falls back, so the
-/// counterfactual did not count the refusal either.
+/// The same for a Flash pick whose provider is not wired: the rule refused it first.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_flash_pick_with_no_provider_under_a_closed_floor_is_counted_by_the_counterfactual() {
+async fn a_flash_pick_with_no_provider_under_a_closed_floor_counts_once() {
     use crate::config::content_based_security::CnModels;
     use crate::tests_dm_rig::{gate_counts, telemetry};
 
@@ -302,8 +309,13 @@ async fn a_flash_pick_with_no_provider_under_a_closed_floor_is_counted_by_the_co
     );
     act_open(&r);
     let res = turn(&r.core, None, "Rename the call sites.", None).await;
-    eprintln!("no provider: reason {}", res.route.as_ref().unwrap().reason);
-    assert_eq!(gate_counts(&r.core, &rx).await, vec![]);
+    assert_eq!(res.route.as_ref().unwrap().reason, "data_gate");
+    let counts: Vec<(Value, Value, String)> = gate_counts(&r.core, &rx)
+        .await
+        .into_iter()
+        .map(|(what, why, n)| (what, why, n.to_string().replace('"', "")))
+        .collect();
+    assert_eq!(counts, [("route".into(), "never".into(), "1".to_string())]);
 }
 
 async fn flash_under_never(cold: u64) -> Vec<(Value, Value, String)> {
@@ -334,7 +346,7 @@ async fn flash_under_never(cold: u64) -> Vec<(Value, Value, String)> {
     act_open(&r);
     let res = turn(&r.core, None, "Rename the call sites.", None).await;
     assert!(deepseek.requests().is_empty(), "Flash was sent nothing");
-    eprintln!("cold {cold}: reason {}", res.route.as_ref().unwrap().reason);
+    assert_eq!(res.route.as_ref().unwrap().reason, "data_gate");
     gate_counts(&r.core, &rx)
         .await
         .into_iter()
