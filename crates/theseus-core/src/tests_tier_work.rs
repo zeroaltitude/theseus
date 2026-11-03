@@ -249,6 +249,9 @@ async fn a_data_gate_turn_counts_once_on_the_route_data_gate_metric() {
     let res = turn(&r.core, None, "Rename the call sites.", None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "data_gate");
     assert!(deepseek.requests().is_empty(), "Flash was sent nothing");
+    // The route row carries the same word the count does.
+    let row = decided(&r.core.store).pop().unwrap();
+    assert_eq!(row["data_gate"], "confidential", "{row}");
     // The export spells a count as a number or a string of one.
     let counts: Vec<(Value, Value, String)> = gate_counts(&r.core, &rx)
         .await
