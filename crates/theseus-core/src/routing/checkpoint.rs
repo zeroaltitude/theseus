@@ -420,7 +420,6 @@ mod tests {
         Verdict {
             mode: model.into(),
             model: Some(pick(model, sure)),
-            context: Some(pick("full", true)),
             ..verdict("", 0.9)
         }
     }
@@ -528,19 +527,12 @@ mod tests {
         assert_eq!(d.hold, HoldNext::Clear);
     }
 
-    /// A `short` context is a pick like another for a task: it moves it, as a
+    /// A Haiku pick over Opus is a pick like another for a task: it moves it, as a
     /// verdict, not a detour.
     #[test]
     fn a_detour_class_is_a_pick_like_another() {
         let ps = options();
-        let v = Verdict {
-            context: Some(Box::new(Pick {
-                choice: "short".into(),
-                confidence: 0.9,
-                sure: true,
-            })),
-            ..open("haiku", true)
-        };
+        let v = open("haiku", true);
         let d = decide(
             &cfg(),
             &ps,

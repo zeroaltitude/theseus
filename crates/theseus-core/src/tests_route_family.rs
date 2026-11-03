@@ -8,7 +8,7 @@
 //! 3. the tier's confidence line reads the work answer's own bar, not a class's: `tier::tests`;
 //! 4. the fan-out cue reads `split.v1`: `tests_fan_out_cue`;
 //! 5. the learning report's acting list reads the pack's own options: here;
-//! 6. the correction's `To::Mode` has no mode vocabulary under route.v10: dead on purpose, here.
+//! 6. the correction's `To::Mode` is gone with the class table (row 6): no class word resolves, here.
 //! 7. the task offer's `trivial`/`quick` exemption (`turn/reply_step.rs::offer_for`, theseus-h66v4.9):
 //!    retired on purpose under route.v10: `tests_offer`. A task's brief and checkpoint ask `work.v1`
 //!    too, or reader 1 and 2 would have no answer on a task turn: `tests_task_checkpoint`.
@@ -142,28 +142,15 @@ fn the_acting_list_names_each_packs_own_options() {
     assert!(v8.question("model").is_none());
 }
 
-/// Reader 6: under route.v10 the correction has no mode vocabulary, so `To::Mode` cannot be named
-/// in words and the arm that walks the class table is dead on purpose; row 6 deletes it with the
-/// class table. A profile, a persona and `stronger` / `cheaper` are the corrections that remain.
+/// Reader 6: the correction has no mode vocabulary: `To::Mode` and the names it was spelled with went
+/// with the class table (row 6), so no class word resolves to anything. A profile, a persona and
+/// `stronger` / `cheaper` are the corrections that remain.
 #[test]
-fn under_route_v10_a_correction_names_no_mode() {
+fn a_correction_names_no_mode() {
     let cfg = crate::Config::example();
     let book = crate::personas::Book::default();
-    let v10 = theseus_judge::pack::by_name("route.v10").unwrap();
-    let names = crate::correction::names(&cfg, &book, Some(&v10));
-    assert!(names.modes.is_empty(), "{:?}", names.modes);
+    let names = crate::correction::names(&cfg, &book);
     for word in ["deep_coding", "quick", "sophisticated"] {
-        assert!(
-            !matches!(
-                crate::correction::to_of(word, &names),
-                Some(crate::correction::To::Mode(_))
-            ),
-            "{word}"
-        );
+        assert!(crate::correction::to_of(word, &names).is_none(), "{word}");
     }
-    // route.v8 still has its modes until row 6.
-    let v8 = theseus_judge::pack::by_name("route.v8").unwrap();
-    assert!(!crate::correction::names(&cfg, &book, Some(&v8))
-        .modes
-        .is_empty());
 }
