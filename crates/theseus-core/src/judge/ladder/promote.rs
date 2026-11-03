@@ -117,7 +117,7 @@ pub fn short_of(pack: &str, r: &PackReport) -> Option<String> {
     let deciding: Vec<&str> = deciding.iter().map(String::as_str).collect();
     let acting: Vec<(&str, &str)> = crate::learning::report::ACTING
         .iter()
-        .filter(|(id, _, _)| *id == super::id_of(pack))
+        .filter(|(id, q, _)| *id == super::id_of(pack) && deciding.contains(q))
         .flat_map(|(_, q, cs)| cs.iter().map(move |c| (*q, *c)))
         .collect();
     let classes: Vec<&str> = acting.iter().map(|(_, c)| *c).collect();

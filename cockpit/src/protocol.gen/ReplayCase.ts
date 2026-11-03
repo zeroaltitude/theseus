@@ -13,4 +13,9 @@ must: boolean,
  * The candidate's judgment answered; false when it failed or the run's
  * limit stopped before it.
  */
-answered: boolean, model: ReplayCheck, effort: ReplayCheck, context: ReplayCheck, };
+answered: boolean, 
+/**
+ * One check per deciding question; empty (nothing wanted) for a question the replayed pack
+ * does not ask (`ReplayCases::asked` names the ones it does).
+ */
+model: ReplayCheck, effort: ReplayCheck, work: ReplayCheck, split: ReplayCheck, };

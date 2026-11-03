@@ -1063,7 +1063,7 @@ impl Core {
             .collect();
         let acting: Vec<(&str, &[&str])> = super::report::ACTING
             .iter()
-            .filter(|(id, _, _)| *id == parent.id)
+            .filter(|(id, q, _)| *id == parent.id && deciding.iter().any(|d| d == q))
             .map(|(_, q, c)| (*q, *c))
             .collect();
         let mut per_c: BTreeMap<String, usize> = BTreeMap::new();

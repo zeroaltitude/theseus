@@ -1,19 +1,15 @@
 # split.v1 (SPLIT, theseus-z9mze.5): whether the work a message asks for divides
-# by area. At `inbound`, in the batch beside classify and role (the one `inbound`
-# state, so it rides their request and costs no call of its own), in shadow: it
-# decides nothing and acts on nothing. The static fan-out cue (theseus-z9mze.4,
-# `turn/route_step/fan_out_cue.rs`) still decides whether a turn is told it may
-# fan out; this answer is logged beside that decision, a judgment row and a
-# `fan_out.cue` row sharing the turn, so the two can be read against each other
-# (the table in the row's report). It is promoted to replace the cue's word list
-# only if that reading shows it beats the list in both directions at once, and
-# that is a separate decision with its own owner ack.
+# by area. At `inbound`, beside the route family. PROMOTED by theseus-h66v4.6 (the owner, 2026-10-30 16:01:
+# "jev should also classify a fan out; that would be the label that would trigger the llm to then use
+# async calls and consider which were likely to be embarrassingly parallel"): once `ROUTE_PACK` names a
+# pack that asks `model`, this pack is asked in the same batch and the turn waits for its answer, and
+# `splits_by_area` (at the confirm bar) is both a hint to the model ("this request looks parallelizable:
+# consider starting tasks for the independent parts") and the cue for the fan-out machinery
+# (`turn/route_step/fan_out_cue.rs`), whose word list and class match are deleted. Jev labels; the model
+# decides how to split. Until then it runs in shadow as it did, and decides nothing.
 #
-# A pack of its own and not a question of the route pack: the route pack is
-# versioned as one thing, adopted as one thing, and another row (theseus-gezlj)
-# already holds `route.v9` for different wording. A question of a route version
-# would have tied this measurement to that adoption, and asked in the route's
-# own request would have answered after the verdict instead of with the batch.
+# A pack of its own and not a question of the route pack: the route pack is versioned as one thing and
+# adopted as one thing, and the split is a property of the work, not a choice of model.
 #
 # The instructions say "split" and not "divide": the loader refuses the word, as a request to
 # compute (pack.rs, COMPUTATION), though it means no arithmetic here.
@@ -35,7 +31,7 @@ description = "SPLIT: whether the work a message asks for divides cleanly into a
 
 [questions.split]
 type = "choice"
-decides = false
+decides = true
 instructions = "Would the work the person's new message asks for split cleanly into areas that several readers could each take on their own, at the same time, without needing each other's findings?"
 act = 0.90
 confirm = 0.60

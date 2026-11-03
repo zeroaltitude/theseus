@@ -39,8 +39,8 @@ use crate::learn::RollbackRule;
 /// `security.v1`, `rerank.v1`, recall's `+rerank` arm (M6 step 32c), `classify.v2` to `classify.v4`
 /// (the `thread`, `offer_task` and `scope` questions, theseus-rha2, theseus-bh3t.5 and theseus-98bz.9), and `route.v5` to `route.v8`
 /// (the `persona` and `seal` questions, theseus-c1uz; the `data` question, theseus-a1wvq.2; its wording,
-/// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model, the effort and the context,
-/// theseus-h66v4; embedded and replayable, and not the acting pack: `ROUTE_PACK` names `route.v8`),
+/// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model and the effort,
+/// theseus-h66v4, revised in place by theseus-h66v4.1; embedded and replayable, and not the acting pack: `ROUTE_PACK` names `route.v8`),
 /// `content.v1` (the four content flags, theseus-9ymz0), and `split.v1` (whether the work divides by area, in shadow,
 /// theseus-z9mze.5). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
@@ -67,6 +67,8 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("route.v7", include_str!("../packs/route.v7.toml")),
     ("route.v8", include_str!("../packs/route.v8.toml")),
     ("route.v10", include_str!("../packs/route.v10.toml")),
+    ("effort.v1", include_str!("../packs/effort.v1.toml")),
+    ("work.v1", include_str!("../packs/work.v1.toml")),
     ("citation.v1", include_str!("../packs/citation.v1.toml")),
     ("compare.v1", include_str!("../packs/compare.v1.toml")),
     ("heard.v1", include_str!("../packs/heard.v1.toml")),
@@ -128,6 +130,14 @@ pub enum Builder {
     Security2,
     /// `classify.v2`, `role.v1` and `directive.v1` share it, so they batch.
     Inbound,
+    /// `route.v10`'s own slice of the inbound input (theseus-h66v4.6): the message and
+    /// the facts the `model` question reads, with no live tasks and no onto fields.
+    Route,
+    /// `effort.v1`'s: the message, the previous human message and the last reply, and
+    /// nothing else (theseus-h66v4.6).
+    Effort,
+    /// `work.v1`'s: the message, the live tasks and where it came in (theseus-h66v4.6).
+    Work,
     Continue,
     Categorize,
     /// `rerank.v1`'s: the message and recall's top notes (M6 step 32c).
@@ -1441,14 +1451,28 @@ mod tests {
             (
                 "route.v10",
                 &[
-                    "Inbound Inbound SessionProfile Route",
-                    "context Choice decides [short full]",
-                    "effort Choice decides [low medium high xhigh max default]",
+                    "Inbound Route SessionProfile Route",
                     "model Choice decides [haiku sonnet opus fable deepseek_flash]",
                     "persona Choice from Personas + [prior] only_when Personas",
                     "personal Choice [none elicit expose]",
                     "seal Choice [yes no] only_when ThreadNow",
                     "rollback [labels_per_day on_path_p95 pins_per_day]",
+                ],
+            ),
+            (
+                "effort.v1",
+                &[
+                    "Inbound Effort None None",
+                    "effort Choice decides [low medium high xhigh max]",
+                    "rollback []",
+                ],
+            ),
+            (
+                "work.v1",
+                &[
+                    "Inbound Work None None",
+                    "work Choice decides [coding research_or_design writing conversation tool_run review]",
+                    "rollback []",
                 ],
             ),
         ];
@@ -1568,8 +1592,8 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            34,
-            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, \
+            36,
+            "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, effort.v1, work.v1, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
              content.v1 to v3 and split.v1"
@@ -1682,16 +1706,20 @@ mod tests {
         }
     }
 
-    /// split.v1 (theseus-z9mze.5) is one question that decides nothing and acts on nothing, asked in the
-    /// inbound batch (the `inbound` state, so it shares classify's request). It asks a property of the
-    /// work, never a recommendation about the machinery: no word of helpers, tasks, cost or fanning out.
+    /// split.v1 (theseus-z9mze.5, promoted by theseus-h66v4.6) is one question, asked in the inbound
+    /// batch (the `inbound` state), and now a deciding one: its answer is the fan-out cue. It asks a
+    /// property of the work, never a recommendation about the machinery: no word of helpers, tasks,
+    /// cost or fanning out.
     #[test]
-    fn split_v1_is_one_shadow_question_about_the_work() {
+    fn split_v1_is_one_deciding_question_about_the_work() {
         let p = by_name("split.v1").expect("split.v1 is embedded");
         assert_eq!((p.point, p.action), (Point::Inbound, Action::None));
         assert_eq!(p.questions.len(), 1);
         let q = p.question("split").unwrap();
-        assert!(!q.decides && q.kind == Kind::Choice);
+        assert!(
+            q.decides && q.kind == Kind::Choice,
+            "promoted: it decides the cue"
+        );
         assert_eq!(q.no_match.as_deref(), Some("unclear"));
         let ids: Vec<&str> = q.options.iter().map(|o| o.id.as_str()).collect();
         assert_eq!(ids, ["splits_by_area", "one_area", "unclear"]);

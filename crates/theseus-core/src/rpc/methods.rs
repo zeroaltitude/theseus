@@ -943,7 +943,17 @@ impl Core {
                 .watch(&session.session_id, conn.client, conn.tx.clone());
         }
         // A place's profile, unless the turn names one (step 38a).
-        let live = self.place_profile(&session.session_id, self.live_profile().0);
+        let placed = self.place_own_profile(&session.session_id);
+        let live = placed.clone().unwrap_or_else(|| self.live_profile().0);
+        // `profile use` is the operator's word for a model when route.v10 acts: a turn is pinned to
+        // it when its profile came from it, which is a fact of where the profile came from and no
+        // comparison of names. A place's own profile and a session's hold do not come from it. A
+        // pane's carried profile and a routed session's base (`only_routed` below) are no choice
+        // of the operator's either (`routing::chosen`), so `profile use` outranks them
+        // (theseus-h66v4.6 fix pass, F6; theseus-dq3m1).
+        let used_live = placed.is_none()
+            && self.live_profile().1 == "runtime"
+            && self.runner.judge.route_open();
         // The pane carries the profile the last turn ran on: when that is
         // only where routing moved the session, it stands for the base the
         // move was made from (`Routed.from`, theseus-0j2.17), never a new
@@ -954,6 +964,9 @@ impl Core {
         let only_routed =
             p.carried && p.provider.is_none() && p.model.is_none() && p.profile.as_deref() == moved;
         let named = match only_routed {
+            // The operator's `profile use` outranks what the pane carried and the base a routed
+            // session was moved from.
+            _ if used_live && p.carried => None,
             // A base no longer configured names nothing.
             true => routed
                 .and_then(|r| r.from.as_deref())
@@ -969,7 +982,9 @@ impl Core {
             .runner
             .resolve_target(&live, named, p.provider.as_deref(), p.model.as_deref())
             .map_err(RpcFailure::invalid)?;
-        target.chosen = crate::routing::chosen(&p).or_else(|| self.live_pin(&target, &live));
+        // A hold is the owner's choice for the session, and the turn runs on it: not `profile use`'s.
+        target.chosen =
+            crate::routing::chosen(&p).or_else(|| self.live_pin(used_live && held.is_none()));
         let (t_profile, t_provider, t_model) = (
             target.profile.clone(),
             target.provider.clone(),
@@ -1107,16 +1122,15 @@ impl Core {
     }
 
     /// `theseus profile use` is the operator's word for a model, as `-P` is, when
-    /// route.v10 acts (theseus-h66v4): a turn that names nothing and runs on the
+    /// route.v10 acts (theseus-h66v4): a turn that names nothing and took the
     /// live profile the operator set (not the config's, and not a place's own
-    /// profile) is pinned to it. The config's `[model] live` is only the default
+    /// profile or a session's hold: `used_live`, a fact the caller carries, never two equal
+    /// names) is pinned to it. The config's `[model] live` is only the default
     /// a turn runs on when Jev gives no answer. Under an earlier pack the live
     /// profile stays the baseline Jev routes from.
-    fn live_pin(&self, target: &crate::turn::Target, live: &str) -> Option<String> {
-        let (name, source) = self.live_profile();
-        let pinned = source == "runtime" && live == name && target.profile == name;
-        (pinned && self.runner.judge.route_open())
-            .then(|| format!("{}{name}", crate::routing::LIVE_PIN))
+    fn live_pin(&self, used_live: bool) -> Option<String> {
+        let (name, _) = self.live_profile();
+        used_live.then(|| format!("{}{name}", crate::routing::LIVE_PIN))
     }
 
     pub fn profile_list(&self) -> ProfileListResult {

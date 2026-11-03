@@ -438,7 +438,8 @@ impl TurnRunner {
             seal: None,
             personal: None,
             model: None,
-            context: None,
+            work: None,
+            split: None,
         };
         let a = routing::Ask {
             verdict: &v,

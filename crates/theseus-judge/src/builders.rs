@@ -30,6 +30,11 @@ pub const SECURITY_VERSION: u32 = 1;
 /// `security.v2`'s builder (module `security2`).
 pub const SECURITY2_VERSION: u32 = 1;
 pub const INBOUND_VERSION: u32 = 1;
+/// The three slices of the inbound input the route family reads, each its own state
+/// (module `slices`, theseus-h66v4.6).
+pub const ROUTE_SLICE_VERSION: u32 = 1;
+pub const EFFORT_SLICE_VERSION: u32 = 1;
+pub const WORK_SLICE_VERSION: u32 = 1;
 pub const CONTINUE_VERSION: u32 = 1;
 pub const CATEGORIZE_VERSION: u32 = 1;
 /// `rerank.v1`'s builder (module `rerank`, M6 step 32c).
@@ -239,9 +244,12 @@ pub struct ThreadInput {
 }
 
 mod route_facts;
+mod slices;
 pub use route_facts::{
-    route_input, PricePeriod, RestrictedModels, RouteFacts, ROUTE_STATE_KEYS, TASK_MODELS,
+    route_input, PricePeriod, RestrictedModels, RouteFacts, SwitchCost, ROUTE_STATE_KEYS,
+    TASK_MODELS,
 };
+pub use slices::{route as route_state, EFFORT_STATE_KEYS, WORK_STATE_KEYS};
 mod onto;
 pub use onto::{
     OntoInput, OntoItem, OntoKind, OntoTable, OntoText, Picked, CANDIDATES as ONTO_CANDIDATES,
@@ -471,7 +479,9 @@ impl Input {
             Builder::Loop => Input::Loop(serde_json::from_str(json)?),
             Builder::Security => Input::Security(serde_json::from_str(json)?),
             Builder::Security2 => Input::Security2(serde_json::from_str(json)?),
-            Builder::Inbound => Input::Inbound(serde_json::from_str(json)?),
+            Builder::Inbound | Builder::Route | Builder::Effort | Builder::Work => {
+                Input::Inbound(serde_json::from_str(json)?)
+            }
             Builder::Continue => Input::Continue(serde_json::from_str(json)?),
             Builder::Categorize => Input::Categorize(serde_json::from_str(json)?),
             Builder::Rerank => Input::Rerank(serde_json::from_str(json)?),
@@ -503,7 +513,12 @@ pub struct WrongInput {
 
 /// The pack's state from its builder's input, under the pack's cap.
 pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared, WrongInput> {
-    if input.builder() != pack.builder {
+    // The route family's three slices read the one inbound input.
+    let slice = matches!(
+        pack.builder,
+        Builder::Route | Builder::Effort | Builder::Work
+    ) && input.builder() == Builder::Inbound;
+    if input.builder() != pack.builder && !slice {
         return Err(WrongInput {
             pack: pack.name(),
             wants: pack.builder,
@@ -516,7 +531,12 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Loop(i) => loop_state(i, cap, scrub),
         Input::Security(i) => security(i, cap, scrub),
         Input::Security2(i) => security2::security2(i, cap, scrub),
-        Input::Inbound(i) => inbound(i, cap, scrub),
+        Input::Inbound(i) => match pack.builder {
+            Builder::Route => slices::route(i, cap, scrub),
+            Builder::Effort => slices::effort(i, cap, scrub),
+            Builder::Work => slices::work(i, cap, scrub),
+            _ => inbound(i, cap, scrub),
+        },
         Input::Continue(i) => continue_state(i, cap, scrub),
         Input::Categorize(i) => categorize(i, cap, scrub),
         Input::Rerank(i) => rerank::rerank(i, cap, scrub),
@@ -1249,7 +1269,11 @@ pub(crate) mod tests {
     }
 
     fn builder_name(b: Builder) -> String {
-        format!("{b:?}").to_lowercase()
+        match b {
+            // The route family's slices read the inbound fixture.
+            Builder::Route | Builder::Effort | Builder::Work => "inbound".into(),
+            b => format!("{b:?}").to_lowercase(),
+        }
     }
 
     fn prepared(pack: &str) -> (Arc<Pack>, Prepared) {

@@ -1,14 +1,13 @@
-//! `theseus judge replay --cases` (theseus-h66v4, row 1), through a whole core
-//! and the fake Jev: route.v10's 58 labelled cases are asked of the pack, one
-//! call each with the case's own state, and graded against their labels. A
-//! Jev scripted to answer every label scores every case and meets the bar; a
-//! Jev that answers one `must` case wrong shows it, with its top option and
-//! confidence, and fails the bar; the run's rows are scoped `judge.replay:route`;
-//! and every refusal (a recorded set beside the cases, a file written for
-//! another pack, the run's limit) sends nothing.
+//! `theseus judge replay --cases` (theseus-h66v4, row 1; the four packs of theseus-h66v4.6),
+//! through a whole core and the fake Jev: each pack's labelled cases are asked of it, one call each
+//! with the case's own state slice, and graded against their labels. A Jev scripted to answer
+//! every label meets every bar; a Jev that answers one `must` case wrong shows it, with its top
+//! option and confidence, and still meets a bar that allows it (80%, rounded up); the run's rows
+//! are scoped `judge.replay:<pack id>`; and every refusal (a recorded set beside the cases, a file
+//! written for another pack, the run's limit) sends nothing.
 
 use theseus_judge::fake::{FakeJev, Scripted};
-use theseus_judge::route_cases::{self, CaseSet, V10};
+use theseus_judge::route_cases::{self, CaseSet, SPLIT, V10, WORK};
 use theseus_protocol::judge_runs::{JudgeReplayParams, JudgeReplayResult};
 
 use crate::ledger::LedgerRow;
@@ -23,6 +22,7 @@ fn cases_rig(jev: &FakeJev) -> Rig {
     rig(texts(0), jev, limited)
 }
 
+/// The model run: `route.v10` over its own file, the default candidate.
 fn params() -> JudgeReplayParams {
     JudgeReplayParams {
         cases: Some(V10.to_string()),
@@ -30,49 +30,46 @@ fn params() -> JudgeReplayParams {
     }
 }
 
-/// The set and the pack it is asked of.
-fn set() -> (CaseSet, std::sync::Arc<theseus_judge::Pack>) {
-    let pack = theseus_judge::pack::by_name("route.v10").expect("route.v10 is embedded");
-    (CaseSet::parse(V10, &pack).unwrap(), pack)
+/// A run of `pack` over `cases`.
+fn params_for(pack: &str, cases: &str) -> JudgeReplayParams {
+    JudgeReplayParams {
+        cases: Some(cases.to_string()),
+        candidate: Some(pack.to_string()),
+        ..Default::default()
+    }
 }
 
-/// Scripts Jev to answer one case with these top options, each at 0.9; the
-/// state the rule matches is the case's whole state, so W11 and W14 (one
-/// message, two states) are told apart.
-fn script_case(
-    jev: &FakeJev,
-    state_json: &str,
-    model: &str,
-    effort: &str,
-    context: &str,
-    conf: f64,
-) {
-    for (q, option) in [("model", model), ("effort", effort), ("context", context)] {
+/// The set and the pack it is asked of.
+fn set_of(pack_name: &str, text: &str) -> (CaseSet, std::sync::Arc<theseus_judge::Pack>) {
+    let pack = theseus_judge::pack::by_name(pack_name).expect("the pack is embedded");
+    (CaseSet::parse(text, &pack).unwrap(), pack)
+}
+
+/// The scripted answers: a case's `(option, confidence)` for one question, or its label at 0.9.
+type Tweak<'a> = &'a dyn Fn(&str) -> Option<(&'static str, f64)>;
+
+/// Scripts Jev to answer `question` of every case of `text` as `pack_name` asks it: the label at
+/// 0.9, except where `tweak` says otherwise. The state the rule matches is the case's whole state
+/// slice for that pack, so W11 and W14 (one message, two states) are told apart.
+fn script(jev: &FakeJev, pack_name: &str, text: &str, question: &str, tweak: Tweak<'_>) {
+    let (set, pack) = set_of(pack_name, text);
+    for c in &set.cases {
+        let state = route_cases::prepared(&pack, c).state.value().to_string();
+        let (option, confidence) = match tweak(&c.id) {
+            Some((o, conf)) => (o.to_string(), conf),
+            None => (c.want.of(question).to_string(), 0.9),
+        };
         jev.script_when(
-            state_json,
+            &state,
             None,
-            &format!("route.v10/{q}"),
-            Scripted::Choice {
-                option: option.into(),
-                confidence: if q == "model" { conf } else { 0.9 },
-            },
+            &format!("{pack_name}/{question}"),
+            Scripted::Choice { option, confidence },
         );
     }
 }
 
-/// Every case answered as labelled, except where `tweak` says otherwise.
-fn script_all(jev: &FakeJev, tweak: impl Fn(&str) -> Option<(&'static str, f64)>) {
-    let (set, pack) = set();
-    for c in &set.cases {
-        // The fake reads the request's state as a JSON value, whose keys are in order.
-        let state = route_cases::state(c, pack.state_cap_tokens, &theseus_judge::NoScrub).value();
-        let state = state.to_string();
-        let (model, conf) = match tweak(&c.id) {
-            Some((m, conf)) => (m.to_string(), conf),
-            None => (c.want.model.clone(), 0.9),
-        };
-        script_case(jev, &state, &model, &c.want.effort, &c.want.context, conf);
-    }
+fn nothing(_: &str) -> Option<(&'static str, f64)> {
+    None
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -80,34 +77,37 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script_all(&jev, |_| None);
+    script(&jev, "route.v10", V10, "model", &nothing);
     let out: JudgeReplayResult = c.judge_replay(params(), "cli").await.unwrap();
     // No candidate was named: the file's own pack was asked.
     assert_eq!(out.candidate, "route.v10");
     assert_eq!(
         (out.set.as_str(), out.judgments, out.called),
-        ("cases", 58, 58)
+        ("cases", 61, 61)
     );
     let cases = out.cases.expect("a cases replay's numbers");
-    assert_eq!(cases.cases.len(), 58);
-    assert_eq!(
-        (
-            cases.answered,
-            cases.model_ok,
-            cases.effort_exact,
-            cases.context_ok
-        ),
-        (58, 58, 58, 58)
-    );
+    assert_eq!(cases.cases.len(), 61);
+    assert_eq!(cases.asked, ["model"], "the model pack grades the model");
+    assert_eq!((cases.answered, cases.model_ok), (61, 61));
     assert_eq!(
         (cases.must_total, cases.must_ok, cases.must_under_confirm),
         (13, 13, 0)
+    );
+    // Two bars, each a ratio of its own set: 49 of 61, and 11 of the 13 replayed musts.
+    let bars: Vec<(&str, u32, u32, u32, bool)> = cases
+        .bars
+        .iter()
+        .map(|b| (b.question.as_str(), b.ok, b.of, b.need, b.met))
+        .collect();
+    assert_eq!(
+        bars,
+        [("model", 61, 61, 49, true), ("must", 13, 13, 11, true)]
     );
     assert_eq!(cases.bar, Some(true));
     assert!(out.left_out.is_empty());
     // One call per case, each with its own message in the state.
     let seen = jev.seen();
-    assert_eq!(seen.len(), 58);
+    assert_eq!(seen.len(), 61);
     // The rows: a judge.call each and the run, all scoped to the pack's id.
     let rows: Vec<LedgerRow> = c
         .store
@@ -117,7 +117,7 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
         .filter_map(|r| r.decode().ok())
         .collect();
     let calls: Vec<&LedgerRow> = rows.iter().filter(|r| r.kind == "judge.call").collect();
-    assert_eq!(calls.len(), 58);
+    assert_eq!(calls.len(), 61);
     for row in &calls {
         assert_eq!(row.data["context"]["purpose"], "replay");
         assert_eq!(row.data["context"]["run"], out.id);
@@ -126,12 +126,55 @@ async fn a_jev_that_answers_every_label_meets_the_bar() {
     assert_eq!(rows.iter().filter(|r| r.kind == "judge.replay").count(), 1);
 }
 
+/// The other three packs of the family are each replayed over their own labels, by name: the
+/// model file's `effort` by `effort.v1`, and `work.v1` and `split.v1` over their own files,
+/// each against a bar that is 80% of that file's own count, rounded up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_fails_the_bar() {
+async fn effort_work_and_split_are_each_replayed_over_their_own_labels() {
+    let jev = FakeJev::start().unwrap();
+    let r = cases_rig(&jev);
+    script(&jev, "effort.v1", V10, "effort", &nothing);
+    script(&jev, "work.v1", WORK, "work", &nothing);
+    script(&jev, "split.v1", SPLIT, "split", &nothing);
+    for (pack, text, q, n, need) in [
+        ("effort.v1", V10, "effort", 61, 49),
+        ("work.v1", WORK, "work", 65, 52),
+        ("split.v1", SPLIT, "split", 62, 50),
+    ] {
+        let out = r
+            .core
+            .judge_replay(params_for(pack, text), "cli")
+            .await
+            .unwrap();
+        assert_eq!(out.candidate, pack);
+        let cases = out.cases.unwrap();
+        assert_eq!(cases.asked, [q], "{pack}");
+        assert_eq!(cases.cases.len(), n, "{pack}");
+        let bar = &cases.bars[0];
+        assert_eq!(
+            (bar.question.as_str(), bar.ok, bar.of, bar.need, bar.met),
+            (q, n as u32, n as u32, need, true),
+            "{pack}"
+        );
+        assert_eq!((cases.bars.len(), cases.bar), (1, Some(true)), "{pack}");
+        assert_eq!(cases.under_effort + cases.under_work + cases.under_split, 0);
+        // The two pins are the model file's: the effort run over it names them, work and split do not.
+        assert_eq!(
+            cases.held_elsewhere,
+            if pack == "effort.v1" { 2 } else { 0 },
+            "{pack}"
+        );
+    }
+    // split.v1 is wired (in shadow), and a cases run still replays it: it names no incumbent.
+    assert!(crate::judge::WIRED.iter().any(|(n, _)| *n == "split.v1"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must_bar_allows_two() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     // W26 (CVE triage, `must`) goes to Fable at 0.71; W27 (biology) is under the confirm bar.
-    script_all(&jev, |id| match id {
+    script(&jev, "route.v10", V10, "model", &|id| match id {
         "W26" => Some(("fable", 0.71)),
         "W27" => Some(("sonnet", 0.55)),
         _ => None,
@@ -150,60 +193,36 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_fails_th
     );
     assert_eq!(
         (cases.model_ok, cases.must_ok, cases.must_total),
-        (57, 12, 13)
+        (60, 12, 13)
     );
-    // The 57 clear the model bar by themselves; the `must` case alone fails the run.
-    assert_eq!(cases.bar, Some(false));
+    // 12 of 13 musts is over the 11 the bar needs: one wrong must case does not fail the run.
+    assert_eq!(cases.bar, Some(true));
     // W27 is right, but not sure enough to act; W27 is no `must` case.
     let w27 = cases.cases.iter().find(|c| c.id == "W27").unwrap();
     assert!(w27.model.agrees && !w27.must);
     assert_eq!(cases.must_under_confirm, 0);
 }
 
-/// Every case answered as labelled at 0.9, except where `tweak` gives a
-/// case's three answers (option and confidence, for `model`, `effort` and
-/// `context`).
-fn script_each(jev: &FakeJev, tweak: impl Fn(&str) -> Option<[(&'static str, f64); 3]>) {
-    let (set, pack) = set();
-    for c in &set.cases {
-        let state = route_cases::state(c, pack.state_cap_tokens, &theseus_judge::NoScrub).value();
-        let state = state.to_string();
-        let picks: [(String, f64); 3] = match tweak(&c.id) {
-            Some(p) => p.map(|(option, conf)| (option.to_string(), conf)),
-            None => [
-                (c.want.model.clone(), 0.9),
-                (c.want.effort.clone(), 0.9),
-                (c.want.context.clone(), 0.9),
-            ],
-        };
-        for (q, (option, confidence)) in ["model", "effort", "context"].into_iter().zip(picks) {
-            jev.script_when(
-                &state,
-                None,
-                &format!("route.v10/{q}"),
-                Scripted::Choice { option, confidence },
-            );
-        }
-    }
-}
-
 /// theseus-mir9c: the replay grades what routing decides. A pick under a
-/// question's `confirm` bar is that question's `no_match` (route.v10's:
-/// `sonnet`, `default`, `full`), the way the daemon's `sure` and
-/// `Verdict::short` read it; the raw picks are counted beside.
+/// question's `confirm` bar is that question's `no_match` (route.v10's `model`:
+/// `sonnet`; effort.v1's: `high`), the way the daemon's `sure` reads it; the raw
+/// picks are counted beside.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
-    script_each(&jev, |id| match id {
-        // W18 wants opus, medium, full: a right opus under the bar runs sonnet.
-        "W18" => Some([("opus", 0.55), ("medium", 0.9), ("full", 0.9)]),
-        // L3 wants sonnet, medium, full: a `short` under the bar compiles `full`.
-        "L3" => Some([("sonnet", 0.9), ("medium", 0.9), ("short", 0.55)]),
-        // L11 wants opus, high, full: a right `high` under the bar is `default`.
-        "L11" => Some([("opus", 0.9), ("high", 0.55), ("full", 0.9)]),
-        // L2 wants haiku, low, short: haiku at the bar (0.60) stands.
-        "L2" => Some([("haiku", 0.60), ("low", 0.9), ("short", 0.9)]),
+    script(&jev, "route.v10", V10, "model", &|id| match id {
+        // W18 wants opus: a right opus under the bar runs sonnet.
+        "W18" => Some(("opus", 0.55)),
+        // L2 wants haiku: haiku at the bar (0.60) stands.
+        "L2" => Some(("haiku", 0.60)),
+        _ => None,
+    });
+    script(&jev, "effort.v1", V10, "effort", &|id| match id {
+        // L3 wants medium: a right `medium` under the bar is `high`.
+        "L3" => Some(("medium", 0.55)),
+        // L11 wants high: a `medium` under the bar is `high`, which it wants.
+        "L11" => Some(("medium", 0.55)),
         _ => None,
     });
     let out = r.core.judge_replay(params(), "cli").await.unwrap();
@@ -221,16 +240,37 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
         ("opus", "sonnet", true, 0.60, 0.55)
     );
     assert!(!w18.model.agrees && w18.model.raw_agrees);
+    // At the bar, nothing changes.
+    let l2 = get("L2");
+    assert!(!l2.model.sub_confirm && l2.model.agrees);
+    // The model run: one lost (W18), one under the bar; the raw picks lose none.
+    assert_eq!(
+        (cases.model_ok, cases.raw_model_ok, cases.under_model),
+        (60, 61, 1)
+    );
+    // W18 is a `must` case: its model fell, so a must case is wrong and under the bar.
+    assert_eq!(
+        (cases.must_ok, cases.must_total, cases.must_under_confirm),
+        (12, 13, 1)
+    );
+    // The effort run, from the same file by the pack that asks it.
+    let out = r
+        .core
+        .judge_replay(params_for("effort.v1", V10), "cli")
+        .await
+        .unwrap();
+    let cases = out.cases.unwrap();
+    let get = |id: &str| cases.cases.iter().find(|c| c.id == id).unwrap();
     let l3 = get("L3");
     assert_eq!(
         (
-            l3.context.raw.as_str(),
-            l3.context.got.as_str(),
-            l3.context.sub_confirm
+            l3.effort.raw.as_str(),
+            l3.effort.got.as_str(),
+            l3.effort.sub_confirm
         ),
-        ("short", "full", true)
+        ("medium", "high", true)
     );
-    assert!(l3.context.agrees && !l3.context.raw_agrees);
+    assert!(!l3.effort.agrees && l3.effort.close && l3.effort.raw_agrees);
     let l11 = get("L11");
     assert_eq!(
         (
@@ -238,38 +278,19 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
             l11.effort.got.as_str(),
             l11.effort.sub_confirm
         ),
-        ("high", "default", true)
+        ("medium", "high", true)
     );
-    assert!(!l11.effort.agrees && !l11.effort.close && l11.effort.raw_close);
-    // At the bar, nothing changes.
-    let l2 = get("L2");
-    assert!(!l2.model.sub_confirm && l2.model.agrees);
-    // The totals: model and effort lose one each, context gains one; the raw
-    // picks are as they were.
+    assert!(l11.effort.agrees && !l11.effort.raw_agrees && l11.effort.raw_close);
+    // effort loses one exact (L3, one rung off); the raw picks lose L3's and L11's exact and keep
+    // every rung close; two answers fell under the bar.
     assert_eq!(
-        (
-            cases.model_ok,
-            cases.effort_exact,
-            cases.effort_close,
-            cases.context_ok
-        ),
-        (57, 57, 57, 58)
+        (cases.effort_exact, cases.effort_close, cases.under_effort),
+        (60, 61, 2)
     );
-    assert_eq!(
-        (
-            cases.raw_model_ok,
-            cases.raw_effort_exact,
-            cases.raw_effort_close,
-            cases.raw_context_ok
-        ),
-        (58, 58, 58, 57)
-    );
-    // W18 is a `must` case: its model fell, so a must case is wrong and under the bar.
-    assert_eq!(
-        (cases.must_ok, cases.must_total, cases.must_under_confirm),
-        (12, 13, 1)
-    );
-    assert_eq!(cases.bar, Some(false));
+    // L3's raw `medium` is right and L11's is one rung off: the raw exact count loses L11 alone.
+    assert_eq!((cases.raw_effort_exact, cases.raw_effort_close), (60, 61));
+    assert_eq!(cases.asked, ["effort"]);
+    assert_eq!(cases.bar, Some(true));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -353,17 +374,17 @@ async fn an_embedded_pack_is_replayed_by_its_cases_and_counted() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script_all(&jev, |_| None);
+    script(&jev, "route.v10", V10, "model", &nothing);
     let out = c.judge_replay(params(), "cli").await.unwrap();
     // The positive counts, not only an Ok: a run that graded nothing is no pass.
     assert_eq!(
         (out.candidate.as_str(), out.judgments, out.called),
-        ("route.v10", 58, 58)
+        ("route.v10", 61, 61)
     );
     let cases = out.cases.expect("a cases replay's numbers");
-    assert_eq!((cases.cases.len(), cases.answered), (58, 58));
+    assert_eq!((cases.cases.len(), cases.answered), (61, 61));
     assert_eq!(cases.bar, Some(true));
-    assert_eq!(jev.seen().len(), 58);
+    assert_eq!(jev.seen().len(), 61);
     let rows = c.store.scope_after("judge.replay:route", 0).unwrap();
     let run = rows
         .iter()
@@ -443,7 +464,7 @@ async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     let c = &r.core;
-    script_all(&jev, |_| None);
+    script(&jev, "route.v10", V10, "model", &nothing);
     let (_, embedded) = theseus_judge::pack::EMBEDDED
         .iter()
         .find(|(n, _)| *n == "route.v10")
@@ -458,6 +479,6 @@ async fn the_embedded_text_as_a_pack_file_is_replayed_by_its_cases() {
         )
         .await
         .unwrap();
-    assert_eq!((out.judgments, out.called), (58, 58));
-    assert_eq!(out.cases.expect("a cases replay's numbers").answered, 58);
+    assert_eq!((out.judgments, out.called), (61, 61));
+    assert_eq!(out.cases.expect("a cases replay's numbers").answered, 61);
 }

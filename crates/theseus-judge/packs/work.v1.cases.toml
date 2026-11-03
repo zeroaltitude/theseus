@@ -1,0 +1,422 @@
+# work.v1's test set (theseus-h66v4.6): the labelled cases `theseus judge replay --pack-file work.v1.toml
+# --cases work.v1.cases.toml` asks the pack, and compares its `work` answer to. The labels are WRITTEN by
+# the builder of theseus-h66v4.6, from the option wording alone and BEFORE the pack was ever run over them;
+# none was changed after a run (a bar is a finding, never a reason to edit a case). Where a message is one of
+# route.v10.cases.toml's (ids L1 to L20, W1 to W43), it is carried from that file byte for byte, so the two
+# sets agree about the same message (a test holds them to it); the K-ids are new, written to cover what the
+# 61 lack (writing, review, a plain research or design ask, a tool run, a live task). A case whose kind the
+# builder could not name with confidence was left out: a set tests the wording, not the ambiguity.
+# `work` is what the reply is mostly FOR: coding, research_or_design, writing, conversation, tool_run or review.
+
+pack = "work.v1"
+
+[defaults]
+place = "dm"
+restricted_models = "allowed"
+price_period = "off_peak"
+est_tokens = 40000
+last_reply_model = "claude-sonnet-5-5"
+switch_cost = "cheaper_to_switch"
+
+[[case]]
+id = "L1"
+message = "Run bash ~/projects/walkthrough/slow.sh drift 5."
+place = "channel"
+work = "tool_run"
+why = "a command the person names, run and reported"
+
+[[case]]
+id = "L8"
+message = "Run bash ~/projects/walkthrough/slow.sh load 3, then report the last line."
+place = "channel"
+work = "tool_run"
+why = "a script run, then its last line reported"
+
+[[case]]
+id = "L12"
+message = "Start two background tasks, $1 each: A) bash ~/projects/walkthrough/slow.sh census 3; B) slow.sh load 3"
+work = "tool_run"
+why = "two scripts started in the background"
+
+[[case]]
+id = "L17"
+message = "Run bash ~/projects/walkthrough/slow.sh census 3, then report the last line."
+place = "channel"
+work = "tool_run"
+why = "a script run, then its last line reported"
+
+[[case]]
+id = "W6"
+message = "run cargo fmt --check in ~/projects/theseus and tell me the exit code"
+work = "tool_run"
+why = "a command run and its exit code reported"
+
+[[case]]
+id = "K7"
+message = "run the nextest suite for theseus-judge and tell me which tests failed"
+work = "tool_run"
+why = "a test suite run and its failures listed"
+
+[[case]]
+id = "K8"
+message = "tail the last 50 lines of the gateway log and paste them"
+work = "tool_run"
+why = "a log tail fetched and pasted"
+
+[[case]]
+id = "K9"
+message = "run git status in ~/projects/theseus and say whether the tree is clean"
+work = "tool_run"
+why = "a command run and a yes or no said of its output"
+
+[[case]]
+id = "K10"
+message = "check the disk space on the M1 Max and report it"
+work = "tool_run"
+why = "a host checked by running a command"
+
+[[case]]
+id = "W9"
+message = "write a new CLI subcommand `theseus pins` that lists every place's pinned profile with its origin"
+work = "coding"
+why = "a new CLI subcommand written"
+
+[[case]]
+id = "W10"
+message = "implement the off_peak field on CatalogEntry and thread it through cost_micros"
+work = "coding"
+why = "a field implemented and threaded through"
+
+[[case]]
+id = "W12"
+message = "add unit tests for `routing::carries` covering late, detour and unreachable"
+work = "coding"
+why = "unit tests written for existing code"
+
+[[case]]
+id = "W13"
+message = "the test `a_short_pick_never_holds` fails because the fixture's est_tokens is 0; fix the fixture"
+work = "coding"
+why = "a failing test fixed by changing its fixture"
+
+[[case]]
+id = "W14"
+message = "rename `cn_profiles` to `restricted_profiles` across the crate and fix the tests"
+work = "coding"
+why = "a mechanical rename across a crate, tests fixed"
+
+[[case]]
+id = "W15"
+message = "fix the failing test in the private service's ingest module, cause is the new column"
+work = "coding"
+why = "a failing test fixed"
+
+[[case]]
+id = "W17"
+message = "write a small Rust program from scratch that tails a file and posts lines to Discord"
+work = "coding"
+why = "a program written from scratch"
+
+[[case]]
+id = "W28"
+message = "Task brief: Port the 14 remaining `#[test]`s in tests_route_effort.rs to the v10 rig, same assertions"
+place_kind = "task_brief"
+work = "coding"
+why = "a task brief that ports tests to a new rig"
+
+[[case]]
+id = "K1"
+message = "add a --json flag to the `theseus ledger` command and thread it through the renderer"
+work = "coding"
+why = "a flag added to a command and threaded through"
+
+[[case]]
+id = "K2"
+message = "fix the off-by-one in the pagination of the forum archive listing"
+work = "coding"
+why = "a bug fixed in a listing"
+
+[[case]]
+id = "K3"
+message = "refactor parse_ask into two functions, one that splits the text and one that builds the Ask"
+work = "coding"
+why = "a function refactored"
+
+[[case]]
+id = "K4"
+message = "write a python script that reads the gate log and prints the slowest ten tests"
+work = "coding"
+why = "a script written"
+
+[[case]]
+id = "L18"
+message = "[walkthrough] Write ~/projects/walkthrough/out/harbour.md: a two-line summary of the quoted harbour log."
+place = "channel"
+work = "writing"
+why = "a two-line summary written to a file"
+
+[[case]]
+id = "W5"
+message = "summarize what we just decided in two lines"
+work = "writing"
+why = "a two-line summary of what was decided"
+
+[[case]]
+id = "K11"
+message = "draft an email to the vendor asking when the replacement badge reader ships"
+work = "writing"
+why = "an email drafted"
+
+[[case]]
+id = "K12"
+message = "write a commit message for my staged changes"
+work = "writing"
+why = "a commit message written"
+
+[[case]]
+id = "K13"
+message = "rewrite this so it is half as long: 'The daemon, which is the long-running process that the client talks to over a socket, reads its configuration when it starts and again when it is told to reload, and keeps the result in memory.'"
+work = "writing"
+why = "a paragraph rewritten shorter"
+
+[[case]]
+id = "K14"
+message = "write the release notes for this version from the list of merged changes above"
+work = "writing"
+why = "release notes written"
+
+[[case]]
+id = "K15"
+message = "write a two-paragraph summary of this week's progress for the team update"
+work = "writing"
+why = "a summary of the week written for a team update"
+
+[[case]]
+id = "K16"
+message = "turn these bullet points into a short announcement for the channel: new gate is faster, flaky tests fixed, docs updated"
+work = "writing"
+why = "bullets turned into an announcement"
+
+[[case]]
+id = "K17"
+message = "compose a polite decline to the meeting invitation for Thursday"
+work = "writing"
+why = "a polite decline composed"
+
+[[case]]
+id = "W18"
+message = "review PR #212 for correctness before I merge it"
+work = "review"
+why = "a pull request checked for correctness"
+
+[[case]]
+id = "W19"
+message = "is the cache-hold rule actually right, or does it just hide a cap?"
+work = "review"
+why = "an existing rule judged right or wrong"
+
+[[case]]
+id = "W21"
+message = "check this plan for mistakes: 1. back up the live config 2. stop the daemon 3. copy the store to a scratch directory 4. run the schema bump on the copy 5. diff the copy against the goldens 6. install the new binaries 7. start the daemon 8. wait for the ladder to read the packs 9. send one test message 10. read `theseus why` for it 11. remove the scratch copy 12. delete the backup after a day"
+work = "review"
+why = "a plan checked for mistakes"
+
+[[case]]
+id = "W38"
+message = "Review the self-join branch's diff (builder: claude-sonnet-5-5) for correctness"
+place_kind = "job"
+work = "review"
+why = "a diff reviewed for correctness"
+
+[[case]]
+id = "K18"
+message = "review my diff for off-by-one errors before I push"
+work = "review"
+why = "a diff checked for one kind of mistake"
+
+[[case]]
+id = "K19"
+message = "does this SQL migration look safe to run on a live table? ALTER TABLE items ADD COLUMN owner TEXT NOT NULL;"
+work = "review"
+why = "a migration judged safe or not"
+
+[[case]]
+id = "K20"
+message = "read over this design doc and tell me where the argument is weakest"
+work = "review"
+why = "a document read for its weakest argument"
+
+[[case]]
+id = "K21"
+message = "audit this function for panics on untrusted input: fn take(v: &[u8]) -> u8 { v[0] }"
+work = "review"
+why = "a function audited for panics"
+
+[[case]]
+id = "W22"
+message = "design how Theseus should choose models when the vendor list changes weekly, with no per-case code"
+work = "research_or_design"
+why = "a design with no per-case code"
+
+[[case]]
+id = "W23"
+message = "I want the most thorough answer you can give: should Jev ever be the sole gate on anything that spends money?"
+work = "research_or_design"
+why = "a design question about a gate"
+
+[[case]]
+id = "W24"
+message = "think very hard: the RSI loop can modify its own reviewer config; what is the minimal invariant that keeps it honest?"
+work = "research_or_design"
+why = "an invariant to design"
+
+[[case]]
+id = "W25"
+message = "how would you architect the memory layer if sessions were a million turns long?"
+work = "research_or_design"
+why = "an architecture to design"
+
+[[case]]
+id = "W26"
+message = "triage CVE-2026-31337 in our openssl pin and tell me if we're exposed"
+work = "research_or_design"
+why = "a vulnerability triaged against an exposure"
+
+[[case]]
+id = "W42"
+message = "Design how the memory layer should shard recall across sessions once one store passes a hundred gigabytes: weigh a per-session index against one global index, and say what breaks first under each."
+work = "research_or_design"
+why = "two designs weighed against each other"
+
+[[case]]
+id = "W20"
+message = "compare keeping the step-down against deleting it, on the owner's own traffic"
+work = "research_or_design"
+why = "two options compared on evidence"
+
+[[case]]
+id = "L11"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: no tasks working; nothing needs you]\n🎙️ Can you give me an analysis of open claw versus theseus"
+place = "channel"
+work = "research_or_design"
+why = "an analysis comparing two systems"
+
+[[case]]
+id = "K22"
+message = "compare Postgres and SQLite for a single-writer audit log and recommend one"
+work = "research_or_design"
+why = "two databases compared and one recommended"
+
+[[case]]
+id = "K23"
+message = "investigate why the nightly benchmark got 30 percent slower last week"
+work = "research_or_design"
+why = "a slowdown investigated"
+
+[[case]]
+id = "K24"
+message = "plan the migration from the old store format to the new one without downtime"
+work = "research_or_design"
+why = "a migration planned"
+
+[[case]]
+id = "L2"
+message = "That \"even if time is merely a construct\" line hits hard -- good show"
+work = "conversation"
+why = "an appreciative remark that asks for nothing"
+
+[[case]]
+id = "L3"
+message = "Are you not excited about how efficient the theseus harness is? I have in mind a world where companies like Cerebras have hyper optimized the models, or jev can run in a function call, and we want to have all of these interactions running as fast as code. And as you can see from the theseus design docs, I have in mind also the power to parallelize lots of tasks instead of agent-izing them. How do you feel about those goals?"
+work = "conversation"
+why = "talk about how the person feels about the work"
+
+[[case]]
+id = "L4"
+message = "Harnesses writing harnesses -- it all fits"
+work = "conversation"
+why = "a remark that asks for nothing"
+
+[[case]]
+id = "L5"
+message = "How you doin'? 🙂"
+work = "conversation"
+why = "a greeting"
+
+[[case]]
+id = "L7"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: 1 task working; nothing needs you]\n🎙️ Are you coded to make sure your responses are short? Because I don't really mind if you have long responses that you want to say in voice."
+place = "channel"
+work = "conversation"
+why = "a question about the assistant itself"
+
+[[case]]
+id = "L10"
+message = "I want to introduce you to my coworker!"
+work = "conversation"
+why = "an introduction, no task"
+
+[[case]]
+id = "L15"
+message = "[Voice call: they hear your reply, they don't read it. Answer in one to three short sentences of plain speech: no lists, tables, code, markdown or long numbers. If you were cut off, don't assume they heard the rest.]\n[The board: no tasks working; nothing needs you]\n🎙️ Excellent. Um, do you have a sense of whether you think Theseus' features are very distinctive compared to other harnesses?"
+place = "channel"
+work = "conversation"
+why = "an opinion asked for"
+
+[[case]]
+id = "W1"
+message = "thanks!"
+work = "conversation"
+why = "a thank-you"
+
+[[case]]
+id = "W2"
+message = "ok got it"
+work = "conversation"
+why = "an acknowledgement"
+
+[[case]]
+id = "W3"
+message = "👍"
+work = "conversation"
+why = "an acknowledgement"
+
+[[case]]
+id = "W41"
+message = "thanks, that fixed it"
+work = "conversation"
+why = "a thank-you"
+
+[[case]]
+id = "W43"
+message = "what port does postgres listen on by default?"
+work = "conversation"
+why = "a short fact from what the assistant knows"
+
+[[case]]
+id = "W4"
+message = "what's the flag to make nextest list tests without running them?"
+work = "conversation"
+why = "a short fact from what the assistant knows"
+
+[[case]]
+id = "K25"
+message = "good morning! how is your day going so far?"
+work = "conversation"
+why = "a greeting and a small question"
+
+[[case]]
+id = "K26"
+message = "what do you think is the best part of working this way?"
+work = "conversation"
+why = "an opinion asked for"
+
+[[case]]
+id = "K27"
+message = "how is the gate run going?"
+work = "conversation"
+why = "a status question about a live task"
+[[case.live_tasks]]
+id = "t-gate"
+brief = "Run the gate on the lane and report"
+state = "running"

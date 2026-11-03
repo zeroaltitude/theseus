@@ -13,6 +13,8 @@ fn facts(r: RestrictedModels) -> RouteFacts {
         last_reply_model: None,
         task_models: Vec::new(),
         est_tokens: None,
+        current_model: None,
+        switch_cost: None,
     }
 }
 

@@ -62,8 +62,8 @@ pub struct RouteDecided<'a> {
 }
 
 /// route.v10's part of a `route.decided` row: the acting pack, what Jev picked
-/// and how sure, the first sentences of the block it picked, the context it
-/// named, and the words that qualify the reason (`-P fable`,
+/// and how sure, the first sentences of the block it picked, and the words
+/// that qualify the reason (`-P fable`,
 /// `restricted_models=not_allowed`, `deepseek: no key`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RouteOpen {
@@ -71,8 +71,6 @@ pub struct RouteOpen {
     pub pick: Option<String>,
     pub pick_confidence: Option<f64>,
     pub block: Option<String>,
-    pub context: Option<String>,
-    pub context_confidence: Option<f64>,
     pub detail: Option<String>,
 }
 
@@ -142,8 +140,6 @@ impl Fact for RouteDecided<'_> {
                 ("pick", o.pick.as_ref().map(|s| json!(s))),
                 ("pick_confidence", o.pick_confidence.map(|c| json!(c))),
                 ("block", o.block.as_ref().map(|s| json!(s))),
-                ("context", o.context.as_ref().map(|s| json!(s))),
-                ("context_confidence", o.context_confidence.map(|c| json!(c))),
                 ("detail", o.detail.as_ref().map(|s| json!(s))),
             ] {
                 if let Some(v) = v {

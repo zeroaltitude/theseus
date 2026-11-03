@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::builders::{
     job, job_input, prepare, InboundInput, Input, JobInput, JobKind, PricePeriod, RestrictedModels,
-    RouteFacts, TASK_MODELS,
+    RouteFacts, SwitchCost, TASK_MODELS,
 };
 use crate::pack::by_name;
 use crate::state::NoScrub;
@@ -22,6 +22,8 @@ fn facts() -> RouteFacts {
         last_reply_model: Some("claude-sonnet-5-5".into()),
         task_models: vec!["claude-sonnet-5-5".into(), "deepseek-flash".into()],
         est_tokens: None,
+        current_model: None,
+        switch_cost: None,
     }
 }
 
@@ -68,6 +70,8 @@ fn the_last_reply_and_the_task_models_are_left_out_when_there_are_none() {
         restricted_models: RestrictedModels::NotAllowed,
         price_period: PricePeriod::Peak,
         est_tokens: None,
+        current_model: None,
+        switch_cost: None,
     });
     let (v, _, _) = state_of(i);
     assert_eq!(v["price_period"], "peak");
@@ -113,6 +117,8 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
             .map(|n| format!("{n}-{}", "model".repeat(400)))
             .collect(),
         est_tokens: Some(u64::MAX),
+        current_model: Some("m".repeat(5_000)),
+        switch_cost: Some(SwitchCost::CheaperToStay),
     });
     let p = by_name("route.v8").unwrap();
     assert_eq!(p.state_cap_tokens, 3000);
@@ -123,6 +129,8 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
         "restricted_models",
         "last_reply_model",
         "task_models",
+        "current_model",
+        "switch_cost",
     ] {
         assert!(b.state.fields.iter().any(|f| f == k), "{k} was cut");
     }

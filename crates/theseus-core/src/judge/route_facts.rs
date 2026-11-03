@@ -8,7 +8,7 @@
 use theseus_judge::builders::{InboundInput, RestrictedModels, RouteFacts, TASK_MODELS};
 use theseus_judge::{Input, Pack};
 
-use crate::catalog::price_period_at;
+use crate::catalog::{price_period_at, switch_cost, Catalog};
 use crate::node::{Body, Node};
 
 /// The facts for an ask about the message after `before`, the session's nodes
@@ -34,13 +34,26 @@ pub(crate) fn facts_of(
             }
         }
     }
+    let last = models().next_back();
+    let est = est_tokens(before);
     RouteFacts {
         price_period: price_period_at(now_ms),
         restricted_models: restricted,
-        last_reply_model: models().next_back().map(str::to_string),
+        last_reply_model: last.map(str::to_string),
         task_models,
-        est_tokens: Some(est_tokens(before)),
+        est_tokens: Some(est),
+        // The warm model is the one that answered last: its cache holds the
+        // prefix. What a switch would cost this message is the catalog's
+        // arithmetic, not Jev's (theseus-h66v4.1).
+        current_model: last.map(str::to_string),
+        switch_cost: Some(switch_cost(builtin(), last, est)),
     }
+}
+
+/// The built-in catalog, built once: the facts are asked for on every message.
+fn builtin() -> &'static Catalog {
+    static BUILTIN: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
+    BUILTIN.get_or_init(Catalog::builtin)
 }
 
 /// How many tokens the conversation holds: the last request's prompt as the

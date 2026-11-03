@@ -30,7 +30,8 @@ use theseus_judge::price::{micros_to_usd, usd_to_micros};
 use theseus_judge::route_cases::{self, CaseSet, Check, Graded};
 use theseus_judge::{Judgment, Outcome};
 use theseus_protocol::judge_runs::{
-    JudgeReplayParams, JudgeReplayResult, ReplayCase, ReplayCases, ReplayCheck, ReplayLeftOut,
+    JudgeReplayParams, JudgeReplayResult, ReplayBar, ReplayCase, ReplayCases, ReplayCheck,
+    ReplayLeftOut,
 };
 
 use super::replay::{candidate_of, Caller};
@@ -77,11 +78,12 @@ fn check(c: &Check) -> ReplayCheck {
     }
 }
 
-/// The wire report: each case, the totals, and the bar.
-fn report(pack: &str, graded: &[Graded]) -> ReplayCases {
-    let t = route_cases::totals(graded);
+/// The wire report: each case, the totals, and the bars.
+fn report(pack: &theseus_judge::Pack, graded: &[Graded]) -> ReplayCases {
+    let asked = route_cases::graded_questions(pack);
+    let t = route_cases::totals(graded, &asked);
     ReplayCases {
-        pack: pack.to_string(),
+        pack: pack.name(),
         cases: graded
             .iter()
             .map(|g| ReplayCase {
@@ -90,22 +92,45 @@ fn report(pack: &str, graded: &[Graded]) -> ReplayCases {
                 answered: g.answered,
                 model: check(&g.model),
                 effort: check(&g.effort),
-                context: check(&g.context),
+                work: check(&g.work),
+                split: check(&g.split),
             })
             .collect(),
+        asked: t.asked.clone(),
         answered: t.answered,
         model_ok: t.model_ok,
         effort_exact: t.effort_exact,
         effort_close: t.effort_close,
-        context_ok: t.context_ok,
+        work_ok: t.work_ok,
+        split_ok: t.split_ok,
+        under_model: t.under_model,
+        under_effort: t.under_effort,
+        under_work: t.under_work,
+        under_split: t.under_split,
+        bars: t
+            .bars
+            .iter()
+            .map(|b| ReplayBar {
+                question: b.question.clone(),
+                ok: b.ok,
+                of: b.of,
+                need: b.need,
+                met: b.met,
+            })
+            .collect(),
         must_total: t.must_total,
         must_ok: t.must_ok,
         must_under_confirm: t.must_under_confirm,
         raw_model_ok: t.raw_model_ok,
         raw_effort_exact: t.raw_effort_exact,
         raw_effort_close: t.raw_effort_close,
-        raw_context_ok: t.raw_context_ok,
-        held_elsewhere: route_cases::PINNED,
+        raw_work_ok: t.raw_work_ok,
+        raw_split_ok: t.raw_split_ok,
+        // The two pins are the model file's: a work or split file holds none.
+        held_elsewhere: match t.asked.iter().any(|q| q == "model" || q == "effort") {
+            true => route_cases::PINNED,
+            false => 0,
+        },
         bar: t.bar,
     }
 }
@@ -243,7 +268,7 @@ impl Core {
             estimate_usd: micros_to_usd(estimate),
             limit_usd: micros_to_usd(caller.limit),
             cost_usd: micros_to_usd(caller.spent),
-            cases: Some(report(&pack.name(), &graded)),
+            cases: Some(report(&pack, &graded)),
             ..JudgeReplayResult::default()
         };
         self.write_onto_replay(&pack.id, &pack_text, &result, &caller.called, who, via)?;

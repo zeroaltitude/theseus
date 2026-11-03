@@ -1,7 +1,6 @@
-//! `split.v1` in shadow (theseus-z9mze.5): Jev is asked, with the inbound batch, whether the work a
-//! message asks for divides by area, and the answer is logged with the turn beside the static
-//! fan-out cue's row. It decides nothing: the cue fires on its words whatever Jev says. The rig is
-//! `tests_fan_out_cue`'s.
+//! `split.v1` (theseus-z9mze.5; promoted by theseus-h66v4.6): Jev is asked whether the work a message
+//! asks for divides by area. Under route.v8 it is a shadow pack in the inbound batch and decides
+//! nothing; under route.v10 it is asked in the route lane and its answer is the fan-out cue.
 
 use std::time::{Duration, Instant};
 
@@ -54,12 +53,12 @@ fn choice(j: &LedgerRow) -> Value {
         .clone()
 }
 
-/// The key test. Two turns with the same open-ended ask in a class that may fan out, Jev answering
-/// `one_area` to the first and `splits_by_area` to the second: each is a `split.v1` judgment in
-/// shadow, on the turn's own id, beside that turn's `fan_out.cue` row, and the cue fired on both,
-/// the same rows but for the turn. The answer moved nothing.
+/// The key test, under route.v8. Two turns, Jev answering `one_area` to the first and
+/// `splits_by_area` to the second: each is a `split.v1` judgment in shadow, on the turn's own id,
+/// asked in classify's request, and the answer moves nothing: the cue has no word list to fire on
+/// and reads no shadow answer, so it writes no row and adds no line.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_split_answer_is_logged_beside_the_cue_and_moves_nothing() {
+async fn under_route_v8_the_split_answer_is_logged_in_shadow_and_moves_nothing() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "deep_coding", 0.95);
     let r = tiered(&jev, 2, true, |_| {});
@@ -86,18 +85,10 @@ async fn the_split_answer_is_logged_beside_the_cue_and_moves_nothing() {
         );
         assert_eq!(choice(j), want);
     }
-
-    let cues = kinds(&r.core.store, "fan_out.cue");
-    assert_eq!(cues.len(), 2);
-    for (c, turn_id) in [(&cues[0], &first.turn_id), (&cues[1], &second.turn_id)] {
-        assert_eq!(c.turn_id.as_deref(), Some(turn_id.as_str()), "the join key");
-        assert_eq!(
-            c.data["fired"], true,
-            "the words decide, not Jev: {}",
-            c.data
-        );
-    }
-    assert_eq!(cues[0].data["words"], cues[1].data["words"]);
+    assert!(
+        kinds(&r.core.store, "fan_out.cue").is_empty(),
+        "no cue row: the cue reads a verdict's split answer and a v8 verdict has none"
+    );
     // It rides the batch: the same request as classify's questions, none of its own.
     let seen = jev.seen();
     let with_split: Vec<_> = seen
@@ -111,6 +102,47 @@ async fn the_split_answer_is_logged_beside_the_cue_and_moves_nothing() {
             .all(|s| s.body["questions"].get("classify.v4/kind").is_some()),
         "in classify's request"
     );
+}
+
+/// Under route.v10 (theseus-h66v4.6) the split is promoted: asked in the route lane with its own
+/// state beside the route pack, in the turn's mode and not shadow, and the turn waits for it, so
+/// its answer is on the verdict the cue reads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn under_route_v10_the_split_is_asked_with_the_route_pack_and_not_in_shadow() {
+    let jev = FakeJev::start().unwrap();
+    crate::tests_route_open::says(&jev, "sonnet", "high", 0.95);
+    say(&jev, "splits_by_area", 0.95);
+    let o = crate::tests_route_open::open(&jev, 1, |_| {});
+    let res = turn(&o.r.core, None, OPEN, None).await;
+    until_judged(&o.r, 1).await;
+    let got = judged(&o.r);
+    assert_eq!(got.len(), 1);
+    assert_ne!(
+        got[0].data["mode"], "shadow",
+        "promoted: it is no shadow ask"
+    );
+    assert_eq!(got[0].turn_id.as_deref(), Some(res.turn_id.as_str()));
+    assert_eq!(choice(&got[0]), "splits_by_area");
+    // Not in classify's request any more: a state of its own, asked beside the route pack's.
+    let seen = jev.seen();
+    let split_req: Vec<_> = seen
+        .iter()
+        .filter(|s| s.body["questions"].get("split.v1/split").is_some())
+        .collect();
+    assert!(!split_req.is_empty());
+    assert!(split_req
+        .iter()
+        .all(|s| s.body["questions"].get("classify.v4/kind").is_none()));
+    // The effort and the task type are asked too, each with its own state.
+    for q in ["effort.v1/effort", "work.v1/work"] {
+        assert!(
+            seen.iter().any(|s| s.body["questions"].get(q).is_some()),
+            "{q} was asked"
+        );
+    }
+    let cue = kinds(&o.r.core.store, "fan_out.cue");
+    assert_eq!(cue.len(), 1);
+    assert_eq!(cue[0].data["split"], "splits_by_area");
 }
 
 /// A slash command is no ask to divide: it is not judged, so nothing is asked.

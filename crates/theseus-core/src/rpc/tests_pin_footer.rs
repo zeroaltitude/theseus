@@ -35,7 +35,7 @@ async fn turn(core: &std::sync::Arc<crate::rpc::Core>, profile: Option<&str>) ->
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pin_on_the_configs_own_model_reads_pinned() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "high", "full", 0.97);
+    says(&jev, "opus", "high", 0.97);
     let o = open(&jev, 1, |_| {});
     assert_eq!(o.r.core.live_profile().0, "sonnet");
     call(&o.r.core, "profile.use", json!({"name": "sonnet"})).await;
@@ -49,7 +49,7 @@ async fn a_pin_on_the_configs_own_model_reads_pinned() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_named_profile_on_the_default_model_reads_pinned() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "opus", "high", "full", 0.97);
+    says(&jev, "opus", "high", 0.97);
     let o = open(&jev, 1, |_| {});
     let route = turn(&o.r.core, Some("sonnet")).await.route.unwrap();
     assert_eq!(route.pin_footer(), Some("pinned"));
@@ -60,7 +60,7 @@ async fn a_named_profile_on_the_default_model_reads_pinned() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_default_model_chosen_by_jev_reads_unpinned() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "sonnet", "high", "full", 0.97);
+    says(&jev, "sonnet", "high", 0.97);
     let o = open(&jev, 1, |_| {});
     let route = turn(&o.r.core, None).await.route.unwrap();
     assert_ne!(route.reason, "pinned");
@@ -73,7 +73,7 @@ async fn the_default_model_chosen_by_jev_reads_unpinned() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_released_pin_on_the_default_model_reads_unpinned() {
     let jev = FakeJev::start().unwrap();
-    says(&jev, "sonnet", "high", "full", 0.97);
+    says(&jev, "sonnet", "high", 0.97);
     let o = open(&jev, 1, |_| {});
     call(&o.r.core, "profile.use", json!({"name": "sonnet"})).await;
     let released = call(&o.r.core, "profile.release", Value::Null).await;

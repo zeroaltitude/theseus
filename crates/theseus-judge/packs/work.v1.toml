@@ -1,0 +1,38 @@
+# work.v1 (WORK, theseus-h66v4.6, 2026-10-30): what kind of task a message asks for.
+# The third of the owner's three calls (2026-10-30 16:01: "the desired model, the desired level of
+# effort, and the task type at hand are three distinct jev calls"). Its state is its own: the
+# message, the live tasks and where the message came in (`builders::slices::work`). The label
+# replaces the seven class names that route.v8's `mode` carried for the turn's readers outside
+# routing: the injection tier and the coding hint read `coding` (the owner: "the tier reads
+# work = coding"), and the learning report reads the label's options. It chooses no model and no
+# effort, and nothing post-processes it.
+#
+# The options say what the reply is mostly FOR, not what the message is about: a question about a
+# function is `conversation` when the answer is an explanation, and `coding` when the reply writes
+# or changes code. The case set that tests this wording is `work.v1.cases.toml`.
+id = "work"
+version = 1
+jev_model = "jev-1.13.0"
+point = "inbound"
+state = "work"
+state_cap_tokens = 3000
+sample = 1.0
+baseline = "none"
+action = "none"
+description = "WORK: what kind of task the person's new message asks for."
+
+[questions.work]
+type = "choice"
+decides = true
+instructions = "Choose by what the reply does, not by the topic the message is about. What is the reply to the person's new message mostly for?"
+act = 0.90
+confirm = 0.60
+no_match = "conversation"
+options = [
+  { id = "coding", means = "The reply writes, changes, fixes, tests, renames, moves or reads code, a script or a configuration file as its main work, in any language, or plans such a change in terms of the files it touches." },
+  { id = "research_or_design", means = "The reply finds out, compares or decides something: an investigation of how things work or why they fail, a comparison of options or sources, a design with trade-offs, a plan, or an analysis, where what comes back is understanding or a decision and not a finished change." },
+  { id = "writing", means = "The reply is prose someone else will read: a document, a message, an email, a summary, a report, a commit message, a post, or a rewrite of the person's own draft." },
+  { id = "conversation", means = "The reply talks with the person: a greeting, a thank-you, an acknowledgement, an opinion, a short answer from what the assistant knows, or an explanation of something, and nothing is produced beyond the talk." },
+  { id = "tool_run", means = "The reply is mostly the result of running a command, a script or a tool the person names or plainly wants run, and reporting what it printed, with no judging of the output beyond saying what it was." },
+  { id = "review", means = "The reply checks work that already exists for mistakes: a diff, a plan, an argument, a document, a design or a reply, and says what is wrong or risky in it." },
+]

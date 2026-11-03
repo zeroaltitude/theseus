@@ -124,9 +124,11 @@ pub enum EffortReason {
     /// A later answer that disagrees with a sticky hold ended it early: the
     /// request carries Jev's level (theseus-u5a37, [`reverts`]).
     StickyReverted,
-    /// route.v10: the model's own default effort ran, because Jev answered
-    /// `default` or its answer was under the question's confirm bar.
-    ModelDefault,
+    /// route.v10: Jev's answer was under the question's confirm bar, so the pack's own `no_match`
+    /// ran ([`NO_MATCH`], `high`: the usual effort), as the replay's grade reads it
+    /// (theseus-h66v4.6.1; it was the model's own default effort before, which differed for
+    /// Haiku, Opus and Flash).
+    NoMatch,
 }
 
 impl EffortReason {
@@ -148,7 +150,7 @@ impl EffortReason {
             EffortReason::StickyReverted => "sticky_reverted",
             EffortReason::Floored => "floored",
             EffortReason::Gated => "gated",
-            EffortReason::ModelDefault => "model_default",
+            EffortReason::NoMatch => "no_match",
         }
     }
 }
@@ -193,7 +195,7 @@ impl EffortDecision {
                 | EffortReason::StickyUnsure
                 | EffortReason::StickyReverted
                 | EffortReason::Floored
-                | EffortReason::ModelDefault
+                | EffortReason::NoMatch
         )
     }
 }
@@ -316,15 +318,18 @@ pub const OPEN_QUESTION: &str = "effort";
 pub struct OpenRuns {
     /// The profile's own `effort`, which a turn Jev did not decide runs at.
     pub own: Option<Effort>,
-    /// The model's own default effort (`CatalogEntry.default_effort`).
-    pub default: Option<Effort>,
     /// The model's catalog row takes effort.
     pub takes: bool,
 }
 
+/// What an answer under `effort.v1`'s confirm bar runs: the pack's `no_match`, the usual effort
+/// (the owner, 2026-10-29 22:50: "the average/median/mode effort/thinking is high"). One value in
+/// two places, the pack and here; `tests_effort_open` holds them equal.
+pub const NO_MATCH: Effort = Effort::High;
+
 /// route.v10's effort rule. Jev's level, when the answer reached the bar, is
 /// what the request carries, whatever the level and wherever the model sits;
-/// `default`, or an answer under the bar, is the model's own default effort.
+/// an answer under the bar is the pack's `no_match` ([`NO_MATCH`]), never the model's own default.
 pub fn decide_open(
     runs: OpenRuns,
     answer: &EffortAnswer,
@@ -356,10 +361,10 @@ pub fn decide_open(
             ran: Some(level),
             sent: None,
         },
-        // `default`, or an answer under its bar: the model's own.
+        // An answer under its bar: the pack's `no_match`, as the replay grades it.
         None => EffortDecision {
-            reason: EffortReason::ModelDefault,
-            ran: runs.default,
+            reason: EffortReason::NoMatch,
+            ran: Some(NO_MATCH),
             sent: None,
         },
     }

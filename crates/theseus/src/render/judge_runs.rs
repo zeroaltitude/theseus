@@ -128,20 +128,46 @@ fn fell(question: &str, c: &ReplayCheck) -> String {
     )
 }
 
+/// The questions a cases run graded: its own list, or the two a run before
+/// theseus-h66v4.6 graded when it names none.
+fn asked_of(c: &ReplayCases) -> Vec<&str> {
+    match c.asked.is_empty() {
+        true => vec!["model", "effort"],
+        false => c.asked.iter().map(String::as_str).collect(),
+    }
+}
+
+/// The check of one deciding question of a case.
+fn check_of<'a>(c: &'a ReplayCase, q: &str) -> &'a ReplayCheck {
+    match q {
+        "model" => &c.model,
+        "effort" => &c.effort,
+        "work" => &c.work,
+        _ => &c.split,
+    }
+}
+
 /// A case's line: `ok`, `ok` with an effort one rung off, or each question
-/// it missed. A case is right when its `model` and `context` agree and its
-/// `effort` is within one rung (the bar's own count). A question that fell
-/// under its confirm bar is named wherever it landed.
-fn case_line(c: &ReplayCase) -> String {
+/// it missed. A case is right on a question when its answer agrees (`effort`:
+/// is within one rung, the bar's own count). A question that fell under its
+/// confirm bar is named wherever it landed.
+fn case_line(c: &ReplayCase, asked: &[&str]) -> String {
     let tag = if c.must { " [must]" } else { "" };
     if !c.answered {
         return format!("{:<4}{tag} NO ANSWER (no judgment came back)", c.id);
     }
-    let qs = [
-        ("model", &c.model, c.model.agrees),
-        ("effort", &c.effort, c.effort.close),
-        ("context", &c.context, c.context.agrees),
-    ];
+    let qs: Vec<(&str, &ReplayCheck, bool)> = asked
+        .iter()
+        .map(|q| {
+            let check = check_of(c, q);
+            let right = if *q == "effort" {
+                check.close
+            } else {
+                check.agrees
+            };
+            (*q, check, right)
+        })
+        .collect();
     let misses: Vec<String> = qs
         .iter()
         .filter(|(_, _, right)| !right)
@@ -152,7 +178,8 @@ fn case_line(c: &ReplayCase) -> String {
         .filter(|(_, check, right)| *right && check.sub_confirm)
         .map(|(q, check, _)| fell(q, check))
         .collect();
-    match (misses.is_empty(), c.effort.agrees) {
+    let effort_exact = !asked.contains(&"effort") || c.effort.agrees;
+    match (misses.is_empty(), effort_exact) {
         (false, _) if notes.is_empty() => format!("{:<4}{tag} MISS {}", c.id, misses.join(", ")),
         (false, _) => format!(
             "{:<4}{tag} MISS {} · also {}",
@@ -161,8 +188,8 @@ fn case_line(c: &ReplayCase) -> String {
             notes.join("; ")
         ),
         (true, true) if notes.is_empty() => format!("{:<4}{tag} ok", c.id),
-        (true, agrees) => {
-            if !agrees && !c.effort.sub_confirm {
+        (true, exact) => {
+            if !exact && !c.effort.sub_confirm {
                 notes.push(format!("{}, one rung off", miss("effort", &c.effort)));
             }
             format!("{:<4}{tag} ok ({})", c.id, notes.join("; "))
@@ -171,9 +198,10 @@ fn case_line(c: &ReplayCase) -> String {
 }
 
 /// `theseus judge replay --cases`: a line for each case, then the totals, the
-/// `must` count and the bar.
+/// `must` count and each bar, a ratio of its own set with its rounding rule.
 fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
     let n = c.cases.len();
+    let asked = asked_of(c);
     let mut out = vec![format!(
         "{} replayed {} (sha256 {}) over its cases file: {n} cases · ${:.4} of an estimated ${:.4} \
          (limit ${:.2})",
@@ -184,35 +212,78 @@ fn cases_lines(r: &JudgeReplayResult, c: &ReplayCases) -> Vec<String> {
         r.estimate_usd,
         r.limit_usd,
     )];
-    out.extend(c.cases.iter().map(case_line));
-    out.push(format!(
-        "model {}/{n} · effort {}/{n} exact, {}/{n} within one rung · context {}/{n} · answered {}/{n}",
-        c.model_ok, c.effort_exact, c.effort_close, c.context_ok, c.answered
-    ));
-    let fell_in = |f: &dyn Fn(&ReplayCase) -> bool| c.cases.iter().filter(|x| f(x)).count();
-    out.push(format!(
-        "under the confirm bar, graded as the question's no_match: model {}, effort {}, context {}",
-        fell_in(&|x| x.model.sub_confirm),
-        fell_in(&|x| x.effort.sub_confirm),
-        fell_in(&|x| x.context.sub_confirm),
-    ));
-    out.push(format!(
-        "raw top picks, no bar applied: model {}/{n} · effort {}/{n} exact, {}/{n} within one rung · \
-         context {}/{n}",
-        c.raw_model_ok, c.raw_effort_exact, c.raw_effort_close, c.raw_context_ok
-    ));
-    out.push(format!(
-        "must {}/{}, {} under the confirm bar",
-        c.must_ok, c.must_total, c.must_under_confirm
-    ));
-    out.push(match c.bar {
-        Some(met) => format!(
-            "bar (model 54, effort within one rung 50, context 56 of 60, every must case, none \
-             under the confirm bar; the {} pin tests W39 and W40 counted as met): {}",
-            c.held_elsewhere,
-            if met { "met" } else { "NOT met" }
+    out.extend(c.cases.iter().map(|x| case_line(x, &asked)));
+    let part = |q: &str, raw: bool| match (q, raw) {
+        ("model", false) => format!("model {}/{n}", c.model_ok),
+        ("model", true) => format!("model {}/{n}", c.raw_model_ok),
+        ("effort", false) => format!(
+            "effort {}/{n} exact, {}/{n} within one rung",
+            c.effort_exact, c.effort_close
         ),
-        None => "bar: not judged (the file is not the design's 58 replay cases)".to_string(),
+        ("effort", true) => format!(
+            "effort {}/{n} exact, {}/{n} within one rung",
+            c.raw_effort_exact, c.raw_effort_close
+        ),
+        ("work", false) => format!("work {}/{n}", c.work_ok),
+        ("work", true) => format!("work {}/{n}", c.raw_work_ok),
+        (_, false) => format!("split {}/{n}", c.split_ok),
+        (_, true) => format!("split {}/{n}", c.raw_split_ok),
+    };
+    let join = |raw: bool| {
+        asked
+            .iter()
+            .map(|q| part(q, raw))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    };
+    out.push(format!("{} · answered {}/{n}", join(false), c.answered));
+    let fell_in = |q: &str| {
+        c.cases
+            .iter()
+            .filter(|x| check_of(x, q).sub_confirm)
+            .count()
+    };
+    out.push(format!(
+        "under the confirm bar, graded as the question's no_match: {}",
+        asked
+            .iter()
+            .map(|q| format!("{q} {}", fell_in(q)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    out.push(format!("raw top picks, no bar applied: {}", join(true)));
+    if asked.contains(&"model") {
+        out.push(format!(
+            "must {}/{}, {} under the confirm bar",
+            c.must_ok, c.must_total, c.must_under_confirm
+        ));
+    }
+    for b in &c.bars {
+        let what = match b.question.as_str() {
+            "effort" => "effort within one rung",
+            "must" => "must (W40 is the daemon's test, outside this set)",
+            q => q,
+        };
+        out.push(format!(
+            "bar {what}: {}/{} against {} (80% of {}, rounded up): {}",
+            b.ok,
+            b.of,
+            b.need,
+            b.of,
+            if b.met { "met" } else { "NOT met" }
+        ));
+    }
+    out.push(match (c.bar, c.held_elsewhere) {
+        // A run whose cases file holds no pin has none to name (work and split).
+        (Some(met), 0) => format!(
+            "bars of this run: {}",
+            if met { "all met" } else { "NOT all met" }
+        ),
+        (Some(met), n) => format!(
+            "bars of this run ({n} W39 and W40 are the daemon's tests, outside every denominator): {}",
+            if met { "all met" } else { "NOT all met" }
+        ),
+        (None, _) => "bar: not judged (this run graded no question; read the counts)".to_string(),
     });
     out.extend(
         r.left_out
@@ -371,7 +442,7 @@ pub fn judge_backfill_lines(r: &JudgeBackfillResult) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use theseus_protocol::judge_runs::{
-        ReplayCase, ReplayCases, ReplayCheck, ReplayLeftOut, UndoRate,
+        ReplayBar, ReplayCase, ReplayCases, ReplayCheck, ReplayLeftOut, UndoRate,
     };
 
     use super::*;
@@ -408,20 +479,14 @@ mod tests {
         }
     }
 
-    fn case(
-        id: &str,
-        must: bool,
-        model: ReplayCheck,
-        effort: ReplayCheck,
-        context: ReplayCheck,
-    ) -> ReplayCase {
+    fn case(id: &str, must: bool, model: ReplayCheck, effort: ReplayCheck) -> ReplayCase {
         ReplayCase {
             id: id.into(),
             must,
             answered: true,
             model,
             effort,
-            context,
+            ..Default::default()
         }
     }
 
@@ -430,35 +495,30 @@ mod tests {
     /// `must` count and the bar.
     #[test]
     fn a_cases_replay_prints_a_line_a_case_then_the_totals_and_the_bar() {
-        let right = || check("full", "full", 0.9, true);
         let cases = vec![
             case(
                 "L1",
                 false,
                 check("haiku", "haiku", 0.95, true),
                 check("low", "low", 0.9, true),
-                right(),
             ),
             case(
                 "W26",
                 true,
                 check("sonnet", "fable", 0.71, false),
                 check("high", "high", 0.9, true),
-                right(),
             ),
             case(
                 "L11",
                 false,
                 check("opus", "opus", 0.9, true),
                 check("high", "medium", 0.8, true),
-                right(),
             ),
             case(
                 "W5",
                 false,
                 check("haiku", "haiku", 0.9, true),
                 check("low", "max", 0.9, false),
-                check("full", "short", 0.88, false),
             ),
             ReplayCase {
                 id: "W9".into(),
@@ -484,16 +544,31 @@ mod tests {
                 model_ok: 3,
                 effort_exact: 2,
                 effort_close: 3,
-                context_ok: 3,
                 must_total: 2,
                 must_ok: 0,
                 must_under_confirm: 0,
                 raw_model_ok: 3,
                 raw_effort_exact: 2,
                 raw_effort_close: 3,
-                raw_context_ok: 3,
                 held_elsewhere: 2,
+                bars: vec![
+                    ReplayBar {
+                        question: "model".into(),
+                        ok: 3,
+                        of: 5,
+                        need: 4,
+                        met: false,
+                    },
+                    ReplayBar {
+                        question: "must".into(),
+                        ok: 0,
+                        of: 2,
+                        need: 2,
+                        met: false,
+                    },
+                ],
                 bar: Some(false),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -505,27 +580,63 @@ mod tests {
                 "L1   ok",
                 "W26  [must] MISS model sonnet→fable 0.71",
                 "L11  ok (effort high→medium 0.80, one rung off)",
-                "W5   MISS effort low→max 0.90, context full→short 0.88",
+                "W5   MISS effort low→max 0.90",
                 "W9   [must] NO ANSWER (no judgment came back)",
-                "model 3/5 · effort 2/5 exact, 3/5 within one rung · context 3/5 · answered 4/5",
-                "under the confirm bar, graded as the question's no_match: model 0, effort 0, context 0",
-                "raw top picks, no bar applied: model 3/5 · effort 2/5 exact, 3/5 within one rung · context 3/5",
+                "model 3/5 · effort 2/5 exact, 3/5 within one rung · answered 4/5",
+                "under the confirm bar, graded as the question's no_match: model 0, effort 0",
+                "raw top picks, no bar applied: model 3/5 · effort 2/5 exact, 3/5 within one rung",
                 "must 0/2, 0 under the confirm bar",
-                "bar (model 54, effort within one rung 50, context 56 of 60, every must case, none under the confirm bar; the 2 pin tests W39 and W40 counted as met): NOT met",
+                "bar model: 3/5 against 4 (80% of 5, rounded up): NOT met",
+                "bar must (W40 is the daemon's test, outside this set): 0/2 against 2 (80% of 2, rounded up): NOT met",
+                "bars of this run (2 W39 and W40 are the daemon's tests, outside every denominator): NOT all met",
                 "  left out W9: the run reached [judge] replay_limit_usd",
             ]
         );
-        // A met bar says so; a file that is not the 58 says it judges none.
-        let mut met = r.clone();
-        met.cases.as_mut().unwrap().bar = Some(true);
-        assert!(judge_replay_lines(&met)
+    }
+
+    /// Met bars say so; a run that graded nothing says it judges none.
+    #[test]
+    fn met_bars_say_so_and_a_run_that_grades_nothing_says_it_judges_none() {
+        let mut r = JudgeReplayResult {
+            id: "rpl_1".into(),
+            candidate: "route.v10".into(),
+            candidate_sha256: "abcdef0123456789".into(),
+            cases: Some(ReplayCases {
+                pack: "route.v10".into(),
+                held_elsewhere: 2,
+                bar: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(judge_replay_lines(&r)
             .iter()
-            .any(|l| l.ends_with("): met")));
-        let mut other = r;
-        other.cases.as_mut().unwrap().bar = None;
-        assert!(judge_replay_lines(&other)
+            .any(|l| l.ends_with("): all met")));
+        r.cases.as_mut().unwrap().bar = None;
+        assert!(judge_replay_lines(&r)
             .iter()
-            .any(|l| l.starts_with("bar: not judged")));
+            .any(|l| l.starts_with("bar: not judged (this run graded no question")));
+    }
+
+    /// A run over a cases file with no pin in it (work, split) does not name the two the model
+    /// file's tests hold elsewhere (theseus-h66v4.6 fix pass).
+    #[test]
+    fn a_run_with_no_pin_cases_does_not_name_the_pins() {
+        let r = JudgeReplayResult {
+            id: "rpl_1".into(),
+            candidate: "split.v1".into(),
+            candidate_sha256: "abcdef0123456789".into(),
+            cases: Some(ReplayCases {
+                pack: "split.v1".into(),
+                held_elsewhere: 0,
+                bar: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let lines = judge_replay_lines(&r);
+        assert!(lines.iter().any(|l| l == "bars of this run: NOT all met"));
+        assert!(!lines.iter().any(|l| l.contains("W39")), "{lines:?}");
     }
 
     /// A pick under the confirm bar says so: the line names the question, what
@@ -535,7 +646,6 @@ mod tests {
     /// (theseus-mir9c).
     #[test]
     fn a_pick_under_the_confirm_bar_is_named_not_reported_as_a_different_answer() {
-        let right = || check("full", "full", 0.9, true);
         let cases = vec![
             // Right pick under the bar: the daemon runs sonnet, a miss.
             case(
@@ -543,23 +653,20 @@ mod tests {
                 true,
                 fell("opus", "opus", "sonnet", 0.55),
                 check("medium", "medium", 0.9, true),
-                right(),
             ),
-            // `short` under the bar compiles `full`, which the case wants: ok.
+            // An effort under the bar is `high`, which the case wants: ok.
             case(
                 "L3",
                 false,
                 check("sonnet", "sonnet", 0.9, true),
-                check("medium", "medium", 0.9, true),
-                fell("full", "short", "full", 0.55),
+                fell("high", "medium", "high", 0.55),
             ),
             // A miss, a fell-and-right, and an effort that fell: all named.
             case(
                 "L11",
                 false,
                 fell("opus", "opus", "sonnet", 0.50),
-                fell("default", "high", "default", 0.40),
-                fell("full", "short", "full", 0.45),
+                fell("high", "medium", "high", 0.40),
             ),
         ];
         let r = JudgeReplayResult {
@@ -573,16 +680,15 @@ mod tests {
                 model_ok: 1,
                 effort_exact: 3,
                 effort_close: 3,
-                context_ok: 3,
                 must_total: 1,
                 must_ok: 0,
                 must_under_confirm: 1,
                 raw_model_ok: 3,
                 raw_effort_exact: 2,
                 raw_effort_close: 2,
-                raw_context_ok: 1,
                 held_elsewhere: 2,
                 bar: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -591,11 +697,11 @@ mod tests {
             &lines[1..7],
             [
                 "W18  [must] MISS model opus→sonnet 0.55 (under confirm 0.60: Jev said opus, graded as no_match sonnet)",
-                "L3   ok (context fell under confirm 0.60: Jev said short at 0.55, graded as no_match full)",
-                "L11  MISS model opus→sonnet 0.50 (under confirm 0.60: Jev said opus, graded as no_match sonnet) · also effort fell under confirm 0.60: Jev said high at 0.40, graded as no_match default; context fell under confirm 0.60: Jev said short at 0.45, graded as no_match full",
-                "model 1/3 · effort 3/3 exact, 3/3 within one rung · context 3/3 · answered 3/3",
-                "under the confirm bar, graded as the question's no_match: model 2, effort 1, context 2",
-                "raw top picks, no bar applied: model 3/3 · effort 2/3 exact, 2/3 within one rung · context 1/3",
+                "L3   ok (effort fell under confirm 0.60: Jev said medium at 0.55, graded as no_match high)",
+                "L11  MISS model opus→sonnet 0.50 (under confirm 0.60: Jev said opus, graded as no_match sonnet) · also effort fell under confirm 0.60: Jev said medium at 0.40, graded as no_match high",
+                "model 1/3 · effort 3/3 exact, 3/3 within one rung · answered 3/3",
+                "under the confirm bar, graded as the question's no_match: model 2, effort 2",
+                "raw top picks, no bar applied: model 3/3 · effort 2/3 exact, 2/3 within one rung",
             ]
         );
     }
