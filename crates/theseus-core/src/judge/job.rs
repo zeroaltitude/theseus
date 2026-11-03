@@ -51,7 +51,7 @@ pub(crate) enum JobAnswer {
 impl JudgeService {
     /// A test's route pack that asks `model`, standing in for the acting one
     /// everywhere (`stand_in`, named route.v8 as the daemon compares it), so the
-    /// background sites and the turn path see one switch, `route_open`.
+    /// background sites and the turn path see one switch, `route_pack`.
     #[cfg(test)]
     pub(crate) fn job_pack_with(&self, pack: Arc<Pack>) {
         let mut p = (*pack).clone();

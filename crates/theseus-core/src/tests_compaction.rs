@@ -1367,7 +1367,7 @@ fn rig_jev(
 
 /// Jev's `model` answer for the summary's ask alone. The route pack that asks
 /// `model` is the acting one for every ask (the unified switch,
-/// `JudgeService::route_open`), so the turns' own asks must not answer it too:
+/// `JudgeService::route_pack`), so the turns' own asks must not answer it too:
 /// they stay on their profile, as the tests under them assume.
 fn pick_summary(jev: &theseus_judge::fake::FakeJev, option: &str, confidence: f64) {
     jev.script_when(
@@ -1438,21 +1438,6 @@ async fn a_set_summary_profile_asks_jev_nothing() {
     assert!(summary_asks(&jev).is_empty());
     assert!(!models_asked(&r).contains(&"claude-opus-5-5".to_string()));
     assert!(!r.glm.requests().is_empty(), "glm wrote the summary");
-}
-
-/// While the acting pack asks no `model`, an unset key is `session`, as it
-/// was: the turn's own model summarizes, and Jev is asked nothing about it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_unset_summary_profile_is_session_while_the_pack_asks_no_model() {
-    let jev = theseus_judge::fake::FakeJev::start().unwrap();
-    jev_chat(&jev);
-    pick_summary(&jev, "opus", 0.95);
-    let r = rig_jev(&jev, None, false, |_| {});
-    let sid = session(&r.core);
-    until_recompiled(&r, &sid, 6_000).await;
-    assert!(summary_asks(&jev).is_empty());
-    assert!(!models_asked(&r).contains(&"claude-opus-5-5".to_string()));
-    assert!(r.glm.requests().is_empty());
 }
 
 /// A slow Jev never holds a compaction: past `max_wait_ms` the summary is

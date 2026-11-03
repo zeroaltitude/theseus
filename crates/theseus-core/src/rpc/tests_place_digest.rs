@@ -242,15 +242,6 @@ async fn a_place_digest_never_shows_a_sealed_thread() {
     assert!(q.cache_control.is_none(), "the mark moved onto the block");
 }
 
-/// The session of `slug`'s thread, which a first turn in it opens.
-async fn thread_session(c: &Arc<Core>, jev: &FakeJev, slug: &str) -> String {
-    scope(jev, "thread");
-    ask(c, slug, "what's left here?").await;
-    let board = c.threads();
-    let th = board.get(slug).expect("the thread");
-    th.session_id.clone().expect("its session")
-}
-
 /// A turn whose scope is `thread`, and one whose answer is later than
 /// `route_wait_ms`, get no digest; the late one waited no more than the bound.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -347,23 +338,4 @@ fn normal(v: &impl serde::Serialize) -> String {
         }
     }
     out
-}
-
-/// The other threads' cards are the owner's material, so a draft's request
-/// carries no digest (theseus-rcb2u): the same `place` turn in the PR's
-/// thread shows one, and shows none once its session is a draft's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_drafts_request_carries_no_place_digest() {
-    let jev = FakeJev::start().unwrap();
-    let r = rig(&jev, 4, true);
-    let c = &r.core;
-    threads(c);
-    let pr = thread_session(c, &jev, "pr-round").await;
-    scope(&jev, "place");
-    ask(c, "pr-round", "What else is going on in this place?").await;
-    assert!(digest_of(&last_request(&r)).is_some(), "the control");
-    crate::tests_dm_rig::mark_draft(c, &pr);
-    scope(&jev, "place");
-    ask(c, "pr-round", "And what else is going on in this place?").await;
-    assert_eq!(digest_of(&last_request(&r)), None, "a draft's request");
 }

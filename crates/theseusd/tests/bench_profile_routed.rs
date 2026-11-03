@@ -24,8 +24,8 @@ fn assert_routes_live_and_waits_two_seconds(cfg: &Config) {
 }
 
 /// It parses and validates with no warning, names no vault and no value, and
-/// holds what its header says: the judge on, route.v3 acting live, the owner's
-/// table over the profiles it defines, and the plain profile's posture.
+/// holds what its header says: the judge on, the route pack acting live, the owner's
+/// profiles, and the plain profile's posture.
 #[test]
 fn the_routed_profile_loads_with_the_judge_and_the_routing_table_on() {
     let text = std::fs::read_to_string(profile_path()).unwrap();
@@ -50,15 +50,7 @@ fn the_routed_profile_loads_with_the_judge_and_the_routing_table_on() {
     assert_eq!(cfg.judge.key_secret, "jev_api_key");
     assert!(cfg.routing.enabled);
     assert_routes_live_and_waits_two_seconds(&cfg);
-    let modes = &cfg.routing.classes;
-    let table = |m: &str| modes.of(m).to_vec();
-    assert_eq!(table("trivial"), ["haiku"]);
-    assert_eq!(table("quick"), ["haiku"]);
-    assert!(table("chat").is_empty() && table("other").is_empty());
-    assert_eq!(table("sophisticated"), ["opus", "fable"]);
-    assert_eq!(table("deep_coding"), ["sonnethi", "opus"]);
-    assert_eq!(table("routine_coding"), ["haikuhi", "sonnet"]);
-    // Every profile the table names exists, and the models and efforts are
+    // Every profile the pack's options run exists, and the models and efforts are
     // the owner's.
     let catalog = theseus_core::catalog::Catalog::builtin();
     for (name, model, effort) in [

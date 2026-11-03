@@ -26,6 +26,9 @@ pub(crate) struct Rig {
 pub(crate) fn rig(jev: FakeJev, more: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = judge_config(dir.path(), Some(&jev));
+    // A pin: an unset naming key asks Jev for its model too, which these tests
+    // count the asks of.
+    cfg.ontology.name_profile = Some("haiku".into());
     more(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();

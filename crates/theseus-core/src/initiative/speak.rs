@@ -167,7 +167,6 @@ impl Core {
         let site = crate::job_model::Site {
             name: "initiative",
             pin: self.cfg.initiative.profile.as_deref(),
-            legacy: None,
             job: theseus_judge::builders::JobKind::Initiative { kind: kind.into() },
             restricted: theseus_judge::builders::RestrictedModels::NotAllowed,
         };

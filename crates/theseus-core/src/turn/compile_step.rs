@@ -40,7 +40,7 @@ impl TurnRunner {
             nodes,
             point,
             first: i == 0,
-            class: t.tc.place().content_class(),
+            class: t.tc.place().class,
         };
         self.prefix_spec(spec, at)
     }
@@ -58,12 +58,10 @@ impl TurnRunner {
         Option<theseus_protocol::projects::ProjectSliceSummary>,
     ) {
         // A check sees the task it checks by title and state (theseus-w8ys).
-        // The owner's graph and project are not a draft's (theseus-a1wvq.13).
-        // Nor are they a restricted model's: their titles and objectives are
+        // The owner's graph and project are not a restricted model's: their titles and objectives are
         // written by any session in scope, and a label belongs to the session
         // that raised it (theseus-9ymz0, the review's B1).
-        let draft = t.tc.draft.is_some();
-        let shared = !draft && !self.restricted_profile(&t.target.profile);
+        let shared = !self.restricted_profile(&t.target.profile);
         let tasks = shared
             .then(|| crate::task_graph::view::attach(&self.store, &self.kernel, session, compiled))
             .flatten();

@@ -37,7 +37,7 @@ pub const OPTIONS: [(&str, &str); 5] = [
 ];
 
 /// The options of a pack's `model` question that [`OPTIONS`] does not name: a
-/// pack that asks `model` (what makes route.v10 act, `JudgeService::route_open`,
+/// pack that asks `model` (what makes route.v10 act, `JudgeService::route_pack`,
 /// by whatever path the pack reached the daemon) must name only models the
 /// daemon can run, or every pick of the unnamed one is a silent `fallback`.
 /// Empty for a pack that asks no `model` question.

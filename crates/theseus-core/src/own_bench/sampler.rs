@@ -114,7 +114,7 @@ impl Core {
 
     /// The rung table of this daemon's config and catalog.
     pub(crate) fn rungs(&self) -> Vec<rung::Rung> {
-        let names = rung::profiles_of(&self.cfg.routing.classes);
+        let names = rung::profiles_of(self.cfg.all_profiles());
         rung::ladder(&names, |p| {
             let prof = self.cfg.profile(p).ok()?;
             self.runner

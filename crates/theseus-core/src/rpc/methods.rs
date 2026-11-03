@@ -945,15 +945,13 @@ impl Core {
         // A place's profile, unless the turn names one (step 38a).
         let placed = self.place_own_profile(&session.session_id);
         let live = placed.clone().unwrap_or_else(|| self.live_profile().0);
-        // `profile use` is the operator's word for a model when route.v10 acts: a turn is pinned to
+        // `profile use` is the operator's word for a model: a turn is pinned to
         // it when its profile came from it, which is a fact of where the profile came from and no
         // comparison of names. A place's own profile and a session's hold do not come from it. A
         // pane's carried profile and a routed session's base (`only_routed` below) are no choice
         // of the operator's either (`routing::chosen`), so `profile use` outranks them
         // (theseus-h66v4.6 fix pass, F6; theseus-dq3m1).
-        let used_live = placed.is_none()
-            && self.live_profile().1 == "runtime"
-            && self.runner.judge.route_open();
+        let used_live = placed.is_none() && self.live_profile().1 == "runtime";
         // The pane carries the profile the last turn ran on: when that is
         // only where routing moved the session, it stands for the base the
         // move was made from (`Routed.from`, theseus-0j2.17), never a new
@@ -1121,13 +1119,12 @@ impl Core {
             .ok_or_else(|| RpcFailure::new(error_code::NOT_FOUND, format!("no session {id}")))
     }
 
-    /// `theseus profile use` is the operator's word for a model, as `-P` is, when
-    /// route.v10 acts (theseus-h66v4): a turn that names nothing and took the
-    /// live profile the operator set (not the config's, and not a place's own
-    /// profile or a session's hold: `used_live`, a fact the caller carries, never two equal
+    /// `theseus profile use` is the operator's word for a model, as `-P` is
+    /// (theseus-h66v4): a turn that names nothing and took the live profile
+    /// the operator set (not the config's, and not a place's own profile or a
+    /// session's hold: `used_live`, a fact the caller carries, never two equal
     /// names) is pinned to it. The config's `[model] live` is only the default
-    /// a turn runs on when Jev gives no answer. Under an earlier pack the live
-    /// profile stays the baseline Jev routes from.
+    /// a turn runs on when Jev gives no answer.
     fn live_pin(&self, used_live: bool) -> Option<String> {
         let (name, _) = self.live_profile();
         used_live.then(|| format!("{}{name}", crate::routing::LIVE_PIN))

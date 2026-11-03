@@ -89,11 +89,10 @@ impl TurnRunner {
         Self::route_asked(t, wait, route, false);
     }
 
-    /// The brief's verdict as the task's base: the class's first usable
-    /// profile under the place's cap, at once (`routing::brief::brief_base`).
+    /// The brief's verdict as the task's base: Jev's pick, at once
+    /// (`routing::brief::brief_base`).
     pub(super) fn decide_brief(&self, t: &Turn<'_>, v: &Verdict) -> Decision {
         let profiles = self.route_profiles(t.route.floor());
-        let cap = Self::place_cap(t, &profiles);
         routing::brief::brief_base(
             &self.cfg.routing,
             &profiles,
@@ -102,23 +101,9 @@ impl TurnRunner {
                 base: &t.target.profile,
                 est_tokens: 0,
                 hold: None,
-                from: None,
                 images: t.route.images,
-                cap,
                 cleared: t.route.floor().cn_ok,
             },
-            // Nothing is fixed to a profile once the acting pack asks `model`
-            // (theseus-ej6bj); until then `CODING_BASE` stands.
-            self.judge.route_open(),
         )
-    }
-
-    /// The short-turn cost of the place's profile, which caps what routing
-    /// picks for the turn.
-    pub(super) fn place_cap(t: &Turn<'_>, profiles: &routing::Profiles) -> Option<f64> {
-        t.tc.ceiling
-            .and_then(|c| c.profile.as_ref())
-            .and_then(|p| profiles.get(p))
-            .and_then(|p| p.short_cost)
     }
 }

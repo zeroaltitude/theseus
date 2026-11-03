@@ -80,7 +80,7 @@ pub const DIRECTIVE_PACK: &str = crate::capture::PACK;
 pub const SPLIT_PACK: &str = "split.v1";
 /// EFFORT (theseus-h66v4.6), at `inbound`: how much thinking the reply needs. One of the three
 /// calls the owner named (model, effort, task type), asked in the same batch as the route pack
-/// once that pack asks `model` (`JudgeService::route_open`), and never before.
+/// once that pack asks `model` (`JudgeService::route_pack`), and never before.
 pub const EFFORT_PACK: &str = "effort.v1";
 /// WORK (theseus-h66v4.6), at `inbound`: what kind of task the message asks for. Asked as
 /// [`EFFORT_PACK`] is; its label is what the injection tier and the coding hint read.
@@ -405,7 +405,7 @@ impl JudgeService {
     fn inbound_packs(&self, msg: &Inbound, route_only: bool) -> Vec<(Arc<Pack>, String, PackMode)> {
         // The route family is asked with the route pack once it asks `model`; a pinned turn is the
         // operator's choice of model and effort, so Jev is asked neither (and nothing else of the family).
-        let family = self.route_open() && msg.chosen.is_none();
+        let family = self.route_pack().is_some() && msg.chosen.is_none();
         let mode_of = |p: &str| match p {
             ROUTE_PACK => msg.route,
             p if family && FAMILY.contains(&p) => msg.route,

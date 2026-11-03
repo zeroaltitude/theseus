@@ -6,8 +6,7 @@
 //! - **Beside the first compile, never before it** ([`beside`]): the call
 //!   started at `inbound`, so the turn compiles on the session's profile,
 //!   then waits at most `[routing] max_wait_ms` more. A verdict later than
-//!   that applies to the next message alone, a detour's (trivial, quick) to none
-//!   (`routing::carries`, theseus-6n5j), and this turn says `late`. The
+//!   that applies to the next message alone (theseus-6n5j), and this turn says `late`. The
 //!   judge off, Jev's breaker open, a slash command, a continuation, a pinned
 //!   turn, or `route.v1` in shadow: no wait.
 //! - **A switch** rebuilds the spec and compiles again on the routed profile;
@@ -31,10 +30,8 @@
 //! - **A trivial detour sends no recall** (theseus-n7nc): the turn's pending
 //!   `Recall` node rides nothing, the reply's footer counts none, and the
 //!   recall's row, held until the route is known, says `detoured`
-//!   (`TurnRunner::recall_routed`). **A quick one sends it**
-//!   (theseus-pa1xx, `config::routing::detour_recalls`): a quick question is
-//!   often about what was said or decided before, so its request carries the
-//!   turn's own `Recall` node after the message, as a kept compile's does.
+//!   (`TurnRunner::recall_routed`). (theseus-pa1xx's quick detour, which sent it, went with the
+//!   class table: under route.v10 no pick detours, and `detour_recall` is always false.)
 //! - **The trace's root follows the move** (theseus-490i): `route_to` sets
 //!   its `profile`, `provider` and `model` to the routed target's, so the
 //!   exported root and the turn's metrics name the model the call went to.
@@ -59,7 +56,7 @@ use super::*;
 use crate::config::PackMode;
 use crate::correction::{By, RoutedTurn, Steer, Steering};
 use crate::judge::inbound::{Answered, RouteWait, ROUTE_PACK};
-use crate::routing::effort::{self, EffortDecision, Runs};
+use crate::routing::effort::{self, EffortDecision};
 use crate::routing::{self, Decision, HoldNext, Reason, Verdict};
 
 /// What a turn holds of routing, from its inbound point to its end.
@@ -132,39 +129,30 @@ pub(super) struct RouteState {
     pub(super) brief: bool,
     /// Jev's families judgment of the message, pending or taken (theseus-xlri5).
     pub(super) families: super::families_step::Judged,
-    /// Why a class with `cn_draft` did not draft (theseus-a1wvq.13), for the
-    /// route row; and the line of a turn that opened a draft instead of a
-    /// model call (`draft_step.rs`).
-    pub(super) draft_skip: Option<&'static str>,
-    pub(super) drafted: Option<String>,
     /// The static fan-out cue fired for this turn (theseus-z9mze.4), so its tail line rides.
     pub(super) fan_out: bool,
 }
 
-/// Where an effort is decided: the session (its base profile), whether the
-/// verdict acts, and whether it is a checkpoint's, whose raise the sticky rule
-/// does not hold (theseus-53ujg.3).
+/// Where an effort is decided: whether the verdict acts, and whether it is a
+/// checkpoint's, whose raise the sticky rule does not hold (theseus-53ujg.3).
 #[derive(Clone, Copy)]
-pub(super) struct EffortAt<'s> {
-    session: &'s SessionRecord,
+pub(super) struct EffortAt {
     acts: bool,
     checkpoint: bool,
 }
 
-impl<'s> EffortAt<'s> {
+impl EffortAt {
     /// The inbound point's: `acts` when the turn reads a live verdict.
-    pub(super) fn inbound(session: &'s SessionRecord, acts: bool) -> Self {
+    pub(super) fn inbound(acts: bool) -> Self {
         Self {
-            session,
             acts,
             checkpoint: false,
         }
     }
 
     /// A checkpoint's, which acts.
-    pub(super) fn checkpoint(session: &'s SessionRecord) -> Self {
+    pub(super) fn checkpoint() -> Self {
         Self {
-            session,
             acts: true,
             checkpoint: true,
         }
@@ -373,9 +361,8 @@ impl TurnRunner {
     /// routing then picks the next usable one (theseus-oejh3, theseus-xs5ah).
     pub(super) fn route_profiles(&self, floor: super::data_step::Floor) -> routing::Profiles {
         let states = self.secrets.states();
-        // route.v10 only: a provider whose key names no item (the template's
-        // placeholder) has no key, so a pick on it falls back at pick time.
-        let open = self.judge.route_open();
+        // A provider whose key names no item (the template's placeholder) has
+        // no key, so a pick on it falls back at pick time.
         self.cfg
             .all_profiles()
             .iter()
@@ -393,7 +380,7 @@ impl TurnRunner {
                         states.get(&k),
                         None | Some(crate::secrets::SecretState::Ready(_))
                     )
-                }) || (open && self.cfg.provider_without_key(&p.provider).is_some())
+                }) || self.cfg.provider_without_key(&p.provider).is_some()
                 {
                     Some("key")
                 } else if entry.is_none() {
@@ -500,16 +487,14 @@ impl TurnRunner {
     }
 
     /// The effort rule for the profile the turn moves to (or its own), from
-    /// route.v3's answer: none when the verdict has none (route.v1 and v2
-    /// ask no effort). A profile other than the session's base runs at no
-    /// less than its own effort (theseus-53ujg.3).
+    /// the route pack's `effort` answer: none when the verdict has none.
     pub(super) fn route_effort(
         &self,
         t: &Turn<'_>,
         v: &Verdict,
         d: Option<&Decision>,
         (spec, tokens): (&RequestSpec, u64),
-        at: EffortAt<'_>,
+        at: EffortAt,
     ) -> Option<EffortDecision> {
         let answer = v.effort.as_ref()?;
         let profiles = self.cfg.all_profiles();
@@ -518,42 +503,15 @@ impl TurnRunner {
             Some(p) => (p.effort, p.model.as_str()),
             None => (t.target.effort, t.target.model.as_str()),
         };
-        let runs = Runs {
-            own,
-            fixed: profiles.get(name).is_some_and(|p| p.effort_fixed),
-            takes: self.catalog.get(model).is_some_and(|e| e.effort),
-            floor: own.filter(|_| name != Self::effort_base(at.session, t)),
-        };
         let carried = v.turn != t.tc.turn_id;
-        if v.open() {
-            // route.v10: Jev's level, or the pack's `no_match` under its bar; no bounds,
-            // gate or floor. The sticky rule below is a cache rule and stays.
-            let open = effort::OpenRuns {
-                own,
-                takes: runs.takes,
-            };
-            let decided = effort::decide_open(open, answer, at.acts, carried);
-            return Some(self.stick(t, spec, decided, answer, (model, tokens), at.checkpoint));
-        }
-        let r = &self.cfg.routing;
-        let bounds = r.effort_bounds;
-        let bars = effort::Bars {
-            effort: r.effort_confidence,
-            high: r.high_effort_confidence,
-            floor: r.effort_floor_confidence,
+        // Jev's level, or the pack's `no_match` under its bar; no bounds, gate or floor.
+        // The sticky rule below is a cache rule and stays.
+        let runs = effort::OpenRuns {
+            own,
+            takes: self.catalog.get(model).is_some_and(|e| e.effort),
         };
-        let decided = effort::decide(bounds, bars, answer, runs, at.acts, carried);
+        let decided = effort::decide_open(runs, answer, at.acts, carried);
         Some(self.stick(t, spec, decided, answer, (model, tokens), at.checkpoint))
-    }
-
-    /// The profile the session runs on when routing has not moved it: where
-    /// a move started (`Routed.from`), else the turn's own.
-    fn effort_base<'s>(session: &'s SessionRecord, t: &'s Turn<'_>) -> &'s str {
-        session
-            .routed
-            .as_ref()
-            .and_then(|r| r.from.as_deref())
-            .unwrap_or(&t.target.profile)
     }
 
     /// The first loop's compile, the wait for the verdict beside it, and the
@@ -615,9 +573,7 @@ impl TurnRunner {
             Ok(d) => d,
             Err(f) => return Ok(Err(f)),
         };
-        let drafting = self.draft_check(t, session, verdict.as_ref().filter(|_| reason.is_none()));
-        let drafting = drafting.await;
-        let at = EffortAt::inbound(session, reason.is_none());
+        let at = EffortAt::inbound(reason.is_none());
         t.route.effort = verdict.as_ref().and_then(|v| {
             self.route_effort(t, v, decision.as_ref(), (&*spec, compiled.est_tokens), at)
         });
@@ -637,10 +593,6 @@ impl TurnRunner {
         let class = verdict.as_ref().filter(|_| reason.is_none());
         self.fan_out_cue(t, spec, class);
         Self::fan_out_line(t, &mut compiled);
-        if self.draft_open(t, drafting) {
-            self.drop_first(t, &compiled);
-            return Ok(Ok(compiled));
-        }
         if live {
             // A routed turn: the owner's pin of another profile within 10
             // minutes after it counts on route.v1's ladder (26a).
@@ -747,8 +699,8 @@ impl TurnRunner {
     fn detouring(t: &mut Turn<'_>, verdict: Option<&Verdict>, steering: Option<&Steering>) {
         t.route.keeps = Some(TargetRef::from(t.target));
         t.route.detour_kind = detour_word(steering.map(|s| &s.steer), verdict);
-        t.route.detour_recall = steering.is_none()
-            && verdict.is_some_and(|v| crate::config::routing::detour_recalls(&v.mode));
+        // No route.v10 pick detours (it has no `short`), so a detour carries no recall.
+        t.route.detour_recall = false;
     }
 
     /// The verdict the turn reads, or why it has none: its own, else a late
@@ -756,9 +708,8 @@ impl TurnRunner {
     /// only. A wait that ended first leaves the verdict to the next message.
     /// Every message takes the session's late verdict, and keeps it only when
     /// it was asked for `last_turn`, the session's turn just before this one:
-    /// a late verdict applies to the next message alone, never to a later one.
-    /// A late detour's verdict (trivial, quick) applies to none: it was its
-    /// own message's (`routing::carries`, theseus-6n5j).
+    /// a late verdict applies to the next message alone, never to a later one
+    /// (theseus-6n5j). Under route.v10 every pick carries: there is no detour.
     fn read_verdict(
         &self,
         t: &Turn<'_>,
@@ -770,7 +721,7 @@ impl TurnRunner {
     ) -> (Option<Verdict>, Option<Reason>) {
         let sid = t.tc.session_id;
         let stale = self.judge.take_late(sid);
-        let late = || stale.filter(|v| Some(v.turn.as_str()) == last_turn && routing::carries(v));
+        let late = || stale.filter(|v| Some(v.turn.as_str()) == last_turn);
         let recorded = match t.target.chosen {
             Some(_) => Reason::Pinned,
             None => Reason::Shadow,
@@ -863,7 +814,8 @@ impl TurnRunner {
         self.data_floor(t, decision)
     }
 
-    /// The switch rule over the usable profiles, under the place's cap.
+    /// The switch rule over the usable profiles: Jev's pick, under the data
+    /// rule's floor and the cache hold.
     fn decide_route(
         &self,
         t: &Turn<'_>,
@@ -875,18 +827,7 @@ impl TurnRunner {
             return self.decide_brief(t, v);
         }
         let profiles = self.route_profiles(t.route.floor());
-        // route.v10 has no place cap: the place's profile is a pin or nothing.
-        let cap = match v.open() {
-            true => None,
-            false => Self::place_cap(t, &profiles),
-        };
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
-        // Jev's own move up from the base is what a step back down undoes.
-        let from = session
-            .routed
-            .as_ref()
-            .filter(|r| r.profile.is_some())
-            .and_then(|r| r.from.as_deref());
         let ask = |est_tokens| {
             routing::decide(
                 &self.cfg.routing,
@@ -896,9 +837,7 @@ impl TurnRunner {
                     base: &t.target.profile,
                     est_tokens,
                     hold: hold.as_ref(),
-                    from,
                     images: t.route.images,
-                    cap,
                     cleared: t.route.floor().cn_ok,
                 },
             )
@@ -979,11 +918,7 @@ impl TurnRunner {
                 .as_ref()
                 .map(super::tier::InjectionBudget::row),
             ran,
-            data: Some(fact::route::RouteData {
-                cn,
-                gate,
-                draft_skip: t.route.draft_skip,
-            }),
+            data: Some(fact::route::RouteData { cn, gate }),
             open,
         });
         let prior = t.route.result.take();
@@ -1015,10 +950,7 @@ impl TurnRunner {
         reason: Reason,
         d: Option<&Decision>,
     ) -> Option<fact::route::RouteOpen> {
-        if !self.judge.route_open() {
-            return None;
-        }
-        let pack = self.judge.pack(ROUTE_PACK)?;
+        let pack = self.judge.route_pack()?;
         let v = verdict.filter(|v| v.open());
         let m = v.and_then(|v| v.model.as_ref());
         let block = m.and_then(|m| {
@@ -1142,7 +1074,7 @@ impl TurnRunner {
         }));
         let (mut s, _) = self.request_spec(target, session.kind, t.tc.place());
         s.session_text = self.session_block(t.tc.dir, t.tc.place());
-        s.walk = self.walk(t.tc.session_id, t.tc.place().content_class());
+        s.walk = self.walk(t.tc.session_id, t.tc.place().class);
         self.stand(t, &mut s);
         self.thread_spec(&mut s, t.tc.session_id, session.compilation_id.as_deref());
         self.defer_tools(t, &mut s);
@@ -1276,12 +1208,11 @@ impl TurnRunner {
     }
 }
 
-/// A detour's `kind`: the mode a steer names, `steered` for any other steer,
-/// else the verdict's mode (theseus-nfrlj). A steer that is no mode is never
-/// a detour today (`steer_to` makes none), so the word is for a later one.
+/// A detour's `kind`: `steered` for any steer, else the verdict's (theseus-nfrlj).
+/// A steer is never a detour today (`steer_to` makes none), so the word is for a
+/// later one.
 fn detour_word(steer: Option<&Steer>, verdict: Option<&Verdict>) -> String {
     match steer {
-        Some(Steer::Mode(m)) => m.clone(),
         Some(_) => "steered".into(),
         None => verdict.map_or_else(String::new, |v| v.mode.clone()),
     }
@@ -1352,14 +1283,12 @@ mod tests {
         assert!(!ps["sonnet"].restricted, "Claude is not");
     }
 
-    /// A detour's word is a mode's name, or `steered` for another steer
+    /// A detour's word is the verdict's, or `steered` for a steer
     /// (theseus-nfrlj), never empty when a steer made it.
     #[test]
     fn a_detours_word_names_its_mode_or_says_steered() {
         let quick = v("quick");
         assert_eq!(detour_word(None, Some(&quick)), "quick");
-        let steer = Steer::Mode("trivial".into());
-        assert_eq!(detour_word(Some(&steer), Some(&quick)), "trivial");
         let steer = Steer::Profile("haiku".into());
         assert_eq!(detour_word(Some(&steer), None), "steered");
     }

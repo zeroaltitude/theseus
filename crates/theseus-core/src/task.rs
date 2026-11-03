@@ -1450,13 +1450,6 @@ pub fn cancelled_report(
         return Ok((vec![], None));
     }
     let rec: Option<SessionRecord> = store.get_session(&e.session_id)?;
-    // A draft's cancel is told by its review (theseus-a1wvq.13).
-    if rec
-        .as_ref()
-        .is_some_and(|r| crate::draft::is_draft(store, r))
-    {
-        return Ok((vec![], None));
-    }
     let Some(target) = rec.as_ref().and_then(|r| r.task.as_ref()?.target.clone()) else {
         return Ok((vec![], None));
     };

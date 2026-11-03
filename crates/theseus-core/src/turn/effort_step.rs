@@ -91,9 +91,7 @@ impl TurnRunner {
     /// level restarts the messages' cache. `tokens` is the compile's own
     /// estimate of the whole request, the measure keep-warm applies to the same
     /// floor, so no token count is added. The decision says `sticky` and keeps
-    /// both levels; an `applied_unsure` or `held_high_unsure` answer held
-    /// says `sticky_unsure`, so the row still shows which bar admitted it. A
-    /// checkpoint's raise is never held: the work's own evidence is what the
+    /// both levels. A checkpoint's raise is never held: the work's own evidence is what the
     /// rule waits for (theseus-53ujg.3). A hold ends early when a later answer
     /// disagrees and is sure enough for the window it is in (`effort::reverts`,
     /// theseus-u5a37): the request carries Jev's level and the reason is
@@ -120,19 +118,13 @@ impl TurnRunner {
                     .filter(|held| !(checkpoint && asked > *held))
             });
         let window = self.keep_warm.last_hold(t.tc.session_id, model);
-        let bar = self.cfg.routing.effort_confidence;
         match held {
-            Some(_) if !checkpoint && effort::reverts(window, answer, bar) => EffortDecision {
+            Some(_) if !checkpoint && effort::reverts(window, answer) => EffortDecision {
                 reason: EffortReason::StickyReverted,
                 ..d
             },
             Some(sent) => EffortDecision {
-                reason: match d.reason {
-                    EffortReason::AppliedUnsure | EffortReason::HeldHighUnsure => {
-                        EffortReason::StickyUnsure
-                    }
-                    _ => EffortReason::Sticky,
-                },
+                reason: EffortReason::Sticky,
                 sent: Some(sent),
                 ..d
             },
@@ -151,7 +143,6 @@ impl TurnRunner {
                 .filter(|d| d.sent == spec.effort)
                 .and_then(|d| match d.reason {
                     EffortReason::Sticky => Some(effort::Hold::Sticky),
-                    EffortReason::StickyUnsure => Some(effort::Hold::Unsure),
                     _ => None,
                 });
             self.keep_warm

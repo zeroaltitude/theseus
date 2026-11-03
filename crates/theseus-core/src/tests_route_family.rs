@@ -49,12 +49,8 @@ async fn work_coding_is_what_puts_the_coding_hint_in_the_tail() {
     says(&jev, "sonnet", "high", 0.95);
     work(&jev, "conversation", 0.95);
     // The tiered rig lands each verdict before the compile that reads it (the hint is a compile's
-    // tail block), with route.v10's shape acting in place of route.v8.
+    // tail block).
     let r = crate::tests_injection_tiers::tiered(&jev, 3, true, |_| {});
-    r.core
-        .runner
-        .judge
-        .stand_in("route.v8", crate::tests_route_open::open_pack());
     let r = &r;
     let one = turn(
         &r.core,

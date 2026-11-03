@@ -385,13 +385,7 @@ impl Core {
             .runner
             .resolve_target(
                 &self.live_profile().0,
-                Some(
-                    self.cfg
-                        .self_improve
-                        .reviewer_profile
-                        .as_deref()
-                        .unwrap_or(crate::config::legacy::SELF_REVIEWER),
-                ),
+                self.cfg.self_improve.reviewer_profile.as_deref(),
                 None,
                 None,
             )

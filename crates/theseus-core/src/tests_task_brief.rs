@@ -9,12 +9,10 @@ use theseus_kernel::ExecState;
 use theseus_protocol::task_start::{TaskStartParams, TaskStartResult};
 
 use crate::approval::{Answerer, Surface};
-use crate::places::BoundPlace;
 use crate::session::{SessionRecord, TargetRef};
 use crate::test_support::until_event;
 use crate::tests_route::{decided, mode, session, Rig};
 use crate::tests_tasks::exec;
-use theseus_protocol::PlaceCeiling;
 
 pub(crate) fn cli() -> Answerer {
     Answerer {
@@ -86,41 +84,6 @@ fn ran_on(r: &Rig) -> String {
 
 pub(crate) const BRIEF: &str = "Fix the typo in the quay notice.";
 
-/// The rule (theseus-ypnxt.7). Before it, this test held that a task started
-/// with no profile from a Fable conversation ran on Fable and asked Jev
-/// nothing (`assert_eq!(ran_on(&r), "claude-fable-5-1")`, `decided` empty,
-/// `jev.connections() == 0`). Now the brief's verdict, routine coding, picks
-/// the class's first usable profile, which is the task's base; one request
-/// asks it, route.v8's alone. A routine-coding brief starts on `haikuhi`, and
-/// its checkpoints move it up (the owner, 2026-10-18: start cheap, escalate;
-/// theseus-31pgz, theseus-ypnxt.9); a trivial brief runs on Haiku, below.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_task_with_no_profile_runs_on_the_profile_its_briefs_class_picks() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
-    let r = rig_from(Some(&jev), "fable", |_| {});
-    let (_, rec) = run(&r, &params(BRIEF, None)).await;
-    assert_eq!(ran_on(&r), "claude-haiku-5-5");
-    assert_eq!(rec.last_target.unwrap().profile, "haikuhi");
-    assert!(
-        rec.routed.is_none(),
-        "the class's profile is the base, not a move"
-    );
-    assert_eq!(jev.connections(), 1, "one request: route.v8 alone");
-    let d = decided(&r.core.store);
-    assert_eq!(d.len(), 1);
-    assert_eq!(
-        (
-            d[0]["source"].as_str(),
-            d[0]["from"].as_str(),
-            d[0]["profile"].as_str()
-        ),
-        (Some("task brief"), Some("fable"), Some("haikuhi"))
-    );
-    assert_eq!(d[0]["mode"], "routine_coding");
-    assert!(d[0].get("follows").is_none());
-}
-
 /// Only a trivial brief runs on Haiku (theseus-31pgz).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_trivial_brief_runs_on_haiku() {
@@ -130,28 +93,6 @@ async fn a_trivial_brief_runs_on_haiku() {
     let (_, rec) = run(&r, &params("Say hello to the quay.", None)).await;
     assert_eq!(ran_on(&r), "claude-haiku-5-5");
     assert_eq!(rec.last_target.unwrap().profile, "haiku");
-}
-
-/// review-fixes' floor holds for a brief too (the two rows' join): a brief
-/// that names a sensitive name never makes a profile of restricted origin the
-/// task's base; the class's next profile is, not the `[model]` default.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_brief_that_names_a_sensitive_name_skips_restricted_profiles() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "deep_coding", 0.95);
-    // The list after the load's check, which refuses a restricted profile in
-    // a mode's list (theseus-a1wvq.4): the floor holds on one anyway.
-    let r = rig_from_parts(
-        Some(&jev),
-        "fable",
-        |c| c.privacy.sensitive_names = vec!["Examplecorp".into()],
-        |p| p.cfg.routing.classes.deep_coding.profiles = vec!["glm53".into(), "sonnet".into()],
-    );
-    let brief = "Fix the typo in Examplecorp's quay notice.";
-    let (_, rec) = run(&r, &params(brief, None)).await;
-    assert_eq!(ran_on(&r), "claude-sonnet-5-5");
-    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
-    assert!(r.zai.requests().is_empty());
 }
 
 /// A design brief from a cheap conversation goes up: the base is the class's.
@@ -173,44 +114,6 @@ async fn a_task_runs_on_its_parents_model_with_jev_off() {
     assert_eq!(ran_on(&r), "claude-fable-5-1");
     assert_eq!(rec.last_target.unwrap().profile, "fable");
     assert!(decided(&r.core.store).is_empty());
-}
-
-/// Closed (the acting pack asks no `model`), a routine-coding brief starts on
-/// `haikuhi` even when a config moved it out of the class list, as it always
-/// did: the row changes nothing until the pack flips.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_closed_routine_brief_still_starts_on_haikuhi() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "routine_coding", 0.95);
-    let r = rig_from(Some(&jev), "fable", |c| {
-        c.routing.classes.routine_coding.profiles = vec!["sonnet".into()];
-    });
-    let (_, rec) = run(&r, &params(BRIEF, None)).await;
-    assert_eq!(ran_on(&r), "claude-haiku-5-5");
-    assert_eq!(rec.last_target.unwrap().profile, "haikuhi");
-}
-
-/// Open (theseus-ej6bj: the acting pack asks `model`, `CODING_BASE` no longer
-/// stands): a brief starts on the model Jev picks, and a config that moved
-/// `haikuhi` out of the class list does not get it back.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_open_routine_brief_starts_where_its_class_sends_it() {
-    let jev = FakeJev::start().unwrap();
-    // Open, the verdict is Jev's pick of an option (the unified switch,
-    // `route_open`): the class list no longer decides, and a config that moved
-    // `haikuhi` out of it changes nothing.
-    crate::tests_job_ask::pick(&jev, "sonnet", 0.95);
-    let r = rig_from(Some(&jev), "fable", |c| {
-        c.name_every_provider_key();
-        c.routing.classes.routine_coding.profiles = vec!["haiku".into()];
-    });
-    r.core
-        .runner
-        .judge
-        .job_pack_with(crate::tests_job_ask::model_pack());
-    let (_, rec) = run(&r, &params(BRIEF, None)).await;
-    assert_eq!(ran_on(&r), "claude-sonnet-5-5");
-    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
 }
 
 /// A verdict under its class's bar: the parent's model.
@@ -245,36 +148,6 @@ async fn a_late_verdict_sets_no_base() {
     assert!(!r.core.runner.judge.has_late(&started.session_id));
     let after = session(&r.core, &started.session_id);
     assert_eq!(after.last_target.unwrap().profile, "fable");
-}
-
-/// A profile asked for is a pin even with a verdict at hand (the pin test
-/// above holds the request count); and a place's cap still caps a brief.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_capped_places_task_is_never_routed_above_the_cap() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "sophisticated", 0.95);
-    let r = rig_from(Some(&jev), "sonnet", |_| {});
-    r.core.bind_places(vec![BoundPlace {
-        persona: None,
-        target: "discord:channel:100000000000000099".into(),
-        name: "#berth".into(),
-        private: true,
-        guild: Some("100000000000000004".into()),
-        ceiling: Some(PlaceCeiling {
-            profile: Some("sonnet".into()),
-            ..Default::default()
-        }),
-    }]);
-    let home = r.core.home().unwrap();
-    r.core
-        .outbox
-        .bind_place("channel:100000000000000099", &home.session_id)
-        .unwrap();
-    let p = params("Weigh two designs for the quay ledger.", None);
-    let (_, rec) = run(&r, &p).await;
-    assert_eq!(ran_on(&r), "claude-sonnet-5-5");
-    assert_eq!(rec.last_target.unwrap().profile, "sonnet");
-    assert_eq!(decided(&r.core.store)[0]["reason"], "capped");
 }
 
 /// A profile asked for is a pin, before and after: the task runs on it.

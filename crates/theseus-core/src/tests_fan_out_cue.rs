@@ -138,24 +138,6 @@ async fn no_room_for_two_helpers_holds_the_cue_back() {
     assert_eq!(got[0]["split"], "splits_by_area");
 }
 
-/// Under route.v8 no verdict carries a split answer (it is a shadow pack in the batch), so the cue is
-/// silent whatever the ask says: the word list that fired it is gone, and the row says nothing.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn under_route_v8_the_cue_is_silent_and_writes_nothing() {
-    let jev = FakeJev::start().unwrap();
-    crate::tests_route::mode(&jev, "deep_coding", 0.95);
-    let r = crate::tests_injection_tiers::tiered(&jev, 1, true, |_| {});
-    let _ = turn(
-        &r.core,
-        None,
-        "Audit every mooring on the outer wall and say which were checked.",
-        None,
-    )
-    .await;
-    assert!(!carries(&r.claude.requests()[0]));
-    assert!(rows(&r).is_empty(), "no cue row without a split answer");
-}
-
 /// A routed switch rebuilds the request spec and its deferral (`route_to`), so the cue's admission
 /// is made again there: a split ask that switches to Opus, with a cue that fired, still carries the
 /// helpers family on the request that goes to Opus (theseus-z9mze.4 join fix).
@@ -177,10 +159,6 @@ async fn a_routed_switch_after_a_fired_cue_still_carries_the_helpers_family() {
             parts.providers.insert("deepseek".into(), deepseek);
         },
     );
-    r.core
-        .runner
-        .judge
-        .stand_in("route.v8", crate::tests_route_open::open_pack());
     let r = &r;
     let res = turn(&r.core, None, ASK, None).await;
     assert_eq!(res.route.as_ref().unwrap().reason, "verdict");

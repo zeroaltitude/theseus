@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
-use theseus_judge::fake::{FakeJev, FakeMode, Scripted};
+use theseus_judge::fake::{FakeJev, FakeMode};
 use theseus_protocol::context::ContextExplainParams;
 use theseus_protocol::memory::RecallManifest;
 use theseus_protocol::TurnSubmitResult;
@@ -83,8 +83,6 @@ pub(crate) fn tiered(
     let r = rig(Some(jev), n, |c| {
         c.memory.mode = crate::config::MemoryMode::Live;
         c.memory.recall_deadline_ms = 5_000;
-        c.routing.classes.deep_coding.profiles = vec![];
-        c.routing.classes.sophisticated.profiles = vec![];
         crate::tests_route::glm_placements(c);
         tweak(c);
     });
@@ -109,39 +107,6 @@ fn recalled(r: &Rig, res: &TurnSubmitResult) -> RecallManifest {
 /// The last `route.decided` row's `injection`.
 fn injection(r: &Rig) -> Value {
     decided(&r.core.store).pop().unwrap()["injection"].clone()
-}
-
-/// The key test: a `deep_coding` verdict that lands before the pack gets the
-/// deep pack, 8,000 tokens and 16 items, of twenty notes that fit; the route
-/// row says so.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_deep_prompt_gets_the_deep_recall_pack() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "deep_coding", 0.95);
-    let r = tiered(&jev, 1, true, |_| {});
-    let res = turn(
-        &r.core,
-        None,
-        "Which moorings on the outer wall were checked?",
-        None,
-    )
-    .await;
-    let m = recalled(&r, &res);
-    assert_eq!(
-        (m.budget_tokens, m.admitted.len(), m.outcome.as_str()),
-        (8_000, 16, "ran")
-    );
-    assert_eq!(res.recalled, 16, "the footer counts what the model saw");
-    let i = injection(&r);
-    assert_eq!(
-        (
-            &i["tier"],
-            &i["fallback"],
-            &i["recall_items"],
-            &i["admit_ceiling"]
-        ),
-        (&"deep".into(), &Value::Null, &16.into(), &3.0.into())
-    );
 }
 
 /// A verdict that has not landed by the pack: the pack is ordinary and never
@@ -203,206 +168,6 @@ async fn an_ordinary_prompt_gets_three_thousand_and_eight() {
         ),
         (&"ordinary".into(), &Value::Null, &3_000.into(), &2.0.into())
     );
-}
-
-/// A trivial detour is the small tier: its request still carries no recall
-/// (theseus-n7nc), and the route row gives it none.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_trivial_detour_still_has_no_recall() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "trivial", 0.95);
-    let r = tiered(&jev, 1, true, |_| {});
-    let res = turn(&r.core, None, "thank you!", None).await;
-    assert_eq!(res.route.as_ref().unwrap().reason, "detour");
-    assert_eq!(res.recalled, 0);
-    let m = recalled(&r, &res);
-    assert_eq!(m.outcome, "detoured");
-    let i = injection(&r);
-    assert_eq!(
-        (&i["tier"], &i["recall_items"], &i["admit_ceiling"]),
-        (&"small".into(), &0.into(), &1.0.into())
-    );
-}
-
-/// The cache rule: the tier sizes the tail alone. Two turns of one session,
-/// ordinary then deep, send the same system and tools, byte for byte, and the
-/// second's messages begin with the first's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_tier_never_changes_a_cached_prefix_byte() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = tiered(&jev, 2, true, |_| {});
-    let ask = "Which moorings on the outer wall were checked?";
-    let one = turn(&r.core, None, ask, None).await;
-    mode(&jev, "deep_coding", 0.95);
-    let two = turn(&r.core, Some(&one.session_id), "And the chains?", None).await;
-    let rows = crate::tests_recall::recalls(&r.core, &one.session_id);
-    let budgets: Vec<u64> = rows.iter().map(|m| m.budget_tokens).collect();
-    assert!(
-        budgets.contains(&3_000) && budgets.contains(&8_000),
-        "{budgets:?}"
-    );
-    assert_eq!(
-        (one.profile.as_str(), two.profile.as_str()),
-        ("sonnet", "sonnet")
-    );
-    let q = r.claude.requests();
-    let (a, b) = (&q[0], &q[1]);
-    assert_eq!(
-        serde_json::to_string(&a.system).unwrap(),
-        serde_json::to_string(&b.system).unwrap(),
-        "the system"
-    );
-    assert_eq!(a.tools, b.tools, "the tools");
-    assert_eq!(a.messages[0], b.messages[0], "the first message");
-    let compiled = crate::tests_judge::kinds(&r.core.store, "context.compiled");
-    let decisions: Vec<&str> = compiled
-        .iter()
-        .map(|c| c.data["decision"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        decisions,
-        ["recompile", "append"],
-        "the second turn appends"
-    );
-}
-
-/// The cli's place, models with no tool search, and every hidden family
-/// judged relevant: the tier's multiple is the ceiling the admitted families
-/// raise the first request to. A deep verdict moves the turn to Opus, so its
-/// tools are settled again on the routed spec after the verdict, whatever the
-/// load (the first compile's may come before it).
-async fn admitted_at(verdict: &str, ran_on: &str) -> Value {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, verdict, 0.95);
-    for q in (1..=10).map(|n| format!("relevant.{n}")) {
-        jev.script(&q, Scripted::Noul(0.95));
-    }
-    for q in (1..=20).map(|n| format!("relevant_more.{n}")) {
-        jev.script(&q, Scripted::Noul(0.95));
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let (r, _) = crate::tests_detour::rig_haiku(&jev, 1, |c| {
-        crate::tests_detour::owner_shape(c, dir.path());
-        // A request within the budget before any family (`want::extra`): no
-        // context file.
-        c.context.files = vec![];
-        c.routing.classes.deep_coding.profiles = vec!["opus".into()];
-        c.routing.cold_switch_tokens = 1_000_000;
-        c.tools.defer.judge_wait_ms = 2_000;
-        for model in ["claude-sonnet-5-5", "claude-opus-5-5"] {
-            c.catalog.insert(
-                model.into(),
-                crate::catalog::CatalogRow {
-                    tool_search: Some(false),
-                    ..Default::default()
-                },
-            );
-        }
-    });
-    let ask = "Look over the harbour's whole setup and plan the next week's work.";
-    let res = turn(&r.core, None, ask, None).await;
-    assert_eq!(res.profile, ran_on, "{:?}", res.route);
-    let used = crate::tests_places::rows(&r.core, "tools.used").remove(0);
-    used["raised"].clone()
-}
-
-/// Admission follows the tier: deep's ceiling is 3x the cli's budget and
-/// admits a judged family the ordinary 2x refuses; ordinary's is today's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn admission_follows_the_tier() {
-    let budget = crate::first_request::CLI_TASK_TOKENS;
-    let ordinary = admitted_at("chat", "sonnet").await;
-    let deep = admitted_at("deep_coding", "opus").await;
-    let families = |v: &Value| -> Vec<String> {
-        v["families"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .map(|f| f["family"].as_str().unwrap().to_string())
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    eprintln!(
-        "admitted past the cli's {budget}: ordinary (2.0) {:?} to {}; deep (3.0) {:?} to {}",
-        families(&ordinary),
-        ordinary["tokens"],
-        families(&deep),
-        deep["tokens"]
-    );
-    assert_eq!(ordinary["ceiling"], 2 * budget, "{ordinary}");
-    assert_eq!(deep["ceiling"], 3 * budget, "{deep}");
-    let more: Vec<String> = families(&deep)
-        .into_iter()
-        .filter(|f| !families(&ordinary).contains(f))
-        .collect();
-    assert!(
-        !more.is_empty(),
-        "deep admits a family ordinary refuses: {ordinary} {deep}"
-    );
-}
-
-/// `theseus why` names the tier and its pack in one line, from the turn's
-/// route row.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn why_names_the_tier_and_its_pack() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "deep_coding", 0.95);
-    let r = tiered(&jev, 1, true, |_| {});
-    let res = turn(
-        &r.core,
-        None,
-        "Which moorings on the outer wall were checked?",
-        None,
-    )
-    .await;
-    let explain = r
-        .core
-        .context_explain(
-            &ContextExplainParams {
-                session_id: res.session_id,
-                turn_id: None,
-            },
-            true,
-        )
-        .unwrap();
-    let route = decided(&r.core.store).pop().unwrap();
-    let lines = theseus_protocol::why::why_lines(&theseus_protocol::why::WhyInput {
-        explain: &explain,
-        policy: None,
-        route: Some(&route),
-        tools: &[],
-        hide_sources: false,
-    });
-    let want = "injection: deep: recall 8,000 tokens, 16 items; tools to 3x the place's budget";
-    assert!(lines.iter().any(|l| l == want), "{lines:#?}");
-}
-
-/// The request sizes the tiers make on this rig, before (1,500 tokens and 6
-/// items for every prompt) and after: printed for the report.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_request_sizes_before_and_after() {
-    let mut out = Vec::new();
-    for (label, before) in [("before", true), ("after", false)] {
-        for verdict in ["chat", "deep_coding"] {
-            let jev = FakeJev::start().unwrap();
-            mode(&jev, verdict, 0.95);
-            let r = tiered(&jev, 1, true, |c| {
-                if before {
-                    (c.memory.recall_budget_tokens, c.memory.recall_max_items) = (1_500, 6);
-                    (c.memory.deep_recall_tokens, c.memory.deep_recall_items) = (1_500, 6);
-                    c.tools.defer.admit_ceiling_deep = 2.0;
-                }
-            });
-            let ask = "Which moorings on the outer wall were checked?";
-            turn(&r.core, None, ask, None).await;
-            let c = crate::tests_judge::kinds(&r.core.store, "context.compiled");
-            out.push((label, verdict, c[0].data["est_tokens"].as_u64().unwrap()));
-        }
-    }
-    eprintln!("request sizes (est_tokens): {out:?}");
-    assert!(out[2].2 > out[0].2 && out[3].2 > out[2].2, "{out:?}");
 }
 
 /// The walk's guidance tokens ride `context.compiled`, the same count

@@ -70,7 +70,7 @@ async fn a_detour_without_tool_search_reaches_a_tool_the_message_names() {
     let route = res.route.as_ref().unwrap();
     assert_eq!(
         (res.profile.as_str(), route.reason.as_str()),
-        ("haiku", "detour")
+        ("haiku", "verdict")
     );
     let names = offered(&haiku.requests()[0]);
     assert!(names.contains(&"thread_read".to_string()), "{names:?}");
@@ -105,7 +105,7 @@ async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
     let route = res.route.as_ref().unwrap();
     assert_eq!(
         (res.profile.as_str(), route.reason.as_str()),
-        ("haiku", "detour")
+        ("haiku", "verdict")
     );
     let first = &haiku.requests()[0];
     let names = offered(first);

@@ -18,8 +18,6 @@
 pub enum To {
     /// A configured profile, by name.
     Profile(String),
-    /// One of the route pack's modes, by id.
-    Mode(String),
     /// A dearer profile than the one it ran on.
     Stronger,
     /// A cheaper one.
@@ -42,8 +40,6 @@ pub struct Said {
 pub struct Names {
     /// Each configured profile, by name, with its model's id.
     pub profiles: Vec<(String, String)>,
-    /// The route pack's modes, by id (`deep_coding`).
-    pub modes: Vec<String>,
     /// Each configured persona: its key and what it is called.
     pub personas: Vec<(String, String)>,
 }
@@ -221,7 +217,6 @@ fn named_plainly(w: &[&str], names: &Names) -> Option<To> {
     let to = name_of(w, names)?;
     let plain = match &to {
         To::Profile(_) | To::Persona(_) => true,
-        To::Mode(_) => w.len() > 1,
         To::Stronger | To::Cheaper => w.last().is_some_and(|n| MODEL_WORDS.contains(n)),
     };
     plain.then_some(to)
@@ -279,7 +274,6 @@ fn name_of(w: &[&str], names: &Names) -> Option<To> {
     if joined.is_empty() {
         return None;
     }
-    let under = w.join("_");
     if let Some((p, _)) = names
         .profiles
         .iter()
@@ -294,12 +288,7 @@ fn name_of(w: &[&str], names: &Names) -> Option<To> {
     {
         return Some(To::Profile(p.clone()));
     }
-    names
-        .modes
-        .iter()
-        .find(|m| m.to_lowercase() == under)
-        .map(|m| To::Mode(m.clone()))
-        .or_else(|| persona_named(w, names))
+    persona_named(w, names)
 }
 
 /// "a stronger model", "more effort", "something cheaper", "less thought".
@@ -344,10 +333,6 @@ mod tests {
             .iter()
             .map(|(a, b)| ((*a).to_string(), (*b).to_string()))
             .collect(),
-            modes: ["trivial", "quick", "chat", "sophisticated", "deep_coding"]
-                .iter()
-                .map(|s| (*s).to_string())
-                .collect(),
         }
     }
 
@@ -379,17 +364,14 @@ mod tests {
             assert_eq!(to(t), fable, "{t}");
             assert!(!said(t).unwrap().rerun, "{t}");
         }
-        assert_eq!(
-            to("that should have been deep coding"),
-            Some(To::Mode("deep_coding".into()))
-        );
-        // A mode named as one, or after a preposition, still counts.
+        // A mode is no name: the route pack asks none (route.v10).
         for t in [
+            "that should have been deep coding",
             "that should have been quick mode",
             "that should have been on quick",
             "use the quick mode for that",
         ] {
-            assert_eq!(to(t), Some(To::Mode("quick".into())), "{t}");
+            assert_eq!(to(t), None, "{t}");
         }
         assert_eq!(
             to("that should have been on glm-5.3"),

@@ -3,28 +3,17 @@
 //! Jev named, at the effort it named, from the whole working context (there is
 //! no `context` question and no detour: theseus-h66v4.1).
 //!
-//! `ROUTE_PACK` still names route.v8, so these tests ask a fixture shaped like
-//! route.v10 in its place (`JudgeService::stand_in`, which keeps every name the
-//! daemon compares meaning what it means). The v8 path's own tests (`tests_route`
-//! and the rest) are unchanged and are the proof the live path is undisturbed.
+//! `ROUTE_PACK` names route.v10 (row 5 flipped it, row 6 deleted the route.v8
+//! path), so the acting pack is the embedded one.
 
 use std::sync::Arc;
 
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
-use theseus_judge::Pack;
 
 use crate::provider::FakeProvider;
 use crate::tests_judge::texts;
 use crate::tests_route::{decided, rig_parts, session, turn, Rig};
 use crate::Config;
-
-/// The fixture pack, as the acting route pack (named route.v8 for the daemon).
-pub(crate) fn open_pack() -> Pack {
-    let mut p = Pack::parse(include_str!("../fixtures/packs/route.open.toml")).unwrap();
-    assert_eq!(p.name(), "route.v10", "the fixture is shaped like v10");
-    p.version = 8;
-    p
-}
 
 pub(crate) struct Open {
     pub(crate) r: Rig,
@@ -47,7 +36,6 @@ pub(crate) fn open(jev: &FakeJev, n: usize, tweak: impl FnOnce(&mut Config)) -> 
             p.providers.insert("deepseek".into(), ds);
         },
     );
-    r.core.runner.judge.stand_in("route.v8", open_pack());
     Open { r, deepseek }
 }
 
@@ -79,7 +67,7 @@ fn asked(jev: &FakeJev) -> Vec<String> {
                 .map(|q| q.keys().cloned().collect::<Vec<_>>())
                 .unwrap_or_default()
         })
-        .filter(|id| id.starts_with("route.v8/"))
+        .filter(|id| id.starts_with("route.v10/"))
         .collect();
     ids.sort();
     ids.dedup();
@@ -155,7 +143,7 @@ fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_o
     assert!(crate::judge::inbound::verdict_of(&[effort, work, split], "trn_1").is_none());
     let pinned = judgment(vec![choice("personal", "none", 0.95)], false);
     assert!(crate::judge::inbound::verdict(&pinned, "trn_1").is_none());
-    // route.v8's judgment reads as it always did.
+    // A judgment without these answers reads as a mode, as before.
     let j = judgment(vec![choice("mode", "chat", 0.95)], false);
     let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
     assert_eq!(v.mode, "chat");
@@ -183,7 +171,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(req.output_config.as_ref().unwrap()["effort"], "high");
     assert_eq!(
         asked(&jev),
-        ["route.v8/model", "route.v8/personal"],
+        ["route.v10/model", "route.v10/personal"],
         "the route pack asks the model: no `effort`, no `mode`, no `context`"
     );
     // The effort, the task type and the split are each asked of a pack of their own, in the batch.
@@ -197,7 +185,7 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
                 .unwrap_or_default()
         })
         .filter(|id| {
-            !id.starts_with("route.v8/") && !id.starts_with("classify.") && !id.starts_with("role.")
+            !id.starts_with("route.v10/") && !id.starts_with("classify.") && !id.starts_with("role.")
         })
         .collect();
     for q in ["effort.v1/effort", "work.v1/work", "split.v1/split"] {
@@ -437,7 +425,7 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "haiku", "low", 0.97);
     let o = open(&jev, 1, |_| {});
-    // `route.v8/...` ids are read off the requests the fake Jev saw.
+    // `route.v10/...` ids are read off the requests the fake Jev saw.
     let res = turn(
         &o.r.core,
         None,
@@ -450,10 +438,10 @@ async fn a_pinned_turn_is_not_asked_the_model_or_the_effort() {
     crate::tests_route::until_calls(&jev, 2).await;
     let asked = asked(&jev);
     assert!(
-        asked.contains(&"route.v8/personal".to_string()),
+        asked.contains(&"route.v10/personal".to_string()),
         "the other questions still ask: {asked:?}"
     );
-    for gone in ["route.v8/model", "route.v8/effort"] {
+    for gone in ["route.v10/model", "route.v10/effort"] {
         assert!(
             !asked.contains(&gone.to_string()),
             "{gone} is not asked of a pin: {asked:?}"
@@ -616,7 +604,7 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
         .seen()
         .iter()
         .rev()
-        .find(|s| s.body["questions"].get("route.v8/model").is_some())
+        .find(|s| s.body["questions"].get("route.v10/model").is_some())
         .map(|s| s.body["state"].clone())
         .expect("a route request");
     let dynamic = [

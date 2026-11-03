@@ -2,10 +2,10 @@
 //! documented Jev pattern, "a model writes the text, Jev selects, code
 //! verifies". Jev answers no names, so:
 //!
-//! 1. **Extract** (`extract.rs`): a cheap profile (`[people]
-//!    extract_profile`, default `haiku`) reads the session's human-facing
-//!    lines ([`lines`]) and returns its candidate people through a tool
-//!    schema, never prose: name, handles, a role line, and the lines that
+//! 1. **Extract** (`extract.rs`): a model (`[people] extract_profile` when
+//!    pinned, else Jev's pick for the pass, else the live profile) reads the
+//!    session's human-facing lines ([`lines`]) and returns its candidate
+//!    people through a tool schema, never prose: name, handles, a role line, and the lines that
 //!    name them. One `people.extracted` row a call (cost, tokens, model).
 //! 2. **Exclude** ([`NotPeople`]), before any judgment: the owner (the
 //!    place rule's owner handles, the names the owner writes under, and the

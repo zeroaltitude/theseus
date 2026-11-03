@@ -507,22 +507,13 @@ fn the_span_names_what_cannot_be_put_back() {
 
 /// A route judgment for `turn` that answered `mode`, and its `route.decided`
 /// row, as the judge's sink and the turn write them.
-fn plant_route(w: &World, turn: &str, mode: &str) -> String {
+fn plant_route(w: &World, turn: &str, pick: &str) -> String {
     use crate::tests_learning::{call_row, choice, judgment};
-    let options = [
-        "trivial",
-        "quick",
-        "chat",
-        "sophisticated",
-        "deep_coding",
-        "routine_coding",
-        "review",
-        "other",
-    ];
+    let options = ["haiku", "sonnet", "opus", "fable", "deepseek_flash"];
     let j = judgment(
         "jdg_route_whole",
-        "route.v8",
-        vec![choice("mode", mode, 0.95, &options)],
+        "route.v10",
+        vec![choice("model", pick, 0.95, &options)],
         json!({"session": w.sid, "turn": turn}),
         10,
     );
@@ -530,7 +521,7 @@ fn plant_route(w: &World, turn: &str, mode: &str) -> String {
         LedgerKind::RouteDecided,
         Some(&w.sid),
         Some(turn),
-        json!({"mode": mode, "judgment": j.id, "profile": "sonnet"}),
+        json!({"mode": pick, "judgment": j.id, "profile": "sonnet"}),
     );
     row.at_unix_ms = theseus_protocol::now_unix_ms();
     let decided = theseus_store::NewRecord::json(theseus_store::kinds::LEDGER, None, &row).unwrap();
@@ -560,7 +551,6 @@ fn judged_world(jev: &FakeJev) -> World {
             c.judge.api_base = base;
             c.judge.connect_secs = 1;
             c.judge.total_secs = 2;
-            c.routing.classes.routine_coding.profiles = vec!["haiku".into()];
         },
         |p| p.secrets = board,
     );
@@ -603,7 +593,7 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     );
     let w = judged_world(&jev);
     let t = original(&w).await;
-    plant_route(&w, &t, "sophisticated");
+    plant_route(&w, &t, "opus");
     // The replay does what the original did: the edit and the check.
     let same = |w: &World| {
         push(
@@ -629,15 +619,15 @@ async fn a_judged_match_becomes_a_machine_label_once() {
     );
     assert_eq!(
         whole.label.as_deref(),
-        Some("route.v8 mode=routine_coding on jdg_route_whole")
+        Some("route.v10 model=haiku on jdg_route_whole")
     );
     let l = labels(&w);
     assert_eq!(l.len(), 1);
     assert_eq!(l[0].data["judgment"], "jdg_route_whole");
-    assert_eq!(l[0].data["question"], "mode");
-    assert_eq!(l[0].data["label"], "routine_coding");
+    assert_eq!(l[0].data["question"], "model");
+    assert_eq!(l[0].data["label"], "haiku");
     assert_eq!(l[0].data["weight"], crate::learning::REPLAY_WEIGHT);
-    assert_eq!(l[0].data["pack"], "route.v8");
+    assert_eq!(l[0].data["pack"], "route.v10");
     // The same turn again writes no second label.
     same(&w);
     let again = w.rig.core.turn_replay(p, "cli").await.unwrap();
@@ -683,7 +673,7 @@ async fn a_weak_or_contradicted_replay_writes_no_label() {
     );
     let w = judged_world(&jev);
     let t = original(&w).await;
-    plant_route(&w, &t, "sophisticated");
+    plant_route(&w, &t, "opus");
     push(
         &w.rig,
         Scripted::tools(
@@ -707,21 +697,11 @@ async fn a_weak_or_contradicted_replay_writes_no_label() {
     *TEST_PROGRAMS.lock().unwrap() = None;
 }
 
-/// Which class a rung is: the one whose profile list leads with it, the
-/// pack's own when it is one of them.
+/// Which option a rung is: the `model` option whose catalog model the rung's
+/// profile runs.
 #[test]
-fn a_rung_is_labeled_with_the_class_that_leads_to_it() {
-    let mut modes = crate::config::routing::RoutingClasses::default();
-    modes.routine_coding.profiles = vec!["haiku".into()];
-    modes.chat.profiles = vec!["haiku".into()];
-    modes.deep_coding.profiles = vec!["fable".into()];
-    assert_eq!(
-        super::label::class_for(&modes, "haiku", Some("chat")).as_deref(),
-        Some("chat")
-    );
-    assert_eq!(
-        super::label::class_for(&modes, "haiku", Some("sophisticated")).as_deref(),
-        Some("routine_coding")
-    );
-    assert_eq!(super::label::class_for(&modes, "nobody", None), None);
+fn a_rung_is_labeled_with_the_option_that_names_its_model() {
+    assert_eq!(super::label::option_for("claude-haiku-5-5"), Some("haiku"));
+    assert_eq!(super::label::option_for("claude-opus-5-5"), Some("opus"));
+    assert_eq!(super::label::option_for("glm-5.3-flash"), None);
 }

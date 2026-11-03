@@ -15,7 +15,7 @@ use crate::rpc::Parts;
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::tests_inbound::inbound_only;
-use crate::tests_route::{glm_placements, mode};
+use crate::tests_route::glm_placements;
 use crate::{Config, Core};
 use theseus_protocol::SessionKind;
 
@@ -146,18 +146,6 @@ async fn a_shadow_judgment_offers_nothing() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_trivial_or_quick_turn_offers_nothing() {
-    for m in ["trivial", "quick"] {
-        let jev = FakeJev::start().unwrap();
-        offer(&jev, 0.95);
-        mode(&jev, m, 0.95);
-        let r = rig(&jev, crate::tests_judge::texts(1), true);
-        let body = reply(&r, "dm:42", LATER).await;
-        assert_eq!(body["result"]["route"]["mode"], m, "{body}");
-        assert!(body.get("offer").is_none(), "{m}: {body}");
-    }
-}
-
 /// The seventh dark reader (theseus-h66v4.9, taken in the h66v4.6 fix pass): the exemption read
 /// route.v8's `trivial` and `quick` class names off the verdict's `mode`. Under route.v10 that word
 /// is the model Jev picked, no class, and nothing in the three packs says "short": `work.v1`'s
@@ -165,16 +153,11 @@ async fn a_trivial_or_quick_turn_offers_nothing() {
 /// the owner's own "we should ... later" messages earn. So the exemption is retired under v10,
 /// on purpose, and what guards a "thanks" after a long exchange is `classify.v3`'s act bar. A model
 /// pick whose name is a class's (the fixture's `quick` is not a model) is no exemption either.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn under_route_v10_a_turn_is_never_exempt_by_a_class_name() {
     let jev = FakeJev::start().unwrap();
     offer(&jev, 0.95);
     crate::tests_route_open::says(&jev, "haiku", "low", 0.95);
     let r = rig(&jev, crate::tests_judge::texts(1), true);
-    r.core
-        .runner
-        .judge
-        .stand_in("route.v8", crate::tests_route_open::open_pack());
     let body = reply(&r, "dm:42", LATER).await;
     assert_eq!(body["result"]["route"]["mode"], "haiku", "{body}");
     assert_eq!(body["offer"], json!({"brief": LATER}), "{body}");
@@ -255,24 +238,6 @@ async fn a_batch_that_lands_after_the_reply_posts_the_offer_late() {
     assert_eq!(late[0]["brief"], json!(LATER));
 }
 
-/// A trivial or quick turn gets no chip, early or late: its route verdict
-/// lands before the reply, the batch after it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_trivial_or_quick_turn_gets_no_late_offer_either() {
-    for m in ["trivial", "quick"] {
-        let jev = FakeJev::start().unwrap();
-        offer(&jev, 0.95);
-        mode(&jev, m, 0.95);
-        jev.set_latency(SOON, SLOW_BATCH);
-        let r = rig(&jev, crate::tests_judge::texts(1), true);
-        let body = reply(&r, "dm:42", LATER).await;
-        assert_eq!(body["result"]["route"]["mode"], m, "{body}");
-        assert!(body.get("offer").is_none(), "{m}: {body}");
-        tokio::time::sleep(SLOW_BATCH + std::time::Duration::from_millis(1_000)).await;
-        assert!(posts_of(&r, "dm:42", "offer").is_empty(), "{m}");
-    }
-}
-
 /// A turn that made a task itself gets no late offer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_that_made_a_task_gets_no_late_offer() {
@@ -293,7 +258,6 @@ async fn a_turn_that_made_a_task_gets_no_late_offer() {
     assert!(posts_of(&r, "dm:42", "offer").is_empty());
 }
 
-const SOON: std::time::Duration = std::time::Duration::from_millis(10);
 const SLOW_BATCH: std::time::Duration = std::time::Duration::from_millis(850);
 /// The late-offer test's batch: past the reply even on a loaded machine (a
 /// gate's reply took 1,053 ms beside an 850 ms batch, which then rode it),

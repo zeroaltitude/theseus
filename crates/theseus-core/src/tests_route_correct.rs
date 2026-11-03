@@ -114,9 +114,9 @@ const PARSER: &str = "Write a parser for the lighthouse log format in Rust";
 const CLOSE: &str = "write a parser for the harbour log format in rust";
 
 /// The brief's first test: "that should have been on fable", in a private
-/// place, labels the corrected turn's route judgment `not:chat` as the
+/// place, labels the corrected turn's route judgment `not:sonnet` as the
 /// owner's (its provenance the message, by id) and runs on Fable at once;
-/// the session stays there; a close message in another session runs there
+/// the next turn is Jev's again; a close message in another session runs there
 /// too, ahead of the verdict, as `source: correction`; a message not close
 /// to it does not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -156,8 +156,8 @@ async fn words_in_a_private_place_label_switch_and_steer_a_close_message() {
         ),
         (
             Some(judgment.as_str()),
-            Some("mode"),
-            &json!({"not": "chat"}),
+            Some("model"),
+            &json!({"not": "sonnet"}),
             Some("operator"),
             Some(1.0),
             Some("message")
@@ -189,8 +189,9 @@ async fn words_in_a_private_place_label_switch_and_steer_a_close_message() {
     // The session stays on Fable.
     let s = session(&r.core, &sid);
     assert_eq!(s.routed.unwrap().profile.as_deref(), Some("fable"));
+    // Nothing holds it there afterwards: no step down is left, so the next turn goes where Jev says.
     let three = ask(&r.core, Some(&sid), "and what about the tests for it?").await;
-    assert_eq!(three.profile, "fable");
+    assert_eq!(three.profile, "sonnet", "Jev chooses again, at once");
     // A close message in another session, ahead of Jev's `chat`.
     let four = ask(&r.core, None, CLOSE).await;
     assert_eq!(four.profile, "fable", "the layer steers it");
@@ -326,18 +327,18 @@ async fn a_reaction_and_a_press_are_the_owners_alone() {
         (Some("reaction"), Some("1234567890:⬆️"))
     );
     let l = &rows(&r.core, "judge.label")[0];
-    assert_eq!(l["label"], json!({"not": "chat"}));
+    assert_eq!(l["label"], json!({"not": "sonnet"}));
     // The session's next turn runs there, whatever Jev says of it.
     let two = ask(&r.core, Some(&sid), "go on").await;
     assert_eq!(two.profile, to);
     assert_eq!(two.route.unwrap().source.as_deref(), Some("correction"));
     // A press of a footer's control from the cockpit: the CLI's surface
-    // and the web's are private, and a mode names its first profile.
+    // and the web's are private, and the press names a profile.
     let res = call_on(
         &r.core,
         Surface::Web,
         "route.correct",
-        json!({"session_id": sid, "to": "deep_coding", "via": "cockpit", "provenance": "press"}),
+        json!({"session_id": sid, "to": "opus", "via": "cockpit", "provenance": "press"}),
     )
     .await;
     assert!(res.error.is_none(), "{:?}", res.error);

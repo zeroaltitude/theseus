@@ -21,7 +21,7 @@ use crate::Config;
 
 fn effort(jev: &FakeJev, level: &str) {
     jev.script(
-        "reply_effort",
+        "effort",
         Jev::Choice {
             option: level.into(),
             confidence: 0.95,
@@ -133,97 +133,6 @@ async fn sticky_effort_holds_a_one_level_change_on_a_long_conversation() {
     assert_eq!(d["effort"], "high", "what Jev answered");
     assert_eq!(rows[0]["effort_reason"], "applied");
     assert!(rows[0].get("effort_sent").is_none());
-}
-
-/// A held change from an unsure answer (under the question's confirm bar, over
-/// `effort_confidence`) keeps the bar that admitted it: `sticky_unsure`, not
-/// `sticky` (theseus-8zgji).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sticky_hold_of_an_unsure_answer_keeps_its_bar() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 2, |c| {
-        no_per_message(c);
-        long(c);
-    });
-    effort(&jev, "medium");
-    let first = turn(&r.core, None, "Question 0?", None).await;
-    jev.script(
-        "reply_effort",
-        Jev::Choice {
-            option: "high".into(),
-            confidence: 0.42,
-        },
-    );
-    turn(
-        &r.core,
-        Some(first.session_id.as_str()),
-        "Question 1?",
-        None,
-    )
-    .await;
-    let reqs = r.claude.requests();
-    assert_eq!(top(&reqs[1]).as_deref(), Some("medium"), "held");
-    let d = &decided(&r.core.store)[1];
-    assert_eq!(
-        (&d["effort_reason"], &d["effort_ran"], &d["effort_sent"]),
-        (&json!("sticky_unsure"), &json!("high"), &json!("medium"))
-    );
-}
-
-/// A `max` at `confidence` held at `high` by the gate, after a `medium`
-/// request: the second turn's route row.
-async fn held_high_then_stuck(confidence: f64) -> Value {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "chat", 0.95);
-    let r = rig(Some(&jev), 2, |c| {
-        no_per_message(c);
-        long(c);
-        c.routing.high_effort_confidence = 0.70;
-    });
-    effort(&jev, "medium");
-    let first = turn(&r.core, None, "Question 0?", None).await;
-    jev.script(
-        "reply_effort",
-        Jev::Choice {
-            option: "max".into(),
-            confidence,
-        },
-    );
-    turn(
-        &r.core,
-        Some(first.session_id.as_str()),
-        "Question 1?",
-        None,
-    )
-    .await;
-    assert_eq!(top(&r.claude.requests()[1]).as_deref(), Some("medium"));
-    decided(&r.core.store)[1].clone()
-}
-
-/// A held-high answer then held by `stick` keeps the bar that admitted it,
-/// as an applied one does: `held_high_unsure` becomes `sticky_unsure`,
-/// `held_high` plain `sticky` (theseus-t7b96).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sticky_hold_of_a_held_high_answer_keeps_its_bar() {
-    let unsure = held_high_then_stuck(0.45).await;
-    assert_eq!(
-        (
-            &unsure["effort_reason"],
-            &unsure["effort_ran"],
-            &unsure["effort_sent"]
-        ),
-        (&json!("sticky_unsure"), &json!("high"), &json!("medium"))
-    );
-    let sure = held_high_then_stuck(0.65).await;
-    assert_eq!(
-        (
-            &sure["effort_reason"],
-            &sure["effort_ran"],
-            &sure["effort_sent"]
-        ),
-        (&json!("sticky"), &json!("high"), &json!("medium"))
-    );
 }
 
 /// A short conversation has little cache to lose: Jev's change applies.
@@ -394,7 +303,7 @@ async fn talk_at(answers: &[(&str, f64)]) -> (Rig, Vec<ProviderRequest>, Vec<Val
     let mut session = None;
     for (i, (level, confidence)) in answers.iter().enumerate() {
         jev.script(
-            "reply_effort",
+            "effort",
             Jev::Choice {
                 option: (*level).into(),
                 confidence: *confidence,
@@ -429,31 +338,6 @@ async fn a_later_sure_answer_ends_a_sticky_hold() {
         (&json!("medium"), None)
     );
     assert_eq!(d["effort_applied"], true);
-}
-
-/// A `sticky` window wants a sure answer: an unsure one at the same level
-/// does not end it, the hold goes on being the previous request's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_unsure_answer_does_not_end_a_sticky_hold() {
-    let (_r, reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.95), ("medium", 0.50)]).await;
-    assert_eq!(reasons(&rows), ["applied", "sticky", "sticky_unsure"]);
-    assert_eq!(top(&reqs[2]).as_deref(), Some("high"), "still held");
-}
-
-/// A `sticky_unsure` window has the lower bar, `effort_confidence`: an unsure
-/// answer at 0.36 ends it, one at 0.30 does not (it is `unsure`, and the
-/// window is not renewed).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sticky_unsure_hold_ends_at_the_lower_bar() {
-    let (_r, reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.40), ("medium", 0.36)]).await;
-    assert_eq!(
-        reasons(&rows),
-        ["applied", "sticky_unsure", "sticky_reverted"]
-    );
-    assert_eq!(top(&reqs[1]).as_deref(), Some("high"), "held");
-    assert_eq!(top(&reqs[2]).as_deref(), Some("medium"), "reverted");
-    let (_r, _reqs, rows) = talk_at(&[("high", 0.95), ("medium", 0.40), ("medium", 0.30)]).await;
-    assert_eq!(reasons(&rows), ["applied", "sticky_unsure", "unsure"]);
 }
 
 /// The turn that opens a hold never reverts it on its own answer, and an

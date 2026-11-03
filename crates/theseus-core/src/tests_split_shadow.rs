@@ -1,6 +1,6 @@
 //! `split.v1` (theseus-z9mze.5; promoted by theseus-h66v4.6): Jev is asked whether the work a message
-//! asks for divides by area. Under route.v8 it is a shadow pack in the inbound batch and decides
-//! nothing; under route.v10 it is asked in the route lane and its answer is the fan-out cue.
+//! asks for divides by area. Under route.v10 it is asked in the route lane and its answer is the
+//! fan-out cue (before route.v10 it was a shadow pack in the inbound batch and decided nothing).
 
 use std::time::{Duration, Instant};
 
@@ -51,57 +51,6 @@ fn choice(j: &LedgerRow) -> Value {
         .find(|a| a["question"] == "split")
         .unwrap_or_else(|| panic!("no split answer in {}", j.data))["answer"]["choice"]
         .clone()
-}
-
-/// The key test, under route.v8. Two turns, Jev answering `one_area` to the first and
-/// `splits_by_area` to the second: each is a `split.v1` judgment in shadow, on the turn's own id,
-/// asked in classify's request, and the answer moves nothing: the cue has no word list to fire on
-/// and reads no shadow answer, so it writes no row and adds no line.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn under_route_v8_the_split_answer_is_logged_in_shadow_and_moves_nothing() {
-    let jev = FakeJev::start().unwrap();
-    mode(&jev, "deep_coding", 0.95);
-    let r = tiered(&jev, 2, true, |_| {});
-    say(&jev, "one_area", 0.95);
-    let first = turn(&r.core, None, OPEN, None).await;
-    // The batch is asked off the turn's path: the first answer is in before the next is scripted.
-    until_judged(&r, 1).await;
-    say(&jev, "splits_by_area", 0.95);
-    let second = turn(&r.core, Some(&first.session_id), OPEN, None).await;
-    until_judged(&r, 2).await;
-    let got = judged(&r);
-    assert_eq!(got.len(), 2, "one a message");
-    for (j, turn_id, want) in [
-        (&got[0], &first.turn_id, "one_area"),
-        (&got[1], &second.turn_id, "splits_by_area"),
-    ] {
-        assert_eq!(j.data["mode"], "shadow", "it acts on nothing");
-        assert_eq!(j.data["point"], "inbound");
-        assert_eq!(j.data["outcome"]["outcome"], "answered", "{}", j.data);
-        assert_eq!(
-            j.turn_id.as_deref(),
-            Some(turn_id.as_str()),
-            "the turn's own"
-        );
-        assert_eq!(choice(j), want);
-    }
-    assert!(
-        kinds(&r.core.store, "fan_out.cue").is_empty(),
-        "no cue row: the cue reads a verdict's split answer and a v8 verdict has none"
-    );
-    // It rides the batch: the same request as classify's questions, none of its own.
-    let seen = jev.seen();
-    let with_split: Vec<_> = seen
-        .iter()
-        .filter(|s| s.body["questions"].get("split.v1/split").is_some())
-        .collect();
-    assert!(!with_split.is_empty(), "asked");
-    assert!(
-        with_split
-            .iter()
-            .all(|s| s.body["questions"].get("classify.v4/kind").is_some()),
-        "in classify's request"
-    );
 }
 
 /// Under route.v10 (theseus-h66v4.6) the split is promoted: asked in the route lane with its own
