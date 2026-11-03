@@ -23,8 +23,8 @@
 # Revised in place again (theseus-h66v4.7, 2026-11-03), before it acted, on the owner's "adjust the instruction prompt, test
 # assumptions and bar until we're safely good": the `model` instruction now says that a description that names the work beats a
 # cheaper model that merely could do it, and says what the state's `task_models` means; the Opus and Fable blocks name the work
-# they are for in the owner's words (reviewing, "is this right", comparing, "how should Theseus work", "think as hard as you can").
-# The measurements are in ~/reports/theseus-h66v4.7/tobar.md.
+# they are for in the owner's words (reviewing, "is this right", comparing, "how should Theseus work", "think as hard as you can");
+# and the `model` confirm bar is 0.40, as split.v1's is. The measurements are in ~/reports/theseus-h66v4.7/tobar.md.
 #
 # Until `ROUTE_PACK` names it, v10 is embedded and replayable (`theseus judge replay --pack-file`,
 # with `--cases crates/theseus-judge/packs/route.v10.cases.toml`) and is NOT the acting pack.
@@ -44,7 +44,7 @@ type = "choice"
 decides = true
 instructions = "Sonnet is the usual answer for most work, hard programming included; choose another model only for a reason its description gives, and never a model the state lists as not allowed. Quality decides first: a model whose description names the work beats a cheaper one that merely could do it. Among models that fit equally well, the cheaper one at this message's cost wins; when the state says `switch_cost = cheaper_to_stay`, a cheaper model is not cheaper for this message. When the state's task_models lists a China-origin model, the work is its: a checkpoint report of that work goes to Opus for review, whatever the work is, and a task that keeps failing on it goes to Sonnet. Which model should answer the person's new message?"
 act = 0.90
-confirm = 0.60
+confirm = 0.40
 no_match = "sonnet"
 options = [
   { id = "haiku", means = "Haiku 5.5 (Anthropic, US). The fastest and cheapest: $0.10 in, $0.50 out, $0.01 a cache read per million tokens while the context is under 100K tokens, and five times each above it. Thinks adaptively; takes effort. For a greeting, a thank-you, a remark that asks for nothing, a short factual answer, a summary of what was just said, a tool-call turn — a command or tool to run and report — or a small edit whose cause is known. Not for a long context, hard reasoning, or a bug whose cause is unknown." },

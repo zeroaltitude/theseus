@@ -82,10 +82,12 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
             .as_deref(),
         Some("high")
     );
-    // The two act at 0.90 and confirm at 0.60: v8's and v9's bars.
-    for (pack, q) in [(&p, "model"), (&effort_pack(), "effort")] {
+    // Both act at 0.90. The effort confirms at 0.60, v8's and v9's bar; the model confirms at 0.40
+    // (theseus-h66v4.7): its right non-Sonnet answers under the revised descriptions sit at 0.35 to
+    // 0.60 (the Sonnet default pulls every confidence down), and at 0.60 the daemon threw them away.
+    for (pack, q, confirm) in [(&p, "model", 0.40), (&effort_pack(), "effort", 0.60)] {
         let t = pack.question(q).unwrap().thresholds;
-        assert_eq!((t.act, t.confirm), (0.90, 0.60), "{q}");
+        assert_eq!((t.act, t.confirm), (0.90, confirm), "{q}");
     }
     // Its own pack, apart from route.v8's, and the three rollback rules the design names.
     assert_ne!(
