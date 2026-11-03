@@ -61,7 +61,7 @@ pub struct RouteDecided<'a> {
 }
 
 /// route.v10's part of a `route.decided` row: the acting pack, what Jev picked
-/// and how sure, the first sentences of the block it picked, and the words
+/// and how sure, the block it picked (the pack's own words), and the words
 /// that qualify the reason (`-P fable`,
 /// `restricted_models=not_allowed`, `deepseek: no key`).
 #[derive(Debug, Clone, Default, PartialEq)]

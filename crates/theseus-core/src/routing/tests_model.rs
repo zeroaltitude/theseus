@@ -303,29 +303,6 @@ fn a_verdict_without_a_model_answer_stays_on_the_base() {
     );
 }
 
-#[test]
-fn a_blocks_why_is_its_first_sentence_and_the_one_that_says_what_it_is_for() {
-    let opus = "Opus 5.5 (Anthropic, US). Twice Sonnet's price: $4 in, $20 out, $0.20 a cache read per million. Always thinks; its maker's default effort is medium. For reviewing code, a plan or an argument for mistakes; comparing things on their merits. Not for programming itself, where Sonnet solves nearly as much for far less.";
-    assert_eq!(
-        model::block_why(opus),
-        "Opus 5.5 (Anthropic, US). … For reviewing code, a plan or an argument for mistakes; comparing things on their merits."
-    );
-    let fable = "Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out. Always thinks. Only for the hardest design or reasoning problems: novel, spanning many parts. Never for ordinary programming.";
-    assert_eq!(
-        model::block_why(fable),
-        "Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out. … Only for the hardest design or reasoning problems: novel, spanning many parts."
-    );
-    // Prices hold decimal points, which end no sentence.
-    let sonnet = "Sonnet 5.5 (Anthropic, US). The usual choice: $2 in, $10 out, $0.20 a cache read per million. For conversation about the work. Choose it when unsure.";
-    assert_eq!(
-        model::block_why(sonnet),
-        "Sonnet 5.5 (Anthropic, US). … For conversation about the work."
-    );
-    // A block with no "for" sentence is its first sentence alone.
-    assert_eq!(model::block_why("Only a name."), "Only a name.");
-    assert_eq!(model::block_why(""), "");
-}
-
 fn fixture() -> theseus_judge::Pack {
     theseus_judge::Pack::parse(include_str!("../../fixtures/packs/route.open.toml")).unwrap()
 }

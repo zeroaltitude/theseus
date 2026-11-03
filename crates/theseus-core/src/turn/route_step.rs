@@ -877,8 +877,8 @@ impl TurnRunner {
         });
     }
 
-    /// route.v10's part of the row: the acting pack, Jev's pick and the first
-    /// sentences of the block it picked, and the words that qualify
+    /// route.v10's part of the row: the acting pack, Jev's pick and the block it
+    /// picked (the pack's own words), and the words that qualify
     /// the reason, so `theseus why` can name it honestly in every case.
     fn open_row(
         &self,
@@ -892,7 +892,7 @@ impl TurnRunner {
         let block = m.and_then(|m| {
             let q = pack.questions.iter().find(|q| q.id == "model")?;
             let o = q.options.iter().find(|o| o.id == m.choice)?;
-            o.means.as_deref().map(routing::model::block_why)
+            o.means.clone()
         });
         let detail = match reason {
             Reason::Pinned => t.target.chosen.as_deref().map(routing::pin_words),
