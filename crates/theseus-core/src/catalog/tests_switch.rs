@@ -4,18 +4,29 @@
 //! 200K Sonnet session stays (a cheaper model is dearer for this message), a
 //! fresh session has nothing to lose, and the band is plus or minus 20%.
 
+use theseus_judge::builders::PricePeriod::{self, OffPeak, Peak};
 use theseus_judge::builders::SwitchCost::{AboutTheSame, CheaperToStay, CheaperToSwitch};
 
 use super::switch::classify;
-use super::{switch_cost, Catalog};
+use super::{switch_candidates, switch_cost, Catalog};
 
 const SONNET: &str = "claude-sonnet-5-5";
 const HAIKU: &str = "claude-haiku-5-5";
 const OPUS: &str = "claude-opus-5-5";
 const FABLE: &str = "claude-fable-5-1";
+const FLASH: &str = "deepseek-flash";
 
+/// The cost at peak, where the candidates are the four Anthropic models.
 fn at(current: &str, tokens: u64) -> theseus_judge::builders::SwitchCost {
-    switch_cost(&Catalog::builtin(), Some(current), tokens)
+    at_in(current, tokens, Peak)
+}
+
+fn at_in(
+    current: &str,
+    tokens: u64,
+    period: PricePeriod,
+) -> theseus_judge::builders::SwitchCost {
+    switch_cost(&Catalog::builtin(), Some(current), tokens, period)
 }
 
 #[test]
@@ -47,19 +58,57 @@ fn nothing_is_cheaper_than_haiku_so_a_haiku_session_stays() {
     }
 }
 
+/// theseus-h66v4.8, the owner 2026-11-03 00:03 ("4. Yes, Yes, Yes": DeepSeek
+/// Flash joins the candidates OFF-PEAK ONLY). Flash's off-peak input is $0.15 a
+/// million, under the $0.20 of a cache read on Sonnet, Opus 5.5 or Fable 5.1
+/// (less 20%: $0.16), so a long session on any of them reads `cheaper_to_switch`
+/// off-peak, where Haiku's long tier ($0.50) no longer makes it `cheaper_to_stay`.
 #[test]
-fn deepseek_flash_is_not_a_candidate() {
-    // Flash's off-peak input ($0.15) is under Sonnet's cache read ($0.20), yet a
-    // 200K Sonnet session stays: a thank-you is no work Flash is for.
-    assert_eq!(at(SONNET, 200_000), CheaperToStay);
-    assert!(!super::SWITCH_CANDIDATES.contains(&"deepseek-flash"));
+fn deepseek_flash_counts_as_a_candidate_off_peak() {
+    assert!(switch_candidates(OffPeak).any(|m| m == FLASH));
+    // 200K: Haiku's long tier is $0.50, so before Flash these stayed.
+    assert_eq!(at_in(SONNET, 200_000, OffPeak), CheaperToSwitch);
+    assert_eq!(at_in(OPUS, 200_000, OffPeak), CheaperToSwitch);
+    assert_eq!(at_in(FABLE, 200_000, OffPeak), CheaperToSwitch);
+    // The same 120K and 180K sessions as route.v10's W12 and W11.
+    assert_eq!(at_in(SONNET, 120_000, OffPeak), CheaperToSwitch);
+    assert_eq!(at_in(SONNET, 180_000, OffPeak), CheaperToSwitch);
+}
+
+/// At peak Flash's input is $0.30, above every warm Anthropic cache read, so it
+/// is no candidate and a long session stays, as the arithmetic of the four
+/// Anthropic models says (the owner 2026-10-29 22:50: a thank-you on a big
+/// session stays).
+#[test]
+fn deepseek_flash_is_not_a_candidate_at_peak() {
+    assert!(!switch_candidates(Peak).any(|m| m == FLASH));
+    assert_eq!(switch_candidates(Peak).count(), 4);
+    assert_eq!(at_in(SONNET, 200_000, Peak), CheaperToStay);
+    assert_eq!(at_in(OPUS, 200_000, Peak), CheaperToStay);
+    assert_eq!(at_in(FABLE, 200_000, Peak), CheaperToStay);
+    assert_eq!(at_in(SONNET, 150_000, Peak), CheaperToStay);
+}
+
+/// Flash enters off-peak only where it is the cheapest: a short session still
+/// weighs Haiku's $0.10, and a Haiku or Flash session has nothing cheaper.
+#[test]
+fn off_peak_flash_changes_nothing_where_it_is_not_the_cheapest() {
+    assert_eq!(at_in(SONNET, 40_000, OffPeak), CheaperToSwitch);
+    assert_eq!(at_in(SONNET, 100_000, OffPeak), CheaperToSwitch);
+    for n in [1_000, 40_000, 150_000, 400_000] {
+        assert_eq!(at_in(HAIKU, n, OffPeak), CheaperToStay, "{n}");
+        assert_eq!(at_in(FLASH, n, OffPeak), CheaperToStay, "{n}");
+    }
 }
 
 #[test]
 fn a_fresh_or_unpriced_session_is_about_the_same() {
     let c = Catalog::builtin();
-    assert_eq!(switch_cost(&c, None, 3_000), AboutTheSame);
-    assert_eq!(switch_cost(&c, Some("no-such-model"), 3_000), AboutTheSame);
+    assert_eq!(switch_cost(&c, None, 3_000, Peak), AboutTheSame);
+    assert_eq!(
+        switch_cost(&c, Some("no-such-model"), 3_000, OffPeak),
+        AboutTheSame
+    );
 }
 
 #[test]
@@ -85,7 +134,11 @@ fn every_cases_switch_cost_is_what_the_daemons_rule_says() {
     for c in &set.cases {
         let s = &c.state;
         let current = Some(s.current_model.as_str()).filter(|m| !m.is_empty());
-        let got = switch_cost(&catalog, current, s.est_tokens);
+        let period = match s.price_period.as_str() {
+            "off_peak" => OffPeak,
+            _ => Peak,
+        };
+        let got = switch_cost(&catalog, current, s.est_tokens, period);
         assert_eq!(got.as_str(), s.switch_cost, "{}: {s:?}", c.id);
     }
 }

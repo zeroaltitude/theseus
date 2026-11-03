@@ -1,8 +1,12 @@
 # VERSION 2 (theseus-h66v4.7, 2026-11-03). One key moved: W13 went from deepseek_flash to sonnet, because its own state says
 # `cheaper_to_stay` at peak and the owner's switch-cost rule (2026-10-29 22:50) makes a cheaper model not cheaper for that message.
-# Every other label is the one the design and the owner gave; the pack's text moved, not the keys. W11 and W12 carry `cheaper_to_stay`
-# as a state fact that theseus-h66v4.8 (Flash joins the switch-cost candidates off-peak) is about to make false for them: their labels
-# stand, and their state follows the daemon when that lands.
+# Every other label is the one the design and the owner gave; the pack's text moved, not the keys.
+#
+# VERSION 2, theseus-h66v4.8 (2026-11-03): the owner's "4. Yes, Yes, Yes" (00:03) put DeepSeek Flash into the switch-cost candidates
+# OFF-PEAK ONLY. Every off-peak case with a prefix over 100K tokens on a warm Sonnet (Flash's $0.15 input is under Sonnet's $0.20 cache
+# read less 20%) therefore carries `switch_cost = "cheaper_to_switch"` now, as the daemon computes it: W1, W11, W12, W14, W16, W33 and
+# W41. No key moved; W13 is peak and unchanged. W1 and W41 (a thank-you on a 200K session) keep their Sonnet key against a state that
+# now says `cheaper_to_switch`: that is a measured question, see the report of theseus-h66v4.8.
 #
 # route.v10's test set (theseus-h66v4, design §4): the labelled cases `theseus judge replay --pack-file
 # route.v10.toml --cases route.v10.cases.toml` asks the pack, and compares its `model` answer to; the same file's
@@ -200,11 +204,11 @@ why = "item 37, the owner: leave, which was `default`; the option is gone and hi
 id = "W1"
 message = "thanks!"
 est_tokens = 200000
-switch_cost = "cheaper_to_stay"
+switch_cost = "cheaper_to_switch"
 model = "sonnet"
 effort = "low"
 must = true
-why = "greeting on a big session: at 200K a cheaper model costs more for this message than staying (switch_cost = cheaper_to_stay), so it stays on Sonnet; the owner, 2026-10-29 22:50 (relabelled from haiku, theseus-h66v4.1)"
+why = "greeting on a big session: at 200K a cheaper Anthropic model costs more for this message than staying, so it stays on Sonnet; the owner, 2026-10-29 22:50 (relabelled from haiku, theseus-h66v4.1). The state said cheaper_to_stay then; since theseus-h66v4.8 it says cheaper_to_switch off-peak (DeepSeek Flash's $0.15 is the cheapest other input), and the key is unchanged"
 
 [[case]]
 id = "W2"
@@ -275,7 +279,7 @@ why = "planned feature, repo known, but new code paths: Sonnet"
 id = "W11"
 message = "rename `cn_profiles` to `restricted_profiles` across the crate and fix the tests"
 est_tokens = 180000
-switch_cost = "cheaper_to_stay"
+switch_cost = "cheaper_to_switch"
 model = "deepseek_flash"
 effort = "medium"
 must = true
@@ -285,7 +289,7 @@ why = "Flash's sentence: mechanical, known plan, long context, cheap to redo (re
 id = "W12"
 message = "add unit tests for `routing::carries` covering late, detour and unreachable"
 est_tokens = 120000
-switch_cost = "cheaper_to_stay"
+switch_cost = "cheaper_to_switch"
 model = "deepseek_flash"
 effort = "medium"
 why = "Flash: writing tests for code that works (repo open-source)"
@@ -305,7 +309,7 @@ id = "W14"
 message = "rename `cn_profiles` to `restricted_profiles` across the crate and fix the tests"
 est_tokens = 180000
 restricted_models = "not_allowed"
-switch_cost = "cheaper_to_stay"
+switch_cost = "cheaper_to_switch"
 model = "sonnet"
 effort = "medium"
 must = true
@@ -324,7 +328,7 @@ why = "a sensitive-name hit makes restricted_models not_allowed: never a China-o
 id = "W16"
 message = "repeat the slow.sh load run until it fails, then bisect the commit"
 est_tokens = 160000
-switch_cost = "cheaper_to_stay"
+switch_cost = "cheaper_to_switch"
 model = "sonnet"
 effort = "high"
 must = true
@@ -466,7 +470,7 @@ message = "Checkpoint quiet(4): the design task \"How should the daemon schedule
 place_kind = "task_checkpoint"
 est_tokens = 220000
 task_models = ["claude-sonnet-5-5"]
-switch_cost = "cheaper_to_stay"
+switch_cost = "cheaper_to_switch"
 model = "opus"
 effort = "high"
 why = "stalled design: up to Opus"
@@ -532,10 +536,10 @@ why = "the reviewer, when unpinned: Opus (differs from the builder)"
 id = "W41"
 message = "thanks, that fixed it"
 est_tokens = 200000
-switch_cost = "cheaper_to_stay"
+switch_cost = "cheaper_to_switch"
 model = "sonnet"
 effort = "low"
-why = "switch_cost: a thank-you on a 200K Sonnet session stays on Sonnet; Haiku is dearer for this message"
+why = "switch_cost: a thank-you on a 200K Sonnet session stays on Sonnet; Haiku is dearer for this message. W1's twin: its state says cheaper_to_switch off-peak since theseus-h66v4.8 (DeepSeek Flash), the key is unchanged"
 
 [[case]]
 id = "W42"

@@ -55,7 +55,7 @@ use crate::config::Effort;
 mod peak;
 pub use peak::price_period_at;
 mod switch;
-pub use switch::{switch_cost, CANDIDATES as SWITCH_CANDIDATES};
+pub use switch::{candidates as switch_candidates, switch_cost};
 
 pub const BUILTIN_VERSION: &str = "2026-10-29.1";
 
@@ -453,6 +453,29 @@ impl CatalogEntry {
     /// The cache-read price per million tokens of a prompt of `prompt_tokens`.
     pub fn cache_read_price_at(&self, prompt_tokens: u64) -> f64 {
         self.tier(prompt_tokens).cache_read
+    }
+
+    /// [`input_price_at`](Self::input_price_at) in `period`: a model with an
+    /// off-peak row pays its off-peak input price in the provider's off-peak
+    /// hours, every other the same (theseus-h66v4.8).
+    pub fn input_price_in(&self, prompt_tokens: u64, period: PricePeriod) -> f64 {
+        self.tier_in(prompt_tokens, period).input
+    }
+
+    /// [`cache_read_price_at`](Self::cache_read_price_at) in `period`.
+    pub fn cache_read_price_in(&self, prompt_tokens: u64, period: PricePeriod) -> f64 {
+        self.tier_in(prompt_tokens, period).cache_read
+    }
+
+    /// [`tier`](Self::tier) with the off-peak prices of a model that has them
+    /// when `period` is off-peak: the rule [`terms_at`](Self::terms_at) applies
+    /// by the hour, here by the period a caller already holds.
+    fn tier_in(&self, prompt_tokens: u64, period: PricePeriod) -> Tier {
+        let t = self.tier(prompt_tokens);
+        match (self.off_peak, period) {
+            (Some(off), PricePeriod::OffPeak) => self.off_peak_tier(t, off),
+            _ => t,
+        }
     }
 
     /// The prices a call with a prompt of `prompt_tokens` pays: the long

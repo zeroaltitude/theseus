@@ -279,12 +279,16 @@ fn the_cases_carry_the_states_the_design_gives_them() {
 fn the_three_switch_cost_cases_carry_the_states_and_labels_the_owner_named() {
     let s = set();
     let case = |id: &str| s.cases.iter().find(|c| c.id == id).unwrap();
-    // A "thanks" on a 200K Sonnet session stays on Sonnet (W1 is relabelled to say so).
+    // A "thanks" on a 200K Sonnet session stays on Sonnet (W1 is relabelled to say so). Off-peak,
+    // since theseus-h66v4.8 (the owner, 2026-11-03 00:03: DeepSeek Flash counts as a candidate
+    // off-peak only), the daemon's state for it is `cheaper_to_switch`: Flash's $0.15 input is
+    // the cheapest other. The key is the owner's and is unchanged.
     for id in ["W1", "W41"] {
         let c = case(id);
         assert_eq!(c.state.est_tokens, 200_000, "{id}");
         assert_eq!(c.state.current_model, "claude-sonnet-5-5", "{id}");
-        assert_eq!(c.state.switch_cost, "cheaper_to_stay", "{id}");
+        assert_eq!(c.state.price_period, "off_peak", "{id}");
+        assert_eq!(c.state.switch_cost, "cheaper_to_switch", "{id}");
         assert_eq!(c.want.model, "sonnet", "{id}");
     }
     // A hard design question on a long Haiku session moves to Opus despite cheaper_to_stay.

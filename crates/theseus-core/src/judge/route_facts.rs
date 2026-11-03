@@ -36,8 +36,9 @@ pub(crate) fn facts_of(
     }
     let last = models().next_back();
     let est = est_tokens(before);
+    let period = price_period_at(now_ms);
     RouteFacts {
-        price_period: price_period_at(now_ms),
+        price_period: period,
         restricted_models: restricted,
         last_reply_model: last.map(str::to_string),
         task_models,
@@ -46,7 +47,7 @@ pub(crate) fn facts_of(
         // prefix. What a switch would cost this message is the catalog's
         // arithmetic, not Jev's (theseus-h66v4.1).
         current_model: last.map(str::to_string),
-        switch_cost: Some(switch_cost(builtin(), last, est)),
+        switch_cost: Some(switch_cost(builtin(), last, est, period)),
     }
 }
 
