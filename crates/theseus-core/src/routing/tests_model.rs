@@ -15,7 +15,6 @@ fn catalog_profile(provider: &str, model: &str, restricted: bool) -> Profile {
         model: model.into(),
         unusable: None,
         short_cost: Some(short_cost(e)),
-        input_per_mtok: Some(e.input_per_mtok),
         vision: e.vision,
         restricted,
     }

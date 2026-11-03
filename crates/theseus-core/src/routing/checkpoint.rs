@@ -382,7 +382,6 @@ mod tests {
                     model: model.into(),
                     unusable: None,
                     short_cost: Some(super::super::short_cost(e)),
-                    input_per_mtok: Some(e.input_per_mtok),
                     vision: e.vision,
                     restricted: false,
                 };

@@ -379,7 +379,6 @@ impl TurnRunner {
                         model: p.model.clone(),
                         unusable,
                         short_cost: entry.map(routing::short_cost),
-                        input_per_mtok: entry.map(|e| e.input_per_mtok),
                         vision: entry.is_some_and(|e| e.vision),
                         restricted: self.restricted_profile(name),
                     },

@@ -182,8 +182,6 @@ pub struct Profile {
     pub unusable: Option<&'static str>,
     /// A short turn's cost at catalog prices, in dollars (none: unpriced).
     pub short_cost: Option<f64>,
-    /// The catalog's input price per million tokens (none: unpriced).
-    pub input_per_mtok: Option<f64>,
     pub vision: bool,
     /// Origin `cn` or `unknown`: such a profile runs only for a cleared ask,
     /// and only when a class names it in `cn_profiles` (theseus-a1wvq.4).
@@ -340,7 +338,6 @@ mod tests {
             model: model.into(),
             unusable: None,
             short_cost: Some(cost),
-            input_per_mtok: None,
             vision,
             restricted: false,
         }
@@ -360,11 +357,7 @@ mod tests {
             ("glm53", "zai", "glm-5.3"),
         ] {
             let e = c.get(model).unwrap();
-            let priced = Profile {
-                input_per_mtok: Some(e.input_per_mtok),
-                ..p(provider, model, short_cost(e), e.vision)
-            };
-            out.insert(name.into(), priced);
+            out.insert(name.into(), p(provider, model, short_cost(e), e.vision));
         }
         out
     }
