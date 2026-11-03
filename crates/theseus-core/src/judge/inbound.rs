@@ -977,8 +977,10 @@ fn unasked_when_pinned(ask: &mut Ask, pinned: bool) {
 /// answer beside it, sure when its band reached the question's confirm bar
 /// (theseus-qe3v). route.v10 answers `model` and `effort` instead of `mode`
 /// and `reply_effort` (theseus-h66v4): the verdict then carries those answers,
-/// the pick standing as its `mode` word, and a pinned turn (not asked the model
-/// or the effort) has no verdict.
+/// the pick standing as its `mode` word. A pinned turn (not asked the model or
+/// the effort) still has one, when it answered persona, seal or personal: the
+/// verdict then carries those alone, with no `mode` word and no `model`
+/// (theseus-7l8lr.2).
 ///
 /// The pack's `data` question is not read: whether a session may use a model
 /// of restricted origin is decided by the labels on it (`crate::content`),
@@ -1011,7 +1013,9 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
     let (mode, confidence) = match (choice("mode"), &model) {
         (Some((mode, confidence, _)), _) => (mode, confidence),
         (None, Some(m)) => (m.choice.clone(), m.confidence),
-        (None, None) => return None,
+        // A pinned turn asks no `model` and no `mode`; its persona, seal and personal answers
+        // are still its own, and `model::decide` answers `NoVerdict` for a verdict with no model.
+        (None, None) => (String::new(), 0.0),
     };
     // route.v10's route pack asks no effort: `effort.v1` answers it in a judgment of its own,
     // laid over by `verdict_of`. route.v8's `reply_effort` is read here, as it always was.

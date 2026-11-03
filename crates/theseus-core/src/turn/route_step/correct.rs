@@ -468,7 +468,7 @@ impl TurnRunner {
             turn: t.tc.turn_id.to_string(),
             judgment: own.map(|v| v.judgment.clone()),
             pack: ROUTE_PACK.to_string(),
-            mode: own.map(|v| v.mode.clone()),
+            mode: own.map(|v| v.mode.clone()).filter(|m| !m.is_empty()),
             from: t.target.profile.clone(),
             profile: decision.map_or_else(|| t.target.profile.clone(), |d| d.profile.clone()),
             words: std::mem::take(&mut t.route.words),
