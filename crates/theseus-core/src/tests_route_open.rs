@@ -185,7 +185,9 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
                 .unwrap_or_default()
         })
         .filter(|id| {
-            !id.starts_with("route.v10/") && !id.starts_with("classify.") && !id.starts_with("role.")
+            !id.starts_with("route.v10/")
+                && !id.starts_with("classify.")
+                && !id.starts_with("role.")
         })
         .collect();
     for q in ["effort.v1/effort", "work.v1/work", "split.v1/split"] {

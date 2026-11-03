@@ -386,10 +386,7 @@ mod tests {
         }
         // Under the bar, or unanswered: ordinary, with the reason said, and no hint.
         let x = open(Some(("coding", false)));
-        assert_eq!(
-            tier_of(Seen::Verdict(&x)),
-            (Tier::Ordinary, Some("unsure"))
-        );
+        assert_eq!(tier_of(Seen::Verdict(&x)), (Tier::Ordinary, Some("unsure")));
         assert!(!InjectionBudget::read(Seen::Verdict(&x), &cfg).coding);
         let x = open(None);
         assert_eq!(

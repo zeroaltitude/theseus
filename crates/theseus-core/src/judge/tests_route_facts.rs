@@ -138,7 +138,10 @@ async fn the_live_route_packs_state_carries_the_facts() {
     }
     // A fresh session has no last reply and no task: those two are left out by design.
     for k in ["last_reply_model", "task_models"] {
-        assert!(state.get(k).is_none(), "{k} in a fresh session's state: {state}");
+        assert!(
+            state.get(k).is_none(),
+            "{k} in a fresh session's state: {state}"
+        );
     }
 }
 
