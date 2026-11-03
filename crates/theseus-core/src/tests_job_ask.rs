@@ -293,11 +293,20 @@ async fn owner_material_is_not_run_on_a_live_model_the_floor_refuses() {
     });
     let run = &r.core.runner;
     // The ask is late, so the job falls to `live`, and `glm` is of restricted origin.
-    assert!(run.restricted_profile("glm"), "the rig's `glm` is restricted");
+    assert!(
+        run.restricted_profile("glm"),
+        "the rig's `glm` is restricted"
+    );
     let (_, how) = run.job_choice("glm", owner_site(None)).await;
-    assert_eq!(how, How::Live(Why::DataGate), "the fallback is refused, and says why");
+    assert_eq!(
+        how,
+        How::Live(Why::DataGate),
+        "the fallback is refused, and says why"
+    );
     let refused = run.job_target("glm", owner_site(None)).await;
-    let e = refused.expect_err("the owner's material has no model to run on").to_string();
+    let e = refused
+        .expect_err("the owner's material has no model to run on")
+        .to_string();
     assert!(e.contains("glm"), "{e}");
     // The same late ask on a live model of US origin still runs there.
     let (t, how) = run.job_target("sonnet", owner_site(None)).await.unwrap();

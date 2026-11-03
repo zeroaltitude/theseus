@@ -557,7 +557,13 @@ async fn a_pinned_turn_in_a_shared_place_is_still_held() {
         .outbox
         .bind_place("channel:555000111", &rec.session_id)
         .unwrap();
-    let res = turn(&o.r.core, Some(&rec.session_id), ASK_PERSONAL, Some("fable")).await;
+    let res = turn(
+        &o.r.core,
+        Some(&rec.session_id),
+        ASK_PERSONAL,
+        Some("fable"),
+    )
+    .await;
     assert!(
         o.r.claude.requests().is_empty(),
         "no model was called: {}",
