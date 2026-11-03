@@ -1135,6 +1135,114 @@ mod tests {
         assert!(split_injected(&format!("{b}0\nno end"), b, 1).is_none());
     }
 
+    /// theseus-h66v4.5: a resolved value is trimmed however it was obtained, because
+    /// it rides unmodified in a request header, and a header refuses a newline. The
+    /// expected values are literals typed here, never read from a vault.
+    fn padded_op(dir: &std::path::Path) -> OpReader {
+        use std::os::unix::fs::PermissionsExt;
+        let op_bin = dir.join("op");
+        // A stored value that ends in a newline of its own, as a note's field does,
+        // whether or not `op` adds one.
+        std::fs::write(
+            &op_bin,
+            r#"#!/bin/sh
+case "$1" in
+  read) printf 'made-up-read-value\n' ;;
+  inject) awk '/^\{\{ .* \}\}$/ { n++; printf "made-up-inject-%d\n\n", n; next } { print }' ;;
+  *) exit 1 ;;
+esac
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        OpReader {
+            token: Secret::new("test-not-a-token".into()),
+            op_bin,
+            token_file: None,
+            absent: None,
+        }
+    }
+
+    #[test]
+    fn a_variable_and_a_file_resolve_trimmed() {
+        use std::os::unix::fs::PermissionsExt;
+        std::env::set_var("THESEUS_H66V45_PADDED", "  made-up-env-value \n");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("key");
+        std::fs::write(&file, "\n  made-up-file-value\t\n\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let env = local_value("env:THESEUS_H66V45_PADDED").unwrap().unwrap();
+        assert_eq!(env.expose(), "made-up-env-value");
+        let got = local_value(&format!("file:{}", file.display()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.expose(), "made-up-file-value");
+    }
+
+    #[tokio::test]
+    async fn an_op_read_resolves_trimmed() {
+        let dir = tempfile::tempdir().unwrap();
+        let reader = padded_op(dir.path());
+        let r = SecretRef::parse("op://V/item/notesPlain").unwrap();
+        let got = reader.read(&r).await.unwrap();
+        assert_eq!(got.expose(), "made-up-read-value");
+        let raw = reader.read_raw(r.op_ref()).await.unwrap();
+        assert_eq!(raw.as_str(), "made-up-read-value");
+    }
+
+    #[tokio::test]
+    async fn an_op_read_of_only_whitespace_is_an_empty_value() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let reader = padded_op(dir.path());
+        std::fs::write(&reader.op_bin, "#!/bin/sh\nprintf ' \\n'\n").unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let e = reader.read_raw("op://V/item/notesPlain").await.unwrap_err();
+        assert_eq!(e, "op returned an empty value");
+    }
+
+    #[tokio::test]
+    async fn an_op_inject_resolves_each_value_trimmed() {
+        let dir = tempfile::tempdir().unwrap();
+        let reader = padded_op(dir.path());
+        let refs = vec![
+            "op://V/one/notesPlain".to_string(),
+            "op://V/two/notesPlain".to_string(),
+        ];
+        let Ok(got) = reader.inject(&refs).await else {
+            panic!("op inject failed");
+        };
+        let got: Vec<&str> = got.iter().map(|s| s.as_str()).collect();
+        assert_eq!(got, ["made-up-inject-1", "made-up-inject-2"]);
+    }
+
+    /// The template's own newline is not in a slice (the boundary search starts at
+    /// it); a value's own trailing newline is, until the slice is trimmed.
+    #[test]
+    fn a_slice_keeps_no_trailing_whitespace_of_the_value() {
+        let b = "--theseus-x-";
+        let text = format!("{b}0\nmade-up-a\n\n{b}1\n  made-up-b \n\n\n{b}end\n");
+        let v = split_injected(&text, b, 2).unwrap();
+        let v: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+        assert_eq!(v, ["made-up-a", "made-up-b"]);
+    }
+
+    #[tokio::test]
+    async fn a_round_resolves_a_fetched_value_trimmed() {
+        let refs = refs(&[
+            ("plain", "op://V/plain/notesPlain"),
+            ("line", "op://V/note/notesPlain#key"),
+        ]);
+        let vault = fake::FakeVault::new(&[
+            ("op://V/plain/notesPlain", "made-up-plain\n"),
+            ("op://V/note/notesPlain", "title: x\nkey: made-up-line \n"),
+        ]);
+        let names: Vec<String> = refs.keys().cloned().collect();
+        let (out, _) = round(&refs, &names, &vault).await;
+        assert_eq!(out["plain"].as_ref().unwrap().expose(), "made-up-plain");
+        assert_eq!(out["line"].as_ref().unwrap().expose(), "made-up-line");
+    }
+
     #[test]
     fn op_errors_lose_their_timestamp_prefix() {
         let e = op_error(b"[ERROR] 2026/09/29 08:58:19 could not find item x\n");
