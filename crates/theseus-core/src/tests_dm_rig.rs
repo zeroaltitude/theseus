@@ -41,7 +41,6 @@ pub(crate) const OPEN_B: &str = "And how many grams in a kilogram?";
 /// without Haiku, the owner's DM, the private notes.
 pub(crate) fn config(c: &mut crate::Config, notes: &std::path::Path) {
     c.copy_profile("dsflash", "glm");
-    c.routing.trivial_context_turns = 6;
     c.places.owner = Some(vec![format!("discord:{OWNER}")]);
     c.context.files = vec![ContextEntry::Path(notes.to_string_lossy().into_owned())];
 }

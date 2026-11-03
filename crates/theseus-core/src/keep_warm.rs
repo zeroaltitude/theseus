@@ -111,13 +111,9 @@ impl KeepWarm {
     }
 }
 
-/// A session's last request: its model, its effort, and the sticky hold that
-/// carried the effort (theseus-u5a37).
-type Sent = (
-    String,
-    Option<crate::config::Effort>,
-    Option<crate::routing::effort::Hold>,
-);
+/// A session's last request: its model, its effort, and whether the sticky
+/// rule held the effort (theseus-u5a37).
+type Sent = (String, Option<crate::config::Effort>, bool);
 
 #[derive(Debug, Clone)]
 struct Kept {
@@ -198,12 +194,12 @@ impl KeepWarm {
         session_id: &str,
         model: &str,
         effort: Option<crate::config::Effort>,
-        hold: Option<crate::routing::effort::Hold>,
+        held: bool,
     ) {
         self.sent
             .lock()
             .unwrap()
-            .insert(session_id.to_string(), (model.to_string(), effort, hold));
+            .insert(session_id.to_string(), (model.to_string(), effort, held));
     }
 
     /// The effort `session_id`'s last request carried, if it went to `model`.
@@ -214,13 +210,12 @@ impl KeepWarm {
             .and_then(|(_, e, _)| *e)
     }
 
-    /// The sticky hold that carried `session_id`'s last request's effort, if
-    /// it went to `model` and was held (theseus-u5a37).
-    pub fn last_hold(&self, session_id: &str, model: &str) -> Option<crate::routing::effort::Hold> {
+    /// Whether the sticky rule held the effort `session_id`'s last request
+    /// carried, if it went to `model` (theseus-u5a37).
+    pub fn last_hold(&self, session_id: &str, model: &str) -> bool {
         let sent = self.sent.lock().unwrap();
         sent.get(session_id)
-            .filter(|(m, ..)| m == model)
-            .and_then(|(_, _, h)| *h)
+            .is_some_and(|(m, _, held)| m == model && *held)
     }
 
     /// A session as a restart finds it: its person's message and its last

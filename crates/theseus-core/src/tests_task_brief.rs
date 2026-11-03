@@ -106,6 +106,20 @@ async fn a_design_brief_from_a_cheap_conversation_goes_to_opus() {
     assert_eq!(rec.last_target.unwrap().profile, "opus");
 }
 
+/// A brief is never cache-held, however big the parent: `decide_brief` asks
+/// the rule with `est_tokens: 0`, so even a cold line of 1 token lets Jev's
+/// pick move the task at once (theseus-7l8lr.4).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_brief_is_never_cache_held_whatever_the_cold_line() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "sophisticated", 0.95);
+    let r = rig_from(Some(&jev), "sonnet", |c| c.routing.cold_switch_tokens = 1);
+    let (_, rec) = run(&r, &params("Weigh two designs for the quay ledger.", None)).await;
+    assert_eq!(decided(&r.core.store)[0]["reason"], "verdict");
+    assert_eq!(ran_on(&r), "claude-opus-5-5");
+    assert_eq!(rec.last_target.unwrap().profile, "opus");
+}
+
 /// Jev off: the parent's model, as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_task_runs_on_its_parents_model_with_jev_off() {

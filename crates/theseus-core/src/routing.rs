@@ -12,11 +12,9 @@
 //!   compile's estimate is under `cold_switch_tokens`, above it only when the
 //!   turn before agreed (a [`Hold`]): the switch recompiles, strips the prefix's
 //!   thinking, and leaves the cache cold.
-//! - **A `short` context** (`model::SHORT`): that turn alone runs on the pick;
-//!   the session's profile, `last_target` and compilation stay as they were.
 //! - **A late verdict** (one that came after its message's wait) applies to
-//!   the session's next message alone, and a `short` one's to none ([`carries`]).
-//! - **A task's brief** (theseus-ypnxt.7, [`brief::brief_base`]): the verdict
+//!   the session's next message alone.
+//! - **A task's brief** (theseus-ypnxt.7, `TurnRunner::decide_brief`): the verdict
 //!   on a task's brief picks the task's base, at once and for good.
 //! - **A task's checkpoints** (theseus-ypnxt.9, [`checkpoint`]): a running task
 //!   asks the same pack again at a loop boundary, when it keeps failing, stalls,
@@ -32,7 +30,6 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::CatalogEntry;
 use crate::config::RoutingConfig;
 
-pub mod brief;
 pub mod checkpoint;
 pub mod effort;
 pub mod model;
@@ -43,7 +40,7 @@ mod tests_effort_open;
 mod tests_model;
 pub use personal::PersonalAnswer;
 
-/// A short turn's uncached input, in tokens, for `cheapest` and the cap.
+/// A short turn's uncached input, in tokens, for `short_cost`.
 pub const SHORT_INPUT: u64 = 4_000;
 /// A short turn's output, in tokens.
 pub const SHORT_OUTPUT: u64 = 500;
@@ -87,8 +84,6 @@ pub enum Reason {
     /// The verdict's mode picked the profile (or the session's own, for a
     /// mode with no list, or the one it is on).
     Verdict,
-    /// A detour's message (`trivial`, `quick`).
-    Detour,
     /// No profile in the mode's list was usable: the session's own.
     Fallback,
     /// A switch the cache held back, waiting for a second agreeing turn.
@@ -120,7 +115,6 @@ impl Reason {
     pub fn as_str(self) -> &'static str {
         match self {
             Reason::Verdict => "verdict",
-            Reason::Detour => "detour",
             Reason::Fallback => "fallback",
             Reason::CacheHold => "cache_hold",
             Reason::Unsure => "unsure",
@@ -177,13 +171,6 @@ pub struct Pick {
     pub sure: bool,
 }
 
-impl Verdict {
-    /// The verdict is route.v10's: it answers `model`, and says no `mode`.
-    pub fn open(&self) -> bool {
-        self.model.is_some()
-    }
-}
-
 /// One configured profile, as routing weighs it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Profile {
@@ -193,11 +180,9 @@ pub struct Profile {
     pub unusable: Option<&'static str>,
     /// A short turn's cost at catalog prices, in dollars (none: unpriced).
     pub short_cost: Option<f64>,
-    /// The catalog's input price per million tokens (none: unpriced).
-    pub input_per_mtok: Option<f64>,
     pub vision: bool,
-    /// Origin `cn` or `unknown`: such a profile runs only for a cleared ask,
-    /// and only when a class names it in `cn_profiles` (theseus-a1wvq.4).
+    /// Origin `cn` or `unknown`: such a profile runs only for a cleared ask
+    /// (theseus-a1wvq.4).
     pub restricted: bool,
 }
 
@@ -287,8 +272,6 @@ pub struct Decision {
     /// The profile the turn runs on.
     pub profile: String,
     pub reason: Reason,
-    /// This turn alone (a detour's mode): the session stays where it was.
-    pub detour: bool,
     /// The session's routed profile moves to `profile`.
     pub switch: bool,
     pub hold: HoldNext,
@@ -313,7 +296,6 @@ pub fn steer_to(
     let stay = |reason| Decision {
         profile: a.base.to_string(),
         reason,
-        detour: false,
         switch: false,
         hold: HoldNext::Clear,
     };
@@ -330,7 +312,6 @@ pub fn steer_to(
         return Decision {
             profile: profile.to_string(),
             reason: Reason::Correction,
-            detour: false,
             switch: true,
             hold: HoldNext::Clear,
         };
@@ -355,7 +336,6 @@ mod tests {
             model: model.into(),
             unusable: None,
             short_cost: Some(cost),
-            input_per_mtok: None,
             vision,
             restricted: false,
         }
@@ -375,11 +355,7 @@ mod tests {
             ("glm53", "zai", "glm-5.3"),
         ] {
             let e = c.get(model).unwrap();
-            let priced = Profile {
-                input_per_mtok: Some(e.input_per_mtok),
-                ..p(provider, model, short_cost(e), e.vision)
-            };
-            out.insert(name.into(), priced);
+            out.insert(name.into(), p(provider, model, short_cost(e), e.vision));
         }
         out
     }

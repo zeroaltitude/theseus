@@ -125,7 +125,7 @@ fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_o
         (s.choice.as_str(), s.confidence, s.sure),
         ("splits_by_area", 0.77, true)
     );
-    assert!(v.open());
+    assert!(v.model.is_some());
     assert_eq!(v.mode, "opus", "the row's `mode` word is the pick");
     // Under the confirm bar each is read, and not sure; nothing is post-processed.
     let shy = judgment_of("work.v1", vec![choice("work", "coding", 0.45)]);
@@ -157,14 +157,14 @@ fn the_verdict_reads_the_model_from_the_route_judgment_and_the_rest_from_their_o
     assert_eq!((p.choice.as_str(), p.confidence), ("elicit", 0.95));
     assert!(v.persona.is_some(), "the persona answer stands");
     assert!(
-        v.model.is_none() && !v.open() && v.mode.is_empty() && v.effort.is_none(),
+        v.model.is_none() && v.mode.is_empty() && v.effort.is_none(),
         "and it names no model, no mode and no effort"
     );
     // A judgment without these answers reads as a mode, as before.
     let j = judgment(vec![choice("mode", "chat", 0.95)], false);
     let v = crate::judge::inbound::verdict(&j, "trn_1").unwrap();
     assert_eq!(v.mode, "chat");
-    assert!(!v.open() && v.model.is_none() && v.work.is_none() && v.split.is_none());
+    assert!(v.model.is_none() && v.work.is_none() && v.split.is_none());
 }
 
 // ------------------------------------------------------------------ the turn
@@ -225,13 +225,10 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
     assert_eq!(d["profile"], "opus");
     assert_eq!(d["switch"], true);
     assert_eq!(d["effort_ran"], "high");
+    let block = d["block"].as_str().unwrap();
     assert!(
-        d["block"]
-            .as_str()
-            .unwrap()
-            .starts_with("Opus 5.5 (Anthropic, US). … For reviewing code"),
-        "the winning block's sentences: {}",
-        d["block"]
+        block.starts_with("Opus 5.5 (Anthropic, US).") && block.contains("For reviewing code"),
+        "the winning block, whole: {block}"
     );
     assert!(
         d["pack"].as_str().is_some(),
@@ -350,8 +347,8 @@ async fn a_pick_no_profile_runs_is_a_fallback_that_says_why() {
 
 /// theseus-h66v4.1: there is no detour. A thank-you that Jev sends to Haiku on
 /// a long session compiles the session's whole working context, on Haiku: the
-/// request carries every message, the session's compilation is written as
-/// ever, and the row says it is no detour.
+/// request carries every message, and the session's compilation is written as
+/// ever.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pick_for_a_thank_you_still_compiles_the_whole_context() {
     let jev = FakeJev::start().unwrap();
@@ -384,8 +381,6 @@ async fn a_pick_for_a_thank_you_still_compiles_the_whole_context() {
         before.messages[..],
         "the prefix, byte for byte"
     );
-    let d = decided(&o.r.core.store).pop().unwrap();
-    assert_eq!(d["detour"], false);
 }
 
 /// The cache hold, kept: a pick over the cold line waits one agreeing turn,
@@ -616,7 +611,12 @@ async fn why_names_the_block_and_the_reason_in_every_case() {
     let res = turn(&o.r.core, None, "Review this plan for mistakes.", None).await;
     let lines = why(&o, &res.session_id);
     let l = routing_line(&lines);
-    assert!(l.contains("model=claude-opus-5-5 (jev 0.95: \"Opus 5.5 (Anthropic, US). … For reviewing code, a plan or an argument for mistakes"), "{l}");
+    assert!(
+        l.contains(
+            "model=claude-opus-5-5 (jev 0.95: \"Opus 5.5 (Anthropic, US). Twice Sonnet's price"
+        ) && l.contains("For reviewing code, a plan or an argument for mistakes"),
+        "the whole block, as the pack wrote it: {l}"
+    );
     assert!(
         l.contains("effort=medium (0.95) reason=verdict pack="),
         "{l}"

@@ -3,7 +3,8 @@
 //! ([`super::brief`]), would never move. At a loop boundary a task asks
 //! the route pack about its recent state, and this module says when to ask
 //! ([`Tally`]), what the pack reads ([`text`], at most [`MAX_TOKENS`]), and
-//! what the verdict does ([`decide`]), by routing's own rules, reused:
+//! what the verdict does (`routing::decide`, asked with the profile the task is on as its
+//! base and the hold the last checkpoint left, `TurnRunner::checkpoint_decision`):
 //!
 //! - **Jev decides** (theseus-ej6bj, the owner: "I categorically disagree with
 //!   caps") at each trigger: the verdict's pick is where the task goes, up or
@@ -11,9 +12,8 @@
 //!   context a pick like another. The cache hold is the one hysteresis.
 
 use super::effort;
-use super::{decide as route_decide, Ask, Decision, Hold, HoldNext, Profiles, Reason, Verdict};
 use crate::config::routing::TaskCheckpoints;
-use crate::config::{Effort, RoutingConfig};
+use crate::config::Effort;
 
 /// The most the pack reads, in tokens (estimated at [`CHARS_PER_TOKEN`] characters, which is
 /// conservative for English).
@@ -318,89 +318,12 @@ fn render(
     }
 }
 
-/// What a checkpoint's verdict asks the rule.
-#[derive(Debug, Clone)]
-pub struct CheckpointAsk<'a> {
-    pub verdict: &'a Verdict,
-    /// The profile the task runs on now.
-    pub current: &'a str,
-    /// The last compile's estimate, less the warm prefix on the target model.
-    pub est_tokens: u64,
-    /// The hold the last checkpoint left.
-    pub hold: Option<&'a Hold>,
-    pub images: bool,
-}
-
-/// The rule's answer for a checkpoint verdict. `switch` says the task moves
-/// to `profile`; a stay names `current`. Jev decides at each trigger (theseus-ej6bj, the owner: "I categorically
-/// disagree with caps"): the verdict's pick is where the task goes, up or
-/// down, with no base to return to, no count of moves, and no second verdict
-/// to step down on. The one hysteresis is the cache hold, which is about money:
-/// a move whose estimate is at or above `cold_switch_tokens` waits for a second
-/// agreeing verdict (the next one, naming the same profile, makes it).
-pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &CheckpointAsk<'_>) -> Decision {
-    let stay = |reason, hold| Decision {
-        profile: a.current.to_string(),
-        reason,
-        detour: false,
-        switch: false,
-        hold,
-    };
-    // The verdict's pick, by the conversation's own rule with the cold hold
-    // left to this one: the profile the task is on is the rule's base.
-    let mut warm = cfg.clone();
-    warm.cold_switch_tokens = u64::MAX;
-    let d = route_decide(
-        &warm,
-        profiles,
-        &Ask {
-            verdict: a.verdict,
-            base: a.current,
-            est_tokens: a.est_tokens,
-            hold: None,
-            images: a.images,
-            cleared: false,
-        },
-    );
-    let target = match (d.switch || d.detour, d.reason) {
-        (true, _) | (_, Reason::Verdict) => d.profile.clone(),
-        // Under its bar, capped or none usable: the task stays.
-        _ => return stay(d.reason, HoldNext::Clear),
-    };
-    if target == a.current {
-        return stay(Reason::Verdict, HoldNext::Clear);
-    }
-    let agreed = a.hold.is_some_and(|h| h.profile == target);
-    if a.est_tokens < cfg.cold_switch_tokens || agreed {
-        // A detour's class is a pick like another for a task: its move is a
-        // verdict's.
-        let reason = match d.reason {
-            Reason::Detour => Reason::Verdict,
-            other => other,
-        };
-        return Decision {
-            profile: target,
-            reason,
-            detour: false,
-            switch: true,
-            hold: HoldNext::Clear,
-        };
-    }
-    stay(
-        Reason::CacheHold,
-        HoldNext::Set(Hold {
-            mode: a.verdict.mode.clone(),
-            profile: target,
-            turn: a.verdict.turn.clone(),
-        }),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::tests::verdict;
-    use super::super::Pick;
+    use super::super::{decide, Ask, Decision, Hold, HoldNext, Pick, Profiles, Reason, Verdict};
     use super::*;
+    use crate::config::RoutingConfig;
 
     fn cfg() -> RoutingConfig {
         RoutingConfig::default()
@@ -426,17 +349,20 @@ mod tests {
 
     fn go_open(pick: &str, current: &str, est: u64, hold: Option<&Hold>) -> Decision {
         let (ps, v) = (options(), open(pick, true));
-        decide(
-            &cfg(),
-            &ps,
-            &CheckpointAsk {
-                verdict: &v,
-                current,
-                est_tokens: est,
-                hold,
-                images: false,
-            },
-        )
+        decide(&cfg(), &ps, &ask(&v, current, est, hold))
+    }
+
+    /// The step's ask: the task's profile is the base, and the labels are read as not
+    /// clearing a restricted model (`cleared: false`, as the step has always asked).
+    fn ask<'a>(v: &'a Verdict, current: &'a str, est: u64, hold: Option<&'a Hold>) -> Ask<'a> {
+        Ask {
+            verdict: v,
+            base: current,
+            est_tokens: est,
+            hold,
+            images: false,
+            cleared: false,
+        }
     }
 
     /// The option models, each under the template's name.
@@ -456,7 +382,6 @@ mod tests {
                     model: model.into(),
                     unusable: None,
                     short_cost: Some(super::super::short_cost(e)),
-                    input_per_mtok: Some(e.input_per_mtok),
                     vision: e.vision,
                     restricted: false,
                 };
@@ -528,24 +453,13 @@ mod tests {
     }
 
     /// A Haiku pick over Opus is a pick like another for a task: it moves it, as a
-    /// verdict, not a detour.
+    /// verdict.
     #[test]
-    fn a_detour_class_is_a_pick_like_another() {
+    fn a_cheaper_pick_moves_a_task_as_a_verdict() {
         let ps = options();
         let v = open("haiku", true);
-        let d = decide(
-            &cfg(),
-            &ps,
-            &CheckpointAsk {
-                verdict: &v,
-                current: "opus",
-                est_tokens: 1_000,
-                hold: None,
-                images: false,
-            },
-        );
+        let d = decide(&cfg(), &ps, &ask(&v, "opus", 1_000, None));
         assert_eq!(up(&d), ("haiku", Reason::Verdict, true));
-        assert!(!d.detour, "{d:?}");
     }
 
     /// No count of moves is an input: the same verdict answers the same at
@@ -561,17 +475,7 @@ mod tests {
     #[test]
     fn an_open_verdict_under_its_bar_moves_nothing_and_breaks_the_row() {
         let (ps, v) = (options(), open("opus", false));
-        let d = decide(
-            &cfg(),
-            &ps,
-            &CheckpointAsk {
-                verdict: &v,
-                current: "haiku",
-                est_tokens: 0,
-                hold: None,
-                images: false,
-            },
-        );
+        let d = decide(&cfg(), &ps, &ask(&v, "haiku", 0, None));
         assert_eq!(
             (d.reason, d.switch, d.hold),
             (Reason::Unsure, false, HoldNext::Clear)

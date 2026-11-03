@@ -11,7 +11,7 @@
 //!   `deep_recall_items` deep).
 //! - **Tool admission** raises the place's budget to the tier's multiple
 //!   (`[tools.defer] admit_ceiling`, `admit_ceiling_deep`; `admit_ceiling_small`
-//!   is read by nothing since the small tier went).
+//!   is retired with the small tier).
 //! - **Never a wait**: the pack reads the verdict if it has landed (a peek that
 //!   leaves it for the compile's wait, [`peek`]) and is ordinary when it has
 //!   not; the budget is then fixed for the turn, recorded on its
@@ -69,7 +69,7 @@ pub struct InjectionBudget {
     /// `verdict late`, `no verdict`, `unsure`, `routing off`: ordinary
     /// without a verdict's say.
     pub fallback: Option<&'static str>,
-    /// What the request's recall may hold; 0 for small, whose detour sends none.
+    /// What the request's recall may hold.
     pub recall_tokens: u64,
     pub recall_items: usize,
     /// The multiple of the place's first-request budget admitted families may

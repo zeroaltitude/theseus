@@ -276,13 +276,14 @@ fn ran(i: &WhyInput) -> Vec<String> {
 }
 
 /// The route line when route.v10 acted (theseus-h66v4): the model that ran, who
-/// chose it and the first sentences of the block it chose, the effort Jev
+/// chose it and the block it chose (the pack's own words), the effort Jev
 /// named, and the reason, in every case, with what qualifies it
 /// (`restricted_models=not_allowed`, `-P fable`, `deepseek: no key`).
 ///
-/// `routing: model=claude-opus-5-5 (jev 0.91: "Opus 5.5 (Anthropic, US). … For
-/// reviewing code, a plan or an argument for mistakes") effort=medium (0.84)
-/// reason=verdict pack=route.v10`
+/// `routing: model=claude-opus-5-5 (jev 0.91: "Opus 5.5 (Anthropic, US). Twice
+/// Sonnet's price: ... For reviewing code, a plan or an argument for mistakes;
+/// ...") effort=medium (0.84) reason=verdict pack=route.v10` (the block is the
+/// pack's whole text; shortened here)
 fn open_routing(r: &Value) -> String {
     let s = |k: &str| r.get(k).and_then(Value::as_str);
     let f = |k: &str| r.get(k).and_then(Value::as_f64);

@@ -1,9 +1,8 @@
-//! A detoured turn (`turn::route_step`'s `compile_detour`): it keeps the project
-//! its conversation serves (theseus-v4u66), `context.explain` and `theseus why`
-//! say what its model was shown (theseus-r5ydi), and a family its message names
-//! is counted on the request the detour sends (theseus-3bs4e). The rig is
-//! `tests_route_defer`'s: Haiku 5.5, which has no tool search, is every
-//! `anthropic` turn's stand-in, and the fake Jev judges `quick`.
+//! A turn routed to Haiku keeps the project its conversation serves (theseus-v4u66), and
+//! `context.explain` of a turn that compiled reads as before (theseus-r5ydi). The rig is
+//! `tests_route_defer`'s: Haiku 5.5, which has no tool search, is every `anthropic` turn's
+//! stand-in, and the fake Jev judges `quick`. (The router's detour is gone: no pick sends a
+//! smaller request.)
 
 use std::sync::Arc;
 
@@ -84,11 +83,11 @@ fn tail_blocks(q: &ProviderRequest) -> Vec<String> {
     }
 }
 
-/// theseus-v4u66: a quick detour in a conversation attached to a project
-/// carries the project's slice, last of the request's tail, as the normal path
-/// does: the model sees the goal. A conversation with no project carries none.
+/// theseus-v4u66: a turn routed to Haiku in a conversation attached to a project
+/// carries the project's slice, last of the request's tail: the model sees the
+/// goal. A conversation with no project carries none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_quick_detour_in_a_project_conversation_carries_the_slice() {
+async fn a_routed_turn_in_a_project_conversation_carries_the_slice() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "quick", 0.92);
     let (r, haiku) = rig_haiku(&jev, 2, |_| {});
@@ -112,7 +111,7 @@ async fn a_quick_detour_in_a_project_conversation_carries_the_slice() {
         .unwrap_or_else(|| panic!("no slice at the tail: {blocks:?}"));
     assert!(slice.contains(GOAL), "{slice}");
     assert!(slice.contains("Survey the moorings"), "{slice}");
-    // A plain conversation's detour carries none: its request is as before.
+    // A plain conversation's request carries none.
     let plain = turn(&r.core, None, "And what is the tide now?", None).await;
     assert_eq!(plain.route.as_ref().unwrap().reason, "verdict");
     let blocks = tail_blocks(&haiku.requests()[1]);
@@ -137,8 +136,7 @@ fn explain(core: &Core, sid: &str, turn_id: Option<&str>) -> ContextExplainResul
 
 /// A turn that compiled explains as it always did: no `detour` field on the
 /// result and no mark on its turns, so every reader of the old shape is
-/// unchanged. (No plant beyond `why_explains_a_detoured_turn`'s: the detour
-/// path is taken only for a turn with no compile.)
+/// unchanged.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_compiled_turn_explains_as_before() {
     let r = rig_parts(None, 1, |_| {}, |_| {});
@@ -153,7 +151,7 @@ async fn a_compiled_turn_explains_as_before() {
 }
 
 /// The owner's config in shape: its AWS account and its five personas (whose
-/// files the full request carries and a detour does not).
+/// files the full request carries).
 pub(crate) fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
     let owner = crate::Config::parse(&crate::tests_first_request::with_personas(
         crate::tests_first_request::OWNER_SHAPE,
@@ -164,7 +162,7 @@ pub(crate) fn owner_shape(c: &mut crate::Config, dir: &std::path::Path) {
     c.aws = owner.aws;
     c.personas = owner.personas;
     c.context = owner.context;
-    // A context file the full request carries (about 2,000 tokens) and a detour leaves out.
+    // A context file the full request carries (about 2,000 tokens).
     let notes = dir.join("harbour-notes.md");
     std::fs::write(
         &notes,

@@ -1,9 +1,7 @@
-//! A detour on a model without the provider's tool search reaches the
+//! A turn on a model without the provider's tool search reaches the
 //! deferred tool its message names (theseus-zs6mm). install #31: the owner's
 //! cli sent 7,318 tokens, and a quick message still got Haiku `unsearched_call`
-//! misses, because the router's detour is a request of its own: the board
-//! kept the note of the request the detour replaced, and the miss rule read
-//! that note. The rig is `tests_route`'s, with deferral on and the Haiku
+//! misses. The rig is `tests_route`'s, with deferral on and the Haiku
 //! stand-in as the `anthropic` provider.
 
 use std::sync::Arc;
@@ -17,13 +15,13 @@ use crate::tests_route::{mode, rig_parts, turn, Rig};
 
 /// A rig whose `anthropic` provider is a stand-in that, asked, calls
 /// `thread_read` at once and never `tools_find`, then answers.
-fn rig_detouring(jev: &FakeJev) -> (Rig, Arc<FakeProvider>) {
-    rig_detouring_to(jev, "thread_read", false)
+fn rig_no_search(jev: &FakeJev) -> (Rig, Arc<FakeProvider>) {
+    rig_no_search_to(jev, "thread_read", false)
 }
 
 /// The same with the tool the stand-in calls named, and, when `aws`, an account configured so the
 /// `aws_*` tools are in the catalog.
-fn rig_detouring_to(jev: &FakeJev, tool: &str, aws: bool) -> (Rig, Arc<FakeProvider>) {
+fn rig_no_search_to(jev: &FakeJev, tool: &str, aws: bool) -> (Rig, Arc<FakeProvider>) {
     let haiku = Arc::new(FakeProvider::scripted(vec![
         Scripted::tools("", &[("t1", tool, json!({}))]),
         Scripted::text("It returned your newest thread."),
@@ -34,9 +32,6 @@ fn rig_detouring_to(jev: &FakeJev, tool: &str, aws: bool) -> (Rig, Arc<FakeProvi
         2,
         move |cfg| {
             cfg.places.owner = Some(vec![format!("discord:{}", crate::tests_places::OWNER)]);
-            // A trivial detour is the small tier, at 1.0 (theseus-d9je7): the raise this rig
-            // proves is held at today's 2.0.
-            cfg.tools.defer.admit_ceiling_small = 2.0;
             if aws {
                 cfg.aws = toml::from_str(
                     "[accounts.123456789012]\nregion = \"us-west-2\"\nendpoint = \"http://127.0.0.1:9\"\n",
@@ -52,14 +47,14 @@ fn rig_detouring_to(jev: &FakeJev, tool: &str, aws: bool) -> (Rig, Arc<FakeProvi
     (r, haiku)
 }
 
-/// The owner's prompt of install #31, judged trivial, so the router detours to
-/// Haiku 5.5 (whose catalog row has no `tool_search`): the detour's request
-/// offers the tool the message names, the call runs, and nothing is a miss.
+/// The owner's prompt of install #31, which the router sends to Haiku 5.5 (whose
+/// catalog row has no `tool_search`): the request offers the tool the message
+/// names, the call runs, and nothing is a miss.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detour_without_tool_search_reaches_a_tool_the_message_names() {
+async fn a_pick_without_tool_search_reaches_a_tool_the_message_names() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "trivial", 0.95);
-    let (r, haiku) = rig_detouring(&jev);
+    let (r, haiku) = rig_no_search(&jev);
     let res = turn(
         &r.core,
         None,
@@ -81,20 +76,19 @@ async fn a_detour_without_tool_search_reaches_a_tool_the_message_names() {
     assert_eq!(used[0]["mechanism"], "find", "{:?}", used[0]);
 }
 
-/// theseus-3msy0: the AWS tools are 6,869 tokens whole, more than any place can add, so a detour that
+/// theseus-3msy0: the AWS tools are 6,869 tokens whole, more than any place can add, so a turn that
 /// named `aws_whoami` loaded nothing and Haiku never reached it. The tools are six families by use
 /// now: the message loads the one that holds the tool, and the request's tools stay within the cli's
 /// budget, as the rule for a named family counts them (`want::extra`).
 ///
-/// theseus-xlri5: back at the cli. At the cli a detour's request is about 7,300 tokens before any
+/// theseus-xlri5: back at the cli. At the cli a request is about 7,300 tokens before any
 /// named family (theseus-3bs4e), so the AWS family it names passes the budget: it is admitted past it
 /// by its own size, under the ceiling, and the result's `raised` names it, `by: named`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detour_without_tool_search_reaches_an_aws_tool_within_the_budget() {
+async fn a_pick_without_tool_search_reaches_an_aws_tool_within_the_budget() {
     let jev = FakeJev::start().unwrap();
-    // A quick detour: a trivial one carries `tools_find` alone (theseus-d9je7).
     mode(&jev, "quick", 0.95);
-    let (r, haiku) = rig_detouring_to(&jev, "aws_whoami", true);
+    let (r, haiku) = rig_no_search_to(&jev, "aws_whoami", true);
     let res = turn(
         &r.core,
         None,

@@ -67,46 +67,6 @@ pub fn profile_for<'p>(option: &str, profiles: &'p Profiles) -> Option<&'p str> 
         .map(|(name, _)| name.as_str())
 }
 
-/// A block's explanation for `theseus why`: its first sentence, then the
-/// sentence that says what it is for (`For ...` or `Only for ...`), joined by an
-/// ellipsis, so a reader sees the condition that fired. A block with no such
-/// sentence is its first alone.
-pub fn block_why(means: &str) -> String {
-    let sentences = sentences(means);
-    let Some(first) = sentences.first() else {
-        return String::new();
-    };
-    match sentences
-        .iter()
-        .skip(1)
-        .find(|s| s.starts_with("For ") || s.starts_with("Only for "))
-    {
-        Some(used) => format!("{first} … {used}"),
-        None => first.clone(),
-    }
-}
-
-/// A text's sentences: split after `. ` before a capital, so a price's decimal
-/// point and a version's end none.
-fn sentences(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
-    let mut start = 0;
-    for (k, (at, c)) in chars.iter().enumerate() {
-        let next = chars.get(k + 1).map(|(_, c)| *c);
-        let after = chars.get(k + 2).map(|(_, c)| *c);
-        if *c == '.' && next == Some(' ') && after.is_some_and(char::is_uppercase) {
-            out.push(text[start..=*at].trim().to_string());
-            start = chars[k + 1].0 + 1;
-        }
-    }
-    let rest = text[start..].trim();
-    if !rest.is_empty() {
-        out.push(rest.to_string());
-    }
-    out
-}
-
 /// Why a pick's profile cannot run the turn, if it cannot: the data rule's
 /// voice (`DataGate`) before any other.
 fn refusal(p: &Profile, a: &Ask<'_>) -> Option<Reason> {
@@ -123,7 +83,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     let stay = |reason: Reason| Decision {
         profile: a.base.to_string(),
         reason,
-        detour: false,
         switch: false,
         hold: HoldNext::Clear,
     };
@@ -148,7 +107,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
         return Decision {
             profile: name.to_string(),
             reason: Reason::Verdict,
-            detour: false,
             switch: true,
             hold: HoldNext::Clear,
         };
@@ -156,7 +114,6 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
     Decision {
         profile: a.base.to_string(),
         reason: Reason::CacheHold,
-        detour: false,
         switch: false,
         hold: HoldNext::Set(Hold {
             mode: m.choice.clone(),

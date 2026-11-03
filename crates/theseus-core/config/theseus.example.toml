@@ -577,7 +577,6 @@ load_share = 0.10                       # a family used in this share of a place
 window_days = 14                        # ... over this many days
 hide_after_days = 14                    # a family loaded by default and unused this long hides
 admit_ceiling = 2.0                     # a family named or judged relevant loads past the place's budget, to this multiple of it (1.0: the cap); an ordinary prompt's
-admit_ceiling_small = 1.0               # ... a small prompt's (the route pack's trivial)
 admit_ceiling_deep = 3.0                # ... a deep prompt's (sophisticated, deep_coding, review); the three alike: one ceiling for all
 judge_families = true                   # Jev judges each hidden family against the prompt, once a prompt (false: named families only)
 judge_wait_ms = 200                     # the most a turn waits for that judgment, from the message's arrival
@@ -1666,10 +1665,9 @@ margin = 0.02                           # at the minimum sample, precision and r
 # turn runs on the configured profile that runs the model Jev picked: its provider's key settled,
 # its model priced, and able to read the turn's images; else the session's own. A pick the data rule
 # keeps off (a session whose labels allow no China-origin model, below) runs the [model] default with
-# reason data_gate. A message Jev answers from the last exchanges alone (context = short) runs
-# that turn on the pick with the last trivial_context_turns exchanges, and the session stays where it
-# was. Any other pick moves the session: at once under cold_switch_tokens of context, above it
-# only when two messages in a row agree (a switch leaves the cache cold). A turn whose profile,
+# reason data_gate. A pick moves the session: at once under cold_switch_tokens of context, above it
+# only when two messages in a row agree (a switch leaves the cache cold). Every turn compiles the
+# whole working context, whichever model answers it. A turn whose profile,
 # provider or model you chose (`theseus ask -P/-p/-m`, `theseus profile use`, the cockpit's
 # picker) is yours: a pin, never routed. No place caps it and no count of moves limits it.
 # In the same request the pack asks the effort the reply needs (low, medium, high, xhigh,
@@ -1678,13 +1676,12 @@ margin = 0.02                           # at the minimum sample, precision and r
 # verdict, the profile's own (or the model's default) effort stands.
 # The keys the old routing read (a table of profiles per class, switch_confidence, effort_bounds,
 # high_effort_confidence, effort_confidence, effort_floor_confidence, dear_tier_max_tokens,
-# task_checkpoints max_switches) are retired: a config that still sets one loads, warns once and
-# ignores it.
+# trivial_context_turns, task_checkpoints max_switches, and [tools.defer] admit_ceiling_small)
+# are retired: a config that still sets one loads, warns once and ignores it.
 [routing]
 enabled = true                          # acts only while [judge] is on
 rung = "live"                           # "shadow" records each verdict and routes nothing
 max_wait_ms = 200                       # the most the first call waits for the verdict after its compile
-trivial_context_turns = 2               # the exchanges a short context carries
 cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
 # the route pack about its recent state at a loop boundary when it fails, stalls, changes phase

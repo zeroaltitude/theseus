@@ -234,7 +234,6 @@ impl TurnRunner {
             return Ok(Some(Decision {
                 profile: DEFAULT_PROFILE.into(),
                 reason: Reason::DataGate,
-                detour: false,
                 switch: false,
                 hold: HoldNext::Keep,
             }));
@@ -273,7 +272,6 @@ impl TurnRunner {
         let d = Decision {
             profile: DEFAULT_PROFILE.into(),
             reason: Reason::DataGate,
-            detour: false,
             switch: false,
             hold: HoldNext::Keep,
         };

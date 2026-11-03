@@ -147,10 +147,10 @@ async fn a_late_verdict_carries_its_mode_and_never_its_effort() {
     );
 }
 
-/// A detour runs at Jev's effort too: a quick question on `haiku` (whose
+/// A pick runs at Jev's effort too: a quick question on `haiku` (whose
 /// profile says `low`) at medium, for that turn alone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_detour_runs_at_jevs_effort() {
+async fn a_pick_on_haiku_runs_at_jevs_effort() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "quick", 0.95);
     effort(&jev, "medium", 0.95);

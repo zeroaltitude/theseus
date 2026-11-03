@@ -225,7 +225,6 @@ mod tests {
             added: Default::default(),
             dropped: Default::default(),
             raised: None,
-            bare: false,
         };
         let mut made = 0;
         let first = tools.resolved(&d("x"), |l| {

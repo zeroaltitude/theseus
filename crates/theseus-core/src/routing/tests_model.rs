@@ -15,7 +15,6 @@ fn catalog_profile(provider: &str, model: &str, restricted: bool) -> Profile {
         model: model.into(),
         unusable: None,
         short_cost: Some(short_cost(e)),
-        input_per_mtok: Some(e.input_per_mtok),
         vision: e.vision,
         restricted,
     }
@@ -117,7 +116,6 @@ fn a_sure_pick_runs_and_switches_a_small_session() {
         Decision {
             profile: "opus".into(),
             reason: Reason::Verdict,
-            detour: false,
             switch: true,
             hold: HoldNext::Clear,
         }
@@ -129,8 +127,8 @@ fn a_pick_at_the_base_stays_and_clears_a_hold() {
     let v = open("sonnet");
     let got = d(&v, "sonnet", 400_000);
     assert_eq!(
-        (got.profile.as_str(), got.reason, got.switch, got.detour),
-        ("sonnet", Reason::Verdict, false, false)
+        (got.profile.as_str(), got.reason, got.switch),
+        ("sonnet", Reason::Verdict, false)
     );
     assert_eq!(got.hold, HoldNext::Clear);
 }
@@ -271,29 +269,6 @@ fn the_cache_hold_defers_a_full_switch_one_turn_and_never_longer() {
     );
 }
 
-/// theseus-h66v4.1: the `context` question is gone, and with it the detour. A
-/// pick, sure or not, on any size of session, is never a detour: every turn
-/// compiles the whole working context on the model that answers it.
-#[test]
-fn a_pick_is_never_a_detour_every_turn_compiles_the_whole_context() {
-    for (pick, base) in [
-        ("haiku", "sonnet"),
-        ("sonnet", "sonnet"),
-        ("opus", "sonnet"),
-    ] {
-        for est in [0, 1_000, 29_999, 200_000, 900_000] {
-            let got = d(&open(pick), base, est);
-            assert!(!got.detour, "{pick} on {base} at {est}");
-        }
-    }
-    // Nor an unsure one, nor one the floor refused.
-    let v = Verdict {
-        model: Some(pick("opus", 0.4, false)),
-        ..open("opus")
-    };
-    assert!(!d(&v, "sonnet", 100_000).detour);
-}
-
 #[test]
 fn nothing_of_the_old_walk_is_left() {
     // No step down: a session Jev moved up goes down only because Jev says so,
@@ -316,7 +291,7 @@ fn nothing_of_the_old_walk_is_left() {
 #[test]
 fn a_verdict_without_a_model_answer_stays_on_the_base() {
     let v = super::tests::verdict("sophisticated", 0.95);
-    assert!(!v.open());
+    assert!(v.model.is_none());
     let got = decide(
         &cfg(),
         &five_options(),
@@ -326,29 +301,6 @@ fn a_verdict_without_a_model_answer_stays_on_the_base() {
         (got.profile.as_str(), got.reason, got.switch),
         ("sonnet", Reason::NoVerdict, false)
     );
-}
-
-#[test]
-fn a_blocks_why_is_its_first_sentence_and_the_one_that_says_what_it_is_for() {
-    let opus = "Opus 5.5 (Anthropic, US). Twice Sonnet's price: $4 in, $20 out, $0.20 a cache read per million. Always thinks; its maker's default effort is medium. For reviewing code, a plan or an argument for mistakes; comparing things on their merits. Not for programming itself, where Sonnet solves nearly as much for far less.";
-    assert_eq!(
-        model::block_why(opus),
-        "Opus 5.5 (Anthropic, US). … For reviewing code, a plan or an argument for mistakes; comparing things on their merits."
-    );
-    let fable = "Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out. Always thinks. Only for the hardest design or reasoning problems: novel, spanning many parts. Never for ordinary programming.";
-    assert_eq!(
-        model::block_why(fable),
-        "Fable 5.1 (Anthropic, US), the most capable: $10 in, $50 out. … Only for the hardest design or reasoning problems: novel, spanning many parts."
-    );
-    // Prices hold decimal points, which end no sentence.
-    let sonnet = "Sonnet 5.5 (Anthropic, US). The usual choice: $2 in, $10 out, $0.20 a cache read per million. For conversation about the work. Choose it when unsure.";
-    assert_eq!(
-        model::block_why(sonnet),
-        "Sonnet 5.5 (Anthropic, US). … For conversation about the work."
-    );
-    // A block with no "for" sentence is its first sentence alone.
-    assert_eq!(model::block_why("Only a name."), "Only a name.");
-    assert_eq!(model::block_why(""), "");
 }
 
 fn fixture() -> theseus_judge::Pack {
@@ -401,8 +353,7 @@ fn every_embedded_pack_that_asks_model_names_only_what_the_table_runs() {
     }
 }
 
-// The seam between row 3's `model` path and row 4's checkpoint and brief rules
-// (theseus-h66v4's join): each was green alone, against a different `decide`.
+// A task's checkpoint and brief ask the same rule as a turn does (`decide`).
 
 /// A task's checkpoint takes Jev's `model` pick, up or down, with no base to
 /// return to and no place cap to refuse it.
@@ -411,15 +362,16 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
     let ps = five_options();
     for (pick, from, to) in [("opus", "sonnet", "opus"), ("haiku", "opus", "haiku")] {
         let v = open(pick);
-        let got = checkpoint::decide(
+        let got = decide(
             &cfg(),
             &ps,
-            &checkpoint::CheckpointAsk {
+            &Ask {
                 verdict: &v,
-                current: from,
+                base: from,
                 est_tokens: 1_000,
                 hold: None,
                 images: false,
+                cleared: false,
             },
         );
         assert_eq!(
@@ -430,22 +382,21 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
     }
 }
 
-/// The checkpoint's own cache hold sits on top of the `model` path's: a move at
-/// or above the cold-switch estimate waits one agreeing checkpoint, and the
-/// agreeing one moves (the `model` path's own hold is switched off for it, so
-/// the two never stack into a wait of two).
+/// A checkpoint's cache hold is the rule's: a move at or above the cold-switch
+/// estimate waits one agreeing checkpoint, and the agreeing one moves.
 #[test]
 fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
     let ps = five_options();
     let v = open("opus");
-    let ask = |hold| checkpoint::CheckpointAsk {
+    let ask = |hold| Ask {
         verdict: &v,
-        current: "sonnet",
+        base: "sonnet",
         est_tokens: COLD + 1,
         hold,
         images: false,
+        cleared: false,
     };
-    let first = checkpoint::decide(&cfg(), &ps, &ask(None));
+    let first = decide(&cfg(), &ps, &ask(None));
     assert_eq!(
         (first.profile.as_str(), first.reason),
         ("sonnet", Reason::CacheHold)
@@ -453,7 +404,7 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
     let HoldNext::Set(held) = first.hold else {
         panic!("the first sets a hold");
     };
-    let second = checkpoint::decide(&cfg(), &ps, &ask(Some(&held)));
+    let second = decide(&cfg(), &ps, &ask(Some(&held)));
     assert_eq!(
         (second.profile.as_str(), second.reason, second.switch),
         ("opus", Reason::Verdict, true)
@@ -461,11 +412,12 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
 }
 
 /// A task's brief takes Jev's pick as the task's starting model, whatever the
-/// parent runs on and however big the parent's conversation is.
+/// parent runs on: the step asks with nothing to keep warm (`est_tokens: 0`)
+/// and nothing held.
 #[test]
 fn a_brief_starts_a_task_on_jevs_pick() {
     let v = open("haiku");
-    let got = brief::brief_base(&cfg(), &five_options(), &ask(&v, "opus", 1_000_000));
+    let got = d(&v, "opus", 0);
     assert_eq!(
         (got.profile.as_str(), got.reason, got.switch),
         ("haiku", Reason::Verdict, true)

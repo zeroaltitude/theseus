@@ -133,13 +133,11 @@ fn the_acting_list_names_each_packs_own_options() {
             "{pack}: it is the deciding question"
         );
     }
-    // route.v8's `mode` row is still there for route.v8, and route.v8 has no `model` question to
-    // match the new row against: one pack id, one row per question the pack asks.
-    let v8 = theseus_judge::pack::by_name("route.v8").unwrap();
-    assert!(ACTING
+    // route.v8's `mode` row went with the class table: no pack that acts asks `mode`, so the row
+    // counted nothing for promotion or for a proposal.
+    assert!(!ACTING
         .iter()
         .any(|(id, q, _)| *id == "route" && *q == "mode"));
-    assert!(v8.question("model").is_none());
 }
 
 /// Reader 6: the correction has no mode vocabulary: `To::Mode` and the names it was spelled with went

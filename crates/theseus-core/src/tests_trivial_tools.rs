@@ -1,6 +1,5 @@
-//! A trivial detour carries `tools_find` and what its message names (theseus-d9je7). The audit
-//! found the tools were 86 to 88 per cent of a greeting's request; the owner asked for the one
-//! tool that can find the rest. A quick detour keeps its place's set.
+//! A pick on a model without tool search keeps its place's set of tools, and `tools_find`
+//! beside it (theseus-d9je7).
 
 use theseus_judge::fake::FakeJev;
 
@@ -8,9 +7,9 @@ use crate::tests_detour::rig_haiku;
 use crate::tests_places::offered;
 use crate::tests_route::{mode, turn};
 
-/// A quick detour keeps its place's families (`files` and `commands` at the cli).
+/// A routed pick keeps its place's families (`files` and `commands` at the cli).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_quick_detour_keeps_its_tools() {
+async fn a_routed_pick_keeps_its_places_tools() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "quick", 0.92);
     let (r, haiku) = rig_haiku(&jev, 1, |_| {});

@@ -13,7 +13,7 @@ small model and a hard refactor to a large one at high effort, and the answer to
 
 ## How it works
 
-- **Packs of questions, versioned.** Each judgment is a pack (`route.v8`, `classify.v4`, `rerank.v1`,
+- **Packs of questions, versioned.** Each judgment is a pack (`route.v10`, `classify.v4`, `rerank.v1`,
   `recall_cross.v1`, `content.v3`), asked over a typed state and answered with probabilities and a confidence
   (`crates/theseus-judge/src/pack.rs`, `builders/`). The spec is
   [§3.7 Judgments (Jev) as a core service](../spec/03-part1-s3.md#37-judgments-jev-as-a-core-service).

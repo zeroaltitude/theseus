@@ -110,10 +110,6 @@ pub struct Deferral {
     /// (theseus-xlri5), when any were: the fresh choice's alone, so an append
     /// over a recorded set raises nothing.
     pub raised: Option<theseus_protocol::route::ToolsRaised>,
-    /// A trivial detour's request (theseus-d9je7): `loaded` holds only what the message names,
-    /// and may be empty, so `tools_find` is the one tool, where an empty set otherwise shows
-    /// them all.
-    pub bare: bool,
 }
 
 impl Deferral {
@@ -254,7 +250,7 @@ pub fn resolve(tools: &[Value], d: &Deferral) -> Vec<Value> {
     };
     let any_loaded = plain.iter().any(|t| !hidden(t));
     let any_hidden = plain.iter().any(|t| hidden(t));
-    if !any_hidden || (!any_loaded && !d.bare) {
+    if !any_hidden || !any_loaded {
         return plain.into_iter().cloned().collect();
     }
     match d.mechanism {

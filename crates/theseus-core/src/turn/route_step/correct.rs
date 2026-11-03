@@ -405,7 +405,6 @@ impl TurnRunner {
                 return Decision {
                     profile: p.clone(),
                     reason: routing::Reason::Correction,
-                    detour: false,
                     switch: false,
                     hold: routing::HoldNext::Clear,
                 };
@@ -441,7 +440,7 @@ impl TurnRunner {
             // exists (the router reads it), never a turn's profile.
             Steer::Thread(_) | Steer::Persona(_) => {
                 let mut d = routing::decide(&self.cfg.routing, &profiles, &a);
-                if matches!(d.reason, Reason::Verdict | Reason::Detour) {
+                if d.reason == Reason::Verdict {
                     d.reason = Reason::Correction;
                 }
                 d

@@ -3,8 +3,7 @@
 //! `role.v1`'s (theseus-ddbi; `tests_route_wait`), and
 //! the turn it moves, against the fake Jev, with the profiles on two fake
 //! providers (`anthropic` and `zai`), so each request shows where it went.
-//! A detour's request passes 35a's check: its window's arrangement is
-//! admitted and its recall notes left out (theseus-783a).
+//! A routed turn's later loop keeps its recall (theseus-pa1xx).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -803,12 +802,11 @@ fn carries_note(m: &Value) -> bool {
     m.contains("[Recalled by the harness") || m.contains("tide board")
 }
 
-/// A quick detour's later loop keeps its recall (theseus-pa1xx): once the
-/// first loop's plan frame has written the `Recall` node, the detour's next
-/// compile lets that node, and no other note, through with its window, and
-/// 35a's check admits it.
+/// A quick pick's later loop keeps its recall (theseus-pa1xx): once the
+/// first loop's plan frame has written the `Recall` node, the next compile
+/// lets that node through with its window, and 35a's check admits it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_quick_detours_later_loop_keeps_its_recall() {
+async fn a_quick_picks_later_loop_keeps_its_recall() {
     use crate::provider::Scripted;
     let jev = FakeJev::start().unwrap();
     mode(&jev, "quick", 0.95);

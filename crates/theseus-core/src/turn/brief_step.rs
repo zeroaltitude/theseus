@@ -4,7 +4,7 @@
 //! the route pack about the brief (that one request and no other pack) and waits
 //! for the verdict as a conversation's first message does: the class's first
 //! usable profile, under the place's cap, becomes the task's base
-//! ([`routing::brief::brief_base`]). No verdict in time, a verdict under its
+//! (`TurnRunner::decide_brief`). No verdict in time, a verdict under its
 //! bar, or a class with no usable profile leaves the parent's model, as before.
 //!
 //! The mark that a task wants this is the META record `task.route.<session>`,
@@ -89,11 +89,13 @@ impl TurnRunner {
         Self::route_asked(t, wait, route, false);
     }
 
-    /// The brief's verdict as the task's base: Jev's pick, at once
-    /// (`routing::brief::brief_base`).
+    /// The brief's verdict as the task's base: Jev's pick, at once, by the
+    /// rule with nothing to keep warm and nothing held. The pick is the task's
+    /// base, not a move from its parent's model: it is kept as the session's
+    /// target and routing's `from` is left empty.
     pub(super) fn decide_brief(&self, t: &Turn<'_>, v: &Verdict) -> Decision {
         let profiles = self.route_profiles(t.route.floor());
-        routing::brief::brief_base(
+        routing::decide(
             &self.cfg.routing,
             &profiles,
             &routing::Ask {

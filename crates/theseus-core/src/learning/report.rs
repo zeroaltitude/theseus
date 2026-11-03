@@ -27,24 +27,8 @@ pub const BINS: usize = 10;
 /// minimum counts its deciding question alone.
 pub const ACTING: &[(&str, &str, &[&str])] = &[
     ("loop", "work_state", &["progressing"]),
-    // The route pack (25e; route.v2's `quick`, theseus-3okf) acts on every
-    // mode whose profiles move the turn; `chat` and `other` run on the
-    // session's own, the baseline.
-    (
-        "route",
-        "mode",
-        &[
-            "trivial",
-            "quick",
-            "sophisticated",
-            "deep_coding",
-            "routine_coding",
-            "review",
-        ],
-    ),
-    // route.v10 and its family (theseus-h66v4.6): the same pack id as route.v8's, a different
-    // deciding question, so a row applies to a pack only when the pack asks that question
-    // (`acting`). The report counts per option, as design 5.2 says, where it counted per class.
+    // route.v10 and its family (theseus-h66v4.6). The report counts per option, as design 5.2
+    // says, where it counted per class.
     (
         "route",
         "model",
@@ -63,7 +47,7 @@ pub const ACTING: &[(&str, &str, &[&str])] = &[
 ];
 
 /// The acting classes of `pack_id` among the questions its pack asks: the one row whose question
-/// the pack has (route.v8's `mode`, or route.v10's `model`, under the one id `route`).
+/// the pack has.
 fn acting<'q>(
     pack_id: &str,
     asks: impl Iterator<Item = &'q str> + Clone,
