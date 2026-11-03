@@ -5,7 +5,10 @@
 //! a container, CI, or anyone without a vault). Those resolve locally,
 //! before any `op` call, and `theseusd check` and health name each one with
 //! its source. Values live in zeroizing memory and are never logged, stored,
-//! or written anywhere but the header they belong in.
+//! or written anywhere but the header they belong in. A value is trimmed
+//! wherever it comes from (a variable, a file, `op read`, an `op inject` slice,
+//! a fetched note's line), because it rides unmodified in a request header and a
+//! header refuses a newline (theseus-h66v4.5).
 //!
 //! Serve first (FAST, §2; theseus-qa0). The daemon answers its socket before
 //! any secret resolves: `resolve_into` fills a `SecretBoard` in the
@@ -111,10 +114,10 @@ impl SecretRef {
         &self.op_ref
     }
 
-    /// Apply the `#label` selection, if any, to a fetched value.
+    /// Apply the `#label` selection, if any, to a fetched value; the result is trimmed.
     pub fn select(&self, value: String) -> Result<String> {
         let Some(label) = &self.line_label else {
-            return Ok(value);
+            return Ok(value.trim().to_string());
         };
         let want = label.to_ascii_lowercase();
         for line in value.lines() {
@@ -228,7 +231,8 @@ pub fn check_local(reference: &str) -> Result<()> {
 }
 
 /// The value of a local entry (`is_local`), or why it has none; `None` for an
-/// `op://` reference. A variable's value and a file's text are trimmed.
+/// `op://` reference. A variable's value and a file's text are trimmed, as
+/// every value the vault gives is (`read_raw`, `split_injected`, `select`).
 pub(crate) fn local_value(reference: &str) -> Option<Result<Secret, String>> {
     if let Some(var) = reference.strip_prefix("env:") {
         return Some(match std::env::var(var) {
@@ -379,9 +383,12 @@ impl OpReader {
             // op's stderr describes the failure; it does not echo values.
             return Err(op_error(&out.stderr));
         }
-        let value = Zeroizing::new(
+        let text = Zeroizing::new(
             String::from_utf8(out.stdout).map_err(|_| "op returned non-UTF-8".to_string())?,
         );
+        // A stored value may end in a newline of its own, with or without
+        // `--no-newline`; the check is on what is kept.
+        let value = Zeroizing::new(text.trim().to_string());
         if value.is_empty() {
             return Err("op returned an empty value".into());
         }
@@ -473,7 +480,8 @@ impl Fetch for OpReader {
     }
 }
 
-/// The values between `op inject`'s boundary lines, in order, or `None` if
+/// The values between `op inject`'s boundary lines, in order, each trimmed (the
+/// template's own newline is not in a slice, a value's own is), or `None` if
 /// the output is not the template's shape.
 fn split_injected(text: &str, boundary: &str, n: usize) -> Option<Vec<Zeroizing<String>>> {
     let mut rest = text.strip_prefix(&format!("{boundary}0\n"))?;
@@ -485,7 +493,7 @@ fn split_injected(text: &str, boundary: &str, n: usize) -> Option<Vec<Zeroizing<
             format!("\n{boundary}end\n")
         };
         let at = rest.find(&next)?;
-        out.push(Zeroizing::new(rest[..at].to_string()));
+        out.push(Zeroizing::new(rest[..at].trim().to_string()));
         rest = &rest[at + next.len()..];
     }
     Some(out)
