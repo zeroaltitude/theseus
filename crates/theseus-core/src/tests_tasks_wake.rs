@@ -1,6 +1,14 @@
 //! The task tools load when Theseus noticed the work (theseus-o1h3f.3): a turn with no person's
 //! input (a wake, a report, a routine's run) is offered the `tasks` family in a DM and at the CLI,
 //! and a person's turn is exactly as it was (the owner's 13,290-token rule of 2026-10-14).
+//!
+//! **Since theseus-6su0y the second half of that holds only where `[tools.defer]
+//! always_admitted_private` is empty**, which is what the rigs here set. The shipped default
+//! names the tasks, so a person's turn in a private place carries them too, and the loosening has
+//! nothing left to loosen there; `a_private_places_person_turn_carries_the_tasks_by_default`
+//! holds the default, and every rule below is still the rule in a shared place and under the
+//! rollback. The wake's loosening is not retired by this: it is what a turn with no person's
+//! input gets in a place that admits nothing standing.
 
 use std::sync::Arc;
 
@@ -17,7 +25,9 @@ use crate::Core;
 const DM: &str = "dm:271828182845904523";
 
 fn rig() -> Rig {
-    rig_deferring(|_| {}, |_| Scripted::text("Hello."))
+    rig_deferring(crate::tests_places::no_standing_admissions, |_| {
+        Scripted::text("Hello.")
+    })
 }
 
 /// One turn: a person's when `input` is given, else a continuation (a wake's).
@@ -101,7 +111,7 @@ fn waking(req: &ProviderRequest) -> Scripted {
 
 /// The request of the turn the wake started, in a fresh session at `place`.
 async fn woken(place: Option<&str>) -> (Vec<String>, ProviderRequest) {
-    let r = rig_deferring(|_| {}, waking);
+    let r = rig_deferring(crate::tests_places::no_standing_admissions, waking);
     let sid = session(&r.core, place);
     run(&r.core, &sid, Some("WAKE me")).await;
     r.until("the wake's turn", 30, |r| r.requests().len() >= 3)
@@ -150,7 +160,7 @@ async fn a_persons_turn_loads_what_it_always_did() {
 /// it recompiles without it (`Deferral::dropped`) and carries what a person's turn always did.
 #[tokio::test]
 async fn a_persons_turn_after_a_wake_costs_what_it_always_did() {
-    let r = rig_deferring(|_| {}, waking);
+    let r = rig_deferring(crate::tests_places::no_standing_admissions, waking);
     let sid = session(&r.core, Some(DM));
     run(&r.core, &sid, Some("WAKE me")).await;
     r.until("the wake's turn", 30, |r| r.requests().len() >= 3)
@@ -182,7 +192,7 @@ fn offered(req: &ProviderRequest, name: &str) -> bool {
 /// turn, where the tasks would otherwise be held to the budget and evict it.
 #[tokio::test]
 async fn a_wake_turn_loads_the_tasks_and_evicts_no_learned_family() {
-    let r = rig_deferring(|_| {}, waking);
+    let r = rig_deferring(crate::tests_places::no_standing_admissions, waking);
     let at = theseus_protocol::now_unix_ms() - 3 * 86_400_000;
     for i in 0..12 {
         r.core.runner.tools.defer.apply_used(
@@ -303,6 +313,25 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"]
 const DM_PERSON_TOKENS: u64 = 9906;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
 const CLI_PERSON_TOKENS: u64 = 7622;
+
+/// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
+/// private place carries the tasks family without asking for one, and that is the whole of what
+/// changed -- the rest of the request is what `DM_PERSON`/`CLI_PERSON` say, plus the tasks.
+#[tokio::test]
+async fn a_private_places_person_turn_carries_the_tasks_by_default() {
+    for (place, was) in [(Some(DM), &DM_PERSON[..]), (None, &CLI_PERSON[..])] {
+        let r = rig_deferring(|_| {}, |_| Scripted::text("Hello."));
+        let sid = session(&r.core, place);
+        run(&r.core, &sid, Some("hello")).await;
+        let (loaded, tokens, req) = first(&r);
+        eprintln!("TABLE {place:?} person, default: {loaded:?} {tokens}");
+        assert!(!hidden(&req, "task_create"), "{loaded:?}");
+        let mut want: Vec<String> = was.iter().map(|s| s.to_string()).collect();
+        want.push("tasks".into());
+        want.sort();
+        assert_eq!(loaded, want, "the tasks and nothing else joined");
+    }
+}
 
 /// A person's message that asks for a task still loads the family by the ask.
 #[tokio::test]

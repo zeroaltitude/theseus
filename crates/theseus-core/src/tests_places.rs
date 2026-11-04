@@ -247,6 +247,15 @@ pub(crate) fn rig_knowing(
     )
 }
 
+/// `[tools.defer] always_admitted_private = []`, the rollback of theseus-6su0y: a private place
+/// admits no standing family, so one reaches the owner's cli or DM only as it did before — the
+/// message names it, Jev judges it relevant, a search finds it, the ledger's use learned it, or
+/// the turn had no person's input. Every rule written before that row is still tested, under the
+/// config that still has it.
+pub(crate) fn no_standing_admissions(c: &mut Config) {
+    c.tools.defer.always_admitted_private = vec![];
+}
+
 /// `rig_scripted`, its tools deferred as a daemon's are (`tests_defer`).
 pub(crate) fn rig_deferring(
     tweak: impl FnOnce(&mut Config),

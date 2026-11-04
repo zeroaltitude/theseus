@@ -22,7 +22,11 @@ const DM: &str = "dm:271828182845904523";
 const PIPELINE: [&str; 3] = ["self:backlog", "self:mint", "self:review"];
 
 fn rig() -> Rig {
-    rig_deferring(|_| {}, |_| Scripted::text("Hello."))
+    // The rollback of theseus-6su0y: this file is about which AUTHORS are read as noticed, and a
+    // private place that admits the tasks on every turn would offer them to every author alike.
+    rig_deferring(crate::tests_places::no_standing_admissions, |_| {
+        Scripted::text("Hello.")
+    })
 }
 
 /// One turn with `input`, by `author`.

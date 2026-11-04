@@ -14,7 +14,11 @@ const STEP_ONE: &str =
     "Start two background tasks, $1 each: A) bash ~/work/slow.sh census 3; B) slow.sh load 3";
 
 fn rig(search: bool) -> Rig {
-    rig_with(search, |_| {})
+    // The rollback of theseus-6su0y: this file tests which WORDS load the tasks family in a DM
+    // (`want::asks_for_task`), so the standing admission a private place now makes — which reads
+    // no words at all — is off here. `a_private_place_admits_the_tasks_whatever_the_words_are`
+    // below holds the shipped default.
+    rig_with(search, crate::tests_places::no_standing_admissions)
 }
 
 fn rig_with(search: bool, tweak: impl Fn(&mut crate::Config) + Send + 'static) -> Rig {
@@ -82,6 +86,20 @@ async fn everyday_task_words_do_not_load_the_family() {
     ] {
         for search in [true, false] {
             assert!(!loads_tasks(search, message).await, "{message} ({search})");
+        }
+    }
+}
+
+/// The shipped default, which every test above turns off (theseus-6su0y): a private place admits
+/// the tasks family whatever the message says, so none of these words decides anything there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_private_place_admits_the_tasks_whatever_the_words_are() {
+    for search in [true, false] {
+        for message in ["good morning", "what tasks are open?", STEP_ONE] {
+            assert!(
+                loads_tasks_with(rig_with(search, |_| {}), message).await,
+                "{message} ({search})"
+            );
         }
     }
 }

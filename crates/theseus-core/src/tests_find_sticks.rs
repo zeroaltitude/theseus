@@ -47,6 +47,11 @@ fn script(req: &ProviderRequest) -> Scripted {
 fn rig() -> Rig {
     rig_deferring(
         |c| {
+            // The rollback of theseus-6su0y: the drop these tests are about is the one a person's
+            // turn makes after a wake loosened the tasks family in, and a private place that
+            // admits the tasks on every turn has nothing to drop. The rule being tested is still
+            // the rule wherever that list is empty, and in every place that is not private.
+            crate::tests_places::no_standing_admissions(c);
             c.catalog.insert(
                 "claude-sonnet-5-5".into(),
                 CatalogRow {
