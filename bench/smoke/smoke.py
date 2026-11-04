@@ -7,7 +7,7 @@ parts and calls this module to judge each one, write the run's report, and,
 with `--write-floor` only, the floor.
 
     python3 bench/smoke/smoke.py tb RUN_DIR JOB_DIR WALL_S
-    python3 bench/smoke/smoke.py route RUN_DIR [--live PACK] (REPLAY.json WALL_S [--effort EFFORT.json])...
+    python3 bench/smoke/smoke.py route RUN_DIR [--live PACK] [--cases CASES.toml] (REPLAY.json WALL_S [--effort EFFORT.json])...
     python3 bench/smoke/smoke.py recall RUN_DIR EXIT SECONDS LOG
     python3 bench/smoke/smoke.py resume RUN_DIR RESUME.json
     python3 bench/smoke/smoke.py dm RUN_DIR DM.json
@@ -265,8 +265,12 @@ def bust(run_dir: Path, run: int, packs: list[Path], cases: Path, at: int | None
 
     One version for every pack of a run is enough: a version is only ever read beside its own
     pack's id. `at` is the clock, for a test.
+
+    A pack's version is a u32 (`pack.rs`), and a bare epoch in seconds times ten is not one -- the
+    daemon refuses the file with "invalid value: integer ..., expected u32" -- so the clock is
+    taken modulo a hundred million: distinct every second, and every run of one smoke.
     """
-    version = BUMP_BASE + (int(time.time()) if at is None else at) * 10 + run
+    version = BUMP_BASE + (int(time.time()) if at is None else at) % 100_000_000 * 10 + run
     out, named = [], []
     for p in packs:
         text, name = bump_version(p.read_text(), version)
@@ -416,7 +420,21 @@ def _floor_reading(v: Any) -> Any:
     return f"{v['ok']}/{v['of']}" if isinstance(v, dict) else v
 
 
-def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None = None) -> dict[str, Any]:
+def cases_pack_of(path: str | Path) -> str | None:
+    """The pack a cases file is written for, read from the file itself (`pack = "route.v10"`).
+
+    The replay reports the CANDIDATE's name, which since theseus-h420q is a bumped copy's
+    (`route.v938510651`), so it cannot be what tells the part whether the daemon's ladder acts
+    with these cases. The file says, and the file is what the driver replayed.
+    """
+    try:
+        return tomllib.loads(Path(path).read_text()).get("pack")
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+
+def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None = None,
+               cases_pack: str | None = None) -> dict[str, Any]:
     """Three runs of the route cases, each meeting the owner's bars: 80% of its own count, rounded up, on the
     model (over the cases the replay graded), on the musts (over the musts it graded) and on effort within one
     rung (the `effort.v1` replay of the same cases, theseus-h66v4.4). Work and split are not graded here: whether
@@ -465,7 +483,14 @@ def route_part(runs: list[dict[str, Any]], floor: dict | None, live: str | None 
     if fl and fl.get("wall_s") and _over(wall, fl["wall_s"]):
         problems.append(f"slowest run's wall {wall:.0f} s > {SLACK:.0%} of the floor's {fl['wall_s']:.0f} s")
     met = sum(1 for r in real if r["bar"])
-    cases_pack = next((r["pack"] for r in real if r.get("pack")), None)
+    # The cases file's own pack where the driver read it, else the candidate the replay named (a
+    # run with no bumped copies). A bumped copy is a version of the same pack, never another one.
+    reported = next((r["pack"] for r in real if r.get("pack")), None)
+    ids = {p.rsplit(".v", 1)[0] for p in (r["pack"] for r in real if r.get("pack"))}
+    if cases_pack and ids and ids != {cases_pack.rsplit(".v", 1)[0]}:
+        problems.append(f"the runs replayed {', '.join(sorted(ids))}, which is no version of "
+                        f"{cases_pack}: the cases and the candidate are different packs")
+    cases_pack = cases_pack or reported
     acting = (live or "").split(",") if live else []
     if not acting or not all(re.fullmatch(r"route\.v\d+", p) for p in acting):
         acting = []
@@ -719,9 +744,12 @@ def main(argv: list[str]) -> int:
             print(p)
         return 0
     if cmd == "route":
-        live = None
-        if rest[:1] == ["--live"]:
-            live, rest = rest[1] or None, rest[2:]
+        live, cases_pack = None, None
+        while rest[:1] in (["--live"], ["--cases"]):
+            if rest[0] == "--live":
+                live, rest = rest[1] or None, rest[2:]
+            else:
+                cases_pack, rest = cases_pack_of(rest[1]), rest[2:]
         runs = []
         while rest:
             replay_json, wall, rest = rest[0], float(rest[1]), rest[2:]
@@ -729,7 +757,7 @@ def main(argv: list[str]) -> int:
             if rest[:1] == ["--effort"]:
                 effort, rest = _read_json(rest[1]), rest[2:]
             runs.append(route_run(json.loads(Path(replay_json).read_text()), wall, effort))
-        return _save(run_dir, route_part(runs, load_floor(), live))
+        return _save(run_dir, route_part(runs, load_floor(), live, cases_pack))
     if cmd == "recall":
         log = Path(rest[2]).read_text() if Path(rest[2]).exists() else ""
         return _save(run_dir, recall_part(int(rest[0]), float(rest[1]), count_recall_tests(),

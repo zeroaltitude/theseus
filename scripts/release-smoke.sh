@@ -186,7 +186,9 @@ print(",".join(p["pack"] for p in json.load(sys.stdin)["packs"]
     fi
     args+=("$run/route-$i.json" "$(($(now) - t0))" --effort "$run/effort-$i.json")
   done
-  smoke route "$run" --live "$live" "${args[@]}"
+  # `--cases` so the part reads the pack the CASES are written for from the file itself: each run
+  # replays a bumped copy, and the replay names that copy as its candidate.
+  smoke route "$run" --live "$live" --cases "$cases" "${args[@]}"
 }
 
 part_recall() {

@@ -867,6 +867,27 @@ class ThreeSamples(unittest.TestCase):
         # Idempotent, and a name the file already carries is not added twice.
         self.assertEqual(smoke.also_grades(out, ["route.v1000007", before["pack"]]), out)
 
+    def test_the_part_reads_the_cases_files_own_pack_not_the_bumped_candidates(self):
+        # The regression this guard exists for: the replay names the candidate, which is a bumped
+        # copy (`route.v938510651`), so the acting check read "the cases are route.v938510651's"
+        # and turned the whole part into "n/a until the flip" -- a silent PASS.
+        bumped = [replay(pack="route.v938510651", sha=c * 64) for c in "abc"]
+        runs = [smoke.route_run(r, 20.0, effort_replay(sha=e * 64))
+                for r, e in zip(bumped, "xyz")]
+        na = smoke.route_part(runs, None, live="route.v10")
+        self.assertTrue(na.get("na"), na["note"])
+        read = smoke.route_part(runs, None, live="route.v10", cases_pack="route.v10")
+        self.assertFalse(read.get("na"), read["note"])
+        self.assertTrue(read["ok"], read["note"])
+        self.assertEqual(smoke.cases_pack_of(self.CASES), "route.v10")
+        self.assertIsNone(smoke.cases_pack_of(self.CASES.parent / "no-such-file.toml"))
+        # A candidate that is no version of the cases' pack is a FAIL, not an n/a and not a pass.
+        other = [smoke.route_run(replay(pack="loop.v2", sha=c * 64), 20.0,
+                                 effort_replay(sha=e * 64)) for c, e in zip("abc", "xyz")]
+        wrong = smoke.route_part(other, None, live="route.v10", cases_pack="route.v10")
+        self.assertFalse(wrong["ok"])
+        self.assertIn("is no version of route.v10", wrong["note"])
+
     def test_bust_writes_a_runs_copies_and_every_run_gets_its_own_version(self):
         with tempfile.TemporaryDirectory() as d:
             got = [smoke.bust(Path(d), i, [self.PACK, self.EFFORT], self.CASES, at=1_762_000_000)
@@ -881,8 +902,15 @@ class ThreeSamples(unittest.TestCase):
                 self.assertIn(f"route.v{version}", cases["also"])
                 self.assertIn(f"effort.v{version}", cases["also"])
                 self.assertEqual(cases["pack"], "route.v10")
-            # Above every version anybody writes by hand, so a copy is never read as the pack's own.
-            self.assertTrue(all(v > smoke.BUMP_BASE for v in versions), versions)
+            # Above every version anybody writes by hand, so a copy is never read as the pack's own,
+            # and inside a u32, which is what a pack's version is: a bare epoch times ten is not,
+            # and the daemon refused the file with "expected u32" on the first live run.
+            self.assertTrue(all(smoke.BUMP_BASE < v < 2 ** 32 for v in versions), versions)
+            for at in (0, 1_762_000_000, 2 ** 31, 2 ** 32 + 7, 4_000_000_000):
+                for i in (1, 2, 3):
+                    run = smoke.bust(Path(d), i, [self.PACK], self.CASES, at=at)
+                    v = tomllib.loads(run[0].read_text())["version"]
+                    self.assertTrue(smoke.BUMP_BASE < v < 2 ** 32, (at, i, v))
 
 
 if __name__ == "__main__":
