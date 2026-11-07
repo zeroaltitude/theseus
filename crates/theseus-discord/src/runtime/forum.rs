@@ -1259,7 +1259,15 @@ mod tests {
             "the first retry is soon, not a flat minute: {held:?}"
         );
 
-        // Still refused: the wait doubles, and stays under the ceiling.
+        // Still refused, once that wait is over: the next one doubles, and
+        // stays under the ceiling. (Driven before it is over, the worker
+        // answers what is left of it and calls nothing, which is the point.)
+        let soon = w.drive().await.expect("the wait is not over");
+        assert!(
+            soon <= next,
+            "nothing is tried again before its wait is over"
+        );
+        tokio::time::sleep(held + Duration::from_millis(100)).await;
         let t1 = Instant::now();
         let again = w.drive().await.expect("a second refusal holds a retry");
         let held2 = again.saturating_duration_since(t1);
