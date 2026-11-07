@@ -1341,6 +1341,88 @@ class SealedWatch(Case):
         self.assertNotIn("sealed-reach", out)
 
 
+class DataRuleWatch(Case):
+    """The data rule's chokepoints are the keel's (theseus-8itvb).
+
+    theseus-ozplq gave the join a "data-rule" CLASS over this family, which stops a *self* branch at the owner's
+    card. The guard held only two of the family, so every other branch could loosen one and pass with nothing
+    said. These cases are the plant in both directions: with the entries in, the branch is caught; with them
+    taken back out (what main's copy said before this row), the same branch is missed.
+    """
+
+    HELD = (
+        "crates/theseus-core/src/data_gate.rs",
+        "crates/theseus-core/src/exits.rs",
+        "crates/theseus-core/src/peer.rs",
+        "crates/theseus-core/src/peer_proc.rs",
+        "crates/theseusd/src/web.rs",
+    )
+    # In the join's "data-rule" class and deliberately NOT in the guard's list: the classifier's machinery, which
+    # feeds the rule rather than enforcing it, and the route's config table, which the guard's own comment excludes.
+    UNHELD = (
+        "crates/theseus-core/src/content.rs",
+        "crates/theseus-core/src/content_wait.rs",
+        "crates/theseus-core/src/config/routing.rs",
+    )
+    CODE = "pub fn refuse(label: Label) -> bool {\n    label.restricted()\n}\n"
+    LOOSENED = "pub fn refuse(label: Label) -> bool {\n    false\n}\n"
+
+    def setUp(self):
+        super().setUp()
+        spec = importlib.util.spec_from_file_location("keel_guard", GUARD)
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({p: self.CODE for p in self.HELD + self.UNHELD}, "the data rule")
+        self.repo.git("checkout", "-q", "-B", "lane")
+
+    def before(self, *args):
+        """The guard with this row's entries taken back out: main's copy before the tightening."""
+        src = GUARD.read_text()
+        for path in self.HELD:
+            src = sub(src, f'    "{path}",\n', "")
+        copy = Path(self.dir) / "keel-guard-before.py"
+        copy.write_text(src)
+        p = subprocess.run(["python3", str(copy), *args], cwd=self.repo.root, env=self.repo.env,
+                           capture_output=True, text=True)
+        return p.returncode, p.stdout + p.stderr
+
+    def loosen(self, path):
+        self.repo.git("checkout", "-q", "-B", "lane", "main")
+        self.repo.commit({path: self.LOOSENED}, f"loosen {path}")
+
+    def test_the_guard_holds_each_chokepoint_and_none_of_the_machinery(self):
+        for path in self.HELD:
+            self.assertIn(path, self.mod.KEEL_FILES, path)
+        for path in self.UNHELD:
+            self.assertNotIn(path, self.mod.KEEL_FILES, path)
+
+    def test_a_branch_that_loosens_a_chokepoint_is_caught(self):
+        for path in self.HELD:
+            with self.subTest(path=path):
+                self.loosen(path)
+                code, out = self.findings()
+                self.assertEqual(code, 1, out)
+                self.assertRegex(out, rf"{path}:\d+: keel-file: ")
+                self.assertIn(f"Keel: keel-file {path}", out)
+
+    def test_the_same_branch_is_missed_with_the_tightening_reverted(self):
+        for path in self.HELD:
+            with self.subTest(path=path):
+                self.loosen(path)
+                code, out = self.before()
+                self.assertEqual(code, 0, out)
+                self.assertIn("keel: ok", out)
+
+    def test_the_control_touches_nothing_held_and_passes(self):
+        for path in self.UNHELD:
+            with self.subTest(path=path):
+                self.loosen(path)
+                code, out = self.findings()
+                self.assertEqual(code, 0, out)
+                self.assertIn("keel: ok", out)
+
+
 def gpg_key(home, name):
     subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", f"{name} <{name}@example.invalid>",
                     "ed25519", "sign", "never"], env={**os.environ, "GNUPGHOME": home}, check=True,
