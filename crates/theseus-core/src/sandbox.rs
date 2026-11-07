@@ -29,7 +29,7 @@ mod self_build;
 pub use self_build::{env as self_build_env, node_home, supply_chain, SelfBuild, NODE_PIN};
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use anyhow::{bail, Result};
@@ -310,6 +310,10 @@ pub(crate) fn started<'a>(
     };
     rt.sandbox.count(class);
     let view = args.sandbox.as_ref()?;
+    // The listing of a job that ended in the background is only ever pruned
+    // here and by `sandbox.usage`: a daemon nobody asks still drops them.
+    rt.sandbox
+        .prune(|id| still_dispatched(tc.kernel.action(id)));
     let given: Vec<&str> = args.redact.iter().map(|(var, _)| var.as_str()).collect();
     tc.record(&crate::fact::sandbox::SandboxStarted {
         correlation_id,
@@ -329,19 +333,43 @@ pub(crate) fn started<'a>(
     }))
 }
 
-/// An L1 job listed as running (`Sandbox::running`), until this drops.
+/// Whether a listed job's action still runs: dispatched. Any other state
+/// has ended it, `outcome_unknown` (a lost wrapper) included, which
+/// `is_settled` leaves out; no action at all too. An action the store cannot
+/// be read for stays listed.
+pub(crate) fn still_dispatched(action: anyhow::Result<Option<theseus_kernel::Action>>) -> bool {
+    match action {
+        Ok(a) => a.is_some_and(|a| a.state == theseus_kernel::ActionState::Dispatched),
+        Err(_) => true,
+    }
+}
+
+/// An L1 job listed as running (`Sandbox::running`), until this drops, or
+/// for as long as it runs once `keep` was called.
 pub(crate) struct Running<'a> {
     sandbox: &'a Sandbox,
     correlation_id: String,
+    kept: AtomicBool,
+}
+
+impl Running<'_> {
+    /// The job goes on past its call (a background exit): its entry stays
+    /// listed when this drops, and `Sandbox::prune` ends it with the job's
+    /// action. An atomic, for the `&Launched` the batch's background exit has.
+    pub(crate) fn keep(&self) {
+        self.kept.store(true, Ordering::Relaxed);
+    }
 }
 
 impl Drop for Running<'_> {
     fn drop(&mut self) {
-        self.sandbox
-            .running
-            .lock()
-            .unwrap()
-            .remove(&self.correlation_id);
+        if !self.kept.load(Ordering::Relaxed) {
+            self.sandbox
+                .running
+                .lock()
+                .unwrap()
+                .remove(&self.correlation_id);
+        }
     }
 }
 
@@ -518,9 +546,10 @@ pub struct Sandbox {
     /// refusals; and the latest refusal's words.
     egress: [AtomicU64; 4],
     refused_last: Mutex<Option<String>>,
-    /// The L1 jobs that run before their `tool.job_started` row is written,
-    /// by correlation id, for `sandbox.usage` (theseus-kpz1). In memory
-    /// only: the row is the record, and this covers the time before it.
+    /// The L1 jobs that run, by correlation id, for `sandbox.usage`
+    /// (theseus-kpz1): listed from the launch until the call returns, or, for
+    /// a job that went on in the background, until its action ends
+    /// (`prune`). In memory only: the row is the record.
     running: Mutex<std::collections::BTreeMap<String, RunningJob>>,
 }
 
@@ -575,6 +604,24 @@ impl Sandbox {
         Running {
             sandbox: self,
             correlation_id,
+            kept: AtomicBool::new(false),
+        }
+    }
+
+    /// Drops the listed jobs `running` says have ended. A job that went on
+    /// in the background outlives the call whose guard listed it, and
+    /// nothing in a sandbox knows when it ends: the kernel's action does
+    /// (cancel, wrapper lost and a deadline each settle it), so the caller
+    /// brings that, `still_dispatched`. The kernel is read with the list
+    /// unlocked.
+    pub(crate) fn prune(&self, running: impl Fn(&str) -> bool) {
+        let ids: Vec<String> = self.running.lock().unwrap().keys().cloned().collect();
+        let ended: Vec<String> = ids.into_iter().filter(|id| !running(id)).collect();
+        if !ended.is_empty() {
+            let mut list = self.running.lock().unwrap();
+            for id in &ended {
+                list.remove(id);
+            }
         }
     }
 
@@ -706,8 +753,8 @@ impl Sandbox {
         }
     }
 
-    /// `sandbox.usage`: the L1 jobs whose rows are not written yet, with
-    /// their commands (theseus-kpz1), read now.
+    /// `sandbox.usage`: the L1 jobs running now, with their commands
+    /// (theseus-kpz1), read now.
     pub fn usage(&self) -> theseus_protocol::sandbox::SandboxUsage {
         theseus_protocol::sandbox::SandboxUsage {
             at_ms: theseus_protocol::now_unix_ms(),

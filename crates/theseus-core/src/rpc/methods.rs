@@ -1863,6 +1863,9 @@ impl Core {
     /// `sandbox.usage`: the L1 jobs running now. A daemon whose tools are
     /// off runs none.
     pub(super) fn sandbox_usage(&self) -> theseus_protocol::sandbox::SandboxUsage {
+        self.tools
+            .sandbox
+            .prune(|id| crate::sandbox::still_dispatched(self.kernel.action(id)));
         self.tools.sandbox.usage()
     }
 
