@@ -242,7 +242,10 @@ fn the_contract_asks_for_a_life_fact_said_in_passing() {
     let t = extract::tool();
     let d = t["description"].as_str().unwrap();
     for want in ["own life", "likes", "in passing"] {
-        assert!(d.contains(want), "the contract does not ask for {want}: {d}");
+        assert!(
+            d.contains(want),
+            "the contract does not ask for {want}: {d}"
+        );
     }
 }
 
@@ -303,7 +306,22 @@ async fn todays_observation_rides_in_the_next_turns_request() {
         body.contains(ASIDE_FACT),
         "the day's observation is in no request: {body}"
     );
-    // RED-FIRST: the head's assertion goes in with the block.
+    assert!(body.contains(crate::card::noted::HEAD), "{body}");
+
+    // And nowhere the owner is not alone: the same day's note is in no
+    // request of a shared channel, nor of a guild channel bound private.
+    for target in [format!("channel:{LAB}"), format!("channel:{PRIVATE_LAB}")] {
+        let other = session(&r.core, Some(&target));
+        let before = r.fake.requests().len();
+        script(&r, crate::provider::Scripted::text("Aye."));
+        says(&r.core, &other, "What is the tide doing?").await;
+        let sent: Vec<crate::provider::ProviderRequest> =
+            r.fake.requests().into_iter().skip(before).collect();
+        assert_eq!(sent.len(), 1, "{target}");
+        let body = serde_json::to_string(&sent[0]).unwrap();
+        assert!(!body.contains(ASIDE_FACT), "{target}: {body}");
+        assert!(!body.contains(crate::card::noted::HEAD), "{target}: {body}");
+    }
 }
 
 // 2. No request in a shared channel, a guild channel bound private, a task,

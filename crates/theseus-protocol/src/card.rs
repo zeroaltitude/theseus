@@ -19,9 +19,11 @@ pub const CARD_OPTIONS: [&str; 3] = ["Keep", "Edit", "Not this"];
 pub const CARD_STALE_OPTIONS: [&str; 3] = ["Keep", "Edit", "End it"];
 
 /// The record key's prefix of an observation (a META key `card.obs.<id>`):
-/// something the owner said about the owner's own setup, preferences or
-/// decisions, kept privately and unconfirmed. Never a node, never indexed,
-/// never in a prompt (theseus-6f8t0; written by the exchange-end observer).
+/// something the owner said about the owner's own setup, preferences,
+/// decisions or life, kept privately and unconfirmed. Never a node and never
+/// indexed; the day's open ones ride in the tail of a turn the owner is alone
+/// in, after the cached prefix (`card::noted`), and go nowhere else
+/// (theseus-6f8t0; written by the exchange-end observer).
 pub const CARD_OBS_PREFIX: &str = "card.obs.";
 
 /// The key's prefix of the observer's per-session mark (a META key

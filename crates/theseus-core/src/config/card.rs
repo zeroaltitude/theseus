@@ -14,9 +14,11 @@
 //!   once in this many days, until the owner says done (7). 0 turns the nightly
 //!   off; `theseus card propose` still runs it.
 //! - `observe`: live learning (theseus-6f8t0): the exchange-end observer, which
-//!   keeps what the owner says about the owner's own setup, preferences and
-//!   decisions, and the nightly live pass that turns those into questions (on).
-//!   Off also when `day_usd` is 0.
+//!   keeps what the owner says about the owner's own setup, preferences,
+//!   decisions and life, said plainly or in passing; the day's open ones ride
+//!   in the tail of a turn the owner is alone in (`card::noted`), and the
+//!   nightly live pass turns them into questions (on). Off also when
+//!   `day_usd` is 0.
 //! - `live_per_night`: the most live questions one nightly pass proposes (5).
 //! - `stale_per_night`: of those, the most Stale questions, an observation that
 //!   contradicts a live card record (2; at most `live_per_night`).

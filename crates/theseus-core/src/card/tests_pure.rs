@@ -608,3 +608,65 @@ fn the_card_request_forces_its_tool_only_where_thinking_is_off() {
         ask::TOOL,
     );
 }
+
+/// The day's noted block (theseus-6f8t0, the sitting's stop 5): today's open
+/// observations only, newest first, capped, and nothing at all for a day with
+/// none. (Planted revert: render every open observation.)
+#[test]
+fn the_noted_block_shows_todays_open_observations_only() {
+    use super::noted::{render, MAX_LINES};
+    use theseus_protocol::{CardObservation, ObservationKind, ObservationState};
+
+    // Noon today and noon the day before, by the local day the block counts.
+    let now = theseus_protocol::now_unix_ms();
+    let obs = |n: usize, at_ms: u64, state: ObservationState, text: &str| CardObservation {
+        id: format!("cob_{n}"),
+        session: "ses_x".into(),
+        nodes: vec![format!("nod_{n}")],
+        kind: ObservationKind::Fact,
+        text: text.into(),
+        at_ms,
+        contradicts: None,
+        state,
+        proposal: None,
+    };
+    let yesterday = now - 26 * 3_600_000;
+    let all = vec![
+        obs(1, now, ObservationState::Open, "Keeps a praying mantis"),
+        obs(2, now, ObservationState::Used, "Reads the barometer"),
+        obs(3, yesterday, ObservationState::Open, "Sails a grey dinghy"),
+    ];
+    let text = render(&all, now).unwrap();
+    assert!(text.starts_with(super::noted::HEAD), "{text}");
+    assert!(text.contains("Keeps a praying mantis"), "{text}");
+    // The count in the head is today's open ones, and only they are lines.
+    assert!(text.contains(", 1:"), "{text}");
+    assert!(!text.contains("Reads the barometer"), "{text}");
+    assert!(!text.contains("Sails a grey dinghy"), "{text}");
+    assert_eq!(text.lines().count(), 2, "{text}");
+    // The head says what they are, so a turn does not answer them.
+    for says in [
+        "notes, not records",
+        "unless the owner asks",
+        "never act on one as settled",
+    ] {
+        assert!(text.contains(says), "{says}: {text}");
+    }
+    // Nothing noted today: no block at all.
+    assert!(render(&all[1..], now).is_none());
+    assert!(render(&[], now).is_none());
+    // Capped at MAX_LINES, with the head's count still the whole day's.
+    let many: Vec<CardObservation> = (0..MAX_LINES + 4)
+        .map(|n| {
+            obs(
+                n,
+                now,
+                ObservationState::Open,
+                &format!("Hoists halyard {n}"),
+            )
+        })
+        .collect();
+    let text = render(&many, now).unwrap();
+    assert_eq!(text.lines().count(), MAX_LINES + 1, "{text}");
+    assert!(text.contains(&format!(", {}:", MAX_LINES + 4)), "{text}");
+}

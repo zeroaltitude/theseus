@@ -48,14 +48,21 @@
 //! - **Observations** (theseus-6f8t0; `observe.rs`): in a private conversation
 //!   the owner is alone in, one cheap call at an exchange's due point (and the
 //!   nightly sweep) reads the owner's own lines since its mark and keeps what
-//!   they say about the owner that should hold from now on, as unconfirmed
+//!   they say about the owner that should hold from now on — the owner's
+//!   setup and work, and the owner's own life said in passing — as unconfirmed
 //!   `card.obs.<id>` records. They are private notes: never a node, never
-//!   indexed or recalled, in no prompt and no shared place. A later pass turns
+//!   indexed or recalled, and never in a shared place. A later pass turns
 //!   them into questions the owner answers.
+//! - **The day's observations ride in the turn's tail** (`noted.rs`,
+//!   theseus-6f8t0, the sitting's stop 5): only where the owner is alone, only
+//!   for a model of unrestricted origin, after the cached prefix, so a turn
+//!   asked what it has learned about the owner today can name what it heard.
+//!   Before it, the records were in no prompt at all and the answer could only
+//!   list what the daemon had done.
 //!
 //! Nothing here is added to the card without the owner's answer, and nothing
-//! enters a turn's path: the job is off every turn, and the standing block's
-//! cached prefix changes only when the owner keeps one.
+//! enters a turn's cached prefix: the job is off every turn, and the standing
+//! block's cached prefix changes only when the owner keeps one.
 
 pub mod answer;
 pub mod ask;
@@ -63,6 +70,7 @@ pub mod cluster;
 pub mod dm;
 pub mod evidence;
 pub mod live;
+pub mod noted;
 pub mod observe;
 pub mod run;
 pub mod state;
