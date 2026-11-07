@@ -237,8 +237,7 @@ impl ShadowBudget {
     pub fn cap(&self, class: Class) -> Micros {
         match class {
             Class::Live => self.limit,
-            // RED STAGE: no second line yet.
-            Class::Shadow => self.limit,
+            Class::Shadow => self.limit * SHADOW_STOP_PERCENT / 100,
         }
     }
 
