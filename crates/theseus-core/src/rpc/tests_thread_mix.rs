@@ -451,9 +451,10 @@ fn tallied(other: usize, home: usize, drops: &[(&str, usize)]) -> Tally {
 /// with msg 113's home note in. On the base (98bz.8's `own_top` for every
 /// provenance) the asking thread's own notes are all in context, so nothing
 /// held another stream's note back: 9 came in, and no drop said `thread_own`,
-/// as on the threadbench's install #74. Now only the one the message waives by
-/// naming homesvc's `notes` root comes in, beside the home note with the new
-/// cutoff. A change that lets other streams back in turns this red.
+/// as on the threadbench's install #74. Then only the one the message waived by
+/// naming homesvc's `notes` root came in; since theseus-2uhsy a generic folder
+/// names no thread, so nothing does, and the home note with the new cutoff is
+/// the only one in. A change that lets other streams back in turns this red.
 #[tokio::test]
 async fn the_fixture_admits_near_t12() {
     let t = tally(Variant::default()).await;
@@ -461,9 +462,9 @@ async fn the_fixture_admits_near_t12() {
         ("thread_bar", 1),
         ("thread_base", 1),
         ("thread_entity", 2),
-        ("thread_own", 8),
+        ("thread_own", 9),
     ];
-    assert_eq!(t, tallied(1, 1, &drops));
+    assert_eq!(t, tallied(0, 1, &drops));
 }
 
 /// `[threads] own_top_admissible = false`: the verdicts before 98bz.8, the
@@ -479,15 +480,16 @@ async fn the_fixture_with_the_key_off_is_the_old_lens() {
         ("thread_bar", 1),
         ("thread_base", 2),
         ("thread_entity", 2),
-        ("thread_own", 8),
+        ("thread_own", 9),
     ];
-    assert_eq!(t, tallied(1, 0, &drops));
+    assert_eq!(t, tallied(0, 0, &drops));
 }
 
 /// The bisect's other switches, each alone (theseus-stwkb): without the
-/// working sets' roots the `notes` waiver is gone; a link waives its other
-/// end; Jev's yes admits a note `own_top` held back. On the base each left
-/// 9 in, since nothing was held back to move.
+/// working sets' roots nothing moves, since `notes` waived by name until
+/// theseus-2uhsy and no longer does; a link waives its other end; Jev's yes
+/// admits a note `own_top` held back. On the base each left 9 in, since
+/// nothing was held back to move.
 #[tokio::test]
 async fn the_fixtures_other_switches_each_move_one_note() {
     let roots = tally(Variant {
@@ -517,8 +519,8 @@ async fn the_fixtures_other_switches_each_move_one_note() {
         (roots, linked, jev),
         (
             tallied(0, 1, &drops(9)),
-            tallied(2, 1, &drops(7)),
-            tallied(2, 1, &drops(7)),
+            tallied(1, 1, &drops(8)),
+            tallied(1, 1, &drops(8)),
         )
     );
 }

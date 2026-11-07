@@ -263,6 +263,13 @@ fn has_extension(name: &str) -> bool {
         .is_some_and(|(stem, ext)| !stem.is_empty() && FILE_EXTENSIONS.contains(&ext))
 }
 
+/// Whether `name` is a directory that is layout, not content: what a path's
+/// naming skips here, and what the threads' folder rule reads as one
+/// (`theseus-core`'s `generic_folder`, theseus-2uhsy).
+pub fn is_layout_dir(name: &str) -> bool {
+    GENERIC.contains(&name.to_lowercase().as_str())
+}
+
 /// A path's nearest directory that names something.
 fn directory_of(path: &str) -> Option<&str> {
     let parts: Vec<&str> = path

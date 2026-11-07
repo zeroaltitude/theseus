@@ -57,8 +57,8 @@ use std::path::{Path, PathBuf};
 use theseus_protocol::thread_route::{AskOption, RouteHow, ThreadTag};
 use theseus_protocol::threads::{ThreadInfo, WorkingSet};
 
-use crate::thread_title::title_hit;
 use crate::toolrun::misroute::{fold, normal};
+use crate::{generic_folder::is_generic_folder, thread_title::title_hit};
 
 /// The classify pack's bars for the `thread` question.
 pub const ACT: f64 = 0.90;
@@ -281,7 +281,7 @@ pub fn moved_words(text: &str, threads: &[&ThreadInfo]) -> Option<String> {
 // ---------------------------------------------------------------- entities
 
 /// Words too generic to name a thread's work.
-const GENERIC: &[&str] = &[
+pub(crate) const GENERIC: &[&str] = &[
     "main", "master", "develop", "dev", "src", "lib", "test", "tests", "docs", "doc", "home",
     "tmp", "bin", "app", "api", "web", "core", "build", "target", "node", "git", "the", "and",
 ];
@@ -411,7 +411,7 @@ pub fn entity_hits(text: &str, w: &WorkingSet) -> Vec<(Kind, String)> {
             out.push((Kind::Repo, r.clone()));
         }
     }
-    for r in &w.roots {
+    for r in w.roots.iter().filter(|r| !is_generic_folder(base_of(r))) {
         let e = r.to_lowercase();
         let base = base_of(&e);
         if has_token(&lower, e.trim_end_matches('/'))

@@ -53,7 +53,7 @@ pub struct Board {
 }
 
 impl Board {
-    fn build(records: Vec<ThreadInfo>, sessions: &HashMap<String, String>) -> Self {
+    pub(crate) fn build(records: Vec<ThreadInfo>, sessions: &HashMap<String, String>) -> Self {
         let mut b = Board::default();
         for mut t in records {
             t.session_id = sessions.get(&t.slug).cloned();
