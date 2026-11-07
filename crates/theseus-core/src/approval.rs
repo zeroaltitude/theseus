@@ -86,10 +86,12 @@ impl Surface {
 pub struct Client {
     pub label: String,
     pub surface: Surface,
-    /// The process at the other end, when the listener could tell
-    /// (`SO_PEERCRED`; `--stdio`'s parent): who is behind its answers
-    /// (`peer_proc`, theseus-5rvss). None reads as the owner's own.
-    pub pid: Option<u32>,
+    /// Where the process at the other end is found, when the listener can
+    /// say: who is behind its answers (`peer_proc`, theseus-5rvss). The
+    /// socket gives its peer's pid (`SO_PEERCRED`; `--stdio`'s parent), the
+    /// web UI the connection's two addresses (theseus-iie8e), and a surface
+    /// with no process to read is the owner's own.
+    pub peer: crate::peer_proc::Source,
     /// A test's word for who is behind the connection, in place of a process.
     #[cfg(test)]
     pub behind: Option<crate::peer_proc::Behind>,
@@ -100,14 +102,35 @@ impl Client {
         Self {
             label: label.into(),
             surface,
-            pid: None,
+            peer: crate::peer_proc::Source::Owner,
             #[cfg(test)]
             behind: None,
         }
     }
 
+    /// A connection whose socket peer is process `pid`.
     pub fn with_pid(self, pid: Option<u32>) -> Self {
-        Self { pid, ..self }
+        let peer = pid.map_or(
+            crate::peer_proc::Source::Owner,
+            crate::peer_proc::Source::Pid,
+        );
+        Self { peer, ..self }
+    }
+
+    /// A loopback web connection, by its two addresses as its listener
+    /// accepted them (theseus-iie8e): the process holding the client's end
+    /// is found at the first act that asks who answered. A connection whose
+    /// own server address could not be read has no such end to look for, and
+    /// its answers are an agent's.
+    pub fn with_web_ends(
+        self,
+        server: Option<std::net::SocketAddr>,
+        client: std::net::SocketAddr,
+    ) -> Self {
+        Self {
+            peer: crate::peer_proc::Source::Web { server, client },
+            ..self
+        }
     }
 
     /// A connection whose peer a test says is `behind`.

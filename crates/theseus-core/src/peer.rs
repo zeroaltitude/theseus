@@ -174,6 +174,37 @@ pub fn client_inode(server: SocketAddr, client: SocketAddr) -> Option<u64> {
     None
 }
 
+/// The process that holds the client's end of a loopback TCP connection to
+/// this process: the pid whose open files name that socket's inode
+/// (`client_inode`). The web UI's `/ws` reads it to judge who answered
+/// (theseus-iie8e), as the Unix socket reads `SO_PEERCRED`.
+///
+/// It is the one `/proc` sweep the web UI pays, and it is paid once per
+/// connection, at the first act that asks who is behind it, off the
+/// runtime's workers — never at an accept, as the trace theseus-zmgb retired
+/// was. Only this user's own processes can be read, and theseus-3qf admits
+/// no other user's connection, so the holder is readable wherever it exists.
+/// None when no live row, or no holder, is found, and on a platform that
+/// keeps no such table.
+pub fn client_pid(server: SocketAddr, client: SocketAddr) -> Option<u32> {
+    let inode = client_inode(server, client)?;
+    let want = format!("socket:[{inode}]");
+    std::fs::read_dir("/proc")
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .find(|pid| holds(*pid, &want))
+}
+
+/// Whether `pid` has the socket `want` (`socket:[<inode>]`) open.
+fn holds(pid: u32, want: &str) -> bool {
+    let Ok(fds) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
+        return false;
+    };
+    fds.filter_map(Result::ok)
+        .any(|fd| std::fs::read_link(fd.path()).is_ok_and(|l| l.as_os_str() == want))
+}
+
 /// This process's effective uid: the owner its own sockets carry.
 pub fn own_uid() -> u32 {
     // SAFETY: geteuid takes nothing and cannot fail.
@@ -487,6 +518,32 @@ mod tests {
             drop(connect(&server));
             let (_stream, client) = listener.accept().unwrap();
             assert_eq!(client_uid(server, client), ClientUid::Closed, "{bind}");
+        }
+    }
+
+    /// The holder of a web client's socket (theseus-iie8e): this process's
+    /// own connection to itself is held by this process, on IPv4 and IPv6;
+    /// once the client has closed, no holder is found, and that is what the
+    /// `/ws` guard reads as an agent.
+    #[test]
+    fn the_holder_of_a_web_clients_socket_is_the_process_that_opened_it() {
+        for bind in ["127.0.0.1:0", "[::1]:0"] {
+            let Ok(listener) = std::net::TcpListener::bind(bind) else {
+                continue; // no IPv6 on this machine
+            };
+            let server = listener.local_addr().unwrap();
+            let client =
+                std::net::TcpStream::connect_timeout(&server, std::time::Duration::from_secs(5))
+                    .unwrap();
+            let (_stream, ends) = listener.accept().unwrap();
+            assert_eq!(client_pid(server, ends), Some(std::process::id()), "{bind}");
+            drop(client);
+            drop(_stream);
+            let gone: SocketAddr = match server.ip() {
+                std::net::IpAddr::V4(_) => "127.0.0.1:1".parse().unwrap(),
+                std::net::IpAddr::V6(_) => "[::1]:1".parse().unwrap(),
+            };
+            assert_eq!(client_pid(server, gone), None, "{bind}");
         }
     }
 }

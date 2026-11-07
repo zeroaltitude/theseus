@@ -5,7 +5,7 @@
 //! `peer_proc` finds in `/proc`). A child of `tests_m3` for its rig.
 
 use super::*;
-use crate::approval::Surface::Cli;
+use crate::approval::Surface::{Cli, Web};
 use crate::peer_proc::Behind;
 use theseus_protocol::{method, DigestKind};
 
@@ -19,6 +19,16 @@ fn agent(name: &str) -> crate::approval::Client {
 /// A connection from the owner's own terminal.
 fn owner() -> crate::approval::Client {
     surface("sock#1", Cli).behind(Behind::Owner)
+}
+
+/// A `/ws` connection an agent's process holds (theseus-iie8e).
+fn web_agent(name: &str) -> crate::approval::Client {
+    surface("web#9", Web).behind(Behind::Agent(name.into()))
+}
+
+/// A `/ws` connection the owner's own browser holds.
+fn web_owner() -> crate::approval::Client {
+    surface("web#1", Web).behind(Behind::Owner)
 }
 
 async fn confirm(
@@ -115,6 +125,67 @@ async fn an_agents_approve_of_a_stack_apply_is_refused_and_the_owners_binds() {
     assert_eq!(answered[0]["by"], "the CLI");
     let a = r.core.kernel.action(&q).unwrap().unwrap();
     assert!(a.confirm.is_some(), "the owner's yes bound the confirm");
+}
+
+/// The same guard on the web surface (theseus-iie8e). The cockpit's page and
+/// an agent's raw WebSocket reach `/ws` alike: same uid, same `Origin`, and
+/// neither is asked for anything else. So a `/ws` connection an agent holds
+/// answers no money question either, is named by its agent, and `via` says
+/// `web`; the owner's own browser answers it.
+#[tokio::test]
+async fn an_agents_web_answer_to_a_money_question_is_refused_and_the_owners_binds() {
+    let r = rig(vec![]);
+    let q = plant(&r.core, "aws.stack.apply");
+
+    let e = confirm(&r, web_agent("claude"), &q, true)
+        .await
+        .expect_err("an agent answers no stack apply through the web UI");
+    assert!(e.message.contains(WHY), "{}", e.message);
+    let refused = ledgered(&r, "approval.refused");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(refused[0]["by"], "agent:claude");
+    assert_eq!(refused[0]["via"], "web");
+    assert!(ledgered(&r, "action.confirm_answered").is_empty());
+    still_waiting(&r, &q);
+
+    // A connection whose holder could not be read is an agent's too: no
+    // identity is never the owner (`UNTRACED`).
+    confirm(&r, web_agent(crate::peer_proc::UNTRACED), &q, false)
+        .await
+        .expect_err("an untraced web client does not decline it either");
+    assert_eq!(ledgered(&r, "approval.refused").len(), 2);
+    still_waiting(&r, &q);
+
+    // The owner's own browser still answers it.
+    confirm(&r, web_owner(), &q, true)
+        .await
+        .expect("the owner's own browser");
+    let answered = ledgered(&r, "action.confirm_answered");
+    assert_eq!(answered.len(), 1, "{answered:?}");
+    assert_eq!(answered[0]["by"], "the web UI");
+    let a = r.core.kernel.action(&q).unwrap().unwrap();
+    assert!(a.confirm.is_some(), "the owner's yes bound the confirm");
+}
+
+/// An ordinary approval is an agent's to answer on the web as on the CLI,
+/// and the row says which agent (theseus-iie8e).
+#[tokio::test]
+async fn an_agents_web_answer_to_an_ordinary_approval_runs_and_is_labelled_as_the_agents() {
+    let r = rig(write_script());
+    let res = turn(&r.core, None, "write out.txt").await;
+    let q = res.awaiting_confirm.clone().expect("the write waits");
+    confirm(&r, web_agent("codex"), &q, true).await.unwrap();
+    let cont = r
+        .core
+        .continue_execution(res.execution_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cont.output, "Written.");
+    let rows = ledgered(&r, "action.confirm_answered");
+    assert_eq!(rows[0]["by"], "agent:codex", "{rows:?}");
+    assert_eq!(rows[0]["via"], "web");
+    assert!(ledgered(&r, "approval.refused").is_empty());
 }
 
 /// Every AWS tool that changes AWS or costs, and none that only reads for
@@ -267,6 +338,10 @@ async fn confirm_list_says_an_agent_may_not_answer_a_money_question() {
     for (who, may) in [
         (agent(crate::peer_proc::NO_TERMINAL), false),
         (owner(), true),
+        // The web surface draws no such button for an agent either
+        // (theseus-iie8e).
+        (web_agent("claude"), false),
+        (web_owner(), true),
     ] {
         let list = rpc_as(&r.core, who, method::CONFIRM_LIST, json!({}))
             .await

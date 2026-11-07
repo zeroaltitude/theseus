@@ -319,16 +319,20 @@ async fn own_host(
         .into_response()
 }
 
-/// A TCP connection's client end, as it was accepted.
+/// A TCP connection's two ends, as it was accepted: the client's, and this
+/// server's own. `/ws` carries both into the protocol, so that a judged act
+/// can find the process holding the client's end (theseus-iie8e).
 #[derive(Clone, Copy, Debug)]
 struct Ends {
     client: SocketAddr,
+    server: Option<SocketAddr>,
 }
 
 impl Connected<axum::serve::IncomingStream<'_, OwnUser>> for Ends {
     fn connect_info(s: axum::serve::IncomingStream<'_, OwnUser>) -> Self {
         Self {
             client: *s.remote_addr(),
+            server: s.io().local_addr().ok(),
         }
     }
 }
@@ -400,13 +404,21 @@ async fn ws_upgrade(
             .into_response();
     }
     let core = ui.core.clone();
-    ws.on_upgrade(move |socket| bridge(socket, core))
+    ws.on_upgrade(move |socket| bridge(socket, core, ends))
 }
 
 /// WebSocket ⇄ protocol connection. The core serves one end of an in-memory
 /// duplex exactly as it would a Unix socket; this task pumps frames.
+///
+/// The connection keeps its two addresses, so that a judged act can find the
+/// process holding the client's end, as the socket's acts read its peer's
+/// pid (theseus-iie8e). Without them an agent's own WebSocket would answer
+/// as the owner: the admit (theseus-3qf) says only that the client is this
+/// user's, and `Host` and `Origin` say only that the request claims to be
+/// the cockpit's page. A connection whose server end had no address keeps
+/// none, and its answers read as an agent's, never as the owner's.
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
-async fn bridge(socket: WebSocket, core: Arc<Core>) {
+async fn bridge(socket: WebSocket, core: Arc<Core>, ends: Ends) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let client = format!("web#{n}");
@@ -414,11 +426,8 @@ async fn bridge(socket: WebSocket, core: Arc<Core>) {
 
     let (ours, theirs) = tokio::io::duplex(256 * 1024);
     let (core_r, core_w) = tokio::io::split(theirs);
-    let server = tokio::spawn(core.serve_connection(
-        core_r,
-        core_w,
-        Client::new(client.clone(), Surface::Web),
-    ));
+    let who = Client::new(client.clone(), Surface::Web).with_web_ends(ends.server, ends.client);
+    let server = tokio::spawn(core.serve_connection(core_r, core_w, who));
 
     let (from_core, mut to_core) = tokio::io::split(ours);
     let (mut ws_tx, mut ws_rx) = socket.split();
