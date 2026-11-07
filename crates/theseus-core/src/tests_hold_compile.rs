@@ -11,7 +11,7 @@ use crate::outbox::{body_of, kind_of, OPERATOR_TARGET};
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 use crate::tests_judge::kinds;
-use crate::tests_route::{mode, rig, Rig};
+use crate::tests_route::{mode, rig_parts, Rig};
 use crate::turn::{TurnError, TurnRequest};
 use theseus_protocol::{SessionKind, TurnSubmitResult};
 
@@ -28,15 +28,27 @@ fn reach(tokens: usize) -> String {
     s
 }
 
+/// How long these turns wait for their verdict. The rig's own bound is 5 s,
+/// which is `Config::validate`'s cap, so it is set in `Parts` instead, after
+/// the config is validated: on a starved host the fake's answer can take
+/// longer than the cap, and a turn that read `late` would lose the hold the
+/// tests below are about (theseus-ler3c, after theseus-biy3). No test here
+/// times anything, so a long bound costs nothing: the wait ends as the
+/// verdict lands.
+const WAIT_MS: u64 = 120_000;
+
 /// A route rig whose model's window the message passes, Jev reading it as a
 /// sure reach, and a session in a guild channel (shared) or not (private).
 fn rigged(shared: bool) -> (Rig, FakeJev, String) {
-    rigged_with(shared, |_| {})
+    rigged_waiting(shared, WAIT_MS, |_| {})
 }
 
-fn rigged_with(
+/// [`rigged`], waiting at most `wait_ms` for the verdict, with `more` on the
+/// config.
+fn rigged_waiting(
     shared: bool,
-    more: impl Fn(&mut crate::Config) + 'static,
+    wait_ms: u64,
+    more: impl FnOnce(&mut crate::Config),
 ) -> (Rig, FakeJev, String) {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "chat", 0.95);
@@ -47,17 +59,22 @@ fn rigged_with(
             confidence: 0.95,
         },
     );
-    let r = rig(Some(&jev), 3, |c| {
-        c.catalog.insert(
-            "claude-sonnet-5-5".into(),
-            crate::catalog::CatalogRow {
-                context_window: Some(WINDOW),
-                max_output_tokens: Some(2_000),
-                ..Default::default()
-            },
-        );
-        more(c);
-    });
+    let r = rig_parts(
+        Some(&jev),
+        3,
+        |c| {
+            c.catalog.insert(
+                "claude-sonnet-5-5".into(),
+                crate::catalog::CatalogRow {
+                    context_window: Some(WINDOW),
+                    max_output_tokens: Some(2_000),
+                    ..Default::default()
+                },
+            );
+            more(c);
+        },
+        |p| p.cfg.routing.max_wait_ms = wait_ms,
+    );
     r.core
         .runner
         .place_rule
@@ -184,10 +201,7 @@ async fn a_compile_failure_in_a_private_place_still_fails() {
 /// (theseus-m1a51).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_held_compile_failure_records_its_wait() {
-    let (r, jev, sid) = rigged_with(false, |c| {
-        c.routing.max_wait_ms = 300;
-        c.judge.total_secs = 30;
-    });
+    let (r, jev, sid) = rigged_waiting(false, 300, |c| c.judge.total_secs = 30);
     jev.set_mode(theseus_judge::fake::FakeMode::Held);
     run(&r.core, &sid, &reach(50_000))
         .await
@@ -213,6 +227,12 @@ async fn a_held_compile_failure_records_its_wait() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_held_compile_failure_records_its_steer() {
     let (r, _jev, sid) = rigged(true);
+    // A steered turn waits for no verdict (`compile_first`), so this test
+    // would otherwise read whichever came first, the fake's answer or the
+    // compile of a 50 000-token message, and the hold it asserts needs the
+    // verdict. The same switch a pinned turn's tests use has it wait
+    // (theseus-fpvn8, `tests_route_open`).
+    r.core.runner.judge.pins_wait_for_verdicts();
     r.core.runner.judge.corrections.set_pending(
         &sid,
         Steering {
