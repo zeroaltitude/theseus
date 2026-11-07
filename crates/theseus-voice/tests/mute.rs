@@ -156,7 +156,7 @@ async fn a_mute_in_the_middle_of_a_sentence_drops_it() {
 /// audio booked. The turn after the unmute is heard.
 async fn streaming(end_at: u64) -> Call {
     let mut io = WavIo::new(ms(13_000));
-    tone(&mut io, 200, 3_000);
+    tone(&mut io, 200, 2_500);
     tone(&mut io, 9_000, 1_000);
     let (listen, log) = StandInListen::new();
     let script = listen
