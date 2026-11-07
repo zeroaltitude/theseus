@@ -97,3 +97,12 @@ streamed that no `End` carried (the fill, the keep-alive, a dropped session's ta
 emitted as `Event::Streamed` at a `Down` and at the call's end, so every second streamed is booked. Flux has no `smart_format`: dates, times
 and numbers come unformatted. Tests: `tests/flux.rs` (the engine in virtual time), `tests/flux_socket.rs` (the client against a
 local socket server); plant the residual gate's removal and `a_start_of_turn_on_the_echo_alone_does_not_stop_the_clip` goes red.
+
+A muted call (theseus-k2sw, `Command::Mute(bool)`, `src/engine/mute.rs`) hears nothing and still speaks: `at_the_door` drops every
+frame while muted, so no VAD, echo canceller, barge-in count or listener sees one, and a muted speaker is never a barge-in. What
+was open is dropped unheard: a VAD utterance begun before the mute is not sent to be transcribed when it closes, one already sent
+settles as `HeardAs::Muted` with its text blanked (also from the judge, `settle`), and a Flux turn open at the mute (`Lane::muted_turn`)
+is fed silence until its `End`, which is no utterance whether it comes while muted or after the unmute; a `Start` after the unmute
+clears the mark, since the listener's events are in order. Its streamed audio is still booked. Theseus's reply plays to its end
+(`/stop` is what cuts it). `tests/mute.rs`; plant `muted_turn`'s read in `flux_end` and
+`a_streaming_turn_that_ends_after_the_unmute_is_dropped_too` goes red.
