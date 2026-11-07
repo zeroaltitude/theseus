@@ -128,7 +128,7 @@ async fn the_pool_keeps_an_idle_connection_for_the_time_it_is_given() {
 async fn the_warm_up_is_a_keyless_head_sent_only_when_cold() {
     let (base, seen) = server().await;
     let a = client(&base, Duration::from_secs(30));
-    let first = Provider::warm(&a).await.unwrap();
+    let first = Provider::warm(&a, "claude-sonnet-5-5").await.unwrap();
     assert!(!first.already, "a cold client opens a connection");
     assert_eq!(seen.accepts.load(Ordering::SeqCst), 1);
     {
@@ -142,7 +142,7 @@ async fn the_warm_up_is_a_keyless_head_sent_only_when_cold() {
             "no body: {h}"
         );
     }
-    let again = Provider::warm(&a).await.unwrap();
+    let again = Provider::warm(&a, "claude-sonnet-5-5").await.unwrap();
     assert!(again.already, "a warm client sends nothing");
     assert_eq!(seen.heads.lock().unwrap().len(), 1, "no second request");
 }
@@ -154,7 +154,7 @@ async fn a_warm_up_that_cannot_connect_says_so() {
     let base = format!("http://{}", dead.local_addr().unwrap());
     drop(dead);
     let a = client(&base, Duration::from_secs(30));
-    let why = Provider::warm(&a).await.unwrap_err();
+    let why = Provider::warm(&a, "claude-sonnet-5-5").await.unwrap_err();
     assert!(!why.is_empty());
     assert!(!a.is_warm(), "nothing is warm after a failure");
 }
