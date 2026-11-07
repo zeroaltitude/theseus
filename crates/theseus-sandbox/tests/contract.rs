@@ -91,6 +91,10 @@ const CASES: &[Case] = &[
         run: no_ambient_credentials,
     },
     Case {
+        name: "a_hidden_entry_that_is_a_link_is_covered_and_never_stops_the_job",
+        run: hidden_links,
+    },
+    Case {
         name: "exit_status_and_signals",
         run: exit_status_and_signals,
     },
@@ -638,6 +642,109 @@ fn no_ambient_credentials() -> Result<(), String> {
     )
 }
 
+/// 17b's hidden list, theseus-txh9w. An entry may be a symlink, and a
+/// symlink may dangle or name something the view does not show. None of the
+/// three may end the job: the mask is a promise about what a job can read,
+/// and a job that never starts is a defect, not a safer sandbox. What a link
+/// does name inside the view must end up covered at the place it names, so
+/// the content is gone through the link and at its own path alike.
+fn hidden_links() -> Result<(), String> {
+    let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let elsewhere = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (w, e) = (ws.path(), elsewhere.path());
+    fn io(p: &Path, r: std::io::Result<()>) -> Result<(), String> {
+        r.map_err(|e| format!("{}: {e}", p.display()))
+    }
+    let dir = |p: PathBuf| io(&p, fs::create_dir(&p));
+    let file = |p: PathBuf| io(&p, fs::write(&p, "the operator's"));
+    let link = |to: PathBuf, at: PathBuf| io(&at, std::os::unix::fs::symlink(to, &at));
+    // Out of the view: a real directory of the host's that no bind shows.
+    dir(e.join("real"))?;
+    file(e.join("real/inside"))?;
+    // Hidden, each a different shape.
+    dir(w.join("plain_dir"))?;
+    file(w.join("plain_dir/inside"))?;
+    file(w.join("plain_file"))?;
+    dir(w.join("named_dir"))?;
+    file(w.join("named_dir/inside"))?;
+    file(w.join("named_file"))?;
+    link("named_dir".into(), w.join("to_dir"))?;
+    link("named_file".into(), w.join("to_file"))?;
+    link(w.join("gone"), w.join("dangling"))?;
+    link(e.join("real"), w.join("outside"))?;
+    // The control: not hidden, and still the job's to read.
+    dir(w.join("kept_dir"))?;
+    io(w, fs::write(w.join("kept_dir/inside"), "kept"))?;
+    // Two jobs, so that each half is judged on its own: a link that resolves
+    // in the view failed with ENOTDIR before this row, a link that resolves
+    // to nothing with ENOENT, and a test that stopped at the first would say
+    // nothing about the second.
+    let names = |ns: &[&str]| -> Vec<PathBuf> { ns.iter().map(|n| w.join(n)).collect() };
+    let resolves = names(&["plain_dir", "plain_file", "to_dir", "to_file"]);
+    let does_not = names(&["dangling", "outside"]);
+    let a = probe_in(w, "hidden", &["{ws}"], |s| s.hidden = resolves);
+    let b = probe_in(w, "hidden", &["{ws}"], |s| s.hidden = does_not);
+    let said = |r: &Result<Value, String>| match r {
+        Ok(_) => "the job started".to_string(),
+        Err(e) => e.clone(),
+    };
+    let (a, b) = match (&a, &b) {
+        (Ok(a), Ok(b)) => (a, b),
+        _ => {
+            return Err(format!(
+                "a hidden entry must never stop the job.\n  entries that resolve in the view: {}\n  entries that resolve to nothing: {}",
+                said(&a),
+                said(&b)
+            ))
+        }
+    };
+    // The two shapes that worked before this row, unchanged.
+    check(
+        a["plain_dir"] == json!([]) && a["plain_file"] == "",
+        format!("a plainly named directory or file: {a}"),
+    )?;
+    // A link to a directory, and a link to a file: covered through the link,
+    // and covered at the name the link gives, which is the point of following.
+    for (through, named) in [("to_dir", "named_dir"), ("to_file", "named_file")] {
+        let want = if through == "to_dir" {
+            json!([])
+        } else {
+            json!("")
+        };
+        check(
+            a[through] == want && a[named] == want,
+            format!("{through} -> {named}: {} and {}", a[through], a[named]),
+        )?;
+    }
+    // Nothing resolves behind these two, so there is nothing to cover: the
+    // link is still a link, and what it names is still not in the view. The
+    // second job hid neither of the first job's names, so they are readable
+    // there: masking is what covers a path, never the listing.
+    check(
+        b["dangling"] == "ENOENT" && b["dangling_target"] == "ok",
+        format!(
+            "the dangling link: {} ({})",
+            b["dangling"], b["dangling_target"]
+        ),
+    )?;
+    check(
+        b["outside"] == "ENOENT",
+        format!("a link out of the view: {}", b["outside"]),
+    )?;
+    check(
+        b["named_dir"] == json!(["inside"]) && b["named_file"] == "the operator's",
+        format!("a name no job hid: {} {}", b["named_dir"], b["named_file"]),
+    )?;
+    // And the control is untouched in both.
+    for v in [a, b] {
+        check(
+            v["kept_dir"] == json!(["inside"]) && v["kept_file"] == "kept",
+            format!("the control: {} {}", v["kept_dir"], v["kept_file"]),
+        )?;
+    }
+    Ok(())
+}
+
 fn exit_status_and_signals() -> Result<(), String> {
     let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (exit, _) = run(&probe_spec(ws.path(), "exit", &["7"]))?;
@@ -984,6 +1091,7 @@ mod probe {
             "fill" => fill(rest[0], rest[1].parse().unwrap_or(1)),
             "spew" => spew(rest[0].parse().unwrap_or(1)),
             "fs" => fs_probe(rest[0]),
+            "hidden" => hidden(rest[0]),
             "scratch" => scratch(rest[0]),
             "egress" => egress(&rest),
             "exit" => std::process::exit(rest[0].parse().unwrap_or(1)),
@@ -1463,6 +1571,31 @@ mod probe {
             "init_root": outcome(fs::read_dir("/proc/1/root")),
             "env": env,
             "ssh_auth_sock": std::env::var_os("SSH_AUTH_SOCK").is_some(),
+        })
+    }
+
+    /// 17b's hidden list seen from inside (theseus-txh9w): what each shape of
+    /// hidden entry shows, and the control beside them. A covered directory
+    /// lists nothing and a covered file reads empty, whatever named it.
+    fn hidden(ws: &str) -> Value {
+        let w = Path::new(ws);
+        let at = |n: &str| w.join(n).display().to_string();
+        let text = |n: &str| match fs::read_to_string(w.join(n)) {
+            Ok(s) => json!(s),
+            Err(e) => outcome::<()>(Err(e)),
+        };
+        json!({
+            "plain_dir": list(&at("plain_dir")),
+            "plain_file": text("plain_file"),
+            "to_dir": list(&at("to_dir")),
+            "named_dir": list(&at("named_dir")),
+            "to_file": text("to_file"),
+            "named_file": text("named_file"),
+            "dangling": text("dangling"),
+            "dangling_target": outcome(fs::read_link(w.join("dangling"))),
+            "outside": list(&at("outside")),
+            "kept_dir": list(&at("kept_dir")),
+            "kept_file": text("kept_dir/inside"),
         })
     }
 
