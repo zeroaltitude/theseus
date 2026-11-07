@@ -42,7 +42,8 @@ use crate::learn::RollbackRule;
 /// theseus-a1wvq and theseus-f9qa8), `route.v10` (Jev chooses the model and the effort,
 /// theseus-h66v4, revised in place by theseus-h66v4.1; the acting pack: `ROUTE_PACK` names it),
 /// `content.v1` (the four content flags, theseus-9ymz0), and `split.v1` (whether the work divides by area, in shadow,
-/// theseus-z9mze.5). Older versions
+/// theseus-z9mze.5), and `undo.v1` (whether a tool call is reversible, the replacement for the approve
+/// lists 1.0.4 deleted; shadow, dispatched from nowhere, theseus-p5kln). Older versions
 /// (`classify.v1`, `route.v1`-`route.v4`, `security.v2`) are in git, and replay by `--pack-file`.
 pub const EMBEDDED: &[(&str, &str)] = &[
     ("probe.v1", include_str!("../packs/probe.v1.toml")),
@@ -91,6 +92,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("content.v2", include_str!("../packs/content.v2.toml")),
     ("content.v3", include_str!("../packs/content.v3.toml")),
     ("split.v1", include_str!("../packs/split.v1.toml")),
+    ("undo.v1", include_str!("../packs/undo.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -175,6 +177,9 @@ pub enum Builder {
     /// `content.v1`'s: one item that entered a session, and what it was and
     /// where it came from (theseus-9ymz0).
     Content,
+    /// `undo.v1`'s: one tool call, and what code found about putting back what
+    /// it would change (theseus-p5kln).
+    Undo,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
@@ -1599,11 +1604,11 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            36,
+            37,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, effort.v1, work.v1, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
-             content.v1 to v3 and split.v1"
+             content.v1 to v3, split.v1 and undo.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
