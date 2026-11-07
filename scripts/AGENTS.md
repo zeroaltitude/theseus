@@ -77,7 +77,9 @@ It runs, in order:
    when something does, which means the tree changed after step 1).
    - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
      and names every fix at once.
-   - The generated TypeScript: it fails when `cockpit/src/protocol.gen/` differs from the commit.
+   - The generated TypeScript: it runs the generator test (`ts::the_cockpits_types_are_generated_from_the_rust_ones`,
+     alone, which must run once and pass) and then fails when `cockpit/src/protocol.gen/` differs from the commit, so
+     a stale file fails the gate that carries it, not the next one (theseus-5epuo).
    - The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
      first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
      three quarters of the cores; when the 2 minutes pass with the machine still busy, the timing budgets get the busy
