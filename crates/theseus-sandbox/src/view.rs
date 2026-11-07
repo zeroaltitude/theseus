@@ -371,11 +371,38 @@ fn sysfs(atime: libc::c_ulong) -> Result<bool, Failure> {
     Ok(true)
 }
 
-/// Covers `p`: a file with `/dev/null`, a directory with an empty read-only
-/// tmpfs. A path this kernel lacks is skipped.
+/// Covers `p`: a directory with an empty read-only tmpfs, anything else with
+/// `/dev/null`. A path that resolves to nothing in the view is skipped.
+///
+/// **`p` is judged by what it resolves to, never by its own type**
+/// (theseus-txh9w). `mount(2)` follows symlinks on its target, so the kind
+/// must be read the same way: `symlink_metadata` called a symlink to a
+/// directory "not a directory" and bound `/dev/null` over the directory the
+/// link named (ENOTDIR), and called a dangling link a file and bound
+/// `/dev/null` over nothing (ENOENT). Either ended the job at the stage
+/// "hiding `<p>`", before it had started.
+///
+/// **The skip is not a way past the mask.** The resolution happens here, in
+/// the view, after every bind and overlay is in place and while the old root
+/// is still attached, so "resolves to nothing" means exactly "no content is
+/// readable through this path inside the view": a link whose target no bind
+/// shows, a link with no target at all, or a loop. What a link *does* name in
+/// the view is covered at the place it names, which hides that content both
+/// through the link and at its own path — so following widens the mask rather
+/// than narrowing it, and no path the old code covered is skipped by the new.
+/// Nothing can widen it afterwards either: the job's command does not exist
+/// while the view is built, the root is read-only by the time it does, and a
+/// mount point cannot be unlinked from inside.
 fn mask(p: &Path) -> io::Result<()> {
-    let m = match fs::symlink_metadata(p) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+    let m = match fs::metadata(p) {
+        Err(e)
+            if matches!(
+                e.raw_os_error(),
+                Some(libc::ENOENT | libc::ENOTDIR | libc::ELOOP)
+            ) =>
+        {
+            return Ok(())
+        }
         r => r?,
     };
     if m.is_dir() {

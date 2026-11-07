@@ -49,6 +49,10 @@ server in L1, M7 43a).
   a `SpawnError` with its stage: never L0 instead.
 - **The view shows nothing it was not given.** A path a `Spec` names must be absolute; a hidden path the view does
   not hold is skipped.
+- **A hidden entry is judged by what it resolves to in the view, never by its own type** (theseus-txh9w), because
+  `mount(2)` follows symlinks on its target: a link is covered at the path it names, and one that resolves to
+  nothing there (dangling, or naming what no bind shows) is skipped. A hidden entry never stops a job: the mask is
+  a promise about what a job can read, and a job that cannot start is a defect, not a safer sandbox.
 
 ## Tests
 
