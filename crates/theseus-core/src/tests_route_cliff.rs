@@ -90,6 +90,12 @@ async fn a_longer_system_prompt_changes_no_model() {
 /// what a one-message session actually carries of its own is a small part of
 /// `cold_switch_tokens`.
 ///
+/// The figures on 2026-11-07, on this rig: the whole estimate 29,996 against a
+/// bound of 30,000 — four tokens, which is what made the cliff — and the
+/// session's own context about 9,000. Those are recorded here and not
+/// asserted: an assertion on the request's size is the very thing this row
+/// exists to take out of the suite.
+///
 /// It is not a bound on how big the prefix may grow — it is the statement that
 /// the prefix and the session's context are different sizes and must not be
 /// weighed as one number. If a later release makes the prefix small, the
@@ -106,15 +112,16 @@ async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
     let rows = crate::tests_route::decided(&r.core.store);
     let est = rows[0]["est_tokens"].as_u64().expect("the row's estimate");
     let cold = r.core.cfg.routing.cold_switch_tokens;
-    assert!(est > cold, "the whole estimate is over the bound: {est}");
 
     let q = r.claude.requests().pop().expect("the request it sent");
     let len = |v: &serde_json::Value| serde_json::to_string(v).map_or(0, |s| s.len() as u64);
-    // The universal prefix as `CacheLayout::universal_prefix_bytes` takes it:
-    // every tool definition and the first system block (the header).
+    // The universal prefix as `CacheLayout::universal_prefix_bytes` takes it —
+    // every tool definition and the first system block, the header — in tokens
+    // as `TurnRunner::fixed_prefix_tokens` converts it.
     let bytes: u64 =
         q.tools.iter().map(len).sum::<u64>() + q.system.first().map_or(0, |b| len(b));
-    let fixed = bytes / 4;
+    let rates = crate::catalog::TokenRates::of(&q.model);
+    let fixed = (bytes as f64 / rates.json.max(rates.text)) as u64;
     let context = est.saturating_sub(fixed);
     assert!(
         fixed > context,
