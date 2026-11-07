@@ -2450,7 +2450,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   runs). The client's pool keeps an idle connection `provider::POOL_IDLE` (300 s; reqwest's default is 90). Only an
   owner's typing counts on Discord (`Core::typist_refused`: another person in a shared place warms nothing), and the
   MCP surface is refused by its allow-list. Health's `warm` block (`WarmHealth`) says when each was last warmed; the
-  metric is `theseus.warm` by target and outcome. Nothing on a turn's path waits for it. Tests: `warm::tests`,
+  metric is `theseus.warm` by target and outcome (`warm`, `opened`, `failed`, and `refused`, the data gate's
+  refusal, which health still words as `failed: …`). Nothing on a turn's path waits for it. Tests: `warm::tests`,
   `rpc/tests_typing.rs` (a stand-in provider that counts warm-ups apart from requests, a stand-in tender socket,
   a provider whose warm-up never ends), `provider/tests_warm.rs` (a loopback server that counts connections).
 - **Retraction** (theseus-2ced; the killer-features plan's R13): `retract.rs`, `fact.retract { node, why }`

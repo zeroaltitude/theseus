@@ -126,7 +126,7 @@ const PUSH_LOST: Instrument = Instrument {
 const WARMS: Instrument = Instrument {
     name: "theseus.warm",
     description:
-        "A person's first keystroke warmed something (theseus-tnky): the provider's connection or the index tender's model, by outcome",
+        "A person's first keystroke warmed something (theseus-tnky): the provider's connection or the index tender's model, by outcome (warm, opened, failed, or refused by the data gate)",
     unit: "",
     kind: Kind::IntSum,
 };
