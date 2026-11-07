@@ -358,7 +358,7 @@ mod tests {
         Ask {
             verdict: v,
             base: current,
-            est_tokens: est,
+            context_tokens: est,
             hold,
             images: false,
             cleared: false,

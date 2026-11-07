@@ -12,10 +12,25 @@
 //!   A pick with no usable profile (no profile for the model, its provider or
 //!   key not ready, a model that cannot read the turn's images) is `fallback`.
 //! - **The cache hold** (design §1.4 step 7, the one hysteresis, money's and
-//!   not a cap): a pick that differs from the session's model, at an
-//!   estimate at or above `cold_switch_tokens`, waits one agreeing turn;
-//!   the next agreeing pick switches. It defers a switch by one turn and never
-//!   refuses a model.
+//!   not a cap): a pick that differs from the session's model, with the session
+//!   carrying `cold_switch_tokens` or more of its own context, waits one
+//!   agreeing turn; the next agreeing pick switches. It defers a switch by one
+//!   turn and never refuses a model.
+//!
+//!   **What it weighs is the session's context, never the request's size**
+//!   (theseus-ataas, 2026-11-07). [`Ask::context_tokens`] is the compile's
+//!   estimate less the request's fixed prefix — the tools and the system
+//!   blocks, which a session carries identically on its first message and its
+//!   hundredth, and which whichever model answers writes cold either way. That
+//!   prefix is most of an ordinary request — `tests_route_cliff` measures it
+//!   and holds it so — so weighing the whole estimate left an ordinary first
+//!   message four tokens under the line (29,996 of 30,000 on the rig the day
+//!   this was written, which is in that test's doc): eighteen more
+//!   characters in the model-facing tools note moved one turn from Opus to
+//!   Sonnet, and the next release's prompt growth would have moved others. The
+//!   hold protects what a conversation has accumulated; a prefix that is there
+//!   before the conversation starts is no reason to defer a switch, so it is
+//!   not counted.
 //! - **Every turn compiles the whole working context**, on whatever model
 //!   answers it. There is no `context` question and no short compile
 //!   (theseus-h66v4.1: the owner's 22:50 answers); what a switch costs is the
@@ -103,7 +118,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
         return stay(Reason::Verdict);
     }
     let agreed = a.hold.is_some_and(|h| h.profile == name);
-    if a.est_tokens < cfg.cold_switch_tokens || agreed {
+    if a.context_tokens < cfg.cold_switch_tokens || agreed {
         return Decision {
             profile: name.to_string(),
             reason: Reason::Verdict,

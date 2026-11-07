@@ -396,7 +396,7 @@ impl TurnRunner {
         t: &Turn<'_>,
         session: &SessionRecord,
         s: &Steering,
-        est_tokens: u64,
+        context: u64,
     ) -> Decision {
         // A profile the data floor keeps the turn off: `data_floor` moves the
         // turn and its row says `data_gate`, not a fallback (theseus-a1wvq.3).
@@ -429,7 +429,7 @@ impl TurnRunner {
         let a = routing::Ask {
             verdict: &v,
             base: &t.target.profile,
-            est_tokens: if at_once { 0 } else { est_tokens },
+            context_tokens: if at_once { 0 } else { context },
             hold: hold.as_ref(),
             images: t.route.images,
             cleared: t.route.floor().cn_ok,

@@ -193,6 +193,11 @@ async fn a_session_that_is_no_places_home_is_not_warned() {
 /// moved one made): the home is weighed once, so the owner's DM hears it once, not twice (the
 /// join fix of integ/harness: the marker waits for the frame, so the second weigh still read
 /// "not told").
+///
+/// The subject is the warning, not routing's cache hold, so the hold is pinned out of the way
+/// (theseus-ataas): until 2026-11-07 this rig rode four tokens under `cold_switch_tokens`, and
+/// eighteen more characters of the model-facing tools note held the switch and failed the
+/// `opus` line below with `sonnet`. `tests_route_cliff` holds the hold's own behaviour.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_routed_turn_past_the_bound_warns_the_owner_once() {
     use crate::tests_route::{mode, rig as routed, turn as routed_turn};
@@ -200,6 +205,7 @@ async fn a_routed_turn_past_the_bound_warns_the_owner_once() {
     mode(&jev, "sophisticated", 0.95);
     let r = routed(Some(&jev), 2, |c| {
         c.threads.enabled = true;
+        c.routing.cold_switch_tokens = u64::MAX;
         low(c);
     });
     bind_dm(&r.core);

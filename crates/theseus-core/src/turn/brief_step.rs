@@ -101,7 +101,7 @@ impl TurnRunner {
             &routing::Ask {
                 verdict: v,
                 base: &t.target.profile,
-                est_tokens: 0,
+                context_tokens: 0,
                 hold: None,
                 images: t.route.images,
                 cleared: t.route.floor().cn_ok,

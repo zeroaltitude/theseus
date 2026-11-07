@@ -1840,7 +1840,14 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `routing::model::decide`: Jev's `model` pick at the pack's own confirm bar, under the data rule's floor and the cache hold; row 6
     deleted the class table, the place cap, the dear tier's guard and the step down): a `short` context (that turn alone, compiled
     outside the session's compilation, which it never writes), or a switch of the session's
-    `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. A turn whose
+    `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. **What the hold
+    weighs is the session's own context, never the request's size** (`Ask::context_tokens`, theseus-ataas,
+    2026-11-07): the compile's estimate less the universal prefix — the tool definitions and layer 1, the header —
+    which every session of every place class carries identically and no conversation adds to. Counting it left an
+    ordinary turn four tokens under the bound, where eighteen more characters of the model-facing tools note moved
+    the turn from opus to sonnet; `tests_route_cliff` holds it, and `tests_route_keep`'s `FILLER` records the four
+    re-tunings that preceded the fix. theseus-rr15's warm-prefix discount still applies for a switch that holds,
+    on the library's warmth **beyond** that prefix. A turn whose
     profile the owner chose (`Target.chosen`; the pane's `carried` profile is none) is recorded in shadow. Only the
     compilation the call uses is persisted (`RouteState.defer_persist`), and only its `context.compiled` and
     `loop.started` recorded (`RouteState.deferred`, theseus-d13v); a detour's loop records `loop.started` and

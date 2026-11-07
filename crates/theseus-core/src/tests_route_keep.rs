@@ -69,20 +69,21 @@ const OUTPUT: u32 = 1_000;
 /// the band above).
 const BILLED: u64 = 42_600;
 
-/// How many times each of the two earlier messages repeats its sentence: the
-/// turn's first compile must estimate under `[routing] cold_switch_tokens`
-/// (30,000), or a `sophisticated` verdict waits a turn for agreement instead of
-/// switching to opus and line 151's three requests stay on sonnet. It was 430
-/// (the first compile then estimated 29,9xx); on the #86 tree, with the p3b
-/// persona's Spoken-aloud line and the p3h `task_wait` and `task_fan_out`
-/// definitions in the request, it estimated 30,098, 98 over the line, and no
-/// WINDOW or BILLED rang less (a 13 x 15 sweep, every cell). 410 repeats put it
-/// back under with room for the next row's sentence.
-/// And 410 until `routine.create` took a start, a stop and a carry
-/// (theseus-97b8c): its description and schema grew the tools block, which put
-/// the first compile back over the line and all three requests on sonnet. A
-/// sweep at its join: 410 fails, and 395, 380, 365, 350, 335 and 320 all hold.
-/// 380 is inside that band with room for the next row's sentence again.
+/// How many times each of the two earlier messages repeats its sentence: it
+/// sizes the ring the window cuts, with `WINDOW` and `BILLED` above.
+///
+/// It used to size something else as well, and that is over (theseus-ataas,
+/// 2026-11-07). The turn's first compile had to estimate under `[routing]
+/// cold_switch_tokens` (30,000), or a `sophisticated` verdict waited a turn for
+/// agreement instead of switching to opus and line 151's three requests stayed
+/// on sonnet — and the estimate counted the tool definitions and the header,
+/// so the filler was re-tuned every time the system prompt grew: 430 until the
+/// #86 tree's persona line and `task_wait` and `task_fan_out` put it at 30,098,
+/// 98 over the line (a 13 x 15 sweep, every cell, none ringing less); then 410
+/// until `routine.create` took a start, a stop and a carry, whose schema put it
+/// back over (a sweep: 410 fails, 395, 380, 365, 350, 335 and 320 hold). The
+/// hold now weighs the session's own context, which these two short messages
+/// are nowhere near, so the next tool to join the catalog moves nothing here.
 const FILLER: usize = 380;
 
 /// The tiers of what a compilation's budget report dropped.

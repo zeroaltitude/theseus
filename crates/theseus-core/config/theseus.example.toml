@@ -1675,8 +1675,10 @@ margin = 0.02                           # at the minimum sample, precision and r
 # turn runs on the configured profile that runs the model Jev picked: its provider's key settled,
 # its model priced, and able to read the turn's images; else the session's own. A pick the data rule
 # keeps off (a session whose labels allow no China-origin model, below) runs the [model] default with
-# reason data_gate. A pick moves the session: at once under cold_switch_tokens of context, above it
-# only when two messages in a row agree (a switch leaves the cache cold). Every turn compiles the
+# reason data_gate. A pick moves the session: at once under cold_switch_tokens of the session's own
+# context, above it only when two messages in a row agree (a switch leaves the cache cold). The
+# session's own context is the compile's estimate less the universal prefix -- the tool definitions
+# and the header block, which every session carries the same before a word is said. Every turn compiles the
 # whole working context, whichever model answers it. A turn whose profile,
 # provider or model you chose (`theseus ask -P/-p/-m`, `theseus profile use`, the cockpit's
 # picker) is yours: a pin, never routed. No place caps it and no count of moves limits it.
@@ -1692,7 +1694,7 @@ margin = 0.02                           # at the minimum sample, precision and r
 enabled = true                          # acts only while [judge] is on
 rung = "live"                           # "shadow" records each verdict and routes nothing
 max_wait_ms = 200                       # the most the first call waits for the verdict after its compile
-cold_switch_tokens = 30000              # at this much context, a switch waits for a second agreeing message
+cold_switch_tokens = 30000              # at this much of the session's own context, a switch waits for a second agreeing message
 # A running task's model ranges (theseus-ypnxt.9). A task you started with no profile asks
 # the route pack about its recent state at a loop boundary when it fails, stalls, changes phase
 # or is about to report, and moves to the model Jev picks, up or down; the cache's hold is

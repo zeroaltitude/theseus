@@ -15,10 +15,29 @@ use crate::store::Store;
 use crate::turn::TurnRequest;
 use crate::{Config, Core};
 
-/// And 48,000 until `task_fan_out` joined the catalog (theseus-z9mze.3): its definition grows the tools
-/// block by about 500 tokens. 48,250 and up hold (to 52,000, the sweep's end) for this suite, and 48,500 and up for the
-/// others in this family of tests; 49,000 is the middle of the near end of that band.
-const WINDOW: u64 = 49_000;
+/// The window is measured, never guessed (theseus-ataas, 2026-11-07). It used
+/// to be a constant: 48,000, then 48,250, then 49,000, re-tuned each time the
+/// system prompt grew (`task_fan_out` joining the catalog last), and by
+/// 2026-11-07 the band's near edge had crept past 48,500 again with nobody
+/// noticing. A window under that edge does not fail loudly: the first request
+/// never fits, so NOTHING compacts and the test reads "three compactions
+/// happened, left: 0" — which says nothing about the standing block this suite
+/// is actually about.
+///
+/// So the suite measures one request of its own on a window nothing can reach,
+/// and gives the real window that much plus this. A few of these turns then
+/// fill the ring whatever the prompt weighs, and growing the prompt moves the
+/// window with it.
+///
+/// Unlike the window it replaces, the band here is open at the top: a sweep on
+/// the M1 Max at one request = 27,585 tokens had 21,000 fail and 22,000,
+/// 24,000, 27,000, 30,000, 35,000, 40,000 and 50,000 all hold, because a wider
+/// window only means more turns before the ring fills and forty are allowed.
+/// 30,000 sits 8,500 clear of the one edge there is.
+const HEADROOM: u64 = 30_000;
+
+/// The tokens each turn's message is built to cost.
+const TURN_TOKENS: usize = 6_000;
 
 fn summary(text: &str) -> Scripted {
     Scripted::Billed {
@@ -47,13 +66,16 @@ fn system_text(q: &ProviderRequest) -> String {
         .join("\n")
 }
 
-#[tokio::test]
-async fn the_block_survives_three_compactions() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("work");
+/// A core on `dir`, with `window` as the session model's context window: its
+/// fake Claude, and the fake GLM that summarizes.
+fn core_with(
+    dir: &std::path::Path,
+    window: u64,
+) -> (Arc<Core>, Arc<FakeProvider>, Arc<FakeProvider>) {
+    let root = dir.join("work");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = Config::example();
-    cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
+    cfg.server.state_dir = dir.to_string_lossy().into_owned();
     cfg.tools.projects_dir = Some(root.canonicalize().unwrap().to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.memory.summary_profile = Some("glm".into());
@@ -62,7 +84,7 @@ async fn the_block_survives_three_compactions() {
     cfg.catalog.insert(
         "claude-sonnet-5-5".into(),
         crate::catalog::CatalogRow {
-            context_window: Some(WINDOW),
+            context_window: Some(window),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },
@@ -73,10 +95,61 @@ async fn the_block_survives_three_compactions() {
             .map(|n| summary(&format!("SUMMARY {n}: the tides so far.")))
             .collect(),
     ));
-    let store = Store::open(&dir.path().join("store")).unwrap();
+    let store = Store::open(&dir.join("store")).unwrap();
     let mut parts = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
     parts.providers.insert("zai".into(), glm.clone());
-    let core = Core::build(parts).unwrap();
+    (Core::build(parts).unwrap(), model, glm)
+}
+
+/// One turn of this suite's size, on `sid`.
+async fn turn(core: &Core, sid: &str, tag: &str) {
+    let rec: SessionRecord = core.store.get_session(sid).unwrap().unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    core.runner
+        .run(TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some(words(tag, TURN_TOKENS)),
+            target,
+            sink: EventSink::new(core.bus.clone(), sid, None),
+            author: "test".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+        .unwrap();
+}
+
+/// A fresh session's first request of this suite's size, in tokens, on a
+/// window nothing can reach: what the prompt weighs today, plus one turn.
+async fn one_request_tokens() -> u64 {
+    let dir = tempfile::tempdir().unwrap();
+    let (core, _model, _glm) = core_with(dir.path(), 1_000_000);
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    turn(&core, &rec.session_id, "measure").await;
+    let used = core
+        .store
+        .session_compilations(&rec.session_id)
+        .unwrap()
+        .first()
+        .and_then(|c| c.budget.as_ref())
+        .map(|b| b.used_tokens)
+        .expect("the first compilation's budget");
+    assert!(used > 0, "an empty measurement");
+    used
+}
+
+#[tokio::test]
+async fn the_block_survives_three_compactions() {
+    let window = one_request_tokens().await + HEADROOM;
+    let dir = tempfile::tempdir().unwrap();
+    let (core, model, glm) = core_with(dir.path(), window);
 
     let ids: Vec<String> = [
         (StandingKind::Order, "never push to main"),
@@ -104,27 +177,10 @@ async fn the_block_survives_three_compactions() {
     core.store.put_session(&rec.session_id, &rec).unwrap();
     let sid = rec.session_id;
     let mut compactions = 0;
+    let mut turns = 0;
     for k in 0..40 {
-        let rec: SessionRecord = core.store.get_session(&sid).unwrap().unwrap();
-        let (live, _) = core.live_profile();
-        let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-        core.runner
-            .run(TurnRequest {
-                prompt: None,
-                surface: None,
-                session: rec,
-                input: Some(words(&format!("turn{k}"), 6_000)),
-                target,
-                sink: EventSink::new(core.bus.clone(), &sid, None),
-                author: "test".into(),
-                recompile: None,
-                attachments: vec![],
-                arrived: None,
-                reply_to: None,
-                answer_at: None,
-            })
-            .await
-            .unwrap();
+        turns = k + 1;
+        turn(&core, &sid, &format!("turn{k}")).await;
         let q = model.requests().pop().unwrap();
         let system = system_text(&q);
         for id in &ids {
@@ -138,7 +194,10 @@ async fn the_block_survives_three_compactions() {
             break;
         }
     }
-    assert_eq!(compactions, 3, "three compactions happened");
+    assert_eq!(
+        compactions, 3,
+        "three compactions happened (window {window}, after {turns} of 40 turns)"
+    );
     let comps = core.store.session_compilations(&sid).unwrap();
     let compacted: Vec<_> = comps
         .iter()

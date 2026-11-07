@@ -556,6 +556,8 @@ mod tests_route;
 #[cfg(test)]
 mod tests_route_base;
 #[cfg(test)]
+mod tests_route_cliff;
+#[cfg(test)]
 mod tests_route_correct;
 #[cfg(test)]
 mod tests_route_data;

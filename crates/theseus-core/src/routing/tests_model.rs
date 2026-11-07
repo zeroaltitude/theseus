@@ -368,7 +368,7 @@ fn a_checkpoint_takes_jevs_pick_up_or_down_and_no_cap_refuses_it() {
             &Ask {
                 verdict: &v,
                 base: from,
-                est_tokens: 1_000,
+                context_tokens: 1_000,
                 hold: None,
                 images: false,
                 cleared: false,
@@ -391,7 +391,7 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
     let ask = |hold| Ask {
         verdict: &v,
         base: "sonnet",
-        est_tokens: COLD + 1,
+        context_tokens: COLD + 1,
         hold,
         images: false,
         cleared: false,
@@ -412,7 +412,7 @@ fn a_checkpoint_move_over_the_cold_size_waits_for_one_agreeing_verdict() {
 }
 
 /// A task's brief takes Jev's pick as the task's starting model, whatever the
-/// parent runs on: the step asks with nothing to keep warm (`est_tokens: 0`)
+/// parent runs on: the step asks with nothing to keep warm (`context_tokens: 0`)
 /// and nothing held.
 #[test]
 fn a_brief_starts_a_task_on_jevs_pick() {
