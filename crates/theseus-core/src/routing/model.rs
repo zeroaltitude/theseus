@@ -22,9 +22,10 @@
 //!   estimate less the request's fixed prefix — the tools and the system
 //!   blocks, which a session carries identically on its first message and its
 //!   hundredth, and which whichever model answers writes cold either way. That
-//!   prefix is most of an ordinary request (22,331 of 29,996 tokens in the
-//!   home-size rig the day this was written), so weighing the whole estimate
-//!   left an ordinary first message four tokens under the line: eighteen more
+//!   prefix is most of an ordinary request — `tests_route_cliff` measures it
+//!   and holds it so — so weighing the whole estimate left an ordinary first
+//!   message four tokens under the line (29,996 of 30,000 on the rig the day
+//!   this was written, which is in that test's doc): eighteen more
 //!   characters in the model-facing tools note moved one turn from Opus to
 //!   Sonnet, and the next release's prompt growth would have moved others. The
 //!   hold protects what a conversation has accumulated; a prefix that is there

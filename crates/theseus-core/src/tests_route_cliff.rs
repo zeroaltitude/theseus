@@ -90,11 +90,11 @@ async fn a_longer_system_prompt_changes_no_model() {
 /// what a one-message session actually carries of its own is a small part of
 /// `cold_switch_tokens`.
 ///
-/// The figures on 2026-11-07, on this rig: the whole estimate 29,996 against a
-/// bound of 30,000 — four tokens, which is what made the cliff — and the
-/// session's own context about 9,000. Those are recorded here and not
-/// asserted: an assertion on the request's size is the very thing this row
-/// exists to take out of the suite.
+/// The figure on 2026-11-07, on this rig: the whole estimate 29,996 against a
+/// bound of 30,000 — four tokens, which is what made the cliff. It is recorded
+/// here and not asserted: an assertion on the request's size is the very thing
+/// this row exists to take out of the suite. What is asserted is the shape,
+/// which holds however the prompt grows.
 ///
 /// It is not a bound on how big the prefix may grow — it is the statement that
 /// the prefix and the session's context are different sizes and must not be
