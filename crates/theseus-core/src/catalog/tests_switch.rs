@@ -116,6 +116,33 @@ fn every_candidate_cheaper_than_staying_is_named_cheapest_first() {
     );
 }
 
+/// The state clips `cheaper_model` at 40 characters, which holds three names
+/// with Flash's mark: no warm model, token count or hour of the catalog names
+/// more, so the clip never cuts a name off (theseus-g0phw). The positive count
+/// is asserted too, so an empty sweep cannot pass it.
+#[test]
+fn a_list_of_cheaper_models_fits_the_states_clip() {
+    let c = Catalog::builtin();
+    let (mut sweeps, mut lists, mut longest) = (0, 0, 0);
+    for m in [SONNET, HAIKU, OPUS, FABLE, FLASH] {
+        for n in (0..=500_000).step_by(5_000) {
+            for p in [OffPeak, Peak] {
+                for r in [Allowed, NotAllowed] {
+                    sweeps += 1;
+                    if let Some(names) = switch_cost(&c, Some(m), n, p, r).cheaper_model {
+                        lists += 1;
+                        longest = longest.max(names.chars().count());
+                        assert!(names.chars().count() <= 40, "{m} {n} {p:?} {r:?}: {names}");
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(sweeps, 5 * 101 * 2 * 2);
+    assert!(lists > 100, "{lists} lists");
+    assert_eq!(longest, "haiku, deepseek_flash (off-peak)".len());
+}
+
 #[test]
 fn haikus_long_tier_takes_haiku_out_of_the_cheaper_models() {
     assert_eq!(at(SONNET, 100_000), CheaperToSwitch);
