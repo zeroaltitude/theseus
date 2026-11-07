@@ -72,12 +72,16 @@ fn a_long_session_at_peak_is_cheaper_to_stay_and_names_nothing() {
 }
 
 #[test]
-fn a_short_session_is_cheaper_to_switch_and_the_cheaper_one_is_haiku() {
+fn a_short_session_is_cheaper_to_switch_and_haiku_is_the_cheapest() {
     // 40K: Haiku's input is $0.10 a million, under Flash's $0.15 off-peak, and
-    // a cache read on Sonnet or Opus is $0.20.
+    // a cache read on Sonnet or Opus is $0.20: Haiku is named first, Flash after.
     for m in [SONNET, OPUS, FABLE] {
         assert_eq!(at(m, 40_000), CheaperToSwitch, "{m}");
-        assert_eq!(name(m, 40_000, OffPeak), "haiku", "{m}");
+        assert_eq!(
+            name(m, 40_000, OffPeak),
+            "haiku, deepseek_flash (off-peak)",
+            "{m}"
+        );
     }
     // At peak Haiku is cheapest too, and then the name carries no off-peak mark.
     assert_eq!(name(SONNET, 40_000, Peak), "haiku");
@@ -113,9 +117,12 @@ fn every_candidate_cheaper_than_staying_is_named_cheapest_first() {
 }
 
 #[test]
-fn haikus_long_tier_moves_the_cheaper_model_from_haiku_to_flash() {
+fn haikus_long_tier_takes_haiku_out_of_the_cheaper_models() {
     assert_eq!(at(SONNET, 100_000), CheaperToSwitch);
-    assert_eq!(name(SONNET, 100_000, OffPeak), "haiku");
+    assert_eq!(
+        name(SONNET, 100_000, OffPeak),
+        "haiku, deepseek_flash (off-peak)"
+    );
     // One token past the tier Haiku's input is $0.50 and Flash is the cheaper
     // one. The word does not change; what Jev is told to weigh does.
     assert_eq!(at(SONNET, 100_001), CheaperToSwitch);
@@ -152,11 +159,14 @@ fn a_restricted_session_is_never_told_flash_is_cheaper() {
         s.cheaper_model.as_deref(),
         Some("deepseek_flash (off-peak)")
     );
-    // Under 100K Haiku is cheapest either way, so the rule changes nothing.
-    for r in [Allowed, NotAllowed] {
+    // Under 100K Haiku is cheapest either way, and the rule takes only Flash out.
+    for (r, named) in [
+        (Allowed, "haiku, deepseek_flash (off-peak)"),
+        (NotAllowed, "haiku"),
+    ] {
         let s = full(SONNET, 40_000, OffPeak, r);
         assert_eq!(s.cost, CheaperToSwitch, "{r:?}");
-        assert_eq!(s.cheaper_model.as_deref(), Some("haiku"), "{r:?}");
+        assert_eq!(s.cheaper_model.as_deref(), Some(named), "{r:?}");
     }
 }
 

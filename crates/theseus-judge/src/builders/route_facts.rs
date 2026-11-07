@@ -18,7 +18,8 @@
 //!   replace route.v10's `context` question: Jev reads the fact, it never works
 //!   the arithmetic out. The name is there because the word alone does not say
 //!   what to switch *to*, and the cheapest model is not the right model for
-//!   every message: `cheaper_model` lets the instructions ask whether this
+//!   every message: `cheaper_model` names every model cheaper than staying
+//!   (theseus-g0phw), cheapest first, and lets the instructions ask whether this
 //!   message is work that model should do.
 
 use serde::{Deserialize, Serialize};
@@ -35,8 +36,10 @@ pub const TASK_MODELS: usize = 8;
 /// A model id in the state.
 const MODEL_CHARS: usize = 48;
 
-/// `cheaper_model`'s longest value: an option id and its ` (off-peak)` mark.
-const CHEAPER_CHARS: usize = 32;
+/// `cheaper_model`'s longest value: the option ids of every model cheaper than
+/// staying (up to four, the fifth option being the warm one), joined by `, `,
+/// each with its ` (off-peak)` mark where it has one (theseus-g0phw).
+const CHEAPER_CHARS: usize = 72;
 
 /// Whether the model's provider charges its peak or its off-peak price now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,9 +146,10 @@ pub struct RouteFacts {
     /// What a switch would cost this message; left out for a job.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub switch_cost: Option<SwitchCost>,
-    /// The cheapest other model at this message's cost, as the `model`
-    /// question names it, with `(off-peak)` where that is the price used
-    /// (`catalog::switch_cost`; theseus-h66v4.8). Present only with
+    /// Every other model cheaper than staying at this message's cost, cheapest
+    /// first and joined by `, `, as the `model` question names each, with
+    /// `(off-peak)` where that is the price used (`catalog::switch_cost`;
+    /// theseus-h66v4.8, every one and not the cheapest alone: theseus-g0phw). Present only with
     /// `cheaper_to_switch`, so a name in the state always means money saved;
     /// left out otherwise, and for a job.
     ///

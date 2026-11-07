@@ -22,12 +22,20 @@
 //!   which at that length costs more than staying. W1 and W41 went 3/3 to 0/3.
 //!
 //! So the word alone is not the fact. [`switch_cost`] returns the word **and
-//! the cheapest candidate's name** ([`Switch::cheaper_model`]), and the pack's
-//! `model` instructions say that a cheaper model is cheaper only for work it
-//! should do. A name Jev can weigh against that option's own block is what makes
-//! "cheaper" actionable: `deepseek_flash (off-peak)` beside a crate-wide rename
-//! is a reason to switch and beside a thank-you is not, and either way a model
-//! the state does NOT name is no cheaper for being cheap elsewhere.
+//! the name of every candidate cheaper than staying** ([`Switch::cheaper_model`],
+//! cheapest first), and the pack's `model` instructions say that a cheaper model
+//! is cheaper only for work it should do. A name Jev can weigh against that
+//! option's own block is what makes "cheaper" actionable: `deepseek_flash
+//! (off-peak)` beside a crate-wide rename is a reason to switch and beside a
+//! thank-you is not, and either way a model the state does NOT name is no
+//! cheaper for being cheap elsewhere.
+//!
+//! **Every** one, not the cheapest alone (theseus-g0phw): through Haiku's short
+//! tier Haiku is the cheapest and Flash is cheaper than staying all the same, so
+//! a state that named only Haiku hid Flash from a brief that fits Flash's
+//! sentence (W28, 90K tokens). The list is the catalog's own prices read at the
+//! hour, so no model is special-cased: a model is named when its price at this
+//! prefix is under the word's band below staying, and when it is not, it is not.
 //!
 //! A prompt past a model's long tier pays the tier's prices, on both sides, and
 //! a provider's off-peak hours are the state's `price_period`, not the clock
@@ -59,13 +67,14 @@ pub const CANDIDATES: [(&str, &str); 5] = [
 /// `about_the_same` is within this share of the stay cost, either way.
 const BAND: f64 = 0.20;
 
-/// What a switch costs this message: the word, and the cheapest candidate's
-/// name where one is genuinely cheaper.
+/// What a switch costs this message: the word, and the name of every candidate
+/// that is genuinely cheaper.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Switch {
     pub cost: SwitchCost,
-    /// The cheapest other option at this message's cost, as the state names it
-    /// (`deepseek_flash (off-peak)`, `haiku`), and only where the word is
+    /// Every other option cheaper to switch to than staying, by the word's own
+    /// band, cheapest first and joined by `, ` as the state names them
+    /// (`haiku, deepseek_flash (off-peak)`), and only where the word is
     /// `cheaper_to_switch`: a model that saves nothing is not named, so a name
     /// in the state always means money. Boxed because it rides in
     /// `Input::Inbound`, which is already near clippy's enum-size limit.
@@ -117,10 +126,11 @@ pub fn switch_cost(
     };
     // Per million tokens: the same prefix, so the million cancels out of the ratio.
     let stay = warm.cache_read_price_in(prefix_tokens, period);
-    // The cheapest, and the first of the list's order at a tie: the order is
-    // route.v10's, so a tie names the option listed first and never whichever
-    // the iteration happened to reach last.
-    let cheapest = CANDIDATES
+    // Every candidate this message could be priced at, cheapest first and in
+    // the list's order at a tie (route.v10's, so a tie names the option listed
+    // first and never whichever the iteration happened to reach last). The sort
+    // is stable.
+    let mut priced: Vec<(&str, f64, bool)> = CANDIDATES
         .iter()
         .filter(|(_, m)| *m != current)
         .filter_map(|(option, m)| {
@@ -134,16 +144,25 @@ pub fn switch_cost(
                 e.off_peak.is_some() && period == PricePeriod::OffPeak,
             ))
         })
-        .min_by(|a, b| a.1.total_cmp(&b.1));
-    let Some((option, switch, off_peak)) = cheapest else {
+        .collect();
+    priced.sort_by(|a, b| a.1.total_cmp(&b.1));
+    // The word is the cheapest candidate's; the names are every candidate that
+    // is cheaper to switch to by the word's own band (theseus-g0phw). Naming
+    // only the cheapest hid a model that is still under staying: Flash between
+    // 40K and 100K, where Haiku is cheaper yet, and a brief that fits Flash's
+    // sentence never saw it.
+    let Some(&(_, cheapest, _)) = priced.first() else {
         return same;
     };
-    let cost = classify(stay, switch);
+    let cost = classify(stay, cheapest);
+    let cheaper = priced
+        .iter()
+        .filter(|(_, price, _)| classify(stay, *price) == SwitchCost::CheaperToSwitch)
+        .map(|(option, _, off_peak)| named(option, *off_peak))
+        .collect::<Vec<_>>()
+        .join(", ");
     Switch {
-        cheaper_model: match cost {
-            SwitchCost::CheaperToSwitch => Some(named(option, off_peak)),
-            _ => None,
-        },
+        cheaper_model: (cost == SwitchCost::CheaperToSwitch).then(|| cheaper.into()),
         cost,
     }
 }
