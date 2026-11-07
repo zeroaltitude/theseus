@@ -626,7 +626,12 @@ impl Lane {
                 return true;
             }
             match self.deliver(&a).await {
-                Ok(()) => self.attempt = 0,
+                Ok(()) => {
+                    self.attempt = 0;
+                    // The post settled: a released turn only it named goes
+                    // (theseus-llo6).
+                    self.release_unless_waited();
+                }
                 // The stop came while this post was planned or sent: it is
                 // the stop's, not Discord's absence.
                 Err(_) if self.shared.core.outbox.stopping() => return false,

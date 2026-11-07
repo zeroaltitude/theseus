@@ -3,6 +3,8 @@
 //! open post of its place names the turn, so the post edits the messages the
 //! stream wrote instead of creating them again.
 
+use std::sync::Arc;
+
 use serde_json::json;
 use theseus_sim::fake_discord::FakeDiscord;
 
@@ -27,7 +29,7 @@ fn showing(fake: &FakeDiscord, text: &str) -> usize {
 /// The turn's stream wrote two parts, partly; its reply (two parts, final)
 /// is staged but not delivered; the renderer drops the turn; then the reply
 /// is delivered, past Discord's nonce window.
-async fn late_reply() -> FakeDiscord {
+async fn late_reply() -> Arc<FakeDiscord> {
     let d = tempfile::tempdir().unwrap();
     let fake = FakeDiscord::start();
     let mut lane = lane(d.path(), &fake);

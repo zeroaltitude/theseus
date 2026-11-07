@@ -14,6 +14,15 @@
 //! A turn that leaves while a waiting live op still names one of its keys is
 //! forgotten once that op is written (or dropped, when Discord is away), so
 //! its last state edits its message instead of posting a new one.
+//!
+//! A turn that leaves while an open post of the lane names it (`turn_id` in
+//! the post's body) is kept the same way, until the post settles
+//! (theseus-llo6). A reply staged before an outage, or before a `/new`, is
+//! delivered after the renderer has dropped its turn: without the stream's
+//! ids it would create every part again, replying to the anchor, and past
+//! Discord's nonce window the text would show twice.
+
+use theseus_core::outbox::body_of;
 
 use super::Lane;
 
@@ -29,6 +38,11 @@ impl Lane {
         self.released.retain(|t| !turns.contains(t));
         self.held_turns = turns;
         self.released.extend(gone);
+        self.release_unless_waited();
+    }
+
+    /// `release`, unless a waiting live op still names a released turn's key.
+    pub(super) fn release_unless_waited(&mut self) {
         let waits = self
             .live
             .iter()
@@ -45,16 +59,34 @@ impl Lane {
         of_any(&self.held_turns, key) || of_any(&self.released, key)
     }
 
-    /// Forget the released turns' keys from every map.
+    /// Forget the released turns' keys from every map, but the keys of a turn
+    /// an open post of this lane names: they stay released until it settles.
     pub(super) fn release(&mut self) {
         if self.released.is_empty() {
             return;
         }
-        let gone = std::mem::take(&mut self.released);
+        let posted = self.posted_turns();
+        let (kept, gone): (Vec<String>, Vec<String>) = std::mem::take(&mut self.released)
+            .into_iter()
+            .partition(|t| posted.contains(t));
+        self.released = kept;
         self.msgs.retain(|k, _| !of_any(&gone, k));
         self.sent.retain(|k, _| !of_any(&gone, k));
         self.sealed.retain(|k| !of_any(&gone, k));
         self.touched.retain(|k, _| !of_any(&gone, k));
+    }
+
+    /// The turns the lane's open posts name, when a turn has been released.
+    /// One read of the lane's open posts, only while a turn waits to be
+    /// forgotten.
+    fn posted_turns(&self) -> Vec<String> {
+        self.shared
+            .core
+            .outbox
+            .open_for(&self.target)
+            .iter()
+            .filter_map(|a| body_of(a)["turn_id"].as_str().map(str::to_string))
+            .collect()
     }
 }
 
