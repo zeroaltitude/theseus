@@ -208,7 +208,12 @@ fn only_the_unmuted_turn(call: &Call) {
         assert_ne!(u.text, "not for you", "{u:?}");
     }
     assert_eq!(
-        call.streamed() + call.utterances().iter().map(|u| u.usage.audio).sum::<Duration>(),
+        call.streamed()
+            + call
+                .utterances()
+                .iter()
+                .map(|u| u.usage.audio)
+                .sum::<Duration>(),
         ms(2_400),
         "the muted turn's audio is booked, not dropped: {:#?}",
         call.events
