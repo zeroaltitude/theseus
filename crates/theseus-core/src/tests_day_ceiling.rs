@@ -423,7 +423,10 @@ fn the_judge_skips_its_call_at_the_ceiling() {
         Reserve::Granted(..)
     ));
     assert_eq!(day.today(day.now()).held, 600);
-    assert!(matches!(b.reserve(&store, today, 600, Class::Live), Reserve::Paused(..)));
+    assert!(matches!(
+        b.reserve(&store, today, 600, Class::Live),
+        Reserve::Paused(..)
+    ));
     assert_eq!(told.load(Ordering::SeqCst), 1);
     b.settle(today, 600, 250, true, false);
     let d = day.today(day.now());

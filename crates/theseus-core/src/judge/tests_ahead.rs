@@ -27,7 +27,10 @@ async fn the_block_raised_ahead_is_in_its_frames_own_record() {
     let stored = || store.get_meta::<Stored>(META_KEY).unwrap().unwrap();
     // The sink raises on the wall clock's day.
     let today = spend::local_day(theseus_protocol::now_unix_ms());
-    assert!(svc.reserve(&today, 100, Class::Live), "the day's first block");
+    assert!(
+        svc.reserve(&today, 100, Class::Live),
+        "the day's first block"
+    );
     assert_eq!(stored().reserved_micros, BLOCK_MICROS);
     let spent = BLOCK_MICROS * 6 / 10;
     svc.budget.settle(&today, 100, spent, true, false);

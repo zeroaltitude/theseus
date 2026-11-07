@@ -1050,7 +1050,9 @@ pub(crate) async fn reserve_between(
     class: Class,
 ) -> bool {
     let (turns, timing) = match me.upgrade() {
-        Some(s) if s.budget.needs_frame(today, need, class) => (s.between.get().cloned(), s.sink_timing()),
+        Some(s) if s.budget.needs_frame(today, need, class) => {
+            (s.between.get().cloned(), s.sink_timing())
+        }
         Some(_) => (None, Default::default()),
         None => return false,
     };

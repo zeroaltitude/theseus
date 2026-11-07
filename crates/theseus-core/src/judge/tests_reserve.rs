@@ -53,10 +53,16 @@ async fn a_days_limit_says_its_pause_once() {
         c.judge.shadow_limit_usd_per_day = LIMIT;
     });
     let svc = &r.core.runner.judge;
-    assert!(svc.reserve("2026-10-01", NEED, Class::Shadow), "the first fits");
+    assert!(
+        svc.reserve("2026-10-01", NEED, Class::Shadow),
+        "the first fits"
+    );
     assert!(said(&r.core, "Shadow judging paused").is_empty());
     for _ in 0..3 {
-        assert!(!svc.reserve("2026-10-01", NEED, Class::Shadow), "refused at shadow's line");
+        assert!(
+            !svc.reserve("2026-10-01", NEED, Class::Shadow),
+            "refused at shadow's line"
+        );
     }
     let rows = kinds(&r.core.store, "judge.paused");
     assert_eq!(rows.len(), 1, "{rows:?}");
@@ -87,7 +93,10 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     // The first judgment settles, as a call that came back does; what is
     // still in flight at midnight carries into the next day.
     svc.budget.settle("2026-10-01", NEED, 0, true, false);
-    assert!(svc.reserve("2026-10-02", NEED, Class::Shadow), "the new day has room");
+    assert!(
+        svc.reserve("2026-10-02", NEED, Class::Shadow),
+        "the new day has room"
+    );
     let rows = kinds(&core.store, "judge.resumed");
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].data["day"], "2026-10-02");
@@ -103,7 +112,10 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     // A restart forgets the pause: the next day's first reservation in the
     // fresh process writes no resume row and says no line.
     let again = core_on(dir.path(), &jev);
-    assert!(again.runner.judge.reserve("2026-10-03", NEED, Class::Shadow));
+    assert!(again
+        .runner
+        .judge
+        .reserve("2026-10-03", NEED, Class::Shadow));
     assert_eq!(kinds(&again.store, "judge.resumed").len(), 1, "no new row");
     assert!(said(&again, "Shadow judging resumed").is_empty());
 }

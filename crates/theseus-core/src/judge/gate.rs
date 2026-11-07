@@ -291,11 +291,12 @@ impl JudgeService {
             return None;
         }
         let need = built.judge.inner().reserve_micros(&out).unwrap_or(0);
-        self.reserve(today, need, spend::Class::of_asks(&out)).then_some(GatePrepared {
-            built,
-            asks: out,
-            need,
-        })
+        self.reserve(today, need, spend::Class::of_asks(&out))
+            .then_some(GatePrepared {
+                built,
+                asks: out,
+                need,
+            })
     }
 }
 
