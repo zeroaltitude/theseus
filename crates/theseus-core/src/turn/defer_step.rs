@@ -66,14 +66,20 @@ impl TurnRunner {
     /// Settle the spec's deferral for this turn: the families its place kind
     /// loads now, and how the model reaches the rest. Nothing when
     /// `[tools.defer]` is off.
-    pub(super) fn defer_tools(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
+    ///
+    /// The ceiling it settled at is kept on the turn, so a verdict that lands
+    /// after this can say whether the tools must settle again (`tier`'s
+    /// [`TurnRunner::tools_behind`], theseus-a2kh6): the first settle is at the
+    /// turn's start, before any verdict has landed, so a deep turn settles its
+    /// tools at the ordinary ceiling.
+    pub(super) fn defer_tools(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
         self.flows_in_scope(t, spec);
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
-        let jev = t.route.families.relevant.as_deref().unwrap_or_default();
+        let ceiling = t.route.injection.as_ref().map(|b| b.admit_ceiling);
         let said = Said {
             ask: &t.route.ask,
-            jev,
-            ceiling: t.route.injection.as_ref().map(|b| b.admit_ceiling),
+            jev: t.route.families.relevant.as_deref().unwrap_or_default(),
+            ceiling,
             // The turn's own read of "no input" (`Turn::continuation`: the wake, the task
             // report, the routine's run) or its author's (the pipeline's own turns carry an
             // objective as input), never the session's kind: a task session's typed turn is a
@@ -82,6 +88,10 @@ impl TurnRunner {
             acting: true,
         };
         spec.defer = self.deferral_in(t.tc.session_id, kind, spec, said);
+        t.route.tools_ceiling = spec
+            .defer
+            .is_some()
+            .then(|| ceiling.unwrap_or(self.cfg.tools.defer.admit_ceiling));
     }
 
     /// A loaded flow's tool stays in the request only where the flow is

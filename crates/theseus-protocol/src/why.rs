@@ -312,6 +312,11 @@ fn open_routing(r: &Value) -> String {
 
 /// What the turn's tier gave it (theseus-d9je7): `injection: deep: recall 8,000
 /// tokens, 16 items; tools to 3x the place's budget`.
+///
+/// A turn whose verdict landed after the pack says so twice: the tier reads
+/// `ordinary (verdict late)`, which is what its recall was packed at, and the
+/// ceiling carries `raised late`, the deep tier's, which is what its tools
+/// settled at once the verdict came (theseus-a2kh6).
 fn injection_words(i: &Value) -> String {
     let n = |k: &str| i.get(k).and_then(Value::as_u64).unwrap_or(0);
     let tier = i.get("tier").and_then(Value::as_str).unwrap_or("ordinary");
@@ -327,7 +332,11 @@ fn injection_words(i: &Value) -> String {
         .get("admit_ceiling")
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
-    format!("injection: {tier}: {recall}; tools to {ceiling}x the place's budget")
+    let raised = match i.get("admit_raised").and_then(Value::as_bool) {
+        Some(true) => " (raised late)",
+        _ => "",
+    };
+    format!("injection: {tier}: {recall}; tools to {ceiling}x the place's budget{raised}")
 }
 
 /// How a detoured turn ran (theseus-r5ydi): its request is built outside the

@@ -71,6 +71,11 @@ pub(super) struct RouteState {
     pub(super) result: Option<TurnRoute>,
     /// What the turn injects, fixed at the pack or with `result` (theseus-d9je7).
     pub(super) injection: Option<super::tier::InjectionBudget>,
+    /// The admission ceiling the turn's tools settled at (`defer_tools`), none
+    /// until they have. They settle at the turn's start, before any verdict has
+    /// landed, so this says whether a verdict read later earned a deeper
+    /// ceiling than they took (`tier`'s `tools_behind`, theseus-a2kh6).
+    pub(super) tools_ceiling: Option<f64>,
     /// Where the owner's correction, or the layer, steers the turn ahead of
     /// the verdict (theseus-q31l).
     pub(super) steer: Option<Steering>,
@@ -550,6 +555,15 @@ impl TurnRunner {
         t.route.effort = verdict.as_ref().and_then(|v| {
             self.route_effort(t, v, decision.as_ref(), (&*spec, compiled.est_tokens), at)
         });
+        // The turn's tools settled before this verdict landed, at the ordinary
+        // ceiling (`turn::defer_tools`). Fix the budget from the verdict if no
+        // pack fixed one, then give it the deep tier's ceiling where it earns
+        // one, so the route row and the fan-out cue below both read the ceiling
+        // the turn really admits at; the settle itself is `keep_first`'s for a
+        // turn that stays on its own model, and `route_to`'s for a switch
+        // (theseus-a2kh6).
+        self.injection_read(t, verdict.as_ref(), reason);
+        self.raise_tools(t, verdict.as_ref().filter(|_| reason.is_none()));
         self.verdict_asides(t, verdict.as_ref());
         self.record_route(
             t,
@@ -575,21 +589,29 @@ impl TurnRunner {
             self.judge.set_routed(t.tc.session_id, ran);
         }
         let Some(d) = decision else {
-            return self.keep_first(t, session, compiled, spec, i);
+            return self
+                .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
+                .await;
         };
         Self::hold_next(session, &d.hold);
         if d.profile == base {
-            return self.keep_first(t, session, compiled, spec, i);
+            return self
+                .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
+                .await;
         }
         let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
             Ok(tg) => tg.speaking_as(t.target),
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
-                return self.keep_first(t, session, compiled, spec, i);
+                return self
+                    .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
+                    .await;
             }
         };
         let Some(p) = self.providers.get(&target.provider).cloned() else {
-            return self.keep_first(t, session, compiled, spec, i);
+            return self
+                .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
+                .await;
         };
         // The first compile is not the call's: its rows go with it.
         self.drop_first(t, &compiled);
@@ -946,6 +968,42 @@ impl TurnRunner {
         if let Some(p) = compiled.prefix.as_deref() {
             self.prefix.discard(p);
         }
+    }
+
+    /// The turn runs on its own model: the first compile kept, or made again
+    /// because the verdict earned its tools a deeper ceiling than they settled
+    /// at (theseus-a2kh6).
+    ///
+    /// The tools settle once, at the turn's start, before any verdict has
+    /// landed, so they settle at the ordinary ceiling whatever the turn turns
+    /// out to be. A switch settles them again on its routed spec and compiles
+    /// again anyway (`route_to`); a pick that stays on the session's model had
+    /// no second settle at all, so a deep turn's call carried the ordinary set
+    /// and its every loop admitted at the ordinary ceiling, whatever its route
+    /// row said. Now such a turn drops its first compile and makes the call's
+    /// request at the tier's ceiling, exactly as a switch does. Nothing else
+    /// pays for it: a turn whose verdict had landed before its tools settled,
+    /// and every ordinary turn, keeps its first compile.
+    ///
+    /// `again` is what a compile made again is made with, as `compile_step`
+    /// takes it: the recompile the turn carries, the thinking a retry strips,
+    /// and the window a request overflowed.
+    async fn stays_on_its_own<'a>(
+        &self,
+        t: &mut Turn<'a>,
+        session: &mut SessionRecord,
+        spec: &mut RequestSpec,
+        compiled: Compiled,
+        again: (Option<Recompile>, Option<&'static str>, Option<&Overflowed>),
+        i: u32,
+    ) -> Result<Result<Compiled, Failure>> {
+        if !self.tools_behind(t) {
+            return self.keep_first(t, session, compiled, spec, i);
+        }
+        let (force, strip, overflow) = again;
+        self.drop_first(t, &compiled);
+        self.defer_tools(t, spec);
+        Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
     }
 
     /// The first compile is the one the call uses: persist it, and record
