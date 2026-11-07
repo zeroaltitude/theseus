@@ -772,6 +772,77 @@ async fn a_spoken_turn_it_cannot_place_runs_at_home_without_asking() {
     assert!(!w.heard.iter().any(|n| n["method"] == "thread.asked"));
 }
 
+/// A lone thread the message names, which Jev puts only a little behind home,
+/// keeps the turn (theseus-m7fwf). The message names the pr round's repo and
+/// nothing else, so one thread contends and theseus-e31an asks nothing; but
+/// the thread led home, and the turn used to go home all the same. It runs in
+/// the thread, with a visible tag and a move handle, and still no question.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lone_thread_that_leads_home_closely_takes_the_turn_without_asking() {
+    let jev = FakeJev::start().unwrap();
+    // The repo hit scores pr-round 0.80 (weak, so not decisive), fused to
+    // 0.68 against Jev's home at 0.60: a 0.08 gap, inside CLOSE.
+    thread_answer(&jev, "home", 0.60);
+    let r = rig_on(texts(3), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.threads.route_wait_ms = 3000;
+        c.threads.ask_wait_secs = 2;
+    });
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    let a = submit(c, &dm, "why is the build red in tidewatch").await;
+    let t = tag(&a);
+    assert_eq!(
+        (t.how, t.slug.as_deref(), t.movable),
+        (RouteHow::Visible, Some("pr-round"), true),
+        "{t:?}"
+    );
+    assert_eq!(a.session_id, session_of(c, "pr-round"));
+    assert!(rows(c, "thread.asked").is_empty(), "nothing was asked");
+}
+
+/// Without Jev, an ask offers a new thread too (theseus-m7fwf). The message
+/// names both threads' repos, so neither leads and the router asks; it also
+/// names two entities no live thread holds, which is the only evidence of a
+/// new stream there is when no Jev ranked one. The card gains a `new` key.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_ask_with_no_jev_offers_a_new_thread_when_the_message_names_new_entities() {
+    let r = rig_on(texts(4), None, |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.threads.ask_wait_secs = 2;
+    });
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(
+                &dm,
+                "tidewatch and vault both fail: branch chore/bump-1-8, ticket OPS-4214",
+                None,
+            ),
+        )
+        .await;
+    let asked = w.notice("thread.asked").await;
+    let keys: Vec<&str> = asked["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["key"].as_str().unwrap())
+        .collect();
+    assert!(keys.contains(&"new"), "{asked}");
+    assert_eq!(keys.last(), Some(&"home"), "{asked}");
+    // Nobody answers: the wait ends and the turn runs at home, as before.
+    let res: TurnSubmitResult =
+        serde_json::from_value(w.response(id).await["result"].clone()).unwrap();
+    assert_eq!(res.session_id, dm);
+}
+
 /// A `new_thread` pick at the confirm bar offers a new thread; one tap makes
 /// it (named from the message) and the message runs in it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

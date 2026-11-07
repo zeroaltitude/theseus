@@ -300,27 +300,23 @@ impl FakeDiscord {
         } else {
             body["content"].as_str().unwrap_or("").to_string()
         };
-        self.push_bot_message(&t.id.to_string(), &content);
-        let mut st = self.state.lock().unwrap();
-        let last = st.messages.last_mut().expect("it was just pushed");
-        last.id = t.id.to_string();
-        last.flags = flags;
-        last.components = rows(&body["components"]);
-        last.buttons = buttons(&body["components"]);
-        last.components_json = body["components"].clone();
-        Ok(last.clone())
-    }
-
-    /// A message the bot wrote, kept in `channel`.
-    fn push_bot_message(&self, channel: &str, content: &str) -> Msg {
+        // The message is built and kept under ONE hold of the lock. It was
+        // pushed under one hold and then given the post's id under a second,
+        // through `messages.last_mut()` -- and the fake answers each
+        // connection on its own thread, so any message another request pushed
+        // in between took the post's id instead. Then the post's own first
+        // message kept an id no edit addresses, every card edit answered 404
+        // Unknown Message for the life of the process, and the innocent
+        // message carried the card's V2 flag. That is theseus-o366s: a test
+        // waiting on a post's last state waited out its whole 100 s cap.
         let mut st = self.state.lock().unwrap();
         st.next_id += 1;
         let m = Msg {
-            id: st.next_id.to_string(),
-            channel: channel.to_string(),
-            content: content.to_string(),
+            id: t.id.to_string(),
+            channel: t.id.to_string(),
+            content: content.clone(),
             nonce: None,
-            components: 0,
+            components: rows(&body["components"]),
             reply_to: None,
             edits: 0,
             created_ms: now_ms(),
@@ -328,14 +324,14 @@ impl FakeDiscord {
             mentions: vec![],
             author: BOT_ID.to_string(),
             hook: None,
-            versions: vec![content.to_string()],
-            buttons: vec![],
-            components_json: json!([]),
+            versions: vec![content],
+            buttons: buttons(&body["components"]),
+            components_json: body["components"].clone(),
             pinned: false,
-            flags: 0,
+            flags,
         };
         st.messages.push(m.clone());
-        m
+        Ok(m)
     }
 
     /// `PATCH /channels/<id>` of a thread: archive, lock, rename.

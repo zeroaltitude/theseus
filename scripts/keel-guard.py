@@ -93,7 +93,8 @@ The rules, by the name the report and the ack use:
                   The same for the sealed scorer's code, its runner and relay, and the exam set (theseus-pw1q.21.2):
                   the files of KEEL_FILES after the guard's three (`sealed::KEEL_PATHS` in theseus-core lists the
                   sealed ones, and a Rust test holds that list inside KEEL_FILES; the files KEEL_FILES adds beyond
-                  it, the scrub driver and its tests among them, are the owner's by his word, not sealed code) and
+                  it, the scrub driver and its tests and the data rule's chokepoints among them, are the owner's by
+                  his word, not sealed code) and
                   any file under KEEL_PREFIXES (crates/theseus-exam/exam/); there a file added is a finding too.
   sealed-reach    an added line, in a Rust file outside those and outside cfg(test) code, that names the sealed set:
                   `sealed_dir`, `.sealed.dir` (`[self.sealed] dir`), `sealed::` or `Sealed::`. Defence in depth (L1 is
@@ -138,6 +139,26 @@ KEEL_FILES = (
     # touched routing.rs with no trailer while the guard had nothing to say. NOT config/routing.rs.
     "crates/theseus-core/src/routing.rs",
     "crates/theseus-core/src/turn/data_step.rs",
+    # The rest of the data rule's chokepoints (theseus-8itvb). theseus-ozplq gave the join a "data-rule" CLASS over
+    # this family, so a self branch that loosens one stops at the owner's card; the guard held only two of them, so
+    # every OTHER branch could still loosen one and pass with nothing said. These five close that asymmetry. Each is
+    # a place a rule is ENFORCED, not machinery that feeds one, which is why the content*.rs family is deliberately
+    # NOT here: it is ten actively-edited files whose class membership already covers the self-join case, and a
+    # standing trailer on all of them would buy an ack habit rather than a guard.
+    #   data_gate.rs  the provider chokepoint: the restricted-origin (cn) rule's one enforcement point. Its sibling
+    #                 turn/data_step.rs has been held since h66v4.14; holding one and not the other is incoherent,
+    #                 and this row exists because an unacked edit to that sibling went unseen.
+    #   exits.rs      outbound redaction: that what leaves the machine carries no vault value. The secrets class
+    #                 already holds scrub*; this is the same rule at the other end of the pipe.
+    #   peer*.rs      who is on the other end of a socket or a CLI answer (`judge_act`): the guarantee that a job,
+    #                 or anything under a serving daemon, cannot answer its own approval. Loosening it is how a
+    #                 branch would grant itself what the owner withheld.
+    #   theseusd/src/web.rs  the web UI's own door, its Host and Origin checks (theseus-88im).
+    "crates/theseus-core/src/data_gate.rs",
+    "crates/theseus-core/src/exits.rs",
+    "crates/theseus-core/src/peer.rs",
+    "crates/theseus-core/src/peer_proc.rs",
+    "crates/theseusd/src/web.rs",
 )
 KEEL_PREFIXES = ("crates/theseus-exam/exam/",)
 GUARD_ITSELF = KEEL_FILES[:3]

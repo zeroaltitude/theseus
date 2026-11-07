@@ -10,8 +10,10 @@
 //!   `pivot_root`, the new mount API, and `clone` with any `CLONE_NEW*` flag.
 //!   `clone3` gets `ENOSYS`, so the C library falls back to `clone`, whose
 //!   flags the filter can read;
-//! - the kernel: modules, `kexec_*`, `reboot`, swap, `acct`, quotas, and the
-//!   time setters;
+//! - the kernel: modules, `kexec_*`, `reboot`, swap, `acct`, quotas, the
+//!   time setters, and the kernel log (`syslog`: a user namespace does not
+//!   virtualize the ring buffer, and where `kernel.dmesg_restrict` is 0 the
+//!   read needs no capability, so the filter is the whole of the boundary);
 //! - introspection: `ptrace`, `process_vm_*`, `perf_event_open`, `bpf`,
 //!   `userfaultfd`, the file-handle calls, `kcmp`, `pidfd_getfd`, and (x86)
 //!   `iopl` and `ioperm`;
@@ -95,6 +97,7 @@ pub fn denied() -> Vec<(&'static str, libc::c_long)> {
         ("swapon", libc::SYS_swapon),
         ("swapoff", libc::SYS_swapoff),
         ("acct", libc::SYS_acct),
+        ("syslog", libc::SYS_syslog),
         ("quotactl", libc::SYS_quotactl),
         ("quotactl_fd", libc::SYS_quotactl_fd),
         ("settimeofday", libc::SYS_settimeofday),
@@ -347,6 +350,29 @@ mod tests {
         ] {
             assert_eq!(run(&p, AUDIT_ARCH, nr as u32, 0), RET_ALLOW, "{name}");
         }
+    }
+
+    /// theseus-8f50c. `every_denied_call_gets_eperm_and_the_rest_are_allowed`
+    /// reads the list it is judging, so it says nothing about a call the list
+    /// leaves out. The kernel's ring buffer is one the list must hold by name:
+    /// `syslog(SYSLOG_ACTION_READ_ALL)` needs no capability where
+    /// `kernel.dmesg_restrict` is 0, and a user namespace does not virtualize
+    /// it, so the filter is the whole of the boundary. This holds on both
+    /// architectures, whatever the running host's `dmesg_restrict` says.
+    #[test]
+    fn the_filter_denies_the_kernel_logs_calls() {
+        let p = program();
+        assert_eq!(
+            run(&p, AUDIT_ARCH, libc::SYS_syslog as u32, 0),
+            eperm(),
+            "syslog"
+        );
+        assert!(
+            denied()
+                .iter()
+                .any(|&(n, nr)| n == "syslog" && nr == libc::SYS_syslog),
+            "syslog is not in the denied list by name"
+        );
     }
 
     #[test]

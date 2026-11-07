@@ -26,8 +26,10 @@ pub struct Spec {
     pub home: Option<PathBuf>,
     /// Paths covered in the view whatever binds them (17b: Theseus's floor,
     /// its store, spool, bindings, token, and socket): a directory by an
-    /// empty read-only tmpfs, a file or socket by `/dev/null`. One the view
-    /// does not hold is skipped.
+    /// empty read-only tmpfs, a file or socket by `/dev/null`. An entry is
+    /// covered at what it resolves to in the view, so a symlink hides the path
+    /// it names; one that resolves to nothing there is skipped, and neither a
+    /// link nor a dangling link ever stops the job (theseus-txh9w).
     #[serde(default)]
     pub hidden: Vec<PathBuf>,
     pub hostname: String,
