@@ -40,10 +40,13 @@
 //!    tag; 0.60 to 0.90, clear, routes with a tag and a move handle; anything
 //!    else asks in one line only when two threads contend (each at
 //!    `CONTEND`, 0.25, or more) or a new thread is raised; a message no two
-//!    threads contend for runs at home, movable, with no question
-//!    (theseus-e31an). Jev not answering in time (or not there) leaves the
-//!    pre-router's pick standing, tagged a guess, and asks only when two
-//!    contending threads are close.
+//!    threads contend for asks nothing (theseus-e31an) and runs, movable,
+//!    in the lone thread when that thread is the top choice and at the
+//!    confirm bar, else at home (theseus-m7fwf). Jev not answering in time
+//!    (or not there) leaves the pre-router's pick standing, tagged a guess,
+//!    and asks only when two contending threads are close -- an ask that
+//!    offers a new thread when the message names two entities no live thread
+//!    holds, since no Jev ranked one.
 //!
 //! A `new_thread` pick at 0.60 offers a new thread and waits for one tap; a
 //! one-off runs in the place's own conversation ("home") and never makes a
@@ -1074,13 +1077,22 @@ pub fn decide(
         .filter(|(c, s)| matches!(c, Choice::Thread(_)) && *s >= CONTEND)
         .count();
     if voice == Voice::Alone {
+        // No Jev ranked a `New`, so the message's own entities are the only
+        // evidence of a new stream: the bar `lone_offer` uses (theseus-m7fwf).
+        // It only adds an option to the ask below; it never makes one.
+        let raised = rules.new_entities >= 2;
         // The pre-router's pick stands, a guess; torn between two, ask.
         return match &top {
             (Choice::Thread(_), s) if *s >= GUESS && gap >= CLOSE => {
                 Decision::Route(tag(threads, &top.0, RouteHow::Guess, *s, true))
             }
             (Choice::Thread(_), s) if *s >= GUESS && contenders >= 2 => Decision::Ask {
-                options: ask_options(threads, &ranked, None, rules.ask_every_thread),
+                options: ask_options(
+                    threads,
+                    &ranked,
+                    new_title.filter(|_| raised),
+                    rules.ask_every_thread,
+                ),
             },
             (Choice::Thread(_), s) if *s >= GUESS => {
                 Decision::Route(tag(threads, &top.0, RouteHow::Guess, *s, true))
@@ -1107,11 +1119,23 @@ pub fn decide(
                 ranked.iter().any(|(c, _)| *c == Choice::New) || (held && rules.new_entities >= 2);
             if contenders < 2 && !raised {
                 // No two threads contend: nothing to ask about (theseus-e31an).
-                let home = ranked
-                    .iter()
-                    .find(|(c, _)| *c == Choice::Home)
-                    .map_or(0.0, |(_, s)| *s);
-                return Decision::Route(tag(threads, &Choice::Home, RouteHow::Home, home, true));
+                // The lead still stands, though. A lone thread at the confirm
+                // bar is here only because it sits close to home, and handing
+                // the turn to the choice it beat threw that away
+                // (theseus-m7fwf): it is routed to the thread, visibly and
+                // movable, which costs no question. Under the bar, home.
+                return match &top {
+                    (Choice::Thread(_), s) if *s >= CONFIRM => {
+                        Decision::Route(tag(threads, &top.0, RouteHow::Visible, *s, true))
+                    }
+                    _ => {
+                        let home = ranked
+                            .iter()
+                            .find(|(c, _)| *c == Choice::Home)
+                            .map_or(0.0, |(_, s)| *s);
+                        Decision::Route(tag(threads, &Choice::Home, RouteHow::Home, home, true))
+                    }
+                };
             }
             Decision::Ask {
                 options: ask_options(
@@ -1832,6 +1856,73 @@ mod tests {
             let at = |r| decide(&t, &pre, Some(&jev), Voice::Jev, Some("tide gauge"), r);
             assert_eq!(at(OFF), at(ON), "{score} {jev:?}");
         }
+    }
+
+    /// A lone thread that leads home only closely keeps its lead
+    /// (theseus-m7fwf): theseus-e31an rightly stopped the ask when no two
+    /// threads contend, but then handed the turn to home unconditionally, so
+    /// a thread at the confirm bar lost to the choice it had beaten. Under
+    /// the bar nothing changes: home, unasked.
+    #[test]
+    fn a_lone_thread_that_leads_home_closely_keeps_its_lead() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        // Fused 0.94 x 0.85 = 0.799 against home's 0.70: a 0.099 gap, inside
+        // CLOSE, so the table falls to the ask arm -- one thread contending.
+        let at = |thread: f64, home: f64| {
+            let jev = Jev {
+                pick: Pick::Home,
+                p: home,
+            };
+            let pre = pre_with(&[("pr-round", thread), ("security-fix", 0.0)]);
+            let d = today(&t, &pre, Some(&jev), Voice::Jev, None);
+            let (how, slug, movable) = tags(&d);
+            (how, slug.map(str::to_string), movable)
+        };
+        let pr = || Some("pr-round".to_string());
+        assert_eq!(at(0.94, 0.70), (RouteHow::Visible, pr(), true));
+        // The plant: under the confirm bar the lead is not one, and the turn
+        // still goes home without a question (theseus-e31an).
+        assert_eq!(at(0.60, 0.45), (RouteHow::Home, None, true));
+    }
+
+    /// Without Jev an ask offers the new thread the message's own entities
+    /// raise (theseus-m7fwf). No Jev means no `New` in the ranking, so the
+    /// entity bar -- two concrete entities no live thread holds, the bar
+    /// [`lone_offer`] uses -- is the only evidence of a new stream there is.
+    /// Two threads must still contend: it adds an option to an ask that
+    /// already happens, it never makes one.
+    #[test]
+    fn an_ask_without_jev_offers_the_new_thread_the_entities_raise() {
+        let all = [pr_round(), security_fix()];
+        let t = refs(&all);
+        let close = pre_with(&[("pr-round", 0.50), ("security-fix", 0.45)]);
+        let at = |pre: &[Pre], entities: usize| {
+            let rules = Rules {
+                new_entities: entities,
+                ..OFF
+            };
+            decide(&t, pre, None, Voice::Alone, Some("tide gauge"), rules)
+        };
+        let keys = |d: &Decision| match d {
+            Decision::Ask { options } => options
+                .iter()
+                .map(|o| o.option.key.clone())
+                .collect::<Vec<_>>(),
+            other => panic!("not an ask: {other:?}"),
+        };
+        let d = at(&close, 2);
+        assert_eq!(keys(&d), ["1", "2", "new", "home"], "{d:?}");
+        assert!(
+            format!("{d:?}").contains("New thread \u{ab}tide gauge\u{bb}"),
+            "{d:?}"
+        );
+        // The plants. One entity is no new stream: the same ask, without it.
+        assert_eq!(keys(&at(&close, 1)), ["1", "2", "home"]);
+        // And the entities never turn a clear guess into a question.
+        let lone = pre_with(&[("pr-round", 0.50), ("security-fix", 0.0)]);
+        let d = at(&lone, 2);
+        assert_eq!(tags(&d), (RouteHow::Guess, Some("pr-round"), true), "{d:?}");
     }
 
     /// The threadbench's msg-5 shape (theseus-eqp1v): a new stream's first
