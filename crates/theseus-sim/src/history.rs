@@ -4,7 +4,8 @@
 //!
 //! `bench lifecycle --record FILE --label TEXT` appends the row: the time, the
 //! label (the gate's is the branch and `git describe --always --dirty`), the
-//! 1-minute load average, each phase's p50, p95, and limit (its budget plus
+//! 1-minute load average, each phase's p50 (what the gate judges since
+//! theseus-ao9eq), p95, and limit (its budget plus
 //! its margin, what the gate judges; empty for restore, which has no budget
 //! yet, and all three empty for a phase the run skipped), and whether the run
 //! passed. The gate reruns the bench once after a miss and records both runs,
@@ -29,6 +30,17 @@
 //! Every worktree shares it, and the gate lock serializes its writers. A row
 //! is appended with one `write` (`O_APPEND`), so a row is whole or torn, never
 //! mixed with another; a torn last line is skipped, and said so.
+//!
+//! **Read it by column name, per header segment, never positionally**
+//! (theseus-ao9eq). A new header is written whenever the column set changes,
+//! so one file holds many of them -- 23 by 2026-11-07 -- and a phase has been
+//! *inserted mid-array* before now: `inflight` went in at c21f5317, which
+//! shifts `kill`, `swap`, `restore` and `seed` by three fields in every row
+//! written before it, and 7 of those 23 headers predate it. A positional
+//! reader silently mixes two vintages or drops one, and the numbers it
+//! produces look entirely reasonable. `parse` takes the header it was given
+//! for exactly this reason; anything outside this crate reading the file
+//! should do the same.
 
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
@@ -39,8 +51,8 @@ use anyhow::{bail, Context, Result};
 
 use crate::lifecycle::{Summary, Verdict, PHASES};
 
-/// A passing run warns about each phase whose p95 is within this share of its
-/// limit (the warning changes no exit status).
+/// A passing run warns about each phase whose judged median is within this
+/// share of its limit (the warning changes no exit status).
 const NEAR_PERCENT: i64 = 10;
 
 /// The columns of the benches besides the lifecycle's, in order, each with its
@@ -437,20 +449,20 @@ pub fn now() -> String {
     )
 }
 
-/// Whether `p95` is at or under `limit` with at most 10% of the limit left.
-/// In whole microseconds, so the edge is exact: 51.3 ms against 57 is in.
-pub fn near(p95: f64, limit: f64) -> bool {
+/// Whether `measured` is at or under `limit` with at most 10% of the limit
+/// left. In whole microseconds, so the edge is exact: 51.3 ms against 57 is in.
+pub fn near(measured: f64, limit: f64) -> bool {
     let us = |ms: f64| (ms * 1000.0).round() as i64;
-    let (p, l) = (us(p95), us(limit));
+    let (p, l) = (us(measured), us(limit));
     p <= l && (l - p) * 100 <= l * NEAR_PERCENT
 }
 
-/// The busy allowance (theseus-lew7): whether `p95` is at or under `limit`
+/// The busy allowance (theseus-lew7): whether `measured` is at or under `limit`
 /// plus `pct` % of it. In whole microseconds, as [`near`] is, so the edge is
 /// exact: 94.18 ms against 57.08 plus 65% is in.
-pub fn within(p95: f64, limit: f64, pct: u32) -> bool {
+pub fn within(measured: f64, limit: f64, pct: u32) -> bool {
     let us = |ms: f64| (ms * 1000.0).round() as i64;
-    us(p95) * 100 <= us(limit) * (100 + i64::from(pct))
+    us(measured) * 100 <= us(limit) * (100 + i64::from(pct))
 }
 
 /// Whether a verdict passes with the busy allowance `pct`: it met its limit,
@@ -458,13 +470,13 @@ pub fn within(p95: f64, limit: f64, pct: u32) -> bool {
 /// turn's frames) is held to its budget exactly, whatever the allowance, and
 /// an allowance of 0 is the strict verdict.
 pub fn allowed(v: &Verdict, pct: u32) -> bool {
-    v.ok || (pct > 0 && unit(&v.phase) == "ms" && within(v.p95, v.budget + v.margin, pct))
+    v.ok || (pct > 0 && unit(&v.phase) == "ms" && within(v.measured, v.budget + v.margin, pct))
 }
 
 /// What a phase the allowance carried says, in the gate's log and in `bench
 /// history`: `busy: allowance +65% applied (measured 112.0 ms, limit 104 ms)`.
-fn applied(pct: u32, what: &str, p95: f64, limit: f64) -> String {
-    format!("busy: allowance +{pct}% applied{what} (measured {p95:.1} ms, limit {limit} ms)")
+fn applied(pct: u32, what: &str, measured: f64, limit: f64) -> String {
+    format!("busy: allowance +{pct}% applied{what} (measured {measured:.1} ms, limit {limit} ms)")
 }
 
 /// For a run that missed strictly: one line for each verdict the allowance
@@ -478,7 +490,7 @@ pub fn allowance_applied(bench: &str, verdicts: &[Verdict], pct: u32) -> Vec<Str
             let what = format!(" to {}", name(&v.phase));
             format!(
                 "{bench}: {}",
-                applied(pct, &what, v.p95, round2(v.budget + v.margin))
+                applied(pct, &what, v.measured, round2(v.budget + v.margin))
             )
         })
         .collect()
@@ -525,9 +537,9 @@ fn name(phase: &str) -> &str {
     }
 }
 
-/// For a passing run: one line for each phase whose p95 is within 10% of its
-/// limit, such as `lifecycle: cold start's p95 51.3 ms is within 10% of its
-/// 57 ms limit`.
+/// For a passing run: one line for each phase whose judged statistic is
+/// within 10% of its limit, such as `lifecycle: cold start's 51.3 ms is
+/// within 10% of its 57 ms limit`.
 pub fn near_limits(verdicts: &[Verdict]) -> Vec<String> {
     near_limits_of("lifecycle", verdicts)
 }
@@ -537,13 +549,13 @@ pub fn near_limits(verdicts: &[Verdict]) -> Vec<String> {
 pub fn near_limits_of(bench: &str, verdicts: &[Verdict]) -> Vec<String> {
     verdicts
         .iter()
-        .filter(|v| warns_near(&v.phase) && near(v.p95, v.budget + v.margin))
+        .filter(|v| warns_near(&v.phase) && near(v.measured, v.budget + v.margin))
         .map(|v| {
             let unit = unit(&v.phase);
             format!(
-                "{bench}: {}'s p95 {:.1} {unit} is within {NEAR_PERCENT}% of its {} {unit} limit",
+                "{bench}: {}'s {:.1} {unit} is within {NEAR_PERCENT}% of its {} {unit} limit",
                 name(&v.phase),
-                v.p95,
+                v.measured,
                 round2(v.budget + v.margin)
             )
         })
@@ -594,7 +606,7 @@ struct Marks {
 /// allowance; one within 10% of it says so when `warn`; and a phase of a run
 /// that missed, or passed only on the allowance, says that.
 fn marks(r: &Row, p: &PhaseRow, warn: bool) -> Marks {
-    let over = p.limit.is_some_and(|l| p.p95 > l);
+    let over = p.limit.is_some_and(|l| p.p50 > l);
     let run = match (r.passed || over, r.allowance) {
         (true, _) => "",
         (false, Some(_)) => "  (the run passed on the busy allowance)",
@@ -608,22 +620,32 @@ fn marks(r: &Row, p: &PhaseRow, warn: bool) -> Marks {
             run,
         };
     };
+    // The tail is watched but never failed on (theseus-ao9eq). The recorded
+    // limit is the budget plus the judged margin, so the line the old gate
+    // failed at is that limit with the margins swapped.
+    let tail_line =
+        l - crate::lifecycle::margin_ms(&p.phase) + crate::lifecycle::tail_margin_ms(&p.phase);
+    let tail = if unit(&p.phase) == "ms" && p.p95 > tail_line {
+        format!("  tail {:.1} over {tail_line:.0}", p.p95)
+    } else {
+        String::new()
+    };
     let mark = match r.allowance {
-        Some(a) if over && within(p.p95, l, a) => format!("  {}", applied(a, "", p.p95, l)),
+        Some(a) if over && within(p.p50, l, a) => format!("  {}", applied(a, "", p.p50, l)),
         _ if over => "  MISSED".to_string(),
-        _ if warn && near(p.p95, l) => "  within 10%".to_string(),
+        _ if warn && near(p.p50, l) => "  within 10%".to_string(),
         _ => String::new(),
     };
     Marks {
         limit: l.to_string(),
-        headroom: format!("{:.1}", l - p.p95),
-        mark,
+        headroom: format!("{:.1}", l - p.p50),
+        mark: format!("{mark}{tail}"),
         run,
     }
 }
 
 /// `bench history`: the last `last` runs of each phase, with the headroom
-/// left (the limit minus the p95).
+/// left (the limit minus the judged p50).
 pub fn render(path: &Path, history: Option<&History>, last: usize) -> String {
     let mut o = String::new();
     let Some(h) = history else {
@@ -727,10 +749,11 @@ mod tests {
     }
 
     /// A gate run's row: every phase, as `main`'s last gate measured them
-    /// (128b3f6), with its limits.
-    fn row(label: &str, cold_p95: f64) -> Row {
+    /// (128b3f6), with its limits. The cold start's **median** is the
+    /// argument, because that is what a verdict judges (theseus-ao9eq).
+    fn row(label: &str, cold_p50: f64) -> Row {
         let phases: Vec<(String, Summary)> = [
-            ("cold", summary(23.8, cold_p95)),
+            ("cold", summary(cold_p50, cold_p50 + 2.0)),
             ("vault", summary(23.8, 35.3)),
             ("shutdown", summary(41.6, 51.9)),
             ("kill", summary(42.4, 49.9)),
@@ -761,13 +784,13 @@ mod tests {
         assert_eq!(
             r.phases.iter().map(|p| p.limit).collect::<Vec<_>>(),
             [
-                Some(57.0),
-                Some(57.0),
-                Some(104.0),
-                Some(175.0),
-                Some(202.0),
+                Some(50.0),
+                Some(51.0),
+                Some(100.0),
+                Some(168.0),
+                Some(200.0),
                 None,
-                Some(4.0),
+                Some(2.5),
                 Some(100.0),
                 Some(0.8)
             ],
@@ -778,7 +801,7 @@ mod tests {
             line,
             format!(
                 "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
-             23.8,33.5,57,23.8,35.3,57,41.6,51.9,104,,,,42.4,49.9,175,58.2,71,202,115.9,125.2,,1.2,1.9,4,,,,\
+             33.5,35.5,50,23.8,35.3,51,41.6,51.9,100,,,,42.4,49.9,168,58.2,71,200,115.9,125.2,,1.2,1.9,2.5,,,,\
              41.1,43.2,100,,,,0.01,0.02,0.8{},true,",
                 // The surfaces phase's three cells, empty: a gate run has none
                 // (it runs on `--sessions`, theseus-7bee). The other benches' columns, empty: three cells for each.
@@ -910,21 +933,27 @@ mod tests {
         assert!(near(93.6, 104.0));
         assert!(!near(93.59, 104.0));
 
-        let phases = |cold_p95: f64, shutdown_p95: f64| {
+        // The verdicts judge the median (theseus-ao9eq), so nearness is read
+        // off each phase's p50; the p95 beside it is the tail the run also
+        // recorded, and no longer what the warning is about.
+        let phases = |cold_p50: f64, shutdown_p50: f64| {
             vec![
-                ("cold".to_string(), summary(23.8, cold_p95)),
-                ("shutdown".to_string(), summary(41.6, shutdown_p95)),
+                ("cold".to_string(), summary(cold_p50, 70.0)),
+                ("shutdown".to_string(), summary(shutdown_p50, 120.0)),
                 ("restore".to_string(), summary(115.9, 125.2)),
             ]
         };
-        let v = verdicts(&phases(51.3, 93.59), 0, None);
+        // The cold start's limit is its 50 ms budget now, and the clean
+        // shutdown's its 100 (theseus-ao9eq), so the edges move with them:
+        // 45.0 is exactly 10% under 50, and 90.0 exactly 10% under 100.
+        let v = verdicts(&phases(45.0, 89.9), 0, None);
         assert_eq!(
             near_limits(&v),
-            ["lifecycle: cold start's p95 51.3 ms is within 10% of its 57 ms limit"]
+            ["lifecycle: cold start's 45.0 ms is within 10% of its 50 ms limit"]
         );
-        assert!(near_limits(&verdicts(&phases(51.29, 93.59), 0, None)).is_empty());
+        assert!(near_limits(&verdicts(&phases(44.99, 89.9), 0, None)).is_empty());
         assert_eq!(
-            near_limits(&verdicts(&phases(56.9, 103.9), 0, None)).len(),
+            near_limits(&verdicts(&phases(49.9, 99.9), 0, None)).len(),
             2
         );
     }
@@ -941,7 +970,7 @@ mod tests {
         assert!(empty.contains("0 run(s), 0 missed"), "{empty}");
         assert!(empty.contains("no runs recorded yet"), "{empty}");
 
-        for (label, cold) in [("main a", 40.0), ("main b", 58.1), ("main b", 51.3)] {
+        for (label, cold) in [("main a", 40.0), ("main b", 58.1), ("main b", 45.0)] {
             append(&path, &row(label, cold)).unwrap();
         }
         let whole = std::fs::read_to_string(&path).unwrap();
@@ -963,11 +992,13 @@ mod tests {
             .take_while(|l| l.starts_with("  2026"))
             .collect();
         assert_eq!(cold.len(), 2, "the last 2 runs of the phase:\n{out}");
+        // The miss, and the tail said beside it: the p95 crossed the line the
+        // old gate failed at, which is noted and changes no exit status.
         assert!(
-            cold[0].contains("main b") && cold[0].ends_with("-1.1  MISSED"),
+            cold[0].contains("main b") && cold[0].ends_with("-8.1  MISSED  tail 60.1 over 57"),
             "{out}"
         );
-        assert!(cold[1].ends_with("5.7  within 10%"), "{out}");
+        assert!(cold[1].ends_with("5.0  within 10%"), "{out}");
         // A phase within its limit in a run that missed says so.
         assert!(
             out.lines()
@@ -986,9 +1017,10 @@ mod tests {
         assert!(within(57.0, 57.0, 0), "at the limit is in, with none");
         assert!(!within(57.01, 57.0, 0));
 
-        // A cold start 10% over its 57 ms limit: carried by 65% and by 11%, not
-        // by 5%, nor by 0, which is the strict verdict.
-        let v = verdicts(&[("cold".to_string(), summary(23.8, 62.8))], 0, None);
+        // A cold start 10% over its limit, which is its 50 ms budget since
+        // theseus-ao9eq: carried by 65% and by 11%, not by 5%, nor by 0,
+        // which is the strict verdict.
+        let v = verdicts(&[("cold".to_string(), summary(55.0, 70.0))], 0, None);
         assert!(!v[0].ok);
         assert!(allowed(&v[0], 65) && allowed(&v[0], 11));
         assert!(!allowed(&v[0], 5));
@@ -1011,7 +1043,7 @@ mod tests {
         let v = verdicts(
             &[
                 ("cold".to_string(), summary(23.8, 33.5)),
-                ("shutdown".to_string(), summary(70.0, 112.0)),
+                ("shutdown".to_string(), summary(112.0, 130.0)),
                 ("kill".to_string(), summary(300.0, 400.0)),
             ],
             0,
@@ -1019,7 +1051,7 @@ mod tests {
         );
         assert_eq!(
             allowance_applied("lifecycle", &v, 65),
-            ["lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms, limit 104 ms)"]
+            ["lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms, limit 100 ms)"]
         );
         assert!(allowance_applied("lifecycle", &v, 0).is_empty());
     }
@@ -1058,11 +1090,11 @@ mod tests {
         assert!(
             line(
                 "main busy",
-                "busy: allowance +65% applied (measured 61.2 ms, limit 57 ms)"
+                "busy: allowance +65% applied (measured 61.2 ms, limit 50 ms)  tail 63.2 over 57"
             ),
             "{out}"
         );
-        assert!(line("main miss", "MISSED"), "{out}");
+        assert!(line("main miss", "MISSED  tail 101.0 over 57"), "{out}");
         // Its phases within their limits say how the run passed.
         assert!(
             line("main busy", "(the run passed on the busy allowance)"),
@@ -1076,7 +1108,7 @@ mod tests {
     fn the_counted_rows_never_warn_at_their_budget() {
         let at = |phase: &str, x: f64| Verdict {
             phase: phase.to_string(),
-            p95: x,
+            measured: x,
             budget: x,
             margin: 0.0,
             ok: true,
@@ -1099,7 +1131,7 @@ mod tests {
     fn a_size_is_never_said_to_be_near_its_growth_limit() {
         let v = [Verdict {
             phase: "size_theseusd".to_string(),
-            p95: 83.1,
+            measured: 83.1,
             budget: 84.1,
             margin: 0.0,
             ok: true,

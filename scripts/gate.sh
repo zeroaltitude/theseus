@@ -266,8 +266,10 @@ protocol_types() {
 
 # The lifecycle budgets of §9 (FAST, theseus-qa0): cold start, clean shutdown
 # with a job running, SIGKILL then restart, a binary swap with the job's
-# wrapper adopted, 10 runs each on an empty store, p95 against the budget plus
-# the measured noise margin; and restore, measured, whose restored store must
+# wrapper adopted, 10 runs each on an empty store, the median against the
+# budget plus the measured noise margin (the p95 of ten samples is the slowest
+# of them, so it was the machine's worst moment and not the code that decided
+# a phase: theseus-ao9eq); and restore, measured, whose restored store must
 # serve. Debug binaries: they are never faster than release, so a pass here
 # holds for release.
 #

@@ -206,8 +206,11 @@ fn bench_history_reads_the_file_the_environment_names() {
     assert!(out.contains("no history yet"), "{out}");
     std::fs::write(
         &path,
+        // The column a limit is judged against is the p50 (theseus-ao9eq),
+        // so the run within 10% of its 57 ms limit is the one whose median
+        // reads 51.3; the p95 beside it is the tail it also recorded.
         "time,label,load1,cold_p50,cold_p95,cold_limit,passed\n\
-         2026-10-01T10:20:11-07:00,lane/x 1a2b3c4,2.5,23.8,51.3,57,true\n\
+         2026-10-01T10:20:11-07:00,lane/x 1a2b3c4,2.5,51.3,61.9,57,true\n\
          2026-10-01T10:24:00-07:00,lane/x 1a2b3c4-dirty,2.5,23",
     )
     .unwrap();
