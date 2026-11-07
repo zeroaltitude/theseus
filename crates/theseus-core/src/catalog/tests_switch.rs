@@ -83,6 +83,35 @@ fn a_short_session_is_cheaper_to_switch_and_the_cheaper_one_is_haiku() {
     assert_eq!(name(SONNET, 40_000, Peak), "haiku");
 }
 
+/// theseus-g0phw: the state names EVERY candidate cheaper than staying, cheapest
+/// first, and not only the one cheapest. Through Haiku's short tier Haiku is the
+/// cheapest ($0.10) but Flash ($0.15 off-peak) is still under staying on Sonnet
+/// ($0.20): naming only Haiku hid Flash, and W28, a brief that fits Flash's
+/// sentence at 90K, lost its model.
+#[test]
+fn every_candidate_cheaper_than_staying_is_named_cheapest_first() {
+    for m in [SONNET, OPUS, FABLE] {
+        for n in [40_000, 90_000, 100_000] {
+            assert_eq!(
+                name(m, n, OffPeak),
+                "haiku, deepseek_flash (off-peak)",
+                "{m} {n}"
+            );
+        }
+    }
+    // Past Haiku's long tier it is dearer than staying, so only Flash is left.
+    assert_eq!(name(SONNET, 100_001, OffPeak), "deepseek_flash (off-peak)");
+    // At peak Flash's $0.30 is above staying's $0.20: only Haiku is named.
+    assert_eq!(name(SONNET, 90_000, Peak), "haiku");
+    // The data rule keeps Flash out of the list and leaves Haiku in it.
+    assert_eq!(
+        full(SONNET, 90_000, OffPeak, NotAllowed)
+            .cheaper_model
+            .as_deref(),
+        Some("haiku")
+    );
+}
+
 #[test]
 fn haikus_long_tier_moves_the_cheaper_model_from_haiku_to_flash() {
     assert_eq!(at(SONNET, 100_000), CheaperToSwitch);
