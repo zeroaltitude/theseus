@@ -45,6 +45,22 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   `index.status`'s `vectors.gate` and health's `query gate` say the pool, whether it is shut now, and the queries
   that waited and expired. Tests: `tests_gate.rs` (fake PSI in a mount namespace; the threads a lane used, counted
   by CPU time), `ahead::tests`.
+- **A kept file's read text is indexed beside its node** (`files.rs`, theseus-lv2u). A file the owner attaches is
+  kept whole in the store's blobs and the node names, by digest, the blob holding what was read of it (a PDF's
+  pages, a document's sections). The extractor carries the reference (`Extracted.files`), and the tender reads that
+  blob from `<store>/blobs/` at index time: the one thing it reads outside the WAL, and the reason the text is not
+  in the node (a node is a frame every recovery and every rebuild reads whole). **Once per digest**: a file's chunks
+  carry its digest in the `file` field, and a digest the index already holds under *another* node is left to it, so
+  the same bytes attached twice are one copy; under this node it is taken again, since `Writer::replace` deletes a
+  node whole. **The cap** is `files::MAX_BYTES` (256 KiB, `[tools] max_read_bytes`'s default): sections in order to
+  the cap, the last cut on a character boundary, the rest dropped and said in a chunk of its own naming the file and
+  `file_read`. **The chunking** is per section, so no chunk spans two pages, and every chunk is headed
+  `[<file> · <section>]`, which is what a hit cites. A text blob that is gone or in no known shape leaves its node
+  indexed without it. `index.status` counts all four (`files_indexed`, `files_repeated`, `files_cut`,
+  `files_unread`), and `theseus index status` prints them. On disk one capped file of varied prose measured 132
+  chunks, 411 KB of BM25 and 234 KB of vectors (1,816 bytes a chunk), about 2.5x the text taken. Known limit: a
+  digest's one copy belongs to the node that carried it first, so erasing that node takes the text out even where a
+  later node still carries the file; a rebuild does not put it back. Tests: `tests_files.rs`, `files::tests`.
 - **A node written again with nothing to index leaves the index** (`Tender::ingest`'s skip; an import's tombstone,
   theseus-0lrr.6): that holds inside one batch too, where the node's first record is indexed but not yet committed
   (`fresh`), as a rebuild meets a node and its tombstone together; `engine.holds` reads only what is committed.
