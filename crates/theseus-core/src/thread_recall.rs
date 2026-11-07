@@ -32,6 +32,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use theseus_memory::{SessionThread, ThreadLens};
 use theseus_protocol::threads::{slug_of_place, ThreadInfo, ThreadState};
 
+use crate::generic_folder::is_generic_folder;
 use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::threads::Board;
@@ -119,14 +120,17 @@ fn mentions(text: &str, name: &str) -> bool {
     false
 }
 
-/// The threads `message` names: by slug, title, or a working-set entity.
+/// The threads `message` names: by slug, title, or a working-set entity. A
+/// generic root (`notes`) names none (theseus-2uhsy).
 pub fn named(board: &Board, message: &str) -> BTreeSet<String> {
     let text = message.to_lowercase();
     let ws = |t: &ThreadInfo| -> Vec<String> {
         let w = &t.working_set;
-        [&w.roots, &w.repos, &w.branches, &w.refs, &w.files, &w.hosts]
+        let roots = w.roots.iter().filter(|r| !is_generic_folder(r));
+        [&w.repos, &w.branches, &w.refs, &w.files, &w.hosts]
             .into_iter()
             .flatten()
+            .chain(roots)
             .cloned()
             .collect()
     };

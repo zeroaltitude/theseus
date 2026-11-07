@@ -10,7 +10,8 @@
 //!   first component as a root (`tarnlib/reviews/comment-1.md` gives the file
 //!   and the root `tarnlib`); a path outside that directory, or one that climbs
 //!   out with `..`, gives nothing. A directory (`cwd`, `dir`) gives its first
-//!   component; a URL its host.
+//!   component; a URL its host. A generic folder (`notes`, `misc`, `src`;
+//!   [`crate::generic_folder`], theseus-2uhsy) is no root: it names no thread.
 //! - **Named** is the message's entities, as the import's extractor reads them
 //!   (`threads_import::extract::working_set`).
 //! - **Streams stay apart**: an entity another live thread holds (a sealed one
@@ -23,6 +24,7 @@ use std::path::{Component, Path};
 
 use theseus_protocol::threads::WorkingSet;
 
+use crate::generic_folder::is_generic_folder;
 use crate::thread_join::MAX_SET;
 
 /// A path as it reads from the session's directory: a relative one as it
@@ -59,13 +61,16 @@ pub fn touched_in(calls: &WorkingSet, dir: &Path) -> WorkingSet {
         ..WorkingSet::default()
     };
     for f in calls.files.iter().filter_map(|f| relative(f, dir)) {
-        if let Some(r) = root_of(&f) {
+        if let Some(r) = root_of(&f).filter(|r| !is_generic_folder(r)) {
             add(&mut w.roots, r);
         }
         add(&mut w.files, &f);
     }
     for d in calls.roots.iter().filter_map(|d| relative(d, dir)) {
-        add(&mut w.roots, root_of(&d).unwrap_or(&d));
+        let r = root_of(&d).unwrap_or(&d);
+        if !is_generic_folder(r) {
+            add(&mut w.roots, r);
+        }
     }
     w
 }

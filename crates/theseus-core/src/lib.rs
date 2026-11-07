@@ -57,6 +57,7 @@ pub mod first_request;
 pub mod flow;
 pub mod forecast;
 pub mod fork;
+pub mod generic_folder;
 pub mod github;
 pub mod glide;
 pub mod google;
