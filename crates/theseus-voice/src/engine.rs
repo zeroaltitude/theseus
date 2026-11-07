@@ -204,6 +204,10 @@ pub enum Command {
     Report { text: String },
     /// Stop speaking, and end the run.
     Leave,
+    /// `true`: stop hearing the call (the listener's door shuts and what it
+    /// had open is dropped); `false`: hear it again. Theseus's own speech
+    /// goes on either way.
+    Mute(bool),
 }
 
 /// An utterance, transcribed: a user message by its speaker (🎙️).
@@ -741,6 +745,7 @@ impl Engine {
                         sentences,
                     });
                 }
+                Step::Command(Some(Command::Mute(_))) => {}
                 Step::Command(None | Some(Command::Leave)) => {
                     self.call_ended(now);
                     break;
