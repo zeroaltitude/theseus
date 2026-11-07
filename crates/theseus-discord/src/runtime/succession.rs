@@ -230,6 +230,7 @@ impl Place {
         // The old session's turns are dropped with its renderer: the lane
         // forgets their messages (theseus-6809).
         self.renderer = self.shared.renderer();
+        self.view.hold(&self.renderer.held());
         let _ = self.lane.send(LaneMsg::Held(self.renderer.held()));
         self.report();
     }

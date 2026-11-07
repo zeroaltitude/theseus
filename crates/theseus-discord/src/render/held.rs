@@ -4,7 +4,10 @@
 //!
 //! A renderer holds the last `RECENT_TURNS` turns, so a late event (a
 //! background job's result, a parked call approved in a later turn) still
-//! finds its tool line. Its per-key maps hold only those turns' keys: when a
+//! finds its tool line. A turn older than that stays while one of its calls
+//! is in the background or waiting for an answer (`pending`), at most
+//! `PINNED_TURNS` of them, so a job's end shows however many turns came
+//! between (theseus-9zif). Its per-key maps hold only those turns' keys: when a
 //! turn is dropped, its keys leave `emitted` and `menus`, and its calls'
 //! notice cards leave `notices`. The place's actor tells its lane the turns
 //! held (`held`) whenever they change, and the lane keeps their messages'
@@ -16,10 +19,22 @@
 
 use std::collections::HashSet;
 
-use super::{Renderer, RECENT_TURNS};
+use super::{Renderer, ToolState, TurnView, RECENT_TURNS};
 
-/// The most turns past the recent ones held for a call still waiting.
+/// The most turns past the recent ones held for a call still waiting: a job
+/// that never ends does not hold every turn that started it.
 const PINNED_TURNS: usize = RECENT_TURNS;
+
+/// Does a call of this turn still wait for its end, a background job's late
+/// result or an answer to its approval? Its end names the call, not the turn
+/// it comes in, and finds the line by the call (`update_tool`), so the line's
+/// turn must outlive the wait (theseus-9zif).
+fn pending(t: &TurnView) -> bool {
+    t.loops
+        .values()
+        .flat_map(|lv| &lv.tools)
+        .any(|l| matches!(l.state, ToolState::Background | ToolState::Waiting))
+}
 
 impl Renderer {
     /// The turns it holds, oldest first: what the place's lane keeps whole.
@@ -32,14 +47,29 @@ impl Renderer {
         self.turns.iter().any(|t| t.turn_id == turn_id)
     }
 
-    /// Drop the turns past `RECENT_TURNS`, oldest first, with their keys.
+    /// Drop the turns past `RECENT_TURNS`, oldest first, with their keys,
+    /// but keep an older turn while one of its calls still waits for an
+    /// end (`pending`), up to `PINNED_TURNS` of them, the newest.
     pub(super) fn drop_past_recent(&mut self) {
-        let mut dropped = vec![];
-        while self.turns.len() > RECENT_TURNS {
-            if let Some(t) = self.turns.pop_front() {
-                dropped.push(format!("{}:", t.turn_id));
+        let older = self.turns.len().saturating_sub(RECENT_TURNS);
+        let mut room = PINNED_TURNS;
+        let mut keep = vec![true; self.turns.len()];
+        for (i, t) in self.turns.iter().enumerate().take(older).rev() {
+            if pending(t) && room > 0 {
+                room -= 1;
+            } else {
+                keep[i] = false;
             }
         }
+        let mut dropped = vec![];
+        let mut at = 0;
+        self.turns.retain(|t| {
+            at += 1;
+            if !keep[at - 1] {
+                dropped.push(format!("{}:", t.turn_id));
+            }
+            keep[at - 1]
+        });
         if dropped.is_empty() {
             return;
         }

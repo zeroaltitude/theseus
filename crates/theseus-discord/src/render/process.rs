@@ -13,15 +13,15 @@
 //! its tool lines with it (`holds_thinking`, read by `policy::of_live`): a
 //! thinking turn buzzes for its answer alone. Live progress, best
 //! effort, never a post; the whole thinking is the session's history. It
-//! holds the turns the place's renderer holds (`RECENT_TURNS`, by the same
-//! `turn.started`), so the lane keeps and forgets its keys with theirs.
+//! holds the turns the place's renderer holds (`Process::hold`, told after
+//! each `turn.started`), so the lane keeps and forgets its keys with theirs.
 
 use std::collections::{BTreeMap, VecDeque};
 
 use theseus_protocol::Event;
 use tokio::time::Instant;
 
-use super::{Buttons, Op, DISCORD_LIMIT, RECENT_TURNS};
+use super::{Buttons, Op, DISCORD_LIMIT};
 
 /// The most of a loop's thinking its message shows, in characters, when its
 /// tool lines leave room for it.
@@ -110,9 +110,6 @@ impl Process {
         match e {
             Event::TurnStarted(_) => {
                 self.turns.push_back((turn.to_string(), BTreeMap::new()));
-                while self.turns.len() > RECENT_TURNS {
-                    self.turns.pop_front();
-                }
                 return vec![];
             }
             Event::ModelThinking(d) => {
@@ -146,6 +143,14 @@ impl Process {
             _ => return vec![],
         }
         self.tick(s)
+    }
+
+    /// The turns the renderer holds now (`Renderer::held`): the rest are
+    /// forgotten. The renderer decides which turns stay, a turn with a call
+    /// still waiting for its end included (theseus-9zif), so the thinking a
+    /// late tool line is edited under stays too.
+    pub(crate) fn hold(&mut self, held: &[String]) {
+        self.turns.retain(|(t, _)| held.contains(t));
     }
 
     /// Each loop whose message changed since Discord last got it.
@@ -500,10 +505,19 @@ mod tests {
                 BOTH
             )
             .is_empty());
-        for i in 0..RECENT_TURNS {
-            p.on_event(&started(&format!("turn_{i}")), t0, BOTH);
+        let held: Vec<String> = (0..8).map(|i| format!("turn_{i}")).collect();
+        for t in &held {
+            p.on_event(&started(t), t0, BOTH);
         }
-        assert_eq!(p.turns.len(), RECENT_TURNS);
+        // The renderer names the turns it holds: one it still holds for a
+        // call waiting for its end stays with its thinking (theseus-9zif).
+        let mut pinned = held.clone();
+        pinned.insert(0, "turn_a".into());
+        p.hold(&pinned);
+        assert_eq!(p.turns.len(), 9);
+        assert_eq!(p.turns[0].1[&0].text.chars().count(), KEPT, "its thinking");
+        p.hold(&held);
+        assert_eq!(p.turns.len(), 8);
         assert!(p.turns.iter().all(|(id, _)| id != "turn_a"));
     }
 

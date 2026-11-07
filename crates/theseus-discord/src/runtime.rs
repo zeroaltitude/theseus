@@ -1963,7 +1963,9 @@ impl Place {
                 // turns' messages whole, and forgets a dropped one's
                 // (theseus-6809).
                 if matches!(e, CoreEvent::TurnStarted(_)) {
-                    let _ = self.lane.send(LaneMsg::Held(self.renderer.held()));
+                    let held = self.renderer.held();
+                    self.view.hold(&held);
+                    let _ = self.lane.send(LaneMsg::Held(held));
                 }
                 // The renderer has shown the call that asks, and its tool line
                 // went to the lane first: the question's card may follow
