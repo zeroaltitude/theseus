@@ -56,11 +56,17 @@ pub(super) const NAMED: &[&str] = &[
 /// join token, `connectparticipant`'s `ConnectionToken`, Amplify Backend's
 /// `ClientSecret`, Athena's and Glue's `AuthToken`.
 ///
+/// `Password` and `SharedSecret` are here for the same reason: a pending
+/// master password, a cluster's Kerberos passwords, an HSM's
+/// pre-crypto-officer password and a procurement portal's shared secret are
+/// all returned unmarked.
+///
 /// Matched at the end, not anywhere, so `apiKeyRequired` and
 /// `PrivateKeyFlags` — which merely contain one — do not match. Matched only
 /// on a string or a blob, because a credential is a value: without that,
 /// `ApiKey` would swallow AppSync's `apiKey` **structure** whole and hide the
-/// description and expiry beside the key.
+/// description and expiry beside the key, and `Password` would swallow
+/// Amplify Backend's `ForgotPassword` configuration.
 pub(super) const ENDS: &[&str] = &[
     "ParticipantToken",
     "ConnectionToken",
@@ -70,6 +76,8 @@ pub(super) const ENDS: &[&str] = &[
     "ClientSecret",
     "PreSharedKey",
     "ApiKey",
+    "Password",
+    "SharedSecret",
 ];
 
 /// `name` ends with `suffix`, in any case, without allocating.

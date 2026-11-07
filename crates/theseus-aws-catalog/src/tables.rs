@@ -1048,6 +1048,47 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
     ops("securityhub", &["GetFindings"]),
     // A listing with no key in it answers whole.
     ops("wafv2", &["ListAPIKeys"]),
+    // A password a resource is holding and will apply, or was configured
+    // with, and which no model marks: present only while the change is
+    // pending, or only on a cluster that uses the feature at all.
+    ops(
+        "docdb",
+        &[
+            "CreateDBInstance",
+            "DeleteDBInstance",
+            "DescribeDBInstances",
+            "ModifyDBInstance",
+            "RebootDBInstance",
+        ],
+    ),
+    ops(
+        "neptune",
+        &[
+            "CreateDBInstance",
+            "DeleteDBInstance",
+            "DescribeDBInstances",
+            "ModifyDBInstance",
+            "RebootDBInstance",
+        ],
+    ),
+    ops(
+        "lightsail",
+        &["GetRelationalDatabase", "GetRelationalDatabases"],
+    ),
+    // The cluster's Kerberos passwords, on a Kerberized cluster only.
+    ops("emr", &["DescribeCluster"]),
+    // The HSM cluster's pre-crypto-officer password, before it is claimed.
+    ops(
+        "cloudhsmv2",
+        &[
+            "CreateCluster",
+            "DeleteCluster",
+            "DescribeClusters",
+            "ModifyCluster",
+        ],
+    ),
+    // The shared secret of a procurement portal, where one is configured.
+    ops("invoicing", &["GetProcurementPortalPreference"]),
 ];
 
 /// Tagging is direct (§3.4), so it is never IaC-only.

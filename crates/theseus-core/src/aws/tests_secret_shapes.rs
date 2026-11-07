@@ -24,7 +24,7 @@
 //! data and customer content too, and holding every marked member would
 //! reach 1478 further operations and 2654 further members — a postal code, a
 //! given name, a control's description, a tag's value — against this rule's
-//! 129 and 94. The words alone are a guess about a name, and the names that
+//! 147 and 105. The words alone are a guess about a name, and the names that
 //! matter do not cooperate: a stream key arrives as `StreamKey.value`, a
 //! Grafana key as `key`, a TOTP seed as `SecretCode`, a channel's key as
 //! `Srt.passphrase`. Read together they keep the marking's authority — the
@@ -840,7 +840,7 @@ fn the_rules_reach_is_what_the_design_doc_says() {
     let marking = reach(c, &marking_alone);
     assert_eq!(
         (conjunction, marking),
-        ((129, 94), (1478, 2654)),
+        ((147, 105), (1478, 2654)),
         "the rule's reach moved: the conjunction now selects {conjunction:?} \
          (operations, members) beyond the rule it replaced, and the marking alone would \
          select {marking:?}. Correct the module doc above and docs/design/aws-toolset.md."

@@ -276,7 +276,7 @@ to get whole-of-AWS reach:
   The marking alone is not a credential rule, because AWS marks `sensitive` to keep a value out of
   logs, so the marking covers personal data and customer content too: taking every marked member
   would reach 1478 further operations and 2654 further members, down to postal codes and tag values,
-  against this rule's 129 and 94. The name alone is a guess, and the names that matter do not
+  against this rule's 147 and 105. The name alone is a guess, and the names that matter do not
   cooperate — a stream key arrives as `StreamKey.value`, a Grafana workspace key as `key`, a TOTP seed
   as `SecretCode`, a channel's key as `Srt.passphrase`. Reading the shape's name as well as the
   member's is what finds `StreamKey.value`: `value` says nothing and `StreamKey` says all of it. All
@@ -298,8 +298,8 @@ to get whole-of-AWS reach:
   Connect's `StartWebRTCContact` did exactly that with `ParticipantToken` beside its held join token.
   Every credential-shaped member of a secret-bearing answer must now be one the walk holds.
 
-  The rule selects 129 operations beyond its predecessor; each is now a secret-bearing row or an
-  allowed row with its reason — 25 `SECRET` rows, 12 `WHEN_PRESENT` groups covering 34 operations,
+  The rule selects 147 operations beyond its predecessor; each is now a secret-bearing row or an
+  allowed row with its reason — 25 `SECRET` rows, 18 `WHEN_PRESENT` groups covering 52 operations,
   and 23 allowed rows.)_
 - **Retry class** (§3.16), from the traits:
   - `@readonly` or `@idempotent` is `safe_to_repeat`.
