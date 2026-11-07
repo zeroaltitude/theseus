@@ -1,5 +1,5 @@
 {
-  "kind": "admission",
+  "kind": "admission_slot",
   "what": "a wake turn for the morning digest routine",
   "elapsed_ms": 660000,
   "cost_cents": 40,

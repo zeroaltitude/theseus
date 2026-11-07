@@ -759,7 +759,7 @@ impl TurnRunner {
             };
             let r = self
                 .reconsider(delay_step::Delay {
-                    kind: delay_step::DelayKind::Admission,
+                    kind: delay_step::DelayKind::AdmissionSlot,
                     what: format!("a {} turn waiting for a slot", stuck.class),
                     execution: exec_id.to_string(),
                     session: exec_id.to_string(),
@@ -813,7 +813,7 @@ impl TurnRunner {
     ) -> bool {
         let r = self
             .reconsider(delay_step::Delay {
-                kind: delay_step::DelayKind::Admission,
+                kind: delay_step::DelayKind::AdmissionTurn,
                 what: "a turn waiting for its own execution's previous turn to end".into(),
                 execution: exec_id.to_string(),
                 session: exec_id.to_string(),

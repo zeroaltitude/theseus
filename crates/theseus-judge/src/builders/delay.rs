@@ -30,8 +30,10 @@ pub struct DelaySignal {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DelayInput {
-    /// Which kind of delay: `admission`, `provider`, `job`, `question`,
-    /// `self_build` or `trial`.
+    /// Which kind of delay the caller is asking about, as a short word
+    /// (`admission_slot`, `admission_turn`, `provider`, `job`, ...). The set
+    /// lives in the caller, not here: a new delay site may name a new kind
+    /// without a pack version.
     pub kind: String,
     /// What is delayed, in the owner's words.
     pub what: String,
@@ -102,7 +104,7 @@ mod tests {
 
     fn input() -> DelayInput {
         DelayInput {
-            kind: "admission".into(),
+            kind: "admission_slot".into(),
             what: "a wake turn on the morning routine".into(),
             elapsed_ms: 660_000,
             cost_cents: 40,
@@ -128,7 +130,7 @@ mod tests {
         let p = by_name("delay.v1").unwrap();
         let prepared = prepare(&p, &Input::Delay(input()), &NoScrub).unwrap();
         let v = prepared.state.value();
-        assert_eq!(v["kind"], "admission");
+        assert_eq!(v["kind"], "admission_slot");
         assert_eq!(v["elapsed_ms"], 660_000);
         assert_eq!(v["elapsed_minutes"], 11);
         assert_eq!(v["spent_cents"], 40);
