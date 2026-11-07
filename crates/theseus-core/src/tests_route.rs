@@ -895,14 +895,35 @@ async fn a_routed_turn_still_writes_and_sends_its_recall() {
 /// session's profile, then discarded) took the drops, and the stored one, on
 /// Opus, named none; a verdict that keeps the first compile stored them, and
 /// still does.
+///
+/// The switch is the whole of it, so the turn must have its verdict, and two
+/// bounds stand between it and one. The build's `judge.total_secs` is 1 s
+/// (`tests_judge::judge_config`), and that second bounds the `route.v1` call
+/// itself (`Urgency::Live`), so on a loaded host the call was abandoned
+/// before it answered, the turn read `no_verdict` and ran on the session's
+/// own profile, and this test failed on the profile -- the only red of an
+/// otherwise green gate, about 1 run in 12 (theseus-2yh04). It is raised here
+/// past any turn's work, as `held` and every other test here that asserts a
+/// switch already do. The turn's own wait is raised with it: 5 s is
+/// `Config::validate`'s cap on `routing.max_wait_ms`, so it is set in `Parts`,
+/// after the config is validated (theseus-ler3c). Neither bound times
+/// anything here -- each ends as the verdict lands, so a quick one costs
+/// nothing -- and both stay well inside nextest's 120 s kill, so a verdict
+/// that never comes still fails on the assertion rather than as a hang.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_switched_turns_compilation_names_its_recall_drops() {
     let jev = FakeJev::start().unwrap();
-    let r = rig(Some(&jev), 2, |c| {
-        c.memory.mode = crate::config::MemoryMode::Live;
-        c.memory.recall_budget_tokens = 30;
-    });
-    // Each note about 25 tokens: one fits the pack, two do not.
+    let r = rig_parts(
+        Some(&jev),
+        2,
+        |c| {
+            c.memory.mode = crate::config::MemoryMode::Live;
+            c.memory.recall_budget_tokens = 30;
+            c.judge.total_secs = 30;
+        },
+        |p| p.cfg.routing.max_wait_ms = 30_000,
+    );
+    // Each note 21 tokens: one fits the pack, two do not.
     let notes = crate::tests_recall::session(
         &r.core,
         None,
