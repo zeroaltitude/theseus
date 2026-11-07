@@ -50,10 +50,7 @@ impl Shared {
 
     /// The bot cannot send V2: each place draws its text board instead.
     pub(crate) fn wake_places_for_board(&self) {
-        let r = self.routes.lock().unwrap();
-        for tx in r.by_session.values() {
-            let _ = tx.send(PlaceMsg::Board);
-        }
+        self.broadcast(|| PlaceMsg::Board);
     }
 
     /// Answer an interaction with a V2 message: `kind` is 4 (a new message)

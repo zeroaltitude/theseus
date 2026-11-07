@@ -623,6 +623,10 @@ pub(crate) struct Shared {
 struct Routes {
     /// session id → place mailbox
     by_session: HashMap<String, mpsc::UnboundedSender<PlaceMsg>>,
+    /// place key → mailbox, for a place with no session yet: its first
+    /// message opens one. Keyed on the place, which is unique when it is
+    /// bound, where a session id is not (theseus-2xr6x).
+    fresh: HashMap<String, mpsc::UnboundedSender<PlaceMsg>>,
     /// Discord channel id → place mailbox
     by_channel: HashMap<u64, mpsc::UnboundedSender<PlaceMsg>>,
     /// DM user id → place mailbox (the DM channel may open later)
@@ -653,6 +657,36 @@ struct Resolved {
 }
 
 impl Routes {
+    /// Register the place `key`'s mailbox: under its session, or among the
+    /// fresh places when it has none (`session_id` empty). A place is in one
+    /// of the two, so a place that opens its session moves.
+    fn enrol(&mut self, key: &str, session_id: &str, tx: mpsc::UnboundedSender<PlaceMsg>) {
+        if session_id.is_empty() {
+            self.fresh.insert(key.to_string(), tx);
+        } else {
+            self.fresh.remove(key);
+            self.by_session.insert(session_id.to_string(), tx);
+        }
+    }
+
+    /// Take the place `key` out of both maps; `session_id` is the one it held
+    /// (empty for none).
+    fn release(&mut self, key: &str, session_id: &str) {
+        self.fresh.remove(key);
+        if !session_id.is_empty() {
+            self.by_session.remove(session_id);
+        }
+    }
+
+    /// Every place's mailbox, those with a session and those without.
+    fn mailboxes(&self) -> Vec<mpsc::UnboundedSender<PlaceMsg>> {
+        self.by_session
+            .values()
+            .chain(self.fresh.values())
+            .cloned()
+            .collect()
+    }
+
     /// The place a message or an interaction belongs to, found one way for
     /// both (theseus-e89, theseus-0g4): in a guild by its channel alone, its
     /// author allowed when the channel lists them; in a DM by its author's DM
@@ -819,6 +853,14 @@ fn parse_control(text: &str) -> Option<Control> {
 }
 
 impl Shared {
+    /// Send every place the message `msg` makes.
+    fn broadcast(&self, msg: impl Fn() -> PlaceMsg) {
+        let places = self.routes.lock().unwrap().mailboxes();
+        for tx in places {
+            let _ = tx.send(msg());
+        }
+    }
+
     /// A lane for every place in the bindings file, and one for the
     /// operator's notices: the one writer of each's messages (theseus-q4v).
     fn start_lanes(self: Arc<Self>, bindings: &Bindings) -> anyhow::Result<()> {
@@ -1010,7 +1052,7 @@ impl Shared {
         let (tx, rx) = mpsc::unbounded_channel();
         {
             let mut r = self.routes.lock().unwrap();
-            r.by_session.insert(session_id.clone(), tx.clone());
+            r.enrol(&key, &session_id, tx.clone());
             self.tasks.rewatch();
             if let Some(c) = channel {
                 r.by_channel.insert(c.get(), tx.clone());
@@ -1796,17 +1838,7 @@ async fn route(shared: Arc<Shared>, mut notes: mpsc::UnboundedReceiver<Notificat
             continue;
         }
         if everywhere(&e) {
-            let places: Vec<mpsc::UnboundedSender<PlaceMsg>> = shared
-                .routes
-                .lock()
-                .unwrap()
-                .by_session
-                .values()
-                .cloned()
-                .collect();
-            for tx in places {
-                let _ = tx.send(PlaceMsg::Event(Box::new(e.clone())));
-            }
+            shared.broadcast(|| PlaceMsg::Event(Box::new(e.clone())));
             continue;
         }
         let target = {
@@ -2650,6 +2682,86 @@ pub(crate) mod tests {
                 && everywhere(&CoreEvent::PolicyUntightened(Default::default()))
         );
         assert!(!everywhere(&CoreEvent::PolicyNotified(Default::default())));
+    }
+
+    type Mailbox = (
+        String,
+        mpsc::UnboundedSender<PlaceMsg>,
+        mpsc::UnboundedReceiver<PlaceMsg>,
+    );
+
+    /// Three places bound with no session yet, each its own mailbox.
+    fn fresh_places(shared: &Shared) -> Vec<Mailbox> {
+        ["channel:11", "channel:12", "dm:13"]
+            .iter()
+            .map(|key| {
+                let (tx, rx) = mpsc::unbounded_channel();
+                shared.routes.lock().unwrap().enrol(key, "", tx.clone());
+                (key.to_string(), tx, rx)
+            })
+            .collect()
+    }
+
+    /// How many messages each mailbox holds now.
+    fn delivered(places: &mut [Mailbox]) -> Vec<usize> {
+        places
+            .iter_mut()
+            .map(|(_, _, rx)| {
+                let mut n = 0;
+                while rx.try_recv().is_ok() {
+                    n += 1;
+                }
+                n
+            })
+            .collect()
+    }
+
+    /// Every place with no session yet was bound under the same empty id, so a
+    /// broadcast reached only the last of them (theseus-2xr6x): N places, N
+    /// deliveries, one each.
+    #[tokio::test]
+    async fn a_broadcast_reaches_every_fresh_place() {
+        let d = tempfile::tempdir().unwrap();
+        let shared = shared_for_tests(&core_for_tests(d.path()));
+        let mut places = fresh_places(&shared);
+        shared.broadcast(|| PlaceMsg::Tasks);
+        let got = delivered(&mut places);
+        assert_eq!(
+            got,
+            vec![1, 1, 1],
+            "each of three fresh places hears it once"
+        );
+        assert_eq!(got.iter().sum::<usize>(), 3);
+    }
+
+    /// A fresh place that opens its session moves under it and stays one
+    /// target: the others are still fresh, and still heard.
+    #[tokio::test]
+    async fn a_broadcast_reaches_fresh_and_adopted_places_once_each() {
+        let d = tempfile::tempdir().unwrap();
+        let shared = shared_for_tests(&core_for_tests(d.path()));
+        let mut places = fresh_places(&shared);
+        {
+            let (key, tx, _) = &places[1];
+            let mut r = shared.routes.lock().unwrap();
+            r.enrol(key, "ses_one", tx.clone());
+            assert_eq!(r.by_session.len(), 1);
+        }
+        shared.broadcast(|| PlaceMsg::Board);
+        assert_eq!(delivered(&mut places), vec![1, 1, 1]);
+        // A place that goes back to no session is still one target.
+        {
+            let (key, tx, _) = &places[1];
+            let mut r = shared.routes.lock().unwrap();
+            r.release(key, "ses_one");
+            r.enrol(key, "", tx.clone());
+        }
+        shared.broadcast(|| PlaceMsg::Board);
+        assert_eq!(delivered(&mut places), vec![1, 1, 1]);
+        // An unbound place is no longer one.
+        shared.routes.lock().unwrap().release("channel:11", "");
+        shared.broadcast(|| PlaceMsg::Board);
+        assert_eq!(delivered(&mut places), vec![0, 1, 1]);
     }
 
     /// A core over a scratch store, with the template's tools and posture,

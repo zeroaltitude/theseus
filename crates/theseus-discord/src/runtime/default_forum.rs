@@ -302,17 +302,7 @@ impl Shared {
 
     /// Every place looks at its tasks again: the forum is up.
     pub(super) fn wake_places(&self) {
-        let places: Vec<_> = self
-            .routes
-            .lock()
-            .unwrap()
-            .by_session
-            .values()
-            .cloned()
-            .collect();
-        for p in places {
-            let _ = p.send(super::PlaceMsg::Tasks);
-        }
+        self.broadcast(|| super::PlaceMsg::Tasks);
     }
 
     async fn get_channel(&self, id: u64) -> Result<Option<Value>, Why> {

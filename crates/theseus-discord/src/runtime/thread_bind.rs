@@ -749,7 +749,11 @@ impl Place {
             }
             None => {
                 self.shared.core.outbox.place_unbound(&old);
-                self.shared.routes.lock().unwrap().by_session.remove(&old);
+                {
+                    let mut r = self.shared.routes.lock().unwrap();
+                    r.release(&self.key, &old);
+                    r.enrol(&self.key, "", self.tx.clone());
+                }
                 self.shared.board.unplace(&self.label, &old);
                 self.session_id = String::new();
                 self.start_fresh();
