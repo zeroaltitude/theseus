@@ -62,6 +62,15 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
 }
 
+/// The bar a labelled set is measured against: 80% of its own cases, rounded up
+/// (the owner, 2026-10-30 16:01, "the bars should all be set to about 80% of the
+/// total cases"). A ratio with an explicit rounding rule, never an integer
+/// written down: a fixed integer is how the release smoke came to gate on a
+/// retired count (theseus-h66v4.4).
+pub fn bar_need(of: usize) -> usize {
+    (of * 4).div_ceil(5)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,13 +528,4 @@ mod tests {
             "its rollback rules are declared before it is wired, so the numbers can be argued with"
         );
     }
-}
-
-/// The bar a labelled set is measured against: 80% of its own cases, rounded up
-/// (the owner, 2026-10-30 16:01, "the bars should all be set to about 80% of the
-/// total cases"). A ratio with an explicit rounding rule, never an integer
-/// written down: a fixed integer is how the release smoke came to gate on a
-/// retired count (theseus-h66v4.4).
-pub fn bar_need(of: usize) -> usize {
-    (of * 4).div_ceil(5)
 }
