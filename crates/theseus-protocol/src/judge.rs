@@ -41,7 +41,7 @@ pub struct JudgeHealth {
     /// What shadow judgments spent today, and the day's limit, in dollars.
     pub spend_today_usd: f64,
     pub shadow_limit_usd: f64,
-    /// The shadow budget's limit is reached: shadow is paused until midnight.
+    /// Shadow is paused until midnight: it passed 70% of the day's limit (live runs on to the limit).
     pub paused: bool,
     /// Shadow judgments shed for want of an in-flight permit since the
     /// client was built (23b).

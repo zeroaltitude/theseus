@@ -73,8 +73,10 @@ pub struct JudgeConfig {
     /// The whole call, connect included.
     #[serde(default = "total_secs")]
     pub total_secs: u64,
-    /// What shadow judgments may spend in a local day, in dollars: at the
-    /// limit, shadow pauses until midnight (§2.6).
+    /// What the judge may spend in a local day, in dollars (§2.6). Shadow
+    /// judgments stop at 70% of it, until midnight; live judgments (route,
+    /// rerank, the gate's security pack) run on to the whole of it, so the
+    /// experiments cannot starve the judging the product acts on.
     #[serde(default = "shadow_limit")]
     pub shadow_limit_usd_per_day: f64,
     /// The local hour (0 to 23) of the nightly learning report (M5 25c): a

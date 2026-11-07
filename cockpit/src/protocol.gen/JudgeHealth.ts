@@ -50,7 +50,7 @@ skipped_today: number,
  */
 spend_today_usd: number, shadow_limit_usd: number, 
 /**
- * The shadow budget's limit is reached: shadow is paused until midnight.
+ * Shadow is paused until midnight: it passed 70% of the day's limit (live runs on to the limit).
  */
 paused: boolean, 
 /**
