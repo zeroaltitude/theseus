@@ -858,9 +858,6 @@ phase scrub scrub_phase
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
-# bench/recall's Python tests (a cache-read price drift went unseen without them); Python >= 3.11, or it says it
-# skipped.
-phase "recall tests" scripts/recall-tests.sh
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
 phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
@@ -871,6 +868,12 @@ phase cockpit cockpit
 # Every compile first, without the lock: the test binaries (what the suite runs), and with them the binaries
 # the benches run (theseus-7ykr).
 phase "test build" test_build
+# bench/recall's Python tests (a cache-read price drift went unseen without them); Python >= 3.11, or it says it
+# skipped. AFTER the test build, never before it (theseus-a3woz): test_drive.py drives target/debug's theseus,
+# theseusd, theseus-index and theseus-sim and skips itself when one is missing, so from ahead of the build a warm
+# lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
+# TOML parse). test_gate_order.py holds this order.
+phase "recall tests" scripts/recall-tests.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi

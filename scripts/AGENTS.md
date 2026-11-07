@@ -72,7 +72,11 @@ It runs, in order:
    would otherwise run stale (the gate's `bench_bins`). The `bench build` before it (`cargo build -p` of the five
    shipped binaries) is gone (theseus-7ykr): cargo links `target/debug/<bin>` from the build it ran last, so the test
    build replaced its binaries before any bench ran, and it cost a second feature set of the shared crates (384 s of
-   a cold 1,121 s gate on a 4-core VM, 9 s after a touch of theseus-core).
+   a cold 1,121 s gate on a 4-core VM, 9 s after a touch of theseus-core). Last, `recall tests`
+   (`scripts/recall-tests.sh`, bench/recall's Python tests; Python >= 3.11 or it says it skipped), **after** the test
+   build and never before it (theseus-a3woz): `test_drive.py` drives `target/debug`'s four binaries and skips itself
+   when one is missing, so from ahead of the build a warm lane tested the previous head's daemon and said nothing.
+   `bench/recall/test_gate_order.py` holds the order.
 2. *With the lock*, the locked part. Nothing compiles here: step 1 built everything it runs (a `gate: NOTE` says so
    when something does, which means the tree changed after step 1).
    - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
