@@ -556,74 +556,60 @@ struct Hit {
     held: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn walk(
-    service: &str,
-    shape: ShapeRef<'_>,
-    path: &str,
-    tokens: &[&str],
-    held_above: bool,
-    seen: &mut HashSet<ShapeId>,
-    out: &mut Vec<Hit>,
-    any_held: &mut bool,
-) {
-    if !seen.insert(shape.id()) {
-        return;
-    }
-    for m in shape.members() {
-        let p = if path.is_empty() {
-            m.name().to_string()
-        } else {
-            format!("{path}.{}", m.name())
-        };
-        let skipped = tokens.contains(&m.name())
-            || m.name().eq_ignore_ascii_case("NextToken")
-            // A tag's key, however the service spells it.
-            || (shape.name() == "Tag"
-                && ["Key", "tagKey"]
-                    .iter()
-                    .any(|k| k.eq_ignore_ascii_case(m.name())));
-        // The walk stops at the first member it holds and masks everything
-        // under it, so an ancestor's hold covers this member too.
-        let held = held_above || walk_holds(service, shape.name(), m.name(), m.shape());
-        if !skipped && held {
-            // Something in this answer is held, whether or not the rule
-            // calls it credential-shaped: SSM's `Parameter.Value` is held by
-            // its marking alone, and is no credential by name.
-            *any_held = true;
+/// One operation's walk over its output shape: what it is walking, and what
+/// it has found. The state rides here rather than in a long argument list.
+struct Scan<'a> {
+    service: &'a str,
+    /// The paginator's output tokens, which are no credential.
+    tokens: &'a [&'a str],
+    seen: HashSet<ShapeId>,
+    out: Vec<Hit>,
+    /// Whether the walk would hold anything at all in this output.
+    any_held: bool,
+}
+
+impl Scan<'_> {
+    fn walk(&mut self, shape: ShapeRef<'_>, path: &str, held_above: bool) {
+        if !self.seen.insert(shape.id()) {
+            return;
         }
-        if !skipped && credential_shaped(service, shape.name(), m.name(), m.shape()) {
-            out.push(Hit {
-                member: format!("{}.{}", shape.name(), m.name()),
-                path: p.clone(),
-                held,
-            });
+        for m in shape.members() {
+            let p = if path.is_empty() {
+                m.name().to_string()
+            } else {
+                format!("{path}.{}", m.name())
+            };
+            let skipped = self.tokens.contains(&m.name())
+                || m.name().eq_ignore_ascii_case("NextToken")
+                // A tag's key, however the service spells it.
+                || (shape.name() == "Tag"
+                    && ["Key", "tagKey"]
+                        .iter()
+                        .any(|k| k.eq_ignore_ascii_case(m.name())));
+            // The walk stops at the first member it holds and masks
+            // everything under it, so an ancestor's hold covers this one.
+            let held = held_above || walk_holds(self.service, shape.name(), m.name(), m.shape());
+            if !skipped && held {
+                // Something in this answer is held, whether or not the rule
+                // calls it credential-shaped: SSM's `Parameter.Value` is
+                // held by its marking alone, and is no credential by name.
+                self.any_held = true;
+            }
+            if !skipped && credential_shaped(self.service, shape.name(), m.name(), m.shape()) {
+                self.out.push(Hit {
+                    member: format!("{}.{}", shape.name(), m.name()),
+                    path: p.clone(),
+                    held,
+                });
+            }
+            self.walk(m.shape(), &p, held);
         }
-        walk(service, m.shape(), &p, tokens, held, seen, out, any_held);
-    }
-    if let Some(m) = shape.list_member() {
-        walk(
-            service,
-            m.shape(),
-            &format!("{path}[]"),
-            tokens,
-            held_above,
-            seen,
-            out,
-            any_held,
-        );
-    }
-    if let Some(m) = shape.map_value() {
-        walk(
-            service,
-            m.shape(),
-            &format!("{path}{{}}"),
-            tokens,
-            held_above,
-            seen,
-            out,
-            any_held,
-        );
+        if let Some(m) = shape.list_member() {
+            self.walk(m.shape(), &format!("{path}[]"), held_above);
+        }
+        if let Some(m) = shape.map_value() {
+            self.walk(m.shape(), &format!("{path}{{}}"), held_above);
+        }
     }
 }
 
@@ -640,19 +626,15 @@ fn hits(op: OperationRef<'_>) -> (Vec<Hit>, bool) {
         .into_iter()
         .map(|t| t.rsplit('.').next().unwrap_or(t))
         .collect();
-    let mut out = Vec::new();
-    let mut any_held = false;
-    walk(
-        op.service().name(),
-        output,
-        "",
-        &tokens,
-        false,
-        &mut HashSet::new(),
-        &mut out,
-        &mut any_held,
-    );
-    (out, any_held)
+    let mut scan = Scan {
+        service: op.service().name(),
+        tokens: &tokens,
+        seen: HashSet::new(),
+        out: Vec::new(),
+        any_held: false,
+    };
+    scan.walk(output, "", false);
+    (scan.out, scan.any_held)
 }
 
 fn matches(row: &Allowed, service: &str, op: &str, member: &str) -> bool {
@@ -887,101 +869,16 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
     for e in c.services() {
         let svc = c.service(&e.name).expect("the service decodes");
         for op in svc.operations() {
-            let kind = op.classify().secret;
-            let secret = kind != SecretBearing::No;
-            let (hits, any_held) = hits(op);
-            // Every secret-bearing operation must have a credential-shaped
-            // member: a `when_present` one would otherwise answer whole,
-            // always, and an `Always` one would fail closed on every call.
-            //
-            // This is also what keeps [`MARKED`] and [`HELD`] *complete*
-            // rather than merely unstale (theseus-37ds): their staleness
-            // check fails a row that reaches nothing, and this one fails the
-            // other way — delete the row that is the only thing making an
-            // operation's member credential-shaped and its operation is left
-            // secret-bearing with nothing to hold, which fails here. A list
-            // whose rows can be deleted in silence is not guarded.
-            if secret && !any_held {
-                bad.push(format!(
-                    "stale: {}:{} is secret-bearing ({kind:?}), and the walk would hold \
-                     nothing in its output",
-                    e.name,
-                    op.name()
-                ));
-            }
-            for hit in hits {
-                for (i, (s, p, m)) in HELD.iter().enumerate() {
-                    if secret && *s == e.name && hit.member == format!("{p}.{m}") {
-                        held_used[i] = true;
-                    }
-                }
-                for (i, (s, p, m)) in MARKED.iter().enumerate() {
-                    if secret && *s == e.name && hit.member == format!("{p}.{m}") {
-                        marked_used[i] = true;
-                    }
-                }
-                let rows: Vec<usize> = (0..ALLOWED.len())
-                    .filter(|&i| matches(&ALLOWED[i], &e.name, op.name(), &hit.member))
-                    .collect();
-                for &i in &rows {
-                    used[i] = true;
-                    if secret {
-                        bad.push(format!(
-                            "stale: {}:{} is secret-bearing, and the allowed row for {} still \
-                             names it",
-                            e.name,
-                            op.name(),
-                            ALLOWED[i].member
-                        ));
-                    }
-                }
-                if !secret && rows.is_empty() {
-                    bad.push(format!(
-                        "{}:{} returns {} ({}), credential-shaped, and is not secret-bearing: \
-                         a mint (CLASS with MINT, SECRET, RETRY), a stored secret (SECRET), or \
-                         an allowed row with its reason",
-                        e.name,
-                        op.name(),
-                        hit.path,
-                        hit.member
-                    ));
-                }
-                // A partial hold is worse than no hold: the call is
-                // secret-bearing, so its answer reads as covered, and it
-                // hands this credential to the model beside the one it held
-                // (theseus-37ds; the row named Connect's `ParticipantToken`
-                // beside its held join token). Every credential-shaped
-                // member of a secret-bearing answer must be one the walk
-                // holds: marked, in `NAMED` or `ENDS`, or a `HELD` row.
-                if secret && !hit.held {
-                    bad.push(format!(
-                        "partial hold: {}:{} is secret-bearing and returns {} ({}), which the \
-                         walk does not hold: it reaches the model beside the secrets that were \
-                         held. Mark it with a HELD row, or name it in NAMED or ENDS",
-                        e.name,
-                        op.name(),
-                        hit.path,
-                        hit.member
-                    ));
-                }
-            }
+            bad.extend(scan_operation(
+                &e.name,
+                op,
+                &mut used,
+                &mut held_used,
+                &mut marked_used,
+            ));
         }
     }
-    bad.extend(stale_rows(&used, &held_used, &marked_used));
-    bad.dedup();
-    assert!(
-        bad.is_empty(),
-        "{} findings:\n{}",
-        bad.len(),
-        bad.join("\n")
-    );
-}
-
-/// Rows of the three lists that the scan above never reached: each is
-/// stale, and an allowed row must name its member.
-fn stale_rows(used: &[bool], held_used: &[bool], marked_used: &[bool]) -> Vec<String> {
-    let mut bad = Vec::new();
-    for (row, used) in ALLOWED.iter().zip(used) {
+    for (row, used) in ALLOWED.iter().zip(&used) {
         assert!(!row.why.is_empty());
         // A row names its member (theseus-b586): one whose member is a glob
         // alone (`*`, `Shape.*`) would pass any credential a weekly update
@@ -1003,17 +900,108 @@ fn stale_rows(used: &[bool], held_used: &[bool], marked_used: &[bool]) -> Vec<St
             ));
         }
     }
-    for (row, used) in HELD.iter().zip(held_used) {
+    for (row, used) in HELD.iter().zip(&held_used) {
         if !used {
             bad.push(format!(
                 "stale: the walk's held row {row:?} is in no secret-bearing answer"
             ));
         }
     }
-    for (row, used) in MARKED.iter().zip(marked_used) {
+    for (row, used) in MARKED.iter().zip(&marked_used) {
         if !used {
             bad.push(format!(
                 "stale: the marked row {row:?} is in no secret-bearing answer"
+            ));
+        }
+    }
+    bad.dedup();
+    assert!(
+        bad.is_empty(),
+        "{} findings:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+}
+
+/// One operation's findings, marking the rows that reached it.
+fn scan_operation(
+    service: &str,
+    op: OperationRef<'_>,
+    used: &mut [bool],
+    held_used: &mut [bool],
+    marked_used: &mut [bool],
+) -> Vec<String> {
+    let kind = op.classify().secret;
+    let secret = kind != SecretBearing::No;
+    let (hits, any_held) = hits(op);
+    let mut bad = Vec::new();
+    // Every secret-bearing operation must leave the walk something to hold:
+    // a `when_present` one would otherwise answer whole, always, and an
+    // `Always` one would fail closed on every call.
+    //
+    // This is also what keeps [`MARKED`] and [`HELD`] *complete* rather than
+    // merely unstale (theseus-37ds): their staleness check fails a row that
+    // reaches nothing, and this one fails the other way — delete the row
+    // that is the only thing making an operation's member credential-shaped
+    // and its operation is left secret-bearing with nothing to hold, which
+    // fails here. A list whose rows can be deleted in silence is not
+    // guarded.
+    if secret && !any_held {
+        bad.push(format!(
+            "stale: {service}:{} is secret-bearing ({kind:?}), and the walk would hold \
+             nothing in its output",
+            op.name()
+        ));
+    }
+    for hit in hits {
+        for (i, (s, p, m)) in HELD.iter().enumerate() {
+            if secret && *s == service && hit.member == format!("{p}.{m}") {
+                held_used[i] = true;
+            }
+        }
+        for (i, (s, p, m)) in MARKED.iter().enumerate() {
+            if secret && *s == service && hit.member == format!("{p}.{m}") {
+                marked_used[i] = true;
+            }
+        }
+        let rows: Vec<usize> = (0..ALLOWED.len())
+            .filter(|&i| matches(&ALLOWED[i], service, op.name(), &hit.member))
+            .collect();
+        for &i in &rows {
+            used[i] = true;
+            if secret {
+                bad.push(format!(
+                    "stale: {service}:{} is secret-bearing, and the allowed row for {} still \
+                     names it",
+                    op.name(),
+                    ALLOWED[i].member
+                ));
+            }
+        }
+        if !secret && rows.is_empty() {
+            bad.push(format!(
+                "{service}:{} returns {} ({}), credential-shaped, and is not secret-bearing: \
+                 a mint (CLASS with MINT, SECRET, RETRY), a stored secret (SECRET), or an \
+                 allowed row with its reason",
+                op.name(),
+                hit.path,
+                hit.member
+            ));
+        }
+        // A partial hold is worse than no hold: the call is secret-bearing,
+        // so its answer reads as covered, and it hands this credential to
+        // the model beside the one it held (theseus-37ds; the row named
+        // Connect's `ParticipantToken` beside its held join token). Every
+        // credential-shaped member of a secret-bearing answer must be one
+        // the walk holds: marked, in `NAMED` or `ENDS`, or a `HELD` row.
+        if secret && !hit.held {
+            bad.push(format!(
+                "partial hold: {service}:{} is secret-bearing and returns {} ({}), which the \
+                 walk does not hold: it reaches the model beside the secrets that were held. \
+                 Mark it with a HELD row, or name it in NAMED or ENDS",
+                op.name(),
+                hit.path,
+                hit.member
             ));
         }
     }
