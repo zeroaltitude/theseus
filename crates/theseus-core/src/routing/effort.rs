@@ -1,14 +1,16 @@
 //! The effort a turn runs at (route.v3, theseus-qe3v; the owner's decision of
 //! 2026-10-07: "jev should also set effort level, not just model"; route.v10,
 //! theseus-h66v4: Jev's level is the effort, "operator knows best"). The route
-//! pack asks how much effort the reply needs (`effort`: low, medium, high,
-//! xhigh, max, or `default`), and this module decides, purely, what the
-//! turn's request carries:
+//! pack asks how much effort the reply needs (`effort.v1`: low, medium, high,
+//! xhigh, max; there is no `default` option), and this module decides, purely,
+//! what the turn's request carries:
 //!
 //! - **Jev's level, when the answer reached the question's bar, is the effort**
 //!   ([`decide_open`]), whatever the level and wherever the model sits: no
-//!   bounds, no high-effort gate, no floor, no fixed profile. `default`, or an
-//!   answer under the bar, is the model's own default effort.
+//!   bounds, no high-effort gate, no floor, no fixed profile. An answer under
+//!   the bar is the pack's own `no_match`, `high` ([`NO_MATCH`]), for every
+//!   model — never the model's own default effort, which differs for Haiku,
+//!   Opus and Flash (theseus-h66v4.6.1).
 //! - **Only a model that takes effort** (its catalog row's `effort`): for any
 //!   other the answer is recorded and the request carries none.
 //! - **Sticky on a model without per-message effort** ([`sticky`], theseus-rwpbg.4):
