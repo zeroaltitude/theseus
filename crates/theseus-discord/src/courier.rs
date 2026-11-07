@@ -2208,6 +2208,8 @@ mod tests_catchup;
 #[cfg(test)]
 mod tests_exits;
 #[cfg(test)]
+mod tests_late_reply;
+#[cfg(test)]
 mod tests_operator;
 #[cfg(test)]
 mod tests_self_note;
