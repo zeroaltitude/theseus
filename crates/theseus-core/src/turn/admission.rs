@@ -53,7 +53,7 @@ use theseus_store::frames_written_here;
 use tokio::sync::{oneshot, Notify};
 use tokio::time::Instant;
 
-use super::{turn_error, TurnRunner};
+use super::{delay_step, turn_error, TurnRunner};
 
 /// How long a waiting turn waits before it ranks one class higher. A task
 /// turn that has waited this long ranks with the wakes and stops there: it
@@ -431,6 +431,18 @@ impl Admission {
         let _ = self.notice.set(notice);
     }
 
+    /// Tell the operator one line through the same quiet inform sink the
+    /// stuck notice uses (theseus-5x8ry's reconsideration notice). No sink
+    /// set, or nothing to say: nothing is told.
+    pub fn tell(&self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        if let Some(n) = self.notice.get() {
+            (n.0)(text.to_string());
+        }
+    }
+
     /// The words of the stuck notice: the turns holding slots and how long
     /// each has held one (execution ids and durations only).
     fn stuck_notice(&self, s: &State, now: Instant) -> String {
@@ -722,6 +734,103 @@ impl Admission {
 }
 
 impl TurnRunner {
+    /// A slot from `class`'s queue, reconsidering at the stuck window instead
+    /// of failing there (theseus-5x8ry). **The window says when to ask; the
+    /// course says what to do.** A person's typed wait never reaches here at
+    /// all (`take_as`'s `typed` arm). Off (`reconsider_every_secs = 0`), or
+    /// with the adviser unavailable twice, the course falls back and this is
+    /// the failure it always was, one window later.
+    ///
+    /// Each reconsideration happens between kernel calls, never inside a
+    /// transition, so no execution's lock is held across the judge's await.
+    async fn slot_or_reconsider(
+        &self,
+        exec_id: &str,
+        arrived: StdInstant,
+        class: Class,
+        typed: bool,
+        front: &mut bool,
+    ) -> Result<Slot> {
+        let queue = &self.tools.admission;
+        loop {
+            let stuck = match queue.take_as(class, *front, typed).await {
+                Ok(slot) => return Ok(slot),
+                Err(stuck) => stuck,
+            };
+            let r = self
+                .reconsider(delay_step::Delay {
+                    kind: delay_step::DelayKind::AdmissionSlot,
+                    what: format!("a {} turn waiting for a slot", stuck.class),
+                    execution: exec_id.to_string(),
+                    session: exec_id.to_string(),
+                    elapsed: arrived.elapsed(),
+                    // The queue is stuck by construction: `take_as` returns
+                    // this only when it has not moved for the whole window.
+                    // An unread signal is absent, never `moved: false`.
+                    signals: vec![delay_step::Signal {
+                        name: "the admission queue moved",
+                        moved: false,
+                    }],
+                    last_step: Some(format!(
+                        "{} of {} slots held, {} waiting",
+                        stuck.in_use, stuck.ceiling, stuck.waiting
+                    )),
+                    reason: None,
+                    deterministic: None,
+                })
+                .await;
+            queue.tell(&r.notice);
+            if r.course.stops() || r.fall_back {
+                return Err(turn_error(
+                    "admission_stuck",
+                    "",
+                    "",
+                    arrived.elapsed().as_millis() as u64,
+                    anyhow::Error::new(stuck),
+                ));
+            }
+            // Judged worth waiting for: rejoin at the head of its class,
+            // which it has earned by already waiting a whole window.
+            *front = true;
+        }
+    }
+
+    /// Whether a turn whose execution's own previous turn has not ended
+    /// within the stuck window should keep waiting for it (theseus-5x8ry).
+    /// The second of the two waits that window governs; `slot_or_reconsider`
+    /// holds the first. `false`: stop waiting, and the caller fails the turn
+    /// exactly as it did before this row.
+    ///
+    /// The delay reads no progress signal, because there is none to read
+    /// here: the only evidence is that the previous turn has not ended. An
+    /// absent signal is honest, and it means the adviser is asked rather
+    /// than a silence being mistaken for a stall.
+    async fn wait_out_its_own_turn(
+        &self,
+        exec_id: &str,
+        arrived: StdInstant,
+        window: Duration,
+    ) -> bool {
+        let r = self
+            .reconsider(delay_step::Delay {
+                kind: delay_step::DelayKind::AdmissionTurn,
+                what: "a turn waiting for its own execution's previous turn to end".into(),
+                execution: exec_id.to_string(),
+                session: exec_id.to_string(),
+                elapsed: arrived.elapsed(),
+                signals: Vec::new(),
+                last_step: Some(format!(
+                    "its execution's previous turn has not ended in {} s",
+                    window.as_secs()
+                )),
+                reason: None,
+                deterministic: None,
+            })
+            .await;
+        self.tools.admission.tell(&r.notice);
+        !(r.course.stops() || r.fall_back)
+    }
+
     /// A slot and the kernel's turn of `exec_id`, waiting in `class`'s queue.
     /// With `wait` (an input's turn), it waits for another turn held on the
     /// same execution to end, and wakes the execution in the same frame when
@@ -748,15 +857,9 @@ impl TurnRunner {
         let typed = class.is_typed(owner);
         let mut front = false;
         loop {
-            let mut slot = queue.take_as(class, front, typed).await.map_err(|stuck| {
-                turn_error(
-                    "admission_stuck",
-                    "",
-                    "",
-                    arrived.elapsed().as_millis() as u64,
-                    anyhow::Error::new(stuck),
-                )
-            })?;
+            let mut slot = self
+                .slot_or_reconsider(exec_id, arrived, class, typed, &mut front)
+                .await?;
             // Registered before the look, so a turn's end between the look
             // and the wait is not missed.
             let ended = queue.ended.notified();
@@ -791,7 +894,18 @@ impl TurnRunner {
                     // A typed wait is never failed (`take`'s rule): the next
                     // typed message waits for its own previous turn, in a task
                     // as in a conversation when it is the owner's.
-                    if tokio::time::timeout(window, ended).await.is_err() && !typed {
+                    //
+                    // Any other turn is now reconsidered rather than failed
+                    // (theseus-5x8ry). This is the **second** of the two
+                    // waits the stuck window governs: `slot_or_reconsider`
+                    // holds the wait for a free slot, and this one the wait
+                    // for this execution's own previous turn to end. Both
+                    // had to move, or the window would still end healthy
+                    // work on a clock by the other door.
+                    if tokio::time::timeout(window, ended).await.is_err()
+                        && !typed
+                        && !self.wait_out_its_own_turn(exec_id, arrived, window).await
+                    {
                         return Err(turn_error(
                             "admission_stuck",
                             "",

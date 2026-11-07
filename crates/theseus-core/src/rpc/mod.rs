@@ -916,6 +916,7 @@ impl Core {
             cards: Default::default(),
             run_compiles: Default::default(),
             failed_turns: Default::default(),
+            reconsiders: Default::default(),
             spend_marks: Default::default(),
             self_budget: crate::rsi::budget::Budget::new(
                 cfg.self_improve.mode,

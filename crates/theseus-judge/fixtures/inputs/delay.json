@@ -1,0 +1,13 @@
+{
+  "kind": "admission_slot",
+  "what": "a wake turn for the morning digest routine",
+  "elapsed_ms": 660000,
+  "cost_cents": 40,
+  "signals": [
+    { "name": "the admission queue moved", "moved": false },
+    { "name": "bytes a backgrounded build printed", "moved": true },
+    { "name": "loops since new ground was read", "moved": false }
+  ],
+  "last_step": "waiting for an admission slot behind eight task turns",
+  "reason": "the owner's standing 07:00 digest"
+}

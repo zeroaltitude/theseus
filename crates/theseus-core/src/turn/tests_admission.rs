@@ -765,8 +765,13 @@ mod behind_its_own_turn {
     use theseus_protocol::SessionKind;
 
     fn core() -> (Arc<Core>, tempfile::TempDir) {
+        core_with(|_| {})
+    }
+
+    fn core_with(edit: impl FnOnce(&mut Config)) -> (Arc<Core>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = Config::example();
+        edit(&mut cfg);
         cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
         let store = Store::open(&dir.path().join("store")).unwrap();
         let core = Core::build(crate::rpc::Parts::for_tests(
@@ -843,12 +848,24 @@ mod behind_its_own_turn {
         // wake class.
         let wake = admit_as(&core, &exec, Class::Wake, false);
         settle().await;
-        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        // One window: reconsidered, and with no adviser in a test rig the
+        // course is to keep waiting (theseus-5x8ry). This is the **second**
+        // of the two waits the stuck window governs; the slot queue's is in
+        // `a_task_turn_at_the_slot_window_is_reconsidered_before_it_is_failed`.
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+        settle().await;
+        assert!(
+            !wake.is_finished(),
+            "one window no longer fails a wake behind its own turn: it is reconsidered first"
+        );
+        // A second window: the adviser could not answer twice, so it falls
+        // back to the failure it always was.
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
         settle().await;
         let failed = within("the wake's failure", wake).await.unwrap();
         assert!(
             failed.is_err_and(|e| e.contains(WORDS)),
-            "a wake's wait fails on the window"
+            "twice with no adviser, a wake's wait falls back to the window's old failure"
         );
         assert!(
             !person.is_finished(),
@@ -886,8 +903,18 @@ mod behind_its_own_turn {
         held
     }
 
+    /// The slot queue's window no longer decides on its own (theseus-5x8ry).
+    /// A task turn that is not the owner's input reaches it and is
+    /// **reconsidered**: with no adviser configured in a test the first
+    /// reconsideration keeps it waiting, and only the second falls back to
+    /// the failure it always was. So the window costs two windows now, and
+    /// the owner's own typed message still never fails at all.
+    ///
+    /// This is the no-adviser-no-stop rule proved end to end, and the shape
+    /// of it is the point: **the degraded path is exactly today's behaviour,
+    /// one window later.**
     #[tokio::test(start_paused = true)]
-    async fn the_owners_message_into_a_task_never_reaches_the_slot_queues_stuck_error() {
+    async fn a_task_turn_at_the_slot_window_is_reconsidered_before_it_is_failed() {
         let (core, _dir) = core();
         let _held = all_slots_held(&core);
         let e = core
@@ -907,14 +934,25 @@ mod behind_its_own_turn {
         let owner = admit_as(&core, &e.id, Class::Task, true);
         let other = admit_as(&core, &e.id, Class::Task, false);
         settle().await;
-        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        // One window: reconsidered, the adviser could not answer, so the
+        // work goes on. This is the arm that did not exist before.
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+        settle().await;
+        assert!(
+            !other.is_finished(),
+            "one window no longer fails a task turn: it is reconsidered, and with no adviser the \
+             course is to keep going"
+        );
+        // A second window: the adviser could not answer twice, so the site
+        // falls back to the behaviour it had before the reconsideration.
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
         settle().await;
         let failed = within("the other task turn's failure", other)
             .await
             .unwrap();
         assert!(
             failed.is_err_and(|e| e.contains("admission is stuck: no turn was admitted")),
-            "a task turn that is not the owner's input fails at the slot queue's window"
+            "twice with no adviser, a task turn falls back to the slot queue's old failure"
         );
         assert!(
             !owner.is_finished(),
@@ -923,13 +961,43 @@ mod behind_its_own_turn {
         owner.abort();
     }
 
+    /// **The off switch, at the call site.** `[kernel] reconsider_every_secs
+    /// = 0` restores the behaviour before theseus-5x8ry exactly: the turn
+    /// fails at ONE window, where the default takes two. Held here rather
+    /// than only in `delay_step`'s unit tests, because what the owner is
+    /// promised is the behaviour of the daemon, not of a predicate.
+    #[tokio::test(start_paused = true)]
+    async fn reconsider_every_secs_zero_fails_at_one_window_as_before() {
+        let (core, _dir) = core_with(|c| c.kernel.reconsider_every_secs = 0);
+        let (exec, _turn) = held_execution(&core, "ses_off", SessionKind::Task);
+        let other = admit_as(&core, &exec, Class::Task, false);
+        settle().await;
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+        settle().await;
+        let failed = within("the task turn's failure", other).await.unwrap();
+        assert!(
+            failed.is_err_and(|e| e.contains(WORDS)),
+            "with reconsideration off, one window fails the turn exactly as it did before"
+        );
+    }
+
+    /// A task turn that is not the owner's typed input still ends at the
+    /// window behind its own execution's turn - but only after the
+    /// reconsideration has twice found no adviser (theseus-5x8ry). The bound
+    /// is kept; what changed is that a number alone no longer ends it.
     #[tokio::test(start_paused = true)]
     async fn a_task_turn_that_is_not_the_owners_input_still_fails_on_the_window() {
         let (core, _dir) = core();
         let (exec, _turn) = held_execution(&core, "ses_task_other", SessionKind::Task);
         let other = admit_as(&core, &exec, Class::Task, false);
         settle().await;
-        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+        settle().await;
+        assert!(
+            !other.is_finished(),
+            "one window reconsiders, it does not fail"
+        );
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
         settle().await;
         let failed = within("the task turn's failure", other).await.unwrap();
         assert!(

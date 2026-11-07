@@ -180,7 +180,9 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             // Off in this rig: these tests count the calls Jev is made, and a
             // pack that asks about every item entering a session would be
             // counting its own (theseus-9ymz0).
-            "content.v3: off"
+            "content.v3: off",
+            // Live: one reconsideration point for every delay (theseus-5x8ry).
+            "delay.v1: live"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");

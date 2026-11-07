@@ -552,6 +552,9 @@ fn default_max_entries() -> usize {
 fn default_proc_sync_secs() -> u64 {
     60
 }
+fn default_reconsider_every_secs() -> u64 {
+    300
+}
 fn default_proc_timeout_secs() -> u64 {
     3600
 }
@@ -792,6 +795,14 @@ pub struct KernelSection {
     /// waiting turn fails (theseus-4g0l): a queue that moves fails none.
     #[serde(default = "default_admission_stuck_secs")]
     pub admission_stuck_secs: u64,
+    /// How often one delay of a kind may be reconsidered in one execution
+    /// (theseus-5x8ry). The reconsideration point judges a delay on evidence
+    /// instead of ending it on a clock; this bounds how often it may ask.
+    /// **0 restores the behaviour before it, exactly** - every delay keeps
+    /// its old clock and nothing is asked - so the feature has an off switch
+    /// that is a config value and not a revert.
+    #[serde(default = "default_reconsider_every_secs")]
+    pub reconsider_every_secs: u64,
     /// Each session's spend limit in US dollars (theseus-0sg). What reaching
     /// it does is `spend_limit_mode`: a notice, or the question (theseus-usei).
     #[serde(default = "limits::default_spend_limit_usd")]
@@ -893,6 +904,7 @@ impl Default for KernelSection {
         Self {
             admission_ceiling: default_admission_ceiling(),
             admission_stuck_secs: default_admission_stuck_secs(),
+            reconsider_every_secs: default_reconsider_every_secs(),
             spend_limit_usd: limits::default_spend_limit_usd(),
             spend_limit_mode: SpendLimitMode::default(),
             spend_limit_hard_multiple: limits::default_hard_multiple(),
@@ -920,6 +932,14 @@ impl KernelSection {
     /// The admission queue's stuck window: at least a second.
     pub fn admission_stuck(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.admission_stuck_secs.max(1))
+    }
+
+    /// How often one delay kind may be reconsidered in one execution, or
+    /// `None` when reconsideration is off (`reconsider_every_secs = 0`) and
+    /// every delay keeps the clock it had before theseus-5x8ry.
+    pub fn reconsider_every(&self) -> Option<std::time::Duration> {
+        (self.reconsider_every_secs > 0)
+            .then(|| std::time::Duration::from_secs(self.reconsider_every_secs))
     }
 
     /// A task claim's lease, in milliseconds: at least a minute.

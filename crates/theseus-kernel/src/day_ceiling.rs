@@ -611,20 +611,34 @@ impl DayCeiling {
         ring.push_back((now_ms, cost));
     }
 
+    /// `execution`'s settled spend in the last [`BURN_WINDOW_MS`], and the
+    /// line it is measured against (`(0, 0)`: no line is set, so nothing is
+    /// measured). A read, never a stop: the reconsideration point's money
+    /// pre-check reads it so that the keel answers a delay *before* the
+    /// adviser is ever asked, and no adviser is in a position to authorise
+    /// spend (theseus-5x8ry).
+    pub fn burn_spent(&self, now_ms: u64, execution: &str) -> (Micros, Micros) {
+        let line = self.burn_line.load(Ordering::Relaxed);
+        if line == 0 {
+            return (0, 0);
+        }
+        let m = self.burn.lock().unwrap_or_else(PoisonError::into_inner);
+        let spent: Micros = m.get(execution).map_or(0, |r| {
+            r.iter()
+                .filter(|(t, _)| now_ms.saturating_sub(*t) < BURN_WINDOW_MS)
+                .map(|(_, c)| *c)
+                .sum()
+        });
+        (spent, line)
+    }
+
     /// `execution`'s settled spend in the last [`BURN_WINDOW_MS`], when it
     /// has reached the line.
     pub fn burn_stop(&self, now_ms: u64, execution: &str) -> Option<BurnStop> {
-        let line = self.burn_line.load(Ordering::Relaxed);
+        let (spent, line) = self.burn_spent(now_ms, execution);
         if line == 0 {
             return None;
         }
-        let m = self.burn.lock().unwrap_or_else(PoisonError::into_inner);
-        let spent: Micros = m
-            .get(execution)?
-            .iter()
-            .filter(|(t, _)| now_ms.saturating_sub(*t) < BURN_WINDOW_MS)
-            .map(|(_, c)| *c)
-            .sum();
         (spent >= line).then_some(BurnStop { spent, line })
     }
 

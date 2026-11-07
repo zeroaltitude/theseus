@@ -476,7 +476,8 @@ max_connections = 0
 # never. AWS spend is managed apart and still stops at its lines.
 [kernel]
 admission_ceiling = 8                   # executions that may hold a turn at once (§3.2a)
-admission_stuck_secs = 600              # a waiting turn fails only when no turn was admitted for this long: a queue that moves fails none
+admission_stuck_secs = 600              # a waiting turn is reconsidered when no turn was admitted for this long: a queue that moves reconsiders none
+reconsider_every_secs = 300             # how often one kind of delay is reconsidered in one execution; 0 restores the clock each delay had before (theseus-5x8ry)
 spend_limit_usd = 100.0                 # each session's spend limit in US dollars (theseus-0sg)
 spend_limit_mode = "notify"             # notify | ask: what reaching it does
 spend_limit_hard_multiple = 10          # under notify, calls stop at this many times the limit (0: never)
