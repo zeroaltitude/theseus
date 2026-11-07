@@ -399,7 +399,7 @@ async fn a_raised_ceiling_and_a_restart_lift_the_days_stop() {
 /// told; what a judgment settles is spent on the day.
 #[test]
 fn the_judge_skips_its_call_at_the_ceiling() {
-    use crate::judge::spend::{Reserve, ShadowBudget};
+    use crate::judge::spend::{Class, Reserve, ShadowBudget};
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();
     let clock = theseus_kernel::VirtualClock::new(1_000_000);
@@ -419,11 +419,11 @@ fn the_judge_skips_its_call_at_the_ceiling() {
     );
     let today = "1970-01-01";
     assert!(matches!(
-        b.reserve(&store, today, 600),
+        b.reserve(&store, today, 600, Class::Live),
         Reserve::Granted(..)
     ));
     assert_eq!(day.today(day.now()).held, 600);
-    assert!(matches!(b.reserve(&store, today, 600), Reserve::Paused(..)));
+    assert!(matches!(b.reserve(&store, today, 600, Class::Live), Reserve::Paused(..)));
     assert_eq!(told.load(Ordering::SeqCst), 1);
     b.settle(today, 600, 250, true, false);
     let d = day.today(day.now());

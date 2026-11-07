@@ -14,9 +14,15 @@
 //! next judgment, never before serving: conservative, and never more than
 //! two blocks' rest (a block's, before blocks were written ahead).
 //!
-//! A judgment that would pass the limit is skipped and counted, never
+//! A judgment that would pass its line is skipped and counted, never
 //! queued, and the first such skip of a day writes one `judge.paused` row.
 //! The next local day starts afresh.
+//!
+//! There are two lines (theseus-0j2.16). Live judgments (route, rerank,
+//! the gate's security pack: what the product acts on) may spend the whole
+//! limit; shadow judgments stop at [`SHADOW_STOP_PERCENT`] of it, so the
+//! experiments can never starve the judging the product depends on. Each
+//! line says its own pause, once a day.
 
 use std::sync::Mutex;
 
@@ -33,6 +39,37 @@ pub const META_KEY: &str = "judge.budget";
 
 /// One block: $0.01.
 pub const BLOCK_MICROS: Micros = 10_000;
+
+/// The part of the day's limit shadow may spend, in percent: past it shadow
+/// stops, and the rest is the live judgments' alone.
+pub const SHADOW_STOP_PERCENT: u64 = 70;
+
+/// Whose spend a reservation is: a judgment that acts (`Live`, a canary's
+/// arm included) or one that only watches (`Shadow`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Class {
+    Live,
+    Shadow,
+}
+
+impl Class {
+    /// The class of a request of `asks`: live when any of them acts (one
+    /// judgment the product waits on is worth the whole request's spend).
+    pub fn of_asks<'a>(asks: impl IntoIterator<Item = &'a theseus_judge::Ask>) -> Self {
+        match asks.into_iter().any(|a| Self::of(a.mode) == Class::Live) {
+            true => Class::Live,
+            false => Class::Shadow,
+        }
+    }
+
+    /// The class of a judgment asked in `mode`.
+    pub fn of(mode: theseus_judge::Mode) -> Self {
+        match mode {
+            theseus_judge::Mode::Shadow => Class::Shadow,
+            theseus_judge::Mode::Canary | theseus_judge::Mode::Live => Class::Live,
+        }
+    }
+}
 
 /// What the store keeps of the day.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,10 +88,30 @@ struct Day {
     stored: Stored,
     /// Reserved by judgments in flight.
     in_flight: Micros,
+    /// The day's limit said (live is refused too).
     paused_said: bool,
+    /// The shadow line said (shadow is refused; live goes on).
+    shadow_said: bool,
     calls: u64,
     failed: u64,
     skipped: u64,
+}
+
+impl Day {
+    /// Whether `class`'s pause is said today.
+    fn said(&self, class: Class) -> bool {
+        match class {
+            Class::Live => self.paused_said,
+            Class::Shadow => self.shadow_said || self.paused_said,
+        }
+    }
+
+    fn set_said(&mut self, class: Class) {
+        match class {
+            Class::Live => self.paused_said = true,
+            Class::Shadow => self.shadow_said = true,
+        }
+    }
 }
 
 /// A reservation's answer, with the records to write in one frame before
@@ -72,6 +129,7 @@ pub enum Reserve {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Said {
     Paused {
+        class: Class,
         day: String,
         limit: Micros,
         spent: Micros,
@@ -93,11 +151,16 @@ impl Said {
     pub fn announce(&self, rec: &Rec<'_>) {
         match self {
             Said::Paused {
+                class,
                 day,
                 limit,
                 spent,
                 needed,
             } => rec.announce(&JudgePaused {
+                what: match class {
+                    Class::Live => "live",
+                    Class::Shadow => "shadow",
+                },
                 day,
                 limit_micros: *limit,
                 spent_micros: *spent,
@@ -170,18 +233,27 @@ impl ShadowBudget {
         self.limit
     }
 
+    /// The most `class` may hold today: the limit, or for shadow its line.
+    pub fn cap(&self, class: Class) -> Micros {
+        match class {
+            Class::Live => self.limit,
+            // RED STAGE: no second line yet.
+            Class::Shadow => self.limit,
+        }
+    }
+
     /// Whether a reservation of `need` now would ask for a frame: the
     /// first of this process (it may book a crash's rest), a new day's, a
     /// new block's, or the day's first pause (theseus-xkbs). A read of
     /// memory, never the store's.
-    pub fn needs_frame(&self, today: &str, need: Micros) -> bool {
+    pub fn needs_frame(&self, today: &str, need: Micros, class: Class) -> bool {
         let d = self.lock();
         if !d.loaded || d.stored.day != today {
             return true;
         }
         let held = d.stored.spent_micros + d.in_flight;
-        if held + need > self.limit {
-            return !d.paused_said;
+        if held + need > self.cap(class) {
+            return !d.said(class);
         }
         held + need > d.stored.reserved_micros
     }
@@ -205,7 +277,7 @@ impl ShadowBudget {
 
     /// Reserve `need` for a judgment of `today`. Reads the store once per
     /// process, at its first use (never before serving).
-    pub fn reserve(&self, store: &Store, today: &str, need: Micros) -> Reserve {
+    pub fn reserve(&self, store: &Store, today: &str, need: Micros, class: Class) -> Reserve {
         let mut d = self.lock();
         let mut out = Vec::new();
         let mut said = Vec::new();
@@ -240,7 +312,7 @@ impl ShadowBudget {
         }
         if d.stored.day != today {
             // The first judgment of a new day after a paused one (23b).
-            if d.paused_said && !d.stored.day.is_empty() {
+            if (d.paused_said || d.shadow_said) && !d.stored.day.is_empty() {
                 let resumed = JudgeResumed {
                     day: today,
                     paused_day: &d.stored.day,
@@ -264,21 +336,27 @@ impl ShadowBudget {
             };
         }
         let held = d.stored.spent_micros + d.in_flight;
-        if held + need > self.limit {
+        let cap = self.cap(class);
+        if held + need > cap {
             d.skipped += 1;
-            if !d.paused_said {
-                d.paused_said = true;
+            if !d.said(class) {
+                d.set_said(class);
                 let paused = JudgePaused {
+                    what: match class {
+                        Class::Live => "live",
+                        Class::Shadow => "shadow",
+                    },
                     day: today,
-                    limit_micros: self.limit,
+                    limit_micros: cap,
                     spent_micros: d.stored.spent_micros,
                     needed_micros: need,
                 };
                 if let Ok(r) = crate::fact::row(&paused, None, None) {
                     out.push(r);
                     said.push(Said::Paused {
+                        class,
                         day: today.into(),
-                        limit: self.limit,
+                        limit: cap,
                         spent: d.stored.spent_micros,
                         needed: need,
                     });
@@ -346,6 +424,13 @@ impl ShadowBudget {
         d.loaded && d.paused_said && d.stored.day == today
     }
 
+    /// Whether shadow is stopped today, at its line or at the limit (live
+    /// goes on past its line, so `paused` is the limit's alone).
+    pub fn shadow_paused(&self, today: &str) -> bool {
+        let d = self.lock();
+        d.loaded && (d.shadow_said || d.paused_said) && d.stored.day == today
+    }
+
     /// A judgment skipped before it reserved (shed, the breaker, no key,
     /// sampling aside).
     pub fn skipped(&self, today: &str) {
@@ -390,7 +475,7 @@ impl ShadowBudget {
             calls: d.calls,
             failed: d.failed,
             skipped: d.skipped,
-            paused: d.paused_said,
+            paused: d.paused_said || d.shadow_said,
         }
     }
 }

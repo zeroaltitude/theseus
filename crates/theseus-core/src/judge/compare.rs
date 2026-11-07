@@ -156,7 +156,7 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        if !self.reserve(today, need) {
+        if !self.reserve(today, need, spend::Class::of(ask.mode)) {
             return Err("the judge's day budget is spent".into());
         }
         Ok(Prepared { built, ask, need })

@@ -562,7 +562,7 @@ async fn judge_categorize(me: Weak<JudgeService>, pack: Arc<Pack>, end: Exchange
     // moved, in memory, before the decision ends, so the next exchange end
     // reads it (the sink writes it beside the row).
     let granted = match &prepared {
-        Some((p, _)) => super::reserve_between(&me, &today, p.need).await,
+        Some((p, _)) => super::reserve_between(&me, &today, p.need, spend::Class::of(p.ask.mode)).await,
         None => false,
     };
     let Some(svc) = me.upgrade() else { return };

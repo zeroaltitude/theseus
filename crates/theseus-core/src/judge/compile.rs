@@ -179,7 +179,7 @@ async fn judge_continue(me: Weak<JudgeService>, pack: Arc<Pack>, asked: Asked) {
     };
     // A loop's dispatch runs beside its turn: its block, when it needs one,
     // waits for the turn's end (theseus-xkbs).
-    if !super::reserve_between(&me, &today, need).await {
+    if !super::reserve_between(&me, &today, need, spend::Class::of(ask.mode)).await {
         return;
     }
     let judgments = built

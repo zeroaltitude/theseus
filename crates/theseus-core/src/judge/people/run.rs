@@ -327,7 +327,7 @@ impl JudgeService {
             asks.push(ask);
         }
         let need = built.judge.inner().reserve_micros(&asks).unwrap_or(0);
-        if asks.is_empty() || !self.reserve(&today, need) {
+        if asks.is_empty() || !self.reserve(&today, need, spend::Class::of_asks(&asks)) {
             return (Vec::new(), 0);
         }
         let judgments = built
