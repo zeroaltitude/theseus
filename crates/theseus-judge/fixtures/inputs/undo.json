@@ -1,0 +1,18 @@
+{
+  "tool": "proc.run",
+  "class": "run",
+  "posture": "notify",
+  "argv": ["rm", "-rf", "build/cache", "notes/scratch.txt"],
+  "steps": [],
+  "targets": [
+    { "path": "projects/app/build/cache", "access": "write", "recovery": "regenerable" },
+    { "path": "projects/app/notes/scratch.txt", "access": "write", "recovery": "untracked" }
+  ],
+  "url": null,
+  "other_args": { "timeout_secs": 120 },
+  "cwd": "projects/app",
+  "cwd_kind": "repo_dirty",
+  "sandbox": "l0",
+  "remote_keeps": "unknown",
+  "terminal_tail": null
+}
