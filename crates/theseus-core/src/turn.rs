@@ -2405,7 +2405,13 @@ impl TurnRunner {
         // It never needs a confirm, so its plan, authorization, and dispatch
         // are one frame, with the loop's rows in front (theseus-qa0), and
         // a recall's node and edges (M6 30b).
-        let rides = std::mem::take(&mut t.recall.rides);
+        // Only what the request carried (theseus-fpm2): a compile that
+        // withheld the pending node leaves the turn with no recall at all,
+        // so no node is written and the reply counts none.
+        let rides = match t.recall.withheld {
+            false => std::mem::take(&mut t.recall.rides),
+            true => Self::recall_dropped(t),
+        };
         t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(
             t.tc.guard,
