@@ -118,7 +118,7 @@ async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
     // The universal prefix as `CacheLayout::universal_prefix_bytes` takes it —
     // every tool definition and the first system block, the header — in tokens
     // as `TurnRunner::fixed_prefix_tokens` converts it.
-    let bytes: u64 = q.tools.iter().map(len).sum::<u64>() + q.system.first().map_or(0, |b| len(b));
+    let bytes: u64 = q.tools.iter().map(len).sum::<u64>() + q.system.first().map_or(0, len);
     let rates = crate::catalog::TokenRates::of(&q.model);
     let fixed = (bytes as f64 / rates.json.max(rates.text)) as u64;
     let context = est.saturating_sub(fixed);

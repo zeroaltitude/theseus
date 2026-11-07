@@ -375,7 +375,7 @@ impl TurnRunner {
         a.loops
             .drain(..a.loops.len().saturating_sub(cp::LOOP_LINES));
         a.est = e.compiled.est_tokens;
-        a.fixed = self.fixed_prefix_tokens(&t.target.model, &e.compiled);
+        a.fixed = self.fixed_prefix_tokens(&t.target.model, e.compiled);
         a.note_effort(&e.compiled.request, e.index);
         let window = self.cfg.routing.task_checkpoints.min_loops_between;
         // A flight a window old is given up: its late answer is dropped.
