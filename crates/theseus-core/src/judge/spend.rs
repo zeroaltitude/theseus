@@ -53,6 +53,14 @@ pub enum Class {
 }
 
 impl Class {
+    /// Its word in a `judge.paused` row.
+    fn what(self) -> &'static str {
+        match self {
+            Class::Live => "live",
+            Class::Shadow => "shadow",
+        }
+    }
+
     /// The class of a request of `asks`: live when any of them acts (one
     /// judgment the product waits on is worth the whole request's spend).
     pub fn of_asks<'a>(asks: impl IntoIterator<Item = &'a theseus_judge::Ask>) -> Self {
@@ -157,10 +165,7 @@ impl Said {
                 spent,
                 needed,
             } => rec.announce(&JudgePaused {
-                what: match class {
-                    Class::Live => "live",
-                    Class::Shadow => "shadow",
-                },
+                what: class.what(),
                 day,
                 limit_micros: *limit,
                 spent_micros: *spent,
@@ -340,25 +345,9 @@ impl ShadowBudget {
             d.skipped += 1;
             if !d.said(class) {
                 d.set_said(class);
-                let paused = JudgePaused {
-                    what: match class {
-                        Class::Live => "live",
-                        Class::Shadow => "shadow",
-                    },
-                    day: today,
-                    limit_micros: cap,
-                    spent_micros: d.stored.spent_micros,
-                    needed_micros: need,
-                };
-                if let Ok(r) = crate::fact::row(&paused, None, None) {
-                    out.push(r);
-                    said.push(Said::Paused {
-                        class,
-                        day: today.into(),
-                        limit: cap,
-                        spent: d.stored.spent_micros,
-                        needed: need,
-                    });
+                if let Some((row, say)) = pause(&d.stored, class, cap, need) {
+                    out.push(row);
+                    said.push(say);
                 }
             }
             if !out.is_empty() {
@@ -477,6 +466,26 @@ impl ShadowBudget {
             paused: d.paused_said || d.shadow_said,
         }
     }
+}
+
+/// `class`'s pause at `cap`, its row and its sentence.
+fn pause(s: &Stored, class: Class, cap: Micros, need: Micros) -> Option<(NewRecord, Said)> {
+    let paused = JudgePaused {
+        what: class.what(),
+        day: &s.day,
+        limit_micros: cap,
+        spent_micros: s.spent_micros,
+        needed_micros: need,
+    };
+    let row = crate::fact::row(&paused, None, None).ok()?;
+    let say = Said::Paused {
+        class,
+        day: s.day.clone(),
+        limit: cap,
+        spent: s.spent_micros,
+        needed: need,
+    };
+    Some((row, say))
 }
 
 fn meta(s: &Stored) -> NewRecord {
