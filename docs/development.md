@@ -224,6 +224,7 @@ judges the net change of the range against `main`. It reports each erosion as `p
 | `ci-loosened` | A CI step removed or changed, or made to continue on error |
 | `keel-file` | The guard itself, its test suite, the gate's door, or a gate phase removed |
 | `sealed-reach` | Code outside the sealed scorer's own files that names the sealed holdout sets |
+| `locked-flow` | The owner-locked Discord DM task flow changed: a golden under `crates/theseus-discord/src/golden/` edited or removed. The trailer quotes his OK for that change |
 
 Moved and renamed tests are matched by name, then by body, then by similarity, so a refactor is not an erosion.
 

@@ -99,6 +99,11 @@ The rules, by the name the report and the ack use:
   sealed-reach    an added line, in a Rust file outside those and outside cfg(test) code, that names the sealed set:
                   `sealed_dir`, `.sealed.dir` (`[self.sealed] dir`), `sealed::` or `Sealed::`. Defence in depth (L1 is
                   the boundary for a candidate's code): how a self branch linked into the daemon could read the set.
+  locked-flow     a change to the owner-locked Discord DM task flow, which is its golden: any file under
+                  crates/theseus-discord/src/golden/ that exists at the base and is edited or removed at the head
+                  (theseus-s1hgd; the owner's lock of 2026-10-22, and his word of 2026-11-07 that the rule means
+                  exactly this). The trailer quotes his OK for that change. A golden added is no finding: nothing
+                  locked is changed by a new file.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
 Standard library only.
@@ -115,7 +120,7 @@ import time
 from collections import Counter, defaultdict
 
 RULES = ("test-removed", "test-ignored", "assert-removed", "assert-weakened", "allow-added", "budget-raised",
-         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file", "sealed-reach")
+         "cap-raised", "ceiling-raised", "ci-loosened", "keel-file", "sealed-reach", "locked-flow")
 # The first three are the guard itself; the rest are the sealed scorer's code, its runner and relay, and the exam set,
 # which `sealed::KEEL_PATHS` lists too (a Rust test holds the two lists together: theseus-pw1q.21.2).
 KEEL_FILES = (
@@ -161,6 +166,9 @@ KEEL_FILES = (
     "crates/theseusd/src/web.rs",
 )
 KEEL_PREFIXES = ("crates/theseus-exam/exam/",)
+# The locked DM task flow's golden (theseus-s1hgd): the directory, so a second golden is held when it is born and no
+# list of files can fall behind. A test holds the golden test's own path inside it.
+LOCKED_FLOW_PREFIXES = ("crates/theseus-discord/src/golden/",)
 GUARD_ITSELF = KEEL_FILES[:3]
 SIGNERS = "scripts/keel-signers"
 
@@ -1621,6 +1629,24 @@ def keel_rule(tree, path, out):
                        nl[line - 1] if line <= len(nl) else "(end)"))
 
 
+def locked_flow_path(path):
+    return path.startswith(LOCKED_FLOW_PREFIXES)
+
+
+def locked_flow_rule(tree, path, out):
+    """A golden of the locked DM task flow edited or removed. One added has no base text to change, so it is no finding."""
+    old, new = tree.old(path), tree.new(path)
+    if old is None or old == new:
+        return
+    if new is None:
+        out.append(Finding("locked-flow", path, 1, "(the locked golden)", "(gone)"))
+        return
+    ol, nl = old.split("\n"), new.split("\n")
+    line = next((i + 1 for i, (x, y) in enumerate(zip(ol, nl)) if x != y), min(len(ol), len(nl)) + 1)
+    out.append(Finding("locked-flow", path, line, ol[line - 1] if line <= len(ol) else "(end)",
+                       nl[line - 1] if line <= len(nl) else "(end)"))
+
+
 # The sealed set's reach (theseus-pw1q.21.2). Defence in depth: L1 is the boundary for running a candidate's code, and
 # the in-daemon reach (a self branch's code linked into the daemon) is what this watches. A line added outside the
 # keel files and outside cfg(test) code that names the sealed dir's config (`sealed_dir`, `.sealed.dir` for
@@ -1721,6 +1747,8 @@ def judge(tree, paths):
             ci_rule(tree, p, out)
         if p in KEEL_FILES or p.startswith(KEEL_PREFIXES) or p == "scripts/gate.sh":
             keel_rule(tree, p, out)
+        if locked_flow_path(p):
+            locked_flow_rule(tree, p, out)
     sealed_reach_rule(tree, [p for p in paths if p.endswith(".rs")], out)
     return out
 
