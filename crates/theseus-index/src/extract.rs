@@ -3,15 +3,18 @@
 //!
 //! | Source | Indexed text | Never |
 //! |---|---|---|
-//! | `UserMessage` | text, and text attachments (and every attachment's name) | image bytes |
+//! | `UserMessage` | text, every attachment's name, a text attachment's text, and a kept file's read text, once per digest (theseus-lv2u) | image bytes |
 //! | `AssistantMessage` | text blocks | thinking blocks, and the `tool_use` blocks (their `ToolCall` nodes say what is indexed of them) |
-//! | `ToolResult` | the content the model saw (already scrubbed and capped), with its `external` flag | the spool's full output, an image |
+//! | `ToolResult` | the content the model saw (already scrubbed and capped), with its `external` flag, and a kept file's read text | the spool's full output, an image |
 //! | `ToolCall` | `proc.run`'s argv, and the paths and queries of reads and searches | other inputs |
 //! | `Summary` | its text | its testimony header |
 //! | `Synthesis`, `Lesson` | text (once they exist) | |
 //! | `Recall` | | always: recalled text is never indexed again (§5.2) |
 //! | `Imported`, `ImportedSummary` | text; an imported message of `outside` integrity is external (theseus-0lrr.6) | |
 //! | `Erased` | | always: a tombstone's payload is gone, so a node indexed before leaves the index (§5.6) |
+//!
+//! A kept file's read text is not in the node: the node names a blob, which
+//! the tender reads ([`crate::files`]). What is here is the reference.
 //!
 //! It reads a node's record as a JSON value, so the tender never depends on
 //! `theseus-core`, and a change there never rebuilds the search engine. This
@@ -24,7 +27,21 @@
 use serde_json::Value;
 
 /// Bumped when what is indexed of a node changes.
-pub const EXTRACTOR_VERSION: u32 = 1;
+/// 2 = a kept file's read text, beside its node (theseus-lv2u).
+pub const EXTRACTOR_VERSION: u32 = 2;
+
+/// A kept file a node carries (theseus-c9l6, store format 17): the file
+/// itself in the store's blobs, and what was read of it — a PDF's pages, a
+/// document's sections — in a blob of its own. The node names both by
+/// digest; the tender reads the text blob ([`crate::files`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRef {
+    pub name: String,
+    /// The file's own bytes' digest: what "once per digest" counts.
+    pub digest: String,
+    /// The blob holding what was read of it.
+    pub text: String,
+}
 
 /// What a node gives the index, before chunking.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +60,10 @@ pub struct Extracted {
     /// The tool of a call or a result.
     pub tool: Option<String>,
     pub text: String,
+    /// The kept files this node carries, whose read text the index takes
+    /// beside the node's own (theseus-lv2u). A file that was not read, or
+    /// whose text blob the node does not name, is not here.
+    pub files: Vec<FileRef>,
 }
 
 /// The extractor's answer for one node record.
@@ -97,8 +118,17 @@ pub fn extract(payload: &[u8]) -> Result<Extract, ExtractError> {
     };
     let mut external = false;
     let mut tool = None;
+    let mut files = Vec::new();
     let text = match kind {
-        "user_message" => user_text(body),
+        "user_message" => {
+            files = files_of(
+                body.get("attachments")
+                    .and_then(Value::as_array)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+            );
+            user_text(body)
+        }
         "assistant_message" => assistant_text(body),
         "tool_call" => {
             let name = str_of(body, "tool").unwrap_or_default();
@@ -111,6 +141,11 @@ pub fn extract(payload: &[u8]) -> Result<Extract, ExtractError> {
         "tool_result" => {
             tool = str_of(body, "tool").map(str::to_string);
             external = body.get("external").is_some_and(|e| !e.is_null());
+            // A PDF a tool returned is kept the same way (`toolrun::keep_media`);
+            // the field's name is still `image`.
+            files = files_of(std::slice::from_ref(
+                body.get("image").unwrap_or(&Value::Null),
+            ));
             str_of(body, "content").unwrap_or_default().to_string()
         }
         // The operator's past history (theseus-0lrr.6): its text, and outside
@@ -133,7 +168,7 @@ pub fn extract(payload: &[u8]) -> Result<Extract, ExtractError> {
             None => return skip("a body kind this extractor does not know, with no text"),
         },
     };
-    if text.trim().is_empty() {
+    if text.trim().is_empty() && files.is_empty() {
         return skip("no text");
     }
     Ok(Extract::Index(Extracted {
@@ -149,7 +184,28 @@ pub fn extract(payload: &[u8]) -> Result<Extract, ExtractError> {
         external,
         tool,
         text,
+        files,
     }))
+}
+
+/// The kept files among `attachments`, in order. An attachment that is not
+/// a kept file, or a kept file that was never read (no text blob), gives
+/// nothing: its digest is no text.
+fn files_of(attachments: &[Value]) -> Vec<FileRef> {
+    attachments
+        .iter()
+        .filter_map(|a| {
+            let content = a.get("content")?;
+            if str_of(content, "kind") != Some("file") {
+                return None;
+            }
+            Some(FileRef {
+                name: str_of(a, "name").unwrap_or_default().to_string(),
+                digest: str_of(content, "digest")?.to_string(),
+                text: str_of(content, "text")?.to_string(),
+            })
+        })
+        .collect()
 }
 
 /// The operator's text, then each attachment's name, and the text of a
@@ -395,6 +451,71 @@ mod tests {
             .unwrap(),
             Extract::Skip { .. }
         ));
+    }
+
+    /// A kept file is named by its digest, and what was read of it by a
+    /// second digest: the reference is here, the text is the tender's to
+    /// read (theseus-lv2u). A file never read gives none.
+    #[test]
+    fn a_kept_file_gives_its_reference_and_an_unread_one_gives_none() {
+        let e = extract(&node(
+            json!({"kind": "user_message", "text": "read this", "attachments": [
+                {"name": "harbour.pdf", "media_type": "application/pdf", "size": 11,
+                 "content": {"kind": "file", "digest": "aa", "pages": 3, "text": "bb"}},
+                {"name": "tape.wav", "media_type": "audio/wav", "size": 2,
+                 "content": {"kind": "file", "digest": "cc"}},
+            ]}),
+        ))
+        .unwrap();
+        let Extract::Index(e) = e else { panic!() };
+        assert_eq!(
+            e.files,
+            vec![FileRef {
+                name: "harbour.pdf".into(),
+                digest: "aa".into(),
+                text: "bb".into(),
+            }]
+        );
+        // Its name is in the text, its digests never are.
+        assert!(e.text.contains("harbour.pdf") && !e.text.contains("aa"));
+        // A tool's kept PDF is the same reference, under `image`.
+        let e = extract(&node(
+            json!({"kind": "tool_result", "tool_use_id": "t", "tool": "fs.read",
+            "status": "ok", "is_error": false, "content": "[PDF harbour.pdf, 3 pages]",
+            "image": {"name": "harbour.pdf", "media_type": "application/pdf", "size": 11,
+                      "content": {"kind": "file", "digest": "aa", "text": "bb"}}}),
+        ))
+        .unwrap();
+        let Extract::Index(e) = e else { panic!() };
+        assert_eq!(e.files.len(), 1);
+        // An image gives none, as before.
+        let e = extract(&node(
+            json!({"kind": "user_message", "text": "look", "attachments": [
+                {"name": "shot.png", "media_type": "image/png", "size": 9,
+                 "content": {"kind": "image", "digest": "dd", "width": 1, "height": 1}},
+            ]}),
+        ))
+        .unwrap();
+        let Extract::Index(e) = e else { panic!() };
+        assert!(e.files.is_empty());
+    }
+
+    /// A message with no words of its own but a kept file is indexed: the
+    /// file's text is what it holds.
+    #[test]
+    fn a_message_of_a_file_alone_is_not_skipped() {
+        let e = extract(&node(
+            json!({"kind": "user_message", "text": "", "attachments": [
+                {"name": "", "media_type": "application/pdf", "size": 11,
+                 "content": {"kind": "file", "digest": "aa", "text": "bb"}},
+            ]}),
+        ))
+        .unwrap();
+        let Extract::Index(e) = e else {
+            panic!("skipped a message whose file has text")
+        };
+        assert!(e.text.trim().is_empty());
+        assert_eq!(e.files.len(), 1);
     }
 
     #[test]

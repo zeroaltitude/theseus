@@ -137,6 +137,21 @@ pub fn index_status_lines(h: &theseus_protocol::index::IndexHealth) -> Vec<Line>
             fmt_bytes(s.rss_bytes)
         ),
     );
+    // A kept file's read text, indexed beside its node (theseus-lv2u).
+    if s.files_indexed + s.files_repeated + s.files_cut + s.files_unread > 0 {
+        push(
+            o,
+            if s.files_unread > 0 {
+                Tag::Warn
+            } else {
+                Tag::Plain
+            },
+            &format!(
+                "files: {} indexed, {} already held, {} cut at the cap, {} unread",
+                s.files_indexed, s.files_repeated, s.files_cut, s.files_unread
+            ),
+        );
+    }
     if let Some(v) = &s.vectors {
         let mut line = format!(
             "vectors: {} · {} of {} chunks · {} pending",
