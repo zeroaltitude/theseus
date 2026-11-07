@@ -19,12 +19,12 @@ use crate::tests_day_ceiling::{bind_dm, posts};
 const HOUR: u64 = 3_600_000;
 const DAY: u64 = 24 * HOUR;
 
-struct Rig {
-    core: Arc<Core>,
+pub(super) struct Rig {
+    pub(super) core: Arc<Core>,
     _dir: tempfile::TempDir,
 }
 
-fn rig(tweak: impl FnOnce(&mut Config)) -> Rig {
+pub(super) fn rig(tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
@@ -43,7 +43,7 @@ fn rig(tweak: impl FnOnce(&mut Config)) -> Rig {
 /// Ten in the morning, a few days on: after every post the pacer has seen
 /// (they are stamped with the real clock) and a day the tests can step by 24
 /// hours.
-fn morning() -> u64 {
+pub(super) fn morning() -> u64 {
     local_midnight(theseus_protocol::now_unix_ms()) + 3 * DAY + 10 * HOUR
 }
 
@@ -91,12 +91,12 @@ fn proposal(n: u64, ask: CardAsk, live: bool) -> CardProposal {
     }
 }
 
-fn put(r: &Rig, ps: &[CardProposal]) {
+pub(super) fn put(r: &Rig, ps: &[CardProposal]) {
     let recs: Vec<_> = ps.iter().map(|p| state::record(p).unwrap()).collect();
     r.core.store.append(&recs).unwrap();
 }
 
-fn read(r: &Rig) -> Vec<CardProposal> {
+pub(super) fn read(r: &Rig) -> Vec<CardProposal> {
     state::proposals(&r.core.store).unwrap()
 }
 
@@ -104,7 +104,7 @@ fn marked(r: &Rig) -> usize {
     read(r).iter().filter(|p| p.posted_ms.is_some()).count()
 }
 
-fn live(n: std::ops::RangeInclusive<u64>) -> Vec<CardProposal> {
+pub(super) fn live(n: std::ops::RangeInclusive<u64>) -> Vec<CardProposal> {
     n.map(|n| proposal(n, CardAsk::Add, true)).collect()
 }
 

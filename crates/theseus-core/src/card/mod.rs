@@ -67,11 +67,14 @@ pub mod observe;
 pub mod run;
 pub mod state;
 pub mod tender;
+pub mod write;
 
 #[cfg(test)]
 mod fixture;
 #[cfg(test)]
 mod tests_dm;
+#[cfg(test)]
+mod tests_dm_race;
 #[cfg(test)]
 mod tests_job;
 #[cfg(test)]

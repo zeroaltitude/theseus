@@ -383,7 +383,11 @@ impl Core {
         }
         frame.push(job.st.record()?);
         frame.push(crate::fact::row(&f, None, None)?);
-        self.people_write(&frame).await?;
+        // Under the one card lock, as every proposal write is (theseus-kxb8d).
+        // These proposals are new ids, so nothing here reverts another
+        // writer's record; it takes the lock so that the rule has no exception
+        // to remember.
+        self.card_frame(|_| Ok((frame, ()))).await?;
         self.rec(None).announce(&f);
         out.proposed.extend(made);
         if let Some(why) = failed {

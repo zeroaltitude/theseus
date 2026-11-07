@@ -451,7 +451,8 @@ impl Core {
             frame.push(state::obs_record(o)?);
         }
         frame.push(crate::fact::row(&f, None, None)?);
-        self.people_write(&frame).await?;
+        // Under the one card lock, as every proposal write is (theseus-kxb8d).
+        self.card_frame(|_| Ok((frame, ()))).await?;
         self.rec(None).announce(&f);
         Ok(())
     }

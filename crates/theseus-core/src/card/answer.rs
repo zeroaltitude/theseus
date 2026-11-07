@@ -118,34 +118,59 @@ impl Core {
         by: &str,
         via: &str,
     ) -> Result<CardProposal> {
-        let mut next = prop.clone();
-        next.answered_ms = Some(theseus_protocol::now_unix_ms());
-        next.answered_by = Some("owner".into());
-        match kept {
-            Some((text, record)) => {
-                if text != prop.text {
-                    next.kept_text = Some(text);
-                }
-                // The scope it holds in: the owner's, when he named one.
-                next.scope = record.scope.clone();
-                next.standing_id = Some(record.id.clone());
-                next.state = ProposalState::Kept;
-            }
-            None => next.state = ProposalState::Declined,
-        }
         let episodes: Vec<String> = prop.sources.iter().map(|s| s.episode.clone()).collect();
-        let f = CardAnswered {
+        let answered_ms = theseus_protocol::now_unix_ms();
+        let next = self
+            .card_frame(|all| {
+                // The proposal as it stands now, not as the caller read it
+                // (theseus-kxb8d): between that read and here the DM post may
+                // have stamped `posted_ms`, and another answer may have
+                // settled it. Writing the caller's clone back reverted either.
+                let fresh = state::resolve(all, &prop.id).map_err(|e| anyhow!(e))?;
+                if fresh.state != prop.state || fresh.answered_ms != prop.answered_ms {
+                    bail!(
+                        "{} is already {}: it was answered while this answer was being made, \
+                         so nothing was written. Read the card again.",
+                        fresh.id,
+                        fresh.state.name()
+                    );
+                }
+                let mut next = fresh.clone();
+                next.answered_ms = Some(answered_ms);
+                next.answered_by = Some("owner".into());
+                match kept {
+                    Some((text, record)) => {
+                        if text != next.text {
+                            next.kept_text = Some(text);
+                        }
+                        // The scope it holds in: the owner's, when he named one.
+                        next.scope = record.scope.clone();
+                        next.standing_id = Some(record.id.clone());
+                        next.state = ProposalState::Kept;
+                    }
+                    None => next.state = ProposalState::Declined,
+                }
+                let f = CardAnswered {
+                    id: &prop.id,
+                    option,
+                    by,
+                    via,
+                    episodes: &episodes,
+                    standing_id: next.standing_id.as_deref(),
+                };
+                let mut frame = vec![state::record(&next)?, crate::fact::row(&f, None, None)?];
+                frame.extend(self.obs_moves(prop, option)?);
+                Ok((frame, next))
+            })
+            .await?;
+        self.rec(None).announce(&CardAnswered {
             id: &prop.id,
             option,
             by,
             via,
             episodes: &episodes,
             standing_id: next.standing_id.as_deref(),
-        };
-        let mut frame = vec![state::record(&next)?, crate::fact::row(&f, None, None)?];
-        frame.extend(self.obs_moves(prop, option)?);
-        self.people_write(&frame).await?;
-        self.rec(None).announce(&f);
+        });
         Ok(next)
     }
 
@@ -165,9 +190,12 @@ impl Core {
             return Ok(out);
         }
         for id in &prop.observations {
-            let held = theseus_store::blocking(|| {
-                self.store.get_meta::<CardObservation>(&state::obs_key(id))
-            })?;
+            // Called only from inside a `card_frame` builder, which is already
+            // a blocking section: nesting another would re-enter
+            // `block_in_place` for nothing.
+            let held = self
+                .store
+                .get_meta::<CardObservation>(&state::obs_key(id))?;
             if let Some(o) = held.filter(|o| {
                 o.state == ObservationState::Used && o.proposal.as_deref() == Some(&prop.id)
             }) {
@@ -188,47 +216,64 @@ impl Core {
     /// Open proposals past their expiry become "Not this" (by `expiry`), each
     /// with its row, in one frame. How many.
     pub(crate) async fn card_expire(&self, now: u64) -> Result<usize> {
-        let all = theseus_store::blocking(|| state::proposals(&self.store))?;
-        let due: Vec<&CardProposal> = state::in_state(&all, ProposalState::Open)
-            .filter(|p| p.expires_ms <= now)
-            .collect();
-        if due.is_empty() {
-            return Ok(0);
-        }
-        let episodes: Vec<Vec<String>> = due
-            .iter()
-            .map(|p| p.sources.iter().map(|s| s.episode.clone()).collect())
-            .collect();
-        let facts: Vec<CardAnswered<'_>> = due
-            .iter()
-            .zip(&episodes)
-            .map(|(p, e)| CardAnswered {
-                id: &p.id,
+        // Read and written under the one card lock (theseus-kxb8d): expiry and
+        // an answer landing together used to revert each other.
+        let expired: Vec<(String, Vec<String>)> = self
+            .card_frame(|all| {
+                let due: Vec<&CardProposal> = state::in_state(all, ProposalState::Open)
+                    .filter(|p| p.expires_ms <= now)
+                    .collect();
+                if due.is_empty() {
+                    return Ok((Vec::new(), Vec::new()));
+                }
+                let episodes: Vec<Vec<String>> = due
+                    .iter()
+                    .map(|p| p.sources.iter().map(|s| s.episode.clone()).collect())
+                    .collect();
+                let facts: Vec<CardAnswered<'_>> = due
+                    .iter()
+                    .zip(&episodes)
+                    .map(|(p, e)| CardAnswered {
+                        id: &p.id,
+                        option: "expire",
+                        by: "expiry",
+                        via: "clock",
+                        episodes: e,
+                        standing_id: None,
+                    })
+                    .collect();
+                let mut frame = Vec::new();
+                for p in &due {
+                    let mut next = (*p).clone();
+                    next.state = ProposalState::Declined;
+                    next.answered_ms = Some(now);
+                    next.answered_by = Some("expiry".into());
+                    frame.push(state::record(&next)?);
+                }
+                for p in &due {
+                    frame.extend(self.obs_moves(p, "expire")?);
+                }
+                for f in &facts {
+                    frame.push(crate::fact::row(f, None, None)?);
+                }
+                let announced = due
+                    .iter()
+                    .zip(episodes)
+                    .map(|(p, e)| (p.id.clone(), e))
+                    .collect();
+                Ok((frame, announced))
+            })
+            .await?;
+        for (id, episodes) in &expired {
+            self.rec(None).announce(&CardAnswered {
+                id,
                 option: "expire",
                 by: "expiry",
                 via: "clock",
-                episodes: e,
+                episodes,
                 standing_id: None,
-            })
-            .collect();
-        let mut frame = Vec::new();
-        for p in &due {
-            let mut next = (*p).clone();
-            next.state = ProposalState::Declined;
-            next.answered_ms = Some(now);
-            next.answered_by = Some("expiry".into());
-            frame.push(state::record(&next)?);
+            });
         }
-        for p in &due {
-            frame.extend(self.obs_moves(p, "expire")?);
-        }
-        for f in &facts {
-            frame.push(crate::fact::row(f, None, None)?);
-        }
-        self.people_write(&frame).await?;
-        for f in &facts {
-            self.rec(None).announce(f);
-        }
-        Ok(due.len())
+        Ok(expired.len())
     }
 }
