@@ -28,6 +28,11 @@ use crate::Config;
 /// its text are in neither the state Jev was sent nor the row's admitted
 /// lists, though Jev would rank it first. `recall_end` hands the labels over
 /// (`Recalled.labeled`); so does the live path.
+///
+/// The absence bars below are each paired with what must be there, since a
+/// rerank that sent nothing and admitted nothing would meet them for free:
+/// the two unlabeled notes are in the state Jev was sent and are `top` in
+/// the fused order, and the better of them is what both admitted lists hold.
 async fn a_labeled_note_never_reaches_jev(live: bool) {
     for word in ["wrong", "stale"] {
         let jev = FakeJev::start().unwrap();
@@ -63,8 +68,34 @@ async fn a_labeled_note_never_reaches_jev(live: bool) {
             !state.contains("grey heron nests"),
             "{word}: the note's text reached Jev"
         );
+        // What must be there: the two unlabeled notes, whole, in the fused
+        // order, so the absence bars above cannot pass on an empty request.
+        for text in ["kettle in the shed", "north gate's code"] {
+            assert!(
+                state.contains(text),
+                "{word}: the unlabeled note {text:?} did not reach Jev"
+            );
+        }
         let rr = &rows[0].data["context"]["rerank"];
         assert_eq!(rr["eligible"], 2, "{word}: {rr}");
+        let node = |i: usize| c.store.session_nodes(&order[i]).unwrap()[0].1.id.clone();
+        let (kettle, gate) = (format!("{}#0", node(0)), format!("{}#0", node(1)));
+        assert_eq!(
+            keys_of(&rr["top"]),
+            [kettle.clone(), gate],
+            "{word}: top is not the two unlabeled notes in the fused order: {rr}"
+        );
+        // And what both admitted lists must hold: `recall_max_items` is 1,
+        // so each is the best unlabeled note alone. An empty list would
+        // pass the absence bar below for nothing.
+        let best = [kettle];
+        for list in ["fused_admitted", "reranked_admitted"] {
+            assert_eq!(
+                keys_of(&rr[list]),
+                best,
+                "{word}: {list} is not the best unlabeled note alone: {rr}"
+            );
+        }
         for list in ["fused_admitted", "reranked_admitted", "top"] {
             assert!(
                 !keys_of(&rr[list]).contains(&key),
