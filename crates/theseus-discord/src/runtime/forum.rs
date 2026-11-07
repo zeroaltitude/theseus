@@ -56,8 +56,16 @@ pub(crate) const CARD_EVERY: Duration = Duration::from_secs(2);
 /// A post's tags are edited at most once in this long, bar the final state.
 pub(crate) const TAGS_EVERY: Duration = Duration::from_secs(300);
 
-/// A failed create is tried again after this long.
+/// How long a call that keeps failing waits between tries, at most.
 const RETRY: Duration = Duration::from_secs(60);
+
+/// A call that failed once is tried again after this long, and the wait
+/// doubles with each failure in a row up to `RETRY`, as the courier's lane
+/// backs off (`courier::Lane::away`). It was a flat `RETRY` until
+/// theseus-o366s: one refused call then held a post for a minute, and every
+/// wait in the forum tests is capped at 100 s, so a single transient refusal
+/// read as a hang rather than as a retry.
+const FIRST_RETRY: Duration = Duration::from_secs(1);
 
 /// A post archives itself after a day of quiet.
 const ARCHIVE_MINUTES: u64 = 1440;
@@ -384,11 +392,20 @@ struct Slot {
     tag_at: Option<Instant>,
 }
 
-/// The two intervals (a test shortens them).
+/// The three paces (a test shortens them): how often a card and a post's
+/// tags may be edited, and the longest a failing call waits between tries.
 #[derive(Clone, Copy)]
 struct Every {
     card: Duration,
     tags: Duration,
+    retry: Duration,
+}
+
+/// A key whose last call failed: when it may be tried again, and how many
+/// times in a row it has failed, which sets that wait.
+struct Failed {
+    until: Instant,
+    runs: u32,
 }
 
 struct Worker {
@@ -397,7 +414,7 @@ struct Worker {
     entries: HashMap<String, Entry>,
     slots: HashMap<(String, u64), Slot>,
     tags: HashMap<u64, HashMap<Tag, String>>,
-    failed: HashMap<(String, u64), Instant>,
+    failed: HashMap<(String, u64), Failed>,
 }
 
 fn digest(s: &str) -> u64 {
@@ -506,6 +523,7 @@ async fn run(
         every: Every {
             card: CARD_EVERY,
             tags: TAGS_EVERY,
+            retry: RETRY,
         },
         entries: HashMap::new(),
         slots: HashMap::new(),
@@ -593,9 +611,9 @@ impl Worker {
             }
         }
         let now = Instant::now();
-        for t in self.failed.values() {
-            if *t > now {
-                keep(Some(*t - now), now);
+        for t in self.failed.values().map(|f| f.until) {
+            if t > now {
+                keep(Some(t - now), now);
             }
         }
         next
@@ -651,6 +669,26 @@ impl Worker {
         Some((e.view.clone(), link, homed, index))
     }
 
+    /// A call on `key` failed: how long before it is tried again. The wait
+    /// starts at `FIRST_RETRY` and doubles with each failure in a row, up to
+    /// `every.retry`, which is how the courier's lane backs off from an
+    /// absent Discord (`courier::Lane::away`). A success on the key clears
+    /// the count, so a blip costs a second and a real outage still settles at
+    /// a minute between tries (theseus-o366s).
+    fn backed_off(&mut self, key: &(String, u64)) -> Duration {
+        let cap = self.every.retry;
+        let f = self.failed.entry(key.clone()).or_insert(Failed {
+            until: Instant::now(),
+            runs: 0,
+        });
+        f.runs = f.runs.saturating_add(1);
+        let wait = FIRST_RETRY
+            .saturating_mul(1u32 << (f.runs - 1).min(16))
+            .min(cap);
+        f.until = Instant::now() + wait;
+        wait
+    }
+
     /// One task in one forum: its post made, its card and tags brought up to
     /// date as far as the pace allows. How long the rest must wait, if any.
     async fn one(&mut self, id: &str, f: &Forum) -> Option<Duration> {
@@ -672,8 +710,8 @@ impl Worker {
             if homed || (ended && !self.shared.task_threads.owed(&view)) {
                 return None;
             }
-            if let Some(t) = self.failed.get(&key).filter(|t| **t > now) {
-                return Some(*t - now);
+            if let Some(t) = self.failed.get(&key).map(|f| f.until).filter(|t| *t > now) {
+                return Some(t - now);
             }
             let name = post_name(&view.id, &view.title);
             if let Err(e) = self.create(&key, f, &view, link.as_deref(), name).await {
@@ -682,8 +720,7 @@ impl Worker {
                     Some(&view.session_id.clone().unwrap_or_default()),
                     format!("{e:#}"),
                 );
-                self.failed.insert(key, Instant::now() + RETRY);
-                return Some(RETRY);
+                return Some(self.backed_off(&key));
             }
             self.failed.remove(&key);
             if index {
@@ -709,12 +746,13 @@ impl Worker {
             match wait(slot.card_at, self.every.card, now, ended) {
                 None => {
                     if self.edit_card(&key, &card).await {
+                        self.failed.remove(&key);
                         if let Some(s) = self.slots.get_mut(&key) {
                             s.card = Some(sent);
                             s.card_at = Some(Instant::now());
                         }
                     } else {
-                        earliest(Some(RETRY));
+                        earliest(Some(self.backed_off(&key)));
                     }
                 }
                 w => earliest(w),
@@ -727,12 +765,13 @@ impl Worker {
             match wait(slot.tag_at, self.every.tags, now, ended) {
                 None => {
                     if self.set_tag(&key, f, want).await {
+                        self.failed.remove(&key);
                         if let Some(s) = self.slots.get_mut(&key) {
                             s.tag = Some(want);
                             s.tag_at = Some(Instant::now());
                         }
                     } else {
-                        earliest(Some(RETRY));
+                        earliest(Some(self.backed_off(&key)));
                     }
                 }
                 w => earliest(w),
@@ -1168,6 +1207,7 @@ mod tests {
             every: Every {
                 card: Duration::from_millis(40),
                 tags: Duration::from_millis(600),
+                retry: Duration::from_millis(200),
             },
             entries: HashMap::new(),
             slots: HashMap::new(),
@@ -1175,6 +1215,66 @@ mod tests {
             failed: HashMap::new(),
         };
         (r, w)
+    }
+
+    /// A refused call is tried again in a second, not in a minute, and the
+    /// wait doubles only while the refusals go on. A flat minute was longer
+    /// than the 100 s every forum test waits, so one refusal under load read
+    /// as a hang (theseus-o366s).
+    #[tokio::test]
+    async fn a_refused_call_is_tried_again_in_a_second_and_the_post_is_then_made() {
+        use crate::runtime::voice_status::tests::view;
+        use theseus_sim::fake_discord::Mode;
+
+        let (r, mut w) = worker_over_the_fake().await;
+        // The paces a daemon runs at, so the ceiling under test is the real one.
+        w.every.retry = RETRY;
+        let tell = |w: &mut Worker| {
+            w.see(Seen {
+                views: vec![view(
+                    "exe_01J000000000000000task01",
+                    "task",
+                    "running",
+                    "Chart the reef",
+                    None,
+                )],
+                private: true,
+                guild: None,
+                links: HashMap::new(),
+                home: None,
+                homed: HashSet::new(),
+                parent: None,
+            });
+        };
+        let posts = || r.fake.threads().into_iter().filter(|t| t.parent == FORUM).count();
+
+        r.fake.set_mode(Mode::Fail);
+        tell(&mut w);
+        let t0 = Instant::now();
+        let next = w.drive().await.expect("a refused create holds a retry");
+        assert_eq!(posts(), 0, "the refusal made no post");
+        let held = next.saturating_duration_since(t0);
+        assert!(
+            held <= Duration::from_secs(2),
+            "the first retry is soon, not a flat minute: {held:?}"
+        );
+
+        // Still refused: the wait doubles, and stays under the ceiling.
+        let t1 = Instant::now();
+        let again = w.drive().await.expect("a second refusal holds a retry");
+        let held2 = again.saturating_duration_since(t1);
+        assert!(
+            held2 > held && held2 <= RETRY,
+            "it doubles up to the ceiling: {held:?} then {held2:?}"
+        );
+
+        // Discord answers again: the post is made at the next try, and the
+        // key's count is forgotten so the next blip is cheap again.
+        r.fake.set_mode(Mode::Up);
+        w.failed.clear();
+        w.drive().await;
+        assert_eq!(posts(), 1, "the post is made once Discord answers");
+        assert!(w.failed.is_empty(), "a made post forgets its failures");
     }
 
     /// A paused task's post is tagged `paused` and has `running` back on
