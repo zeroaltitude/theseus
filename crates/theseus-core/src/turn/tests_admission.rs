@@ -886,8 +886,18 @@ mod behind_its_own_turn {
         held
     }
 
+    /// The slot queue's window no longer decides on its own (theseus-5x8ry).
+    /// A task turn that is not the owner's input reaches it and is
+    /// **reconsidered**: with no adviser configured in a test the first
+    /// reconsideration keeps it waiting, and only the second falls back to
+    /// the failure it always was. So the window costs two windows now, and
+    /// the owner's own typed message still never fails at all.
+    ///
+    /// This is the no-adviser-no-stop rule proved end to end, and the shape
+    /// of it is the point: **the degraded path is exactly today's behaviour,
+    /// one window later.**
     #[tokio::test(start_paused = true)]
-    async fn the_owners_message_into_a_task_never_reaches_the_slot_queues_stuck_error() {
+    async fn a_task_turn_at_the_slot_window_is_reconsidered_before_it_is_failed() {
         let (core, _dir) = core();
         let _held = all_slots_held(&core);
         let e = core
@@ -907,14 +917,25 @@ mod behind_its_own_turn {
         let owner = admit_as(&core, &e.id, Class::Task, true);
         let other = admit_as(&core, &e.id, Class::Task, false);
         settle().await;
-        tokio::time::advance(STUCK * 2 + Duration::from_secs(1)).await;
+        // One window: reconsidered, the adviser could not answer, so the
+        // work goes on. This is the arm that did not exist before.
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+        settle().await;
+        assert!(
+            !other.is_finished(),
+            "one window no longer fails a task turn: it is reconsidered, and with no adviser the \
+             course is to keep going"
+        );
+        // A second window: the adviser could not answer twice, so the site
+        // falls back to the behaviour it had before the reconsideration.
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
         settle().await;
         let failed = within("the other task turn's failure", other)
             .await
             .unwrap();
         assert!(
             failed.is_err_and(|e| e.contains("admission is stuck: no turn was admitted")),
-            "a task turn that is not the owner's input fails at the slot queue's window"
+            "twice with no adviser, a task turn falls back to the slot queue's old failure"
         );
         assert!(
             !owner.is_finished(),

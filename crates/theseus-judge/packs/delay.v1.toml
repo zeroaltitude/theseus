@@ -1,0 +1,50 @@
+# delay.v1 (theseus-5x8ry): one delayed piece of work, asked when a delay has
+# survived the free pre-check - no readable progress signal moved, no
+# deterministic course applied, and no money rate line is in reach. The state
+# is what is delayed, how long it has run, what it has cost, and each progress
+# signal the daemon could read, with whether it moved. Every number is computed
+# by the builder and stated as a field: Jev is never asked to count or to
+# measure. Two Nouls and one Choice. Under the Choice's confirm bar the course
+# is `keep_going` (the owner, 2026-10-25: long work over stopped work), which
+# the daemon applies from its own constant - the live path reads no pack's
+# `no_match` - and a test holds the two equal.
+id = "delay"
+version = 1
+jev_model = "jev-1.13.0"
+point = "delay"
+state = "delay"
+state_cap_tokens = 2500
+sample = 1.0
+baseline = "rules"
+action = "none"
+description = "Whether work that has been delayed is still worth finishing, whether it is still moving, and what should happen to it next."
+
+[questions.worth_it]
+type = "noul"
+instructions = "Given what it has already cost and what it was for, is the delayed work described here still worth finishing?"
+act = 0.85
+confirm = 0.60
+when_true = "Finishing the delayed work is still worth what it will cost: the result it was started for still matters, and no cheaper way to that result is described here."
+when_false = "Finishing the delayed work is no longer worth what it will cost: the result it was started for has stopped mattering, or what it has spent is already out of proportion to it."
+
+[questions.progressing]
+type = "noul"
+instructions = "Is the delayed work described here still moving toward the result it was started for?"
+act = 0.85
+confirm = 0.60
+when_true = "The work is still moving: the signals described show it doing something that leads toward its result, even where that is slow."
+when_false = "The work is not moving: the signals described show it stalled, repeating itself, or waiting on something that is not coming."
+
+[questions.course]
+type = "choice"
+instructions = "What should happen next with the delayed work described here?"
+act = 0.85
+confirm = 0.60
+no_match = "keep_going"
+options = [
+  { id = "keep_going", means = "Let the work carry on unchanged and look again later: it is worth finishing and it is still moving, or too little is known to change anything." },
+  { id = "switch_model", means = "Make the same request again on a different model: the delay is the model's own, and another would answer the same request." },
+  { id = "change_approach", means = "Let the work carry on, but tell it what is delayed so it may plan differently: it is worth finishing and it is not moving the way it is going." },
+  { id = "narrow_scope", means = "Let the work carry on against a smaller objective: the whole of it is not worth what it would cost, and a part of it is." },
+  { id = "stop_and_report", means = "Stop the work and report where it got to: it is not worth finishing, or it is stuck on something that will not resolve." },
+]

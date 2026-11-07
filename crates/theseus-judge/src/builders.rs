@@ -66,6 +66,9 @@ pub const RECALL_CROSS_VERSION: u32 = 1;
 /// `families.v1`'s builder (module `families`, theseus-xlri5).
 pub const FAMILIES_VERSION: u32 = 1;
 
+/// `delay.v1`'s builder (module `delay`, theseus-5x8ry).
+pub const DELAY_VERSION: u32 = 1;
+
 /// `content.v1`'s and `content.v2`'s builder (module `content`, theseus-9ymz0).
 pub const CONTENT_VERSION: u32 = 1;
 /// `content.v3`'s: the state gains `author`, `place`, `project`, `public` and
@@ -442,6 +445,9 @@ pub enum Input {
     Families(FamiliesInput),
     /// `content.v2`'s (theseus-9ymz0): one item that entered a session.
     Content(ContentInput),
+    /// `delay.v1`'s (theseus-5x8ry): one delayed piece of work, its elapsed
+    /// and cost, and each progress signal with whether it moved.
+    Delay(delay::DelayInput),
 }
 
 impl Input {
@@ -469,6 +475,7 @@ impl Input {
             Input::RecallCross(_) => Builder::RecallCross,
             Input::Families(_) => Builder::Families,
             Input::Content(_) => Builder::Content,
+            Input::Delay(_) => Builder::Delay,
         }
     }
 
@@ -499,6 +506,7 @@ impl Input {
             Builder::RecallCross => Input::RecallCross(serde_json::from_str(json)?),
             Builder::Families => Input::Families(serde_json::from_str(json)?),
             Builder::Content => Input::Content(serde_json::from_str(json)?),
+            Builder::Delay => Input::Delay(serde_json::from_str(json)?),
         })
     }
 }
@@ -554,6 +562,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::RecallCross(i) => cross::cross(i, cap, scrub),
         Input::Families(i) => families::families(i, cap, scrub),
         Input::Content(i) => content::content(i, pack.version, cap, scrub),
+        Input::Delay(i) => delay::delay(i, cap, scrub),
     })
 }
 
@@ -754,6 +763,7 @@ mod citation;
 mod compare;
 pub mod content;
 mod cross;
+pub mod delay;
 mod families;
 mod heard;
 mod memory;
@@ -1345,6 +1355,7 @@ pub(crate) mod tests {
             "recall_cross.v1",
             "families.v1",
             "content.v1",
+            "delay.v1",
         ] {
             let (p, prepared) = prepared(pack);
             golden(

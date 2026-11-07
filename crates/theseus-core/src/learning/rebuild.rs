@@ -91,6 +91,10 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a people gate's state is an exchange's lines since a mark that has moved and the held \
              people as they stood",
         ),
+        Builder::Delay => Some(
+            "a delay's state is what each progress signal read when the delay began and again when \
+             it was reconsidered, which the record keeps only in the judgment's blob",
+        ),
     }
 }
 

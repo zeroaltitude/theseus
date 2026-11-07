@@ -69,6 +69,7 @@ mod cite_step;
 pub mod clock_step;
 mod close_out_step;
 mod content_step;
+pub mod delay_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
 #[cfg(test)]
 pub(crate) use calls::call_result;
@@ -227,6 +228,9 @@ pub struct TurnRunner {
     pub run_compiles: situation::RunCompiles,
     /// Who retries a failed turn: the driver, or a `--stdio` daemon's client.
     pub failed_turns: stdio_step::FailedTurns,
+    /// Each execution's reconsiderations of a delay (theseus-5x8ry): the rate
+    /// bound, the cap, and the adviser's unavailable run, per kind.
+    pub reconsiders: delay_step::Reconsiders,
     /// Each execution's spend at its last check (theseus-jse4).
     pub(crate) spend_marks: budget_step::SpendMarks,
     /// The models found to refuse per-message effort, for this run (theseus-posww).

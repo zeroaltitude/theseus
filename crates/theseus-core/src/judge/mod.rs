@@ -35,6 +35,7 @@ pub mod compare;
 pub mod compile;
 pub mod content;
 pub mod cross;
+pub mod delay;
 pub mod families;
 pub mod gate;
 pub mod heard;
@@ -130,6 +131,7 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (people::PACK, PackMode::Live),
     (people::seen::SEEN_PACK, PackMode::Live),
     (content::PACK, PackMode::Live),
+    (delay::PACK, PackMode::Live),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).
