@@ -241,31 +241,55 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
 }
 
 /// An effort answer under the confirm bar runs the pack's `no_match`, `high`, for every model,
-/// not the model's own default and not the profile's `effort` (the template's haiku profile
-/// sets `low`, and Haiku's catalog default is medium). The replay grades an under-bar answer as
-/// `high`, and so does the daemon now (theseus-h66v4.6.1; before it, Haiku, Opus and Flash ran
-/// their own defaults while the grade said `high`).
+/// not the model's own default effort and not the profile's `effort`: ONE CASE PER OPTION MODEL,
+/// each asserting the positive posture, because "no model mismatches" is met by an empty set
+/// (theseus-h66v4.6.1; before the fix Haiku, Opus and Flash ran their own defaults -- medium,
+/// medium and low -- while the pack and the replay's grade both said `high`, and a quarter to a
+/// half of every run's effort answers take this path).
+///
+/// The five differ in what the level rides on, which is why one model proves nothing about the
+/// other four: Sonnet 5.5 and Fable 5.1 take per-message effort, so theirs rides as an
+/// effort-only system message; Haiku 5.5, Opus 5.5 and Flash carry a top-level `output_config`.
+/// [`crate::compiler::effort::effective`] reads either. The haiku profile sets `effort = "low"`,
+/// and the other four profiles set none, so in every case `high` can only have come from the
+/// pack.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_effort_under_the_bar_is_the_packs_no_match_high_for_every_model() {
-    let jev = FakeJev::start().unwrap();
-    says_at(&jev, ("haiku", 0.95), ("high", 0.40));
-    let o = open(&jev, 1, |_| {});
-    turn(
-        &o.r.core,
-        None,
-        "Rename these call sites the same way.",
-        None,
-    )
-    .await;
-    let req = &o.r.claude.requests()[0];
-    assert_eq!(req.model, "claude-haiku-5-5");
-    assert_eq!(
-        req.output_config.as_ref().unwrap()["effort"],
-        "high",
-        "the pack's no_match, not Haiku 5.5's own medium and not the haiku profile's `low`"
-    );
-    let d = &decided(&o.r.core.store)[0];
-    assert_eq!(d["effort_reason"], "no_match");
+    let mut ran = 0;
+    for (pick, model, own) in [
+        ("haiku", "claude-haiku-5-5", "low"),
+        ("sonnet", "claude-sonnet-5-5", "none"),
+        ("opus", "claude-opus-5-5", "none"),
+        ("fable", "claude-fable-5-1", "none"),
+        ("deepseek_flash", "deepseek-flash", "none"),
+    ] {
+        let jev = FakeJev::start().unwrap();
+        says_at(&jev, (pick, 0.95), ("high", 0.40));
+        let o = open(&jev, 1, |_| {});
+        turn(
+            &o.r.core,
+            None,
+            "Rename these call sites the same way.",
+            None,
+        )
+        .await;
+        let reqs = match pick {
+            "deepseek_flash" => o.deepseek.requests(),
+            _ => o.r.claude.requests(),
+        };
+        assert_eq!(reqs[0].model, model, "{pick}: the model Jev named");
+        assert_eq!(
+            crate::compiler::effort::effective(&reqs[0]),
+            Some(crate::config::Effort::High),
+            "{pick}: the pack's `no_match`, not {model}'s own default effort \
+             and not the profile's own ({own})"
+        );
+        let d = &decided(&o.r.core.store)[0];
+        assert_eq!(d["effort_reason"], "no_match", "{pick}");
+        assert_eq!(d["effort_ran"], "high", "{pick}");
+        ran += 1;
+    }
+    assert_eq!(ran, 5, "every option model ran a case of its own");
 }
 
 /// A pick under the confirm bar routes nothing: the live profile runs, and the
