@@ -504,7 +504,11 @@ mod tests {
         let ids: Vec<&str> = verdict.options.iter().map(|o| o.id.as_str()).collect();
         assert_eq!(
             ids,
-            ["reversible", "irreversible_reshapeable", "irreversible_final"]
+            [
+                "reversible",
+                "irreversible_reshapeable",
+                "irreversible_final"
+            ]
         );
 
         // It acts nowhere yet: going live is the owner's separate decision, as

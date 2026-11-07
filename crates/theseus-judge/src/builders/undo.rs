@@ -271,10 +271,7 @@ pub fn undo(i: &UndoInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
         b.scalar("url", c.clip(u, 400)).cut_if("url", c.cut());
     }
     if let Some(k) = i.remote_keeps {
-        b.scalar(
-            "remote_keeps",
-            serde_json::to_value(k).unwrap_or_default(),
-        );
+        b.scalar("remote_keeps", serde_json::to_value(k).unwrap_or_default());
     }
     if let Some(t) = &i.terminal_tail {
         // A prompt is the last thing on the screen, so a cut keeps the tail.
