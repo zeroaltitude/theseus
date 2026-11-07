@@ -1246,7 +1246,13 @@ mod tests {
                 parent: None,
             });
         };
-        let posts = || r.fake.threads().into_iter().filter(|t| t.parent == FORUM).count();
+        let posts = || {
+            r.fake
+                .threads()
+                .into_iter()
+                .filter(|t| t.parent == FORUM)
+                .count()
+        };
 
         r.fake.set_mode(Mode::Fail);
         tell(&mut w);
@@ -1262,7 +1268,13 @@ mod tests {
         // Still refused, once that wait is over: the next one doubles, and
         // stays under the ceiling. Driven before it is over, the worker calls
         // nothing at all, which is what the wait is for.
-        let refused = || r.fake.seen().iter().filter(|s| s.outcome == "failed").count();
+        let refused = || {
+            r.fake
+                .seen()
+                .iter()
+                .filter(|s| s.outcome == "failed")
+                .count()
+        };
         let so_far = refused();
         w.drive().await.expect("the wait is not over");
         assert_eq!(
