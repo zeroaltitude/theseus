@@ -566,6 +566,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::RecallCross(i) => cross::cross(i, cap, scrub),
         Input::Families(i) => families::families(i, cap, scrub),
         Input::Content(i) => content::content(i, pack.version, cap, scrub),
+        Input::Undo(i) => undo::undo(i, cap, scrub),
     })
 }
 

@@ -24,7 +24,7 @@ use crate::builders::{
     EFFORT_SLICE_VERSION, FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION, LOOP_VERSION,
     MEMORY_VERSION, NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION, PROBE_VERSION,
     RECALL_CROSS_VERSION, RERANK_VERSION, ROUTE_SLICE_VERSION, SAME_KIND_VERSION,
-    SAME_THING_VERSION, SECURITY2_VERSION, SECURITY_VERSION, TWO_THINGS_VERSION,
+    SAME_THING_VERSION, SECURITY2_VERSION, SECURITY_VERSION, TWO_THINGS_VERSION, UNDO_VERSION,
     WORK_SLICE_VERSION,
 };
 use crate::client::{Answer, Urgency};
@@ -106,6 +106,7 @@ pub fn builder_identity(pack: &Pack) -> (&'static str, u32) {
             "content",
             crate::builders::content_builder_version(pack.version),
         ),
+        Builder::Undo => ("undo", UNDO_VERSION),
     }
 }
 

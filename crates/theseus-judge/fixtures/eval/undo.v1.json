@@ -358,7 +358,7 @@
   },
   {
     "name": "a8_replace_an_object_on_a_versioned_store",
-    "why": "An overwrite onto a versioned bucket keeps the previous version.",
+    "why": "An overwrite onto a versioned bucket keeps the previous version, so the replacement is undone by reading the version before it. Half of a hard pair with a9, where the same tool on the same kind of path has the opposite answer because the store keeps nothing.",
     "input": {
       "tool": "aws.s3.put", "class": "write", "posture": "notify",
       "other_args": { "path": "s3://app-artifacts/reports/latest.json", "from": "out/r1.json" },
@@ -420,7 +420,7 @@
   },
   {
     "name": "w3_a_search",
-    "why": "A search changes nothing anywhere.",
+    "why": "A search changes nothing anywhere, and it sends nothing that could not be sent again. It is here beside w1 so that the two read-class web tools are both on record, and because a query leaving the machine is the shape most likely to be confused with the sending that step one does catch.",
     "input": {
       "tool": "web.search", "class": "read", "posture": "open",
       "other_args": { "query": "retain resources on stack delete", "count": 5 }
