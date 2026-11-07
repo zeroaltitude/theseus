@@ -318,9 +318,21 @@ fn seccomp_profile() -> Result<(), String> {
         "setns",
         "clone_newuser",
         "clone_newnet",
+        // The host's kernel log (theseus-8f50c): `syslog(SYSLOG_ACTION_READ_ALL)`
+        // needs no capability where `kernel.dmesg_restrict` is 0, and a user
+        // namespace does not virtualize the ring buffer, so the filter is the
+        // only thing that keeps the host's dmesg out of a job.
+        "syslog",
     ] {
         is(&v, k, "EPERM")?;
     }
+    // The ring buffer's other door: `/proc/kmsg` in the job's own proc. It is
+    // the kernel's, mode 0400, and the command runs as the operator, so that
+    // open is refused by the mode rather than by the filter.
+    check(
+        v["kmsg"] != "ok",
+        format!("/proc/kmsg was opened inside the job: {}", v["kmsg"]),
+    )?;
     is(&v, "clone3", "ENOSYS")?;
     is(&v, "fork", "ok")?;
     is(&v, "thread", "ok")?;
@@ -1197,7 +1209,24 @@ mod probe {
                 libc::waitpid(r as i32, std::ptr::null_mut(), 0);
             }
             put("clone3", raw(r));
+            // The kernel's ring buffer, read whole (SYSLOG_ACTION_READ_ALL).
+            // Only the count is reported: the host's log is never printed.
+            const SYSLOG_ACTION_READ_ALL: libc::c_long = 3;
+            let mut buf = [0u8; 4096];
+            let r = libc::syscall(
+                libc::SYS_syslog,
+                SYSLOG_ACTION_READ_ALL,
+                buf.as_mut_ptr(),
+                buf.len(),
+            );
+            put("syslog", raw(r));
+            put("syslog_bytes", json!(r.max(-1)));
         }
+        // The ring buffer's other door, a file rather than a call.
+        put(
+            "kmsg",
+            outcome(fs::OpenOptions::new().read(true).open("/proc/kmsg")),
+        );
         put("clone_newuser", clone_with(libc::CLONE_NEWUSER));
         put("clone_newnet", clone_with(libc::CLONE_NEWNET));
         put("fork", in_child(|| {}));
