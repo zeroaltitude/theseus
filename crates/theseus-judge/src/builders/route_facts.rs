@@ -37,9 +37,11 @@ pub const TASK_MODELS: usize = 8;
 const MODEL_CHARS: usize = 48;
 
 /// `cheaper_model`'s longest value: the option ids of every model cheaper than
-/// staying (up to four, the fifth option being the warm one), joined by `, `,
-/// each with its ` (off-peak)` mark where it has one (theseus-g0phw).
-const CHEAPER_CHARS: usize = 72;
+/// staying, joined by `, `, each with its ` (off-peak)` mark where it has one
+/// (theseus-g0phw). 40 holds three names with Flash's mark, `haiku, sonnet,
+/// deepseek_flash (off-peak)`; the catalog prices two models under any warm one
+/// today, and a longer list is clipped, with the state's cut flag set.
+const CHEAPER_CHARS: usize = 40;
 
 /// Whether the model's provider charges its peak or its off-peak price now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

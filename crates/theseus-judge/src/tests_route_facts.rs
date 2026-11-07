@@ -140,7 +140,7 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
     }
     let v = b.state.value();
     // theseus-h66v4.8: the name is clipped like the model ids beside it.
-    assert!(v["cheaper_model"].as_str().unwrap().chars().count() <= 80);
+    assert!(v["cheaper_model"].as_str().unwrap().chars().count() <= 40);
     let models = v["task_models"].as_array().unwrap();
     assert_eq!(models.len(), TASK_MODELS);
     assert!(models
