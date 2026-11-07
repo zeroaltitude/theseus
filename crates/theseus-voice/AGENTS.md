@@ -24,6 +24,12 @@ its default (`[utterance 0.6 s]`) is words. The engine speaks `speakable()`'s se
 stripped, a link read as its label, a table or a code block one sentence pointing at the text channel), and an echo's
 candidates and a cut's quotes are those same strings (theseus-rkvl).
 
+A tool turn's line comes ahead of its reply (theseus-xi1x): `Command::Say { turn, text }` is spoken a sentence at a time as `Spoken::Preamble(turn)`,
+at once, while the turn runs on: it does not end the turn, it is the turn's acknowledgment (`Ack::Done`, so no chime follows it), and for a
+turn no longer in flight (its reply went) it is dropped. It queues in front of the reply like any sentence, so the reply begins after it, on the
+floor as ever; a barge-in cuts it with a `Cut`, and its speaker's words over it supersede it like a reply's. The session decides which loop's text
+is a line (`runtime/voice/preamble.rs`); the engine says whatever it is sent.
+
 A sound at the join is no turn (theseus-yf9ct): before the first turn, an utterance begun within `JOIN_GUARD` (3 s, an echo canceller's
 warm-up) of the join, or while a greeting is queued or playing, is heard as `Join` (no turn, said once in the journal) when it
 is under 1.5 s or its transcript is under 3 words; a long, clear one is a turn. Its stop waits for its

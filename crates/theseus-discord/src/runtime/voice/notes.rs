@@ -55,6 +55,10 @@ impl Notes {
                 Some(first) => format!("your reply to \"{first}\""),
                 None => "your reply".into(),
             },
+            Spoken::Preamble(turn) => match self.firsts.get(&turn) {
+                Some(first) => format!("what you said before your reply to \"{first}\""),
+                None => "what you said before your reply".into(),
+            },
             Spoken::Report | Spoken::Acknowledgment => "your report".into(),
         }
     }
@@ -79,7 +83,7 @@ impl Notes {
         let named = self.named(*what);
         // A report cut short comes back at the next pause; a reply doesn't.
         let rest = match what {
-            Spoken::Reply(_) => "the rest was not said",
+            Spoken::Reply(_) | Spoken::Preamble(_) => "the rest was not said",
             _ => "the rest comes back at the next pause",
         };
         let started = !into.is_zero();

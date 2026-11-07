@@ -19,7 +19,7 @@ const WAIT: Duration = Duration::from_secs(10);
 impl Lounge {
     /// The next `SubmitDone` in the place's mailbox, handled as the place
     /// handles it.
-    async fn submit_done(&mut self) {
+    pub(super) async fn submit_done(&mut self) {
         let rx = &mut self.rx;
         let done = tokio::time::timeout(WAIT, async {
             loop {
@@ -34,7 +34,7 @@ impl Lounge {
     }
 
     /// Every command the engine has got so far.
-    fn said(&mut self) -> Vec<Command> {
+    pub(super) fn said(&mut self) -> Vec<Command> {
         std::iter::from_fn(|| self.commands.try_recv().ok()).collect()
     }
 }
