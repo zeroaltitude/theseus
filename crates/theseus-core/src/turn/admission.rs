@@ -795,6 +795,42 @@ impl TurnRunner {
         }
     }
 
+    /// Whether a turn whose execution's own previous turn has not ended
+    /// within the stuck window should keep waiting for it (theseus-5x8ry).
+    /// The second of the two waits that window governs; `slot_or_reconsider`
+    /// holds the first. `false`: stop waiting, and the caller fails the turn
+    /// exactly as it did before this row.
+    ///
+    /// The delay reads no progress signal, because there is none to read
+    /// here: the only evidence is that the previous turn has not ended. An
+    /// absent signal is honest, and it means the adviser is asked rather
+    /// than a silence being mistaken for a stall.
+    async fn wait_out_its_own_turn(
+        &self,
+        exec_id: &str,
+        arrived: StdInstant,
+        window: Duration,
+    ) -> bool {
+        let r = self
+            .reconsider(delay_step::Delay {
+                kind: delay_step::DelayKind::Admission,
+                what: "a turn waiting for its own execution's previous turn to end".into(),
+                execution: exec_id.to_string(),
+                session: exec_id.to_string(),
+                elapsed: arrived.elapsed(),
+                signals: Vec::new(),
+                last_step: Some(format!(
+                    "its execution's previous turn has not ended in {} s",
+                    window.as_secs()
+                )),
+                reason: None,
+                deterministic: None,
+            })
+            .await;
+        self.tools.admission.tell(&r.notice);
+        !(r.course.stops() || r.fall_back)
+    }
+
     /// A slot and the kernel's turn of `exec_id`, waiting in `class`'s queue.
     /// With `wait` (an input's turn), it waits for another turn held on the
     /// same execution to end, and wakes the execution in the same frame when
@@ -858,7 +894,18 @@ impl TurnRunner {
                     // A typed wait is never failed (`take`'s rule): the next
                     // typed message waits for its own previous turn, in a task
                     // as in a conversation when it is the owner's.
-                    if tokio::time::timeout(window, ended).await.is_err() && !typed {
+                    //
+                    // Any other turn is now reconsidered rather than failed
+                    // (theseus-5x8ry). This is the **second** of the two
+                    // waits the stuck window governs: `slot_or_reconsider`
+                    // holds the wait for a free slot, and this one the wait
+                    // for this execution's own previous turn to end. Both
+                    // had to move, or the window would still end healthy
+                    // work on a clock by the other door.
+                    if tokio::time::timeout(window, ended).await.is_err()
+                        && !typed
+                        && !self.wait_out_its_own_turn(exec_id, arrived, window).await
+                    {
                         return Err(turn_error(
                             "admission_stuck",
                             "",

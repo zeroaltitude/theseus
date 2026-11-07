@@ -185,9 +185,16 @@ impl Course {
 /// rule under uncertainty is long work over stopped work.
 pub const NO_MATCH: Course = Course::KeepGoing;
 
-/// Reconsiderations of one execution, past which the last course repeats
-/// unasked. Six decisions at the default five-minute spacing covers a
-/// half-hour delay; past that the system has said what it thinks.
+/// Reconsiderations of **one delay kind on one execution**, past which that
+/// kind's own last course repeats unasked. Six decisions at the default
+/// five-minute spacing covers a half-hour delay; past that the system has
+/// said what it thinks about that kind.
+///
+/// Per kind rather than per execution, so that one kind's cap can never lock
+/// out another kind or hand it a course judged about a different delay. The
+/// per-execution worst case is therefore this many times the number of kinds;
+/// the real ceiling on cost is the judge's own day budget, which every
+/// reconsideration is made inside.
 pub const MAX_RECONSIDERS: u32 = 6;
 
 /// The share of the burn line at which a delay is stopped for money without
@@ -287,28 +294,43 @@ pub fn reason(v: &DelayVerdict) -> String {
     format!("{worth} {moving}")
 }
 
-/// One execution's reconsiderations: how many have been made, when each kind
-/// was last asked, and how many times in a row the adviser could not answer.
+/// One delay kind's reconsiderations on one execution: how many have been
+/// made, when it was last asked, how many times in a row the adviser could
+/// not answer, and the course that repeats past the cap.
+///
+/// **Every field here is per kind, and that is load-bearing.** Keyed per
+/// execution instead, one kind's cap would lock out every other kind on that
+/// execution and hand each of them the *first* kind's cached course to replay
+/// unasked - and that cache can hold a `Stop`, so a job delay could be stopped
+/// by a judgment made about an admission delay. With one site wired that is
+/// unreachable; it goes live the moment a second site is wired, which is
+/// exactly what the rows built on this spine do.
 #[derive(Debug, Default)]
 struct Seen {
+    /// Reconsiderations made of this kind, capped at [`MAX_RECONSIDERS`].
     made: u32,
-    last: HashMap<DelayKind, Instant>,
-    /// Consecutive unavailable answers, per kind. Reset by any answer.
-    unavailable: HashMap<DelayKind, u32>,
-    /// The last course taken, which repeats unasked past [`MAX_RECONSIDERS`].
+    /// When this kind was last asked.
+    last: Option<Instant>,
+    /// Consecutive unavailable answers. Reset by any answer.
+    unavailable: u32,
+    /// The last course taken **for this kind**, which repeats unasked past
+    /// [`MAX_RECONSIDERS`].
     last_course: Option<Course>,
 }
 
-/// Every execution's reconsiderations. Small, and swept by the executions
-/// that leave it.
+/// Every execution's reconsiderations, per delay kind. Small, and swept by
+/// the executions that leave it.
 #[derive(Debug, Default)]
-pub struct Reconsiders(Mutex<HashMap<String, Seen>>);
+pub struct Reconsiders(Mutex<HashMap<String, HashMap<DelayKind, Seen>>>);
 
 impl Reconsiders {
     /// Whether `kind` on `execution` may be asked now, and the course to
     /// repeat unasked when it may not. `every` is
     /// `[kernel] reconsider_every_secs`; `None` means reconsideration is off
     /// and every delay keeps the clock it had before this module.
+    ///
+    /// Every bound read here is this kind's own: a kind is never held back,
+    /// nor handed a course, by another kind's history.
     pub fn may_ask(
         &self,
         execution: &str,
@@ -318,7 +340,11 @@ impl Reconsiders {
     ) -> Result<(), Option<Course>> {
         let Some(every) = every else { return Err(None) };
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let s = m.entry(execution.to_string()).or_default();
+        let s = m
+            .entry(execution.to_string())
+            .or_default()
+            .entry(kind)
+            .or_default();
         // The adviser was unavailable last time for this kind, so we are in
         // the degraded path and must re-probe at the delay's own window
         // rather than at the reconsideration rate. Without this the second
@@ -326,16 +352,17 @@ impl Reconsiders {
         // would be unbounded - which is the one property the no-adviser rule
         // exists to guarantee. An unavailable adviser costs nothing to ask,
         // so the rate bound buys nothing here either.
-        if s.unavailable.get(&kind).is_some_and(|n| *n > 0) {
+        if s.unavailable > 0 {
             return Ok(());
         }
         if s.made >= MAX_RECONSIDERS {
-            // Past the cap the system has said what it thinks: the last
-            // course repeats, and nothing is asked or spent.
+            // Past the cap the system has said what it thinks about this
+            // kind: that kind's own last course repeats, and nothing is
+            // asked or spent.
             return Err(s.last_course.or(Some(Course::KeepGoing)));
         }
-        if let Some(at) = s.last.get(&kind) {
-            if now.saturating_duration_since(*at) < every {
+        if let Some(at) = s.last {
+            if now.saturating_duration_since(at) < every {
                 return Err(s.last_course.or(Some(Course::KeepGoing)));
             }
         }
@@ -353,19 +380,22 @@ impl Reconsiders {
         answered: Option<Course>,
     ) -> u32 {
         let mut m = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let s = m.entry(execution.to_string()).or_default();
+        let s = m
+            .entry(execution.to_string())
+            .or_default()
+            .entry(kind)
+            .or_default();
         s.made += 1;
-        s.last.insert(kind, now);
+        s.last = Some(now);
         match answered {
             Some(c) => {
                 s.last_course = Some(c);
-                s.unavailable.remove(&kind);
+                s.unavailable = 0;
                 0
             }
             None => {
-                let n = s.unavailable.entry(kind).or_default();
-                *n += 1;
-                *n
+                s.unavailable += 1;
+                s.unavailable
             }
         }
     }
@@ -418,17 +448,12 @@ impl TurnRunner {
     pub(crate) async fn reconsider(&self, d: Delay) -> Reconsidered {
         let now = Instant::now();
         let every = self.cfg.kernel.reconsider_every();
-        // Off, rate-limited, or past the cap: the last course repeats and
-        // nothing is asked or spent. `every = None` is the off switch, and it
-        // restores the behaviour before this module exactly.
-        if let Err(repeat) = self.reconsiders.may_ask(&d.execution, d.kind, every, now) {
-            let course = repeat.unwrap_or(Course::KeepGoing);
-            return Reconsidered {
-                notice: String::new(),
-                fall_back: repeat.is_none(),
-                course,
-            };
-        }
+        // **The free pre-check runs before the rate bound, not after it.**
+        // It costs no model call and no money, so rate-limiting it would buy
+        // nothing - and it would mean that a rate-limited or capped delay
+        // skipped the money test and replayed a cached course instead. The
+        // keel must not be reachable only on the turns we happen to be
+        // willing to ask about.
         let burn = {
             let c = self.kernel.day_ceiling();
             c.burn_spent(theseus_protocol::now_unix_ms(), &d.execution)
@@ -445,6 +470,28 @@ impl TurnRunner {
                 notice: words(&d, course, why),
                 course,
                 fall_back: false,
+            };
+        }
+        // Off, rate-limited, or past the cap for THIS KIND: that kind's own
+        // last course repeats and nothing is asked or spent. `every = None`
+        // is the off switch, and it restores the behaviour before this
+        // module exactly.
+        if let Err(repeat) = self.reconsiders.may_ask(&d.execution, d.kind, every, now) {
+            let course = repeat.unwrap_or(Course::KeepGoing);
+            return Reconsidered {
+                // A repeated course that stops is never silent: a stop the
+                // owner cannot see is the defect this row exists to remove.
+                notice: if course.stops() {
+                    words(
+                        &d,
+                        course,
+                        "this is the course already judged for this delay",
+                    )
+                } else {
+                    String::new()
+                },
+                fall_back: repeat.is_none(),
+                course,
             };
         }
         let cents = (burn.0 / 10_000).min(u64::from(u32::MAX));
@@ -638,6 +685,51 @@ mod tests {
         assert!(r.may_ask("e1", DelayKind::Job, every, now).is_ok());
         let later = now + Duration::from_secs(301);
         assert!(r.may_ask("e1", DelayKind::Admission, every, later).is_ok());
+    }
+
+    /// **The landmine test.** Every bound is per delay kind, so one kind
+    /// reaching its cap can neither lock out another kind nor hand it a
+    /// course judged about a different delay. Keyed per execution this would
+    /// hand a job delay a `Stop` decided about an admission delay - harmless
+    /// while one site is wired, live the moment a second one is.
+    #[test]
+    fn one_kinds_cap_neither_blocks_another_kind_nor_lends_it_a_course() {
+        let r = Reconsiders::default();
+        let every = Some(Duration::from_secs(1));
+        let mut now = Instant::now();
+        // Run Admission to its cap, and make its last course a Stop.
+        for _ in 0..MAX_RECONSIDERS {
+            assert!(r.may_ask("e1", DelayKind::Admission, every, now).is_ok());
+            r.asked(
+                "e1",
+                DelayKind::Admission,
+                now,
+                Some(Course::Stop(StopWhy::Adviser)),
+            );
+            now += Duration::from_secs(2);
+        }
+        assert_eq!(
+            r.may_ask("e1", DelayKind::Admission, every, now),
+            Err(Some(Course::Stop(StopWhy::Adviser))),
+            "the capped kind replays its own course"
+        );
+        // Every other kind is untouched: still askable, and never handed
+        // the admission kind's cached Stop.
+        for kind in [
+            DelayKind::Provider,
+            DelayKind::Job,
+            DelayKind::Question,
+            DelayKind::SelfBuild,
+            DelayKind::Trial,
+        ] {
+            assert!(
+                r.may_ask("e1", kind, every, now).is_ok(),
+                "{kind:?} was locked out by the admission kind's cap"
+            );
+        }
+        // And an unavailable run is per kind too.
+        assert_eq!(r.asked("e1", DelayKind::Job, now, None), 1);
+        assert_eq!(r.asked("e1", DelayKind::Provider, now, None), 1);
     }
 
     /// Past the cap the last course repeats unasked, so reconsideration
