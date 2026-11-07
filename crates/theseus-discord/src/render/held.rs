@@ -182,7 +182,10 @@ mod tests {
         r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": turn, "tool_use_id": use_id,
             "tool": "proc.run", "input": {"argv": ["sleep", "75"]}, "summary": "run `sleep 75` in /w",
             "kind": "notify", "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}));
-        r.on_notification("tool.started", &json!({"turn_id": turn, "tool_use_id": use_id}));
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": turn, "tool_use_id": use_id}),
+        );
         r.on_notification("tool.ended", &json!({"turn_id": turn, "tool_use_id": use_id, "status": "background", "duration_ms": 2000}));
         r.on_notification("turn.ended", &json!({"session_id": "s", "turn_id": turn}));
         r.tick();
@@ -199,8 +202,11 @@ mod tests {
     /// comes first, and whose events name the job's call.
     fn late_end(r: &mut Renderer, wake: &str, use_id: &str) -> Vec<Op> {
         r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": wake}));
-        let mut ops = r.on_notification("tool.ended", &json!({"turn_id": wake, "tool_use_id": use_id,
-            "status": "ok", "duration_ms": 75001}));
+        let mut ops = r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": wake, "tool_use_id": use_id,
+            "status": "ok", "duration_ms": 75001}),
+        );
         ops.extend(r.tick());
         ops
     }
@@ -225,17 +231,26 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            assert_eq!(lines.len(), 1, "{embeds}: one edit of the job's line: {ops:?}");
+            assert_eq!(
+                lines.len(),
+                1,
+                "{embeds}: one edit of the job's line: {ops:?}"
+            );
             assert!(
                 lines[0].contains("✅ `proc.run`") && lines[0].contains("75001 ms"),
                 "{embeds}: {}",
                 lines[0]
             );
             assert!(!lines[0].contains("running in the background"), "{embeds}");
-            let cards: Vec<&Op> = ops.iter().filter(|o| matches!(o, Op::Notice { .. })).collect();
+            let cards: Vec<&Op> = ops
+                .iter()
+                .filter(|o| matches!(o, Op::Notice { .. }))
+                .collect();
             if embeds {
                 assert_eq!(cards.len(), 1, "{ops:?}");
-                let Op::Notice { key, card } = cards[0] else { unreachable!() };
+                let Op::Notice { key, card } = cards[0] else {
+                    unreachable!()
+                };
                 assert_eq!(key, "turn_job:notice:use_job");
                 let outcome = card.fields.iter().find(|(n, _)| n == "Outcome");
                 assert_eq!(outcome.map(|f| f.1.as_str()), Some("✅ ok · 75001 ms"));
@@ -259,7 +274,10 @@ mod tests {
         assert!(r.knows("turn_job"), "held for its job");
         assert_eq!(r.held().len(), RECENT_TURNS + 1);
         late_end(&mut r, "turn_wake", "use_job");
-        r.on_notification("turn.ended", &json!({"session_id": "s", "turn_id": "turn_wake"}));
+        r.on_notification(
+            "turn.ended",
+            &json!({"session_id": "s", "turn_id": "turn_wake"}),
+        );
         plain(&mut r, "turn_next");
         assert!(!r.knows("turn_job"), "{:?}", r.held());
         assert_eq!(r.held().len(), RECENT_TURNS);
