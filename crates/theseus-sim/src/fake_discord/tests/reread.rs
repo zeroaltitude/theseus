@@ -23,30 +23,35 @@ fn a_forum_posts_first_message_keeps_its_id_beside_other_writes() {
     let addr = fake.addr.clone();
     let call = |m: &str, p: &str, b: &Value| http(&addr, m, &format!("/api/v10{p}"), b);
 
-    // Other traffic, all the while: messages into another channel.
-    let noise = {
-        let addr = fake.addr.clone();
-        std::thread::spawn(move || {
-            for i in 0..200 {
-                http(
-                    &addr,
-                    "POST",
-                    &format!("/api/v10/channels/{COMMONS}/messages"),
-                    &json!({"content": format!("noise {i}")}),
-                );
-            }
+    // Other traffic, all the while: messages into another channel. The hole
+    // this guards is two lock holds wide, so the traffic is heavy and the
+    // posts are many; one hit is enough and 150 posts beside six writers
+    // find one all but always.
+    let noise: Vec<_> = (0..6)
+        .map(|w| {
+            let addr = fake.addr.clone();
+            std::thread::spawn(move || {
+                for i in 0..300 {
+                    http(
+                        &addr,
+                        "POST",
+                        &format!("/api/v10/channels/{COMMONS}/messages"),
+                        &json!({"content": format!("noise {w}.{i}")}),
+                    );
+                }
+            })
         })
-    };
+        .collect();
 
     let mut posts = Vec::new();
-    for i in 0..40 {
+    for i in 0..150 {
         let body = json!({"name": format!("post {i}"), "auto_archive_duration": 1440,
                           "message": {"content": format!("card {i}")}});
         let (status, made) = call("POST", &format!("/channels/{LAB}/threads"), &body);
         assert_eq!(status, 200, "{made}");
         posts.push(made["id"].as_str().unwrap().to_string());
     }
-    noise.join().unwrap();
+    noise.into_iter().for_each(|w| w.join().unwrap());
 
     // Each post's first message is addressable at the post's own id, which
     // is what an edit of its card uses.
