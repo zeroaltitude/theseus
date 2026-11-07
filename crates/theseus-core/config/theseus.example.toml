@@ -1125,7 +1125,9 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # each cluster, from US options only (until the route pack that asks him is
 #                                         # acting, unset runs as "session"). "haikuhi" (Haiku 5.5 at high effort)
 #                                         # gets about 18x the clusters of Sonnet 5.5 for the day's limit, each still
-#                                         # checked by citation.v1
+#                                         # checked by citation.v1. The dream's guidance ([ontology] dream_guidance)
+#                                         # is the one site that never asks Jev: unset, it writes with Sonnet 5.5 at
+#                                         # high effort (the owner's ruling, theseus-xdi65); a set key pins it
 # synth_limit_usd_per_day = 0.50          # what consolidation may spend in a local day, read from its rows
 # consolidate_hour = 4                    # the local hour of the nightly run (0 to 23); never within 10 minutes of a start
 # Tiering (step 33): decoded nodes stay in a cache shared across turns, so a

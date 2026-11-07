@@ -1772,8 +1772,16 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     a provider with no key all run on `live`. **A task's checkpoints and brief take Jev's pick the same way** (row 6,
     theseus-kn9or, deleted the class rule they had beside it: `max_switches`, the base and step down, `CODING_BASE`): a
     checkpoint has no base, no cap on moves and no step down (the cache hold is its one hysteresis), and a brief has no
-    fixed first profile. **The one site that is not Jev's** is the dream's guidance (`consolidate/guidance.rs`): an
-    unset `[memory] synth_profile` reads as `session` there and never asks Jev (theseus-xdi65). Tests: `tests_job_ask.rs` (the rule),
+    fixed first profile. **The one site that is not Jev's** is the dream's guidance (`consolidate/guidance.rs`), a
+    **named exception, not a gap** (theseus-xdi65; the owner, 2026-11-06: "given that dreaming is coding, this is
+    probably sonnet high"): a set `[memory] synth_profile` pins it as everywhere, and an unset one **never asks Jev** but
+    runs `guidance::DREAM_MODEL` (Sonnet 5.5) at `DREAM_EFFORT` (high, `output_config.effort`, thinking still off for the
+    250-token cap). The why is on those constants: no turn to read, the text lands in every later compile of every
+    session holding the category, three calls a night under `synth_limit_usd_per_day`. The data rule stays: the call
+    goes through the provider chokepoint, and `tests_guidance::the_dreams_model_is_cleared_for_private_material` fails if
+    the constant ever names a model not cleared for private material. Tests: `tests_guidance.rs`
+    (`an_unset_synth_profile_dreams_on_sonnet_at_high_effort`, `a_set_synth_profile_still_pins_the_dream`),
+    `tests_job_ask.rs` (the rule),
     `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
     **A background call settles at the rate in force when it started** (theseus-058cl): `TurnRunner::priced(resp,
     asked, need, at_ms)` takes the call's start, as the turn's own calls do (`cost_micros_at`), so a DeepSeek call in its
