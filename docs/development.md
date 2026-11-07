@@ -180,7 +180,7 @@ The phases run in this order, and the first failure stops the gate:
 | `test build` | no | Builds everything the suite and the benches run, once |
 | reader rule | **yes** | Nothing is declared without its reader |
 | suite | **yes** | `cargo nextest run --workspace` |
-| protocol types | **yes** | `cockpit/src/protocol.gen/` matches the Rust types |
+| protocol types | **yes** | the generator test rewrites `cockpit/src/protocol.gen/`, and it must match the commit |
 | lifecycle bench | **yes** | The start, shutdown, crash-restart and binary-swap budgets (skipped on a branch) |
 | jobs bench | **yes** | An L1 job's start p95 (skipped on a branch) |
 | turn bench | **yes** | A plain turn's frames, counted |

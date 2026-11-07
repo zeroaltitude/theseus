@@ -242,10 +242,24 @@ registry() {
 
 # The cockpit's protocol types, which a theseus-protocol test writes from the
 # Rust ones (theseus-0g4): a type changed without its TypeScript fails here.
+# The check writes them itself first, by running that one test, so it judges
+# the Rust as it stands and not the files as the last run left them: before
+# theseus-5epuo it only diffed, ran ahead of the suite that writes them, and a
+# stale file passed this gate and dirtied the next one. The test is built
+# (test_build); it takes a second. A run of no tests fails: nextest exits 0
+# for a filter that matches nothing, so the count is read from its summary.
 protocol_types() {
+  local log="$gate_tmp/protocol-types.log"
+  cargo nextest run --workspace --no-fail-fast \
+    -E 'package(theseus-protocol) & test(=ts::the_cockpits_types_are_generated_from_the_rust_ones)' 2>&1 | tee "$log"
+  if ! grep -qE 'Summary .* 1 test run: 1 passed' "$log"; then
+    echo "gate: the generator test did not run once and pass (theseus-5epuo): the files below were not regenerated from the Rust types"
+    exit 1
+  fi
   if ! git diff --quiet -- cockpit/src/protocol.gen ||
     [ -n "$(git ls-files --others --exclude-standard -- cockpit/src/protocol.gen)" ]; then
     echo "cockpit/src/protocol.gen changed: the protocol's Rust types changed without their TypeScript; git add it"
+    git status --short -- cockpit/src/protocol.gen
     exit 1
   fi
 }
@@ -737,7 +751,7 @@ test_build() {
 # tree), or they built something other than the tests run. Say so: it also explains a long hold.
 compiled_under_lock() {
   local n
-  n="$(cat "$gate_tmp/registry.log" "$gate_tmp/suite.log" 2>/dev/null | grep -c '^ *Compiling ' || true)"
+  n="$(cat "$gate_tmp/registry.log" "$gate_tmp/protocol-types.log" "$gate_tmp/suite.log" 2>/dev/null | grep -c '^ *Compiling ' || true)"
   if [ "$n" -gt 0 ]; then
     echo "gate: NOTE: $n crate(s) were compiled under the lock: the tree changed after the compile phases (rerun the gate before you commit), or they built something other than the tests run"
   fi
