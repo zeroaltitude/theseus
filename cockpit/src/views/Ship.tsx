@@ -10,6 +10,7 @@ import { ShipEngine, type Hit } from '@/ship/engine'
 import { LabelLayer, usdShort } from '@/ship/labels'
 import { Minimap, type MinimapHandle } from '@/ship/Minimap'
 import { EngineTelegraph, Nixie, SeaGauge } from '@/ship/instruments'
+import { engineReading } from '@/ship/telegraph'
 import { seaHeight, seaTarget, seaWord } from '@/ship/sea'
 import { useShipSound } from '@/ship/useShipSound'
 import '@/ship/ship.css'
@@ -420,8 +421,7 @@ function ShipView({ data, onFail }: { data: ShipData; onFail: OnFail }) {
           The compass's live profile and the chronometer's uptime are the top bar's profile chip and UP, which read the
           time machine's moment too, marked "then". */}
       <div data-ship-ui className="ship-console pointer-events-auto absolute bottom-3 left-1/2 flex -translate-x-1/2 items-end gap-3.5 px-5 pb-2 pt-2.5">
-        <EngineTelegraph accepting={g ? g.accepting : h?.kernel.accepting} running={g ? g.running : h?.kernel.executions_by_state.running ?? model?.stats.running ?? 0}
-          ceiling={h?.kernel.admission_ceiling ?? 8} held={g ? 0 : h?.kernel.turns_held ?? 0} />
+        <EngineTelegraph reading={engineReading(h, g)} />
         <Nixie value={data.tpm} label="Tokens / min" title="Tokens a minute: input, cache, and output of every model call in the last sixty seconds (provider.call rows)." />
         <SeaGauge height={sea} word={seaWord(sea)}
           title={`The sea is the work now: ${seaWord(sea)}. A slow roll when nothing runs; the swell on the chart rises with tokens a minute (${(data.tpm ?? 0).toLocaleString('en-US')}) and the turns running (${turnsRunning}), and settles as they end. Calm mode stills it.`} />
