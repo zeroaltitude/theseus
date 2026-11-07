@@ -810,7 +810,12 @@ pub trait Provider: Send + Sync {
     /// Open the connection a call will use, if it is cold (theseus-tnky): a
     /// person began to type. Never a model call, and nothing billed. A
     /// provider with no connection to open answers `already` at once.
-    fn warm(&self) -> WarmFuture<'_> {
+    ///
+    /// `model` is the model the connection is being opened for. No provider
+    /// sends it or reads it to open a connection: the floor reads it
+    /// (`data_gate.rs`), so a warm-up is refused exactly where a request to
+    /// that model would be (theseus-fpwqg).
+    fn warm<'a>(&'a self, _model: &'a str) -> WarmFuture<'a> {
         Box::pin(async {
             Ok(Warmed {
                 took: Duration::ZERO,
@@ -1123,7 +1128,7 @@ impl Provider for Anthropic {
     ) -> ProviderFuture<'a> {
         Box::pin(self.stream_message_impl(req, on_delta))
     }
-    fn warm(&self) -> WarmFuture<'_> {
+    fn warm<'a>(&'a self, _model: &'a str) -> WarmFuture<'a> {
         Box::pin(self.warm_impl())
     }
     fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
@@ -1521,7 +1526,7 @@ impl Provider for FakeProvider {
             Ok(n)
         })
     }
-    fn warm(&self) -> WarmFuture<'_> {
+    fn warm<'a>(&'a self, _model: &'a str) -> WarmFuture<'a> {
         self.warms
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Box::pin(async {

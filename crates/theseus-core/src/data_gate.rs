@@ -1,7 +1,11 @@
 //! The provider chokepoint (theseus-oejh3, theseus-xs5ah, theseus-a1wvq.3,
 //! theseus-9ymz0): every provider is wrapped once, when the core is built
 //! ([`guard`]), so one place covers every caller (the turn, compaction,
-//! keep-warm, replay, the background calls). It refuses, before a byte is sent:
+//! keep-warm, replay, the background calls). **Every call of the provider
+//! goes through it**, the connection warm-up a keystroke starts
+//! ([`Provider::warm`]) as much as a request: that one opens no model call
+//! and sends no content, but it reaches the endpoint, and the floor has no
+//! off switch (theseus-fpwqg). It refuses, before a byte is sent:
 //!
 //! - a request to a model of restricted origin (`cn` or `unknown`) that
 //!   `[content_based_security] cn_models` does not allow: `never` refuses it;
@@ -80,8 +84,8 @@ impl Provider for Bound {
     ) -> ProviderFuture<'a> {
         for_session(&self.session, || self.inner.stream_message(req, on_delta))
     }
-    fn warm(&self) -> WarmFuture<'_> {
-        self.inner.warm()
+    fn warm<'a>(&'a self, model: &'a str) -> WarmFuture<'a> {
+        for_session(&self.session, || self.inner.warm(model))
     }
     fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
         for_session(&self.session, || self.inner.count_tokens(req))
@@ -144,17 +148,23 @@ impl Gated {
         })
     }
 
+    /// The refusal's words, when no call may be made to `model`: the row and
+    /// the count are written here, and `did` is what did not happen to it
+    /// (sent, for a request; opened, for the connection a warm-up wants).
+    fn refused(&self, model: &str, did: &str) -> Option<String> {
+        let origin = self.origin(model);
+        let (why, said) = self.cn_refusal(origin)?;
+        self.blocked(model, origin, why);
+        self.counted(why);
+        Some(format!(
+            "{model} is of restricted origin ({}) and {said}; nothing was {did}",
+            word(origin)
+        ))
+    }
+
     /// The refusal, when the request may not go to this model.
     fn refuse(&self, req: &ProviderRequest) -> Option<anyhow::Error> {
-        let origin = self.origin(&req.model);
-        let (why, said) = self.cn_refusal(origin)?;
-        self.blocked(&req.model, origin, why);
-        self.counted(why);
-        let message = format!(
-            "{} is of restricted origin ({}) and {said}; nothing was sent",
-            req.model,
-            word(origin)
-        );
+        let message = self.refused(&req.model, "sent")?;
         Some(ProviderError::DataGate { message }.into())
     }
 
@@ -259,8 +269,11 @@ impl Provider for Gated {
             Some(e) => Box::pin(async move { Err(e) }),
         }
     }
-    fn warm(&self) -> WarmFuture<'_> {
-        self.inner.warm()
+    fn warm<'a>(&'a self, model: &'a str) -> WarmFuture<'a> {
+        match self.refused(model, "opened") {
+            None => self.inner.warm(model),
+            Some(why) => Box::pin(async move { Err(why) }),
+        }
     }
     fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
         match self.refuse(req) {
@@ -524,5 +537,91 @@ mod tests {
         let ok = request("claude-sonnet-5-5", "Draft a budget memo.");
         us.stream_message(&ok, &mut sink).await.unwrap();
         assert_eq!(sent.requests().len(), 1);
+    }
+
+    /// How many connections the fake was asked to open.
+    fn opened(p: &FakeProvider) -> u64 {
+        p.warms.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// A warm-up is floored as a request is (theseus-fpwqg): the warm path
+    /// had gone straight to the provider, so a session the floor keeps off a
+    /// model of restricted origin still reached out to it on a keystroke.
+    /// It is refused on the same three answers the chokepoint gives a
+    /// request — a label on the session, no session at all, and (below) the
+    /// mode — with nothing opened and a `data_gate.blocked` row for it; a
+    /// clean session's warm-up is opened, and an unrestricted model's is
+    /// opened for a labelled session, since the floor reads one only for a
+    /// restricted model.
+    #[tokio::test]
+    async fn a_warm_up_to_a_restricted_model_is_refused_as_a_request_is() {
+        let (cn, fake, sid, _dir) = gated("https://api.z.ai/api/anthropic");
+        for_session(&sid, || cn.warm("glm-5.3")).await.unwrap();
+        assert_eq!(opened(&fake), 1, "a clean session's warm-up is opened");
+        label_it(&cn, &sid);
+        let said = for_session(&sid, || cn.warm("glm-5.3")).await.unwrap_err();
+        assert!(said.contains("`confidential` label"), "{said}");
+        assert!(said.contains("nothing was opened"), "{said}");
+        assert_eq!(opened(&fake), 1, "nothing was opened");
+        let said = cn.warm("glm-5.3").await.unwrap_err();
+        assert!(said.contains("not made for a session"), "{said}");
+        assert_eq!(opened(&fake), 1, "nothing was opened for no session");
+        let rows = crate::tests_judge::kinds(cn.store.as_ref().unwrap(), "data_gate.blocked");
+        assert_eq!(rows.len(), 2, "each refusal is a row");
+
+        let (us, fake, sid, _dir) = gated("https://api.anthropic.com");
+        label_it(&us, &sid);
+        for_session(&sid, || us.warm("claude-sonnet-5-5"))
+            .await
+            .unwrap();
+        assert_eq!(opened(&fake), 1, "an unrestricted model's is opened");
+    }
+
+    /// The warm path reads the same `cn_models` as every other call
+    /// (theseus-fpwqg): `never` refuses a labelled session's warm-up and a
+    /// clean one's alike, and `always` opens both.
+    #[tokio::test]
+    async fn a_warm_ups_mode_is_the_chokepoints_own() {
+        for (mode, refused) in [(CnModels::Never, true), (CnModels::Always, false)] {
+            let (mut g, fake, sid, _dir) = gated("https://api.z.ai/api/anthropic");
+            g.cn_models = mode;
+            let made = for_session(&sid, || g.warm("glm-5.3")).await;
+            assert_eq!(made.is_err(), refused, "{mode:?}: a clean session");
+            label_it(&g, &sid);
+            let made = for_session(&sid, || g.warm("glm-5.3")).await;
+            assert_eq!(made.is_err(), refused, "{mode:?}: a labelled one");
+            assert_eq!(opened(&fake), u64::from(!refused) * 2, "{mode:?}");
+        }
+    }
+
+    /// A bound provider's warm-up is made for the session it was bound to
+    /// (theseus-fpwqg), as its calls are: a labelled session's is refused
+    /// wherever it is called, and an ambient session does not change whose
+    /// warm-up it is.
+    #[tokio::test]
+    async fn a_bound_warm_up_is_made_for_its_own_session() {
+        let (cn, fake, plain, _dir) = gated("https://api.z.ai/api/anthropic");
+        let labelled = SessionRecord::new(SessionKind::Conversation, None);
+        cn.store
+            .as_ref()
+            .unwrap()
+            .put_session(&labelled.session_id, &labelled)
+            .unwrap();
+        let labelled = labelled.session_id;
+        label_it(&cn, &labelled);
+        let cn: Arc<dyn Provider> = Arc::new(cn);
+        let (for_plain, for_labelled) = (bound(cn.clone(), &plain), bound(cn.clone(), &labelled));
+        for_plain.warm("glm-5.3").await.unwrap();
+        assert_eq!(opened(&fake), 1);
+        for_labelled.warm("glm-5.3").await.unwrap_err();
+        assert_eq!(opened(&fake), 1, "a labelled session's is not opened");
+        for_session(&labelled, || for_plain.warm("glm-5.3"))
+            .await
+            .unwrap();
+        assert_eq!(opened(&fake), 2, "bound to the clean session");
+        for_session(&plain, || for_labelled.warm("glm-5.3"))
+            .await
+            .unwrap_err();
+        assert_eq!(opened(&fake), 2, "bound to the labelled one");
     }
 }

@@ -87,20 +87,29 @@ impl Core {
         .await
         .ok()
         .flatten();
-        let name = match last {
-            Some(t) => t.provider,
+        let (name, model) = match last {
+            Some(t) => (t.provider, t.model),
             None => match self
                 .runner
                 .resolve_target(&self.live_profile().0, None, None, None)
             {
-                Ok(t) => t.provider,
+                Ok(t) => (t.provider, t.model),
                 Err(_) => return "no provider",
             },
         };
         let Some(provider) = self.runner.providers.get(&name).cloned() else {
             return "no provider";
         };
-        let (outcome, took) = match provider.warm().await {
+        // The warm-up is the floor's too (theseus-fpwqg): it is made for this
+        // session and for the model its next turn would call, so the
+        // chokepoint refuses it wherever it would refuse that call. A notice
+        // that names no session reaches the floor naming none, and a
+        // restricted model is refused for want of one, as a request is.
+        let opening = match session {
+            Some(s) => crate::data_gate::for_session(s, || provider.warm(&model)),
+            None => provider.warm(&model),
+        };
+        let (outcome, took) = match opening.await {
             Ok(w) if w.already => ("warm".to_string(), w.took),
             Ok(w) => ("opened".to_string(), w.took),
             Err(why) => (format!("failed: {why}"), std::time::Duration::ZERO),

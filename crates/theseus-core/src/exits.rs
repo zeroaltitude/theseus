@@ -335,8 +335,8 @@ impl Provider for Substituting {
             }
         }
     }
-    fn warm(&self) -> WarmFuture<'_> {
-        self.inner.warm()
+    fn warm<'a>(&'a self, model: &'a str) -> WarmFuture<'a> {
+        self.inner.warm(model)
     }
     fn count_tokens<'a>(&'a self, req: &'a ProviderRequest) -> CountFuture<'a> {
         let (sent, found) = self.out.request(req);
