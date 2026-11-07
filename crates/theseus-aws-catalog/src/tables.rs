@@ -743,6 +743,38 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret_when("apigateway", "GetApiKey", "includeValue"),
     secret("appsync", "CreateApiKey"),
     secret("appsync", "UpdateApiKey"),
+    // Credentials the output-shape rule could not see until theseus-37ds,
+    // because their members are named for the thing they unlock and not for
+    // what they are: a stream's `value`, a workspace's `key`, a channel's
+    // `passphrase`, an MFA device's `Base32StringSeed`. The rule now reads
+    // the model's own `sensitive` marking together with the words of the
+    // member and of the shape it sits in, so each of these is found.
+    //
+    // A credential made: the call mints one, and it is always in the answer.
+    secret("grafana", "CreateWorkspaceApiKey"),
+    secret("grafana", "CreateWorkspaceServiceAccountToken"),
+    secret("cognito-idp", "AddUserPoolClientSecret"),
+    // The TOTP seed a software MFA factor is built from.
+    secret("cognito-idp", "AssociateSoftwareToken"),
+    secret("ivs", "CreateStreamKey"),
+    // Mints a stream key, and returns the channel's SRT passphrase with it.
+    secret("ivs", "CreateChannel"),
+    secret("ecs", "ExecuteCommand"),
+    secret("codecatalyst", "CreateAccessToken"),
+    secret("codecatalyst", "StartDevEnvironmentSession"),
+    secret("route53globalresolver", "CreateAccessToken"),
+    secret("iam", "CreateVirtualMFADevice"),
+    secret("payment-cryptography", "ExportKey"),
+    secret("payment-cryptography-data", "GenerateAs2805KekValidation"),
+    secret("payment-cryptography-data", "TranslateKeyMaterial"),
+    // A credential kept, read back whole.
+    secret("ivs", "GetStreamKey"),
+    secret("route53globalresolver", "GetAccessToken"),
+    secret("route53domains", "RetrieveDomainAuthCode"),
+    // The tunnels' pre-shared keys, in the device configuration AWS writes
+    // for the customer gateway. `DescribeVpnConnections` was already
+    // secret-bearing; this one, which returns the same keys, was not.
+    secret("ec2", "GetVpnConnectionDeviceSampleConfiguration"),
 ];
 
 /// Results that hold a secret only sometimes (theseus-qan5): what the walk
@@ -934,6 +966,37 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
     // update returns it (theseus-u4pe).
     ops("apigateway", &["GetApiKeys", "UpdateApiKey"]),
     ops("appsync", &["ListApiKeys"]),
+    // theseus-37ds. A credential a resource keeps, in answers that carry it
+    // only sometimes: a channel's SRT passphrase only where SRT ingest is
+    // configured, a batch read with no members, a listing with none, and an
+    // MFA seed, which AWS returns only for a device not yet enabled.
+    ops(
+        "ivs",
+        &[
+            "GetChannel",
+            "BatchGetChannel",
+            "UpdateChannel",
+            "GetStreamSession",
+            "BatchGetStreamKey",
+        ],
+    ),
+    ops(
+        "cognito-idp",
+        &["ListUserPoolClientSecrets", "VerifySoftwareToken"],
+    ),
+    ops("storagegateway", &["DescribeChapCredentials"]),
+    ops("iam", &["ListVirtualMFADevices"]),
+    // A thin client environment's activation code, which registers a device
+    // against the environment; gone once the environment stops issuing one.
+    ops(
+        "workspaces-thin-client",
+        &[
+            "CreateEnvironment",
+            "GetEnvironment",
+            "ListEnvironments",
+            "UpdateEnvironment",
+        ],
+    ),
 ];
 
 /// Tagging is direct (§3.4), so it is never IaC-only.

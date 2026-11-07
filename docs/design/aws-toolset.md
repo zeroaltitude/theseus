@@ -268,6 +268,24 @@ to get whole-of-AWS reach:
 
   The value never enters the context. The tool returns a broker handle and the value's shape with the
   secret masked, and the scrubber learns the value (§3.5).
+
+  _(Since theseus-37ds the output-shape rule reads where a member came from as well as what it is
+  called. It asks two questions together: did AWS's own model mark the member `sensitive`, and does
+  the member's name — or the name of the shape it sits in — carry a credential word (`token`,
+  `password`, `secret`, `key`, `credential`, `passphrase`, `seed`)? Either question alone is wrong.
+  The marking alone is not a credential rule, because AWS marks `sensitive` to keep a value out of
+  logs, so the marking covers personal data and customer content too: holding every marked member
+  would make 1369 further operations withhold their results, down to postal codes and tag values. The
+  name alone is a guess, and the names that matter do not cooperate — a stream key arrives as
+  `StreamKey.value`, a Grafana workspace key as `key`, a TOTP seed as `SecretCode`, a channel's key as
+  `Srt.passphrase`. Reading the shape's name as well as the member's is what finds `StreamKey.value`:
+  `value` says nothing and `StreamKey` says all of it. Two short lists carry what neither question
+  reaches: the walk's `HELD`, for a member no model marks, and `MARKED`, for a marked member whose
+  name says nothing of what it is — EC2's `VpnConnectionDeviceSampleConfiguration`, which carries the
+  tunnels' pre-shared keys in its body, a thin client's `activationCode`, a domain's `AuthCode`, and
+  an MFA device's `QRCodePNG`, which encodes the same seed as the `Base32StringSeed` beside it. The
+  rule found 67 further operations; each is now a secret-bearing row or an allowed row with its
+  reason.)_
 - **Retry class** (§3.16), from the traits:
   - `@readonly` or `@idempotent` is `safe_to_repeat`.
   - A member marked `@idempotencyToken` is filled from the call's correlation id, which makes the call

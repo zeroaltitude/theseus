@@ -73,6 +73,8 @@ mod tests_c2;
 #[cfg(test)]
 mod tests_c3;
 #[cfg(test)]
+mod tests_credential_classes;
+#[cfg(test)]
 mod tests_durable;
 #[cfg(test)]
 mod tests_handles;

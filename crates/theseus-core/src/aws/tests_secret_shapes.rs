@@ -1,15 +1,43 @@
 //! The output-shape rule (theseus-ye7o): the next credential mint a weekly
 //! catalog update brings fails here, before a call can hand its keys to the
 //! model. It walks every operation's output shape in the embedded catalog
-//! and finds each credential-shaped member: one whose name, in any case, is
-//! one that [`super::secret`]'s walk holds (`NAMED`: `Credentials`,
-//! `SecretAccessKey`, `SessionToken`, …), one the model marks sensitive
-//! whose name ends in `Token`, `Password`, `Secret`, `Key` or `Credentials`,
-//! or one the walk's `HELD` names by its shape in its service (API Gateway's
-//! `ApiKey.value`, theseus-u4pe); a `HELD` row that no secret-bearing answer
-//! reaches is stale. A paginator's output token is none (some models mark `NextToken`
+//! and finds each credential-shaped member.
+//!
+//! **The rule, in one sentence.** A member is credential-shaped when its
+//! name is one that [`super::secret`]'s walk always holds (`NAMED`:
+//! `Credentials`, `SecretAccessKey`, `SessionToken`, …), or when **AWS's own
+//! model marks it `sensitive` and either its name or the name of the shape
+//! it sits in carries a credential word** ([`WORDS`]: `token`, `password`,
+//! `secret`, `key`, `credential`, `passphrase`, `seed`), or when one of two
+//! short lists names it outright: the walk's `HELD`, for a member no model
+//! marks (API Gateway's `ApiKey.value`, theseus-u4pe), and [`MARKED`], for a
+//! member the model does mark whose name says nothing of what it is (the
+//! pre-shared keys inside EC2's `VpnConnectionDeviceSampleConfiguration`).
+//! A `HELD` row that no secret-bearing answer reaches is stale.
+//!
+//! **Why the marking and the words together, and neither alone**
+//! (theseus-37ds). The marking alone is not a credential rule: AWS marks
+//! `sensitive` to keep a value out of logs, so the marking covers personal
+//! data and customer content too, and holding every marked member would
+//! make 1369 further operations withhold their results — a postal code, a
+//! given name, a control's description, a tag's value. The words alone are a
+//! guess about a name, and the names that matter do not cooperate: a stream
+//! key arrives as `StreamKey.value`, a Grafana key as `key`, a TOTP seed as
+//! `SecretCode`, a channel's key as `Srt.passphrase`. Read together they
+//! keep the marking's authority — the service that produced the value said
+//! it was sensitive — and then ask the catalog's own type names, rather than
+//! a growing list of spellings, what the value is. Reading the **shape's**
+//! words as well as the member's is what finds `StreamKey.value`: `value`
+//! says nothing, and `StreamKey` says all of it.
+//!
+//! Words are split at camelCase humps, `_` and `-`, and matched whole, so
+//! `keyPrefix` and `SecretToAuthenticateInitiator` carry one and `Monkey`
+//! and `Tokenizer` do not.
+//!
+//! A paginator's output token is none (some models mark `NextToken`
 //! sensitive), and nor is any `NextToken` (many operations page without a
-//! paginator) or a tag's key (`Tag.Key`, marked sensitive by a few).
+//! paginator) or a tag's key (`Tag.Key` in any case, marked sensitive by a
+//! few).
 //!
 //! An operation with one must be secret-bearing (the catalog's `SECRET`
 //! table, or `WHEN_PRESENT` for a secret a resource keeps only sometimes),
@@ -26,13 +54,97 @@ use theseus_aws::catalog::{Catalog, OperationRef, SecretBearing, ShapeId, ShapeR
 
 use super::secret::{HELD, NAMED};
 
-/// Endings that make a sensitive member credential-shaped.
-const ENDINGS: &[&str] = &["Token", "Password", "Secret", "Key", "Credentials"];
+/// Credential words. A marked member whose own name, or the name of the
+/// shape holding it, carries one of these as a whole word is
+/// credential-shaped. Keep the list short: each word costs an [`ALLOWED`]
+/// row for every innocent member it reaches, and the owner reads those rows.
+const WORDS: &[&str] = &[
+    "token",
+    "password",
+    "secret",
+    "key",
+    "credential",
+    "credentials",
+    "passphrase",
+    "seed",
+];
+
+/// Members AWS's model marks sensitive that are credentials though their
+/// names say nothing of it, named by service, shape and member. The walk
+/// needs no such list — it holds every marked member of a secret-bearing
+/// answer — so this teaches only the rule below, which must see them to
+/// require that their operation be secret-bearing at all.
+const MARKED: &[(&str, &str, &str)] = &[
+    // The device configuration AWS writes for a customer gateway carries
+    // the tunnels' pre-shared keys in its body.
+    (
+        "ec2",
+        "GetVpnConnectionDeviceSampleConfigurationResult",
+        "VpnConnectionDeviceSampleConfiguration",
+    ),
+    // A thin client environment's activation code registers a device to it.
+    ("workspaces-thin-client", "Environment", "activationCode"),
+    (
+        "workspaces-thin-client",
+        "EnvironmentSummary",
+        "activationCode",
+    ),
+    // A domain's transfer authorization code moves the domain away.
+    (
+        "route53domains",
+        "RetrieveDomainAuthCodeResponse",
+        "AuthCode",
+    ),
+    // The QR code encodes the same seed as the `Base32StringSeed` beside it.
+    ("iam", "VirtualMFADevice", "QRCodePNG"),
+    // The session that completes an MFA association, and which is spent
+    // without the caller's own credentials.
+    ("cognito-idp", "VerifySoftwareTokenResponse", "Session"),
+];
+
+/// `name` in lower-case words, split at camelCase humps, `_` and `-`:
+/// `keyPrefix` is `key`, `prefix`; `SSEKMSKeyId` is `ssekms`, `key`, `id`.
+fn words(name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let cs: Vec<char> = name.chars().collect();
+    for (i, &c) in cs.iter().enumerate() {
+        if c == '_' || c == '-' {
+            if !cur.is_empty() {
+                out.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        // A hump starts a word: after a lower-case letter, or before one.
+        let hump = c.is_ascii_uppercase()
+            && i > 0
+            && (cs[i - 1].is_ascii_lowercase()
+                || (i + 1 < cs.len() && cs[i + 1].is_ascii_lowercase()));
+        if hump && !cur.is_empty() {
+            out.push(std::mem::take(&mut cur));
+        }
+        cur.push(c.to_ascii_lowercase());
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// `name` carries a credential word.
+fn carries(name: &str) -> bool {
+    words(name).iter().any(|w| WORDS.contains(&w.as_str()))
+}
 
 /// A member that names a Secrets Manager secret, and holds no value.
 const NAMES_A_SECRET: &str = "names a Secrets Manager secret by its ARN or id; holds no value";
 const PUBLIC_KEY: &str = "a public key";
 const TEXT: &str = "text a person wrote (a template's, a visual's): content, no credential";
+/// A member that points at a key and is not one (theseus-37ds).
+const KEY_NAMED: &str = "a KMS key's ARN or id: it names the key, and holds none";
+const ACCESS_KEY_ID: &str =
+    "an access key's id, the public half; its secret is returned only where it is minted";
+const LOCKER: &str = "a credential locker's own name or tags, not anything it holds";
 
 /// One allowed member: a service, its operations (globs), the member as
 /// `Shape.member` (a glob), and why it is no secret to hold.
@@ -214,6 +326,164 @@ static ALLOWED: &[Allowed] = &[
         "never returned: \"the password value is always redacted in the response\", says the \
          member's doc",
     ),
+    // theseus-37ds. Members the model marks sensitive that carry a
+    // credential word, in their own name or in their shape's, and hold no
+    // credential. Each is marked because it is personal or identifying, not
+    // because it unlocks anything.
+    //
+    // A key named, never a key: an ARN or an id that points at one.
+    allow(
+        "chime-sdk-voice",
+        ALL,
+        "ServerSideEncryptionConfiguration.KmsKeyArn",
+        KEY_NAMED,
+    ),
+    allow(
+        "kendra",
+        &["DescribeIndex"],
+        "ServerSideEncryptionConfiguration.KmsKeyId",
+        KEY_NAMED,
+    ),
+    allow(
+        "ebs",
+        &["StartSnapshot"],
+        "StartSnapshotResponse.KmsKeyArn",
+        KEY_NAMED,
+    ),
+    allow(
+        "qbusiness",
+        &["GetApplication"],
+        "EncryptionConfiguration.kmsKeyId",
+        KEY_NAMED,
+    ),
+    // Not `CreateSession`, which is secret-bearing: its walk holds it.
+    allow(
+        "s3",
+        &[
+            "CompleteMultipartUpload",
+            "CopyObject",
+            "CreateMultipartUpload",
+            "GetObject",
+            "HeadObject",
+            "PutObject",
+            "UploadPart",
+            "UploadPartCopy",
+        ],
+        "*Output.SSEKMSKeyId",
+        KEY_NAMED,
+    ),
+    allow(
+        "s3",
+        &["GetBucketEncryption"],
+        "ServerSideEncryptionByDefault.KMSMasterKeyID",
+        KEY_NAMED,
+    ),
+    allow(
+        "s3",
+        &["*BucketInventoryConfiguration*"],
+        "SSEKMS.KeyId",
+        KEY_NAMED,
+    ),
+    allow(
+        "kinesisvideo",
+        ALL,
+        "MediaSourceConfig.MediaUriSecretArn",
+        NAMES_A_SECRET,
+    ),
+    allow(
+        "ssm-sap",
+        &["GetDatabase"],
+        "ApplicationCredential.SecretId",
+        NAMES_A_SECRET,
+    ),
+    // The public half of a pair, or a public key outright.
+    allow(
+        "ec2",
+        &["GetInstanceTpmEkPub"],
+        "GetInstanceTpmEkPubResult.KeyValue",
+        "the instance's TPM endorsement key, public half",
+    ),
+    allow(
+        "kms",
+        &["DescribeCustomKeyStores"],
+        "XksProxyConfigurationType.AccessKeyId",
+        ACCESS_KEY_ID,
+    ),
+    allow(
+        "lightsail",
+        &["GetBucketAccessKeys"],
+        "AccessKey.accessKeyId",
+        ACCESS_KEY_ID,
+    ),
+    // A name, a prefix or a label that happens to sit in a credential's
+    // shape, or to be called a key.
+    allow(
+        "bedrock-agent",
+        ALL,
+        "PromptMetadataEntry.key",
+        "a prompt metadata entry's key: the name of the datum beside it",
+    ),
+    allow(
+        "qconnect",
+        ALL,
+        "RuntimeSessionData.key",
+        "a session datum's key: the name of the datum beside it",
+    ),
+    allow(
+        "workspaces-web",
+        ALL,
+        "S3LogConfiguration.keyPrefix",
+        "the prefix of the S3 keys the session log is written under",
+    ),
+    allow(
+        "cloudfront-keyvaluestore",
+        &["GetKey"],
+        "GetKeyResponse.Value",
+        "the value stored under a key of a key-value store: the caller's own data",
+    ),
+    allow(
+        "location",
+        &["UpdateKey"],
+        "UpdateKeyResponse.UpdateTime",
+        "the time the key was updated: a timestamp",
+    ),
+    allow(
+        "iot-managed-integrations",
+        ALL,
+        "GetCredentialLockerResponse.Name",
+        LOCKER,
+    ),
+    allow(
+        "iot-managed-integrations",
+        ALL,
+        "GetCredentialLockerResponse.Tags",
+        LOCKER,
+    ),
+    allow(
+        "iot-managed-integrations",
+        ALL,
+        "CredentialLockerSummary.Name",
+        LOCKER,
+    ),
+    allow(
+        "verifiedpermissions",
+        ALL,
+        "OpenIdConnect*TokenConfiguration*.principalIdClaim",
+        "the name of the claim a principal's id is read from, not the claim's value",
+    ),
+    // Personal, and so marked; no credential.
+    allow(
+        "appstream",
+        &["DescribeDirectoryConfigs"],
+        "ServiceAccountCredentials.AccountName",
+        "the directory service account's user name; the password beside it is never returned",
+    ),
+    allow(
+        "quicksight",
+        &["DescribeActionConnector"],
+        "ReadAPIKeyConnectionMetadata.Email",
+        "an email address on a connector's metadata",
+    ),
 ];
 
 /// A glob over names: `*` matches any run of characters.
@@ -230,13 +500,17 @@ fn glob(pattern: &str, name: &str) -> bool {
 }
 
 /// `member` of `parent` in `service`'s answers is credential-shaped: one of
-/// [`NAMED`], a sensitive name with a credential's ending, or a [`HELD`] row.
+/// [`NAMED`]; or marked sensitive by the model, with a credential word in
+/// its own name or in `parent`'s; or named by a [`HELD`] or [`MARKED`] row.
 fn credential_shaped(service: &str, parent: &str, member: &str, shape: ShapeRef<'_>) -> bool {
-    NAMED.iter().any(|n| n.eq_ignore_ascii_case(member))
-        || (shape.is_sensitive() && ENDINGS.iter().any(|e| member.ends_with(e)))
-        || HELD
-            .iter()
+    let row = |rows: &[(&str, &str, &str)]| {
+        rows.iter()
             .any(|(s, p, m)| *s == service && *p == parent && *m == member)
+    };
+    NAMED.iter().any(|n| n.eq_ignore_ascii_case(member))
+        || (shape.is_sensitive() && (carries(member) || carries(parent)))
+        || row(HELD)
+        || row(MARKED)
 }
 
 /// One credential-shaped member of an output: `Shape.member`, and the path
@@ -265,7 +539,11 @@ fn walk(
         };
         let skipped = tokens.contains(&m.name())
             || m.name().eq_ignore_ascii_case("NextToken")
-            || (shape.name() == "Tag" && ["Key", "tagKey"].contains(&m.name()));
+            // A tag's key, however the service spells it.
+            || (shape.name() == "Tag"
+                && ["Key", "tagKey"]
+                    .iter()
+                    .any(|k| k.eq_ignore_ascii_case(m.name())));
         if !skipped && credential_shaped(service, shape.name(), m.name(), m.shape()) {
             out.push(Hit {
                 member: format!("{}.{}", shape.name(), m.name()),
@@ -317,6 +595,46 @@ fn matches(row: &Allowed, service: &str, op: &str, member: &str) -> bool {
     row.service == service && row.ops.iter().any(|p| glob(p, op)) && glob(row.member, member)
 }
 
+/// The vocabulary reads whole words, so a credential's name carries one and
+/// an innocent name that merely contains the letters does not.
+#[test]
+fn credential_words_are_whole_words() {
+    assert_eq!(words("keyPrefix"), ["key", "prefix"]);
+    assert_eq!(words("SSEKMSKeyId"), ["ssekms", "key", "id"]);
+    assert_eq!(words("Base32StringSeed"), ["base32", "string", "seed"]);
+    assert_eq!(words("activation_code"), ["activation", "code"]);
+    for yes in [
+        "key",
+        "value",
+        "StreamKey",
+        "Srt.passphrase",
+        "SecretCode",
+        "ClientSecretValue",
+        "SecretToAuthenticateInitiator",
+        "Base32StringSeed",
+        "tokenValue",
+        "CreateWorkspaceApiKeyResponse",
+    ] {
+        // `value` and `Srt.passphrase` carry nothing on their own; they are
+        // reached through their shape's words, checked by the rule.
+        if ["value", "Srt.passphrase"].contains(&yes) {
+            continue;
+        }
+        assert!(carries(yes), "{yes} carries a credential word");
+    }
+    for no in [
+        "Monkey",
+        "Tokenizer",
+        "Keyboard",
+        "PostalCode",
+        "Description",
+        "GivenName",
+        "secretariat",
+    ] {
+        assert!(!carries(no), "{no} carries none");
+    }
+}
+
 #[test]
 fn globs_match_as_the_catalogs_do() {
     assert!(glob("*", "Anything"));
@@ -334,6 +652,7 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
     let c = Catalog::embedded().expect("the embedded catalog decodes");
     let mut used = vec![false; ALLOWED.len()];
     let mut held_used = vec![false; HELD.len()];
+    let mut marked_used = vec![false; MARKED.len()];
     let mut bad = Vec::new();
     for e in c.services() {
         let svc = c.service(&e.name).expect("the service decodes");
@@ -354,6 +673,11 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
                 for (i, (s, p, m)) in HELD.iter().enumerate() {
                     if secret && *s == e.name && hit.member == format!("{p}.{m}") {
                         held_used[i] = true;
+                    }
+                }
+                for (i, (s, p, m)) in MARKED.iter().enumerate() {
+                    if secret && *s == e.name && hit.member == format!("{p}.{m}") {
+                        marked_used[i] = true;
                     }
                 }
                 let rows: Vec<usize> = (0..ALLOWED.len())
@@ -411,6 +735,13 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
         if !used {
             bad.push(format!(
                 "stale: the walk's held row {row:?} is in no secret-bearing answer"
+            ));
+        }
+    }
+    for (row, used) in MARKED.iter().zip(&marked_used) {
+        if !used {
+            bad.push(format!(
+                "stale: the marked row {row:?} is in no secret-bearing answer"
             ));
         }
     }
