@@ -242,10 +242,24 @@ registry() {
 
 # The cockpit's protocol types, which a theseus-protocol test writes from the
 # Rust ones (theseus-0g4): a type changed without its TypeScript fails here.
+# The check writes them itself first, by running that one test, so it judges
+# the Rust as it stands and not the files as the last run left them: before
+# theseus-5epuo it only diffed, ran ahead of the suite that writes them, and a
+# stale file passed this gate and dirtied the next one. The test is built
+# (test_build); it takes a second. A run of no tests fails: nextest exits 0
+# for a filter that matches nothing, so the count is read from its summary.
 protocol_types() {
+  local log="$gate_tmp/protocol-types.log"
+  cargo nextest run --workspace --no-fail-fast \
+    -E 'package(theseus-protocol) & test(=ts::the_cockpits_types_are_generated_from_the_rust_ones)' 2>&1 | tee "$log"
+  if ! grep -qE 'Summary .* 1 test run: 1 passed' "$log"; then
+    echo "gate: the generator test did not run once and pass (theseus-5epuo): the files below were not regenerated from the Rust types"
+    exit 1
+  fi
   if ! git diff --quiet -- cockpit/src/protocol.gen ||
     [ -n "$(git ls-files --others --exclude-standard -- cockpit/src/protocol.gen)" ]; then
     echo "cockpit/src/protocol.gen changed: the protocol's Rust types changed without their TypeScript; git add it"
+    git status --short -- cockpit/src/protocol.gen
     exit 1
   fi
 }
@@ -737,7 +751,7 @@ test_build() {
 # tree), or they built something other than the tests run. Say so: it also explains a long hold.
 compiled_under_lock() {
   local n
-  n="$(cat "$gate_tmp/registry.log" "$gate_tmp/suite.log" 2>/dev/null | grep -c '^ *Compiling ' || true)"
+  n="$(cat "$gate_tmp/registry.log" "$gate_tmp/protocol-types.log" "$gate_tmp/suite.log" 2>/dev/null | grep -c '^ *Compiling ' || true)"
   if [ "$n" -gt 0 ]; then
     echo "gate: NOTE: $n crate(s) were compiled under the lock: the tree changed after the compile phases (rerun the gate before you commit), or they built something other than the tests run"
   fi
@@ -858,9 +872,6 @@ phase scrub scrub_phase
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
-# bench/recall's Python tests (a cache-read price drift went unseen without them); Python >= 3.11, or it says it
-# skipped.
-phase "recall tests" scripts/recall-tests.sh
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
 phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
@@ -871,6 +882,12 @@ phase cockpit cockpit
 # Every compile first, without the lock: the test binaries (what the suite runs), and with them the binaries
 # the benches run (theseus-7ykr).
 phase "test build" test_build
+# bench/recall's Python tests (a cache-read price drift went unseen without them); Python >= 3.11, or it says it
+# skipped. AFTER the test build, never before it (theseus-a3woz): test_drive.py drives target/debug's theseus,
+# theseusd, theseus-index and theseus-sim and skips itself when one is missing, so from ahead of the build a warm
+# lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
+# TOML parse). test_gate_order.py holds this order.
+phase "recall tests" scripts/recall-tests.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi

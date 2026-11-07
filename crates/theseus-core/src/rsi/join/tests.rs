@@ -589,6 +589,49 @@ async fn a_keel_class_stops_at_the_owners_card_and_waits() {
     assert_eq!(r.posts().len(), 2, "never retried at that head");
 }
 
+/// The data rule's files stop at the owner's card too (theseus-ozplq): one
+/// plant per file the finding named, each a self branch whose only extra
+/// change is that file. Before this row they were in the keel guard's
+/// `KEEL_FILES` and in no class, so a branch could ack the guard's finding
+/// with its own `Keel:` trailer and join; a class is a path and nothing a
+/// branch writes clears it.
+#[tokio::test]
+async fn the_data_rules_files_stop_at_the_owners_card() {
+    const PLANTS: &[&str] = &[
+        "crates/theseus-core/src/data_gate.rs",
+        "crates/theseus-core/src/exits.rs",
+        "crates/theseus-core/src/content.rs",
+        "crates/theseus-core/src/turn/data_step.rs",
+        "crates/theseus-core/src/peer.rs",
+        "crates/theseusd/src/web.rs",
+    ];
+    let r = rig(SelfMode::Act);
+    let main = r.upstream_main();
+    for (i, path) in PLANTS.iter().enumerate() {
+        let mut files = PROVED.to_vec();
+        files.push((path, "// the plant\n"));
+        r.seed(&format!("plant-{i}"), &files, SONNET);
+    }
+    let seams = r.seams();
+    for (i, path) in PLANTS.iter().enumerate() {
+        let pass = r.core.self_join_pass(&seams).await.unwrap();
+        assert_eq!(
+            pass.stopped,
+            [(format!("self/20261014-plant-{i}"), "keel".to_string())],
+            "{path}: {pass:?}"
+        );
+    }
+    let posts = r.posts();
+    assert_eq!(posts.len(), PLANTS.len(), "a card each: {posts:?}");
+    for (post, path) in posts.iter().zip(PLANTS) {
+        assert!(
+            post.contains("data-rule") && post.contains(path),
+            "{path}: {post}"
+        );
+    }
+    assert_eq!(r.upstream_main(), main, "nothing joined");
+}
+
 /// A held lock waits: nothing merges while another holds it, and the join
 /// goes on once it is released with its done: line.
 #[tokio::test]

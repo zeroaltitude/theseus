@@ -11,10 +11,21 @@
 //!   controlling terminal (a service, a cron, a gateway's exec), named
 //!   `no terminal`.
 //!
+//! The loopback web UI's `/ws` is judged the same way (theseus-iie8e). Its
+//! port is reachable by every process of the owner's own user, and `Host`
+//! and `Origin` are headers any of them can send, so an agent's raw
+//! WebSocket is not told from the cockpit's page by the request alone. The
+//! peer is the process holding the client's end of the connection
+//! (`peer::client_pid`), found at the first act that asks, and judged by the
+//! agent list alone (`Rule::Agents`): a browser is a windowed process with
+//! no controlling terminal of its own, so a terminal says nothing there. A
+//! holder that cannot be found is an agent (`untraced`), never the owner.
+//!
 //! A light guard, as the CLI's refusal inside a job is (theseus-zmgb): an
 //! agent that opens a pty and strips its ancestry reads as the owner. The
 //! boundary is the DM's card and L1.
 
+use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 
 /// The name an agent gets when nothing on its chain is on the list and it
@@ -87,11 +98,28 @@ fn runs(p: &Proc, name: &str) -> bool {
 /// The chain is walked at most this far: a loop or a deep tree ends it.
 const DEPTH: usize = 64;
 
+/// How a peer's chain is judged once it holds no agent host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rule {
+    /// The CLI's (theseus-5rvss): a peer with no controlling terminal is an
+    /// agent too (a service, a cron, a gateway's exec).
+    Terminal,
+    /// The web's (theseus-iie8e): the agent list alone. The browser holding
+    /// the cockpit's page has no controlling terminal of its own, so a
+    /// terminal says nothing about a `/ws` peer.
+    Agents,
+}
+
 /// Classify `pid` over the processes `read` gives, against the program
 /// names in `agents`. The nearest agent on the chain, the peer itself
-/// first, names it; else a peer with no terminal is `no terminal`; a peer
-/// that cannot be read is `untraced`.
-pub fn behind_in(read: impl Fn(u32) -> Option<Proc>, pid: u32, agents: &[String]) -> Behind {
+/// first, names it; else, under `Rule::Terminal`, a peer with no terminal is
+/// `no terminal`; a peer that cannot be read is `untraced`.
+pub fn behind_in(
+    read: impl Fn(u32) -> Option<Proc>,
+    pid: u32,
+    agents: &[String],
+    rule: Rule,
+) -> Behind {
     let Some(peer) = read(pid) else {
         return Behind::Agent(UNTRACED.into());
     };
@@ -111,32 +139,51 @@ pub fn behind_in(read: impl Fn(u32) -> Option<Proc>, pid: u32, agents: &[String]
             None => break,
         }
     }
-    match peer.tty {
-        0 => Behind::Agent(NO_TERMINAL.into()),
+    match (rule, peer.tty) {
+        (Rule::Terminal, 0) => Behind::Agent(NO_TERMINAL.into()),
         _ => Behind::Owner,
     }
 }
 
 /// `behind_in` over this machine's `/proc`.
-pub fn behind(pid: u32, agents: &[String]) -> Behind {
-    behind_in(read_proc, pid, agents)
+pub fn behind(pid: u32, agents: &[String], rule: Rule) -> Behind {
+    behind_in(read_proc, pid, agents, rule)
+}
+
+/// Where a connection's peer process comes from, and so how it is judged.
+#[derive(Debug, Clone, Default)]
+pub enum Source {
+    /// No process to read: the owner's own (a test, an in-process binding).
+    #[default]
+    Owner,
+    /// The socket peer's pid, as `SO_PEERCRED` gives it, or `--stdio`'s
+    /// parent: the CLI's rule.
+    Pid(u32),
+    /// A loopback web client's two addresses, as its listener accepted them
+    /// (theseus-iie8e): the holder of the client's end, by the web's rule.
+    /// A connection whose own server address could not be read names no end
+    /// to look for, and so is an agent's.
+    Web {
+        server: Option<SocketAddr>,
+        client: SocketAddr,
+    },
 }
 
 /// The process behind one connection, found when an act first asks and
-/// kept: the walk is paid by an answer, never by a connection.
+/// kept: the walk, and the web's socket lookup, are paid by an answer,
+/// never by a connection.
 #[derive(Debug, Default)]
 pub struct Peer {
-    pid: Option<u32>,
+    source: Source,
     agents: Arc<[String]>,
     found: OnceLock<Behind>,
 }
 
 impl Peer {
-    /// A connection whose peer is process `pid`; with none, the owner's
-    /// (`--stdio` names its parent, a test names nobody).
-    pub fn new(pid: Option<u32>, agents: Arc<[String]>) -> Self {
+    /// A connection whose peer `source` names.
+    pub fn new(source: Source, agents: Arc<[String]>) -> Self {
         Self {
-            pid,
+            source,
             agents,
             found: OnceLock::new(),
         }
@@ -152,9 +199,18 @@ impl Peer {
     }
 
     pub fn behind(&self) -> &Behind {
-        self.found.get_or_init(|| match self.pid {
-            Some(pid) => behind(pid, &self.agents),
-            None => Behind::Owner,
+        self.found.get_or_init(|| match self.source {
+            Source::Owner => Behind::Owner,
+            Source::Pid(pid) => behind(pid, &self.agents, Rule::Terminal),
+            // No holder is no identity, and no identity is never the owner.
+            Source::Web {
+                server: Some(server),
+                client,
+            } => match crate::peer::client_pid(server, client) {
+                Some(pid) => behind(pid, &self.agents, Rule::Agents),
+                None => Behind::Agent(UNTRACED.into()),
+            },
+            Source::Web { server: None, .. } => Behind::Agent(UNTRACED.into()),
         })
     }
 }
@@ -197,14 +253,14 @@ mod tests {
     #[test]
     fn a_terminal_with_no_agent_above_it_is_the_owners() {
         let agents = names(&["claude", "codex"]);
-        assert_eq!(behind_in(tree(), 9, &agents), Behind::Owner);
+        assert_eq!(behind_in(tree(), 9, &agents, Rule::Terminal), Behind::Owner);
     }
 
     #[test]
     fn no_terminal_is_an_agent() {
         let agents = names(&["claude", "codex"]);
         assert_eq!(
-            behind_in(tree(), 29, &agents),
+            behind_in(tree(), 29, &agents, Rule::Terminal),
             Behind::Agent(NO_TERMINAL.into())
         );
     }
@@ -215,22 +271,46 @@ mod tests {
     fn an_agent_above_it_names_it_even_on_a_terminal() {
         let agents = names(&["codex", "claude"]);
         assert_eq!(
-            behind_in(tree(), 19, &agents),
+            behind_in(tree(), 19, &agents, Rule::Terminal),
             Behind::Agent("claude".into())
         );
         // The list's own name wins nothing from the order of the list.
         assert_eq!(
-            behind_in(tree(), 19, &names(&["claude"])),
+            behind_in(tree(), 19, &names(&["claude"]), Rule::Terminal),
             Behind::Agent("claude".into())
         );
         // Off the list, the same process is the owner's.
-        assert_eq!(behind_in(tree(), 19, &names(&["codex"])), Behind::Owner);
+        assert_eq!(
+            behind_in(tree(), 19, &names(&["codex"]), Rule::Terminal),
+            Behind::Owner
+        );
+    }
+
+    /// The web's rule (theseus-iie8e): a `/ws` peer with no terminal is not
+    /// an agent for that alone — the browser holding the cockpit's page has
+    /// none — but an agent host on its chain names it exactly as on the CLI.
+    #[test]
+    fn a_web_peer_is_judged_by_the_agent_list_and_not_by_its_terminal() {
+        let agents = names(&["claude", "codex"]);
+        // No terminal: an agent on the CLI, the owner's own on the web.
+        assert_eq!(behind_in(tree(), 29, &agents, Rule::Agents), Behind::Owner);
+        assert_eq!(behind_in(tree(), 9, &agents, Rule::Agents), Behind::Owner);
+        // An agent host above it still names it, terminal or not.
+        assert_eq!(
+            behind_in(tree(), 19, &agents, Rule::Agents),
+            Behind::Agent("claude".into())
+        );
+        // A peer that cannot be read is untraced under either rule.
+        assert_eq!(
+            behind_in(tree(), 404, &agents, Rule::Agents),
+            Behind::Agent(UNTRACED.into())
+        );
     }
 
     #[test]
     fn a_peer_that_exited_is_untraced() {
         assert_eq!(
-            behind_in(tree(), 404, &names(&["claude"])),
+            behind_in(tree(), 404, &names(&["claude"]), Rule::Terminal),
             Behind::Agent(UNTRACED.into())
         );
     }
@@ -238,7 +318,10 @@ mod tests {
     #[test]
     fn a_loop_in_the_chain_ends_the_walk() {
         let looped = |pid: u32| Some(proc(if pid == 2 { 3 } else { 2 }, 7, "sh", &["sh"]));
-        assert_eq!(behind_in(looped, 2, &names(&["claude"])), Behind::Owner);
+        assert_eq!(
+            behind_in(looped, 2, &names(&["claude"]), Rule::Terminal),
+            Behind::Owner
+        );
     }
 
     #[test]

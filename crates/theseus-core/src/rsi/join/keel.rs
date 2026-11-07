@@ -14,6 +14,17 @@
 //! A `"self"` principal never answers the card: the card is a post to the
 //! owner's DM, and nothing in the join reads an answer to it. A branch held
 //! at the keel is never retried at that head.
+//!
+//! [`CLASSES`] holds every file main's keel guard holds in its `KEEL_FILES`
+//! and `KEEL_PREFIXES`, and `every_file_the_keel_guard_holds_is_in_a_class`
+//! reads the guard's own source to prove it. The two lists are not the same
+//! check and neither replaces the other: the guard judges a *line* and a
+//! branch may ack its finding with a `Keel:` trailer, while a class is a
+//! *path* and nothing a branch writes clears it. So a file the guard holds
+//! and no class named would reach main behind the branch's own ack, which is
+//! what theseus-ozplq found: the data rule's files were in `KEEL_FILES` and
+//! in no class. The test is the one source the two keep: a path added to the
+//! guard with no class to hold it fails the gate.
 
 use std::path::Path;
 
@@ -78,6 +89,29 @@ pub const CLASSES: &[Class] = &[
             "crates/theseus-core/src/scrub.rs",
             "crates/theseus-core/src/scrub/**",
             "scripts/scrub*",
+            "scripts/test_scrub_added.py",
+        ],
+    },
+    Class {
+        name: "data-rule",
+        why: "what a session is labelled, which model may see it, and what leaves the machine",
+        paths: &[
+            // The provider chokepoint and the turn's floor: the two places
+            // the restricted-origin rule is enforced.
+            "crates/theseus-core/src/data_gate.rs",
+            "crates/theseus-core/src/turn/data_step.rs",
+            // Jev's pick runs under that floor.
+            "crates/theseus-core/src/routing.rs",
+            // The classifier, its asks, its facts, its scene, its wait, the
+            // operator's removal, its wire shapes and its config table.
+            "crates/theseus-core/src/**/content*.rs",
+            "crates/theseus-protocol/src/content.rs",
+            // What leaves the machine carries no vault value.
+            "crates/theseus-core/src/exits.rs",
+            // Who is on the other end of a socket or a CLI answer.
+            "crates/theseus-core/src/peer*.rs",
+            // The web UI's own door: its Host and Origin checks.
+            "crates/theseusd/src/web.rs",
         ],
     },
     Class {
@@ -85,6 +119,7 @@ pub const CLASSES: &[Class] = &[
         why: "the gate, the keel guard and the line ceilings",
         paths: &[
             "scripts/keel-*",
+            "scripts/test_keel_guard.py",
             "scripts/gate.sh",
             "scripts/long-files.txt",
             "scripts/shape.sh",
@@ -426,6 +461,95 @@ mod tests {
         ] {
             assert_eq!(classes(&[p], ""), ["keel"], "{p}");
         }
+    }
+
+    /// The data rule's files, each named here apart from [`CLASSES`]: the
+    /// chokepoint, the turn's floor, the route's pick, the classifier and its
+    /// parts, the exits, the peer checks and the web UI's door
+    /// (theseus-ozplq).
+    #[test]
+    fn the_data_rules_files_are_the_owners() {
+        for p in [
+            "crates/theseus-core/src/data_gate.rs",
+            "crates/theseus-core/src/turn/data_step.rs",
+            "crates/theseus-core/src/routing.rs",
+            "crates/theseus-core/src/content.rs",
+            "crates/theseus-core/src/content_scene.rs",
+            "crates/theseus-core/src/content_wait.rs",
+            "crates/theseus-core/src/turn/content_step.rs",
+            "crates/theseus-core/src/judge/content.rs",
+            "crates/theseus-core/src/fact/content.rs",
+            "crates/theseus-core/src/rpc/content.rs",
+            "crates/theseus-core/src/config/content_based_security.rs",
+            "crates/theseus-protocol/src/content.rs",
+            "crates/theseus-core/src/exits.rs",
+            "crates/theseus-core/src/peer.rs",
+            "crates/theseus-core/src/peer_proc.rs",
+            "crates/theseusd/src/web.rs",
+        ] {
+            assert_eq!(classes(&[p], ""), ["data-rule"], "{p}");
+        }
+        // The route's config table is the owner's by the guard's own word:
+        // `KEEL_FILES` says "NOT config/routing.rs", and no class claims it.
+        assert!(classes(&["crates/theseus-core/src/config/routing.rs"], "").is_empty());
+        // A name that merely ends in the word is not the rule.
+        assert!(classes(&["crates/theseus-core/src/tests_content_flags.rs"], "").is_empty());
+    }
+
+    /// The strings of the tuple `name = (` .. `)` in the keel guard's source:
+    /// a comment is dropped first, then the tuple ends at the `)` that is
+    /// left, whether on its own line or on the opening one.
+    ///
+    /// `sealed::tests`'s older copy of this ends at the *first* `)` anywhere
+    /// in the body, which a comment inside the tuple supplies, and so reads
+    /// only the paths above that comment. That is harmless there today (every
+    /// `KEEL_PATHS` entry is above it) and is its own row; here it hid four of
+    /// the guard's files, `routing.rs` and `turn/data_step.rs` among them, and
+    /// this test passed while the gap it is here to catch was open.
+    fn guard_tuple(src: &str, name: &str) -> Vec<String> {
+        let after = src
+            .split_once(&format!("\n{name} = ("))
+            .unwrap_or_else(|| panic!("scripts/keel-guard.py has no {name}"))
+            .1;
+        let mut out = Vec::new();
+        for line in after.lines() {
+            let code = line.split('#').next().unwrap_or_default();
+            let mut rest = code;
+            while let Some(i) = rest.find('"') {
+                let tail = &rest[i + 1..];
+                let Some(j) = tail.find('"') else { break };
+                out.push(tail[..j].to_string());
+                rest = &tail[j + 1..];
+            }
+            // The tuple's close, on its own line or on the opening one.
+            if code.contains(')') {
+                break;
+            }
+        }
+        out
+    }
+
+    /// One source for the two lists (theseus-ozplq): every file main's keel
+    /// guard holds is in a class, so a path added to `KEEL_FILES` with no
+    /// class to hold it fails here rather than reaching main behind a branch's
+    /// own `Keel:` ack.
+    #[test]
+    fn every_file_the_keel_guard_holds_is_in_a_class() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let src = std::fs::read_to_string(root.join("scripts/keel-guard.py")).unwrap();
+        let files = guard_tuple(&src, "KEEL_FILES");
+        let prefixes = guard_tuple(&src, "KEEL_PREFIXES");
+        assert!(!files.is_empty() && !prefixes.is_empty(), "{files:?}");
+        let held = |p: &str| !classify(&[p.to_string()], "").is_empty();
+        let missing: Vec<&String> = files
+            .iter()
+            .filter(|p| !held(p))
+            .chain(prefixes.iter().filter(|p| !held(&format!("{p}held.rs"))))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "scripts/keel-guard.py holds these, and no keel CLASS does: {missing:?}"
+        );
     }
 
     #[test]

@@ -72,12 +72,18 @@ It runs, in order:
    would otherwise run stale (the gate's `bench_bins`). The `bench build` before it (`cargo build -p` of the five
    shipped binaries) is gone (theseus-7ykr): cargo links `target/debug/<bin>` from the build it ran last, so the test
    build replaced its binaries before any bench ran, and it cost a second feature set of the shared crates (384 s of
-   a cold 1,121 s gate on a 4-core VM, 9 s after a touch of theseus-core).
+   a cold 1,121 s gate on a 4-core VM, 9 s after a touch of theseus-core). Last, `recall tests`
+   (`scripts/recall-tests.sh`, bench/recall's Python tests; Python >= 3.11 or it says it skipped), **after** the test
+   build and never before it (theseus-a3woz): `test_drive.py` drives `target/debug`'s four binaries and skips itself
+   when one is missing, so from ahead of the build a warm lane tested the previous head's daemon and said nothing.
+   `bench/recall/test_gate_order.py` holds the order.
 2. *With the lock*, the locked part. Nothing compiles here: step 1 built everything it runs (a `gate: NOTE` says so
    when something does, which means the tree changed after step 1).
    - The reader rule's registry test alone (`tests_registry` in theseus-core), so a miss stops the gate in seconds
      and names every fix at once.
-   - The generated TypeScript: it fails when `cockpit/src/protocol.gen/` differs from the commit.
+   - The generated TypeScript: it runs the generator test (`ts::the_cockpits_types_are_generated_from_the_rust_ones`,
+     alone, which must run once and pass) and then fails when `cockpit/src/protocol.gen/` differs from the commit, so
+     a stale file fails the gate that carries it, not the next one (theseus-5epuo).
    - The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
      first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
      three quarters of the cores; when the 2 minutes pass with the machine still busy, the timing budgets get the busy

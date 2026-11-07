@@ -60,11 +60,16 @@ impl Conn<'_> {
         author: Option<String>,
         discord: Option<theseus_protocol::DiscordOrigin>,
     ) -> Answerer {
-        // A CLI answer from a process under an agent, or with no terminal,
-        // is that agent's: its name is the label, so every row and line
-        // that says `by` says it (theseus-5rvss).
+        // An answer from a process under an agent, or (on the CLI) with no
+        // terminal, is that agent's: its name is the label, so every row and
+        // line that says `by` says it (theseus-5rvss). The web UI's `/ws` is
+        // read the same way, by the process holding the client's end of the
+        // connection (theseus-iie8e): its port is open to every process of
+        // the owner's own user, and `Host` and `Origin` are headers any of
+        // them can send, so nothing else tells an agent's WebSocket from the
+        // cockpit's page.
         let agent = match (self.surface, self.peer.behind()) {
-            (Surface::Cli, Behind::Agent(name)) => Some(name.clone()),
+            (Surface::Cli | Surface::Web, Behind::Agent(name)) => Some(name.clone()),
             _ => None,
         };
         Answerer {
@@ -89,7 +94,7 @@ pub(super) struct Link {
 impl Link {
     /// `agents` is `[policy] agent_processes`, which says who is an agent.
     fn new(client: Client, agents: &[String]) -> Self {
-        let peer = crate::peer_proc::Peer::new(client.pid, agents.into());
+        let peer = crate::peer_proc::Peer::new(client.peer, agents.into());
         #[cfg(test)]
         let peer = client.behind.map_or(peer, crate::peer_proc::Peer::known);
         Self {

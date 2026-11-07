@@ -316,7 +316,7 @@ impl Provider for Hangs {
     ) -> ProviderFuture<'a> {
         self.0.stream_message(req, on_delta)
     }
-    fn warm(&self) -> WarmFuture<'_> {
+    fn warm<'a>(&'a self, _model: &'a str) -> WarmFuture<'a> {
         Box::pin(std::future::pending())
     }
 }
