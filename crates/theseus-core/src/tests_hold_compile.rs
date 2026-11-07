@@ -37,6 +37,23 @@ fn reach(tokens: usize) -> String {
 /// verdict lands.
 const WAIT_MS: u64 = 120_000;
 
+/// How long the fake judge holds its answer where a test needs the compile to
+/// win the race outright. The compile of a 50 000-token message is tens of
+/// milliseconds (theseus-ler3c measured the cliff between 20 ms and 50 ms), so
+/// a delay of this size decides the race rather than leaving it to the host.
+/// It is under `judge.total_secs`, which those tests raise to 30.
+const SLOW_MS: u64 = 1_500;
+
+/// The owner's correction pending for a session: the turn runs on `sonnet`
+/// ahead of any verdict.
+fn steer() -> Steering {
+    Steering {
+        steer: Steer::Profile("sonnet".into()),
+        follows: "quick".into(),
+        by: By::Owner,
+    }
+}
+
 /// A route rig whose model's window the message passes, Jev reading it as a
 /// sure reach, and a session in a guild channel (shared) or not (private).
 fn rigged(shared: bool) -> (Rig, FakeJev, String) {
@@ -227,20 +244,14 @@ async fn a_held_compile_failure_records_its_wait() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_held_compile_failure_records_its_steer() {
     let (r, _jev, sid) = rigged(true);
-    // A steered turn waits for no verdict (`compile_first`), so this test
-    // would otherwise read whichever came first, the fake's answer or the
-    // compile of a 50 000-token message, and the hold it asserts needs the
-    // verdict. The same switch a pinned turn's tests use has it wait
-    // (theseus-fpvn8, `tests_route_open`).
+    // The place is shared, so since theseus-3i6d1 the production rule has
+    // this turn wait for its verdict, which is what the hold it asserts
+    // needs. The pin is kept so the test stands on its own rather than on
+    // that rule: it is the switch a pinned turn's tests use
+    // (theseus-fpvn8, `tests_route_open`). The rule itself is asserted by
+    // `a_steered_turn_in_a_shared_place_waits_for_the_privacy_verdict`.
     r.core.runner.judge.pins_wait_for_verdicts();
-    r.core.runner.judge.corrections.set_pending(
-        &sid,
-        Steering {
-            steer: Steer::Profile("sonnet".into()),
-            follows: "quick".into(),
-            by: By::Owner,
-        },
-    );
+    r.core.runner.judge.corrections.set_pending(&sid, steer());
     let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
     assert_eq!(res.output, HELD);
     let routed = rows(&r.core, "route.decided");
@@ -251,4 +262,68 @@ async fn a_held_compile_failure_records_its_steer() {
         (Some("correction"), Some("quick")),
         "{d}"
     );
+}
+
+/// A steered turn in a **shared place** waits for the privacy verdict. The
+/// owner's correction decides where the turn runs; it is not consent to
+/// answer a guest without the privacy check, and the one verdict carries
+/// both. The judge answers long after the compile ends, so with the old rule
+/// the turn read `late`, nothing held it, and the requester in the shared
+/// place got the compile's overage instead of the fixed line (theseus-3i6d1,
+/// the side finding of theseus-ler3c).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_steered_turn_in_a_shared_place_waits_for_the_privacy_verdict() {
+    let (r, jev, sid) = rigged_waiting(true, WAIT_MS, |c| c.judge.total_secs = 30);
+    // No `pins_wait_for_verdicts` here, deliberately: the wait under test is
+    // the production rule's, and the pin would stand in for it.
+    jev.set_mode(theseus_judge::fake::FakeMode::Slow(
+        std::time::Duration::from_millis(SLOW_MS),
+    ));
+    r.core.runner.judge.corrections.set_pending(&sid, steer());
+    let res = run(&r.core, &sid, &reach(50_000)).await.expect("held");
+    assert_eq!(res.output, HELD);
+    assert!(r.claude.requests().is_empty() && r.zai.requests().is_empty());
+    assert_eq!(said(&r.core, &sid), vec![HELD.to_string()]);
+    let warned = rows(&r.core, "privacy.warned");
+    assert_eq!(warned.len(), 1, "{warned:?}");
+    assert_eq!(warned[0]["held"].as_bool(), Some(true));
+    let routed = rows(&r.core, "route.decided");
+    assert_eq!(routed.len(), 1, "{routed:?}");
+    let d = &routed[0];
+    // The steer still decided the route; what it no longer decides is whether
+    // the turn reads its verdict at all.
+    assert_eq!(d["source"].as_str(), Some("correction"), "{d}");
+    assert!(d["answered_ms"].is_u64(), "the verdict was read: {d}");
+}
+
+/// And **only** in a shared place: where the owner alone reads — the CLI, the
+/// web UI, the owner's DM — a steered turn keeps its no-wait, and the latency
+/// that buys is not given up. The same steer and the same judge delay as the
+/// test above, the place the only difference: here the turn reads no verdict,
+/// so nothing warns and the compile's overage fails the turn as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_steered_turn_in_a_private_place_waits_for_no_verdict() {
+    let (r, jev, sid) = rigged_waiting(false, WAIT_MS, |c| c.judge.total_secs = 30);
+    jev.set_mode(theseus_judge::fake::FakeMode::Slow(
+        std::time::Duration::from_millis(SLOW_MS),
+    ));
+    r.core.runner.judge.corrections.set_pending(&sid, steer());
+    let err = run(&r.core, &sid, &reach(50_000))
+        .await
+        .expect_err("past the window alone");
+    let te = err.downcast_ref::<TurnError>().unwrap();
+    assert_eq!(te.class, crate::turn::compaction::OVERAGE_CLASS);
+    // The route row is the positive count beside the empty one below: the
+    // turn did route, on the steer, and read no verdict. An empty
+    // `privacy.warned` on its own would be met by a turn that never ran.
+    let routed = rows(&r.core, "route.decided");
+    assert_eq!(routed.len(), 1, "{routed:?}");
+    let d = &routed[0];
+    assert_eq!(d["source"].as_str(), Some("correction"), "{d}");
+    assert_eq!(&d["answered_ms"], &Value::Null, "no verdict was read: {d}");
+    assert!(
+        d["wait_ms"].as_u64().unwrap() < SLOW_MS,
+        "it did not wait for the judge: {d}"
+    );
+    assert!(rows(&r.core, "privacy.warned").is_empty());
 }
