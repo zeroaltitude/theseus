@@ -49,6 +49,13 @@ server in L1, M7 43a).
   a `SpawnError` with its stage: never L0 instead.
 - **The view shows nothing it was not given.** A path a `Spec` names must be absolute; a hidden path the view does
   not hold is skipped.
+- **A mount target is judged by what it resolves to, never by its own type** (theseus-txh9w), because `mount(2)`
+  follows symlinks on its target. `view.rs`'s `resolved()` is the one answer both call sites act on — the hidden
+  list's mask, and `/proc`'s read-only binds — and it answers None for ENOENT, ENOTDIR and ELOOP alone; any other
+  error is reported and never skipped past, since those binds are the only thing making `/proc/sys` and
+  `/proc/sysrq-trigger` read-only. So a link is covered at the path it names, and one that resolves to nothing
+  there (dangling, or naming what no bind shows) is skipped. A hidden entry never stops a job: the mask is a
+  promise about what a job can read, and a job that cannot start is a defect, not a safer sandbox.
 
 ## Tests
 

@@ -581,13 +581,13 @@ impl Core {
         let board = self.threads();
         let taken: Vec<&str> = board.all().map(|t| t.slug.as_str()).collect();
         let (title, _) = propose(&p.input, &taken);
-        let sticky_alone_asks = self.cfg.threads.sticky_alone_asks;
         let rules = Rules {
-            sticky_alone_asks,
-            new_entities: match sticky_alone_asks {
-                true => new_entities(&p.input, live),
-                false => 0,
-            },
+            sticky_alone_asks: self.cfg.threads.sticky_alone_asks,
+            // Counted whatever the sticky rule says: without Jev it is the
+            // only thing that can raise a new thread on an ask
+            // (theseus-m7fwf). The sticky rule's own use of it is unchanged,
+            // since that reads it only behind a hold the rule made.
+            new_entities: new_entities(&p.input, live),
             ask_every_thread: self.cfg.threads.ask_every_thread,
         };
         decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
