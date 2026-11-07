@@ -33,9 +33,17 @@ pub struct RoutingConfig {
     /// How long the turn waits for the verdict after its first compile ends.
     #[serde(default = "max_wait_ms")]
     pub max_wait_ms: u64,
-    /// A switch of the session's profile at a compile of this many estimated
-    /// tokens or more waits for a second turn in a row that agrees: above
-    /// it, the cache a switch leaves cold costs more.
+    /// A switch of the session's profile waits for a second turn in a row that
+    /// agrees once the session carries this many tokens of its own context or
+    /// more: above it, the cache a switch leaves cold costs more.
+    ///
+    /// **The session's own context, not the request's size** (theseus-ataas):
+    /// the compile's estimate less the universal prefix — the tool definitions
+    /// and the header block, which every session of every place class carries
+    /// identically. They are there before a conversation starts and no
+    /// conversation adds to them, and counting them put an ordinary turn
+    /// within single tokens of this bound, where a few more characters of the
+    /// model-facing tools note decided which model answered.
     #[serde(default = "cold_switch_tokens")]
     pub cold_switch_tokens: u64,
     /// The owner's corrections of routing (theseus-q31l).

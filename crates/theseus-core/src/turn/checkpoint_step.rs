@@ -141,6 +141,9 @@ struct Active {
     brief: String,
     /// The last compile's estimate.
     est: u64,
+    /// The universal prefix of that compile, in tokens: what the cache hold
+    /// leaves out of `est` (`TurnRunner::fixed_prefix_tokens`, theseus-ataas).
+    fixed: u64,
     /// The effort evidence the text carries (theseus-ujzuh): the level the
     /// last loop ran at and where a checkpoint raised it, and the count of
     /// checkpoints asked and of those in a row that found the work failing.
@@ -277,6 +280,7 @@ impl TurnRunner {
             plan: Self::plan_of(t),
             brief,
             est: 0,
+            fixed: 0,
             evidence: cp::Evidence::default(),
         }))
     }
@@ -371,6 +375,7 @@ impl TurnRunner {
         a.loops
             .drain(..a.loops.len().saturating_sub(cp::LOOP_LINES));
         a.est = e.compiled.est_tokens;
+        a.fixed = self.fixed_prefix_tokens(&t.target.model, &e.compiled);
         a.note_effort(&e.compiled.request, e.index);
         let window = self.cfg.routing.task_checkpoints.min_loops_between;
         // A flight a window old is given up: its late answer is dropped.
@@ -618,8 +623,10 @@ impl TurnRunner {
     /// The rule's answer (`routing::decide`: Jev decides at each trigger, the
     /// owner: "I categorically disagree with caps"; the verdict's pick is where
     /// the task goes, up or down, and the cache hold is the one hysteresis),
-    /// the warm prefix on the held target taken off the estimate as
-    /// `decide_route` takes it (theseus-rr15). The labels are read as not
+    /// weighing the task's own context as `decide_route` weighs a session's —
+    /// the estimate less the universal prefix (theseus-ataas) — and, for a
+    /// switch that holds, the prefix library's warmth beyond it on the held
+    /// target (theseus-rr15). The labels are read as not
     /// clearing a restricted model, as this step has always asked
     /// (`cleared: false`; a brief's ask reads `floor().cn_ok`, theseus-7l8lr
     /// pass 2, F3).
@@ -631,30 +638,31 @@ impl TurnRunner {
         v: &Verdict,
     ) -> Decision {
         let profiles = self.route_profiles(t.route.floor());
-        let ask = |est_tokens| {
+        let ask = |context_tokens| {
             routing::decide(
                 &self.cfg.routing,
                 &profiles,
                 &Ask {
                     verdict: v,
                     base: &t.target.profile,
-                    est_tokens,
+                    context_tokens,
                     hold: a.hold.as_ref(),
                     images: t.route.images,
                     cleared: false,
                 },
             )
         };
-        let d = ask(a.est);
+        let context = a.est.saturating_sub(a.fixed);
+        let d = ask(context);
         let (Reason::CacheHold, HoldNext::Set(h)) = (d.reason, &d.hold) else {
             return d;
         };
         let warm = self
             .resolve_target(&t.target.profile, Some(&h.profile), None, None)
             .map_or(0, |to| self.warm_of(t, session, &to));
-        match warm {
+        match warm.saturating_sub(a.fixed) {
             0 => d,
-            w => ask(a.est.saturating_sub(w)),
+            beyond => ask(context.saturating_sub(beyond)),
         }
     }
 

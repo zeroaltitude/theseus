@@ -708,10 +708,11 @@ impl TurnRunner {
         (steering, verdict, reason): (&Option<Steering>, &Option<Verdict>, Option<Reason>),
         compiled: &Compiled,
     ) -> Result<Option<Decision>, Failure> {
-        let est_tokens = compiled.est_tokens;
+        let fixed = self.fixed_prefix_tokens(&t.target.model, compiled);
+        let context = compiled.est_tokens.saturating_sub(fixed);
         let decide = |t: &Turn<'_>| match (steering, verdict, reason) {
-            (Some(s), _, _) => Some(self.decide_steer(t, session, s, est_tokens)),
-            (None, Some(v), None) => Some(self.decide_route(t, session, v, est_tokens)),
+            (Some(s), _, _) => Some(self.decide_steer(t, session, s, context)),
+            (None, Some(v), None) => Some(self.decide_route(t, session, v, (context, fixed))),
             _ => None,
         };
         use super::data_step::Cn;
@@ -746,38 +747,62 @@ impl TurnRunner {
         self.data_floor(t, decision)
     }
 
+    /// What routing's cache hold leaves out of what it weighs (theseus-ataas):
+    /// the request's universal prefix, the tool definitions and the header
+    /// block, in tokens at the model's own figures. Every session of every
+    /// place class carries it identically, before a word is said and after a
+    /// thousand, so it is no measure of what a conversation has accumulated —
+    /// and weighing it put an ordinary turn within single tokens of
+    /// `cold_switch_tokens`, where eighteen characters of the model-facing
+    /// tools note decided which model answered.
+    ///
+    /// The looser of the model's two figures (bytes a token) converts it, so a
+    /// mixed prefix of tool JSON and header text is under-counted rather than
+    /// over-counted: the hold keeps a little of the prefix rather than none of
+    /// it.
+    pub(crate) fn fixed_prefix_tokens(&self, model: &str, compiled: &Compiled) -> u64 {
+        let bytes = compiled.cache.universal_prefix_bytes();
+        let rates = self
+            .catalog
+            .get(model)
+            .map_or_else(|| crate::catalog::TokenRates::of(model), |e| e.bytes_per_token);
+        (bytes as f64 / rates.json.max(rates.text).max(1.0)) as u64
+    }
+
     /// The switch rule over the usable profiles: Jev's pick, under the data
-    /// rule's floor and the cache hold.
+    /// rule's floor and the cache hold. `context` is the session's own, the
+    /// estimate less `fixed` ([`Self::fixed_prefix_tokens`]).
     fn decide_route(
         &self,
         t: &Turn<'_>,
         session: &SessionRecord,
         v: &Verdict,
-        est_tokens: u64,
+        (context, fixed): (u64, u64),
     ) -> Decision {
         if t.route.brief {
             return self.decide_brief(t, v);
         }
         let profiles = self.route_profiles(t.route.floor());
         let hold = session.routed.as_ref().and_then(|r| r.hold.clone());
-        let ask = |est_tokens| {
+        let ask = |context_tokens| {
             routing::decide(
                 &self.cfg.routing,
                 &profiles,
                 &routing::Ask {
                     verdict: v,
                     base: &t.target.profile,
-                    est_tokens,
+                    context_tokens,
                     hold: hold.as_ref(),
                     images: t.route.images,
                     cleared: t.route.floor().cn_ok,
                 },
             )
         };
-        let d = ask(est_tokens);
-        // A switch held back because its target would write the request cold:
-        // what the prefix library holds warm on that model is read, not
-        // written (theseus-rr15).
+        let d = ask(context);
+        // A switch held back because its target would write the session's own
+        // layers cold: what the prefix library holds warm on that model is
+        // read, not written (theseus-rr15). Only the warmth beyond the
+        // universal prefix counts, which `context` has already taken off.
         let (routing::Reason::CacheHold, routing::HoldNext::Set(h)) = (d.reason, &d.hold) else {
             return d;
         };
@@ -786,10 +811,10 @@ impl TurnRunner {
             .map_or(0, |to| {
                 self.warm_prefix_tokens(&to, session.kind, t.tc.session_id, t.tc.place())
             });
-        if warm == 0 {
-            return d;
+        match warm.saturating_sub(fixed) {
+            0 => d,
+            beyond => ask(context.saturating_sub(beyond)),
         }
-        ask(est_tokens.saturating_sub(warm))
     }
 
     /// The `route.decided` row, and what the turn's result says.

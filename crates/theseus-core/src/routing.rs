@@ -8,10 +8,13 @@
 //! - **Usable** (model providers have no breaker; only Jev has): configured,
 //!   its provider's key settled, its model priced in the catalog, and able to
 //!   read the turn's images (glm-5.3 is text only).
-//! - **A switch**: the session's routed profile moves, at once while the first
-//!   compile's estimate is under `cold_switch_tokens`, above it only when the
-//!   turn before agreed (a [`Hold`]): the switch recompiles, strips the prefix's
-//!   thinking, and leaves the cache cold.
+//! - **A switch**: the session's routed profile moves, at once while the
+//!   session's own context is under `cold_switch_tokens`, above it only when
+//!   the turn before agreed (a [`Hold`]): the switch recompiles, strips the
+//!   prefix's thinking, and leaves the cache cold. The session's own context is
+//!   the first compile's estimate **less the request's fixed prefix** — the
+//!   tools and the system blocks, there before the conversation and written
+//!   cold on whichever model answers ([`Ask::context_tokens`], theseus-ataas).
 //! - **A late verdict** (one that came after its message's wait) applies to
 //!   the session's next message alone.
 //! - **A task's brief** (theseus-ypnxt.7, `TurnRunner::decide_brief`): the verdict
@@ -249,8 +252,12 @@ pub struct Ask<'a> {
     pub verdict: &'a Verdict,
     /// The profile the turn runs on without routing: the session's.
     pub base: &'a str,
-    /// The first compile's estimate.
-    pub est_tokens: u64,
+    /// What the session has accumulated, in tokens: the first compile's
+    /// estimate less the fixed prefix every turn of every session carries
+    /// (`TurnRunner::context_tokens`, theseus-ataas). The cache hold weighs
+    /// this and never the estimate itself; [`model`]'s "the cache hold" says
+    /// why.
+    pub context_tokens: u64,
     pub hold: Option<&'a Hold>,
     pub images: bool,
     /// An open request can be built for this ask, so a restricted profile may
@@ -308,7 +315,7 @@ pub fn steer_to(
         return stay(Reason::Correction);
     }
     let agreed = a.hold.is_some_and(|h| h.profile == profile);
-    if at_once || a.est_tokens < cfg.cold_switch_tokens || agreed {
+    if at_once || a.context_tokens < cfg.cold_switch_tokens || agreed {
         return Decision {
             profile: profile.to_string(),
             reason: Reason::Correction,
@@ -380,7 +387,7 @@ mod tests {
         Ask {
             verdict: v,
             base,
-            est_tokens: est,
+            context_tokens: est,
             hold: None,
             images: false,
             cleared: false,

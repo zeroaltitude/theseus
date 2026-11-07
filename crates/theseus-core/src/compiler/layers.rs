@@ -51,6 +51,26 @@ pub struct CacheLayout {
     pub blocks: Vec<BlockBreakpoint>,
 }
 
+impl CacheLayout {
+    /// The bytes of the prefix every session of every place class carries the
+    /// same: the tool definitions and layer 1, the `header` (theseus-ataas).
+    /// It is there before a conversation starts and no conversation adds to
+    /// it, so routing's cache hold leaves it out of what it weighs
+    /// (`TurnRunner::fixed_prefix_tokens`). Layers 2 and 3 — the personas and
+    /// the project's context files — and the session's own block are not
+    /// here: those are the session's, and a switch does write them cold.
+    ///
+    /// 0 for a request with no header block at all (no system text), where
+    /// the tools' own bytes cannot be told from the next layer's: the hold
+    /// then weighs the whole estimate, as it did before.
+    pub fn universal_prefix_bytes(&self) -> u64 {
+        match self.blocks.first() {
+            Some(b) if b.block == HEADER => b.prefix_bytes,
+            _ => 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockBreakpoint {
     /// `header`, `persona`, `project` (the layers), or `session` (its
