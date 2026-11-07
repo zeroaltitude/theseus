@@ -1900,14 +1900,21 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     **The effort** (route.v10, theseus-h66v4, row 6 theseus-kn9or deleted the bounds, the high-effort gate, the routed
     profile's floor, `effort_fixed`'s clamp, the confidence bars and the `floored`, `gated`, `held_high*` and
     `applied_unsure` reasons; `[routing] high_effort_confidence`, `effort_bounds`, `effort_confidence` and
-    `effort_floor_confidence` load, warn once and do nothing): `reply_effort` rides the route pack's one request beside
-    the model; `routing/effort.rs::decide_open` decides, purely: Jev's level, when its answer reached the question's
-    confirm bar, is the effort, whatever the level (`applied`); `default`, or an answer under the bar, is the model's
-    own default effort (`model_default`); only for a model whose catalog row takes effort, else the answer is recorded
-    and the request carries none (`no_effort`); a pin, shadow, or a late (carried) verdict leave the profile's own.
+    `effort_floor_confidence` load, warn once and do nothing): `effort.v1` is asked in the same inbound batch as the
+    model (theseus-h66v4.6) and its answer is laid over the route verdict by `inbound::verdict_of`;
+    `routing/effort.rs::decide_open` decides, purely: Jev's level, when its answer reached the question's
+    confirm bar, is the effort, whatever the level (`applied`); an answer under the bar is **that pack's own
+    `no_match`, `high`, for every model** (reason word `no_match`; `effort::NO_MATCH`, held equal to the pack's by a
+    test), never the model's own default effort, which differs for Haiku, Opus and Flash — `effort.v1` has no
+    `default` option and the `model_default` reason word is gone (theseus-h66v4.6.1); only for a model whose catalog
+    row takes effort, else the answer is recorded and the request carries none (`no_effort`); a pin, shadow, or a
+    late (carried) verdict leave the profile's own.
     `apply_effort` sets it on the spec and the first compile's request (`compiler::output_config`), and takes that
     request's digest again, which the turn records and the overflow retry compares. `route.decided`'s `effort_*`
-    fields and `TurnRoute` say which. Tests: `tests_effort_open.rs`, `routing::effort::tests`.
+    fields and `TurnRoute` say which. Tests: `tests_effort_open.rs`, `routing::effort::tests`, and
+    `tests_route_open::an_effort_under_the_bar_is_the_packs_no_match_high_for_every_model` (one end-to-end case per
+    option model: the three that carry a top-level `output_config` and the two that take per-message effort).
+    `CatalogEntry::default_effort` is no longer read by any routing decision.
     **A turn's effort keeps the cache** (theseus-o719, `compiler/effort.rs`): a change of the top-level
     `output_config.effort` restarts the provider's cache of the messages (only tools and system stay: a 625k DM on
     Fable 5.1 wrote 612k again for one `low` turn). On a model that takes per-message effort (`effort::default_of`:

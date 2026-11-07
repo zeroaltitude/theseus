@@ -984,13 +984,20 @@ fn deepseek_rows(e: &mut BTreeMap<String, CatalogEntry>) {
     );
 }
 
-/// Each option model's own default effort (theseus-9f72b, design §1.4 step 5),
-/// what a turn runs at when Jev answers `default` or is under the confirm bar.
+/// Each option model's own default effort (theseus-9f72b, design §1.4 step 5):
+/// what the vendor runs the model at when a request carries no effort at all.
 /// The four Claude figures are each vendor's own model notes (the claude-api
 /// reference, cached 2026-10-06): Haiku 5.5 medium, Sonnet 5.5 high, Opus 5.5
 /// medium, Fable 5.1 high. Flash's low is an inference, `[I]` in the design:
 /// the cheapest forced think, as DeepSeek names no default. The older rows
 /// name none: no choice reaches them but a pin, and a pin sets its own effort.
+///
+/// **No routing decision reads this** (theseus-h66v4.6.1): it once named what
+/// a turn ran at when Jev answered `default` or fell under the confirm bar,
+/// and both are gone — `effort.v1` has no `default` option, and an under-bar
+/// answer runs that pack's `no_match`, `high`, for every model
+/// (`routing::effort::NO_MATCH`). The rows are kept as the published figures
+/// a reviewer compares a pack's `no_match` against.
 fn default_efforts(e: &mut BTreeMap<String, CatalogEntry>) {
     for (id, effort) in [
         ("claude-haiku-5-5", Effort::Medium),

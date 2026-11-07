@@ -253,15 +253,17 @@ async fn jev_names_opus_and_the_turn_runs_there_at_the_effort_it_named() {
 /// [`crate::compiler::effort::effective`] reads either. The haiku profile sets `effort = "low"`,
 /// and the other four profiles set none, so in every case `high` can only have come from the
 /// pack.
+/// Every case is run and then compared as one list, so a failure names every model that
+/// disagrees rather than only the first.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_effort_under_the_bar_is_the_packs_no_match_high_for_every_model() {
-    let mut ran = 0;
-    for (pick, model, own) in [
-        ("haiku", "claude-haiku-5-5", "low"),
-        ("sonnet", "claude-sonnet-5-5", "none"),
-        ("opus", "claude-opus-5-5", "none"),
-        ("fable", "claude-fable-5-1", "none"),
-        ("deepseek_flash", "deepseek-flash", "none"),
+    let mut got = Vec::new();
+    for (pick, model) in [
+        ("haiku", "claude-haiku-5-5"),
+        ("sonnet", "claude-sonnet-5-5"),
+        ("opus", "claude-opus-5-5"),
+        ("fable", "claude-fable-5-1"),
+        ("deepseek_flash", "deepseek-flash"),
     ] {
         let jev = FakeJev::start().unwrap();
         says_at(&jev, (pick, 0.95), ("high", 0.40));
@@ -278,18 +280,33 @@ async fn an_effort_under_the_bar_is_the_packs_no_match_high_for_every_model() {
             _ => o.r.claude.requests(),
         };
         assert_eq!(reqs[0].model, model, "{pick}: the model Jev named");
-        assert_eq!(
-            crate::compiler::effort::effective(&reqs[0]),
-            Some(crate::config::Effort::High),
-            "{pick}: the pack's `no_match`, not {model}'s own default effort \
-             and not the profile's own ({own})"
-        );
         let d = &decided(&o.r.core.store)[0];
-        assert_eq!(d["effort_reason"], "no_match", "{pick}");
-        assert_eq!(d["effort_ran"], "high", "{pick}");
-        ran += 1;
+        got.push((
+            pick,
+            crate::compiler::effort::effective(&reqs[0])
+                .map(|e| crate::routing::effort::name(e).to_string()),
+            d["effort_reason"].as_str().unwrap_or("-").to_string(),
+            d["effort_ran"].as_str().unwrap_or("-").to_string(),
+        ));
     }
-    assert_eq!(ran, 5, "every option model ran a case of its own");
+    let want: Vec<_> = ["haiku", "sonnet", "opus", "fable", "deepseek_flash"]
+        .into_iter()
+        .map(|pick| {
+            (
+                pick,
+                Some("high".to_string()),
+                "no_match".to_string(),
+                "high".to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(got.len(), 5, "every option model ran a case of its own");
+    assert_eq!(
+        got, want,
+        "the pack's `no_match` for every model, not the model's own default effort \
+         (Haiku medium, Opus medium, Flash low) and not the profile's own (haiku `low`, \
+         the other four none)"
+    );
 }
 
 /// A pick under the confirm bar routes nothing: the live profile runs, and the
