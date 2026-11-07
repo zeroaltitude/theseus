@@ -1423,6 +1423,96 @@ class DataRuleWatch(Case):
                 self.assertIn("keel: ok", out)
 
 
+GOLDEN = "crates/theseus-discord/src/golden/dm_flow.txt"
+GOLDEN_TEST = "crates/theseus-discord/src/tests_dm_flow_golden.rs"
+
+
+def load_guard():
+    spec = importlib.util.spec_from_file_location("keel_guard", GUARD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class LockedFlow(Case):
+    """`locked-flow` (theseus-s1hgd): the commit changes the owner-locked Discord DM task flow, its golden, and the
+    trailer quotes the owner's OK for that change. The rule gates on the golden: the word alone passes nothing."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({GOLDEN: "dm: started\ncost: $0.0577\n"}, "the locked golden")
+        self.repo.git("checkout", "-q", "-B", "lane")
+
+    def test_an_edit_to_the_golden_is_a_finding(self):
+        self.assertCaught("locked-flow", GOLDEN, {GOLDEN: "dm: started\ncost: $0.0579\n"})
+
+    def test_the_golden_deleted_is_a_finding(self):
+        self.assertCaught("locked-flow", GOLDEN, {GOLDEN: None})
+
+    def test_any_golden_in_the_directory_is_held_not_a_listed_one(self):
+        other = "crates/theseus-discord/src/golden/board.txt"
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({other: "board\n"}, "a second golden")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.assertCaught("locked-flow", other, {other: "board, moved\n"})
+
+    def test_a_golden_added_changes_nothing_locked(self):
+        self.assertClean({"crates/theseus-discord/src/golden/new_flow.txt": "a new flow\n"})
+
+    def test_an_unchanged_golden_and_other_files_are_clean(self):
+        self.assertClean({"crates/theseus-discord/src/lib.rs": "// not the golden\n"})
+
+    def test_the_report_tells_the_trailer_to_write(self):
+        self.head({GOLDEN: "dm: started\ncost: $0.0579\n"})
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"Keel: locked-flow {GOLDEN} — <why>", out)
+
+    def test_the_test_that_reads_the_golden_names_a_held_one(self):
+        guard = load_guard()
+        root = Path(GUARD).resolve().parent.parent
+        src = (root / GOLDEN_TEST).read_text()
+        named = re.findall(r'src/(golden/[\w./-]+\.txt)"', src)
+        self.assertTrue(named, f"{GOLDEN_TEST} names no golden file: this check reads nothing")
+        for name in named:
+            path = "crates/theseus-discord/src/" + name
+            self.assertTrue(guard.locked_flow_path(path), f"{path} is the DM golden and nothing holds it")
+            self.assertTrue((root / path).is_file(), f"{path} does not exist")
+
+
+class Vocabulary(unittest.TestCase):
+    """The rule vocabulary is no hand-kept list that can drift (theseus-s1hgd): what the guard emits, what it accepts in
+    an ack, and what its docs name are one set, held by a check rather than by care."""
+
+    ROOT = Path(GUARD).resolve().parent.parent
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_guard()
+        cls.src = GUARD.read_text()
+        cls.rules = set(cls.mod.RULES)
+
+    def test_every_rule_the_guard_emits_is_one_an_ack_can_name(self):
+        emitted = set(re.findall(r'Finding\(\s*"([\w-]+)"', self.src)) | set(re.findall(r'rule="([\w-]+)"', self.src))
+        self.assertTrue(emitted, "this check read no emitted rule")
+        self.assertEqual(emitted - self.rules, set(), "the guard emits a rule no ack can name")
+
+    def test_every_rule_an_ack_can_name_is_emitted_somewhere(self):
+        body = self.src.split("RULES = (", 1)[1].split(")", 1)[1]
+        for rule in self.rules:
+            with self.subTest(rule=rule):
+                self.assertRegex(body, rf'"{rule}"', f"`{rule}` is accepted in an ack and the guard never raises it")
+
+    def test_every_rule_is_in_the_guard_s_own_docs_and_the_development_guide(self):
+        doc = self.mod.__doc__.split("The rules, by the name", 1)[1].split("Exit status", 1)[0]
+        guide = (self.ROOT / "docs/development.md").read_text()
+        for rule in self.rules:
+            with self.subTest(rule=rule):
+                self.assertRegex(doc, rf"(?m)^  {rule}\s", f"`{rule}` is not described in the guard's docstring")
+                self.assertIn(f"`{rule}`", guide, f"`{rule}` is not in docs/development.md's table")
+
+
 def gpg_key(home, name):
     subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", f"{name} <{name}@example.invalid>",
                     "ed25519", "sign", "never"], env={**os.environ, "GNUPGHOME": home}, check=True,
@@ -1495,6 +1585,40 @@ class Acks(unittest.TestCase):
                              "Keel: ceiling-raised scripts/shape.sh — wrong path\n", sign=self.listed)
         code, out = self.repo.guard()
         self.assertEqual(code, 1, out)
+
+    def test_a_signed_locked_flow_ack_passes_the_golden_and_nothing_else(self):
+        golden = "crates/theseus-discord/src/golden/dm_flow.txt"
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({golden: "dm: started\ncost: $0.0577\n"}, "the locked golden")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({golden: "dm: started\ncost: $0.0579\n"}, "move the cost\n\n"
+                         f"Keel: locked-flow {golden} — the owner's \"Yes to all\"\n"
+                         "Keel: ceiling-raised scripts/long-files.txt — x\n", sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"keel: acked: {golden}:2: locked-flow", out)
+        self.assertNotIn("is not a rule", out)
+
+    def test_a_locked_flow_ack_does_not_pass_another_rule_or_another_path(self):
+        golden = "crates/theseus-discord/src/golden/dm_flow.txt"
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({golden: "dm: started\n"}, "the locked golden")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({golden: "dm: started, reworded\n"}, "reword\n\n"
+                         "Keel: assert-weakened " + golden + " — the old stand-in, not a rule for this\n"
+                         "Keel: locked-flow crates/theseus-discord/src/golden/other.txt — wrong path\n"
+                         "Keel: ceiling-raised scripts/long-files.txt — x\n", sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, rf"{golden}:\d+: locked-flow: ")
+
+    def test_a_locked_flow_ack_with_no_golden_change_is_harmless_and_unsigned_is_refused(self):
+        self.repo.commit({}, "word\n\nKeel: locked-flow crates/theseus-discord/src/golden/dm_flow.txt — x\n"
+                         + self.ACK.split("\n\n", 1)[1])
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("unsigned", out)
+        self.assertNotIn("is not a rule", out)
 
     def test_an_ack_with_no_such_rule_is_refused(self):
         self.repo.commit({"crates/theseus-sim/src/lifecycle.rs": sub(LIFECYCLE, "_ => 0.0", "_ => 1.0")},
