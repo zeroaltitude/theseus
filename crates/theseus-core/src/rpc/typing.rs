@@ -114,8 +114,16 @@ impl Core {
             Ok(w) => ("opened".to_string(), w.took),
             Err(why) => (format!("failed: {why}"), std::time::Duration::ZERO),
         };
-        let tag = if outcome.starts_with("failed") {
-            "failed"
+        let tag = if let Some(why) = outcome.strip_prefix("failed: ") {
+            // The data gate's refusal reaches here only as a string
+            // (`WarmFuture` is `Result<Warmed, String>`), so it is known by
+            // its words; `telemetry::tests_warm` drives a real refusal and
+            // fails if they change.
+            if why.contains("is of restricted origin") {
+                "refused"
+            } else {
+                "failed"
+            }
         } else {
             outcome.as_str()
         };
