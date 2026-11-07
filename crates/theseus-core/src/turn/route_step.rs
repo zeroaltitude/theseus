@@ -762,10 +762,10 @@ impl TurnRunner {
     /// it.
     pub(crate) fn fixed_prefix_tokens(&self, model: &str, compiled: &Compiled) -> u64 {
         let bytes = compiled.cache.universal_prefix_bytes();
-        let rates = self
-            .catalog
-            .get(model)
-            .map_or_else(|| crate::catalog::TokenRates::of(model), |e| e.bytes_per_token);
+        let rates = self.catalog.get(model).map_or_else(
+            || crate::catalog::TokenRates::of(model),
+            |e| e.bytes_per_token,
+        );
         (bytes as f64 / rates.json.max(rates.text).max(1.0)) as u64
     }
 

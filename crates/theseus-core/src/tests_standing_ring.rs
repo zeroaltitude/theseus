@@ -25,10 +25,16 @@ use crate::{Config, Core};
 /// is actually about.
 ///
 /// So the suite measures one request of its own on a window nothing can reach,
-/// and gives the real window that much plus [`HEADROOM`]. Three or four of
-/// these turns then fill the ring whatever the prompt weighs, and growing the
-/// prompt moves the window with it.
-const HEADROOM: u64 = 20_000;
+/// and gives the real window that much plus this. A few of these turns then
+/// fill the ring whatever the prompt weighs, and growing the prompt moves the
+/// window with it.
+///
+/// Unlike the window it replaces, the band here is open at the top: a sweep on
+/// the M1 Max at one request = 27,585 tokens had 21,000 fail and 22,000,
+/// 24,000, 27,000, 30,000, 35,000, 40,000 and 50,000 all hold, because a wider
+/// window only means more turns before the ring fills and forty are allowed.
+/// 30,000 sits 8,500 clear of the one edge there is.
+const HEADROOM: u64 = 30_000;
 
 /// The tokens each turn's message is built to cost.
 const TURN_TOKENS: usize = 6_000;
