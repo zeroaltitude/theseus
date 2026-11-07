@@ -177,13 +177,19 @@ mod tests {
                 choice: "sonnet".into(),
                 confidence: 0.9,
                 sure: true,
+                no_match: Some("sonnet".into()),
             })),
             work: None,
+            // The cue reads only a sure answer, so `split.v1`'s declared
+            // default does not reach it: theseus-ig13o builds the mechanism
+            // and converts `model`, `effort` and `course`, and leaves this
+            // site named rather than quietly changed.
             split: split.map(|(c, sure)| {
                 Box::new(crate::routing::Pick {
                     choice: c.into(),
                     confidence: 0.9,
                     sure,
+                    no_match: None,
                 })
             }),
         }

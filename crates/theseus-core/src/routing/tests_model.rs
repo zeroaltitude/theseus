@@ -35,11 +35,28 @@ fn five_options() -> Profiles {
     .collect()
 }
 
+/// route.v10's own declared default for its `model` question, read out of the
+/// pack. Every pick this file builds carries it, as a live one does.
+fn declared() -> String {
+    theseus_judge::pack::by_name("route.v10")
+        .expect("route.v10 is embedded")
+        .question("model")
+        .expect("route.v10 asks `model`")
+        .no_match
+        .clone()
+        .expect("route.v10 declares a no_match")
+}
+
 fn pick(choice: &str, confidence: f64, sure: bool) -> Box<Pick> {
+    carrying(choice, confidence, sure, Some(declared()))
+}
+
+fn carrying(choice: &str, confidence: f64, sure: bool, no_match: Option<String>) -> Box<Pick> {
     Box::new(Pick {
         choice: choice.into(),
         confidence,
         sure,
+        no_match,
     })
 }
 
@@ -133,6 +150,14 @@ fn a_pick_at_the_base_stays_and_clears_a_hold() {
     assert_eq!(got.hold, HoldNext::Clear);
 }
 
+/// A pick under the `model` question's bar stays on the turn's own profile and
+/// says `unsure`.
+///
+/// **The pack says otherwise, and the two are knowingly apart**
+/// (theseus-ig13o). route.v10's `model` question declares
+/// `no_match = "sonnet"` and the replay grades an under-bar answer as
+/// `sonnet`; this path runs neither. See
+/// `the_model_question_declares_a_default_the_live_path_does_not_run`.
 #[test]
 fn a_pick_under_the_bar_stays_and_says_unsure() {
     let v = Verdict {
@@ -144,6 +169,54 @@ fn a_pick_under_the_bar_stays_and_says_unsure() {
         (got.profile.as_str(), got.reason, got.switch),
         ("sonnet", Reason::Unsure, false)
     );
+}
+
+/// **The divergence, pinned** (theseus-ig13o). The `model` question declares a
+/// default, the answer carries it, `Pick::ran` says what it would run — and
+/// `decide` runs none of it, standing on the turn's own profile instead. Three
+/// facts in one test, because each alone is misleading:
+///
+/// 1. the pack declares `sonnet`, and the answer carries it off the pack, so
+///    the value is genuinely in hand on the live path;
+/// 2. `Pick::ran` applies it, so honouring it is one line in `decide`;
+/// 3. `decide` does not, for any declared value — a planted `haiku` changes
+///    nothing — so this is not a value that happens to agree, it is a value
+///    that is not read.
+///
+/// Running it moves twelve tests, two of which are named rules in the opposite
+/// direction (`tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`
+/// and `tests_data_open::a_judged_clean_session_runs_on_the_restricted_model`),
+/// so which of the pack and the daemon is wrong is the owner's call. This test
+/// exists so that the day it is decided, closing the gap is a deliberate edit
+/// here and not a silent one.
+#[test]
+fn the_model_question_declares_a_default_the_live_path_does_not_run() {
+    // 1. Declared, and carried onto the answer by the ask.
+    assert_eq!(declared(), "sonnet");
+    let carried = theseus_judge::pack::by_name("route.v10")
+        .expect("route.v10")
+        .ask(&theseus_judge::pack::Dynamic::default())
+        .iter()
+        .find(|a| a.def == "model")
+        .and_then(|a| a.no_match.clone());
+    assert_eq!(carried.as_deref(), Some("sonnet"));
+    // 2. `ran` applies it.
+    let under = carrying("opus", 0.45, false, carried);
+    assert_eq!(under.ran(), Some("sonnet"));
+    assert_eq!(pick("opus", 0.95, true).ran(), Some("opus"));
+    // 3. `decide` does not, for the declared value or for a planted one.
+    for planted in [Some("sonnet"), Some("haiku"), None] {
+        let v = Verdict {
+            model: Some(carrying("opus", 0.45, false, planted.map(str::to_string))),
+            ..open("opus")
+        };
+        let got = d(&v, "haiku", 1_000);
+        assert_eq!(
+            (got.profile.as_str(), got.reason, got.switch),
+            ("haiku", Reason::Unsure, false),
+            "declared {planted:?}: the turn's own profile, whatever the pack says"
+        );
+    }
 }
 
 #[test]

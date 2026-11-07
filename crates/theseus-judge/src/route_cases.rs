@@ -599,8 +599,14 @@ fn agrees_close(q: &str, want: &str, got: &str) -> (bool, bool) {
 /// option stands when its band reached the question's `confirm` bar, and
 /// otherwise the answer is the question's `no_match`. Both come from the
 /// pack replayed, through the band function the daemon's own judgments use.
+///
+/// Since theseus-ig13o `got` is literally [`AnswerRecord::ran`], the one place
+/// a declared default is read, over the answer rebanded onto the replayed
+/// pack. The grade and the daemon's act cannot part again, because the grade
+/// calls what the daemon calls.
 fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
-    let top = j.and_then(|j| j.answer(q)).and_then(|a| match &a.answer {
+    let answer = j.and_then(|j| j.answer(q));
+    let top = answer.and_then(|a| match &a.answer {
         Answer::Choice {
             choice, confidence, ..
         } => Some((choice.clone(), *confidence)),
@@ -613,10 +619,10 @@ fn check(want: &str, j: Option<&Judgment>, pack: &Pack, q: &str) -> Check {
     let sub_confirm = answered
         && no_match.is_some()
         && def.is_some_and(|d| confidence_band(confidence, d.thresholds) == Band::Escalate);
-    let got = match (&no_match, sub_confirm) {
-        (Some(no_match), true) => no_match.clone(),
-        _ => raw.clone(),
-    };
+    let got = answer
+        .map(|a| crate::replay::reband(std::slice::from_ref(a), pack))
+        .and_then(|onto| onto.first().and_then(|a| a.ran().map(str::to_string)))
+        .unwrap_or_else(|| raw.clone());
     let (agrees, close) = agrees_close(q, want, &got);
     let (raw_agrees, raw_close) = agrees_close(q, want, &raw);
     Check {

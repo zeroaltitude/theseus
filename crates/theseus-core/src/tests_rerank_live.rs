@@ -508,6 +508,7 @@ pub(crate) fn answered(point: &DecisionPoint, p: impl Fn(usize) -> f64) -> Vec<J
                 def: a.def.clone(),
                 about: a.about.clone(),
                 band: theseus_judge::band::band(&answer, a.thresholds),
+                no_match: a.no_match.clone(),
                 answer,
             }
         })

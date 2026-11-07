@@ -203,21 +203,6 @@ impl Course {
     }
 }
 
-/// What `delay.v1`'s `course` answer runs when it is under its confirm bar:
-/// the pack's own `no_match`.
-///
-/// **One value in two places, the pack and here, because nothing on the live
-/// path reads a pack's declared `no_match`** - `effort.v1` is the only pack
-/// whose declared default is honoured, and it is honoured by exactly this
-/// hand-copied-constant idiom (`routing/effort.rs:143`, theseus-h66v4.6.1);
-/// its sibling `route.v10` declares one and the live path ignores it. So a
-/// declared default here would be silently dropped without this constant, and
-/// `the_daemons_no_match_is_the_packs` holds the two equal.
-///
-/// It is `keep_going` because under the bar nothing is known, and the owner's
-/// rule under uncertainty is long work over stopped work.
-pub const NO_MATCH: Course = Course::KeepGoing;
-
 /// Reconsiderations of **one delay kind on one execution**, past which that
 /// kind's own last course repeats unasked. Six decisions at the default
 /// five-minute spacing covers a half-hour delay; past that the system has
@@ -268,8 +253,9 @@ pub fn pre_check(d: &Delay, burn: (u64, u64)) -> PreCheck {
 }
 
 /// The course `delay.v1`'s answers mean, mapping the owner's clauses one for
-/// one. `None` from the `course` answer is an answer under its confirm bar,
-/// which takes [`NO_MATCH`].
+/// one. `v.course` is already what the answer ran - Jev's option at or above
+/// the bar, else the `course` question's own declared `no_match`, read from
+/// the pack (theseus-ig13o) rather than from a constant in this file.
 pub fn course_of(v: &DelayVerdict) -> Course {
     // "if yes and yes, keep going"
     let worth = v.worth_it >= 0.5;
@@ -289,10 +275,11 @@ pub fn course_of(v: &DelayVerdict) -> Course {
         Some("change_approach") => Course::ChangeApproach,
         Some("narrow_scope") => Course::NarrowScope,
         Some("stop_and_report") => Course::Stop(StopWhy::Adviser),
-        // Under the bar, or an option the build does not know: the pack's
-        // own no-match, applied from `NO_MATCH` because the live path reads
-        // no pack's declared one.
-        _ => NO_MATCH,
+        // An option this build does not implement, or a question that declares
+        // no default at all. This is the daemon's own answer to an id it
+        // cannot act on, not a copy of anything the pack declares: under
+        // uncertainty the owner's rule is long work over stopped work.
+        _ => Course::KeepGoing,
     }
 }
 
@@ -719,23 +706,17 @@ mod tests {
     }
 
     /// An answer under the `course` question's confirm bar takes the pack's
-    /// own no-match, which is `keep_going`: under uncertainty the owner's
-    /// rule is long work over stopped work.
+    /// own declared no-match and never stops. The default is not written here:
+    /// the verdict carries what the pack declared (theseus-ig13o), and this
+    /// reads it out of the pack to say what that is.
     #[test]
     fn an_answer_under_the_bar_takes_the_packs_no_match_and_never_stops() {
-        assert_eq!(course_of(&verdict(0.9, 0.1, None)), NO_MATCH);
-        assert_eq!(NO_MATCH, Course::KeepGoing);
-        assert!(!NO_MATCH.stops());
-    }
-
-    /// `NO_MATCH` is the pack's declared `no_match`. Nothing on the live path
-    /// reads a pack's declared default (theseus-h66v4.6.1), so these two are
-    /// one value in two places and this test is what keeps them equal.
-    #[test]
-    fn the_daemons_no_match_is_the_packs() {
         let pack = theseus_judge::pack::by_name("delay.v1").unwrap();
-        let want = pack.question("course").unwrap().no_match.clone().unwrap();
-        assert_eq!(NO_MATCH.as_str(), want);
+        let declared = pack.question("course").unwrap().no_match.clone().unwrap();
+        assert_eq!(declared, "keep_going");
+        let ran = course_of(&verdict(0.9, 0.1, Some(&declared)));
+        assert_eq!(ran.as_str(), declared);
+        assert!(!ran.stops());
     }
 
     /// **The two admission doors are two kinds, not one.** Per-kind keying

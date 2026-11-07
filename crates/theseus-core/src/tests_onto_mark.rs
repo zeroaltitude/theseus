@@ -25,6 +25,7 @@ fn record(question: &str, answer: Answer) -> AnswerRecord {
         def: question.into(),
         about: None,
         band: band(&answer, T),
+        no_match: None,
         answer,
     }
 }

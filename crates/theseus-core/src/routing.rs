@@ -163,12 +163,36 @@ pub struct Verdict {
 /// One of the route family's choice answers (`model`, `work`, `split`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pick {
-    /// The option Jev chose.
+    /// The option Jev chose. Kept raw whatever its band: a row that says what
+    /// Jev picked has to say what Jev picked.
     pub choice: String,
     pub confidence: f64,
     /// Its band reached the question's `confirm` bar (act or confirm): what
     /// the pack's own bar calls an answer to act on.
     pub sure: bool,
+    /// The question's own declared `no_match`, carried from the pack that was
+    /// asked (`theseus_judge::AnswerRecord::ran`, theseus-ig13o).
+    ///
+    /// **`model::decide` does not read it, by a decision this row did not
+    /// make.** route.v10's `model` question declares `sonnet` and the live
+    /// path stands on the turn's own profile instead, `unsure`
+    /// (`routing::tests_model::the_model_question_declares_a_default_the_live_path_does_not_run`
+    /// pins the divergence, and `model.rs`'s header says what running it would
+    /// cost). It is here so that the value is in hand the day that is decided,
+    /// and because the effort and course paths next door do read theirs.
+    pub no_match: Option<String>,
+}
+
+impl Pick {
+    /// What this answer would run if its site read declared defaults: Jev's
+    /// own option at or above the bar, else the question's declared default.
+    /// `None` under the bar with no declared default.
+    pub fn ran(&self) -> Option<&str> {
+        match self.sure {
+            true => Some(self.choice.as_str()),
+            false => self.no_match.as_deref(),
+        }
+    }
 }
 
 /// One configured profile, as routing weighs it.

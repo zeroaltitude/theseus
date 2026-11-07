@@ -527,6 +527,7 @@ fn judged(case: &crate::route_cases::Case, answers: &[(&str, &str, f64)]) -> Jud
                 def: (*q).into(),
                 about: None,
                 band: band(&answer, T),
+                no_match: None,
                 answer,
             }
         })

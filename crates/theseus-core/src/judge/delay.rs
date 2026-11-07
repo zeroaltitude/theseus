@@ -38,10 +38,14 @@ pub struct DelayVerdict {
     pub worth_it: f64,
     /// Jev's probability that it is still moving.
     pub progressing: f64,
-    /// The chosen course's id, or `None` when the `course` answer was under
-    /// its confirm bar. The caller applies its own `NO_MATCH` for `None`:
-    /// nothing on the live path reads a pack's declared `no_match`
-    /// (theseus-h66v4.6.1), so a declared default would be silently ignored.
+    /// The course that ran: the option Jev chose when its band reached the
+    /// `course` question's confirm bar, else that question's own declared
+    /// `no_match`, read from the pack that was asked
+    /// (`theseus_judge::AnswerRecord::ran`, theseus-ig13o). It was the
+    /// caller's own hand-copied `NO_MATCH` constant until then, because
+    /// nothing on the live path read a declared default. `None` only where the
+    /// question declares none, which no pack of ours does
+    /// (`every_choice_question_declares_a_no_match`).
     pub course: Option<String>,
     /// The pack's band says the course may be acted on, from the pinned
     /// model, in a mode that acts.
@@ -58,18 +62,17 @@ impl DelayVerdict {
         else {
             return None;
         };
-        let Answer::Choice { choice, .. } = &course.answer else {
+        if !matches!(course.answer, Answer::Choice { .. }) {
             return None;
-        };
-        // The confirm band, as `recall_cross.v1` reads its Noul: under the bar
-        // the course is unknown and the caller's own default stands. A
+        }
+        // `ran` reads the confirm band, as `recall_cross.v1` reads its Noul:
+        // under the bar the course is the question's own declared default. A
         // conservative band here can only make the system less willing to
         // stop, which is the direction the owner's rule points.
-        let sure = course.band.band != theseus_judge::band::Band::Escalate;
         Some(Self {
             worth_it: *worth_it,
             progressing: *progressing,
-            course: sure.then(|| choice.clone()),
+            course: course.ran().map(str::to_string),
             acts: j.actionable() && j.mode != Mode::Shadow,
         })
     }
@@ -186,5 +189,78 @@ async fn judge_one(
         };
         let spent = j.cost_micros.unwrap_or(if unknown { need } else { 0 });
         svc.budget.settle(&today, need, spent, called, failed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A judgment of `delay.v1` with one `course` answer at `confidence`,
+    /// carrying `no_match` as a live answer carries its question's declared
+    /// default.
+    fn judged(confidence: f64, no_match: Option<&str>) -> Judgment {
+        let pack = theseus_judge::pack::by_name(PACK).expect("delay.v1 is embedded");
+        let thresholds = pack.question("course").unwrap().thresholds;
+        let one = |id: &str, answer: Answer| theseus_judge::judge::AnswerRecord {
+            question: id.into(),
+            def: id.into(),
+            about: None,
+            band: theseus_judge::band::band(&answer, thresholds),
+            no_match: no_match.map(str::to_string),
+            answer,
+        };
+        let answers = vec![
+            one("worth_it", Answer::Noul { noul: 0.9 }),
+            one("progressing", Answer::Noul { noul: 0.1 }),
+            one(
+                "course",
+                Answer::Choice {
+                    choice: "stop_and_report".into(),
+                    probabilities: vec![("stop_and_report".to_string(), confidence)],
+                    confidence,
+                },
+            ),
+        ];
+        serde_json::from_value(json!({
+            "id": "jdg_delay", "pack": PACK, "version": 1, "pack_sha256": "00",
+            "point": "delay", "mode": "live", "model": "jev-1.13.0",
+            "answered_by": "jev-1.13.0", "model_drift": false,
+            "state": {"sha256": "00", "bytes": 10, "tokens": 3, "cap_tokens": 2500,
+                "builder": "delay", "builder_version": 1, "truncated": [], "dropped": []},
+            "questions": answers.len(), "answers": answers, "call": null,
+            "timing": {"queued_ms": 0, "http_ms": 9, "total_ms": 9},
+            "usage": null, "cost_micros": 1, "reserve_micros": 1,
+            "outcome": {"outcome": "answered"}, "circuit": null, "rate_limit": {},
+            "context": {},
+        }))
+        .unwrap()
+    }
+
+    /// The verdict's `course` is what the answer ran: Jev's own option at or
+    /// above the bar, and the `course` question's own declared `no_match`
+    /// under it (theseus-ig13o). A planted default that is not `keep_going`
+    /// proves the value comes from the pack and not from a constant in
+    /// `turn::delay_step`, which is where it used to come from.
+    #[test]
+    fn the_verdict_takes_the_courses_declared_default_under_the_bar() {
+        let declared = theseus_judge::pack::by_name(PACK)
+            .unwrap()
+            .question("course")
+            .unwrap()
+            .no_match
+            .clone()
+            .unwrap();
+        assert_eq!(declared, "keep_going");
+        let sure = DelayVerdict::of(&judged(0.95, Some(&declared))).expect("a verdict");
+        assert_eq!(sure.course.as_deref(), Some("stop_and_report"));
+        let under = DelayVerdict::of(&judged(0.30, Some(&declared))).expect("a verdict");
+        assert_eq!(under.course.as_deref(), Some("keep_going"));
+        // The planted one, to show the pack is what is read.
+        let planted = DelayVerdict::of(&judged(0.30, Some("narrow_scope"))).expect("a verdict");
+        assert_eq!(planted.course.as_deref(), Some("narrow_scope"));
+        // A question that declares none leaves nothing to run.
+        let bare = DelayVerdict::of(&judged(0.30, None)).expect("a verdict");
+        assert_eq!(bare.course, None);
     }
 }

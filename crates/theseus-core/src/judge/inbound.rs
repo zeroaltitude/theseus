@@ -990,28 +990,33 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
     if !j.actionable() {
         return None;
     }
+    // Jev's raw option, its confidence, its band, and the `no_match` its own
+    // question declared, which the answer record carries from the pack that
+    // was asked (theseus-ig13o): what runs under the bar is never a constant
+    // in this crate.
     let choice = |q: &str| {
         let a = j.answer(q)?;
         match &a.answer {
             theseus_judge::Answer::Choice {
                 choice, confidence, ..
-            } => Some((choice.clone(), *confidence, a.band.band)),
+            } => Some((choice.clone(), *confidence, a.band.band, a.no_match.clone())),
             _ => None,
         }
     };
     let sure = |band| band != theseus_judge::band::Band::Escalate;
     let pick = |q: &str| {
-        choice(q).map(|(choice, confidence, band)| {
+        choice(q).map(|(choice, confidence, band, no_match)| {
             Box::new(crate::routing::Pick {
                 choice,
                 confidence,
                 sure: sure(band),
+                no_match,
             })
         })
     };
     let model = pick("model");
     let (mode, confidence) = match (choice("mode"), &model) {
-        (Some((mode, confidence, _)), _) => (mode, confidence),
+        (Some((mode, confidence, ..)), _) => (mode, confidence),
         (None, Some(m)) => (m.choice.clone(), m.confidence),
         // A pinned turn asks no `model` and no `mode`; its persona, seal and personal answers
         // are still its own, and `model::decide` answers `NoVerdict` for a verdict with no model.
@@ -1021,10 +1026,11 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
     // laid over by `verdict_of`. route.v8's `reply_effort` is read here, as it always was.
     let effort = match model.is_some() {
         true => None,
-        false => choice(QUESTION).map(|(level, confidence, band)| EffortAnswer {
+        false => choice(QUESTION).map(|(level, confidence, band, no_match)| EffortAnswer {
             level,
             confidence,
             sure: sure(band),
+            no_match,
         }),
     };
     Some(crate::routing::Verdict {
@@ -1035,13 +1041,18 @@ pub fn verdict(j: &theseus_judge::Judgment, turn: &str) -> Option<crate::routing
         turn: turn.to_string(),
         persona: crate::engage::persona_answer(j).map(Box::new),
         seal: crate::engage::seal_answer(j).map(Box::new),
-        personal: choice(crate::routing::personal::QUESTION).map(|(choice, confidence, band)| {
-            Box::new(crate::routing::PersonalAnswer {
-                choice,
-                confidence,
-                band,
-            })
-        }),
+        // `personal` warns and never routes, and it acts only on a sure
+        // answer, so its declared default does not reach it: theseus-ig13o
+        // leaves that site named rather than quietly changed.
+        personal: choice(crate::routing::personal::QUESTION).map(
+            |(choice, confidence, band, _declared)| {
+                Box::new(crate::routing::PersonalAnswer {
+                    choice,
+                    confidence,
+                    band,
+                })
+            },
+        ),
         model,
         // The task type and the split are laid over by `verdict_of`, from their own judgments.
         work: None,
@@ -1075,27 +1086,29 @@ pub fn verdict_of(
         match &a.answer {
             theseus_judge::Answer::Choice {
                 choice, confidence, ..
-            } => Some((choice.clone(), *confidence, a.band.band)),
+            } => Some((choice.clone(), *confidence, a.band.band, a.no_match.clone())),
             _ => None,
         }
     };
-    if let Some((level, confidence, band)) =
+    if let Some((level, confidence, band, no_match)) =
         named(EFFORT_PACK).and_then(|j| choice(j, crate::routing::effort::OPEN_QUESTION))
     {
         v.effort = Some(crate::routing::effort::EffortAnswer {
             level,
             confidence,
             sure: sure(band),
+            no_match,
         });
     }
     let pick = |pack: &str, q: &str| {
         named(pack)
             .and_then(|j| choice(j, q))
-            .map(|(choice, confidence, band)| {
+            .map(|(choice, confidence, band, no_match)| {
                 Box::new(crate::routing::Pick {
                     choice,
                     confidence,
                     sure: sure(band),
+                    no_match,
                 })
             })
     };

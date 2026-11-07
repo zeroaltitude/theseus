@@ -5,9 +5,10 @@
 # signal the daemon could read, with whether it moved. Every number is computed
 # by the builder and stated as a field: Jev is never asked to count or to
 # measure. Two Nouls and one Choice. Under the Choice's confirm bar the course
-# is `keep_going` (the owner, 2026-10-25: long work over stopped work), which
-# the daemon applies from its own constant - the live path reads no pack's
-# `no_match` - and a test holds the two equal.
+# is this file's own `no_match`, `keep_going` (the owner, 2026-10-25: long work
+# over stopped work), and the daemon reads it from here (theseus-ig13o). It
+# applied a hand-copied constant until then, because nothing on the live path
+# read a declared default at all.
 id = "delay"
 version = 1
 jev_model = "jev-1.13.0"
