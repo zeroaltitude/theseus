@@ -232,7 +232,7 @@ impl Counted {
             .chain(tokens)
             .map(|(phase, p95, budget)| Verdict {
                 phase,
-                p95,
+                measured: p95,
                 budget,
                 margin: 0.0,
                 ok: p95 <= budget,
