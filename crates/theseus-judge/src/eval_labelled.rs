@@ -22,15 +22,17 @@ const FAMILIES_V1: &str = include_str!("../fixtures/eval/families.v1.json");
 const CONTENT_V1: &str = include_str!("../fixtures/eval/content.v1.json");
 const CONTENT_V2: &str = include_str!("../fixtures/eval/content.v2.json");
 const CONTENT_V3: &str = include_str!("../fixtures/eval/content.v3.json");
+const UNDO_V1: &str = include_str!("../fixtures/eval/undo.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 6] = [
+pub const PACKS: [&str; 7] = [
     "classify.v4",
     "recall_cross.v1",
     "families.v1",
     "content.v1",
     "content.v2",
     "content.v3",
+    "undo.v1",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -54,9 +56,19 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "content.v1" => CONTENT_V1,
         "content.v2" => CONTENT_V2,
         "content.v3" => CONTENT_V3,
+        "undo.v1" => UNDO_V1,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
+}
+
+/// The bar a labelled set is measured against: 80% of its own cases, rounded up
+/// (the owner, 2026-10-30 16:01, "the bars should all be set to about 80% of the
+/// total cases"). A ratio with an explicit rounding rule, never an integer
+/// written down: a fixed integer is how the release smoke came to gate on a
+/// retired count (theseus-h66v4.4).
+pub fn bar_need(of: usize) -> usize {
+    (of * 4).div_ceil(5)
 }
 
 #[cfg(test)]
@@ -357,5 +369,163 @@ mod tests {
                 .is_some_and(|m| m.starts_with("Security view:"))
                 && c.expect.get("thread").map(String::as_str) == Some("pr-round")
         }));
+    }
+
+    /// `undo.v1`'s set (theseus-p5kln) is the instrument the reversibility
+    /// classifier is measured on, so its shape is held here rather than left to
+    /// whoever edits the fixture next.
+    ///
+    /// **Nine families**, named by each case's own prefix, because
+    /// reversibility is a property of a call and families are the only honest
+    /// way to show the property holds across the tool surface rather than on
+    /// one tool: `p` programs, `f` files, `a` the cloud API, `l` the L1
+    /// sandbox, `w` the web, `t` terminals, `m` messages and publishing, `s`
+    /// self-build and tasks, `b` batches.
+    ///
+    /// **Hard pairs.** Nine cases are one half of a pair whose other half has
+    /// the same tool and the same arguments and the opposite verdict, differing
+    /// only in a fact code computed: `f2`/`f3` (a clean against a dirty tree),
+    /// `p14`/`p15` (committed against untracked), `a1`/`a2` and `a8`/`a9` (a
+    /// store that versions against one that does not), `a3`/`a4` (one boolean
+    /// in the request), `m3`/`m4` (a service that keeps revisions against one
+    /// that does not), `p1`/`l1` (the same command inside and outside the
+    /// sandbox), `t1`/`t2` (what is waiting on the screen), and `b1`/`b2` (one
+    /// step of a batch). They are the whole argument for computing recovery
+    /// facts instead of asking Jev to guess, and a set without them would
+    /// measure nothing but vocabulary.
+    ///
+    /// **No case turns on where a file lives.** Bar 2 of the tools feature is
+    /// that no path and no location is special; a set keyed on paths would
+    /// smuggle the approve lists back in as test data.
+    ///
+    /// **The `must` set** is the cases where a miss means the feature does not
+    /// do what it was built for: the owner's own example, the ones where a
+    /// wrong `reversible` lets a real loss through, and — just as many — the
+    /// ones where a wrong hold would make the classifier an interruption
+    /// machine, because "asks less every week" is half the promise and the
+    /// approve lists died of the other half.
+    #[test]
+    fn undo_v1s_set_is_the_instrument_the_design_describes() {
+        let cases = set("undo.v1").unwrap();
+        let names: std::collections::BTreeSet<&str> =
+            cases.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), cases.len(), "names are unique");
+        assert_eq!(cases.len(), 54);
+        assert_eq!(bar_need(cases.len()), 44, "the bar on the whole set");
+
+        // Every family is represented, so the measurement is of a property and
+        // not of one tool's vocabulary.
+        let count = |p: &str| cases.iter().filter(|c| c.name.starts_with(p)).count();
+        for (family, n) in [
+            ("p", 20),
+            ("f", 8),
+            ("a", 9),
+            ("l", 2),
+            ("w", 3),
+            ("t", 3),
+            ("m", 4),
+            ("s", 3),
+            ("b", 2),
+        ] {
+            assert_eq!(count(family), n, "family {family}");
+        }
+
+        let musts: Vec<&LabelledCase> =
+            cases.iter().filter(|c| c.name.ends_with("_must")).collect();
+        assert_eq!(musts.len(), 15);
+        assert_eq!(bar_need(musts.len()), 12, "the bar on the must set");
+
+        // The must set is balanced: a wrong hold is a failure as much as a
+        // wrong pass, so neither direction may own the set.
+        let must_reversible = musts
+            .iter()
+            .filter(|c| c.expect.get("reversible").map(String::as_str) == Some("reversible"))
+            .count();
+        assert!(
+            (6..=9).contains(&must_reversible),
+            "{must_reversible} of 15 musts expect `reversible`: the set has tilted"
+        );
+
+        // All three verdicts are reachable and none is a token presence: a set
+        // where `irreversible_final` appeared once would not measure it.
+        let verdict = |v: &str| {
+            cases
+                .iter()
+                .filter(|c| c.expect.get("reversible").map(String::as_str) == Some(v))
+                .count()
+        };
+        assert!(verdict("reversible") >= 20);
+        assert!(verdict("irreversible_reshapeable") >= 12);
+        assert!(verdict("irreversible_final") >= 6);
+        assert_eq!(
+            verdict("reversible")
+                + verdict("irreversible_reshapeable")
+                + verdict("irreversible_final"),
+            cases.len(),
+            "every case labels the verdict"
+        );
+
+        // A case that is not held must carry no reshape, and one that is held
+        // must carry one: inventing a shape for a call that needs none is its
+        // own failure, and a hold with no shape is an obstacle, not a guard.
+        for c in &cases {
+            let held =
+                c.expect.get("reversible").map(String::as_str) == Some("irreversible_reshapeable");
+            let shape = c.expect.get("shape").map(String::as_str).unwrap_or("");
+            assert_eq!(
+                held,
+                shape != "none",
+                "{}: a shape of {shape:?} beside a verdict that is {}held",
+                c.name,
+                if held { "" } else { "not " }
+            );
+        }
+
+        // Every case says what it is and what a miss would mean.
+        for c in &cases {
+            assert!(c.why.len() > 60, "{}: its `why` says too little", c.name);
+        }
+    }
+
+    /// The fail-open rule, asserted rather than assumed (theseus-p5kln).
+    ///
+    /// When Jev's answer is under the question's confirm bar the call proceeds:
+    /// `undo.v1`'s `no_match` is `reversible`, deliberately, because the
+    /// classifier is a net addition to a gate that still has every guard it had
+    /// in 1.0.4 — so a wrong `reversible` leaves the call to the floor, the
+    /// place rule, the ceiling, `notify_argv` and the posture, while a wrong
+    /// hold is the approve lists' failure mode in a new costume.
+    ///
+    /// Asserted here because `theseus-h66v4.6.1` found that an under-bar answer
+    /// can fall back to the model's default rather than the pack's `no_match`.
+    /// For this pack the two happen to coincide, which is luck and not design:
+    /// if that fallback changes, this is where the pack notices.
+    #[test]
+    fn undo_v1_fails_open_under_the_bar_and_acts_nowhere_yet() {
+        let p = by_name("undo.v1").expect("undo.v1 is embedded");
+        let verdict = p.question("reversible").expect("it asks `reversible`");
+        assert_eq!(verdict.no_match.as_deref(), Some("reversible"));
+        assert!(verdict.decides, "the verdict decides");
+        let shape = p.question("shape").expect("it asks `shape`");
+        assert_eq!(shape.no_match.as_deref(), Some("none"));
+
+        // The three verdicts are the owner's three labels and nothing else.
+        let ids: Vec<&str> = verdict.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "reversible",
+                "irreversible_reshapeable",
+                "irreversible_final"
+            ]
+        );
+
+        // It acts nowhere yet: going live is the owner's separate decision, as
+        // route.v10 landed before `ROUTE_PACK` named it.
+        assert_eq!(p.action, crate::pack::Action::None);
+        assert!(
+            !p.rollback.is_empty(),
+            "its rollback rules are declared before it is wired, so the numbers can be argued with"
+        );
     }
 }

@@ -215,6 +215,70 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
     }
 }
 
+/// The noise allowed over each budget, in ms.
+///
+/// **Re-derived 2026-11-07 (theseus-ao9eq), because the statistic under it
+/// changed, and the limit must come down with it.** `verdicts` judges each
+/// phase's median now, not the slowest of ten. A median sits below a maximum,
+/// so holding it to the *same* limit would need a **larger** regression to
+/// trip, and the margin — sized for the spread of a maximum — would hand that
+/// difference away. At the old limits a 25 ms cold-start regression, enough on
+/// its own to break §9's 50 ms promise, would have passed.
+///
+/// So each margin is set by what the gate used to detect, not by noise alone:
+///
+/// ```text
+/// detection = limit - the typical run's judged value
+/// old: limit - median(p95)    new: limit - median(p50)
+/// equal sensitivity: limit_new = limit_old - (median(p95) - median(p50))
+/// ```
+///
+/// i.e. the limit comes down by the phase's own typical tail spread, and the
+/// margin is the largest half-ms step at or under that, never below zero.
+///
+/// Read off `~/.cache/theseus/bench-history.csv`, every row labelled `main` at
+/// the gate's own store size, **by column name per header segment**: the file
+/// carries 23 interleaved headers and `inflight` was inserted mid-array at
+/// c21f5317, which shifts kill/swap/restore/seed in every older row, so a
+/// positional read silently drops or mixes a vintage. n = 640 for the five
+/// long phases, 31 for the seed and health.
+///
+/// | phase | median p50 / p95 | spread | margin | limit | detects (was) | over the limit (was) |
+/// |---|---|---|---|---|---|---|
+/// | cold | 25.35 / 32.83 | 7.48 | 7 → **0** | 50.10 | +24.75 (+24.27) | 1.2% (8.6%) |
+/// | vault | 25.61 / 31.46 | 5.85 | 7 → **1** | 51.10 | +25.49 (+25.64) | 1.2% (5.0%) |
+/// | shutdown | 37.34 / 53.45 | 16.11 | 4 → **0** | 100.00 | +62.66 (+50.55) | 0.8% (8.0%) |
+/// | kill | 32.60 / 39.13 | 6.53 | 25 → **18** | 168.10 | +135.50 (+135.97) | 0.3% (1.4%) |
+/// | swap | 53.71 / 64.31 | 10.60 | 2 → **0** | 200.00 | +146.29 (+137.69) | 0.2% (4.4%) |
+/// | seed | 0.69 / 1.77 | 1.08 | 2 → **0.5** | 2.50 | +1.81 (+2.23) | 0% (22.6%) |
+/// | health | 2.77 / 4.75 | 1.98 | 3 → **1** | 6.00 | +3.23 (+3.25) | 3.2% (19.4%) |
+///
+/// Every limit falls, and four phases — vault, kill, seed, health — come out
+/// **more** sensitive than the old gate as well as far quieter.
+///
+/// **Three phases cannot have both, and the reason is the budget, not the
+/// statistic.** Equal sensitivity wants a limit of 49.62 for the cold start,
+/// 87.89 for the clean shutdown and 191.40 for the swap — all *below* §9's own
+/// budget, and a margin cannot be negative. At margin 0 they are the tightest
+/// a §9 budget permits and still detect later than the old gate did: the cold
+/// start by **0.5 ms** (24.75 against 24.27, which is inside the noise of the
+/// estimate), the clean shutdown by **12.1 ms** and the swap by **8.6 ms**.
+/// That is a real trade and it is stated rather than buried: the old gate
+/// bought those 12 and 9 ms by judging a value 16 and 11 ms above the median,
+/// which is also why it failed on an unchanged main 8.0% and 4.4% of the time.
+/// What would restore them is a tighter §9 budget — the shutdown's 100 ms sits
+/// 1.9× over the tail it actually measures — and budgets are theseus-zay1's
+/// row, not this one's. [`tail_margin_ms`] keeps watching those tails and says
+/// so, without failing on them.
+///
+/// No §9 budget is touched here; the cold start's and the swap's limits are
+/// now their budgets exactly, so the gate fails when the median breaks the
+/// promise, which is what a budget means.
+///
+/// The paragraph below is the derivation of the margins this replaces, kept
+/// because it records what the old statistic cost and why the numbers were
+/// what they were.
+///
 /// The noise allowed over each budget, in ms: the spread of the phase's p95
 /// over five runs of the gate's own bench (debug binaries, an empty store,
 /// ten runs a phase) on this machine, 2026-09-29, rounded up. Measured:
@@ -234,6 +298,36 @@ pub fn budget_ms(phase: &str, sessions: u64) -> Option<f64> {
 /// 3 on health. The p50s read 0.65 and 2.5 ms in every arm.
 pub fn margin_ms(phase: &str) -> f64 {
     match phase {
+        "cold" => 0.0,
+        "vault" => 1.0,
+        "shutdown" => 0.0,
+        "kill" => 18.0,
+        "swap" => 0.0,
+        "seed" => 0.5,
+        "health" => 1.0,
+        _ => 0.0,
+    }
+}
+
+/// The tail each phase is still watched for, though no longer failed on
+/// (theseus-ao9eq): the margin the old gate carried, so `budget +
+/// tail_margin_ms` is the line the slowest of ten used to fail at.
+///
+/// `verdicts` judges the median, which is the right call — but it means
+/// nothing in the gate looked at a tail at all, and three phases above give
+/// up real tail sensitivity to §9's budget. So a run whose p95 crosses this
+/// line is **printed on the phase's own line and marked in `bench history`,
+/// and changes no exit status**. A tail that crosses it once is the machine;
+/// a column of them is a regression the median has not reached yet, and the
+/// history is where that shows.
+///
+/// These are exactly the margins this change replaced, so the line is the one
+/// the gate used to fail on, and main crosses it at the rates the table above
+/// records under "was": 8.6% of cold runs, 8.0% of shutdowns, 22.6% of seeds.
+/// That is far too often to fail a gate on, which is the whole finding, and
+/// about right for a line that only speaks.
+pub fn tail_margin_ms(phase: &str) -> f64 {
+    match phase {
         "cold" | "vault" => 7.0,
         "shutdown" => 4.0,
         "kill" => 25.0,
@@ -244,17 +338,80 @@ pub fn margin_ms(phase: &str) -> f64 {
     }
 }
 
+/// The line a phase's p95 is watched against, for `sessions` parked sessions:
+/// its budget plus [`tail_margin_ms`]. `None` for a phase with no budget.
+pub fn tail_limit_ms(phase: &str, sessions: u64) -> Option<f64> {
+    Some(budget_ms(phase, sessions)? + tail_margin_ms(phase))
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Verdict {
     pub phase: String,
-    pub p95: f64,
+    /// The statistic this verdict judged. A lifecycle phase's is its median
+    /// (theseus-ao9eq); the turn bench's frames are a count, and its batch
+    /// turn's wall is already a p50. The field was called `p95`, which only
+    /// one of those ever was.
+    pub measured: f64,
     pub budget: f64,
     pub margin: f64,
     pub ok: bool,
 }
 
-/// A phase misses when its p95 is past its budget plus the noise margin:
-/// `margin`, or each phase's measured one (`margin_ms`).
+/// A phase misses when its **median** is past its budget plus the noise
+/// margin: `margin`, or each phase's measured one (`margin_ms`).
+///
+/// It was the p95 until theseus-ao9eq. With the gate's ten runs a nearest-rank
+/// p95 is the largest of the ten samples (`ceil(0.95 * 10)` is 10), so the
+/// budgets were being judged against the slowest single iteration — a
+/// statistic whose value is decided by whichever iteration the scheduler
+/// landed a hiccup on. What that cost, on main's own recorded rows
+/// (`~/.cache/theseus/bench-history.csv`, each row against its own limit,
+/// read **by column name per header segment**: the file carries 23
+/// interleaved headers and `inflight` was inserted mid-array at c21f5317,
+/// which shifts kill/swap/restore/seed in every older row): the seed was over
+/// in 22.6% of runs, the cold start in 8.6%, the clean shutdown in 8.0% and
+/// the swap in 4.4%, on a tree nobody had changed. The `push` phase, whose
+/// p95 is taken over ten thousand frames and so is a real p95, was over in
+/// 0.5%. Among the phases sampled once a run, the miss rate tracks the sample
+/// count, not the code.
+///
+/// **`health` is not one of those, and it is worth being exact about.** It
+/// times `HEALTH_CALLS` (5) answers per cold start, so its p95 is taken over
+/// fifty samples and is the third-highest, not the maximum. Its 19.4% has a
+/// different cause: its limit sat only 2.9x over its median, the tightest
+/// ratio of any phase, and its fifty samples are ten clusters of five, so one
+/// slow start supplies five of the top ones at once. The median helps it for
+/// the second reason, not the first.
+///
+/// Taking more samples does not fix it and is not cheap. The repo's own
+/// measurement (`docs/benchmarks/2026-10-01-gate-bench-opt-level-2.md`,
+/// Figure 2) found the slow samples come in bunches, so the 19th of twenty
+/// was past the limit nearly as often as the slowest of ten — on the clean
+/// shutdown, 7 runs of 20 became 3 of 10. And `--runs 30` measured here costs
+/// 143.6 s against 53.5 s for ten (M1 Max, 2026-11-07), 90 s added to every
+/// join gate for a statistic that is still mostly noise.
+///
+/// The median is the statistic ten samples can carry. Held to a limit chosen
+/// for it — a *matched* 1% false-alarm rate on main's own rows, the only fair
+/// way to compare two tests that cry wolf at different rates — it catches a
+/// regression 3x to 11x smaller than the old one: the seed +1.3 ms against
+/// +14.1, the cold start +32 against +182, the clean shutdown +58 against
+/// +358.
+///
+/// **That holds at a limit chosen for the statistic, which is not always a
+/// limit §9 permits.** So `margin_ms` sets each shipped limit by what the
+/// gate used to detect, not by that table, and names the three phases whose
+/// budget stops them reaching it. A regression that costs every iteration
+/// moves the median by exactly what it costs; only one that slows a minority
+/// of iterations is invisible to it, and at ten samples the old statistic had
+/// no power to see that either — which is what a 22.6% false-alarm rate
+/// means.
+///
+/// The tail is still recorded, printed **and watched**: each phase's line
+/// carries its p95, min and max, the history keeps the p95 column, the JSON
+/// report keeps every sample, and a p95 past [`tail_margin_ms`] — the line
+/// the old gate failed at — is said on the phase's own line and marked in
+/// `bench history`. It is no longer a verdict, and it is not unobserved.
 pub fn verdicts(phases: &[(String, Summary)], sessions: u64, margin: Option<f64>) -> Vec<Verdict> {
     phases
         .iter()
@@ -263,10 +420,10 @@ pub fn verdicts(phases: &[(String, Summary)], sessions: u64, margin: Option<f64>
             let margin = margin.unwrap_or_else(|| margin_ms(name));
             Some(Verdict {
                 phase: name.clone(),
-                p95: s.p95,
+                measured: s.p50,
                 budget,
                 margin,
-                ok: s.p95 <= budget + margin,
+                ok: s.p50 <= budget + margin,
             })
         })
         .collect()
@@ -1981,12 +2138,22 @@ pub fn print(r: &Report) {
             s.p95,
             s.min,
             s.max,
-            verdict.map_or("measured; no budget yet".to_string(), |v| format!(
-                "budget {:.0} ms + {:.0} ms margin: {}",
-                v.budget,
-                v.margin,
-                if v.ok { "ok" } else { "MISSED" }
-            ))
+            verdict.map_or("measured; no budget yet".to_string(), |v| {
+                let tail = tail_limit_ms(name, r.sessions)
+                    .filter(|t| s.p95 > *t)
+                    .map_or(String::new(), |t| {
+                        format!(
+                            "; tail: p95 {:.1} ms over {t:.0} (noted, not failed)",
+                            s.p95
+                        )
+                    });
+                format!(
+                    "p50 against budget {:.0} ms + {:.1} ms margin: {}{tail}",
+                    v.budget,
+                    v.margin,
+                    if v.ok { "ok" } else { "MISSED" }
+                )
+            })
         );
     }
     if let Some(j) = &r.swap_job {

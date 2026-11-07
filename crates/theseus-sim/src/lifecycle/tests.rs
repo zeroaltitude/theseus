@@ -97,13 +97,16 @@ fn a_run_whose_fewest_frames_a_cancel_are_over_two_fails() {
 }
 
 #[test]
-fn a_p95_past_its_budget_and_margin_misses() {
-    let s = |p95: f64| Summary {
+fn a_median_past_its_budget_and_margin_misses() {
+    // The judged statistic is the phase's median (theseus-ao9eq), so the
+    // summaries here are built from one: the p95 beside it is the tail the
+    // run also recorded, and no longer the verdict.
+    let s = |p50: f64| Summary {
         n: 10,
-        p50: p95 - 1.0,
-        p95,
+        p50,
+        p95: p50 + 1.0,
         min: 1.0,
-        max: p95,
+        max: p50 + 1.0,
     };
     let phases = vec![
         ("cold".to_string(), s(54.0)),
@@ -117,20 +120,25 @@ fn a_p95_past_its_budget_and_margin_misses() {
     assert!(v[1].ok);
     assert!(!v[2].ok, "160 ms is past 150 ms plus 5");
     assert_eq!(v[2].budget, 150.0);
-    // Each phase's measured margin, when none is given.
+    // Each phase's re-derived margin, when none is given (theseus-ao9eq):
+    // the cold start's and the clean shutdown's limits are now their §9
+    // budgets exactly, because equal sensitivity wanted less than a budget
+    // allows and a margin cannot be negative.
     let v = verdicts(&phases, 0, None);
     assert_eq!(
         v.iter().map(|v| v.margin).collect::<Vec<_>>(),
-        [7.0, 4.0, 25.0]
+        [0.0, 0.0, 18.0]
     );
     assert!(
-        v[0].ok && v[1].ok && v[2].ok,
-        "160 ms is inside 150 plus 25"
+        !v[0].ok,
+        "54 ms is past the cold start's 50 ms budget, which is now its limit"
     );
+    assert!(v[1].ok, "99 ms is inside the shutdown's 100");
+    assert!(v[2].ok, "160 ms is inside the kill's 150 plus 18");
     // The throwaway 100 ms sleep in cold start: 23 ms becomes 123 ms.
     let slept = verdicts(&[("cold".to_string(), s(123.0))], 0, None);
     assert!(!slept[0].ok);
-    // A swap: 200 ms plus its 2 ms margin, whatever the store's size;
+    // A swap: 200 ms with no margin left, whatever the store's size;
     // a restore is measured and never judged.
     let v = verdicts(
         &[
@@ -142,32 +150,153 @@ fn a_p95_past_its_budget_and_margin_misses() {
     );
     assert_eq!(v.len(), 1);
     assert!(!v[0].ok);
-    assert_eq!((v[0].budget, v[0].margin), (200.0, 2.0));
+    assert_eq!((v[0].budget, v[0].margin), (200.0, 0.0));
 }
 
+/// The flake this change exists for (theseus-ao9eq): the gate failed twice on
+/// the seed with a median six times inside its budget, because the p95 of ten
+/// samples is the slowest of them. These are the numbers the gate actually
+/// printed on 2026-10-25, and they now pass.
 #[test]
-fn the_seed_and_health_carry_a_margin_over_their_budgets() {
-    // theseus-m1r2w: limits of 4 and 8 ms. A p95 inside them passes, and
-    // one past them misses.
-    let s = |p95: f64| Summary {
+fn one_slow_iteration_in_ten_no_longer_fails_the_gate() {
+    let incident = |p95: f64| Summary {
         n: 10,
-        p50: p95 / 2.0,
+        p50: 0.7,
         p95,
         min: 0.5,
         max: p95,
     };
+    for p95 in [13.1, 5.8] {
+        let v = verdicts(&[("seed".to_string(), incident(p95))], 0, None);
+        assert!(
+            v[0].ok,
+            "a median of 0.7 ms against a 2 ms budget is not a regression, \
+             whatever the slowest of the ten read ({p95} ms)"
+        );
+        assert_eq!(v[0].measured, 0.7, "the verdict judged the median");
+    }
+}
+
+/// And the gate still catches a real one: a cost every iteration pays moves
+/// the median by exactly what it costs (theseus-ao9eq).
+#[test]
+fn a_regression_on_every_iteration_still_misses_its_budget() {
+    // The seed's own measured shape on a quiet machine, then the same ten
+    // iterations each paying 5 ms they did not before.
+    let quiet = Summary {
+        n: 10,
+        p50: 0.7,
+        p95: 1.5,
+        min: 0.5,
+        max: 1.6,
+    };
+    let slow = Summary {
+        n: 10,
+        p50: 0.7 + 5.0,
+        p95: 1.5 + 5.0,
+        min: 0.5 + 5.0,
+        max: 1.6 + 5.0,
+    };
+    assert!(verdicts(&[("seed".to_string(), quiet)], 0, None)[0].ok);
+    let v = verdicts(&[("seed".to_string(), slow)], 0, None);
+    assert!(!v[0].ok, "5 ms on every iteration misses a 2 ms budget");
+    // And the smallest it can catch is the limit above the quiet median: the
+    // margins are re-derived so this is tighter than it was, not looser.
+    assert_eq!(v[0].budget + v[0].margin, 2.5);
+}
+
+/// The margins are the ones re-derived from main's own rows for the median
+/// (theseus-ao9eq): every one falls, and the tail line each phase is still
+/// watched against is the margin it used to fail on.
+#[test]
+fn the_margins_are_the_re_derived_ones() {
+    let was = [
+        ("cold", 7.0, 0.0),
+        ("vault", 7.0, 1.0),
+        ("shutdown", 4.0, 0.0),
+        ("health", 3.0, 1.0),
+        ("kill", 25.0, 18.0),
+        ("swap", 2.0, 0.0),
+        ("seed", 2.0, 0.5),
+    ];
+    for (phase, before, now) in was {
+        assert_eq!(margin_ms(phase), now, "{phase}'s margin");
+        assert!(now <= before, "{phase}'s margin rose, which is a loosening");
+        assert_eq!(
+            tail_margin_ms(phase),
+            before,
+            "{phase}'s tail is still watched where the old gate failed"
+        );
+        assert!(
+            tail_limit_ms(phase, 0).unwrap() >= budget_ms(phase, 0).unwrap() + now,
+            "{phase}'s tail line is at or over its judged limit"
+        );
+    }
+    assert_eq!(margin_ms("restore"), 0.0, "a phase with no budget");
+    assert_eq!(tail_limit_ms("restore", 0), None, "and no tail line either");
+}
+
+/// A regression big enough to break §9's own promise reds the gate
+/// (theseus-ao9eq). This is the case the re-derivation exists for: with the
+/// margins the maximum-of-ten used to carry, a 25 ms cold start -- on its own
+/// enough to put the median past §9's 50 ms -- sat inside the 57 ms limit and
+/// passed.
+#[test]
+fn a_regression_that_breaks_section_nine_reds_the_gate() {
+    // main's own cold-start median on the gate host, plus 25 ms.
+    let slow = Summary {
+        n: 10,
+        p50: 25.35 + 25.0,
+        p95: 32.83 + 25.0,
+        min: 20.0,
+        max: 60.0,
+    };
+    let v = verdicts(&[("cold".to_string(), slow)], 0, None);
+    assert!(
+        !v[0].ok,
+        "a median of {} ms is past §9's {} ms budget and must red",
+        slow.p50, v[0].budget
+    );
+    // It would have passed under the margin this change replaced.
+    let old_limit = budget_ms("cold", 0).unwrap() + tail_margin_ms("cold");
+    assert!(
+        slow.p50 <= old_limit,
+        "and it sat inside the old {old_limit} ms limit, which is the point"
+    );
+    // The unchanged tree still passes.
+    let quiet = Summary {
+        n: 10,
+        p50: 25.35,
+        p95: 32.83,
+        min: 20.0,
+        max: 40.0,
+    };
+    assert!(verdicts(&[("cold".to_string(), quiet)], 0, None)[0].ok);
+}
+
+#[test]
+fn the_seed_and_health_carry_a_margin_over_their_budgets() {
+    // theseus-m1r2w set these, theseus-ao9eq re-derived them for the median:
+    // limits of 2.5 and 6 ms. A median inside them passes, one past misses.
+    let s = |p50: f64| Summary {
+        n: 10,
+        p50,
+        p95: p50 * 2.0,
+        min: 0.5,
+        max: p50 * 2.0,
+    };
     let v = verdicts(
-        &[("seed".to_string(), s(3.9)), ("health".to_string(), s(7.9))],
+        &[("seed".to_string(), s(2.4)), ("health".to_string(), s(5.9))],
         0,
         None,
     );
     assert_eq!(
         v.iter().map(|v| (v.budget, v.margin)).collect::<Vec<_>>(),
-        [(2.0, 2.0), (5.0, 3.0)]
+        [(2.0, 0.5), (5.0, 1.0)]
     );
     assert!(v[0].ok && v[1].ok);
     let v = verdicts(
-        &[("seed".to_string(), s(4.5)), ("health".to_string(), s(8.5))],
+        &[("seed".to_string(), s(2.6)), ("health".to_string(), s(6.1))],
         0,
         None,
     );

@@ -140,7 +140,7 @@ pub fn jobs_cmd(a: JobsArgs) -> Result<()> {
             let p95 = p(&start, 95.0);
             let v = Verdict {
                 phase: "l1_start".to_string(),
-                p95,
+                measured: p95,
                 budget: START_P95_MS,
                 margin: 0.0,
                 ok: p95 < START_P95_MS,

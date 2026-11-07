@@ -35,6 +35,8 @@ pub const INBOUND_VERSION: u32 = 1;
 pub const ROUTE_SLICE_VERSION: u32 = 1;
 pub const EFFORT_SLICE_VERSION: u32 = 1;
 pub const WORK_SLICE_VERSION: u32 = 1;
+/// `undo.v1`'s builder (module `undo`, theseus-p5kln).
+pub const UNDO_VERSION: u32 = 1;
 pub const CONTINUE_VERSION: u32 = 1;
 pub const CATEGORIZE_VERSION: u32 = 1;
 /// `rerank.v1`'s builder (module `rerank`, M6 step 32c).
@@ -258,6 +260,11 @@ pub use onto::{
     OntoInput, OntoItem, OntoKind, OntoTable, OntoText, Picked, CANDIDATES as ONTO_CANDIDATES,
     EXCERPT_CHARS as ONTO_EXCERPT_CHARS, KINDS as ONTO_KINDS,
 };
+mod undo;
+pub use undo::{
+    undo as undo_state, CwdKind, Recovery, RemoteKeeps, Sandbox, Target, UndoInput, UNDO_ARGV,
+    UNDO_STATE_KEYS, UNDO_STEPS, UNDO_TARGETS,
+};
 mod job;
 pub use job::{job, job_input, JobInput, JobKind};
 mod persona;
@@ -448,6 +455,9 @@ pub enum Input {
     /// `delay.v1`'s (theseus-5x8ry): one delayed piece of work, its elapsed
     /// and cost, and each progress signal with whether it moved.
     Delay(delay::DelayInput),
+    /// `undo.v1`'s (theseus-p5kln): one tool call, and what code found about
+    /// putting back what it would change.
+    Undo(UndoInput),
 }
 
 impl Input {
@@ -457,6 +467,7 @@ impl Input {
             Input::Loop(_) => Builder::Loop,
             Input::Security(_) => Builder::Security,
             Input::Security2(_) => Builder::Security2,
+            Input::Undo(_) => Builder::Undo,
             Input::Inbound(_) => Builder::Inbound,
             Input::Continue(_) => Builder::Continue,
             Input::Categorize(_) => Builder::Categorize,
@@ -486,6 +497,7 @@ impl Input {
             Builder::Loop => Input::Loop(serde_json::from_str(json)?),
             Builder::Security => Input::Security(serde_json::from_str(json)?),
             Builder::Security2 => Input::Security2(serde_json::from_str(json)?),
+            Builder::Undo => Input::Undo(serde_json::from_str(json)?),
             Builder::Inbound | Builder::Route | Builder::Effort | Builder::Work => {
                 Input::Inbound(serde_json::from_str(json)?)
             }
@@ -563,6 +575,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::Families(i) => families::families(i, cap, scrub),
         Input::Content(i) => content::content(i, pack.version, cap, scrub),
         Input::Delay(i) => delay::delay(i, cap, scrub),
+        Input::Undo(i) => undo::undo(i, cap, scrub),
     })
 }
 

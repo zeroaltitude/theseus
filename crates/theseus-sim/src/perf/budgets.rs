@@ -44,7 +44,7 @@ pub fn growth_verdict(column: &str, mb: f64, last: f64) -> Verdict {
     let limit = last + GROWTH_MB;
     Verdict {
         phase: column.to_string(),
-        p95: mb,
+        measured: mb,
         budget: limit,
         margin: 0.0,
         ok: mb <= limit,
@@ -72,8 +72,8 @@ pub fn growth_line(v: &Verdict, last: f64) -> String {
     format!(
         "  {}: {:.2} MB against the last recorded {last:.2} MB: {:+.2} MB (limit +{GROWTH_MB} MB): {}",
         v.phase,
-        v.p95,
-        v.p95 - last,
+        v.measured,
+        v.measured - last,
         if v.ok { "ok" } else { "GREW: FAILED" }
     )
 }

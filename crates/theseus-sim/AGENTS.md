@@ -28,8 +28,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `theseusd restore`'s own phases), and the push's seed. A cancel's round trip too (a real `proc.run` job cancelled
     through `execution.cancel`, its frames a cancel printed; theseus-nh1k, theseus-dwoj), and the restore phase runs
     before it, since a phase that writes into the rig runs after the rows that read it (theseus-ma8r). `--check` fails a
-    p95 over its budget plus the phase's margin (`lifecycle::margin_ms`, measured on the build machine; the seed's and
-    health's since theseus-m1r2w, from 44 runs), and a run
+    median over its budget plus the phase's margin (`lifecycle::margin_ms`, re-derived from main's own recorded rows
+    for the median by theseus-ao9eq; the p95 it judged before is the slowest of the ten samples, which failed on an
+    unchanged main 8% to 25% of the time by phase), and a run
     whose fewest frames a cancel are over `lifecycle::CANCEL_FRAMES` (2; its most is printed, not judged, since under
     load it picks up other work's frames; theseus-kq4n). The cancel's budget is 100 ms since cancel-fast.
     A restart after a clean stop must not repair the store's index (`Start.index_repaired`, from the store phase): the
@@ -184,7 +185,7 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
 ## Invariants
 
 - **The budgets are §9's, and they don't move to make a gate pass.** A margin is the measured noise of a phase's
-  p95 on the build machine, and changing one is a decision with its data (theseus-zay1).
+  judged median on the build machine, and changing one is a decision with its data (theseus-zay1).
 - **New startup work lands with its bench row**, so the gate times it.
 - **The plain turn's frames budget only goes down.** A step that writes fewer frames lowers `PLAIN_TURN_FRAMES` in the
   same commit (C6 and S5 aim at 2). A step that must write one more raises it on purpose, with the reason in the
@@ -209,8 +210,9 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
 
 ## Traps
 
-- With ten runs, a p95 is the slowest run, so one stalled fsync decides it. The gate reruns a miss once; read
-  `bench history` before calling a miss a regression.
+- With ten runs, a p95 is the slowest run. That is why `--check` judges the median (theseus-ao9eq); the p95 and
+  the max are still printed and recorded, as a tail to read from the trend, not a verdict. The gate reruns a miss
+  once; read `bench history` before calling a miss a regression.
 - A raced kernel-sim run reproduces from its seed only up to its first race.
 - A bench of release binaries while a build runs: copy them first, since cargo replaces them mid-run.
 - `bench turn` counts every frame the WAL gains from just before a turn until it has been still for 50 ms, so a frame

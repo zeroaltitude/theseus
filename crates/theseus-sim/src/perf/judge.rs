@@ -716,7 +716,7 @@ pub fn print_judge(r: &JudgeReport) {
         println!(
             "  {} (the judge off): {} frame(s) at the p95, budget {}: {}",
             v.phase,
-            v.p95,
+            v.measured,
             v.budget,
             if v.ok { "ok" } else { "MISSED" }
         );

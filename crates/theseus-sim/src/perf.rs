@@ -433,7 +433,7 @@ pub fn turn_verdicts(plain_frames: &Summary, tool_frames: &Summary) -> Vec<Verdi
     .into_iter()
     .map(|(phase, frames, budget)| Verdict {
         phase: phase.to_string(),
-        p95: frames.p95,
+        measured: frames.p95,
         budget,
         margin: 0.0,
         ok: frames.p95 <= budget,
@@ -449,14 +449,14 @@ pub fn batch_verdicts(batch: &Kind, tool: &Kind) -> Vec<Verdict> {
     vec![
         Verdict {
             phase: "frames_batch".to_string(),
-            p95: batch.frames.p95,
+            measured: batch.frames.p95,
             budget: BATCH_TURN_FRAMES,
             margin: 0.0,
             ok: batch.frames.p95 <= BATCH_TURN_FRAMES,
         },
         Verdict {
             phase: "turn_batch_p50".to_string(),
-            p95: batch.wall_ms.p50,
+            measured: batch.wall_ms.p50,
             budget: wall,
             margin: 0.0,
             ok: batch.wall_ms.p50 <= wall,
@@ -469,7 +469,7 @@ pub fn batch_verdicts(batch: &Kind, tool: &Kind) -> Vec<Verdict> {
 pub fn syncs_verdict(syncs: &Summary) -> Verdict {
     Verdict {
         phase: "syncs_plain".to_string(),
-        p95: syncs.p95,
+        measured: syncs.p95,
         budget: PLAIN_SYNCS_BEFORE_CALL,
         margin: 0.0,
         ok: syncs.p95 <= PLAIN_SYNCS_BEFORE_CALL,
@@ -844,12 +844,12 @@ fn verdict_words(v: &Verdict) -> String {
     if v.phase.starts_with("turn_") {
         format!(
             "{:.1} ms at the p50, budget {:.1} ms (one sleep, the tool turn's p50, and {BATCH_OVER_ONE_CALL_MS} ms)",
-            v.p95, v.budget
+            v.measured, v.budget
         )
     } else {
         format!(
             "{} {} at the p95, budget {}",
-            v.p95,
+            v.measured,
             counted::unit(&v.phase),
             v.budget
         )
@@ -1186,7 +1186,7 @@ pub fn run_size(dir: &Path) -> Result<SizeReport> {
                 if let Some(col) = col {
                     verdicts.push(Verdict {
                         phase: col.to_string(),
-                        p95: round3(mb),
+                        measured: round3(mb),
                         budget: BINARY_MB,
                         margin: 0.0,
                         ok: mb <= BINARY_MB,

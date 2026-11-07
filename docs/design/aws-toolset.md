@@ -268,6 +268,39 @@ to get whole-of-AWS reach:
 
   The value never enters the context. The tool returns a broker handle and the value's shape with the
   secret masked, and the scrubber learns the value (§3.5).
+
+  _(Since theseus-37ds the output-shape rule reads where a member came from as well as what it is
+  called. It asks two questions together: did AWS's own model mark the member `sensitive`, and does
+  the member's name — or the name of the shape it sits in — carry a credential word (`token`,
+  `password`, `secret`, `key`, `credential`, `passphrase`, `seed`)? Either question alone is wrong.
+  The marking alone is not a credential rule, because AWS marks `sensitive` to keep a value out of
+  logs, so the marking covers personal data and customer content too: taking every marked member
+  would reach 1478 further operations and 2654 further members, down to postal codes and tag values,
+  against this rule's 147 and 105. The name alone is a guess, and the names that matter do not
+  cooperate — a stream key arrives as `StreamKey.value`, a Grafana workspace key as `key`, a TOTP seed
+  as `SecretCode`, a channel's key as `Srt.passphrase`. Reading the shape's name as well as the
+  member's is what finds `StreamKey.value`: `value` says nothing and `StreamKey` says all of it. All
+  four figures are counted the same way, against the rule as it stood before theseus-37ds and over
+  every operation in the catalog, by `the_rules_reach_is_what_the_design_doc_says`, which fails with
+  the new numbers if the rule moves — so this paragraph cannot quietly go stale.
+
+  A credential no model marks is invisible to both questions, so three lists carry what they cannot
+  reach: `secret::ENDS`, compound names that are a credential whatever the model says, matched at the
+  end of a member's name and only on a scalar (`ParticipantToken`, `ConnectionToken`, `AuthToken`,
+  `HECToken`, `SecretToken`, `ClientSecret`, `PreSharedKey`, `ApiKey`); the walk's `HELD`, for a
+  member one service names its own way; and `MARKED`, for a marked member whose name says nothing of
+  what it is — EC2's `VpnConnectionDeviceSampleConfiguration`, which carries the tunnels' pre-shared
+  keys in its body, a thin client's `activationCode`, a domain's `AuthCode`, an MFA device's
+  `QRCodePNG`, which encodes the same seed as the `Base32StringSeed` beside it, and a kdb
+  `signedConnectionString`. `ENDS` is read by the **walk** as well as by the rule, which is what
+  closed the partial holds: a secret-bearing call that held one secret and handed another to the
+  model in the same result, which is worse than holding nothing because the answer reads as covered.
+  Connect's `StartWebRTCContact` did exactly that with `ParticipantToken` beside its held join token.
+  Every credential-shaped member of a secret-bearing answer must now be one the walk holds.
+
+  The rule selects 147 operations beyond its predecessor; each is now a secret-bearing row or an
+  allowed row with its reason — 25 `SECRET` rows, 18 `WHEN_PRESENT` groups covering 52 operations,
+  and 23 allowed rows.)_
 - **Retry class** (§3.16), from the traits:
   - `@readonly` or `@idempotent` is `safe_to_repeat`.
   - A member marked `@idempotencyToken` is filled from the call's correlation id, which makes the call
