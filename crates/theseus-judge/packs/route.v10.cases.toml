@@ -346,6 +346,7 @@ why = "the data rule in the state wins over Flash's sentence (W11 with restricte
 id = "W15"
 message = "fix the failing test in the private service's ingest module, cause is the new column"
 restricted_models = "not_allowed"
+cheaper_model = "haiku"
 model = "sonnet"
 effort = "medium"
 must = true
