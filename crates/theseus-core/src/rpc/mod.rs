@@ -315,6 +315,10 @@ pub struct Core {
     pub conns: Arc<crate::conns::Connections>,
     /// The spool's last sweep since the daemon started (theseus-2ij).
     last_sweep: std::sync::Mutex<Option<theseus_protocol::SpoolSweep>>,
+    /// Every owner-card proposal write is serialised here (theseus-kxb8d), as
+    /// `standing::Board` serialises the records' board with its own `writes`.
+    /// Taken by `Core::card_frame` and nowhere else.
+    pub(crate) card_writes: std::sync::Mutex<()>,
     /// The push (theseus-in3): one view per execution, seeded on first need.
     pub push: crate::push::Push,
     /// The index tender's supervisor (roadmap row 51): the socket daemon runs
@@ -998,6 +1002,7 @@ impl Core {
             web_refusals: Arc::default(),
             conns: Arc::default(),
             last_sweep: Default::default(),
+            card_writes: Default::default(),
             push: crate::push::Push::default(),
             index,
             mcp,

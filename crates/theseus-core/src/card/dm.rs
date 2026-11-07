@@ -139,9 +139,9 @@ impl Core {
 
     /// One look: post what is due, once. How many went. The conditions are
     /// `due`'s, then a DM with the owner bound and the pacer's window open;
-    /// the proposals are read again just before the frame, which narrows (does
-    /// not close) the window in which an answer that landed meanwhile is
-    /// overwritten: the writer handshake counts writers, it does not exclude them.
+    /// the proposals are read again under the one card lock and marked in the
+    /// same section (`card_frame`, theseus-kxb8d), so an answer that lands
+    /// meanwhile is never reverted to Open and posted.
     pub async fn card_dm_tick(&self, now_ms: u64) -> Result<usize> {
         let cfg = &self.cfg.card;
         let hour = self.cfg.initiative.morning_hour;
@@ -160,51 +160,53 @@ impl Core {
         if due(&all, cfg, hour, now_ms).is_empty() {
             return Ok(0);
         }
-        let w = self.runner.pass.writing().await;
-        let posted = theseus_store::blocking(|| self.card_dm_write(now_ms));
-        drop(w);
-        posted
-    }
-
-    /// The frame: the posts and the proposals marked, written once.
-    fn card_dm_write(&self, now_ms: u64) -> Result<usize> {
-        // The handshake can wait minutes: a needs-you or digest may have taken
-        // the pacer's window meanwhile, and these would be a second buzz in it.
-        if !self
-            .outbox
-            .pacer
-            .open(now_ms, 1000 * self.cfg.notify.unprompted_pace_secs)
-        {
-            return Ok(0);
-        }
-        let all = state::proposals(&self.store)?;
-        let hour = self.cfg.initiative.morning_hour;
-        let mut frame = Vec::new();
-        let mut staged = Vec::new();
-        let obs: HashMap<String, CardObservation> = state::observations(&self.store, None)?
-            .into_iter()
-            .map(|o| (o.id.clone(), o))
-            .collect();
-        for p in due(&all, &self.cfg.card, hour, now_ms) {
-            let body = json!({
-                "kind": "card_question",
-                "text": text_of(p, &obs),
-                "card": {"id": p.id, "ask": p.ask},
-            });
-            let (post, more) = self.outbox.stage_to_operator(None, body)?;
-            frame.extend(more);
-            let mut marked = p.clone();
-            marked.posted_ms = Some(now_ms);
-            frame.push(state::record(&marked)?);
-            staged.push(post);
-        }
-        if staged.is_empty() {
-            return Ok(0);
-        }
-        self.store.append(&frame)?;
+        let staged = self.card_dm_write(now_ms).await?;
         for post in &staged {
             self.outbox.posted(post);
         }
         Ok(staged.len())
+    }
+
+    /// The frame: the posts and the proposals marked, written once. The
+    /// proposals it marks are the ones read under the lock, so a question the
+    /// owner answered in that window is no longer due and is not posted.
+    async fn card_dm_write(&self, now_ms: u64) -> Result<Vec<theseus_kernel::Action>> {
+        self.card_frame(|all| {
+            // The handshake can wait minutes: a needs-you or digest may have
+            // taken the pacer's window meanwhile, and these would be a second
+            // buzz in it.
+            if !self
+                .outbox
+                .pacer
+                .open(now_ms, 1000 * self.cfg.notify.unprompted_pace_secs)
+            {
+                return Ok((Vec::new(), Vec::new()));
+            }
+            let hour = self.cfg.initiative.morning_hour;
+            let mut frame = Vec::new();
+            let mut staged = Vec::new();
+            let obs: HashMap<String, CardObservation> = state::observations(&self.store, None)?
+                .into_iter()
+                .map(|o| (o.id.clone(), o))
+                .collect();
+            for p in due(all, &self.cfg.card, hour, now_ms) {
+                let body = json!({
+                    "kind": "card_question",
+                    "text": text_of(p, &obs),
+                    "card": {"id": p.id, "ask": p.ask},
+                });
+                let (post, more) = self.outbox.stage_to_operator(None, body)?;
+                frame.extend(more);
+                let mut marked = p.clone();
+                marked.posted_ms = Some(now_ms);
+                frame.push(state::record(&marked)?);
+                staged.push(post);
+            }
+            if staged.is_empty() {
+                return Ok((Vec::new(), Vec::new()));
+            }
+            Ok((frame, staged))
+        })
+        .await
     }
 }
