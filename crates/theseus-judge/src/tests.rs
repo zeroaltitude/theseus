@@ -853,6 +853,93 @@ async fn an_outage_opens_the_breaker_and_then_costs_nothing() {
     ));
 }
 
+/// A breaker of its own covers its pack's whole lineage, not the one
+/// version it was registered with (theseus-zbttu). The learning loop writes
+/// new versions of a root (`recall_cross.v101` of `recall_cross.v1`), and a
+/// version that fell to the shared breaker would let one slow lineage stop
+/// every other pack, and would have no breaker to name.
+#[test]
+fn a_breaker_of_its_own_covers_every_version_of_its_pack() {
+    let judge = JevJudge::new(
+        JevClient::new(
+            ClientConfig::default(),
+            Arc::new(StaticKey::new(KEY.into())),
+        )
+        .unwrap(),
+        price::builtin(),
+        BreakerConfig::default(),
+    )
+    .with_breaker("rerank", &["rerank.v1"], BreakerConfig::default())
+    .with_breaker(
+        "recall_cross",
+        &["recall_cross.v1"],
+        BreakerConfig::default(),
+    );
+    // The positive count first: with no breaker registered, every bar below
+    // would be met by an empty set.
+    let own: Vec<String> = judge.own_breakers().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(own, ["rerank", "recall_cross"]);
+    // The version it was registered with, and every other version of it.
+    assert_eq!(judge.breaker_of("recall_cross.v1"), Some("recall_cross"));
+    assert_eq!(judge.breaker_of("recall_cross.v101"), Some("recall_cross"));
+    assert_eq!(judge.breaker_of("rerank.v1"), Some("rerank"));
+    assert_eq!(judge.breaker_of("rerank.v101"), Some("rerank"));
+    // Another lineage still answers to the shared breaker, and an id is
+    // matched whole: `recall_crossing` is not `recall_cross`.
+    assert_eq!(judge.breaker_of("classify.v4"), None);
+    assert_eq!(judge.breaker_of("recall_crossing.v1"), None);
+    assert_eq!(judge.breaker_of("rerank_notes.v1"), None);
+}
+
+/// And the batch answers to it in the same way: an outage of a learned
+/// version's asks opens that lineage's own breaker and leaves the shared one
+/// closed, so the other packs go on calling (theseus-zbttu).
+#[tokio::test]
+async fn an_outage_of_a_learned_version_opens_its_own_breaker_alone() {
+    let fake = FakeJev::start().unwrap();
+    fake.set_mode(FakeMode::Down);
+    let mut learned = (*probe_pack()).clone();
+    learned.version = 101;
+    assert_eq!(learned.name(), "probe.v101");
+    let learned = Arc::new(learned);
+    let judge = JevJudge::new(
+        client_for(&fake, 2000, 8),
+        price::builtin(),
+        BreakerConfig::default(),
+    )
+    .with_breaker("probe", &["probe.v1"], BreakerConfig::default());
+    let mut transitions = Vec::new();
+    for _ in 0..5 {
+        let j = judge
+            .judge(DecisionPoint {
+                asks: vec![ask_with(learned.clone(), probe_input())],
+                urgency: Urgency::Shadow,
+            })
+            .await
+            .remove(0);
+        assert!(
+            matches!(&j.outcome, Outcome::Failed { class, transient: true, .. } if class == "network")
+        );
+        transitions.extend(j.circuit);
+    }
+    // The positive bar: the failures did open a breaker, and it is probe's.
+    assert_eq!(
+        transitions,
+        vec![Transition::Opened {
+            failures: 5,
+            for_secs: 60
+        }]
+    );
+    assert!(matches!(
+        judge.own_breakers().as_slice(),
+        [(name, crate::breaker::Status::Open { .. })] if name == "probe"
+    ));
+    assert!(matches!(
+        judge.breaker_status(),
+        crate::breaker::Status::Closed { failures: 0 }
+    ));
+}
+
 #[tokio::test]
 async fn a_pack_with_nothing_to_ask_is_skipped_without_a_call() {
     let fake = FakeJev::start().unwrap();
