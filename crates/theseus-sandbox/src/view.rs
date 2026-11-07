@@ -332,8 +332,16 @@ fn proc(atime: libc::c_ulong) -> Result<(), Failure> {
         mask(&Path::new("/proc").join(name)).stage(format!("masking /proc/{name}"))?;
     }
     for name in PROC_READONLY {
+        // The same resolution the bind below will do, and the same three
+        // errors skipped (theseus-txh9w): these binds are the only thing
+        // making /proc/sys and /proc/sysrq-trigger read-only, since /proc is
+        // not mounted MS_RDONLY and the root's attributes are not recursive,
+        // so an error swallowed here would quietly leave them writable.
         let p = Path::new("/proc").join(name);
-        if fs::symlink_metadata(&p).is_err() {
+        if resolved(&p)
+            .stage(format!("reading /proc/{name}"))?
+            .is_none()
+        {
             continue;
         }
         let t = c(&p).stage("a /proc path")?;
@@ -371,16 +379,37 @@ fn sysfs(atime: libc::c_ulong) -> Result<bool, Failure> {
     Ok(true)
 }
 
+/// What `p` names in the view, or None when nothing is behind it.
+///
+/// **Every decision about a path here is made the way the mount will make
+/// it** (theseus-txh9w). `mount(2)` follows symlinks on its target, so a
+/// non-following `symlink_metadata` answered a different question from the
+/// one the next line asked: it called a symlink to a directory "not a
+/// directory", and called a dangling link a file rather than nothing. Both
+/// callers below acted on that answer and the mount then failed, ending the
+/// job before it had started.
+///
+/// ENOENT, ENOTDIR and ELOOP are the three ways a path resolves to nothing —
+/// no target, a non-directory in the middle, or a loop — and are the only
+/// errors answered None. **Any other error is the init's to report**: a
+/// caller that skipped past every error could leave the view short of a
+/// cover or a read-only bind and say nothing about it.
+fn resolved(p: &Path) -> io::Result<Option<fs::Metadata>> {
+    match fs::metadata(p) {
+        Err(e)
+            if matches!(
+                e.raw_os_error(),
+                Some(libc::ENOENT | libc::ENOTDIR | libc::ELOOP)
+            ) =>
+        {
+            Ok(None)
+        }
+        r => r.map(Some),
+    }
+}
+
 /// Covers `p`: a directory with an empty read-only tmpfs, anything else with
 /// `/dev/null`. A path that resolves to nothing in the view is skipped.
-///
-/// **`p` is judged by what it resolves to, never by its own type**
-/// (theseus-txh9w). `mount(2)` follows symlinks on its target, so the kind
-/// must be read the same way: `symlink_metadata` called a symlink to a
-/// directory "not a directory" and bound `/dev/null` over the directory the
-/// link named (ENOTDIR), and called a dangling link a file and bound
-/// `/dev/null` over nothing (ENOENT). Either ended the job at the stage
-/// "hiding `<p>`", before it had started.
 ///
 /// **The skip is not a way past the mask.** The resolution happens here, in
 /// the view, after every bind and overlay is in place and while the old root
@@ -394,16 +423,8 @@ fn sysfs(atime: libc::c_ulong) -> Result<bool, Failure> {
 /// while the view is built, the root is read-only by the time it does, and a
 /// mount point cannot be unlinked from inside.
 fn mask(p: &Path) -> io::Result<()> {
-    let m = match fs::metadata(p) {
-        Err(e)
-            if matches!(
-                e.raw_os_error(),
-                Some(libc::ENOENT | libc::ENOTDIR | libc::ELOOP)
-            ) =>
-        {
-            return Ok(())
-        }
-        r => r?,
+    let Some(m) = resolved(p)? else {
+        return Ok(());
     };
     if m.is_dir() {
         tmpfs(p, 0o555, Some(1), libc::MS_RDONLY | libc::MS_NOEXEC)
@@ -517,6 +538,47 @@ mod tests {
             order,
             ["/opt", "/home/u", "/tmp/x", "/home/u/.cargo", "/home/u/w"]
         );
+    }
+
+    /// theseus-txh9w. `resolved` is the one answer both the mask and
+    /// `/proc`'s read-only binds act on, and it must be the answer `mount(2)`
+    /// would give: a link is what it names, and only a path with nothing
+    /// behind it is None. Flip it back to a non-following read and the two
+    /// link cases below go the other way, which is the defect this row
+    /// closes in both of its call sites at once.
+    #[test]
+    fn a_path_is_resolved_the_way_the_mount_will_resolve_it() {
+        let d = tempfile::tempdir().expect("a temp dir");
+        let p = |n: &str| d.path().join(n);
+        let at = |n: &str| resolved(&p(n)).expect("a resolution");
+        fs::create_dir(p("dir")).expect("the directory");
+        fs::write(p("file"), "x").expect("the file");
+        for (to, at) in [
+            ("dir", "to_dir"),
+            ("file", "to_file"),
+            ("gone", "dangling"),
+            ("loop_b", "loop_a"),
+            ("loop_a", "loop_b"),
+        ] {
+            std::os::unix::fs::symlink(p(to), p(at)).expect("a link");
+        }
+        // A link is what it names: a link to a directory is a directory, so
+        // it is covered by the tmpfs and not by the bind of /dev/null that
+        // "not a directory" would have chosen and that mount(2) would then
+        // have refused with ENOTDIR.
+        for n in ["dir", "to_dir"] {
+            assert!(at(n).is_some_and(|m| m.is_dir()), "{n}");
+        }
+        for n in ["file", "to_file"] {
+            assert!(at(n).is_some_and(|m| m.is_file()), "{n}");
+        }
+        // Nothing is behind these: no target, a loop, or no path at all.
+        // There is nothing to cover, and nothing to fail the job over.
+        for n in ["gone", "dangling", "loop_a", "loop_b"] {
+            assert!(at(n).is_none(), "{n}");
+        }
+        // A non-directory in the middle of a path is nothing too (ENOTDIR).
+        assert!(at("file/under").is_none());
     }
 
     #[test]
