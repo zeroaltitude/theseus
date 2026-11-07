@@ -48,6 +48,36 @@ pub(super) const NAMED: &[&str] = &[
     "Credentials",
 ];
 
+/// Compound names that are a credential whatever the model marks, matched
+/// at the **end** of a member's name in any case, and only on a scalar
+/// (theseus-37ds). A model that marks nothing still names these plainly, and
+/// they were passing a secret-bearing call's own result to the model beside
+/// the one secret it did hold: Connect's `ParticipantToken` beside its held
+/// join token, `connectparticipant`'s `ConnectionToken`, Amplify Backend's
+/// `ClientSecret`, Athena's and Glue's `AuthToken`.
+///
+/// Matched at the end, not anywhere, so `apiKeyRequired` and
+/// `PrivateKeyFlags` — which merely contain one — do not match. Matched only
+/// on a string or a blob, because a credential is a value: without that,
+/// `ApiKey` would swallow AppSync's `apiKey` **structure** whole and hide the
+/// description and expiry beside the key.
+pub(super) const ENDS: &[&str] = &[
+    "ParticipantToken",
+    "ConnectionToken",
+    "AuthToken",
+    "HECToken",
+    "SecretToken",
+    "ClientSecret",
+    "PreSharedKey",
+    "ApiKey",
+];
+
+/// `name` ends with `suffix`, in any case, without allocating.
+pub(super) fn ends_with_ci(name: &str, suffix: &str) -> bool {
+    name.len() >= suffix.len()
+        && name.as_bytes()[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix.as_bytes())
+}
+
 /// Members that hold a secret in one service's answers though no model marks
 /// them, and whose names are everywhere, so [`NAMED`] is no place for them
 /// (theseus-u4pe): a service, the shape, and the member. The walk holds them
@@ -65,6 +95,10 @@ pub(super) const HELD: &[(&str, &str, &str)] = &[
         "DownloadDefaultKeyPairResult",
         "privateKeyBase64",
     ),
+    // The presigned websocket a participant connects on: the URL is the
+    // credential, and it rode out beside the held `ConnectionToken`
+    // (theseus-37ds).
+    ("connectparticipant", "Websocket", "Url"),
 ];
 
 /// One secret a result held: its handle, and where it was.
@@ -153,9 +187,12 @@ fn value_of(v: &Value) -> Option<String> {
 }
 
 /// A member's name is one of [`NAMED`], in any case: `credentials` and
-/// `sessionToken` as `Credentials` and `SessionToken`.
-fn named(name: &str) -> bool {
+/// `sessionToken` as `Credentials` and `SessionToken`; or a scalar whose
+/// name ends in one of [`ENDS`].
+pub(super) fn named(name: &str, shape: ShapeRef<'_>) -> bool {
     NAMED.iter().any(|n| n.eq_ignore_ascii_case(name))
+        || (matches!(shape.kind(), Kind::String | Kind::Blob)
+            && ENDS.iter().any(|e| ends_with_ci(name, e)))
 }
 
 /// Walk `v` along `shape`, replacing every secret with its mask, and
@@ -170,7 +207,7 @@ fn walk(
     held: &[(&str, &str)],
     keep: &mut dyn FnMut(&str, &Value) -> String,
 ) {
-    let secret = sensitive || shape.is_sensitive() || name.is_some_and(named);
+    let secret = sensitive || shape.is_sensitive() || name.is_some_and(|n| named(n, shape));
     if secret {
         if let Some(_value) = value_of(v) {
             let handle = keep(path, v);
@@ -416,5 +453,74 @@ mod tests {
                 .expose(),
             "s3cr3t-value-0001"
         );
+    }
+
+    /// A secret-bearing answer holds **every** credential in it, not only
+    /// the one its model happens to mark (theseus-37ds).
+    ///
+    /// This is the partial hold, and it is worse than holding nothing,
+    /// because the answer reads as covered. Connect's `StartWebRTCContact`
+    /// is `SecretBearing::Always`: its `Attendee.JoinToken` is marked
+    /// sensitive and was held, while `ParticipantToken` — which no model
+    /// marks, and which is the credential a participant actually connects
+    /// with — was pretty-printed into the model's context in the same
+    /// result. `connectparticipant`'s `ConnectionToken` and its presigned
+    /// `Websocket.Url` went the same way.
+    ///
+    /// Empty [`ENDS`] and drop the `connectparticipant` [`HELD`] row and
+    /// this test fails on exactly those members, which is how it was before.
+    #[test]
+    fn a_secret_bearing_answer_holds_every_credential_not_only_the_marked_one() {
+        const JOIN: &str = "example-join-token-0011";
+        const PARTICIPANT: &str = "example-participant-token-0012";
+        const CONNECTION: &str = "example-connection-token-0013";
+        const WEBSOCKET: &str = "wss://example.connect.invalid/?signature=example-sig-0014";
+        let board = SecretBoard::empty();
+        for (service, op, mut body, want) in [
+            (
+                "connect",
+                "StartWebRTCContact",
+                json!({
+                    "ConnectionData": {
+                        "Attendee": {"AttendeeId": "attendee-example", "JoinToken": JOIN},
+                        "Meeting": {"MeetingId": "meeting-example", "MediaRegion": "us-west-2"}
+                    },
+                    "ContactId": "contact-example",
+                    "ParticipantId": "participant-example",
+                    "ParticipantToken": PARTICIPANT
+                }),
+                vec![
+                    ("ConnectionData.Attendee.JoinToken", JOIN),
+                    ("ParticipantToken", PARTICIPANT),
+                ],
+            ),
+            (
+                "connectparticipant",
+                "CreateParticipantConnection",
+                json!({
+                    "Websocket": {"Url": WEBSOCKET, "ConnectionExpiry": "2026-11-07T00:00:00Z"},
+                    "ConnectionCredentials": {"ConnectionToken": CONNECTION, "Expiry": "2026-11-07T00:00:00Z"}
+                }),
+                vec![
+                    ("Websocket.Url", WEBSOCKET),
+                    ("ConnectionCredentials.ConnectionToken", CONNECTION),
+                ],
+            ),
+        ] {
+            let held = hold(&board, service, op, &json!({}), &mut body).unwrap();
+            let after = body.to_string();
+            for (path, value) in want {
+                assert!(
+                    held.iter().any(|h| h.path == path),
+                    "{service}:{op}: {path} is not held: {held:?}"
+                );
+                assert!(
+                    !after.contains(value),
+                    "{service}:{op}: {path} is still in the answer:\n{after}"
+                );
+            }
+            // What is not a credential still comes through.
+            assert!(after.contains("contact-example") || after.contains("ConnectionExpiry"));
+        }
     }
 }

@@ -91,6 +91,19 @@ fn answers(s: &Seen, n: usize) -> Reply {
         Some("AssociateSoftwareToken") => {
             return json_reply(n, json!({"SecretCode": TOTP_SEED, "Session": MFA_SESSION}))
         }
+        Some("ListUserPoolClientSecrets") => {
+            // The pool named `empty` has no client secret at all.
+            let secrets = if s.body.contains("us-west-2_empty") {
+                json!([])
+            } else {
+                json!([{
+                    "ClientSecretId": "example-client-secret-id",
+                    "ClientSecretValue": CLIENT_SECRET,
+                    "ClientSecretCreateDate": 1_791_028_800.0,
+                }])
+            };
+            return json_reply(n, json!({ "ClientSecrets": secrets }));
+        }
         Some("DescribeChapCredentials") => {
             return json_reply(
                 n,
@@ -323,29 +336,73 @@ async fn each_credential_class_is_held_and_never_shown() {
     );
 }
 
-/// The control: an ordinary `aws.call` result with no credential in it is
-/// returned whole, with nothing held and nothing masked.
+/// The control, on an operation the guard actually runs on.
+///
+/// `ivs:ListChannels` was the first control here and it was vacuous: it
+/// classifies `secret=No`, so `tools.rs` never calls the walk and the result
+/// comes through whole no matter what the walk would have done. A control
+/// has to exercise the thing it is controlling.
+///
+/// `cognito-idp:ListUserPoolClientSecrets` is `WhenPresent`, so the walk
+/// runs on every call. Asked for a pool that has a client secret, it holds
+/// the secret and answers with the rest; asked for one that has none, it
+/// holds nothing and still answers whole rather than failing closed. That
+/// second case is the one a guard which withheld everything would fail.
 #[tokio::test]
-async fn an_ordinary_result_still_answers_whole() {
+async fn the_guard_runs_and_still_answers_whole() {
     let fake = Fake::start(answers);
     let b = board();
     let aws = layer(&fake, b.clone());
     let t = tool(&aws, "aws.call");
-    let input = call("ivs", "ListChannels", json!({}));
-    let binding = aws.bind("exe_test", "act_test_1", "toolu_test_1");
-    let ctx = theseus_tools::ToolCtx {
-        aws: Some(binding),
-        ..plain_ctx()
+    let run = |input: Value| {
+        let t = t.clone();
+        let binding = aws.bind("exe_test", "act_test_1", "toolu_test_1");
+        async move {
+            let ctx = theseus_tools::ToolCtx {
+                aws: Some(binding),
+                ..plain_ctx()
+            };
+            t.run_async(&input, &ctx)
+                .await
+                .unwrap_or_else(|f| panic!("ListUserPoolClientSecrets: {}", f.message))
+        }
     };
-    let (out, _) = t
-        .run_async(&input, &ctx)
-        .await
-        .unwrap_or_else(|f| panic!("ListChannels: {}", f.message));
-    assert!(out.text.contains(CHANNEL_NAME), "{}", out.text);
+
+    // A pool with a secret: held, and everything else still shown.
+    let (out, _) = run(call(
+        "cognito-idp",
+        "ListUserPoolClientSecrets",
+        json!({"UserPoolId": "us-west-2_example", "ClientId": "exampleclientid"}),
+    ))
+    .await;
     assert!(
+        !format!("{} {}", out.text, out.meta).contains(CLIENT_SECRET),
+        "the secret is in the result:\n{}",
         out.text
-            .contains("arn:aws:ivs:us-west-2:111122223333:channel/example"),
+    );
+    assert!(
+        out.text.contains("example-client-secret-id"),
+        "the rest of the listing still answers:\n{}",
+        out.text
+    );
+    assert_eq!(
+        out.meta["secrets"],
+        json!(["aws-secret:ListUserPoolClientSecrets#ClientSecrets[0].ClientSecretValue"]),
         "{}",
+        out.meta
+    );
+
+    // A pool with none: nothing held, nothing masked, and the call still
+    // answers rather than failing closed.
+    let (out, _) = run(call(
+        "cognito-idp",
+        "ListUserPoolClientSecrets",
+        json!({"UserPoolId": "us-west-2_empty", "ClientId": "exampleclientid"}),
+    ))
+    .await;
+    assert!(
+        out.text.contains("\"ClientSecrets\": []"),
+        "the empty listing answers whole:\n{}",
         out.text
     );
     assert!(

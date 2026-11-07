@@ -775,6 +775,18 @@ pub(crate) static SECRET: &[SecretRow] = &[
     // for the customer gateway. `DescribeVpnConnections` was already
     // secret-bearing; this one, which returns the same keys, was not.
     secret("ec2", "GetVpnConnectionDeviceSampleConfiguration"),
+    // Credentials no model marks at all, found once the rule learned the
+    // compound names of `secret::ENDS` (theseus-37ds): a participant's
+    // token, an `AuthToken`, a WAF API key.
+    secret("connect", "StartChatContact"),
+    secret("connect", "CreateParticipant"),
+    secret("athena", "CreatePresignedNotebookUrl"),
+    secret("athena", "GetSessionEndpoint"),
+    secret("gamelift", "GetComputeAuthToken"),
+    secret("wafv2", "CreateAPIKey"),
+    // Marked, but named for what it connects to rather than for the
+    // credential signed into it.
+    secret("finspace", "GetKxConnectionString"),
 ];
 
 /// Results that hold a secret only sometimes (theseus-qan5): what the walk
@@ -997,6 +1009,45 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "UpdateEnvironment",
         ],
     ),
+    // theseus-37ds, the unmarked compound names of `secret::ENDS`: a secret
+    // a resource was configured with and echoes back only where it is set.
+    // A webhook's shared secret, set only for `GITHUB_HMAC` authentication.
+    ops("codepipeline", &["ListWebhooks", "PutWebhook"]),
+    // An OIDC client secret on a listener's or a rule's authenticate action,
+    // present only on actions of that type.
+    ops(
+        "elbv2",
+        &[
+            "CreateListener",
+            "CreateRule",
+            "DescribeListeners",
+            "DescribeRules",
+            "ModifyListener",
+            "ModifyRule",
+            "SetRulePriorities",
+        ],
+    ),
+    // The API key of an API Gateway asset, on assets of that kind only.
+    ops(
+        "dataexchange",
+        &[
+            "CreateJob",
+            "GetAsset",
+            "GetJob",
+            "ListJobs",
+            "ListRevisionAssets",
+            "UpdateAsset",
+        ],
+    ),
+    // Splunk's HEC token, on Splunk destinations only.
+    ops("firehose", &["DescribeDeliveryStream"]),
+    // A job's source-control token, set only where source control is.
+    ops("glue", &["BatchGetJobs", "GetJob", "GetJobs"]),
+    // A VPN tunnel's pre-shared key, inside the resource detail of a finding
+    // about a VPN connection.
+    ops("securityhub", &["GetFindings"]),
+    // A listing with no key in it answers whole.
+    ops("wafv2", &["ListAPIKeys"]),
 ];
 
 /// Tagging is direct (§3.4), so it is never IaC-only.

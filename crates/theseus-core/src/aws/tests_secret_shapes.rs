@@ -8,27 +8,43 @@
 //! `Credentials`, `SecretAccessKey`, `SessionToken`, …), or when **AWS's own
 //! model marks it `sensitive` and either its name or the name of the shape
 //! it sits in carries a credential word** ([`WORDS`]: `token`, `password`,
-//! `secret`, `key`, `credential`, `passphrase`, `seed`), or when one of two
-//! short lists names it outright: the walk's `HELD`, for a member no model
-//! marks (API Gateway's `ApiKey.value`, theseus-u4pe), and [`MARKED`], for a
-//! member the model does mark whose name says nothing of what it is (the
-//! pre-shared keys inside EC2's `VpnConnectionDeviceSampleConfiguration`).
-//! A `HELD` row that no secret-bearing answer reaches is stale.
+//! `secret`, `key`, `credential`, `passphrase`, `seed`), or when its name
+//! ends in one of the compound names of `secret::ENDS` — `ParticipantToken`,
+//! `ConnectionToken`, `AuthToken`, `ClientSecret`, … — which are credentials
+//! whatever the model says, or when one of two short lists names it
+//! outright: the walk's `HELD`, for a member no model marks (API Gateway's
+//! `ApiKey.value`, theseus-u4pe), and [`MARKED`], for a member the model
+//! does mark whose name says nothing of what it is (the pre-shared keys
+//! inside EC2's `VpnConnectionDeviceSampleConfiguration`). A `HELD` row that
+//! no secret-bearing answer reaches is stale.
 //!
 //! **Why the marking and the words together, and neither alone**
 //! (theseus-37ds). The marking alone is not a credential rule: AWS marks
 //! `sensitive` to keep a value out of logs, so the marking covers personal
 //! data and customer content too, and holding every marked member would
-//! make 1369 further operations withhold their results — a postal code, a
-//! given name, a control's description, a tag's value. The words alone are a
-//! guess about a name, and the names that matter do not cooperate: a stream
-//! key arrives as `StreamKey.value`, a Grafana key as `key`, a TOTP seed as
-//! `SecretCode`, a channel's key as `Srt.passphrase`. Read together they
-//! keep the marking's authority — the service that produced the value said
-//! it was sensitive — and then ask the catalog's own type names, rather than
-//! a growing list of spellings, what the value is. Reading the **shape's**
-//! words as well as the member's is what finds `StreamKey.value`: `value`
-//! says nothing, and `StreamKey` says all of it.
+//! reach 1478 further operations and 2654 further members — a postal code, a
+//! given name, a control's description, a tag's value — against this rule's
+//! 129 and 94. The words alone are a guess about a name, and the names that
+//! matter do not cooperate: a stream key arrives as `StreamKey.value`, a
+//! Grafana key as `key`, a TOTP seed as `SecretCode`, a channel's key as
+//! `Srt.passphrase`. Read together they keep the marking's authority — the
+//! service that produced the value said it was sensitive — and then ask the
+//! catalog's own type names, rather than a growing list of spellings, what
+//! the value is. Reading the **shape's** words as well as the member's is
+//! what finds `StreamKey.value`: `value` says nothing, and `StreamKey` says
+//! all of it. Those four figures are measured, not remembered:
+//! `the_rules_reach_is_what_the_design_doc_says` asserts them, and fails
+//! with the new ones if the rule moves.
+//!
+//! **The marking is not enough on its own in the other direction either.**
+//! A credential no model marks is invisible to it, which is why `NAMED`,
+//! `ENDS` and `HELD` exist and why they are read by the walk as well as by
+//! this rule. A secret-bearing operation that returns one of those beside a
+//! secret it does hold is a *partial hold*, and worse than no hold at all,
+//! because its answer reads as covered: Connect handed `ParticipantToken` to
+//! the model in the same result as its held join token. Every
+//! credential-shaped member of a secret-bearing answer must be one the walk
+//! holds, checked below.
 //!
 //! Words are split at camelCase humps, `_` and `-`, and matched whole, so
 //! `keyPrefix` and `SecretToAuthenticateInitiator` carry one and `Monkey`
@@ -97,9 +113,13 @@ const MARKED: &[(&str, &str, &str)] = &[
     ),
     // The QR code encodes the same seed as the `Base32StringSeed` beside it.
     ("iam", "VirtualMFADevice", "QRCodePNG"),
-    // The session that completes an MFA association, and which is spent
-    // without the caller's own credentials.
-    ("cognito-idp", "VerifySoftwareTokenResponse", "Session"),
+    // A kdb connection string with the caller's signature in it: named for
+    // what it connects to, not for the credential signed into it.
+    (
+        "finspace",
+        "GetKxConnectionStringResponse",
+        "signedConnectionString",
+    ),
 ];
 
 /// `name` in lower-case words, split at camelCase humps, `_` and `-`:
@@ -507,26 +527,45 @@ fn credential_shaped(service: &str, parent: &str, member: &str, shape: ShapeRef<
         rows.iter()
             .any(|(s, p, m)| *s == service && *p == parent && *m == member)
     };
-    NAMED.iter().any(|n| n.eq_ignore_ascii_case(member))
+    // `named` carries both [`NAMED`] and the unmarked compound names of
+    // `secret::ENDS`, so the rule and the walk cannot drift apart.
+    super::secret::named(member, shape)
         || (shape.is_sensitive() && (carries(member) || carries(parent)))
         || row(HELD)
         || row(MARKED)
 }
 
-/// One credential-shaped member of an output: `Shape.member`, and the path
-/// it was first reached by.
+/// Whether [`super::secret`]'s walk would hold this member: the model marks
+/// it, its name is one of [`NAMED`], or a [`HELD`] row names it. This is
+/// `secret.rs`'s own test, repeated here so the rule can ask what the walk
+/// would really do with what it finds.
+fn walk_holds(service: &str, parent: &str, member: &str, shape: ShapeRef<'_>) -> bool {
+    shape.is_sensitive()
+        || super::secret::named(member, shape)
+        || HELD
+            .iter()
+            .any(|(s, p, m)| *s == service && *p == parent && *m == member)
+}
+
+/// One credential-shaped member of an output: `Shape.member`, the path it
+/// was first reached by, and whether the walk would hold it — itself, or
+/// under an ancestor the walk holds and masks whole.
 struct Hit {
     member: String,
     path: String,
+    held: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk(
     service: &str,
     shape: ShapeRef<'_>,
     path: &str,
     tokens: &[&str],
+    held_above: bool,
     seen: &mut HashSet<ShapeId>,
     out: &mut Vec<Hit>,
+    any_held: &mut bool,
 ) {
     if !seen.insert(shape.id()) {
         return;
@@ -544,16 +583,35 @@ fn walk(
                 && ["Key", "tagKey"]
                     .iter()
                     .any(|k| k.eq_ignore_ascii_case(m.name())));
+        // The walk stops at the first member it holds and masks everything
+        // under it, so an ancestor's hold covers this member too.
+        let held = held_above || walk_holds(service, shape.name(), m.name(), m.shape());
+        if !skipped && held {
+            // Something in this answer is held, whether or not the rule
+            // calls it credential-shaped: SSM's `Parameter.Value` is held by
+            // its marking alone, and is no credential by name.
+            *any_held = true;
+        }
         if !skipped && credential_shaped(service, shape.name(), m.name(), m.shape()) {
             out.push(Hit {
                 member: format!("{}.{}", shape.name(), m.name()),
                 path: p.clone(),
+                held,
             });
         }
-        walk(service, m.shape(), &p, tokens, seen, out);
+        walk(service, m.shape(), &p, tokens, held, seen, out, any_held);
     }
     if let Some(m) = shape.list_member() {
-        walk(service, m.shape(), &format!("{path}[]"), tokens, seen, out);
+        walk(
+            service,
+            m.shape(),
+            &format!("{path}[]"),
+            tokens,
+            held_above,
+            seen,
+            out,
+            any_held,
+        );
     }
     if let Some(m) = shape.map_value() {
         walk(
@@ -561,16 +619,19 @@ fn walk(
             m.shape(),
             &format!("{path}{{}}"),
             tokens,
+            held_above,
             seen,
             out,
+            any_held,
         );
     }
 }
 
-/// The operation's credential-shaped output members.
-fn hits(op: OperationRef<'_>) -> Vec<Hit> {
+/// The operation's credential-shaped output members, and whether the walk
+/// would hold anything at all in that output.
+fn hits(op: OperationRef<'_>) -> (Vec<Hit>, bool) {
     let Some(output) = op.output() else {
-        return Vec::new();
+        return (Vec::new(), false);
     };
     let tokens: Vec<&str> = op
         .paginator()
@@ -580,15 +641,18 @@ fn hits(op: OperationRef<'_>) -> Vec<Hit> {
         .map(|t| t.rsplit('.').next().unwrap_or(t))
         .collect();
     let mut out = Vec::new();
+    let mut any_held = false;
     walk(
         op.service().name(),
         output,
         "",
         &tokens,
+        false,
         &mut HashSet::new(),
         &mut out,
+        &mut any_held,
     );
-    out
+    (out, any_held)
 }
 
 fn matches(row: &Allowed, service: &str, op: &str, member: &str) -> bool {
@@ -635,6 +699,172 @@ fn credential_words_are_whole_words() {
     }
 }
 
+/// No [`MARKED`] row can be deleted in silence (theseus-37ds).
+///
+/// Staleness guards one direction only: a row that reaches nothing fails.
+/// The other direction is the dangerous one — delete a row that is the only
+/// thing making a member credential-shaped and the suite can stay green,
+/// because the member is marked, so the walk still holds it and the
+/// operation is still secret-bearing. Nothing would notice that its
+/// operation is no longer *required* to be secret-bearing, and a later
+/// change could quietly take the row off the table.
+///
+/// So each row must be load-bearing: without it, no other branch of
+/// [`credential_shaped`] may reach the same member. A row this test calls
+/// redundant should be deleted, not kept.
+#[test]
+fn no_marked_row_can_be_deleted_in_silence() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let mut bad = Vec::new();
+    for (service, parent, member) in MARKED {
+        let Ok(svc) = c.service(service) else {
+            bad.push(format!("{service} is no service of the catalog"));
+            continue;
+        };
+        let Some(shape) = svc.shapes().find(|s| s.name() == *parent) else {
+            bad.push(format!("{service} has no shape {parent}"));
+            continue;
+        };
+        let Some(m) = shape.member(member) else {
+            bad.push(format!("{service}'s {parent} has no member {member}"));
+            continue;
+        };
+        // Every branch of the rule except `MARKED` itself.
+        let without = super::secret::named(member, m.shape())
+            || (m.shape().is_sensitive() && (carries(member) || carries(parent)))
+            || HELD
+                .iter()
+                .any(|(s, p, x)| s == service && p == parent && x == member);
+        if without {
+            bad.push(format!(
+                "redundant: the marked row ({service}, {parent}, {member}) is reached by \
+                 another branch of the rule, so deleting it would change nothing: delete it"
+            ));
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "{} findings:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+}
+
+/// The rule as it was before theseus-37ds: a sensitive member whose own
+/// name *ends* in one of these, plus `NAMED` and `HELD`. Kept so the reach
+/// of the rule can be measured against what it replaced.
+const BEFORE_37DS: &[&str] = &["Token", "Password", "Secret", "Key", "Credentials"];
+
+/// How far a rule reaches: operations, and distinct `Shape.member`.
+fn reach(c: &Catalog, rule: &dyn Fn(&str, &str, &str, ShapeRef<'_>) -> bool) -> (usize, usize) {
+    fn go(
+        rule: &dyn Fn(&str, &str, &str, ShapeRef<'_>) -> bool,
+        service: &str,
+        shape: ShapeRef<'_>,
+        tokens: &[&str],
+        seen: &mut HashSet<ShapeId>,
+        out: &mut Vec<String>,
+    ) {
+        if !seen.insert(shape.id()) {
+            return;
+        }
+        for m in shape.members() {
+            let skipped = tokens.contains(&m.name())
+                || m.name().eq_ignore_ascii_case("NextToken")
+                || (shape.name() == "Tag"
+                    && ["Key", "tagKey"]
+                        .iter()
+                        .any(|k| k.eq_ignore_ascii_case(m.name())));
+            if !skipped && rule(service, shape.name(), m.name(), m.shape()) {
+                out.push(format!("{}.{}", shape.name(), m.name()));
+            }
+            go(rule, service, m.shape(), tokens, seen, out);
+        }
+        if let Some(m) = shape.list_member() {
+            go(rule, service, m.shape(), tokens, seen, out);
+        }
+        if let Some(m) = shape.map_value() {
+            go(rule, service, m.shape(), tokens, seen, out);
+        }
+    }
+    let old = |service: &str, parent: &str, member: &str, shape: ShapeRef<'_>| {
+        NAMED.iter().any(|n| n.eq_ignore_ascii_case(member))
+            || (shape.is_sensitive() && BEFORE_37DS.iter().any(|e| member.ends_with(e)))
+            || HELD
+                .iter()
+                .any(|(s, p, m)| *s == service && *p == parent && *m == member)
+    };
+    let (mut ops, mut members) = (0usize, std::collections::BTreeSet::new());
+    for e in c.services() {
+        let svc = c.service(&e.name).expect("the service decodes");
+        for op in svc.operations() {
+            let Some(output) = op.output() else { continue };
+            let tokens: Vec<&str> = op
+                .paginator()
+                .map(|p| p.output_tokens())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| t.rsplit('.').next().unwrap_or(t))
+                .collect();
+            let mut now = Vec::new();
+            let mut was = Vec::new();
+            go(
+                rule,
+                &e.name,
+                output,
+                &tokens,
+                &mut HashSet::new(),
+                &mut now,
+            );
+            go(
+                &old,
+                &e.name,
+                output,
+                &tokens,
+                &mut HashSet::new(),
+                &mut was,
+            );
+            let added: Vec<&String> = now.iter().filter(|m| !was.contains(m)).collect();
+            if !added.is_empty() {
+                ops += 1;
+                for m in added {
+                    members.insert(m.clone());
+                }
+            }
+        }
+    }
+    (ops, members.len())
+}
+
+/// The numbers the module doc and `docs/design/aws-toolset.md` quote for why
+/// the rule is a conjunction, measured rather than remembered.
+///
+/// These are committed in a design document, and a wrong number in a design
+/// document is believed by whoever reads it next. So they are asserted here:
+/// change the rule and this fails with the new figures, which is the prompt
+/// to correct the prose in the same commit.
+///
+/// Both are counted the same way and against the same baseline — the rule as
+/// it stood before theseus-37ds — over every operation in the catalog, and
+/// independently of which operations the `SECRET` tables happen to list.
+#[test]
+fn the_rules_reach_is_what_the_design_doc_says() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let conjunction = reach(c, &credential_shaped);
+    // What taking AWS's `sensitive` marking on its own would have reached.
+    let marking_alone = |_service: &str, _parent: &str, member: &str, shape: ShapeRef<'_>| {
+        shape.is_sensitive() || NAMED.iter().any(|n| n.eq_ignore_ascii_case(member))
+    };
+    let marking = reach(c, &marking_alone);
+    assert_eq!(
+        (conjunction, marking),
+        ((129, 94), (1478, 2654)),
+        "the rule's reach moved: the conjunction now selects {conjunction:?} \
+         (operations, members) beyond the rule it replaced, and the marking alone would \
+         select {marking:?}. Correct the module doc above and docs/design/aws-toolset.md."
+    );
+}
+
 #[test]
 fn globs_match_as_the_catalogs_do() {
     assert!(glob("*", "Anything"));
@@ -659,12 +889,22 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
         for op in svc.operations() {
             let kind = op.classify().secret;
             let secret = kind != SecretBearing::No;
-            let hits = hits(op);
-            // One that holds a secret only when it is there must have a
-            // member the walk holds: else it would answer whole, always.
-            if kind == SecretBearing::WhenPresent && hits.is_empty() {
+            let (hits, any_held) = hits(op);
+            // Every secret-bearing operation must have a credential-shaped
+            // member: a `when_present` one would otherwise answer whole,
+            // always, and an `Always` one would fail closed on every call.
+            //
+            // This is also what keeps [`MARKED`] and [`HELD`] *complete*
+            // rather than merely unstale (theseus-37ds): their staleness
+            // check fails a row that reaches nothing, and this one fails the
+            // other way — delete the row that is the only thing making an
+            // operation's member credential-shaped and its operation is left
+            // secret-bearing with nothing to hold, which fails here. A list
+            // whose rows can be deleted in silence is not guarded.
+            if secret && !any_held {
                 bad.push(format!(
-                    "stale: {}:{} is when_present, and its output has no credential-shaped member",
+                    "stale: {}:{} is secret-bearing ({kind:?}), and the walk would hold \
+                     nothing in its output",
                     e.name,
                     op.name()
                 ));
@@ -706,10 +946,42 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
                         hit.member
                     ));
                 }
+                // A partial hold is worse than no hold: the call is
+                // secret-bearing, so its answer reads as covered, and it
+                // hands this credential to the model beside the one it held
+                // (theseus-37ds; the row named Connect's `ParticipantToken`
+                // beside its held join token). Every credential-shaped
+                // member of a secret-bearing answer must be one the walk
+                // holds: marked, in `NAMED` or `ENDS`, or a `HELD` row.
+                if secret && !hit.held {
+                    bad.push(format!(
+                        "partial hold: {}:{} is secret-bearing and returns {} ({}), which the \
+                         walk does not hold: it reaches the model beside the secrets that were \
+                         held. Mark it with a HELD row, or name it in NAMED or ENDS",
+                        e.name,
+                        op.name(),
+                        hit.path,
+                        hit.member
+                    ));
+                }
             }
         }
     }
-    for (row, used) in ALLOWED.iter().zip(&used) {
+    bad.extend(stale_rows(&used, &held_used, &marked_used));
+    bad.dedup();
+    assert!(
+        bad.is_empty(),
+        "{} findings:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+}
+
+/// Rows of the three lists that the scan above never reached: each is
+/// stale, and an allowed row must name its member.
+fn stale_rows(used: &[bool], held_used: &[bool], marked_used: &[bool]) -> Vec<String> {
+    let mut bad = Vec::new();
+    for (row, used) in ALLOWED.iter().zip(used) {
         assert!(!row.why.is_empty());
         // A row names its member (theseus-b586): one whose member is a glob
         // alone (`*`, `Shape.*`) would pass any credential a weekly update
@@ -731,25 +1003,19 @@ fn every_credential_shaped_output_is_secret_bearing_or_allowed() {
             ));
         }
     }
-    for (row, used) in HELD.iter().zip(&held_used) {
+    for (row, used) in HELD.iter().zip(held_used) {
         if !used {
             bad.push(format!(
                 "stale: the walk's held row {row:?} is in no secret-bearing answer"
             ));
         }
     }
-    for (row, used) in MARKED.iter().zip(&marked_used) {
+    for (row, used) in MARKED.iter().zip(marked_used) {
         if !used {
             bad.push(format!(
                 "stale: the marked row {row:?} is in no secret-bearing answer"
             ));
         }
     }
-    bad.dedup();
-    assert!(
-        bad.is_empty(),
-        "{} findings:\n{}",
-        bad.len(),
-        bad.join("\n")
-    );
+    bad
 }
