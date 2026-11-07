@@ -23,6 +23,9 @@ pub enum HeardAs {
     /// A judge heard noise, or someone else, in a short or unclear sound that
     /// the rules would have made a turn (theseus-s3dwj). Not a turn.
     Other,
+    /// Begun before a mute (theseus-k2sw): its words were dropped unheard.
+    /// Not a turn, and the transcript is empty.
+    Muted,
 }
 
 /// Where an utterance's first speech frame came, for the rules that apply.

@@ -730,6 +730,8 @@ enum Control {
     /// Join a voice channel (44b): the one named, as the presser.
     Join(Option<u64>, Option<DiscordOrigin>),
     Leave,
+    /// Mute the voice call, or hear it again (theseus-k2sw, `runtime/voice.rs`).
+    Mute(bool),
     /// Run an MCP server's prompt as the next turn (36c, `runtime/prompt.rs`).
     Prompt(Box<theseus_protocol::mcp::McpPromptRef>),
     /// The loaded extensions (43b, `runtime/extensions.rs`).
@@ -1361,6 +1363,7 @@ impl Shared {
                     "publish" => Control::Publish(Box::new(PublishAsk::of(&c.options, discord))),
                     "join" => Control::Join(voice::join_option(&c.options), discord),
                     "leave" => Control::Leave,
+                    "mute" | "unmute" => Control::Mute(c.name == "mute"),
                     _ => Control::Status,
                 };
                 self.respond(
@@ -2220,6 +2223,7 @@ impl Place {
             }
             Control::Join(named, origin) => self.join(named, origin, by).await,
             Control::Leave => self.leave(by).await,
+            Control::Mute(on) => self.mute(on),
         }
     }
 

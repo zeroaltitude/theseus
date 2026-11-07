@@ -65,6 +65,7 @@ use crate::unclear::{self, Case, Judge, Judged, Said, Timing, Verdict};
 use crate::vad::{Closed, Vad, VadSettings};
 
 mod flux_path;
+mod mute;
 #[cfg(test)]
 mod tests_leaks;
 #[cfg(test)]
@@ -441,6 +442,10 @@ pub struct Engine {
     /// ended it, and whether the listener ended it itself, for the journal's
     /// first-word latency.
     first_words: HashMap<TurnId, (Instant, bool)>,
+    /// `Command::Mute(true)` is on (`engine/mute.rs`).
+    muted: bool,
+    /// The tick of the last mute: what began before it is not heard.
+    muted_at: Option<u64>,
 }
 
 /// How long after a sentence ends an utterance may still be its echo.
@@ -684,6 +689,8 @@ impl Engine {
             outbox: Vec::new(),
             flux: None,
             first_words: HashMap::new(),
+            muted: false,
+            muted_at: None,
         };
         let handle = EngineHandle {
             commands: command_tx,
@@ -745,7 +752,7 @@ impl Engine {
                         sentences,
                     });
                 }
-                Step::Command(Some(Command::Mute(_))) => {}
+                Step::Command(Some(Command::Mute(on))) => self.mute(on, now),
                 Step::Command(None | Some(Command::Leave)) => {
                     self.call_ended(now);
                     break;
@@ -912,7 +919,10 @@ impl Engine {
                     if opening.last && self.queue.front().is_none_or(|f| f.opens) {
                         opening.overlap = Overlap::Tail;
                     }
-                    self.transcribe(speaker, first_tick, tick, audio, opening);
+                    // One the mute landed in is dropped before it is sent.
+                    if !self.before_mute(first_tick) {
+                        self.transcribe(speaker, first_tick, tick, audio, opening);
+                    }
                 }
                 Some(Closed::Noise) => {
                     self.talk_frames.remove(&speaker);
@@ -931,6 +941,9 @@ impl Engine {
     /// else's dropped, each unlisted speaker told once.
     fn at_the_door<'a>(&mut self, frames: &'a [Frame], tick: u64) -> BTreeMap<Speaker, &'a [i16]> {
         let mut heard = BTreeMap::new();
+        if self.muted {
+            return heard;
+        }
         for frame in frames {
             if self.config.listed.contains(&frame.speaker) {
                 if self.listened.insert(frame.speaker) {
@@ -1512,6 +1525,7 @@ impl Engine {
     ) {
         // One that the hold's bound already decided is dropped, as a
         // failure's is: nothing is said of it twice.
+        let muted_at = self.muted_at;
         let Some(p) = self
             .pending
             .iter_mut()
@@ -1520,6 +1534,16 @@ impl Engine {
             return;
         };
         let (speaker, overlap) = (p.speaker, p.opening.overlap);
+        let muted = muted_at.is_some_and(|at| p.started < at_tick(at));
+        // A transcription the mute landed in while it was asked: its words are
+        // dropped, not judged and not kept (theseus-k2sw).
+        if let (true, Ok(t)) = (muted, &result) {
+            let unheard = Transcript {
+                text: String::new(),
+                ..t.clone()
+            };
+            return self.settle(seq, unheard, latency, HeardAs::Muted, None, now);
+        }
         let t = match result {
             Ok(t) => t,
             Err(error) => {
@@ -1644,6 +1668,19 @@ impl Engine {
             return;
         };
         let (speaker, overlap) = (p.speaker, p.opening.overlap);
+        // Settled after the mute that landed in it (a judge's answer, say): its
+        // words are not kept, whatever they were heard as (theseus-k2sw).
+        let (t, heard_as, judged) = match self.muted_at {
+            Some(at) if p.started < at_tick(at) => (
+                Transcript {
+                    text: String::new(),
+                    ..t
+                },
+                HeardAs::Muted,
+                None,
+            ),
+            _ => (t, heard_as, judged),
+        };
         let utterance = Utterance {
             speaker,
             started: p.started,
