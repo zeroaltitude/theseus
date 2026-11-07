@@ -31,7 +31,10 @@
 //!   switches the live profile ([`TurnRunner::route_base`]).
 //! - **The owner's correction first** (theseus-q31l, [`correct`]): a turn
 //!   the owner's correction or the live layer steers runs there ahead of the
-//!   verdict, and does not wait for it.
+//!   verdict, and does not wait for it — **in a place only the owner reads**.
+//!   In a shared place it waits (theseus-3i6d1): the same verdict carries the
+//!   privacy answer, and a steer over the route is not consent to answer a
+//!   guest without it.
 
 mod correct;
 mod fan_out_cue;
@@ -46,6 +49,7 @@ use super::*;
 use crate::config::PackMode;
 use crate::correction::{By, RoutedTurn, Steer, Steering};
 use crate::judge::inbound::{Answered, RouteWait, ROUTE_PACK};
+use crate::places::PlaceClass;
 use crate::routing::effort::{self, EffortDecision};
 use crate::routing::{self, Decision, HoldNext, Reason, Verdict};
 
@@ -511,14 +515,21 @@ impl TurnRunner {
         let unreachable = live && self.judge.jev_unreachable();
         // A steered turn runs where the owner said: it waits for no verdict.
         let steering = t.route.steer.take().filter(|_| live);
+        // Except where a guest can read the answer. The one verdict carries
+        // the privacy answer beside the route, and that one is not the
+        // owner's steer to override: in a shared place a steered turn waits
+        // for it as any other turn does, and only in a place the owner alone
+        // reads (the DM, the CLI, the web UI) does the steer keep its
+        // no-wait (theseus-3i6d1).
+        let waits = steering.is_none() || t.tc.class == PlaceClass::Shared;
         t.route.defer_persist = live;
         let max_wait = Duration::from_millis(self.cfg.routing.max_wait_ms);
         let compile = Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i));
-        let wait = (live && !unreachable && steering.is_none()) || self.judge.pins_wait();
+        let wait = (live && !unreachable && waits) || self.judge.pins_wait();
         let (compiled, w) = beside(compile, &mut rx, max_wait, wait).await;
         // Missed: the turn decides without its own verdict (theseus-ddbi).
-        let late = live && steering.is_none() && w.got == Got::Late;
-        if live && steering.is_none() {
+        let late = live && waits && w.got == Got::Late;
+        if live && waits {
             self.judge.record_route_wait(w.waited, late);
         }
         let timed = Timed::of(&w, late, t.started);
