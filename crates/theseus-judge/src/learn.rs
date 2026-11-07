@@ -265,8 +265,10 @@ pub enum RollbackRule {
     /// A nudged turn ends with no new tool call and a near-identical final
     /// text: a nudge loop.
     NudgeLoop,
-    /// The canary's spend per task passes `ratio` times the control's median,
-    /// once each arm has `min_tasks` tasks.
+    /// The canary's median task spend passes `ratio` times the control's
+    /// median, once each arm has `min_tasks` tasks and the control's median
+    /// is above `SPEND_BASE_FLOOR_MICROS`. Median against median: task spend
+    /// is right-skewed, so a mean against a median fires on one deep task.
     SpendRatio { ratio: f64, min_tasks: usize },
     /// The operator stops or cancels a task within its nudge.
     OperatorStopWithinNudge,
@@ -411,6 +413,23 @@ pub fn similarity(a: &str, b: &str) -> f64 {
 /// Two final texts "near-identical" for the nudge-loop rule.
 pub const NEAR_IDENTICAL: f64 = 0.9;
 
+/// The least a control arm's median task spend may be, in micro-dollars, for
+/// the spend rule to have a baseline to measure against.
+///
+/// Below it the ratio is arithmetic on noise: a control median of 0 makes
+/// `ratio * base` zero, which any canary spend at all passes, and a median of
+/// a few micro-dollars is barely better. A hundred micro-dollars is a
+/// hundredth of a US cent; no task that made one priced model call costs that
+/// little, since the system header alone is thousands of tokens. So a control
+/// median at or under this means the control arm did essentially no priced
+/// work in the window, and there is nothing to compare the canary with.
+///
+/// Deliberately low. A high floor would quietly switch a spend guard off for
+/// a cheap workload, which is the opposite of what the rule is for: the floor
+/// removes a degenerate baseline, it does not express a view about how much
+/// spend is worth rolling a pack back for.
+pub const SPEND_BASE_FLOOR_MICROS: f64 = 100.0;
+
 fn median(v: &[u64]) -> Option<f64> {
     if v.is_empty() {
         return None;
@@ -460,12 +479,19 @@ pub fn check(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<Fired> {
             if canary.len() < *min_tasks || control.len() < *min_tasks {
                 return None;
             }
-            let per_task = canary.iter().sum::<u64>() as f64 / canary.len() as f64;
+            // Like against like. Task spend is right-skewed (many cheap
+            // tasks, a few deep ones), so the canary's *mean* against the
+            // control's median fires on two samples of one distribution as
+            // soon as one deep task lands in the canary.
             let base = median(&control)?;
+            if base <= SPEND_BASE_FLOOR_MICROS {
+                return None;
+            }
+            let per_task = median(&canary)?;
             (per_task > ratio * base).then(|| Fired {
                 rule: rule.name().to_string(),
                 why: format!(
-                    "the canary spends {per_task:.0} micro-dollars a task, over {ratio} times the control's median of {base:.0} ({} and {} tasks)",
+                    "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the control's median of {base:.0} ({} and {} tasks)",
                     canary.len(),
                     control.len()
                 ),
@@ -839,6 +865,107 @@ mod tests {
         assert!(
             check(&r, &run(5_000, 9)).is_none(),
             "nine tasks are too few"
+        );
+    }
+
+    /// Task spend is right-skewed: many cheap tasks and a few deep ones. Two
+    /// arms drawn from the *same* distribution are no regression, however
+    /// skewed that distribution is, so the rule must not fire on them.
+    #[test]
+    fn the_spend_rule_does_not_fire_when_both_arms_drew_the_same_skewed_sample() {
+        let r = RollbackRule::SpendRatio {
+            ratio: 2.0,
+            min_tasks: 10,
+        };
+        // Twenty-nine tasks at 10,000 micro-dollars and one at 2,000,000, on
+        // both arms: the median is 10,000 and the mean 76,333, so a mean
+        // measured against a median is nearly four times the bar before
+        // either arm has done anything the other did not.
+        let skewed = |arm: Arm, tag: &str| -> Vec<CanaryEvent> {
+            (0..30)
+                .map(|i| CanaryEvent::TaskSpend {
+                    task: format!("{tag}{i}"),
+                    arm,
+                    micros: if i == 29 { 2_000_000 } else { 10_000 },
+                })
+                .collect()
+        };
+        let mut events = skewed(Arm::Control, "c");
+        events.extend(skewed(Arm::Canary, "k"));
+        // The sample is really there: an empty one would pass by default.
+        assert_eq!(events.len(), 60, "both arms' tasks are in the sample");
+        assert_eq!(
+            check(&r, &events),
+            None,
+            "two arms of one distribution are no regression"
+        );
+    }
+
+    /// A control arm whose median is at or below the floor is no baseline:
+    /// `ratio` times nothing is nothing, which any canary spend passes.
+    #[test]
+    fn the_spend_rule_does_not_fire_on_a_control_median_at_the_floor() {
+        let r = RollbackRule::SpendRatio {
+            ratio: 2.0,
+            min_tasks: 10,
+        };
+        let run = |control: &dyn Fn(usize) -> u64| -> Vec<CanaryEvent> {
+            let mut v: Vec<CanaryEvent> = (0..12)
+                .map(|i| CanaryEvent::TaskSpend {
+                    task: format!("c{i}"),
+                    arm: Arm::Control,
+                    micros: control(i),
+                })
+                .collect();
+            v.extend((0..12).map(|i| CanaryEvent::TaskSpend {
+                task: format!("k{i}"),
+                arm: Arm::Canary,
+                micros: 10_000,
+            }));
+            v
+        };
+        // Seven of twelve control tasks spent nothing, so the median is 0.
+        let zero = run(&|i| if i < 7 { 0 } else { 40_000 });
+        assert_eq!(zero.len(), 24, "both arms' tasks are in the sample");
+        assert_eq!(check(&r, &zero), None, "a zero median is no baseline");
+        // And a median that is merely a rounding away from nothing.
+        let near = run(&|i| if i < 7 { 40 } else { 40_000 });
+        assert_eq!(near.len(), 24, "both arms' tasks are in the sample");
+        assert_eq!(
+            check(&r, &near),
+            None,
+            "a median under the floor is no baseline either"
+        );
+    }
+
+    /// The bar the fix must still meet: a canary that really is spending more
+    /// per task rolls the pack back, and the fired rule names itself.
+    #[test]
+    fn a_runaway_canary_still_fires_the_spend_rule() {
+        let r = RollbackRule::SpendRatio {
+            ratio: 2.0,
+            min_tasks: 10,
+        };
+        let mut events: Vec<CanaryEvent> = (0..12)
+            .map(|i| CanaryEvent::TaskSpend {
+                task: format!("c{i}"),
+                arm: Arm::Control,
+                micros: 10_000 + i as u64 * 100,
+            })
+            .collect();
+        // Every canary task costs about five times the control's, tail and
+        // all: the whole distribution moved, not one deep task.
+        events.extend((0..12).map(|i| CanaryEvent::TaskSpend {
+            task: format!("k{i}"),
+            arm: Arm::Canary,
+            micros: 50_000 + i as u64 * 500,
+        }));
+        let fired = check(&r, &events).expect("a runaway canary rolls the pack back");
+        assert_eq!(fired.rule, "spend_ratio", "the spend rule is what fired");
+        assert!(
+            fired.why.contains("micro-dollars"),
+            "the reason says the numbers: {}",
+            fired.why
         );
     }
 
