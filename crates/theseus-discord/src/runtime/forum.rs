@@ -1260,11 +1260,14 @@ mod tests {
         );
 
         // Still refused, once that wait is over: the next one doubles, and
-        // stays under the ceiling. (Driven before it is over, the worker
-        // answers what is left of it and calls nothing, which is the point.)
-        let soon = w.drive().await.expect("the wait is not over");
-        assert!(
-            soon <= next,
+        // stays under the ceiling. Driven before it is over, the worker calls
+        // nothing at all, which is what the wait is for.
+        let refused = || r.fake.seen().iter().filter(|s| s.outcome == "failed").count();
+        let so_far = refused();
+        w.drive().await.expect("the wait is not over");
+        assert_eq!(
+            refused(),
+            so_far,
             "nothing is tried again before its wait is over"
         );
         tokio::time::sleep(held + Duration::from_millis(100)).await;
