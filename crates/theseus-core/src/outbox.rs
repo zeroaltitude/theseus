@@ -54,6 +54,22 @@ pub const OPERATOR_TARGET: &str = "discord:operator";
 /// through the operator lane and wants every one to plan a write, so a kind
 /// added here that routes nowhere fails there (theseus-haw2b). A new kind
 /// staged to the operator goes in this list.
+///
+/// The list is held in both directions (theseus-gm7bd). *Listed routes* is
+/// the guard test above. *Staged is listed* is two guards here, because the
+/// list is kept by hand and nothing used to force a new call site onto it,
+/// which is how the delivery failure haw2b fixed went unseen in the first
+/// place:
+/// - [`Outbox::to_operator`] and [`Outbox::stage_to_operator`] hold the kind
+///   in debug builds, so any test that drives such a call fails loudly. That
+///   is the only guard that can read a kind the call site computes;
+/// - `the_operator_call_sites_name_only_listed_kinds` reads the crate's own
+///   source and holds every call whose kind is a literal, so a new call site
+///   no test exercises fails too. That is **13 of the 42 call sites, 31%**:
+///   the rest build the body elsewhere or compute the kind, and only the
+///   assertion above can see those.
+///
+/// Neither reaches a call whose kind is computed *and* which no test drives.
 pub const OPERATOR_KINDS: &[&str] = &[
     "notice",
     "hands_alert",
@@ -231,6 +247,32 @@ pub fn kind_of(a: &Action) -> &str {
         .as_ref()
         .and_then(|p| p.args["kind"].as_str())
         .unwrap_or("")
+}
+
+/// Whether [`OPERATOR_KINDS`] lists `kind`.
+#[must_use]
+pub fn is_operator_kind(kind: &str) -> bool {
+    OPERATOR_KINDS.contains(&kind)
+}
+
+/// Hold an operator post's kind to [`OPERATOR_KINDS`] in debug builds
+/// (theseus-gm7bd).
+///
+/// A `debug_assert!`, not an `assert!`: a kind missing from a hand-kept list
+/// is a gap in a guard, and panicking the operator's own lane over it would
+/// turn that gap into the very thing the list exists to prevent — a notice
+/// that never arrives. Debug builds are the tests and the dev daemon, which
+/// is where a new kind is written.
+fn hold_operator_kind(body: &Value) {
+    debug_assert!(
+        is_operator_kind(body["kind"].as_str().unwrap_or("")),
+        "a post staged to {OPERATOR_TARGET} carries the kind {:?}, which \
+         outbox::OPERATOR_KINDS does not list. Add it there, so the binding's \
+         guard test drives it through the operator lane (theseus-haw2b): an \
+         unlisted kind is how every operator notice once settled Failed, \
+         refused as \"{OPERATOR_TARGET} is no place with a channel\".",
+        body["kind"]
+    );
 }
 
 /// What a post says: its body.
@@ -832,6 +874,7 @@ impl Outbox {
     /// A notice the operator must see, where approvals go; when no DM takes
     /// approvals, the binding falls back to `fallback`, a session's place.
     pub fn to_operator(&self, session_id: Option<&str>, mut body: Value) -> Result<Action> {
+        hold_operator_kind(&body);
         if let Some(t) = session_id.and_then(|s| self.target(s)) {
             body["fallback"] = json!(t);
         }
@@ -847,6 +890,7 @@ impl Outbox {
         session_id: Option<&str>,
         mut body: Value,
     ) -> Result<(Action, Vec<NewRecord>)> {
+        hold_operator_kind(&body);
         if let Some(t) = session_id.and_then(|s| self.target(s)) {
             body["fallback"] = json!(t);
         }
@@ -1274,6 +1318,266 @@ impl crate::Core {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    /// Which bytes of `src` are code: not inside a line or block comment, a
+    /// string, a raw string, or a char literal. A literal's delimiters count
+    /// as code, its body does not.
+    ///
+    /// The sweep needs this twice over. Without it `.to_operator(` matches
+    /// inside a string literal — this module's own test fixtures were being
+    /// counted as call sites — and a `)` inside a literal ends a call's span
+    /// early.
+    fn code_mask(src: &str) -> Vec<bool> {
+        let b = src.as_bytes();
+        let mut m = vec![true; b.len()];
+        let mut i = 0;
+        let blank = |m: &mut Vec<bool>, from: usize, to: usize| {
+            for x in m.iter_mut().take(to.min(b.len())).skip(from) {
+                *x = false;
+            }
+        };
+        while i < b.len() {
+            match b[i] {
+                b'/' if b.get(i + 1) == Some(&b'/') => {
+                    let end = src[i..].find('\n').map_or(b.len(), |n| i + n);
+                    blank(&mut m, i, end);
+                    i = end;
+                }
+                b'/' if b.get(i + 1) == Some(&b'*') => {
+                    let end = src[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2);
+                    blank(&mut m, i, end);
+                    i = end;
+                }
+                // A raw string: r, any number of #, then the quote.
+                b'r' if matches!(b.get(i + 1), Some(&b'"' | &b'#')) => {
+                    let mut h = i + 1;
+                    while b.get(h) == Some(&b'#') {
+                        h += 1;
+                    }
+                    if b.get(h) != Some(&b'"') {
+                        i += 1;
+                        continue;
+                    }
+                    let close = format!("\"{}", "#".repeat(h - i - 1));
+                    let end = src[h + 1..]
+                        .find(&close)
+                        .map_or(b.len(), |n| h + 1 + n + close.len());
+                    blank(&mut m, h + 1, end.saturating_sub(close.len()));
+                    i = end;
+                }
+                b'"' => {
+                    let mut j = i + 1;
+                    while j < b.len() && b[j] != b'"' {
+                        j += if b[j] == b'\\' { 2 } else { 1 };
+                    }
+                    blank(&mut m, i + 1, j);
+                    i = j + 1;
+                }
+                // A char literal, not a lifetime: a lifetime has no closing
+                // quote two or three bytes along.
+                b'\'' => {
+                    let end = if b.get(i + 1) == Some(&b'\\') {
+                        i + 3
+                    } else {
+                        i + 2
+                    };
+                    if b.get(end) == Some(&b'\'') {
+                        blank(&mut m, i + 1, end);
+                        i = end + 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+                _ => i += 1,
+            }
+        }
+        m
+    }
+
+    /// The kinds named by a literal in each `to_operator`/`stage_to_operator`
+    /// call of `src`, with the line each was read from.
+    ///
+    /// A call's span is **its own argument list**: from the `(` that opens it
+    /// to the `)` that closes it, counting nesting and stepping over literals
+    /// and comments. Taking the next `;` instead — which this did until the
+    /// review of theseus-gm7bd — over-runs for every call in expression
+    /// position: at `capture/act.rs` it ran 187 bytes past the call, out
+    /// through two closing braces and a doc comment and into the next
+    /// function. Nothing failed only because no over-run happened to contain
+    /// a `"kind":`, and `kind` is a common word in this crate, so the next
+    /// unrelated edit would have failed this guard for a reason nobody could
+    /// have found.
+    ///
+    /// A call whose body is a variable or a helper names no literal and
+    /// yields nothing: `hold_operator_kind` is what holds those.
+    fn kinds_named_in(src: &str) -> Vec<(usize, String)> {
+        let code = code_mask(src);
+        let b = src.as_bytes();
+        let mut out = Vec::new();
+        let calls = src
+            .match_indices(".to_operator(")
+            .chain(src.match_indices(".stage_to_operator("));
+        for (at, text) in calls {
+            if !code.get(at).copied().unwrap_or(false) {
+                continue; // inside a literal or a comment: not a call
+            }
+            // From the call's own `(` to the `)` that closes it.
+            let open = at + text.len() - 1;
+            let mut depth = 0i32;
+            let mut end = b.len();
+            for (i, ch) in b.iter().enumerate().skip(open) {
+                if !code[i] {
+                    continue;
+                }
+                match ch {
+                    b'(' => depth += 1,
+                    b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let span = &src[open..end.min(b.len())];
+            let base = open;
+            for (k, _) in span.match_indices("\"kind\"") {
+                if !code.get(base + k).copied().unwrap_or(false) {
+                    continue;
+                }
+                let after = &span[k + "\"kind\"".len()..];
+                let Some(v) = after.trim_start().strip_prefix(':') else {
+                    continue;
+                };
+                let v = v.trim_start();
+                let Some(v) = v.strip_prefix('"') else {
+                    continue;
+                };
+                let Some(n) = v.find('"') else { continue };
+                out.push((src[..at].lines().count(), v[..n].to_string()));
+            }
+        }
+        out
+    }
+
+    /// Every `*.rs` under `dir`, deepest first, as (path, text).
+    fn rust_files(dir: &std::path::Path) -> Vec<(std::path::PathBuf, String)> {
+        let mut out = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).expect("read the crate's source") {
+                let p = e.expect("a source entry").path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    let text = std::fs::read_to_string(&p).expect("read a source file");
+                    out.push((p, text));
+                }
+            }
+        }
+        out
+    }
+
+    /// Staged is listed, statically (theseus-gm7bd): every operator call in
+    /// this crate that names its kind by a literal names one `OPERATOR_KINDS`
+    /// holds.
+    ///
+    /// `hold_operator_kind` catches an unlisted kind only on a path some test
+    /// drives, and a new call site is exactly the thing that may have none.
+    /// This reads the source instead, so a call added anywhere under `src/`
+    /// is held whether or not it is ever run.
+    #[test]
+    fn the_operator_call_sites_name_only_listed_kinds() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let files = rust_files(&src);
+        assert!(
+            files.len() > 100,
+            "only {} source files found under {}: the sweep read the wrong tree",
+            files.len(),
+            src.display()
+        );
+        let mut found = 0;
+        let mut unlisted = Vec::new();
+        for (path, text) in &files {
+            for (line, kind) in kinds_named_in(text) {
+                found += 1;
+                if !is_operator_kind(&kind) {
+                    let p = path.strip_prefix(&src).unwrap_or(path);
+                    unlisted.push(format!("{}:{line}: {kind:?}", p.display()));
+                }
+            }
+        }
+        // The bar is met by an empty set unless the sweep is held to having
+        // read something. When it was written it reached 13 of this crate's
+        // 42 operator call sites: the other 29 build their body elsewhere or
+        // compute the kind, and `hold_operator_kind` is what holds those.
+        assert!(
+            found >= 10,
+            "the sweep named only {found} kinds: it matched no call sites, so it holds nothing"
+        );
+        assert!(
+            unlisted.is_empty(),
+            "these operator posts name a kind outbox::OPERATOR_KINDS does not \
+             list, so the binding's guard test never drives them and nothing \
+             proves they reach the owner (theseus-haw2b): {unlisted:#?}"
+        );
+    }
+
+    /// Staged is listed, at run time (theseus-gm7bd): a kind nobody listed
+    /// fails loudly on any path a test drives, including one whose kind the
+    /// call site computes and the sweep above cannot read.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "does not list")]
+    fn an_unlisted_kind_staged_to_the_operator_fails_a_debug_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = outbox(&dir);
+        let computed = "a_kind_nobody_listed";
+        drop(o.stage_to_operator(None, json!({"kind": computed, "text": "x"})));
+    }
+
+    /// The sweep reads a call's own kind and nothing else.
+    #[test]
+    fn the_sweep_reads_the_kind_of_the_call_it_is_standing_in() {
+        let one = "x.stage_to_operator(None, json!({\"kind\": \"notice\"}))?;";
+        assert_eq!(kinds_named_in(one), vec![(1, "notice".to_string())]);
+        // Multi-line, and a kind in a later statement is not this call's.
+        let two = "a.to_operator(\n    None,\n    json!({\"kind\": \"disk\"}),\n)?;\n\
+                   let other = json!({\"kind\": \"reply\"});";
+        assert_eq!(kinds_named_in(two), vec![(1, "disk".to_string())]);
+        // A body built elsewhere names nothing: the debug assertion holds it.
+        assert!(kinds_named_in("a.to_operator(None, body)?;").is_empty());
+
+        // The span is the call's own argument list, not everything up to the
+        // next `;`. A call in expression position has no `;` of its own, and
+        // reading to the next one walked out of the function entirely.
+        let expr = "let x = match q {\n    true => a.to_operator(None, body),\n\
+                    false => Err(e),\n};\nfn next() { j!({\"kind\": \"nope\"}); }";
+        assert!(
+            kinds_named_in(expr).is_empty(),
+            "the span must not run past the call's own `)`"
+        );
+
+        // A nested `)` inside the call does not end it early.
+        let nested = "a.to_operator(None, json!({\"kind\": f(g(1), \"x\")}))?;";
+        assert!(
+            kinds_named_in(nested).is_empty(),
+            "a computed kind names none"
+        );
+
+        // A `)` inside a string literal does not end it either.
+        let paren = "a.to_operator(None, json!({\"kind\": \"notice\", \"t\": \")\"}))?;";
+        assert_eq!(kinds_named_in(paren), vec![(1, "notice".to_string())]);
+
+        // A call named inside a string or a comment is not a call site. This
+        // module's own fixtures are exactly that, and were being counted.
+        let quoted = "let doc = \"a.to_operator(None, json!({`kind`: `x`}))\";";
+        assert!(kinds_named_in(&quoted.replace('`', "\"")).is_empty());
+        let commented = "// a.to_operator(None, json!({\"kind\": \"ghost\"}))?;";
+        assert!(kinds_named_in(commented).is_empty());
+    }
 
     fn outbox(dir: &tempfile::TempDir) -> Arc<Outbox> {
         let store = Store::open(&dir.path().join("store")).unwrap();
