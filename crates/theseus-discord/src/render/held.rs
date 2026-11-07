@@ -14,8 +14,9 @@
 //! ids out of its recency bound until then.
 //!
 //! A turn's keys all begin `<turn_id>:`: its stream's `<turn>:L<n>:p<i>` and
-//! `<turn>:L<n>:tools`, its reply's `<turn>:footer`, and the notice card of
-//! each call whose line it holds, `<turn>:notice:<tool_use_id>`.
+//! `<turn>:L<n>:tools` (at most `STEP_LOOPS` of those, the later loops
+//! sharing the step's, theseus-8wm), its reply's `<turn>:footer`, and the
+//! notice card of each call whose line it holds, `<turn>:notice:<tool_use_id>`.
 
 use std::collections::HashSet;
 
