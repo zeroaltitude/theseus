@@ -165,9 +165,10 @@ pub fn stored_state(json: String, record: &StateRecord) -> Result<BuiltState, St
     })
 }
 
-/// The stored answers, banded under `candidate`'s thresholds: what a
-/// thresholds-only candidate would have said. An answer to a question the
-/// candidate does not ask is left out.
+/// The stored answers, banded under `candidate`'s thresholds, and carrying
+/// `candidate`'s own declared defaults: what a thresholds-only candidate would
+/// have said, and what it would have run where its bar was not reached. An
+/// answer to a question the candidate does not ask is left out.
 pub fn reband(answers: &[AnswerRecord], candidate: &Pack) -> Vec<AnswerRecord> {
     answers
         .iter()
@@ -175,6 +176,7 @@ pub fn reband(answers: &[AnswerRecord], candidate: &Pack) -> Vec<AnswerRecord> {
             let def = candidate.question(&a.def)?;
             Some(AnswerRecord {
                 band: band(&a.answer, def.thresholds),
+                no_match: def.no_match.clone(),
                 ..a.clone()
             })
         })
@@ -613,6 +615,7 @@ mod tests {
             def: def.id.clone(),
             about: None,
             band: band(&answer, def.thresholds),
+            no_match: def.no_match.clone(),
             answer,
         };
         let mut lower = (*inc).clone();

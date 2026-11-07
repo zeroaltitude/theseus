@@ -367,7 +367,8 @@ impl Dynamic {
 }
 
 /// A question as one state asks it: its id (a per-item Noul's carries the
-/// item's position), the definition it came from, and its thresholds.
+/// item's position), the definition it came from, its thresholds, and the
+/// default it declared for an answer that does not reach them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Asked {
     pub id: String,
@@ -376,6 +377,11 @@ pub struct Asked {
     pub about: Option<String>,
     pub question: Question,
     pub thresholds: Thresholds,
+    /// The definition's declared `no_match`: what runs when the answer's band
+    /// does not reach `confirm`. Carried here so that the answer record can
+    /// carry it too, and the live path never has to find the pack again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_match: Option<String>,
 }
 
 /// One question's definition, checked.
@@ -728,6 +734,7 @@ impl Pack {
                                 when_false: q.when_false.clone(),
                             },
                             thresholds: q.thresholds,
+                            no_match: q.no_match.clone(),
                         });
                     }
                 }
@@ -737,6 +744,7 @@ impl Pack {
                     about: None,
                     question: Self::static_question(q, dynamic),
                     thresholds: q.thresholds,
+                    no_match: q.no_match.clone(),
                 }),
             }
         }
@@ -1045,6 +1053,103 @@ mod tests {
         assert_eq!(p.jev_model, "jev-1.13.0");
         assert_eq!(p.builder, Builder::Probe);
         assert!(by_name("probe.v9").is_none());
+    }
+
+    /// **The drift test** (theseus-ig13o). Every Choice question of every pack
+    /// we ship declares a `no_match` that is one of its own options, and every
+    /// `Asked` built from one carries that default forward, so
+    /// [`crate::AnswerRecord::ran`] always has something to run under the bar.
+    /// The loader refuses a Choice without one
+    /// (`a_choice_without_its_no_match_option_is_refused`), but that only binds
+    /// a pack as it loads: this binds the shipped set, and the carry.
+    ///
+    /// The positive count is asserted, because "no Choice lacks a default" is
+    /// also true of a set with no Choice in it.
+    #[test]
+    fn every_choice_question_declares_a_no_match() {
+        let packs = embedded().as_ref().expect("embedded packs load");
+        let mut choices = 0;
+        for p in packs {
+            for q in p.questions.iter().filter(|q| q.kind == Kind::Choice) {
+                choices += 1;
+                let nm = q
+                    .no_match
+                    .as_deref()
+                    .unwrap_or_else(|| panic!("{} {} declares no no_match", p.name(), q.id));
+                assert!(
+                    q.options.iter().any(|o| o.id == nm),
+                    "{} {}: the no_match {nm:?} is not one of its options",
+                    p.name(),
+                    q.id
+                );
+            }
+        }
+        assert!(
+            choices >= 40,
+            "only {choices} Choice questions across {} packs: a bar met by an \
+             almost-empty set proves nothing",
+            packs.len()
+        );
+        // And the default is carried onto every question as it is asked, which
+        // is how it reaches the answer record.
+        let route = by_name("route.v10").expect("route.v10");
+        let asked = route.ask(&Dynamic::default());
+        let model = asked
+            .iter()
+            .find(|a| a.def == "model")
+            .expect("route.v10 asks `model`");
+        assert_eq!(model.no_match.as_deref(), Some("sonnet"));
+    }
+
+    /// [`crate::AnswerRecord::ran`] is the one place a declared default is
+    /// read: Jev's own option at or above the question's `confirm` bar, the
+    /// declared default under it, and nothing for an answer that is no Choice.
+    #[test]
+    fn an_answer_runs_jevs_option_above_the_bar_and_the_declared_default_under_it() {
+        use crate::band::band;
+        use crate::client::Answer;
+        use crate::judge::AnswerRecord;
+        let route = by_name("route.v10").expect("route.v10");
+        let def = route.question("model").expect("`model`");
+        let rec = |confidence: f64| {
+            let answer = Answer::Choice {
+                choice: "opus".into(),
+                probabilities: vec![("opus".to_string(), confidence)],
+                confidence,
+            };
+            AnswerRecord {
+                question: def.id.clone(),
+                def: def.id.clone(),
+                about: None,
+                band: band(&answer, def.thresholds),
+                no_match: def.no_match.clone(),
+                answer,
+            }
+        };
+        assert_eq!(def.thresholds.confirm, 0.40);
+        assert_eq!(rec(0.95).ran(), Some("opus"), "at the act band, Jev's own");
+        assert_eq!(
+            rec(0.50).ran(),
+            Some("opus"),
+            "at the confirm band, Jev's own"
+        );
+        assert_eq!(
+            rec(0.30).ran(),
+            Some("sonnet"),
+            "under the bar, the declared default"
+        );
+        // A question that declares none has nothing to run under its bar.
+        let bare = AnswerRecord {
+            no_match: None,
+            ..rec(0.30)
+        };
+        assert_eq!(bare.ran(), None);
+        // A Noul is not a Choice and runs nothing here.
+        let noul = AnswerRecord {
+            answer: Answer::Noul { noul: 0.9 },
+            ..rec(0.95)
+        };
+        assert_eq!(noul.ran(), None);
     }
 
     #[test]

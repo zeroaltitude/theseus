@@ -3,6 +3,23 @@
 //!
 //! - **The pick** is the `model` answer at or above its `confirm` bar (`sure`).
 //!   Under it nothing routes: the turn stays on its own profile, `unsure`.
+//!
+//!   **This diverges from the pack, knowingly** (theseus-ig13o). route.v10's
+//!   `model` question declares `no_match = "sonnet"`, and the replay grades an
+//!   under-bar answer as `sonnet` (`route_cases::check`), so the pack's
+//!   measured accuracy is the accuracy of a daemon that routes to sonnet here.
+//!   This one does not. Since theseus-ig13o the declared default is carried on
+//!   the answer and [`super::Pick::ran`] would apply it in one line; the whole
+//!   change was built and measured, and **it moves twelve tests**, among them
+//!   `tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`,
+//!   which is a named rule and not an oversight, and
+//!   `tests_data_open::a_judged_clean_session_runs_on_the_restricted_model`,
+//!   where a session the data rule has *cleared* for a restricted model would
+//!   be pulled off it by an answer Jev was not sure about. Both are the
+//!   owner's to decide, so the pack and the live path are left apart and said
+//!   to be apart, rather than reconciled by a builder in either direction.
+//!   `tests_model::the_model_question_declares_a_default_the_live_path_does_not_run`
+//!   holds the divergence so it cannot be closed by accident.
 //! - **Which profile** runs a pick: one configured to run the option's catalog
 //!   model ([`OPTIONS`]), the profile named for the option first. Jev reaches a
 //!   model by its id, never by a profile's name.

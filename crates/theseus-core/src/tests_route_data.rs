@@ -26,6 +26,7 @@ pub(crate) fn choice(question: &str, picked: &str, confidence: f64) -> AnswerRec
         def: question.into(),
         about: None,
         band: band(&answer, T),
+        no_match: None,
         answer,
     }
 }

@@ -60,6 +60,7 @@ fn choice(top: &str, confidence: f64) -> AnswerRecord {
         def: "work_state".into(),
         about: None,
         band: band(&answer, T),
+        no_match: None,
         answer,
     }
 }
@@ -606,6 +607,7 @@ fn seed_security(c: &Core, name: &str, p: f64, truth: bool, at_ms: u64) {
         def: "risky".into(),
         about: None,
         band: band(&answer, T),
+        no_match: None,
         answer,
     };
     let state = theseus_judge::judge::StateRecord::from(prepared.state.as_ref());

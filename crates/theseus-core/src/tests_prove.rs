@@ -78,6 +78,7 @@ fn answers(work: &str, conf: f64, unfinished: f64) -> Vec<AnswerRecord> {
             def: q.into(),
             about: None,
             band: band(&a, T),
+            no_match: None,
             answer: a,
         })
         .collect()
@@ -922,6 +923,7 @@ fn promote(id: &str, p: f64, at_ms: u64) -> Seen {
         def: "should_promote".into(),
         about: None,
         band: band(&a, T),
+        no_match: None,
         answer: a,
     }];
     Seen {

@@ -333,11 +333,17 @@ mod tests {
     // is the one hysteresis. A verdict is route.v10's: a sure `model` answer.
 
     fn open(model: &str, sure: bool) -> Verdict {
+        // Carrying route.v10's own declared `no_match`, as a live answer has
+        // since theseus-ig13o. `model::decide` does not read it — see the
+        // divergence `the_model_question_declares_a_default_the_live_path_does_not_run`.
+        let declared = theseus_judge::pack::by_name("route.v10")
+            .and_then(|p| p.question("model").and_then(|q| q.no_match.clone()));
         let pick = |choice: &str, sure| {
             Box::new(Pick {
                 choice: choice.into(),
                 confidence: 0.9,
                 sure,
+                no_match: declared.clone(),
             })
         };
         Verdict {

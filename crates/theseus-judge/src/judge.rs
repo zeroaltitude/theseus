@@ -157,7 +157,7 @@ impl From<&BuiltState> for StateRecord {
     }
 }
 
-/// One answer, with its band.
+/// One answer, with its band and the default its question declared.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnswerRecord {
     pub question: String,
@@ -166,6 +166,41 @@ pub struct AnswerRecord {
     pub about: Option<String>,
     pub answer: Answer,
     pub band: Banded,
+    /// The question's declared `no_match`, copied from the pack that was
+    /// asked. [`AnswerRecord::ran`] is the only thing that reads it, and it is
+    /// here so that no caller has to find the pack again: a pack loaded from a
+    /// file or learned by the loop carries its default as the embedded ones do.
+    /// A record written before theseus-ig13o has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_match: Option<String>,
+}
+
+impl AnswerRecord {
+    /// What this answer actually runs: the option Jev chose when its band
+    /// reached the question's `confirm` bar, else the question's own declared
+    /// `no_match`.
+    ///
+    /// **This is the one place a declared default is read.** Before
+    /// theseus-ig13o nothing on the live path read one: `effort.v1`'s was
+    /// honoured by a constant hand-copied into Rust, `route.v10`'s `model`
+    /// default was ignored outright, and the replay graded under-bar answers
+    /// by a second reading of the pack. A default that is only decoration
+    /// makes the claim that Jev's behaviour comes from one reviewable table
+    /// false wherever a pack falls through.
+    ///
+    /// `None` for a Noul or a Score (neither declares a default), and for a
+    /// Choice under its bar whose question declares none - which
+    /// `every_choice_question_declares_a_no_match` holds cannot happen in a
+    /// pack we ship.
+    pub fn ran(&self) -> Option<&str> {
+        let Answer::Choice { choice, .. } = &self.answer else {
+            return None;
+        };
+        match self.band.band == crate::band::Band::Escalate {
+            true => self.no_match.as_deref(),
+            false => Some(choice.as_str()),
+        }
+    }
 }
 
 /// The call a judgment rode in, shared with the other judgments of a batch.
@@ -512,22 +547,29 @@ impl JevJudge {
             if let Some((model, split)) = &split {
                 j.answered_by = Some(model.clone());
                 j.model_drift = j.model != UNPINNED && *model != j.model;
-                j.answers = split[k]
-                    .iter()
-                    .filter_map(|(asked, answer)| {
-                        let answer = answer.clone()?;
-                        Some(AnswerRecord {
-                            question: asked.id.clone(),
-                            def: asked.def.clone(),
-                            about: asked.about.clone(),
-                            band: band(&answer, asked.thresholds),
-                            answer,
-                        })
-                    })
-                    .collect();
+                j.answers = recorded(&split[k]);
             }
         }
     }
+}
+
+/// One judgment's answers, banded and carrying each question's own declared
+/// `no_match` (theseus-ig13o). An unanswered question records nothing.
+fn recorded(answered: &[(crate::pack::Asked, Option<Answer>)]) -> Vec<AnswerRecord> {
+    answered
+        .iter()
+        .filter_map(|(asked, answer)| {
+            let answer = answer.clone()?;
+            Some(AnswerRecord {
+                question: asked.id.clone(),
+                def: asked.def.clone(),
+                about: asked.about.clone(),
+                band: band(&answer, asked.thresholds),
+                no_match: asked.no_match.clone(),
+                answer,
+            })
+        })
+        .collect()
 }
 
 fn lock(m: &Mutex<Breaker>) -> std::sync::MutexGuard<'_, Breaker> {

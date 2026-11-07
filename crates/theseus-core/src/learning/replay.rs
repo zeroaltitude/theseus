@@ -1097,6 +1097,7 @@ mod tests {
                     confirm: 0.6,
                 },
             ),
+            no_match: None,
             answer,
         }
     }

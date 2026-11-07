@@ -240,6 +240,7 @@ mod tests {
                     confirm: 0.6,
                 },
             ),
+            no_match: None,
             answer,
         }
     }
@@ -305,6 +306,7 @@ mod tests {
                     confirm: 0.6,
                 },
             ),
+            no_match: None,
             answer,
         };
         for word in ["noise", "useful"] {

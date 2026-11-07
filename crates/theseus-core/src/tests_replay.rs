@@ -85,6 +85,7 @@ fn choice(top: &str, confidence: f64) -> AnswerRecord {
         def: "work_state".into(),
         about: None,
         band: band(&answer, T),
+        no_match: None,
         answer,
     }
 }
@@ -96,6 +97,7 @@ fn noul(q: &str, p: f64) -> AnswerRecord {
         def: q.into(),
         about: None,
         band: band(&answer, T),
+        no_match: None,
         answer,
     }
 }

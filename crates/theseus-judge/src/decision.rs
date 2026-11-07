@@ -99,6 +99,7 @@ mod tests {
             def: q.into(),
             about: None,
             band: band(&answer, t),
+            no_match: pack.question(q).unwrap().no_match.clone(),
             answer,
         }
     }

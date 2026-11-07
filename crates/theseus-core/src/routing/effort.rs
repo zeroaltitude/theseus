@@ -30,11 +30,28 @@ pub const QUESTION: &str = "reply_effort";
 /// route.v3's answer about the reply's effort, as the turn reads it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffortAnswer {
-    /// The option Jev chose: a level, or `unclear`.
+    /// The option Jev chose: a level, or `unclear`. Kept raw whatever its band.
     pub level: String,
     pub confidence: f64,
     /// Its band reached the question's `confirm` bar (act or confirm).
     pub sure: bool,
+    /// The question's own declared `no_match`, carried from the pack that was
+    /// asked (`theseus_judge::AnswerRecord::ran`, theseus-ig13o): the level
+    /// that runs when the band did not reach the bar. Until then this was a
+    /// constant hand-copied into this file, the only declared default the
+    /// daemon honoured anywhere.
+    pub no_match: Option<String>,
+}
+
+impl EffortAnswer {
+    /// The level this answer runs: Jev's own at or above the bar, else the
+    /// question's declared default.
+    pub fn ran(&self) -> Option<&str> {
+        match self.sure {
+            true => Some(self.level.as_str()),
+            false => self.no_match.as_deref(),
+        }
+    }
 }
 
 /// Why a turn runs at the effort it runs at (the `route.decided` row's
@@ -57,10 +74,10 @@ pub enum EffortReason {
     /// A later answer that disagrees with a sticky hold ended it early: the
     /// request carries Jev's level (theseus-u5a37, [`reverts`]).
     StickyReverted,
-    /// route.v10: Jev's answer was under the question's confirm bar, so the pack's own `no_match`
-    /// ran ([`NO_MATCH`], `high`: the usual effort), as the replay's grade reads it
+    /// route.v10: Jev's answer was under the question's confirm bar, so the question's own declared
+    /// `no_match` ran (`effort.v1`'s is `high`, the usual effort), as the replay's grade reads it
     /// (theseus-h66v4.6.1; it was the model's own default effort before, which differed for
-    /// Haiku, Opus and Flash).
+    /// Haiku, Opus and Flash). Read from the pack since theseus-ig13o ([`EffortAnswer::ran`]).
     NoMatch,
 }
 
@@ -142,14 +159,14 @@ pub struct OpenRuns {
     pub takes: bool,
 }
 
-/// What an answer under `effort.v1`'s confirm bar runs: the pack's `no_match`, the usual effort
-/// (the owner, 2026-10-29 22:50: "the average/median/mode effort/thinking is high"). One value in
-/// two places, the pack and here; `tests_effort_open` holds them equal.
-pub const NO_MATCH: Effort = Effort::High;
-
 /// route.v10's effort rule. Jev's level, when the answer reached the bar, is
 /// what the request carries, whatever the level and wherever the model sits;
-/// an answer under the bar is the pack's `no_match` ([`NO_MATCH`]), never the model's own default.
+/// an answer under the bar is the question's own declared `no_match`
+/// (`effort.v1`'s is `high`, the usual effort — the owner, 2026-10-29 22:50:
+/// "the average/median/mode effort/thinking is high"), never the model's own
+/// default. The level is read from the pack that was asked
+/// (`EffortAnswer::ran`); it was a `NO_MATCH` constant hand-copied into this
+/// file until theseus-ig13o, kept in step with the pack by a test.
 pub fn decide_open(
     runs: OpenRuns,
     answer: &EffortAnswer,
@@ -181,11 +198,19 @@ pub fn decide_open(
             ran: Some(level),
             sent: None,
         },
-        // An answer under its bar: the pack's `no_match`, as the replay grades it.
-        None => EffortDecision {
-            reason: EffortReason::NoMatch,
-            ran: Some(NO_MATCH),
-            sent: None,
+        // An answer under its bar: the question's own declared `no_match`, as
+        // the replay grades it.
+        None => match answer.no_match.as_deref().and_then(parse) {
+            Some(level) => EffortDecision {
+                reason: EffortReason::NoMatch,
+                ran: Some(level),
+                sent: None,
+            },
+            // A question that declares no default leaves nothing to run and
+            // the profile's own effort stands;
+            // `every_choice_question_declares_a_no_match` holds that no pack
+            // of ours is in that state.
+            None => stand(EffortReason::NoMatch),
         },
     }
 }
@@ -218,6 +243,8 @@ mod tests {
             level: level.into(),
             confidence,
             sure,
+            // As a live answer carries it, from `effort.v1`.
+            no_match: Some("high".into()),
         }
     }
 

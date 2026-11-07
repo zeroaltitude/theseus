@@ -95,6 +95,7 @@ fn wrong_label(c: &Core, now: u64, age_days: u64) {
         def: "work_state".into(),
         about: None,
         band: band(&answer, T),
+        no_match: None,
         answer,
     };
     let j: Judgment = serde_json::from_value(json!({

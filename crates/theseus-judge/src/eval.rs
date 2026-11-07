@@ -351,6 +351,7 @@ mod tests {
                         def: q.into(),
                         about: None,
                         band: band(&answer, pack.question(q).unwrap().thresholds),
+                        no_match: pack.question(q).unwrap().no_match.clone(),
                         answer,
                     }
                 })

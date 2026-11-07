@@ -316,12 +316,18 @@ mod tests {
             choice: "sonnet".into(),
             confidence: 0.9,
             sure: true,
+            no_match: Some("sonnet".into()),
         }));
+        // The tier reads only a sure answer, so `work.v1`'s declared default
+        // does not reach it: theseus-ig13o builds the mechanism and converts
+        // `model`, `effort` and `course`, and leaves this site named rather
+        // than quietly changed.
         x.work = work.map(|(c, sure)| {
             Box::new(crate::routing::Pick {
                 choice: c.into(),
                 confidence: 0.9,
                 sure,
+                no_match: None,
             })
         });
         x
