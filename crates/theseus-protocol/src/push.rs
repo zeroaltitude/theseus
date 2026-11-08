@@ -462,7 +462,8 @@ const LABEL_REASON_CHARS: usize = 60;
 /// | 9 | waiting on another execution | working | `waiting on task a1b2c3` |
 /// | 10 | waiting on a due time | working | `sleeping until 14:00` |
 /// | 11 | waiting on a question with none pending (a race) | needs you | `waiting on you` |
-/// | 12 | waiting on input | ready | `ready`, `ready · wake 14:00` |
+/// | 12 | a conversation waiting on input | ready | `ready`, `ready · wake 14:00` |
+/// | 12b | a task waiting on input (parked on its wake) | working | `parked`, `parked · wake 14:00` |
 /// | 13 | `complete`, `cancelled` | idle | `complete`, `cancelled` |
 /// | 14 | a state or wake this build doesn't know | working | its name |
 ///
@@ -545,6 +546,15 @@ fn waiting(view: &ExecutionView, hm: &dyn Fn(u64) -> String) -> (Level, String) 
         Some(WaitingOn::Input) if view.outstanding > 0 => {
             (Level::Working, calls(view.outstanding as usize))
         }
+        // A task is parked, not ready: no one gives a task input, so it waits
+        // for its own wake and is still work under way (theseus-7axv).
+        Some(WaitingOn::Input) if view.kind == SessionKind::Task => (
+            Level::Working,
+            match view.wake_at_ms {
+                Some(at) => format!("parked · wake {}", hm(at)),
+                None => "parked".into(),
+            },
+        ),
         Some(WaitingOn::Input) => (
             Level::Ready,
             match view.wake_at_ms {
@@ -671,6 +681,36 @@ mod tests {
         );
         v.turns = 2;
         assert_eq!(attention(&v, &utc_hm).label, "sleeping until 14:00");
+    }
+
+    /// A task parked on input is not ready for anyone (theseus-7axv): no one
+    /// gives a task input, so it waits for its wake, and its pill says so
+    /// and reads as work under way, never `ready` (a "finished"). A
+    /// conversation waiting on input stays ready, as before.
+    #[test]
+    fn a_parked_task_is_not_ready() {
+        let mut v = view("waiting", Some(WaitingOn::Input), vec![]);
+        v.kind = SessionKind::Task;
+        let a = attention(&v, &utc_hm);
+        assert_eq!((a.level, a.label.as_str()), (Level::Working, "parked"));
+        v.wake_at_ms = Some(1_789_999_200_000);
+        let a = attention(&v, &utc_hm);
+        assert_eq!(
+            (a.level, a.label.as_str()),
+            (Level::Working, "parked · wake 14:00")
+        );
+        // A job its turn left running is still the louder fact.
+        v.outstanding = 2;
+        assert_eq!(attention(&v, &utc_hm).label, "waiting on 2 calls");
+        // A conversation between exchanges is ready, with or without a wake.
+        let mut c = view("waiting", Some(WaitingOn::Input), vec![]);
+        assert_eq!(attention(&c, &utc_hm).label, "ready");
+        c.wake_at_ms = Some(1_789_999_200_000);
+        let a = attention(&c, &utc_hm);
+        assert_eq!(
+            (a.level, a.label.as_str()),
+            (Level::Ready, "ready · wake 14:00")
+        );
     }
 
     fn ask(tool: &str, reason: &str) -> PendingConfirm {
