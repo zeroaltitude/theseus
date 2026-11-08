@@ -132,16 +132,7 @@ impl Shared {
         let words = rrx
             .await
             .unwrap_or_else(|_| "The place did not answer.".into());
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .update_response(&i.token)
-            .content(Some(&words))
-            .allowed_mentions(Some(&AllowedMentions::default()))
-            .await
-        {
-            self.board.error("digest reply", None, e);
-        }
+        self.finish_command(i, &words, "digest reply").await;
         true
     }
 

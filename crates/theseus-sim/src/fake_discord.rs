@@ -296,6 +296,10 @@ pub struct Reply {
     pub response_type: Option<u64>,
     pub content: Option<String>,
     pub ephemeral: bool,
+    /// The answer's `allowed_mentions`, as sent; null when it carried none
+    /// (Discord then pings whatever the text names).
+    #[serde(default)]
+    pub allowed_mentions: Value,
     /// An autocomplete's answer (type 8): each choice's name and value.
     #[serde(default)]
     pub choices: Vec<(String, String)>,
@@ -1826,6 +1830,7 @@ impl FakeDiscord {
                     .then(|| v2_text(&data["components"]))
             }),
             ephemeral: data["flags"].as_u64().is_some_and(|f| f & 64 != 0),
+            allowed_mentions: data["allowed_mentions"].clone(),
             choices: data["choices"]
                 .as_array()
                 .into_iter()

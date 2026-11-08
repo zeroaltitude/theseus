@@ -691,6 +691,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
 - **A place answers only where its bindings file binds it.** An interaction in an unbound place gets no answer, so
   daemons on one bot token with disjoint bindings each answer their own places (Item 11). A card in a guild channel
   mentions exactly its answerers, and nothing else mentions anyone (Item 15).
+- **A slash command's reply leaves through `Shared::finish_command`** (`runtime/command_reply.rs`, theseus-qtofh): the
+  place's text goes through `Exits::text` (the vault's values become their names), then is cut to 2000 characters
+  (the value first, so one at the limit leaves no piece behind), and is edited in with an empty `allowed_mentions`.
+  The general arm, `/prompt`, `/why` and `/digest` use it; a command that edits in its reply calls it, and never
+  `update_response` directly. `tests_command_reply.rs` presses `/status` against the fake, which records each
+  reply's `allowed_mentions`.
 - **Slash commands are bare names** (`/new`, `/stop`, `/trust`, …), and each control has one effect (Item 9).
 
 ## Tests
