@@ -136,7 +136,8 @@ async fn a_surface_record_rides_the_tail_of_its_surface_and_the_prefix_stays_ide
     let tail = tail_text(&on_terminal);
     assert!(
         tail.contains(&format!(
-            "Standing here:\nPreferences:\n- {id}: {CODE_FIRST}"
+            "Standing here: {}\nPreferences:\n- {id}: {CODE_FIRST}",
+            crate::standing::FRAMING
         )),
         "{tail}"
     );
