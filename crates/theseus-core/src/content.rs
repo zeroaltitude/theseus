@@ -35,6 +35,12 @@ use theseus_tools::ToolClass;
 
 use crate::node::{Body, Node, Origin};
 
+/// The restricted-origin predicate: which labels keep a session off a model of
+/// restricted origin. It is a keel-held file of its own because it is the one
+/// place that rule is decided; the two `disqualifies_cn` below are its whole
+/// public face and hold no rule of their own.
+mod cn;
+
 /// What a classification can find in one item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,8 +102,9 @@ impl Flag {
     }
 
     /// Whether this flag keeps the session off a model of restricted origin.
+    /// The rule itself is [`cn::disqualifies`], keel-held in `content/cn.rs`.
     pub fn disqualifies_cn(self) -> bool {
-        !matches!(self, Flag::Injection)
+        cn::disqualifies(self)
     }
 
     /// What the operator is told when it is raised, in one line.
@@ -313,11 +320,11 @@ impl ContentFlags {
     }
 
     /// The flag that keeps this session off a model of restricted origin, if
-    /// one does: in `Flag::ALL`'s order, so the word is stable.
+    /// one does: in `Flag::ALL`'s order, so the word is stable. The rule
+    /// itself is [`cn::first`], keel-held in `content/cn.rs`; the provider
+    /// chokepoint's whole decision is this answer.
     pub fn disqualifies_cn(&self) -> Option<Flag> {
-        Flag::ALL
-            .into_iter()
-            .find(|f| f.disqualifies_cn() && self.has(*f))
+        cn::first(self)
     }
 
     /// The session is frozen: its calls that act are refused until the operator

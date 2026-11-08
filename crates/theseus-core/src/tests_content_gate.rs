@@ -181,6 +181,55 @@ async fn an_injection_label_does_not_keep_a_restricted_model_off() {
     assert_eq!(r.zai.requests().len(), 1);
 }
 
+/// The chokepoint's refusal IS the keel-held predicate's answer
+/// (`content/cn.rs`), and this is what makes that guard enforcing rather than
+/// merely listed: gut `cn::disqualifies` to the permissive answer and this
+/// test reds.
+///
+/// It walks every flag, asks the chokepoint itself which ones it refuses on,
+/// and checks that set three ways. **The count is asserted first, against
+/// flags written out by hand**: a predicate that disqualifies nothing leaves
+/// both the refused set and the predicate's own set empty, and an empty set
+/// satisfies every per-flag claim there is. A predicate that disqualifies
+/// everything reds it from the other side, because `injection` would appear.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_chokepoints_refusal_is_the_cn_predicates_own_set() {
+    let r = rig(None, 1, |_| {});
+    let zai = &r.core.runner.providers["zai"];
+    let mut refused: Vec<Flag> = Vec::new();
+    for flag in Flag::ALL {
+        let mut f = ContentFlags::default();
+        f.raise(label(flag));
+        let sid = session_with(&r, Some(f), &[]);
+        if let Err((class, said)) = send_for(zai, Some(&sid), &request("glm-5.3", PLAIN)).await {
+            assert_eq!(class, "data_gate", "{flag:?}: {said}");
+            assert!(said.contains(flag.as_str()), "{flag:?} unnamed in {said}");
+            refused.push(flag);
+        }
+    }
+    // The positive bar, by name and in order: three refusals happened.
+    assert_eq!(
+        refused,
+        vec![Flag::Secret, Flag::Confidential, Flag::Personal],
+        "the chokepoint refused {refused:?}"
+    );
+    // And that set is the predicate's own, not a second list that could drift
+    // from it: the gate holds no rule of its own to fall back on.
+    let predicate: Vec<Flag> = Flag::ALL
+        .into_iter()
+        .filter(|f| f.disqualifies_cn())
+        .collect();
+    assert_eq!(refused, predicate, "the gate and the predicate disagree");
+    // One `data_gate.blocked` row per refusal, and the one flag that does not
+    // disqualify was sent.
+    assert_eq!(blocked(&r).len(), 3);
+    assert_eq!(
+        r.zai.requests().len(),
+        1,
+        "only the injection call went out"
+    );
+}
+
 /// Test 12: a request with no session in `CALLER` to a restricted model is
 /// refused: fail closed. Nothing says what the call is for, so nothing can say
 /// it is clean.

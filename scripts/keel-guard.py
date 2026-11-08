@@ -146,10 +146,22 @@ KEEL_FILES = (
     "crates/theseus-core/src/turn/data_step.rs",
     # The rest of the data rule's chokepoints (theseus-8itvb). theseus-ozplq gave the join a "data-rule" CLASS over
     # this family, so a self branch that loosens one stops at the owner's card; the guard held only two of them, so
-    # every OTHER branch could still loosen one and pass with nothing said. These five close that asymmetry. Each is
-    # a place a rule is ENFORCED, not machinery that feeds one, which is why the content*.rs family is deliberately
-    # NOT here: it is ten actively-edited files whose class membership already covers the self-join case, and a
-    # standing trailer on all of them would buy an ack habit rather than a guard.
+    # every OTHER branch could still loosen one and pass with nothing said. These five close that asymmetry.
+    #
+    # They were picked as the places a rule is ENFORCED, and the content*.rs family was left out as machinery that
+    # only FEEDS one. That line was drawn in the wrong place, and the owner moved it on 2026-11-07: what the guard
+    # must hold is wherever the rule is DECIDED, which is not always where it is applied. `data_gate.rs` was held
+    # and `content.rs` was not, yet `data_gate.rs`'s refusal was `ContentFlags::disqualifies_cn`'s answer and
+    # nothing more -- a `None` from it returns the chokepoint early, before a refusal is even built. So the guarded
+    # file held the site while an unguarded one held the sentence, and a one-word edit to `content.rs` switched the
+    # restricted-origin rule off at BOTH chokepoints with nothing said here. That predicate now lives alone in
+    # `content/cn.rs`, which is held below.
+    #
+    # The REST of the content*.rs family still stays out, but on its own merits rather than on that broken line:
+    # those eight files in theseus-core are the classifier's machinery -- how a label is asked for, written, shown
+    # and removed -- they decide no chokepoint's answer, they are actively edited, and the "data-rule" CLASS
+    # already covers the self-join case for them. A standing trailer on all of them would buy an ack habit, not a
+    # guard.
     #   data_gate.rs  the provider chokepoint: the restricted-origin (cn) rule's one enforcement point. Its sibling
     #                 turn/data_step.rs has been held since h66v4.14; holding one and not the other is incoherent,
     #                 and this row exists because an unacked edit to that sibling went unseen.
@@ -159,6 +171,9 @@ KEEL_FILES = (
     #                 or anything under a serving daemon, cannot answer its own approval. Loosening it is how a
     #                 branch would grant itself what the owner withheld.
     #   theseusd/src/web.rs  the web UI's own door, its Host and Origin checks (theseus-88im).
+    #   content/cn.rs the restricted-origin predicate itself: the sentence both chokepoints above spend their whole
+    #                 decision on. Held by the owner's word of 2026-11-07 18:16.
+    "crates/theseus-core/src/content/cn.rs",
     "crates/theseus-core/src/data_gate.rs",
     "crates/theseus-core/src/exits.rs",
     "crates/theseus-core/src/peer.rs",
