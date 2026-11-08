@@ -222,13 +222,15 @@ fn is_all_crlf(s: &str) -> bool {
     s.contains("\r\n") && !s.replace("\r\n", "").contains('\n')
 }
 
-fn walker(base: &Path, hidden: bool, max_depth: Option<usize>) -> ignore::Walk {
+/// `all` is `fs.list`'s flag: hidden and ignored entries too.
+fn walker(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::Walk {
     let mut b = ignore::WalkBuilder::new(base);
-    b.hidden(!hidden)
-        .git_ignore(true)
+    b.hidden(!all)
+        .git_ignore(!all)
         .git_global(false)
-        .git_exclude(true)
-        .parents(true)
+        .git_exclude(!all)
+        .ignore(!all)
+        .parents(!all)
         .require_git(false);
     if let Some(d) = max_depth {
         b.max_depth(Some(d));
@@ -242,6 +244,16 @@ fn walker(base: &Path, hidden: bool, max_depth: Option<usize>) -> ignore::Walk {
 /// of their scope (Appendix F's rule, theseus-8ye): an empty or narrow result
 /// must not read as "there is none".
 const NOT_WALKED: &str = "hidden files and .gitignore'd paths are not searched";
+
+/// The same, for a call that gave `all`: only VCS internals are left out.
+const NOT_WALKED_ALL: &str = "hidden and .gitignore'd paths included; .git is never searched";
+
+fn not_walked(all: bool) -> &'static str {
+    match all {
+        true => NOT_WALKED_ALL,
+        false => NOT_WALKED,
+    }
+}
 
 /// `n` and its noun: `1 file`, `12 files`.
 fn count(n: usize, one: &str, many: &str) -> String {
@@ -904,6 +916,8 @@ struct GlobArgs {
     pattern: String,
     #[serde(default, alias = "file", alias = "filename", alias = "file_path")]
     path: Option<String>,
+    #[serde(default)]
+    all: bool,
 }
 
 impl Tool for Glob {
@@ -911,14 +925,15 @@ impl Tool for Glob {
         "fs.glob"
     }
     fn description(&self) -> &'static str {
-        "Find files by glob pattern (e.g. `**/*.rs`, `src/**/test_*.py`), newest first. Respects .gitignore; skips hidden files and .git."
+        "Find files by glob pattern (e.g. `**/*.rs`, `src/**/test_*.py`), newest first. Respects .gitignore; skips hidden files and .git unless all is true (then only .git is skipped)."
     }
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "pattern": {"type": "string", "description": "Glob relative to path, e.g. **/*.rs"},
-                "path": {"type": "string", "description": "Directory to search. Default: the working directory."}
+                "path": {"type": "string", "description": "Directory to search. Default: the working directory."},
+                "all": {"type": "boolean", "description": "Include hidden and ignored entries. Default false."}
             },
             "required": ["pattern"],
             "additionalProperties": false
@@ -962,7 +977,7 @@ impl Tool for Glob {
             .compile_matcher();
         let mut hits: Vec<(SystemTime, PathBuf)> = Vec::new();
         let mut scanned = 0usize;
-        for e in walker(&base, false, None).flatten() {
+        for e in walker(&base, a.all, None).flatten() {
             if !e.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 continue;
             }
@@ -990,10 +1005,11 @@ impl Tool for Glob {
         let left = total - shown.len();
         let text = if shown.is_empty() {
             format!(
-                "No files match {} under {} ({} files looked at); {NOT_WALKED}.",
+                "No files match {} under {} ({} files looked at); {}.",
                 a.pattern,
                 base.display(),
-                scanned
+                scanned,
+                not_walked(a.all)
             )
         } else {
             let listed = match left {
@@ -1005,9 +1021,10 @@ impl Tool for Glob {
                 n => format!("; the {n} oldest not shown: a narrower pattern or path returns them"),
             };
             format!(
-                "{}\n[{listed} under {}, newest first{past}; {NOT_WALKED}]",
+                "{}\n[{listed} under {}, newest first{past}; {}]",
                 shown.join("\n"),
-                base.display()
+                base.display(),
+                not_walked(a.all)
             )
         };
         Ok(ToolOutput {
@@ -1040,6 +1057,8 @@ struct GrepArgs {
     context: Option<usize>,
     #[serde(default)]
     max_results: Option<usize>,
+    #[serde(default)]
+    all: bool,
 }
 
 struct Collect<'a> {
@@ -1105,7 +1124,7 @@ impl Tool for Grep {
         "fs.grep"
     }
     fn description(&self) -> &'static str {
-        "Search file contents with a regular expression (Rust regex syntax), ripgrep-style: respects .gitignore, skips binary files. output_mode: content (path:line:text, default), files (paths only), or count."
+        "Search file contents with a regular expression (Rust regex syntax), ripgrep-style: respects .gitignore and skips hidden files unless all is true (.git is never searched), skips binary files. output_mode: content (path:line:text, default), files (paths only), or count."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -1117,7 +1136,8 @@ impl Tool for Grep {
                 "case_insensitive": {"type": "boolean"},
                 "output_mode": {"type": "string", "enum": ["content", "files", "count"]},
                 "context": {"type": "integer", "minimum": 0, "maximum": 10, "description": "Lines of context around each match (content mode)."},
-                "max_results": {"type": "integer", "minimum": 1, "description": "Cap on matching lines (content) or files. Default 200."}
+                "max_results": {"type": "integer", "minimum": 1, "description": "Cap on matching lines (content) or files. Default 200."},
+                "all": {"type": "boolean", "description": "Include hidden and ignored entries. Default false."}
             },
             "required": ["pattern"],
             "additionalProperties": false
@@ -1185,7 +1205,7 @@ impl Tool for Grep {
         let files: Vec<PathBuf> = if base.is_file() {
             vec![base.clone()]
         } else {
-            walker(&base, false, None)
+            walker(&base, a.all, None)
                 .flatten()
                 .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
                 .map(|e| e.into_path())
@@ -1290,7 +1310,7 @@ impl Tool for Grep {
         let walked = if one {
             String::new()
         } else {
-            format!("; {NOT_WALKED}")
+            format!("; {}", not_walked(a.all))
         };
         let text = if files_hit.is_empty() {
             match one {
