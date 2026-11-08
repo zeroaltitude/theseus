@@ -538,3 +538,46 @@ async fn a_turns_views_count_its_tool_calls_never_the_models() {
         "a turn with one tool call"
     );
 }
+
+/// A page that sent `executions.watch` and watches no session hears a
+/// tightening another surface made (theseus-n9wa). `policy.tightened` went to
+/// the session watchers alone, so the cockpit's Policy page, which watches
+/// none, read the posture from before until the next change of an execution or
+/// a reload.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_page_watching_every_execution_hears_a_tightening_made_elsewhere() {
+    let r = rig();
+    let got = watcher(&r.core).await;
+    until("the page is watching", || {
+        r.core.push.seeded() && r.core.bus.all_watchers() == 1
+    })
+    .await;
+    let heard = |method: &str| -> Vec<Value> {
+        got.lock()
+            .unwrap()
+            .iter()
+            .filter_map(|m| match m {
+                Message::Notification(n) if n.method == method => Some(n.params.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    r.core.tighten("fs.write", None, "sock#1").unwrap();
+    until("the tightening is heard", || {
+        !heard(notify::POLICY_TIGHTENED).is_empty()
+    })
+    .await;
+    let told = heard(notify::POLICY_TIGHTENED);
+    assert_eq!(told.len(), 1, "once: {told:?}");
+    assert_eq!(
+        (told[0]["tool"].as_str(), told[0]["posture"].as_str()),
+        (Some("fs.write"), Some("approve"))
+    );
+    r.core.untighten("fs.write", "sock#2").unwrap();
+    until("the undo is heard", || {
+        !heard(notify::POLICY_UNTIGHTENED).is_empty()
+    })
+    .await;
+    assert_eq!(heard(notify::POLICY_UNTIGHTENED).len(), 1);
+    assert_eq!(heard(notify::POLICY_TIGHTENED).len(), 1, "not again");
+}

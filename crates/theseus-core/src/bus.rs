@@ -5,7 +5,8 @@
 //!
 //! The push (theseus-in3): `execution.changed`, `confirm.requested`, and
 //! `confirm.resolved` also go to every `executions.watch` subscriber, the
-//! all-session watchers, once to a connection that is both.
+//! all-session watchers, once to a connection that is both. So do a
+//! tightening and its undo (theseus-n9wa), which `publish_all` sends.
 //!
 //! Each notification is serialized once, at the first connection that queues
 //! it, and every other queues the same line (theseus-celu.36): the
@@ -65,6 +66,8 @@ fn wide(msg: &Message) -> bool {
                 | notify::THREAD_CHANGED
                 | notify::SELF_CHANGED
                 | notify::CALENDAR_CHANGED
+                | notify::POLICY_TIGHTENED
+                | notify::POLICY_UNTIGHTENED
         ),
         _ => false,
     }
@@ -305,7 +308,11 @@ impl SessionBus {
     }
 
     /// Send to every connection that watches a session, once each: news that
-    /// holds for every session, such as a tightening (theseus-sgh).
+    /// holds for every session, such as a tightening (theseus-sgh). A wide
+    /// message goes to the all-session watchers too, once to a connection
+    /// that is both: the cockpit watches no session, and a Policy page that
+    /// heard no tightening made elsewhere kept reading the old posture
+    /// (theseus-n9wa).
     pub fn publish_all(&self, msg: &Message) {
         #[cfg(test)]
         self.tapped(msg);
@@ -314,6 +321,12 @@ impl SessionBus {
         let mut sent = std::collections::HashSet::new();
         for v in g.values_mut() {
             v.retain(|(c, tx)| !sent.insert(c.clone()) || tx.notify(&note, "policy"));
+        }
+        if wide(msg) {
+            self.all
+                .lock()
+                .unwrap()
+                .retain(|(c, tx)| sent.contains(c) || tx.notify(&note, "executions"));
         }
     }
 
@@ -442,6 +455,38 @@ mod tests {
             "once, though it watches two sessions"
         );
         assert!(rx_b.try_recv().is_ok());
+    }
+
+    /// A tightening, which holds for every session, reaches the all-session
+    /// watchers too, once to a connection that is both; news that is not wide
+    /// stays with the session watchers.
+    #[test]
+    fn a_tightening_reaches_the_all_session_watchers_once() {
+        use theseus_protocol::TightenResult;
+        let bus = SessionBus::default();
+        let (tx_a, mut rx_a) = unbounded_channel();
+        let (tx_b, mut rx_b) = unbounded_channel();
+        bus.watch("s", "a", tx_a.clone());
+        bus.watch_all("a", tx_a);
+        bus.watch_all("b", tx_b);
+        bus.publish_all(&Message::from(Event::PolicyTightened(TightenResult {
+            tool: "proc.run".into(),
+            ..Default::default()
+        })));
+        let tools = |rx: &mut tokio::sync::mpsc::UnboundedReceiver<Message>| {
+            std::iter::from_fn(|| rx.try_recv().ok())
+                .filter_map(|m| match m {
+                    Message::Notification(n) if n.method == notify::POLICY_TIGHTENED => {
+                        Some(n.params["tool"].as_str().unwrap_or_default().to_string())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(tools(&mut rx_a), ["proc.run"], "once, though it is both");
+        assert_eq!(tools(&mut rx_b), ["proc.run"], "an all-session watcher");
+        bus.publish_all(&Message::from(Event::NodeWritten(Default::default())));
+        assert!(rx_b.try_recv().is_err(), "news that is not wide stays put");
     }
 
     /// The push's notifications reach the session's watchers and every
