@@ -1104,3 +1104,103 @@ async fn the_clocks_backstop_stops_even_a_turn_that_reads_new_ground() {
     assert_eq!(rows[0]["decision"], "stop");
     assert_eq!(rows[0]["condition"], "clock_backstop");
 }
+
+/// A failing command that prints the test it failed as `name`, as loop `id`'s
+/// one call: the failure a fix moves is the test it names.
+fn red(root: &Path, id: &str, name: &str) -> Scripted {
+    let shell = format!("echo 'test tests::{name} ... FAILED'; exit 1");
+    let input = json!({"argv": ["sh", "-c", shell], "cwd": root.display().to_string()});
+    Scripted::tools("Running the check.", &[(id, "proc_run", input)])
+}
+
+/// The review's case (theseus-fez4q F1): an edit and a failing check, over
+/// and over, the check failing as each of `names` says in turn.
+fn edit_and_check(root: &Path, names: &[&str]) -> Vec<Scripted> {
+    let mut s = Vec::new();
+    for (n, name) in names.iter().enumerate() {
+        s.push(write_to(root, &format!("w{n}"), &format!("tide{n}.py")));
+        s.push(red(root, &format!("c{n}"), name));
+    }
+    s.push(Scripted::text("The tide tables are built."));
+    s
+}
+
+/// A failing check whose failure moved is a progress attempt (the owner's
+/// ruling on F1): edit, red, edit, red at a tenth of a 15-minute deadline,
+/// each red naming another test, is not a stall, and the turn runs on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_that_moves_is_not_a_stall_early_in_a_deadline() {
+    let r = rig(|root| edit_and_check(root, &["alpha", "bravo", "charlie", "delta"]));
+    // 900 s, 90 used: 10%.
+    let (sid, res) = r.turn(Some((900, 90))).await;
+    assert_eq!(r.requests().len(), 9, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (9, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty(), "{:?}", r.rows(&sid));
+}
+
+/// Its other half, the same turn with the same failure every time: six loops
+/// with nothing new read and nothing moved are a stall, at any share of the
+/// deadline, and the row says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_same_failure_six_loops_running_is_still_a_stall() {
+    let r = rig(|root| edit_and_check(root, &["alpha", "alpha", "alpha", "alpha"]));
+    let (sid, res) = r.turn(Some((900, 90))).await;
+    assert_eq!(r.requests().len(), 7, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (7, PROGRESS_STOP));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "stalled");
+    assert_eq!(rows[0]["since_pass"], 6);
+    assert!(rows[0]["time_share"].as_f64().unwrap() < 0.5, "{rows:?}");
+}
+
+/// The DM's shape: no deadline, a failure that moves with every check, eight
+/// loops with no passing check and nothing read. It is not stopped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_deadline_whose_failure_moves_is_not_stopped() {
+    let r = rig(|root| {
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend(
+            [
+                "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf",
+            ]
+            .iter()
+            .enumerate()
+            .map(|(n, name)| red(root, &format!("c{n}"), name)),
+        );
+        s.push(Scripted::text("Seven failures, each another."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    assert_eq!(r.requests().len(), 9, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (9, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty(), "{:?}", r.rows(&sid));
+}
+
+/// A flip between two failures is not a move: the second time round each is
+/// one the turn has met, so the stall still stops it, six loops after the
+/// last failure that was new.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_that_flips_between_two_is_still_a_stall() {
+    let r = rig(|root| {
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend(
+            [
+                "alpha", "bravo", "alpha", "bravo", "alpha", "bravo", "alpha", "bravo",
+            ]
+            .iter()
+            .enumerate()
+            .map(|(n, name)| red(root, &format!("c{n}"), name)),
+        );
+        s.push(Scripted::text("It flips between two."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    assert_eq!(r.requests().len(), 10, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (10, PROGRESS_STOP));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["condition"], "stalled");
+    assert_eq!(rows[0]["loop"], 8);
+}
