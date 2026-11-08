@@ -776,12 +776,14 @@ impl JudgeService {
             {
                 core.outbox.notify_rule(
                     None,
-                    crate::rule_notice::Rule::D1,
-                    crate::rule_notice::Outcome::Skipped,
-                    theseus_kernel::micros_to_usd(*limit),
-                    theseus_kernel::micros_to_usd(spent.saturating_add(*needed)),
-                    &format!("{day}:{class:?}"),
-                    &format!("a {class:?} judgment would pass the day's budget, so it was skipped and counted."),
+                    crate::rule_notice::Notice {
+                        rule: crate::rule_notice::Rule::D1,
+                        outcome: crate::rule_notice::Outcome::Skipped,
+                        limit_usd: theseus_kernel::micros_to_usd(*limit),
+                        figure_usd: theseus_kernel::micros_to_usd(spent.saturating_add(*needed)),
+                        scope: &format!("{day}:{class:?}"),
+                        detail: &format!("a {class:?} judgment would pass the day's budget, so it was skipped and counted."),
+                    },
                 );
             }
         }

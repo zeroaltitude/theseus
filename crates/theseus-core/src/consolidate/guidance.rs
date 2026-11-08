@@ -421,12 +421,14 @@ impl Core {
             if spent.saturating_add(need) > limit {
                 self.outbox.notify_rule(
                     None,
-                    crate::rule_notice::Rule::D7,
-                    crate::rule_notice::Outcome::Stopped,
-                    theseus_kernel::micros_to_usd(limit),
-                    theseus_kernel::micros_to_usd(spent.saturating_add(need)),
-                    &crate::rule_notice::today(),
-                    "The dream's guidance stops for the day.",
+                    crate::rule_notice::Notice {
+                        rule: crate::rule_notice::Rule::D7,
+                        outcome: crate::rule_notice::Outcome::Stopped,
+                        limit_usd: theseus_kernel::micros_to_usd(limit),
+                        figure_usd: theseus_kernel::micros_to_usd(spent.saturating_add(need)),
+                        scope: &crate::rule_notice::today(),
+                        detail: "The dream's guidance stops for the day.",
+                    },
                 );
                 out.stopped = Some(format!(
                     "the next guidance would reserve {}, past [memory] synth_limit_usd_per_day \

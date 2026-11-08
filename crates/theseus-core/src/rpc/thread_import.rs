@@ -319,12 +319,14 @@ impl Core {
         if micros_to_usd(need) > left {
             self.outbox.notify_rule(
                 None,
-                crate::rule_notice::Rule::D17,
-                crate::rule_notice::Outcome::Refused,
-                cap,
-                cap - left + micros_to_usd(need),
-                &spend::local_day(theseus_protocol::now_unix_ms()),
-                "This thread is made without a card; the import stops for the day.",
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D17,
+                    outcome: crate::rule_notice::Outcome::Refused,
+                    limit_usd: cap,
+                    figure_usd: cap - left + micros_to_usd(need),
+                    scope: &spend::local_day(theseus_protocol::now_unix_ms()),
+                    detail: "This thread is made without a card; the import stops for the day.",
+                },
             );
             return fail(format!(
                 "the day's import budget (${cap:.2}) leaves ${left:.2}, under this card's worst case (${:.2})",

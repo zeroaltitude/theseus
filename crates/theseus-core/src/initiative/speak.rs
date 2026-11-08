@@ -210,12 +210,14 @@ impl Core {
             if today.saturating_add(need) > line {
                 self.outbox.notify_rule(
                     None,
-                    crate::rule_notice::Rule::D6,
-                    crate::rule_notice::Outcome::Stopped,
-                    self.cfg.initiative.day_usd,
-                    micros_to_usd(today.saturating_add(need)),
-                    &crate::rule_notice::today(),
-                    "Initiative speaks from its template for the rest of the day.",
+                    crate::rule_notice::Notice {
+                        rule: crate::rule_notice::Rule::D6,
+                        outcome: crate::rule_notice::Outcome::Stopped,
+                        limit_usd: self.cfg.initiative.day_usd,
+                        figure_usd: micros_to_usd(today.saturating_add(need)),
+                        scope: &crate::rule_notice::today(),
+                        detail: "Initiative speaks from its template for the rest of the day.",
+                    },
                 );
                 break;
             }

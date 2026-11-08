@@ -371,12 +371,14 @@ impl Core {
             // (the day's `replay_day_usd` or one whole loop's `whole_usd`).
             self.outbox.notify_rule(
                 None,
-                crate::rule_notice::Rule::D18,
-                crate::rule_notice::Outcome::Stopped,
-                theseus_kernel::micros_to_usd(l),
-                theseus_kernel::micros_to_usd(need),
-                &crate::rule_notice::today(),
-                "A replay call would pass what its cap leaves (`replay_day_usd` or `whole_usd`), so it stops.",
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D18,
+                    outcome: crate::rule_notice::Outcome::Stopped,
+                    limit_usd: theseus_kernel::micros_to_usd(l),
+                    figure_usd: theseus_kernel::micros_to_usd(need),
+                    scope: &crate::rule_notice::today(),
+                    detail: "A replay call would pass what its cap leaves (`replay_day_usd` or `whole_usd`), so it stops.",
+                },
             );
             return Err(CapReached { need, left: l }.into());
         }

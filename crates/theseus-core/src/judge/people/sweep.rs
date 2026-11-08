@@ -235,12 +235,15 @@ impl Core {
                 let limit_usd = self.runner.cfg.people.sweep_usd_per_day;
                 self.outbox.notify_rule(
                     None,
-                    crate::rule_notice::Rule::D8,
-                    crate::rule_notice::Outcome::Stopped,
-                    limit_usd,
-                    limit_usd - micros_to_usd(cap) + micros_to_usd(out.spent.saturating_add(worst)),
-                    &crate::rule_notice::today(),
-                    &format!("{left} sessions wait for tomorrow's sweep."),
+                    crate::rule_notice::Notice {
+                        rule: crate::rule_notice::Rule::D8,
+                        outcome: crate::rule_notice::Outcome::Stopped,
+                        limit_usd,
+                        figure_usd: limit_usd - micros_to_usd(cap)
+                            + micros_to_usd(out.spent.saturating_add(worst)),
+                        scope: &crate::rule_notice::today(),
+                        detail: &format!("{left} sessions wait for tomorrow's sweep."),
+                    },
                 );
                 out.stopped = Some(format!(
                     "at the day's cap: the next session's worst case ({}) would pass what is left \

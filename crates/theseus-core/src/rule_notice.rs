@@ -6,8 +6,10 @@
 //! refuses, a skip still skips.
 //!
 //! The list is kept complete by `every_rule_is_routed`: it reads the crate's
-//! source and fails a rule that no site names, unless the rule is in
-//! [`EXEMPT`] with its reason.
+//! source as Rust tokens (a site is a function that calls `notify_rule` and
+//! spells `Rule::<Name>`, the name whole) and fails a rule that no site
+//! names, unless the rule is in [`EXEMPT`] with its reason; a rule in
+//! [`EXEMPT`] that has a site fails too.
 
 use serde_json::json;
 
@@ -263,33 +265,35 @@ pub fn text(rule: Rule, outcome: Outcome, limit_usd: f64, figure_usd: f64, detai
     note(Kind::Alert, &title, &trigger, &body)
 }
 
+/// One notice: the rule, what it did, the limit and the figure that tripped
+/// it, the scope it speaks once for (a day, a branch, a session: the
+/// caller's word), and what was stopped (see [`text`]).
+pub struct Notice<'a> {
+    pub rule: Rule,
+    pub outcome: Outcome,
+    pub limit_usd: f64,
+    pub figure_usd: f64,
+    pub scope: &'a str,
+    pub detail: &'a str,
+}
+
 impl Outbox {
-    /// Tell the owner a rule stopped, refused or skipped, once for `scope`
-    /// (a day, a branch, a session: the caller's word), so a rule that trips
-    /// on every call speaks once. Returns whether a post was written. A post
-    /// that cannot be written is logged and never changes what the rule did.
-    #[allow(clippy::too_many_arguments)]
-    pub fn notify_rule(
-        &self,
-        session: Option<&str>,
-        rule: Rule,
-        outcome: Outcome,
-        limit_usd: f64,
-        figure_usd: f64,
-        scope: &str,
-        detail: &str,
-    ) -> bool {
-        if !self.rule_first(rule, scope) {
+    /// Tell the owner a rule stopped, refused or skipped, once for the
+    /// notice's scope, so a rule that trips on every call speaks once.
+    /// Returns whether a post was written. A post that cannot be written is
+    /// logged and never changes what the rule did.
+    pub fn notify_rule(&self, session: Option<&str>, n: Notice<'_>) -> bool {
+        if !self.rule_first(n.rule, n.scope) {
             return false;
         }
         let body = json!({
             "kind": "spend_ceiling",
-            "text": text(rule, outcome, limit_usd, figure_usd, detail),
+            "text": text(n.rule, n.outcome, n.limit_usd, n.figure_usd, n.detail),
         });
         match self.to_operator(session, body) {
             Ok(_) => true,
             Err(e) => {
-                tracing::warn!(rule = rule.spec().id, error = %format!("{e:#}"), "rule notice was not written");
+                tracing::warn!(rule = n.rule.spec().id, error = %format!("{e:#}"), "rule notice was not written");
                 false
             }
         }
@@ -304,18 +308,24 @@ impl Outbox {
         let detail = format!("The {what} was refused on its estimate before anything was sent.");
         self.notify_rule(
             None,
-            Rule::D11,
-            Outcome::Refused,
-            limit_usd,
-            estimate_usd,
-            &scope,
-            &detail,
+            Notice {
+                rule: Rule::D11,
+                outcome: Outcome::Refused,
+                limit_usd,
+                figure_usd: estimate_usd,
+                scope: &scope,
+                detail: &detail,
+            },
         );
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use proc_macro2::{Delimiter, TokenStream, TokenTree};
+
     use super::*;
 
     fn sources() -> Vec<(std::path::PathBuf, String)> {
@@ -343,6 +353,85 @@ mod tests {
         assert!(crate::owner_note::is_headed(&t), "{t}");
     }
 
+    fn trees(stream: TokenStream) -> Vec<TokenTree> {
+        stream.into_iter().collect()
+    }
+
+    /// `Rule::<Name>` as `src` spells it, each name read to the end of its
+    /// identifier and compared whole.
+    fn spelled(src: &[TokenTree], out: &mut BTreeSet<String>) {
+        for (i, t) in src.iter().enumerate() {
+            match t {
+                TokenTree::Group(g) => spelled(&trees(g.stream()), out),
+                TokenTree::Ident(id) if id == "Rule" => {
+                    if let Some(
+                        [TokenTree::Punct(a), TokenTree::Punct(b), TokenTree::Ident(name)],
+                    ) = src.get(i + 1..i + 4)
+                    {
+                        if (a.as_char(), b.as_char()) == (':', ':') {
+                            out.insert(name.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Whether `src` calls a function named `name`, whole.
+    fn calls(src: &[TokenTree], name: &str) -> bool {
+        src.iter().enumerate().any(|(i, t)| match t {
+            TokenTree::Group(g) => calls(&trees(g.stream()), name),
+            TokenTree::Ident(id) => {
+                id == name
+                    && matches!(src.get(i + 1),
+                        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
+            }
+            _ => false,
+        })
+    }
+
+    /// The rules `src` routes: those a function spells that also calls
+    /// `notify_rule`, and D11 where a function calls its helper (which names
+    /// the rule once). Read as Rust tokens, so a string or a comment that
+    /// names a rule is no site, and a name is never found inside a longer one.
+    fn routed(src: &[TokenTree], out: &mut BTreeSet<String>) {
+        for (i, t) in src.iter().enumerate() {
+            match t {
+                TokenTree::Group(g) => routed(&trees(g.stream()), out),
+                // `fn name`, not a `fn(..)` type; a body ends at its braces, a bodiless one at `;`.
+                TokenTree::Ident(id)
+                    if id == "fn" && matches!(src.get(i + 1), Some(TokenTree::Ident(_))) =>
+                {
+                    let body = src[i + 1..]
+                        .iter()
+                        .take_while(|t| !matches!(t, TokenTree::Punct(p) if p.as_char() == ';'))
+                        .find_map(|t| match t {
+                            TokenTree::Group(g) if g.delimiter() == Delimiter::Brace => {
+                                Some(trees(g.stream()))
+                            }
+                            _ => None,
+                        });
+                    let Some(body) = body else { continue };
+                    if calls(&body, "notify_rule") {
+                        spelled(&body, out);
+                    }
+                    if calls(&body, "notify_estimate_refused") {
+                        out.insert("D11".to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn routed_by(src: &str) -> BTreeSet<String> {
+        let stream: TokenStream = src.parse().unwrap_or_else(|e| panic!("does not lex: {e}"));
+        let mut out = BTreeSet::new();
+        routed(&trees(stream), &mut out);
+        out
+    }
+
     #[test]
     fn every_rule_is_routed() {
         assert_eq!(
@@ -350,32 +439,98 @@ mod tests {
             20,
             "the table has every id of the spending table"
         );
-        let files = sources();
-        let mut routed = 0;
+        let mut seen = BTreeSet::new();
+        for (p, src) in sources()
+            .iter()
+            .filter(|(p, _)| !p.ends_with("rule_notice.rs"))
+        {
+            let stream: TokenStream = src
+                .parse()
+                .unwrap_or_else(|e| panic!("{} does not lex: {e}", p.display()));
+            routed(&trees(stream), &mut seen);
+        }
+        let (mut count, mut missing) = (0, Vec::new());
         for sp in RULES {
+            let name = format!("{:?}", sp.rule);
             if let Some((_, why)) = EXEMPT.iter().find(|(r, _)| *r == sp.rule) {
                 assert!(why.len() > 20, "{} is exempt without a reason", sp.id);
+                assert!(
+                    !seen.contains(&name),
+                    "rule {} has a notify_rule site now: delete its EXEMPT entry",
+                    sp.id
+                );
                 continue;
             }
-            let needle = format!("Rule::{:?}", sp.rule);
-            let sites = files
-                .iter()
-                .filter(|(p, _)| !p.ends_with("rule_notice.rs"))
-                .filter(|(p, t)| {
-                    let _ = p;
-                    // D11 goes through its one helper, which names the rule once.
-                    (t.contains("notify_rule(") && t.contains(&needle))
-                        || (sp.rule == Rule::D11 && t.contains("notify_estimate_refused("))
-                })
-                .count();
-            assert!(
-                sites > 0,
-                "rule {} ({}) has no notify_rule site",
-                sp.id,
-                sp.what
-            );
-            routed += 1;
+            match seen.contains(&name) {
+                true => count += 1,
+                false => missing.push(format!("{} ({})", sp.id, sp.what)),
+            }
         }
-        assert_eq!(routed, RULES.len() - EXEMPT.len());
+        assert!(missing.is_empty(), "no notify_rule site: {missing:?}");
+        assert_eq!(count, RULES.len() - EXEMPT.len());
+    }
+
+    /// The reader's own holds: `every_rule_is_routed` was once satisfied by
+    /// `Rule::D10` for D1 (a `contains`), so the planted removal of D1's one
+    /// site went unseen. Every rule that is the start of a longer one is
+    /// tried against each longer one.
+    #[test]
+    fn a_rule_is_never_routed_by_a_longer_name() {
+        let mut pairs = 0;
+        for short in RULES {
+            for long in RULES {
+                let (a, b) = (format!("{:?}", short.rule), format!("{:?}", long.rule));
+                if a == b || !b.starts_with(&a) {
+                    continue;
+                }
+                pairs += 1;
+                let src = format!(
+                    "fn f(o: &Outbox) {{ o.notify_rule(None, Notice {{ rule: crate::rule_notice::Rule::{b}, outcome: Outcome::Skipped }}); }}"
+                );
+                let got = routed_by(&src);
+                assert!(got.contains(&b), "{b} is a site: {got:?}");
+                assert!(!got.contains(&a), "{a} found inside {b}: {got:?}");
+            }
+        }
+        assert_eq!(
+            pairs, 9,
+            "D1 begins D10 to D18, and no other rule begins another"
+        );
+    }
+
+    #[test]
+    fn a_site_is_a_call_that_spells_the_rule() {
+        let site = "fn f(o: &Outbox) { o.notify_rule(None, Notice { rule: crate::rule_notice::Rule::D1, outcome }); }";
+        assert_eq!(routed_by(site), BTreeSet::from(["D1".to_string()]));
+        for (why, src) in [
+            (
+                "a string and a comment are not code",
+                "fn f(o: &Outbox) { o.notify_rule(None, n); let _ = \"Rule::D1\"; /* Rule::D1 */ } // Rule::D1",
+            ),
+            (
+                "a mention beside another function's call is not a call",
+                "fn f() -> Rule { Rule::D1 } fn g(o: &Outbox) { o.notify_rule(None, n); }",
+            ),
+            (
+                "a longer function name is another function",
+                "fn f(o: &Outbox) { o.not_notify_rule(Rule::D1); }",
+            ),
+            (
+                "a name of another type is another name",
+                "fn f(o: &Outbox) { o.notify_rule(None, Notice { rule: PlaceRule::D1 }); }",
+            ),
+            (
+                "a bodiless declaration is no site",
+                "trait T { fn f(o: &Outbox) -> Rule; } const R: Rule = Rule::D1;",
+            ),
+        ] {
+            assert!(routed_by(src).is_empty(), "{why}: {:?}", routed_by(src));
+        }
+        let helper =
+            "impl X { fn f(&self) { self.outbox.notify_estimate_refused(\"replay\", 1.0, 2.0); } }";
+        assert_eq!(routed_by(helper), BTreeSet::from(["D11".to_string()]));
+        // A site nested in an impl, a closure and a macro is still found.
+        let nested = "impl X { fn f(&self) { let g = || { m!(self.o.notify_rule(None, Notice { rule: Rule::D6 })) }; } }";
+        assert_eq!(routed_by(nested), BTreeSet::from(["D6".to_string()]));
     }
 }

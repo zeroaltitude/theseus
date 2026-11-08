@@ -283,12 +283,14 @@ impl Budget {
         let detail = format!("{what} stops: {stopped}");
         o.notify_rule(
             None,
-            rule,
-            outcome,
-            stopped.line_usd,
-            figure,
-            &scope,
-            &detail,
+            crate::rule_notice::Notice {
+                rule,
+                outcome,
+                limit_usd: stopped.line_usd,
+                figure_usd: figure,
+                scope: &scope,
+                detail: &detail,
+            },
         );
     }
 

@@ -740,12 +740,14 @@ impl Core {
             );
             self.outbox.notify_rule(
                 None,
-                crate::rule_notice::Rule::D10,
-                crate::rule_notice::Outcome::Skipped,
-                lc.writer_limit_usd_per_day,
-                micros_to_usd(spent.saturating_add(need)),
-                &crate::rule_notice::today(),
-                "A proposal was skipped and reported; the writer waits for tomorrow.",
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D10,
+                    outcome: crate::rule_notice::Outcome::Skipped,
+                    limit_usd: lc.writer_limit_usd_per_day,
+                    figure_usd: micros_to_usd(spent.saturating_add(need)),
+                    scope: &crate::rule_notice::today(),
+                    detail: "A proposal was skipped and reported; the writer waits for tomorrow.",
+                },
             );
             return self.writer_refused(prop, parent_name, why, who, via);
         }

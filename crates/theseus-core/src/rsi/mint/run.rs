@@ -509,12 +509,14 @@ impl Core {
         {
             self.outbox.notify_rule(
                 None,
-                crate::rule_notice::Rule::D4,
-                crate::rule_notice::Outcome::Stopped,
-                caps.mint_usd,
-                report.spent_usd,
-                &pending.placeholder,
-                &format!("The mint of {} stops here.", pending.placeholder),
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D4,
+                    outcome: crate::rule_notice::Outcome::Stopped,
+                    limit_usd: caps.mint_usd,
+                    figure_usd: report.spent_usd,
+                    scope: &pending.placeholder,
+                    detail: &format!("The mint of {} stops here.", pending.placeholder),
+                },
             );
         }
         Ok(report)

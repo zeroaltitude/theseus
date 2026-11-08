@@ -181,13 +181,15 @@ impl JudgeService {
                 let limit_usd = core.cfg.ontology.sweep_usd_per_day;
                 core.outbox.notify_rule(
                     None,
-                    crate::rule_notice::Rule::D9,
-                    crate::rule_notice::Outcome::Stopped,
-                    limit_usd,
-                    limit_usd - theseus_kernel::micros_to_usd(left)
-                        + theseus_kernel::micros_to_usd(need),
-                    &crate::rule_notice::today(),
-                    "The ontology sweep asks no more questions today.",
+                    crate::rule_notice::Notice {
+                        rule: crate::rule_notice::Rule::D9,
+                        outcome: crate::rule_notice::Outcome::Stopped,
+                        limit_usd,
+                        figure_usd: limit_usd - theseus_kernel::micros_to_usd(left)
+                            + theseus_kernel::micros_to_usd(need),
+                        scope: &crate::rule_notice::today(),
+                        detail: "The ontology sweep asks no more questions today.",
+                    },
                 );
             }
             return Asked::Over(need);

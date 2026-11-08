@@ -554,12 +554,14 @@ impl Core {
     fn told_consolidation_stopped(&self, limit: Micros, figure: Micros) {
         self.outbox.notify_rule(
             None,
-            crate::rule_notice::Rule::D7,
-            crate::rule_notice::Outcome::Stopped,
-            theseus_kernel::micros_to_usd(limit),
-            theseus_kernel::micros_to_usd(figure),
-            &crate::rule_notice::today(),
-            "Consolidation stops for the day.",
+            crate::rule_notice::Notice {
+                rule: crate::rule_notice::Rule::D7,
+                outcome: crate::rule_notice::Outcome::Stopped,
+                limit_usd: theseus_kernel::micros_to_usd(limit),
+                figure_usd: theseus_kernel::micros_to_usd(figure),
+                scope: &crate::rule_notice::today(),
+                detail: "Consolidation stops for the day.",
+            },
         );
     }
 

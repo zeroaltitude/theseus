@@ -129,12 +129,14 @@ impl TurnRunner {
         // plus what this call needed. Once a session.
         t.tc.outbox.notify_rule(
             Some(t.tc.session_id),
-            crate::rule_notice::Rule::A4,
-            crate::rule_notice::Outcome::Refused,
-            micros_to_usd(h.cap()),
-            micros_to_usd(h.spent.saturating_add(h.held).saturating_add(h.needed)),
-            t.tc.session_id,
-            &words,
+            crate::rule_notice::Notice {
+                rule: crate::rule_notice::Rule::A4,
+                outcome: crate::rule_notice::Outcome::Refused,
+                limit_usd: micros_to_usd(h.cap()),
+                figure_usd: micros_to_usd(h.spent.saturating_add(h.held).saturating_add(h.needed)),
+                scope: t.tc.session_id,
+                detail: &words,
+            },
         );
         Failure {
             class: HARD_STOP_CLASS.into(),

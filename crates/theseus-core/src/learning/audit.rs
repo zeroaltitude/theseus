@@ -302,20 +302,22 @@ impl Core {
         Some(price.reserve_micros(request.max_tokens, est.tokens))
     }
 
-    #[allow(clippy::too_many_arguments)]
     /// The owner is told (theseus-3i6d1, D12).
     fn told_audit_stopped(&self, id: &str, limit: Micros, figure: Micros) {
         self.outbox.notify_rule(
             None,
-            crate::rule_notice::Rule::D12,
-            crate::rule_notice::Outcome::Stopped,
-            micros_to_usd(limit),
-            micros_to_usd(figure),
-            id,
-            "The audit stops before the request that would pass its limit.",
+            crate::rule_notice::Notice {
+                rule: crate::rule_notice::Rule::D12,
+                outcome: crate::rule_notice::Outcome::Stopped,
+                limit_usd: micros_to_usd(limit),
+                figure_usd: micros_to_usd(figure),
+                scope: id,
+                detail: "The audit stops before the request that would pass its limit.",
+            },
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn audit_run(
         &self,
         rt: &tokio::runtime::Handle,
