@@ -217,6 +217,16 @@ pub fn id_ms(id: &str) -> Option<u64> {
     (u.get_version_num() == 7).then(|| (u.as_u128() >> 80) as u64)
 }
 
+/// The shared shape for a list that must be complete (theseus-3i6d1):
+/// `crates/complete.rs`, one file included by each crate that needs it
+/// rather than a dependency of its own. `outbox::tests` uses it to hold
+/// `outbox::OPERATOR_KINDS` against a walk of this crate's own operator
+/// call sites, and `aws::tests_secret_shapes` to hold `MARKED` against a
+/// walk of the catalog.
+#[cfg(test)]
+mod complete {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../complete.rs"));
+}
 #[cfg(test)]
 mod scratch;
 #[cfg(test)]
