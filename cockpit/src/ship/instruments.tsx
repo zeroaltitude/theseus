@@ -5,6 +5,7 @@
 // watch. The dial kit (Dial, Ticks, Needle, Engraved) also draws the speed wall's and the money views' dials.
 import { useId, type ReactNode } from 'react'
 import { cn } from '@/lib/format'
+import { engineOrder, engineSub, engineTitle, ORDERS, type EngineReading } from '@/ship/telegraph'
 
 const GOLD = '#d6a548'
 const IVORY = '#efe3c8'
@@ -118,15 +119,13 @@ export function Engraved({ x, y, children, size = 6.4, color = GOLD, anchor = 'm
 
 // ---------------------------------------------------------------- the engine telegraph: the kernel
 
-const ORDERS = ['STOP', 'SLOW', 'HALF', 'FULL'] as const
-
-export function EngineTelegraph({ accepting, running, ceiling, held }: { accepting?: boolean; running: number; ceiling: number; held: number }) {
-  const order = accepting === false ? 0 : running === 0 ? 1 : running * 2 <= ceiling ? 2 : 3
+export function EngineTelegraph({ reading }: { reading: EngineReading }) {
+  const order = engineOrder(reading)
   const deg = -72 + order * 48
   const tone = order === 0 ? AMBER : order === 1 ? GOLD : CYAN
   return (
-    <Dial title={`The kernel: ${accepting === false ? 'holding new turns (STOP)' : 'accepting'}; ${running} of ${ceiling} executions running${held ? `, ${held} turns held` : ''}. SLOW is idle, HALF up to half the ceiling, FULL past it.`}
-      label="Engine" sub={`${accepting === false ? 'holding' : 'accepting'} · ${running} of ${ceiling}${held ? ` · ${held} held` : ''}`} glow={order >= 2 ? CYAN : order === 0 ? AMBER : undefined}>
+    <Dial title={engineTitle(reading)}
+      label="Engine" sub={engineSub(reading)} glow={order >= 2 ? CYAN : order === 0 ? AMBER : undefined}>
       {() => (
         <g>
           {ORDERS.map((o, i) => {
