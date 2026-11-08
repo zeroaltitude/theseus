@@ -8,7 +8,12 @@
 //!   reopened across a split), and one message per loop listing its tool
 //!   calls, updated as each runs. Rendering is a diff: every tick re-renders
 //!   the live turns and emits only the messages whose text changed, so a burst
-//!   of deltas costs one edit.
+//!   of deltas costs one edit. A turn's tool messages are bounded
+//!   (theseus-8wm): its first `STEP_LOOPS - 1` loops keep one each, and every
+//!   loop from there on shares the step's message, which goes out when it is
+//!   due (a loop's end, a call waiting for or getting an answer, the turn's
+//!   end) rather than at each call's every state. So a builder's step of
+//!   fifty tool loops costs its place six messages, not fifty.
 //! - **Posts**, the outbox's, delivered once: a turn's reply (its loops' text
 //!   in their final form, and a footer with the turn's model, loops, tools,
 //!   dollars, and time), a confirm card with Approve and Decline buttons and
@@ -36,6 +41,7 @@ mod preview;
 pub(crate) mod process;
 mod reply;
 pub(crate) mod snapshot;
+mod step;
 pub(crate) mod task_view;
 #[cfg(test)]
 mod tests_pin;
@@ -45,6 +51,7 @@ pub use approval::strip_ask;
 pub use ask::{details as question_details, needs_you};
 pub use board::{board, tasks_here, BOARD_HEAD, BOARD_KEY};
 pub use reply::{reply_parts, thread_tag, wake_header};
+use step::{render_turn, step_loop, STEP_ROLL};
 pub use wakes::wakes;
 
 /// Discord's limit is 2000 characters; parts stay under it with room for a fence repair.
@@ -238,6 +245,12 @@ struct ToolLine {
     /// Its notice's score once its judgment lands (M5 step 24): `risk 12%
     /// (shadow)`.
     risk: Option<String>,
+    /// Its end comes back late, in a turn of its own: it went to the
+    /// background, or it waited for an answer. theseus-9zif keeps its turn
+    /// alive for exactly that, so the step's shared message must not fold
+    /// its line away (theseus-8wm): that line is the only place the late
+    /// end has to land.
+    late: bool,
 }
 
 #[derive(Debug, Default)]
@@ -254,6 +267,22 @@ struct TurnView {
     /// messages are still live.
     ended: bool,
     dirty: bool,
+    /// The step's message is due (theseus-8wm): a loop ended, a call waits
+    /// for an answer or got one, or the turn ended. A call's own states in
+    /// between ride along at the next of those, so a long step costs the
+    /// place about an edit a loop instead of one for every state it passes
+    /// through. A turn whose loops all keep their own message is unaffected.
+    step_due: bool,
+}
+
+impl TurnView {
+    /// Does the turn roll its later loops into the step's message?
+    fn rolls(&self) -> bool {
+        self.loops
+            .keys()
+            .next_back()
+            .is_some_and(|li| *li > STEP_ROLL)
+    }
 }
 
 #[derive(Default)]
@@ -308,6 +337,7 @@ impl Renderer {
             Some(t) if !t.ended => {
                 t.ended = true;
                 t.dirty = true;
+                t.step_due = true;
                 self.tick()
             }
             _ => vec![],
@@ -334,6 +364,7 @@ impl Renderer {
                     loops: BTreeMap::new(),
                     ended: false,
                     dirty: false,
+                    step_due: false,
                 });
                 self.drop_past_recent();
                 vec![Op::Typing]
@@ -393,6 +424,7 @@ impl Renderer {
                         ))
                     }),
                     risk: None,
+                    late: false,
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -476,6 +508,9 @@ impl Renderer {
                             ms,
                         },
                     };
+                    // Its end will come back in a turn of its own, so the
+                    // step's message keeps its line from here on.
+                    l.late |= matches!(l.state, ToolState::Background);
                 });
                 ops
             }
@@ -548,6 +583,7 @@ impl Renderer {
                             .any(|l| l.tool == tool && l.notice.is_some())
                     });
                     t.dirty |= shows;
+                    t.step_due |= shows;
                 }
                 let mut cards: Vec<(String, NoticeCard, Asked)> = self
                     .notices
@@ -588,8 +624,14 @@ impl Renderer {
                     {
                         l.state = ToolState::Waiting;
                         l.correlation_id = Some(req.correlation_id.clone());
+                        // Its answer can come in a later turn, so the step's
+                        // message keeps its line from here on.
+                        l.late = true;
                     }
                     t.dirty = true;
+                    // A call waiting for an answer is shown at once, however
+                    // deep in the step it is (theseus-8wm).
+                    t.step_due = true;
                 }
                 self.tick()
             }
@@ -619,6 +661,7 @@ impl Renderer {
                                     }
                                 };
                                 t.dirty = true;
+                                t.step_due = true;
                             }
                         }
                     }
@@ -628,6 +671,7 @@ impl Renderer {
             Event::LoopEnded(_) => {
                 if let Some(t) = self.turn_mut(turn_id) {
                     t.dirty = true;
+                    t.step_due = true;
                 }
                 self.tick()
             }
@@ -643,6 +687,7 @@ impl Renderer {
                     Some(t) => {
                         t.ended = true;
                         t.dirty = true;
+                        t.step_due = true;
                         self.tick()
                     }
                     None => vec![],
@@ -658,11 +703,23 @@ impl Renderer {
         let mut rendered = Vec::new();
         let menus = !self.notice_embeds;
         for t in self.turns.iter_mut().filter(|t| t.dirty) {
-            rendered.extend(render_turn(t, &self.tightened, menus));
+            let due = t.step_due;
+            rendered.extend(
+                render_turn(t, &self.tightened, menus)
+                    .into_iter()
+                    .map(|m| (due, m)),
+            );
             t.dirty = false;
+            t.step_due = false;
         }
         let mut ops = Vec::new();
-        for m in rendered {
+        for (due, m) in rendered {
+            // The step's message waits for its next due moment (a loop's end,
+            // an answer, the turn's end); its first post never waits, so the
+            // place sees the step go on (theseus-8wm).
+            if m.rolled && !due && self.emitted.contains_key(&m.key) {
+                continue;
+            }
             let before = self.menus.get(&m.key);
             let buttons = match &m.menu {
                 Some(menu) if !menu.is_empty() && before != Some(menu) => {
@@ -745,6 +802,10 @@ impl Renderer {
             if let Some(l) = lv.tools.iter_mut().find(|l| l.tool_use_id == tool_use_id) {
                 f(l);
                 t.dirty = true;
+                // The turn is over, so no loop's end is coming to carry this
+                // onto the step's message: a late result is due now
+                // (theseus-8wm).
+                t.step_due |= t.ended;
             }
         }
     }
@@ -752,62 +813,6 @@ impl Renderer {
 
 /// The field a notice card gains once its tool asks first.
 const TIGHTENED_FIELD: &str = "Asks first now";
-
-/// One message of a turn as rendered: its key, its text, and, on a tool
-/// message when menus are on, its "should have asked" choices.
-struct Rendered {
-    key: String,
-    content: String,
-    menu: Option<Vec<Asked>>,
-}
-
-impl Rendered {
-    fn text(key: String, content: String) -> Self {
-        Self {
-            key,
-            content,
-            menu: None,
-        }
-    }
-}
-
-/// Every live message a turn shows, in the order Discord should first see
-/// them: its streamed text while it runs (then its reply's post owns the
-/// text), and its tool messages. `tightened` is tool → who tightened it;
-/// `menus` puts a "Should I have asked?" select on each tool message that lists
-/// a notified call.
-fn render_turn(t: &TurnView, tightened: &BTreeMap<String, String>, menus: bool) -> Vec<Rendered> {
-    let mut out: Vec<Rendered> = Vec::new();
-    for (li, lv) in &t.loops {
-        if !t.ended {
-            for (i, part) in split_text(&lv.text, PART_LIMIT).into_iter().enumerate() {
-                out.push(Rendered::text(format!("{}:L{li}:p{i}", t.turn_id), part));
-            }
-        }
-        if !lv.tools.is_empty() {
-            let (asked, tight) = notified_tools(&lv.tools, tightened);
-            // A line per notified tool that asks first now, under the calls.
-            let said: Vec<String> = tight
-                .iter()
-                .map(|(tool, by)| {
-                    format!("-# 🔒 `{tool}` asks first from now on: tightened by {by}")
-                })
-                .collect();
-            let reserve: usize = said.iter().map(|l| l.len() + 1).sum();
-            let mut content = tool_lines(&lv.tools, reserve);
-            for l in &said {
-                content.push('\n');
-                content.push_str(l);
-            }
-            out.push(Rendered {
-                key: format!("{}:L{li}:tools", t.turn_id),
-                content,
-                menu: menus.then_some(asked),
-            });
-        }
-    }
-    out
-}
 
 // ---------------------------------------------------------------- posts
 
@@ -1094,117 +1099,6 @@ pub fn glide(body: &Value) -> Vec<String> {
 pub const RESENT: &str =
     "-# ↻ Sent again after an outage: if the same message is just above, this is a copy.";
 
-/// A tool message's distinct notified tools, in the order they first ran:
-/// those still offered to "should have asked", each with its newest
-/// notified call (at most `MAX_ASKED`), and those that ask first now, with
-/// who tightened them.
-fn notified_tools(
-    tools: &[ToolLine],
-    tightened: &BTreeMap<String, String>,
-) -> (Vec<Asked>, Vec<(String, String)>) {
-    let mut asked: Vec<Asked> = Vec::new();
-    let mut tight: Vec<(String, String)> = Vec::new();
-    for l in tools.iter().filter(|l| l.notice.is_some()) {
-        if let Some(by) = tightened.get(&l.tool) {
-            if !tight.iter().any(|(t, _)| *t == l.tool) {
-                tight.push((l.tool.clone(), by.clone()));
-            }
-            continue;
-        }
-        if let Some(a) = asked.iter_mut().find(|a| a.tool == l.tool) {
-            if l.correlation_id.is_some() {
-                a.correlation_id = l.correlation_id.clone();
-            }
-        } else if asked.len() < MAX_ASKED {
-            asked.push(Asked {
-                tool: l.tool.clone(),
-                correlation_id: l.correlation_id.clone(),
-            });
-        }
-    }
-    (asked, tight)
-}
-
-/// The tool message's lines, in at most `PART_LIMIT - 60 - reserve`
-/// characters.
-fn tool_lines(tools: &[ToolLine], reserve: usize) -> String {
-    let lines: Vec<String> = tools
-        .iter()
-        .map(|l| {
-            let risk = l.risk.as_ref().map_or(String::new(), |r| format!(" · {r}"));
-            let mark = match l.notice.as_deref() {
-                Some("") => format!(" · 🔔 notified{risk}"),
-                Some(setting) => format!(" · 🔔 notified ({setting}){risk}"),
-                None => String::new(),
-            };
-            let key = l
-                .granted
-                .as_deref()
-                .map_or_else(String::new, |g| format!(" · 🔑 {g}"));
-            let l1 =
-                l.l1.as_ref()
-                    .map_or(String::new(), |r| format!("🛡️ L1 · {r} · "));
-            let head = format!("`{}` {l1}{}{key}{mark}", l.tool, l.summary);
-            match &l.state {
-                ToolState::Proposed => format!("▫️ {head}"),
-                ToolState::Running => format!("⏳ {head}"),
-                ToolState::Waiting => format!("⏸️ {head} · waiting for approval"),
-                ToolState::Background => {
-                    format!("⏳ {head} · running in the background; the result will come back here")
-                }
-                ToolState::Done { status, ms } if status == "ok" => format!("✅ {head} · {ms} ms"),
-                ToolState::Done { status, ms } => format!("❌ {head} · {status} · {ms} ms"),
-                ToolState::NotRun => format!("🚫 {head} · not run"),
-                ToolState::Stopped { by } => format!("⏹️ {head} · stopped by {by}"),
-                ToolState::Answered { approved: true, by } => {
-                    format!("👍 {head} · approved by {by}")
-                }
-                ToolState::Answered {
-                    approved: false,
-                    by,
-                } => {
-                    format!("👎 {head} · declined by {by}")
-                }
-            }
-        })
-        .collect();
-    // Keep the newest lines when a loop made more calls than one message holds,
-    // with room for the line that counts the rest.
-    let mut kept: Vec<&String> = Vec::new();
-    let mut len = 0;
-    let budget = (PART_LIMIT - 60).saturating_sub(reserve);
-    for l in lines.iter().rev() {
-        if len + l.len() + 1 > budget {
-            break;
-        }
-        len += l.len() + 1;
-        kept.push(l);
-    }
-    kept.reverse();
-    let hidden = lines.len() - kept.len();
-    let mut s = String::new();
-    if hidden > 0 {
-        s.push_str(&format!("-# … {hidden} earlier call(s)"));
-        // This line may be the only place Discord shows their notices.
-        let notified = tools[..hidden]
-            .iter()
-            .filter(|l| l.notice.is_some())
-            .count();
-        if notified > 0 {
-            s.push_str(&format!(" · 🔔 {notified} notified"));
-        }
-        s.push('\n');
-    }
-    s.push_str(
-        &kept
-            .into_iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    s
-}
-
 fn footer(r: &TurnSubmitResult) -> String {
     let mut bits = vec![];
     if !r.profile.is_empty() {
@@ -1404,7 +1298,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn upserts(ops: &[Op]) -> Vec<(String, String)> {
+    pub(super) fn upserts(ops: &[Op]) -> Vec<(String, String)> {
         ops.iter()
             .filter_map(|o| match o {
                 Op::Upsert { key, content, .. } => Some((key.clone(), content.clone())),
@@ -1421,7 +1315,7 @@ mod tests {
         serde_json::from_value(v).unwrap()
     }
 
-    fn ended(turn: &str, awaiting: Option<&str>) -> Value {
+    pub(super) fn ended(turn: &str, awaiting: Option<&str>) -> Value {
         json!({"session_id": "s", "turn_id": turn, "loops": 2, "output": "", "stop_reason": "no_tool_calls",
                "provider_stop_reason": null, "model": "claude-sonnet-5", "provider": "anthropic", "profile": "sonnet",
                "usage": {"input_tokens": 1, "output_tokens": 2, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},

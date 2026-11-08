@@ -15,13 +15,20 @@
 //! effort, never a post; the whole thinking is the session's history. It
 //! holds the turns the place's renderer holds (`Process::hold`, told after
 //! each `turn.started`), so the lane keeps and forgets its keys with theirs.
+//!
+//! It shares the renderer's bound on a turn's messages (`step_loop`,
+//! theseus-8wm): every loop past `STEP_ROLL` writes the step's message, and a
+//! newer loop's thinking takes that message over from the one before it,
+//! so a fifty-loop step thinks into one message, not fifty. The two bounds
+//! are on different axes and compose: `hold` decides which turns stay,
+//! `step_loop` which message a loop of a held turn writes.
 
 use std::collections::{BTreeMap, VecDeque};
 
 use theseus_protocol::Event;
 use tokio::time::Instant;
 
-use super::{Buttons, Op, DISCORD_LIMIT};
+use super::{step_loop, Buttons, Op, DISCORD_LIMIT};
 
 /// The most of a loop's thinking its message shows, in characters, when its
 /// tool lines leave room for it.
@@ -60,6 +67,10 @@ struct Loop {
     text: String,
     kept: usize,
     more: usize,
+    /// The loop whose thinking this message holds. The step's message is
+    /// shared by every loop past `STEP_ROLL` (theseus-8wm), so a newer loop's
+    /// thinking replaces the one before it rather than running on from it.
+    from: u32,
     /// Its first thinking, and, once its text started, how long it thought.
     since: Option<Instant>,
     thought: Option<u64>,
@@ -225,6 +236,7 @@ impl Process {
         let Some((_, loops)) = self.turns.iter_mut().find(|(t, _)| t == turn) else {
             return;
         };
+        let li = li.map(step_loop);
         for (_, lp) in loops
             .iter_mut()
             .filter(|(i, _)| li.is_none_or(|li| **i == li))
@@ -237,9 +249,24 @@ impl Process {
         }
     }
 
+    /// The message loop `li` writes: its own, or the step's when the turn
+    /// has rolled into it. A loop newer than the one the step's message
+    /// holds takes it over, thinking and all.
     fn loop_mut(&mut self, turn: &str, li: u32) -> Option<&mut Loop> {
         let (_, loops) = self.turns.iter_mut().find(|(t, _)| t == turn)?;
-        Some(loops.entry(li).or_default())
+        let lp = loops.entry(step_loop(li)).or_default();
+        if li > lp.from {
+            lp.from = li;
+            if lp.thinks() || lp.thought.is_some() {
+                lp.text.clear();
+                lp.kept = 0;
+                lp.more = 0;
+                lp.since = None;
+                lp.thought = None;
+                lp.dirty = true;
+            }
+        }
+        Some(lp)
     }
 }
 
@@ -562,6 +589,43 @@ mod tests {
             content,
             "-# 💭 thinking\n-# Like this:\n-# \\`\\`\\`rust\n-# fn tide() {}\n\
              -# \\`\\`\\`\n-# Then C:\\\\work.\n▫️ `fs.read` a"
+        );
+    }
+
+    /// theseus-8wm: a step of fifty thinking loops thinks into the bound the
+    /// renderer keeps, not a message a loop, and the step's message holds the
+    /// newest loop's thinking rather than running every loop's together.
+    #[test]
+    fn a_step_of_fifty_thinking_loops_stays_within_its_message_budget() {
+        let mut p = Process::default();
+        let t0 = Instant::now();
+        p.on_event(&started("turn_a"), t0, BOTH);
+        let mut keys: Vec<String> = Vec::new();
+        for li in 0..50 {
+            let think = Event::ModelThinking(delta("turn_a", li, &format!("Loop {li}.")));
+            for (k, _) in upserts(&p.on_event(&think, t0, BOTH)) {
+                if !keys.contains(&k) {
+                    keys.push(k);
+                }
+            }
+            // Every loop but the last answers, which folds its thinking.
+            if li < 49 {
+                p.on_event(&Event::ModelDelta(delta("turn_a", li, "On.")), t0, BOTH);
+            }
+        }
+        assert_eq!(
+            keys.len(),
+            super::super::step::STEP_LOOPS as usize,
+            "{keys:?}"
+        );
+        let step = &p.turns[0].1[&super::super::step::STEP_ROLL];
+        assert_eq!(step.from, 49, "the newest loop holds the step's message");
+        assert!(
+            step.shown.as_deref().is_some_and(|s| s.contains("Loop 49")
+                && !s.contains("Loop 48")
+                && !s.contains("Loop 7")),
+            "the newest loop's thinking alone: {:?}",
+            step.shown
         );
     }
 
