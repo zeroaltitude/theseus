@@ -25,6 +25,18 @@
 //!   (`capture::owner_alone`): a shared place, and a private place others
 //!   write in, get nothing. The gate refuses it in a shared place too, since
 //!   it is no public tool (`places::offered`).
+//! - **His own conversation only, never a task's session.** A task's place is
+//!   its parent's, so the place checks pass one through; the day's block is
+//!   kept out of a task by a guard of its own (`turn/compile_step.rs`), and
+//!   the writer by another (`card/observe.rs`). This is that guard, for the
+//!   read.
+//! - **Never to a model of restricted origin.** The same rule the day's
+//!   block keeps (`card/noted.rs`, the turn's `restricted_profile`): these
+//!   are the owner's personal words, unconfirmed and uncurated. The data
+//!   gate cannot stand in for it — it routes a *labelled* session off such a
+//!   model, and these notes raise no label, being never nodes and never
+//!   indexed, so the protection they would need is the one thing they never
+//!   create.
 //! - **His words, not a portrait.** The answer is the kept notes verbatim,
 //!   each with the day it was kept and the conversation it was said in, and
 //!   says plainly that they are unconfirmed and on no card yet. Nothing is
@@ -62,6 +74,19 @@ const TODAY: &str = "today";
 pub const NOT_ALONE: &str =
     "card.observed reads the owner's card, which is theirs alone: this place is shared, \
      or others write in it, so nothing of the card is read here";
+
+/// Why a task's session gets nothing, as the day's block gets none either
+/// (`turn/compile_step.rs`): a task's words are its own, not the owner's
+/// conversation, though its place is the one it reports into.
+pub const NOT_THIS_SESSION: &str =
+    "card.observed reads what the owner said in their own conversation: this is a task's \
+     session, so nothing of the card is read here";
+
+/// Why a model of restricted origin gets nothing, as the day's block gives
+/// one nothing either (`card/noted.rs`).
+pub const NOT_THIS_MODEL: &str =
+    "card.observed reads the owner's own unconfirmed words about themselves, which no model \
+     of restricted origin is given: this turn runs on one, so nothing of the card is read here";
 
 /// What the answer says the notes are, before the lines.
 const HEAD: &str = "Kept about the owner since the exchange it was said in, from the owner's own \
@@ -157,6 +182,56 @@ impl Tool for CardObserved {
     }
 }
 
+/// What the turn asking is, as the wall around the notes reads it: where its
+/// words go and which profile it runs on. [`Board::run`] takes both from the
+/// turn's `TurnCtx`; a test builds them, so both reach the same [`refusal`].
+/// Whether the session is a task's is not here: [`is_task`] reads that from
+/// the session's own record, so no caller can get it wrong.
+#[derive(Clone)]
+pub(crate) struct Asking {
+    pub class: crate::places::PlaceClass,
+    /// The profile the turn runs on (`TurnCtx::target`). `None` is a turn
+    /// whose model cannot be named, which is refused as a restricted one is:
+    /// `restricted_profile` already counts a profile that does not resolve.
+    pub profile: Option<String>,
+}
+
+/// Whether `session` is a task's, read from its own record as
+/// `turn/compile_step.rs` reads it for the day's block. A record that does
+/// not read is taken for one: the wall closes on what it cannot see.
+fn is_task(core: &Core, session: &str) -> bool {
+    match core
+        .store
+        .get_session::<crate::session::SessionRecord>(session)
+    {
+        Ok(Some(s)) => s.task.is_some(),
+        _ => true,
+    }
+}
+
+/// Why this turn reads none of the notes, if it reads none: the whole wall,
+/// in one place, so the runtime and a test cannot drift apart. Each clause
+/// is the one `card/noted.rs` keeps for the day's block.
+fn refusal(core: &Core, who: &Asking, session: &str) -> Option<&'static str> {
+    if who.class != crate::places::PlaceClass::Private {
+        return Some(NOT_ALONE);
+    }
+    if is_task(core, session) {
+        return Some(NOT_THIS_SESSION);
+    }
+    if who
+        .profile
+        .as_deref()
+        .is_none_or(|p| core.runner.restricted_profile(p))
+    {
+        return Some(NOT_THIS_MODEL);
+    }
+    if !core.owner_alone_in(session) {
+        return Some(NOT_ALONE);
+    }
+    None
+}
+
 /// What `card.observed` reads: the core, given once it is built.
 #[derive(Default)]
 pub struct Board {
@@ -168,38 +243,55 @@ impl Board {
         let _ = self.core.set(Arc::downgrade(core));
     }
 
-    /// The call, in its own task: refused in a shared place by the turn's
-    /// class, and again by the session's place in [`observed`].
+    /// The call, in its own task. The whole wall is [`refusal`], read from
+    /// the turn: its place's class and the session's place, its profile's
+    /// origin, and whether it is a task's.
     pub fn run(&self, tc: &crate::toolrun::TurnCtx<'_>, input: &Value) -> AsyncMediaRun {
         let fail = |why: &str| -> AsyncMediaRun {
             Box::pin(std::future::ready(Err(ToolFailure::new(why))))
         };
-        if tc.class != crate::places::PlaceClass::Private {
-            return fail(NOT_ALONE);
-        }
         let Some(core) = self.core.get().and_then(Weak::upgrade) else {
             return fail("card.observed is not ready: the core is not built");
+        };
+        let who = Asking {
+            class: tc.class,
+            profile: tc.target.map(|t| t.profile.clone()),
         };
         let a = match Args::parse(input) {
             Ok(a) => a,
             Err(e) => return fail(&e),
         };
         let session = tc.session_id.to_string();
-        // The read is blocking, and an async block keeps it inside the
-        // spawned task rather than running it on the dispatch's thread.
+        // The wall and the read both read the store, and an async block keeps
+        // them inside the spawned task rather than on the dispatch's thread.
         Box::pin(async move {
-            observed(core, session, a)
+            observed(core, &who, session, a)
                 .map(|o| (o, None, None))
                 .map_err(ToolFailure::new)
         })
     }
 }
 
-/// A call as the runtime makes it, for a session: tests reach the tool's own
-/// check this way, past the gate.
+/// A call as the runtime makes it, for a session and the turn asking: tests
+/// reach the tool's own wall this way, past the gate.
 #[cfg(test)]
-pub(crate) fn call(core: Arc<Core>, session: &str, input: Value) -> Result<ToolOutput, String> {
-    observed(core, session.to_string(), Args::parse(&input)?)
+pub(crate) fn call(
+    core: Arc<Core>,
+    who: &Asking,
+    session: &str,
+    input: Value,
+) -> Result<ToolOutput, String> {
+    observed(core, who, session.to_string(), Args::parse(&input)?)
+}
+
+/// [`Asking`] for an ordinary turn of the owner's own, on `profile`: what a
+/// test varies one clause of.
+#[cfg(test)]
+pub(crate) fn owners_turn(profile: &str) -> Asking {
+    Asking {
+        class: crate::places::PlaceClass::Private,
+        profile: Some(profile.to_string()),
+    }
 }
 
 /// A note's kind in a word, as the CLI's listing names it.
@@ -211,10 +303,10 @@ fn kind_word(k: theseus_protocol::ObservationKind) -> String {
 }
 
 /// The read: the open notes of the span, newest first, with the head that
-/// says what they are. Refused where the owner is not alone.
-fn observed(core: Arc<Core>, session: String, a: Args) -> Result<ToolOutput, String> {
-    if !core.owner_alone_in(&session) {
-        return Err(NOT_ALONE.to_string());
+/// says what they are, behind the whole wall ([`refusal`]).
+fn observed(core: Arc<Core>, who: &Asking, session: String, a: Args) -> Result<ToolOutput, String> {
+    if let Some(why) = refusal(&core, who, &session) {
+        return Err(why.to_string());
     }
     let now = theseus_protocol::now_unix_ms();
     let span = a.span(now)?;

@@ -426,12 +426,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   answer certain rather than a matter of the model electing to look: owner-alone places only, never a task's session,
   never a model of restricted origin, after the cached prefix so it is no cache write. **Older than today**, or more than
   the block's eight lines, is read by `card.observed` (`card/tool.rs`, dispatched in `toolrun.rs` by family `card`,
-  attached in `rpc/mod.rs`): `days` (today by default) and `limit`, open notes newest first, each with its local day,
+  attached in `rpc/mod.rs`): `when` (today by default, read as `memory.lookup` reads it) and `limit`, open notes newest
+  first, each with its local day,
   kind, id and session, under a head saying they are unconfirmed and on no card. The rest of the wall is whole — still no
   node, no index, no recall, and no span past today in any prompt: only the tool's contract is in the request, as
-  `memory.lookup`'s is. Refused unless the owner is alone in the place (`Core::owner_alone_in`, checked in the runtime by
-  `tc.class` and again in the read by the session's place), it is no `places::public_tool`, and it is not registered at
-  all with `[card] observe` off. Tests: `card/tool.rs`'s own, `card/tests_pure.rs`'s block test, and the two end-to-end
+  `memory.lookup`'s is. **The tool's wall is the block's, clause for clause** (`card::tool::refusal`, the one point both
+  the runtime and the tests go through): the owner alone in the place (`tc.class`, then `Core::owner_alone_in` on the
+  session's place), never a task's session (its own record, as `turn/compile_step.rs` reads it — a task's place is its
+  parent's, so the place checks pass one through), and never a model of restricted origin (the turn's profile through
+  `TurnRunner::restricted_profile`; the data gate cannot stand in for it, since it moves a *labelled* session off such a
+  model and these notes raise no label). It is no `places::public_tool`, and it is not registered at
+  all with `[card] observe` off. Tests: `card/tool.rs`'s own, `card/tests_pure.rs`'s block test, and the four end-to-end
   ones in `card/observe/tests.rs`.
   **The live pass** (theseus-6f8t0; `card/live.rs`, `rpc/card_stale.rs`): the observer's `card.obs.<id>` notes (META, never a node:
   not indexed, recalled or compiled; `CardObservation`, read through `state::observations` alone) become questions, nightly and after
