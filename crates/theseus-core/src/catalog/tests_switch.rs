@@ -72,21 +72,84 @@ fn a_long_session_at_peak_is_cheaper_to_stay_and_names_nothing() {
 }
 
 #[test]
-fn a_short_session_is_cheaper_to_switch_and_the_cheaper_one_is_haiku() {
+fn a_short_session_is_cheaper_to_switch_and_haiku_is_the_cheapest() {
     // 40K: Haiku's input is $0.10 a million, under Flash's $0.15 off-peak, and
-    // a cache read on Sonnet or Opus is $0.20.
+    // a cache read on Sonnet or Opus is $0.20: Haiku is named first, Flash after.
     for m in [SONNET, OPUS, FABLE] {
         assert_eq!(at(m, 40_000), CheaperToSwitch, "{m}");
-        assert_eq!(name(m, 40_000, OffPeak), "haiku", "{m}");
+        assert_eq!(
+            name(m, 40_000, OffPeak),
+            "haiku, deepseek_flash (off-peak)",
+            "{m}"
+        );
     }
     // At peak Haiku is cheapest too, and then the name carries no off-peak mark.
     assert_eq!(name(SONNET, 40_000, Peak), "haiku");
 }
 
+/// theseus-g0phw: the state names EVERY candidate cheaper than staying, cheapest
+/// first, and not only the one cheapest. Through Haiku's short tier Haiku is the
+/// cheapest ($0.10) but Flash ($0.15 off-peak) is still under staying on Sonnet
+/// ($0.20): naming only Haiku hid Flash, and W28, a brief that fits Flash's
+/// sentence at 90K, lost its model.
 #[test]
-fn haikus_long_tier_moves_the_cheaper_model_from_haiku_to_flash() {
+fn every_candidate_cheaper_than_staying_is_named_cheapest_first() {
+    for m in [SONNET, OPUS, FABLE] {
+        for n in [40_000, 90_000, 100_000] {
+            assert_eq!(
+                name(m, n, OffPeak),
+                "haiku, deepseek_flash (off-peak)",
+                "{m} {n}"
+            );
+        }
+    }
+    // Past Haiku's long tier it is dearer than staying, so only Flash is left.
+    assert_eq!(name(SONNET, 100_001, OffPeak), "deepseek_flash (off-peak)");
+    // At peak Flash's $0.30 is above staying's $0.20: only Haiku is named.
+    assert_eq!(name(SONNET, 90_000, Peak), "haiku");
+    // The data rule keeps Flash out of the list and leaves Haiku in it.
+    assert_eq!(
+        full(SONNET, 90_000, OffPeak, NotAllowed)
+            .cheaper_model
+            .as_deref(),
+        Some("haiku")
+    );
+}
+
+/// The state clips `cheaper_model` at 40 characters, which holds three names
+/// with Flash's mark: no warm model, token count or hour of the catalog names
+/// more, so the clip never cuts a name off (theseus-g0phw). The positive count
+/// is asserted too, so an empty sweep cannot pass it.
+#[test]
+fn a_list_of_cheaper_models_fits_the_states_clip() {
+    let c = Catalog::builtin();
+    let (mut sweeps, mut lists, mut longest) = (0, 0, 0);
+    for m in [SONNET, HAIKU, OPUS, FABLE, FLASH] {
+        for n in (0..=500_000).step_by(5_000) {
+            for p in [OffPeak, Peak] {
+                for r in [Allowed, NotAllowed] {
+                    sweeps += 1;
+                    if let Some(names) = switch_cost(&c, Some(m), n, p, r).cheaper_model {
+                        lists += 1;
+                        longest = longest.max(names.chars().count());
+                        assert!(names.chars().count() <= 40, "{m} {n} {p:?} {r:?}: {names}");
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(sweeps, 5 * 101 * 2 * 2);
+    assert!(lists > 100, "{lists} lists");
+    assert_eq!(longest, "haiku, deepseek_flash (off-peak)".len());
+}
+
+#[test]
+fn haikus_long_tier_takes_haiku_out_of_the_cheaper_models() {
     assert_eq!(at(SONNET, 100_000), CheaperToSwitch);
-    assert_eq!(name(SONNET, 100_000, OffPeak), "haiku");
+    assert_eq!(
+        name(SONNET, 100_000, OffPeak),
+        "haiku, deepseek_flash (off-peak)"
+    );
     // One token past the tier Haiku's input is $0.50 and Flash is the cheaper
     // one. The word does not change; what Jev is told to weigh does.
     assert_eq!(at(SONNET, 100_001), CheaperToSwitch);
@@ -123,11 +186,14 @@ fn a_restricted_session_is_never_told_flash_is_cheaper() {
         s.cheaper_model.as_deref(),
         Some("deepseek_flash (off-peak)")
     );
-    // Under 100K Haiku is cheapest either way, so the rule changes nothing.
-    for r in [Allowed, NotAllowed] {
+    // Under 100K Haiku is cheapest either way, and the rule takes only Flash out.
+    for (r, named) in [
+        (Allowed, "haiku, deepseek_flash (off-peak)"),
+        (NotAllowed, "haiku"),
+    ] {
         let s = full(SONNET, 40_000, OffPeak, r);
         assert_eq!(s.cost, CheaperToSwitch, "{r:?}");
-        assert_eq!(s.cheaper_model.as_deref(), Some("haiku"), "{r:?}");
+        assert_eq!(s.cheaper_model.as_deref(), Some(named), "{r:?}");
     }
 }
 

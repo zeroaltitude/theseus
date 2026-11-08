@@ -273,15 +273,20 @@ fn the_cheaper_model_is_named_at_the_hours_prices_and_under_the_data_rule() {
     );
     assert_eq!(f.switch_cost, Some(SwitchCost::CheaperToStay));
     assert_eq!(f.cheaper_model, None);
-    // On a short session the cheaper model is Haiku, at either hour.
+    // On a short session Haiku is the cheapest at either hour; at peak it is
+    // the only one under staying, and off-peak Flash's $0.15 is under Sonnet's
+    // $0.20 cache read too, so it is named after Haiku (theseus-g0phw).
     let short = [
         asked("one"),
         said_on("claude-sonnet-5-5", 40_000),
         asked("two"),
     ];
-    for at in [TUE_0200_PHOENIX, TUE_0400_PHOENIX] {
+    for (at, want) in [
+        (TUE_0200_PHOENIX, "haiku"),
+        (TUE_0400_PHOENIX, "haiku, deepseek_flash (off-peak)"),
+    ] {
         let f = facts_of(&short, false, RestrictedModels::Allowed, at);
-        assert_eq!(f.cheaper_model.as_deref(), Some("haiku"), "{at}");
+        assert_eq!(f.cheaper_model.as_deref(), Some(want), "{at}");
     }
 }
 

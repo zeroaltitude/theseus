@@ -788,8 +788,9 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
     keys.sort();
     // theseus-h66v4.8: the daemon adds `cheaper_model` where it has one to
     // name, which on this short warm Sonnet session it does — Haiku's $0.10
-    // input under Sonnet's $0.20 cache read. The name reaching Jev through the
-    // live path, and not only through a replay, is what this asserts.
+    // input under Sonnet's $0.20 cache read, and off-peak Flash's $0.15 after it
+    // (theseus-g0phw). The name reaching Jev through the live path, and not only
+    // through a replay, is what this asserts.
     let mut want: Vec<String> = theseus_judge::builders::ROUTE_STATE_KEYS
         .iter()
         .map(|s| s.to_string())
@@ -799,7 +800,13 @@ async fn the_daemons_state_has_the_fields_a_replay_case_is_held_to() {
         "a short warm Sonnet session: Haiku's $0.10 input beats a $0.20 cache read at either \
          hour, so this does not depend on when the test runs: {state}"
     );
-    assert_eq!(state["cheaper_model"], "haiku", "{state}");
+    // The wall clock decides the hour: Haiku alone at peak, and Flash after it
+    // off-peak, where its price is under staying's.
+    let named = match state["price_period"].as_str() {
+        Some("off_peak") => "haiku, deepseek_flash (off-peak)",
+        _ => "haiku",
+    };
+    assert_eq!(state["cheaper_model"], named, "{state}");
     want.push("cheaper_model".into());
     want.sort();
     assert_eq!(keys, want, "{state}");

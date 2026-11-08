@@ -98,7 +98,7 @@ pub const QUESTIONS: [&str; 4] = ["model", "effort", "work", "split"];
 /// The efforts on a rung, lowest first.
 const RUNGS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
-/// Every value `cheaper_model` can take (theseus-h66v4.8): a `model` option,
+/// Every value one name in `cheaper_model` can take (theseus-h66v4.8): a `model` option,
 /// and the same with the mark the daemon adds where the price it compared was
 /// the provider's off-peak one. This crate cannot see the catalog, so the shape
 /// is checked here and the value itself is held to the daemon's own rule by
@@ -158,9 +158,10 @@ pub struct CaseState {
     /// What the daemon says a switch would cost this message
     /// (`builders::SwitchCost`'s words).
     pub switch_cost: String,
-    /// The cheapest other model at this message's cost, as the daemon names it
-    /// (`haiku`, `deepseek_flash (off-peak)`); empty where the daemon names
-    /// none, which is every state but `cheaper_to_switch`.
+    /// Every other model cheaper than staying at this message's cost, cheapest
+    /// first, as the daemon names them (`haiku, deepseek_flash (off-peak)`);
+    /// empty where the daemon names none, which is every state but
+    /// `cheaper_to_switch`.
     pub cheaper_model: String,
     /// Every model that has written in the task.
     pub task_models: Vec<String>,
@@ -368,7 +369,11 @@ fn state_of(c: &FileCase, d: &FileDefaults) -> Result<CaseState, String> {
     let cheaper_model = match named.as_deref() {
         None | Some("") => String::new(),
         Some(m) if switch_cost == "cheaper_to_switch" => {
-            one_of(id, "cheaper_model", m, &CHEAPER_MODELS)?;
+            // The daemon joins every model cheaper than staying with `, `
+            // (theseus-g0phw): each one is a value `cheaper_model` can take.
+            for one in m.split(", ") {
+                one_of(id, "cheaper_model", one, &CHEAPER_MODELS)?;
+            }
             m.to_string()
         }
         Some(m) => {

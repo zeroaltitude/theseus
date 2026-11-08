@@ -14,6 +14,10 @@
 # `cheaper_to_stay` at peak and the owner's switch-cost rule (2026-10-29 22:50) makes a cheaper model not cheaper for that message.
 # Every other label is the one the design and the owner gave; the pack's text moved, not the keys.
 #
+# theseus-g0phw (2026-11-07): `cheaper_model` names EVERY model cheaper than staying, cheapest first, so a warm-Sonnet case
+# at or under 100,000 tokens, off-peak, now carries `haiku, deepseek_flash (off-peak)` (the file's default) where it named Haiku
+# alone; Flash is under staying there too, and W28's brief fits Flash's sentence. No key and no label moved.
+#
 # VERSION 3 (theseus-h66v4.8, 2026-11-03). NO KEY MOVED. Flash is a switch-cost candidate now, priced at the hour, and the daemon
 # names the cheaper model beside the word (`cheaper_model`), so the state of six cases follows the rule where the rule changed:
 # W1, W11, W12, W16, W33 and W41 go `cheaper_to_stay` -> `cheaper_to_switch` with `cheaper_model = "deepseek_flash (off-peak)"`.
@@ -68,7 +72,7 @@ price_period = "off_peak"
 est_tokens = 40000
 last_reply_model = "claude-sonnet-5-5"
 switch_cost = "cheaper_to_switch"
-cheaper_model = "haiku"
+cheaper_model = "haiku, deepseek_flash (off-peak)"
 
 [[case]]
 id = "L1"
@@ -342,6 +346,7 @@ why = "the data rule in the state wins over Flash's sentence (W11 with restricte
 id = "W15"
 message = "fix the failing test in the private service's ingest module, cause is the new column"
 restricted_models = "not_allowed"
+cheaper_model = "haiku"
 model = "sonnet"
 effort = "medium"
 must = true
