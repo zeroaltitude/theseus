@@ -210,5 +210,5 @@ test('a lasting state drops to the quiet pace after a minute with no event, and 
 
 test('the engine paces its lasting states by what it heard', () => {
   const engine = readFileSync(new URL('../src/ship/engine.ts', import.meta.url), 'utf8')
-  assert.match(engine, /this\.quiet = heard\(this\.quietQ, motions, t\)\s+const pace = paceOf\(motions, IDLE_FPS, this\.quiet\)/)
+  assert.match(engine, /this\.quiet = heard\(this\.quietQ, motions, t\)\s+const pace = paceOf\(motions, IDLE_FPS, this\.quiet, this\.soft\)/)
 })

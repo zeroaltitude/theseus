@@ -37,3 +37,26 @@ export function tryBuild<T>(build: () => T): { engine: T } | { failed: string } 
 /** Whether a failure is WebGL's (three's renderer names it), so the fallback says how to turn WebGL back on, not
  *  only what broke. */
 export const isWebGLFailure = (reason: string) => /webgl/i.test(reason)
+
+/** The renderer names of a CPU rasteriser: SwiftShader (Chrome with no GPU, headless Chrome), Mesa's llvmpipe and
+ *  softpipe and its "Software Rasterizer", and Windows' Basic Render Driver. Names, not the word "software": a GPU's
+ *  string must never match (a false hit slows a real GPU's swell; a miss leaves a CPU's as it was). */
+const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software rasteri[sz]er|microsoft basic render/i
+
+/** Whether a renderer name (`UNMASKED_RENDERER_WEBGL`) is a CPU rasteriser's. */
+export const isSoftwareRenderer = (name: string) => SOFTWARE_RENDERER.test(name)
+
+/** Whether a WebGL context draws on the CPU (theseus-yx5i), by `WEBGL_debug_renderer_info`'s unmasked renderer. It
+ *  fails toward the GPU path: a browser that hides the extension or masks the string, or a context that throws,
+ *  answers false, and the swell keeps its pace. */
+export function softwareRenderer(gl: unknown): boolean {
+  try {
+    const ctx = gl as { getExtension?: (name: string) => { UNMASKED_RENDERER_WEBGL?: number } | null; getParameter?: (p: number) => unknown } | null
+    const code = ctx?.getExtension?.('WEBGL_debug_renderer_info')?.UNMASKED_RENDERER_WEBGL
+    if (code === undefined) return false
+    const name = ctx?.getParameter?.(code)
+    return typeof name === 'string' && isSoftwareRenderer(name)
+  } catch {
+    return false
+  }
+}

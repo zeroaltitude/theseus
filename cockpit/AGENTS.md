@@ -344,8 +344,11 @@ build.
   flare, an oar growing out, a result flashing back) draws every display frame for its seconds; a state that moves
   while it lasts (oars rowing, a gear, a wake, a flow) a steady `STEADY_FPS`, and `QUIET_FPS` once a minute has passed
   with no event (`heard`: a long job, a long model call; theseus-n2hd); the swell alone `IDLE_FPS`, one
-  composite pass a frame; the idle roll `ROLL_FPS`. A state that only waits (a question for the operator, a failure's
-  pennant) is lit, not moved.
+  composite pass a frame; the idle roll `ROLL_FPS`. **On a CPU rasteriser (SwiftShader, llvmpipe: the unmasked
+  renderer string, `softwareRenderer` in `webgl.ts`) the swell and the roll are held to `SOFT_SWELL_FPS` (5; theseus-yx5i):
+  one composite is about 0.16 to 0.25 cores a frame a second at 1080p, so 5 is about one core.** Detection fails toward
+  the GPU path (a hidden or masked string is not software); nothing but the swell is slowed, and a GPU is unchanged. A
+  state that only waits (a question for the operator, a failure's pennant) is lit, not moved.
   **The sea is the work** (the owner's C5, `src/ship/sea.ts`): its height is tokens a minute and the turns running.
   **In Live mode it never stops** (the owner, 2026-10-07, theseus-42ic): with nothing happening it rolls slowly at
   `SEA_ROLL`, a composite of the sea alone `ROLL_FPS` (8) times a second, and any work raises it from there; so an
