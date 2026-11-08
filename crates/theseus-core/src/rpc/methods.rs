@@ -1254,11 +1254,21 @@ impl Core {
         Ok(changed)
     }
 
+    #[cfg(test)]
     pub(crate) fn session_history(
         &self,
         p: theseus_protocol::SessionHistoryParams,
     ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
         self.session_history_for(p, true)
+    }
+
+    /// `session.history` as `surface` asks it.
+    pub(super) fn history_on(
+        &self,
+        p: theseus_protocol::SessionHistoryParams,
+        surface: crate::approval::Surface,
+    ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
+        self.session_history_for(p, surface.reads_private())
     }
 
     /// `session.history` for a surface: one that reads no private text
