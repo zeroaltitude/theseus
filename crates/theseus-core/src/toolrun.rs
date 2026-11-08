@@ -244,9 +244,6 @@ pub struct ToolRuntime {
     /// Calls per tool since the daemon started. Counting the store's history
     /// instead would put a scan of every node on the start path (§9).
     pub calls: Mutex<BTreeMap<String, u64>>,
-    /// What each session has read of each file, which `fs.edit` and `fs.patch`
-    /// check against (theseus-w2cs). In memory: a restart asks for a read again.
-    pub reads: Arc<theseus_tools::ReadRecord>,
     /// The notes fitted calls' results start with (theseus-9dt2).
     pub fit_notes: fit::Notes,
     /// "Should have asked" (theseus-sgh): the tools that ask first because
@@ -449,7 +446,6 @@ impl ToolRuntime {
             parallel_writes: crate::config::default_parallel_writes(),
             proc_env: vec![],
             calls: Mutex::new(BTreeMap::new()),
-            reads: Default::default(),
             fit_notes: Default::default(),
             tightened: Default::default(),
             modes: Default::default(),
@@ -2080,7 +2076,6 @@ pub fn build_runtime(
         parallel_writes: t.parallel_writes.max(1),
         proc_env,
         calls: Mutex::new(BTreeMap::new()),
-        reads: Default::default(),
         fit_notes: Default::default(),
         // Read from the store when the core starts (`Core::build`).
         tightened: Default::default(),

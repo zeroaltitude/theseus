@@ -52,10 +52,6 @@ impl ToolRuntime {
             0 => {}
             n => ctx.to_mut().default_read_lines = n,
         }
-        ctx.to_mut().reads = Some(theseus_tools::ReadScope::new(
-            self.reads.clone(),
-            tc.session_id,
-        ));
         ctx
     }
 

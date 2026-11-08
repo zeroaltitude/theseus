@@ -615,7 +615,7 @@ impl Tool for Edit {
         "fs.edit"
     }
     fn description(&self) -> &'static str {
-        "Replace an exact string in a file. old_string must match the file byte for byte, including indentation, and must be unique unless replace_all is true. Read the file first with fs_read: an edit of a file not read in this session, or changed since, is refused. Returns a diff of the change."
+        "Replace an exact string in a file. old_string must match the file byte for byte, including indentation, and must be unique unless replace_all is true. Read the file first. Returns a diff of the change."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -949,7 +949,7 @@ impl Tool for Glob {
         "fs.glob"
     }
     fn description(&self) -> &'static str {
-        "Find files by glob pattern (e.g. `**/*.rs`, `src/**/test_*.py`), newest first. Respects .gitignore; skips hidden files and .git unless all is true (then only .git is skipped)."
+        "Find files by glob pattern (e.g. `**/*.rs`, `src/**/test_*.py`), newest first. Respects .gitignore; skips hidden files and .git."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -1148,7 +1148,7 @@ impl Tool for Grep {
         "fs.grep"
     }
     fn description(&self) -> &'static str {
-        "Search file contents with a regular expression (Rust regex syntax), ripgrep-style: respects .gitignore and skips hidden files unless all is true (.git is never searched), skips binary files. output_mode: content (path:line:text, default), files (paths only), or count."
+        "Search file contents with a regular expression (Rust regex syntax), ripgrep-style: respects .gitignore, skips binary files. output_mode: content (path:line:text, default), files (paths only), or count."
     }
     fn input_schema(&self) -> Value {
         json!({
