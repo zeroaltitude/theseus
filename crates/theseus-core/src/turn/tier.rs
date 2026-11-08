@@ -14,8 +14,17 @@
 //!   is retired with the small tier).
 //! - **Never a wait**: the pack reads the verdict if it has landed (a peek that
 //!   leaves it for the compile's wait, [`peek`]) and is ordinary when it has
-//!   not; the budget is then fixed for the turn, recorded on its
-//!   `route.decided` row, and a routed recompile's admission takes it too.
+//!   not; the budget is then fixed for the turn and recorded on its
+//!   `route.decided` row.
+//! - **The tools settle twice when they must** (theseus-a2kh6): they settle once
+//!   at the turn's start (`defer_tools`), before any verdict has landed, so a
+//!   deep turn settles them at the ordinary ceiling. Once the verdict is read,
+//!   [`TurnRunner::raise_tools`] gives a budget fixed ordinary for want of it the
+//!   deep tier's ceiling, and the tools settle again where they are behind it
+//!   ([`TurnRunner::tools_behind`]) — on the routed spec for a switch, and on
+//!   the turn's own for a pick that stays on the session's model. The recall is
+//!   packed by then, so the tier and the recall sizes stay what the pack read
+//!   and only the ceiling moves; the row says `admit_raised` when it did.
 //! - **The cache**: the tier sizes the tail (recall, after the message) and
 //!   the families a recompile loads; an append keeps its compilation's tools
 //!   (`tools_defer::forks`), so no cached prefix byte moves from turn to turn.
@@ -79,7 +88,17 @@ pub struct InjectionBudget {
     /// request's tail carries [`CODING_HINT`] and a bare `fs.read` is narrower.
     /// Not in the row.
     pub coding: bool,
+    /// [`Self::admit_ceiling`] is the deep tier's, given after the budget was
+    /// fixed: the verdict folded deep but landed after the pack, which had
+    /// fixed an ordinary budget for want of it ([`TurnRunner::raise_tools`],
+    /// theseus-a2kh6). The recall is packed by then, so [`Self::tier`] and the
+    /// recall sizes stay the pack's and only the ceiling moved.
+    pub admit_raised: bool,
 }
+
+/// The fallback of a budget fixed ordinary because no verdict had landed yet.
+/// The one fallback a verdict can still overturn, since the verdict came.
+pub const LATE: &str = "verdict late";
 
 /// What a `deep_coding` turn's request carries in its tail (theseus-tdkcn).
 pub const CODING_HINT: &str = "[The harness: for this work, map the code before reading it: list a file's or crate's functions first (fs_grep for function signatures). Read in slices of 100-300 lines with offset and limit, not whole files. After each slice, write a line of what you checked and what you found, so your findings survive when old results are cleared. Keep going until the areas you were asked about are covered.]";
@@ -88,7 +107,7 @@ pub const CODING_HINT: &str = "[The harness: for this work, map the code before 
 pub fn tier_of(seen: Seen<'_>) -> (Tier, Option<&'static str>) {
     let v = match seen {
         Seen::Verdict(v) => v,
-        Seen::Late => return (Tier::Ordinary, Some("verdict late")),
+        Seen::Late => return (Tier::Ordinary, Some(LATE)),
         Seen::Missing => return (Tier::Ordinary, Some("no verdict")),
         Seen::Off => return (Tier::Ordinary, Some("routing off")),
     };
@@ -137,6 +156,7 @@ impl InjectionBudget {
             recall_items,
             admit_ceiling,
             coding: false,
+            admit_raised: false,
         }
     }
 
@@ -154,7 +174,7 @@ impl InjectionBudget {
         json!({
             "tier": self.tier.as_str(), "fallback": self.fallback,
             "recall_tokens": self.recall_tokens, "recall_items": self.recall_items,
-            "admit_ceiling": self.admit_ceiling,
+            "admit_ceiling": self.admit_ceiling, "admit_raised": self.admit_raised,
         })
     }
 }
@@ -274,6 +294,44 @@ impl TurnRunner {
         };
         t.route.injection = Some(InjectionBudget::read(seen, &self.cfg));
         Self::narrow_reads(t);
+    }
+
+    /// The deep tier's ceiling for a turn whose verdict folds deep but landed
+    /// after the pack had fixed an ordinary budget for want of it
+    /// (theseus-a2kh6). Called once the verdict is read, after
+    /// [`Self::injection_read`] has fixed a budget for a turn no pack fixed one
+    /// for.
+    ///
+    /// Only the ceiling moves. The recall is packed and its manifest written by
+    /// then, so the tier and the recall sizes stay what the pack read and the
+    /// row goes on saying so; the ceiling is the one size the turn has not
+    /// spent yet, since its later loops and a routed recompile still choose
+    /// their tools by it. Only a budget that fell back for want of a verdict is
+    /// reopened: a tier the pack read from a verdict of its own is the turn's,
+    /// and a config whose two ceilings are equal still raises nothing.
+    pub(super) fn raise_tools(&self, t: &mut Turn<'_>, verdict: Option<&Verdict>) {
+        let deep = self.cfg.tools.defer.admit_ceiling_deep;
+        let folds_deep = verdict.is_some_and(|v| tier_of(Seen::Verdict(v)).0 == Tier::Deep);
+        let Some(b) = t.route.injection.as_mut() else {
+            return;
+        };
+        if folds_deep && b.fallback == Some(LATE) && deep > b.admit_ceiling {
+            b.admit_ceiling = deep;
+            b.admit_raised = true;
+        }
+    }
+
+    /// Whether the turn's tools settled at a lower ceiling than its budget now
+    /// gives, so they must settle again (theseus-a2kh6). False for a turn whose
+    /// verdict had landed before they settled, which settles them once, and for
+    /// a turn with no deferral to settle.
+    pub(super) fn tools_behind(&self, t: &Turn<'_>) -> bool {
+        let now = t
+            .route
+            .injection
+            .as_ref()
+            .map_or(self.cfg.tools.defer.admit_ceiling, |b| b.admit_ceiling);
+        t.route.tools_ceiling.is_some_and(|settled| now > settled)
     }
 }
 
