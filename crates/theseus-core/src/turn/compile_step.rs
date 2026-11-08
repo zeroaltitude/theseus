@@ -82,6 +82,19 @@ impl TurnRunner {
         );
         // The records of this turn's surface (theseus-slvl.4), in the tail too.
         Self::standing_here(t, compiled);
+        // What the observer noted of the owner's own words today, so a turn
+        // asked what it has learned can name it (theseus-6f8t0, stop 5). Only
+        // where the owner is alone, and never for a task's session.
+        if session.task.is_none() {
+            crate::card::noted::attach(
+                &self.store,
+                t.tc.place().class,
+                self.target_of(&session.session_id).as_deref(),
+                !shared,
+                self.kernel.now_ms(),
+                compiled,
+            );
+        }
         // Who answers this turn, one tail line (theseus-c1uz).
         Self::persona_line(t, compiled);
         // A deep_coding turn's reading hint (theseus-tdkcn).

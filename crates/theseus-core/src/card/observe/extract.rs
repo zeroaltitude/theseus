@@ -26,7 +26,9 @@ pub const LINE_CHARS: usize = 1000;
 
 /// What the model is told, beside the tool.
 pub const INSTRUCTIONS: &str = "Record with the observe tool only what the owner said about the \
-owner that should hold from now on, never a judgment of the owner; none is better than a guess.";
+owner that should hold from now on — the owner's setup and work and the owner's own life alike, \
+said plainly or in passing inside a request about something else — never a judgment of the \
+owner; none is better than a guess.";
 
 /// One of the owner's own lines, with the node it came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +50,10 @@ pub struct Shown {
 pub fn tool() -> Value {
     json!({
         "name": TOOL,
-        "description": "What the owner's lines say about the owner that should hold from now on.",
+        "description": "What the owner's lines say about the owner that should hold from now on: \
+    the owner's setup, work and decisions, and just as much the owner's own life — what the owner \
+    likes, keeps, does or plans — including a fact about the owner stated in passing inside a \
+    request about something else. Never a judgment of the owner, and never a guess.",
         "input_schema": {
             "type": "object",
             "properties": {

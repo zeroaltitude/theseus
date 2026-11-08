@@ -22,6 +22,12 @@ use crate::tests_judge::kinds;
 const LAB: &str = "314159265358979323";
 const PRIVATE_LAB: &str = "271828182845904523";
 const M1: &str = "Fix the build. I'm on the M1 now, by the way.";
+/// The sitting's planted line: a fact about the owner's own life, said in
+/// passing inside a request about something else, and what it says.
+const ASIDE_LINE: &str =
+    "How much room is left on the lane host? I'm off to the shop later for a praying mantis \
+     (my favourite animal).";
+const ASIDE_FACT: &str = "The owner's favourite animal is the praying mantis";
 
 /// The DM, as `session` binds it (the outbox prefixes `discord:`).
 fn dm() -> String {
@@ -99,9 +105,14 @@ async fn says(core: &Arc<Core>, sid: &str, text: &str) {
 
 /// `n` owner lines, the one at `at` being `M1`.
 async fn exchange(core: &Arc<Core>, sid: &str, n: usize, at: usize) {
+    exchange_of(core, sid, n, at, M1).await;
+}
+
+/// `n` owner lines, the one at `at` being `text`.
+async fn exchange_of(core: &Arc<Core>, sid: &str, n: usize, at: usize, text: &str) {
     for i in 0..n {
         let t = if i == at {
-            M1.to_string()
+            text.to_string()
         } else {
             format!("Mooring line {i}: is it chafing at low tide?")
         };
@@ -215,6 +226,102 @@ async fn a_fact_said_in_a_work_request_is_observed_at_the_due_point() {
     assert_eq!(row[0].data["purpose"], "live");
     assert_eq!(row[0].data["kept"], 1);
     assert!(marks(&r.core, &sid).is_some());
+}
+
+// 1b. The contract asks for a fact about the owner's own life said in
+// passing, not only the owner's setup and work. The sitting of 2026-11-07
+// planted "a praying mantis (my favourite animal)" inside a disk question and
+// the observer kept nothing: the lines were read, and the contract did not
+// ask for what they held.
+#[test]
+fn the_contract_asks_for_a_life_fact_said_in_passing() {
+    let i = extract::INSTRUCTIONS;
+    // The restraint stays: no portrait of the owner, and nothing invented.
+    assert!(i.contains("never a judgment of the owner"), "{i}");
+    assert!(i.contains("none is better than a guess"), "{i}");
+    let t = extract::tool();
+    let d = t["description"].as_str().unwrap();
+    for want in ["own life", "likes", "in passing"] {
+        assert!(
+            d.contains(want),
+            "the contract does not ask for {want}: {d}"
+        );
+    }
+}
+
+// 1c. Nothing is invented: an exchange whose lines say nothing about the
+// owner is read and keeps nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_exchange_with_no_self_fact_keeps_nothing() {
+    let r = rig_with(EVERY, |_| {});
+    let sid = session(&r.core, Some(&dm()));
+    script(&r, answers(json!([])));
+    for i in 0..EVERY {
+        says(
+            &r.core,
+            &sid,
+            &format!("Mooring line {i}: is it chafing at low tide?"),
+        )
+        .await;
+    }
+    until("the call", || !asked(&r).is_empty()).await;
+    settled(&r.core).await;
+    // The positive count first: the call was made, and kept nothing.
+    assert_eq!(asked(&r).len(), 1);
+    let row = kinds(&r.core.store, "card.observed");
+    assert_eq!(row.len(), 1);
+    assert_eq!(row[0].data["kept"], 0);
+    assert!(observed(&r.core).is_empty(), "{:?}", observed(&r.core));
+}
+
+// 1d. The day's observations ride in the next turn's request in that private
+// conversation, so a turn asked what it has learned about the owner today can
+// name what it heard four minutes ago (the sitting's stop 5). Before this,
+// `card.obs.` records were in no prompt at all and the answer could only list
+// operations.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn todays_observation_rides_in_the_next_turns_request() {
+    let r = rig_with(EVERY, |_| {});
+    let sid = session(&r.core, Some(&dm()));
+    script(&r, answers(json!([item("fact", ASIDE_FACT, &["L3"])])));
+    exchange_of(&r.core, &sid, EVERY, 2, ASIDE_LINE).await;
+    until("an observation", || !observed(&r.core).is_empty()).await;
+    settled(&r.core).await;
+    assert_eq!(observed(&r.core).len(), 1);
+
+    // One more turn in the same conversation: the question the owner asked.
+    let before = r.fake.requests().len();
+    script(&r, crate::provider::Scripted::text("Noted."));
+    says(&r.core, &sid, "What have you learned about me today?").await;
+    let sent: Vec<crate::provider::ProviderRequest> = r
+        .fake
+        .requests()
+        .into_iter()
+        .skip(before)
+        .filter(|q| !q.tools.iter().any(|t| t["name"] == extract::TOOL))
+        .collect();
+    assert_eq!(sent.len(), 1, "one conversation request");
+    let body = serde_json::to_string(&sent[0]).unwrap();
+    assert!(
+        body.contains(ASIDE_FACT),
+        "the day's observation is in no request: {body}"
+    );
+    assert!(body.contains(crate::card::noted::HEAD), "{body}");
+
+    // And nowhere the owner is not alone: the same day's note is in no
+    // request of a shared channel, nor of a guild channel bound private.
+    for target in [format!("channel:{LAB}"), format!("channel:{PRIVATE_LAB}")] {
+        let other = session(&r.core, Some(&target));
+        let before = r.fake.requests().len();
+        script(&r, crate::provider::Scripted::text("Aye."));
+        says(&r.core, &other, "What is the tide doing?").await;
+        let sent: Vec<crate::provider::ProviderRequest> =
+            r.fake.requests().into_iter().skip(before).collect();
+        assert_eq!(sent.len(), 1, "{target}");
+        let body = serde_json::to_string(&sent[0]).unwrap();
+        assert!(!body.contains(ASIDE_FACT), "{target}: {body}");
+        assert!(!body.contains(crate::card::noted::HEAD), "{target}: {body}");
+    }
 }
 
 // 2. No request in a shared channel, a guild channel bound private, a task,
