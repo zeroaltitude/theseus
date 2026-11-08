@@ -191,6 +191,10 @@ pub struct TurnId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Spoken {
     Reply(TurnId),
+    /// What a tool turn said before its reply, once a loop of it ended
+    /// (`Command::Say`, theseus-xi1x): said ahead of the reply, which is its
+    /// turn's end.
+    Preamble(TurnId),
     Report,
     Acknowledgment,
 }
@@ -201,6 +205,12 @@ pub enum Command {
     /// The reply to `turn`, spoken a sentence at a time. It ends the turn; an
     /// empty reply ends it in silence.
     Reply { turn: TurnId, text: String },
+    /// What a loop of `turn` wrote before its tool calls, spoken at once, a
+    /// sentence at a time, ahead of the reply (theseus-xi1x). It does not end
+    /// the turn, and it is the turn's acknowledgment: no chime follows it.
+    /// For a turn no longer in flight it is dropped, the reply having
+    /// spoken whatever it left out.
+    Say { turn: TurnId, text: String },
     /// A task's report, spoken at the next pause.
     Report { text: String },
     /// Stop speaking, and end the run.
@@ -744,6 +754,7 @@ impl Engine {
             match step {
                 Step::Done(done) => self.done(done, now),
                 Step::Command(Some(Command::Reply { turn, text })) => self.reply(turn, &text, now),
+                Step::Command(Some(Command::Say { turn, text })) => self.say(turn, &text, now),
                 Step::Command(Some(Command::Report { text })) => {
                     let sentences = speakable(&text);
                     self.reports.push_back(QueuedReport {
@@ -1733,6 +1744,32 @@ impl Engine {
         self.enqueue(Spoken::Reply(turn), sentences, 0, count, now);
         // Its speaker talked past it: what they went on to say is heard.
         let what = Spoken::Reply(turn);
+        let superseded = self.queue.iter().find(|i| i.what == what).is_some_and(|i| {
+            self.pending
+                .iter()
+                .any(|p| matches!(p.state, Transcribed::Got(_)) && self.contends(p, i))
+        });
+        if superseded {
+            self.supersede(what);
+        }
+    }
+
+    /// A loop's text before its tool calls, said while the turn runs on
+    /// (theseus-xi1x). Only the turn in flight says it: after its reply
+    /// there is nothing to go ahead of.
+    fn say(&mut self, turn: TurnId, text: &str, now: Instant) {
+        let Some(t) = self.turn.as_mut().filter(|t| t.id == turn) else {
+            return;
+        };
+        let sentences = speakable(text);
+        if sentences.is_empty() {
+            return;
+        }
+        t.ack = Ack::Done;
+        let count = sentences.len();
+        let what = Spoken::Preamble(turn);
+        self.enqueue(what, sentences, 0, count, now);
+        // Its speaker talked past it: what they went on to say is heard.
         let superseded = self.queue.iter().find(|i| i.what == what).is_some_and(|i| {
             self.pending
                 .iter()

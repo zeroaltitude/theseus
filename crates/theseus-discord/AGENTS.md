@@ -602,6 +602,15 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `Event::StopLatency`), and `voice.joined` names the `listener`. `pause_ms` and `merge_ms` apply only on the pause rules. The pump books
   `Event::Streamed` (streamed audio no turn carried: the silence fill, the keep-alive, a dropped session's tail) as a
   `speech.transcribed` row with `detail.trailing = true`.
+- **A tool turn's line is said when its loop ends** (theseus-xi1x, `runtime/voice/preamble.rs`; the owner, 2026-11-07: keep it): a loop
+  that writes text before its tool calls ("I'll pull the daily figures") has it said when that loop's `loop.ended` arrives, while the
+  next model call runs, not with the turn's whole reply at the end. `voice_heard` holds each loop's text from `model.answered`, and
+  `loop.ended` releases it as `Command::Say` only when the loop made calls and the turn goes on (`decision` `continue`) and was not a
+  retry (`provider_stop_reason` `refusal` or the window's: the turn leaves that text out). The submit's `output` joins every loop's text
+  with a blank line, so `Voice::reply` takes each said line out of it (once, with its break) before it goes as `Command::Reply`; a line
+  that `output` does not hold (it changed) leaves the reply whole, which says it twice and never loses it. A `/stop`, or a turn whose
+  reply already went (`inflight` false, under the call's lock, the same one `reply` takes), says nothing. The text goes to the engine as the
+  model wrote it, like the reply: nothing scrubs either.
 - **The join guard** (theseus-yf9ct; `[voice] join_guard`, on): the engine's `Config::join_guard` is set from it at the join; see
   theseus-voice's AGENTS.md. Off restores the old reading of a sound at the join and of a one-word echo.
 - **A call's judge of unclear transcripts** (theseus-s3dwj, `runtime/voice/judged.rs`; `[voice] judge_unclear`, on, and `judge_ms`, 250): the

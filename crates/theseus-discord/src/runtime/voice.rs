@@ -62,6 +62,7 @@ use crate::bindings::Bindings;
 mod deaf;
 mod judged;
 mod notes;
+mod preamble;
 pub(super) mod tasks;
 #[cfg(test)]
 mod tests_config;
@@ -78,6 +79,8 @@ mod tests_mute;
 #[cfg(test)]
 mod tests_persona;
 #[cfg(test)]
+mod tests_preamble;
+#[cfg(test)]
 mod tests_reply;
 #[cfg(test)]
 mod tests_status;
@@ -85,6 +88,7 @@ mod tests_status;
 mod tests_tasks;
 
 use notes::Notes;
+use preamble::Early;
 
 /// Before every voice turn's input (theseus-rkvl): its reply is heard, not
 /// read. Its length is the moment's (theseus-dgbcx): focused, brief for a
@@ -163,6 +167,9 @@ struct Call {
     /// A `/stop` landed on the voice turn in flight (theseus-b6vz): its end
     /// is not spoken, a failure's sentence included.
     stopped: bool,
+    /// What the voice turn in flight has written, and said ahead of its reply
+    /// (theseus-xi1x).
+    early: Early,
     /// The channel's status and the board's line, while it is on
     /// (theseus-arp9l).
     status: Option<voice_status::Handle>,
@@ -321,6 +328,8 @@ impl Voice {
         if let Some(c) = self.call.lock().unwrap().as_mut() {
             if c.serial == serial {
                 c.inflight = false;
+                // What was said ahead of it is not said again (theseus-xi1x).
+                let text = std::mem::take(&mut c.early).rest(&text);
                 let _ = c.commands.send(Command::Reply { turn, text });
             }
         }
@@ -594,6 +603,7 @@ impl Place {
             dropped: None,
             notes: Notes::default(),
             stopped: false,
+            early: Early::default(),
             status: self.start_status(&place, channel, serial, &handle.commands),
             muted: false,
         });
@@ -784,6 +794,7 @@ impl Place {
         if let Some(c) = voice.call.lock().unwrap().as_mut() {
             c.inflight = true;
             c.stopped = false;
+            c.early = Early::of(t.turn);
         }
         let (rpc, tx, sid, shared) = (
             self.shared.rpc.clone(),
@@ -905,6 +916,17 @@ impl Place {
         match e {
             CoreEvent::TurnStarted(t) if c.inflight && !t.continuation => {
                 c.own.insert(t.turn_id.clone());
+            }
+            CoreEvent::ModelAnswered(d) if c.own.contains(&d.turn_id) => c.early.written(d),
+            // A loop's end says its line, while the next call runs: only
+            // while the turn is still the call's to answer.
+            CoreEvent::LoopEnded(l) if c.own.contains(&l.turn_id) => {
+                let said = c.early.ended(l);
+                if let (Some(text), Some(turn)) = (said, c.early.turn) {
+                    if c.inflight && !c.stopped {
+                        let _ = c.commands.send(Command::Say { turn, text });
+                    }
+                }
             }
             CoreEvent::TurnEnded(r) if r.session_id == self.session_id => {
                 if !c.own.remove(&r.turn_id) && !r.output.trim().is_empty() {
@@ -1279,6 +1301,7 @@ fn channel_of(place: &VoicePlace) -> u64 {
 fn spoken(what: Spoken) -> String {
     match what {
         Spoken::Reply(t) => format!("reply {}", t.0),
+        Spoken::Preamble(t) => format!("preamble {}", t.0),
         Spoken::Report => "report".into(),
         Spoken::Acknowledgment => "acknowledgment".into(),
     }
@@ -1771,6 +1794,7 @@ mod tests {
             dropped: None,
             notes: Notes::default(),
             stopped: false,
+            early: Early::default(),
             status: None,
             muted: false,
         });
@@ -1797,7 +1821,7 @@ mod tests {
     }
 
     /// A turn's start, as the session's watch says it.
-    fn turn_started(sid: &str, id: &str, continuation: bool) -> CoreEvent {
+    pub(super) fn turn_started(sid: &str, id: &str, continuation: bool) -> CoreEvent {
         CoreEvent::TurnStarted(theseus_protocol::TurnStarted {
             session_id: sid.into(),
             turn_id: id.into(),
