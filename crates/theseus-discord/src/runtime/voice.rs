@@ -424,18 +424,14 @@ impl Place {
         let speech = DeepgramSpeech::new(&key, settings(&voice.cfg)).map_err(|e| e.to_string())?;
         // Deepgram Flux listens when `stt_model` is one (theseus-v774k): the
         // same key, the same budget, a socket per speaker.
-        let listen = match voice.cfg.uses_flux() {
-            true => Some(
-                flux_listen(
-                    &key,
-                    &voice.cfg,
-                    Arc::downgrade(&self.shared.core),
-                    place.key.clone(),
-                )
-                .map_err(|e| e.to_string())?,
-            ),
-            false => None,
-        };
+        let listen = pick_listener(&voice.cfg, || {
+            flux_listen(
+                &key,
+                &voice.cfg,
+                Arc::downgrade(&self.shared.core),
+                place.key.clone(),
+            )
+        });
         drop(key);
         let (guild, chan) = (
             NonZeroU64::new(place.guild).ok_or("no guild")?,
@@ -508,7 +504,7 @@ impl Place {
         &self,
         io: SongbirdIo,
         speech: DeepgramSpeech,
-        listen: Option<theseus_voice::FluxListen>,
+        mut listen: Listener,
         channel: u64,
         place: VoicePlace,
         by: &str,
@@ -545,13 +541,8 @@ impl Place {
             greeting.clone(),
             Some(flowing),
         );
-        let engine = match listen {
-            Some(listen) => {
-                let eager = voice.cfg.eager_eot_threshold.is_some();
-                engine.with_listen(Box::new(listen), &voice.cfg.stt_model, eager)
-            }
-            None => engine,
-        };
+        let listener = listen.label(&voice.cfg);
+        let engine = listen.attach(engine, &voice.cfg);
         let engine = judged::attach(engine, shared, &self.session_id, &self.target);
         let serial = voice
             .calls
@@ -585,10 +576,6 @@ impl Place {
             s.deaf_failed = false;
         });
         let who = shared.core.voice_of(Some(&self.session_id));
-        let listener = match voice.cfg.uses_flux() {
-            true => voice.cfg.stt_model.as_str(),
-            false => "pause rules",
-        };
         shared.core.binding_ledger(
             LedgerKind::VoiceJoined,
             None,
@@ -596,6 +583,9 @@ impl Place {
                 "voice": who.voice, "persona": who.persona, "greeting": greeting.is_some(),
                 "listener": listener}),
         );
+        if let Some(why) = &listen.fell_back {
+            listener_fell_back(shared, &place, why);
+        }
         tokio::spawn(engine.run());
         tokio::spawn(pump(
             Arc::clone(shared),
@@ -607,9 +597,12 @@ impl Place {
         let after = Duration::from_secs(voice.cfg.deaf_after_secs);
         let watched = (Arc::clone(shared), place.clone());
         tokio::spawn(deaf::watch(watched.0, serial, watched.1, line, after));
+        let slower = listen
+            .fell_back
+            .map_or_else(String::new, |why| fallback_note(&voice.cfg, &why));
         format!(
             "🎙️ Joined {}. I hear {}; anyone else is not heard. Talk over me to stop me; `/leave` \
-             ends the call, and the conversation goes on here in text.",
+             ends the call, and the conversation goes on here in text.{slower}",
             place.label,
             hears.join(", ")
         )
@@ -1428,6 +1421,92 @@ fn speech_fits(
 /// The audio a Flux stream is asked to fit before it opens and at each turn:
 /// the cost of half a minute at Flux's price.
 const FLUX_ESTIMATE: Duration = Duration::from_secs(30);
+
+/// The listener a call gets (theseus-zlmom).
+struct Listener {
+    /// The Flux listener, when the call has one.
+    flux: Option<theseus_voice::FluxListen>,
+    /// Why a call that should have Flux has none: it is on nova-3 and the pause
+    /// rules, and the owner is told.
+    fell_back: Option<String>,
+}
+
+impl Listener {
+    /// The engine, listening through Flux when the call has it.
+    fn attach(&mut self, engine: Engine, cfg: &VoiceConfig) -> Engine {
+        match self.flux.take() {
+            Some(flux) => engine.with_listen(
+                Box::new(flux),
+                &cfg.stt_model,
+                cfg.eager_eot_threshold.is_some(),
+            ),
+            None => engine,
+        }
+    }
+
+    /// The ledger's `listener`: the Flux model, or the pause rules.
+    fn label(&self, cfg: &VoiceConfig) -> String {
+        match (&self.flux, &self.fell_back) {
+            (Some(_), _) => cfg.stt_model.clone(),
+            (None, Some(_)) => format!(
+                "pause rules ({}, {} unavailable)",
+                cfg.prerecorded_model(),
+                cfg.stt_model
+            ),
+            (None, None) => "pause rules".into(),
+        }
+    }
+}
+
+/// Flux when `stt_model` is one, else the pause rules. A Flux listener that
+/// cannot be built does not fail the join: a listener that hears worse is
+/// better than no call, so the call goes on with nova-3 and says so.
+///
+/// Only what is Flux's own can fall back. A key `FluxListen::new` rejects is
+/// one `DeepgramSpeech::new` rejected first (the join builds speech before
+/// the listener, and `?`s it), so a bad credential still fails the join, loudly.
+fn pick_listener(
+    cfg: &VoiceConfig,
+    build: impl FnOnce() -> Result<theseus_voice::FluxListen, SpeechError>,
+) -> Listener {
+    if !cfg.uses_flux() {
+        return Listener {
+            flux: None,
+            fell_back: None,
+        };
+    }
+    match build() {
+        Ok(flux) => Listener {
+            flux: Some(flux),
+            fell_back: None,
+        },
+        Err(e) => Listener {
+            flux: None,
+            fell_back: Some(e.0),
+        },
+    }
+}
+
+/// A call that fell back to nova-3 shows it where the voice status and the
+/// ledger already show a listener's failure: `last_error` and a `voice.failed`
+/// row, as a socket that never opens does mid-call.
+fn listener_fell_back(shared: &Shared, place: &VoicePlace, why: &str) {
+    update(shared, |s| s.last_error = Some(format!("listener: {why}")));
+    shared.core.binding_ledger(
+        LedgerKind::VoiceFailed,
+        None,
+        json!({"what": "listener", "place": place.label, "error": why}),
+    );
+}
+
+/// What the join says when the streaming listener could not start.
+fn fallback_note(cfg: &VoiceConfig, why: &str) -> String {
+    format!(
+        " The streaming listener could not start ({why}), so this call listens with {} and the \
+         pause rules: it may answer a little later.",
+        cfg.prerecorded_model()
+    )
+}
 
 /// Deepgram Flux for a call (theseus-v774k): its sockets open and its turns
 /// start only while the session's limit has room for them, checked as a
