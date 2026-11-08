@@ -18,6 +18,9 @@ impl Chat {
         if self.escape_question() {
             return Vec::new();
         }
+        if self.at_escape() {
+            return Vec::new();
+        }
         if !self.suggestions().is_empty() {
             // Esc closes the list; the line stays as typed.
             self.menu = 0;

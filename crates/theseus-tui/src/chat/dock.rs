@@ -212,7 +212,8 @@ pub fn build(chat: &Chat) -> Dock {
     // The input, with room left for the rows under it.
     let menu: Vec<_> = chat.suggestions();
     let (mfirst, mshown) = menu_window(menu.len(), chat.menu);
-    let below = mshown + usize::from(menu.len() > MENU_ROWS) + 1;
+    let at_rows = chat.at_rows();
+    let below = mshown + usize::from(menu.len() > MENU_ROWS) + at_rows.len() + 1;
     let height = usize::from(chat.height);
     let allow = height.saturating_sub(above + below + 1).max(1);
     let prompt = chat.prompt();
@@ -255,6 +256,7 @@ pub fn build(chat: &Chat) -> Dock {
             ),
         ));
     }
+    rows.extend(at_rows);
     rows.push(status_line(chat, width));
     Dock { rows, cursor }
 }
