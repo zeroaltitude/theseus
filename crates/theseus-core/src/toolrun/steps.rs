@@ -254,6 +254,10 @@ impl ToolRuntime {
         interrupted: bool,
     ) -> Result<CallOutcome> {
         let id = job.correlation_id;
+        // The step runs on, and stays listed on `sandbox.usage` until it ends.
+        if let Some(running) = &launched.running {
+            running.keep();
+        }
         let ran = match interrupted {
             true => "because a message arrived, early".to_string(),
             false => format!("after {} seconds", self.proc_sync_secs),

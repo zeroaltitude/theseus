@@ -529,6 +529,79 @@ fn a_running_l1_jobs_command_is_read_before_its_row_and_matches_it() {
     assert!(after.get("running").is_none(), "{after}");
 }
 
+/// The L1 jobs `sandbox.usage` lists now: its `running` is absent when none.
+fn listed(r: &Rig) -> Vec<Value> {
+    let u = r.call("sandbox.usage", Value::Null).unwrap();
+    u["running"].as_array().cloned().unwrap_or_default()
+}
+
+/// Ends the sleeper `marker` names, once it runs, as a job's own end.
+fn end_sleeper(marker: &str) {
+    let t0 = Instant::now();
+    let pid = loop {
+        if let Some(pid) = with_marker(marker).first() {
+            break *pid;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the job's sleep never ran"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+}
+
+/// Once its call has returned, a backgrounded L1 job is still running, and
+/// `sandbox.usage` still lists it, once, with its command; it is listed until
+/// the job ends and not after. The entry was dropped with the call's guard,
+/// so Boundaries said "no sandboxed job runs now" about a live one.
+///
+/// Three exits leave a job running past its call: `background: true`, a job
+/// past its `proc_sync_secs` bound, and the same bound for a batch's step.
+/// (A wait that a message ended takes the same return as the bound.)
+#[test]
+fn a_backgrounded_l1_job_stays_listed_until_it_ends() {
+    let r = Rig::start(|t| {
+        let tools = t.get_mut("tools").and_then(|v| v.as_table_mut()).unwrap();
+        tools.insert("proc_sync_secs".into(), 1.into());
+    });
+    let pid = std::process::id();
+    let cases = [
+        ("background: true", json!({"background": true})),
+        ("past its bound", json!({})),
+        ("a batch's step past its bound", json!({"steps": []})),
+    ];
+    for (i, (what, mut call)) in cases.into_iter().enumerate() {
+        let marker = format!("700.{pid}{i}");
+        let script = format!("sleep {marker}; echo went");
+        let argv = json!(["sh", "-c", script, "waiter"]);
+        match call.get_mut("steps") {
+            // The batch's first step ends at once; its second is the sleeper.
+            Some(steps) => *steps = json!([{"argv": ["true"]}, {"argv": argv}]),
+            None => call["argv"] = argv.clone(),
+        }
+        call["sandbox"] = json!(true);
+        let out = r.turn(&format!("background {i}"), vec![("proc_run", call)]);
+        assert_eq!(out.len(), 1, "{what}: {out:?}");
+        let jobs = listed(&r);
+        assert_eq!(jobs.len(), 1, "{what}: its call returned: {jobs:?}");
+        assert_eq!(jobs[0]["tool"], "proc.run", "{what}");
+        assert_eq!(jobs[0]["argv"], argv, "{what}");
+        assert!(jobs[0]["correlation_id"].as_str().is_some(), "{what}");
+        end_sleeper(&marker);
+        let t0 = Instant::now();
+        while !listed(&r).is_empty() {
+            assert!(
+                t0.elapsed() < Duration::from_secs(30),
+                "{what}: still listed 30 s after the job ended: {:?}\n{}",
+                listed(&r),
+                r.log()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
 /// `[sandbox] l1_argv` routes a call to L1 that never asked (decision 2).
 #[test]
 fn l1_argv_routes_a_call_to_l1() {

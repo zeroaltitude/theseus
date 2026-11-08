@@ -118,12 +118,13 @@ pub(super) struct Job<'a> {
 }
 
 /// A job the wrapper runs: its pid, the broker's note, when it started, and
-/// an L1 job's listing, held until the call returns.
+/// an L1 job's listing, held until the call returns, or kept (`keep`) when
+/// the job goes on in the background.
 pub(super) struct Launched<'s> {
     pub pid: u32,
     pub note: Option<String>,
     pub t0: Instant,
-    pub _running: Option<sandbox::Running<'s>>,
+    pub running: Option<sandbox::Running<'s>>,
 }
 
 /// The last `MAX_RESULT_READ` bytes of a job's raw output, read by seek
@@ -268,6 +269,10 @@ impl ToolRuntime {
             .handles
             .assign(tc.store, tc.session_id, correlation_id, &spec.argv);
         let output = spool.result_path(correlation_id);
+        // The job runs on, and stays listed on `sandbox.usage` until it ends.
+        if let Some(running) = &launched.running {
+            running.keep();
+        }
         let kind = (background, was_interrupted);
         let text = self.placeholder(&name, spec, kind, &output, note.as_deref());
         self.answer(
@@ -565,7 +570,7 @@ impl ToolRuntime {
             pid,
             note,
             t0,
-            _running: running,
+            running,
         }))
     }
 
