@@ -120,6 +120,8 @@ pub(crate) mod calendar;
 mod digest;
 pub(crate) mod emoji;
 #[cfg(test)]
+mod tests_command_reply;
+#[cfg(test)]
 mod tests_held;
 #[cfg(test)]
 mod tests_steer;
