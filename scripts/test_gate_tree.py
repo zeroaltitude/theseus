@@ -101,8 +101,8 @@ class GateTree(unittest.TestCase):
         self.root = tmp / "tree"
         self.log = tmp / "cargo.log"
         self.git_env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null",
-                        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@localhost",
-                        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@localhost"}
+                        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "",
+                        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": ""}
         bin_dir = self.home / ".cargo" / "bin"
         bin_dir.mkdir(parents=True)
         (self.home / ".cache").mkdir()
