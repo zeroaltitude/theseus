@@ -349,18 +349,72 @@ async fn a_calls_path_decides_public_when_the_source_names_none() {
     assert_eq!(public("n2"), None, "the call named a private one");
 }
 
-/// The pack that is live is `content.v3` (theseus-gyjyo.11); v1 and v2 stay
+/// The pack that is live is `content.v4` (theseus-3i6d1); v1 to v3 stay
 /// embedded for their stored judgments.
 #[test]
-fn the_live_pack_is_content_v3_and_the_old_two_stay_embedded() {
-    assert_eq!(PACK, "content.v3");
-    for old in ["content.v1", "content.v2", "content.v3"] {
+fn the_live_pack_is_content_v4_and_the_older_ones_stay_embedded() {
+    assert_eq!(PACK, "content.v4");
+    for old in ["content.v1", "content.v2", "content.v3", "content.v4"] {
         assert!(theseus_judge::pack::by_name(old).is_some(), "{old}");
     }
     assert_eq!(
         crate::judge::wired_mode(PACK),
         crate::config::PackMode::Live
     );
+}
+
+/// **The bar the live pack asks `personal` at** (theseus-3i6d1). The owner, after a
+/// line he planted in a disk question -- a trip to the shop for a praying mantis,
+/// his favourite animal -- raised the label and cost the session its
+/// restricted-origin models: "this shouldn't be 'is it personal' it should be 'is
+/// this specifically sensitive information that would not be appropriate to be
+/// publicly shared'." That is the specification, and this reads the live pack, not
+/// a version by name, so a later version cannot quietly drop back to the old
+/// question.
+#[test]
+fn the_live_packs_personal_question_asks_whether_publishing_would_be_inappropriate() {
+    let pack = theseus_judge::pack::by_name(PACK).unwrap();
+    let q = pack.question("personal").unwrap();
+    assert!(
+        q.instructions.contains(
+            "specifically sensitive information about a person that would not be appropriate to be publicly shared"
+        ),
+        "the live pack still asks the wrong question: {}",
+        q.instructions
+    );
+    assert!(
+        !q.instructions
+            .contains("does it reveal a person's private information"),
+        "the live pack asks about personhood, not about publication: {}",
+        q.instructions
+    );
+    let means = |id: &str| {
+        q.options
+            .iter()
+            .find(|o| o.id == id)
+            .unwrap()
+            .means
+            .clone()
+            .unwrap_or_default()
+    };
+    // The innocuous region, named: personal detail that publishing harms nobody by.
+    let no = means("no");
+    for named in ["favourite animal", "a hobby", "a pet", "a birthday", "a mood"] {
+        assert!(no.contains(named), "the clean side does not name {named:?}: {no}");
+    }
+    // And the narrowing is on that side only: what it would harm someone to publish
+    // is still a `yes`, in the words it was in before.
+    let yes = means("yes");
+    for kept in [
+        "Health",
+        "finances",
+        "identification numbers",
+        "home address",
+        "personal contact details",
+        "private communications",
+    ] {
+        assert!(yes.contains(kept), "the flagged side dropped {kept:?}: {yes}");
+    }
 }
 
 /// `jev-probe --score-at-bar` counts a flag as raised at `theseus_judge::score::BAR`.

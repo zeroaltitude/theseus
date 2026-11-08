@@ -91,6 +91,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("content.v1", include_str!("../packs/content.v1.toml")),
     ("content.v2", include_str!("../packs/content.v2.toml")),
     ("content.v3", include_str!("../packs/content.v3.toml")),
+    ("content.v4", include_str!("../packs/content.v4.toml")),
     ("split.v1", include_str!("../packs/split.v1.toml")),
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
     ("undo.v1", include_str!("../packs/undo.v1.toml")),
@@ -1716,11 +1717,11 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            38,
+            39,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, effort.v1, work.v1, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
-             content.v1 to v3, split.v1, undo.v1 and delay.v1"
+             content.v1 to v4, split.v1, undo.v1 and delay.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -2314,6 +2315,112 @@ mod tests {
         assert!(means(q(&v3, "confidential"), "no").contains("`author`"));
         assert!(means(q(&v3, "confidential"), "no").contains("`project`"));
         assert_ne!(v3.description, v2.description);
+    }
+
+    /// `content.v4` (theseus-3i6d1) changes exactly one question. The owner's
+    /// words are the specification: "this shouldn't be 'is it personal' it should
+    /// be 'is this specifically sensitive information that would not be
+    /// appropriate to be publicly shared'." So `personal` is restated and
+    /// `injection`, `secret` and `confidential` are v3's byte for byte -- a
+    /// version that quietly moved the other three would move three bars on one
+    /// measurement, and nothing would say which one did the work.
+    #[test]
+    fn content_v4_restates_personal_and_keeps_the_rest_of_v3() {
+        let (v3, v4) = (
+            by_name("content.v3").unwrap(),
+            by_name("content.v4").unwrap(),
+        );
+        assert_eq!(v4.version, 4);
+        assert_eq!(v4.id, v3.id);
+        assert_eq!(
+            (
+                v4.point,
+                v4.builder,
+                v4.baseline,
+                v4.action,
+                v4.state_cap_tokens,
+                v4.sample
+            ),
+            (
+                v3.point,
+                v3.builder,
+                v3.baseline,
+                v3.action,
+                v3.state_cap_tokens,
+                v3.sample
+            )
+        );
+        assert_eq!(v4.rollback, v3.rollback);
+        assert_eq!(v4.jev_model, v3.jev_model);
+        for n in ["injection", "secret", "confidential"] {
+            assert_eq!(q(&v4, n), q(&v3, n), "{n} is v3's, byte for byte");
+        }
+        let means = |d: &QuestionDef, id: &str| {
+            d.options
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .means
+                .clone()
+                .unwrap_or_default()
+        };
+        let (a, b) = (q(&v4, "personal"), q(&v3, "personal"));
+        // Everything but the words: the bar, what it decides, and when it is asked.
+        assert_eq!(
+            (&a.decides, &a.thresholds, &a.no_match, &a.only_when),
+            (&b.decides, &b.thresholds, &b.no_match, &b.only_when),
+        );
+        // The reveal rule of v2 stays at the head of the instructions; the question
+        // after it is the owner's, not v3's.
+        assert!(a.instructions.contains("not what it is about"));
+        assert!(
+            a.instructions
+                .contains("specifically sensitive information about a person that would not be appropriate to be publicly shared"),
+            "personal does not ask the owner's question: {}",
+            a.instructions
+        );
+        assert!(
+            !a.instructions.contains("does it reveal a person's private information"),
+            "personal still asks v3's question: {}",
+            a.instructions
+        );
+        // `yes` is the publication test, and it still names what v3 named, so the
+        // narrowing is on the innocuous side alone.
+        let yes = means(a, "yes");
+        assert!(yes.contains("publishing would not be appropriate"), "{yes}");
+        for kept in [
+            "Health",
+            "finances",
+            "identification numbers",
+            "home address",
+            "personal contact details",
+            "private communications",
+        ] {
+            assert!(yes.contains(kept), "yes drops {kept:?}: {yes}");
+        }
+        // `no` names the region v3 had no words for, and keeps v3's own cues.
+        let no = means(a, "no");
+        for named in [
+            "favourite animal",
+            "a hobby",
+            "a pet",
+            "a birthday",
+            "a mood",
+        ] {
+            assert!(no.contains(named), "no does not name {named:?}: {no}");
+        }
+        assert!(
+            no.contains("not whether the detail is personal"),
+            "no does not say which question is being asked: {no}"
+        );
+        assert!(no.contains("`public`"), "{no}");
+        assert!(no.contains("`context`"), "{no}");
+        assert!(no.contains("Placeholder identities are not people"), "{no}");
+        assert!(
+            no.contains("Public is not clean"),
+            "public must still not mean clean: {no}"
+        );
+        assert_ne!(v4.description, v3.description);
     }
 
     /// No pack's text names an organisation: the matcher runs over every pack

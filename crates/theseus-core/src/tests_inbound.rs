@@ -131,7 +131,7 @@ const INBOUND_ALONE: [&str; 26] = [
     "heard.v1: live",
     "people.v1: off",
     "people_seen.v1: off",
-    "content.v3: off",
+    "content.v4: off",
     "delay.v1: live",
 ];
 
