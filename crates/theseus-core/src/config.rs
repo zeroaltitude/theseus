@@ -580,6 +580,29 @@ fn default_proc_env() -> Vec<String> {
         "TZ",
         "CARGO_HOME",
         "RUSTUP_HOME",
+        // The owner's toolchain (theseus-v4cj): paths and names only. Each is
+        // checked against `forbidden_env` by a test; a name that could carry a
+        // credential does not belong here.
+        "SHELL",
+        "LOGNAME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "VIRTUAL_ENV",
+        "PYTHONPATH",
+        "PYENV_ROOT",
+        "CONDA_PREFIX",
+        "CONDA_DEFAULT_ENV",
+        "NVM_DIR",
+        "NVM_BIN",
+        "NODE_PATH",
+        "NPM_CONFIG_PREFIX",
+        "JAVA_HOME",
+        "JDK_HOME",
+        "MAVEN_HOME",
+        "GRADLE_HOME",
+        "GOPATH",
+        "GOROOT",
+        "PKG_CONFIG_PATH",
     ]
     .iter()
     .map(|s| s.to_string())
