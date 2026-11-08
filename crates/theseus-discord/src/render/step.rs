@@ -114,6 +114,42 @@ mod tests {
     use super::super::{Op, Renderer};
     use super::STEP_LOOPS;
 
+    /// A loop of the same step that starts a background job instead: the
+    /// call is notified, runs, and is handed to the background. Its end
+    /// comes back much later, in a wake turn of its own.
+    fn background_loop(r: &mut Renderer, li: u32, use_id: &str) {
+        r.on_notification(
+            "model.answered",
+            &json!({"turn_id": "t1", "loop_index": li, "text": ""}),
+        );
+        r.on_notification(
+            "tool.proposed",
+            &json!({"turn_id": "t1", "tool_use_id": use_id, "tool": "proc.run",
+                    "input": {"argv": ["sleep", "75"]}, "gate": {"result": {"gate": "allow"},
+                    "decision": {"mode": "allow", "posture": "notify",
+                                 "notify": {"kind": "notify", "setting": "enforcement = notify",
+                                            "rule": "proc.run — notify (enforcement = notify)"}}}}),
+        );
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t1", "tool_use_id": use_id, "tool": "proc.run"}),
+        );
+        r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t1", "tool_use_id": use_id, "tool": "proc.run",
+                    "status": "background", "duration_ms": 2000}),
+        );
+        r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": li}));
+        r.tick();
+    }
+
+    /// An ordinary turn that calls nothing, as theseus-9zif's tests use.
+    fn plain(r: &mut Renderer, turn: &str) {
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": turn}));
+        r.on_notification("turn.ended", &json!({"session_id": "s", "turn_id": turn}));
+        r.tick();
+    }
+
     /// One tool-only loop of a builder's step: the loop opens with no prose,
     /// proposes a notified call, runs it, and ends. Every op it makes is
     /// counted into `ops`, and every message key it writes into `keys`.
@@ -208,6 +244,74 @@ mod tests {
             late.iter()
                 .any(|(k, c)| *k == step && c.contains("src/f40.rs") && c.contains("failed")),
             "the late result is on the step's message: {late:?}"
+        );
+    }
+
+    /// The two fixes meet here. theseus-9zif keeps a turn alive while one of
+    /// its calls is still in the background, so a job's end finds its line
+    /// however many turns came between; theseus-8wm rolls a step's later
+    /// loops onto one message, where `tool_lines` folds away whatever will
+    /// not fit, newest kept. A job started deep in a long step is therefore
+    /// pinned (the turn survives) and folded (its line does not show), and
+    /// its end lands nowhere: neither row's own test sees it, because
+    /// 9zif's job is in loop 0, which keeps a message of its own.
+    #[test]
+    fn a_background_job_deep_in_a_step_still_shows_its_end() {
+        let mut r = Renderer::new(false);
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let (mut ops, mut keys) = (0usize, Vec::new());
+        for li in 0..50 {
+            if li == 10 {
+                background_loop(&mut r, li, "use_job");
+            } else {
+                tool_loop(&mut r, li, &mut ops, &mut keys);
+            }
+        }
+        r.on_notification("turn.ended", &ended("t1", None));
+        r.tick();
+        let step = format!("t1:L{}:tools", STEP_LOOPS - 1);
+        // The job's line is on the step's message, not one of its own: this
+        // is what makes the fold reach it.
+        assert!(
+            r.emitted.contains_key(&step),
+            "the step's message exists: {:?}",
+            r.emitted.keys().collect::<Vec<_>>()
+        );
+        // More turns go by than the renderer holds.
+        for n in 0..8 {
+            plain(&mut r, &format!("turn_{n}"));
+        }
+        assert!(
+            r.knows("t1"),
+            "theseus-9zif holds the job's turn: {:?}",
+            r.held()
+        );
+        // The job's end, in a wake turn of its own.
+        r.on_notification(
+            "turn.started",
+            &json!({"session_id": "s", "turn_id": "wake"}),
+        );
+        let mut late = r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "wake", "tool_use_id": "use_job", "tool": "proc.run",
+                    "status": "ok", "duration_ms": 75001}),
+        );
+        late.extend(r.tick());
+        let shown: Vec<String> = upserts(&late)
+            .into_iter()
+            .filter(|(k, _)| *k == step)
+            .map(|(_, c)| c)
+            .collect();
+        assert_eq!(shown.len(), 1, "one edit of the step's message: {late:?}");
+        assert!(
+            shown[0].contains("✅ `proc.run`") && shown[0].contains("75001 ms"),
+            "the job's end shows on the step's message: {}",
+            shown[0]
+        );
+        assert!(
+            !shown[0].contains("running in the background"),
+            "{}",
+            shown[0]
         );
     }
 }
