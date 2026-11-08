@@ -49,6 +49,7 @@ use crate::rpc_client::{CallError, RpcClient};
 use crate::viewers;
 
 mod ask;
+mod command_reply;
 pub(crate) use ask::{again_buttons, buttons as ask_buttons, card_buttons};
 mod audience;
 mod board;
@@ -1386,15 +1387,7 @@ impl Shared {
                 let text = rrx
                     .await
                     .unwrap_or_else(|_| "The place did not answer.".into());
-                if let Err(e) = self
-                    .interact
-                    .interaction(i.application_id)
-                    .update_response(&i.token)
-                    .content(Some(&text))
-                    .await
-                {
-                    self.board.error("command reply", None, e);
-                }
+                self.finish_command(&i, &text, "command reply").await;
             }
             _ => {}
         }

@@ -116,16 +116,7 @@ impl Shared {
         let text = rrx
             .await
             .unwrap_or_else(|_| "The place did not answer.".into());
-        if let Err(e) = self
-            .http
-            .interaction(i.application_id)
-            .update_response(&i.token)
-            .content(Some(&text))
-            .allowed_mentions(Some(&AllowedMentions::default()))
-            .await
-        {
-            self.board.error("why reply", None, e);
-        }
+        self.finish_command(i, &text, "why reply").await;
         true
     }
 

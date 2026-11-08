@@ -51,10 +51,16 @@ async fn answered(said: &str) -> Reply {
     assert_eq!(cmd, Control::Status);
     let _ = reply.send(said.into());
     h.await.unwrap();
+    let seen: Vec<String> = fake
+        .seen()
+        .iter()
+        .map(|s| format!("{} {} {}", s.method, s.path, s.outcome))
+        .collect();
+    let seen = format!("{seen:?} {:?}", shared.board.st.lock().unwrap().last_error);
     fake.replies()
         .into_iter()
         .find(|r| r.kind == "original")
-        .expect("the command's reply was edited in")
+        .unwrap_or_else(|| panic!("the command's reply was edited in: {seen}"))
 }
 
 /// A vault value in a command's reply leaves as its name; a string that only
