@@ -102,6 +102,17 @@ fn bind(path: &Path) -> io::Result<UnixListener> {
     Ok(listener)
 }
 
+/// A slot in a count, given back when this drops: on a clean end and on a
+/// panic alike, so a connection thread that dies mid-request cannot hold one
+/// of the [`MAX_CONNECTIONS`] (or [`STATUS_LANE`]) slots for the tender's life.
+struct Slot(Arc<AtomicUsize>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Serve each connection on a thread of its own, at most
 /// [`MAX_CONNECTIONS`] at once; past them, the status lane.
 fn accept(listener: &UnixListener, shared: &Arc<Shared>, active: &Arc<AtomicUsize>) {
@@ -114,18 +125,16 @@ fn accept(listener: &UnixListener, shared: &Arc<Shared>, active: &Arc<AtomicUsiz
             status_lane(conn, shared, &lane);
             continue;
         }
-        let (shared, done) = (shared.clone(), active.clone());
-        let spawned = thread::Builder::new()
+        let (shared, slot) = (shared.clone(), Slot(active.clone()));
+        // A thread that cannot start drops the closure, and its slot with it.
+        let _ = thread::Builder::new()
             .name("index-conn".into())
             .spawn(move || {
+                let _slot = slot;
                 if let Err(e) = serve(conn, &shared) {
                     tracing::debug!(error = %e, "index: a connection ended");
                 }
-                done.fetch_sub(1, Ordering::SeqCst);
             });
-        if spawned.is_err() {
-            active.fetch_sub(1, Ordering::SeqCst);
-        }
     }
 }
 
@@ -137,18 +146,15 @@ fn status_lane(conn: UnixStream, shared: &Arc<Shared>, lane: &Arc<AtomicUsize>) 
         tracing::warn!("index: a connection over the limit, closed");
         return;
     }
-    let (shared, done) = (shared.clone(), lane.clone());
-    let spawned = thread::Builder::new()
+    let (shared, slot) = (shared.clone(), Slot(lane.clone()));
+    let _ = thread::Builder::new()
         .name("index-status".into())
         .spawn(move || {
+            let _slot = slot;
             if let Err(e) = serve_status(conn, &shared) {
                 tracing::debug!(error = %e, "index: a status connection ended");
             }
-            done.fetch_sub(1, Ordering::SeqCst);
         });
-    if spawned.is_err() {
-        lane.fetch_sub(1, Ordering::SeqCst);
-    }
 }
 
 /// One request on a connection past the limit: `index.status` answered,
