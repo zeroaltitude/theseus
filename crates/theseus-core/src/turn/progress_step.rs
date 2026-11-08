@@ -18,9 +18,8 @@
 //! read ground the turn had not read before (a path, a pattern, a slice of a
 //! file from a new first line), every read answering, resets the count like a
 //! passing command. That count is the steer's. The stop keeps its own
-//! (`since_check`), which only a passing command resets, because the stop is
-//! the only thing that enforces a deadline and reading must not delay it. The
-//! rule:
+//! (`since_check`), which only a passing command resets, for the clock's
+//! backstop (theseus-fez4q). The rule:
 //!
 //! - **Nothing** while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
 //!   loops (or, for the steer, new ground was read in them): work that passes
@@ -30,12 +29,25 @@
 //!   a guard (a guarded turn ends at its limit anyway): a harness note that
 //!   says what was used and that it is not a stop. With a failing check it
 //!   asks for the smallest step that can make it pass.
-//! - **A stop** at `STOP_SHARE` of the deadline (time only: under the owner's
-//!   notify rule spend never stops a turn): a harness note that asks for a
-//!   report with no tool calls, and the next loop is the turn's last (its
-//!   stop reason `progress_stop`).
+//! - **A stop**: a harness note that asks for a report with no tool calls, and
+//!   the next loop is the turn's last (its stop reason `progress_stop`). It
+//!   fires on progress, never on spend (under the owner's notify rule spend
+//!   never stops a turn), by one of three conditions (`StopCondition`, named
+//!   in the row):
+//!   - `stalled`: `STALL_LOOPS` loops with no passing check and no new ground
+//!     read after the turn's first edit (the steer's count; a build in the
+//!     background holds it). It needs no deadline, so a turn that has none,
+//!     as a DM's has none, can be stopped by it.
+//!   - `clock`: `STOP_SHARE` of the deadline, with `MIN_LOOPS_WITHOUT_PASS`
+//!     loops since a passing check, unless the turn has edited and read new
+//!     ground in the last of them: progress postpones the clock, but only to
+//!     the backstop.
+//!   - `clock_backstop`: `HARD_STOP_SHARE` of the deadline, whatever was read.
+//!     The stop is the only thing that enforces a deadline, so a pure progress
+//!     rule is not enough: a turn that reads new ground for ever would never
+//!     report, and the report needs a loop of its own.
 //!
-//! Each steer and stop is a `turn.progress` row with the numbers that fired
+//! //! Each steer and stop is a `turn.progress` row with the numbers that fired
 //! it. The notes are harness nodes appended after the loop's results, outside
 //! the cached prefix. A turn with no deadline and little spend pays a map
 //! lookup a loop.
@@ -66,6 +78,13 @@ pub const STEER_SHARE: f64 = 0.5;
 /// at 15 minutes, about 2 left, room for one loop to write its report rather
 /// than be cut off at the limit with nothing said.
 pub const STOP_SHARE: f64 = 0.85;
+/// The share of its deadline at which the stop fires whatever the turn read:
+/// about 45 seconds of 15 minutes, the last loop that can still write a report.
+pub const HARD_STOP_SHARE: f64 = 0.95;
+/// Loops with no passing check and no new ground, after the turn's first edit,
+/// at which a turn is told to stop and report, with or without a deadline:
+/// twice the loops that make one try, one fix and one rerun.
+pub const STALL_LOOPS: u32 = 6;
 
 /// What the rule reads at a loop's end.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -90,6 +109,9 @@ pub struct Signals {
     /// the turn ends at it, so spend alone steers nothing. The spend is still
     /// reported.
     pub guarded: bool,
+    /// An edit call has answered without error in the turn: from then on
+    /// reading new ground is progress for the clock's stop too.
+    pub edited: bool,
 }
 
 /// What the rule decides.
@@ -110,12 +132,46 @@ impl Verdict {
     }
 }
 
+/// Which condition fired a stop (`turn.progress`'s `condition`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopCondition {
+    Stalled,
+    Clock,
+    ClockBackstop,
+}
+
+impl StopCondition {
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Stalled => "stalled",
+            Self::Clock => "clock",
+            Self::ClockBackstop => "clock_backstop",
+        }
+    }
+}
+
+/// The condition that stops the turn now, if one holds. Time only through
+/// the deadline's share, and never spend.
+pub fn stop_condition(s: &Signals) -> Option<StopCondition> {
+    let time = s.time.unwrap_or(0.0);
+    if s.since_check >= MIN_LOOPS_WITHOUT_PASS && time >= HARD_STOP_SHARE {
+        return Some(StopCondition::ClockBackstop);
+    }
+    // After an edit, new ground read in the last loops is progress.
+    let moving = s.edited && s.since_pass < MIN_LOOPS_WITHOUT_PASS;
+    if s.since_check >= MIN_LOOPS_WITHOUT_PASS && time >= STOP_SHARE && !moving {
+        return Some(StopCondition::Clock);
+    }
+    if s.since_pass >= STALL_LOOPS && s.since_check >= STALL_LOOPS {
+        return Some(StopCondition::Stalled);
+    }
+    None
+}
+
 /// The rule: `steered` is whether the turn was steered already.
 pub fn decide(s: &Signals, steered: bool) -> Verdict {
     let time = s.time.unwrap_or(0.0);
-    // The stop counts as the base did: nothing else enforces a deadline, so
-    // reading (which only quiets the steer) never delays it.
-    if s.since_check >= MIN_LOOPS_WITHOUT_PASS && time >= STOP_SHARE {
+    if stop_condition(s).is_some() {
         return Verdict::Stop;
     }
     if s.since_pass < MIN_LOOPS_WITHOUT_PASS {
@@ -169,6 +225,7 @@ impl State {
             since_check: self.since_check,
             failing: self.failing,
             guarded,
+            edited: self.edited,
         }
     }
 
@@ -419,6 +476,9 @@ pub(super) fn tell(
         deadline_ms: deadline.map(|d| d.at.saturating_duration_since(d.from).as_millis() as u64),
         spent_usd: cost,
         limit_usd: limit.map(micros_to_usd),
+        condition: (decision == "stop")
+            .then(|| stop_condition(signals).map(StopCondition::word))
+            .flatten(),
     });
     let node = Node::relayed(
         t.tc.session_id,
@@ -498,6 +558,11 @@ fn note(verdict: Verdict, used: &str, s: &Signals) -> String {
         f => format!("no check has passed in its last {loops} loops ({f} failed)"),
     };
     match verdict {
+        Verdict::Stop if used.is_empty() => format!(
+            "[The harness: {checks}, and no new ground has been read since. Stop here: in your \
+             next answer make no tool calls, and report what is done, what is not, and why. \
+             That answer ends the turn.]"
+        ),
         Verdict::Stop => format!(
             "[The harness: this turn has used {used}, and {checks}. Stop here: in your next \
              answer make no tool calls, and report what is done, what is not, and why. That \
@@ -527,6 +592,7 @@ mod tests {
             since_check: since_pass,
             failing,
             guarded: false,
+            edited: false,
         }
     }
 
@@ -534,6 +600,12 @@ mod tests {
     /// passed no check.
     fn reading(mut sig: Signals, since_check: u32) -> Signals {
         sig.since_check = since_check;
+        sig
+    }
+
+    /// The same for a turn that has edited.
+    fn edited(mut sig: Signals) -> Signals {
+        sig.edited = true;
         sig
     }
 
@@ -550,8 +622,8 @@ mod tests {
         use Verdict::{Nothing, Steer, Stop};
         let rows: &[(Signals, bool, Verdict)] = &[
             // Nothing fires early, whatever the checks.
-            (s(Some(0.1), Some(0.1), 9, 9), false, Nothing),
-            (s(Some(0.49), Some(0.49), 9, 9), false, Nothing),
+            (s(Some(0.1), Some(0.1), 5, 5), false, Nothing),
+            (s(Some(0.49), Some(0.49), 5, 5), false, Nothing),
             // The steer at half the time, or half the spend.
             (s(Some(0.5), None, 3, 0), false, Steer),
             (s(Some(0.6), Some(0.1), 5, 5), false, Steer),
@@ -560,28 +632,34 @@ mod tests {
             // Spend alone steers neither a turn with no deadline nor a
             // guarded one; the time share still does.
             (s(None, Some(0.5), 4, 2), false, Nothing),
-            (s(None, Some(0.9), 40, 0), false, Nothing),
+            (s(None, Some(0.9), 5, 0), false, Nothing),
             (guarded(s(Some(0.1), Some(0.7), 4, 2)), false, Nothing),
             (guarded(s(Some(0.5), Some(0.1), 3, 0)), false, Steer),
             (guarded(s(Some(0.6), Some(0.9), 3, 3)), false, Steer),
             (guarded(s(Some(0.85), None, 3, 0)), false, Stop),
             (guarded(s(Some(0.9), Some(0.1), 7, 7)), true, Stop),
-            (s(Some(0.2), Some(0.7), 6, 1), false, Steer),
+            (s(Some(0.2), Some(0.7), 5, 1), false, Steer),
             // Once a turn.
-            (s(Some(0.7), Some(0.7), 6, 6), true, Nothing),
+            (s(Some(0.7), Some(0.7), 5, 5), true, Nothing),
             // The stop at 0.85 of the time, steered or not.
             (s(Some(0.85), None, 3, 3), false, Stop),
             (s(Some(0.9), Some(0.1), 7, 0), true, Stop),
             // Spend alone never stops.
-            (s(None, Some(3.0), 30, 30), true, Nothing),
-            (s(Some(0.1), Some(3.0), 30, 30), false, Steer),
-            (guarded(s(Some(0.1), Some(3.0), 30, 30)), false, Nothing),
+            (s(None, Some(3.0), 5, 5), true, Nothing),
+            (s(Some(0.1), Some(3.0), 5, 5), false, Steer),
+            (guarded(s(Some(0.1), Some(3.0), 5, 5)), false, Nothing),
+            // A stall stops with or without a deadline, and spend or none.
+            (s(None, None, 6, 6), false, Stop),
+            (s(None, Some(0.0), 50, 50), true, Stop),
+            (s(Some(0.1), None, 6, 0), false, Stop),
+            (guarded(s(None, Some(3.0), 9, 9)), false, Stop),
+            (s(None, None, 5, 5), false, Nothing),
             // A check passed in the last loops: nothing, at any share.
             (s(Some(0.99), Some(5.0), 0, 0), false, Nothing),
             (s(Some(0.9), Some(0.9), 1, 1), false, Nothing),
             (s(Some(0.9), Some(0.9), 2, 2), true, Nothing),
             // No deadline and no limit: nothing to measure.
-            (s(None, None, 50, 50), false, Nothing),
+            (s(None, None, 4, 4), false, Nothing),
             // Reading quiets the steer, never the stop: a turn that read new
             // ground (nothing unchecked, as far as the steer counts) has
             // still gone `since_check` loops without a passing check.
@@ -592,12 +670,65 @@ mod tests {
             (reading(s(Some(0.9), Some(0.1), 0, 0), 2), false, Nothing),
             (guarded(reading(s(Some(0.9), None, 0, 0), 4)), false, Stop),
             (reading(s(None, Some(3.0), 0, 0), 30), false, Nothing),
+            // After an edit, new ground is progress for the clock too, up to
+            // the backstop (the turn read in the last loops: since_pass < 3).
+            (edited(reading(s(Some(0.9), None, 0, 0), 5)), false, Nothing),
+            (edited(reading(s(Some(0.9), None, 2, 0), 5)), false, Nothing),
+            (edited(reading(s(Some(0.9), None, 3, 0), 5)), false, Stop),
+            (edited(reading(s(Some(0.95), None, 0, 0), 5)), false, Stop),
+            (
+                edited(reading(s(Some(0.95), None, 0, 0), 2)),
+                false,
+                Nothing,
+            ),
+            (reading(s(Some(0.9), None, 0, 0), 5), false, Stop),
+            // A stalled turn stops, new ground or not, once it has gone
+            // STALL_LOOPS without either.
+            (edited(s(Some(0.1), None, 6, 0)), false, Stop),
+            (
+                edited(reading(s(Some(0.1), None, 5, 0), 30)),
+                false,
+                Nothing,
+            ),
         ];
         for (signals, steered, want) in rows {
             assert_eq!(
                 decide(signals, *steered),
                 *want,
                 "{signals:?} steered={steered}"
+            );
+        }
+    }
+
+    /// Each stop names the condition that fired it, and spend is never one.
+    #[test]
+    fn a_stop_names_its_condition_and_never_spend() {
+        use StopCondition::{ClockBackstop, Stalled};
+        let at = |time: Option<f64>, spend: Option<f64>, pass: u32, check: u32, edited: bool| {
+            stop_condition(&Signals {
+                time,
+                spend,
+                since_pass: pass,
+                since_check: check,
+                failing: 0,
+                guarded: false,
+                edited,
+            })
+        };
+        assert_eq!(at(None, None, 6, 6, true), Some(Stalled));
+        assert_eq!(at(Some(0.2), None, 6, 6, false), Some(Stalled));
+        assert_eq!(
+            at(Some(0.85), None, 0, 3, false),
+            Some(StopCondition::Clock)
+        );
+        assert_eq!(at(Some(0.85), None, 0, 3, true), None);
+        assert_eq!(at(Some(0.96), None, 0, 3, true), Some(ClockBackstop));
+        for spend in [0.5, 3.0, 100.0] {
+            assert_eq!(at(None, Some(spend), 5, 5, true), None, "spend {spend}");
+            assert_eq!(
+                at(Some(0.1), Some(spend), 5, 5, true),
+                None,
+                "spend {spend}"
             );
         }
     }
@@ -623,6 +754,12 @@ mod tests {
              is left, then go on with the next item.]"
         );
         assert!(passing.contains("This is not a stop") && !passing.contains("smallest step"));
+        // No clock: no minutes named.
+        let stalled = note(Verdict::Stop, "", &s(None, None, 6, 0));
+        assert!(
+            stalled.starts_with("[The harness: no check has run in its last 6 loops, and no new"),
+            "{stalled}"
+        );
         let sig = s(Some(0.9), None, 8, 0);
         assert!(note(Verdict::Stop, "13 of its 15 minutes", &sig).contains(
             "no check has run in its last 8 loops. Stop here: in your next answer make no \
@@ -980,6 +1117,7 @@ mod tests {
                 since_check: st.since_check,
                 failing: st.failing,
                 guarded: false,
+                edited: st.edited,
             };
             decide(&sig, st.steered)
         };

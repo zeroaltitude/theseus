@@ -631,7 +631,8 @@ async fn a_turn_that_only_reads_is_still_stopped_at_its_deadline() {
 }
 
 /// The same after the turn's first edit, where a read of a new file is
-/// progress for the steer: it is still no check, and the stop still fires.
+/// progress for the steer: it is still no check, and the clock's backstop
+/// still fires (theseus-fez4q: at 0.85 the same turn is progress and goes on).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
     let r = rig(|root| {
@@ -658,8 +659,8 @@ async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
         script.push(Scripted::text("Read it all."));
         script
     });
-    // 600 s, 540 used: 90%.
-    let (sid, res) = r.turn(Some((600, 540))).await;
+    // 600 s, 582 used: 97%.
+    let (sid, res) = r.turn(Some((600, 582))).await;
     let reqs = r.requests();
     assert_eq!(reqs.len(), 4, "the stop's request is the last");
     assert_eq!((res.loops, res.stop_reason.as_str()), (4, PROGRESS_STOP));
@@ -667,6 +668,7 @@ async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
     let rows = r.rows(&sid);
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "clock_backstop");
     assert_eq!(rows[0]["since_pass"], 0);
     assert_eq!(rows[0]["since_check"], 3);
 }
@@ -987,4 +989,118 @@ async fn a_doubt_does_not_send_a_turn_back_past_the_share_or_without_work() {
     for req in r.requests() {
         assert!(!messages(&req).contains(DOUBT));
     }
+}
+
+/// A file written to `path` under `root`, as loop `id`'s one call.
+fn write_to(root: &Path, id: &str, path: &str) -> Scripted {
+    Scripted::tools(
+        "Writing.",
+        &[(
+            id,
+            "fs_write",
+            json!({"path": root.join(path).display().to_string(), "content": "x\n"}),
+        )],
+    )
+}
+
+/// A read of `path` under `root`, as loop `id`'s one call.
+fn read_of(root: &Path, id: &str, path: &str) -> Scripted {
+    Scripted::tools(
+        "Reading.",
+        &[(
+            id,
+            "fs_read",
+            json!({"path": root.join(path).display().to_string()}),
+        )],
+    )
+}
+
+/// The DM's shape (theseus-fez4q): no deadline at all. A turn that edited and
+/// then went six loops with no passing check and no new ground is stopped on
+/// that alone, and the row says which condition fired it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_deadline_is_stopped_when_it_stalls() {
+    let r = rig(|root| {
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((1..=6).map(|n| command(root, &format!("c{n}"), 1)));
+        s.push(Scripted::text("A turn no model is asked for."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 7, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (7, PROGRESS_STOP));
+    assert!(messages(&reqs[6]).contains(STOP), "{}", messages(&reqs[6]));
+    assert!(
+        !messages(&reqs[6]).contains("has used"),
+        "a turn with no clock names no minutes: {}",
+        messages(&reqs[6])
+    );
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "stalled");
+    assert_eq!(rows[0]["since_pass"], 6);
+    assert!(rows[0]["time_share"].is_null(), "{rows:?}");
+}
+
+/// Its other half: a turn that keeps reading new ground after its edit, with
+/// no deadline, makes progress, however many loops pass without a check.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_deadline_that_reads_new_ground_is_not_stopped() {
+    let r = rig(|root| {
+        for n in 0..9 {
+            std::fs::write(root.join(format!("f{n}.rs")), "fn x() {}\n").unwrap();
+        }
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((0..9).map(|n| read_of(root, &format!("r{n}"), &format!("f{n}.rs"))));
+        s.push(Scripted::text("Read it all."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    assert_eq!(r.requests().len(), 11, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (11, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty());
+}
+
+/// Past 0.85 of its deadline a turn that edited and keeps reading new ground
+/// is making progress, and the clock does not stop it (theseus-fez4q).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_makes_progress_past_the_old_stop_share_is_not_stopped() {
+    let r = rig(|root| {
+        for n in 0..6 {
+            std::fs::write(root.join(format!("f{n}.rs")), "fn x() {}\n").unwrap();
+        }
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((0..6).map(|n| read_of(root, &format!("r{n}"), &format!("f{n}.rs"))));
+        s.push(Scripted::text("Read it all."));
+        s
+    });
+    // 600 s, 540 used: 90%.
+    let (sid, res) = r.turn(Some((600, 540))).await;
+    assert_eq!(r.requests().len(), 8, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (8, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty());
+}
+
+/// The clock's backstop: the same turn, so near its deadline that one loop is
+/// all that is left, is stopped whatever it reads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_clocks_backstop_stops_even_a_turn_that_reads_new_ground() {
+    let r = rig(|root| {
+        for n in 0..6 {
+            std::fs::write(root.join(format!("f{n}.rs")), "fn x() {}\n").unwrap();
+        }
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((0..6).map(|n| read_of(root, &format!("r{n}"), &format!("f{n}.rs"))));
+        s.push(Scripted::text("Read it all."));
+        s
+    });
+    // 600 s, 582 used: 97%.
+    let (sid, res) = r.turn(Some((600, 582))).await;
+    assert_eq!(res.stop_reason, PROGRESS_STOP);
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "clock_backstop");
 }
