@@ -31,6 +31,12 @@ self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # The tree it judges: its own checkout's, or THESEUS_GATE_ROOT's when the door runs main's copy from outside it.
 cd "${THESEUS_GATE_ROOT:-$(dirname "$0")/..}"
 export PATH="$HOME/.cargo/bin:$PATH"
+# No incremental cache (theseus-4vsrz): a lane is built once, gated once, and then re-sent or removed, so the cache is
+# paid for and never reused (47 GB of one lane's 68 GB target, which took /home to 99% mid-gate). Set here, before the
+# first cargo and for the whole run, because flipping it half way changes cargo's unit hashes and builds a second
+# complete set of artifacts. The locked part and any gate this one starts inherit it. A caller's own value stands: an
+# edit loop that wants the cache says CARGO_INCREMENTAL=1.
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 
 # `--locked-part DIR ASKED LABEL` is the gate calling itself under the lock, not an option.
 part=whole
@@ -192,6 +198,77 @@ save_locked_record() {
     fi
   } >>"$gate_tmp/locked.rec" 2>/dev/null || true
 }
+# THE TREE THE GATE JUDGES (theseus-4vsrz). The gate compiles one tree and then runs the tests of whatever tree is there,
+# so a tree that moved in between (a branch checked out in it, a reset, an edit) gave a failure that looked exactly like a
+# real one: on 2026-11-07 four red tests on a join's worktree that passed 15 of 15 on the same commit. The gate reads
+# the tree's identity before its first compile and checks it again before the lock, when it takes the lock (the wait can
+# be hours), before the suite, and at the end. A tree that moved ABORTS the gate with exit status 75 and a message of
+# its own, never a test failure; and a gate that failed is checked too, since a failure on a moved tree is no verdict.
+# The identity is scripts/tree-stamp.sh's (the commit, and a digest of the edits beyond it, tracked and untracked) and
+# the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree detached and restored in
+# the window is the same commit and the same files, and not the tree the compile and the tests between them ran on.
+# Blind spots, deliberately: an edit made and undone in the window moves no ref and leaves no mark, and
+# cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself.
+tree_moved_status=75
+tree_unseen=(':(exclude)cockpit/src/protocol.gen')
+tree_identity() {
+  local stamp log
+  stamp="$(GIT_OPTIONAL_LOCKS=0 scripts/tree-stamp.sh "${tree_unseen[@]}")" || return 1
+  log="$(git rev-parse --git-path logs/HEAD)"
+  if [ -f "$log" ]; then
+    echo "$stamp reflog:$(wc -l <"$log" | tr -d ' '):$(git hash-object --no-filters "$log" | cut -c1-12)"
+  else
+    echo "$stamp reflog:none"
+  fi
+}
+# The paths with a state, to name the ones that changed when a tree moved.
+tree_paths() {
+  GIT_OPTIONAL_LOCKS=0 git status --porcelain -uall -- . "${tree_unseen[@]}" 2>/dev/null || true
+}
+tree_begin() {
+  tree_identity >"$gate_tmp/tree.base" || {
+    echo "gate: scripts/tree-stamp.sh could not read the tree's identity, so the gate could not tell whether the tree moves"
+    exit 1
+  }
+  tree_paths >"$gate_tmp/tree.paths"
+}
+# What moved, said so it cannot be taken for a test failure: the tree built, the tree found, and what differs.
+tree_moved_report() {
+  local where=$1 now=$2 base b_head b_digest b_log n_head n_digest n_log b_len
+  local logfile
+  base="$(cat "$gate_tmp/tree.base")"
+  read -r b_head b_digest b_log <<<"$base"
+  read -r n_head n_digest n_log <<<"$now"
+  echo "gate: ABORTED, THE TREE MOVED ($where): this is NOT a test failure and no verdict on the code"
+  echo "gate:   built: $label = $base"
+  echo "gate:   found: $(git rev-parse --abbrev-ref HEAD 2>/dev/null) $(git describe --always --dirty 2>/dev/null) = $now"
+  [ "$b_head" = "$n_head" ] || echo "gate:   HEAD moved from ${b_head:0:10} to ${n_head:0:10}"
+  if [ "$b_digest" != "$n_digest" ]; then
+    echo "gate:   the edits beyond HEAD changed ($b_digest to $n_digest); paths whose state changed (< at the start, > now):"
+    { diff "$gate_tmp/tree.paths" <(tree_paths) | grep '^[<>]' | head -20 | sed 's/^/gate:     /'; } || true
+  fi
+  if [ "$b_log" != "$n_log" ]; then
+    echo "gate:   HEAD's reflog changed ($b_log to $n_log): something checked out, reset or committed in this tree; since the start:"
+    logfile="$(git rev-parse --git-path logs/HEAD 2>/dev/null || true)"
+    b_len="$(cut -d: -f2 <<<"$b_log")"
+    { [ -f "$logfile" ] && tail -n "+$((${b_len//[!0-9]/0} + 1))" "$logfile" | cut -f2- | head -10 | sed 's/^/gate:     /'; } || true
+  fi
+  echo "gate: what was compiled and what was tested were not all of one tree, so nothing above is a pass or a failure of it."
+  echo "gate: do not check out, reset or edit a tree while a gate runs in it; rerun the gate (exit status $tree_moved_status)"
+}
+# Is the tree not the one the gate began with? Prints the report and says yes (status 0) when it is not. A tree whose
+# identity cannot be read now counts as moved: what cannot be seen has not been shown to hold.
+tree_moved() {
+  local now
+  [ -s "$gate_tmp/tree.base" ] || return 1
+  now="$(tree_identity 2>/dev/null || echo unreadable)"
+  [ "$now" != "$(cat "$gate_tmp/tree.base")" ] || return 1
+  tree_moved_report "$1" "$now"
+}
+tree_check() {
+  if tree_moved "$1"; then exit "$tree_moved_status"; fi
+}
+
 # A gate that a signal ends reads `$?` as 0 in this trap, so `gate_done` says it did not finish.
 gate_done=""
 on_exit() {
@@ -201,7 +278,16 @@ on_exit() {
     save_locked_record
     return
   fi
+  # A gate that failed is checked once more: on a tree that moved, the red is not a verdict.
+  if [ "$status" -ne 0 ] && [ "$status" -ne "$tree_moved_status" ] && tree_moved "the gate failed, and its tree had moved"; then
+    status=$tree_moved_status
+  fi
   rm -rf "$gate_tmp"
+  if [ "$status" -eq "$tree_moved_status" ]; then
+    summary aborted
+    echo "gate: ABORTED${phase_now:+ in $phase_now}: the tree moved, so this run is no verdict, pass or fail"
+    exit "$status"
+  fi
   if [ "$status" -ne 0 ] || [ -z "$gate_done" ]; then
     [ "$status" -ne 0 ] || echo "gate: stopped by a signal"
     summary failed
@@ -615,6 +701,21 @@ scrub_phase() {
   PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_scrub_added.py
 }
 
+# This script's own tests (theseus-4vsrz): scripts/test_gate_tree.py runs the real gate in a throwaway repository, its
+# cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
+# and that its cargo runs without an incremental cache. About 2 s. They run when this tree differs from main in the
+# script, the stamp it reads or the tests, which is when they can have changed; otherwise main's gate ran them and
+# the phase costs a diff. main is origin/main, or the local main without one.
+gate_tests() {
+  local own=(scripts/gate.sh scripts/tree-stamp.sh scripts/test_gate_tree.py) main
+  main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
+  if [ -n "$main" ] && git diff --quiet "$main" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
+    echo "gate tests: gate.sh, tree-stamp.sh and their tests are main's; its gate ran them"
+    return 0
+  fi
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_gate_tree.py
+}
+
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
 # the log's last 40 lines, where the phase table alone said only "cockpit <- failed here". A passing `test` tees
 # node's own summary (`ℹ tests N`, `ℹ pass N`, ...) into the gate's own output, which `arm.sh tail` keeps even
@@ -795,6 +896,7 @@ machine_checks() {
   phase jobs jobs_bench
   phase turn turn_step
   phase size size_step
+  tree_check "before the suite"
   phase suite suite
   compiled_under_lock
 }
@@ -803,6 +905,7 @@ machine_checks() {
 # the hold, and the part's phases go into this run's log and table.
 locked_checks() {
   local asked status=0 began="" kind secs name rec="$gate_tmp/locked.rec" users held queued
+  tree_check "before the lock: the compiles are done"
   asked=$(date +%s)
   echo "gate: the compiles are done; taking the shared gate lock ($lock) for the tests and benches"
   users="$(lock_users || true)"
@@ -853,10 +956,13 @@ if [ "$part" = locked ]; then
   began=$(date +%s)
   printf 'began %s\n' "$began" >"$gate_tmp/locked.rec"
   echo "gate: lock taken after waiting $((began - asked)) s"
+  tree_check "when it took the lock, after waiting $((began - asked)) s"
   machine_checks
   exit 0
 fi
 
+# The tree's identity, before anything runs: every check below is a check of this tree (THE TREE THE GATE JUDGES).
+tree_begin
 # The door, then the keel: neither needs a build, so a branch that removed what would fail it stops in seconds.
 phase door keel_door
 if [ -n "$door_done" ]; then
@@ -871,6 +977,8 @@ phase fmt cargo fmt --all -- --check
 # Names a branch adds, before the heavy compiles: it fails in seconds (theseus-ev3ir). After fmt, which is the
 # phase the guard's own gate tests expect to fail next in a throwaway repository.
 phase scrub scrub_phase
+# This script's own tests, after fmt like the scrub (gate_tests says when they run).
+phase "gate tests" gate_tests
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
@@ -893,6 +1001,7 @@ phase "recall tests" scripts/recall-tests.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi
+tree_check "at the end"
 gate_done=1
 summary ok
 echo "gate: ok"
