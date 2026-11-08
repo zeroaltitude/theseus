@@ -204,21 +204,29 @@ save_locked_record() {
 # the tree's identity before its first compile and checks it again before the lock, when it takes the lock (the wait can
 # be hours), before the suite, and at the end. A tree that moved ABORTS the gate with exit status 75 and a message of
 # its own, never a test failure; and a gate that failed is checked too, since a failure on a moved tree is no verdict.
-# The identity is scripts/tree-stamp.sh's (the commit, and a digest of the edits beyond it, tracked and untracked) and
-# the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree detached and restored in
-# the window is the same commit and the same files, and not the tree the compile and the tests between them ran on.
+# The identity is the commit, a digest of the edits beyond it (tracked and untracked: the digest scripts/tree-stamp.sh
+# prints, minus one path), and the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree
+# detached and restored in the window is the same commit and the same files, and not the tree the compile and the tests
+# between them ran on. It is computed here and not by that script, because the gate must not depend on a file of the tree
+# it judges: a branch cut before the script, and the throwaway repositories the guard's own tests run the gate in, lack it.
 # Blind spots, deliberately: an edit made and undone in the window moves no ref and leaves no mark, and
 # cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself.
 tree_moved_status=75
 tree_unseen=(':(exclude)cockpit/src/protocol.gen')
 tree_identity() {
-  local stamp log
-  stamp="$(GIT_OPTIONAL_LOCKS=0 scripts/tree-stamp.sh "${tree_unseen[@]}")" || return 1
-  log="$(git rev-parse --git-path logs/HEAD)"
+  local head digest log
+  head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  digest="$({
+    GIT_OPTIONAL_LOCKS=0 git diff HEAD --binary -- . "${tree_unseen[@]}" 2>/dev/null || true
+    git ls-files -z --others --exclude-standard -- . "${tree_unseen[@]}" 2>/dev/null | xargs -0 -r sha256sum || true
+  } | sha256sum | cut -c1-16)"
+  # sha256 of nothing, cut: the tree is what HEAD says.
+  [ "$digest" != "$(printf '' | sha256sum | cut -c1-16)" ] || digest=clean
+  log="$(git rev-parse --git-path logs/HEAD 2>/dev/null || true)"
   if [ -f "$log" ]; then
-    echo "$stamp reflog:$(wc -l <"$log" | tr -d ' '):$(git hash-object --no-filters "$log" | cut -c1-12)"
+    echo "$head $digest reflog:$(wc -l <"$log" | tr -d ' '):$(git hash-object --no-filters "$log" | cut -c1-12)"
   else
-    echo "$stamp reflog:none"
+    echo "$head $digest reflog:none"
   fi
 }
 # The paths with a state, to name the ones that changed when a tree moved.
@@ -226,10 +234,7 @@ tree_paths() {
   GIT_OPTIONAL_LOCKS=0 git status --porcelain -uall -- . "${tree_unseen[@]}" 2>/dev/null || true
 }
 tree_begin() {
-  tree_identity >"$gate_tmp/tree.base" || {
-    echo "gate: scripts/tree-stamp.sh could not read the tree's identity, so the gate could not tell whether the tree moves"
-    exit 1
-  }
+  tree_identity >"$gate_tmp/tree.base"
   tree_paths >"$gate_tmp/tree.paths"
 }
 # What moved, said so it cannot be taken for a test failure: the tree built, the tree found, and what differs.
@@ -704,13 +709,13 @@ scrub_phase() {
 # This script's own tests (theseus-4vsrz): scripts/test_gate_tree.py runs the real gate in a throwaway repository, its
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
 # and that its cargo runs without an incremental cache. About 2 s. They run when this tree differs from main in the
-# script, the stamp it reads or the tests, which is when they can have changed; otherwise main's gate ran them and
-# the phase costs a diff. main is origin/main, or the local main without one.
+# script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
+# diff. main is origin/main, or the local main without one.
 gate_tests() {
-  local own=(scripts/gate.sh scripts/tree-stamp.sh scripts/test_gate_tree.py) main
+  local own=(scripts/gate.sh scripts/test_gate_tree.py) main
   main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
   if [ -n "$main" ] && git diff --quiet "$main" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
-    echo "gate tests: gate.sh, tree-stamp.sh and their tests are main's; its gate ran them"
+    echo "gate tests: gate.sh and its tests are main's; its gate ran them"
     return 0
   fi
   PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_gate_tree.py

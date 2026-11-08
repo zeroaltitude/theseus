@@ -130,10 +130,11 @@ and at the end; a gate that fails is checked once more on its way out.
   identity), what differs (HEAD, the paths whose state changed, HEAD's reflog entries since the start), and ends
   `gate: ABORTED`, where a failed run says `gate: FAILED`. No test result of an aborted run is a verdict: rerun it, on a tree
   nobody touches. `arm.sh result` shows it as `gate exit=75`.
-- **The identity** is `scripts/tree-stamp.sh`'s (the commit, and a digest of the edits beyond it, tracked and untracked)
-  and the length and digest of HEAD's reflog. HEAD alone misses an edit, and the stamp alone misses a detach and a
-  restore (the same commit and the same files after it); the reflog writes a line for each. `cockpit/src/protocol.gen` is
-  left out, since the protocol phase rewrites it itself and fails saying `git add it`: that stays a failure, exit 1.
+- **The identity** is the commit, a digest of the edits beyond it (tracked and untracked: `tree-stamp.sh`'s digest, minus
+  one path, computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
+  digest of HEAD's reflog. HEAD alone misses an edit, and the stamp alone misses a detach and a restore (the same commit
+  and the same files after it); the reflog writes a line for each. `cockpit/src/protocol.gen` is left out, since the
+  protocol phase rewrites it itself and fails saying `git add it`: that stays a failure, exit 1.
 - **What it cannot see:** an edit made and undone inside the window (no ref moves, nothing is left), and a move in the
   seconds between two checks that is undone before the next. The guard is the rule beside it: never edit, check out,
   reset or build in a tree a gate is running in (the join's worktree is the install tree and nobody else's workspace).
@@ -148,7 +149,7 @@ and at the end; a gate that fails is checked once more on its way out.
 - **`scripts/test_gate_tree.py`** holds all of this: it runs the real gate in a throwaway repository with stand-in cargo,
   node and npm (`$HOME/.cargo/bin` first on the gate's PATH is where they go) and moves the tree after the test build,
   inside the suite, and by a checkout away and back. The gate's `gate tests` phase runs it, after `scrub`, when the tree
-  differs from main in `gate.sh`, `tree-stamp.sh` or the test; a gate of main's own tree says so and costs a diff. A
+  differs from main in `gate.sh` or the test; a gate of main's own tree says so and costs a diff. A
   new phase of the gate that reads a command's output needs its stand-in there.
 
 ### The lock

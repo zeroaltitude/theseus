@@ -4,17 +4,13 @@
 # binaries it builds, and the gate's size phase builds the same string for the tree under test: equal strings mean
 # the binaries are of this commit and these edits. A binary carries no hash of its own, so this stamp is its proof.
 #
-#   scripts/tree-stamp.sh [PATHSPEC...]   prints "<commit> <digest>" (digest "clean" when the tree matches the commit)
-#
-# With pathspecs (`':(exclude)cockpit/src/protocol.gen'`) the digest covers only what they select, from the repository
-# root; the gate's tree check (theseus-4vsrz) leaves out the one path its own protocol phase rewrites. With none, the
-# digest is what it has always been, so build.sh's stamp and the size phase's still agree.
+#   scripts/tree-stamp.sh          prints "<commit> <digest>" (digest "clean" when the tree matches the commit)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 head="$(git rev-parse HEAD 2>/dev/null || echo none)"
 digest="$({
-  git diff HEAD --binary -- . "$@" 2>/dev/null || true
-  git ls-files -z --others --exclude-standard -- . "$@" 2>/dev/null | xargs -0 -r sha256sum || true
+  git diff HEAD --binary 2>/dev/null || true
+  git ls-files -z --others --exclude-standard 2>/dev/null | xargs -0 -r sha256sum || true
 } | sha256sum | cut -c1-16)"
 # sha256 of nothing, cut: the tree is clean.
 empty="$(printf '' | sha256sum | cut -c1-16)"
