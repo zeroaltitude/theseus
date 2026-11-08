@@ -1480,6 +1480,78 @@ mod tests {
         out
     }
 
+    /// Every `to_operator`/`stage_to_operator` call of `src`, as the line it
+    /// begins on (theseus-3i6d1).
+    ///
+    /// `kinds_named_in` above reads only the calls whose kind is a literal,
+    /// which is why nothing forced a *new call site* onto `OPERATOR_KINDS`:
+    /// a call that builds its body elsewhere, or computes its kind, is
+    /// invisible to it and invisible to `hold_operator_kind` too unless some
+    /// test happens to drive that path. This one enumerates the call sites
+    /// themselves — the thing being listed — so the census below can hold
+    /// every one of them, literal or not.
+    fn operator_calls_in(src: &str) -> Vec<usize> {
+        let code = code_mask(src);
+        let mut out: Vec<usize> = src
+            .match_indices(".to_operator(")
+            .chain(src.match_indices(".stage_to_operator("))
+            .filter(|(at, _)| code.get(*at).copied().unwrap_or(false))
+            .map(|(at, _)| src[..at].lines().count())
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    /// **The census of operator call sites whose kind no test can read**
+    /// (theseus-3i6d1): one row per file under `src/`, with the number of
+    /// `to_operator`/`stage_to_operator` calls in it that name no literal
+    /// kind.
+    ///
+    /// Those are the calls `the_operator_call_sites_name_only_listed_kinds`
+    /// cannot see, and the ones `hold_operator_kind` only catches on a path
+    /// some test drives. Between them they left a hole exactly the shape of
+    /// "a new call site, with a computed kind, that nothing exercises" — and
+    /// a hand-kept list with no completeness test is how the delivery
+    /// failure theseus-haw2b got in.
+    ///
+    /// This table closes it the only way a static check can: by counting.
+    /// Add such a call and the count moves, and
+    /// `every_operator_call_site_is_accounted_for` fails naming your file.
+    /// What to do when it does is in that test's message: put the kind in
+    /// [`OPERATOR_KINDS`], make sure some test drives the call so
+    /// `hold_operator_kind` can see it, and then update the row here.
+    ///
+    /// It is a census, not a permission: a row here does not make a kind
+    /// legal, it records that this call's kind cannot be read from the
+    /// source and must be held at run time instead.
+    const COMPUTED_SITES: &[(&str, usize)] = &[
+        ("capture/act.rs", 1),
+        ("card/dm.rs", 1),
+        ("day_ceiling.rs", 1),
+        ("initiative/digest.rs", 1),
+        ("initiative/speak.rs", 1),
+        ("judge/notice.rs", 3),
+        ("judge/onto/stage.rs", 1),
+        ("mcp/mod.rs", 1),
+        ("needs_you.rs", 1),
+        ("outbox.rs", 2),
+        ("personas/note.rs", 1),
+        ("retract.rs", 1),
+        ("rpc/disk_watch.rs", 1),
+        ("rpc/question_waits.rs", 1),
+        ("rpc/routines_watch.rs", 1),
+        ("rpc/thread_seal.rs", 1),
+        ("rsi/digest.rs", 1),
+        ("rsi/digest/notice.rs", 1),
+        ("rsi/narrow.rs", 1),
+        ("rsi/pr.rs", 2),
+        ("thread_link_seen.rs", 1),
+        ("turn/admission.rs", 1),
+        ("turn/ceiling_step.rs", 1),
+        ("turn/home_size_step.rs", 1),
+        ("turn/personal_step.rs", 1),
+    ];
+
     /// Staged is listed, statically (theseus-gm7bd): every operator call in
     /// this crate that names its kind by a literal names one `OPERATOR_KINDS`
     /// holds.
@@ -1523,6 +1595,90 @@ mod tests {
              list, so the binding's guard test never drives them and nothing \
              proves they reach the owner (theseus-haw2b): {unlisted:#?}"
         );
+    }
+
+    /// **Completeness** (theseus-3i6d1), in the shape of
+    /// `crates/complete.rs`: the thing being listed is *enumerated* — every
+    /// operator call site under `src/` — and the lists are judged against
+    /// that walk, never the other way round.
+    ///
+    /// `the_operator_call_sites_name_only_listed_kinds` above walks the
+    /// calls whose kind it can read and holds each to [`OPERATOR_KINDS`];
+    /// that is 13 of 42 call sites, and it is blind to the other 29 by
+    /// construction. `hold_operator_kind` holds a computed kind, but only on
+    /// a path some test drives, and a new call site is exactly the thing
+    /// that may have none. So neither reaches a call whose kind is computed
+    /// *and* which nothing exercises, and that gap is what this closes: the
+    /// call sites are counted per file, so one that appears anywhere under
+    /// `src/` moves a number and fails here, whether or not any test ever
+    /// runs it.
+    ///
+    /// It does not read a computed kind — nothing static can. What it
+    /// guarantees is that **no such call site can be added in silence**.
+    #[test]
+    fn every_operator_call_site_is_accounted_for() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let files = rust_files(&src);
+        assert!(
+            files.len() > 100,
+            "only {} source files found under {}: the sweep read the wrong tree",
+            files.len(),
+            src.display()
+        );
+        let (mut calls, mut literal) = (0usize, 0usize);
+        let mut computed: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for (path, text) in &files {
+            let here = operator_calls_in(text).len();
+            if here == 0 {
+                continue;
+            }
+            let named = kinds_named_in(text).len();
+            calls += here;
+            literal += named;
+            let p = path.strip_prefix(&src).unwrap_or(path);
+            let left = here.saturating_sub(named);
+            if left > 0 {
+                computed.insert(p.display().to_string(), left);
+            }
+        }
+        // The positive bar: a walk that matched nothing would otherwise pass
+        // every check below it, which is the very bug this test exists for.
+        assert!(
+            calls >= 40 && literal >= 10,
+            "the walk found {calls} operator call sites, {literal} of them naming \
+             a literal kind: it matched almost nothing, so it holds nothing. \
+             Fix operator_calls_in before trusting this test."
+        );
+
+        let spec = crate::complete::MustBeComplete {
+            item: "a file holding an operator call whose kind no sweep can read",
+            list: "outbox::tests::COMPUTED_SITES, the census",
+            world: "the walk of every to_operator/stage_to_operator call under \
+                    crates/theseus-core/src",
+            add: "a call site was added whose kind this crate's source does not \
+                  name. Put that kind in outbox::OPERATOR_KINDS (an unlisted \
+                  kind settles Failed, theseus-haw2b), make sure a test drives \
+                  the call so hold_operator_kind can see it, and then write the \
+                  file's new count into COMPUTED_SITES",
+            drop: "a call site went, or its kind became a literal: write the \
+                   file's new count into COMPUTED_SITES, or delete its row",
+            // 25 files held 29 such calls when this was written; a bar of
+            // 20 files is low enough not to need an edit for every move and
+            // high enough that a walk which stopped matching fails here.
+            least: 20,
+            stale_fails: true,
+        };
+        let walked = crate::complete::check(
+            &spec,
+            COMPUTED_SITES
+                .iter()
+                .map(|(p, n)| (format!("{p}: {n} with a computed kind"), String::new())),
+            computed
+                .iter()
+                .map(|(p, n)| (format!("{p}: {n} with a computed kind"), String::new())),
+        );
+        assert!(walked >= 20, "{walked} files walked");
     }
 
     /// Staged is listed, at run time (theseus-gm7bd): a kind nobody listed
