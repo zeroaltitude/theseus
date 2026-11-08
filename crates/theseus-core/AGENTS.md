@@ -15,8 +15,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   served inside one, a class higher for each `AGE_STEP` (30 s) waited; a slot given back goes to exactly the next turn,
   and the kernel counts no ceiling for a queued turn (`Kernel::admit_queued`, `admit_input_queued`). A foreground job's
   wait lends its slot after `LEND_AFTER` (2 s; `toolrun/job.rs`) and retakes one at its class's head; a wake's or
-  task's wait fails when no turn was admitted for `[kernel] admission_stuck_secs` (600), class `admission_stuck`; a person's
-  never does (in the queue, or behind their own execution's previous turn): it waits another window. In the queue,
+  task's wait is told (once) at `[kernel] admission_stuck_secs` (600) with no turn admitted, and fails only at 24 such windows of a still queue, or of a wait behind its own execution's turn that has work in flight (class `admission_stuck`, theseus-p1mv9); a held turn with nothing in flight is reconsidered at the window as before; a person's
+  never fails (in the queue, or behind their own execution's previous turn): it waits another window. In the queue,
   one notice an episode names the holders (`Admission::set_notice`, ended by the queue's next movement); behind its
   own previous turn it waits silently, ended by that turn ending (`/stop` included). The queue is
   `ToolRuntime::admission`. Tests: `turn/tests_admission.rs`, `tests_m3/admission.rs`. A turn's end and a late

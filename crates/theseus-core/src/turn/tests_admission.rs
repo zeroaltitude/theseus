@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::{Admission, Class, Notice, Slot, AGE_STEP};
+use theseus_kernel::patience::CEILING_FACTOR;
 
 const STUCK: Duration = Duration::from_secs(600);
 
@@ -205,16 +206,14 @@ async fn a_stuck_queue_fails_its_waiter_with_words_that_say_so() {
         tokio::spawn(async move { adm.take(Class::Wake, false).await })
     };
     settle().await;
-    tokio::time::advance(STUCK - Duration::from_secs(1)).await;
-    settle().await;
-    assert!(!waiter.is_finished(), "not before the window");
-    tokio::time::advance(Duration::from_secs(2)).await;
+    advance_to_the_ceiling(&waiter).await;
     let stuck = waiter.await.unwrap().expect_err("a queue that never moved");
     let words = stuck.to_string();
     assert!(
-        words.starts_with("admission is stuck: no turn was admitted for 600 s"),
+        words.starts_with("admission is stuck: no turn was admitted for 14400 s"),
         "{words}"
     );
+    assert!(words.contains("24 times the 600 s window"), "{words}");
     assert!(words.contains("wake turn"), "{words}");
     assert!(words.contains("2 of 2 slots held"), "{words}");
     assert_eq!(adm.load(), (2, 0), "the failed waiter left the queue");
@@ -534,6 +533,13 @@ fn held_for_good(adm: &Arc<Admission>) -> Slot {
     held
 }
 
+/// A ceiling-2 queue's task limit is 1: this task turn holds it for good.
+fn held_for_good_task(adm: &Arc<Admission>) -> Slot {
+    let mut held = adm.try_take(Class::Task).expect("a free slot");
+    held.bind("exe_held_task");
+    held
+}
+
 fn wait_as(
     adm: &Arc<Admission>,
     class: Class,
@@ -561,30 +567,92 @@ async fn a_person_waits_past_the_window_and_one_notice_names_the_holder() {
     assert!(notes[0].contains("1 of 1 slots held"), "{}", notes[0]);
 }
 
+/// Advance a paused clock a window at a time until `waiter` ends, at most
+/// one window past the ceiling: a wait that is cut is cut by the ceiling.
+async fn advance_to_the_ceiling<T>(waiter: &tokio::task::JoinHandle<T>) {
+    for _ in 0..=CEILING_FACTOR {
+        if waiter.is_finished() {
+            return;
+        }
+        tokio::time::advance(STUCK).await;
+        settle().await;
+    }
+}
+
 #[tokio::test(start_paused = true)]
-async fn a_task_waiter_still_fails_on_the_window() {
+async fn a_task_waiter_is_not_failed_at_the_window_and_is_told_once() {
     let adm = Admission::new(1, STUCK);
     let notes = told(&adm);
     let _held = held_for_good(&adm);
     let waiter = wait_as(&adm, Class::Task);
     settle().await;
-    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
-    let stuck = waiter.await.unwrap().expect_err("a queue that never moved");
-    assert_eq!(
-        stuck,
-        super::Stuck {
-            window_s: 600,
-            class: "task",
-            in_use: 1,
-            ceiling: 1,
-            waiting: 0,
-        }
-    );
-    assert_eq!(adm.load(), (1, 0), "the failed waiter left the queue");
+    for _ in 0..3 {
+        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+        settle().await;
+    }
     assert!(
-        notes.lock().unwrap().is_empty(),
-        "a task's failure is told by its error"
+        !waiter.is_finished(),
+        "a queue still for 3 windows ends no task turn: a clock alone cuts nothing"
     );
+    assert_eq!(adm.load(), (1, 1), "the waiter is still queued");
+    let notes = notes.lock().unwrap();
+    assert_eq!(notes.len(), 1, "one notice an episode: {notes:?}");
+    assert!(notes[0].contains("task turn"), "{}", notes[0]);
+    assert!(notes[0].contains("exe_held for 601 s"), "{}", notes[0]);
+    drop(notes);
+    waiter.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_or_wake_waiter_in_a_queue_that_never_moves_ends_at_the_ceiling_and_says_why() {
+    for class in [Class::Task, Class::Wake] {
+        let adm = Admission::new(1, STUCK);
+        let notes = told(&adm);
+        let _held = held_for_good(&adm);
+        let waiter = wait_as(&adm, class);
+        settle().await;
+        advance_to_the_ceiling(&waiter).await;
+        let stuck = waiter.await.unwrap().expect_err("a queue that never moved");
+        assert_eq!(
+            stuck,
+            super::Stuck {
+                window_s: 14_400,
+                limit_s: 600,
+                class: class.as_str(),
+                in_use: 1,
+                ceiling: 1,
+                waiting: 0,
+            }
+        );
+        assert_eq!(adm.load(), (1, 0), "the failed waiter left the queue");
+        assert_eq!(notes.lock().unwrap().len(), 1, "told once, then cut");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_waiter_in_a_queue_that_keeps_moving_is_never_cut_by_the_ceiling() {
+    // Ceiling 2: the other slot turns over every 5 windows, so the queue
+    // moves, and the waiter (kept at its task limit) waits 30 windows, past
+    // the 24-window ceiling, and is not cut.
+    let adm = Admission::new(2, STUCK);
+    let _held = held_for_good_task(&adm);
+    let waiter = wait_as(&adm, Class::Task);
+    settle().await;
+    for _ in 0..6 {
+        for _ in 0..5 {
+            tokio::time::advance(STUCK).await;
+            settle().await;
+        }
+        // A wake takes the free slot and gives it back: a turn admitted.
+        let w = adm.try_take(Class::Wake).expect("the slot is free");
+        drop(w);
+        settle().await;
+    }
+    assert!(
+        !waiter.is_finished(),
+        "a queue that moved is slow, never stuck: 30 windows waited, past the ceiling"
+    );
+    waiter.abort();
 }
 
 #[tokio::test(start_paused = true)]
@@ -736,7 +804,7 @@ async fn a_task_turn_that_is_not_the_owners_input_still_fails_on_the_window() {
     let _held = held_for_good(&adm);
     let waiter = wait_typed(&adm, Class::Task, false);
     settle().await;
-    tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+    advance_to_the_ceiling(&waiter).await;
     let stuck = waiter.await.unwrap().expect_err("a queue that never moved");
     assert_eq!(stuck.class, "task");
     assert_eq!(adm.load(), (1, 0), "the failed waiter left the queue");
@@ -889,6 +957,81 @@ mod behind_its_own_turn {
         owner.abort();
     }
 
+    /// Plans a model call on the held turn's execution and leaves it
+    /// unsettled: work the turn is waiting on, which has its own bounds.
+    fn work_in_flight(core: &Arc<Core>, turn: &theseus_kernel::TurnGuard) {
+        let p = theseus_kernel::Proposal {
+            tool: "fs.read".into(),
+            args: serde_json::json!({"path": "/tmp/example"}),
+            resource: None,
+            policy_context: serde_json::Value::Null,
+        };
+        core.kernel
+            .plan_action(turn, &p, theseus_kernel::RetryClass::NonRepeatable, None, 0)
+            .unwrap();
+    }
+
+    /// A wake behind its execution's turn that has work in flight is not
+    /// failed at the window, however many windows pass: the clock alone ends
+    /// nothing. It is told once. The ceiling (24 windows) still ends it, and
+    /// says so with the number.
+    #[tokio::test(start_paused = true)]
+    async fn a_wake_behind_a_turn_with_work_in_flight_is_cut_only_by_the_ceiling() {
+        let (core, _dir) = core();
+        let (exec, turn) = held_execution(&core, "ses_in_flight", SessionKind::Conversation);
+        work_in_flight(&core, &turn);
+        let wake = admit_as(&core, &exec, Class::Wake, false);
+        settle().await;
+        for _ in 0..4 {
+            tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+            settle().await;
+        }
+        assert!(
+            !wake.is_finished(),
+            "four windows behind a turn that is working end nothing (it was cut at 2)"
+        );
+        advance_to_the_ceiling(&wake).await;
+        let failed = within("the ceiling's failure", wake).await.unwrap();
+        let words = failed.expect_err("the ceiling ends it");
+        assert!(
+            words.contains("24 times the 600 s window")
+                && words.contains("still has work in flight"),
+            "{words}"
+        );
+    }
+
+    /// A turn that is held with nothing in flight is the wedged one: it is
+    /// reconsidered and then ends exactly as before.
+    #[tokio::test(start_paused = true)]
+    async fn a_wake_behind_a_turn_with_nothing_in_flight_still_ends_at_two_windows() {
+        let (core, _dir) = core();
+        let (exec, _turn) = held_execution(&core, "ses_wedged", SessionKind::Conversation);
+        let wake = admit_as(&core, &exec, Class::Wake, false);
+        settle().await;
+        for _ in 0..2 {
+            tokio::time::advance(STUCK + Duration::from_secs(1)).await;
+            settle().await;
+        }
+        let failed = within("the wedged turn's failure", wake).await.unwrap();
+        assert!(failed.is_err_and(|e| e.contains(WORDS)));
+    }
+
+    /// A person's typed input behind its own turn is never failed, with work
+    /// in flight or without, past the ceiling.
+    #[tokio::test(start_paused = true)]
+    async fn typed_input_behind_its_own_turn_is_never_failed_even_past_the_ceiling() {
+        let (core, _dir) = core();
+        let (exec, _turn) = held_execution(&core, "ses_typed", SessionKind::Conversation);
+        let person = admit_as(&core, &exec, Class::Person, false);
+        settle().await;
+        for _ in 0..=(CEILING_FACTOR + 1) {
+            tokio::time::advance(STUCK).await;
+            settle().await;
+        }
+        assert!(!person.is_finished());
+        person.abort();
+    }
+
     /// Every slot held by turns that never end, on an execution of its own
     /// that is free: the wait is for a slot (`Admission::take`'s window), not
     /// for the execution's turn.
@@ -943,10 +1086,16 @@ mod behind_its_own_turn {
             "one window no longer fails a task turn: it is reconsidered, and with no adviser the \
              course is to keep going"
         );
-        // A second window: the adviser could not answer twice, so the site
-        // falls back to the behaviour it had before the reconsideration.
-        tokio::time::advance(STUCK + Duration::from_secs(1)).await;
-        settle().await;
+        // Past the ceiling the queue's wait is cut and reconsidered (the
+        // first reconsideration keeps it going), and past a second ceiling
+        // the adviser could not answer twice, so the site falls back.
+        for _ in 0..=(2 * CEILING_FACTOR + 1) {
+            if other.is_finished() {
+                break;
+            }
+            tokio::time::advance(STUCK).await;
+            settle().await;
+        }
         let failed = within("the other task turn's failure", other)
             .await
             .unwrap();
