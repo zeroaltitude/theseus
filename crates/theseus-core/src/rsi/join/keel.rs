@@ -97,9 +97,12 @@ pub const CLASSES: &[Class] = &[
         why: "what a session is labelled, which model may see it, and what leaves the machine",
         paths: &[
             // The provider chokepoint and the turn's floor: the two places
-            // the restricted-origin rule is enforced.
+            // the restricted-origin rule is enforced, and the predicate both
+            // spend their whole decision on. `content*.rs` below does not
+            // reach into `content/`, so the predicate is named outright.
             "crates/theseus-core/src/data_gate.rs",
             "crates/theseus-core/src/turn/data_step.rs",
+            "crates/theseus-core/src/content/cn.rs",
             // Jev's pick runs under that floor.
             "crates/theseus-core/src/routing.rs",
             // The classifier, its asks, its facts, its scene, its wait, the
@@ -474,6 +477,7 @@ mod tests {
             "crates/theseus-core/src/turn/data_step.rs",
             "crates/theseus-core/src/routing.rs",
             "crates/theseus-core/src/content.rs",
+            "crates/theseus-core/src/content/cn.rs",
             "crates/theseus-core/src/content_scene.rs",
             "crates/theseus-core/src/content_wait.rs",
             "crates/theseus-core/src/turn/content_step.rs",
