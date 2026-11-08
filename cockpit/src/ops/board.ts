@@ -406,10 +406,24 @@ export function countersOf(rows: readonly OpsRow[], now: number, spentUsd: numbe
   return { working: n('working'), paused: n('paused'), still: n('scheduled'), done: rows.filter((r) => r.counted && r.column === 'done' && (r.endedMs ?? r.activityMs) >= today).length, spent: spentUsd }
 }
 
+/** The cards the needs-you counter counts, and the Needs column holds. */
+const needsCards = (rows: readonly OpsRow[]): OpsRow[] => rows.filter((r) => r.counted && r.column != null && r.bucket === 'needs')
+
 /** Needs you: pieces of work (`needsPerCard`), or every ask separately. */
 export function needsOf(rows: readonly OpsRow[], calls: OwnerCalls = OWNER_CALLS): number {
-  const cards = rows.filter((r) => r.counted && r.column != null && r.bucket === 'needs')
+  const cards = needsCards(rows)
   return calls.needsPerCard ? cards.length : cards.reduce((n, r) => n + r.asks, 0)
+}
+
+/** The cards the counter counts that no queue item names (theseus-emqbm): a record blocked or waiting on a person, a
+ *  task whose list entry counts questions the confirm list lacks. They wait on the owner without an ask to answer, so
+ *  the panel lists each as its own entry, after the asks: it never says nothing waits while the counter says 1. */
+export const unaskedCards = (rows: readonly OpsRow[]): OpsRow[] => needsCards(rows).filter((r) => r.asks === 0 && r.kind !== 'ask')
+
+/** The cards the Needs-you panel names, the counter's own and no others: those a queue item waits on (and the asks no
+ *  card owns), then `unaskedCards`. */
+export function listedCards(rows: readonly OpsRow[]): OpsRow[] {
+  return [...needsCards(rows).filter((r) => r.asks > 0 || r.kind === 'ask'), ...unaskedCards(rows)]
 }
 
 export interface AllCounters extends Counters { needs: number }

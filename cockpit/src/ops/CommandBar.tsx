@@ -1,6 +1,7 @@
 // The command bar (theseus-jid7t.3): the counters, each also a filter (click, or its key) with its last hour as a
-// sparkline in its tone and the same numbers as a table (`?table=ops.counters`); the needs-you counter glows while
-// anything waits and pulses once when it rises. Then the lens switch, the filter chips, the search with its "n of m",
+// sparkline in its tone and the same numbers as a table (`?table=ops.counters`); the needs-you counter marks its number
+// while anything waits and pulses once when it rises. The tiles are ONE single-select filter (`ops/tiles.ts`): only the
+// chosen tile is lit, and its click clears it. Then the lens switch, the filter chips, the search with its "n of m",
 // and New task.
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Plus, Search, X } from 'lucide-react'
@@ -14,6 +15,7 @@ import { HelpButton } from '@/components/Help'
 import { LENSES, type Bucket, type Filters, type FilterKey, type Lens } from './address'
 import { counterLabel } from './board'
 import { OWNER_CALLS, type OwnerCalls } from './state'
+import { tileLook, toggleBucket, type TileLook } from './tiles'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 
@@ -54,7 +56,7 @@ export function CommandBar({ calls = OWNER_CALLS, counts, f, onFilter, lens, onL
     <div className="flex flex-col gap-2" data-testid="ops-bar">
       <div className="flex flex-wrap items-stretch gap-2">
         {COUNTERS.map((c) => (
-          <Counter key={c.b} c={c} label={counterLabel(c.b, calls)} value={counts[c.b]} series={hist[c.b]} active={f.bucket === c.b} onClick={() => onFilter('bucket', f.bucket === c.b ? null : c.b)} />
+          <Counter key={c.b} c={c} label={counterLabel(c.b, calls)} value={counts[c.b]} series={hist[c.b]} look={tileLook(c.b, counts[c.b], f.bucket)} onClick={() => onFilter('bucket', toggleBucket(f, c.b).bucket ?? null)} />
         ))}
         {lens === 'timeline' && timeline && <TimelineCounters {...timeline} />}
         <span className="ml-auto flex items-center gap-2">
@@ -90,23 +92,23 @@ export function CommandBar({ calls = OWNER_CALLS, counts, f, onFilter, lens, onL
   )
 }
 
-function Counter({ c, label, value, series, active, onClick }: { c: (typeof COUNTERS)[number]; label: string; value: number; series: number[]; active: boolean; onClick: () => void }) {
+function Counter({ c, label, value, series, look, onClick }: { c: (typeof COUNTERS)[number]; label: string; value: number; series: number[]; look: TileLook; onClick: () => void }) {
   // The needs-you counter pulses once when it rises; Calm stills it (index.css).
   const was = useRef(value)
   const [pulse, setPulse] = useState(0)
   useEffect(() => { if (c.b === 'needs' && value > was.current) setPulse((p) => p + 1); was.current = value }, [value, c.b])
-  const glow = c.b === 'needs' && value > 0
   const pts = sparkPoints(series.length > 1 ? series : [value, value], 64, 16)
+  // Only the chosen tile wears the ring and the glow; a tile that asks for attention marks its number with a dot.
   return (
-    <button key={pulse} onClick={onClick} aria-pressed={active} title={`${label}${c.key ? ` (${c.key})` : ''}: ${value} on the Board and the Graph. A click shows only these, with their parents as context; click again, × or Esc to clear`}
-      className={cn('flex min-w-[118px] flex-col gap-0.5 rounded-lg bg-hull/70 px-2.5 py-1.5 text-left ring-1 transition-shadow',
-        active ? 'ring-gold shadow-[0_0_14px_-3px_rgb(214_165_72_/_0.6)]' : 'ring-line hover:ring-line-strong',
-        glow && !active && 'ring-wait/60 shadow-[0_0_16px_-4px_var(--color-wait)]', pulse > 0 && 'ops-pulse-once')}>
+    <button key={pulse} onClick={onClick} aria-pressed={look.pressed} title={`${label}${c.key ? ` (${c.key})` : ''}: ${value} on the Board and the Graph. A click shows only these, with their parents as context; click again, × or Esc to clear`}
+      className={cn('flex min-w-[118px] flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-left ring-1 transition-shadow',
+        look.lit ? 'bg-gold/10 ring-gold shadow-[0_0_14px_-3px_rgb(214_165_72_/_0.6)]' : 'bg-hull/70 ring-line hover:ring-line-strong', pulse > 0 && 'ops-pulse-once')}>
       <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-ink-faint">
-        <span style={{ color: toneHex[c.tone] }} aria-hidden>{c.glyph}</span>{label}{c.key && <span className="kbd ml-auto !text-[9.5px]">{c.key}</span>}
+        <span style={{ color: toneHex[c.tone] }} aria-hidden>{c.glyph}</span>{label}{look.pressed ? <X size={10} className="ml-auto text-gold" aria-hidden /> : c.key && <span className="kbd ml-auto !text-[9.5px]">{c.key}</span>}
       </span>
       <span className="flex items-end gap-2">
         <span className="num text-[18px] font-semibold leading-none" style={{ color: c.b === 'needs' && value === 0 ? undefined : toneHex[c.tone] }}>{c.b === 'spent' ? usd(value) : value}</span>
+        {look.attention && <span className="mb-1 size-1.5 rounded-full bg-wait" title="something waits for you" aria-hidden />}
         <svg width={64} height={16} className="ml-auto" aria-hidden><polyline points={pts} fill="none" stroke={toneHex[c.tone]} strokeWidth={1.25} strokeLinejoin="round" /></svg>
       </span>
     </button>

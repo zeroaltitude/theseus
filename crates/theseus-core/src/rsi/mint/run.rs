@@ -492,14 +492,34 @@ impl Core {
             arm_usd: self.cfg.route_bench.whole_usd,
             turns: cfg.replay_turns as usize,
         };
-        ab_replay(
+        let report = ab_replay(
             &arms,
             &self.runner.self_budget,
             &pending.placeholder,
             &ids,
             &caps,
         )
-        .await
+        .await?;
+        // The owner is told when the mint's own line stopped it
+        // (theseus-3i6d1, D4); the self budget's lines tell for themselves.
+        if report
+            .stopped
+            .as_deref()
+            .is_some_and(|s| s.starts_with("[self.mint] usd"))
+        {
+            self.outbox.notify_rule(
+                None,
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D4,
+                    outcome: crate::rule_notice::Outcome::Stopped,
+                    limit_usd: caps.mint_usd,
+                    figure_usd: report.spent_usd,
+                    scope: &pending.placeholder,
+                    detail: &format!("The mint of {} stops here.", pending.placeholder),
+                },
+            );
+        }
+        Ok(report)
     }
 }
 

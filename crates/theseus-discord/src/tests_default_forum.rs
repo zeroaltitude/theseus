@@ -193,6 +193,16 @@ fn last_tags(r: &Rig, post: u64) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The name a post carries now.
+fn last_name(r: &Rig, post: u64) -> String {
+    r.fake
+        .threads()
+        .into_iter()
+        .find(|t| t.id == post)
+        .and_then(|t| t.names.last().cloned())
+        .unwrap_or_default()
+}
+
 pub(crate) fn dm_lines(r: &Rig, needle: &str) -> usize {
     r.posted(ANA_DM)
         .iter()
@@ -896,6 +906,10 @@ async fn a_dm_task_with_a_channel_gets_an_index_card_linking_it() {
         last_tags(&r, card.id) == [tag_id(&r, forum, "done")]
     })
     .await;
+    until(&r, "the card's name takes the end's mark", || {
+        last_name(&r, card.id).starts_with("✅ ")
+    })
+    .await;
 }
 
 /// A DM task whose post was its place, moved to a channel when it qualifies
@@ -932,6 +946,10 @@ async fn a_promoted_tasks_post_stays_as_its_index_card_and_is_tagged_done() {
         last_tags(&r, post.id) == [tag_id(&r, forum, "done")]
     })
     .await;
+    until(&r, "the post's name takes the end's mark", || {
+        last_name(&r, post.id).starts_with("✅ ")
+    })
+    .await;
     let now = r
         .fake
         .threads()
@@ -941,6 +959,12 @@ async fn a_promoted_tasks_post_stays_as_its_index_card_and_is_tagged_done() {
     assert!(
         !now.archived,
         "the post stays open as the index card: {now:?}"
+    );
+    assert_eq!(
+        now.names.iter().filter(|n| n.starts_with("✅ ")).count(),
+        1,
+        "renamed once, by the one that ends it: {:?}",
+        now.names
     );
 }
 

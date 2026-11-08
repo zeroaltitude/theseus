@@ -408,7 +408,10 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   Anything but `Post` gets an **index card** from the worker (its card links `TaskThreads::url_of`, its tag follows the state to the
   end, its channel is routed to the place that told of the task so that `index_of` can answer a message there with one quiet line and
   start nothing). `TaskPosts::moved` is the seam for a task promoted to a channel of its own. Activity threads are untouched
-  (`[threads] discord_channel` alone). A tag edit carries `archived: false`. Tests: `tests_default_forum.rs`, the fake's
+  (`[threads] discord_channel` alone). A tag edit carries `archived: false`. **A post that is not its task's place** (an index card,
+  a promoted task's post, a bound task forum's post) **is renamed once when its task ends**, `✅` or `❌` as the thread's name is
+  (`Worker::name_at_end`, `Slot.named`; theseus-emqbm; a post made in its final state, an owed one, is looked at again at once for its
+  name); a post that is the place is renamed by `finish_task_thread`. Tests: `tests_default_forum.rs`, the fake's
   `fake_discord/forums.rs` (`refuse_forum`, `forums_made`, `rename_forum`, `archive_thread`), and `forum.rs`'s.
   **A read post leaves within the hour after its day** (theseus-wy8pt, `runtime/forum/archive.rs`): the archive has its own tick
   (`ARCHIVE_TICK`, one hour, spawned by `sweep_task_channels`; `sweep_once` still archives at the start and daily), and a post
@@ -712,7 +715,9 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   (the value first, so one at the limit leaves no piece behind), and is edited in with an empty `allowed_mentions`.
   The general arm, `/prompt`, `/why` and `/digest` use it; a command that edits in its reply calls it, and never
   `update_response` directly. `tests_command_reply.rs` presses `/status` against the fake, which records each
-  reply's `allowed_mentions`.
+  reply's `allowed_mentions`. The paths that do not edit (`Shared::followup`, `respond` and `say_ephemeral`,
+  theseus-emqbm) call `command_reply::leaving`, the same mask and cut: a new path that sends text to an interaction
+  does the same, and gets its four tests in that file.
 - **Slash commands are bare names** (`/new`, `/stop`, `/trust`, …), and each control has one effect (Item 9).
 
 ## Tests

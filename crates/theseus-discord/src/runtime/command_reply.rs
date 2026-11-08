@@ -5,6 +5,13 @@
 //! the general arm answers come through `Shared::finish_command`; a new command
 //! that edits in its reply does the same, so the three rules are kept in one
 //! place and not once per command.
+//!
+//! The three paths that answer without an edit (theseus-emqbm) share the first
+//! and last rules through `leaving`, since `finish_command` is an edit of the
+//! original reply and none of them is: `Shared::followup` makes a new ephemeral
+//! message, and `Shared::respond` and `Shared::say_ephemeral` are the
+//! interaction's first answer, before there is a reply to edit. Their
+//! `allowed_mentions` were always empty.
 
 use theseus_core::exits::Exits;
 use twilight_model::application::interaction::Interaction;

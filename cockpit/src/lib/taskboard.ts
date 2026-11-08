@@ -74,6 +74,12 @@ export function reportLineOf(nodes: ReadonlyArray<{ kind: string; text?: string 
   return last?.text?.split('\n').map((l) => l.trim()).find(Boolean)
 }
 
+/** A task's whole report: the same last assistant message `reportLineOf` takes the first line of, in full. */
+export function reportTextOf(nodes: ReadonlyArray<{ kind: string; text?: string | null }> | undefined): string | undefined {
+  const last = [...(nodes ?? [])].reverse().find((n) => n.kind === 'assistant_message' && n.text)
+  return last?.text?.trim() || undefined
+}
+
 /** A search over title, report line and short id: every word must be found, in any case. */
 export function matches(r: TaskRow, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)

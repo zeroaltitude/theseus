@@ -124,6 +124,20 @@ impl TurnRunner {
             decision: HARD_STOP_CLASS,
         });
         let words = format!("{}: {h}", Self::who(t));
+        // The owner is told as well (theseus-3i6d1, rule A4): the limit is the
+        // hard stop's amount, the figure what the session had spent and held
+        // plus what this call needed. Once a session.
+        t.tc.outbox.notify_rule(
+            Some(t.tc.session_id),
+            crate::rule_notice::Notice {
+                rule: crate::rule_notice::Rule::A4,
+                outcome: crate::rule_notice::Outcome::Refused,
+                limit_usd: micros_to_usd(h.cap()),
+                figure_usd: micros_to_usd(h.spent.saturating_add(h.held).saturating_add(h.needed)),
+                scope: t.tc.session_id,
+                detail: &words,
+            },
+        );
         Failure {
             class: HARD_STOP_CLASS.into(),
             transient: false,

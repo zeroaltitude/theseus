@@ -23,17 +23,25 @@
 //!
 //! A turn waiting on a foreground job lends its slot after [`LEND_AFTER`]
 //! (`toolrun/job.rs`) and takes one again at its class's head when the job
-//! ends. A wait fails only when the queue has not moved, no turn admitted,
-//! for the stuck window (`[kernel] admission_stuck_secs`, 600 s): a long
-//! queue that moves is slow, never stuck.
+//! ends. **A clock alone ends no wait** (theseus-p1mv9). When the queue has not
+//! moved, no turn admitted, for the stuck window (`[kernel] admission_stuck_secs`,
+//! 600 s), the waiter goes on waiting and one quiet notice names the turns holding
+//! the slots and for how long, once per stuck episode (it ends when the queue
+//! moves). A queue that moves is slow, never stuck. Only a wait that is not a
+//! person's typed input, whose queue has stayed still for the ceiling,
+//! [`CEILING_FACTOR`] windows (the shape of `theseus_kernel::patience`: a bound on
+//! silence with a ceiling that names itself), fails, and says so with the number.
 //!
-//! A person's wait is the exception: a typed message is never failed by the
-//! window. When the queue has not moved for it, the waiter goes on waiting
-//! and one quiet notice names the turns holding the slots and for how long,
-//! once per stuck episode (it ends when the queue moves). A typed message is
-//! a conversation's person input, or the owner's input into a task
-//! ([`Class::is_typed`]; theseus-fzaep): the owner's queues in the task class
-//! but is not failed. Wakes and every other task turn fail as before.
+//! A person's wait is the exception: a typed message is never failed, at any
+//! length of stillness. A typed message is a conversation's person input, or the
+//! owner's input into a task ([`Class::is_typed`]; theseus-fzaep): the owner's
+//! queues in the task class but is not failed. Wakes and every other task turn are
+//! told and cut as above.
+//!
+//! The second wait, behind the same execution's previous turn (`TurnRunner::admit`),
+//! reads a signal instead: a held turn with an action in flight is working, so the
+//! waiter tells the owner once and waits on, to the same ceiling; a held turn with
+//! nothing in flight is reconsidered at the window and ends as it did before.
 //!
 //! The kernel counts no ceiling for a turn this queue admitted
 //! (`Kernel::admit_queued`): a turn that lent its slot still holds its turn
@@ -48,6 +56,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant as StdInstant};
 
 use anyhow::Result;
+use theseus_kernel::patience::CEILING_FACTOR;
 use theseus_kernel::{KernelError, TurnGuard};
 use theseus_store::frames_written_here;
 use tokio::sync::{oneshot, Notify};
@@ -175,15 +184,20 @@ pub struct Queued {
     pub ticket: u64,
 }
 
-/// Why a wait for a slot failed: no turn was admitted for the whole window.
+/// Why a wait for a slot failed: no turn was admitted for the ceiling, the
+/// stuck window times [`CEILING_FACTOR`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(
-    "admission is stuck: no turn was admitted for {window_s} s while this {class} turn waited \
-     ({in_use} of {ceiling} slots held, {waiting} waiting). A queue that moves never fails a \
-     turn: the turns holding the slots are not ending"
+    "admission is stuck: no turn was admitted for {window_s} s (the ceiling, {CEILING_FACTOR} \
+     times the {limit_s} s window) while this {class} turn waited ({in_use} of {ceiling} slots \
+     held, {waiting} waiting). A queue that moves never fails a turn: the turns holding the \
+     slots are not ending"
 )]
 pub struct Stuck {
+    /// How long the queue had not moved when the wait was cut.
     pub window_s: u64,
+    /// `[kernel] admission_stuck_secs`: the window the ceiling is a multiple of.
+    pub limit_s: u64,
     pub class: &'static str,
     pub in_use: u32,
     pub ceiling: u32,
@@ -445,7 +459,7 @@ impl Admission {
 
     /// The words of the stuck notice: the turns holding slots and how long
     /// each has held one (execution ids and durations only).
-    fn stuck_notice(&self, s: &State, now: Instant) -> String {
+    fn stuck_notice(&self, s: &State, now: Instant, class: Class, typed: bool) -> String {
         let mut held: Vec<(String, Duration)> = self
             .bound
             .lock()
@@ -460,9 +474,24 @@ impl Admission {
             .map(|(id, d)| format!("{id} for {} s", d.as_secs()))
             .collect::<Vec<_>>()
             .join(", ");
+        let who = if typed {
+            "A typed message".to_string()
+        } else {
+            format!("A {} turn", class.as_str())
+        };
+        let ends = if typed {
+            String::new()
+        } else {
+            format!(
+                " It ends only if the queue stays still for {} s ({CEILING_FACTOR} windows).",
+                self.stuck
+                    .as_secs()
+                    .saturating_mul(u64::from(CEILING_FACTOR))
+            )
+        };
         format!(
-            "A typed message is waiting for a turn slot, and no turn has been admitted for {} s \
-             ({} of {} slots held, {} waiting). It keeps waiting. Holding: {}.",
+            "{who} is waiting for a turn slot, and no turn has been admitted for {} s \
+             ({} of {} slots held, {} waiting). It keeps waiting.{ends} Holding: {}.",
             self.stuck.as_secs(),
             s.in_use,
             self.ceiling,
@@ -590,7 +619,8 @@ impl Admission {
         front: bool,
         typed: bool,
     ) -> Result<Slot, Stuck> {
-        let mut since = Instant::now();
+        let origin = Instant::now();
+        let mut since = origin;
         let (ticket, joined) = self.join(class, front);
         let mut rx = match joined {
             Ok(()) => return Ok(self.slot(class, ticket)),
@@ -620,20 +650,26 @@ impl Admission {
                 g.keep();
                 return Ok(self.slot(class, ticket));
             }
-            if typed {
-                // A person's wait is never failed: it stays in its queue, its
-                // receiver open, and waits another window. One notice an
-                // episode, which the queue's next movement ends.
-                let now = Instant::now();
-                // The failure path below is the only other sweep, and a
-                // person's wait no longer reaches it: clear the waiters
-                // whose turn went away.
+            // The queue has not moved for the window. That says when to tell,
+            // never what to end (theseus-p1mv9): only a queue that has not
+            // moved for the ceiling, `CEILING_FACTOR` windows, ends a wait
+            // that is not a person's typed input, and it says so.
+            let now = Instant::now();
+            let silent = now.saturating_duration_since(s.moved.max(origin));
+            if typed || silent < self.stuck.saturating_mul(CEILING_FACTOR) {
+                // The wait stays in its queue, its receiver open, and waits
+                // another window. One notice an episode, which the queue's
+                // next movement ends.
+                //
+                // The failure path below is the only other sweep, and this
+                // wait no longer reaches it: clear the waiters whose turn
+                // went away.
                 for q in &mut s.queues {
                     q.retain(|w| !w.tx.is_closed());
                 }
                 let told = (s.told != Some(s.moved)).then(|| {
                     s.told = Some(s.moved);
-                    self.stuck_notice(&s, now)
+                    self.stuck_notice(&s, now, class, typed)
                 });
                 drop(s);
                 if let (Some(text), Some(n)) = (told, self.notice.get()) {
@@ -649,7 +685,8 @@ impl Admission {
                 q.retain(|w| !w.tx.is_closed());
             }
             return Err(Stuck {
-                window_s: self.stuck.as_secs(),
+                window_s: silent.as_secs(),
+                limit_s: self.stuck.as_secs(),
                 class: class.as_str(),
                 in_use: s.in_use,
                 ceiling: self.ceiling,
@@ -831,6 +868,71 @@ impl TurnRunner {
         !(r.course.stops() || r.fall_back)
     }
 
+    /// The window has passed with a wake's or task's turn still behind its own
+    /// execution's turn (theseus-p1mv9): wait on while that turn works, cut at
+    /// the ceiling, and reconsider a held turn with nothing in flight.
+    async fn own_turn_window_passed(
+        &self,
+        exec_id: &str,
+        arrived: StdInstant,
+        class: Class,
+        window: Duration,
+        began: Instant,
+        told: &mut bool,
+    ) -> Result<()> {
+        let queue = &self.tools.admission;
+        let ceiling = window.saturating_mul(CEILING_FACTOR);
+        let waited = began.elapsed();
+        let working = self.previous_turn_in_flight(exec_id);
+        if working && waited < ceiling {
+            if !*told {
+                *told = true;
+                queue.tell(&format!(
+                    "A {} turn is waiting for its execution's previous turn to \
+                     end, {} s so far. That turn has work in flight, so this one \
+                     keeps waiting. It ends only if the wait reaches {} s \
+                     ({CEILING_FACTOR} windows).",
+                    class.as_str(),
+                    waited.as_secs(),
+                    ceiling.as_secs(),
+                ));
+            }
+        } else if working || !self.wait_out_its_own_turn(exec_id, arrived, window).await {
+            return Err(turn_error(
+                "admission_stuck",
+                "",
+                "",
+                arrived.elapsed().as_millis() as u64,
+                if working {
+                    anyhow::anyhow!(
+                        "admission is stuck: this execution's turn did not end in \
+                         {} s (the ceiling, {CEILING_FACTOR} times the {} s \
+                         window, though it still has work in flight)",
+                        waited.as_secs(),
+                        window.as_secs()
+                    )
+                } else {
+                    anyhow::anyhow!(
+                        "admission is stuck: this execution's turn did not end in \
+                         {} s",
+                        window.as_secs()
+                    )
+                },
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether the turn holding `exec_id` has work in flight: an action
+    /// planned and not settled. Such a turn waits on a model call or a tool
+    /// with a deadline and a patience of its own, so it is working. A read
+    /// that fails says no, which is the behaviour from before this signal.
+    fn previous_turn_in_flight(&self, exec_id: &str) -> bool {
+        self.kernel
+            .unsettled_actions(exec_id)
+            .is_ok_and(|open| !open.is_empty())
+    }
+
     /// A slot and the kernel's turn of `exec_id`, waiting in `class`'s queue.
     /// With `wait` (an input's turn), it waits for another turn held on the
     /// same execution to end, and wakes the execution in the same frame when
@@ -856,6 +958,10 @@ impl TurnRunner {
         // wake, fail as before.
         let typed = class.is_typed(owner);
         let mut front = false;
+        // When this turn first found its execution's turn held, and whether
+        // the owner has been told it keeps waiting (theseus-p1mv9).
+        let mut held_since: Option<Instant> = None;
+        let mut told = false;
         loop {
             let mut slot = self
                 .slot_or_reconsider(exec_id, arrived, class, typed, &mut front)
@@ -902,20 +1008,22 @@ impl TurnRunner {
                     // for this execution's own previous turn to end. Both
                     // had to move, or the window would still end healthy
                     // work on a clock by the other door.
-                    if tokio::time::timeout(window, ended).await.is_err()
-                        && !typed
-                        && !self.wait_out_its_own_turn(exec_id, arrived, window).await
-                    {
-                        return Err(turn_error(
-                            "admission_stuck",
-                            "",
-                            "",
-                            arrived.elapsed().as_millis() as u64,
-                            anyhow::anyhow!(
-                                "admission is stuck: this execution's turn did not end in {} s",
-                                window.as_secs()
-                            ),
-                        ));
+                    //
+                    // **Progress, not the clock (theseus-p1mv9).** The window
+                    // says when to look, never what to end. At the window the
+                    // turn that holds the execution is looked at: with work in
+                    // flight (an action planned and not settled, which has its
+                    // own deadline and its own patience) it is working, and
+                    // this turn tells the owner once and waits on, to a
+                    // ceiling of `CEILING_FACTOR` windows. With nothing in
+                    // flight it is held and doing nothing: the wait is
+                    // reconsidered as before, and fails when that falls back.
+                    let began = *held_since.get_or_insert_with(Instant::now);
+                    if tokio::time::timeout(window, ended).await.is_err() && !typed {
+                        self.own_turn_window_passed(
+                            exec_id, arrived, class, window, began, &mut told,
+                        )
+                        .await?;
                     }
                     front = true;
                 }

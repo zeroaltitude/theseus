@@ -361,6 +361,35 @@ fn forbidden_env(name: &str) -> bool {
         || n == "LD_LIBRARY_PATH"
 }
 
+/// The job environment from `[tools] proc_env`: each configured name the
+/// secret rule lets through and `lookup` finds, with its value, and, apart,
+/// the configured names the rule removed (so a caller can say so).
+fn resolve_proc_env(
+    names: &[String],
+    lookup: impl Fn(&str) -> Option<String>,
+) -> (Vec<(String, String)>, Vec<String>) {
+    let (refused, allowed): (Vec<&String>, Vec<&String>) =
+        names.iter().partition(|k| forbidden_env(k));
+    let kept = allowed
+        .into_iter()
+        .filter_map(|k| lookup(k).map(|v| (k.clone(), v)))
+        .collect();
+    (kept, refused.into_iter().cloned().collect())
+}
+
+/// `resolve_proc_env` over the daemon's own environment; the names the secret
+/// rule removed are warned about, never dropped silently.
+fn job_env(names: &[String]) -> Vec<(String, String)> {
+    let (env, refused) = resolve_proc_env(names, |k| std::env::var(k).ok());
+    if !refused.is_empty() {
+        tracing::warn!(
+            names = %refused.join(", "),
+            "[tools] proc_env names these, and no job sees them: their names look like secrets"
+        );
+    }
+    env
+}
+
 /// `text` cut to about `max` characters when it is longer: its head and its
 /// tail, each on a line's edge where the text has one near the cut, and
 /// between them one line that says how much is not shown, and how to get it
@@ -1912,12 +1941,7 @@ pub fn build_runtime(
     // runs until a call, or the daemon's check after serving.
     let aws = crate::aws::Aws::from_config(&cfg.aws, secrets.clone()).filter(|_| t.enabled);
     let google = crate::google::build(cfg, &secrets, t.enabled);
-    let proc_env: Vec<(String, String)> = t
-        .proc_env
-        .iter()
-        .filter(|k| !forbidden_env(k))
-        .filter_map(|k| std::env::var(k).ok().map(|v| (k.clone(), v)))
-        .collect();
+    let proc_env = job_env(&t.proc_env);
     // The language servers (L2): their tools when [lsp] is on. Nothing
     // starts until a call for a file of a server's language.
     let lsp = (t.enabled && cfg.lsp.enabled)
@@ -2165,6 +2189,91 @@ mod tests {
         assert!(forbidden_env("GITHUB_TOKEN"));
         assert!(forbidden_env("aws_secret_access_key"));
         assert!(!forbidden_env("RUST_LOG"));
+    }
+
+    fn fake_env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |k| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The positive: the owner's toolchain names, in the daemon's environment,
+    /// reach `proc_env` with their values (theseus-v4cj).
+    #[test]
+    fn proc_env_carries_the_toolchain_with_its_values() {
+        let env = fake_env(&[
+            ("VIRTUAL_ENV", "/opt/example/venv"),
+            ("NVM_DIR", "/opt/example/nvm"),
+            ("JAVA_HOME", "/opt/example/jdk"),
+        ]);
+        let (kept, refused) =
+            resolve_proc_env(&crate::config::ToolsConfig::default().proc_env, env);
+        assert!(refused.is_empty(), "{refused:?}");
+        for (k, v) in [
+            ("VIRTUAL_ENV", "/opt/example/venv"),
+            ("NVM_DIR", "/opt/example/nvm"),
+            ("JAVA_HOME", "/opt/example/jdk"),
+        ] {
+            assert!(
+                kept.contains(&(k.to_string(), v.to_string())),
+                "{k}: {kept:?}"
+            );
+        }
+        assert_eq!(kept.len(), 3, "{kept:?}");
+    }
+
+    /// The negative, with the positive count beside it: secret-shaped names in
+    /// the daemon's environment, even when the owner lists them, never pass.
+    #[test]
+    fn proc_env_drops_every_secret_shaped_name_and_keeps_the_toolchain() {
+        let env = fake_env(&[
+            ("VIRTUAL_ENV", "/opt/example/venv"),
+            ("NVM_DIR", "/opt/example/nvm"),
+            ("JAVA_HOME", "/opt/example/jdk"),
+            ("AWS_SECRET_ACCESS_KEY", "example-a"),
+            ("OP_SERVICE_ACCOUNT_TOKEN", "example-b"),
+            ("GITHUB_TOKEN", "example-c"),
+            ("ANTHROPIC_API_KEY", "example-d"),
+            ("THESEUS_CONFIG", "example-e"),
+        ]);
+        let mut configured = crate::config::ToolsConfig::default().proc_env;
+        let secrets = [
+            "AWS_SECRET_ACCESS_KEY",
+            "OP_SERVICE_ACCOUNT_TOKEN",
+            "GITHUB_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "THESEUS_CONFIG",
+        ];
+        configured.extend(secrets.iter().map(|s| s.to_string()));
+        let (kept, refused) = resolve_proc_env(&configured, env);
+        let kept_names: Vec<&str> = kept.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(kept.len(), 3, "{kept_names:?}");
+        for k in ["VIRTUAL_ENV", "NVM_DIR", "JAVA_HOME"] {
+            assert!(kept_names.contains(&k), "{k}");
+        }
+        for k in secrets {
+            assert!(!kept_names.contains(&k), "{k} reached a job");
+        }
+        // And each is reported, not silently dropped.
+        assert_eq!(refused, names(&secrets));
+    }
+
+    /// No default name is swallowed by the secret rule, or the row silently
+    /// does not work.
+    #[test]
+    fn no_default_proc_env_name_is_forbidden() {
+        let d = crate::config::ToolsConfig::default().proc_env;
+        assert!(d.len() >= 9, "{d:?}");
+        for k in &d {
+            assert!(!forbidden_env(k), "{k} is a default and forbidden");
+        }
     }
 
     /// A cut lands on lines' edges, says how many lines and characters are

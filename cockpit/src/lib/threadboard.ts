@@ -68,7 +68,7 @@ export function applyChanged(s: BoardState, c: WorkChanged): BoardState {
 }
 
 /** An open task, question or wake (`ops/state.ts`: waiting counts as open), or one that failed and has not been looked
- *  at. A suspended record keeps its task's work open though its execution ended. */
+ *  at. A suspended record keeps its task's work open though its execution ended out of budget, never a cancelled one. */
 function listed(v: WorkView, records: ReadonlyMap<string, TaskRecord>): boolean {
   return ['task', 'question', 'wake'].includes(v.kind) && openView(v, v.session_id ? records.get(v.session_id) : undefined)
 }

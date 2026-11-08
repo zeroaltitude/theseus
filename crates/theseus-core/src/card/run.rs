@@ -317,6 +317,17 @@ impl Core {
             need,
         );
         if micros_to_usd(need) > left {
+            self.outbox.notify_rule(
+                None,
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D16,
+                    outcome: crate::rule_notice::Outcome::Refused,
+                    limit_usd: job.cfg.day_usd,
+                    figure_usd: job.cfg.day_usd - left + micros_to_usd(need),
+                    scope: &job.today,
+                    detail: "The call's worst case would pass what is left, so it was not made.",
+                },
+            );
             out.stopped = Some(format!(
                 "budget: ${:.2} of [card] day_usd ${:.2} is left, under a call's worst case (${:.2})",
                 left,

@@ -750,11 +750,41 @@ impl JudgeService {
                     let rec = self.rec(n, None, None);
                     said.iter().for_each(|s| s.announce(&rec));
                 }
+                self.rule_told(said);
                 true
             }
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "judge: the budget's frame was not written");
                 false
+            }
+        }
+    }
+
+    /// The owner is told of the day's first skip, with the rule and the
+    /// figure (theseus-3i6d1, D1): a `Said::Paused` is written once a day a
+    /// class, so this speaks once a day too.
+    fn rule_told(&self, said: &[spend::Said]) {
+        let Some(core) = self.core() else { return };
+        for s in said {
+            if let spend::Said::Paused {
+                class,
+                day,
+                limit,
+                spent,
+                needed,
+            } = s
+            {
+                core.outbox.notify_rule(
+                    None,
+                    crate::rule_notice::Notice {
+                        rule: crate::rule_notice::Rule::D1,
+                        outcome: crate::rule_notice::Outcome::Skipped,
+                        limit_usd: theseus_kernel::micros_to_usd(*limit),
+                        figure_usd: theseus_kernel::micros_to_usd(spent.saturating_add(*needed)),
+                        scope: &format!("{day}:{class:?}"),
+                        detail: &format!("a {class:?} judgment would pass the day's budget, so it was skipped and counted."),
+                    },
+                );
             }
         }
     }

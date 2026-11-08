@@ -17,10 +17,14 @@
 //! edited yet counts no unchecked loops, and after its first edit a loop that
 //! read ground the turn had not read before (a path, a pattern, a slice of a
 //! file from a new first line), every read answering, resets the count like a
-//! passing command. That count is the steer's. The stop keeps its own
-//! (`since_check`), which only a passing command resets, because the stop is
-//! the only thing that enforces a deadline and reading must not delay it. The
-//! rule:
+//! passing command. So does a failing command whose failure is new to the
+//! turn (`failure_key`, theseus-fez4q): the owner's ruling is that a failing
+//! check is a progress attempt, so a failure that moves is progress, and a
+//! stall is the same failure loop after loop. The turn's first failure is the
+//! baseline, not a move; one it has met before (the same red again, or a red
+//! that flips between two) is not a move either. That count is the steer's.
+//! The stop keeps its own (`since_check`), which only a passing command
+//! resets, for the clock's backstop (theseus-fez4q). The rule:
 //!
 //! - **Nothing** while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
 //!   loops (or, for the steer, new ground was read in them): work that passes
@@ -30,10 +34,25 @@
 //!   a guard (a guarded turn ends at its limit anyway): a harness note that
 //!   says what was used and that it is not a stop. With a failing check it
 //!   asks for the smallest step that can make it pass.
-//! - **A stop** at `STOP_SHARE` of the deadline (time only: under the owner's
-//!   notify rule spend never stops a turn): a harness note that asks for a
-//!   report with no tool calls, and the next loop is the turn's last (its
-//!   stop reason `progress_stop`).
+//! - **A stop**: a harness note that asks for a report with no tool calls, and
+//!   the next loop is the turn's last (its stop reason `progress_stop`). It
+//!   fires on progress, never on spend (under the owner's notify rule spend
+//!   never stops a turn), by one of three conditions (`StopCondition`, named
+//!   in the row):
+//!   - `stalled`: `STALL_LOOPS` loops with no passing check, no new ground
+//!     read after the turn's first edit and no failure it had not met (the
+//!     steer's count; a build in the background holds it). It needs no
+//!     deadline, so a turn that has none, as a DM's has none, can be stopped
+//!     by it; with one it can fire at any share of it, but only on the same
+//!     failure, not on a failure that moves.
+//!   - `clock`: `STOP_SHARE` of the deadline, with `MIN_LOOPS_WITHOUT_PASS`
+//!     loops since a passing check, unless the turn has edited and read new
+//!     ground in the last of them: progress postpones the clock, but only to
+//!     the backstop.
+//!   - `clock_backstop`: `HARD_STOP_SHARE` of the deadline, whatever was read.
+//!     The stop is the only thing that enforces a deadline, so a pure progress
+//!     rule is not enough: a turn that reads new ground for ever would never
+//!     report, and the report needs a loop of its own.
 //!
 //! Each steer and stop is a `turn.progress` row with the numbers that fired
 //! it. The notes are harness nodes appended after the loop's results, outside
@@ -44,6 +63,8 @@
 //! ceiling): the state begins at the turn's first loop, takes the deadline of
 //! the turn's own `turn.submit` (`clock_step::take_deadline`), and goes with
 //! the turn, however it ends.
+
+mod failure_key;
 
 use super::clock_step::Deadline;
 use super::*;
@@ -66,6 +87,13 @@ pub const STEER_SHARE: f64 = 0.5;
 /// at 15 minutes, about 2 left, room for one loop to write its report rather
 /// than be cut off at the limit with nothing said.
 pub const STOP_SHARE: f64 = 0.85;
+/// The share of its deadline at which the stop fires whatever the turn read:
+/// about 45 seconds of 15 minutes, the last loop that can still write a report.
+pub const HARD_STOP_SHARE: f64 = 0.95;
+/// Loops with no passing check and no new ground, after the turn's first edit,
+/// at which a turn is told to stop and report, with or without a deadline:
+/// twice the loops that make one try, one fix and one rerun.
+pub const STALL_LOOPS: u32 = 6;
 
 /// What the rule reads at a loop's end.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -90,6 +118,9 @@ pub struct Signals {
     /// the turn ends at it, so spend alone steers nothing. The spend is still
     /// reported.
     pub guarded: bool,
+    /// An edit call has answered without error in the turn: from then on
+    /// reading new ground is progress for the clock's stop too.
+    pub edited: bool,
 }
 
 /// What the rule decides.
@@ -110,12 +141,46 @@ impl Verdict {
     }
 }
 
+/// Which condition fired a stop (`turn.progress`'s `condition`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopCondition {
+    Stalled,
+    Clock,
+    ClockBackstop,
+}
+
+impl StopCondition {
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Stalled => "stalled",
+            Self::Clock => "clock",
+            Self::ClockBackstop => "clock_backstop",
+        }
+    }
+}
+
+/// The condition that stops the turn now, if one holds. Time only through
+/// the deadline's share, and never spend.
+pub fn stop_condition(s: &Signals) -> Option<StopCondition> {
+    let time = s.time.unwrap_or(0.0);
+    if s.since_check >= MIN_LOOPS_WITHOUT_PASS && time >= HARD_STOP_SHARE {
+        return Some(StopCondition::ClockBackstop);
+    }
+    // After an edit, new ground read in the last loops is progress.
+    let moving = s.edited && s.since_pass < MIN_LOOPS_WITHOUT_PASS;
+    if s.since_check >= MIN_LOOPS_WITHOUT_PASS && time >= STOP_SHARE && !moving {
+        return Some(StopCondition::Clock);
+    }
+    if s.since_pass >= STALL_LOOPS && s.since_check >= STALL_LOOPS {
+        return Some(StopCondition::Stalled);
+    }
+    None
+}
+
 /// The rule: `steered` is whether the turn was steered already.
 pub fn decide(s: &Signals, steered: bool) -> Verdict {
     let time = s.time.unwrap_or(0.0);
-    // The stop counts as the base did: nothing else enforces a deadline, so
-    // reading (which only quiets the steer) never delays it.
-    if s.since_check >= MIN_LOOPS_WITHOUT_PASS && time >= STOP_SHARE {
+    if stop_condition(s).is_some() {
         return Verdict::Stop;
     }
     if s.since_pass < MIN_LOOPS_WITHOUT_PASS {
@@ -146,6 +211,9 @@ pub(super) struct State {
     edited: bool,
     /// What the turn has read (keys, no contents), up to `SEEN_MAX`.
     seen: HashSet<String>,
+    /// The failures its checks have shown (`failure_key`), up to
+    /// `FAILURES_MAX`: a failure not among them has moved.
+    failures: HashSet<u64>,
     steered: bool,
     /// The stop was said: the next loop is the last.
     last: bool,
@@ -169,6 +237,7 @@ impl State {
             since_check: self.since_check,
             failing: self.failing,
             guarded,
+            edited: self.edited,
         }
     }
 
@@ -199,6 +268,8 @@ impl State {
                 self.seen.insert(k);
             }
         }
+        // A failure the turn has not met moved: its check is a progress attempt.
+        let moved = check == Some(false) && self.moved(commands.failure);
         // The stop's count: a passing command resets it, and nothing else does.
         self.since_check = match check {
             Some(true) => 0,
@@ -207,6 +278,7 @@ impl State {
         };
         match check {
             Some(true) => (self.since_pass, self.failing) = (0, 0),
+            Some(false) if moved => (self.since_pass, self.failing) = (0, 0),
             Some(false) => {
                 (self.since_pass, self.failing) = (self.since_pass + 1, self.failing + 1)
             }
@@ -219,10 +291,28 @@ impl State {
             None => self.since_pass += 1,
         }
     }
+
+    /// Whether a failing check's `key` (`failure_key::key`) is a move: one
+    /// the turn has not met before. The turn's first failure is the baseline,
+    /// not a move, so the same red six times stalls in six loops; a red it has
+    /// met (the same again, or a flip between two) is none either. A check
+    /// whose text could not be read has no key and moves nothing.
+    fn moved(&mut self, key: Option<u64>) -> bool {
+        let Some(key) = key else { return false };
+        let baseline = self.failures.is_empty();
+        // Past the cap nothing is new, as with the reads.
+        let new = self.failures.len() < FAILURES_MAX && self.failures.insert(key);
+        new && !baseline
+    }
 }
 
 /// The read keys a turn remembers: past them nothing new is coverage.
 const SEEN_MAX: usize = 4096;
+/// The failure keys a turn remembers: past them no failure is new.
+const FAILURES_MAX: usize = 256;
+/// The nodes a loop's failed commands' results are looked for among, newest
+/// first: a result is one of the last a turn wrote.
+const RESULT_WINDOW: usize = 64;
 /// The tools that change a file, and the read-only ones that open a path.
 const EDITS: [&str; 3] = ["fs.write", "fs.edit", "fs.patch"];
 const READS: [&str; 4] = ["fs.read", "fs.list", "fs.glob", "fs.grep"];
@@ -249,6 +339,11 @@ pub(super) struct Commands {
     reads: Vec<String>,
     /// A `job.wait` or `job.read` answered without error.
     job_touched: bool,
+    /// The calls (`tool_use` ids) of the commands that answered with an error.
+    failed_ids: Vec<String>,
+    /// What the loop's failing check says (`failure_key::key`), set at the
+    /// loop's end by the runner, which reads the results.
+    failure: Option<u64>,
 }
 
 impl Commands {
@@ -256,6 +351,9 @@ impl Commands {
     pub(super) fn note_use(&mut self, u: &ToolUse, outcome: Option<bool>) {
         self.note(&u.name, outcome);
         let Some(error) = outcome else { return };
+        if error && is_command(&u.name) {
+            self.failed_ids.push(u.id.clone());
+        }
         let is = |canon: &str| u.name == canon || u.name == theseus_tools::wire_name(canon);
         if !error && JOB_CALLS.iter().any(|t| is(t)) {
             self.job_touched = true;
@@ -332,6 +430,7 @@ fn with<R>(t: &mut Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
             failing: 0,
             edited: false,
             seen: HashSet::new(),
+            failures: HashSet::new(),
             steered: false,
             last: false,
             running: HashSet::new(),
@@ -362,7 +461,10 @@ impl TurnRunner {
     /// failure: whether the turn goes on. `going_on` is the advancer's word.
     pub(super) fn progress(&self, t: &mut Turn<'_>, i: u32, going_on: bool) -> Result<bool> {
         let guarded = self.cfg.kernel.spend_limit_mode == crate::config::SpendLimitMode::Ask;
-        let commands = std::mem::take(&mut t.checkpoint.commands);
+        let mut commands = std::mem::take(&mut t.checkpoint.commands);
+        // A failing check is told apart by what it says, read from its result.
+        commands.failure = (commands.check() == Some(false))
+            .then(|| failure_key::key(&failed_text(t, &commands.failed_ids)));
         let cost = t.cost;
         let now = Instant::now();
         // Read from the kernel; an unreadable one counts the loop as before.
@@ -399,6 +501,37 @@ impl TurnRunner {
     }
 }
 
+/// What the commands `ids` answered with, from the turn's transcript, where
+/// their results are among the last nodes. A transcript that cannot be read
+/// says nothing.
+fn failed_text(t: &Turn<'_>, ids: &[String]) -> String {
+    let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) else {
+        return String::new();
+    };
+    let mut text = String::new();
+    let mut found = 0;
+    for (_, n) in nodes.iter().rev().take(RESULT_WINDOW) {
+        let crate::node::Body::ToolResult {
+            tool_use_id,
+            content,
+            late: false,
+            ..
+        } = &n.body
+        else {
+            continue;
+        };
+        if ids.contains(tool_use_id) {
+            text.push_str(content);
+            text.push('\n');
+            found += 1;
+        }
+        if found == ids.len() {
+            break;
+        }
+    }
+    text
+}
+
 /// A decision the turn's progress made at loop `i`: its `turn.progress` row,
 /// with the numbers that fired it, and the harness node `text` after the
 /// loop's results.
@@ -419,6 +552,9 @@ pub(super) fn tell(
         deadline_ms: deadline.map(|d| d.at.saturating_duration_since(d.from).as_millis() as u64),
         spent_usd: cost,
         limit_usd: limit.map(micros_to_usd),
+        condition: (decision == "stop")
+            .then(|| stop_condition(signals).map(StopCondition::word))
+            .flatten(),
     });
     let node = Node::relayed(
         t.tc.session_id,
@@ -498,6 +634,11 @@ fn note(verdict: Verdict, used: &str, s: &Signals) -> String {
         f => format!("no check has passed in its last {loops} loops ({f} failed)"),
     };
     match verdict {
+        Verdict::Stop if used.is_empty() => format!(
+            "[The harness: {checks}, and no new ground has been read since. Stop here: in your \
+             next answer make no tool calls, and report what is done, what is not, and why. \
+             That answer ends the turn.]"
+        ),
         Verdict::Stop => format!(
             "[The harness: this turn has used {used}, and {checks}. Stop here: in your next \
              answer make no tool calls, and report what is done, what is not, and why. That \
@@ -527,6 +668,7 @@ mod tests {
             since_check: since_pass,
             failing,
             guarded: false,
+            edited: false,
         }
     }
 
@@ -534,6 +676,12 @@ mod tests {
     /// passed no check.
     fn reading(mut sig: Signals, since_check: u32) -> Signals {
         sig.since_check = since_check;
+        sig
+    }
+
+    /// The same for a turn that has edited.
+    fn edited(mut sig: Signals) -> Signals {
+        sig.edited = true;
         sig
     }
 
@@ -550,8 +698,8 @@ mod tests {
         use Verdict::{Nothing, Steer, Stop};
         let rows: &[(Signals, bool, Verdict)] = &[
             // Nothing fires early, whatever the checks.
-            (s(Some(0.1), Some(0.1), 9, 9), false, Nothing),
-            (s(Some(0.49), Some(0.49), 9, 9), false, Nothing),
+            (s(Some(0.1), Some(0.1), 5, 5), false, Nothing),
+            (s(Some(0.49), Some(0.49), 5, 5), false, Nothing),
             // The steer at half the time, or half the spend.
             (s(Some(0.5), None, 3, 0), false, Steer),
             (s(Some(0.6), Some(0.1), 5, 5), false, Steer),
@@ -560,28 +708,34 @@ mod tests {
             // Spend alone steers neither a turn with no deadline nor a
             // guarded one; the time share still does.
             (s(None, Some(0.5), 4, 2), false, Nothing),
-            (s(None, Some(0.9), 40, 0), false, Nothing),
+            (s(None, Some(0.9), 5, 0), false, Nothing),
             (guarded(s(Some(0.1), Some(0.7), 4, 2)), false, Nothing),
             (guarded(s(Some(0.5), Some(0.1), 3, 0)), false, Steer),
             (guarded(s(Some(0.6), Some(0.9), 3, 3)), false, Steer),
             (guarded(s(Some(0.85), None, 3, 0)), false, Stop),
             (guarded(s(Some(0.9), Some(0.1), 7, 7)), true, Stop),
-            (s(Some(0.2), Some(0.7), 6, 1), false, Steer),
+            (s(Some(0.2), Some(0.7), 5, 1), false, Steer),
             // Once a turn.
-            (s(Some(0.7), Some(0.7), 6, 6), true, Nothing),
+            (s(Some(0.7), Some(0.7), 5, 5), true, Nothing),
             // The stop at 0.85 of the time, steered or not.
             (s(Some(0.85), None, 3, 3), false, Stop),
             (s(Some(0.9), Some(0.1), 7, 0), true, Stop),
             // Spend alone never stops.
-            (s(None, Some(3.0), 30, 30), true, Nothing),
-            (s(Some(0.1), Some(3.0), 30, 30), false, Steer),
-            (guarded(s(Some(0.1), Some(3.0), 30, 30)), false, Nothing),
+            (s(None, Some(3.0), 5, 5), true, Nothing),
+            (s(Some(0.1), Some(3.0), 5, 5), false, Steer),
+            (guarded(s(Some(0.1), Some(3.0), 5, 5)), false, Nothing),
+            // A stall stops with or without a deadline, and spend or none.
+            (s(None, None, 6, 6), false, Stop),
+            (s(None, Some(0.0), 50, 50), true, Stop),
+            (s(Some(0.1), None, 6, 0), false, Stop),
+            (guarded(s(None, Some(3.0), 9, 9)), false, Stop),
+            (s(None, None, 5, 5), false, Nothing),
             // A check passed in the last loops: nothing, at any share.
             (s(Some(0.99), Some(5.0), 0, 0), false, Nothing),
             (s(Some(0.9), Some(0.9), 1, 1), false, Nothing),
             (s(Some(0.9), Some(0.9), 2, 2), true, Nothing),
             // No deadline and no limit: nothing to measure.
-            (s(None, None, 50, 50), false, Nothing),
+            (s(None, None, 4, 4), false, Nothing),
             // Reading quiets the steer, never the stop: a turn that read new
             // ground (nothing unchecked, as far as the steer counts) has
             // still gone `since_check` loops without a passing check.
@@ -592,12 +746,65 @@ mod tests {
             (reading(s(Some(0.9), Some(0.1), 0, 0), 2), false, Nothing),
             (guarded(reading(s(Some(0.9), None, 0, 0), 4)), false, Stop),
             (reading(s(None, Some(3.0), 0, 0), 30), false, Nothing),
+            // After an edit, new ground is progress for the clock too, up to
+            // the backstop (the turn read in the last loops: since_pass < 3).
+            (edited(reading(s(Some(0.9), None, 0, 0), 5)), false, Nothing),
+            (edited(reading(s(Some(0.9), None, 2, 0), 5)), false, Nothing),
+            (edited(reading(s(Some(0.9), None, 3, 0), 5)), false, Stop),
+            (edited(reading(s(Some(0.95), None, 0, 0), 5)), false, Stop),
+            (
+                edited(reading(s(Some(0.95), None, 0, 0), 2)),
+                false,
+                Nothing,
+            ),
+            (reading(s(Some(0.9), None, 0, 0), 5), false, Stop),
+            // A stalled turn stops, new ground or not, once it has gone
+            // STALL_LOOPS without either.
+            (edited(s(Some(0.1), None, 6, 0)), false, Stop),
+            (
+                edited(reading(s(Some(0.1), None, 5, 0), 30)),
+                false,
+                Nothing,
+            ),
         ];
         for (signals, steered, want) in rows {
             assert_eq!(
                 decide(signals, *steered),
                 *want,
                 "{signals:?} steered={steered}"
+            );
+        }
+    }
+
+    /// Each stop names the condition that fired it, and spend is never one.
+    #[test]
+    fn a_stop_names_its_condition_and_never_spend() {
+        use StopCondition::{ClockBackstop, Stalled};
+        let at = |time: Option<f64>, spend: Option<f64>, pass: u32, check: u32, edited: bool| {
+            stop_condition(&Signals {
+                time,
+                spend,
+                since_pass: pass,
+                since_check: check,
+                failing: 0,
+                guarded: false,
+                edited,
+            })
+        };
+        assert_eq!(at(None, None, 6, 6, true), Some(Stalled));
+        assert_eq!(at(Some(0.2), None, 6, 6, false), Some(Stalled));
+        assert_eq!(
+            at(Some(0.85), None, 0, 3, false),
+            Some(StopCondition::Clock)
+        );
+        assert_eq!(at(Some(0.85), None, 0, 3, true), None);
+        assert_eq!(at(Some(0.96), None, 0, 3, true), Some(ClockBackstop));
+        for spend in [0.5, 3.0, 100.0] {
+            assert_eq!(at(None, Some(spend), 5, 5, true), None, "spend {spend}");
+            assert_eq!(
+                at(Some(0.1), Some(spend), 5, 5, true),
+                None,
+                "spend {spend}"
             );
         }
     }
@@ -623,6 +830,12 @@ mod tests {
              is left, then go on with the next item.]"
         );
         assert!(passing.contains("This is not a stop") && !passing.contains("smallest step"));
+        // No clock: no minutes named.
+        let stalled = note(Verdict::Stop, "", &s(None, None, 6, 0));
+        assert!(
+            stalled.starts_with("[The harness: no check has run in its last 6 loops, and no new"),
+            "{stalled}"
+        );
         let sig = s(Some(0.9), None, 8, 0);
         assert!(note(Verdict::Stop, "13 of its 15 minutes", &sig).contains(
             "no check has run in its last 8 loops. Stop here: in your next answer make no \
@@ -690,6 +903,7 @@ mod tests {
             failing: 0,
             edited: false,
             seen: HashSet::new(),
+            failures: HashSet::new(),
             steered: false,
             last: false,
             running: HashSet::new(),
@@ -744,6 +958,7 @@ mod tests {
             failing: 0,
             edited: true,
             seen: HashSet::new(),
+            failures: HashSet::new(),
             steered: false,
             last: false,
             running: HashSet::new(),
@@ -980,6 +1195,7 @@ mod tests {
                 since_check: st.since_check,
                 failing: st.failing,
                 guarded: false,
+                edited: st.edited,
             };
             decide(&sig, st.steered)
         };
@@ -1000,5 +1216,131 @@ mod tests {
         st.end_loop(Commands::default(), None);
         assert_eq!(at(&st, 0.55), Verdict::Steer);
         assert_eq!(at(&st, 0.9), Verdict::Stop);
+    }
+
+    /// A failing command whose failure has `key`.
+    fn red(key: u64) -> Commands {
+        let mut c = Commands::default();
+        c.note("proc_run", Some(true));
+        c.failure = Some(key);
+        c
+    }
+
+    /// A loop that edited and checked nothing.
+    fn edit() -> Commands {
+        Commands {
+            edited: true,
+            ..Commands::default()
+        }
+    }
+
+    /// The stop's condition for the turn at `time` of its deadline.
+    fn stop_at(st: &State, time: f64) -> Option<StopCondition> {
+        stop_condition(&Signals {
+            time: Some(time),
+            ..st.signals(None, Instant::now(), false)
+        })
+    }
+
+    /// The same failure six loops running is a stall, at any share of the
+    /// deadline (theseus-fez4q F1): the first failure is the baseline, so it is
+    /// the sixth loop, not the seventh.
+    #[test]
+    fn the_same_failure_six_loops_running_stalls() {
+        let mut st = edited_state();
+        for n in 1..=STALL_LOOPS {
+            st.end_loop(red(7), None);
+            assert_eq!(counts(&st), (n, n, n), "loop {n}");
+            let want = (n >= STALL_LOOPS).then_some(StopCondition::Stalled);
+            assert_eq!(stop_at(&st, 0.1), want, "loop {n}");
+        }
+        assert_eq!(st.failures.len(), 1);
+    }
+
+    /// A failure that moves is progress, and only the steer's count is
+    /// reset: edit, red, edit, red with each red another failure never stalls
+    /// at a tenth of the deadline, and the clock still ends the turn at its
+    /// backstop.
+    #[test]
+    fn a_failure_that_moves_resets_the_steers_count_and_not_the_stops() {
+        let mut st = edited_state();
+        st.end_loop(edit(), None);
+        let mut after_red = Vec::new();
+        for key in 1..=8 {
+            st.end_loop(red(key), None);
+            after_red.push(st.since_pass);
+            assert_eq!(stop_at(&st, 0.1), None, "red {key}");
+            st.end_loop(edit(), None);
+            assert_eq!(stop_at(&st, 0.1), None, "edit after red {key}");
+        }
+        assert_eq!(
+            after_red,
+            [2, 0, 0, 0, 0, 0, 0, 0],
+            "the first failure is the baseline, the rest moved"
+        );
+        assert_eq!(counts(&st), (1, 17, 0));
+        assert_eq!(st.failures.len(), 8);
+        assert_eq!(stop_at(&st, 0.9), None, "progress postpones the clock");
+        assert_eq!(stop_at(&st, 0.96), Some(StopCondition::ClockBackstop));
+    }
+
+    /// A flip between two failures is not a move the second time round.
+    #[test]
+    fn a_failure_that_flips_between_two_is_a_stall() {
+        let mut st = edited_state();
+        st.end_loop(edit(), None);
+        let mut after_red = Vec::new();
+        for key in [1, 2, 1, 2, 1, 2] {
+            st.end_loop(red(key), None);
+            after_red.push(st.since_pass);
+            st.end_loop(edit(), None);
+        }
+        assert_eq!(after_red, [2, 0, 2, 4, 6, 8]);
+        assert_eq!(st.failures.len(), 2);
+        assert_eq!(stop_at(&st, 0.1), Some(StopCondition::Stalled));
+    }
+
+    /// A failure met before a passing check is no move after it, and one the
+    /// turn has not met is; a full set moves nothing; a check whose text could
+    /// not be read has no key.
+    #[test]
+    fn what_counts_as_a_failure_the_turn_has_not_met() {
+        let mut st = edited_state();
+        st.end_loop(red(1), None);
+        let mut pass = Commands::default();
+        pass.note("proc_run", Some(false));
+        st.end_loop(pass, None);
+        assert_eq!(counts(&st), (0, 0, 0));
+        st.end_loop(red(1), None);
+        assert_eq!(st.since_pass, 1, "the same failure back is not a move");
+        st.end_loop(red(2), None);
+        assert_eq!(st.since_pass, 0, "another one is");
+        let mut unread = Commands::default();
+        unread.note("proc_run", Some(true));
+        assert_eq!(unread.failure, None);
+        st.end_loop(unread, None);
+        assert_eq!(st.since_pass, 1, "no key, no move");
+        let mut full = edited_state();
+        full.failures = (0..FAILURES_MAX as u64).collect();
+        full.end_loop(red(u64::MAX), None);
+        assert_eq!(full.since_pass, 1, "past the cap nothing is new");
+        assert_eq!(full.failures.len(), FAILURES_MAX);
+    }
+
+    /// The calls of the commands that failed are kept, by either name.
+    #[test]
+    fn a_failed_command_is_remembered_by_its_call() {
+        let call = |id: &str, tool: &str| ToolUse {
+            id: id.into(),
+            name: tool.into(),
+            input: serde_json::json!({}),
+        };
+        let mut c = Commands::default();
+        c.note_use(&call("a", "proc_run"), Some(true));
+        c.note_use(&call("b", "proc_run"), Some(false));
+        c.note_use(&call("c", "fs_read"), Some(true));
+        c.note_use(&call("d", "proc.run"), Some(true));
+        c.note_use(&call("e", "proc_run"), None);
+        assert_eq!(c.failed_ids, ["a", "d"]);
     }
 }

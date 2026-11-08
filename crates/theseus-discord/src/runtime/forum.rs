@@ -8,7 +8,11 @@
 //!   (`Place::sync_task_posts`: the tasks, the place's class and guild); the
 //!   worker is the only one that talks to the forum, one request at a time,
 //!   and keeps what it shows of each post (`Slot`). A task seen working with
-//!   no post gets one; the post is renamed never (the tags carry the state).
+//!   no post gets one. A post is named for its task and carries no mark while
+//!   the task runs (the tags carry the state); at the task's end, a post that
+//!   is not its task's place is renamed once as the guild thread is
+//!   (`threads::task_name`: `✅` done, `❌` failed, cancelled or expired,
+//!   theseus-emqbm). A post that is the place is renamed with its thread's row.
 //! - **The tags** are created once if the forum lacks them (`tag_ids`: its
 //!   available tags read, the missing ones added with the others kept; a
 //!   forum holds 20, a post 5, and a post here holds one). A tag edit is made
@@ -390,6 +394,16 @@ struct Slot {
     card_at: Option<Instant>,
     tag: Option<Tag>,
     tag_at: Option<Instant>,
+    /// The post took the mark of its task's end in its name (`Worker::name_at_end`).
+    named: bool,
+}
+
+impl Slot {
+    /// A finished task's post shows all of its last state: its card, its tag
+    /// and, unless the post is its task's place (`homed`), its name.
+    fn shows_the_end(&self, card: u64, tag: Tag, homed: bool) -> bool {
+        self.card == Some(card) && self.tag == Some(tag) && (homed || self.named)
+    }
 }
 
 /// The three paces (a test shortens them): how often a card and a post's
@@ -643,6 +657,7 @@ impl Worker {
                 card_at: None,
                 tag: None,
                 tag_at: None,
+                named: false,
             },
         );
         // Look at it again at once, now that it has a slot.
@@ -727,7 +742,8 @@ impl Worker {
                 self.keep_index(&key, link.as_deref(), id);
                 self.card_made(&key, id);
             }
-            return None;
+            // A post made in its final state is looked at again at once: its name is still to come.
+            return ended.then_some(Duration::ZERO);
         }
         let mut held: Option<Duration> = None;
         let mut earliest = |d: Option<Duration>| {
@@ -777,9 +793,11 @@ impl Worker {
                 w => earliest(w),
             }
         }
+        // The name, once, at the end.
+        earliest(self.name_at_end(&key, &view, homed).await);
         // Over, and its last state shown: the post leaves the list.
         let slot = self.slots.get(&key)?;
-        if ended && slot.card == Some(sent) && slot.tag == Some(want) {
+        if ended && slot.shows_the_end(sent, want, homed) {
             self.slots.remove(&key);
             let s = &self.shared;
             let mut bound = None;
@@ -1039,6 +1057,7 @@ impl Worker {
                 card_at: Some(now),
                 tag: ids.get(&want).map(|_| want),
                 tag_at: Some(now),
+                named: false,
             },
         );
         let s = &self.shared;
@@ -1075,6 +1094,58 @@ impl Worker {
             Ok(()) => true,
             Err(e) => {
                 self.shared.board.error("task forum card", None, e);
+                false
+            }
+        }
+    }
+
+    /// A post that is not its task's place takes the thread's mark in its name
+    /// once, when its task ends (`task_name`: `✅` done, `❌` failed, cancelled
+    /// or expired), as the guild thread's name does; a post that is the place is
+    /// renamed by `finish_task_thread`, with its thread's row. How long to wait
+    /// before trying again, if the rename failed.
+    async fn name_at_end(
+        &mut self,
+        key: &(String, u64),
+        view: &WorkView,
+        homed: bool,
+    ) -> Option<Duration> {
+        if !view.state.ended() || homed || self.slots.get(key)?.named {
+            return None;
+        }
+        let name = task_name(Mark::of(view.state), &view.id, &view.title);
+        if !self.set_name(key, &name).await {
+            return Some(self.backed_off(key));
+        }
+        self.failed.remove(key);
+        if let Some(s) = self.slots.get_mut(key) {
+            s.named = true;
+        }
+        None
+    }
+
+    /// The post's name, set to `name`. True when it went.
+    async fn set_name(&mut self, key: &(String, u64), name: &str) -> bool {
+        let Some(slot) = self.slots.get(key) else {
+            return false;
+        };
+        let req = Request::builder(&HttpRoute::UpdateChannel {
+            channel_id: slot.post.post,
+        })
+        // As a tag edit, a rename of an archived post unarchives it first.
+        .json(&json!({"name": name, "archived": false}))
+        .build();
+        let sent = match req {
+            Ok(r) => self.shared.http.request::<Value>(r).await.map(|_| ()),
+            Err(e) => {
+                self.shared.board.error("task forum name", None, e);
+                return false;
+            }
+        };
+        match sent {
+            Ok(()) => true,
+            Err(e) => {
+                self.shared.board.error("task forum name", None, e);
                 false
             }
         }
@@ -1359,6 +1430,103 @@ mod tests {
         tell(&mut w, "cancelled", false);
         w.drive().await;
         assert_eq!(last(), Some(vec![id_of("stopped")]));
+    }
+
+    /// The names a post carried after a task ran and then ended as `end`, and
+    /// the names it should have carried: made with no mark, then renamed once
+    /// with `mark`. The first drive makes the post, the second shows the end,
+    /// the third and fourth are the worker seeing nothing new.
+    async fn post_names_through(end: &str, mark: Mark) -> (Vec<String>, Vec<String>) {
+        use crate::runtime::voice_status::tests::view;
+
+        const ID: &str = "exe_01Jreef0chart0task";
+        const TITLE: &str = "Chart the reef";
+        let (r, mut w) = worker_over_the_fake().await;
+        let mut position = 0;
+        let mut tell = |w: &mut Worker, state: &str| {
+            position += 1;
+            let mut v = view(ID, "task", state, TITLE, None);
+            v.position = position;
+            w.see(Seen {
+                views: vec![v],
+                private: true,
+                guild: None,
+                links: HashMap::new(),
+                home: None,
+                homed: HashSet::new(),
+                parent: None,
+            });
+        };
+        tell(&mut w, "running");
+        w.drive().await;
+        tell(&mut w, end);
+        w.drive().await;
+        w.drive().await;
+        w.drive().await;
+        let posts: Vec<_> = r
+            .fake
+            .threads()
+            .into_iter()
+            .filter(|t| t.parent == FORUM)
+            .collect();
+        assert_eq!(posts.len(), 1, "one post: {posts:#?}");
+        let wanted = [post_name(ID, TITLE), task_name(mark, ID, TITLE)];
+        (posts[0].names.clone(), Vec::from(wanted))
+    }
+
+    /// A post that is not its task's place is renamed once when the task ends,
+    /// as the guild thread is (`threads.rs`): `✅` for done. Running, it
+    /// carries no mark, since its tag is the state.
+    #[tokio::test]
+    async fn a_finished_post_is_renamed_done_once_as_the_thread_is() {
+        let (names, wanted) = post_names_through("done", Mark::Done).await;
+        assert!(wanted[1].starts_with("✅ "), "{wanted:?}");
+        assert_eq!(names, wanted, "created unmarked, renamed once");
+    }
+
+    /// A failed, a cancelled and an expired task end `❌`, the thread's rule.
+    #[tokio::test]
+    async fn a_failed_cancelled_or_expired_post_is_renamed_failed() {
+        for end in ["failed", "cancelled", "expired"] {
+            let (names, wanted) = post_names_through(end, Mark::Failed).await;
+            assert!(wanted[1].starts_with("❌ "), "{wanted:?}");
+            assert_eq!(names, wanted, "{end}: renamed once");
+        }
+    }
+
+    /// A task already over when the worker first sees it, and owed its post
+    /// (it began after the binding did, theseus-hzdlf), gets the post in its
+    /// final state and is looked at again at once: the name takes the end's
+    /// mark without another task's change to wake the worker.
+    #[tokio::test]
+    async fn an_owed_posts_name_takes_the_mark_without_another_wake() {
+        use crate::runtime::voice_status::tests::view;
+
+        const ID: &str = "exe_01Jreef0chart0task";
+        const TITLE: &str = "Chart the reef";
+        let (r, mut w) = worker_over_the_fake().await;
+        let mut v = view(ID, "task", "done", TITLE, None);
+        v.started_at_ms = theseus_protocol::now_unix_ms() + 60_000;
+        w.see(Seen {
+            views: vec![v],
+            private: true,
+            guild: None,
+            links: HashMap::new(),
+            home: None,
+            homed: HashSet::new(),
+            parent: None,
+        });
+        let again = w.drive().await;
+        assert!(again.is_some(), "the new post is looked at again at once");
+        w.drive().await;
+        let names = r
+            .fake
+            .threads()
+            .into_iter()
+            .find(|t| t.parent == FORUM)
+            .map(|t| t.names);
+        let wanted = [post_name(ID, TITLE), task_name(Mark::Done, ID, TITLE)];
+        assert_eq!(names, Some(Vec::from(wanted)));
     }
 
     /// A forum made before the build holds four tags: it gains `paused` and

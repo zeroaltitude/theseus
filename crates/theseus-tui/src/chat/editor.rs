@@ -206,6 +206,37 @@ impl Editor {
         self.at = None;
     }
 
+    /// The word that ends at the cursor (back to whitespace or the start),
+    /// chips not counted as text: what a completion is of.
+    pub fn word_before_cursor(&self) -> String {
+        let mut word: Vec<char> = Vec::new();
+        for &c in self.buf[..self.cur].iter().rev() {
+            if c.is_whitespace() || self.chip(c).is_some() {
+                break;
+            }
+            word.push(c);
+        }
+        word.iter().rev().collect()
+    }
+
+    /// Replace the word that ends at the cursor with `with`.
+    pub fn replace_word_before_cursor(&mut self, with: &str) {
+        let n = self.word_before_cursor().chars().count();
+        self.leave_history();
+        self.buf.drain(self.cur - n..self.cur);
+        self.cur -= n;
+        self.insert_str(with);
+    }
+
+    /// What was typed, a paste (folded or not) never counted: a space stands
+    /// for each chip. Words only the person's own keys made.
+    pub fn typed_text(&self) -> String {
+        self.buf
+            .iter()
+            .map(|&c| if self.chip(c).is_some() { ' ' } else { c })
+            .collect()
+    }
+
     /// The text as it will be sent, chips written back whole.
     pub fn text(&self) -> String {
         self.buf.iter().map(|&c| self.expand(c)).collect()

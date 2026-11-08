@@ -551,6 +551,21 @@ impl Core {
         Ok(r)
     }
 
+    /// The owner is told (theseus-3i6d1, D7).
+    fn told_consolidation_stopped(&self, limit: Micros, figure: Micros) {
+        self.outbox.notify_rule(
+            None,
+            crate::rule_notice::Notice {
+                rule: crate::rule_notice::Rule::D7,
+                outcome: crate::rule_notice::Outcome::Stopped,
+                limit_usd: theseus_kernel::micros_to_usd(limit),
+                figure_usd: theseus_kernel::micros_to_usd(figure),
+                scope: &crate::rule_notice::today(),
+                detail: "Consolidation stops for the day.",
+            },
+        );
+    }
+
     /// One cluster's synthesis: the call under the day's limit, the checks,
     /// and its frame.
     #[allow(clippy::too_many_arguments)]
@@ -585,6 +600,7 @@ impl Core {
         self.runner
             .sweep_heads_up(SweepId::Consolidation, limit, *spent, need);
         if spent.saturating_add(need) > limit {
+            self.told_consolidation_stopped(limit, spent.saturating_add(need));
             return Ok(Step::Stop(format!(
                 "the next synthesis would reserve {}, past [memory] synth_limit_usd_per_day ({}) \
                  with {} spent today",

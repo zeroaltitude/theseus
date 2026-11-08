@@ -72,6 +72,8 @@ mod retry;
 mod rewind_cmd;
 mod routine;
 mod self_cmd;
+#[cfg(test)]
+mod spawn_args_tests;
 mod standing_cmd;
 mod status;
 mod status_notify;
@@ -148,6 +150,9 @@ to a running theseusd over its Unix socket, or spawns one on stdio with --spawn.
 argument or stdin; replies stream to stdout; diagnostics go to stderr; --json gives one JSON object for machines.",
     after_help = AFTER_HELP,
     args_conflicts_with_subcommands = false,
+    // `--spawn` takes an optional path: `theseus --spawn ask "..."` (the help's own example) has none,
+    // and without this clap reads `ask` as the daemon's path (theseus-4356).
+    subcommand_precedence_over_arg = true,
     disable_help_subcommand = true
 )]
 struct Cli {

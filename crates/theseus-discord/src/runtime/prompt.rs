@@ -322,9 +322,11 @@ impl Shared {
         }
     }
 
+    /// An ephemeral first answer: the interaction has no reply yet to edit, so
+    /// it leaves by `command_reply::leaving`'s rule rather than `finish_command`.
     pub(super) async fn say_ephemeral(&self, i: &Interaction, text: String) {
         let data = InteractionResponseData {
-            content: Some(text),
+            content: Some(super::command_reply::leaving(&self.core.exits, &text)),
             flags: Some(MessageFlags::EPHEMERAL),
             allowed_mentions: Some(twilight_model::channel::message::AllowedMentions::default()),
             ..Default::default()
