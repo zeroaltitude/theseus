@@ -11,7 +11,8 @@ import { ConfirmCard } from '@/components/ConfirmCard'
 import { Pill, StatePill } from '@/components/ui'
 import { cn, usd } from '@/lib/format'
 import type { OpsRow } from './board'
-import { cardFacts } from './facts'
+import { cardFacts, reportFacts, type CardFacts } from './facts'
+import { reportTextOf } from '@/lib/taskboard'
 import type { QueueItem } from './queue'
 import { Answers } from './Queue'
 import { ThreadBody } from './ThreadPanel'
@@ -118,6 +119,28 @@ function ItemWhole({ i, past }: { i: QueueItem; past: number | null }) {
   )
 }
 
+/** An ended task's report, labelled for what it is (`reportFacts`): `report (complete)` when the line is all of it, else
+ *  its first line with the whole report one click away. The whole is read from the task's session, the last message it
+ *  ended with, only for the selected card. */
+function ReportField({ r, f }: { r: OpsRow; f: CardFacts }) {
+  const line = r.task?.reportLine
+  const read = useRpc<{ nodes: { kind: string; text?: string | null }[] }>('session.history', { session_id: r.id, n: 3 }, 0, { enabled: f.report !== undefined && line !== undefined })
+  const [open, setOpen] = useState(false)
+  if (f.report === undefined) return null
+  const rf = reportFacts(line, read.data ? reportTextOf(read.data.nodes) ?? null : undefined)
+  if (!rf) return <><dt className="text-ink-faint">report</dt><dd className="text-ink-dim">{f.report}</dd></>
+  return (
+    <>
+      <dt className="text-ink-faint">{rf.label}</dt>
+      <dd className="text-ink-dim">
+        {rf.line}
+        {rf.more && <button onClick={() => setOpen(!open)} aria-expanded={open} className="ml-2 text-live hover:underline">{open ? 'hide the full report' : 'full report'}</button>}
+        {open && rf.full && <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-black/25 p-2 font-sans text-[11.5px] text-ink ring-1 ring-line" data-testid="full-report">{rf.full}</pre>}
+      </dd>
+    </>
+  )
+}
+
 /** A board row whole: the card's every field, its questions answered in place, and its verbs. */
 function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonly ConfirmRequest[]; past: number | null; now: number; cx: InspectorCx }) {
   const { busy, act, on } = useOpsAct()
@@ -135,7 +158,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
         {f.paused ? <Pill tone="wait">{f.pill}</Pill> : <StatePill state={f.pill} />}
         <span className="num text-[10.5px] text-ink-faint">{r.kind} · {f.short}</span>
         {r.data && r.data !== 'open' && <Pill tone="wait" title="the floor keeps this to models of US origin"><Lock size={10} /> {r.data}</Pill>}
-        {f.href && <Link to={f.href} className="ml-auto flex items-center gap-1 text-[11.5px] text-live hover:underline" title="o: its deck">{f.open} <ExternalLink size={11} /></Link>}
+        {f.links.map((l, i) => <Link key={l.label} to={l.href} className={cn('flex items-center gap-1 text-[11.5px] text-live hover:underline', i === 0 && 'ml-auto')} title={i === 0 ? `o: ${l.title}` : l.title}>{l.label} <ExternalLink size={11} /></Link>)}
       </div>
       <div className={r.kind === 'conversation' ? 'font-display text-[15px] font-bold tracking-[0.02em] text-ink' : 'text-[14px] font-semibold text-ink'}>{f.title}</div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
@@ -147,7 +170,7 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
         {f.due && <><dt className="text-ink-faint">due</dt><dd className="num text-think">{f.due}</dd></>}
         {f.waitsOn && <><dt className="text-ink-faint">waits</dt><dd className="text-ink-dim">{f.waitsOn}</dd></>}
         {f.outcome && <><dt className="text-ink-faint">outcome</dt><dd className="text-fault">{f.outcome}</dd></>}
-        {f.report && <><dt className="text-ink-faint">report</dt><dd className="text-ink-dim">{f.report}</dd></>}
+        <ReportField r={r} f={f} />
         {info && <><dt className="text-ink-faint">spend</dt><dd className="num text-money">{usd(info.spent_usd)} of {usd(info.limit_usd)}</dd></>}
         <dt className="text-ink-faint">changed</dt><dd className="num text-ink-dim">{f.activity}</dd>
       </dl>

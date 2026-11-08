@@ -46,6 +46,25 @@ export interface CardFacts {
   question?: string
   /** When it is due, for a scheduled row. */
   due?: string
+  /** Where the inspector sends the owner beside the title: its deck, and for a task or a conversation its transcript.
+   *  A task's forum post is not here: the daemon keeps that address in its Discord runtime and no protocol type
+   *  carries it to the page (theseus-emqbm). */
+  links: CardLink[]
+}
+
+export interface CardLink { label: string; href: string; title: string }
+
+/** An ended task's report as the inspector words it: the label over the line, and the whole report when the line is
+ *  only its start. `whole` is the report's whole text once read, null when the session holds none, undefined unread. */
+export interface ReportFacts { label: string; line: string; more: boolean; full?: string }
+
+export function reportFacts(line: string | undefined, whole: string | null | undefined): ReportFacts | undefined {
+  if (line === undefined) return undefined
+  const text = whole?.trim()
+  // A report not read, or one the session holds no text for, is never called complete: the line is its first line.
+  if (!text) return { label: 'report (first line)', line, more: false }
+  if (text === line.trim()) return { label: 'report (complete)', line, more: false }
+  return { label: 'report (first line)', line, more: true, full: text }
 }
 
 export function cardFacts(r: OpsRow, now: number): CardFacts {
@@ -79,7 +98,32 @@ export function cardFacts(r: OpsRow, now: number): CardFacts {
     approvals: r.column === 'needs' && !done,
     question: r.column === 'needs' && q ? `${q.prompt}${q.choices?.length ? ` · ${q.choices.join(' · ')}` : ''}` : undefined,
     due: r.dueMs != null ? `due ${when(r.dueMs, now)}${r.dueMs > now ? `, ${until(r.dueMs, now)}` : ''}` : undefined,
+    links: linksOf(r, living),
   }
+}
+
+/** The deck, and the transcript of what a session said and did: a task's or a conversation's own. */
+function linksOf(r: OpsRow, living: boolean): CardLink[] {
+  if (!r.sessionId) return []
+  const href = `/session/${r.sessionId}`
+  const out: CardLink[] = [{ label: living ? 'open · join' : 'open', href, title: 'its deck' }]
+  if (r.kind === 'task' || r.kind === 'conversation') out.push({ label: 'transcript', href, title: 'everything it said and did, in its deck' })
+  return out
+}
+
+/** A card the counter counts that no queue item names, as the panel's entry for it: what it is, why it waits, and for
+ *  how long (theseus-emqbm). */
+export interface WaitingFacts { key: string; glyph: string; kind: string; title: string; why: string; age: string; href?: string }
+
+export function waitingFacts(r: OpsRow, now: number): WaitingFacts {
+  const rec = r.record?.state
+  const pending = r.task?.info?.pending_confirms ?? 0
+  const why = rec === 'blocked' ? 'its record is blocked'
+    : rec === 'waiting_human' ? 'its record waits on a person'
+    : pending > 0 ? `${pending} ${pending === 1 ? 'question' : 'questions'} pending, none in the list`
+    : r.view?.attention.label ?? r.state ?? 'it waits for you'
+  const since = r.view?.attention.since_ms || r.task?.info?.attention?.since_ms || r.activityMs
+  return { key: r.id, glyph: '●', kind: rec === 'blocked' ? 'blocked' : 'waiting', title: r.title, why, age: ago(since, now), href: r.sessionId ? `/session/${r.sessionId}` : undefined }
 }
 
 /** A Coming up row's two times: when it is (`20:00`, `tomorrow 08:00`) and how far off (`in 2h 46m`). */
