@@ -46,6 +46,14 @@ use crate::store::Store;
 /// The class of a request the floor refused.
 pub const DATA_GATE_CLASS: &str = "data_gate";
 
+/// The words a refusal of a model of restricted origin is known by, once, for
+/// the floor that writes them and for every reader that must recognise them.
+/// A refusal reaches the typing metric as a bare string (`WarmFuture` is
+/// `Result<Warmed, String>`), so `rpc::typing` classifies it by these words:
+/// held here, the two cannot drift apart and leave the `refused` outcome
+/// quietly counting as `failed` (the owner, 2026-11-07).
+pub(crate) const RESTRICTED_ORIGIN: &str = "is of restricted origin";
+
 tokio::task_local! {
     /// The session a provider call is made for, which a refusal's row names.
     static CALLER: String;
@@ -157,7 +165,7 @@ impl Gated {
         self.blocked(model, origin, why);
         self.counted(why);
         Some(format!(
-            "{model} is of restricted origin ({}) and {said}; nothing was {did}",
+            "{model} {RESTRICTED_ORIGIN} ({}) and {said}; nothing was {did}",
             word(origin)
         ))
     }

@@ -117,9 +117,10 @@ impl Core {
         let tag = if let Some(why) = outcome.strip_prefix("failed: ") {
             // The data gate's refusal reaches here only as a string
             // (`WarmFuture` is `Result<Warmed, String>`), so it is known by
-            // its words; `telemetry::tests_warm` drives a real refusal and
-            // fails if they change.
-            if why.contains("is of restricted origin") {
+            // its words. They are the floor's own constant, so a reworded
+            // refusal cannot leave this match behind; `telemetry::tests_warm`
+            // drives a real refusal against that same constant.
+            if why.contains(crate::data_gate::RESTRICTED_ORIGIN) {
                 "refused"
             } else {
                 "failed"
