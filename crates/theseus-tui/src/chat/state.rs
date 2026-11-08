@@ -61,6 +61,8 @@ pub struct Cfg {
 pub enum Purpose {
     Health,
     Open,
+    /// `tool.list`, for the roots an `@` listing stays inside.
+    AtRoots,
     /// The newest sessions, for the banner's last conversation.
     ListLast,
     /// All sessions, to find the one a person named.
@@ -145,6 +147,12 @@ pub enum Effect {
     Call(Call),
     /// Write this directory's history file.
     SaveHistory(Vec<String>),
+    /// List the files under `dir`, if it is inside one of `roots`, off the
+    /// loop's thread; the answer is `Chat::at_walked` (`atfile.rs`).
+    ListFiles {
+        dir: String,
+        roots: Vec<String>,
+    },
     /// A ping for an Interrupt: the terminal's bell.
     Bell,
     /// The operator looked at the board at this position and time: the seen file.
@@ -237,6 +245,10 @@ pub struct Chat {
     /// The router's question that waits for an answer (`thread_ask.rs`).
     pub(super) thread_ask: Option<theseus_protocol::thread_route::ThreadAsk>,
     pub menu: usize,
+    /// The `@` file picker (`atfile.rs`).
+    pub(super) at: super::atfile::AtFiles,
+    /// Esc closed the slash menu; the next edit opens it again.
+    pub(super) menu_closed: bool,
     pub(super) started_ms: u64,
     /// The digest line, held until the banner has printed.
     pub(super) welcome: Option<String>,
@@ -310,6 +322,8 @@ impl Chat {
             rewound: None,
             thread_ask: None,
             menu: 0,
+            at: super::atfile::AtFiles::default(),
+            menu_closed: false,
             started_ms: now_ms,
             welcome: None,
             offline_at: None,
@@ -421,6 +435,7 @@ impl Chat {
     }
 
     pub fn disconnected(&mut self) {
+        self.at_lost();
         if !self.offline {
             self.offline = true;
             self.offline_at = Some(self.now_ms);
@@ -523,7 +538,10 @@ impl Chat {
         self.last_input_ms = self.now_ms;
         self.editor.paste(text);
         self.menu = 0;
-        self.typing()
+        self.menu_closed = false;
+        let mut effects = self.at_sync();
+        effects.extend(self.typing());
+        effects
     }
 
     pub fn key(&mut self, k: KeyEvent) -> Vec<Effect> {
@@ -555,10 +573,15 @@ impl Chat {
                 }
             }
         }
-        self.act(action)
+        let mut effects = self.act(action);
+        effects.extend(self.at_sync());
+        effects
     }
 
     fn act(&mut self, action: Action) -> Vec<Effect> {
+        if self.at_key(&action) {
+            return Vec::new();
+        }
         let w = self.input_width();
         match action {
             Action::Insert('?') if self.editor.is_empty() => {
@@ -568,6 +591,7 @@ impl Chat {
             Action::Insert(c) => {
                 self.editor.insert(c);
                 self.menu = 0;
+                self.menu_closed = false;
                 return self.typing();
             }
             Action::Submit => {
@@ -585,6 +609,7 @@ impl Chat {
             Action::Backspace => {
                 self.editor.backspace();
                 self.menu = 0;
+                self.menu_closed = false;
             }
             Action::Delete => self.editor.delete(),
             Action::Left => self.editor.left(),
@@ -698,6 +723,9 @@ impl Chat {
     /// The commands whose names begin as the line does, when the line is a
     /// single word after a slash.
     pub fn suggestions(&self) -> Vec<&'static commands::Command> {
+        if self.menu_closed {
+            return Vec::new();
+        }
         let text = self.editor.text();
         match text.strip_prefix('/') {
             Some(rest) if !rest.contains(char::is_whitespace) => commands::matching(rest),
@@ -732,12 +760,26 @@ impl Chat {
         if self.ask.note {
             return self.send_note();
         }
-        let taken = self.editor.take();
+        // A message that names @files must name listed ones, or it is not sent.
+        let footer = if self.editor.text().trim_start().starts_with('/') {
+            String::new()
+        } else {
+            match self.at_resolve() {
+                Ok(f) => f,
+                Err(why) => {
+                    self.flash(why);
+                    return Vec::new();
+                }
+            }
+        };
+        let mut taken = self.editor.take();
+        taken.text.push_str(&footer);
         let (text, trimmed) = (taken.text.clone(), taken.text.trim());
         if trimmed.is_empty() {
             return Vec::new();
         }
         self.menu = 0;
+        self.menu_closed = false;
         if !trimmed.starts_with('/') {
             if let Some(effects) = self.thread_answered_by(trimmed) {
                 return effects;

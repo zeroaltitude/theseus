@@ -24,7 +24,11 @@ impl Chat {
 
     /// An answer to one of the chat's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
-        let mut effects = self.answered_one(purpose, result);
+        let mut effects = if matches!(purpose, Purpose::AtRoots) {
+            self.at_roots(result)
+        } else {
+            self.answered_one(purpose, result)
+        };
         effects.extend(self.release_queue());
         effects
     }
@@ -114,7 +118,12 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Welcome => self.welcome_said(v),
-            Purpose::Watch | Purpose::Answer | Purpose::Route | Purpose::Typing => Vec::new(),
+            // `AtRoots` is taken before this match (`at_roots`).
+            Purpose::Watch
+            | Purpose::Answer
+            | Purpose::Route
+            | Purpose::Typing
+            | Purpose::AtRoots => Vec::new(),
             p @ (Purpose::ListTask { .. }
             | Purpose::TaskAnswer { .. }
             | Purpose::Cancel(_)
@@ -133,7 +142,7 @@ impl Chat {
     fn failed(&mut self, purpose: Purpose, e: &RpcError) -> Vec<Effect> {
         match purpose {
             // An older daemon has no digest, and the chat says nothing of it.
-            Purpose::Typing | Purpose::Welcome => Vec::new(),
+            Purpose::Typing | Purpose::Welcome | Purpose::AtRoots => Vec::new(),
             Purpose::Route => {
                 self.thread_answer_refused(&e.message);
                 Vec::new()
