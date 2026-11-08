@@ -54,6 +54,18 @@ build.
     new item never moves it, each answer one call, `answerOf`), the canvas, and the inspector (`ops/Inspector.tsx`).
     `[` and `]` fold the queue and the inspector (`ops/regions.ts`, kept in this browser); below 1280 px the inspector
     lies over the canvas, below 900 px the queue is the page.
+  - **The tiles, the panel and the inspector's report** (theseus-emqbm): the tiles are one single-select filter, `f.bucket`
+    (`ops/tiles.ts`: `toggleBucket` is the one rule for the tile, its key and the empty inspector's counts; `tileLook`
+    lights only the chosen tile, and a waiting NEEDS YOU marks its number with a dot, never a ring). The needs-you
+    counter and the Needs-you panel read the same cards: the panel's asks are `queueOf`'s items, and `unaskedCards` (in
+    `ops/board.ts`) are the counted cards no item names (a blocked record, a record waiting on a person, a task whose
+    list entry counts questions the confirm list lacks), listed after the asks with `waitingFacts`' reason; "nothing waits
+    for you" shows only when both are empty. A cancel has ended the work (`keepsOpen` in `ops/state.ts`): the daemon
+    reads it as a `suspended` record, but only a stop that is not a cancel (out of budget) keeps ended work open. The
+    inspector's report is `reportFacts`: `report (complete)` when the line is all of it, else `report (first line)` with
+    a full-report toggle (the task's last message, `reportTextOf`, read for the selected card only), and the card's links
+    are its deck and its transcript. A task's forum post is not linked: its address lives in the Discord runtime and no
+    protocol type carries it to the page.
   - **The lenses**: the Board (`ops/BoardLens.tsx` over `ops/board.ts`: five columns over `taskboard.ts`'s `rowsOf`,
     with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens (below);
     and the Graph lens (`ops/GraphLens.tsx`, below).
