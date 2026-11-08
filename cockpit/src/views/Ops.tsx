@@ -137,6 +137,8 @@ export default function Ops() {
   // Every counter reads the rows alone: needs you is the cards that wait on the owner (Q1 A), where the Needs-you list's
   // header counts its asks.
   const counts = useMemo(() => allCounters(rows, now, spend.usd), [rows, now, spend.usd])
+  // The cards the counter counts that no queue item names: the panel lists them too, so it glows for them as for an ask.
+  const waiting = useMemo(() => unaskedCards(rows), [rows])
   const grouped = useMemo(() => groupThreads(views, groups, records), [views, groups, records])
 
   // The selection (ops-graph): in memory, shared by the Graph and the Board, the bulk bar and the palette.
@@ -195,6 +197,7 @@ export default function Ops() {
 
   // The regions, their folds kept in this browser, and the narrow-screen rules.
   const [iFold, setIFold] = usePref(INSPECTOR_KEY, parseFold)
+  const waits = queue.length > 0 || waiting.length > 0
   const reg = regionsFor(width || 1440, qFold, iFold, selection.kind !== 'none', handOpen)
   const [keysOpen, setKeysOpen] = useState(false)
   const [newTask, setNewTask] = useState<{ home: string } | null>(null)
@@ -420,7 +423,7 @@ export default function Ops() {
   useEffect(() => { publish(feed as never); return () => publish(null) }, [feed, publish])
 
   const queuePanel = (
-    <Queue items={queue} waiting={unaskedCards(rows)} onRow={(id) => pick(id)} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
+    <Queue items={queue} waiting={waiting} onRow={(id) => pick(id)} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
       coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh} />
   )
   const joined = a.join ?? null
@@ -463,12 +466,12 @@ export default function Ops() {
       <div className="relative flex min-h-0 flex-1 gap-2.5">
         {reg.queue === 'side' && (
           <aside aria-label="Needs you" className="flex w-[300px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-hull/60">
-            <RegionHead title="Needs you" count={queue.length} glow={queue.length > 0} onFold={() => setQFold('folded')} fold="[" />
+            <RegionHead title="Needs you" count={queue.length} glow={waits} onFold={() => setQFold('folded')} fold="[" />
             {queuePanel}
           </aside>
         )}
-        {reg.queue === 'folded' && <Tab side="left" label={`Needs you · ${asksWord(queue.length)}`} onClick={() => setQFold('open')} glow={queue.length > 0} />}
-        {reg.queue === 'page' && <section aria-label="Needs you" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-hull/60"><RegionHead title="Needs you" count={queue.length} glow={queue.length > 0} />{queuePanel}</section>}
+        {reg.queue === 'folded' && <Tab side="left" label={`Needs you · ${asksWord(queue.length)}`} onClick={() => setQFold('open')} glow={waits} />}
+        {reg.queue === 'page' && <section aria-label="Needs you" className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-hull/60"><RegionHead title="Needs you" count={queue.length} glow={waits} />{queuePanel}</section>}
         {reg.canvas && (
           <main aria-label={`${a.lens} lens`} className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
             {picks && picked.size > 0 && <BulkBar count={picked.size} offers={offers} onVerb={(v) => bulk.start(v, picked)} onClear={unpick} />}
