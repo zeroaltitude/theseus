@@ -1466,14 +1466,14 @@ impl Shared {
         self.followup(i, &tightened_reply(&asked.tool, &r)).await;
     }
 
-    /// An ephemeral follow-up to an interaction already acknowledged.
+    /// An ephemeral follow-up to an interaction already acknowledged, by `command_reply::leaving`.
     async fn followup(&self, i: &Interaction, text: &str) {
         let none = AllowedMentions::default();
         if let Err(e) = self
             .interact
             .interaction(i.application_id)
             .create_followup(&i.token)
-            .content(text)
+            .content(&command_reply::leaving(&self.core.exits, text))
             .flags(MessageFlags::EPHEMERAL)
             .allowed_mentions(Some(&none))
             .await
@@ -1553,7 +1553,7 @@ impl Shared {
         ephemeral: bool,
     ) {
         let data = content.map(|c| InteractionResponseData {
-            content: Some(c),
+            content: Some(command_reply::leaving(&self.core.exits, &c)),
             flags: ephemeral.then_some(MessageFlags::EPHEMERAL),
             allowed_mentions: Some(AllowedMentions::default()),
             ..Default::default()
