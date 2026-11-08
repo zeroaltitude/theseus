@@ -23,6 +23,8 @@ pub struct TurnProgress<'a> {
     /// This turn's spend, and its execution's limit, when known.
     pub spent_usd: Option<f64>,
     pub limit_usd: Option<f64>,
+    /// For a stop, the condition that fired it (`StopCondition::word`).
+    pub condition: Option<&'static str>,
 }
 
 impl TurnProgress<'_> {
@@ -41,6 +43,7 @@ impl TurnProgress<'_> {
             "deadline_ms": self.deadline_ms,
             "spent_usd": self.spent_usd,
             "limit_usd": self.limit_usd,
+            "condition": self.condition,
         })
     }
 }

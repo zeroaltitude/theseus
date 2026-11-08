@@ -3223,14 +3223,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   command (the seen keys are on `State`, bounded by `SEEN_MAX`; past the cap nothing is new, so a full set cannot reset the
   count on every read). The key is tool, path and pattern, and for `fs.read` the slice's first line (a bare read is
   `offset=1`, as it returns from line 1) and its pages: the narrow-read hint's slices of a long file are new ground at
-  each new start, and the same slice again is a re-read (theseus-tdkcn with theseus-ikr75). At `STOP_SHARE` (0.85) of the
-  deadline only (spend never stops a turn: the owner's notify rule), a stop note asking for a report with no tool calls,
-  and the next loop is the last (stop reason `progress_stop`, which the nudge and the end note leave alone). **The stop
-  counts apart from the steer** (`since_check`): it moves as it did before reading counted, one more for every loop that
-  was not a passing command, reset only by one, so a turn that only reads, or opens new files after its edit, is still
-  stopped at its deadline (the deadline's stop is the only thing that enforces it; a build that runs is the one carve-out,
-  below). Each is a harness node
-  (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend;
+  each new start, and the same slice again is a re-read (theseus-tdkcn with theseus-ikr75). **A failing command whose
+  failure is new to the turn resets it too** (theseus-fez4q F1, the owner's ruling: a failing check is a progress attempt, and
+  a stall stops only on the same failure): `progress()` reads the failed commands' results from the turn's transcript and
+  keys them (`progress_step/failure_key.rs`: the lines that name a failure, `fail`, `error`, `panic`, `assert` or `exception`,
+  or the output's last 8 lines when none does, each cut to its words, as a sorted set; timings, positions, temp
+  directories, hex ids, thread ids, colour codes, order and repeats are not part of it, a different test, error or
+  assertion message is), and `State::moved` calls a key a move when it is not among the turn's `failures` (bounded by
+  `FAILURES_MAX`). The turn's first failure is the baseline, not a move, so the same red six times still stalls; a red it
+  has met (the same again, or a flip between two) is no move either; `since_check` is not touched, so the clock's stop
+  and backstop count as before. A stop (theseus-fez4q; spend never stops a turn:
+  the owner's notify rule) is a note asking for a report with no tool calls, and the next loop is the last (stop reason
+  `progress_stop`, which the nudge and the end note leave alone). It fires on progress, by one of three conditions, named
+  in the row's `condition`: `stalled` (`STALL_LOOPS`, 6, with no passing check, no new ground after the first edit and no
+  failure the turn had not met, the steer's count; no deadline needed, so a DM turn, which has none, can be stopped; with
+  one it fires at any share of it, on the same failure only), `clock` (`STOP_SHARE`, 0.85, with
+  `since_check` 3 or more, unless the turn has edited and read new ground in its last 3 loops) and `clock_backstop`
+  (`HARD_STOP_SHARE`, 0.95, whatever was read: the stop is the only thing that enforces a deadline, and the report needs a
+  loop). **The stop counts apart from the steer for its clock** (`since_check`): one more for every loop that was not a
+  passing command, reset only by one; a turn that has not edited (a read-only helper) is stopped at 0.85 as before, one that
+  has edited and keeps opening new files is stopped at 0.95 (a build that runs is the one carve-out, below). Each is a harness node
+  (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend, a stop's `condition`;
   `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
   is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
