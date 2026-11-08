@@ -4,7 +4,10 @@
 //!
 //! A renderer holds the last `RECENT_TURNS` turns, so a late event (a
 //! background job's result, a parked call approved in a later turn) still
-//! finds its tool line. Its per-key maps hold only those turns' keys: when a
+//! finds its tool line. A turn older than that stays while one of its calls
+//! is in the background or waiting for an answer (`pending`), at most
+//! `PINNED_TURNS` of them, so a job's end shows however many turns came
+//! between (theseus-9zif). Its per-key maps hold only those turns' keys: when a
 //! turn is dropped, its keys leave `emitted` and `menus`, and its calls'
 //! notice cards leave `notices`. The place's actor tells its lane the turns
 //! held (`held`) whenever they change, and the lane keeps their messages'
@@ -16,7 +19,22 @@
 
 use std::collections::HashSet;
 
-use super::{Renderer, RECENT_TURNS};
+use super::{Renderer, ToolState, TurnView, RECENT_TURNS};
+
+/// The most turns past the recent ones held for a call still waiting: a job
+/// that never ends does not hold every turn that started it.
+const PINNED_TURNS: usize = RECENT_TURNS;
+
+/// Does a call of this turn still wait for its end, a background job's late
+/// result or an answer to its approval? Its end names the call, not the turn
+/// it comes in, and finds the line by the call (`update_tool`), so the line's
+/// turn must outlive the wait (theseus-9zif).
+fn pending(t: &TurnView) -> bool {
+    t.loops
+        .values()
+        .flat_map(|lv| &lv.tools)
+        .any(|l| matches!(l.state, ToolState::Background | ToolState::Waiting))
+}
 
 impl Renderer {
     /// The turns it holds, oldest first: what the place's lane keeps whole.
@@ -29,14 +47,29 @@ impl Renderer {
         self.turns.iter().any(|t| t.turn_id == turn_id)
     }
 
-    /// Drop the turns past `RECENT_TURNS`, oldest first, with their keys.
+    /// Drop the turns past `RECENT_TURNS`, oldest first, with their keys,
+    /// but keep an older turn while one of its calls still waits for an
+    /// end (`pending`), up to `PINNED_TURNS` of them, the newest.
     pub(super) fn drop_past_recent(&mut self) {
-        let mut dropped = vec![];
-        while self.turns.len() > RECENT_TURNS {
-            if let Some(t) = self.turns.pop_front() {
-                dropped.push(format!("{}:", t.turn_id));
+        let older = self.turns.len().saturating_sub(RECENT_TURNS);
+        let mut room = PINNED_TURNS;
+        let mut keep = vec![true; self.turns.len()];
+        for (i, t) in self.turns.iter().enumerate().take(older).rev() {
+            if pending(t) && room > 0 {
+                room -= 1;
+            } else {
+                keep[i] = false;
             }
         }
+        let mut dropped = vec![];
+        let mut at = 0;
+        self.turns.retain(|t| {
+            at += 1;
+            if !keep[at - 1] {
+                dropped.push(format!("{}:", t.turn_id));
+            }
+            keep[at - 1]
+        });
         if dropped.is_empty() {
             return;
         }
@@ -74,6 +107,7 @@ mod tests {
     use serde_json::json;
 
     use super::super::{Op, Renderer, RECENT_TURNS};
+    use super::PINNED_TURNS;
 
     /// theseus-whb0: a renderer put through three times the turns it holds,
     /// each streaming a text part and a tool line with a notice card, keeps
@@ -136,5 +170,132 @@ mod tests {
                 assert!(r.notices.is_empty());
             }
         }
+    }
+
+    /// A background job's call, as the place sees it up to its turn's end:
+    /// proposed, notified, started, handed to the background, turn ended.
+    fn parked(r: &mut Renderer, turn: &str, use_id: &str) {
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": turn}));
+        r.on_notification("tool.proposed", &json!({"turn_id": turn, "tool_use_id": use_id, "tool": "proc.run",
+            "input": {"argv": ["sleep", "75"]}, "gate": {"result": {"gate": "allow"},
+            "decision": {"mode": "allow", "posture": "notify", "notify": {"kind": "notify", "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}}}}));
+        r.on_notification("policy.notified", &json!({"session_id": "s", "turn_id": turn, "tool_use_id": use_id,
+            "tool": "proc.run", "input": {"argv": ["sleep", "75"]}, "summary": "run `sleep 75` in /w",
+            "kind": "notify", "setting": "enforcement = notify", "rule": "proc.run — notify (enforcement = notify)"}));
+        r.on_notification(
+            "tool.started",
+            &json!({"turn_id": turn, "tool_use_id": use_id}),
+        );
+        r.on_notification("tool.ended", &json!({"turn_id": turn, "tool_use_id": use_id, "status": "background", "duration_ms": 2000}));
+        r.on_notification("turn.ended", &json!({"session_id": "s", "turn_id": turn}));
+        r.tick();
+    }
+
+    /// An ordinary turn that calls nothing.
+    fn plain(r: &mut Renderer, turn: &str) {
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": turn}));
+        r.on_notification("turn.ended", &json!({"session_id": "s", "turn_id": turn}));
+        r.tick();
+    }
+
+    /// The job's late result: its wake is a turn of its own, whose start
+    /// comes first, and whose events name the job's call.
+    fn late_end(r: &mut Renderer, wake: &str, use_id: &str) -> Vec<Op> {
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": wake}));
+        let mut ops = r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": wake, "tool_use_id": use_id,
+            "status": "ok", "duration_ms": 75001}),
+        );
+        ops.extend(r.tick());
+        ops
+    }
+
+    /// theseus-9zif: a job that outlives more turns than the renderer holds
+    /// (it held eight, and the job's wake was the ninth, whose start dropped
+    /// the job's turn) still ends its line and its card: the line says `✅`
+    /// and the milliseconds, and the card's Outcome says the same.
+    #[test]
+    fn a_background_job_that_outlives_the_held_turns_shows_its_end() {
+        for embeds in [false, true] {
+            let mut r = Renderer::new(embeds);
+            parked(&mut r, "turn_job", "use_job");
+            for n in 0..RECENT_TURNS {
+                plain(&mut r, &format!("turn_{n}"));
+            }
+            let ops = late_end(&mut r, "turn_wake", "use_job");
+            let lines: Vec<&String> = ops
+                .iter()
+                .filter_map(|o| match o {
+                    Op::Upsert { key, content, .. } if key == "turn_job:L0:tools" => Some(content),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                lines.len(),
+                1,
+                "{embeds}: one edit of the job's line: {ops:?}"
+            );
+            assert!(
+                lines[0].contains("✅ `proc.run`") && lines[0].contains("75001 ms"),
+                "{embeds}: {}",
+                lines[0]
+            );
+            assert!(!lines[0].contains("running in the background"), "{embeds}");
+            let cards: Vec<&Op> = ops
+                .iter()
+                .filter(|o| matches!(o, Op::Notice { .. }))
+                .collect();
+            if embeds {
+                assert_eq!(cards.len(), 1, "{ops:?}");
+                let Op::Notice { key, card } = cards[0] else {
+                    unreachable!()
+                };
+                assert_eq!(key, "turn_job:notice:use_job");
+                let outcome = card.fields.iter().find(|(n, _)| n == "Outcome");
+                assert_eq!(outcome.map(|f| f.1.as_str()), Some("✅ ok · 75001 ms"));
+            } else {
+                assert!(cards.is_empty(), "{embeds}: no card without embeds");
+            }
+        }
+    }
+
+    /// The job's turn is held only while the job has not ended: once its end
+    /// shows, the turn goes at the next start like any other past the recent
+    /// ones, and what it held with it, and no turn is held for a call that
+    /// is not waiting.
+    #[test]
+    fn a_turn_held_for_its_job_goes_once_the_job_ended() {
+        let mut r = Renderer::new(true);
+        parked(&mut r, "turn_job", "use_job");
+        for n in 0..RECENT_TURNS {
+            plain(&mut r, &format!("turn_{n}"));
+        }
+        assert!(r.knows("turn_job"), "held for its job");
+        assert_eq!(r.held().len(), RECENT_TURNS + 1);
+        late_end(&mut r, "turn_wake", "use_job");
+        r.on_notification(
+            "turn.ended",
+            &json!({"session_id": "s", "turn_id": "turn_wake"}),
+        );
+        plain(&mut r, "turn_next");
+        assert!(!r.knows("turn_job"), "{:?}", r.held());
+        assert_eq!(r.held().len(), RECENT_TURNS);
+        assert!(r.emitted.keys().all(|k| !k.starts_with("turn_job:")));
+        assert!(r.notices.is_empty() || !r.notices.contains_key("use_job"));
+    }
+
+    /// Past the cap the oldest job's turn goes anyway: a job that never ends
+    /// does not hold every turn it ever started.
+    #[test]
+    fn the_turns_held_for_jobs_are_capped() {
+        let mut r = Renderer::new(false);
+        for n in 0..3 * PINNED_TURNS {
+            parked(&mut r, &format!("job_{n}"), &format!("use_{n}"));
+        }
+        assert_eq!(r.held().len(), RECENT_TURNS + PINNED_TURNS);
+        let first = 3 * PINNED_TURNS - (RECENT_TURNS + PINNED_TURNS);
+        assert_eq!(r.held()[0], format!("job_{first}"));
+        assert!(r.emitted.keys().all(|k| !k.starts_with("job_0:")));
     }
 }

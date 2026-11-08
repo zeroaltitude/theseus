@@ -91,6 +91,11 @@ impl View {
         self.process.on_event(e, tokio::time::Instant::now(), s)
     }
 
+    /// The turns the renderer holds now: the thinking of the rest goes.
+    pub(crate) fn hold(&mut self, held: &[String]) {
+        self.process.hold(held);
+    }
+
     /// The thinking that grew since the last tick.
     pub(crate) fn tick(&mut self) -> Vec<Op> {
         let s = self.shown();
