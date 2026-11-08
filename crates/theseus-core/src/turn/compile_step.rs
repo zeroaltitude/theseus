@@ -122,7 +122,10 @@ impl TurnRunner {
             Some(id) => self.store.get_compilation(id)?,
             None => None,
         };
-        let (nodes, sources) = self.recall_view(t, nodes, &spec.profile);
+        // `recall_carried`, not `recall_view`: this is the turn's own compile,
+        // and what its request carries decides what rides the plan frame
+        // (theseus-fpm2).
+        let (nodes, sources) = self.recall_carried(t, nodes, &spec.profile);
         // A big old attachment is a stub at a cold rewrite, and in the warm
         // window after it (theseus-ezeg): decided at the turn's first compile.
         let cold = (i == 0).then(|| self.cold_now(sid, session, spec));

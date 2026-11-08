@@ -19,6 +19,12 @@
 //!   the turn's next frame.
 //! - **While routing decides** (theseus-n7nc): the row waits for the route
 //!   (`recall_routed`), and is recorded once it is known.
+//! - **Only what the request carried** (theseus-fpm2): the node rides the plan
+//!   frame only when the compile the call used rendered it (`recall_carries`,
+//!   read by `recall_view` and recorded as `Recalled::withheld`). A request
+//!   bound for a model of restricted origin carries none (theseus-9ymz0), and
+//!   a turn that recalled nothing in front of its model writes no node and
+//!   reports a count of zero (`recall_dropped`).
 
 use std::collections::BTreeSet;
 
@@ -63,6 +69,11 @@ pub(crate) struct Recalled {
     /// route to decide, with their times: recorded once it is known
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
+    /// The last compile withheld the pending node from its request
+    /// (`recall_carries`, theseus-fpm2): nothing of it rides the plan frame.
+    /// False until a compile says otherwise, so a path that compiles nothing
+    /// behaves as it did.
+    pub withheld: bool,
 }
 
 impl Recalled {
@@ -594,6 +605,43 @@ impl TurnRunner {
             .and_then(|m| threads.and_then(|th| th.other_title_of(&m.thread)))
     }
 
+    /// Whether a request bound for `profile` carries the turn's pending
+    /// `Recall` node. A model of restricted origin gets none (theseus-9ymz0),
+    /// and this is the one place that rule is read: the compile asks it for
+    /// the view it renders, and the turn asks it again, through
+    /// [`Recalled::withheld`], for what rides the plan frame (theseus-fpm2).
+    pub(super) fn recall_carries(&self, profile: &str) -> bool {
+        !self.restricted_profile(profile)
+    }
+
+    /// The compile withheld the pending node, so the turn recalled nothing:
+    /// no record rides the plan frame, and the footer, the citations and the
+    /// next turn's render have nothing to count (theseus-fpm2). The node was
+    /// never written, so the notes stay where they were, for the next request
+    /// that may carry them.
+    pub(super) fn recall_dropped(t: &mut Turn<'_>) -> Vec<NewRecord> {
+        t.recall.rides.clear();
+        t.recall.items.clear();
+        t.recall.recall_id.clear();
+        t.recall.count = 0;
+        Vec::new()
+    }
+
+    /// [`Self::recall_view`] for the turn's own compile, which also records
+    /// whether this request carries the pending node (theseus-fpm2). A later
+    /// compile of the same loop, which a route's switch makes, overwrites it,
+    /// so the call reads the compile it used. A compaction's nested compile
+    /// renders the same profile's view and leaves the record alone.
+    pub(super) fn recall_carried(
+        &self,
+        t: &mut Turn<'_>,
+        nodes: Transcript,
+        profile: &str,
+    ) -> (Transcript, Sources) {
+        t.recall.withheld = !self.recall_carries(profile);
+        self.recall_view(t, nodes, profile)
+    }
+
     /// The transcript a loop compiles, with the turn's pending `Recall` node
     /// after every node, and the sources its recalls render. A request bound
     /// for a model of restricted origin (`profile`) carries no `Recall` node
@@ -608,7 +656,7 @@ impl TurnRunner {
         profile: &str,
     ) -> (Transcript, Sources) {
         let mut nodes = nodes;
-        if self.restricted_profile(profile) {
+        if !self.recall_carries(profile) {
             nodes.retain(|(_, n)| n.kind != crate::stub::Kind::Recall);
             return (nodes, Sources::new());
         }

@@ -129,6 +129,11 @@ fn views_for(r: &Rig, b: &str) {
 /// was written by A, which holds `confidential`. None of it reaches
 /// `dsflash`. The same session on Claude carries every one, so nothing was
 /// lost for a model that may see it.
+///
+/// The turn's own count is 0 (theseus-fpm2): recall drew A's note, the
+/// compile withheld it, and what the request never carried is written
+/// nowhere and counted nowhere. The `recall.ran` row below is what says the
+/// draw happened, so the zero cannot be met by a recall that found nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_restricted_request_carries_nothing_another_session_wrote() {
     let (r, zai, _dir) = rig();
@@ -142,7 +147,10 @@ async fn a_restricted_request_carries_nothing_another_session_wrote() {
 
     let res = say(&r.core, &b, ASK, None).await;
     assert_eq!(res.profile, "dsflash", "{:?}", res.route);
-    assert_eq!(res.recalled, 1, "A's note was drawn for B");
+    let drawn = crate::tests_recall::recalls(&r.core, &b);
+    let admitted = drawn.last().map(|m| crate::tests_recall::admitted(m).len());
+    assert_eq!(admitted, Some(1), "A's note was drawn for B");
+    assert_eq!(res.recalled, 0, "and the request carried none of it");
     let body = text(&zai.requests()[0]);
     for (what, left_out) in [
         ("the recall", NOTE),

@@ -22,7 +22,7 @@ use crate::provider::ProviderRequest;
 use crate::recall::AskFuture;
 use crate::test_support::recall_rows as rows;
 use crate::tests_recall::{
-    dropped_for, index_of, recalls, rig, rig_with, session, turn, Rig, OWNER, PIER,
+    admitted, dropped_for, index_of, recalls, rig, rig_with, session, turn, Rig, OWNER, PIER,
 };
 use crate::Core;
 
@@ -407,4 +407,57 @@ async fn shadow_still_writes_no_node() {
     assert!(!last_texts(&requests(&r).pop().unwrap())
         .iter()
         .any(|t| t.contains("Recalled")));
+}
+
+/// A turn whose request carried no recall writes no `Recall` node and says it
+/// recalled nothing (theseus-fpm2).
+///
+/// A request bound for a model of restricted origin carries no `Recall` node
+/// at all (theseus-9ymz0; `recall_view` strips it), but the turn still held
+/// the node its recall built, and the plan frame took it: the reply's footer
+/// counted notes the model never saw, and the next turn rendered them after
+/// the message as though they had been in front of it.
+///
+/// The unrestricted half is the positive count: the same scenario, the same
+/// stand-in index, one note in the request, one node written, `recalled: 1`.
+/// Both halves assert that recall ran and admitted the note, so an empty
+/// index cannot pass the restricted half.
+#[tokio::test]
+async fn a_turn_whose_request_carried_no_recall_writes_no_recall_node() {
+    for restricted in [false, true] {
+        let r = canary_with(|c| {
+            if restricted {
+                c.serve_default_from_cn();
+            }
+        });
+        let c = &r.core;
+        let a = session(c, None, &[HERON]);
+        let b = session(c, None, &[]);
+        // The warm-up turn finds nothing: the index learns A after it.
+        c.runner.memory.set_ask(index_of(c, vec![]));
+        turn(c, &b, "warm up").await;
+        c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
+        let res = turn(c, &b, "Where does the grey heron nest?").await;
+        // Recall itself ran and admitted the note on both halves.
+        let m = recalls(c, &b).pop().expect("a recall.ran row");
+        assert_eq!(
+            admitted(&m).len(),
+            1,
+            "recall admitted the note ({restricted})"
+        );
+        let q = requests(&r).pop().expect("a request");
+        let carried = last_texts(&q)
+            .iter()
+            .any(|t| t.starts_with("[Recalled by the harness:"));
+        let written = recall_nodes(c, &b).len();
+        if restricted {
+            assert!(!carried, "a restricted model's request carries no note");
+            assert_eq!(written, 0, "no `Recall` node the request never carried");
+            assert_eq!(res.recalled, 0, "and the reply counts none");
+        } else {
+            assert!(carried, "the request carries the note");
+            assert_eq!(written, 1, "one `Recall` node");
+            assert_eq!(res.recalled, 1, "and the reply counts it");
+        }
+    }
 }
