@@ -271,11 +271,14 @@ impl TurnRunner {
         t.route.words = correction::layer::words(text);
         let said = corrections.take_said(sid, text);
         let owners = owners(t.tc.class, place) && t.tc.task.is_none();
+        // The layer holds the owner's corrections: it steers a turn of the
+        // owner's private places and never a shared place's (theseus-c2rv).
+        let steers = t.tc.class == PlaceClass::Private;
         if let Some(said) = said.filter(|_| owners && cfg.enabled) {
             if self.correct_in_words(t, &said, node_id, author) {
                 return;
             }
-            return self.layer_point(t, route, asked);
+            return self.layer_point(t, route, asked && steers);
         }
         // A persona's steer needs no route verdict to apply.
         if let Some(s) = corrections.take_pending_if(sid, |s| matches!(s.steer, Steer::Persona(_)))
@@ -283,15 +286,19 @@ impl TurnRunner {
             Self::set_steer(t, s);
         }
         if !asked {
-            self.persona_layer_point(t);
+            if steers {
+                self.persona_layer_point(t);
+            }
             return;
         }
         if let Some(s) = corrections.take_pending(sid) {
             Self::set_steer(t, s);
             return;
         }
-        self.persona_layer_point(t);
-        self.layer_point(t, route, asked)
+        if steers {
+            self.persona_layer_point(t);
+        }
+        self.layer_point(t, route, asked && steers)
     }
 
     /// A steer, to where it acts: a persona's to the persona decision, any

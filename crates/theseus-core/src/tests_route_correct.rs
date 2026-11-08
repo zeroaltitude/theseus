@@ -471,3 +471,29 @@ async fn a_correction_asks_jev_nothing_a_plain_turn_does_not() {
         plain - corrected
     );
 }
+
+/// The correction layer steers only the owner's private places (theseus-c2rv):
+/// an owner's correction of a message in a private place steers a close message
+/// there (the positive count, with the layer holding one entry), and the same
+/// close message typed into a shared place goes where Jev says.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_layer_steers_a_private_place_and_never_a_shared_one() {
+    let jev = FakeJev::start().unwrap();
+    mode(&jev, "chat", 0.95);
+    let r = rig(Some(&jev), 6, owned);
+    let one = ask(&r.core, None, PARSER).await;
+    let sid = one.session_id.clone();
+    let two = ask(&r.core, Some(&sid), "hey, that should have been on fable").await;
+    assert_eq!(two.profile, "fable", "the correction was made");
+    assert_eq!(layer(&r.core).entries.len(), 1, "the layer holds it");
+
+    // A private place: the close message is steered.
+    let private = ask(&r.core, None, CLOSE).await;
+    assert_eq!(private.profile, "fable", "the layer steers a private place");
+
+    // A shared place: the same close message is Jev's, and no entry steers.
+    let shared = crate::tests_places::session(&r.core, Some(&format!("channel:{LAB}")));
+    let there = ask(&r.core, Some(&shared), CLOSE).await;
+    assert_eq!(there.profile, "sonnet", "a shared place is not steered");
+    assert_eq!(there.route.unwrap().source, None);
+}
