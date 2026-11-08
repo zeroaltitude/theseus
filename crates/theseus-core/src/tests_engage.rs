@@ -501,12 +501,37 @@ async fn a_late_persona_verdict_leaves_the_prior() {
 }
 
 /// A routed move keeps the persona layer (theseus-nsp9l.1): a DM turn Jev sends to another profile is a
-/// `speaking_as` of the turn's target, so it still engages the persona the message calls for.
+/// `speaking_as` of the turn's target, so it still engages the persona the message calls for, and the
+/// *moved* request carries the persona's material, not just a row saying one was engaged
+/// (theseus-9a690).
+///
+/// The markers are what `speaking_as` would lose were it to drop `engages`. A target that engages
+/// carries every live persona's soul, so whichever one the message engages is in the layer; one that
+/// does not carries only the soul of the persona it names (`Config::context_paths`), and the moved
+/// target names the session's default, not the persona engaged after it. That one owned soul then
+/// replaces the built-in header whole (`persona::owned`, read by `TurnRunner::system_blocks`). So a
+/// dropped `engages` loses two things at once, and the tail line still reads "Birch answers this
+/// turn" over a request carrying neither Birch's soul nor the built-in header: the line is why the
+/// row alone proves nothing, and the markers are asserted together so one loss never hides another.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_dm_turn_routed_to_another_profile_still_engages_a_persona() {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "sophisticated", 0.95);
-    let r = rig(Some(&jev), 1, |c| personas(c, true));
+    let dir = tempfile::tempdir().unwrap();
+    let soul = |key: &str, marker: &str| {
+        let path = dir.path().join(format!("{key}.md"));
+        std::fs::write(&path, format!("{marker}: you are {key}.\n")).unwrap();
+        path.to_string_lossy().into_owned()
+    };
+    let (birch, alder) = (
+        soul("birch", "BIRCH-SOUL-MARKER"),
+        soul("alder", "ALDER-SOUL-MARKER"),
+    );
+    let r = rig(Some(&jev), 1, |c| {
+        personas(c, true);
+        c.personas.get_mut("birch").unwrap().files = vec![birch.into()];
+        c.personas.get_mut("alder").unwrap().files = vec![alder.into()];
+    });
     turn(
         &r.core,
         None,
@@ -518,4 +543,14 @@ async fn a_dm_turn_routed_to_another_profile_still_engages_a_persona() {
     let last = reqs.last().unwrap();
     assert_eq!(last.model, "claude-opus-5-5", "the turn moved");
     assert_eq!(tail(last).last().unwrap(), "Birch answers this turn");
+    // The positive count, so a request that carried nothing cannot pass. The
+    // three are gathered before the assert, so one missing never hides another.
+    let sys = serde_json::to_string(&last.system).unwrap();
+    let want = ["BIRCH-SOUL-MARKER", "ALDER-SOUL-MARKER", "Candour first"];
+    let carried: Vec<&str> = want.into_iter().filter(|m| sys.contains(m)).collect();
+    assert_eq!(
+        carried, want,
+        "the moved request carries the engaged persona's soul, every live \
+         persona's soul, and the built-in persona header"
+    );
 }
