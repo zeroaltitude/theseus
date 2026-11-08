@@ -2130,7 +2130,10 @@ async fn a_signals_stop_wakes_what_waits_on_the_shutdown() {
     waiting.await.unwrap();
     // Parked: nothing has woken it.
     tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(!parked.is_finished(), "the waiter is parked before the stop");
+    assert!(
+        !parked.is_finished(),
+        "the waiter is parked before the stop"
+    );
     core.stopping_on("SIGTERM");
     tokio::time::timeout(Duration::from_secs(5), parked)
         .await

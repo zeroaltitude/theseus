@@ -179,7 +179,13 @@ async fn a_task_s_project_review_is_made_by_the_owners_yes() {
     let card = r.core.confirm_list().unwrap().remove(0);
     assert_eq!(card.session_id, task.session_id);
     assert!(
-        r.core.runner.tools.routines.all(&r.core.store).unwrap().is_empty(),
+        r.core
+            .runner
+            .tools
+            .routines
+            .all(&r.core.store)
+            .unwrap()
+            .is_empty(),
         "nothing exists before the answer"
     );
     r.core
@@ -197,5 +203,8 @@ async fn a_task_s_project_review_is_made_by_the_owners_yes() {
         .filter(|t| t.kind == theseus_protocol::tasks::TaskKind::Project)
         .collect();
     assert_eq!(projects.len(), 1, "the owner's yes made no project");
-    assert_eq!(projects[0].review.as_deref(), Some(made[0].session_id.as_str()));
+    assert_eq!(
+        projects[0].review.as_deref(),
+        Some(made[0].session_id.as_str())
+    );
 }
