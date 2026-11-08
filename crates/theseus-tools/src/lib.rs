@@ -279,7 +279,7 @@ impl AwsBinding {
 /// the next edit asks for a read again.
 #[derive(Debug, Default)]
 pub struct ReadRecord {
-    seen: std::sync::Mutex<std::collections::HashMap<(u64, PathBuf), (usize, u64)>>,
+    seen: std::sync::Mutex<std::collections::HashMap<(String, PathBuf), (usize, u64)>>,
 }
 
 /// One session's view of a [`ReadRecord`]. A `ToolCtx` without one checks
@@ -287,7 +287,7 @@ pub struct ReadRecord {
 #[derive(Debug, Clone)]
 pub struct ReadScope {
     pub record: Arc<ReadRecord>,
-    pub session: u64,
+    pub session: String,
 }
 
 fn witness(bytes: &[u8]) -> (usize, u64) {
@@ -298,13 +298,16 @@ fn witness(bytes: &[u8]) -> (usize, u64) {
 }
 
 impl ReadScope {
-    pub fn new(record: Arc<ReadRecord>, session: u64) -> Self {
-        Self { record, session }
+    pub fn new(record: Arc<ReadRecord>, session: impl Into<String>) -> Self {
+        Self {
+            record,
+            session: session.into(),
+        }
     }
     /// The session has now seen `path` as `bytes` (a read, or its own write).
     pub fn note(&self, path: &Path, bytes: &[u8]) {
         if let Ok(mut m) = self.record.seen.lock() {
-            m.insert((self.session, path.to_path_buf()), witness(bytes));
+            m.insert((self.session.clone(), path.to_path_buf()), witness(bytes));
         }
     }
     /// An edit of `path`, whose bytes now are `bytes`: refused with what to
@@ -315,7 +318,7 @@ impl ReadScope {
             .seen
             .lock()
             .ok()
-            .and_then(|m| m.get(&(self.session, path.to_path_buf())).copied());
+            .and_then(|m| m.get(&(self.session.clone(), path.to_path_buf())).copied());
         match seen {
             None => Err(format!(
                 "{} has not been read in this session. Read it with fs_read first, then edit.",

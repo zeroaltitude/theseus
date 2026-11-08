@@ -25,7 +25,7 @@ impl Rig {
     }
     fn ctx(&self, session: u64) -> ToolCtx {
         let mut c = ToolCtx::for_tests(self.d.path());
-        c.reads = Some(ReadScope::new(self.record.clone(), session));
+        c.reads = Some(ReadScope::new(self.record.clone(), format!("s{session}")));
         c
     }
     fn file(&self) -> String {
