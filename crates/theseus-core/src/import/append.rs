@@ -18,8 +18,10 @@
 //! - **A prefix that diverged** (a rewrite, a compaction, a resume;
 //!   theseus-ectzg) appends the messages after the last stored one whose
 //!   digest still matches the episode's message of that `idx`, never a
-//!   stored `idx` again, and labels the session `prefix diverged at N` (N
-//!   the first stored `idx` that differs), once, in its `labels.topic`.
+//!   stored `idx` again, and records N, the first stored `idx` that
+//!   differs, once, in the session's `diverged_at`. That is a field of its
+//!   own: `labels.topic` is the ontology's input, and `import.topics` would
+//!   make a topic of any entry in it.
 //! - **Anything else is refused and named**: an episode where no stored
 //!   message matches (another episode under a reused id), a divergence
 //!   with nothing after the last match to add (the first differing `idx`),
@@ -184,9 +186,8 @@ pub(super) fn records(
     imp.messages += written;
     imp.summary |= p.summary;
     if let Some(at) = p.diverged {
-        let label = format!("prefix diverged at {at}");
-        if !imp.labels.topic.contains(&label) {
-            imp.labels.topic.push(label);
+        if !imp.diverged_at.contains(&at) {
+            imp.diverged_at.push(at);
         }
     }
     imp.as_of.end_ms = imp.as_of.end_ms.max(e.as_of.end_ms);

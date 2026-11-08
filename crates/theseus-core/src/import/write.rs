@@ -434,6 +434,7 @@ fn records_of(e: &Episode, file: &str, line: u64, frame: &mut Frame) -> Result<u
         line,
         imported_at_ms: theseus_protocol::now_unix_ms(),
         erased: None,
+        diverged_at: Vec::new(),
     }));
     frame.push(
         NewRecord::json(kinds::SESSION, Some(&r.session_id), &r)?.scoped(&tag_scope(&e.import_tag)),

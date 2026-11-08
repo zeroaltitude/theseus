@@ -268,6 +268,13 @@ pub struct ImportedFrom {
     /// Tombstoned by `import.erase`: its nodes' payloads are gone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub erased: Option<Erased>,
+    /// Where a later episode of this session stopped matching what was
+    /// stored (a rewrite, a compaction, a resume; theseus-ectzg): the first
+    /// stored `idx` that differs, once for each, in the order seen. A fact
+    /// of where it came from, so not in `labels.topic`, which is the
+    /// ontology's input.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diverged_at: Vec<u32>,
 }
 
 /// A tag's counts, a META record (`tag_key`), written in every frame of a

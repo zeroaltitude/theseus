@@ -215,7 +215,7 @@ async fn a_rewrite_a_removal_and_a_reorder_are_refused_and_named() {
     assert_eq!(c.store.stats().unwrap().frames_appended, frames);
 
     // With a message after the last match, a removal and a reorder append it
-    // and are labelled at the first stored idx that differs.
+    // and are marked at the first stored idx that differs.
     for (idxs, at) in [(vec![0, 2, 3, 4], 1), (vec![0, 2, 1, 3, 4], 1)] {
         let n = 20 + at as u64 + idxs.len() as u64;
         let f = sync(n, TAG, &[0, 1, 2, 3]);
@@ -226,10 +226,9 @@ async fn a_rewrite_a_removal_and_a_reorder_are_refused_and_named() {
         assert_eq!((got.appended, got.nodes), (1, 1), "{idxs:?}: {got:?}");
         let (rec, stored_idxs) = stored(c, n);
         assert_eq!(stored_idxs, vec![0, 1, 2, 3, 4], "{idxs:?}");
-        assert_eq!(
-            rec.imported.as_deref().unwrap().labels.topic,
-            vec![format!("prefix diverged at {at}")]
-        );
+        let imp = rec.imported.as_deref().unwrap();
+        assert_eq!(imp.diverged_at, vec![at], "{idxs:?}");
+        assert!(imp.labels.topic.is_empty(), "{idxs:?}");
     }
 }
 
@@ -343,8 +342,9 @@ fn rewritten_at_3(n: u64, tag: &str, len: u32) -> Value {
 
 /// A stored 10-message episode whose message 3 was rewritten, and which
 /// gained messages 10 and 11 (the 11th and 12th), imports the two after the
-/// last message that still matches, labels the divergence once, and writes
-/// nothing a second time (theseus-ectzg).
+/// last message that still matches, records the divergence once in a field
+/// of its own and leaves `labels.topic` alone, and writes nothing a second
+/// time (theseus-ectzg).
 #[tokio::test]
 async fn a_session_rewritten_at_3_that_grew_appends_the_new_turns_and_is_labelled() {
     let r = live();
@@ -359,7 +359,8 @@ async fn a_session_rewritten_at_3_that_grew_appends_the_new_turns_and_is_labelle
     assert_eq!(idxs, (0..12).collect::<Vec<u32>>());
     let imp = rec.imported.as_deref().unwrap();
     assert_eq!(imp.messages, 12);
-    assert_eq!(imp.labels.topic, vec!["prefix diverged at 3".to_string()]);
+    assert_eq!(imp.diverged_at, vec![3], "the mark, in a field of its own");
+    assert!(imp.labels.topic.is_empty(), "no topic is made of it");
     let sid = rec.session_id.clone();
     let nodes = c.store.session_nodes(&sid).unwrap();
     let Body::Imported { text, .. } = &nodes[3].1.body else {
@@ -370,19 +371,21 @@ async fn a_session_rewritten_at_3_that_grew_appends_the_new_turns_and_is_labelle
         "the stored message 3 is not overwritten"
     );
 
-    // The same input again: nothing is written twice, one label.
+    // The same input again: nothing is written twice, one mark.
     let frames = c.store.stats().unwrap().frames_appended;
     let got = import(c, lines(&[grown])).await;
     assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
     assert_eq!(c.store.stats().unwrap().frames_appended, frames);
-    // A later growth appends only its new message and keeps the one label.
+    // A later growth appends only its new message and keeps the one mark.
     let mut more = rewritten_at_3(6, "openclaw-sync-2026-12", 13);
     more["hash"] = json!(episode::hash_of(&more));
     let got = import(c, lines(&[more])).await;
     assert_eq!((got.appended, got.nodes), (1, 1), "{got:?}");
     let (rec, idxs) = stored(c, 6);
     assert_eq!(idxs.len(), 13);
-    assert_eq!(rec.imported.as_deref().unwrap().labels.topic.len(), 1);
+    let imp = rec.imported.as_deref().unwrap();
+    assert_eq!(imp.diverged_at, vec![3]);
+    assert!(imp.labels.topic.is_empty());
 }
 
 /// When no stored message matches, it is another episode under a reused id:
@@ -404,4 +407,33 @@ async fn an_episode_matching_no_stored_message_is_still_refused() {
     assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
     assert_eq!(got.rejected.len(), 1, "{got:?}");
     assert_eq!(stored(c, 7).1.len(), 4);
+}
+
+/// The mark is a stored field of its own: no key on a session that never
+/// diverged (a record from before reads with none, and writes back the same
+/// bytes), and after a divergence the key holds the idx while the labels the
+/// pipeline gave are as they were (theseus-ectzg).
+#[tokio::test]
+async fn the_mark_is_a_stored_field_that_a_record_from_before_reads_without() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(9, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let (rec, _) = stored(c, 9);
+    let before = serde_json::to_value(&rec).unwrap();
+    assert!(
+        before["imported"].get("diverged_at").is_none(),
+        "no key until a divergence: {before}"
+    );
+    let old: SessionRecord = serde_json::from_value(before.clone()).unwrap();
+    assert!(old.imported.as_deref().unwrap().diverged_at.is_empty());
+    assert_eq!(serde_json::to_value(&old).unwrap(), before);
+
+    import(c, lines(&[rewritten_at_3(9, "openclaw-sync-2026-11", 12)])).await;
+    let (rec, _) = stored(c, 9);
+    let after = serde_json::to_value(&rec).unwrap();
+    assert_eq!(after["imported"]["diverged_at"], json!([3]), "{after}");
+    assert_eq!(
+        after["imported"]["labels"], before["imported"]["labels"],
+        "the labels are the pipeline's, untouched"
+    );
 }
