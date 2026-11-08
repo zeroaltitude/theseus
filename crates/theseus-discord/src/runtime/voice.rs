@@ -74,6 +74,8 @@ mod tests_heard;
 #[cfg(test)]
 mod tests_judged;
 #[cfg(test)]
+mod tests_mute;
+#[cfg(test)]
 mod tests_persona;
 #[cfg(test)]
 mod tests_reply;
@@ -164,6 +166,9 @@ struct Call {
     /// The channel's status and the board's line, while it is on
     /// (theseus-arp9l).
     status: Option<voice_status::Handle>,
+    /// `/mute` is on (theseus-k2sw): the engine hears nothing until `/unmute`.
+    /// It lives and dies with the call, and a rejoin of the connection keeps it.
+    muted: bool,
 }
 
 /// A turn of utterances from the call, for the voice place.
@@ -343,8 +348,34 @@ pub(super) fn commands() -> Vec<SlashCommand> {
             CommandType::ChatInput,
         )
         .build(),
+        CommandBuilder::new(
+            "mute",
+            "Stop Theseus hearing the voice call until /unmute; it finishes what it is saying",
+            CommandType::ChatInput,
+        )
+        .build(),
+        CommandBuilder::new(
+            "unmute",
+            "Let Theseus hear the voice call again",
+            CommandType::ChatInput,
+        )
+        .build(),
     ]
 }
+
+/// What `/mute` and `/unmute` answer (theseus-k2sw). Every reply is one of
+/// these fixed lines: nothing the call or a person said is in it, so there is
+/// nothing for a secret exit to mask or a mention to ping, and none is near
+/// Discord's 2,000 characters. The slash reply goes out as it is, unmasked and
+/// unclipped (theseus-qtofh), so this command's must be text that needs
+/// neither; `tests_mute` holds it to that.
+pub(crate) const MUTED: &str = "🔇 Muted: I can't hear the call until `/unmute`. I'll finish what     I'm saying; `/stop` cuts me off.";
+pub(crate) const UNMUTED: &str = "🎙️ Unmuted: I can hear the call again.";
+pub(crate) const ALREADY_MUTED: &str = "I'm already muted. `/unmute` lets me hear the call again.";
+pub(crate) const NOT_MUTED: &str = "I'm not muted.";
+pub(crate) const MUTE_NO_CALL: &str = "I'm not in a voice channel.";
+pub(crate) const MUTE_SHARED: &str =
+    "`/mute` works from a private place, as `/join` and `/leave` do.";
 
 /// `/join`'s channel option, when given.
 pub(super) fn join_option(options: &[CommandDataOption]) -> Option<u64> {
@@ -564,6 +595,7 @@ impl Place {
             notes: Notes::default(),
             stopped: false,
             status: self.start_status(&place, channel, serial, &handle.commands),
+            muted: false,
         });
         update(shared, |s| {
             s.state = "joined".into();
@@ -634,6 +666,31 @@ impl Place {
             "👋 Left {}. The conversation goes on here in text.",
             call.label
         )
+    }
+
+    /// `/mute` and `/unmute` (theseus-k2sw), from a private place as `/leave`
+    /// is: the engine stops hearing the call, or hears it again. A fixed
+    /// line answers (see [`MUTED`]).
+    pub(super) fn mute(&self, on: bool) -> String {
+        let core = &self.shared.core;
+        if core.runner.place_rule.class(&core.cfg, Some(&self.target)) != PlaceClass::Private {
+            return MUTE_SHARED.into();
+        }
+        let mut slot = self.shared.voice.call.lock().unwrap();
+        let Some(call) = slot.as_mut() else {
+            return MUTE_NO_CALL.into();
+        };
+        let line = match (on, call.muted == on) {
+            (true, false) => MUTED,
+            (false, false) => UNMUTED,
+            (true, true) => ALREADY_MUTED,
+            (false, true) => NOT_MUTED,
+        };
+        if call.muted != on {
+            call.muted = on;
+            let _ = call.commands.send(Command::Mute(on));
+        }
+        line.into()
     }
 
     /// A turn of utterances from this place's call: now, or after the turn
@@ -1244,6 +1301,7 @@ fn heard_as(h: HeardAs) -> &'static str {
         HeardAs::Resume => "resume",
         HeardAs::Join => "join",
         HeardAs::Other => "other",
+        HeardAs::Muted => "muted",
     }
 }
 
@@ -1620,7 +1678,7 @@ mod tests {
     /// `p` in the DM with the owner, which the binding binds as the bindings
     /// file's `[[dm]]` would: with no owner named, its person is the owner
     /// (the place rule, theseus-zmgb).
-    fn in_owners_dm(core: &Core, p: &mut Place) {
+    pub(super) fn in_owners_dm(core: &Core, p: &mut Place) {
         core.bind_places(vec![theseus_core::places::BoundPlace {
             target: format!("discord:dm:{OWNER}"),
             name: "DM".into(),
@@ -1714,6 +1772,7 @@ mod tests {
             notes: Notes::default(),
             stopped: false,
             status: None,
+            muted: false,
         });
     }
 
@@ -2080,7 +2139,7 @@ mod tests {
     fn join_names_a_voice_channel_and_leave_nothing() {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["join", "leave"]);
+        assert_eq!(names, ["join", "leave", "mute", "unmute"]);
         // The binding registers them after its own twenty (`/why` the eleventh, `/digest` the twelfth, `/orders` the thirteenth, `/thread` the fourteenth, `/remind` the fifteenth, `/move` the sixteenth; the future's `/agenda`, `/routine`, `/snooze` and `/watch` follow, theseus-j90w2).
         let all = super::super::commands();
         // The task commands (`/task`, `/answer`, `/quiet`, "Make this a task") come after them (theseus-a5uds); horizon's four before them (theseus-j90w2).
@@ -2088,10 +2147,12 @@ mod tests {
         assert_eq!(
             (all.len(), last),
             (
-                26,
+                28,
                 vec![
                     "join",
                     "leave",
+                    "mute",
+                    "unmute",
                     "task",
                     "answer",
                     "quiet",
@@ -2107,7 +2168,7 @@ mod tests {
             join.options[0].channel_types.as_deref(),
             Some(&[ChannelType::GuildVoice][..])
         );
-        assert!(cmds[1].options.is_empty());
+        assert!(cmds[1..].iter().all(|c| c.options.is_empty()));
         assert!(cmds.iter().all(|c| c.description.chars().count() <= 100));
     }
 }

@@ -108,6 +108,10 @@ struct Lane {
     owed: Duration,
     /// The tick of the last real frame.
     last_frame: Option<u64>,
+    /// A turn the listener has open that a mute dropped (theseus-k2sw): the
+    /// `End` it still owes is not an utterance, however late it comes. The
+    /// listener's events are in order, so a `Start` after the unmute clears it.
+    muted_turn: bool,
 }
 
 impl Lane {
@@ -452,12 +456,19 @@ impl Engine {
 
     fn flux_start(&mut self, speaker: Speaker, now: Instant) {
         let tick = self.ticks;
+        let muted = self.muted;
+        if let Some(flux) = &mut self.flux {
+            // A start while muted is the audio sent before the mute, heard
+            // late: its end is owed and dropped. One after the unmute is a new
+            // turn, and the old one's end has come, or never will.
+            flux.lanes.entry(speaker).or_default().muted_turn = muted;
+        }
         let already = self
             .flux
             .as_ref()
             .and_then(|f| f.lanes.get(&speaker))
             .is_some_and(|l| l.turn.is_some());
-        if already || !self.flux_hears(speaker) {
+        if muted || already || !self.flux_hears(speaker) {
             return;
         }
         let opening = self.what_is_over(now);
@@ -520,6 +531,7 @@ impl Engine {
         streamed: Duration,
         now: Instant,
     ) {
+        let muted = self.muted;
         let Some(lane) = self.flux.as_mut().and_then(|f| f.lanes.get_mut(&speaker)) else {
             return;
         };
@@ -534,7 +546,34 @@ impl Engine {
                 );
                 self.flux_trim(speaker);
             }
+            // Heard while muted, or begun before a mute that dropped it: its
+            // words go nowhere, its audio is billed (theseus-k2sw).
+            _ if muted || std::mem::take(&mut lane.muted_turn) => {
+                lane.turn = None;
+                lane.owed += streamed;
+                tracing::info!(speaker = speaker.0, "voice: a muted turn ended unheard");
+                self.flux_book(speaker);
+                self.flux_trim(speaker);
+            }
             _ => self.flux_utterance(speaker, text, confidence, streamed, false, now),
+        }
+    }
+
+    /// A mute landed (theseus-k2sw): a turn the listener has open is dropped,
+    /// not held for the floor, and its `End` will be too. An eager end already
+    /// made a turn before the mute: its `End` only confirms it.
+    pub(super) fn flux_muted(&mut self) {
+        let Some(flux) = &mut self.flux else {
+            return;
+        };
+        for lane in flux.lanes.values_mut() {
+            if lane.turn.is_none() || lane.eager.as_ref().is_some_and(|e| !e.resumed) {
+                continue;
+            }
+            lane.turn = None;
+            lane.eager = None;
+            lane.muted_turn = true;
+            lane.ring.clear();
         }
     }
 

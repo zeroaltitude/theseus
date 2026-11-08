@@ -586,6 +586,13 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `runtime/voice/tests_status.rs` (the pace on tokio's paused clock, the fake Discord's REST route and its 403), and
   `voice_status.rs`'s own.
 
+- **`/mute` and `/unmute`** (theseus-k2sw, `runtime/voice.rs`'s `Place::mute`, `Control::Mute(bool)`): from a private place, as
+  `/leave` is, they send the call's engine `Command::Mute` (call-wide, every speaker; the engine's side is the voice crate's
+  `engine/mute.rs`) and keep `Call::muted`, so a repeat says so and sends nothing. Muted is the engine's state, so the deaf
+  watch's rejoin keeps it, and it dies with the call. **The reply is one of six fixed lines** (`MUTED`, `UNMUTED`, …): the slash
+  reply is sent as it is, with no secret exit, no mention guard and no 2,000-character clip (theseus-qtofh), so a command that
+  answers must answer text that needs none; `tests_mute` holds the lines to that. Not here: muting one speaker, a guest pausing.
+
 - **Flux as the call's listener** (theseus-v774k; `[voice] stt_model = "flux-general-en"`, the default; nova-3 by config; `runtime/voice.rs`'s
   `flux_listen`, `runtime/voice/tests_flux.rs`): the call's engine gets a `FluxListen` (`Engine::with_listen`), whose sockets open
   and whose turns start only while `speech_fits` has room (`FLUX_ESTIMATE`, half a minute of Flux audio); the REST client keeps
