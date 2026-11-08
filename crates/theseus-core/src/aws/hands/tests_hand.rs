@@ -250,3 +250,42 @@ async fn a_hand_whose_envelope_is_not_sent_says_so() {
     let err = run(&s, None, &creds()).await.unwrap_err();
     assert!(err.contains("the envelope was not sent"), "{err}");
 }
+
+/// A hand's clock starts with its invocation, not with its child: the
+/// envelope's span and the result's `duration_ms` both cover an init that
+/// came before the child (theseus-63wzi).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hands_span_runs_from_the_start_of_its_invocation() {
+    let _dir = work_dir();
+    let fake = Fake::start(answer);
+    let s = spec(&fake.url, "act_hand_example_5", &["true"], 60);
+    let began = super::hand::Began::now().earlier_by(Duration::from_secs(5));
+    let e = super::hand::run_since(&s, Some("req-lambda-5".into()), &creds(), began)
+        .await
+        .unwrap();
+    let span = e.finished_at_ms - e.started_at_ms;
+    assert!(
+        (5_000..8_000).contains(&span),
+        "the envelope's span: {span} ms"
+    );
+    let seen = fake.seen();
+    let puts = puts(&seen);
+    let result: Value = serde_json::from_str(&puts.last().unwrap().1).unwrap();
+    let ms = result["duration_ms"].as_u64().unwrap();
+    assert!(
+        (5_000..8_000).contains(&ms),
+        "the result's duration: {ms} ms"
+    );
+    assert!(
+        e.verify(derive_key(SECRET.as_bytes(), "act_hand_example_5").as_ref()),
+        "signed over the span it states"
+    );
+}
+
+/// A process can say how long it has lived, which is a Lambda hand's init
+/// on its first invocation.
+#[test]
+fn a_process_knows_its_age() {
+    let age = super::hand::process_age().expect("/proc says");
+    assert!(age < Duration::from_secs(3600), "{age:?}");
+}

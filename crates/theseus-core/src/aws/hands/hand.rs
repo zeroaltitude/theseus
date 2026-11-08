@@ -110,6 +110,7 @@ async fn lambda_loop(api: &str) -> i32 {
         }
     };
     let base = format!("http://{api}/2018-06-01/runtime");
+    let mut cold = true;
     loop {
         let next = match http.get(format!("{base}/invocation/next")).send().await {
             Ok(r) => r,
@@ -118,6 +119,14 @@ async fn lambda_loop(api: &str) -> i32 {
                 return 1;
             }
         };
+        // The invocation's start; the first one's is its environment's init
+        // too (the process's age), which Lambda bills with it.
+        let mut began = Began::now();
+        if std::mem::take(&mut cold) {
+            if let Some(init) = process_age() {
+                began = began.earlier_by(init);
+            }
+        }
         let id = next
             .headers()
             .get("lambda-runtime-aws-request-id")
@@ -127,7 +136,7 @@ async fn lambda_loop(api: &str) -> i32 {
         let body = next.bytes().await.unwrap_or_default();
         let answer = match serde_json::from_slice::<HandSpec>(&body) {
             Err(e) => Err(format!("the event is not a hand's spec: {e}")),
-            Ok(spec) => run(&spec, Some(id.clone()), &Creds::from_env()).await,
+            Ok(spec) => run_since(&spec, Some(id.clone()), &Creds::from_env(), began).await,
         };
         let sent = match answer {
             Ok(e) => {
@@ -598,12 +607,78 @@ async fn upload(
     }
 }
 
+/// Where a hand's clock starts: the earliest moment inside its invocation
+/// that the hand can know (theseus-63wzi). The envelope's span, and so the
+/// cost a hand settles at, runs from here, not from the child's start.
+#[derive(Clone, Copy)]
+pub struct Began {
+    at: Instant,
+    unix_ms: u64,
+}
+
+impl Began {
+    /// This moment.
+    pub fn now() -> Began {
+        Began {
+            at: Instant::now(),
+            unix_ms: theseus_protocol::now_unix_ms(),
+        }
+    }
+
+    /// `d` before: the init that ran before the handler, as Lambda bills it.
+    pub fn earlier_by(self, d: Duration) -> Began {
+        Began {
+            at: self.at.checked_sub(d).unwrap_or(self.at),
+            unix_ms: self.unix_ms.saturating_sub(d.as_millis() as u64),
+        }
+    }
+}
+
+/// How long this process has been alive, from `/proc` (None where it cannot
+/// say). In Lambda's first invocation of an environment that is its init:
+/// the runtime's start, which AWS bills, before the handler is called.
+pub(super) fn process_age() -> Option<Duration> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    // Field 22 is the start, in clock ticks after boot; the fields after the
+    // command's closing parenthesis begin at field 3.
+    let ticks: f64 = stat
+        .rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()?;
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    if hz <= 0 {
+        return None;
+    }
+    let up: f64 = std::fs::read_to_string("/proc/uptime")
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    let age = up - ticks / hz as f64;
+    (age.is_finite() && age >= 0.0).then(|| Duration::from_secs_f64(age))
+}
+
 /// One hand, start to envelope: the job, its logs, its result, and its
 /// signed completion on the queue. The envelope sent, or why none was.
 pub async fn run(
     spec: &HandSpec,
     external_op_id: Option<String>,
     creds: &Creds,
+) -> Result<Envelope, String> {
+    run_since(spec, external_op_id, creds, Began::now()).await
+}
+
+/// `run`, its clock started at `began`: a Lambda invocation's own start,
+/// the first one's back to its init.
+pub async fn run_since(
+    spec: &HandSpec,
+    external_op_id: Option<String>,
+    creds: &Creds,
+    began: Began,
 ) -> Result<Envelope, String> {
     if spec.v != VERSION {
         return Err(format!("a spec of version {}, not {VERSION}", spec.v));
@@ -636,14 +711,15 @@ pub async fn run(
             json!({"logGroupName": spec.log_group, "logStreamName": spec.log_stream()}),
         )
         .await;
-    let started_at_ms = theseus_protocol::now_unix_ms();
-    let t0 = Instant::now();
+    let started_at_ms = began.unix_ms;
     let output = Arc::new(Mutex::new(Output::default()));
     let ended = run_job(spec, &dir, &aws, output.clone()).await;
-    let ms = t0.elapsed().as_millis() as u64;
-    let finished_at_ms = theseus_protocol::now_unix_ms();
+    let ms = began.at.elapsed().as_millis() as u64;
     let out = std::mem::take(&mut *output.lock().unwrap());
     let uploaded = upload(&aws, spec, &dir, &ended, &out, ms).await;
+    // After the upload, which the invocation bills too: only the envelope's
+    // own send, and the answer to the runtime, are left outside.
+    let finished_at_ms = theseus_protocol::now_unix_ms();
     let _ = std::fs::remove_dir_all(&dir);
     let ok = ended.exit_code == Some(0) && !ended.timed_out;
     let mut e = Envelope {
