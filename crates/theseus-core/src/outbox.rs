@@ -1555,6 +1555,7 @@ mod tests {
         ("rsi/narrow.rs", 1),
         ("rsi/pr.rs", 2),
         ("rule_notice.rs", 1),
+        ("sweep_notice.rs", 1),
         ("thread_link_seen.rs", 1),
         ("turn/admission.rs", 1),
         ("turn/ceiling_step.rs", 1),
