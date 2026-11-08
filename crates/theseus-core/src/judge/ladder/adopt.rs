@@ -96,16 +96,28 @@ pub const WHY_ROUTE_V8: &str = "the owner's decision of 2026-10-23";
 /// (theseus-h66v4).
 pub const WHY_ROUTE_V10: &str = "the owner's decision of 2026-10-29";
 
-/// The rules adoption gives a pack id (every version of it):
+/// The rules this table gives a pack id (every version of it). Most are the
+/// adoption's, from the owner's decisions of 2026-10-04; `recall_cross` has
+/// no adoption row (it went live with the ladder, not before it), and the
+/// table is read for every pack, adopted or not (`rules::rules_of`), so its
+/// rule stands beside them here:
 /// - `route`: the owner pins another profile on 3 routed turns in a local
 ///   day (a pack that declares its own count, route.v10's 5, keeps it);
 /// - `rerank`: its own breaker opens twice in a local day;
+/// - `recall_cross`: the same (theseus-tbqpy). The cross judge is the other
+///   canary at the `recall` point, on its own breaker under the same
+///   `BreakerConfig::default()` as rerank's, so an open means the same
+///   thing of either: the pack is failing or timing out often enough to
+///   have tripped. Two in a local day is a pack that is not merely unlucky,
+///   and the brake is a day's, so the count carries the same cost. Nothing
+///   about the cross judge argues for a looser or a tighter number than its
+///   neighbour's, so it takes its neighbour's.
 /// - `security`: the notices' own rule (design §2.7): more than 30 notices,
 ///   or 3 judgments labeled `noise`, in a day.
 pub fn rules(id: &str) -> Vec<RollbackRule> {
     match id {
         "route" => vec![RollbackRule::PinsPerDay { count: 3 }],
-        "rerank" => vec![RollbackRule::OpensPerDay { count: 2 }],
+        "rerank" | "recall_cross" => vec![RollbackRule::OpensPerDay { count: 2 }],
         "security" => vec![
             RollbackRule::NoticesPerDay { max: 30 },
             RollbackRule::LabelsPerDay {
@@ -176,5 +188,32 @@ mod tests {
             }
         }
         assert!(rules("loop").is_empty());
+    }
+
+    /// The cross-recall pack's breaker has a day's brake of its own
+    /// (theseus-tbqpy): the same rule and the same count as `rerank`'s, and
+    /// `rules_of` carries it to a version whose file declares none, so an
+    /// open of `recall_cross` is counted on the ladder.
+    #[test]
+    fn the_cross_recall_packs_breaker_opening_counts_on_the_ladder() {
+        let table = rules("recall_cross");
+        assert_eq!(table, vec![RollbackRule::OpensPerDay { count: 2 }]);
+        for r in &table {
+            r.check().unwrap();
+        }
+        assert_eq!(
+            table,
+            rules("rerank"),
+            "the same shape and count as the neighbouring rerank family"
+        );
+        let merged = super::super::rules::rules_of("recall_cross.v1");
+        assert_eq!(
+            merged
+                .iter()
+                .filter(|r| **r == RollbackRule::OpensPerDay { count: 2 })
+                .count(),
+            1,
+            "{merged:?}"
+        );
     }
 }

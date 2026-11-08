@@ -462,13 +462,14 @@ async fn the_adoption_is_written_once_after_serving() {
 }
 
 /// Each adopted rule fires on its scripted events, and not one short:
-/// `route.v1`'s 3 pins, `rerank.v1`'s 2 breaker opens, `security.v3`'s 31
-/// notices; each is a day's brake, until the next local midnight.
+/// `route.v1`'s 3 pins, `rerank.v1`'s 2 breaker opens, `recall_cross.v1`'s 2
+/// (theseus-tbqpy), `security.v3`'s 31 notices; each is a day's brake, until
+/// the next local midnight.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn each_adopted_rule_fires_on_its_events_and_not_on_a_near_miss() {
     let day = |c: &Core| c.runner.judge.today();
     type Event = fn(String) -> CanaryEvent;
-    let cases: [(&str, usize, Event, &str); 3] = [
+    let cases: [(&str, usize, Event, &str); 4] = [
         (
             "route.v5",
             3,
@@ -477,6 +478,12 @@ async fn each_adopted_rule_fires_on_its_events_and_not_on_a_near_miss() {
         ),
         (
             "rerank.v1",
+            2,
+            |day| CanaryEvent::BreakerOpened { day },
+            "opens_per_day",
+        ),
+        (
+            "recall_cross.v1",
             2,
             |day| CanaryEvent::BreakerOpened { day },
             "opens_per_day",
