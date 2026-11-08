@@ -178,7 +178,7 @@ impl JudgeService {
         if need > left {
             return Asked::Over(need);
         }
-        if !self.reserve(&today, need) {
+        if !self.reserve(&today, need, spend::Class::of(ask.mode)) {
             return Asked::Off;
         }
         let judgments = built

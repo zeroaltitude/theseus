@@ -389,7 +389,7 @@ impl JudgeService {
             .inner()
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
-        match self.reserve_beside(today, need) {
+        match self.reserve_beside(today, need, spend::Class::of(ask.mode)) {
             Some(beside) => Ok((super::Prepared { built, ask, need }, beside)),
             None => Err("budget"),
         }

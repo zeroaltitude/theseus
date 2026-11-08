@@ -92,7 +92,7 @@ use crate::store::Store;
 pub use compile::AtCompile;
 pub use loop_end::LoopEnd;
 pub use mark::Dispatch;
-use spend::{Reserve, ShadowBudget};
+use spend::{Class, Reserve, ShadowBudget};
 
 /// The packs this build wires in, and the line each stands at on the
 /// ladder before a `pack.mode` row of its own (26a): every pack in shadow
@@ -721,9 +721,9 @@ impl JudgeService {
     /// end, and consolidation's citation check (theseus-xkbs). A judgment
     /// no turn waits on reserves between turns instead ([`reserve_between`]).
     /// False: paused at the limit, or the frame was not written.
-    fn reserve(&self, today: &str, need: theseus_judge::price::Micros) -> bool {
+    fn reserve(&self, today: &str, need: theseus_judge::price::Micros, class: Class) -> bool {
         let _blocks = self.blocks.lock().unwrap_or_else(|e| e.into_inner());
-        let (granted, records, said) = match self.budget.reserve(&self.store, today, need) {
+        let (granted, records, said) = match self.budget.reserve(&self.store, today, need, class) {
             Reserve::Granted(r, s) => (true, r, s),
             Reserve::Paused(r, s) => (false, r, s),
         };
@@ -766,8 +766,13 @@ impl JudgeService {
     /// so the turn's verdict never waits on that sync. Every sink frame
     /// writes the budget's record too. `None`: paused at the day's limit (its
     /// frame written now, as `reserve` writes it), and nothing is sent.
-    fn reserve_beside(&self, today: &str, need: theseus_judge::price::Micros) -> Option<Beside> {
-        match self.budget.reserve(&self.store, today, need) {
+    fn reserve_beside(
+        &self,
+        today: &str,
+        need: theseus_judge::price::Micros,
+        class: Class,
+    ) -> Option<Beside> {
+        match self.budget.reserve(&self.store, today, need, class) {
             Reserve::Granted(records, said) => Some(Beside { records, said }),
             Reserve::Paused(records, said) => {
                 if !records.is_empty() {
@@ -1042,9 +1047,12 @@ pub(crate) async fn reserve_between(
     me: &Weak<JudgeService>,
     today: &str,
     need: theseus_judge::price::Micros,
+    class: Class,
 ) -> bool {
     let (turns, timing) = match me.upgrade() {
-        Some(s) if s.budget.needs_frame(today, need) => (s.between.get().cloned(), s.sink_timing()),
+        Some(s) if s.budget.needs_frame(today, need, class) => {
+            (s.between.get().cloned(), s.sink_timing())
+        }
         Some(_) => (None, Default::default()),
         None => return false,
     };
@@ -1056,7 +1064,7 @@ pub(crate) async fn reserve_between(
         return false;
     };
     let today = today.to_string();
-    tokio::task::spawn_blocking(move || svc.reserve(&today, need))
+    tokio::task::spawn_blocking(move || svc.reserve(&today, need, class))
         .await
         .unwrap_or(false)
 }
@@ -1074,7 +1082,7 @@ async fn judge_loop(me: Weak<JudgeService>, pack: Arc<Pack>, end: LoopEnd, id: S
     let Some(Prepared { built, ask, need }) = prepared else {
         return;
     };
-    if !reserve_between(&me, &today, need).await {
+    if !reserve_between(&me, &today, need, Class::of(ask.mode)).await {
         return;
     }
     let t0 = Instant::now();

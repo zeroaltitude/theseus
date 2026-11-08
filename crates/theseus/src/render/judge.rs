@@ -82,7 +82,7 @@ pub fn judge_line(h: &JudgeHealth) -> String {
         h.shadow_limit_usd
     ));
     if h.paused {
-        s.push_str(" · shadow paused at the day's limit until midnight");
+        s.push_str(" · shadow paused (past 70% of the day's limit) until midnight");
     }
     if h.shed > 0 {
         s.push_str(&format!(" · {} shed", h.shed));

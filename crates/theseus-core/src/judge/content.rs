@@ -517,7 +517,13 @@ impl JudgeService {
                 records: vec![],
                 said: vec![],
             },
-            false => self.reserve_beside(today, need).ok_or(Unasked::Refused)?,
+            false => self
+                .reserve_beside(
+                    today,
+                    need,
+                    spend::Class::of_asks(asks.iter().map(|(_, a)| a)),
+                )
+                .ok_or(Unasked::Refused)?,
         };
         Ok(Batch {
             built,

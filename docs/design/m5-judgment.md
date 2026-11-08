@@ -27,8 +27,9 @@ run, or sent to Jev._
   where no human is waiting: a task's turn end.
 - **Inside the dollar budget.** Every call is priced from the catalog (`[catalog."jev-…"]`), and an unpriced
   Jev model is never called. Shadow calls spend from the judge's own daily budget
-  (`[judge] shadow_limit_usd_per_day`), since they are the system's experiment, not the session's work. At
-  that limit shadow pauses and says so. Live calls spend from the session's execution, exactly as a model call
+  (`[judge] shadow_limit_usd_per_day`), since they are the system's experiment, not the session's work. Shadow
+  stops at 70% of that limit and says so; the rest of the day is live's alone _(since 2026-11-07,
+  theseus-0j2.16: until then one pool, and shadow could spend what live then abstained for)_. Live calls spend from the session's execution, exactly as a model call
   does: they reserve, settle, and hold unknown cost until it is reconciled. A live judgment that doesn't fit
   abstains, and the deterministic baseline decides. A judgment never raises a budget question of its own.
 
@@ -271,7 +272,7 @@ and no one-way door: an older binary still opens a store with judgments in it.
 | Who pays | The judge's own budget: `[judge] shadow_limit_usd_per_day` ($1.00 by default, about 10,000 calls) | The session's execution, beside its model calls |
 | Why there | An experiment the system runs, not work the session asked for | Part of the session's work |
 | How it is held | A `judge.budget` META record for the local day. The recorder reserves in **blocks** of $0.01, one frame per block, and calls draw from the block in memory. Each batch frame carries the spend. After a crash, the unsettled rest of the block counts as spent, conservatively (§3.13) | A kernel action, as a model call is: `plan_and_dispatch` with its reservation, `SafeToRepeat`, a deadline, then a settle at the real cost from `usage`. A timeout after the send holds the reservation as unknown until the reconciler settles it at the reserved amount |
-| At the limit | Shadow pauses: one `judge.paused` row, a health line, a narrative line. It resumes at local midnight. Nobody is asked, since pausing an experiment is correct operation | The judgment **abstains** and the baseline decides. It never raises a budget question; the session's next model call asks, as usual |
+| At the limit | Shadow pauses at 70% of the limit (`judge.paused`, `what: "shadow"`), live at the limit itself (`what: "live"`): one row, a health line and a narrative line for each, until local midnight. Nobody is asked, since pausing an experiment is correct operation | The judgment **abstains** and the baseline decides. It never raises a budget question; the session's next model call asks, as usual |
 | Frames | None in the turn's. The recorder's own batch frames (§2.5), and one per block | Its plan rides in the frame the turn writes next (the kernel's closure argument), so it adds at most one frame, its settle. The frame-budget test gets a judged variant |
 
 - The session's lifetime `cost_usd` includes its live judgments. Health shows the judge's shadow spend for today

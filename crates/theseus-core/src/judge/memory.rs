@@ -140,7 +140,7 @@ async fn judge_memory(me: Weak<JudgeService>, pack: Arc<Pack>, ask: MemoryAsk) {
     let Some(Prepared { built, ask, need }) = prepared else {
         return;
     };
-    if !super::reserve_between(&me, &today, need).await {
+    if !super::reserve_between(&me, &today, need, spend::Class::of(ask.mode)).await {
         return;
     }
     let judgments = built

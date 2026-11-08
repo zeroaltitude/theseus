@@ -183,9 +183,11 @@ impl Fact for JudgeCall<'_> {
     }
 }
 
-/// The shadow budget reached its day's limit: shadow pauses until local
-/// midnight, said once a day.
+/// The judge's day budget reached a line: shadow pauses at its line (70%
+/// of the limit, `what: "shadow"`), and live at the limit (`what: "live"`),
+/// each until local midnight and said once a day.
 pub struct JudgePaused<'a> {
+    pub what: &'a str,
     pub day: &'a str,
     pub limit_micros: u64,
     pub spent_micros: u64,
@@ -196,18 +198,22 @@ impl Fact for JudgePaused<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::JudgePaused);
 
     fn row(&self) -> Value {
-        json!({"day": self.day, "limit_micros": self.limit_micros, "spent_micros": self.spent_micros,
-            "needed_micros": self.needed_micros})
+        json!({"what": self.what, "day": self.day, "limit_micros": self.limit_micros,
+            "spent_micros": self.spent_micros, "needed_micros": self.needed_micros})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
-        say.line(
-            NarrativePart::Session,
-            format!(
+        let line = match self.what {
+            "live" => format!(
+                "Judging paused: today's {} is spent, live judgments too. It resumes at local midnight.",
+                usd(self.limit_micros)
+            ),
+            _ => format!(
                 "Shadow judging paused: today's {} is spent. It resumes at local midnight.",
                 usd(self.limit_micros)
             ),
-        );
+        };
+        say.line(NarrativePart::Session, line);
     }
 }
 

@@ -794,8 +794,9 @@ impl JudgeService {
             let a: Vec<Ask> = a.into_iter().cloned().collect();
             built.judge.inner().reserve_micros(&a).unwrap_or(0)
         };
+        let class = spend::Class::of_asks(route.iter().chain(&alone).chain(&rest).copied());
         let need = reserve(route) + reserve(alone) + reserve(rest);
-        let beside = self.reserve_beside(today, need)?;
+        let beside = self.reserve_beside(today, need, class)?;
         Some(Ready {
             built,
             asks,

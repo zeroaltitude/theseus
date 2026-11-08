@@ -542,7 +542,10 @@ async fn a_tiny_day_limit_pauses_shadow_with_one_row() {
     );
     let paused = kinds(&r.core.store, "judge.paused");
     assert_eq!(paused.len(), 1, "{paused:?}");
-    assert_eq!(paused[0].data["limit_micros"], 200);
+    assert_eq!(
+        paused[0].data["limit_micros"], 140,
+        "shadow's line, 70% of 200"
+    );
     let h = r.core.health().judge.unwrap();
     assert!(h.paused);
     assert_eq!(h.calls_today as usize, made);

@@ -208,7 +208,7 @@ impl JudgeService {
         ask.id = Some(format!("jdg_{}", uuid::Uuid::now_v7().simple()));
         let asks = vec![ask];
         let need = built.judge.inner().reserve_micros(&asks).unwrap_or(0);
-        if !self.reserve(&today, need) {
+        if !self.reserve(&today, need, spend::Class::of_asks(&asks)) {
             return None;
         }
         let j = built

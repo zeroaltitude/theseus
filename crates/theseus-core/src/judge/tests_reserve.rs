@@ -12,15 +12,16 @@ use std::time::{Duration, Instant};
 use theseus_judge::fake::{FakeJev, FakeMode};
 use theseus_store::NewRecord;
 
-use super::spend::{Stored, META_KEY};
+use super::spend::{Class, Stored, META_KEY};
 use crate::provider::FakeProvider;
 use crate::rpc::{Core, Parts};
 use crate::store::Store;
 use crate::tests_judge::{board, config, kinds, rig_with, texts, turn};
 
 const LIMIT: f64 = 0.0002;
-/// A reservation that fits the day's limit (200 micros) once, never twice.
-const NEED: u64 = 150;
+/// A reservation that fits shadow's line (70% of the day's 200 micros, so
+/// 140) once, never twice.
+const NEED: u64 = 100;
 
 fn said(core: &Arc<Core>, starts: &str) -> Vec<String> {
     core.narrator
@@ -52,14 +53,21 @@ async fn a_days_limit_says_its_pause_once() {
         c.judge.shadow_limit_usd_per_day = LIMIT;
     });
     let svc = &r.core.runner.judge;
-    assert!(svc.reserve("2026-10-01", NEED), "the first fits");
+    assert!(
+        svc.reserve("2026-10-01", NEED, Class::Shadow),
+        "the first fits"
+    );
     assert!(said(&r.core, "Shadow judging paused").is_empty());
     for _ in 0..3 {
-        assert!(!svc.reserve("2026-10-01", NEED), "refused at the limit");
+        assert!(
+            !svc.reserve("2026-10-01", NEED, Class::Shadow),
+            "refused at shadow's line"
+        );
     }
     let rows = kinds(&r.core.store, "judge.paused");
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0].data["limit_micros"], 200);
+    assert_eq!(rows[0].data["limit_micros"], 140, "shadow's line");
+    assert_eq!(rows[0].data["what"], "shadow");
     assert_eq!(
         said(&r.core, "Shadow judging paused"),
         ["Shadow judging paused: today's $0.00 is spent. It resumes at local midnight."],
@@ -76,8 +84,8 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     let dir = tempfile::tempdir().unwrap();
     let core = core_on(dir.path(), &jev);
     let svc = &core.runner.judge;
-    assert!(svc.reserve("2026-10-01", NEED));
-    assert!(!svc.reserve("2026-10-01", NEED));
+    assert!(svc.reserve("2026-10-01", NEED, Class::Shadow));
+    assert!(!svc.reserve("2026-10-01", NEED, Class::Shadow));
     assert!(
         said(&core, "Shadow judging resumed").is_empty(),
         "not before"
@@ -85,7 +93,10 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     // The first judgment settles, as a call that came back does; what is
     // still in flight at midnight carries into the next day.
     svc.budget.settle("2026-10-01", NEED, 0, true, false);
-    assert!(svc.reserve("2026-10-02", NEED), "the new day has room");
+    assert!(
+        svc.reserve("2026-10-02", NEED, Class::Shadow),
+        "the new day has room"
+    );
     let rows = kinds(&core.store, "judge.resumed");
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].data["day"], "2026-10-02");
@@ -93,7 +104,7 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     let expect = "Shadow judging resumed: a new day (2026-10-02) after 2026-10-01's pause.";
     assert_eq!(said(&core, "Shadow judging resumed"), [expect]);
     // The day's other reservations say nothing more.
-    assert!(!svc.reserve("2026-10-02", NEED));
+    assert!(!svc.reserve("2026-10-02", NEED, Class::Shadow));
     assert_eq!(said(&core, "Shadow judging resumed"), [expect], "once");
     assert_eq!(kinds(&core.store, "judge.resumed").len(), 1);
     drop(core);
@@ -101,7 +112,10 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     // A restart forgets the pause: the next day's first reservation in the
     // fresh process writes no resume row and says no line.
     let again = core_on(dir.path(), &jev);
-    assert!(again.runner.judge.reserve("2026-10-03", NEED));
+    assert!(again
+        .runner
+        .judge
+        .reserve("2026-10-03", NEED, Class::Shadow));
     assert_eq!(kinds(&again.store, "judge.resumed").len(), 1, "no new row");
     assert!(said(&again, "Shadow judging resumed").is_empty());
 }
@@ -126,7 +140,7 @@ async fn a_blocks_unsettled_rest_is_booked_at_the_first_reservation_and_said() {
         said(&r.core, "The judge booked").is_empty(),
         "nothing before"
     );
-    assert!(svc.reserve(day, 100));
+    assert!(svc.reserve(day, 100, Class::Live));
     let rows = kinds(&r.core.store, "judge.block_booked");
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].data["reserved_micros"], 10_000);
@@ -135,9 +149,100 @@ async fn a_blocks_unsettled_rest_is_booked_at_the_first_reservation_and_said() {
         said(&r.core, "The judge booked"),
         ["The judge booked $0.01 of today's reserved block as spent: a stop lost what it settled."]
     );
-    assert!(svc.reserve(day, 100));
+    assert!(svc.reserve(day, 100, Class::Live));
     assert_eq!(kinds(&r.core.store, "judge.block_booked").len(), 1);
     assert_eq!(said(&r.core, "The judge booked").len(), 1, "once");
+}
+
+/// One judgment of `ASK` micros asked of `class`, and what it cost, settled
+/// as a call that came back: whether the day let it through.
+const ASK: u64 = 10;
+
+fn spend_one(svc: &super::JudgeService, day: &str, class: Class) -> bool {
+    let granted = svc.reserve(day, ASK, class);
+    if granted {
+        svc.budget.settle(day, ASK, ASK, true, false);
+    }
+    granted
+}
+
+/// How many of `class`'s judgments the day lets through before it refuses
+/// one: counted, so that a run that let none through cannot pass.
+fn made(svc: &super::JudgeService, day: &str, class: Class) -> u32 {
+    let mut n = 0;
+    while spend_one(svc, day, class) {
+        n += 1;
+        assert!(n < 1000, "never refused");
+    }
+    n
+}
+
+/// The day's budget has two lines (theseus-0j2.16): shadow stops at 70% of
+/// the limit, and live judgments run on to the whole of it. With the day's
+/// 200 micros, shadow makes 14 judgments of 10 and is refused; live then
+/// makes the 6 that are left. Both counts are asserted, and each refusal
+/// says itself once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shadow_stops_at_seventy_percent_and_live_runs_on() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_with(vec![], Some(&jev), |c| {
+        c.narrative = true;
+        c.judge.shadow_limit_usd_per_day = LIMIT;
+    });
+    let svc = &r.core.runner.judge;
+    let day = "2026-10-01";
+    assert_eq!(svc.budget.cap(Class::Shadow), 140);
+    assert_eq!(svc.budget.cap(Class::Live), 200);
+
+    assert_eq!(made(svc, day, Class::Shadow), 14, "shadow, to 70% of 200");
+    assert!(!spend_one(svc, day, Class::Shadow), "shadow stays stopped");
+    assert!(svc.budget.shadow_paused(day), "shadow is paused");
+    assert!(!svc.budget.paused(day), "the day's limit is not reached");
+    let rows = kinds(&r.core.store, "judge.paused");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].data["what"], "shadow");
+    assert_eq!(rows[0].data["limit_micros"], 140);
+
+    assert_eq!(made(svc, day, Class::Live), 6, "live, on to the limit");
+    assert!(svc.budget.paused(day), "now the limit is reached");
+    assert!(!spend_one(svc, day, Class::Shadow));
+    let rows = kinds(&r.core.store, "judge.paused");
+    assert_eq!(rows.len(), 2, "one row for each line: {rows:?}");
+    assert_eq!(rows[1].data["what"], "live");
+    assert_eq!(rows[1].data["limit_micros"], 200);
+    assert_eq!(said(&r.core, "Shadow judging paused").len(), 1);
+    assert_eq!(said(&r.core, "Judging paused").len(), 1);
+    assert_eq!(svc.budget.today(&r.core.store, day).spent_micros, 200);
+}
+
+/// Live spend past shadow's line leaves shadow no room at all, while live
+/// goes on: the shadow count is zero only because live took the day, and
+/// live's own count is positive.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_spend_past_the_shadow_line_leaves_shadow_nothing() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_with(vec![], Some(&jev), |c| {
+        c.judge.shadow_limit_usd_per_day = LIMIT;
+    });
+    let svc = &r.core.runner.judge;
+    let day = "2026-10-01";
+    let live = made(svc, day, Class::Live);
+    assert_eq!(live, 20, "live may take the whole day");
+    assert_eq!(made(svc, day, Class::Shadow), 0, "shadow had no room");
+    // A new day starts both lines afresh.
+    let next = "2026-10-02";
+    assert_eq!(made(svc, next, Class::Shadow), 14);
+    assert_eq!(made(svc, next, Class::Live), 6);
+}
+
+/// What the ask's mode makes of a judgment: a canary's arm and a live ask
+/// act, so they spend live; shadow alone is shadow.
+#[test]
+fn a_judgments_mode_gives_its_class() {
+    use theseus_judge::Mode;
+    assert_eq!(Class::of(Mode::Shadow), Class::Shadow);
+    assert_eq!(Class::of(Mode::Canary), Class::Live);
+    assert_eq!(Class::of(Mode::Live), Class::Live);
 }
 
 /// Wait (on the runtime's timer) for `ok`.
