@@ -220,7 +220,7 @@ async fn a_task_stranded_on_a_hold_already_let_go_is_taken_up_by_the_driver() {
         .pauses
         .set(&task.session_id, false);
     r.model.gate.add_permits(1);
-    until_within("the driver taking the stranded task up", 3, || {
+    until_within("pickup of the stranded task by the driver", 3, || {
         exec(&r.core, &task.id).state != ExecState::Waiting
             || exec(&r.core, &task.id).wake != parked
     })

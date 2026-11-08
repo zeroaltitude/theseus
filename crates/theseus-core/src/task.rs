@@ -1100,6 +1100,17 @@ pub fn parks_on_wake(kernel: &theseus_kernel::Kernel, execution_id: &str) -> boo
         .is_some_and(|e| !e.wakes.is_empty())
 }
 
+/// Whether `e` is parked on the owner's hold (`task.pause`): waiting on the
+/// far-future due time a held task's turn ends on. Its hold may be gone by
+/// now (a resume that raced the park), and then nothing else would wake it.
+pub fn parked_on_hold(e: &Execution) -> bool {
+    e.state == ExecState::Waiting
+        && e.wake
+            == Some(theseus_kernel::Wake::DueAt {
+                at_ms: theseus_protocol::task_pause::PAUSED_AT_MS,
+            })
+}
+
 /// What a task that finished with nothing to report says (theseus-mgs4m).
 pub const NO_REPORT: &str = "closed with no report";
 

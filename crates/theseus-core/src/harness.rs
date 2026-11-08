@@ -151,6 +151,20 @@ pub async fn drive(core: Arc<Core>) {
             // while it is free (DD8): queue it here, so a wake runs within a
             // tick of its time, not a heartbeat. The heartbeat's reconciler
             // catches any this misses. It writes only when one is due.
+            // A task parked on a hold that is gone (a resume that raced the
+            // park) is woken here, within a tick: its due time is years off.
+            let e = if crate::task::parked_on_hold(&e) && !core.runner.task_paused(&e.session_id) {
+                match core.wake_stranded(&e.id) {
+                    Ok(Some(woken)) => woken,
+                    Ok(None) => continue,
+                    Err(err) => {
+                        tracing::warn!(execution_id = %e.id, error = %format!("{err:#}"), "a task parked on a let-go hold could not be woken");
+                        continue;
+                    }
+                }
+            } else {
+                e
+            };
             let e = if theseus_kernel::wakes::due_now(&e, now) {
                 match core.kernel.fire_due(&e.id) {
                     Ok(Some(queued)) => queued,
