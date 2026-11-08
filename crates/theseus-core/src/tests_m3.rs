@@ -1641,6 +1641,9 @@ mod agent_answers;
 /// `owner_ask` and the always-on channel (theseus-j7cje).
 mod ask;
 
+/// The Policy page hears a tightening made elsewhere (theseus-n9wa).
+mod policy_page;
+
 /// theseus-667d: a stopped job's raw output is kept while its wrapper still
 /// lives, and the sweep takes it once the wrapper has ended (theseus-ewev's
 /// guard in `remove_job_output`). The stop comes before the job's
