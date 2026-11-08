@@ -245,6 +245,12 @@ struct ToolLine {
     /// Its notice's score once its judgment lands (M5 step 24): `risk 12%
     /// (shadow)`.
     risk: Option<String>,
+    /// Its end comes back late, in a turn of its own: it went to the
+    /// background, or it waited for an answer. theseus-9zif keeps its turn
+    /// alive for exactly that, so the step's shared message must not fold
+    /// its line away (theseus-8wm): that line is the only place the late
+    /// end has to land.
+    late: bool,
 }
 
 #[derive(Debug, Default)]
@@ -418,6 +424,7 @@ impl Renderer {
                         ))
                     }),
                     risk: None,
+                    late: false,
                 };
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
@@ -501,6 +508,9 @@ impl Renderer {
                             ms,
                         },
                     };
+                    // Its end will come back in a turn of its own, so the
+                    // step's message keeps its line from here on.
+                    l.late |= matches!(l.state, ToolState::Background);
                 });
                 ops
             }
@@ -614,6 +624,9 @@ impl Renderer {
                     {
                         l.state = ToolState::Waiting;
                         l.correlation_id = Some(req.correlation_id.clone());
+                        // Its answer can come in a later turn, so the step's
+                        // message keeps its line from here on.
+                        l.late = true;
                     }
                     t.dirty = true;
                     // A call waiting for an answer is shown at once, however
@@ -1085,117 +1098,6 @@ pub fn glide(body: &Value) -> Vec<String> {
 /// (theseus-q4v): the channel may already hold it, so it says so.
 pub const RESENT: &str =
     "-# ↻ Sent again after an outage: if the same message is just above, this is a copy.";
-
-/// A tool message's distinct notified tools, in the order they first ran:
-/// those still offered to "should have asked", each with its newest
-/// notified call (at most `MAX_ASKED`), and those that ask first now, with
-/// who tightened them.
-fn notified_tools(
-    tools: &[&ToolLine],
-    tightened: &BTreeMap<String, String>,
-) -> (Vec<Asked>, Vec<(String, String)>) {
-    let mut asked: Vec<Asked> = Vec::new();
-    let mut tight: Vec<(String, String)> = Vec::new();
-    for l in tools.iter().filter(|l| l.notice.is_some()) {
-        if let Some(by) = tightened.get(&l.tool) {
-            if !tight.iter().any(|(t, _)| *t == l.tool) {
-                tight.push((l.tool.clone(), by.clone()));
-            }
-            continue;
-        }
-        if let Some(a) = asked.iter_mut().find(|a| a.tool == l.tool) {
-            if l.correlation_id.is_some() {
-                a.correlation_id = l.correlation_id.clone();
-            }
-        } else if asked.len() < MAX_ASKED {
-            asked.push(Asked {
-                tool: l.tool.clone(),
-                correlation_id: l.correlation_id.clone(),
-            });
-        }
-    }
-    (asked, tight)
-}
-
-/// The tool message's lines, in at most `PART_LIMIT - 60 - reserve`
-/// characters.
-fn tool_lines(tools: &[&ToolLine], reserve: usize) -> String {
-    let lines: Vec<String> = tools
-        .iter()
-        .map(|l| {
-            let risk = l.risk.as_ref().map_or(String::new(), |r| format!(" · {r}"));
-            let mark = match l.notice.as_deref() {
-                Some("") => format!(" · 🔔 notified{risk}"),
-                Some(setting) => format!(" · 🔔 notified ({setting}){risk}"),
-                None => String::new(),
-            };
-            let key = l
-                .granted
-                .as_deref()
-                .map_or_else(String::new, |g| format!(" · 🔑 {g}"));
-            let l1 =
-                l.l1.as_ref()
-                    .map_or(String::new(), |r| format!("🛡️ L1 · {r} · "));
-            let head = format!("`{}` {l1}{}{key}{mark}", l.tool, l.summary);
-            match &l.state {
-                ToolState::Proposed => format!("▫️ {head}"),
-                ToolState::Running => format!("⏳ {head}"),
-                ToolState::Waiting => format!("⏸️ {head} · waiting for approval"),
-                ToolState::Background => {
-                    format!("⏳ {head} · running in the background; the result will come back here")
-                }
-                ToolState::Done { status, ms } if status == "ok" => format!("✅ {head} · {ms} ms"),
-                ToolState::Done { status, ms } => format!("❌ {head} · {status} · {ms} ms"),
-                ToolState::NotRun => format!("🚫 {head} · not run"),
-                ToolState::Stopped { by } => format!("⏹️ {head} · stopped by {by}"),
-                ToolState::Answered { approved: true, by } => {
-                    format!("👍 {head} · approved by {by}")
-                }
-                ToolState::Answered {
-                    approved: false,
-                    by,
-                } => {
-                    format!("👎 {head} · declined by {by}")
-                }
-            }
-        })
-        .collect();
-    // Keep the newest lines when a loop made more calls than one message holds,
-    // with room for the line that counts the rest.
-    let mut kept: Vec<&String> = Vec::new();
-    let mut len = 0;
-    let budget = (PART_LIMIT - 60).saturating_sub(reserve);
-    for l in lines.iter().rev() {
-        if len + l.len() + 1 > budget {
-            break;
-        }
-        len += l.len() + 1;
-        kept.push(l);
-    }
-    kept.reverse();
-    let hidden = lines.len() - kept.len();
-    let mut s = String::new();
-    if hidden > 0 {
-        s.push_str(&format!("-# … {hidden} earlier call(s)"));
-        // This line may be the only place Discord shows their notices.
-        let notified = tools[..hidden]
-            .iter()
-            .filter(|l| l.notice.is_some())
-            .count();
-        if notified > 0 {
-            s.push_str(&format!(" · 🔔 {notified} notified"));
-        }
-        s.push('\n');
-    }
-    s.push_str(
-        &kept
-            .into_iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    s
-}
 
 fn footer(r: &TurnSubmitResult) -> String {
     let mut bits = vec![];

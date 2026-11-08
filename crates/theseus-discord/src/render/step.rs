@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{notified_tools, split_text, tool_lines, Asked, ToolLine, TurnView, PART_LIMIT};
+use super::{split_text, Asked, ToolLine, ToolState, TurnView, MAX_ASKED, PART_LIMIT};
 
 /// The live progress messages one turn shows: a turn of any length costs its
 /// place this many.
@@ -104,6 +104,135 @@ pub(super) fn render_turn(
         });
     }
     out
+}
+
+/// A tool message's distinct notified tools, in the order they first ran:
+/// those still offered to "should have asked", each with its newest
+/// notified call (at most `MAX_ASKED`), and those that ask first now, with
+/// who tightened them.
+fn notified_tools(
+    tools: &[&ToolLine],
+    tightened: &BTreeMap<String, String>,
+) -> (Vec<Asked>, Vec<(String, String)>) {
+    let mut asked: Vec<Asked> = Vec::new();
+    let mut tight: Vec<(String, String)> = Vec::new();
+    for l in tools.iter().filter(|l| l.notice.is_some()) {
+        if let Some(by) = tightened.get(&l.tool) {
+            if !tight.iter().any(|(t, _)| *t == l.tool) {
+                tight.push((l.tool.clone(), by.clone()));
+            }
+            continue;
+        }
+        if let Some(a) = asked.iter_mut().find(|a| a.tool == l.tool) {
+            if l.correlation_id.is_some() {
+                a.correlation_id = l.correlation_id.clone();
+            }
+        } else if asked.len() < MAX_ASKED {
+            asked.push(Asked {
+                tool: l.tool.clone(),
+                correlation_id: l.correlation_id.clone(),
+            });
+        }
+    }
+    (asked, tight)
+}
+
+/// The tool message's lines, in at most `PART_LIMIT - 60 - reserve`
+/// characters.
+fn tool_lines(tools: &[&ToolLine], reserve: usize) -> String {
+    let lines: Vec<String> = tools
+        .iter()
+        .map(|l| {
+            let risk = l.risk.as_ref().map_or(String::new(), |r| format!(" · {r}"));
+            let mark = match l.notice.as_deref() {
+                Some("") => format!(" · 🔔 notified{risk}"),
+                Some(setting) => format!(" · 🔔 notified ({setting}){risk}"),
+                None => String::new(),
+            };
+            let key = l
+                .granted
+                .as_deref()
+                .map_or_else(String::new, |g| format!(" · 🔑 {g}"));
+            let l1 =
+                l.l1.as_ref()
+                    .map_or(String::new(), |r| format!("🛡️ L1 · {r} · "));
+            let head = format!("`{}` {l1}{}{key}{mark}", l.tool, l.summary);
+            match &l.state {
+                ToolState::Proposed => format!("▫️ {head}"),
+                ToolState::Running => format!("⏳ {head}"),
+                ToolState::Waiting => format!("⏸️ {head} · waiting for approval"),
+                ToolState::Background => {
+                    format!("⏳ {head} · running in the background; the result will come back here")
+                }
+                ToolState::Done { status, ms } if status == "ok" => format!("✅ {head} · {ms} ms"),
+                ToolState::Done { status, ms } => format!("❌ {head} · {status} · {ms} ms"),
+                ToolState::NotRun => format!("🚫 {head} · not run"),
+                ToolState::Stopped { by } => format!("⏹️ {head} · stopped by {by}"),
+                ToolState::Answered { approved: true, by } => {
+                    format!("👍 {head} · approved by {by}")
+                }
+                ToolState::Answered {
+                    approved: false,
+                    by,
+                } => {
+                    format!("👎 {head} · declined by {by}")
+                }
+            }
+        })
+        .collect();
+    // Keep the newest lines when a loop made more calls than one message holds,
+    // with room for the line that counts the rest.
+    let mut keep = vec![false; lines.len()];
+    let mut len = 0;
+    let budget = (PART_LIMIT - 60).saturating_sub(reserve);
+    // A call whose end comes back in a later turn (a background job, a call
+    // waiting for an answer) keeps its line first, however many calls the
+    // step made after it: theseus-9zif holds its turn alive so that its end
+    // has a line to edit, and since theseus-8wm a step's later loops share
+    // one message, where the newest-first fold below would otherwise hide
+    // exactly that line.
+    for (i, (l, t)) in lines.iter().zip(tools).enumerate() {
+        if t.late && len + l.len() < budget {
+            len += l.len() + 1;
+            keep[i] = true;
+        }
+    }
+    // Then the newest that still fit, with room for the line counting the rest.
+    for (i, l) in lines.iter().enumerate().rev() {
+        if keep[i] {
+            continue;
+        }
+        if len + l.len() + 1 > budget {
+            break;
+        }
+        len += l.len() + 1;
+        keep[i] = true;
+    }
+    let hidden = keep.iter().filter(|k| !**k).count();
+    let mut s = String::new();
+    if hidden > 0 {
+        s.push_str(&format!("-# … {hidden} earlier call(s)"));
+        // This line may be the only place Discord shows their notices.
+        let notified = tools
+            .iter()
+            .zip(&keep)
+            .filter(|(l, k)| !**k && l.notice.is_some())
+            .count();
+        if notified > 0 {
+            s.push_str(&format!(" · 🔔 {notified} notified"));
+        }
+        s.push('\n');
+    }
+    s.push_str(
+        &lines
+            .iter()
+            .zip(&keep)
+            .filter(|(_, k)| **k)
+            .map(|(l, _)| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    s
 }
 
 #[cfg(test)]
