@@ -15,9 +15,15 @@
 //!   move to the new episode's, and its `last_active_ms` with it.
 //! - **A summary** is written again, under the same node id, only when the
 //!   new episode has one whose text differs from the stored summary's.
-//! - **Anything else is refused and named**: a changed, removed or
-//!   reordered message (the first differing `idx`), or an episode that
-//!   adds nothing (the same messages with another hash: its tag, place or
+//! - **A prefix that diverged** (a rewrite, a compaction, a resume;
+//!   theseus-ectzg) appends the messages after the last stored one whose
+//!   digest still matches the episode's message of that `idx`, never a
+//!   stored `idx` again, and labels the session `prefix diverged at N` (N
+//!   the first stored `idx` that differs), once, in its `labels.topic`.
+//! - **Anything else is refused and named**: an episode where no stored
+//!   message matches (another episode under a reused id), a divergence
+//!   with nothing after the last match to add (the first differing `idx`),
+//!   or an episode that adds nothing (the same messages with another hash: its tag, place or
 //!   labels changed). An erased session is never appended to.
 
 use std::collections::BTreeMap;
@@ -37,6 +43,10 @@ use crate::store::Store;
 pub(super) struct Plan {
     /// The episode's messages before this index are stored already.
     pub from: usize,
+    /// Stored message idxs: never written again.
+    pub skip: std::collections::BTreeSet<u32>,
+    /// The stored prefix no longer matched: the first stored idx that differs.
+    pub diverged: Option<u32>,
     /// A summary to write: the episode has one the store does not.
     pub summary: bool,
 }
@@ -55,34 +65,42 @@ pub(super) fn plan(
             stored.push((idx, sha256));
         }
     }
-    for (i, (idx, sha)) in stored.iter().enumerate() {
-        match e.messages.get(i) {
-            None => {
-                return Ok(Err(format!(
-                    "message {idx} is not in this episode (the stored one holds {} messages, \
-                     this {}): a removed message is not appended over",
-                    stored.len(),
-                    e.messages.len()
-                )))
-            }
-            Some(m) if m.idx != *idx => {
-                return Ok(Err(format!(
-                    "message {} is not where the stored episode has it (it holds message {idx} \
-                     at position {i}): a changed or reordered message is not appended over",
-                    m.idx
-                )))
-            }
-            Some(m) if m.sha256 != *sha => {
-                return Ok(Err(format!(
-                    "message {} changed since it was imported (another digest): a rewritten \
-                     message is not appended over",
-                    m.idx
-                )))
-            }
-            Some(_) => {}
+    let refusal = prefix_refusal(&stored, e);
+    let (from, diverged) = match &refusal {
+        None => (stored.len(), None),
+        Some(why) => {
+            // The prefix no longer matches (a rewrite, a compaction, a
+            // resume): the new turns are those after the last stored message
+            // whose digest still matches. No match at all is another
+            // episode under a reused id.
+            let last = e
+                .messages
+                .iter()
+                .rposition(|m| stored.iter().any(|(i, s)| *i == m.idx && *s == m.sha256));
+            let Some(last) = last else {
+                return Ok(Err(why.clone()));
+            };
+            let at = stored
+                .iter()
+                .enumerate()
+                .find(|(i, (idx, sha))| {
+                    e.messages
+                        .get(*i)
+                        .is_none_or(|m| m.idx != *idx || m.sha256 != *sha)
+                })
+                .map_or(0, |(_, (idx, _))| *idx);
+            (last + 1, Some(at))
         }
+    };
+    // A stored idx is never written again, whatever its digest.
+    let skip: std::collections::BTreeSet<u32> = stored.iter().map(|(i, _)| *i).collect();
+    let added = e.messages[from..]
+        .iter()
+        .filter(|m| !skip.contains(&m.idx))
+        .count();
+    if let (Some(why), 0) = (&refusal, added) {
+        return Ok(Err(why.clone()));
     }
-    let from = stored.len();
     let summary = match e.summary.as_ref().filter(|s| !s.text.trim().is_empty()) {
         None => false,
         Some(s) => match store.get_node(&summary_id_of(sid))? {
@@ -92,13 +110,18 @@ pub(super) fn plan(
             None => true,
         },
     };
-    if from == e.messages.len() && !summary {
+    if added == 0 && !summary {
         return Ok(Err(format!(
             "its {from} messages are the stored ones and it adds nothing (another hash: its tag, \
              place or labels differ): not overwritten"
         )));
     }
-    Ok(Ok(Plan { from, summary }))
+    Ok(Ok(Plan {
+        from,
+        skip,
+        summary,
+        diverged,
+    }))
 }
 
 /// The new messages' nodes (and a new summary), then the session's record
@@ -112,11 +135,15 @@ pub(super) fn records(
 ) -> Result<u64> {
     let sid = rec.session_id.clone();
     let mut nodes = 0;
+    let mut written = 0u32;
     let mut ids: BTreeMap<u32, String> = BTreeMap::new();
     for m in &e.messages {
         ids.insert(m.idx, node_id_of(&sid, m.idx));
     }
-    for m in &e.messages[p.from..] {
+    for m in e.messages[p.from..]
+        .iter()
+        .filter(|m| !p.skip.contains(&m.idx))
+    {
         let n = Node::imported(
             node_id_of(&sid, m.idx),
             &sid,
@@ -133,6 +160,7 @@ pub(super) fn records(
         );
         frame.push(n.record()?);
         nodes += 1;
+        written += 1;
     }
     if p.summary {
         if let Some(s) = e.summary.as_ref() {
@@ -153,11 +181,49 @@ pub(super) fn records(
     }
     let imp = rec.imported.as_mut().expect("an imported session");
     imp.hash = e.hash.clone();
-    imp.messages = e.messages.len() as u32;
+    imp.messages += written;
     imp.summary |= p.summary;
+    if let Some(at) = p.diverged {
+        let label = format!("prefix diverged at {at}");
+        if !imp.labels.topic.contains(&label) {
+            imp.labels.topic.push(label);
+        }
+    }
     imp.as_of.end_ms = imp.as_of.end_ms.max(e.as_of.end_ms);
     let (tag, end) = (imp.tag.clone(), imp.as_of.end_ms);
     rec.last_active_ms = rec.last_active_ms.max(end);
     frame.push(NewRecord::json(kinds::SESSION, Some(&sid), &*rec)?.scoped(&tag_scope(&tag)));
     Ok(nodes)
+}
+
+/// Why the stored messages are not the episode's first ones, if they are not.
+fn prefix_refusal(stored: &[(u32, String)], e: &Episode) -> Option<String> {
+    for (i, (idx, sha)) in stored.iter().enumerate() {
+        match e.messages.get(i) {
+            None => {
+                return Some(format!(
+                    "message {idx} is not in this episode (the stored one holds {} messages, \
+                     this {}): a removed message is not appended over",
+                    stored.len(),
+                    e.messages.len()
+                ))
+            }
+            Some(m) if m.idx != *idx => {
+                return Some(format!(
+                    "message {} is not where the stored episode has it (it holds message {idx} \
+                     at position {i}): a changed or reordered message is not appended over",
+                    m.idx
+                ))
+            }
+            Some(m) if m.sha256 != *sha => {
+                return Some(format!(
+                    "message {} changed since it was imported (another digest): a rewritten \
+                     message is not appended over",
+                    m.idx
+                ))
+            }
+            Some(_) => {}
+        }
+    }
+    None
 }
