@@ -12,7 +12,7 @@ use theseus_voice::{Event, Listen, Listened, Speaker, Spoken, TurnId, Usage};
 use tokio::sync::mpsc;
 
 use super::tests::{heard, spending, LOUNGE, OWNER};
-use super::{flux_listen, pump, settings, VoicePlace};
+use super::{flux_listen, pick_listener, pump, settings, VoicePlace};
 
 fn flux_cfg(section: &str) -> theseus_core::voice::VoiceConfig {
     let section = format!("[voice]\nstt_model = \"flux-general-en\"\n{section}");
@@ -89,6 +89,49 @@ fn a_local_api_base_is_a_local_socket() {
         .settings()
         .url()
         .starts_with("ws://127.0.0.1:9/v2/listen?"));
+}
+
+/// A Flux listener that cannot be built must not fail the join: the call is
+/// up on the pause rules, asked of nova-3 (theseus-zlmom). The positive: a
+/// listener was chosen, it is not Flux, the call's transcriber is nova-3, and
+/// the ledger's `listener` says Flux was unavailable.
+#[test]
+fn a_flux_listener_that_cannot_be_built_leaves_the_call_on_nova_3() {
+    let cfg = flux_cfg("");
+    assert!(cfg.uses_flux());
+    let got = pick_listener(&cfg, || {
+        Err(theseus_voice::SpeechError(
+            "Deepgram: the TLS config: no protocol versions".into(),
+        ))
+    });
+    assert!(got.flux.is_none());
+    assert_eq!(settings(&cfg).stt_model, "nova-3");
+    assert_eq!(
+        got.fell_back.as_deref(),
+        Some("Deepgram: the TLS config: no protocol versions")
+    );
+    assert_eq!(
+        got.label(&cfg),
+        "pause rules (nova-3, flux-general-en unavailable)"
+    );
+}
+
+/// A listener that builds is Flux and reports its model; nova-3 chosen by
+/// config is not a fallback and reports the pause rules as before.
+#[test]
+fn a_built_listener_is_flux_and_a_configured_nova_3_is_not_a_fallback() {
+    let cfg = flux_cfg("");
+    let built = pick_listener(&cfg, || {
+        flux_listen("dg-test-key", &cfg, std::sync::Weak::new(), "k".into())
+    });
+    assert!(built.flux.is_some() && built.fell_back.is_none());
+    assert_eq!(built.label(&cfg), "flux-general-en");
+
+    let mut nova = cfg;
+    nova.stt_model = "nova-3".into();
+    let chosen = pick_listener(&nova, || panic!("nova-3 builds no Flux listener"));
+    assert!(chosen.flux.is_none() && chosen.fell_back.is_none());
+    assert_eq!(chosen.label(&nova), "pause rules");
 }
 
 /// A session past its limit opens no socket: the listener says it is
