@@ -7,7 +7,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { ConfirmRequest, ThreadAsk } from '../src/protocol.gen/index.ts'
 import { BUCKETS, type Bucket } from '../src/ops/address.ts'
-import { allCounters, boardRows, listedCards, needsOf } from '../src/ops/board.ts'
+import { allCounters, boardRows, listedCards, needsOf, unaskedCards } from '../src/ops/board.ts'
+import { waitingFacts } from '../src/ops/facts.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { tileLook, toggleBucket } from '../src/ops/tiles.ts'
 import { confirm, HOUR, info, MIN, NOW, record, view } from './ops-fixtures.ts'
@@ -81,4 +82,26 @@ test('the page the owner read: nothing asks, a blocked step waits, and the tile 
   const rows = boardRows({ views: [], tasks: [], sessions: [], records, queue, now: NOW, past: false })
   assert.equal(needsOf(rows), 1, 'the tile counts the blocked step')
   assert.deepEqual(listedCards(rows).map((r) => r.id), ['tsk_blk'], 'and the panel names it, so it never says nothing waits')
+})
+
+test('the panel lists the unasked cards after the asks, each with its reason, and is empty only when the tile is', () => {
+  const { views, tasks, records, queue } = fixture()
+  const rows = boardRows({ views, tasks, sessions: [], records, queue, now: NOW, past: false })
+  const waiting = unaskedCards(rows)
+  assert.deepEqual(waiting.map((r) => r.id).sort(), ['ses_t5', 'tsk_blk', 'tsk_wh'], 'the three cards no queue item names')
+  const why = Object.fromEntries(waiting.map((r) => [r.id, waitingFacts(r, NOW).why]))
+  assert.deepEqual(why, { ses_t5: '2 questions pending, none in the list', tsk_blk: 'its record is blocked', tsk_wh: 'its record waits on a person' })
+  assert.equal(waitingFacts(rows.find((r) => r.id === 'tsk_blk')!, NOW).kind, 'blocked')
+  assert.equal(waitingFacts(rows.find((r) => r.id === 'ses_t5')!, NOW).href, '/session/ses_t5')
+  const none = boardRows({ views: [], tasks: [], sessions: [], records: [], queue: [], now: NOW, past: false })
+  assert.equal(allCounters(none, NOW, 0).needs, 0)
+  assert.deepEqual(listedCards(none), [], 'nothing waits, so nothing is listed, and only then does the panel say so')
+})
+
+test('the Needs-you panel draws the unasked cards and says nothing waits only when it has none', () => {
+  const queueSrc = read('ops/Queue.tsx')
+  const page = read('views/Ops.tsx')
+  assert.match(queueSrc, /!items\.length && !waiting\.length/, 'the empty state needs both lists empty')
+  assert.match(queueSrc, /waiting\.map\(\(r\) => <Waiting /, 'each unasked card is an entry')
+  assert.match(page, /waiting=\{unaskedCards\(rows\)\}/, 'the page hands the panel the counter’s own rows')
 })

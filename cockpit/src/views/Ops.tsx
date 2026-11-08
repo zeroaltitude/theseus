@@ -26,7 +26,7 @@ import { groupThreads } from '@/lib/threadboard'
 import { cn, stamp } from '@/lib/format'
 import { fullKey, parseFull, writeFull } from '@/lib/fullgraph'
 import { parseAddress, writeAddress, type Address, type Bucket, type FilterKey, type Lens } from '@/ops/address'
-import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, shown, spendToday, type OpsRow } from '@/ops/board'
+import { alive, allCounters, boardRows, chipChoices, columnsOf, contextOf, DATA_MARKS, DONE_PAGE, laneRows, shown, spendToday, unaskedCards, type OpsRow } from '@/ops/board'
 import { answerOf, asksWord, comingUp, grantKey, itemFor, keepCursor, queueOf, step, arrived, type Answer, type QueueItem } from '@/ops/queue'
 import { G_MS, keyName, pressTwice, resolve, SEQUENCES, typingIn, type Ctx, type Verb } from '@/ops/keys'
 import { threadFacts } from '@/ops/facts'
@@ -41,6 +41,7 @@ import { comingShows, DOCK_KEY, flip, idleSel, INSPECTOR_KEY, OPEN_SEL, parseFol
 import { BoardLens } from '@/ops/BoardLens'
 import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
+import { toggleBucket } from '@/ops/tiles'
 import { Inspector, type Selection } from '@/ops/Inspector'
 import { CommandBar } from '@/ops/CommandBar'
 import { KeysOverlay } from '@/ops/KeysOverlay'
@@ -184,7 +185,7 @@ export default function Ops() {
   const slug = (a.lens === 'threads' || laneSel) && a.sel && !item && !handOpen ? a.sel : null
   const event = a.lens === 'timeline' && a.sel?.startsWith('ev:') ? findEvent(cal.calendars, a.sel.slice(3)) : null
   const mark = a.lens === 'timeline' && !item && !handOpen ? tlr?.marks.find((m) => m.key === a.sel) : undefined
-  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: { ...a.f, bucket: b } }) }
+  const selection: Selection = item ? { kind: 'item', item } : slug ? { kind: 'thread', slug } : row ? { kind: 'row', row } : event ? { kind: 'event', ...event, redact: a.redact } : a.lens === 'timeline' && a.sel && !handOpen ? { kind: 'mark', key: a.sel } : { kind: 'none', counts: noneCounts(counts), onFilter: (b) => set({ f: toggleBucket(a.f, b) }) }
   const region: 'queue' | 'canvas' = item ? 'queue' : 'canvas'
   // The item a key answers: the queue's cursor, or the needs-you item of the row on the canvas.
   const focusItem = item ?? (row ? queue.find((i) => (row.view != null && i.view?.id === row.view.id) || (row.sessionId != null && i.sessionId === row.sessionId)) : undefined)
@@ -253,7 +254,7 @@ export default function Ops() {
     if (s.fire) fire(); else setFlash(words)
   }
   const lens = (l: Lens) => set({ lens: l, sel: isItemKey(a.sel) ? a.sel : null })
-  const bucket = (b: 'needs' | 'working' | 'paused' | 'done') => set({ f: { ...a.f, bucket: a.f.bucket === b ? undefined : b } })
+  const bucket = (b: 'needs' | 'working' | 'paused' | 'done') => set({ f: toggleBucket(a.f, b) })
   const living = focusRow?.view?.state === 'running' || focusRow?.view?.state === 'waiting'
   const exe = focusRow?.kind === 'conversation' ? focusRow.view?.id ?? focusRow.session?.execution_id : undefined
   const tk = useTimelineKeys({ a, day, report: tlr, mark, set, pick, flash: setFlash, open: (sid) => nav(`/session/${sid}`) })
@@ -419,7 +420,7 @@ export default function Ops() {
   useEffect(() => { publish(feed as never); return () => publish(null) }, [feed, publish])
 
   const queuePanel = (
-    <Queue items={queue} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
+    <Queue items={queue} waiting={unaskedCards(rows)} onRow={(id) => pick(id)} cursor={item?.key ?? null} onCursor={(k) => pick(k)} open={open} note={note} onNote={setNote} past={past} now={now}
       coming={world ? [] : comingUp(Object.values(board.views), tick)} events={world ? [] : comingEvents(cal.calendars, tick, a.redact)} arrivedKeys={fresh} />
   )
   const joined = a.join ?? null

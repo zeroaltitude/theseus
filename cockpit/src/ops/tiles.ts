@@ -22,5 +22,5 @@ export interface TileLook {
 /** How a tile looks, from its bucket, its count and the one bucket the filter holds. */
 export function tileLook(b: Bucket, value: number, selected: string | undefined): TileLook {
   const pressed = selected === b
-  return { lit: pressed || (b === 'needs' && value > 0), pressed, attention: false }
+  return { lit: pressed, pressed, attention: b === 'needs' && value > 0 }
 }

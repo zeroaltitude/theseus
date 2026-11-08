@@ -3,8 +3,10 @@
 // says which it is, a long report opens in full, and the transcript is a link beside `open`.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { boardRows } from '../src/ops/board.ts'
 import { cardFacts, reportFacts } from '../src/ops/facts.ts'
+import { reportLineOf, reportTextOf } from '../src/lib/taskboard.ts'
 import { board, NOW } from './ops-fixtures.ts'
 
 const LINE = 'Forty moorings, six free.'
@@ -34,4 +36,26 @@ test('a done task’s card links its deck and its transcript beside open, and na
   ])
   const wake = cardFacts(rows.get('wak_r1')!, NOW)
   assert.ok(wake.links?.every((l) => l.label !== 'transcript'), 'a wake has no transcript of its own')
+})
+
+test('the whole report is the last message the task ended with, of which the card’s line is the first', () => {
+  const nodes = [
+    { kind: 'assistant_message', text: 'Working on it.' },
+    { kind: 'user_message', text: 'and the buoys?' },
+    { kind: 'assistant_message', text: `\n${LONG}\n` },
+    { kind: 'tool_call', text: 'ignored' },
+  ]
+  assert.equal(reportTextOf(nodes), LONG)
+  assert.equal(reportLineOf(nodes), LINE, 'the line the card shows is the first line of that text')
+  assert.equal(reportTextOf([{ kind: 'user_message', text: 'hello' }]), undefined)
+  assert.equal(reportTextOf(undefined), undefined)
+})
+
+test('the inspector draws the labelled report, its full-report toggle and every link of the card', () => {
+  const src = readFileSync(new URL('../src/ops/Inspector.tsx', import.meta.url), 'utf8')
+  assert.match(src, /<ReportField r=\{r\} f=\{f\} \/>/, 'the report field')
+  assert.match(src, /\{rf\.label\}/, 'under the label reportFacts gives it')
+  assert.match(src, /'full report'/, 'with the whole report one click away')
+  assert.match(src, /f\.links\.map\(/, 'and the card’s links, not one hard-wired deck link')
+  assert.doesNotMatch(src, /\{f\.report && <>/, 'the card’s own line is no longer drawn under a bare `report` label')
 })

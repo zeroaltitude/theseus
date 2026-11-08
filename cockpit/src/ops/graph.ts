@@ -246,7 +246,7 @@ function layout(rows: readonly OpsRow[], lanes: readonly LaneMeta[], prev: Graph
         ended: isEndedState(v.state), needs: (v.attention.level === 'needs_you' && !v.dismissed) || r.bucket === 'needs', data: v.data, view: v, retryOf: v.retry_of, record: rec,
         bucket: r.bucket, asks: r.asks,
       }
-      // A suspended record whose execution ended is open and recoverable: drawn paused, never folded as done.
+      // A suspended record whose execution ended out of budget is open and recoverable: drawn paused, never folded as done.
       if (it.ended && rec?.state === 'suspended' && r.bucket !== 'ended') { it.ended = false; it.state = 'suspended' }
       items.set(r.id, it)
       continue
