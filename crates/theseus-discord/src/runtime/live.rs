@@ -638,6 +638,7 @@ impl Shared {
                 }),
                 _ => None,
             };
+            r.fresh.remove(key);
             let sid = place.as_ref().and_then(|tx| {
                 let sid = r
                     .by_session

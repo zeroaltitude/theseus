@@ -766,10 +766,7 @@ pub(super) async fn ask(shared: &Arc<Shared>) {
             shared.tasks.snapshot(ticket, r);
             // Every place draws again: a board pinned before a restart is
             // brought up to date, or says all clear.
-            let r = shared.routes.lock().unwrap();
-            for tx in r.by_session.values() {
-                let _ = tx.send(PlaceMsg::Tasks);
-            }
+            shared.broadcast(|| PlaceMsg::Tasks);
         }
         Err(e) => shared.board.error("work.watch", None, e),
     }

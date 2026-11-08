@@ -175,10 +175,7 @@ impl Shared {
 
     /// Every private place draws its board again.
     pub(super) fn redraw_private_boards(&self) {
-        let r = self.routes.lock().unwrap();
-        for tx in r.by_session.values() {
-            let _ = tx.send(PlaceMsg::Tasks);
-        }
+        self.broadcast(|| PlaceMsg::Tasks);
     }
 
     /// Read the routines, the watches and the agenda; true when the snapshot

@@ -206,10 +206,8 @@ impl Place {
         self.fresh = false;
         {
             let mut r = self.shared.routes.lock().unwrap();
-            if !old.is_empty() {
-                r.by_session.remove(&old);
-            }
-            r.by_session.insert(sid, self.tx.clone());
+            r.release(&self.key, &old);
+            r.enrol(&self.key, &sid, self.tx.clone());
         }
         // Watched before the session's first turn runs, not a debounce later: the watch's snapshot carries
         // no ended task, so one that began and ended before the watch did would never reach the place
