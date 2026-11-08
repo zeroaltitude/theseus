@@ -147,26 +147,8 @@ pub async fn drive(core: Arc<Core>) {
         };
         let now = core.kernel.now_ms();
         for e in execs {
-            // A task parked on a hold that is gone (a resume that raced the
-            // park) is woken here, within a tick: its due time is years off.
-            let Some(e) = woken_if_stranded(&core, e) else {
+            let Some(e) = woken(&core, e, now) else {
                 continue;
-            };
-            // A due time that has come, or a wake of its own that is due
-            // while it is free (DD8): queue it here, so a wake runs within a
-            // tick of its time, not a heartbeat. The heartbeat's reconciler
-            // catches any this misses. It writes only when one is due.
-            let e = if theseus_kernel::wakes::due_now(&e, now) {
-                match core.kernel.fire_due(&e.id) {
-                    Ok(Some(queued)) => queued,
-                    Ok(None) => continue,
-                    Err(err) => {
-                        tracing::warn!(execution_id = %e.id, error = %format!("{err:#}"), "a due wake could not be queued");
-                        continue;
-                    }
-                }
-            } else {
-                e
             };
             if e.state != theseus_kernel::ExecState::Queued
                 || !(e.resume_pending || !e.queued_results.is_empty())
@@ -220,19 +202,32 @@ pub async fn drive(core: Arc<Core>) {
     }
 }
 
-/// `e`, or, when it is a task parked on a hold that is gone, the execution
-/// as its wake left it: `None` when it is not to be run this tick.
-fn woken_if_stranded(
-    core: &Core,
-    e: theseus_kernel::Execution,
-) -> Option<theseus_kernel::Execution> {
-    if !crate::task::parked_on_hold(&e) || core.runner.task_paused(&e.session_id) {
+/// `e` as the tick's wakes leave it, or `None` when it is not to be run now.
+///
+/// A task parked on a hold that is gone (a resume that raced the park) is
+/// woken here, within a tick: its due time is years off. Then a due time that
+/// has come, or a wake of its own that is due while it is free (DD8): queue
+/// it here, so a wake runs within a tick of its time, not a heartbeat. The
+/// heartbeat's reconciler catches any this misses. It writes only when one
+/// is due.
+fn woken(core: &Core, e: theseus_kernel::Execution, now: u64) -> Option<theseus_kernel::Execution> {
+    let e = match crate::task::parked_on_hold(&e) && !core.runner.task_paused(&e.session_id) {
+        true => match core.wake_stranded(&e.id) {
+            Ok(woken) => woken?,
+            Err(err) => {
+                tracing::warn!(execution_id = %e.id, error = %format!("{err:#}"), "a task parked on a let-go hold could not be woken");
+                return None;
+            }
+        },
+        false => e,
+    };
+    if !theseus_kernel::wakes::due_now(&e, now) {
         return Some(e);
     }
-    match core.wake_stranded(&e.id) {
-        Ok(woken) => woken,
+    match core.kernel.fire_due(&e.id) {
+        Ok(queued) => queued,
         Err(err) => {
-            tracing::warn!(execution_id = %e.id, error = %format!("{err:#}"), "a task parked on a let-go hold could not be woken");
+            tracing::warn!(execution_id = %e.id, error = %format!("{err:#}"), "a due wake could not be queued");
             None
         }
     }
