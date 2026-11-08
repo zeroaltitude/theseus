@@ -31,6 +31,7 @@
 //!   sources) on a `learning` thread at nice 19; the calls and the frames'
 //!   waits on the runtime, as tasks, never a thread blocked on it.
 
+use crate::sweep_notice::SweepId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -581,6 +582,8 @@ impl Core {
         let Some(need) = self.audit_reserve(&request) else {
             return Ok(Step::Skip("no_price"));
         };
+        self.runner
+            .sweep_heads_up(SweepId::Consolidation, limit, *spent, need);
         if spent.saturating_add(need) > limit {
             return Ok(Step::Stop(format!(
                 "the next synthesis would reserve {}, past [memory] synth_limit_usd_per_day ({}) \

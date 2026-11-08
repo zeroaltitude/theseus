@@ -357,6 +357,7 @@ facts![
     limits::SpendReached<'static>,
     limits::LoopsReached<'static>,
     limits::DayCeilingReached<'static>,
+    limits::SweepStopping<'static>,
     limits::DayCeilingWarned<'static>,
     turn::OverLimit<'static>,
     turn::ImageNotShown<'static>,

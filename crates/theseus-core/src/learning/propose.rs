@@ -32,6 +32,7 @@
 //! States hold strangers' text: the writer is told so, and its output is
 //! only a candidate that the numbers place.
 
+use crate::sweep_notice::SweepId;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -730,6 +731,8 @@ impl Core {
         })?;
         let limit = usd_to_micros(lc.writer_limit_usd_per_day);
         let spent = self.writer_spent_today(now);
+        self.runner
+            .sweep_heads_up(SweepId::LearnWriter, limit, spent, need);
         if spent.saturating_add(need) > limit {
             let why = format!(
                 "the writer would reserve {} with {} spent today, past [judge.learn] \

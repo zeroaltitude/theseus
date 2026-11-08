@@ -19,6 +19,7 @@
 //! offered (`settle_conflicts`, theseus-ly75u): the one with more support
 //! stays, and the run's result notes the other.
 
+use crate::sweep_notice::SweepId;
 use theseus_kernel::micros_to_usd;
 use theseus_protocol::{
     card_options, card_question, CardProposal, CardProposeResult, CardSource, ProposalState,
@@ -309,6 +310,12 @@ impl Core {
             return Ok(false);
         };
         let left = (job.cfg.day_usd - job.st.spent_on(&job.today)).max(0.0);
+        self.runner.sweep_heads_up(
+            SweepId::Card,
+            theseus_kernel::usd_to_micros(job.cfg.day_usd),
+            theseus_kernel::usd_to_micros(job.st.spent_on(&job.today)),
+            need,
+        );
         if micros_to_usd(need) > left {
             out.stopped = Some(format!(
                 "budget: ${:.2} of [card] day_usd ${:.2} is left, under a call's worst case (${:.2})",

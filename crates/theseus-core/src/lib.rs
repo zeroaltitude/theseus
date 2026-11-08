@@ -134,6 +134,7 @@ pub mod stub;
 pub mod succession;
 pub mod surface;
 pub mod sweep;
+pub mod sweep_notice;
 pub mod task;
 pub mod task_fan_out;
 pub mod task_graph;

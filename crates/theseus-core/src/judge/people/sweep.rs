@@ -26,6 +26,7 @@
 //!   why it stopped), in one frame with its META mark (`people.sweep.last`:
 //!   when, the local day, and that day's spend).
 
+use crate::sweep_notice::SweepId;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -228,6 +229,14 @@ impl Core {
             let request = self.people_request(&target.model, &d.title, &d.lines);
             let est = crate::compiler::estimate(&request, price.bytes_per_token, None).tokens;
             let worst = price.reserve_micros(super::extract::MAX_TOKENS, est) + jev_projected();
+            // `cap` is what the day had left when the run began.
+            let day_cap = usd_to_micros(self.runner.cfg.people.sweep_usd_per_day);
+            self.runner.sweep_heads_up(
+                SweepId::People,
+                day_cap,
+                day_cap.saturating_sub(cap).saturating_add(out.spent),
+                worst,
+            );
             if out.spent.saturating_add(worst) > cap {
                 out.stopped = Some(format!(
                     "at the day's cap: the next session's worst case ({}) would pass what is left \
