@@ -182,6 +182,11 @@ async fn threads_and_sessions_share_the_first_layers_byte_for_byte() {
         "{}",
         head(&r[0])
     );
+    assert!(
+        head(&r[0]).contains("carried on every request, not a message from the owner"),
+        "the card says it is not new: {}",
+        head(&r[0])
+    );
     assert!(head(&r[1]).starts_with("[Thread card: Title of moon-tables"));
     assert!(!head(&r[2]).contains("Thread card"));
     // Nothing of a thread's own is inside the layers.
