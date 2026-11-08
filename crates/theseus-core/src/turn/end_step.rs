@@ -14,6 +14,13 @@ use super::*;
 /// Returns the execution as the frame left it, and whether the wake was
 /// staged.
 ///
+/// A task that parks on the owner's hold (`task.pause`) is woken in the same
+/// frame when `hold_gone` says the hold was let go: a resume that landed
+/// after the turn read the hold and before this frame found the task still
+/// running, so it woke nothing. `hold_gone` is read inside the frame, under
+/// the lock the resume's own read of the park takes, so exactly one of the
+/// two sees the other.
+///
 /// The stop is read inside the frame, under its lock: a `/stop` that landed
 /// after the turn's own read still keeps the execution parked on input (W1),
 /// as `end_turn` parks it. The wake is a nested transaction whose error is
@@ -24,6 +31,7 @@ pub(super) fn end_and_wake(
     guard: TurnGuard,
     end: TurnEnd,
     rewake: bool,
+    hold_gone: impl FnOnce() -> bool,
     extra: impl FnOnce(&Execution) -> Result<Vec<NewRecord>>,
 ) -> Result<(Execution, bool)> {
     let id = guard.execution_id.clone();
@@ -36,10 +44,13 @@ pub(super) fn end_and_wake(
         }
         let stopped = k.execution(&id)?.is_some_and(|e| e.stopped.is_some());
         let ended = k.end_turn_with(guard, end, extra)?;
-        if !rewake || stopped {
-            return Ok((ended, false));
-        }
-        match k.frame(&[&id], |k| k.wake(&id, "late_result")) {
+        let why = match (rewake, stopped) {
+            (_, true) => return Ok((ended, false)),
+            (true, _) => "late_result",
+            _ if crate::task::parked_on_hold(&ended) && hold_gone() => "resumed",
+            _ => return Ok((ended, false)),
+        };
+        match k.frame(&[&id], |k| k.wake(&id, why)) {
             Ok(woken) => Ok((woken, true)),
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), execution_id = %id, "a late result's wake was not written with the turn's end");
@@ -162,7 +173,15 @@ mod tests {
         let g = held(&core);
         let id = g.execution_id.clone();
         let before = core.store.stats().unwrap().frames_appended;
-        let (e, woke) = end_and_wake(&core.kernel, g, wait_input(), true, |_| Ok(vec![])).unwrap();
+        let (e, woke) = end_and_wake(
+            &core.kernel,
+            g,
+            wait_input(),
+            true,
+            || false,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
         assert_eq!(core.store.stats().unwrap().frames_appended - before, 1);
         assert!(woke);
         assert_eq!((e.state, e.resume_pending), (ExecState::Queued, true));
@@ -177,6 +196,82 @@ mod tests {
         );
     }
 
+    fn park_on_hold() -> TurnEnd {
+        TurnEnd::Wait {
+            wake: Wake::DueAt {
+                at_ms: theseus_protocol::task_pause::PAUSED_AT_MS,
+            },
+        }
+    }
+
+    /// A resume landed after the turn read the hold and before this frame: it
+    /// found the task running and woke nothing, so the end that parks it on a
+    /// hold already gone wakes it, in the same frame, why `resumed`.
+    #[test]
+    fn a_park_on_a_hold_let_go_inside_the_frame_is_woken_there() {
+        let (core, _dir) = core();
+        let g = held(&core);
+        let id = g.execution_id.clone();
+        let before = core.store.stats().unwrap().frames_appended;
+        let (e, woke) = end_and_wake(
+            &core.kernel,
+            g,
+            park_on_hold(),
+            false,
+            || true,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+        assert_eq!(core.store.stats().unwrap().frames_appended - before, 1);
+        assert!(woke);
+        assert_eq!((e.state, e.resume_pending), (ExecState::Queued, true));
+        let rows = kinds_of(&core, &id);
+        assert_eq!(
+            rows[rows.len() - 2..],
+            [
+                ("execution.waiting".to_string(), None),
+                ("execution.queued".to_string(), Some("resumed".into())),
+            ],
+            "{rows:?}"
+        );
+    }
+
+    /// A hold still set parks the task, as it always did.
+    #[test]
+    fn a_park_on_a_hold_still_set_is_left_parked() {
+        let (core, _dir) = core();
+        let g = held(&core);
+        let (e, woke) = end_and_wake(
+            &core.kernel,
+            g,
+            park_on_hold(),
+            false,
+            || false,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+        assert!(!woke);
+        assert_eq!(e.state, ExecState::Waiting);
+        assert!(crate::task::parked_on_hold(&e));
+    }
+
+    #[test]
+    fn a_park_that_is_not_the_holds_is_not_woken() {
+        let (core, _dir) = core();
+        let g = held(&core);
+        let (e, woke) = end_and_wake(
+            &core.kernel,
+            g,
+            wait_input(),
+            false,
+            || true,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
+        assert!(!woke, "a park on input is not the hold's");
+        assert_eq!(e.wake, Some(Wake::Input));
+    }
+
     /// A stop that landed during the turn, read inside the end's frame, keeps
     /// it parked on input: nothing queues it.
     #[test]
@@ -185,7 +280,15 @@ mod tests {
         let g = held(&core);
         let id = g.execution_id.clone();
         core.kernel.stop_execution(&id, "test").unwrap();
-        let (e, woke) = end_and_wake(&core.kernel, g, wait_input(), true, |_| Ok(vec![])).unwrap();
+        let (e, woke) = end_and_wake(
+            &core.kernel,
+            g,
+            wait_input(),
+            true,
+            || false,
+            |_| Ok(vec![]),
+        )
+        .unwrap();
         assert!(!woke);
         assert_eq!((e.state, e.wake), (ExecState::Waiting, Some(Wake::Input)));
         let rows = kinds_of(&core, &id);
@@ -207,8 +310,15 @@ mod tests {
         let id = g.execution_id.clone();
         core.kernel.cancel_execution(&id, "test").unwrap();
         let before = core.store.stats().unwrap().frames_appended;
-        let (e, woke) = end_and_wake(&core.kernel, g, wait_input(), true, |_| Ok(vec![]))
-            .expect("the end stands, whatever the wake");
+        let (e, woke) = end_and_wake(
+            &core.kernel,
+            g,
+            wait_input(),
+            true,
+            || false,
+            |_| Ok(vec![]),
+        )
+        .expect("the end stands, whatever the wake");
         assert!(!woke);
         assert_eq!(e.state, ExecState::Cancelled);
         assert_eq!(core.store.stats().unwrap().frames_appended, before);

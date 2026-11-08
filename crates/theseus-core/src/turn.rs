@@ -1254,6 +1254,7 @@ impl TurnRunner {
         // A task (DD7): where it reports, and its title, for its report.
         let task_of = req.session.task.clone();
         let task_title = req.session.title.clone();
+        let task_session = req.session.session_id.clone();
         // The turn's session write waits for its last frame, under the
         // record's lock, which is held until that frame is written.
         let (r, session_hold) = match self.run_inner(&guard, &frames, req, arrived, waits).await {
@@ -1291,7 +1292,8 @@ impl TurnRunner {
         // Its record closes in that frame too (39a), under its lock.
         let (lock, closing) = Closing::new(&frames.store, task_of.as_ref(), &failure_sink);
         // A late result's wake rides in the end's frame (theseus-6qwr).
-        let ended = end_step::end_and_wake(&frames.kernel, guard, end, rewake, |e| {
+        let hold_gone = || task_of.is_some() && !self.task_paused(&task_session);
+        let ended = end_step::end_and_wake(&frames.kernel, guard, end, rewake, hold_gone, |e| {
             let Some(task) = task_of.as_ref().filter(|_| e.state.is_terminal()) else {
                 return Ok(vec![]);
             };

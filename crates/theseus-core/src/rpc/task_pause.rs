@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use theseus_kernel::ExecState;
+use theseus_kernel::Execution;
 use theseus_protocol::task_pause::{TaskPauseParams, TaskPauseResult};
 use theseus_protocol::{error_code, method};
 use theseus_store::{kinds, NewRecord, Store as _};
@@ -100,30 +100,60 @@ impl Core {
             },
         )?;
         let tasks = self.kernel.tasks(None)?;
-        let e = crate::task::resolve(&tasks, name)
-            .map_err(crate::task::NoSuchTask)?
-            .clone();
+        let found = crate::task::resolve(&tasks, name).map_err(crate::task::NoSuchTask)?;
+        let (id, session_id) = (found.id.clone(), found.session_id.clone());
+        let by = who.label.as_str();
+        // The park is read under the execution's lock, the one its turn's end
+        // commits the park under, and the hold is let go under it: a resume
+        // that read the task before it parked, cleared the hold, and woke
+        // nothing was this race. A resume landing first is seen by the turn's
+        // end (`end_and_wake`), which reads the hold in the same lock.
+        let changed = self
+            .kernel
+            .frame(&[&id], |k| self.hold_in_frame(k, &id, on, by))?;
+        if changed {
+            let rec = self.rec_for(&session_id);
+            match on {
+                true => rec.announce(&fact::task_pause::TaskPaused {
+                    task: &id,
+                    session_id: &session_id,
+                    by,
+                }),
+                false => rec.announce(&fact::task_pause::TaskResumed {
+                    task: &id,
+                    session_id: &session_id,
+                    by,
+                }),
+            }
+        }
+        Ok(TaskPauseResult {
+            task_id: session_id,
+            paused: on,
+            changed,
+        })
+    }
+
+    /// `task_hold`'s read and writes, inside the execution's frame: whether it
+    /// changed anything.
+    fn hold_in_frame(
+        &self,
+        k: &theseus_kernel::Kernel,
+        id: &str,
+        on: bool,
+        by: &str,
+    ) -> anyhow::Result<bool> {
+        let e = k
+            .execution(id)?
+            .ok_or_else(|| theseus_kernel::KernelError::UnknownExecution(id.to_string()))?;
         if e.state.is_terminal() {
             anyhow::bail!("Task {} has ended ({}).", e.session_id, e.state.as_str());
         }
-        let pauses = &self.runner.tools.job_waits.steers.pauses;
-        let done = |changed| TaskPauseResult {
-            task_id: e.session_id.clone(),
-            paused: on,
-            changed,
-        };
         // Parked on the hold: a resume wakes it even when the hold is already
-        // gone (a resume that raced the park found it still running).
-        let parked = e.state == ExecState::Waiting
-            && e.wake
-                == Some(theseus_kernel::Wake::DueAt {
-                    at_ms: theseus_protocol::task_pause::PAUSED_AT_MS,
-                });
+        // gone (a resume that raced the park found it running).
+        let parked = crate::task::parked_on_hold(&e);
         if self.runner.task_paused(&e.session_id) == on && (on || !parked) {
-            return Ok(done(false));
+            return Ok(false);
         }
-        let by = who.label.as_str();
-        let rec = self.rec_for(&e.session_id);
         let key = format!("{KEY}{}", e.session_id);
         let meta = NewRecord::json(kinds::META, Some(&key), &on)?;
         let row = match on {
@@ -153,23 +183,35 @@ impl Core {
                 .push(Node::relayed(&e.session_id, None, Origin::Operator, by, RESUMED).record()?);
         }
         self.store.append(&records)?;
-        pauses.set(&e.session_id, on);
-        match on {
-            true => rec.announce(&fact::task_pause::TaskPaused {
-                task: &e.id,
-                session_id: &e.session_id,
-                by,
-            }),
-            false => rec.announce(&fact::task_pause::TaskResumed {
-                task: &e.id,
-                session_id: &e.session_id,
-                by,
-            }),
-        }
+        self.runner
+            .tools
+            .job_waits
+            .steers
+            .pauses
+            .set(&e.session_id, on);
         if wake {
-            self.kernel.wake(&e.id, "resumed")?;
+            k.wake(&e.id, "resumed")?;
         }
-        Ok(done(true))
+        Ok(true)
+    }
+
+    /// The backstop for a task parked on a hold that is gone (a resume that
+    /// raced the park and woke nothing): wake it, as a resume would. The
+    /// driver's tick calls it for each such task it reads; `None` when the
+    /// task is not one (it parked after the read, or is held).
+    pub(crate) fn wake_stranded(&self, id: &str) -> anyhow::Result<Option<Execution>> {
+        self.kernel.frame(&[id], |k| {
+            let Some(e) = k.execution(id)? else {
+                return Ok(None);
+            };
+            if !crate::task::parked_on_hold(&e) || self.runner.task_paused(&e.session_id) {
+                return Ok(None);
+            }
+            let node = Node::relayed(&e.session_id, None, Origin::Operator, "the owner", RESUMED);
+            self.store.append(&[node.record()?])?;
+            tracing::warn!(execution_id = %e.id, "a task was parked on a hold already let go; woken");
+            Ok(Some(k.wake(id, "resumed")?))
+        })
     }
 }
 
