@@ -237,6 +237,8 @@ pub struct Chat {
     /// The router's question that waits for an answer (`thread_ask.rs`).
     pub(super) thread_ask: Option<theseus_protocol::thread_route::ThreadAsk>,
     pub menu: usize,
+    /// Esc closed the slash menu; the next edit opens it again.
+    pub(super) menu_closed: bool,
     pub(super) started_ms: u64,
     /// The digest line, held until the banner has printed.
     pub(super) welcome: Option<String>,
@@ -310,6 +312,7 @@ impl Chat {
             rewound: None,
             thread_ask: None,
             menu: 0,
+            menu_closed: false,
             started_ms: now_ms,
             welcome: None,
             offline_at: None,
@@ -523,6 +526,7 @@ impl Chat {
         self.last_input_ms = self.now_ms;
         self.editor.paste(text);
         self.menu = 0;
+        self.menu_closed = false;
         self.typing()
     }
 
@@ -568,6 +572,7 @@ impl Chat {
             Action::Insert(c) => {
                 self.editor.insert(c);
                 self.menu = 0;
+                self.menu_closed = false;
                 return self.typing();
             }
             Action::Submit => {
@@ -585,6 +590,7 @@ impl Chat {
             Action::Backspace => {
                 self.editor.backspace();
                 self.menu = 0;
+                self.menu_closed = false;
             }
             Action::Delete => self.editor.delete(),
             Action::Left => self.editor.left(),
@@ -698,6 +704,9 @@ impl Chat {
     /// The commands whose names begin as the line does, when the line is a
     /// single word after a slash.
     pub fn suggestions(&self) -> Vec<&'static commands::Command> {
+        if self.menu_closed {
+            return Vec::new();
+        }
         let text = self.editor.text();
         match text.strip_prefix('/') {
             Some(rest) if !rest.contains(char::is_whitespace) => commands::matching(rest),
@@ -738,6 +747,7 @@ impl Chat {
             return Vec::new();
         }
         self.menu = 0;
+        self.menu_closed = false;
         if !trimmed.starts_with('/') {
             if let Some(effects) = self.thread_answered_by(trimmed) {
                 return effects;

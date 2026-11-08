@@ -51,6 +51,8 @@ mod tests;
 #[cfg(test)]
 mod tests_ask;
 #[cfg(test)]
+mod tests_commands;
+#[cfg(test)]
 mod tests_mode;
 #[cfg(test)]
 mod tests_pin;

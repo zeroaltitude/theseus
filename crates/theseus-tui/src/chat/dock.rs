@@ -167,6 +167,18 @@ fn notice_rows(chat: &Chat, _ctx: &DockCtx) -> Vec<Line> {
         .collect()
 }
 
+/// How many rows a menu (the commands, the `@` files) shows at once.
+pub const MENU_ROWS: usize = 6;
+
+/// The slice of a menu of `len` rows that shows with row `sel` chosen: it
+/// scrolls just far enough that the chosen row is always one of them.
+pub fn menu_window(len: usize, sel: usize) -> (usize, usize) {
+    let shown = len.min(MENU_ROWS);
+    let sel = sel.min(len.saturating_sub(1));
+    let first = (sel + 1).saturating_sub(shown).min(len - shown);
+    (first, shown)
+}
+
 /// The rows, and where the cursor sits among them.
 pub struct Dock {
     pub rows: Vec<Line>,
@@ -199,7 +211,8 @@ pub fn build(chat: &Chat) -> Dock {
 
     // The input, with room left for the rows under it.
     let menu: Vec<_> = chat.suggestions();
-    let below = menu.len().min(6) + 1;
+    let (mfirst, mshown) = menu_window(menu.len(), chat.menu);
+    let below = mshown + usize::from(menu.len() > MENU_ROWS) + 1;
     let height = usize::from(chat.height);
     let allow = height.saturating_sub(above + below + 1).max(1);
     let prompt = chat.prompt();
@@ -224,13 +237,23 @@ pub fn build(chat: &Chat) -> Dock {
         pad + layout.cursor.1,
     );
 
-    for (i, c) in menu.iter().take(6).enumerate() {
+    let wide = menu.iter().map(|c| c.name.len()).max().unwrap_or(0).max(8);
+    for (i, c) in menu.iter().enumerate().skip(mfirst).take(mshown) {
         let sty = if i == chat.menu.min(menu.len() - 1) {
             Sty::Cyan
         } else {
             Sty::Dim
         };
-        rows.push(one(sty, format!("  /{:<8} {}", c.name, c.help)));
+        rows.push(one(sty, format!("  /{:<wide$} {}", c.name, c.help)));
+    }
+    if menu.len() > MENU_ROWS {
+        rows.push(one(
+            Sty::Dim,
+            format!(
+                "  {} more · ↑/↓ scroll · esc closes",
+                menu.len() - MENU_ROWS
+            ),
+        ));
     }
     rows.push(status_line(chat, width));
     Dock { rows, cursor }
