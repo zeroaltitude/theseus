@@ -11,6 +11,7 @@ use theseus_kernel::ExecState;
 use crate::approval::{Answerer, Surface};
 use crate::provider::{FakeProvider, Scripted};
 use crate::rpc::Parts;
+use crate::test_support::until_within;
 use crate::tests_tasks::{
     answers_a_call, arranged, exec, first_user, last_user, only_task, parent_session, posts, rig,
     turn, until, Rig, ASK,
@@ -178,6 +179,111 @@ async fn a_resume_wakes_a_task_parked_on_a_hold_already_let_go() {
     r.model.gate.add_permits(1);
     let back = r.core.task_hold(&task.id, false, &cli()).unwrap();
     assert!(back.changed, "the parked task is woken: {back:?}");
+    until("the task completes", || {
+        exec(&r.core, &task.id).state == ExecState::Complete
+    })
+    .await;
+    assert_eq!(posts(&r.core, "report").len(), 1);
+}
+
+/// The backstop: a task left parked on a hold that was let go (a resume that
+/// raced the park and woke nothing) is taken up by the driver's next tick,
+/// with no second press. It reports once.
+#[tokio::test]
+async fn a_task_stranded_on_a_hold_already_let_go_is_taken_up_by_the_driver() {
+    let mut r = rig_with_a_task();
+    r.core.push.ensure(&r.core).await.unwrap();
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    r.entered.recv().await.unwrap();
+    r.core.task_hold(&task.id, true, &cli()).unwrap();
+    r.model.gate.add_permits(1);
+    until("the task parks", || {
+        exec(&r.core, &task.id).state == ExecState::Waiting
+    })
+    .await;
+    let parked = exec(&r.core, &task.id).wake;
+    assert_eq!(
+        parked,
+        Some(theseus_kernel::Wake::DueAt {
+            at_ms: theseus_protocol::task_pause::PAUSED_AT_MS
+        }),
+        "parked on the hold"
+    );
+    // The race's outcome: the hold is gone, nothing woke the task.
+    r.core
+        .runner
+        .tools
+        .job_waits
+        .steers
+        .pauses
+        .set(&task.session_id, false);
+    r.model.gate.add_permits(1);
+    until_within("the driver taking the stranded task up", 3, || {
+        exec(&r.core, &task.id).state != ExecState::Waiting
+            || exec(&r.core, &task.id).wake != parked
+    })
+    .await;
+    until("the task completes", || {
+        exec(&r.core, &task.id).state == ExecState::Complete
+    })
+    .await;
+    assert_eq!(posts(&r.core, "report").len(), 1);
+    // A task whose hold is still set is left parked, as it always was.
+    assert_eq!(child_calls(&r), 2);
+}
+
+/// The resume reads the park under the execution's own lock. A turn's end
+/// commits the park under that lock; a resume that decided from a snapshot
+/// read before it found the task still running, cleared the hold, and woke
+/// nothing. While something holds the lock, the resume waits for it.
+#[tokio::test]
+async fn a_resume_reads_the_park_under_the_executions_lock() {
+    let mut r = rig_with_a_task();
+    r.core.push.ensure(&r.core).await.unwrap();
+    let parent = parent_session(&r.core);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    // Its first call is in flight and the owner holds it: a turn's end,
+    // which would park it, is still to come.
+    r.entered.recv().await.unwrap();
+    r.core.task_hold(&task.id, true, &cli()).unwrap();
+    let barrier = || Arc::new(std::sync::Barrier::new(2));
+    let (locked, release) = (barrier(), barrier());
+    let holder = {
+        let (core, id) = (r.core.clone(), task.id.clone());
+        let (locked, release) = (locked.clone(), release.clone());
+        std::thread::spawn(move || {
+            core.kernel
+                .frame(&[&id], |_| {
+                    locked.wait();
+                    release.wait();
+                    Ok(())
+                })
+                .unwrap();
+        })
+    };
+    locked.wait();
+    let resumed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let resume = {
+        let (core, id, done) = (r.core.clone(), task.id.clone(), resumed.clone());
+        std::thread::spawn(move || {
+            let out = core.task_hold(&id, false, &cli()).unwrap();
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+            out
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        !resumed.load(std::sync::atomic::Ordering::SeqCst),
+        "the resume decided without the execution's lock, on a snapshot the park can outrun"
+    );
+    release.wait();
+    holder.join().unwrap();
+    let back = resume.join().unwrap();
+    assert!(back.changed && !back.paused, "{back:?}");
+    r.model.gate.add_permits(2);
     until("the task completes", || {
         exec(&r.core, &task.id).state == ExecState::Complete
     })
