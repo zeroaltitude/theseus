@@ -24,6 +24,7 @@ pub mod embedder;
 pub mod engine;
 pub mod entity;
 pub mod extract;
+pub mod files;
 pub mod fuse;
 pub mod gate;
 pub mod mapped;
@@ -90,6 +91,8 @@ pub fn open_served(cfg: Config, nice: i32) -> Result<Tender, OpenError> {
 mod ftests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_files;
 #[cfg(test)]
 mod tests_gate;
 #[cfg(test)]

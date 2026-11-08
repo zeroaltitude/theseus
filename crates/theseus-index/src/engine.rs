@@ -10,6 +10,13 @@
 //! node and chunk. Their ranks are fused by reciprocal rank fusion, weighted
 //! by source, `Σ w / (60 + rank)`, so no source's raw scores are weighed
 //! against another's.
+//!
+//! A node's chunks are its own text's first, then, for each kept file it
+//! carries, that file's read text ([`crate::files`], theseus-lv2u). A file's
+//! chunks carry its digest in the `file` field, which is how the tender asks
+//! whether a digest is in the index already: a file is indexed once, under
+//! the first node that carried it, and deleting that node takes its chunks
+//! with it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
@@ -29,12 +36,14 @@ use tantivy::{
 use crate::chunk;
 use crate::entity::entities;
 use crate::extract::Extracted;
+use crate::files::FileText;
 use crate::fuse::{fuse, Ranked};
 use crate::proto::{Hit, QueryParams, Timings, Weights};
 use crate::vectors::{text_hash, ChunkKey, NodeChunks, Texts, VectorHit};
 
 /// Bumped when the fields change: an index of another version is rebuilt.
-pub const SCHEMA_VERSION: u32 = 1;
+/// 2 = `file`, a kept file's digest on the chunks of its text (theseus-lv2u).
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The writer's memory for buffered documents: tantivy's floor is 15 MB per
 /// indexing thread, and the tender runs one.
@@ -42,6 +51,10 @@ const WRITER_MEMORY: usize = 32 << 20;
 
 /// The sources a query may name.
 pub const SOURCES: &[&str] = &["bm25", "entity", "vector"];
+
+/// A file chunk's head takes tokens from its chunk's budget; never below
+/// this many are left for the text itself.
+const MIN_FILE_CHUNK_TOKENS: usize = 64;
 
 /// How many hits each source ranks for a query that wants `k`.
 pub fn fetch_for(k: usize) -> usize {
@@ -63,6 +76,9 @@ pub struct Fields {
     pub external: Field,
     pub text: Field,
     pub entities: Field,
+    /// On a chunk of a kept file's read text: that file's own digest. Empty
+    /// on a chunk of the node's own text.
+    pub file: Field,
 }
 
 pub fn schema() -> (Schema, Fields) {
@@ -81,6 +97,7 @@ pub fn schema() -> (Schema, Fields) {
         external: b.add_bool_field("external", INDEXED | STORED),
         text: b.add_text_field("text", TEXT | STORED),
         entities: b.add_text_field("entities", STRING | STORED),
+        file: b.add_text_field("file", STRING | STORED),
     };
     (b.build(), f)
 }
@@ -124,24 +141,27 @@ impl Writer {
         })
     }
 
-    /// Replace node `e`, written at `position`, by its chunks; each chunk's
-    /// key for the vector side.
+    /// Replace node `e`, written at `position`, by its chunks: its own
+    /// text's first, then the read text of each file in `files`, each chunk
+    /// headed with what it cites (theseus-lv2u). Each chunk's key for the
+    /// vector side.
     pub fn replace(
         &self,
         position: u64,
         place: Option<&str>,
         e: &Extracted,
+        files: &[FileText],
     ) -> tantivy::Result<Vec<ChunkKey>> {
         let f = &self.f;
         self.writer
             .delete_term(Term::from_field_text(f.node_id, &e.node_id));
-        let chunks = chunk::chunks(&e.text, chunk::MAX_TOKENS);
-        let mut keys = Vec::with_capacity(chunks.len());
-        for (i, text) in chunks.iter().enumerate() {
-            keys.push(chunk_key(i as u64, text));
+        let mut keys = Vec::new();
+        let mut add = |text: &str, file: Option<&str>| -> tantivy::Result<()> {
+            let i = keys.len() as u64;
+            keys.push(chunk_key(i, text));
             let mut d = TantivyDocument::new();
             d.add_text(f.node_id, &e.node_id);
-            d.add_u64(f.chunk, i as u64);
+            d.add_u64(f.chunk, i);
             d.add_text(f.session, &e.session_id);
             d.add_u64(f.position, position);
             d.add_text(f.kind, &e.kind);
@@ -155,6 +175,9 @@ impl Writer {
             if let Some(t) = &e.tool {
                 d.add_text(f.tool, t);
             }
+            if let Some(digest) = file {
+                d.add_text(f.file, digest);
+            }
             d.add_u64(f.time, e.created_at_ms);
             d.add_bool(f.external, e.external);
             d.add_text(f.text, text);
@@ -162,6 +185,23 @@ impl Writer {
                 d.add_text(f.entities, term);
             }
             self.writer.add_document(d)?;
+            Ok(())
+        };
+        for text in chunk::chunks(&e.text, chunk::MAX_TOKENS) {
+            add(text, None)?;
+        }
+        for file in files {
+            for piece in &file.pieces {
+                let room = chunk::MAX_TOKENS
+                    .saturating_sub(chunk::tokens(&piece.head))
+                    .max(MIN_FILE_CHUNK_TOKENS);
+                for text in chunk::chunks(&piece.text, room) {
+                    add(&format!("{}\n{text}", piece.head), Some(&file.digest))?;
+                }
+            }
+            if let Some(cut) = &file.cut {
+                add(cut, Some(&file.digest))?;
+            }
         }
         Ok(keys)
     }
@@ -230,6 +270,8 @@ pub struct StoredChunk {
     pub external: bool,
     pub text: String,
     pub entities: Vec<String>,
+    /// The kept file this chunk's text came from, by digest.
+    pub file: Option<String>,
 }
 
 impl Engine {
@@ -274,6 +316,26 @@ impl Engine {
             IndexRecordOption::Basic,
         );
         Ok(self.reader.searcher().search(&q, &Count)? > 0)
+    }
+
+    /// The node under which the last commit holds the kept file `digest`,
+    /// if any: what makes a file indexed once (theseus-lv2u). A digest the
+    /// index holds under *this* node is re-indexed with it, since a
+    /// re-ingest replaces a node whole.
+    pub fn file_node(&self, digest: &str) -> tantivy::Result<Option<String>> {
+        let s = self.reader.searcher();
+        let q = TermQuery::new(
+            Term::from_field_text(self.f.file, digest),
+            IndexRecordOption::Basic,
+        );
+        let Some((_, a)) = s
+            .search(&q, &TopDocs::with_limit(1).order_by_score())?
+            .into_iter()
+            .next()
+        else {
+            return Ok(None);
+        };
+        Ok(Some(self.stored(&s.doc(a)?).node_id))
     }
 
     /// Node `id`'s chunks, as the last commit holds them: each one's index
@@ -375,6 +437,7 @@ impl Engine {
                 .unwrap_or(false),
             text: text(f.text).unwrap_or_default(),
             entities: ents,
+            file: text(f.file),
         }
     }
 

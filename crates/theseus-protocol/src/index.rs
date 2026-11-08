@@ -559,6 +559,21 @@ pub struct IndexStatus {
     pub nodes_indexed: u64,
     pub nodes_skipped: u64,
     pub undecodable: u64,
+    /// Kept files whose read text the index took, once per digest
+    /// (theseus-lv2u).
+    #[serde(default)]
+    pub files_indexed: u64,
+    /// Kept files left to the node that already holds their digest.
+    #[serde(default)]
+    pub files_repeated: u64,
+    /// Kept files the index's own cap cut: what it left out is a chunk of
+    /// its own, and the whole file is still in the conversation.
+    #[serde(default)]
+    pub files_cut: u64,
+    /// Kept files whose read text could not be read (its blob gone, or in
+    /// no shape this build knows): their node is indexed without it.
+    #[serde(default)]
+    pub files_unread: u64,
     pub rebuilds: u64,
     pub extractor: u32,
     pub schema: u32,

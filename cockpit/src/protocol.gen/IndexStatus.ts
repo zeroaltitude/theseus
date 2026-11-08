@@ -41,7 +41,26 @@ segment: number, offset: number, documents: number, nodes: number, lag: IndexLag
  * at the WAL's end (one being written, or a torn tail that the core's
  * next open cuts).
  */
-waiting?: string, backfill?: IndexBackfill, commits: number, records_read: number, nodes_indexed: number, nodes_skipped: number, undecodable: number, rebuilds: number, extractor: number, schema: number, rss_bytes: number, started_at_ms: number, last_commit_ms: number, last_error?: string, last_error_ms: number, 
+waiting?: string, backfill?: IndexBackfill, commits: number, records_read: number, nodes_indexed: number, nodes_skipped: number, undecodable: number, 
+/**
+ * Kept files whose read text the index took, once per digest
+ * (theseus-lv2u).
+ */
+files_indexed: number, 
+/**
+ * Kept files left to the node that already holds their digest.
+ */
+files_repeated: number, 
+/**
+ * Kept files the index's own cap cut: what it left out is a chunk of
+ * its own, and the whole file is still in the conversation.
+ */
+files_cut: number, 
+/**
+ * Kept files whose read text could not be read (its blob gone, or in
+ * no shape this build knows): their node is indexed without it.
+ */
+files_unread: number, rebuilds: number, extractor: number, schema: number, rss_bytes: number, started_at_ms: number, last_commit_ms: number, last_error?: string, last_error_ms: number, 
 /**
  * The priority queries are answered at: the socket's thread's, the
  * daemon's own (theseus-y9a3). Absent from a tender of an older build.

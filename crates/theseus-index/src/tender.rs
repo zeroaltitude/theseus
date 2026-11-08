@@ -13,6 +13,12 @@
 //! - **Stalled, never past a bad frame**: a WAL the follower cannot read on
 //!   from (a frame that checks but is wrong) leaves the index where it is,
 //!   says so in its status, and tries again at each wake.
+//! - **A kept file's text is read from the blobs** (theseus-lv2u), the one
+//!   thing the tender reads outside the WAL: a node names its file's read
+//!   text by digest, and the blob sits in the store's own directory. It is
+//!   taken once per digest, under the first node that carried it; a blob
+//!   that is gone or unreadable leaves its node indexed without it and is
+//!   counted in `index.status`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -27,7 +33,8 @@ use theseus_follow::{Cursor, FollowError, Kicker, Stop, Wake, Waker, WalFollower
 use theseus_store::{kinds, wal, Record};
 
 use crate::engine::{self, Engine, Writer, SCHEMA_VERSION, SOURCES};
-use crate::extract::{extract, Extract, EXTRACTOR_VERSION};
+use crate::extract::{extract, Extract, FileRef, EXTRACTOR_VERSION};
+use crate::files::{self, FileText};
 use crate::proto::{
     Backfill, ChunkRef, EmbedParams, EmbedResult, ForgetParams, ForgetResult, IndexStatus, Lag,
     NeighboursParams, NeighboursResult, QueryParams, QueryResult, WarmResult, Weights,
@@ -37,6 +44,16 @@ use crate::vectors::{text_hash, NodeChunks, VectorConfig, Vectors};
 
 /// How long `index.forget` waits for the ingest thread.
 const FORGET_WAIT: Duration = Duration::from_secs(60);
+
+/// What one batch made of the kept files it met (theseus-lv2u), for
+/// `index.status`.
+#[derive(Debug, Default)]
+struct FileCounts {
+    indexed: u64,
+    repeated: u64,
+    cut: u64,
+    unread: u64,
+}
 
 /// A queued `index.forget`, and where its answer goes.
 type Forget = (ForgetParams, mpsc::Sender<Result<ForgetResult, String>>);
@@ -83,6 +100,12 @@ impl Config {
 
     pub fn wal_dir(&self) -> PathBuf {
         self.store_dir.join("wal")
+    }
+
+    /// Where the core keeps a file's bytes and what was read of it, by
+    /// digest (`theseus_core::blobs`).
+    pub fn blobs_dir(&self) -> PathBuf {
+        self.store_dir.join("blobs")
     }
 }
 
@@ -549,6 +572,10 @@ impl Tender {
         removed: &mut Vec<String>,
     ) -> anyhow::Result<()> {
         let (mut skipped, mut undecodable) = (0u64, 0u64);
+        let mut files = FileCounts::default();
+        // The kept files this batch indexed, uncommitted, and the node each
+        // one is under: `engine.file_node` reads only what is committed.
+        let mut fresh_files: BTreeMap<String, String> = BTreeMap::new();
         // Nodes this batch indexed, uncommitted: a later record of one with
         // nothing to index (a tombstone) must take it out too, which
         // `holds`, reading only what is committed, does not see. A rebuild
@@ -559,9 +586,11 @@ impl Tender {
                 kinds::NODE => match extract(&r.payload) {
                     Ok(Extract::Index(e)) => {
                         let place = self.places.get(&e.session_id).map(String::as_str);
+                        let take =
+                            self.files_of(&e.node_id, &e.files, &mut fresh_files, &mut files);
                         let chunks = self
                             .writer
-                            .replace(r.position, place, &e)
+                            .replace(r.position, place, &e, &take)
                             .with_context(|| format!("indexing node {}", e.node_id))?;
                         fresh.insert(e.node_id.clone());
                         if self.shared.vectors.enabled() {
@@ -591,6 +620,9 @@ impl Tender {
                             || self.shared.engine.holds(&node_id)?
                         {
                             self.writer.delete_node(&node_id);
+                            // Its files go with it: a later node carrying one
+                            // of those digests indexes it again.
+                            fresh_files.retain(|_, under| *under != node_id);
                             removed.push(node_id);
                             step.removed += 1;
                         }
@@ -625,8 +657,67 @@ impl Tender {
             s.nodes_indexed += indexed;
             s.nodes_skipped += skipped;
             s.undecodable += undecodable;
+            s.files_indexed += files.indexed;
+            s.files_repeated += files.repeated;
+            s.files_cut += files.cut;
+            s.files_unread += files.unread;
         });
         Ok(())
+    }
+
+    /// What of node `node_id`'s kept files the index takes (theseus-lv2u).
+    ///
+    /// **Once per digest**: a file the index already holds under another
+    /// node is left to it, so the same bytes attached twice are one copy.
+    /// A digest held under *this* node is taken again: `Writer::replace`
+    /// deletes the node whole first, so a re-ingest would otherwise lose it.
+    /// A text blob that is gone or in neither shape leaves the node indexed
+    /// without it; nothing here fails a batch.
+    fn files_of(
+        &self,
+        node_id: &str,
+        refs: &[FileRef],
+        fresh: &mut BTreeMap<String, String>,
+        counts: &mut FileCounts,
+    ) -> Vec<FileText> {
+        let mut out = Vec::new();
+        for r in refs {
+            if out.iter().any(|f: &FileText| f.digest == r.digest) {
+                continue;
+            }
+            let under = match fresh.get(&r.digest) {
+                Some(n) => Some(n.clone()),
+                None => self.shared.engine.file_node(&r.digest).unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "index: reading a file's digest");
+                    None
+                }),
+            };
+            if under.is_some_and(|n| n != node_id) {
+                counts.repeated += 1;
+                continue;
+            }
+            let path = self.cfg.blobs_dir().join(&r.text);
+            let Ok(bytes) = fs::read(&path) else {
+                tracing::warn!(file = %r.name, "index: a kept file's text blob could not be read");
+                counts.unread += 1;
+                continue;
+            };
+            let Some(sections) = files::sections(&bytes) else {
+                tracing::warn!(file = %r.name, "index: a kept file's text blob is in no known shape");
+                counts.unread += 1;
+                continue;
+            };
+            let text = files::take(&r.name, &r.digest, sections, files::MAX_BYTES);
+            if text.is_empty() {
+                counts.unread += 1;
+                continue;
+            }
+            counts.indexed += 1;
+            counts.cut += u64::from(text.cut.is_some());
+            fresh.insert(r.digest.clone(), node_id.to_string());
+            out.push(text);
+        }
+        out
     }
 
     /// The places (when changed), then the cursor: places.json always holds
