@@ -6,7 +6,7 @@
 //   needs     it asks for the owner: a question, an approval, a failure not dismissed, a record waiting on a person
 //   working   work in flight: running, or waiting on its own calls, jobs or a child
 //   scheduled it waits on a time due before local midnight
-//   paused    paused, queued, or waiting on a later time; a suspended record is here, open and recoverable
+//   paused    paused, queued, or waiting on a later time; a suspended record is here, open and recoverable (a cancel is not)
 //   rest      a conversation between exchanges: neither open nor ended, drawn at full opacity
 //   ended     done, cancelled, expired, or failed and dismissed: the only bucket drawn faded
 //   todo      a step listed and not started; used only when `OWNER_CALLS.todoApart` is on, else it is paused
@@ -95,11 +95,18 @@ export function bucketOfSession(s: Pick<SessionInfo, 'attention' | 'execution_st
   return 'rest'
 }
 
-/** A view with its task record: a suspended record whose execution ended is paused·queued, open and recoverable,
- *  never working and never faded (the spec: a suspended task can be resumed). */
+/** Does a suspended record keep ended work open? One whose execution ended out of budget is paused·queued, open and
+ *  recoverable, never working and never faded (a raised budget resumes it). A cancel is no such stop: the daemon reads
+ *  it as a `suspended` record too, but it is the owner's own end of the work and the page has no verb that resumes it
+ *  (theseus-emqbm). The view's state is the execution's; a task the board holds no view of has its list entry's. */
+function keepsOpen(b: StateBucket, record: Pick<TaskRecord, 'state'> | undefined, view?: Pick<WorkView, 'state'>, info?: Pick<TaskInfo, 'state'>): boolean {
+  return b === 'ended' && record?.state === 'suspended' && (view ? view.state : info?.state) !== 'cancelled'
+}
+
+/** A view with its task record: a suspended record whose execution ended out of budget is paused·queued (`keepsOpen`). */
 export function bucketOfWork(v: WorkView, now: number, record?: Pick<TaskRecord, 'state'>): StateBucket {
   const b = bucketOf(v, now)
-  return b === 'ended' && record?.state === 'suspended' ? 'paused' : b
+  return keepsOpen(b, record, v) ? 'paused' : b
 }
 
 /** Is the work open? Whether it is open does not depend on the clock (scheduled and paused are both open), so the
@@ -179,8 +186,8 @@ export function bucketOfCard(c: CardInput, now: number, calls: OwnerCalls = OWNE
   if (rec && (rec.state === 'waiting_human' || rec.state === 'blocked')) return 'needs'
   if (c.task) {
     const b = bucketOfTask(c.task, now)
-    // A suspended record whose execution ended is paused·queued: open and recoverable.
-    return b === 'ended' && rec?.state === 'suspended' ? 'paused' : b
+    // A suspended record whose execution ended out of budget is paused·queued: open and recoverable (`keepsOpen`).
+    return keepsOpen(b, rec, c.task.view, c.task.info) ? 'paused' : b
   }
   if (c.view) return bucketOfWork(c.view, now, rec)
   if (!rec) return 'rest'

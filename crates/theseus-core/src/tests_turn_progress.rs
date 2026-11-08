@@ -631,7 +631,8 @@ async fn a_turn_that_only_reads_is_still_stopped_at_its_deadline() {
 }
 
 /// The same after the turn's first edit, where a read of a new file is
-/// progress for the steer: it is still no check, and the stop still fires.
+/// progress for the steer: it is still no check, and the clock's backstop
+/// still fires (theseus-fez4q: at 0.85 the same turn is progress and goes on).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
     let r = rig(|root| {
@@ -658,8 +659,8 @@ async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
         script.push(Scripted::text("Read it all."));
         script
     });
-    // 600 s, 540 used: 90%.
-    let (sid, res) = r.turn(Some((600, 540))).await;
+    // 600 s, 582 used: 97%.
+    let (sid, res) = r.turn(Some((600, 582))).await;
     let reqs = r.requests();
     assert_eq!(reqs.len(), 4, "the stop's request is the last");
     assert_eq!((res.loops, res.stop_reason.as_str()), (4, PROGRESS_STOP));
@@ -667,6 +668,7 @@ async fn a_turn_that_keeps_opening_new_files_after_an_edit_is_still_stopped() {
     let rows = r.rows(&sid);
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "clock_backstop");
     assert_eq!(rows[0]["since_pass"], 0);
     assert_eq!(rows[0]["since_check"], 3);
 }
@@ -987,4 +989,218 @@ async fn a_doubt_does_not_send_a_turn_back_past_the_share_or_without_work() {
     for req in r.requests() {
         assert!(!messages(&req).contains(DOUBT));
     }
+}
+
+/// A file written to `path` under `root`, as loop `id`'s one call.
+fn write_to(root: &Path, id: &str, path: &str) -> Scripted {
+    Scripted::tools(
+        "Writing.",
+        &[(
+            id,
+            "fs_write",
+            json!({"path": root.join(path).display().to_string(), "content": "x\n"}),
+        )],
+    )
+}
+
+/// A read of `path` under `root`, as loop `id`'s one call.
+fn read_of(root: &Path, id: &str, path: &str) -> Scripted {
+    Scripted::tools(
+        "Reading.",
+        &[(
+            id,
+            "fs_read",
+            json!({"path": root.join(path).display().to_string()}),
+        )],
+    )
+}
+
+/// The DM's shape (theseus-fez4q): no deadline at all. A turn that edited and
+/// then went six loops with no passing check and no new ground is stopped on
+/// that alone, and the row says which condition fired it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_deadline_is_stopped_when_it_stalls() {
+    let r = rig(|root| {
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((1..=6).map(|n| command(root, &format!("c{n}"), 1)));
+        s.push(Scripted::text("A turn no model is asked for."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 7, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (7, PROGRESS_STOP));
+    assert!(messages(&reqs[6]).contains(STOP), "{}", messages(&reqs[6]));
+    assert!(
+        !messages(&reqs[6]).contains("has used"),
+        "a turn with no clock names no minutes: {}",
+        messages(&reqs[6])
+    );
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "stalled");
+    assert_eq!(rows[0]["since_pass"], 6);
+    assert!(rows[0]["time_share"].is_null(), "{rows:?}");
+}
+
+/// Its other half: a turn that keeps reading new ground after its edit, with
+/// no deadline, makes progress, however many loops pass without a check.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_deadline_that_reads_new_ground_is_not_stopped() {
+    let r = rig(|root| {
+        for n in 0..9 {
+            std::fs::write(root.join(format!("f{n}.rs")), "fn x() {}\n").unwrap();
+        }
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((0..9).map(|n| read_of(root, &format!("r{n}"), &format!("f{n}.rs"))));
+        s.push(Scripted::text("Read it all."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    assert_eq!(r.requests().len(), 11, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (11, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty());
+}
+
+/// Past 0.85 of its deadline a turn that edited and keeps reading new ground
+/// is making progress, and the clock does not stop it (theseus-fez4q).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_makes_progress_past_the_old_stop_share_is_not_stopped() {
+    let r = rig(|root| {
+        for n in 0..6 {
+            std::fs::write(root.join(format!("f{n}.rs")), "fn x() {}\n").unwrap();
+        }
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((0..6).map(|n| read_of(root, &format!("r{n}"), &format!("f{n}.rs"))));
+        s.push(Scripted::text("Read it all."));
+        s
+    });
+    // 600 s, 540 used: 90%.
+    let (sid, res) = r.turn(Some((600, 540))).await;
+    assert_eq!(r.requests().len(), 8, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (8, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty());
+}
+
+/// The clock's backstop: the same turn, so near its deadline that one loop is
+/// all that is left, is stopped whatever it reads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_clocks_backstop_stops_even_a_turn_that_reads_new_ground() {
+    let r = rig(|root| {
+        for n in 0..6 {
+            std::fs::write(root.join(format!("f{n}.rs")), "fn x() {}\n").unwrap();
+        }
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend((0..6).map(|n| read_of(root, &format!("r{n}"), &format!("f{n}.rs"))));
+        s.push(Scripted::text("Read it all."));
+        s
+    });
+    // 600 s, 582 used: 97%.
+    let (sid, res) = r.turn(Some((600, 582))).await;
+    assert_eq!(res.stop_reason, PROGRESS_STOP);
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "clock_backstop");
+}
+
+/// A failing command that prints the test it failed as `name`, as loop `id`'s
+/// one call: the failure a fix moves is the test it names.
+fn red(root: &Path, id: &str, name: &str) -> Scripted {
+    let shell = format!("echo 'test tests::{name} ... FAILED'; exit 1");
+    let input = json!({"argv": ["sh", "-c", shell], "cwd": root.display().to_string()});
+    Scripted::tools("Running the check.", &[(id, "proc_run", input)])
+}
+
+/// The review's case (theseus-fez4q F1): an edit and a failing check, over
+/// and over, the check failing as each of `names` says in turn.
+fn edit_and_check(root: &Path, names: &[&str]) -> Vec<Scripted> {
+    let mut s = Vec::new();
+    for (n, name) in names.iter().enumerate() {
+        s.push(write_to(root, &format!("w{n}"), &format!("tide{n}.py")));
+        s.push(red(root, &format!("c{n}"), name));
+    }
+    s.push(Scripted::text("The tide tables are built."));
+    s
+}
+
+/// A failing check whose failure moved is a progress attempt (the owner's
+/// ruling on F1): edit, red, edit, red at a tenth of a 15-minute deadline,
+/// each red naming another test, is not a stall, and the turn runs on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_that_moves_is_not_a_stall_early_in_a_deadline() {
+    let r = rig(|root| edit_and_check(root, &["alpha", "bravo", "charlie", "delta"]));
+    // 900 s, 90 used: 10%.
+    let (sid, res) = r.turn(Some((900, 90))).await;
+    assert_eq!(r.requests().len(), 9, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (9, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty(), "{:?}", r.rows(&sid));
+}
+
+/// Its other half, the same turn with the same failure every time: six loops
+/// with nothing new read and nothing moved are a stall, at any share of the
+/// deadline, and the row says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_same_failure_six_loops_running_is_still_a_stall() {
+    let r = rig(|root| edit_and_check(root, &["alpha", "alpha", "alpha", "alpha"]));
+    let (sid, res) = r.turn(Some((900, 90))).await;
+    assert_eq!(r.requests().len(), 7, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (7, PROGRESS_STOP));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "stop");
+    assert_eq!(rows[0]["condition"], "stalled");
+    assert_eq!(rows[0]["since_pass"], 6);
+    assert!(rows[0]["time_share"].as_f64().unwrap() < 0.5, "{rows:?}");
+}
+
+/// The DM's shape: no deadline, a failure that moves with every check, eight
+/// loops with no passing check and nothing read. It is not stopped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_with_no_deadline_whose_failure_moves_is_not_stopped() {
+    let r = rig(|root| {
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend(
+            [
+                "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf",
+            ]
+            .iter()
+            .enumerate()
+            .map(|(n, name)| red(root, &format!("c{n}"), name)),
+        );
+        s.push(Scripted::text("Seven failures, each another."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    assert_eq!(r.requests().len(), 9, "every loop ran");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (9, "no_tool_calls"));
+    assert!(r.rows(&sid).is_empty(), "{:?}", r.rows(&sid));
+}
+
+/// A flip between two failures is not a move: the second time round each is
+/// one the turn has met, so the stall still stops it, six loops after the
+/// last failure that was new.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_that_flips_between_two_is_still_a_stall() {
+    let r = rig(|root| {
+        let mut s = vec![write_to(root, "w1", "tide.py")];
+        s.extend(
+            [
+                "alpha", "bravo", "alpha", "bravo", "alpha", "bravo", "alpha", "bravo",
+            ]
+            .iter()
+            .enumerate()
+            .map(|(n, name)| red(root, &format!("c{n}"), name)),
+        );
+        s.push(Scripted::text("It flips between two."));
+        s
+    });
+    let (sid, res) = r.turn(None).await;
+    assert_eq!(r.requests().len(), 10, "the stop's request is the last");
+    assert_eq!((res.loops, res.stop_reason.as_str()), (10, PROGRESS_STOP));
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["condition"], "stalled");
+    assert_eq!(rows[0]["loop"], 8);
 }

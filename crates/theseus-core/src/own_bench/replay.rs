@@ -366,6 +366,20 @@ impl Core {
             .audit_reserve(request)
             .context("the model has no price in the catalog: a replay needs one to reserve")?;
         if let Some(l) = left.filter(|l| need > *l) {
+            // The owner is told once a day (theseus-3i6d1, D18): the figure is
+            // the call's worst case, the limit what the binding cap left
+            // (the day's `replay_day_usd` or one whole loop's `whole_usd`).
+            self.outbox.notify_rule(
+                None,
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D18,
+                    outcome: crate::rule_notice::Outcome::Stopped,
+                    limit_usd: theseus_kernel::micros_to_usd(l),
+                    figure_usd: theseus_kernel::micros_to_usd(need),
+                    scope: &crate::rule_notice::today(),
+                    detail: "A replay call would pass what its cap leaves (`replay_day_usd` or `whole_usd`), so it stops.",
+                },
+            );
             return Err(CapReached { need, left: l }.into());
         }
         let hold = self

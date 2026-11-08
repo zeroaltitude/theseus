@@ -17,6 +17,7 @@
 //!   modes, put back on every way out.
 
 mod ask;
+mod atfile;
 mod banner;
 mod commands;
 mod diff;
@@ -50,6 +51,10 @@ mod welcome;
 mod tests;
 #[cfg(test)]
 mod tests_ask;
+#[cfg(test)]
+mod tests_atfile;
+#[cfg(test)]
+mod tests_commands;
 #[cfg(test)]
 mod tests_mode;
 #[cfg(test)]

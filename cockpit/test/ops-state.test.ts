@@ -25,11 +25,13 @@ function fixture() {
     view('exe_h', 'conversation', 'ready', { session_id: 'ses_h', ...T }),
     view('exe_d1', 'task', 'done', { session_id: 'ses_d1', ended_at_ms: NOW - 20 * MIN, ...T }),
     view('exe_f1', 'task', 'failed', { session_id: 'ses_f1', dismissed: true, ended_at_ms: NOW - 30 * MIN, ...T }),
+    view('exe_x1', 'task', 'expired', { session_id: 'ses_x1', ended_at_ms: NOW - 40 * MIN, ...T }),
   ]
-  const records = [record('tsk_c1', { session: 'ses_c1', state: 'suspended' })]
+  // A cancel and a stop that is not one both leave the record suspended; only the cancel has ended the work (theseus-emqbm).
+  const records = [record('tsk_c1', { session: 'ses_c1', state: 'suspended' }), record('tsk_x1', { session: 'ses_x1', state: 'suspended' })]
   return { views, records }
 }
-const OPEN = ['ses_r1', 'ses_w1', 'wak_d1', 'ses_c1']
+const OPEN = ['ses_r1', 'ses_w1', 'wak_d1', 'ses_x1']
 
 test('the Board, the Graph and the Threads lens name the same open work', () => {
   const { views, records } = fixture()
@@ -42,9 +44,12 @@ test('the Board, the Graph and the Threads lens name the same open work', () => 
   const threads = groupThreads(views, [group('harbour-survey')], records)
   const listed = threads.threads.flatMap((t) => t.items.map(nodeIdOf)).sort()
   assert.deepEqual(listed, [...OPEN].sort())
-  // The suspended record of the cancelled task is paused·queued: open, never working.
-  assert.equal(bucketOfNode(g.nodes.find((n) => n.id === 'ses_c1')!, NOW), 'paused')
-  assert.equal(rows.find((r) => r.id === 'ses_c1')!.column, 'paused')
+  // The suspended record of a task whose execution ended some other way is paused·queued: open, never working.
+  assert.equal(bucketOfNode(g.nodes.find((n) => n.id === 'ses_x1')!, NOW), 'paused')
+  assert.equal(rows.find((r) => r.id === 'ses_x1')!.column, 'paused')
+  // The cancelled task's record is suspended too, and it has ended: in Done on the Board, ended on the Graph.
+  assert.equal(bucketOfNode(g.nodes.find((n) => n.id === 'ses_c1')!, NOW), 'ended')
+  assert.equal(rows.find((r) => r.id === 'ses_c1')!.column, 'done')
 })
 
 test('the working counter is the Graph’s working nodes; only ended nodes are faded, a conversation at rest is not', () => {
@@ -55,7 +60,7 @@ test('the working counter is the Graph’s working nodes; only ended nodes are f
   assert.deepEqual(working, ['ses_r1', 'ses_w1'])
   assert.equal(countersOf(rows, NOW, 0).working, working.length)
   const faded = g.nodes.filter((n) => look(bucketOfNode(n, NOW), false).faded).map((n) => n.id).sort()
-  assert.deepEqual(faded, ['ses_d1', 'ses_f1'], 'the done task and the dismissed failure: nothing else')
+  assert.deepEqual(faded, ['ses_c1', 'ses_d1', 'ses_f1'], 'the cancelled task, the done task and the dismissed failure: nothing else')
   assert.ok(!faded.includes('ses_h'), 'the conversation at rest is drawn at full opacity')
   assert.equal(bucketOf(views[4], NOW), 'rest')
 })
@@ -172,9 +177,11 @@ test('bucketOfCard over every row of the record table, before the owner’s answ
 test('bucketOfCard has one path for a task: a failure not dismissed needs you, a suspended record whose execution ended is paused', () => {
   const task = (state: string, over = {}) => ({ kind: 'task', task: { section: state === 'failed' ? 'needs' : 'working', paused: false, view: view('exe_a', 'task', state as never, over, state === 'failed' ? 'needs_you' : undefined) } })
   assert.equal(bucketOfCard(task('failed'), NOW), 'needs')
-  const ended = { kind: 'task', task: { section: 'done', paused: false, view: view('exe_b', 'task', 'cancelled') }, record: record('tsk_b', { state: 'suspended' }) }
+  const ended = { kind: 'task', task: { section: 'done', paused: false, view: view('exe_b', 'task', 'expired') }, record: record('tsk_b', { state: 'suspended' }) }
   assert.equal(bucketOfCard(ended, NOW), 'paused')
   assert.equal(bucketOfCard({ ...ended, record: undefined }, NOW), 'ended')
+  const cancelled = { ...ended, task: { ...ended.task, view: view('exe_b', 'task', 'cancelled') } }
+  assert.equal(bucketOfCard(cancelled, NOW), 'ended', 'a cancel has ended it, whatever its record reads')
   const later = { kind: 'task', task: { section: 'working', paused: false, info: { starts_at_ms: NOW + 30 * HOUR, state: 'queued' } as never } }
   assert.equal(bucketOfCard(later, NOW), 'paused')
   assert.equal(bucketOfCard({ kind: 'task', task: { section: 'working', paused: false, info: { starts_at_ms: NOW + HOUR, state: 'queued' } as never } }, NOW), 'scheduled')

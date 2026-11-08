@@ -267,6 +267,25 @@ async fn fetch(http: &reqwest::Client, url: &str, cap: u64) -> Result<Vec<u8>, S
     Ok(out)
 }
 
+/// How many times one file is asked for, and the waits between: a CDN link
+/// that was only just made, or a hiccup, answers the second time (theseus-uck8).
+const ATTEMPTS: usize = 3;
+const RETRY_WAIT: [Duration; 2] = [Duration::from_millis(250), Duration::from_millis(1000)];
+
+/// `fetch`, asked again after a failure up to `ATTEMPTS` times; the last
+/// failure is the answer.
+async fn fetch_retrying(http: &reqwest::Client, url: &str, cap: u64) -> Result<Vec<u8>, String> {
+    let mut last = fetch(http, url, cap).await;
+    for wait in RETRY_WAIT.iter().take(ATTEMPTS - 1) {
+        if last.is_ok() {
+            break;
+        }
+        tokio::time::sleep(*wait).await;
+        last = fetch(http, url, cap).await;
+    }
+    last
+}
+
 /// Every file of one message, in order: downloaded when its plan says so,
 /// listed with the reason when not. Never fails.
 pub async fn fetch_all(http: reqwest::Client, files: Vec<FileMeta>, caps: Caps) -> Vec<Attachment> {
@@ -274,8 +293,8 @@ pub async fn fetch_all(http: reqwest::Client, files: Vec<FileMeta>, caps: Caps) 
     for f in &files {
         let p = plan(f, caps);
         let fetched = match p {
-            Plan::Text => Some(fetch(&http, &f.url, caps.max_text).await),
-            Plan::Bytes => Some(fetch(&http, &f.url, caps.max_file).await),
+            Plan::Text => Some(fetch_retrying(&http, &f.url, caps.max_text).await),
+            Plan::Bytes => Some(fetch_retrying(&http, &f.url, caps.max_file).await),
             Plan::Skip(_) => None,
         };
         out.push(entry(f, &p, fetched));
@@ -439,5 +458,79 @@ mod tests {
             failed.not_read.as_deref(),
             Some("the download failed (timed out)")
         );
+    }
+
+    /// A one-file CDN on a local port: each connection is answered from
+    /// `answers` in turn (the last repeats); returns the url and the count of
+    /// requests served.
+    fn cdn(
+        answers: Vec<(u16, Vec<u8>)>,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/attachments/1/2/orders.pdf",
+            listener.local_addr().unwrap()
+        );
+        let served = std::sync::Arc::new(AtomicUsize::new(0));
+        let count = served.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                let (code, body) = &answers[n.min(answers.len() - 1)];
+                let head = format!(
+                    "HTTP/1.1 {code} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(body);
+            }
+        });
+        (url, served)
+    }
+
+    /// theseus-uck8: the first ask of a CDN link fails (it was only just
+    /// made), the second answers. The model must get the file whole, not a
+    /// name and a size with "the download failed".
+    #[tokio::test]
+    async fn a_pdf_whose_first_download_fails_still_arrives_whole() {
+        let pdf = b"%PDF-1.7 the harbour master is Odile Varnack".repeat(100);
+        let (url, served) = cdn(vec![(404, b"not yet".to_vec()), (200, pdf.clone())]);
+        let f = FileMeta {
+            name: "orders.pdf".into(),
+            content_type: Some("application/pdf".into()),
+            size: pdf.len() as u64,
+            url,
+        };
+        let got = fetch_all(client(), vec![f], MAX).await;
+        assert_eq!(got.len(), 1);
+        assert!(got[0].not_read.is_none(), "{:?}", got[0].not_read);
+        let data = got[0].data.as_deref().expect("its bytes");
+        assert_eq!(theseus_core::blobs::decode(data).unwrap().len(), pdf.len());
+        assert_eq!(served.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// A download that never succeeds is still listed with its failure, after
+    /// `ATTEMPTS` asks, and the message is not lost.
+    #[tokio::test]
+    async fn a_download_that_keeps_failing_is_listed_with_the_failure() {
+        let (url, served) = cdn(vec![(404, b"gone".to_vec())]);
+        let f = FileMeta {
+            name: "orders.pdf".into(),
+            content_type: Some("application/pdf".into()),
+            size: 1_200,
+            url,
+        };
+        let got = fetch_all(client(), vec![f], MAX).await;
+        assert_eq!(
+            got[0].not_read.as_deref(),
+            Some("the download failed (HTTP 404)")
+        );
+        assert!(got[0].data.is_none());
+        assert_eq!(served.load(std::sync::atomic::Ordering::SeqCst), ATTEMPTS);
     }
 }

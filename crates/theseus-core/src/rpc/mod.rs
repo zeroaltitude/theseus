@@ -927,7 +927,8 @@ impl Core {
                 cfg.self_improve.mode,
                 &cfg.self_improve.budget,
                 store.clone(),
-            ),
+            )
+            .told_to(outbox.clone()),
             effort_refusals: Default::default(),
             verdicts: Default::default(),
             keep_warm: Default::default(),

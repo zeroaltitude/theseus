@@ -580,6 +580,29 @@ fn default_proc_env() -> Vec<String> {
         "TZ",
         "CARGO_HOME",
         "RUSTUP_HOME",
+        // The owner's toolchain (theseus-v4cj): paths and names only. Each is
+        // checked against `forbidden_env` by a test; a name that could carry a
+        // credential does not belong here.
+        "SHELL",
+        "LOGNAME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+        "VIRTUAL_ENV",
+        "PYTHONPATH",
+        "PYENV_ROOT",
+        "CONDA_PREFIX",
+        "CONDA_DEFAULT_ENV",
+        "NVM_DIR",
+        "NVM_BIN",
+        "NODE_PATH",
+        "NPM_CONFIG_PREFIX",
+        "JAVA_HOME",
+        "JDK_HOME",
+        "MAVEN_HOME",
+        "GRADLE_HOME",
+        "GOPATH",
+        "GOROOT",
+        "PKG_CONFIG_PATH",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -791,8 +814,11 @@ pub struct KernelSection {
     /// How many executions may hold a turn at once.
     #[serde(default = "default_admission_ceiling")]
     pub admission_ceiling: u32,
-    /// How long admission may go without admitting any turn before a
-    /// waiting turn fails (theseus-4g0l): a queue that moves fails none.
+    /// The window of a queue that has admitted no turn (theseus-4g0l): a
+    /// waiting turn is told of it, once, and goes on waiting. A wake's or task's
+    /// wait is cut only when the queue stays still for 24 windows, and a
+    /// person's never (theseus-p1mv9). A turn behind its own execution's turn
+    /// that has work in flight is cut only at the same ceiling.
     #[serde(default = "default_admission_stuck_secs")]
     pub admission_stuck_secs: u64,
     /// How often one delay of a kind may be reconsidered in one execution

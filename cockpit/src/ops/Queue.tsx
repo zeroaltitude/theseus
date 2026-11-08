@@ -1,7 +1,8 @@
 // The needs-you queue (theseus-jid7t.3): every item waiting on the owner, the longest waiting first, a compact card
 // each (its kind's glyph and word, the verb and what it does, whose it is, its age, the expiry bar); `⏎` lays the
 // cursor's item out whole (`ConfirmCard`, every field), and each is answered in place, one protocol call an answer.
-// Below, what is coming up in the next three hours.
+// After them, the cards the counter counts that no item names (a blocked record), each its own entry with no answer to
+// give, so the list never says nothing waits while the counter says one. Below, what is coming up in the next three hours.
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { motion } from 'motion/react'
@@ -13,15 +14,18 @@ import { ConfirmCard } from '@/components/ConfirmCard'
 import { changeWords } from '@/lib/taskgraph'
 import { answerOf, grantKey, type Answer, type QueueItem } from './queue'
 import type { ComingEvent } from './calendar'
-import { comingTimes, ITEM_LOOK, itemFacts } from './facts'
+import { comingTimes, ITEM_LOOK, itemFacts, waitingFacts } from './facts'
+import type { OpsRow } from './board'
 import { useOpsAct } from './act'
 import { ActBtn } from './ActBtn'
 import type { ButtonAct, Verb } from './keys'
 
 const TONE: Record<string, string> = { wait: 'text-wait', fault: 'text-fault', think: 'text-think', money: 'text-money', live: 'text-live' }
 
-export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys, events = [] }: {
+export function Queue({ items, waiting, onRow, cursor, onCursor, open, note, onNote, past, now, coming, arrivedKeys, events = [] }: {
   items: readonly QueueItem[]; cursor: string | null; onCursor: (key: string) => void; open: string | null
+  /** The cards the counter counts that no item names (`unaskedCards`), and what selects one on the canvas. */
+  waiting: readonly OpsRow[]; onRow: (id: string) => void
   /** The item whose decline (or "something else") note is open, and its words. */
   note: { key: string; text: string } | null; onNote: (n: { key: string; text: string } | null) => void
   past: number | null; now: number; coming: readonly WorkView[]; arrivedKeys: ReadonlySet<string>
@@ -31,7 +35,7 @@ export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="ops-queue">
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-1.5">
-        {!items.length && (
+        {!items.length && !waiting.length && (
           <div className="flex flex-col items-center gap-2 px-3 py-8 text-center text-[12px] text-ink-faint">
             <CircleCheck size={18} className="text-ok" /> {past ? 'nothing waited for you then' : 'nothing waits for you'}
           </div>
@@ -40,8 +44,26 @@ export function Queue({ items, cursor, onCursor, open, note, onNote, past, now, 
           <Item key={i.key} i={i} at={i.key === cursor} whole={i.key === open} onCursor={onCursor} note={note?.key === i.key ? note.text : null} onNote={onNote}
             past={past} now={now} fresh={arrivedKeys.has(i.key)} />
         ))}
+        {waiting.map((r) => <Waiting key={r.id} r={r} now={past ?? now} onRow={onRow} />)}
       </div>
       <ComingUp views={coming} events={events} now={now} />
+    </div>
+  )
+}
+
+/** A card that waits on the owner with no ask to answer: what it is, why it waits, and a way to it. */
+function Waiting({ r, now, onRow }: { r: OpsRow; now: number; onRow: (id: string) => void }) {
+  const f = waitingFacts(r, now)
+  return (
+    <div role="button" tabIndex={-1} data-waiting={f.key} onClick={() => onRow(f.key)}
+      className="shrink-0 cursor-pointer overflow-hidden rounded-lg bg-deck/80 px-2.5 py-2 ring-1 ring-wait/25 hover:ring-wait/50">
+      <div className="flex items-center gap-1.5 text-[10.5px]">
+        <span className="font-semibold text-wait" aria-hidden>{f.glyph}</span>
+        <span className="font-display font-bold uppercase tracking-[0.08em] text-wait">{f.kind}</span>
+        <span className="num ml-auto text-ink-faint" title="how long it has waited">{f.age}</span>
+      </div>
+      <div className="mt-1 line-clamp-2 text-[12.5px] font-medium leading-snug text-ink" title={f.title}>{f.title}</div>
+      <div className="num mt-0.5 truncate text-[10.5px] text-ink-dim">{f.why}{f.href ? <> · <Link to={f.href} onClick={(e) => e.stopPropagation()} className="text-ink-faint hover:text-live">open</Link></> : null}</div>
     </div>
   )
 }

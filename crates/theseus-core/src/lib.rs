@@ -119,6 +119,7 @@ pub mod routine_tool;
 pub mod routing;
 pub mod rpc;
 pub mod rsi;
+pub mod rule_notice;
 pub mod sandbox;
 pub mod scrub;
 pub mod secrets;

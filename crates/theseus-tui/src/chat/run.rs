@@ -14,9 +14,10 @@ use anyhow::Result;
 use crossterm::event::Event as TermEvent;
 use theseus_client::Conn;
 use theseus_protocol::{Id, Message};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::time::Instant;
 
+use super::atfile::{walk, Walked};
 use super::dock;
 use super::env;
 use super::screen::Screen;
@@ -32,11 +33,15 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// At most 30 frames a second.
 pub const FRAME: Duration = Duration::from_millis(33);
 
+/// A finished `@` listing.
+type Listing = Result<Walked, String>;
+
 enum Woke {
     Daemon(Result<Option<Message>>),
     Terminal(Option<TermEvent>),
     Deadline,
     Signal,
+    Files(Option<Listing>),
 }
 
 pub struct Runner {
@@ -58,6 +63,9 @@ pub struct Runner {
     quit: bool,
     clock: fn() -> u64,
     pub signals: Option<UnboundedReceiver<()>>,
+    /// `@` listings, finished off the loop's thread (`Effect::ListFiles`).
+    files_tx: UnboundedSender<Listing>,
+    files_rx: UnboundedReceiver<Listing>,
     /// Frames drawn, for a test that holds the redraw count.
     pub frames: u64,
 }
@@ -70,6 +78,7 @@ impl Runner {
         events: UnboundedReceiver<TermEvent>,
         clock: fn() -> u64,
     ) -> Self {
+        let (files_tx, files_rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             chat,
             conn,
@@ -87,6 +96,8 @@ impl Runner {
             quit: false,
             clock,
             signals: None,
+            files_tx,
+            files_rx,
             frames: 0,
         }
     }
@@ -127,6 +138,7 @@ impl Runner {
             let conn = &mut self.conn;
             let events = &mut self.events;
             let signals = &mut self.signals;
+            let files = &mut self.files_rx;
             tokio::select! {
                 m = async {
                     match conn {
@@ -135,6 +147,7 @@ impl Runner {
                     }
                 } => Woke::Daemon(m),
                 e = events.recv() => Woke::Terminal(e),
+                f = files.recv() => Woke::Files(f),
                 _ = async {
                     match deadline {
                         Some(at) => tokio::time::sleep_until(at).await,
@@ -163,6 +176,11 @@ impl Runner {
                 let effects = self.chat.leave();
                 self.apply(effects).await;
             }
+            Woke::Files(Some(w)) => {
+                self.chat.at_walked(w);
+                self.dirty = true;
+            }
+            Woke::Files(None) => {}
             Woke::Deadline => self.deadlines().await,
         }
         self.maybe_draw();
@@ -276,6 +294,12 @@ impl Runner {
                     }));
                 }
                 Effect::SaveHistory(messages) => self.save_history(messages),
+                Effect::ListFiles { dir, roots } => {
+                    let tx = self.files_tx.clone();
+                    drop(tokio::task::spawn_blocking(move || {
+                        let _ = tx.send(walk(std::path::Path::new(&dir), &roots));
+                    }));
+                }
                 Effect::Call(call) => {
                     let Some(conn) = self.conn.as_mut() else {
                         // Not connected: the answer to a send is lost, and the

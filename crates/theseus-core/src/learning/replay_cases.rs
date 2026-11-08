@@ -220,6 +220,11 @@ impl Core {
             .with_ceiling(&self.runner);
         let estimate = caller.estimate(asks.iter())?;
         if estimate > caller.limit {
+            self.outbox.notify_estimate_refused(
+                "replay",
+                micros_to_usd(caller.limit),
+                micros_to_usd(estimate),
+            );
             bail!(
                 "the replay of {} over {} cases would reserve {}, past [judge] replay_limit_usd \
                  ({}); nothing was sent",

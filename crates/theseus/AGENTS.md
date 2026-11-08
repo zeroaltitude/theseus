@@ -221,7 +221,9 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   first signal during the ask's own turn means nothing is followed: a turn that ended done as its stop went out
   has what it left stopped, and exits 9 (`after`'s `signalled`). The turn and its follow share one signal
   listener (`follow::Signals`, made under `--spawn` only): one each lost a signal that came between them.
-  `render/later.rs` is the status line's words for what a run left behind.
+  `render/later.rs` is the status line's words for what a run left behind. `--spawn` takes an optional path, so
+  the `Cli` sets `subcommand_precedence_over_arg`: `theseus --spawn ask "..."` runs the default `theseusd`, and a
+  path (`--spawn /opt/bin/theseusd ask`, `--spawn=PATH`) still names it (`src/spawn_args_tests.rs`, theseus-4356).
 - `src/self_cmd.rs` (theseus-pw1q): `theseus self log [--since 7d] [--json]`, `self halt [why]`, `self resume`
   (sends the shell's `THESEUS_SESSION` as `from_job`, so the daemon refuses a job's resume and ledgers it, rather
   than the CLI refusing it unseen), `self digest`, `self retry ITEM` (`self_cmd/backlog.rs`, theseus-czlzg: queues a failed backlog item again; the owner's, sent with `from_job` as `drop` and `move` are), and `self revert MERGE` (`self_cmd/revert.rs`, theseus-pw1q.10: the owner's

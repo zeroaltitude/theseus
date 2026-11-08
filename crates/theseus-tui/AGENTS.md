@@ -222,6 +222,16 @@ new lines, the dock again, in synchronized-output mode 2026).
   lacks) and typing searches title and report line; `j`/`c`/`a` stay commands until a query starts (`/` starts one). Tests:
   `chat/tests_task_new.rs`, `tests_new_task.rs`.
 
+- **The slash menu and `@` files** (theseus-vjzt, phase 1; `chat/atfile.rs`, `chat/dock.rs`'s `menu_window`): `/` lists six commands at a
+  time and the window follows the chosen row (a line says `N more`); Esc closes the list and the next edit opens it. `@` in the
+  line opens a picker over the files under the conversation's directory: the first `@` asks `tool.list` for the workspace roots
+  (`Purpose::AtRoots`), then `Effect::ListFiles` runs `atfile::walk` off the loop (nothing is listed unless the directory is inside a
+  root; no symlink is followed; `.git`, `node_modules` and `target` are skipped; at most 20,000 files, 12 deep), and a keystroke
+  only filters that list in memory. Tab or Enter writes `@path`; **a message that names `@path` carries the path, never the bytes**
+  (a footer line with the absolute path and "read them with fs.read"), so the read is the ordinary gated `fs.read`. A name not in the
+  list is refused at Enter, said in the dock, the line kept; `@@x` sends a literal `@x`; a paste is never checked. Tests:
+  `chat/tests_commands.rs`, `chat/tests_atfile.rs`.
+
 - **Modes** (theseus-lyxy): Shift+Tab asks the daemon for the conversation's next mode (`session.mode`, ask → edits →
   plan → auto); in the chat it is the key map's `CycleMode`, in the board it works at the input line only (`i`), since in
   the list Shift+Tab is still the walk back through the queue. The mode and the plan are read once when a conversation is

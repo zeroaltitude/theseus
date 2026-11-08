@@ -304,6 +304,8 @@ pub struct Outbox {
     /// Places whose tasks report elsewhere (theseus-xlxp4), by the place's
     /// target: the binding sets them, in memory, as it starts.
     homes: Mutex<HashMap<String, TaskHome>>,
+    /// Rule notices already told (`rule_notice`): `<rule>:<scope>`, in memory.
+    rule_told: Mutex<std::collections::HashSet<String>>,
 }
 
 /// Where the tasks started from one place report, and how it is told to a
@@ -355,7 +357,14 @@ impl Outbox {
             pacer: crate::pacer::Pacer::default(),
             prompted: crate::pacer::Prompted::default(),
             homes: Mutex::new(HashMap::new()),
+            rule_told: Mutex::new(Default::default()),
         }
+    }
+
+    /// True the first time a rule speaks for a scope in this run.
+    pub(crate) fn rule_first(&self, rule: crate::rule_notice::Rule, scope: &str) -> bool {
+        let key = format!("{}:{scope}", rule.spec().id);
+        self.rule_told.lock().unwrap().insert(key)
     }
 
     /// A post about to be dispatched, in flight until the guard drops; None
