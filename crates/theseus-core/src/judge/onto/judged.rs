@@ -176,6 +176,20 @@ impl JudgeService {
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
         if need > left {
+            // The owner is told once a day (theseus-3i6d1, D9).
+            if let Some(core) = self.core() {
+                let limit_usd = core.cfg.ontology.sweep_usd_per_day;
+                core.outbox.notify_rule(
+                    None,
+                    crate::rule_notice::Rule::D9,
+                    crate::rule_notice::Outcome::Stopped,
+                    limit_usd,
+                    limit_usd - theseus_kernel::micros_to_usd(left)
+                        + theseus_kernel::micros_to_usd(need),
+                    &crate::rule_notice::today(),
+                    "The ontology sweep asks no more questions today.",
+                );
+            }
             return Asked::Over(need);
         }
         if !self.reserve(&today, need, spend::Class::of(ask.mode)) {

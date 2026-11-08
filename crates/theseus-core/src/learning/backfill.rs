@@ -235,6 +235,11 @@ impl Core {
         let estimate = caller.estimate(asks.iter())?;
         r.estimate_usd = micros_to_usd(estimate);
         if estimate > caller.limit {
+            self.outbox.notify_estimate_refused(
+                "backfill",
+                micros_to_usd(caller.limit),
+                micros_to_usd(estimate),
+            );
             bail!(
                 "the backfill of {} over {} events would reserve {}, past [judge] \
                  replay_limit_usd ({}); nothing was sent",

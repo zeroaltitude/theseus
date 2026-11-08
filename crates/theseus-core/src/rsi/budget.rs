@@ -245,9 +245,19 @@ pub struct Budget {
     sessions: Mutex<HashMap<String, Option<String>>>,
     /// The same for sessions with no task of their own, by their principal.
     principals: Mutex<HashMap<String, Option<String>>>,
+    /// Where the owner is told of a stop (theseus-3i6d1); none in a test
+    /// that builds the account alone.
+    outbox: Option<std::sync::Arc<crate::outbox::Outbox>>,
 }
 
 impl Budget {
+    /// The account tells the owner through `outbox` when a line first stops
+    /// a branch or the day (rules D2 and D3).
+    pub fn told_to(mut self, outbox: std::sync::Arc<crate::outbox::Outbox>) -> Self {
+        self.outbox = Some(outbox);
+        self
+    }
+
     pub fn new(mode: SelfMode, cfg: &SelfBudgetConfig, store: Store) -> Self {
         Self {
             mode,
@@ -257,7 +267,29 @@ impl Budget {
             inner: Mutex::new(Inner::default()),
             sessions: Mutex::new(HashMap::new()),
             principals: Mutex::new(HashMap::new()),
+            outbox: None,
         }
+    }
+
+    /// The owner is told of a first stop (theseus-3i6d1, D2 and D3).
+    fn told_stopped(&self, line: Line, scope: String, stopped: &Stopped) {
+        let Some(o) = &self.outbox else { return };
+        let (rule, what) = match line {
+            Line::Branch => (crate::rule_notice::Rule::D2, "the branch"),
+            _ => (crate::rule_notice::Rule::D3, "self-improvement"),
+        };
+        let figure = stopped.spent_usd + stopped.asked_usd;
+        let outcome = crate::rule_notice::Outcome::Stopped;
+        let detail = format!("{what} stops: {stopped}");
+        o.notify_rule(
+            None,
+            rule,
+            outcome,
+            stopped.line_usd,
+            figure,
+            &scope,
+            &detail,
+        );
     }
 
     /// Whether self steps may spend at all (`[self] mode`).
@@ -375,6 +407,12 @@ impl Budget {
                 };
                 self.store
                     .append(&[crate::fact::row(&f, None, None)?, st.record()?])?;
+                // Told once with the row: the same first-stop moment.
+                self.told_stopped(
+                    line,
+                    branch.map_or_else(|| format!("day:{}", st.day), str::to_string),
+                    &stopped,
+                );
             }
             return Ok(Reserved::Stopped(stopped));
         }

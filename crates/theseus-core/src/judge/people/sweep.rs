@@ -229,6 +229,19 @@ impl Core {
             let est = crate::compiler::estimate(&request, price.bytes_per_token, None).tokens;
             let worst = price.reserve_micros(super::extract::MAX_TOKENS, est) + jev_projected();
             if out.spent.saturating_add(worst) > cap {
+                // The owner is told once a day (theseus-3i6d1, D8): the figure
+                // is the day's spend before this run, this run's, and the
+                // worst case it would have added.
+                let limit_usd = self.runner.cfg.people.sweep_usd_per_day;
+                self.outbox.notify_rule(
+                    None,
+                    crate::rule_notice::Rule::D8,
+                    crate::rule_notice::Outcome::Stopped,
+                    limit_usd,
+                    limit_usd - micros_to_usd(cap) + micros_to_usd(out.spent.saturating_add(worst)),
+                    &crate::rule_notice::today(),
+                    &format!("{left} sessions wait for tomorrow's sweep."),
+                );
                 out.stopped = Some(format!(
                     "at the day's cap: the next session's worst case ({}) would pass what is left \
                      ({}), {left} sessions left for tomorrow's",

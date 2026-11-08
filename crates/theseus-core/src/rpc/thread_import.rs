@@ -317,6 +317,15 @@ impl Core {
         let cap = self.cfg.threads.import_day_usd;
         let left = (cap - day.spent_usd).max(0.0);
         if micros_to_usd(need) > left {
+            self.outbox.notify_rule(
+                None,
+                crate::rule_notice::Rule::D17,
+                crate::rule_notice::Outcome::Refused,
+                cap,
+                cap - left + micros_to_usd(need),
+                &spend::local_day(theseus_protocol::now_unix_ms()),
+                "This thread is made without a card; the import stops for the day.",
+            );
             return fail(format!(
                 "the day's import budget (${cap:.2}) leaves ${left:.2}, under this card's worst case (${:.2})",
                 micros_to_usd(need)

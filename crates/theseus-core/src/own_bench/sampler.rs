@@ -184,6 +184,15 @@ impl Core {
                     continue;
                 }
                 if spent >= cap {
+                    self.outbox.notify_rule(
+                        None,
+                        crate::rule_notice::Rule::D18,
+                        crate::rule_notice::Outcome::Stopped,
+                        out.cap_usd,
+                        theseus_kernel::micros_to_usd(spent),
+                        &crate::rule_notice::today(),
+                        "The route-bench replay stops for the day.",
+                    );
                     out.stopped = Some(format!(
                         "[route_bench] replay_day_usd (${:.2}) is spent for the day",
                         out.cap_usd

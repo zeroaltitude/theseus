@@ -968,6 +968,25 @@ fn held_back(
     }
     let mut next = spec.clone();
     let tell = !std::mem::replace(&mut next.month_told, true);
+    // The owner hears of a skipped run with the rule and the figure
+    // (theseus-3i6d1): D15 for a project's review, D14 for any other routine;
+    // the figure is what the month holds spent plus this run's carve.
+    let month_usd = micros_to_usd(spec.month_micros);
+    env.outbox.notify_rule(
+        None,
+        match spec.title.starts_with("Review: ") {
+            true => crate::rule_notice::Rule::D15,
+            false => crate::rule_notice::Rule::D14,
+        },
+        crate::rule_notice::Outcome::Skipped,
+        month_usd,
+        month_usd - micros_to_usd(avail) + micros_to_usd(want),
+        &format!("{}:{}", spec.session_id, spec.month),
+        &format!(
+            "{}: this run is skipped; runs go on when the month turns.",
+            spec.title
+        ),
+    );
     let post = env.target.clone().filter(|_| tell).map(|target| Post {
         session_id: spec.session_id.clone(),
         execution_id: spec.execution_id.clone(),

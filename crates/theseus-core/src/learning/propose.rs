@@ -738,6 +738,15 @@ impl Core {
                 crate::narrative::dollars(spent),
                 crate::narrative::dollars(limit)
             );
+            self.outbox.notify_rule(
+                None,
+                crate::rule_notice::Rule::D10,
+                crate::rule_notice::Outcome::Skipped,
+                lc.writer_limit_usd_per_day,
+                micros_to_usd(spent.saturating_add(need)),
+                &crate::rule_notice::today(),
+                "A proposal was skipped and reported; the writer waits for tomorrow.",
+            );
             return self.writer_refused(prop, parent_name, why, who, via);
         }
         let provider = self

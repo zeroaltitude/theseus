@@ -208,6 +208,15 @@ impl Core {
             };
             let today = self.initiative_spent_today().saturating_add(spent);
             if today.saturating_add(need) > line {
+                self.outbox.notify_rule(
+                    None,
+                    crate::rule_notice::Rule::D6,
+                    crate::rule_notice::Outcome::Stopped,
+                    self.cfg.initiative.day_usd,
+                    micros_to_usd(today.saturating_add(need)),
+                    &crate::rule_notice::today(),
+                    "Initiative speaks from its template for the rest of the day.",
+                );
                 break;
             }
             let Ok(hold) = self.runner.day_hold(need, "initiative") else {
