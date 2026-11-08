@@ -43,6 +43,8 @@ mod tests_patch;
 #[cfg(test)]
 mod tests_read_cap;
 #[cfg(test)]
+mod tests_stale;
+#[cfg(test)]
 mod tests_window;
 pub mod text;
 
@@ -271,9 +273,69 @@ impl AwsBinding {
     }
 }
 
+/// What each session has read of each file (theseus-w2cs): a witness of the
+/// bytes, not a clock, so a touch that changes nothing is not stale and a
+/// change inside one mtime tick is. In memory only: a restart forgets it, and
+/// the next edit asks for a read again.
+#[derive(Debug, Default)]
+pub struct ReadRecord {
+    seen: std::sync::Mutex<std::collections::HashMap<(u64, PathBuf), (usize, u64)>>,
+}
+
+/// One session's view of a [`ReadRecord`]. A `ToolCtx` without one checks
+/// nothing, as before.
+#[derive(Debug, Clone)]
+pub struct ReadScope {
+    pub record: Arc<ReadRecord>,
+    pub session: u64,
+}
+
+fn witness(bytes: &[u8]) -> (usize, u64) {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    (bytes.len(), h.finish())
+}
+
+impl ReadScope {
+    pub fn new(record: Arc<ReadRecord>, session: u64) -> Self {
+        Self { record, session }
+    }
+    /// The session has now seen `path` as `bytes` (a read, or its own write).
+    pub fn note(&self, path: &Path, bytes: &[u8]) {
+        if let Ok(mut m) = self.record.seen.lock() {
+            m.insert((self.session, path.to_path_buf()), witness(bytes));
+        }
+    }
+    /// An edit of `path`, whose bytes now are `bytes`: refused with what to
+    /// do when the session never read it, or it changed since.
+    pub fn check(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
+        let seen = self
+            .record
+            .seen
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&(self.session, path.to_path_buf())).copied());
+        match seen {
+            None => Err(format!(
+                "{} has not been read in this session. Read it with fs_read first, then edit.",
+                path.display()
+            )),
+            Some(w) if w != witness(bytes) => Err(format!(
+                "{} has changed since it was last read in this session. Read it again with fs_read, then edit.",
+                path.display()
+            )),
+            Some(_) => Ok(()),
+        }
+    }
+}
+
 /// What every toollet gets: where it may work and how much it may return.
 #[derive(Debug, Clone, Default)]
 pub struct ToolCtx {
+    /// This call's session's record of what it has read (theseus-w2cs).
+    /// `None`: an edit is not checked against a read.
+    pub reads: Option<ReadScope>,
     /// Canonical workspace roots. Relative paths resolve against `cwd`.
     pub roots: Vec<PathBuf>,
     /// The gate's floor paths, canonical: Theseus's own state and the
@@ -329,6 +391,7 @@ impl ToolCtx {
             approved: false,
             umask: None,
             aws: None,
+            reads: None,
         }
     }
 

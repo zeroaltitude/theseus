@@ -421,6 +421,9 @@ impl Tool for Read {
         if is_binary(&bytes) {
             return Ok((binary_said(&path, &bytes), None));
         }
+        if let Some(r) = &ctx.reads {
+            r.note(&path, &bytes);
+        }
         let text = String::from_utf8_lossy(&bytes);
         let lines: Vec<&str> = text.lines().collect();
         let total = lines.len();
@@ -567,6 +570,9 @@ impl Tool for WriteFile {
         let before = fs::metadata(&path).ok().map(|m| m.len());
         let old = crate::change::old_text(&path);
         write_atomic(&path, a.content.as_bytes(), ctx.umask)?;
+        if let Some(r) = &ctx.reads {
+            r.note(&path, a.content.as_bytes());
+        }
         let name = crate::change::shown(&path, &ctx.cwd);
         let diff = (before.is_none() || old.is_some()).then(|| {
             let d = crate::change::file_diff(&name, old.as_deref(), &a.content);
@@ -609,7 +615,7 @@ impl Tool for Edit {
         "fs.edit"
     }
     fn description(&self) -> &'static str {
-        "Replace an exact string in a file. old_string must match the file byte for byte, including indentation, and must be unique unless replace_all is true. Read the file first. Returns a diff of the change."
+        "Replace an exact string in a file. old_string must match the file byte for byte, including indentation, and must be unique unless replace_all is true. Read the file first with fs_read: an edit of a file not read in this session, or changed since, is refused. Returns a diff of the change."
     }
     fn input_schema(&self) -> Value {
         json!({
@@ -662,6 +668,9 @@ impl Tool for Edit {
         let a: EditArgs = parse(input).map_err(ToolFailure::new)?;
         let path = ctx.resolve(&a.path);
         let before = read_regular_text(&path, "fs_edit")?;
+        if let Some(r) = &ctx.reads {
+            r.check(&path, before.as_bytes()).map_err(ToolFailure::new)?;
+        }
         // `fs.read` shows a line without its `\r`, so a model quotes bare
         // `\n`. When the text as given is not in a file that has CRLF endings,
         // match it with CRLF endings, and write the replacement the same way:
@@ -691,6 +700,9 @@ impl Tool for Edit {
             before.replacen(old_string.as_str(), &new_string, 1)
         };
         write_atomic(&path, after.as_bytes(), ctx.umask)?;
+        if let Some(r) = &ctx.reads {
+            r.note(&path, after.as_bytes());
+        }
         let name = path.display().to_string();
         let diff = unified(&before, &after, &name, &name, 3);
         let shown = crate::change::shown(&path, &ctx.cwd);
@@ -836,7 +848,14 @@ impl Tool for Patch {
             let path = ctx.resolve(target);
             let original = match &f.old {
                 None => String::new(),
-                Some(o) => read_regular_text(&ctx.resolve(o), "fs_patch")?,
+                Some(o) => {
+                    let from = ctx.resolve(o);
+                    let text = read_regular_text(&from, "fs_patch")?;
+                    if let Some(r) = &ctx.reads {
+                        r.check(&from, text.as_bytes()).map_err(ToolFailure::new)?;
+                    }
+                    text
+                }
             };
             // Each hunk header's lengths from its body (theseus-inw).
             let text = crate::recount::noted(&f.text, target, &mut recounted);
@@ -884,7 +903,12 @@ impl Tool for Patch {
         let mut summary = Vec::new();
         for (path, content, stat) in &results {
             match content {
-                Some(c) => write_atomic(path, c.as_bytes(), ctx.umask)?,
+                Some(c) => {
+                    write_atomic(path, c.as_bytes(), ctx.umask)?;
+                    if let Some(r) = &ctx.reads {
+                        r.note(path, c.as_bytes());
+                    }
+                }
                 None => fs::remove_file(path)?,
             }
             summary.push(format!(
