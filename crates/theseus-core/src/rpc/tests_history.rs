@@ -312,3 +312,55 @@ async fn a_pending_confirms_card_is_on_every_page() {
         "no page read it whole"
     );
 }
+
+/// An imported session's history is the owner's own, private whatever place
+/// its episode names: a surface that reads no private text (the MCP server,
+/// Discord's binding) is told who and when, never what (theseus-a7pr). The
+/// same call from the CLI or the web UI still returns the text, and an
+/// ordinary session's history is the same for every surface. Each side
+/// asserts its positive count so an unloaded session cannot pass.
+#[test]
+fn an_imported_sessions_text_reaches_only_a_surface_that_reads_private_text() {
+    let core = test_core("ok");
+    let imported = {
+        let rec = SessionRecord::new(SessionKind::Conversation, None);
+        let id = format!("{}{}", crate::import::SESSION_PREFIX, "00ab12cd");
+        let mut rec = rec;
+        rec.session_id = id.clone();
+        core.store.put_session(&id, &rec).unwrap();
+        id
+    };
+    let plain = open(&core);
+    write(&core, &imported, 3, 3);
+    write(&core, &plain, 3, 3);
+    let ask = |session: &str, private: bool| {
+        core.session_history_for(
+            SessionHistoryParams {
+                session_id: session.into(),
+                n: None,
+                after: None,
+                before: None,
+            },
+            private,
+        )
+        .unwrap()
+    };
+
+    let owner = ask(&imported, true);
+    assert_eq!(owner.nodes.len(), 3, "the owner's surface reads all three");
+    assert!(owner.nodes.iter().all(|n| n.text.starts_with("message ")));
+
+    let untrusted = ask(&imported, false);
+    assert_eq!(untrusted.nodes.len(), 3, "the nodes are listed, not dropped");
+    for n in &untrusted.nodes {
+        assert!(!n.text.contains("message "), "text leaked: {}", n.text);
+        assert_eq!(n.text, crate::books::WITHHELD);
+        assert!(n.bytes > 0, "its size is still told");
+    }
+
+    for private in [true, false] {
+        let h = ask(&plain, private);
+        assert_eq!(h.nodes.len(), 3);
+        assert!(h.nodes.iter().all(|n| n.text.starts_with("message ")));
+    }
+}
