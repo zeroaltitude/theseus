@@ -13,7 +13,13 @@
 //! So a request that replays a session's prefix replays this block's bytes
 //! unchanged.
 //!
-//! `project-context` (a later row) fills the same block.
+//! Last comes the project's own instruction files (`project_context`,
+//! theseus-wadu; `docs/design/project-context.md` §3): the owner's own
+//! user-level file, and, for a repository the owner has not granted, the one
+//! line naming how many files there are and how large they are, and nothing
+//! else of them. A nested directory's files join the block the first time a
+//! tool touches that directory, which is the `system_changed` recompile a
+//! session moving directory already is (§2).
 //!
 //! This block takes the fourth breakpoint; no other block may: the header,
 //! the context, this one, and the conversation's are the provider's four.
@@ -34,11 +40,17 @@ impl TurnRunner {
         if place.class == PlaceClass::Shared || !self.tools.enabled() {
             return String::new();
         }
-        format!(
+        let cwd = self.tools.cwd_for(dir);
+        let mut text = format!(
             "Directory: {}\n{}\n{}",
-            self.tools.cwd_for(dir).display(),
+            cwd.display(),
             crate::cpu::commands::Cpus::of_commands().fact(),
             crate::cpu::os::Os::of_machine().fact(),
-        )
+        );
+        if let Some(part) = crate::project_context::block(&self.cfg, &self.context_files, &cwd) {
+            text.push_str("\n\n");
+            text.push_str(&part);
+        }
+        text
     }
 }

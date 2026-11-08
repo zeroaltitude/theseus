@@ -569,7 +569,7 @@ fn paths_of(cfg: &Config, persona: Option<&str>) -> Vec<(String, Option<String>)
     let book = crate::personas::Book::of_config(cfg);
     cfg.context_paths(&book, persona, book.engaging())
         .into_iter()
-        .map(|p| (p.path, p.persona))
+        .map(|p| (p.path.clone(), p.persona()))
         .collect()
 }
 

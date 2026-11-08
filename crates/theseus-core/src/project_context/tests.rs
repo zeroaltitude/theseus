@@ -1,0 +1,310 @@
+//! Discovery, the naming line, precedence and the budget (theseus-wadu,
+//! phase 1). What the live path carries is tested beside the session block
+//! (`crate::tests_project_context`); here is the module's own behaviour.
+
+use super::*;
+use crate::context_files::ContextFiles;
+
+/// A scratch repository: a `.git` marker at its root, and whatever
+/// instruction files a test writes under it.
+struct Repo {
+    dir: tempfile::TempDir,
+}
+
+impl Repo {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+        Self { dir }
+    }
+
+    fn root(&self) -> PathBuf {
+        std::fs::canonicalize(self.dir.path()).unwrap()
+    }
+
+    /// `rel` (a path under the root) holding `text`, its mtime set back so
+    /// the reader's racy rule does not make it read twice.
+    fn write(&self, rel: &str, text: &str) -> PathBuf {
+        let p = self.root().join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, text).unwrap();
+        let f = std::fs::File::options().write(true).open(&p).unwrap();
+        f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(60))
+            .unwrap();
+        p
+    }
+}
+
+fn found_of(repo: &Repo, dir: &Path) -> Discovered {
+    discover_in(Some(&repo.root()), dir, None)
+}
+
+/// §1: the two names in every directory from the root down to the session's,
+/// `AGENTS.md` first, root first and the deepest last. An absent file
+/// produces nothing at all.
+#[test]
+fn discovery_lists_both_names_from_the_root_down_and_nothing_for_an_absent_file() {
+    let repo = Repo::new();
+    repo.write("AGENTS.md", "root agents");
+    repo.write("CLAUDE.md", "root claude");
+    repo.write("crates/AGENTS.md", "crates agents");
+    // crates/core has a CLAUDE.md alone: its AGENTS.md is absent, the
+    // ordinary case.
+    repo.write("crates/core/CLAUDE.md", "core claude");
+    // Not on the path from the root to the session's directory.
+    repo.write("docs/AGENTS.md", "docs agents");
+    let here = repo.root().join("crates/core");
+    let d = found_of(&repo, &here);
+    let names: Vec<String> = d
+        .project
+        .iter()
+        .map(|f| {
+            f.path
+                .strip_prefix(repo.root())
+                .unwrap()
+                .display()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "AGENTS.md",
+            "CLAUDE.md",
+            "crates/AGENTS.md",
+            "crates/core/CLAUDE.md",
+        ],
+        "root first, AGENTS.md before CLAUDE.md, the deepest last"
+    );
+    let depths: Vec<usize> = d.project.iter().map(|f| f.depth).collect();
+    assert_eq!(depths, [0, 0, 1, 2]);
+    assert!(d.user.is_none());
+    // At the root itself, only the root's pair.
+    let at_root = found_of(&repo, &repo.root());
+    assert_eq!(at_root.project.len(), 2);
+    // A directory with no files at all gives nothing, not a note.
+    let empty = Repo::new();
+    assert!(found_of(&empty, &empty.root()).project.is_empty());
+}
+
+/// §1: outside a repository there is no project level at all; the
+/// user-level file still loads.
+#[test]
+fn outside_a_repository_there_is_no_project_level_and_the_user_file_still_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("USER-AGENTS.md");
+    std::fs::write(&user, "the owner's own").unwrap();
+    let d = discover_in(None, dir.path(), Some(&user));
+    assert!(d.project.is_empty());
+    assert_eq!(d.user.as_ref().unwrap().bytes, 15);
+    assert!(d.naming_line().is_none(), "no repository file to name");
+}
+
+/// §7, byte for byte: two integers we format ourselves, and nothing else.
+#[test]
+fn the_naming_line_is_exactly_what_the_design_fixes() {
+    assert_eq!(
+        naming_line(3, 454_000),
+        "Project instructions: 3 files, 454,000 B, not trusted and not read. \
+         The owner grants a project's trust; until then you may open them \
+         yourself with an ordinary read."
+    );
+    assert_eq!(
+        naming_line(1, 12),
+        "Project instructions: 1 file, 12 B, not trusted and not read. \
+         The owner grants a project's trust; until then you may open them \
+         yourself with an ordinary read."
+    );
+    assert!(naming_line(2, 0).starts_with("Project instructions: 2 files, 0 B, "));
+    // Clamped to 999, and the plural follows the clamped count.
+    assert!(naming_line(1_000_000, 1).starts_with("Project instructions: 999 files, 1 B, "));
+}
+
+/// §5: both names in one directory are read, and identical text by digest is
+/// carried once with the second named as a duplicate.
+#[test]
+fn identical_text_is_carried_once_and_the_second_is_named_a_duplicate() {
+    let repo = Repo::new();
+    repo.write("AGENTS.md", "the same words\n");
+    repo.write("CLAUDE.md", "the same words\n");
+    let d = found_of(&repo, &repo.root());
+    let a = assemble(&ContextFiles::default(), &d.project, 1 << 20);
+    assert_eq!(a.records.len(), 2);
+    assert_eq!(a.records[0].fate, Fate::Whole);
+    assert_eq!(a.records[1].fate, Fate::Duplicate);
+    assert_eq!(a.text.matches("the same words").count(), 1, "{}", a.text);
+    assert!(
+        a.text
+            .contains("the same text as a file already carried above"),
+        "{}",
+        a.text
+    );
+    // Both are still named, so the owner can see what was found.
+    assert!(a.text.contains("AGENTS.md") && a.text.contains("CLAUDE.md"));
+}
+
+/// §6: the root's files are allocated first up to half the budget, and the
+/// nested chain takes the remainder deepest first.
+#[test]
+fn the_root_takes_half_and_the_nested_chain_takes_the_rest_deepest_first() {
+    let repo = Repo::new();
+    // Four files of 400 bytes of body each; a section is the header plus
+    // the body, so a 2,000-byte budget fits two and a bit.
+    let body = |c: char| c.to_string().repeat(400);
+    repo.write("AGENTS.md", &body('r'));
+    repo.write("a/AGENTS.md", &body('a'));
+    repo.write("a/b/AGENTS.md", &body('b'));
+    repo.write("a/b/c/AGENTS.md", &body('c'));
+    let here = repo.root().join("a/b/c");
+    let d = found_of(&repo, &here);
+    assert_eq!(d.project.len(), 4);
+    let a = assemble(&ContextFiles::default(), &d.project, 1_200);
+    let fates: Vec<Fate> = a.records.iter().map(|r| r.fate).collect();
+    // The root fits under half (600); the deepest fits in what is left.
+    assert_eq!(fates[0], Fate::Whole, "the root, under half");
+    assert_eq!(fates[3], Fate::Whole, "the deepest, first of the rest");
+    assert!(
+        matches!(fates[1], Fate::Dropped | Fate::Cut { .. }),
+        "depth 1 is the last the chain reaches: {fates:?}"
+    );
+    // The text is always in precedence order, whatever order it allocated in.
+    let at = |c: char| a.text.find(&body(c)).unwrap_or(usize::MAX);
+    assert!(at('r') < at('c'), "the root reads before the deepest");
+}
+
+/// §6: a file that does not fit whole is cut at a character boundary with
+/// the note naming how much is here; one that does not fit at all is named
+/// but not carried, and its record keeps the file's real byte count.
+///
+/// Three big files against 2,000 bytes: the root's first takes half, the
+/// nested chain takes the rest, and the root's second finds nothing left.
+#[test]
+fn a_file_too_large_is_cut_and_one_with_no_room_is_named_not_carried() {
+    let repo = Repo::new();
+    // 'é' is two bytes: a cut inside one would be a broken character.
+    repo.write("AGENTS.md", &"é".repeat(2_000));
+    repo.write("CLAUDE.md", &"z".repeat(4_000));
+    repo.write("deep/AGENTS.md", &"d".repeat(4_000));
+    let d = found_of(&repo, &repo.root().join("deep"));
+    assert_eq!(d.project.len(), 3);
+    let a = assemble(&ContextFiles::default(), &d.project, 2_000);
+    assert!(
+        matches!(a.records[0].fate, Fate::Cut { .. }),
+        "the root's first, cut to half the budget: {:?}",
+        a.records[0]
+    );
+    assert_eq!(a.records[0].bytes, 4_000, "its real size, not what is here");
+    assert!(!a.text.contains('\u{fffd}'), "cut on a character boundary");
+    assert!(a.text.contains("[Cut: only the first "), "{}", a.text);
+    assert!(
+        matches!(a.records[2].fate, Fate::Cut { .. }),
+        "the nested file takes the remainder: {:?}",
+        a.records[2]
+    );
+    assert_eq!(a.records[1].fate, Fate::Dropped, "nothing is left for it");
+    assert_eq!(a.records[1].bytes, 4_000);
+    assert!(
+        a.text
+            .contains("not carried: the project level's budget is full"),
+        "{}",
+        a.text
+    );
+    assert!(
+        !a.text.contains(&"z".repeat(600)),
+        "a dropped file carries no text"
+    );
+    // The whole level stays within its budget, headers and cut notes and all.
+    assert!(a.text.len() <= 2_000 + 600, "{} bytes", a.text.len());
+}
+
+/// §6: a budget too small for anything names every file and carries none.
+#[test]
+fn a_budget_under_the_floor_carries_nothing_and_names_everything() {
+    let repo = Repo::new();
+    repo.write("AGENTS.md", &"q".repeat(5_000));
+    repo.write("CLAUDE.md", &"w".repeat(5_000));
+    let d = found_of(&repo, &repo.root());
+    let a = assemble(&ContextFiles::default(), &d.project, MIN_CARRY - 1);
+    assert!(a.records.iter().all(|r| r.fate == Fate::Dropped));
+    assert_eq!(a.records.len(), 2, "both are named");
+    assert!(!a.text.contains("qqqq") && !a.text.contains("wwww"));
+}
+
+/// The test-only seam, and what it stands in for: with no grant, `block`
+/// says only the naming line; with one, it carries the text.
+#[test]
+fn the_grant_seam_is_the_only_way_text_is_carried() {
+    let repo = Repo::new();
+    repo.write("AGENTS.md", "run the gate before every commit\n");
+    let root = repo.root();
+    assert!(!trust::granted(&root), "the default is closed");
+    let _g = trust::grant_for_test(&root);
+    assert!(trust::granted(&root));
+}
+
+/// A config whose state directory is `state`, so the user-level file is a
+/// test's own and not the machine's.
+fn cfg_with_state(state: &Path) -> crate::config::Config {
+    let mut cfg = crate::config::Config::example();
+    cfg.server.state_dir = state.to_string_lossy().into_owned();
+    cfg
+}
+
+/// §7's line as block 3 carries it, for a count of 0, 1 and many. Zero is
+/// no line at all (§1: an absent file produces nothing), and the positive
+/// cases name the count and the total size and nothing else.
+#[test]
+fn block_3_names_zero_one_and_many_files() {
+    let state = tempfile::tempdir().unwrap();
+    let cfg = cfg_with_state(state.path());
+    let files = ContextFiles::default();
+
+    // 0: a repository with no instruction file at all says nothing.
+    let none = Repo::new();
+    assert_eq!(block(&cfg, &files, &none.root()), None);
+
+    // 1: the singular.
+    let one = Repo::new();
+    one.write("AGENTS.md", "x".repeat(123).as_str());
+    let text = block(&cfg, &files, &one.root()).expect("one file is named");
+    assert_eq!(
+        text,
+        "Project instructions: 1 file, 123 B, not trusted and not read. \
+         The owner grants a project's trust; until then you may open them \
+         yourself with an ordinary read."
+    );
+
+    // Many: the plural, and the sizes added.
+    let many = Repo::new();
+    many.write("AGENTS.md", "y".repeat(1_000).as_str());
+    many.write("CLAUDE.md", "z".repeat(2_500).as_str());
+    many.write("deep/AGENTS.md", "w".repeat(500).as_str());
+    let here = many.root().join("deep");
+    let text = block(&cfg, &files, &here).expect("three files are named");
+    assert!(
+        text.starts_with("Project instructions: 3 files, 4,000 B, not trusted and not read."),
+        "{text}"
+    );
+    // Not one byte of a path, a name or a file.
+    assert!(!text.contains("AGENTS.md") && !text.contains("deep"));
+    assert!(!text.contains('y') || !text.contains("yyyy"));
+}
+
+/// The owner's own user-level file is read whatever the repository's
+/// standing: it is the owner's, not the repository's.
+#[test]
+fn the_user_level_file_is_read_and_the_repositorys_is_only_named() {
+    let state = tempfile::tempdir().unwrap();
+    std::fs::write(state.path().join(USER_FILE), "Always say what you ran.\n").unwrap();
+    let cfg = cfg_with_state(state.path());
+    let repo = Repo::new();
+    repo.write("AGENTS.md", "the repository's own rules\n");
+    let text = block(&cfg, &ContextFiles::default(), &repo.root()).expect("both have something");
+    assert!(text.contains("Always say what you ran."), "{text}");
+    assert!(text.contains("# Context file (user): "), "{text}");
+    assert!(!text.contains("the repository's own rules"), "{text}");
+    assert!(text.contains("Project instructions: 1 file, "), "{text}");
+    // The user's file reads before the repository's line (§5: weakest first,
+    // and the repository is more specific than the owner's own file).
+    assert!(text.find("Always say").unwrap() < text.find("Project instructions:").unwrap());
+}
