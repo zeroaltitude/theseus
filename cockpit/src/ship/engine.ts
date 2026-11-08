@@ -16,6 +16,7 @@ import { heard, motionsNow, paceOf, type MotionId, type Quiet } from './motion'
 import { SEA_ROLL, seaPace, seaStep } from './sea'
 import { oarReach, type Light, type ShipModel } from './model'
 import { Post } from './post'
+import { softwareRenderer } from './webgl'
 import {
   BEACON_FRAG, BEACON_VERT, FLOW_FRAG, FLOW_VERT, HULL_FRAG, HULL_VERT, LIGHT_FRAG, LIGHT_VERT, LINE_FRAG,
   LINE_VERT, MARK_FRAG, MARK_VERT, OAR_FRAG, OAR_VERT, RING_FRAG, RING_VERT, SAIL_FRAG, SAIL_VERT, SEA_FRAG, SEA_VERT,
@@ -182,6 +183,8 @@ export class ShipEngine {
   private until: Partial<Record<MotionId, number>> = {}
   /** The paced frames a second the loop draws when no one-off plays: the steady motions' pace, the sea's, or none. */
   private paceFps = 0
+  /** The renderer draws on the CPU (SwiftShader, llvmpipe), so the swell's pace is lowered (theseus-yx5i). */
+  private soft = false
   /** The motions of the last frame (dev and bench: `window.__shipEngine.motions`). */
   motions: MotionId[] = []
   /** The last event's time, for the lasting states' quiet pace (`heard`); `quiet` whether they keep it now. */
@@ -200,6 +203,7 @@ export class ShipEngine {
     if (opts.scale) { this.pinnedScale = opts.scale; this.scale = opts.scale }
     // Without WebGL this throws, and nothing below has started (theseus-9k53).
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance', stencil: false })
+    this.soft = softwareRenderer(this.renderer.getContext())
     this.loop = new Loop({
       now: () => performance.now(),
       frame: (cb) => requestAnimationFrame(cb),
@@ -1307,7 +1311,7 @@ export class ShipEngine {
     const motions = this.motionsAt(t, camMoved || this.tween !== null)
     // A lasting state with no event for a minute (a long job's gear, a long model call) draws at the quiet pace.
     this.quiet = heard(this.quietQ, motions, t)
-    const pace = paceOf(motions, IDLE_FPS, this.quiet)
+    const pace = paceOf(motions, IDLE_FPS, this.quiet, this.soft)
     this.motions = motions
     // The whole scene is drawn when something changed or moves. Otherwise only the swell moved: the composite alone is
     // drawn, over the sea's cache and the fleet's kept layer.

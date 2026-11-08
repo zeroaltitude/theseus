@@ -70,6 +70,14 @@ export const QUIET_AFTER_S = 60
  *  few frames a second still read as a slow roll. */
 export const ROLL_FPS = 8
 
+/** The most frames a second the swell (the sea's pace and the roll's) draws on a CPU rasteriser (theseus-yx5i;
+ *  SwiftShader, llvmpipe: `webgl.ts`). A composite there costs about 0.16 to 0.25 cores a frame a second at 1920×1080
+ *  (theseus-wp2d measured 2.4 to 3.7 cores at 15), so 5 is about one core at most (0.8 to 1.2), where the roll's 8
+ *  was 1.3 to 2.0 and the sea's 15 was 2.4 to 3.7. Below that, a frame's step grows with the gap: the waves move about
+ *  15 px a second at the fleet's view, so 5 a second steps the busiest swell about 3 px, and the roll, which is slower,
+ *  about 2 at most. A GPU keeps `IDLE_FPS` and `ROLL_FPS`; nothing else (a one-off, a steady motion) is slowed. */
+export const SOFT_SWELL_FPS = 5
+
 /** What moves now, as the engine knows it. */
 export interface MotionState {
   /** Calm mode (or reduced motion): nothing plays; a change draws one frame. */
@@ -114,15 +122,18 @@ export function motionsNow(s: MotionState): MotionId[] {
 
 /** How the loop draws for the motions running: every display frame, a steady pace (`quiet`: the quiet one, after a
  *  minute with no event), the sea's pace, the roll's, or not at all (`fps` 0); and whether a frame draws the whole
- *  scene or the sea alone. The page's motions (a coin's flight) are the browser's, and ask nothing of the canvas. */
+ *  scene or the sea alone. `soft` is a CPU rasteriser, whose swell is slowed (`SOFT_SWELL_FPS`). The page's motions
+ *  (a coin's flight) are the browser's, and ask nothing of the canvas. */
 export function paceOf(
-  active: readonly MotionId[], idleFps: number, quiet = false,
+  active: readonly MotionId[], idleFps: number, quiet = false, soft = false,
 ): { fps: number; full: boolean; display: boolean } {
   const rows = active.map(motion).filter((m) => m.on === 'canvas')
   if (rows.some((m) => m.pace === 'display')) return { fps: 60, full: true, display: true }
   if (rows.some((m) => m.pace === 'steady')) return { fps: quiet ? QUIET_FPS : STEADY_FPS, full: true, display: false }
-  if (rows.some((m) => m.pace === 'sea')) return { fps: idleFps, full: false, display: false }
-  if (rows.some((m) => m.pace === 'roll')) return { fps: ROLL_FPS, full: false, display: false }
+  // The swell alone, on a CPU rasteriser (`soft`), is held to `SOFT_SWELL_FPS`; a rate under it stays.
+  const swell = (fps: number) => (soft ? Math.min(fps, SOFT_SWELL_FPS) : fps)
+  if (rows.some((m) => m.pace === 'sea')) return { fps: swell(idleFps), full: false, display: false }
+  if (rows.some((m) => m.pace === 'roll')) return { fps: swell(ROLL_FPS), full: false, display: false }
   return { fps: 0, full: false, display: false }
 }
 
