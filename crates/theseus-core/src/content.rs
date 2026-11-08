@@ -125,7 +125,9 @@ impl Flag {
             Flag::Injection => "something in this session tried to steer me",
             Flag::Secret => "this session has seen the value of a credential",
             Flag::Confidential => "this session has seen an organisation's non-public matter",
-            Flag::Personal => "this session has seen information about a person that should not be made public",
+            Flag::Personal => {
+                "this session has seen information about a person that should not be made public"
+            }
         }
     }
 }

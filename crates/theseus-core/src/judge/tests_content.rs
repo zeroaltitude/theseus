@@ -399,8 +399,17 @@ fn the_live_packs_personal_question_asks_whether_publishing_would_be_inappropria
     };
     // The innocuous region, named: personal detail that publishing harms nobody by.
     let no = means("no");
-    for named in ["favourite animal", "a hobby", "a pet", "a birthday", "a mood"] {
-        assert!(no.contains(named), "the clean side does not name {named:?}: {no}");
+    for named in [
+        "favourite animal",
+        "a hobby",
+        "a pet",
+        "a birthday",
+        "a mood",
+    ] {
+        assert!(
+            no.contains(named),
+            "the clean side does not name {named:?}: {no}"
+        );
     }
     // And the narrowing is on that side only: what it would harm someone to publish
     // is still a `yes`, in the words it was in before.
@@ -413,7 +422,10 @@ fn the_live_packs_personal_question_asks_whether_publishing_would_be_inappropria
         "personal contact details",
         "private communications",
     ] {
-        assert!(yes.contains(kept), "the flagged side dropped {kept:?}: {yes}");
+        assert!(
+            yes.contains(kept),
+            "the flagged side dropped {kept:?}: {yes}"
+        );
     }
 }
 

@@ -2380,7 +2380,8 @@ mod tests {
             a.instructions
         );
         assert!(
-            !a.instructions.contains("does it reveal a person's private information"),
+            !a.instructions
+                .contains("does it reveal a person's private information"),
             "personal still asks v3's question: {}",
             a.instructions
         );

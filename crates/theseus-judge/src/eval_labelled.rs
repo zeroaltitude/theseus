@@ -289,7 +289,11 @@ mod tests {
                 assert!(new.iter().any(|c| c.name == name), "{name}");
             }
         }
-        assert_eq!(new.len(), 20, "the new cases are the ten pairs and nothing else");
+        assert_eq!(
+            new.len(),
+            20,
+            "the new cases are the ten pairs and nothing else"
+        );
         // The halves balance: ten that must fire, ten that must not. A set whose
         // clean members outnumbered its flagged ones would reward an always-off
         // classifier.
@@ -315,7 +319,13 @@ mod tests {
             .map(|c| c.input["text"].as_str().unwrap_or_default().to_lowercase())
             .collect::<Vec<_>>()
             .join("\n");
-        for word in ["praying mantis", "clarinet", "dog called", "birthday", "hiking"] {
+        for word in [
+            "praying mantis",
+            "clarinet",
+            "dog called",
+            "birthday",
+            "hiking",
+        ] {
             assert!(clean.contains(word), "no clean case holds {word:?}");
         }
         // The owner's own planted line, as he typed it, is a clean case: it is the
