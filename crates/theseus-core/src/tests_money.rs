@@ -320,6 +320,41 @@ async fn a_notifying_session_stops_at_ten_times_its_limit() {
     );
 }
 
+/// theseus-3i6d1: the hard stop also tells the owner, once, naming rule A4,
+/// the stop's amount and the figure that tripped it. The stop itself is
+/// `a_notifying_session_stops_at_ten_times_its_limit`'s, unchanged.
+#[tokio::test]
+async fn the_hard_stop_tells_the_owner_with_the_rule_and_the_figure() {
+    let script: Vec<Scripted> = (1..=40).map(|n| diffing(n, plain())).collect();
+    let fake = Arc::new(FakeProvider::scripted(script));
+    let r = rig(fake, |c| c.kernel.spend_limit_usd = 0.50);
+    let err = turn(r.core.clone(), r.sid.clone()).await.unwrap_err();
+    assert_eq!(
+        err.downcast_ref::<crate::turn::TurnError>().unwrap().class,
+        "spend_hard_stop"
+    );
+    let told: Vec<String> = r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "spend_ceiling")
+        .map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        })
+        .filter(|t| t.contains("Rule A4"))
+        .collect();
+    assert_eq!(told.len(), 1, "one notice, naming the rule: {told:?}");
+    assert!(
+        told[0].contains("$5.00") && told[0].contains("spend_limit_hard_multiple"),
+        "{}",
+        told[0]
+    );
+}
+
 /// theseus-jse4: a multiple is noticed at the settle that crosses it, a cut
 /// call's too, not at the next multiple: a limit far under one call's input
 /// (and no hard stop), the turn's first call cut by a stop. Its estimate
