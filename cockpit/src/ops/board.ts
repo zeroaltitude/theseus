@@ -412,6 +412,11 @@ export function needsOf(rows: readonly OpsRow[], calls: OwnerCalls = OWNER_CALLS
   return calls.needsPerCard ? cards.length : cards.reduce((n, r) => n + r.asks, 0)
 }
 
+/** The cards the Needs-you panel names: those a queue item waits on, and the asks no card owns. */
+export function listedCards(rows: readonly OpsRow[]): OpsRow[] {
+  return rows.filter((r) => r.counted && r.column != null && r.bucket === 'needs' && (r.asks > 0 || r.kind === 'ask'))
+}
+
 export interface AllCounters extends Counters { needs: number }
 
 export function allCounters(rows: readonly OpsRow[], now: number, spentUsd: number, calls: OwnerCalls = OWNER_CALLS): AllCounters {

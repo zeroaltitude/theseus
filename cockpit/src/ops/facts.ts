@@ -48,6 +48,14 @@ export interface CardFacts {
   due?: string
 }
 
+/** An ended task's report as the inspector words it: the label over the line, and the whole report when the line is
+ *  only its start. `whole` is the report's whole text once read, null when the session holds none, undefined unread. */
+export interface ReportFacts { label: string; line: string; more: boolean; full?: string }
+
+export function reportFacts(line: string | undefined, _whole: string | null | undefined): ReportFacts | undefined {
+  return line === undefined ? undefined : { label: 'report', line, more: false }
+}
+
 export function cardFacts(r: OpsRow, now: number): CardFacts {
   const v = r.view
   // Ended: in Done, or a failure still asking for someone (it shows under Needs you).
