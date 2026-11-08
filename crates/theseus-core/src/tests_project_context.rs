@@ -33,6 +33,10 @@ struct Rig {
 }
 
 fn rig() -> Rig {
+    rig_with(|_| {})
+}
+
+fn rig_with(edit: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
@@ -42,6 +46,7 @@ fn rig() -> Rig {
     cfg.tools.projects_dir = Some(root.to_string_lossy().into_owned());
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = Posture::Notify;
+    edit(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(vec![Scripted::text("Noted.")]));
     let core = Core::build(crate::rpc::Parts::for_tests(cfg, fake.clone(), store)).unwrap();
@@ -161,11 +166,23 @@ async fn a_hostile_repositorys_instruction_text_reaches_no_byte_of_the_request()
     );
     assert!(block.starts_with("Directory: "), "{block}");
 
-    // The naming line itself holds no path, no directory name and no file
-    // name — the one rule §7 states byte for byte.
-    assert!(!line.contains(IN_DIR));
-    assert!(!line.contains("AGENTS.md") && !line.contains("CLAUDE.md"));
-    assert!(!line.contains(&r.root.display().to_string()));
+    // The line **as block 3 carries it**, not the one this test computed:
+    // it holds no path, no directory name and no file name, which is the one
+    // rule §7 states byte for byte. Read from the block, so a path that
+    // reached the line by any route at all would fail here.
+    let carried = block
+        .lines()
+        .find(|l| l.starts_with("Project instructions: "))
+        .expect("the line is in block 3");
+    assert_eq!(carried, line, "and it is exactly the line §7 fixes");
+    assert!(!carried.contains(IN_DIR), "{carried}");
+    assert!(!carried.contains(IN_TEXT), "{carried}");
+    assert!(!carried.contains("AGENTS.md") && !carried.contains("CLAUDE.md"));
+    assert!(!carried.contains(&r.root.display().to_string()));
+    assert!(
+        !carried.contains('/'),
+        "no path separator at all: {carried}"
+    );
 
     // The hostile *directory* name is in the request only where the session's
     // own `Directory:` line already put it before this row: block 3 names the
@@ -180,6 +197,29 @@ async fn a_hostile_repositorys_instruction_text_reaches_no_byte_of_the_request()
         block.matches(IN_DIR).count(),
         1,
         "block 3 names the directory once, on its own first line:\n{block}"
+    );
+}
+
+/// `[project] max_tokens` reaches the assembly: the same granted repository,
+/// with the smallest budget the config allows, carries its file cut instead
+/// of whole. Without this nothing holds `block` to the configured budget.
+#[tokio::test]
+async fn the_configured_budget_reaches_the_assembly() {
+    let r = rig_with(|cfg| cfg.project.max_tokens = Some(500));
+    let (repo, here) = hostile_repo(&r.root);
+    // A file far past 500 tokens (1,500 bytes) of budget.
+    std::fs::write(repo.join("AGENTS.md"), "w".repeat(40_000)).unwrap();
+    let _grant = crate::project_context::trust::grant_for_test(&repo);
+    submit(&r.core, &here).await;
+    let req = r.fake.requests().pop().expect("a request was sent");
+    let block = session_block(&req);
+    assert!(
+        block.contains("[Cut: only the first "),
+        "the budget cut it:\n{block}"
+    );
+    assert!(
+        !block.contains(&"w".repeat(2_000)),
+        "and the cut is the budget's, not the per-file cap's"
     );
 }
 
