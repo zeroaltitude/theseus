@@ -17,9 +17,14 @@
 //! edited yet counts no unchecked loops, and after its first edit a loop that
 //! read ground the turn had not read before (a path, a pattern, a slice of a
 //! file from a new first line), every read answering, resets the count like a
-//! passing command. That count is the steer's. The stop keeps its own
-//! (`since_check`), which only a passing command resets, for the clock's
-//! backstop (theseus-fez4q). The rule:
+//! passing command. So does a failing command whose failure is new to the
+//! turn (`failure_key`, theseus-fez4q): the owner's ruling is that a failing
+//! check is a progress attempt, so a failure that moves is progress, and a
+//! stall is the same failure loop after loop. The turn's first failure is the
+//! baseline, not a move; one it has met before (the same red again, or a red
+//! that flips between two) is not a move either. That count is the steer's.
+//! The stop keeps its own (`since_check`), which only a passing command
+//! resets, for the clock's backstop (theseus-fez4q). The rule:
 //!
 //! - **Nothing** while a check passed in the last `MIN_LOOPS_WITHOUT_PASS`
 //!   loops (or, for the steer, new ground was read in them): work that passes
@@ -34,10 +39,12 @@
 //!   fires on progress, never on spend (under the owner's notify rule spend
 //!   never stops a turn), by one of three conditions (`StopCondition`, named
 //!   in the row):
-//!   - `stalled`: `STALL_LOOPS` loops with no passing check and no new ground
-//!     read after the turn's first edit (the steer's count; a build in the
-//!     background holds it). It needs no deadline, so a turn that has none,
-//!     as a DM's has none, can be stopped by it.
+//!   - `stalled`: `STALL_LOOPS` loops with no passing check, no new ground
+//!     read after the turn's first edit and no failure it had not met (the
+//!     steer's count; a build in the background holds it). It needs no
+//!     deadline, so a turn that has none, as a DM's has none, can be stopped
+//!     by it; with one it can fire at any share of it, but only on the same
+//!     failure, not on a failure that moves.
 //!   - `clock`: `STOP_SHARE` of the deadline, with `MIN_LOOPS_WITHOUT_PASS`
 //!     loops since a passing check, unless the turn has edited and read new
 //!     ground in the last of them: progress postpones the clock, but only to
@@ -47,7 +54,7 @@
 //!     rule is not enough: a turn that reads new ground for ever would never
 //!     report, and the report needs a loop of its own.
 //!
-//! //! Each steer and stop is a `turn.progress` row with the numbers that fired
+//! Each steer and stop is a `turn.progress` row with the numbers that fired
 //! it. The notes are harness nodes appended after the loop's results, outside
 //! the cached prefix. A turn with no deadline and little spend pays a map
 //! lookup a loop.
@@ -56,6 +63,8 @@
 //! ceiling): the state begins at the turn's first loop, takes the deadline of
 //! the turn's own `turn.submit` (`clock_step::take_deadline`), and goes with
 //! the turn, however it ends.
+
+mod failure_key;
 
 use super::clock_step::Deadline;
 use super::*;
@@ -202,6 +211,9 @@ pub(super) struct State {
     edited: bool,
     /// What the turn has read (keys, no contents), up to `SEEN_MAX`.
     seen: HashSet<String>,
+    /// The failures its checks have shown (`failure_key`), up to
+    /// `FAILURES_MAX`: a failure not among them has moved.
+    failures: HashSet<u64>,
     steered: bool,
     /// The stop was said: the next loop is the last.
     last: bool,
@@ -256,6 +268,8 @@ impl State {
                 self.seen.insert(k);
             }
         }
+        // A failure the turn has not met moved: its check is a progress attempt.
+        let moved = check == Some(false) && self.moved(commands.failure);
         // The stop's count: a passing command resets it, and nothing else does.
         self.since_check = match check {
             Some(true) => 0,
@@ -264,6 +278,7 @@ impl State {
         };
         match check {
             Some(true) => (self.since_pass, self.failing) = (0, 0),
+            Some(false) if moved => (self.since_pass, self.failing) = (0, 0),
             Some(false) => {
                 (self.since_pass, self.failing) = (self.since_pass + 1, self.failing + 1)
             }
@@ -276,10 +291,28 @@ impl State {
             None => self.since_pass += 1,
         }
     }
+
+    /// Whether a failing check's `key` (`failure_key::key`) is a move: one
+    /// the turn has not met before. The turn's first failure is the baseline,
+    /// not a move, so the same red six times stalls in six loops; a red it has
+    /// met (the same again, or a flip between two) is none either. A check
+    /// whose text could not be read has no key and moves nothing.
+    fn moved(&mut self, key: Option<u64>) -> bool {
+        let Some(key) = key else { return false };
+        let baseline = self.failures.is_empty();
+        // Past the cap nothing is new, as with the reads.
+        let new = self.failures.len() < FAILURES_MAX && self.failures.insert(key);
+        new && !baseline
+    }
 }
 
 /// The read keys a turn remembers: past them nothing new is coverage.
 const SEEN_MAX: usize = 4096;
+/// The failure keys a turn remembers: past them no failure is new.
+const FAILURES_MAX: usize = 256;
+/// The nodes a loop's failed commands' results are looked for among, newest
+/// first: a result is one of the last a turn wrote.
+const RESULT_WINDOW: usize = 64;
 /// The tools that change a file, and the read-only ones that open a path.
 const EDITS: [&str; 3] = ["fs.write", "fs.edit", "fs.patch"];
 const READS: [&str; 4] = ["fs.read", "fs.list", "fs.glob", "fs.grep"];
@@ -306,6 +339,11 @@ pub(super) struct Commands {
     reads: Vec<String>,
     /// A `job.wait` or `job.read` answered without error.
     job_touched: bool,
+    /// The calls (`tool_use` ids) of the commands that answered with an error.
+    failed_ids: Vec<String>,
+    /// What the loop's failing check says (`failure_key::key`), set at the
+    /// loop's end by the runner, which reads the results.
+    failure: Option<u64>,
 }
 
 impl Commands {
@@ -313,6 +351,9 @@ impl Commands {
     pub(super) fn note_use(&mut self, u: &ToolUse, outcome: Option<bool>) {
         self.note(&u.name, outcome);
         let Some(error) = outcome else { return };
+        if error && is_command(&u.name) {
+            self.failed_ids.push(u.id.clone());
+        }
         let is = |canon: &str| u.name == canon || u.name == theseus_tools::wire_name(canon);
         if !error && JOB_CALLS.iter().any(|t| is(t)) {
             self.job_touched = true;
@@ -389,6 +430,7 @@ fn with<R>(t: &mut Turn<'_>, f: impl FnOnce(&mut State) -> R) -> R {
             failing: 0,
             edited: false,
             seen: HashSet::new(),
+            failures: HashSet::new(),
             steered: false,
             last: false,
             running: HashSet::new(),
@@ -419,7 +461,10 @@ impl TurnRunner {
     /// failure: whether the turn goes on. `going_on` is the advancer's word.
     pub(super) fn progress(&self, t: &mut Turn<'_>, i: u32, going_on: bool) -> Result<bool> {
         let guarded = self.cfg.kernel.spend_limit_mode == crate::config::SpendLimitMode::Ask;
-        let commands = std::mem::take(&mut t.checkpoint.commands);
+        let mut commands = std::mem::take(&mut t.checkpoint.commands);
+        // A failing check is told apart by what it says, read from its result.
+        commands.failure = (commands.check() == Some(false))
+            .then(|| failure_key::key(&failed_text(t, &commands.failed_ids)));
         let cost = t.cost;
         let now = Instant::now();
         // Read from the kernel; an unreadable one counts the loop as before.
@@ -454,6 +499,37 @@ impl TurnRunner {
         tell(t, verdict.word(), i, (&signals, deadline), &text)?;
         Ok(true)
     }
+}
+
+/// What the commands `ids` answered with, from the turn's transcript, where
+/// their results are among the last nodes. A transcript that cannot be read
+/// says nothing.
+fn failed_text(t: &Turn<'_>, ids: &[String]) -> String {
+    let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) else {
+        return String::new();
+    };
+    let mut text = String::new();
+    let mut found = 0;
+    for (_, n) in nodes.iter().rev().take(RESULT_WINDOW) {
+        let crate::node::Body::ToolResult {
+            tool_use_id,
+            content,
+            late: false,
+            ..
+        } = &n.body
+        else {
+            continue;
+        };
+        if ids.contains(tool_use_id) {
+            text.push_str(content);
+            text.push('\n');
+            found += 1;
+        }
+        if found == ids.len() {
+            break;
+        }
+    }
+    text
 }
 
 /// A decision the turn's progress made at loop `i`: its `turn.progress` row,
@@ -827,6 +903,7 @@ mod tests {
             failing: 0,
             edited: false,
             seen: HashSet::new(),
+            failures: HashSet::new(),
             steered: false,
             last: false,
             running: HashSet::new(),
@@ -881,6 +958,7 @@ mod tests {
             failing: 0,
             edited: true,
             seen: HashSet::new(),
+            failures: HashSet::new(),
             steered: false,
             last: false,
             running: HashSet::new(),
@@ -1138,5 +1216,131 @@ mod tests {
         st.end_loop(Commands::default(), None);
         assert_eq!(at(&st, 0.55), Verdict::Steer);
         assert_eq!(at(&st, 0.9), Verdict::Stop);
+    }
+
+    /// A failing command whose failure has `key`.
+    fn red(key: u64) -> Commands {
+        let mut c = Commands::default();
+        c.note("proc_run", Some(true));
+        c.failure = Some(key);
+        c
+    }
+
+    /// A loop that edited and checked nothing.
+    fn edit() -> Commands {
+        Commands {
+            edited: true,
+            ..Commands::default()
+        }
+    }
+
+    /// The stop's condition for the turn at `time` of its deadline.
+    fn stop_at(st: &State, time: f64) -> Option<StopCondition> {
+        stop_condition(&Signals {
+            time: Some(time),
+            ..st.signals(None, Instant::now(), false)
+        })
+    }
+
+    /// The same failure six loops running is a stall, at any share of the
+    /// deadline (theseus-fez4q F1): the first failure is the baseline, so it is
+    /// the sixth loop, not the seventh.
+    #[test]
+    fn the_same_failure_six_loops_running_stalls() {
+        let mut st = edited_state();
+        for n in 1..=STALL_LOOPS {
+            st.end_loop(red(7), None);
+            assert_eq!(counts(&st), (n, n, n), "loop {n}");
+            let want = (n >= STALL_LOOPS).then_some(StopCondition::Stalled);
+            assert_eq!(stop_at(&st, 0.1), want, "loop {n}");
+        }
+        assert_eq!(st.failures.len(), 1);
+    }
+
+    /// A failure that moves is progress, and only the steer's count is
+    /// reset: edit, red, edit, red with each red another failure never stalls
+    /// at a tenth of the deadline, and the clock still ends the turn at its
+    /// backstop.
+    #[test]
+    fn a_failure_that_moves_resets_the_steers_count_and_not_the_stops() {
+        let mut st = edited_state();
+        st.end_loop(edit(), None);
+        let mut after_red = Vec::new();
+        for key in 1..=8 {
+            st.end_loop(red(key), None);
+            after_red.push(st.since_pass);
+            assert_eq!(stop_at(&st, 0.1), None, "red {key}");
+            st.end_loop(edit(), None);
+            assert_eq!(stop_at(&st, 0.1), None, "edit after red {key}");
+        }
+        assert_eq!(
+            after_red,
+            [2, 0, 0, 0, 0, 0, 0, 0],
+            "the first failure is the baseline, the rest moved"
+        );
+        assert_eq!(counts(&st), (1, 17, 0));
+        assert_eq!(st.failures.len(), 8);
+        assert_eq!(stop_at(&st, 0.9), None, "progress postpones the clock");
+        assert_eq!(stop_at(&st, 0.96), Some(StopCondition::ClockBackstop));
+    }
+
+    /// A flip between two failures is not a move the second time round.
+    #[test]
+    fn a_failure_that_flips_between_two_is_a_stall() {
+        let mut st = edited_state();
+        st.end_loop(edit(), None);
+        let mut after_red = Vec::new();
+        for key in [1, 2, 1, 2, 1, 2] {
+            st.end_loop(red(key), None);
+            after_red.push(st.since_pass);
+            st.end_loop(edit(), None);
+        }
+        assert_eq!(after_red, [2, 0, 2, 4, 6, 8]);
+        assert_eq!(st.failures.len(), 2);
+        assert_eq!(stop_at(&st, 0.1), Some(StopCondition::Stalled));
+    }
+
+    /// A failure met before a passing check is no move after it, and one the
+    /// turn has not met is; a full set moves nothing; a check whose text could
+    /// not be read has no key.
+    #[test]
+    fn what_counts_as_a_failure_the_turn_has_not_met() {
+        let mut st = edited_state();
+        st.end_loop(red(1), None);
+        let mut pass = Commands::default();
+        pass.note("proc_run", Some(false));
+        st.end_loop(pass, None);
+        assert_eq!(counts(&st), (0, 0, 0));
+        st.end_loop(red(1), None);
+        assert_eq!(st.since_pass, 1, "the same failure back is not a move");
+        st.end_loop(red(2), None);
+        assert_eq!(st.since_pass, 0, "another one is");
+        let mut unread = Commands::default();
+        unread.note("proc_run", Some(true));
+        assert_eq!(unread.failure, None);
+        st.end_loop(unread, None);
+        assert_eq!(st.since_pass, 1, "no key, no move");
+        let mut full = edited_state();
+        full.failures = (0..FAILURES_MAX as u64).collect();
+        full.end_loop(red(u64::MAX), None);
+        assert_eq!(full.since_pass, 1, "past the cap nothing is new");
+        assert_eq!(full.failures.len(), FAILURES_MAX);
+    }
+
+    /// The calls of the commands that failed are kept, by either name.
+    #[test]
+    fn a_failed_command_is_remembered_by_its_call() {
+        let call = |id: &str, tool: &str| ToolUse {
+            id: id.into(),
+            name: tool.into(),
+            input: serde_json::json!({}),
+        };
+        let mut c = Commands::default();
+        c.note_use(&call("a", "proc_run"), Some(true));
+        c.note_use(&call("b", "proc_run"), Some(false));
+        c.note_use(&call("c", "fs_read"), Some(true));
+        c.note_use(&call("d", "proc.run"), Some(true));
+        c.note_use(&call("e", "proc_run"), None);
+        assert_eq!(c.failed_ids, ["a", "d"]);
     }
 }
