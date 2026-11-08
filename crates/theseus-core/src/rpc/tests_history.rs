@@ -351,7 +351,11 @@ fn an_imported_sessions_text_reaches_only_a_surface_that_reads_private_text() {
     assert!(owner.nodes.iter().all(|n| n.text.starts_with("message ")));
 
     let untrusted = ask(&imported, false);
-    assert_eq!(untrusted.nodes.len(), 3, "the nodes are listed, not dropped");
+    assert_eq!(
+        untrusted.nodes.len(),
+        3,
+        "the nodes are listed, not dropped"
+    );
     for n in &untrusted.nodes {
         assert!(!n.text.contains("message "), "text leaked: {}", n.text);
         assert_eq!(n.text, crate::books::WITHHELD);
