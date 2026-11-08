@@ -372,6 +372,14 @@ struct OwnBreaker {
     breaker: Mutex<Breaker>,
 }
 
+/// A pack's id: what stands before its version in its name (`recall_cross`
+/// of `recall_cross.v1`). A pack's id is a snake id (`pack::safe_id`'s
+/// rule: lower-case letters, digits and `_`), so it holds no dot and the
+/// first one ends it; a string with no dot is an id already.
+fn pack_id(pack: &str) -> &str {
+    pack.split('.').next().unwrap_or(pack)
+}
+
 impl JevJudge {
     pub fn new(
         client: JevClient,
@@ -388,7 +396,9 @@ impl JevJudge {
 
     /// A breaker of its own, `name`, for `packs` (by name, `rerank.v1`):
     /// their failures and timeouts move it alone, and the shared one's
-    /// don't stop them.
+    /// don't stop them. A pack is matched by its **id**, so the whole
+    /// lineage a name belongs to answers here, learned versions included
+    /// (theseus-zbttu).
     pub fn with_breaker(mut self, name: &str, packs: &[&str], config: BreakerConfig) -> Self {
         self.own.push(OwnBreaker {
             name: name.to_string(),
@@ -422,8 +432,18 @@ impl JevJudge {
             .collect()
     }
 
+    /// The breaker `pack` answers to, matched by pack **id**, not by the
+    /// whole versioned name (theseus-zbttu): the learning loop writes new
+    /// versions of a root at run time (`recall_cross.v101` of
+    /// `recall_cross.v1`), and on an exact-name match every one of them
+    /// fell through to the shared breaker, where one slow lineage could
+    /// open the breaker of every other pack at once and no `breaker_of`
+    /// could name it.
     fn own_of(&self, pack: &str) -> Option<&OwnBreaker> {
-        self.own.iter().find(|o| o.packs.iter().any(|p| p == pack))
+        let id = pack_id(pack);
+        self.own
+            .iter()
+            .find(|o| o.packs.iter().any(|p| pack_id(p) == id))
     }
 
     fn breaker(&self) -> std::sync::MutexGuard<'_, Breaker> {
