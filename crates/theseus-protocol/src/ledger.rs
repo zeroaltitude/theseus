@@ -175,6 +175,7 @@ ledger_kinds! {
     JudgeCall = "judge.call",
     JudgeCircuit = "judge.circuit",
     JudgeLabel = "judge.label",
+    JudgeOverLine = "judge.over_line",
     JudgePaused = "judge.paused",
     JudgeProposal = "judge.proposal",
     JudgeReplay = "judge.replay",

@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use theseus_judge::price::Micros;
 use theseus_store::{kinds, NewRecord};
 
-use crate::fact::judge::{JudgeBlockBooked, JudgePaused, JudgeResumed};
+use crate::fact::judge::{JudgeBlockBooked, JudgeOverLine, JudgePaused, JudgeResumed};
 use crate::fact::Rec;
 use crate::store::Store;
 
@@ -43,6 +43,15 @@ pub const BLOCK_MICROS: Micros = 10_000;
 /// The part of the day's limit shadow may spend, in percent: past it shadow
 /// stops, and the rest is the live judgments' alone.
 pub const SHADOW_STOP_PERCENT: u64 = 70;
+
+/// How many times its line a class may pass before it is refused: past a
+/// line a judgment is still made, and the owner is told at the line and at
+/// each multiple of it (`1x`, `2x` ... `10x`); past this multiple the
+/// judgment is skipped, as A3/A4's spend limit's hard multiple stops a stuck
+/// loop. The ladder's unit is the class's own line, [`ShadowBudget::cap`]:
+/// shadow's 70% line, live's whole limit, so shadow's stop stays below live's
+/// at every rung and the experiments still never starve the product.
+pub const HARD_MULTIPLE: u64 = 10;
 
 /// Whose spend a reservation is: a judgment that acts (`Live`, a canary's
 /// arm included) or one that only watches (`Shadow`).
@@ -100,6 +109,10 @@ struct Day {
     paused_said: bool,
     /// The shadow line said (shadow is refused; live goes on).
     shadow_said: bool,
+    /// The highest multiple of its line each class has said today (0: none),
+    /// in memory as the pauses are: a restart says the multiple again.
+    over_live: u64,
+    over_shadow: u64,
     calls: u64,
     failed: u64,
     skipped: u64,
@@ -111,6 +124,21 @@ impl Day {
         match class {
             Class::Live => self.paused_said,
             Class::Shadow => self.shadow_said || self.paused_said,
+        }
+    }
+
+    /// The highest multiple of its line `class` has said today.
+    fn over(&self, class: Class) -> u64 {
+        match class {
+            Class::Live => self.over_live,
+            Class::Shadow => self.over_shadow,
+        }
+    }
+
+    fn set_over(&mut self, class: Class, multiple: u64) {
+        match class {
+            Class::Live => self.over_live = multiple,
+            Class::Shadow => self.over_shadow = multiple,
         }
     }
 
@@ -152,6 +180,14 @@ pub enum Said {
         day: String,
         paused_day: String,
     },
+    /// A class reached its line or a further multiple of it, and judges on.
+    OverLine {
+        class: Class,
+        day: String,
+        line: Micros,
+        multiple: u64,
+        spent: Micros,
+    },
 }
 
 impl Said {
@@ -181,6 +217,20 @@ impl Said {
                 settled_micros: *settled,
             }),
             Said::Resumed { day, paused_day } => rec.announce(&JudgeResumed { day, paused_day }),
+            Said::OverLine {
+                class,
+                day,
+                line,
+                multiple,
+                spent,
+            } => rec.announce(&JudgeOverLine {
+                what: class.what(),
+                day,
+                line_micros: *line,
+                multiple: *multiple,
+                stop_micros: line.saturating_mul(HARD_MULTIPLE),
+                spent_micros: *spent,
+            }),
         }
     }
 }
@@ -246,6 +296,20 @@ impl ShadowBudget {
         }
     }
 
+    /// Where `class` stops for the day: [`HARD_MULTIPLE`] times its line.
+    pub fn hard_cap(&self, class: Class) -> Micros {
+        self.cap(class).saturating_mul(HARD_MULTIPLE)
+    }
+
+    /// Which multiple of its line `class` is at with `after` held: 1 at the
+    /// line, 2 at twice it, and so on (0 under the line).
+    fn multiple(&self, class: Class, after: Micros) -> u64 {
+        match self.cap(class) {
+            0 => 0,
+            c => after / c,
+        }
+    }
+
     /// Whether a reservation of `need` now would ask for a frame: the
     /// first of this process (it may book a crash's rest), a new day's, a
     /// new block's, or the day's first pause (theseus-xkbs). A read of
@@ -256,8 +320,11 @@ impl ShadowBudget {
             return true;
         }
         let held = d.stored.spent_micros + d.in_flight;
-        if held + need > self.cap(class) {
+        if held + need > self.hard_cap(class) {
             return !d.said(class);
+        }
+        if self.multiple(class, held + need) > d.over(class) {
+            return true;
         }
         held + need > d.stored.reserved_micros
     }
@@ -340,7 +407,7 @@ impl ShadowBudget {
             };
         }
         let held = d.stored.spent_micros + d.in_flight;
-        let cap = self.cap(class);
+        let cap = self.hard_cap(class);
         if held + need > cap {
             d.skipped += 1;
             if !d.said(class) {
@@ -355,6 +422,7 @@ impl ShadowBudget {
             }
             return Reserve::Paused(out, said);
         }
+        self.say_over_line(&mut d, class, held + need, &mut out, &mut said);
         if let Some((r, hook)) = self.ceiling_refuses(need) {
             d.skipped += 1;
             out.extend((!out.is_empty()).then(|| meta(&d.stored)));
@@ -373,6 +441,42 @@ impl ShadowBudget {
         }
         d.in_flight += need;
         Reserve::Granted(out, said)
+    }
+
+    /// At the line and at each further multiple of it: one row and one
+    /// sentence, and the judgment goes on (the stop is the hard multiple).
+    fn say_over_line(
+        &self,
+        d: &mut Day,
+        class: Class,
+        after: Micros,
+        out: &mut Vec<NewRecord>,
+        said: &mut Vec<Said>,
+    ) {
+        let multiple = self.multiple(class, after);
+        if multiple <= d.over(class) {
+            return;
+        }
+        d.set_over(class, multiple);
+        let line = self.cap(class);
+        let over = JudgeOverLine {
+            what: class.what(),
+            day: &d.stored.day,
+            line_micros: line,
+            multiple,
+            stop_micros: self.hard_cap(class),
+            spent_micros: d.stored.spent_micros,
+        };
+        if let Ok(r) = crate::fact::row(&over, None, None) {
+            out.push(r);
+            said.push(Said::OverLine {
+                class,
+                day: d.stored.day.clone(),
+                line,
+                multiple,
+                spent: d.stored.spent_micros,
+            });
+        }
     }
 
     /// Whether the day ceiling refuses a judgment of `need` (it holds it

@@ -473,6 +473,7 @@ facts![
     ontology::MembershipSet<'static>,
     ontology::KindSet<'static>,
     judge::JudgeCall<'static>,
+    judge::JudgeOverLine<'static>,
     judge::JudgePaused<'static>,
     judge::JudgeResumed<'static>,
     judge::JudgeBlockBooked<'static>,

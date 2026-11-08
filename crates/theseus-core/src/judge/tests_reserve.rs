@@ -43,6 +43,17 @@ fn core_on(dir: &std::path::Path, jev: &FakeJev) -> Arc<Core> {
     Core::build(p).unwrap()
 }
 
+/// Reservations of `NEED` from shadow until the day refuses one: how many it
+/// let through (judging goes on past the line, to ten times it).
+fn fill(svc: &super::JudgeService, day: &str) -> u32 {
+    let mut n = 0;
+    while svc.reserve(day, NEED, Class::Shadow) {
+        n += 1;
+        assert!(n < 1000, "never refused");
+    }
+    n
+}
+
 /// A day's limit reached: one `judge.paused` row and one line, however many
 /// reservations the day refuses, and both once the row's frame is written.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -53,20 +64,24 @@ async fn a_days_limit_says_its_pause_once() {
         c.judge.shadow_limit_usd_per_day = LIMIT;
     });
     let svc = &r.core.runner.judge;
-    assert!(
-        svc.reserve("2026-10-01", NEED, Class::Shadow),
-        "the first fits"
-    );
     assert!(said(&r.core, "Shadow judging paused").is_empty());
+    assert_eq!(
+        fill(svc, "2026-10-01"),
+        14,
+        "judging goes on to ten times shadow's line (1,400)"
+    );
     for _ in 0..3 {
         assert!(
             !svc.reserve("2026-10-01", NEED, Class::Shadow),
-            "refused at shadow's line"
+            "refused past ten times shadow's line"
         );
     }
     let rows = kinds(&r.core.store, "judge.paused");
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0].data["limit_micros"], 140, "shadow's line");
+    assert_eq!(
+        rows[0].data["limit_micros"], 1400,
+        "ten times shadow's line"
+    );
     assert_eq!(rows[0].data["what"], "shadow");
     assert_eq!(
         said(&r.core, "Shadow judging paused"),
@@ -84,7 +99,7 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     let dir = tempfile::tempdir().unwrap();
     let core = core_on(dir.path(), &jev);
     let svc = &core.runner.judge;
-    assert!(svc.reserve("2026-10-01", NEED, Class::Shadow));
+    assert_eq!(fill(svc, "2026-10-01"), 14);
     assert!(!svc.reserve("2026-10-01", NEED, Class::Shadow));
     assert!(
         said(&core, "Shadow judging resumed").is_empty(),
@@ -92,7 +107,9 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     );
     // The first judgment settles, as a call that came back does; what is
     // still in flight at midnight carries into the next day.
-    svc.budget.settle("2026-10-01", NEED, 0, true, false);
+    for _ in 0..14 {
+        svc.budget.settle("2026-10-01", NEED, 0, true, false);
+    }
     assert!(
         svc.reserve("2026-10-02", NEED, Class::Shadow),
         "the new day has room"
@@ -104,7 +121,7 @@ async fn the_next_days_first_reservation_says_it_resumed_and_a_restart_does_not(
     let expect = "Shadow judging resumed: a new day (2026-10-02) after 2026-10-01's pause.";
     assert_eq!(said(&core, "Shadow judging resumed"), [expect]);
     // The day's other reservations say nothing more.
-    assert!(!svc.reserve("2026-10-02", NEED, Class::Shadow));
+    assert_eq!(fill(svc, "2026-10-02"), 13, "the rest of the new day");
     assert_eq!(said(&core, "Shadow judging resumed"), [expect], "once");
     assert_eq!(kinds(&core.store, "judge.resumed").len(), 1);
     drop(core);
@@ -177,10 +194,11 @@ fn made(svc: &super::JudgeService, day: &str, class: Class) -> u32 {
     n
 }
 
-/// The day's budget has two lines (theseus-0j2.16): shadow stops at 70% of
-/// the limit, and live judgments run on to the whole of it. With the day's
-/// 200 micros, shadow makes 14 judgments of 10 and is refused; live then
-/// makes the 6 that are left. Both counts are asserted, and each refusal
+/// The day's budget has two lines (theseus-0j2.16): shadow's is 70% of the
+/// limit, live's the whole of it, and each class stops at ten times its own
+/// line, so shadow's stop (1,400) is always below live's (2,000). With the
+/// day's 200 micros, shadow makes 140 judgments of 10 and is refused; live
+/// then makes the 60 that are left. Both counts are asserted, and each refusal
 /// says itself once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shadow_stops_at_seventy_percent_and_live_runs_on() {
@@ -194,25 +212,25 @@ async fn shadow_stops_at_seventy_percent_and_live_runs_on() {
     assert_eq!(svc.budget.cap(Class::Shadow), 140);
     assert_eq!(svc.budget.cap(Class::Live), 200);
 
-    assert_eq!(made(svc, day, Class::Shadow), 14, "shadow, to 70% of 200");
+    assert_eq!(made(svc, day, Class::Shadow), 140, "shadow, to 10x 140");
     assert!(!spend_one(svc, day, Class::Shadow), "shadow stays stopped");
     assert!(svc.budget.shadow_paused(day), "shadow is paused");
     assert!(!svc.budget.paused(day), "the day's limit is not reached");
     let rows = kinds(&r.core.store, "judge.paused");
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].data["what"], "shadow");
-    assert_eq!(rows[0].data["limit_micros"], 140);
+    assert_eq!(rows[0].data["limit_micros"], 1400);
 
-    assert_eq!(made(svc, day, Class::Live), 6, "live, on to the limit");
+    assert_eq!(made(svc, day, Class::Live), 60, "live, on to 10x 200");
     assert!(svc.budget.paused(day), "now the limit is reached");
     assert!(!spend_one(svc, day, Class::Shadow));
     let rows = kinds(&r.core.store, "judge.paused");
     assert_eq!(rows.len(), 2, "one row for each line: {rows:?}");
     assert_eq!(rows[1].data["what"], "live");
-    assert_eq!(rows[1].data["limit_micros"], 200);
+    assert_eq!(rows[1].data["limit_micros"], 2000);
     assert_eq!(said(&r.core, "Shadow judging paused").len(), 1);
     assert_eq!(said(&r.core, "Judging paused").len(), 1);
-    assert_eq!(svc.budget.today(&r.core.store, day).spent_micros, 200);
+    assert_eq!(svc.budget.today(&r.core.store, day).spent_micros, 2000);
 }
 
 /// Live spend past shadow's line leaves shadow no room at all, while live
@@ -227,12 +245,12 @@ async fn live_spend_past_the_shadow_line_leaves_shadow_nothing() {
     let svc = &r.core.runner.judge;
     let day = "2026-10-01";
     let live = made(svc, day, Class::Live);
-    assert_eq!(live, 20, "live may take the whole day");
+    assert_eq!(live, 200, "live may take ten times the limit");
     assert_eq!(made(svc, day, Class::Shadow), 0, "shadow had no room");
     // A new day starts both lines afresh.
     let next = "2026-10-02";
-    assert_eq!(made(svc, next, Class::Shadow), 14);
-    assert_eq!(made(svc, next, Class::Live), 6);
+    assert_eq!(made(svc, next, Class::Shadow), 140);
+    assert_eq!(made(svc, next, Class::Live), 60);
 }
 
 /// What the ask's mode makes of a judgment: a canary's arm and a live ask
@@ -314,4 +332,39 @@ async fn a_shed_report_says_its_line() {
         n => format!("Jev shed {n} shadow judgments: every in-flight permit was taken."),
     };
     assert_eq!(said(&r.core, "Jev shed"), [want]);
+}
+
+/// The ladder (the owner: "overage is notify until 10x, like others, then
+/// skip"): past its line a class is told at the line and at each multiple of
+/// it and judges on; only past ten times the line is a judgment skipped. The
+/// unit is the class's own line: shadow's 140 here (70% of the day's 200).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn past_its_line_a_class_is_told_at_each_multiple_and_skipped_only_past_ten() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig_with(vec![], Some(&jev), |c| {
+        c.narrative = true;
+        c.judge.shadow_limit_usd_per_day = LIMIT;
+    });
+    let svc = &r.core.runner.judge;
+    let day = "2026-10-01";
+    let mut granted = 0;
+    for _ in 0..20 {
+        if svc.reserve(day, NEED, Class::Shadow) {
+            granted += 1;
+        }
+    }
+    // 100 a call: the 14th takes the held spend to 1,400, ten times the line.
+    assert_eq!(granted, 14, "judging goes on to ten times the line");
+    let over = kinds(&r.core.store, "judge.over_line");
+    let multiples: Vec<u64> = over
+        .iter()
+        .map(|o| o.data["multiple"].as_u64().unwrap())
+        .collect();
+    assert_eq!(multiples, (1..=10).collect::<Vec<u64>>(), "{over:?}");
+    assert!(over.iter().all(|o| o.data["line_micros"] == 140));
+    let paused = kinds(&r.core.store, "judge.paused");
+    assert_eq!(paused.len(), 1, "{paused:?}");
+    assert_eq!(paused[0].data["limit_micros"], 1400, "ten times the line");
+    assert_eq!(said(&r.core, "Shadow judging is at ").len(), 10);
+    assert_eq!(said(&r.core, "Shadow judging paused").len(), 1);
 }
