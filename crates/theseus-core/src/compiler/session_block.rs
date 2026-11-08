@@ -5,11 +5,14 @@
 //! of one session's goes there (`crates/theseus-core/AGENTS.md`). What is
 //! the session's own, and the same for its every request, goes here: its
 //! directory, `Directory: /work/harbour-tides`, the one `ToolRuntime::cwd_for`
-//! resolves for its tools, and the CPUs its commands have, read once per
-//! process (`cpu::commands`, theseus-yct32). Static for the session: it
-//! changes only when the session moves (`turn.submit` with another `dir`),
-//! which is a `system_changed` recompile, as an edited context file is. So a request
-//! that replays a session's prefix replays this block's bytes unchanged.
+//! resolves for its tools, the CPUs its commands have, read once per
+//! process (`cpu::commands`, theseus-yct32), and the OS and architecture they
+//! run on, read once per process too (`cpu::os`, theseus-wadu). Static for the
+//! session: it changes only when the session moves (`turn.submit` with another
+//! `dir`), which is a `system_changed` recompile, as an edited context file is.
+//! So a request that replays a session's prefix replays this block's bytes
+//! unchanged.
+//!
 //! `project-context` (a later row) fills the same block.
 //!
 //! This block takes the fourth breakpoint; no other block may: the header,
@@ -32,9 +35,10 @@ impl TurnRunner {
             return String::new();
         }
         format!(
-            "Directory: {}\n{}",
+            "Directory: {}\n{}\n{}",
             self.tools.cwd_for(dir).display(),
-            crate::cpu::commands::Cpus::of_commands().fact()
+            crate::cpu::commands::Cpus::of_commands().fact(),
+            crate::cpu::os::Os::of_machine().fact(),
         )
     }
 }
