@@ -60,6 +60,8 @@ pub mod probe;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_content_v4;
+#[cfg(test)]
 mod tests_job_sites;
 #[cfg(test)]
 mod tests_onto;
