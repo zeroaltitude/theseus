@@ -7,7 +7,10 @@
 //! say about the owner that should hold from now on, as unconfirmed
 //! `card.obs.<id>` records (`state::obs_record`). They are private notes:
 //! never a node, never indexed, never recalled, in no prompt and in no shared
-//! place. The card's live pass turns them into questions.
+//! place. The card's live pass turns them into questions. A turn reads them
+//! only by asking for them, in a place the owner is alone in (`card.observed`,
+//! `card/tool.rs`): the notes are still in no prompt, and only the tool's
+//! contract is in the request.
 //!
 //! It copies `people.v1` live (`judge/people/live.rs`) and keeps its
 //! discipline: never a task's session, never a place the owner is not alone
@@ -169,7 +172,7 @@ impl Core {
     }
 
     /// Whether `sid` is a private place only the owner writes in.
-    fn owner_alone_in(&self, sid: &str) -> bool {
+    pub(crate) fn owner_alone_in(&self, sid: &str) -> bool {
         let class = self.runner.class_of(sid);
         let place = self.outbox.try_target(sid).ok().flatten();
         crate::capture::owner_alone(class, place.as_deref())

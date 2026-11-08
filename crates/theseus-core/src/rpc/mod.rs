@@ -1031,6 +1031,7 @@ impl Core {
         core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
         core.tools.thread_read.attach(&core);
+        core.tools.card_observed.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools
             .admission

@@ -503,8 +503,10 @@ async fn the_model_plans_a_milestone_and_attaches_its_conversation() {
 
 /// And 48,000 until `task_fan_out` joined the catalog (theseus-z9mze.3): its definition grows the tools
 /// block by about 500 tokens. 48,250 and up hold (to 52,000, the sweep's end) for this suite, and 48,500 and up for the
-/// others in this family of tests; 49,000 is the middle of the near end of that band.
-const WINDOW: u64 = 49_000;
+/// others in this family of tests; 49,000 is the middle of the near end of that band. And 49,000 until
+/// `card_observed` joined the catalog (theseus-6f8t0: deferred, counted whole here; 49,200 and 49,400 still
+/// fail in this family, 49,600 to 53,000 hold: a sweep at its join); 50,000 is inside the near end again.
+const WINDOW: u64 = 50_000;
 
 fn summary(text: &str) -> Scripted {
     Scripted::Billed {

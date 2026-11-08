@@ -108,11 +108,11 @@ async fn exchange(core: &Arc<Core>, sid: &str, n: usize, at: usize) {
     exchange_of(core, sid, n, at, M1).await;
 }
 
-/// `n` owner lines, the one at `at` being `text`.
-async fn exchange_of(core: &Arc<Core>, sid: &str, n: usize, at: usize, text: &str) {
+/// [`exchange`], with the line at `at` given.
+async fn exchange_of(core: &Arc<Core>, sid: &str, n: usize, at: usize, line: &str) {
     for i in 0..n {
         let t = if i == at {
-            text.to_string()
+            line.to_string()
         } else {
             format!("Mooring line {i}: is it chafing at low tide?")
         };
@@ -903,4 +903,50 @@ async fn the_live_pass_sweeps_first_and_asks_of_what_it_read() {
     assert_eq!(obs[0].state, theseus_protocol::ObservationState::Used);
     let row = kinds(&r.core.store, "card.observed");
     assert_eq!(row[0].data["purpose"], "sweep");
+}
+
+// 12. A self-fact said in passing inside an off-topic question is learned, and
+//     a turn in the owner's own place can reach it and name it back to him.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_self_fact_inside_an_off_topic_question_is_learned_and_can_be_named() {
+    let r = rig_with(EVERY, |_| {});
+    let sid = session(&r.core, Some(&dm()));
+    script(&r, answers(json!([item("fact", ASIDE_FACT, &["L3"])])));
+    exchange_of(&r.core, &sid, EVERY, 2, ASIDE_LINE).await;
+    until("an observation", || !observed(&r.core).is_empty()).await;
+    settled(&r.core).await;
+
+    // It landed, cited to the line he said it in.
+    let obs = observed(&r.core);
+    assert_eq!(obs.len(), 1, "{obs:?}");
+    assert_eq!(obs[0].text, ASIDE_FACT);
+    assert_eq!(obs[0].state, theseus_protocol::ObservationState::Open);
+    let node = node_ids(&r.core, &sid)
+        .into_iter()
+        .find(|(_, t)| t == ASIDE_LINE)
+        .unwrap()
+        .0;
+    assert_eq!(obs[0].nodes, vec![node]);
+
+    // And a turn can reach it: a tool offers the card's open observations,
+    // and its answer names the fact and cites the day it was learned.
+    assert!(
+        r.core
+            .tools
+            .registry
+            .get(crate::card::tool::OBSERVED)
+            .is_some(),
+        "no tool offers the card's notes: asked what it has learned about the \
+         owner today, a turn has no way to name one"
+    );
+    let out = crate::card::tool::call(r.core.clone(), &sid, json!({})).unwrap();
+    assert!(out.text.contains("praying mantis"), "{}", out.text);
+    assert!(out.text.contains(&obs[0].id), "{}", out.text);
+    assert_eq!(out.meta["observations"], 1, "{}", out.meta);
+    assert_eq!(out.meta["open"], 1, "{}", out.meta);
+
+    // A shared place gets none of it: the card is the owner's alone.
+    let theirs = session(&r.core, Some(&format!("channel:{LAB}")));
+    let shared = crate::card::tool::call(r.core.clone(), &theirs, json!({})).unwrap_err();
+    assert_eq!(shared, crate::card::tool::NOT_ALONE);
 }
