@@ -215,7 +215,11 @@ async fn guidance_cut_off_at_its_cap_is_refused() {
 /// (theseus-ohiu8).
 #[tokio::test]
 async fn a_category_whose_model_always_thinks_waits_unasked() {
-    let r = rig(ANSWER, |c| c.model.live = "opus".into());
+    // Pinned: a set key is the one way to put the dream on such a model.
+    let r = rig(ANSWER, |c| {
+        c.memory.synth_profile = Some("opus".into());
+        c.model.live = "opus".into();
+    });
     plant(&r.core, "harbour", "jev:j-0001", 5);
     let (live, _) = r.core.live_profile();
     let t = r
@@ -278,7 +282,9 @@ async fn the_operators_categories_are_left_and_three_a_night_are_written() {
 /// Sessions that last used different profiles make the category wait.
 #[tokio::test]
 async fn a_category_whose_sessions_last_used_two_profiles_waits() {
-    let r = rig(ANSWER, |_| {});
+    let r = rig(ANSWER, |c| {
+        c.memory.synth_profile = Some(crate::config::memory::SUMMARY_SESSION.into())
+    });
     plant(&r.core, "harbour", "jev:j-0001", 5);
     let mut rec: SessionRecord = r.core.store.get_session("harbour-0").unwrap().unwrap();
     rec.last_target.as_mut().unwrap().profile = "another".into();
@@ -359,7 +365,11 @@ async fn dream_guidance_off_writes_nothing() {
 /// (Planted revert: one reason for every cause.)
 #[tokio::test]
 async fn a_waiting_category_says_why() {
-    let r = rig(ANSWER, |c| c.model.live = "opus".into());
+    // A set key pins, so the dream's own model (theseus-xdi65) is not in play.
+    let r = rig(ANSWER, |c| {
+        c.memory.synth_profile = Some("opus".into());
+        c.model.live = "opus".into();
+    });
     plant(&r.core, "harbour", "jev:j-0001", 5);
     let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
     assert_eq!(done.waiting, 1);
@@ -367,7 +377,9 @@ async fn a_waiting_category_says_why() {
         [("claude-opus-5-5 thinks unasked".to_string(), 1)].into();
     assert_eq!(done.waits, want);
 
-    let r = rig(ANSWER, |_| {});
+    let r = rig(ANSWER, |c| {
+        c.memory.synth_profile = Some(crate::config::memory::SUMMARY_SESSION.into())
+    });
     plant(&r.core, "harbour", "jev:j-0001", 5);
     let mut rec: SessionRecord = r.core.store.get_session("harbour-0").unwrap().unwrap();
     rec.last_target.as_mut().unwrap().profile = "another".into();
@@ -377,4 +389,66 @@ async fn a_waiting_category_says_why() {
     let want: std::collections::BTreeMap<String, u64> =
         [("sessions last used different profiles".to_string(), 1)].into();
     assert_eq!(done.waits, want);
+}
+
+/// The dream's model is route.v10's one named exception (theseus-xdi65): with
+/// `[memory] synth_profile` unset it neither asks Jev nor follows the
+/// sessions' profile, it runs Sonnet 5.5 at high effort, thinking off. The
+/// sessions last used `haikuhi` here, so a revert to "the sessions' profile"
+/// (the key's old unset meaning) sends Haiku with no effort and fails this.
+#[tokio::test]
+async fn an_unset_synth_profile_dreams_on_sonnet_at_high_effort() {
+    let r = rig(ANSWER, |c| c.model.live = "haikuhi".into());
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!((done.written.len(), done.waiting), (1, 0), "{done:?}");
+    let sent: Vec<_> = r
+        .model
+        .requests()
+        .into_iter()
+        .filter(|q| q.system.iter().any(|b| b["text"] == INSTRUCTIONS))
+        .collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].model, "claude-sonnet-5-5");
+    assert_eq!(
+        sent[0].output_config,
+        Some(serde_json::json!({"effort": "high"}))
+    );
+    assert_eq!(
+        sent[0].thinking,
+        Some(serde_json::json!({"type": "between_tools"})),
+        "thinking stays off: the cap is 250 tokens"
+    );
+}
+
+/// A set key still pins the dream, whatever the exception says: the operator
+/// can move it. (The sessions last used the live `sonnet` profile and the pin
+/// is `haikuhi`, so the model sent is the pin's.)
+#[tokio::test]
+async fn a_set_synth_profile_still_pins_the_dream() {
+    let r = rig(ANSWER, |c| c.memory.synth_profile = Some("haikuhi".into()));
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!(done.written.len(), 1, "{done:?}");
+    let sent = r.model.requests();
+    let model = &sent
+        .iter()
+        .find(|q| q.system.iter().any(|b| b["text"] == INSTRUCTIONS))
+        .expect("the dream's request")
+        .model;
+    assert_eq!(model, "claude-haiku-5-5");
+}
+
+/// The exception is not a way round the data rule: the dream reads private
+/// sessions' text, so whatever it names must be a model cleared for private
+/// material (US origin). A change of `DREAM_MODEL` to any other fails here.
+#[test]
+fn the_dreams_model_is_cleared_for_private_material() {
+    let r = rig(ANSWER, |_| {});
+    let (provider, model) = super::guidance::DREAM_MODEL;
+    assert!(
+        r.core.runner.model_cleared(provider, model),
+        "{provider}/{model} is not cleared for the owner's material"
+    );
+    assert_eq!(super::guidance::DREAM_EFFORT, crate::config::Effort::High);
 }

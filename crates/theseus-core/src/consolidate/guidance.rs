@@ -11,11 +11,14 @@
 //!   import's or a shared place's); at most [`PER_NIGHT`] a night, most held
 //!   first.
 //! - **The call**: one, through the provider path consolidation uses, so the
-//!   data rule's gate and the China-origin rule apply unchanged. Its profile
-//!   is `[memory] synth_profile`'s: `"session"` takes the profile all the
-//!   sampled sessions last used, and a category whose sessions disagree
-//!   waits, counted; so does a category whose model thinks whether asked or
-//!   not (Opus 5.5, Fable 5.x, GLM, DeepSeek), whose 250 cap would go to thinking
+//!   data rule's gate and the China-origin rule apply unchanged. **Its model
+//!   is route.v10's one named exception (theseus-xdi65), see [`DREAM_MODEL`]:**
+//!   a `[memory] synth_profile` that is set pins it, as it pins every other
+//!   background job (`"session"` takes the profile all the sampled sessions
+//!   last used, and a category whose sessions disagree waits, counted), and an
+//!   unset key does not ask Jev but runs [`DREAM_MODEL`] at [`DREAM_EFFORT`].
+//!   A category whose model thinks whether asked or not (Opus 5.5, Fable 5.x,
+//!   GLM, DeepSeek) waits too, since its 250 cap would go to thinking
 //!   (theseus-ohiu8). The request holds the category's name and path, and for
 //!   its newest [`SAMPLE`] sessions the title and the first and last message
 //!   the person wrote, each cut to [`TEXT_CHARS`] characters and scrubbed. A
@@ -50,6 +53,7 @@ use theseus_protocol::LedgerKind;
 use theseus_store::pages::ledger_kind_session;
 use theseus_store::{kinds, Page, Store as _};
 
+use crate::config::Effort;
 use crate::judge::spend;
 use crate::node::{Body, Node, Origin as NodeOrigin};
 use crate::places::PlaceClass;
@@ -72,6 +76,37 @@ pub const TEXT_CHARS: usize = 300;
 pub const MAX_TOKENS: u32 = 250;
 /// The META record of the night's spend, by local day.
 pub const MARK: &str = "onto.dream.last";
+
+/// **The one model choice route.v10 does not make** (theseus-xdi65). Every
+/// other background job with an unset profile key asks Jev (`job_model`); the
+/// dream's guidance does not, and runs this model when `[memory]
+/// synth_profile` is unset. The owner's ruling (2026-11-06): "given that
+/// dreaming is coding, this is probably sonnet high".
+///
+/// Why it earns an exception against "Jev chooses every model":
+/// - **No turn, no conversation.** It writes at most three 400-character
+///   facts a night, from sessions' titles and two messages each, with no live
+///   exchange for Jev's route lane to read and nothing a person waits on.
+/// - **It writes into every later compile.** A guidance becomes part of the
+///   system block of every session that holds the category, so a weak
+///   writer's mistake repeats across sessions; the work is the careful
+///   writing the owner calls coding, not a cheap triage, so the model is
+///   fixed at the strong end instead of left to a price-driven pick.
+/// - **Its cost is bounded elsewhere**: three calls at a 250-token cap, under
+///   `[memory] synth_limit_usd_per_day`, reserved at worst case first.
+///
+/// The data rule is not part of the exception: the call still goes through
+/// the provider chokepoint, and the test `the_dreams_model_is_cleared_for_
+/// private_material` fails if this names a model not of US origin. A set
+/// `synth_profile` still pins, so the operator can move the dream; only the
+/// unset key's meaning is this constant, not "ask Jev". The exception is
+/// listed in `crates/theseus-core/AGENTS.md` ("The one site that is not
+/// Jev's") and in the `[memory] synth_profile` template comment.
+pub const DREAM_MODEL: (&str, &str) = ("anthropic", "claude-sonnet-5-5");
+/// The effort [`DREAM_MODEL`] writes at: sent as `output_config.effort`, with
+/// thinking still off (a high effort with the cap of 250 tokens would be
+/// spent thinking, theseus-050g2).
+pub const DREAM_EFFORT: Effort = Effort::High;
 
 /// What the profile is told, before the sessions.
 pub const INSTRUCTIONS: &str = "The sessions below belong to one category of a person's work. \
@@ -286,12 +321,22 @@ impl Core {
     > {
         let sample: Vec<&SessionRecord> = sessions.iter().take(SAMPLE).collect();
         let ids: Vec<&str> = sample.iter().map(|s| s.session_id.as_str()).collect();
-        let profile = self.session_profile(&ids).map_err(|_| Wait::Profiles)?;
         let (live, _) = self.live_profile();
-        let target = self
-            .runner
-            .resolve_target(&live, Some(&profile), None, None)
-            .map_err(|_| Wait::Profile)?;
+        // A set key pins, as at every background site. Unset is the named
+        // exception ([`DREAM_MODEL`]): not Jev's, and not the sessions' own.
+        let (target, effort) = if self.runner.memory.cfg().synth_profile.is_some() {
+            let profile = self.session_profile(&ids).map_err(|_| Wait::Profiles)?;
+            let target = self
+                .runner
+                .resolve_target(&live, Some(&profile), None, None);
+            (target.map_err(|_| Wait::Profile)?, None)
+        } else {
+            let (provider, model) = DREAM_MODEL;
+            let target = self
+                .runner
+                .resolve_target(&live, None, Some(provider), Some(model));
+            (target.map_err(|_| Wait::Profile)?, Some(DREAM_EFFORT))
+        };
         let provider = self
             .runner
             .providers
@@ -335,7 +380,9 @@ impl Core {
         let thinking = self.runner.catalog.thinking_off(&target.model);
         let model = (target.model.as_str(), thinking);
         let category = o.category(id).ok_or(Wait::NoCategory)?;
-        let request = request_for(model, category, &path, &seen, &|t| scrubber.scrub(t).0);
+        let mut request = request_for(model, category, &path, &seen, &|t| scrubber.scrub(t).0);
+        request.output_config =
+            crate::compiler::output_config(self.runner.catalog.get(&target.model), effort);
         let need = self.audit_reserve(&request).ok_or(Wait::NoPrice)?;
         Ok((request, target, provider, need))
     }

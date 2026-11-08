@@ -265,8 +265,9 @@ impl Core {
         &self,
         sessions: &[&str],
     ) -> Result<String, (&'static str, String)> {
-        // Unset reads as `session` here: where Jev is not asked (the dream's
-        // guidance, theseus-xdi65), the key's old default stands.
+        // Unset reads as `session` here, for a caller that has no better word.
+        // The dream's guidance has: it runs `DREAM_MODEL` when the key is unset
+        // and calls this only for a set one (theseus-xdi65).
         let word = self
             .runner
             .memory
