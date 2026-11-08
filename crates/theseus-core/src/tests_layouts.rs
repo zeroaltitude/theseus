@@ -206,7 +206,35 @@ fn a_format_54_routine_reads_as_one_that_runs_until_it_is_paused() {
     assert_eq!(serde_json::to_string(&s).unwrap(), ROUTINE_AT_54);
 }
 
+/// An imported session's record as format 56 wrote it, its `imported` block
+/// before the divergence mark (`diverged_at`, theseus-ectzg): it reads with no
+/// mark and writes back byte for byte, the key left out while there is none.
+/// The pipeline's own topic label is in `labels.topic`, which the mark never
+/// enters. By hand, in the layout the build before theseus-ectzg writes: the
+/// fields of `SessionRecord` and `ImportedFrom` in the order they are declared
+/// at a2b44fd1, an optional one left out at its default.
+pub(crate) const SESSION_IMPORTED_BEFORE_DIVERGENCE: &str = r#"{"session_id":"ses_ep0000000000000000000000000000000000000000000000000000000000000560","kind":"conversation","label":"imported","created_at_unix_ms":1790000000560,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"last_active_ms":1790000000569,"cost_usd":0.0,"tool_calls":0,"title":"Message 0: the tide log stays in the boathouse ledger.","imported":{"tag":"openclaw-sync-2026-10","episode_id":"ep_0000000000000000000000000000000000000000000000000000000000000560","hash":"5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e","source":"openclaw-sync","agent":"main","place":{"kind":"dm","name":null,"id":null},"labels":{"sensitivity":"personal","partner":null,"topic":["garden/beds"],"book_hint":null,"credential_redacted":false},"as_of":{"start_ms":1790000000560,"end_ms":1790000000569},"messages":10,"summary":false,"file":"episodes-2026-10.jsonl","line":4,"imported_at_ms":1790000000570}}"#;
+
+#[test]
+fn an_imported_session_from_before_the_divergence_mark_reads_with_none() {
+    let r: SessionRecord = serde_json::from_str(SESSION_IMPORTED_BEFORE_DIVERGENCE).unwrap();
+    let imp = r.imported.as_deref().expect("an imported session");
+    assert!(imp.diverged_at.is_empty());
+    assert_eq!(imp.labels.topic, vec!["garden/beds".to_string()]);
+    assert_eq!((imp.messages, imp.erased.is_none()), (10, true));
+    assert_eq!(
+        serde_json::to_string(&r).unwrap(),
+        SESSION_IMPORTED_BEFORE_DIVERGENCE
+    );
+}
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "an imported session at format 56 (theseus-1kw2v's): before its `imported` block took the divergence mark (theseus-ectzg)",
+        bytes: SESSION_IMPORTED_BEFORE_DIVERGENCE,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::META,
         layout: "a routine at format 54 (theseus-52tut's grant on its wake): before a start, an optional stop and what a run carries (55, theseus-97b8c)",

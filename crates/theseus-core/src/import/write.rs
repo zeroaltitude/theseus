@@ -219,10 +219,14 @@ fn import_batch_cut(
                 continue;
             }
             Took::Wrote { tag, nodes, grew } => {
-                out.touched.push(ImportTouched {
-                    session_id: sid,
-                    tag: tag.clone(),
-                });
+                // A take that wrote no node (a rewrite that added no message,
+                // `append`) has nothing new for the people step.
+                if nodes > 0 || !grew {
+                    out.touched.push(ImportTouched {
+                        session_id: sid,
+                        tag: tag.clone(),
+                    });
+                }
                 let t = frame.imported.entry(tag).or_default();
                 t.1 += nodes;
                 out.nodes += nodes;
@@ -272,13 +276,15 @@ enum Took {
     Skipped,
     /// Not written, and why (named in the result).
     Refused(String),
-    /// New, or appended to: the tag that holds its session, and its nodes.
+    /// New, or appended to: the tag that holds its session, and its nodes
+    /// (none, for a diverged session taken quietly).
     Wrote { tag: String, nodes: u64, grew: bool },
 }
 
 /// One episode of a batch: skipped when held with the same hash, refused when
-/// erased or when its stored messages are not a prefix of its own (`append`),
-/// else its records added to `frame` and its tag's counts moved. `seen` is
+/// erased, when none of its stored messages is in it or when it adds nothing
+/// and diverged nowhere (`append`), else its records added to `frame` and its
+/// tag's counts moved. `seen` is
 /// the batch's episodes by id and hash: their records are not written yet.
 fn take(
     store: &Store,

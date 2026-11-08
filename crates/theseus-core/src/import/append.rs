@@ -5,8 +5,7 @@
 //!   a digest kept on the session: the session's nodes in the order they
 //!   were written must equal the new episode's first messages, each with the
 //!   same `idx` and `sha256`. The read costs the session's nodes (one
-//!   cached decode each) and only when an episode's hash changed; nothing is
-//!   added to a stored record, so the store's format is unchanged.
+//!   cached decode each) and only when an episode's hash changed.
 //! - **Only the new messages are written**, as nodes `node_id_of(session,
 //!   idx)` at their own times, with the session's record and the tag's
 //!   counts in the same frame (an episode's records are never cut across
@@ -20,12 +19,20 @@
 //!   digest still matches the episode's message of that `idx`, never a
 //!   stored `idx` again, and records N, the first stored `idx` that
 //!   differs, once, in the session's `diverged_at`. That is a field of its
-//!   own: `labels.topic` is the ontology's input, and `import.topics` would
-//!   make a topic of any entry in it.
+//!   own, the one field this step adds to a stored record: `labels.topic` is
+//!   the ontology's input, and `import.topics` would make a topic of any
+//!   entry in it.
+//! - **A divergence with nothing after the last match is taken quietly**: no
+//!   node is written, the session's hash moves to the episode's and it takes
+//!   the mark, so the next run finds the hash held and skips it. It counts in
+//!   the batch's `appended` (a take) but not in `touched` (nothing is new to
+//!   the people step). Refused, a session that was rewritten and then went
+//!   quiet would be rejected every night.
 //! - **Anything else is refused and named**: an episode where no stored
-//!   message matches (another episode under a reused id), a divergence
-//!   with nothing after the last match to add (the first differing `idx`),
-//!   or an episode that adds nothing (the same messages with another hash: its tag, place or
+//!   message matches (another episode under a reused id), an episode that is
+//!   only the stored session's first messages (an older or cut view: taken,
+//!   it would move the hash back), or an episode that adds nothing and
+//!   diverged nowhere (the same messages with another hash: its tag, place or
 //!   labels changed). An erased session is never appended to.
 
 use std::collections::BTreeMap;
@@ -41,7 +48,8 @@ use crate::session::SessionRecord;
 use crate::store::Store;
 
 /// What an append would write: where the new messages start in the
-/// episode, and its new summary.
+/// episode, and its new summary. Nothing at all to write but the session's
+/// record is a plan too, when the prefix diverged (`diverged`).
 pub(super) struct Plan {
     /// The episode's messages before this index are stored already.
     pub from: usize,
@@ -71,6 +79,18 @@ pub(super) fn plan(
     let (from, diverged) = match &refusal {
         None => (stored.len(), None),
         Some(why) => {
+            // The episode is only the stored session's own first messages:
+            // an older or cut view of it, not a rewrite. Taken, it would
+            // move the session's hash back, and the episode the source holds
+            // now would be refused for adding nothing, for good.
+            let cut = e.messages.len() < stored.len()
+                && e.messages
+                    .iter()
+                    .zip(&stored)
+                    .all(|(m, (i, s))| m.idx == *i && m.sha256 == *s);
+            if cut {
+                return Ok(Err(why.clone()));
+            }
             // The prefix no longer matches (a rewrite, a compaction, a
             // resume): the new turns are those after the last stored message
             // whose digest still matches. No match at all is another
@@ -100,9 +120,6 @@ pub(super) fn plan(
         .iter()
         .filter(|m| !skip.contains(&m.idx))
         .count();
-    if let (Some(why), 0) = (&refusal, added) {
-        return Ok(Err(why.clone()));
-    }
     let summary = match e.summary.as_ref().filter(|s| !s.text.trim().is_empty()) {
         None => false,
         Some(s) => match store.get_node(&summary_id_of(sid))? {
@@ -112,7 +129,11 @@ pub(super) fn plan(
             None => true,
         },
     };
-    if added == 0 && !summary {
+    // A diverged episode with nothing to add is taken quietly, not refused:
+    // `records` moves the session to its hash and marks it, so the next run
+    // finds the hash held and skips it. Refused instead, a session that was
+    // rewritten and then went quiet would be rejected every night.
+    if added == 0 && !summary && diverged.is_none() {
         return Ok(Err(format!(
             "its {from} messages are the stored ones and it adds nothing (another hash: its tag, \
              place or labels differ): not overwritten"

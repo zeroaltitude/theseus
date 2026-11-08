@@ -2547,15 +2547,28 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   as it came (the record is raw), after the episode's hash was checked over what the CLI sent, so the hash stays the
   idempotency key; the daemon computes each message's `sha256` over the stored text (`write::digested`,
   `episode::DIGESTED_SOURCES`). Tests: `import/tests_harness.rs`.
-  **A session that grew** (theseus-pjmj7; `import/append.rs`, no store format change): the same episode id with another
+  **A session that grew** (theseus-pjmj7, theseus-ectzg; `import/append.rs`; the one field it adds to a stored record,
+  `ImportedFrom.diverged_at`, is a store format bump): the same episode id with another
   hash whose messages begin with the stored ones appends only the new nodes (`node_id_of(session, idx)`, each at its own
   time), with the session's record (hash, message count, `as_of.end_ms`, `last_active_ms`; tag, place, labels and `file`
   stay as first imported) and the tag's counts in the one frame; a summary is written again only when its text differs.
   The prefix is proven by reading the stored message nodes in the order they were written (`Store::session_nodes`: the
   same idx and sha256, position by position), not by a digest kept on the session, and after the scrub (a scrubbed
-  source's stored digest is the scrubbed text's). A changed, removed or reordered message is refused naming its idx, an
-  episode that adds nothing is refused as such, an erased session is never appended to; the batch's `touched` lists the
-  sessions created or appended to. Tests: `import/tests_append.rs`, the grown file in `tests_harness.rs`.
+  source's stored digest is the scrubbed text's). **A prefix that diverged** (a rewrite, a compaction, a resume: a
+  message whose idx or digest is not the stored one at its position, or a stored message the episode no longer has) is
+  not refused while some stored message still matches: the messages after the last episode message that matches a stored
+  one (same idx and sha256) are appended, a stored idx is never written again, and the first stored idx that differs is
+  recorded once in `ImportedFrom.diverged_at`, never in `labels.topic`, which `import.topics` makes topics of. A diverged
+  episode with nothing after that message is taken quietly: no node is written, the record moves to the new hash and
+  takes the mark, it counts in the batch's `appended` but not in `touched`, and the next run skips it (a session that was
+  rewritten and went quiet is not rejected every night). Refused and named: an episode no stored message of which
+  matches (another episode under a reused id), an episode that is only the stored session's first messages and no more
+  (an older or cut view: taken, it would move the hash back and the source's current episode would then add nothing, for
+  good), an episode of the same messages with another hash that diverged nowhere and adds nothing (its tag, place or
+  labels differ), and an erased session, which is never appended to; the batch's
+  `touched` lists the sessions created or appended to with a new node. Tests: `import/tests_append.rs`,
+  `import/tests_topics.rs` (the mark never becomes a topic), `tests_layouts` (an imported session from before the mark),
+  the grown file in `tests_harness.rs`.
   **The OpenClaw sync** (theseus-pjmj7; `import/sync.rs`, `rpc/import_sync.rs`, `judge/people/sync.rs`;
   `[import.openclaw]` in `config/import.rs`: `state_dir`, `owner_ids`, `agents`, off while `state_dir` is unset):
   `theseus import sync` runs `scripts/openclaw-export.py` on OpenClaw's own stores and sends the episodes (source
