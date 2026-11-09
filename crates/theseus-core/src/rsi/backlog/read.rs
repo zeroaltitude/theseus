@@ -208,7 +208,8 @@ fn failed_note(failed: u64, calls: u64, pack: &str) -> String {
 }
 
 /// Whether a pack's failed judgments are a cause: at least three, and at least
-/// one call in a hundred, or every call it made. One failed call among
+/// one call in a hundred OF THE SAME WINDOW (`failed_recent` over
+/// `calls_recent`, else all-time over all-time), or every call it made. One failed call among
 /// thousands is noise (the owner, 2026-11-09: one of 2,910 route.v10 calls
 /// filed an item, each a session of its own).
 fn failed_is_a_cause(failed: u64, calls: u64) -> bool {
@@ -613,7 +614,14 @@ fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
     let (calls, failed_all) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
     // `failed` is all-time and never falls: key on the recent count, and on
     // the total only for a report stored before there was one.
-    let failed = r["failed_recent"].as_u64().unwrap_or(failed_all);
+    // The pair must come from ONE window: recent over recent, or (a report
+    // stored before `calls_recent`) today's failures over the lifetime calls,
+    // or (before `failed_recent` too) all-time over all-time.
+    let (failed, calls) = match (r["failed_recent"].as_u64(), r["calls_recent"].as_u64()) {
+        (Some(f), Some(c)) => (f, c),
+        (Some(f), None) => (f, calls),
+        (None, _) => (failed_all, calls),
+    };
     let (labeled, disagree) = (
         r["labeled"].as_u64().unwrap_or(0),
         r["disagreements"].as_u64().unwrap_or(0),
@@ -967,6 +975,20 @@ mod tests {
         assert!(o.note.starts_with("90 of 9000"), "{}", o.note);
         let legacy = json!({"pack": "people.v1", "calls": 9000, "failed": 90});
         assert_eq!(report_obs(legacy).unwrap().key, "judge.failed:people.v1");
+    }
+
+    /// The rate is one day's failures over one day's calls, not over every
+    /// call the pack ever made.
+    #[test]
+    fn the_one_percent_is_a_rate_over_one_window() {
+        let busy = json!({"pack": "alpha.v1", "calls": 10_000, "failed": 60,
+            "failed_recent": 50, "calls_recent": 50});
+        let o = report_obs(busy).expect("every call of today failed");
+        assert_eq!(o.key, "judge.failed:alpha.v1");
+        assert!(o.note.starts_with("50 of 50"), "{}", o.note);
+        let quiet = json!({"pack": "alpha.v1", "calls": 10_000, "failed": 60,
+            "failed_recent": 2, "calls_recent": 300});
+        assert!(report_obs(quiet).is_none(), "2 recent failures are under three");
     }
 
     fn failed_of(pack: &str, failed: u64, calls: u64) -> Option<Obs> {
