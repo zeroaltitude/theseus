@@ -26,7 +26,8 @@
 - `line-pressure.py`, `tests/test_line_pressure.py` (theseus-4vsrz): functions within 5 lines of clippy's `too_many_lines`
   ceiling (100), closest first, as `path:line fn N/100`. Always exits 0 on a report (a warning, not a gate: clippy holds the
   ceiling); exits 2 only when it scanned nothing. Counts as clippy does (body without braces, blank and comment-only lines
-  free); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
+  free; a plain `async fn` counts 2 more than its body, as clippy reads it, unless it carries a `test` attribute; only the
+  attribute block directly above a `fn` is read for an `allow`/`expect`); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.

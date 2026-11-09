@@ -226,18 +226,7 @@ impl Core {
             .card_model(fresh.len() as u32)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
-        let mut texts: Vec<String> = {
-            let board = self.runner.standing.all(&self.store)?;
-            standing::live(&board, None, now)
-                .iter()
-                .map(|r| r.text.clone())
-                .collect()
-        };
-        texts.extend(all.iter().flat_map(|p| {
-            let mut v = vec![p.text.clone()];
-            v.extend(p.kept_text.clone());
-            v
-        }));
+        let texts = self.known_texts(&all, now)?;
         let mut job = Job {
             run: if dry_run {
                 String::new()
@@ -283,6 +272,22 @@ impl Core {
         job.st.last_run_ms = run_mark(&out, job.st.last_run_ms, now);
         self.people_write(&[job.st.record()?]).await?;
         Ok(out)
+    }
+
+    /// What a new statement must not repeat: the standing board's live texts,
+    /// then every proposal's text and its kept text.
+    fn known_texts(&self, all: &[CardProposal], now: u64) -> anyhow::Result<Vec<String>> {
+        let board = self.runner.standing.all(&self.store)?;
+        let mut texts: Vec<String> = standing::live(&board, None, now)
+            .iter()
+            .map(|r| r.text.clone())
+            .collect();
+        texts.extend(all.iter().flat_map(|p| {
+            let mut v = vec![p.text.clone()];
+            v.extend(p.kept_text.clone());
+            v
+        }));
+        Ok(texts)
     }
 
     /// The most the batches could cost: each call also lists, at most, a

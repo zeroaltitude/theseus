@@ -32,9 +32,12 @@ path = "junit.xml"
 # kn9or row 6); this is the list's first entry. Remove it in the commit that fixes the family. slow-timeout
 # is untouched: a hang still ends at 120 s, and is retried.
 #
-# RE-MEASURED on a 4-core cloud VM, base 4683adb8 (2026-11-09): 20 of 20 passed alone (`--test-threads 1`, 0.2 to
-# 0.3 s) and 6 of 6 passed inside the whole theseus-core crate (0.21 to 0.30 s), so this image did not reproduce the
-# 120 s hang and neither confirms nor corrects the instance count above. Not reproduced here is no evidence it is gone.
+# PAIRED MEASUREMENT (2026-11-07): the 2026-11-07 shift was the host, not the tree. In 16 paired blocks (both trees
+# launched at the same instant, same `default` profile, same job count) 93b83974 and 0366852a gave the same outcome
+# in 16 of 16, first-attempt times within -0.05 to +0.06 s of each other, and 191.2 s saturated in both trees: 19
+# pressure yields of 10 s each. theseus-ao9eq and the judge pack list are not implicated. The cause, those yields,
+# is gone for test builds: 3b8ad233c makes `pace::quiet` a ready zero under cfg(test) (crates/theseus-core/src/pace.rs,
+# docs/design/onto-sweep-pace.md). The entry stays until the paired report's ladder passes first time on a fixed tree.
 [[profile.default.overrides]]
 filter = 'package(theseus-core) & test(=tests_onto_names::a_chain_asked_over_two_nights_clusters)'
 retries = 2
