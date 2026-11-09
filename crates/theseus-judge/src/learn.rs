@@ -1061,6 +1061,7 @@ mod tests {
         // median is at or under the floor (at most 5 priced of 12) is fired on
         // only by a canary of which at least 10 of 12 tasks spend real money.
         let (mut visited, mut quiet, mut loud) = (0, 0, 0);
+        let (mut edge, mut priced) = (0, 0);
         for k_control in 0..=12 {
             for k_canary in 0..=12 {
                 visited += 1;
@@ -1081,6 +1082,12 @@ mod tests {
                     );
                     loud += 1;
                 }
+                if free_control && (k_canary == 10 || k_canary == 11) {
+                    // The quartile's boundary: the third smallest of 12 is
+                    // priced from 10 priced tasks up.
+                    assert!(fired, "{k_canary} priced canary tasks against {k_control}");
+                    edge += 1;
+                }
                 if free_control && k_canary < 10 {
                     assert!(!fired, "{k_canary} priced canary tasks against {k_control}");
                     quiet += 1;
@@ -1089,12 +1096,20 @@ mod tests {
                     // A canary of 10,000 never passes twice a control median
                     // of 20,000 or 40,000: the ratio rule is unchanged here.
                     assert!(!fired, "{k_canary} priced against a priced control");
+                    priced += 1;
                 }
             }
         }
         assert_eq!(visited, 169, "every pair of priced counts is visited");
         assert_eq!(loud, 6, "six free-control rows meet an all-priced canary");
         assert_eq!(quiet, 6 * 10, "six free-control rows by ten quiet canaries");
+        assert_eq!(edge, 12, "six free-control rows by the two boundary counts");
+        assert_eq!(priced, 7 * 13, "seven priced-control rows by every canary");
+        assert_eq!(
+            loud + edge + quiet + priced,
+            visited,
+            "every pair is judged"
+        );
     }
 
     /// The quartile test counts priced tasks and never how dear they were, so
