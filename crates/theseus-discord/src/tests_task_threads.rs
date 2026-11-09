@@ -994,5 +994,76 @@ async fn a_gate_ends_at_its_cap() {
     assert!(dir.path().exists() && !dir.path().join("go").exists());
 }
 
+/// **The `until` family, by membership** (theseus-a0kte). Every test file that
+/// waits with this module's `until` shares its guard (the 100 s bound above),
+/// so a hang or a timeout there is one mechanism. That membership used to
+/// live only in a bead's prose, and the prose named a test that could not be
+/// in it. This is the record, and the test below holds it to the source.
+///
+/// `tests_task_react` is a child of this module (`mod react`, by `#[path]`)
+/// and reaches `until` through `super::*`, so it counts without an import.
+///
+/// **Not in the family**, with the reason: `tests_gateway::horizon` waits with
+/// `Rig::until`, a method of its own (two separate reds, accounted apart);
+/// and theseusd's `an_acting_call_waits_and_the_cli_approves_it` is a test of
+/// another crate with Discord disabled, so it shares no helper with these.
+#[cfg(test)]
+const UNTIL_FAMILY: &[&str] = &[
+    "tests_default_forum.rs",
+    "tests_dm_flow_golden.rs",
+    "tests_forum_archive.rs",
+    "tests_task_channels.rs",
+    "tests_task_home.rs",
+    "tests_task_owed.rs",
+    "tests_task_react.rs",
+    "tests_task_threads.rs",
+    "tests_task_watch.rs",
+    "tests_walk1b.rs",
+    "tests_war_room.rs",
+];
+
+#[test]
+fn the_until_family_is_exactly_the_files_that_share_its_guard() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found: Vec<String> = vec!["tests_task_threads.rs".into(), "tests_task_react.rs".into()];
+    for e in std::fs::read_dir(&src).expect("read the crate's source") {
+        let p = e.expect("a source entry").path();
+        if p.extension().is_none_or(|x| x != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&p).expect("read a source file");
+        let imports_until = text.split("tests_task_threads::{").skip(1).any(|rest| {
+            let list = rest.split("};").next().unwrap_or("");
+            list.split(',').any(|w| w.trim() == "until")
+        });
+        let name = p.file_name().unwrap().to_string_lossy().into_owned();
+        if imports_until && !found.contains(&name) {
+            found.push(name);
+        }
+    }
+    found.sort();
+    assert!(found.len() >= 10, "the scan found only {found:?}: it read the wrong tree");
+    assert_eq!(
+        found, UNTIL_FAMILY,
+        "a file started or stopped sharing `until`: update UNTIL_FAMILY and its doc"
+    );
+    // The members the bead names, in the files that make them members.
+    for (file, test) in [
+        ("tests_walk1b.rs", "a_dm_message_routed_to_a_placeless_thread_still_sees_its_tasks"),
+        ("tests_task_react.rs", "pause_parks_a_running_task_without_a_report_and_resume_lets_it_report"),
+    ] {
+        let text = std::fs::read_to_string(src.join(file)).expect("a family file");
+        assert!(text.contains(&format!("fn {test}")), "{test} is not in {file}");
+        assert!(UNTIL_FAMILY.contains(&file));
+    }
+    // The ones that are not: neither mentions this module at all.
+    let horizon = std::fs::read_to_string(src.join("tests_gateway/horizon.rs")).expect("horizon");
+    assert!(!horizon.contains("tests_task_threads"));
+    let acting = Path::new(env!("CARGO_MANIFEST_DIR")).join("../theseusd/tests/mcp_server.rs");
+    let acting = std::fs::read_to_string(acting).expect("theseusd's mcp_server test");
+    assert!(acting.contains("fn an_acting_call_waits_and_the_cli_approves_it"));
+    assert!(!acting.contains("tests_task_threads") && !acting.contains("theseus_discord"));
+}
+
 #[path = "tests_task_react.rs"]
 mod react;
