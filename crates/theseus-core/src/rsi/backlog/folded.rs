@@ -135,8 +135,11 @@ impl Core {
     pub(crate) fn folded_told(&self, told: &Folded) {
         let _one = self.rsi.folded.lock().unwrap_or_else(|e| e.into_inner());
         let mut f = self.folded_load();
+        let before = f.clone();
         f.started.retain(|p| !told.started.contains(p));
         f.more = f.more.saturating_sub(told.more);
-        self.folded_write(&f);
+        if f != before {
+            self.folded_write(&f);
+        }
     }
 }

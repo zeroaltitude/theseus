@@ -1048,7 +1048,12 @@ mod tests {
             "continue.v1: 4/94\nonto.v1: 1/1\nrole.v1: 12/448"
         );
         assert_eq!(c.obs[0].id, "ledger:3", "the newest row's id");
-        assert!(c.person() && c.work() == 3);
+        assert_eq!(
+            (c.person(), c.work()),
+            (false, 3),
+            "the members' own, as before"
+        );
+        assert_eq!(c.last_ms(), 3_000);
     }
 
     /// One failing pack keeps its own key and words; the other causes of the
