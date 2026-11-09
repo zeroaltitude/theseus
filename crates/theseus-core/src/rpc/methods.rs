@@ -1254,10 +1254,34 @@ impl Core {
         Ok(changed)
     }
 
+    #[cfg(test)]
     pub(crate) fn session_history(
         &self,
         p: theseus_protocol::SessionHistoryParams,
     ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
+        self.session_history_for(p, true)
+    }
+
+    /// `session.history` as `surface` asks it.
+    pub(super) fn history_on(
+        &self,
+        p: theseus_protocol::SessionHistoryParams,
+        surface: crate::approval::Surface,
+    ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
+        self.session_history_for(p, surface.reads_private())
+    }
+
+    /// `session.history` for a surface: one that reads no private text
+    /// (`Surface::reads_private`) is given an imported session's nodes with
+    /// their text withheld (theseus-a7pr). An imported session is the owner's
+    /// own history, private under the place rule whatever place its episode
+    /// names (`recall::place_of`), as `books` withholds an episode's text.
+    pub(crate) fn session_history_for(
+        &self,
+        p: theseus_protocol::SessionHistoryParams,
+        private: bool,
+    ) -> Result<theseus_protocol::SessionHistoryResult, RpcFailure> {
+        let withhold = !private && crate::import::is_imported(&p.session_id);
         let rec = self.session(&p.session_id)?;
         let pending = self.kernel.pending_confirms()?;
         let mine: Vec<theseus_kernel::Action> = pending
@@ -1290,10 +1314,17 @@ impl Core {
                 .nodes
                 .iter()
                 .map(|(pos, n)| self.marked_moved(Self::node_info(*pos, n)))
+                .map(|i| match withhold {
+                    true => withheld_node(i),
+                    false => i,
+                })
                 .collect(),
             next: page.next,
             older: page.older,
-            cites,
+            cites: match withhold {
+                true => Vec::new(),
+                false => cites,
+            },
         })
     }
 
@@ -1964,4 +1995,13 @@ pub(crate) fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<Stri
             None => ledger_kind(k),
         })
         .collect()
+}
+
+/// An imported node as a surface that reads no private text sees it: who,
+/// when and how big, never what it said (theseus-a7pr).
+fn withheld_node(mut i: theseus_protocol::NodeInfo) -> theseus_protocol::NodeInfo {
+    i.text = crate::books::WITHHELD.into();
+    i.thinking = String::new();
+    i.detail = Value::Null;
+    i
 }
