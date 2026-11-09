@@ -13,10 +13,15 @@ moves: after the test build (the compile phases are done), or inside the suite.
 
 The gate also builds with CARGO_INCREMENTAL=0 from its first cargo (a lane is built once and gated once: 47 GB of a
 68 GB target was `debug/incremental`), and the stand-in cargo records what each call saw.
+
+It refuses to start below a disk floor (exit status 73): on 2026-11-07 `/` was 631 GB of 639 GB used and a 40-minute
+build began on 2.1 GB free. A stand-in df answers for the filesystem here, so no test depends on the host's own disk;
+one test lets the real df answer.
 """
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -26,6 +31,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 MOVED = 75
+FLOOR = 73
+GIB = 1048576  # a GB of free space, in the KiB df reports
 
 # A stand-in for cargo: every subcommand passes and prints nothing unless a phase reads its output. It writes one line
 # per call to $STUB_LOG ("<what> inc=<CARGO_INCREMENTAL as it saw it>"), and moves the tree where $STUB_MOVE_AT says
@@ -51,6 +58,10 @@ move() {
 }
 [ "$what" != deny ] || echo "$*" >>"$STUB_DENY_LOG"
 case "$what" in
+  fmt)
+    # On request fmt reds, as it does in a throwaway repository with no workspace.
+    if [ "${STUB_FMT_FAIL:-}" = 1 ]; then echo "error: a stub fmt failure" >&2; exit 1; fi
+    ;;
   deny)
     # On request only advisories fail: the bare `check` reds, and `check bans licenses sources` passes.
     if [ "${STUB_DENY:-}" = advisories ] && [ "${*: -1}" = check ]; then echo "error[vulnerability]: a stub advisory" >&2; exit 1; fi
@@ -85,6 +96,22 @@ exit 0
 NODE = "#!/bin/sh\necho v1.2.3\n"
 NPM = "#!/bin/sh\n[ \"$2\" != test ] || echo 'ℹ tests 1'\nexit 0\n"
 PASSES = "#!/bin/sh\nexit 0\n"
+
+# A stand-in for `df -Pk -- PATH`: the POSIX report for a filesystem with $STUB_DF_AVAIL_KB available (any text, to
+# be unreadable), the real df's when $STUB_DF_REAL is set, a failure when $STUB_DF_FAIL is. Like the real one it fails
+# on a path that is not there, and it logs the path it was asked about, one line per call, to $STUB_DF_LOG.
+DF = r"""#!/usr/bin/env bash
+path=${*: -1}
+echo "$path" >>"$STUB_DF_LOG"
+if [ -n "${STUB_DF_REAL:-}" ]; then
+  real=$(PATH=$(getconf PATH) command -v df)
+  exec "$real" "$@"
+fi
+[ -z "${STUB_DF_FAIL:-}" ] || { echo "df: stub failure" >&2; exit 1; }
+[ -e "$path" ] || { echo "df: $path: No such file or directory" >&2; exit 1; }
+echo "Filesystem     1024-blocks      Used Available Capacity Mounted on"
+echo "stub           1000000000 100000000 $STUB_DF_AVAIL_KB      10% /stub"
+"""
 
 # The lane's nextest config: what the ARM runner edits (its sed puts a default-filter after test-threads), with a
 # commented default-filter as the real file has in its prose, which is no filter.
@@ -126,13 +153,14 @@ class GateTree(unittest.TestCase):
         self.home = tmp / "home"
         self.root = tmp / "tree"
         self.log = tmp / "cargo.log"
+        self.df_log = tmp / "df.log"
         self.git_env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null",
                         "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "",
                         "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": ""}
         bin_dir = self.home / ".cargo" / "bin"
         bin_dir.mkdir(parents=True)
         (self.home / ".cache").mkdir()
-        for name, text in (("cargo", CARGO), ("node", NODE), ("npm", NPM)):
+        for name, text in (("cargo", CARGO), ("node", NODE), ("npm", NPM), ("df", DF)):
             self.put(bin_dir / name, text)
         self.root.mkdir()
         files = dict(COMMITTED)
@@ -166,10 +194,13 @@ class GateTree(unittest.TestCase):
     def gate(self, **env):
         """The real gate.sh, with the stand-ins; (exit status, its output, the stand-in cargo's log lines)."""
         # What a door, or a caller judging a moved base, leaves in the environment is the tree it judges and not this one's.
-        outer = ("CARGO_INCREMENTAL", "THESEUS_GATE_ROOT", "THESEUS_GATE_DOOR", "THESEUS_KEEL_BASE")
+        outer = ("CARGO_INCREMENTAL", "THESEUS_GATE_ROOT", "THESEUS_GATE_DOOR", "THESEUS_KEEL_BASE",
+                 "THESEUS_GATE_MIN_FREE_GB")
         base = {k: v for k, v in self.git_env.items() if k not in outer}
+        # The stand-in df has 500 GB free unless a test says otherwise, so the floor is no part of a test about the tree.
         e = {**base, "THESEUS_GATE_NO_BENCH": "1", "THESEUS_GATE_NO_SCRUB": "1", "STUB_LOG": str(self.log),
-             "STUB_MOVE": "edit", **env}
+             "STUB_DF_LOG": str(self.df_log), "STUB_DF_AVAIL_KB": str(500 * GIB), "STUB_MOVE": "edit", **env}
+        self.log.unlink(missing_ok=True)  # the calls of this run, whatever an earlier run of the same test made
         p = run(["bash", "scripts/gate.sh"], self.root, e)
         calls = self.log.read_text().splitlines() if self.log.exists() else []
         return p.returncode, p.stdout + p.stderr, calls
@@ -414,6 +445,145 @@ class GateTree(unittest.TestCase):
         before_suite = text.index('tree_check "before the suite"')
         self.assertLess(before_suite, text.index("phase suite suite"))
         self.assertRegex(text, r'\ntree_check "at the end"')
+
+    # ---- the disk floor (a gate that starts on a nearly full disk dies part way and leaves a target nobody can read)
+
+    def df_calls(self):
+        return self.df_log.read_text().splitlines() if self.df_log.exists() else []
+
+    def ran_the_suite(self, calls):
+        return any(c.startswith("suite ") for c in calls)
+
+    def test_a_disk_below_the_floor_refuses_the_gate_before_any_build(self):
+        # 2026-11-07: `/` was 631 GB of 639 GB used, 2.1 GB free, and a 40-minute build began on it.
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(2 * GIB))
+        self.assertEqual(rc, FLOOR, out)
+        self.assertNotIn(rc, (0, 1, 2, MOVED), "a status of its own: not a failure, not a usage error, not a moved tree")
+        self.assertIn("gate: REFUSED: only 2.0 GB free", out, "the number it read")
+        self.assertIn("below the disk floor of 10 GB", out, "the floor it compared against")
+        self.assertIn(str((self.root / "target").resolve()), out, "which filesystem it read")
+        self.assertIn("THESEUS_GATE_MIN_FREE_GB", out, "how to override it, by name")
+        self.assertIn("gate: FAILED in disk floor", out, "the phase table names it")
+        self.assertNotIn("gate: ok", out)
+        self.assertEqual(calls, ["fmt inc=0"], "cargo ran fmt and nothing after it: it refused before the first resolve or compile")
+        self.assertEqual(self.df_calls(), ["target"], "and it asked once, about the target")
+        # The one call above means something only if this harness records the calls of a gate that runs.
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(40 * GIB))
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(self.ran_the_suite(calls), f"the same tree, on a roomy disk, ran its suite: {calls}")
+
+    def test_a_disk_exactly_at_the_floor_passes_and_the_gate_says_what_it_read(self):
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(10 * GIB))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: ok", out)
+        self.assertIn(f"gate: disk floor: 10.0 GB free on {(self.root / 'target').resolve()} (floor 10 GB)", out)
+        self.assertIn("  disk floor", out, "a phase of the table")
+        self.assertTrue(self.ran_the_suite(calls), f"the suite did run: {calls}")
+        # One KiB less is under it, and shown as under it (9.9, never a rounded 10.0 below 10).
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(10 * GIB - 1))
+        self.assertEqual(rc, FLOOR, out)
+        self.assertIn("gate: REFUSED: only 9.9 GB free", out)
+        self.assertFalse(self.ran_the_suite(calls), calls)
+
+    def test_the_floor_can_be_overridden_for_a_deliberate_small_disk_run(self):
+        low = str(2 * GIB)
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=low, THESEUS_GATE_MIN_FREE_GB="1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("(floor 1 GB)", out, "the gate says which floor it held the disk to")
+        self.assertIn("gate: disk floor: 2.0 GB free on ", out)
+        self.assertTrue(self.ran_the_suite(calls), f"the suite did run: {calls}")
+        self.assertEqual(self.df_calls(), ["target"])
+        # An override above the disk refuses, so the number is the one in force and not decoration.
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=low, THESEUS_GATE_MIN_FREE_GB="3")
+        self.assertEqual(rc, FLOOR, out)
+        self.assertIn("below the disk floor of 3 GB", out)
+        self.assertFalse(self.ran_the_suite(calls), calls)
+        # A leading zero is a decimal (bash would read 08 as a bad octal number, and 010 as 8).
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(9 * GIB), THESEUS_GATE_MIN_FREE_GB="010")
+        self.assertEqual(rc, FLOOR, out)
+        self.assertIn("below the disk floor of 10 GB", out)
+        self.assertFalse(self.ran_the_suite(calls), calls)
+        # 0 is no floor at all, and then df is not asked.
+        asked = len(self.df_calls())
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=low, THESEUS_GATE_MIN_FREE_GB="0")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: disk floor: off (THESEUS_GATE_MIN_FREE_GB=0)", out)
+        self.assertTrue(self.ran_the_suite(calls), f"the suite did run: {calls}")
+        self.assertEqual(len(self.df_calls()), asked, "no floor, no df")
+
+    def test_a_floor_that_is_not_a_whole_number_of_gb_is_a_usage_error(self):
+        for bad in ("plenty", "-3", "1.5", "10GB"):
+            with self.subTest(bad=bad):
+                rc, out, calls = self.gate(THESEUS_GATE_MIN_FREE_GB=bad)
+                self.assertEqual(rc, 2, out)
+                self.assertIn(f"THESEUS_GATE_MIN_FREE_GB is '{bad}'", out)
+                self.assertEqual(calls, [], "it refused before the first compile")
+                self.assertNotIn("gate: ok", out)
+
+    def test_the_floor_reads_the_filesystem_that_holds_the_target(self):
+        self.gate(STUB_DF_AVAIL_KB=str(2 * GIB))
+        self.assertEqual(self.df_calls(), ["target"], "a lane's target may be a symlink to another disk: df follows it")
+        # A lane that has not built has no target yet: the nearest directory there is is on the disk it will be made on,
+        # and a df of the missing path would fail.
+        shutil.rmtree(self.root / "target")
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(2 * GIB))
+        self.assertEqual(self.df_calls(), ["target", "."])
+        self.assertEqual(rc, FLOOR, out)
+        self.assertIn(f"only 2.0 GB free on {self.root.resolve()},", out)
+        self.assertEqual(calls, ["fmt inc=0"])
+
+    def test_a_gate_that_fails_at_fmt_on_a_small_disk_fails_there_and_does_not_read_the_disk(self):
+        # The guard's own tests run this gate in throwaway repositories under the temp directory and expect it to fail at
+        # fmt there. That directory can be a small tmpfs (16 GB with 9.5 GB free on the ARM host, 2026-11-09): the first
+        # version of the floor stood at the head of the flow, and eight of those tests were refused by it ("only 9.4 GB
+        # free on /tmp/keel-...", in the first ARM gate to carry it). So the floor comes after fmt, and a gate that fails
+        # at fmt says so whatever the disk.
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(2 * GIB), STUB_FMT_FAIL="1")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("gate: FAILED in fmt", out)
+        self.assertNotIn("REFUSED", out)
+        self.assertEqual(self.df_calls(), [], "df was not asked")
+        self.assertEqual(calls, ["fmt inc=0"], "fmt ran, and nothing after it")
+        # The same tree, fmt passing, is refused by the floor on that disk: the empty df log above is not a gate that never got here.
+        rc, out, calls = self.gate(STUB_DF_AVAIL_KB=str(2 * GIB))
+        self.assertEqual(rc, FLOOR, out)
+        self.assertEqual(self.df_calls(), ["target"])
+
+    def test_the_floor_stands_after_fmt_and_before_the_first_phase_that_resolves_or_compiles(self):
+        names = re.findall(r'\nphase\s+(?:"([^"]+)"|(\S+))', (HERE / "gate.sh").read_text())
+        order = [a or b for a, b in names]
+        self.assertEqual(order.count("disk floor"), 1, order)
+        floor = order.index("disk floor")
+        self.assertLess(order.index("fmt"), floor, "after fmt, where the guard's own tests stop a throwaway repository")
+        for compiles in ("features", "clippy", "test build"):
+            self.assertLess(floor, order.index(compiles), f"before `{compiles}`: {order}")
+
+    def test_a_df_that_cannot_be_read_refuses_the_gate_and_says_so(self):
+        # A gate that cannot show it has room is not told it has; the override is named, and df is not asked under it.
+        for what, env in (("garbage", {"STUB_DF_AVAIL_KB": "n/a"}), ("a failing df", {"STUB_DF_FAIL": "1"})):
+            with self.subTest(what=what):
+                rc, out, calls = self.gate(**env)
+                self.assertEqual(rc, FLOOR, out)
+                self.assertIn("gate: REFUSED: could not read the free space on", out)
+                self.assertIn("THESEUS_GATE_MIN_FREE_GB", out)
+                self.assertEqual(calls, ["fmt inc=0"])
+                rc, out, calls = self.gate(THESEUS_GATE_MIN_FREE_GB="0", **env)
+                self.assertEqual(rc, 0, out)
+                self.assertTrue(self.ran_the_suite(calls), f"the suite did run: {calls}")
+
+    def test_the_number_the_gate_reads_is_the_real_dfs_available_column(self):
+        # Every other test answers for df. This one lets the real one answer, so the parse is of what df prints.
+        before = shutil.disk_usage(self.root / "target").free / 2**30
+        rc, out, calls = self.gate(STUB_DF_REAL="1", THESEUS_GATE_MIN_FREE_GB="1")
+        after = shutil.disk_usage(self.root / "target").free / 2**30
+        self.assertEqual(rc, 0, out)
+        m = re.search(r"gate: disk floor: (\d+)\.(\d) GB free on (\S+) \(floor 1 GB\)", out)
+        self.assertIsNotNone(m, out)
+        read = float(f"{m[1]}.{m[2]}")
+        # Free space moves while the gate runs (other builds write here), so it is held to the readings either side.
+        self.assertGreaterEqual(read, min(before, after) - 0.2, (before, read, after))
+        self.assertLessEqual(read, max(before, after) + 0.2, (before, read, after))
+        self.assertTrue(self.ran_the_suite(calls), f"the suite did run: {calls}")
 
 
 # A stand-in cargo for deny-daily.sh: logs its argv and keeps a copy of the --config file it is given (the script deletes it).
