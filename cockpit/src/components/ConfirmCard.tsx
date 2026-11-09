@@ -14,6 +14,7 @@ import { decisionWords, diffLines, mailLines, previewFor } from '@/lib/toolwords
 import { ago, cn, ms, short, usd } from '@/lib/format'
 import { changeQuestion } from '@/lib/taskgraph'
 import { answerParams, buttonsOf } from '@/lib/answers'
+import { deadlineOf, waitedLabel } from '@/lib/heldquestion'
 import { JsonView } from './JsonView'
 import { Btn, Pill } from './ui'
 
@@ -84,8 +85,11 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
   const now = past ?? tick
   const { busy, run } = useAct()
   const [note, setNote] = useState('')
-  const left = c.expires_at_ms ? c.expires_at_ms - now : null
-  const span = c.expires_at_ms && c.requested_at_ms ? c.expires_at_ms - c.requested_at_ms : 0
+  // A call's question is held, not expiring: it says how long it has waited, never a deadline (theseus-lrc3m).
+  const deadline = deadlineOf(c)
+  const waited = waitedLabel(c, now)
+  const left = deadline ? deadline - now : null
+  const span = deadline && c.requested_at_ms ? deadline - c.requested_at_ms : 0
   const budget = c.budget
   const buttons = buttonsOf(c)
   const answer = (option: string) => run(option, 'work.answer', answerParams(c, option, note))
@@ -107,7 +111,8 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             <div className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink" title={c.reason}>
               <span className="text-wait">{verb}:</span>{' '}<span className={cn(d && 'num text-[14px]')}>{what}</span>
             </div>
-            {left !== null && c.expires_at_ms ? <span className="num shrink-0 pt-0.5 text-[11.5px] text-ink-dim">{left > 0 ? `${ms(left)} left` : 'expired'}</span> : null}
+            {left !== null && deadline ? <span className="num shrink-0 pt-0.5 text-[11.5px] text-ink-dim">{left > 0 ? `${ms(left)} left` : 'expired'}</span>
+              : waited ? <span className="num shrink-0 pt-0.5 text-[11.5px] text-ink-dim" title="held, not cancelled: it waits until you answer">{waited}</span> : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="num text-[12px] font-semibold text-tool">{budget ? 'budget' : c.tool}</span>
@@ -143,7 +148,7 @@ export function ConfirmCard({ c, past, here }: { c: ConfirmRequest; past?: numbe
             <span className="text-[11px] text-ink-faint">by {c.by}</span>
           </div>}
           {past === undefined && !budget && (
-            <div className="num mt-1.5 text-[10.5px] text-ink-faint">{left !== null && c.expires_at_ms ? `expires in ${holds(Math.max(0, left))} · ` : ''}bound to exactly these arguments · {c.correlation_id}</div>
+            <div className="num mt-1.5 text-[10.5px] text-ink-faint">{left !== null && deadline ? `expires in ${holds(Math.max(0, left))} · ` : ''}bound to exactly these arguments · {c.correlation_id}</div>
           )}
         </div>
       </div>

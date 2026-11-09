@@ -238,9 +238,12 @@ fn asked(notes: &[Notification]) -> Vec<theseus_protocol::ConfirmRequest> {
         .collect()
 }
 
-/// A question's expiry is one number everywhere: the live
-/// `confirm.requested`, `confirm.list`, the watch's snapshot and the board's
-/// view all say its plan's time and the TTL, and the live one's
+/// A call's question says its plan's time everywhere, and no deadline where
+/// it is a list (theseus-lrc3m): it is held past its life, never expired
+/// (theseus-v2dnc), so `confirm.list`, the watch's snapshot and the board's
+/// view say none (0), while the live `confirm.requested` (which the Discord
+/// card is drawn from) keeps its plan's time and the TTL, as does the list a
+/// Discord presser reads (its Details press prints it). The live one's
 /// `requested_at_ms` is its plan's time, as the lists say. Before, the live
 /// one took the time it was asked, a frame's write later.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -283,12 +286,12 @@ async fn a_questions_expiry_is_the_same_number_everywhere() {
     assert_eq!(listed.len(), 1);
     assert_eq!(
         (listed[0].requested_at_ms, listed[0].expires_at_ms),
-        (q[0].planned_at_ms, want),
+        (q[0].planned_at_ms, 0),
         "confirm.list"
     );
     settled(&r.core).await;
     let board = r.core.push.view_of_session(&sid).unwrap();
-    assert_eq!(board.pending[0].expires_at_ms, want, "the board: {board:?}");
+    assert_eq!(board.pending[0].expires_at_ms, 0, "the board: {board:?}");
     let mut w = Raw::connect(&r.core, "watcher", 1 << 20);
     let snap: ExecutionsWatchResult = serde_json::from_value(
         w.call(1, method::EXECUTIONS_WATCH, json!({}))
@@ -302,7 +305,30 @@ async fn a_questions_expiry_is_the_same_number_everywhere() {
         .iter()
         .find(|v| v.execution_id == exec)
         .unwrap();
-    assert_eq!(v.pending[0].expires_at_ms, want, "the snapshot: {v:?}");
+    assert_eq!(v.pending[0].expires_at_ms, 0, "the snapshot: {v:?}");
+    // The list a Discord presser reads is the one surface that keeps the
+    // time: its Details press prints it, and the DM flow is the owner's, not
+    // changed without his word. Anyone else's says none.
+    assert_eq!(
+        listed_deadline(&mut w, 2, json!({})).await,
+        0,
+        "a plain list"
+    );
+    let discord = json!({"discord": {"user_id": "u1", "channel_id": "c1"}});
+    assert_eq!(
+        listed_deadline(&mut w, 3, discord).await,
+        want,
+        "a Discord presser's list keeps the time its Details press prints"
+    );
+}
+
+/// The deadline `confirm.list` gives the one question waiting, to a
+/// connection that sends `params`.
+async fn listed_deadline(w: &mut Raw, id: u64, params: Value) -> u64 {
+    let got = w.call(id, method::CONFIRM_LIST, params).await.result;
+    let list: theseus_protocol::ConfirmListResult = serde_json::from_value(got.unwrap()).unwrap();
+    assert_eq!(list.confirms.len(), 1, "one question waits");
+    list.confirms[0].expires_at_ms
 }
 
 /// A question is in `confirm.list` from its plan on, while its turn still

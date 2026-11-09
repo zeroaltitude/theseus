@@ -129,7 +129,9 @@ fn the_answer_carries_the_author_herdr() {
 }
 
 /// The card: the task's title and short id, where it came from, the model and the spend against its
-/// limit, when it was asked and expires, the call, why, and its input; the keys; the others.
+/// limit, when it was asked, the call, why, and its input; the keys; the others. A call's question is
+/// held, never expired (theseus-v2dnc), so the card names no deadline for it, though the live
+/// `confirm.requested` it was drawn from still carries a first-notice time (theseus-lrc3m).
 #[test]
 fn the_card_says_the_question_whole() {
     theseus_client::render::time::pin_for_tests();
@@ -155,13 +157,13 @@ fn the_card_says_the_question_whole() {
     assert_eq!(lines[0], "Survey the north quay  ·  a1b2c3");
     assert_eq!(
         lines[1],
-        "from Tide notes · glm-5 · $0.42 of $10.00 · asked 3 min ago · expires in 60 s · at 17:20"
-            .replace(
-                "17:20",
-                &theseus_client::render::time::fmt_hm(1_000_000 + 240_000)
-            )
+        "from Tide notes · glm-5 · $0.42 of $10.00 · asked 3 min ago"
     );
     let text = lines.join("\n");
+    assert!(
+        !text.contains("expire"),
+        "a held call names no deadline: {text}"
+    );
     assert!(text.contains("? fs.write waits for you"), "{text}");
     assert!(text.contains("why: write under /tide"), "{text}");
     assert!(text.contains(r#"input: {"path":"log.md"}"#), "{text}");
@@ -170,6 +172,29 @@ fn the_card_says_the_question_whole() {
     assert!(
         text.ends_with("2 more wait: d4e5f6 proc.run, ses_x fs.read [tab] next"),
         "{text}"
+    );
+}
+
+/// A question that does expire (a pack's promotion, an extension's ack, an `owner_ask`) still counts
+/// down on the card, and says `expired` once it has.
+#[test]
+fn an_expiring_questions_card_still_counts_down_and_says_expired() {
+    theseus_client::render::time::pin_for_tests();
+    let c = q(
+        "act_0000aaaa11",
+        "ses_q7f3k2",
+        1_000_000,
+        json!({"tool": "pack.promote", "expires_at_ms": 1_000_000 + 240_000}),
+    );
+    let facts = |now| card(&c, &Context::default(), now)[1].clone();
+    let at = theseus_client::render::time::fmt_hm(1_000_000 + 240_000);
+    assert_eq!(
+        facts(1_000_000 + 180_000),
+        format!("in q7f3k2 · asked 3 min ago · expires in 60 s · at {at}")
+    );
+    assert_eq!(
+        facts(1_000_000 + 300_000),
+        format!("in q7f3k2 · asked 5 min ago · expired · at {at}")
     );
 }
 

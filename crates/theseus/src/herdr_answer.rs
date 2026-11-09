@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 use theseus_client::render::{human_secs, time};
 use theseus_client::{names, Conn};
 use theseus_protocol::answer::WorkAnswerParams;
+use theseus_protocol::work::ask::held_tool;
 use theseus_protocol::work::AnswerOption;
 use theseus_protocol::{
     method, ConfirmListResult, ConfirmRequest, Event, Message, SessionInfo, SessionListResult,
@@ -311,7 +312,9 @@ pub fn card(c: &ConfirmRequest, ctx: &Context, now_ms: u64) -> Vec<String> {
     }
     let asked = now_ms.saturating_sub(c.requested_at_ms) / 1000;
     facts.push(format!("asked {} ago", human_secs(asked)));
-    if c.expires_at_ms > 0 {
+    // A call's question is held, never expired (theseus-v2dnc): the live `confirm.requested` still
+    // carries its first-notice time, which is no deadline, so the tool decides (theseus-lrc3m).
+    if c.expires_at_ms > 0 && !held_tool(&c.tool) {
         facts.push(match c.expires_at_ms.checked_sub(now_ms) {
             Some(left) if left > 0 => format!("expires in {}", human_secs(left / 1000)),
             _ => "expired".to_string(),

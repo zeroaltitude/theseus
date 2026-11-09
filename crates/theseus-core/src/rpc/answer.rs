@@ -158,9 +158,12 @@ impl Core {
         p: theseus_protocol::answer::ConfirmListParams,
         conn: Conn<'_>,
     ) -> Result<theseus_protocol::ConfirmListResult, RpcFailure> {
+        // A Discord presser's list keeps a call's first-notice time, which its
+        // Details press prints (`confirms_listed`); everyone else's says none.
+        let discord = p.discord.is_some();
         let who = conn.answerer(None, p.discord);
         let may = self.may_answer(&who).is_ok();
-        let mut confirms = self.confirm_list()?;
+        let mut confirms = self.confirms_listed(discord)?;
         for c in &mut confirms {
             // An agent draws no button for what spends money or changes AWS (theseus-5rvss).
             let agent_barred = who.agent.is_some() && crate::approval::owners_alone(&c.tool);
