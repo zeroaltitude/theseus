@@ -148,6 +148,10 @@ impl TurnRunner {
 /// and not the person's (theseus-emqbm). Every nudge's write site calls this
 /// instead of `TurnCtx::node_written`, so the list in `content.rs` is the one
 /// rule; turn.rs is at its line ceiling, so it lives here.
+///
+/// A flag a turn sets and never takes dies with the `Turn`, which is per-turn
+/// state: `t.nudged` is cleared only by the take in `call_model`, so a turn that
+/// writes a nudge and ends with no further model call leaves it set, harmlessly.
 pub(super) fn relayed(t: &mut Turn<'_>, node: &Node) {
     t.tc.node_written(node);
     t.nudged |= crate::content::harness_nudge(node.origin, node.author.as_deref());
