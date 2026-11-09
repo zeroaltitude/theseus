@@ -457,6 +457,57 @@ fn canary_body_moved(canary: &[u64]) -> bool {
     percentile(canary, 25.0).is_some_and(|p| p as f64 > SPEND_FLOOR_MICROS)
 }
 
+/// Whether the canary's typical task costs more than `ratio` times the most
+/// the control spent on any one task, the control having spent real money on
+/// at least one. The magnitude escape of the degenerate spend branch: a
+/// canary's quartile can stay quiet (fewer than the nearest-rank bar of its
+/// tasks priced) while its median task costs dollars where the control's
+/// dearest task cost cents. A half-free workload cannot pass it by chance,
+/// because the canary's median is then one of the workload's own priced
+/// values. A control whose every task was free passes nothing: that needs an
+/// absolute amount, which is the owner's to set, not this rule's.
+fn canary_far_above_control(per_task: f64, control: &[u64], ratio: f64) -> bool {
+    let top = control.iter().copied().max().unwrap_or(0) as f64;
+    top > SPEND_FLOOR_MICROS && per_task > ratio * top
+}
+
+/// The spend rule's verdict on two arms' per-task spend: why it fires, or
+/// `None`. Wholly here so `check` stays short.
+fn spend_ratio_why(canary: &[u64], control: &[u64], ratio: f64) -> Option<String> {
+    // Like against like. Task spend is right-skewed (many cheap tasks, a few
+    // deep ones), so the canary's *mean* against the control's median fires
+    // on two samples of one distribution as soon as one deep task lands in
+    // the canary.
+    let base = median(control)?;
+    let per_task = median(canary)?;
+    if per_task <= SPEND_FLOOR_MICROS || per_task <= ratio * base {
+        return None;
+    }
+    let (n_canary, n_control) = (canary.len(), control.len());
+    if base > SPEND_FLOOR_MICROS {
+        return Some(format!(
+            "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the control's median of {base:.0} ({n_canary} and {n_control} tasks)"
+        ));
+    }
+    if canary_body_moved(canary) {
+        return Some(if base == 0.0 {
+            format!(
+                "the canary's median task spends {per_task:.0} micro-dollars against a control arm that spent nothing ({n_canary} and {n_control} tasks)"
+            )
+        } else {
+            format!(
+                "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the control's median of {base:.0} ({n_canary} and {n_control} tasks)"
+            )
+        });
+    }
+    canary_far_above_control(per_task, control, ratio).then(|| {
+        let top = control.iter().copied().max().unwrap_or(0);
+        format!(
+            "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the most any one control task spent ({top}), though fewer of its tasks than the quartile bar were priced ({n_canary} and {n_control} tasks)"
+        )
+    })
+}
+
 fn median(v: &[u64]) -> Option<f64> {
     if v.is_empty() {
         return None;
@@ -510,27 +561,9 @@ pub fn check(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<Fired> {
             // tasks, a few deep ones), so the canary's *mean* against the
             // control's median fires on two samples of one distribution as
             // soon as one deep task lands in the canary.
-            let base = median(&control)?;
-            let per_task = median(&canary)?;
-            let degenerate = base <= SPEND_FLOOR_MICROS;
-            (per_task > SPEND_FLOOR_MICROS
-                && per_task > ratio * base
-                && (!degenerate || canary_body_moved(&canary)))
-            .then(|| Fired {
+            spend_ratio_why(&canary, &control, *ratio).map(|why| Fired {
                 rule: rule.name().to_string(),
-                why: if base == 0.0 {
-                    format!(
-                        "the canary's median task spends {per_task:.0} micro-dollars against a control arm that spent nothing ({} and {} tasks)",
-                        canary.len(),
-                        control.len()
-                    )
-                } else {
-                    format!(
-                        "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the control's median of {base:.0} ({} and {} tasks)",
-                        canary.len(),
-                        control.len()
-                    )
-                },
+                why,
             })
         }
         RollbackRule::OperatorStopWithinNudge => events.iter().find_map(|e| match e {
@@ -1062,6 +1095,56 @@ mod tests {
         assert_eq!(visited, 169, "every pair of priced counts is visited");
         assert_eq!(loud, 6, "six free-control rows meet an all-priced canary");
         assert_eq!(quiet, 6 * 10, "six free-control rows by ten quiet canaries");
+    }
+
+    /// The quartile test counts priced tasks and never how dear they were, so
+    /// against a mostly free control a canary spending ten dollars a task, on
+    /// only 7 of 12 tasks, stayed silent. Its median task costs far more than
+    /// anything the control spent on any one task: that fires, whatever the
+    /// share of priced tasks (theseus-ig13o, F-B1-2).
+    #[test]
+    fn a_costly_canary_fires_against_a_mostly_free_control() {
+        let r = RollbackRule::SpendRatio {
+            ratio: 2.0,
+            min_tasks: 10,
+        };
+        let arm = |arm: Arm, tag: &str, priced: usize, micros: u64| -> Vec<CanaryEvent> {
+            (0..12)
+                .map(|i| CanaryEvent::TaskSpend {
+                    task: format!("{tag}{i}"),
+                    arm,
+                    micros: if i < 12 - priced { 0 } else { micros },
+                })
+                .collect()
+        };
+        let mut events = arm(Arm::Control, "c", 5, 40_000);
+        events.extend(arm(Arm::Canary, "k", 7, 10_000_000));
+        assert_eq!(events.len(), 24, "both arms' tasks are in the sample");
+        let (canary, control) = (
+            spend_of(&events, Arm::Canary),
+            spend_of(&events, Arm::Control),
+        );
+        assert_eq!(median(&control), Some(0.0), "a mostly free control");
+        assert_eq!(median(&canary), Some(10_000_000.0), "a dear canary");
+        assert_eq!(
+            percentile(&canary, 25.0),
+            Some(0),
+            "the quartile rule alone stays quiet"
+        );
+        let fired = check(&r, &events).expect("a ten-dollar canary task rolls the pack back");
+        assert_eq!(fired.rule, "spend_ratio");
+        assert_eq!(
+            fired.why,
+            "the canary's median task spends 10000000 micro-dollars, over 2 times the most any one control task spent (40000), though fewer of its tasks than the quartile bar were priced (12 and 12 tasks)"
+        );
+        // A control that spent nothing on any task is the owner's call: blind.
+        let mut free = arm(Arm::Control, "c", 0, 0);
+        free.extend(arm(Arm::Canary, "k", 7, 10_000_000));
+        assert_eq!(
+            check(&r, &free),
+            None,
+            "an all-free control is not judged here"
+        );
     }
 
     /// The case the floor exists to be wrong about: a canary pack that
