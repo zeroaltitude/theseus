@@ -450,3 +450,186 @@ fn a_presigned_url_is_held_in_every_operations_output_and_an_ordinary_one_in_non
          ordinary URL is wrongly held in {plain_held}: {first:?}"
     );
 }
+
+/// The query parameters a presigned URL carries that are **not** signature
+/// material: the time it was made, how long it lives, which headers the
+/// signature covers. Everything else the real signer writes must be on
+/// `presigned`'s vocabulary.
+const NOT_VOCABULARY: &[&str] = &[
+    "x-amz-date",
+    "x-amz-expires",
+    "x-amz-signedheaders",
+    "x-amz-security-token",
+];
+
+/// **Completeness for `presigned`'s vocabulary** (theseus-3i6d1), in the shape
+/// of `crates/complete.rs`: the world is the URL the repository's own SigV4
+/// signer writes (`theseus_aws::sign::presign_request`), the list is
+/// `SIGNATURE` plus `KEYED_BY`. A new query parameter the signer starts to
+/// write fails here, naming itself, instead of leaving a presigned URL the
+/// rule no longer recognises. It reaches only the SigV4 spelling: the older
+/// query signing and CloudFront's are AWS's, not the signer's, and are
+/// listed by hand (`stale_fails` is off for that reason).
+#[test]
+fn the_presigned_vocabulary_holds_every_parameter_the_real_signer_writes() {
+    use std::time::{Duration, UNIX_EPOCH};
+    use theseus_aws::sign::{presign_request, SigningScope};
+    use theseus_aws::{Credentials, HttpRequest};
+
+    let req = HttpRequest {
+        method: "GET",
+        origin: "https://example-bucket.s3.us-west-2.amazonaws.com".into(),
+        path: "/code.zip".into(),
+        query: vec![],
+        headers: vec![],
+        body: vec![],
+    };
+    let scope = SigningScope {
+        region: "us-west-2".into(),
+        service: "s3".into(),
+        s3: true,
+        unsigned_payload: true,
+    };
+    // A session token too, so `X-Amz-Security-Token` is in the walk.
+    let creds = Credentials::new(
+        "EXAMPLEKEYID0001",
+        "example-secret-0001",
+        Some("example-session-token-0001".into()),
+        None,
+    );
+    let url = presign_request(
+        &req,
+        &creds,
+        &scope,
+        UNIX_EPOCH + Duration::from_secs(1_790_000_000),
+        Duration::from_secs(600),
+    )
+    .expect("the signer presigns");
+    assert!(
+        super::presigned::is_presigned(&url),
+        "the real signer's own URL is not recognised as presigned: {url}"
+    );
+    let query = url.split_once('?').expect("a query").1;
+    let found: Vec<(String, String)> = query
+        .split('&')
+        .filter_map(|p| p.split('=').next())
+        .map(str::to_ascii_lowercase)
+        .filter(|n| !NOT_VOCABULARY.contains(&n.as_str()))
+        .map(|n| (n, "written by sign::presign_request".to_string()))
+        .collect();
+    let listed = super::presigned::SIGNATURE
+        .iter()
+        .chain(super::presigned::KEYED_BY)
+        .map(|n| (n.to_string(), String::new()));
+    let spec = crate::complete::MustBeComplete {
+        item: "a query parameter of a presigned URL that carries signature material",
+        list: "presigned.rs's SIGNATURE and KEYED_BY",
+        world: "the URL theseus_aws::sign::presign_request writes",
+        add: "add it to SIGNATURE (it is the signature) or KEYED_BY (it names the key), or, if it \
+              carries neither, to NOT_VOCABULARY in tests_presigned.rs with a reason",
+        drop: "",
+        least: 3,
+        stale_fails: false,
+    };
+    crate::complete::check(&spec, listed, found);
+}
+
+/// **What can reach `out.next`** (theseus-3i6d1): the continuation `call_text`
+/// prints beside the body, unmasked. Measured over the embedded catalog:
+/// every paginator's output token. None is a signature, a key, or a URL: they
+/// are opaque cursors (`NextToken`, `Marker`), resource ids (`Jobs[-1].JobId`,
+/// `ShardId`) and one data key (`Contents[-1].Key`, an object's name). So
+/// `out.next` is not masked: a handle in a token's place would break the
+/// "call again with these in `input`" the text offers, for a leak nobody can
+/// point to. This census pins the measurement: a token expression the catalog
+/// gains fails, naming itself, to be judged the same way.
+#[test]
+fn no_paginator_token_names_a_credential_or_a_url() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let mut found: std::collections::BTreeMap<String, String> = Default::default();
+    for e in c.services() {
+        let svc = c.service(&e.name).expect("the service decodes");
+        for op in svc.operations() {
+            if let Some(p) = op.paginator() {
+                for t in p.output_tokens() {
+                    found
+                        .entry(t.to_string())
+                        .or_insert(format!("{}:{}", e.name, op.name()));
+                }
+            }
+        }
+    }
+    for t in found.keys() {
+        let last = t.rsplit('.').next().unwrap_or(t).to_ascii_lowercase();
+        for bad in [
+            "signature",
+            "credential",
+            "securitytoken",
+            "secret",
+            "password",
+            "url",
+            "uri",
+        ] {
+            assert!(
+                !last.contains(bad),
+                "paginator token {t} names {bad}: judge `out.next`"
+            );
+        }
+    }
+    let listed = MEASURED_TOKENS
+        .iter()
+        .map(|t| (t.to_string(), String::new()));
+    let spec = crate::complete::MustBeComplete {
+        item: "a paginator's output-token expression",
+        list: "MEASURED_TOKENS in tests_presigned.rs",
+        world: "every paginator in the embedded catalog",
+        add: "read what the token carries; if it is an opaque cursor or an id, add it; if it can \
+              carry a signed or keyed value, mask `out.next` in tools.rs `call_text`",
+        drop: "",
+        least: 30,
+        stale_fails: false,
+    };
+    crate::complete::check(&spec, listed, found);
+}
+
+/// The 37 distinct output-token expressions of the catalog's paginators,
+/// measured 2026-11-09, each judged: a cursor, an id, or one data key.
+const MEASURED_TOKENS: &[&str] = &[
+    "CloudFrontOriginAccessIdentityList.NextMarker",
+    "ContinuationToken",
+    "DefaultClusterParameters.Marker",
+    "DistributionList.NextMarker",
+    "EngineDefaults.Marker",
+    "InvalidationList.NextMarker",
+    "Jobs[-1].JobId",
+    "KeyValueStoreList.NextMarker",
+    "LastEvaluatedBackupArn",
+    "LastEvaluatedKey",
+    "LastEvaluatedTableName",
+    "Marker",
+    "NextContinuationToken",
+    "NextKeyMarker",
+    "NextMarker",
+    "NextMarker || Contents[-1].Key",
+    "NextPageMarker",
+    "NextPageToken",
+    "NextPartNumberMarker",
+    "NextRecordIdentifier",
+    "NextRecordName",
+    "NextRecordType",
+    "NextToken",
+    "NextUploadIdMarker",
+    "NextVersionIdMarker",
+    "OriginAccessControlList.NextMarker",
+    "PageToken",
+    "PaginationToken",
+    "PublicKeyList.NextMarker",
+    "StreamDescription.Shards[-1].ShardId",
+    "StreamingDistributionList.NextMarker",
+    "continuationToken",
+    "marker",
+    "nextMarker",
+    "nextPageToken",
+    "nextToken",
+    "position",
+];

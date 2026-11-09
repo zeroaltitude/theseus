@@ -11,6 +11,13 @@
 //! Here each answers with a handle instead, the board holds the value, and
 //! the rest of the result comes through untouched.
 //!
+//! Two classes came with the shape rule (theseus-3i6d1) and are measured in
+//! `tests_presigned.rs`, not here: a presigned URL, which carries its own
+//! authorisation in the value and so is held by what the value looks like
+//! and not by its member's name, and the continuation `call_text` prints
+//! beside the body, which the catalog's paginators show to be an opaque
+//! cursor or an id and which is therefore left whole.
+//!
 //! The control at the end is the other half of the plant: an ordinary call
 //! with no credential in it still answers whole. A guard that withheld
 //! every result would pass the tests above and fail this one.
