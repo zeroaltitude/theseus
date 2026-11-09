@@ -30,7 +30,50 @@
 //! node is the message the file came with, and its text says which file and
 //! which page the passage is from.
 
+use std::path::Path;
+
 use serde::Deserialize;
+
+/// The most one text blob may hold, in bytes. Core's reader has no bound;
+/// a blob of read text is a capped PDF's pages or a document's sections, far
+/// under this, so a larger one is not what core wrote.
+pub const MAX_BLOB: usize = 64 << 20;
+
+/// Whether `d` is a blob's name: 64 lower-case hex digits, as
+/// `theseus_core::blobs::digest` writes them. Restated here, not imported:
+/// this crate does not depend on the core.
+fn is_digest(d: &str) -> bool {
+    d.len() == 64
+        && d.bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
+/// A text blob's bytes, when `name` is a digest, the blob is within
+/// [`MAX_BLOB`], and its bytes hash to its name: core's reader's two guards
+/// plus the bound. `name` comes verbatim from a node, and `Path::join` with an
+/// absolute component discards its base, so the shape is checked before it
+/// is ever a path.
+pub fn read_blob(dir: &Path, name: &str) -> Option<Vec<u8>> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    if !is_digest(name) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(dir.join(name))
+        .ok()?
+        .take(MAX_BLOB as u64 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > MAX_BLOB {
+        return None;
+    }
+    let hash: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    (hash == name).then_some(bytes)
+}
 
 /// The most of one file's read text the index takes. `[tools]
 /// max_read_bytes`'s own default: the index never holds more of a file than

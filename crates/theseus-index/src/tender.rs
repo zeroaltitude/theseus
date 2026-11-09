@@ -696,8 +696,7 @@ impl Tender {
                 counts.repeated += 1;
                 continue;
             }
-            let path = self.cfg.blobs_dir().join(&r.text);
-            let Ok(bytes) = fs::read(&path) else {
+            let Some(bytes) = files::read_blob(&self.cfg.blobs_dir(), &r.text) else {
                 tracing::warn!(file = %r.name, "index: a kept file's text blob could not be read");
                 counts.unread += 1;
                 continue;
