@@ -164,8 +164,12 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   (the default), a place whose turn is in flight sends the new message as a `turn.submit` at once instead of holding it
   in `queued`. The core's running turn takes it in at its next loop (or, if that turn ends first, runs it as the next
   turn), and the place's renderer shows the turn's events as it does; the place's `inflight` stays the turn that was
-  running, and the steered request's end (`PlaceMsg::Steered`) says only a failure. Off, the message waits in `queued`
-  and goes with the rest after the turn, as before. Tests: `runtime/tests_steer.rs`.
+  running, and the steered request's end (`PlaceMsg::Steered`) says only a failure. The place counts its steered
+  requests (`Steering`): while one is out the place is busy (`Place::turning`: typing, a new message steered too, a
+  prompt refused) even after its own turn ended and the daemon runs the message as a turn of its own, and a `/stop`
+  that came after the request went ends it, so its error is not said again (theseus-07m8b). The request is built
+  once for a turn of the place's own and a steer (`submit_params`), so the reply's target reaches both. Off, the
+  message waits in `queued` and goes with the rest after the turn, as before. Tests: `runtime/tests_steer.rs`.
 - **A place's session** (`runtime/succession.rs`, theseus-emqx): a place resumes its stored session when it can take
   turns and is not retired; otherwise it starts fresh, and nothing is opened at the bind, at `/new`, or when its
   session can take no more turns: its next message opens one (`Place::ready`) through `Core::bind_place_to`, which

@@ -626,6 +626,7 @@ impl Shared {
             view: show::View::new(p.show),
             lane,
             inflight: false,
+            steering: Default::default(),
             queued: Vec::new(),
             saw_failure: false,
             stopped_turn: None,

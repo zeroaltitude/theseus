@@ -24,8 +24,7 @@ use theseus_core::Core;
 use theseus_protocol::Event as CoreEvent;
 use theseus_protocol::{
     BindingStatus, DiscordOrigin, Notification, PlaceStatus, PolicyTightenParams, SessionInfo,
-    SessionListResult, SessionRef, TightenResult, TurnSubmitParams, TurnSubmitResult,
-    UnlabelResult,
+    SessionListResult, SessionRef, TightenResult, TurnSubmitResult, UnlabelResult,
 };
 use tokio::sync::{mpsc, oneshot};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
@@ -718,7 +717,7 @@ enum PlaceMsg {
     Inbound(Inbound),
     Event(Box<CoreEvent>),
     SubmitDone(Result<(), CallError>),
-    Steered(Result<(), CallError>),
+    Steered(Result<(), CallError>, u32),
     Control {
         cmd: Control,
         by: String,
@@ -1091,6 +1090,7 @@ impl Shared {
             view: show::View::new(show),
             lane,
             inflight: false,
+            steering: Default::default(),
             queued: Vec::new(),
             saw_failure: false,
             stopped_turn: None,
@@ -1884,6 +1884,8 @@ struct Place {
     lane: mpsc::UnboundedSender<LaneMsg>,
     /// A `turn.submit` of ours is outstanding.
     inflight: bool,
+    /// The steered requests beside it (`runtime/steer.rs`).
+    steering: steer::Steering,
     /// Messages that arrived mid-turn, for the next turn.
     queued: Vec<Inbound>,
     saw_failure: bool,
@@ -1953,7 +1955,7 @@ impl Place {
                     self.say(&reply, Some(m.message));
                     return;
                 }
-                if self.inflight && self.steers() {
+                if self.turning() && self.steers() {
                     self.steer(m);
                 } else if self.inflight {
                     self.queued.push(m);
@@ -2030,7 +2032,7 @@ impl Place {
                 }
                 self.next_after_turn().await;
             }
-            PlaceMsg::Steered(r) => self.steered_done(r),
+            PlaceMsg::Steered(r, stops) => self.steered_done(r, stops),
             PlaceMsg::Voice(t) => self.voice_when_ready(t).await,
             m @ (PlaceMsg::Board | PlaceMsg::Tasks | PlaceMsg::Press(_) | PlaceMsg::Cmd(_)) => {
                 self.task_msg(m).await
@@ -2106,16 +2108,7 @@ impl Place {
             let r = rpc
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
-                    TurnSubmitParams {
-                        session_id: Some(sid),
-                        input,
-                        author: Some(author),
-                        attachments,
-                        reply_to: anchor.map(|a| a.to_string()),
-                        speaking: None,
-                        in_reply_to: reply_turn,
-                        ..Default::default()
-                    },
+                    steer::submit_params(sid, author, input, attachments, anchor, reply_turn),
                 )
                 .await
                 .map(|_| ());
@@ -2159,6 +2152,7 @@ impl Place {
                 self.queued.clear();
                 self.voice_stop();
                 self.stopping = self.inflight;
+                self.steering.stopped();
                 // The stopped turn's stream stops here, where Discord last
                 // saw it; it posts no reply.
                 if let Some(turn) = self.renderer.running_turn() {
@@ -2390,6 +2384,7 @@ pub(crate) fn shared_for_tests(core: &Arc<Core>) -> Arc<Shared> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use theseus_protocol::TurnSubmitParams;
 
     #[test]
     fn the_slash_commands_list_tasks_and_wakes_and_cancel_one_by_name() {
@@ -2887,6 +2882,7 @@ pub(crate) mod tests {
             session_id: sid.to_string(),
             lane,
             inflight: false,
+            steering: Default::default(),
             queued: Vec::new(),
             saw_failure: false,
             stopped_turn: None,
