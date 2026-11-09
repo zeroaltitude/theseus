@@ -1089,6 +1089,25 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
     ),
     // The shared secret of a procurement portal, where one is configured.
     ops("invoicing", &["GetProcurementPortalPreference"]),
+    // A workspace's `grafanaToken`, which the model does not mark and which
+    // rides each description of the workspace (theseus-3i6d1).
+    ops(
+        "grafana",
+        &[
+            "AssociateLicense",
+            "CreateWorkspace",
+            "DeleteWorkspace",
+            "DescribeWorkspace",
+            "DisassociateLicense",
+            "ListWorkspaces",
+            "UpdateWorkspace",
+        ],
+    ),
+    // The Firebase server key of a GCM channel, `Credential`, unmarked.
+    ops(
+        "pinpoint",
+        &["DeleteGcmChannel", "GetGcmChannel", "UpdateGcmChannel"],
+    ),
 ];
 
 /// Tagging is direct (§3.4), so it is never IaC-only.

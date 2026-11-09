@@ -330,7 +330,7 @@ impl Core {
             method::SESSION_RECOMPILE => route(params, |p| self.session_recompile(p, conn)),
             method::CATALOG_LIST => reply(self.catalog_list()),
             method::COMPILATION_LIST => route(params, |p| self.compilation_list(p)),
-            method::NODE_LIST => route(params, |p| self.node_list(p)),
+            method::NODE_LIST => route(params, |p| self.node_list_on(p, conn.surface)),
             // A walk may read several sessions, so it runs off the serving
             // workers. Its params are parsed first: none fails at once.
             method::NODE_REACH => {

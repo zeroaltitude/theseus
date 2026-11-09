@@ -206,7 +206,24 @@ fn a_format_54_routine_reads_as_one_that_runs_until_it_is_paused() {
     assert_eq!(serde_json::to_string(&s).unwrap(), ROUTINE_AT_54);
 }
 
+/// An imported session's record as format 56 wrote it (the build before
+/// `ImportedFrom.diverged_at`, format 57, theseus-ectzg): a conversation that
+/// came in from an invented export, one message long, with its provenance
+/// block and no divergence mark. It reads with an empty `diverged_at` and
+/// writes back byte for byte. **Written by hand**, from a synthetic episode
+/// (invented tag, ids, file and times; no real store was read), field by field
+/// in the order the format-56 `ImportedFrom` declares them: it was typed, not
+/// produced by today's encoder, and `a_format_56_imported_session_is_not_the_encoders_output`
+/// holds it apart from that encoder.
+pub(crate) const SESSION_IMPORTED_AT_56: &str = r#"{"session_id":"ses_ep0000000000000000000000000000000000000000000000000000000cafe0156","kind":"conversation","label":"imported","created_at_unix_ms":1790000000561,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"last_active_ms":1790000000561,"cost_usd":0.0,"tool_calls":0,"imported":{"tag":"tern-fixture-56","episode_id":"ep_0000000000000000000000000000000000000000000000000000000cafe0156","hash":"h56-invented","source":"harbour-export","agent":"quill","place":{"kind":"dm","name":"Harbour desk","id":"4400000156"},"labels":{"sensitivity":"public","partner":null,"topic":["garden/beds"],"book_hint":null,"credential_redacted":false},"as_of":{"start_ms":1790000000500,"end_ms":1790000000540},"messages":1,"summary":false,"file":"harbour-export.jsonl","line":156,"imported_at_ms":1790000000560}}"#;
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::SESSION,
+        layout: "an imported session at format 56 (theseus-ectzg's build before its divergence mark): before `ImportedFrom.diverged_at` (57)",
+        bytes: SESSION_IMPORTED_AT_56,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::META,
         layout: "a routine at format 54 (theseus-52tut's grant on its wake): before a start, an optional stop and what a run carries (55, theseus-97b8c)",
@@ -1610,4 +1627,33 @@ fn a_format_53_session_with_a_mark_reads_it_ignored_and_drops_it() {
         back.data, read.data,
         "and the record reads the same after the write"
     );
+}
+
+/// The format-56 imported session is read by today's decoder as a session with
+/// no divergence, and a later episode's divergence (what format 57 added)
+/// lands in it and reads back: the old record migrates by being read, with
+/// nothing rewritten. Both sides assert a positive count, and the literal is
+/// shown to be independent of the encoder: it never names the new field, and
+/// an encoder that writes one does not change the literal.
+#[test]
+fn a_format_56_imported_session_is_not_the_encoders_output() {
+    let mut s: SessionRecord = serde_json::from_str(SESSION_IMPORTED_AT_56).unwrap();
+    let imp = s.imported.as_ref().expect("the provenance block decodes");
+    assert_eq!(imp.tag, "tern-fixture-56");
+    assert_eq!(imp.messages, 1);
+    assert_eq!(imp.place.id.as_deref(), Some("4400000156"));
+    assert_eq!(imp.labels.topic, ["garden/beds"]);
+    assert!(imp.diverged_at.is_empty(), "no mark: nothing diverged");
+    // Not today's encoder's output: it does not carry the new field...
+    assert!(!SESSION_IMPORTED_AT_56.contains("diverged_at"));
+    // ...and it is read byte for byte as it was written.
+    assert_eq!(serde_json::to_string(&s).unwrap(), SESSION_IMPORTED_AT_56);
+    // Format 57's field lands in it and reads back; the literal is untouched.
+    s.imported.as_mut().unwrap().diverged_at.push(3);
+    let text = serde_json::to_string(&s).unwrap();
+    assert_ne!(text, SESSION_IMPORTED_AT_56);
+    assert!(text.contains(r#""diverged_at":[3]"#), "{text}");
+    let back: SessionRecord = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.imported.unwrap().diverged_at, [3]);
+    assert!(!SESSION_IMPORTED_AT_56.contains("diverged_at"));
 }
