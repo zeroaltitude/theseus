@@ -1624,6 +1624,7 @@ impl Fact for ProviderError<'_> {
             "elapsed_ms": self.elapsed_ms,
             "detail": self.detail,
             "message": self.message,
+            "correlation_id": self.correlation_id,
         })
     }
 

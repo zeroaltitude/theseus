@@ -568,6 +568,7 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
             if row.at_unix_ms <= since_ms || row.at_unix_ms > until_ms {
                 continue;
             }
+            twins.note(r.position, &row);
             if let Some(o) = of_row(r.position, &row) {
                 out.push(o);
             }
@@ -577,8 +578,53 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
             _ => break,
         }
     }
+    let doubled = twins.doubled();
+    out.retain(|o| !doubled.contains(&o.id));
     out.sort_by(|a, b| a.at_ms.cmp(&b.at_ms).then_with(|| a.id.cmp(&b.id)));
     Ok(out)
+}
+
+/// A failed model call writes two rows: the kernel's `action.failed` (producer
+/// `provider:<name>`) and `provider.error`, both with the call's correlation
+/// id. They are one failure, so the action row is left out when its twin is in
+/// the window. Pairing is across pages, after the loop. A call with no twin (a
+/// compaction's summary writes none) or whose twin lies outside the window
+/// stays filed.
+#[derive(Default)]
+struct Twins {
+    errors: std::collections::HashSet<String>,
+    actions: Vec<(String, String)>,
+}
+
+impl Twins {
+    fn note(&mut self, pos: u64, row: &LedgerRow) {
+        let Some(id) = row.data["correlation_id"].as_str() else {
+            return;
+        };
+        match row.kind.as_str() {
+            "provider.error" => {
+                self.errors.insert(id.to_string());
+            }
+            "action.failed"
+                if row.data["producer"]
+                    .as_str()
+                    .is_some_and(|p| p.starts_with("provider:")) =>
+            {
+                self.actions.push((format!("ledger:{pos}"), id.to_string()));
+            }
+            _ => {}
+        }
+    }
+
+    /// The observation ids of the action rows that have a twin.
+    fn doubled(self) -> std::collections::HashSet<String> {
+        let errors = self.errors;
+        self.actions
+            .into_iter()
+            .filter(|(_, id)| errors.contains(id))
+            .map(|(o, _)| o)
+            .collect()
+    }
 }
 
 /// Health's warnings, as observations dated `date`: a disk under its
@@ -914,6 +960,26 @@ mod tests {
         assert_eq!(failed_action_key("hands:reaper"), "action.failed:hands");
         assert_eq!(failed_action_key("proc"), "action.failed:proc");
         assert_eq!(failed_action_key("harness"), "action.failed:harness");
+    }
+
+    /// An async or in-process tool is named, as a harness one is: every AWS
+    /// and Google tool filed under one `async` cause.
+    #[test]
+    fn an_async_or_inproc_tool_failure_names_its_tool() {
+        let s3 = failed_action_key("async:aws.s3.get");
+        let mail = failed_action_key("async:google.mail.send");
+        assert_eq!(s3, "action.failed:async:aws.s3.get");
+        assert_eq!(mail, "action.failed:async:google.mail.send");
+        assert_ne!(s3, mail);
+        assert_eq!(
+            failed_action_key("inproc:fs.read"),
+            "action.failed:inproc:fs.read"
+        );
+        assert_eq!(
+            failed_action_key("async:mcp:ext-wordcount/count"),
+            "action.failed:async:mcp.ext_wordcount"
+        );
+        assert_eq!(failed_action_key("async"), "action.failed:async");
     }
 
     fn note_of(kind: &str, data: Value) -> String {
