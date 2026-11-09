@@ -158,35 +158,7 @@ fn a_secret_may_come_from_the_environment_or_a_file() {
 #[test]
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 fn example_template_uncommented_still_parses() {
-    let mut out = String::new();
-    for line in Config::EXAMPLE_TOML.lines() {
-        let t = line.trim_start();
-        if let Some(rest) = t.strip_prefix("# ") {
-            let looks_like_toml = rest.starts_with('[')
-                || rest
-                    .split_once('=')
-                    .map(|(k, _)| {
-                        let k = k.trim();
-                        // A quoted key: `"proc.run" = …`, `"server/tool" = …`.
-                        let quoted = k.len() > 2
-                            && k.starts_with('"')
-                            && k.ends_with('"')
-                            && !k[1..k.len() - 1].contains('"');
-                        quoted
-                            || (!k.is_empty()
-                                && k.chars()
-                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'))
-                    })
-                    .unwrap_or(false);
-            if looks_like_toml {
-                out.push_str(rest);
-                out.push('\n');
-                continue;
-            }
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
+    let out = uncommented(Config::EXAMPLE_TOML);
     let cfg = Config::from_toml(&out).unwrap_or_else(|e| {
             panic!("un-commented template must parse (a documented key is stale or its value invalid): {e}\n{out}")
         });
@@ -271,6 +243,41 @@ fn example_template_uncommented_still_parses() {
     crate::broker::the_templates_broker_section(&cfg);
     crate::broker::the_templates_harness_only_keys(&cfg);
     mcp::the_templates_mcp_section(&cfg);
+}
+
+/// The template with every commented-out parameter un-commented: each `# `
+/// line that reads as a table header or a `key = value` is kept as TOML.
+fn uncommented(template: &str) -> String {
+    let mut out = String::new();
+    for line in template.lines() {
+        let t = line.trim_start();
+        if let Some(rest) = t.strip_prefix("# ") {
+            let looks_like_toml = rest.starts_with('[')
+                || rest
+                    .split_once('=')
+                    .map(|(k, _)| {
+                        let k = k.trim();
+                        // A quoted key: `"proc.run" = …`, `"server/tool" = …`.
+                        let quoted = k.len() > 2
+                            && k.starts_with('"')
+                            && k.ends_with('"')
+                            && !k[1..k.len() - 1].contains('"');
+                        quoted
+                            || (!k.is_empty()
+                                && k.chars()
+                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+                    })
+                    .unwrap_or(false);
+            if looks_like_toml {
+                out.push_str(rest);
+                out.push('\n');
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 /// theseus-8d1b: the template and the default config name no one's
