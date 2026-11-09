@@ -99,6 +99,16 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
             m.budget_tokens
         ),
     );
+    if let Some(n) = m.would_drop {
+        push(
+            o,
+            Tag::Dim,
+            &format!(
+                "  small-talk bar (shadow): would have left out {n} of {} admitted notes",
+                m.admitted.len()
+            ),
+        );
+    }
     arm_lines(o, m);
     for a in &m.admitted {
         item_lines(o, a);
@@ -421,6 +431,18 @@ pub fn recalls_lines(r: &MemoryRecallsResult) -> Vec<Line> {
             "none yet: recall runs on a turn's first loop with `[memory] mode = \"shadow\"`",
         );
     }
+    let low: Vec<u64> = r.recalls.iter().filter_map(|m| m.would_drop).collect();
+    if !low.is_empty() {
+        push(
+            &mut out,
+            Tag::Dim,
+            &format!(
+                "small-talk bar (shadow): {} of these would have left out {} admitted notes in all",
+                plural(low.len() as u64, "recall", "recalls"),
+                low.iter().sum::<u64>()
+            ),
+        );
+    }
     for m in &r.recalls {
         out.extend(recall_lines(m));
     }
@@ -515,6 +537,65 @@ mod tests {
                 .join("\n")
                 .contains("dropped 2 for thread: msg_3#0 (thread_own), msg_4#0 (thread_base)"),
             "{lines:?}"
+        );
+    }
+
+    /// The small-talk bar's shadow count is read where recalls are read (theseus-fpm2): a manifest
+    /// with `would_drop` says so, one without shows no such line, and its "would admit" line stays.
+    #[test]
+    fn a_recall_says_what_the_small_talk_bar_would_have_left_out() {
+        let item = |n: usize| RecallItem {
+            node_id: format!("msg_{n}"),
+            session_id: "ses_b".into(),
+            kind: "user_message".into(),
+            rank: n as u64,
+            tokens: 9,
+            ..RecallItem::default()
+        };
+        let m = RecallManifest {
+            mode: "shadow".into(),
+            outcome: "ran".into(),
+            admitted: (1..=5).map(item).collect(),
+            would_drop: Some(3),
+            ..RecallManifest::default()
+        };
+        let text = |m: &RecallManifest| {
+            recall_lines(m)
+                .into_iter()
+                .map(|l| l.text)
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let with = text(&m);
+        assert!(with.contains("would admit 5"), "{with}");
+        assert!(
+            with.contains("small-talk bar (shadow): would have left out 3 of 5 admitted notes"),
+            "{with}"
+        );
+        let without = text(&RecallManifest {
+            would_drop: None,
+            ..m.clone()
+        });
+        assert!(without.contains("would admit 5"), "{without}");
+        assert!(!without.contains("small-talk bar"), "{without}");
+        let all = recalls_lines(&MemoryRecallsResult {
+            session_id: "ses_a".into(),
+            total: 2,
+            recalls: vec![
+                m.clone(),
+                RecallManifest {
+                    would_drop: None,
+                    ..m
+                },
+            ],
+        })
+        .into_iter()
+        .map(|l| l.text)
+        .collect::<Vec<_>>()
+        .join("\n");
+        assert!(
+            all.contains("1 recall of these would have left out 3 admitted notes in all"),
+            "{all}"
         );
     }
 

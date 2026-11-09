@@ -353,6 +353,17 @@ fn a_traversing_text_value_is_not_a_blob() {
     assert_eq!((indexed, unread), (0, 1));
 }
 
+/// A blob of the right name that does not hash to it is unread, end to end: the node is still
+/// indexed, its file text is not, and status counts it (the digest guard, theseus-lv2u).
+#[test]
+fn a_blob_that_does_not_hash_to_its_name_is_unread_and_its_node_is_still_indexed() {
+    let name = "b".repeat(64);
+    let rel = format!("blobs/{name}");
+    let (found, indexed, unread) = indexed_via(|_| name.clone(), &rel);
+    assert!(!found, "a blob that does not hash to its name is not read");
+    assert_eq!((found, indexed, unread), (false, 0, 1));
+}
+
 #[test]
 fn an_overlong_text_value_is_not_a_blob() {
     let long = "a".repeat(200);
@@ -372,9 +383,18 @@ fn a_blob_that_does_not_match_its_name_or_is_too_big_is_refused() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join(&wrong), serde_json::to_vec(&pages()).unwrap()).unwrap();
     assert!(crate::files::read_blob(&dir, &wrong).is_none());
-    let big = vec![b' '; crate::files::MAX_BLOB + 1];
+    // The bound is injected: a 1 KiB bound proves it without a 64 MiB file.
+    let bound = 1024;
+    let big = vec![b' '; bound + 1];
     let d = put_blob(&rig.store, &big);
-    assert!(crate::files::read_blob(&dir, &d).is_none());
+    assert!(crate::files::read_blob_within(&dir, &d, bound).is_none());
+    let exact = vec![b' '; bound];
+    let d = put_blob(&rig.store, &exact);
+    assert_eq!(
+        crate::files::read_blob_within(&dir, &d, bound),
+        Some(exact),
+        "a blob of exactly the bound reads"
+    );
 }
 
 /// The positive: a real digest still reads its blob.
@@ -393,6 +413,8 @@ fn a_real_digest_still_reads_its_blob() {
 /// path a rebuild takes (a fresh index, ingest from the WAL's start), over
 /// 3,000 nodes of about 400 bytes, timed and printed as nodes per second.
 /// The rig's vectors are off, so this is the BM25 and entity ingest alone.
+/// Measured on a 4-core VM, vectors off: 3,000 nodes in 2.61 s, about 1,150 nodes/s (one run). nextest hides the printed figure on a pass;
+/// run with `--no-capture` to see it.
 #[test]
 fn bench_a_backfill_from_the_wals_start() {
     let rig = Rig::new();

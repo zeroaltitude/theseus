@@ -148,7 +148,9 @@ async fn the_request_sizes_follow_the_tier() {
 /// The small-talk bar, in shadow (theseus-fpm2): a greeting that `effort.v1` calls `low` has its
 /// manifest record how many admitted notes a bar would drop, and still attaches them; a real
 /// question, same rig and notes, drops nothing. Both halves assert the positive count, so a
-/// recall that is simply switched off passes neither.
+/// recall that is simply switched off passes neither. Caveat: `effort` is scripted from a
+/// `FakeJev`, so this proves the plumbing from a `low` verdict, not that `effort.v1` calls a real
+/// greeting `low`; a green here is not a working bar.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_greeting_records_what_a_bar_would_drop_and_a_question_drops_nothing() {
     for (message, level, greeting) in [
@@ -169,5 +171,73 @@ async fn a_greeting_records_what_a_bar_would_drop_and_a_question_drops_nothing()
         );
         let want = greeting.then_some(m.admitted.len() as u64);
         assert_eq!(m.would_drop, want, "{message}");
+    }
+}
+
+/// A greeting `effort.v1` calls `low` whose recall the session's cap paused: the notes were
+/// admitted, never attached (`recalled == 0`), so no bar could have "dropped" them, and the
+/// shadow field stays absent. A paused turn must not inflate the count the shadow exists to read
+/// (theseus-fpm2). Turn one fills the cap; turn two, a greeting, is paused. The positive state is
+/// asserted too: notes admitted, `outcome == "paused"`, nothing attached.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_paused_greeting_records_no_would_drop() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "sonnet", "low", 0.95);
+    work(&jev, "conversation", 0.95);
+    let r = tiered_open(&jev, 1, |c| {
+        c.memory.recall_budget_tokens = 200;
+        c.memory.recall_max_items = 1;
+        c.memory.deep_recall_tokens = 200;
+        c.memory.deep_recall_items = 1;
+        c.memory.session_recall_cap_tokens = 200;
+    });
+    let first = turn(&r.core, None, "Hello there, good morning!", None).await;
+    assert!(first.recalled > 0, "turn one fills the cap");
+    let res = turn(
+        &r.core,
+        Some(&first.session_id),
+        "Hello again, good evening!",
+        None,
+    )
+    .await;
+    let rows = crate::tests_recall::recalls(&r.core, &res.session_id);
+    let m = rows.last().unwrap();
+    assert_eq!(m.outcome, "paused", "{m:?}");
+    assert!(!m.admitted.is_empty(), "notes were admitted");
+    assert_eq!(res.recalled, 0, "none were attached");
+    assert_eq!(m.would_drop, None);
+}
+
+/// The verdict lands after the pack (theseus-fpm2's `Late` hole): the pack fixed an ordinary
+/// budget for want of it, and a greeting `effort.v1` calls `low` still records what a bar would
+/// drop, so the shadow's sample is not missing its late turns. The route row says `verdict late`
+/// (the proof it was late), the route's own wait still catching it before the first compile, and the same late turn called `high` records nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_low_verdict_still_records_what_a_bar_would_drop() {
+    for (level, greeting) in [("low", true), ("high", false)] {
+        let jev = FakeJev::start().unwrap();
+        says(&jev, "sonnet", level, 0.95);
+        work(&jev, "conversation", 0.95);
+        jev.set_mode(theseus_judge::fake::FakeMode::Held);
+        let r = crate::tests_injection_tiers::tiered(&jev, 1, false, |c| {
+            c.routing.max_wait_ms = 2_000;
+            c.judge.total_secs = 30;
+        });
+        act_open(&r);
+        let late = jev.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            late.release();
+        });
+        let res = turn(&r.core, None, "Hello there, good morning!", None).await;
+        let m = recalled(&r, &res);
+        assert!(!m.admitted.is_empty(), "{level}: notes were admitted");
+        let row = decided(&r.core.store).pop().unwrap();
+        assert_eq!(
+            row["injection"]["fallback"], "verdict late",
+            "{level}: {row}"
+        );
+        let want = greeting.then_some(m.admitted.len() as u64);
+        assert_eq!(m.would_drop, want, "{level}");
     }
 }
