@@ -1504,6 +1504,48 @@ struct ListArgs {
     all: bool,
 }
 
+/// What `fs.list`'s walk found: the entries kept, how many there were in all,
+/// the directories at the last level, whose contents it never reads, and the
+/// first entry past its length, in path order (theseus-8ye).
+struct ListWalk {
+    entries: Vec<(PathBuf, bool, u64)>,
+    total: usize,
+    undescended: usize,
+    first_left: Option<PathBuf>,
+}
+
+fn list_walk(base: &Path, all: bool, depth: usize, max_entries: usize) -> ListWalk {
+    let mut w = ListWalk {
+        entries: Vec::new(),
+        total: 0,
+        undescended: 0,
+        first_left: None,
+    };
+    let mut b = walk_builder(base, all, Some(depth));
+    b.sort_by_file_path(|x, y| x.cmp(y));
+    for e in b.build().flatten() {
+        if e.path() == base {
+            continue;
+        }
+        w.total += 1;
+        let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir && e.depth() == depth {
+            w.undescended += 1;
+        }
+        if w.entries.len() < max_entries {
+            let size = if is_dir {
+                0
+            } else {
+                e.metadata().map(|m| m.len()).unwrap_or(0)
+            };
+            w.entries.push((e.path().to_path_buf(), is_dir, size));
+        } else if w.first_left.is_none() {
+            w.first_left = Some(e.path().to_path_buf());
+        }
+    }
+    w
+}
+
 impl Tool for List {
     fn name(&self) -> &'static str {
         "fs.list"
@@ -1560,35 +1602,12 @@ impl Tool for List {
             )));
         }
         let depth = a.depth.unwrap_or(2).clamp(1, 6);
-        let mut entries: Vec<(PathBuf, bool, u64)> = Vec::new();
-        let mut b = walk_builder(&base, a.all, Some(depth));
-        b.sort_by_file_path(|x, y| x.cmp(y));
-        let mut total = 0usize;
-        // What the listing leaves out (theseus-8ye): the directories at the
-        // last level, whose contents it never reads, and the first entry past
-        // its length, in path order.
-        let mut undescended = 0usize;
-        let mut first_left: Option<PathBuf> = None;
-        for e in b.build().flatten() {
-            if e.path() == base {
-                continue;
-            }
-            total += 1;
-            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            if is_dir && e.depth() == depth {
-                undescended += 1;
-            }
-            if entries.len() < ctx.max_entries {
-                let size = if is_dir {
-                    0
-                } else {
-                    e.metadata().map(|m| m.len()).unwrap_or(0)
-                };
-                entries.push((e.path().to_path_buf(), is_dir, size));
-            } else if first_left.is_none() {
-                first_left = Some(e.path().to_path_buf());
-            }
-        }
+        let ListWalk {
+            entries,
+            total,
+            undescended,
+            first_left,
+        } = list_walk(&base, a.all, depth, ctx.max_entries);
         let mut text = format!("{}/\n", base.display());
         for (p, is_dir, size) in &entries {
             let rel = p.strip_prefix(&base).unwrap_or(p);
