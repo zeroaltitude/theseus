@@ -29,8 +29,8 @@ CALIBRATION = [
     # Plain `async fn`s: clippy counts 2 more than the body alone (the script adds 2). Measured at base 85697868
     # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
     # exactly 2 short before the rule. Re-measure a moved row; never loosen it.
-    ("crates/theseus-core/src/card/run.rs", "card_run", 100),
-    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 100),
+    ("crates/theseus-core/src/card/run.rs", "card_run", 89),
+    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 92),
     ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 100),
 ]
 
