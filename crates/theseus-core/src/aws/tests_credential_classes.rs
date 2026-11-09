@@ -15,7 +15,8 @@
 //! pinpoint's Firebase server key (`GCMChannelResponse.Credential`) and its
 //! Baidu twin, grafana's workspace token (`grafanaToken`), an IoT managed
 //! integrations device's claim certificate (`GetProvisioningProfile`), and a
-//! chime user's `PersonalPIN`. An EKS Anywhere licence's `token` also reaches
+//! chime user's `PersonalPIN`, and the PIN blocks of payment-cryptography's data
+//! plane (`TranslatePinData`, `GeneratePinData`, `GenerateMacEmvPinChange`). An EKS Anywhere licence's `token` also reaches
 //! the model and is left to the `ALLOWED` row that decides it.
 //!
 //! Two classes came with the shape rule (theseus-3i6d1) and are measured in
@@ -50,6 +51,9 @@ const WORKSPACE_TOKEN: &str = "example-workspace-token-0011";
 const CLAIM_CERTIFICATE: &str = "example-claim-certificate-0012";
 const BAIDU_CREDENTIAL: &str = "example-baidu-credential-0013";
 const CHIME_PIN: &str = "example-chime-personal-pin-0014";
+const TRANSLATED_PIN_BLOCK: &str = "example-translated-pin-block-0015";
+const GENERATED_PIN_BLOCK: &str = "example-generated-pin-block-0016";
+const EMV_PIN_BLOCK: &str = "example-emv-pin-change-block-0017";
 
 /// The channel a listing shows: no credential anywhere in it.
 const CHANNEL_NAME: &str = "example-channel-name";
@@ -117,6 +121,9 @@ fn more_classes(path: &str, n: usize) -> Option<Reply> {
                    "Credential": BAIDU_CREDENTIAL, "Enabled": true, "Version": 1}),
         ));
     }
+    if let Some(r) = pin_blocks(path, n) {
+        return Some(r);
+    }
     if path.contains("/users/") {
         return Some(rest(
             n,
@@ -125,6 +132,21 @@ fn more_classes(path: &str, n: usize) -> Option<Reply> {
         ));
     }
     None
+}
+
+/// The payment-cryptography data plane's PIN blocks, by their paths: marked
+/// by the model, wordless, and on operations no table named (theseus-3i6d1).
+fn pin_blocks(path: &str, n: usize) -> Option<Reply> {
+    let body = match path {
+        "/pindata/translate" => json!({"PinBlock": TRANSLATED_PIN_BLOCK, "KeyArn": "example-key-arn"}),
+        "/pindata/generate" => json!({"EncryptedPinBlock": GENERATED_PIN_BLOCK,
+                                       "EncryptionKeyArn": "example-key-arn"}),
+        "/macemvpinchange/generate" => json!({"EncryptedPinBlock": EMV_PIN_BLOCK,
+                                               "Mac": "example-mac-value",
+                                               "NewPinPekArn": "example-key-arn"}),
+        _ => return None,
+    };
+    Some(rest(n, body))
 }
 
 fn answers(s: &Seen, n: usize) -> Reply {
@@ -298,7 +320,50 @@ fn measured_cases() -> Vec<Case> {
             // and is now masked with it (the owner's question, carried).
             "example-user",
         ),
+        case(
+            call("payment-cryptography-data", "TranslatePinData", translate_input()),
+            vec![("PinBlock", TRANSLATED_PIN_BLOCK)],
+            "example-key-arn",
+        ),
+        case(
+            call("payment-cryptography-data", "GeneratePinData", generate_input()),
+            vec![("EncryptedPinBlock", GENERATED_PIN_BLOCK)],
+            "example-key-arn",
+        ),
+        case(
+            call("payment-cryptography-data", "GenerateMacEmvPinChange", emv_input()),
+            vec![("EncryptedPinBlock", EMV_PIN_BLOCK)],
+            "example-key-arn",
+        ),
     ]
+}
+
+/// The inputs of the three PIN operations; the account number is a
+/// 12-digit invention, so no id-shaped run is in the file.
+fn translate_input() -> Value {
+    let iso = json!({"IsoFormat0": {"PrimaryAccountNumber": "400000000001"}});
+    json!({"IncomingKeyIdentifier": "alias/example-in", "OutgoingKeyIdentifier": "alias/example-out",
+           "IncomingTranslationAttributes": iso, "OutgoingTranslationAttributes": iso,
+           "EncryptedPinBlock": "0123456789ABCDEF"})
+}
+
+fn generate_input() -> Value {
+    json!({"GenerationKeyIdentifier": "alias/example-gen", "EncryptionKeyIdentifier": "alias/example-enc",
+           "GenerationAttributes": {"Ibm3624NaturalPin": {"DecimalizationTable": "0123456789012345",
+               "PinValidationDataPadCharacter": "F", "PinValidationData": "400000000001"}},
+           "PrimaryAccountNumber": "400000000001", "PinBlockFormat": "ISO_FORMAT_0"})
+}
+
+fn emv_input() -> Value {
+    json!({"NewEncryptedPinBlock": "0123456789ABCDEF", "PinBlockFormat": "ISO_FORMAT_0",
+           "NewPinPekIdentifier": "alias/example-pek",
+           "MessageData": "00112233",
+           "SecureMessagingIntegrityKeyIdentifier": "alias/example-int",
+           "SecureMessagingConfidentialityKeyIdentifier": "alias/example-conf",
+           "DerivationMethodAttributes": {"EmvCommon": {"MajorKeyDerivationMode": "EMV_OPTION_A",
+               "PrimaryAccountNumber": "400000000001", "PanSequenceNumber": "01",
+               "ApplicationCryptogram": "0011223344556677", "Mode": "ECB",
+               "PinBlockPaddingType": "NO_PADDING", "PinBlockLengthPosition": "NONE"}}})
 }
 
 /// Every class of the first passes, and the credentials each must hold.

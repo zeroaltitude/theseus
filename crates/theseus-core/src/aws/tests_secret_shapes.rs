@@ -24,7 +24,7 @@
 //! data and customer content too, and holding every marked member would
 //! reach 1478 further operations and 2654 further members — a postal code, a
 //! given name, a control's description, a tag's value — against this rule's
-//! 163 and 119. The words alone are a guess about a name, and the names that
+//! 166 and 122. The words alone are a guess about a name, and the names that
 //! matter do not cooperate: a stream key arrives as `StreamKey.value`, a
 //! Grafana key as `key`, a TOTP seed as `SecretCode`, a channel's key as
 //! `Srt.passphrase`. Read together they keep the marking's authority — the
@@ -177,6 +177,23 @@ const MARKED: &[(&str, &str, &str)] = &[
         "iot-managed-integrations",
         "GetProvisioningProfileResponse",
         "ClaimCertificate",
+    ),
+    // A PIN block, translated or generated: the member's plain reading, not
+    // a sourced fact (theseus-3i6d1).
+    (
+        "payment-cryptography-data",
+        "TranslatePinDataOutput",
+        "PinBlock",
+    ),
+    (
+        "payment-cryptography-data",
+        "GeneratePinDataOutput",
+        "EncryptedPinBlock",
+    ),
+    (
+        "payment-cryptography-data",
+        "GenerateMacEmvPinChangeOutput",
+        "EncryptedPinBlock",
     ),
 ];
 
@@ -898,7 +915,7 @@ fn the_rules_reach_is_what_the_design_doc_says() {
     let marking = reach(c, &marking_alone);
     assert_eq!(
         (conjunction, marking),
-        ((163, 119), (1478, 2654)),
+        ((166, 122), (1478, 2654)),
         "the rule's reach moved: the conjunction now selects {conjunction:?} \
          (operations, members) beyond the rule it replaced, and the marking alone would \
          select {marking:?}. Correct the module doc above and docs/design/aws-toolset.md."
@@ -1079,6 +1096,9 @@ const TRIAGED: &[(&str, &str, &str, &str)] = &[
     ("amplify", "Branch", "buildSpec", "the branch's build specification"),
     ("amplifybackend", "CreateBackendAuthVerificationMessageConfig", "EmailSettings", "the verification email's subject and body"),
     ("amplifybackend", "CreateBackendAuthVerificationMessageConfig", "SmsSettings", "the verification message's text"),
+    ("payment-cryptography-data", "PinData", "PinOffset", "a PIN offset, verification data derived from the PIN rather than the PIN block; masked now with its answer, a reading and a question for the owner"),
+    ("payment-cryptography-data", "PinData", "VerificationValue", "a PIN verification value, as the offset above; masked with its answer, a reading and a question for the owner"),
+    ("payment-cryptography-data", "GenerateMacEmvPinChangeOutput", "Mac", "a message authentication code over the change message, not a key or a PIN; masked with its answer, a reading"),
     ("chime", "Bot", "BotEmail", "an email address"),
     ("chime", "Bot", "DisplayName", "a display name"),
     ("chime", "AlexaForBusinessMetadata", "AlexaForBusinessRoomArn", "an ARN naming a room; a reading of the shape, not a sourced fact"),
@@ -1266,8 +1286,8 @@ fn every_marked_candidate_is_on_a_list() {
               way to tell which was decided",
         drop: "the member is gone from the catalog, or another branch of the \
                rule now reaches it: delete the row",
-        // 83 now: 19 on MARKED and 64 on TRIAGED (76 and 57 before the
-        // grafana workspace rows, theseus-3i6d1).
+        // 95 now: 23 on MARKED and 72 on TRIAGED (83 before the PIN-block rows:
+        // 20 and 69; 76 and 57 before the grafana workspace rows).
         least: 60,
         stale_fails: true,
     };
