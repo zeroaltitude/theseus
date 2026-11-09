@@ -31,6 +31,10 @@ path = "junit.xml"
 # 3 in 10 on a five-lane tree (2026-10-25), and 120 s timeouts in the 1.0.4 wave's loaded gates (ev3ir attempt 3,
 # kn9or row 6); this is the list's first entry. Remove it in the commit that fixes the family. slow-timeout
 # is untouched: a hang still ends at 120 s, and is retried.
+#
+# RE-MEASURED on a 4-core cloud VM, base 4683adb8 (2026-11-09): 20 of 20 passed alone (`--test-threads 1`, 0.2 to
+# 0.3 s) and 6 of 6 passed inside the whole theseus-core crate (0.21 to 0.30 s), so this image did not reproduce the
+# 120 s hang and neither confirms nor corrects the instance count above. Not reproduced here is no evidence it is gone.
 [[profile.default.overrides]]
 filter = 'package(theseus-core) & test(=tests_onto_names::a_chain_asked_over_two_nights_clusters)'
 retries = 2
