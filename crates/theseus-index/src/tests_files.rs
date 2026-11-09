@@ -17,6 +17,11 @@ use crate::tests::{settle, Rig};
 /// An invented marker, in the fixture's text alone.
 const MARKER: &str = "tidewheel-glossary-4417";
 
+/// An invented word, in the words of the node that carries a file and not in
+/// the file: a search for it finds the node whether or not any of the file's
+/// text was read.
+const NODE_WORD: &str = "quaysidenote-5503";
+
 /// Write a blob into the store's blobs, where the core's `Blobs` keeps it:
 /// `<store>/blobs/<sha256>`.
 fn put_blob(store: &Path, bytes: &[u8]) -> String {
@@ -317,23 +322,37 @@ fn node_naming_text(rig: &Rig, session: &str, text: String) -> (Node, std::path:
     };
     *t = Some(text);
     (
-        Node::user_with(session, Some("turn_1"), "cli", "this one", vec![a]),
+        Node::user_with(
+            session,
+            Some("turn_1"),
+            "cli",
+            &format!("this one, {NODE_WORD}"),
+            vec![a],
+        ),
         rig.store.clone(),
     )
 }
 
 /// Index one node naming `text`, with a decoy sections file at `decoy`, and
 /// say whether the decoy's marker reached the index and what status counted.
+/// Whatever the text names, the node itself is indexed: an ordinary search for
+/// a word of its own finds it, the file's text unread or not.
 fn indexed_via(text: impl Fn(&Path) -> String, decoy_rel: &str) -> (bool, u64, u64) {
     let rig = Rig::new();
     let decoy = rig.store.join(decoy_rel);
     std::fs::create_dir_all(decoy.parent().unwrap()).unwrap();
     std::fs::write(&decoy, serde_json::to_vec(&pages()).unwrap()).unwrap();
     let (node, _) = node_naming_text(&rig, "ses_escape", text(&decoy));
+    let id = node.id.clone();
     rig.put(&[node]);
     let mut t = rig.open();
     settle(&mut t);
     let s = t.shared().status();
+    let hits = t.shared().query(&QueryParams::new(NODE_WORD)).unwrap().hits;
+    assert!(
+        hits.iter().any(|h| h.node_id == id),
+        "the node is indexed whatever its file's text is: {hits:?}"
+    );
     (!marked(&t).is_empty(), s.files_indexed, s.files_unread)
 }
 
