@@ -43,6 +43,7 @@ move() {
   [ "${STUB_MOVE_AT:-}" = "$1" ] || return 0
   case "$STUB_MOVE" in
     edit) echo "an edit made while the gate ran" >>notes.txt ;;
+    smoke-run) mkdir -p bench/smoke/runs/2026-01-01-abcd1234 && echo report >bench/smoke/runs/2026-01-01-abcd1234/report.md ;;
     away-and-back) git checkout -q --detach && git checkout -q main ;;
   esac
 }
@@ -208,6 +209,14 @@ class GateTree(unittest.TestCase):
         self.assertIn("on a tree that had not moved", out)
         self.assertNotIn("ABORTED", out)
         self.assertNotIn("THE TREE MOVED", out)
+
+    def test_a_smoke_run_written_beside_the_gate_is_not_a_move(self):
+        # scripts/release-smoke.sh writes bench/smoke/runs/<run>/report.md, tracked and not ignored.
+        rc, out, calls = self.gate(STUB_MOVE_AT="suite", STUB_MOVE="smoke-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: ok", out)
+        self.assertTrue((self.root / "bench/smoke/runs/2026-01-01-abcd1234/report.md").exists(), "the move did happen")
+        self.assertTrue(any(c.startswith("suite ") for c in calls), calls)
 
     # ---- the door's environment
 

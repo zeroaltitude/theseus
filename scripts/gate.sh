@@ -210,9 +210,10 @@ save_locked_record() {
 # between them ran on. It is computed here and not by that script, because the gate must not depend on a file of the tree
 # it judges: a branch cut before the script, and the throwaway repositories the guard's own tests run the gate in, lack it.
 # Blind spots, deliberately: an edit made and undone in the window moves no ref and leaves no mark, and
-# cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself.
+# cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself, and
+# bench/smoke/runs because scripts/release-smoke.sh writes a run's report there (tracked, so not gitignored) and a smoke run beside a gate is no move.
 tree_moved_status=75
-tree_unseen=(':(exclude)cockpit/src/protocol.gen')
+tree_unseen=(':(exclude)cockpit/src/protocol.gen' ':(exclude)bench/smoke/runs')
 tree_identity() {
   local head digest log
   head="$(git rev-parse HEAD 2>/dev/null || echo none)"
