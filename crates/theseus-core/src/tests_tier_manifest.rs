@@ -182,7 +182,13 @@ async fn a_paused_greeting_records_no_would_drop() {
     let jev = FakeJev::start().unwrap();
     says(&jev, "sonnet", "low", 0.95);
     work(&jev, "conversation", 0.95);
-    let r = tiered_open(&jev, 1, |c| c.memory.session_recall_cap_tokens = 200);
+    let r = tiered_open(&jev, 1, |c| {
+        c.memory.recall_budget_tokens = 200;
+        c.memory.recall_max_items = 1;
+        c.memory.deep_recall_tokens = 200;
+        c.memory.deep_recall_items = 1;
+        c.memory.session_recall_cap_tokens = 200;
+    });
     let first = turn(&r.core, None, "Hello there, good morning!", None).await;
     assert!(first.recalled > 0, "turn one fills the cap");
     let res = turn(&r.core, Some(&first.session_id), "Hello again, good evening!", None).await;
