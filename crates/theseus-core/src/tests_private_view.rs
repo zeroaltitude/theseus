@@ -190,7 +190,7 @@ pub(crate) fn session_in(c: &Core, place: Option<&str>, dir: &Path) -> String {
 /// The request's body, as the golden holds it: its directories `<dir>`, the
 /// ids it names aliased (whole, then the six characters a handle keeps), the
 /// time zone a stamp names `<zone>`, every run of digits `#`, the machine's
-/// CPU count `<cpus>`;
+/// CPU count `<cpus>`, the OS and architecture `<os>`;
 /// the tools by name and the digest of their definitions, so a request's
 /// every byte is held without 100 KB of schemas in the file.
 pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String {
@@ -232,10 +232,20 @@ pub(crate) fn body(req: &ProviderRequest, dir: &Path, ids: &[String]) -> String 
         }
         // `CPUs available to commands: # (cgroup quota; …).`: the machine's.
         let cpus = "CPUs available to commands: ";
-        match out.split_once(cpus) {
+        let out = match out.split_once(cpus) {
             Some((head, tail)) => {
                 let rest = tail.find('.').map_or("", |i| &tail[i..]);
                 format!("{head}{cpus}<cpus>{rest}")
+            }
+            None => out,
+        };
+        // `OS: linux (x#_#).`: the architecture is the build's, so an ARM
+        // runner's golden would differ by it alone (theseus-wadu).
+        let os = "OS: ";
+        match out.split_once(os) {
+            Some((head, tail)) => {
+                let rest = tail.find('.').map_or("", |i| &tail[i..]);
+                format!("{head}{os}<os>{rest}")
             }
             None => out,
         }

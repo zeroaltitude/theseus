@@ -11,7 +11,7 @@ use theseus_protocol::{
 use super::server::RpcFailure;
 use super::Core;
 use crate::config::PersonaView;
-use crate::context_files::{ContextFile, ContextPath, ContextReaders};
+use crate::context_files::{ContextFile, ContextPath, ContextReaders, Level};
 use crate::persona;
 use crate::session::SessionRecord;
 
@@ -77,7 +77,7 @@ impl Core {
             .iter()
             .map(|f| ContextPath {
                 path: f.path().into(),
-                persona: view.key.clone(),
+                level: Level::of_persona(view.key.as_deref()),
                 public: f.readers() == ContextReaders::Public,
             })
             .collect();

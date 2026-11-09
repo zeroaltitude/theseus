@@ -41,6 +41,7 @@ pub(crate) mod people;
 pub mod persona;
 pub mod prefix;
 pub mod privacy;
+mod project;
 mod projects;
 pub(crate) mod route;
 mod routines;
@@ -58,6 +59,7 @@ mod standing;
 mod threads;
 mod wake_limits;
 pub use cockpit::CockpitConfig;
+pub use project::ProjectConfig;
 pub use projects::ProjectsConfig;
 pub use routines::RoutinesConfig;
 mod watches;
@@ -217,6 +219,10 @@ pub struct Config {
     /// `[persona_import]`: the agent import and the recall boost (theseus-a8n7), `config/persona_settings.rs`.
     #[serde(default, skip_serializing_if = "PersonaSettings::is_default")]
     pub persona_import: PersonaSettings,
+    /// `[project]`: the repository's own instruction files' budget
+    /// (theseus-wadu), `config/project.rs`. Not `[projects]` below it.
+    #[serde(default, skip_serializing_if = "ProjectConfig::is_default")]
+    pub project: ProjectConfig,
     /// `[projects]`: long-term work (theseus-n5ui2), `config/projects.rs`.
     #[serde(default, skip_serializing_if = "ProjectsConfig::is_default")]
     pub projects: ProjectsConfig,
@@ -1684,6 +1690,7 @@ impl Config {
         self.route_bench.validate()?;
         self.prefix.validate()?;
         self.notify.validate()?;
+        self.project.validate()?;
         self.projects.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
@@ -2088,10 +2095,10 @@ impl Config {
         persona: Option<&str>,
         engaging: bool,
     ) -> Vec<crate::context_files::ContextPath> {
-        use crate::context_files::ContextPath;
+        use crate::context_files::{ContextPath, Level};
         let system = self.context.files.iter().map(|p| ContextPath {
             path: p.path().into(),
-            persona: None,
+            level: Level::System,
             public: p.readers() == crate::context_files::ContextReaders::Public,
         });
         // Where a message can engage another persona, every persona's soul
@@ -2106,7 +2113,7 @@ impl Config {
             .flat_map(|(name, p)| {
                 p.files.iter().map(|f| ContextPath {
                     path: f.path().into(),
-                    persona: Some(name.clone()),
+                    level: Level::Persona(name.clone()),
                     public: f.readers() == crate::context_files::ContextReaders::Public,
                 })
             });
