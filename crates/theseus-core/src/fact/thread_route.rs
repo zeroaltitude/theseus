@@ -46,6 +46,9 @@ pub struct RoutedRow {
     /// turn took it over).
     pub early: bool,
     pub movable: bool,
+    /// The turn ran above every thread's root: the directory rule's words
+    /// (`thread_route::above_every_root`), none from inside a root.
+    pub above: Option<String>,
 }
 
 /// `thread.routed`: an unaddressed message found its thread.
@@ -61,7 +64,7 @@ impl Fact for ThreadRouted<'_> {
             "how": r.how, "confidence": r.confidence, "movable": r.movable,
             "pre": r.pre.iter().map(|(s, p, h)| json!({"thread": s, "score": p, "hits": h})).collect::<Vec<_>>(),
             "jev": r.jev.as_ref().map(|j| json!({"pick": j.pick, "p": j.p, "judgment": j.judgment, "acts": j.acts})),
-            "timed_out": r.timed_out, "waited_ms": r.waited_ms, "ask": r.ask, "early": r.early,
+            "timed_out": r.timed_out, "waited_ms": r.waited_ms, "ask": r.ask, "early": r.early, "above": r.above,
         })
     }
 
@@ -76,6 +79,9 @@ impl Fact for ThreadRouted<'_> {
                 r.confidence
             ),
         );
+        if let Some(words) = &r.above {
+            say.line(Session, format!("Thread: {words}"));
+        }
     }
 }
 

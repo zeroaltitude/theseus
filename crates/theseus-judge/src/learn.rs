@@ -266,8 +266,9 @@ pub enum RollbackRule {
     /// text: a nudge loop.
     NudgeLoop,
     /// The canary's median task spend passes `ratio` times the control's
-    /// median, once each arm has `min_tasks` tasks and the control's median
-    /// is above `SPEND_BASE_FLOOR_MICROS`. Median against median: task spend
+    /// median, once each arm has `min_tasks` tasks and the canary's median
+    /// is above `SPEND_FLOOR_MICROS` (a free control is a median of 0, which
+    /// any real canary spend passes). Median against median: task spend
     /// is right-skewed, so a mean against a median fires on one deep task.
     SpendRatio { ratio: f64, min_tasks: usize },
     /// The operator stops or cancels a task within its nudge.
@@ -413,22 +414,26 @@ pub fn similarity(a: &str, b: &str) -> f64 {
 /// Two final texts "near-identical" for the nudge-loop rule.
 pub const NEAR_IDENTICAL: f64 = 0.9;
 
-/// The least a control arm's median task spend may be, in micro-dollars, for
-/// the spend rule to have a baseline to measure against.
+/// The least a canary arm's median task spend may be, in micro-dollars, for
+/// the spend rule to read it as a signal.
 ///
-/// Below it the ratio is arithmetic on noise: a control median of 0 makes
-/// `ratio * base` zero, which any canary spend at all passes, and a median of
-/// a few micro-dollars is barely better. A hundred micro-dollars is a
-/// hundredth of a US cent; no task that made one priced model call costs that
-/// little, since the system header alone is thousands of tokens. So a control
-/// median at or under this means the control arm did essentially no priced
-/// work in the window, and there is nothing to compare the canary with.
+/// The floor is on the **canary's** median, the numerator, and not on the
+/// control's, the denominator (theseus-ig13o). A floor on the denominator
+/// cannot be right: the control's median is 0 whenever half its tasks are
+/// free, so no finite floor ever reaches around it, and it suppressed the
+/// strongest signal there is, a canary that introduces spend where the
+/// control arm had none. `ratio` times a control median of 0 is 0, and a
+/// canary that spends anything real passes it, as it should.
 ///
-/// Deliberately low. A high floor would quietly switch a spend guard off for
-/// a cheap workload, which is the opposite of what the rule is for: the floor
-/// removes a degenerate baseline, it does not express a view about how much
-/// spend is worth rolling a pack back for.
-pub const SPEND_BASE_FLOOR_MICROS: f64 = 100.0;
+/// What the floor guards is the other end: two arms that both did almost no
+/// priced work. A hundred micro-dollars is a hundredth of a US cent; no task
+/// that made one priced model call costs that little, since the system header
+/// alone is thousands of tokens. A canary median at or under it is noise
+/// beside any baseline, a zero one included, so it never fires.
+///
+/// Deliberately low: the floor removes a degenerate numerator, it does not
+/// express a view about how much spend is worth rolling a pack back for.
+pub const SPEND_FLOOR_MICROS: f64 = 100.0;
 
 fn median(v: &[u64]) -> Option<f64> {
     if v.is_empty() {
@@ -484,11 +489,8 @@ pub fn check(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<Fired> {
             // control's median fires on two samples of one distribution as
             // soon as one deep task lands in the canary.
             let base = median(&control)?;
-            if base <= SPEND_BASE_FLOOR_MICROS {
-                return None;
-            }
             let per_task = median(&canary)?;
-            (per_task > ratio * base).then(|| Fired {
+            (per_task > SPEND_FLOOR_MICROS && per_task > ratio * base).then(|| Fired {
                 rule: rule.name().to_string(),
                 why: format!(
                     "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the control's median of {base:.0} ({} and {} tasks)",
@@ -901,10 +903,13 @@ mod tests {
         );
     }
 
-    /// A control arm whose median is at or below the floor is no baseline:
-    /// `ratio` times nothing is nothing, which any canary spend passes.
+    /// A control arm whose median is at or under the floor is a baseline of
+    /// nothing, and a canary spending 10,000 micro-dollars a task against it
+    /// is a regression, not noise (theseus-ig13o): the floor is on the
+    /// canary, so a free or nearly free control no longer switches the guard
+    /// off.
     #[test]
-    fn the_spend_rule_does_not_fire_on_a_control_median_at_the_floor() {
+    fn the_spend_rule_fires_on_a_control_median_at_or_under_the_floor() {
         let r = RollbackRule::SpendRatio {
             ratio: 2.0,
             min_tasks: 10,
@@ -927,14 +932,50 @@ mod tests {
         // Seven of twelve control tasks spent nothing, so the median is 0.
         let zero = run(&|i| if i < 7 { 0 } else { 40_000 });
         assert_eq!(zero.len(), 24, "both arms' tasks are in the sample");
-        assert_eq!(check(&r, &zero), None, "a zero median is no baseline");
+        assert!(check(&r, &zero).is_some(), "a free control is no shelter");
         // And a median that is merely a rounding away from nothing.
         let near = run(&|i| if i < 7 { 40 } else { 40_000 });
         assert_eq!(near.len(), 24, "both arms' tasks are in the sample");
+        assert!(check(&r, &near).is_some(), "nor is a near-free one");
+    }
+
+    /// The case the floor exists to be wrong about: a canary pack that
+    /// introduces spend where the control arm had none. Half the control's
+    /// tasks are free, so its median is 0; `ratio` times 0 is 0, and a
+    /// canary that spends anything real is the strongest signal there is.
+    #[test]
+    fn a_canary_that_introduces_spend_against_a_free_control_fires() {
+        let r = RollbackRule::SpendRatio {
+            ratio: 2.0,
+            min_tasks: 10,
+        };
+        let run = |canary: u64| -> Vec<CanaryEvent> {
+            let mut v: Vec<CanaryEvent> = (0..12)
+                .map(|i| CanaryEvent::TaskSpend {
+                    task: format!("c{i}"),
+                    arm: Arm::Control,
+                    micros: if i < 7 { 0 } else { 40_000 },
+                })
+                .collect();
+            v.extend((0..12).map(|i| CanaryEvent::TaskSpend {
+                task: format!("k{i}"),
+                arm: Arm::Canary,
+                micros: canary,
+            }));
+            v
+        };
+        let events = run(10_000);
+        assert_eq!(events.len(), 24, "both arms' tasks are in the sample");
+        let fired = check(&r, &events).expect("spend against a free control rolls the pack back");
+        assert_eq!(fired.rule, "spend_ratio");
+        assert!(fired.why.contains("median of 0"), "{}", fired.why);
+        // Noise on both sides is still no signal: a canary whose median is
+        // at the floor spent nothing worth a rollback.
+        assert_eq!(check(&r, &run(0)), None, "free against free");
         assert_eq!(
-            check(&r, &near),
+            check(&r, &run(SPEND_FLOOR_MICROS as u64)),
             None,
-            "a median under the floor is no baseline either"
+            "a canary median at the floor is noise"
         );
     }
 

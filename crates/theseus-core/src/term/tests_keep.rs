@@ -466,3 +466,157 @@ async fn a_shell_that_ends_on_sigterm_gets_no_hang_up_and_its_job_is_kept() {
     })
     .await;
 }
+
+/// A shell that has already exited, with a background job it started still
+/// running: the close finds the job by the pty it holds, and names it as it
+/// names a job of a live shell, so the book tracks it (theseus-d1zw). The
+/// positive is the job's own pid, `sleep` and why it was left.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shell_that_exited_leaves_its_background_job_tracked() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let run = run_tag(8);
+    let job = mark(&run, AMPERSAND);
+    let (o, _) = call(
+        &terms,
+        "s1",
+        OPEN,
+        json!({"argv": ["bash", "--norc", "--noprofile", "-i"], "cols": 200}),
+        d.path(),
+    )
+    .await;
+    let sh = id_of(&o);
+    let text = format!("PS1='k''eep# '; sleep {job} & exit\n");
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": sh, "text": text}),
+        d.path(),
+    )
+    .await;
+    until("the job started and the shell exited", || {
+        !marked(&job).is_empty()
+            && terms
+                .all()
+                .iter()
+                .any(|t| t.id == sh && t.pty.exited().is_some())
+    })
+    .await;
+    let pid = marked(&job)[0];
+    let closed = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.close_where(BY_SESSION_END, |t| t.session == "s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(closed.len(), 1);
+    let c = &closed[0];
+    let named: Vec<(u32, &str, &str)> = c
+        .left
+        .iter()
+        .map(|k| (k.proc.pid, k.program.as_str(), k.why))
+        .collect();
+    assert_eq!(
+        named,
+        vec![(pid, "sleep", pty::WHY_BACKGROUND)],
+        "the job of the exited shell is named"
+    );
+    assert_eq!(terms.left_info().len(), 1);
+    assert_eq!(marked(&job).len(), 1, "it was left running, not killed");
+    let ended = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.end_left("s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(ended.len(), 1);
+    until("the left job ended", || marked(&job).is_empty()).await;
+}
+
+/// Closes a terminal whose foreground forks a child into a session of its own
+/// every 2 ms and ignores SIGTERM and SIGHUP, so the forks go on through the
+/// grace and across the close's last scan (theseus-z0kk: 2 of 23 closes left
+/// a child). A child that lands in a new session between the scan and the
+/// kill is in no group the close signals. Returns how many of `n` closes left
+/// a child alive, each child named by its pid.
+async fn closes_leaving_a_child(
+    n: u32,
+    tag: &str,
+    keep: bool,
+    by: &'static str,
+) -> (u32, Vec<String>) {
+    let mut left_by = 0;
+    let mut why = Vec::new();
+    for i in 0..n {
+        let d = tempfile::tempdir().unwrap();
+        let terms = Arc::new(Arc::try_unwrap(terms()).ok().unwrap().configured(keep, 60));
+        let run = format!("{}{i:02}", run_tag(0));
+        let m = mark(&run, tag);
+        let (o, _) = call(
+            &terms,
+            "s1",
+            OPEN,
+            json!({"argv": ["bash", "--norc", "--noprofile", "-i"], "cols": 200}),
+            d.path(),
+        )
+        .await;
+        let sh = id_of(&o);
+        let text = format!(
+            "PS1='k''eep# '; sh -c \"trap '' TERM HUP; while :; do setsid sleep {m} & sleep 0.002; done\"\n"
+        );
+        call(
+            &terms,
+            "s1",
+            SEND,
+            json!({"terminal": sh, "text": text}),
+            d.path(),
+        )
+        .await;
+        until("the forker forked", || marked(&m).len() > 3).await;
+        let closed = tokio::task::spawn_blocking({
+            let terms = terms.clone();
+            move || terms.close_where(by, |t| t.session == "s1")
+        })
+        .await
+        .unwrap();
+        // A killed process takes a moment to die.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let alive = marked(&m);
+        let named: Vec<u32> = closed[0].left.iter().map(|k| k.proc.pid).collect();
+        // Under a keeping close a survivor is acceptable only when named.
+        let unnamed: Vec<&u32> = alive.iter().filter(|p| !named.contains(p)).collect();
+        if !unnamed.is_empty() {
+            left_by += 1;
+            why.push(format!("close {i}: {} unnamed survivors", unnamed.len()));
+        }
+        for p in alive {
+            // SAFETY: a test's own stray sleep, found by its marker.
+            unsafe { libc::kill(p as libc::pid_t, libc::SIGKILL) };
+        }
+        terms.end_left("s1");
+    }
+    (left_by, why)
+}
+
+/// The rate, measured: how often a close leaves a child forked in the window.
+/// Run with `--nocapture` to read it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_leaves_no_child_forked_into_a_new_session_during_it() {
+    let n = 30;
+    let (bad, why) = closes_leaving_a_child(n, "17", false, BY_TOOL).await;
+    println!("z0kk: {bad} of {n} closes left a child: {why:?}");
+    assert_eq!(bad, 0, "{bad} of {n} closes left a child: {why:?}");
+}
+
+/// The same under a keeping close: what it leaves is named, and a child
+/// forked into a session of its own during the close is left too, so it is
+/// named as the others are, never silently (a close that under-reports is
+/// worse than one that leaks).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_keeping_close_names_a_child_forked_into_a_new_session_during_it() {
+    let n = 20;
+    let (bad, why) = closes_leaving_a_child(n, "18", true, BY_SESSION_END).await;
+    println!("z0kk keep: {bad} of {n} closes left an unnamed child: {why:?}");
+    assert_eq!(bad, 0, "{bad} of {n} closes left an unnamed child: {why:?}");
+}

@@ -567,7 +567,23 @@ deny_check() {
     age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
     [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; it is the gate's pin, and \`cargo deny fetch db\` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
   fi
-  cargo deny --offline --log-level error check
+  # A red here can come from the database moving while nobody touched the tree (deny-daily.sh is the only thing that
+  # refreshes it). Say so, and say whose call it is: the gate itself never fetches, never ignores an advisory.
+  cargo deny --offline --log-level error check || {
+    local rc=$?
+    if cargo deny --offline --log-level error check bans licenses sources >/dev/null 2>&1; then
+      echo "deny: ONLY advisories failed; bans, licences and sources are clean. The advisory database is $(deny_db_age "$db") days old and moves when scripts/deny-daily.sh fetches, not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
+    fi
+    return "$rc"
+  }
+}
+# Whole days since the advisory database at $1 was last fetched ("unknown" without a FETCH_HEAD).
+deny_db_age() {
+  if [ -f "${1}.git/FETCH_HEAD" ]; then
+    echo $((($(date +%s) - $(stat -c %Y "${1}.git/FETCH_HEAD")) / 86400))
+  else
+    echo unknown
+  fi
 }
 
 # The keel guard (theseus-pw1q.1; the owner's decision on self-improvement, 2026-10-09): a range that deletes or

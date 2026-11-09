@@ -67,20 +67,23 @@ impl JudgeService {
         c: Cross,
         wait: Duration,
     ) -> Option<BTreeSet<String>> {
-        if c.notes.is_empty() || self.mode_for(CROSS_PACK, &c.session_id).mode == PackMode::Off {
+        // The version standing in `recall_cross.v1`'s place for this session
+        // (theseus-zbttu): a learned one the ladder placed runs, else the root.
+        let name = self.placed(CROSS_PACK, &c.session_id);
+        if c.notes.is_empty() || self.mode_for(&name, &c.session_id).mode == PackMode::Off {
             return None;
         }
         if self.jev_unreachable() || self.cross_breaker_open() {
             return None;
         }
-        let pack = theseus_judge::pack::by_name(CROSS_PACK)?;
+        let pack = self.pack(&name)?;
         let rt = tokio::runtime::Handle::try_current().ok()?;
         let id = theseus_judge::judge::new_id();
         let t0 = trace.now_us();
         trace.mark(
             "judge",
             "mark",
-            json!({"pack": CROSS_PACK, "point": "recall", "mode": "live", "judgment": id}),
+            json!({"pack": name, "point": "recall", "mode": "live", "judgment": id}),
         );
         let (tx, rx) = oneshot::channel();
         rt.spawn(judge_cross(self.me.clone(), pack, c, id.clone(), tx));
@@ -93,7 +96,7 @@ impl JudgeService {
             "wait",
             t0,
             trace.now_us(),
-            json!({"pack": CROSS_PACK, "point": "recall", "mode": "live", "judgment": id,
+            json!({"pack": name, "point": "recall", "mode": "live", "judgment": id,
                    "answered": got.is_some(), "wait_ms": wait.as_millis() as u64}),
         );
         got

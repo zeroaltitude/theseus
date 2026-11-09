@@ -642,6 +642,14 @@ impl ToolPolicy {
         args.iter().all(|(_, p)| self.within_roots(p))
     }
 
+    /// The labels of what the call reaches outside the roots, for a layer
+    /// that loosens a decision and must keep them in its reason: the ledger
+    /// has no other record of the access (theseus-m9fdg.4).
+    pub(crate) fn outside_labels(&self, plan: &Plan) -> Vec<String> {
+        let (resources, _, args) = self.view(plan);
+        self.outside_roots(plan, &resources, &args)
+    }
+
     fn within_roots(&self, p: &Path) -> bool {
         self.roots.iter().any(|root| paths::within(p, root))
     }

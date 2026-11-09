@@ -255,10 +255,7 @@ impl Pty {
         if let Ok(Some(status)) = c.try_wait() {
             // The program is gone; anything it left in its group still goes.
             signal_group(self.pid, libc::SIGKILL);
-            return Ended {
-                status: Some(status),
-                ..Ended::default()
-            };
+            return self.after_exit(status, keep_background);
         }
         // Its descendants as they are now: one that left the process group
         // (a `setsid` of its own) is still signalled by its pid.
@@ -286,9 +283,9 @@ impl Pty {
             }
         }
         // Every group met, the foreground's included, is signalled whole, so
-        // a process forked into one after the scan is not spared
-        // (theseus-z0kk); one that made a session of its own since is the
-        // race that is left.
+        // a process forked into one after the scan is not spared; one that
+        // made a session of its own since is in no group, and is found by the
+        // scan after the groups' kill, repeated (theseus-z0kk).
         let groups = self.groups_of(&procs);
         for sig in [libc::SIGHUP, libc::SIGTERM] {
             for &g in &groups {
@@ -305,24 +302,80 @@ impl Pty {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        let mut killed = 0;
-        let late: Vec<tree::Proc> = procs
-            .iter()
-            .copied()
-            .chain(tree::descendants(self.pid))
-            .chain(holders(&self.slave_path))
-            .filter(|p| tree::alive(*p))
-            .collect();
+        // The groups go first: the foreground's forker dies, so what is
+        // scanned next is no longer growing. Scanned before, a child it
+        // forked into a session of its own between the scan and the kill was
+        // in no group and no list (theseus-z0kk). A round of the scan finds
+        // what the last kill's victims forked before they died; it repeats
+        // until one finds nothing alive.
         for &g in &groups {
             signal_group(g, libc::SIGKILL);
         }
-        for p in late {
-            if tree::signal(p, libc::SIGKILL) {
-                killed += 1;
+        let mut killed = 0;
+        for _ in 0..KILL_ROUNDS {
+            let late: Vec<tree::Proc> = procs
+                .iter()
+                .copied()
+                .chain(tree::descendants(self.pid))
+                .chain(holders(&self.slave_path))
+                .filter(|p| tree::alive(*p))
+                .collect();
+            if late.is_empty() {
+                break;
             }
+            for p in late {
+                if tree::signal(p, libc::SIGKILL) {
+                    killed += 1;
+                }
+            }
+            // Each is a zombie or gone a moment after; a new group may have
+            // formed meanwhile, so the groups met are signalled again.
+            for &g in &groups {
+                signal_group(g, libc::SIGKILL);
+            }
+            std::thread::sleep(Duration::from_millis(5));
         }
         Ended {
             status: c.wait().ok(),
+            killed,
+            left: Vec::new(),
+        }
+    }
+
+    /// A close of a program that had already exited (theseus-d1zw). Its jobs
+    /// are no longer below it (they were reparented), so the processes still
+    /// holding its pty are what is found, the way a close finds a process
+    /// that left the tree. Kept, they are named as a live shell's are; else
+    /// they end, as every close that keeps nothing ends them.
+    fn after_exit(&self, status: std::process::ExitStatus, keep_background: bool) -> Ended {
+        let held: Vec<tree::Proc> = holders(&self.slave_path)
+            .into_iter()
+            .filter(|p| pgid(p.pid).is_some_and(|g| g != self.pid))
+            .collect();
+        if keep_background {
+            let left = held
+                .into_iter()
+                .map(|p| Kept {
+                    proc: p,
+                    program: comm(p.pid),
+                    why: match sid_of(p.pid) == Some(self.pid) {
+                        true => WHY_BACKGROUND,
+                        false => WHY_SESSION,
+                    },
+                })
+                .collect();
+            return Ended {
+                status: Some(status),
+                killed: 0,
+                left,
+            };
+        }
+        let killed = held
+            .iter()
+            .filter(|p| tree::signal(**p, libc::SIGKILL))
+            .count();
+        Ended {
+            status: Some(status),
             killed,
             left: Vec::new(),
         }
@@ -399,11 +452,25 @@ impl Pty {
                 signal_group(g, libc::SIGKILL);
             }
         }
+        // What began while the close ran, into a session of its own, is in
+        // no group the close ended and was not in `back`: found again now
+        // that the foreground is dead and no longer forking, it is left and
+        // named like the rest, never unseen (theseus-z0kk).
+        let mut now: Vec<tree::Proc> = tree::descendants(pid);
+        now.extend(holders(&self.slave_path));
+        now.retain(|p| {
+            !back.contains(p)
+                && pgid(p.pid).is_some_and(|g| !groups.contains(&g))
+                && tree::alive(*p)
+        });
+        now.sort_unstable();
+        now.dedup();
         let status = c.wait().ok();
         // The program leads its own session (`setsid`): its pid is its id.
         let left = back
             .iter()
             .copied()
+            .chain(now)
             .filter(|p| tree::alive(*p))
             .map(|p| Kept {
                 proc: p,
@@ -421,6 +488,9 @@ impl Pty {
         }
     }
 }
+
+/// The rounds a close's final scan and kill repeat, at most (theseus-z0kk).
+const KILL_ROUNDS: usize = 5;
 
 /// Why a keeping close left a process: a process group of its own in the
 /// terminal's session (a shell's `&` job, `nohup … &`), or a session of its

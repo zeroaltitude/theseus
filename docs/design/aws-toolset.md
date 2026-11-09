@@ -292,7 +292,7 @@ to get whole-of-AWS reach:
   what it is — EC2's `VpnConnectionDeviceSampleConfiguration`, which carries the tunnels' pre-shared
   keys in its body, a thin client's `activationCode`, a domain's `AuthCode`, an MFA device's
   `QRCodePNG`, which encodes the same seed as the `Base32StringSeed` beside it, and a kdb
-  `signedConnectionString`. `MARKED` is now **complete as well as unstale** (theseus-3i6d1):
+  `signedConnectionString`. `MARKED` is now **complete as well as unstale, within secret-bearing answers** (theseus-3i6d1; the walk skips `secret=No` operations, which is where the sibling `cred-class-shape-rule` measured 13,844 of 13,876 leaks, so a credential in a `secret=No` answer is outside what this list can see):
   `every_marked_candidate_is_on_a_list` walks the catalog's secret-bearing answers rather than the
   list, and every marked member of one whose name says nothing of what it is must be on `MARKED`
   because it is a credential, or on `TRIAGED` because someone read it and it is not. That walk is

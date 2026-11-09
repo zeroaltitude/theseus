@@ -470,11 +470,21 @@ mod tests {
     ///
     /// This is the other document. Each row is `(why it is refused, its
     /// name, its number)`, grouped by the reason rather than by the order
-    /// `denied()` happens to build its vector in, so the two are not one
-    /// text copied twice. `the_filter_denies_every_call_the_parity_rule_requires`
+    /// `denied()` happens to build its vector in. **The two hold the same 44
+    /// entries in the same order, with the reasons added (and x86_64's three
+    /// more, `iopl`, `ioperm` and `uselib`, are in `MUST_DENY_X86` beside
+    /// their own rows in `denied()`): they are one text copied twice.** `the_filter_denies_every_call_the_parity_rule_requires`
     /// runs the **built filter** over every row — it never reads `denied()`
     /// to decide what to ask — and then holds the two documents to the same
     /// set in both directions.
+    ///
+    /// What that catches and what it does not (theseus-3i6d1): a deletion
+    /// from **one** table is caught, because the filter is run over the rows
+    /// and the two are compared. A deletion from **both**, six lines apart in
+    /// this one file, is not: nothing else says the call should be refused.
+    /// And a system call on **neither** table is enumerated by nobody: the
+    /// filter allows by default, so a call no one thought of runs. That last
+    /// gap is the real residual, and no test here closes it.
     ///
     /// A call added here that the filter does not refuse fails. A call
     /// `denied()` holds that is not here fails too: a denial with no written

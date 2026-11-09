@@ -12,7 +12,7 @@ use anyhow::Result;
 use theseus_ontology::{person, Category, Origin};
 
 use super::Core;
-use crate::judge::people::same::{name_key, pair_key};
+use crate::judge::people::same::{name_key, pair_key, same_by_name};
 
 /// The one to keep of two equal keys: a transport's person (a DM's, which the
 /// transport reads by its id), then the one with more handles, then the
@@ -57,7 +57,11 @@ impl Core {
                 for (i, keep) in g.iter().enumerate() {
                     for gone in &g[i + 1..] {
                         let pair = pair_key(&keep.id.to_string(), &gone.id.to_string());
-                        if !forbidden.contains(&pair) {
+                        // One key is not enough when one name abbreviates and
+                        // the other does not (theseus-hui5a): that pair is a
+                        // question for the owner (`people_cands`).
+                        let one = same_by_name(&keep.name, &gone.name);
+                        if one && !forbidden.contains(&pair) {
                             next = Some((gone.id.clone(), keep.id.clone()));
                             break 'groups;
                         }

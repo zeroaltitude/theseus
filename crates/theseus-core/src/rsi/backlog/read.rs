@@ -147,6 +147,75 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// What a failed action's producer names, for a key: `backend:name` (as
+/// `harness:fs.read` or `provider:anthropic`) when the backend is one whose
+/// second part is a tool, a provider or a hand's backend, else the backend
+/// alone. The first word alone put every in-process tool's failure in one
+/// cause (`harness`), which no one fix can close; `wrapper:<pid>` and
+/// `reconciler:<why>` stay a word, since their second part is not a stable
+/// name.
+fn producer(v: &Value) -> String {
+    const NAMED: &[&str] = &["harness", "hand", "provider"];
+    let s = v.as_str().unwrap_or("").trim();
+    let head = word(v);
+    let name = s
+        .split_once(':')
+        .filter(|_| NAMED.contains(&head.as_str()))
+        .map(|(_, rest)| word(&Value::from(rest)))
+        .filter(|n| n != "unknown");
+    match name {
+        Some(n) => format!("{head}:{n}"),
+        None => head,
+    }
+}
+
+/// A reason's key: its first token (up to whitespace) as up to two
+/// `:`-joined words, so `provider:invalid_request` stays itself and
+/// `provider:rate_limited` is another cause. `word` alone cuts at the first
+/// `:`, which filed every provider failure of a turn under `provider`, a cause
+/// that said nothing of which failure it was. A reason with prose after its
+/// first colon (`timeout: the provider did not answer`) keys as before.
+fn reason_word(v: &Value) -> String {
+    let token = v.as_str().unwrap_or("").split_whitespace().next();
+    let parts: Vec<String> = token
+        .unwrap_or("")
+        .split(':')
+        .filter(|p| !p.is_empty())
+        .take(2)
+        .map(|p| word(&Value::from(p)))
+        .collect();
+    if parts.is_empty() {
+        "unknown".into()
+    } else {
+        parts.join(":")
+    }
+}
+
+/// The start of a message for a note, as one line cut to `max` characters:
+/// `word` leaves a provider's `invalid request (400): ...` as `invalid`,
+/// which hid what the provider refused. `unknown` when it said nothing.
+fn gist(v: &Value, max: usize) -> String {
+    let text = line(v.as_str().unwrap_or(""), max);
+    if text.is_empty() {
+        "unknown".into()
+    } else {
+        text
+    }
+}
+
+/// What a failed turn's reason says beyond its key, for the note: the whole
+/// reason as one line cut to 200 characters, so a `kernel: <why>` refusal
+/// (one cause, by its key) still says which refusal it was. Nothing when the
+/// reason is only its key or is absent.
+fn reason_said(v: &Value, key: &str) -> String {
+    let text = line(v.as_str().unwrap_or(""), 200);
+    if text.is_empty() || text == key {
+        String::new()
+    } else {
+        format!(": {text}")
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -164,28 +233,83 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     }
 }
 
+/// A producer's words as one line: whitespace collapsed, cut to `max`
+/// characters. Empty when it said nothing.
+fn line(text: &str, max: usize) -> String {
+    let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    one.chars().take(max).collect()
+}
+
+/// Where a failed action went and why, for its observation's note: the tool,
+/// the outbox target a post was bound for, and the producer's own reason
+/// (`detail.error`: a refusal's words, Discord's answer). A settle that wrote
+/// none says nothing. Without this a failing post reads as "failed after 0
+/// ms" and the item that fixes it cannot tell which refusal it is. The row's
+/// `outcome` is left out: the note already says failed.
+fn action_why(d: &Value) -> String {
+    let mut parts = Vec::new();
+    for (label, v) in [("tool", &d["tool"]), ("to", &d["outbox"])] {
+        if let Some(s) = v.as_str().filter(|s| !s.is_empty()) {
+            parts.push(format!("{label} {s}"));
+        }
+    }
+    let why = line(d["detail"]["error"].as_str().unwrap_or(""), 240);
+    if !why.is_empty() {
+        parts.push(format!("error: {why}"));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", parts.join("; "))
+    }
+}
+
+/// A failed action's observation. A job's own non-zero exit is its command's
+/// answer, not a fault of ours, so it is none. Timeouts, signals, stops and
+/// jobs that never started are faults, and each is its own cause; a row from
+/// before the ledger named the failure keeps the old key. The pid in a
+/// producer (`wrapper:<pid>`) never splits a cause: `producer` stops at `:`
+/// for a backend whose second part is not a name.
+fn of_action_failed(mut o: Obs, d: &Value) -> Option<Obs> {
+    let p = producer(&d["producer"]);
+    o.key = format!("action.failed:{p}");
+    o.title = calls_failing(&p);
+    o.note = format!(
+        "action {} failed after {} ms{}",
+        d["correlation_id"],
+        d["duration_ms"],
+        action_why(d)
+    );
+    if let Some(f) = d["failure"].as_str() {
+        if f == "exit" {
+            return None;
+        }
+        let f = word(&d["failure"]);
+        o.key = format!("action.failed:{p}:{f}");
+        o.title = format!("{}: {f}", o.title);
+        o.note = format!("{} ({f})", o.note);
+    }
+    o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
+    o.task_failed = true;
+    Some(o)
+}
+
 /// What one ledger row shows, if it shows a problem.
 pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     let d = &row.data;
     let kind = row.kind.as_str();
     let mut o = obs(kind, pos, row);
     match kind {
-        "action.failed" => {
-            let p = word(&d["producer"]);
-            o.key = format!("action.failed:{p}");
-            o.title = calls_failing(&p);
-            o.note = format!(
-                "action {} failed after {} ms",
-                d["correlation_id"], d["duration_ms"]
-            );
-            o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
-            o.task_failed = true;
-        }
+        "action.failed" => return of_action_failed(o, d),
         "turn.failed" => {
-            let r = word(&d["reason"]);
+            let r = reason_word(&d["reason"]);
             o.key = format!("turn.failed:{r}");
             o.title = format!("Turns failing with {r}");
-            o.note = format!("turn failed ({r}) after {} loops", d["loops"]);
+            o.note = format!(
+                "turn failed ({r}) after {} loops{}",
+                d["loops"],
+                reason_said(&d["reason"], &r)
+            );
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
             (o.person, o.task_failed, o.work) = (true, true, 3);
         }
@@ -215,7 +339,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             o.note = format!(
                 "{p} {c} after {} ms: {}",
                 d["elapsed_ms"],
-                word(&d["message"])
+                gist(&d["message"], 160)
             );
             (o.person, o.work) = (true, 3);
         }
@@ -374,7 +498,10 @@ fn of_slow(mut o: Obs, d: &Value) -> Option<Obs> {
 fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
     let r = &d["report"];
     let pack = word(&r["pack"]);
-    let (calls, failed) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
+    let (calls, failed_all) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
+    // `failed` is all-time and never falls: key on the recent count, and on
+    // the total only for a report stored before there was one.
+    let failed = r["failed_recent"].as_u64().unwrap_or(failed_all);
     let (labeled, disagree) = (
         r["labeled"].as_u64().unwrap_or(0),
         r["disagreements"].as_u64().unwrap_or(0),
@@ -656,5 +783,242 @@ mod tests {
     fn a_turn_ended_row_without_elapsed_files_nothing() {
         let row = ended(json!({"first_token_ms": 20_000, "model": "quill9"}));
         assert_eq!(of_row(1, &row), None);
+    }
+
+    fn report_obs(report: Value) -> Option<Obs> {
+        of_row(
+            7,
+            &LedgerRow::named("judge.report", None, None, json!({"report": report})),
+        )
+    }
+
+    /// The report's `failed` is all-time and never falls, so keying on it
+    /// re-filed one old burst every night (judge.failed:people.v1). The cause
+    /// follows `failed_recent`; a report stored before it falls back to the
+    /// total.
+    #[test]
+    fn an_old_burst_of_failed_judgments_is_not_filed_again() {
+        let stopped = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 0});
+        assert!(report_obs(stopped).is_none());
+        let going = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 3});
+        let o = report_obs(going).unwrap();
+        assert_eq!(o.key, "judge.failed:people.v1");
+        assert!(o.note.starts_with("3 of 9000"), "{}", o.note);
+        let legacy = json!({"pack": "people.v1", "calls": 9000, "failed": 12});
+        assert_eq!(report_obs(legacy).unwrap().key, "judge.failed:people.v1");
+    }
+
+    fn failed_job(pid: u32, failure: Option<&str>) -> LedgerRow {
+        let mut data = json!({
+            "correlation_id": "act_1", "producer": format!("wrapper:{pid}"),
+            "duration_ms": 5, "outcome": "failed",
+        });
+        if let Some(f) = failure {
+            data["failure"] = json!(f);
+        }
+        LedgerRow::named("action.failed", None, None, data)
+    }
+
+    /// A command's own non-zero exit is its answer, not a fault of ours.
+    #[test]
+    fn a_jobs_own_non_zero_exit_is_not_a_cause() {
+        assert!(of_row(1, &failed_job(10, Some("exit"))).is_none());
+    }
+
+    /// A timeout and a job that never started are each a cause of their own,
+    /// and the wrapper's pid never splits one.
+    #[test]
+    fn a_job_that_timed_out_or_never_started_is_its_own_cause_whatever_the_pid() {
+        let key = |pid, f| of_row(1, &failed_job(pid, Some(f))).unwrap().key;
+        assert_eq!(key(10, "timeout"), "action.failed:wrapper:timeout");
+        assert_eq!(key(99, "timeout"), key(10, "timeout"));
+        assert_eq!(key(10, "spawn"), "action.failed:wrapper:spawn");
+        assert_ne!(key(10, "spawn"), key(10, "timeout"));
+    }
+
+    /// A row from before the ledger named failures keeps the old key.
+    #[test]
+    fn a_failed_row_without_a_failure_keeps_the_old_key() {
+        let o = of_row(1, &failed_job(10, None)).unwrap();
+        assert_eq!(o.key, "action.failed:wrapper");
+        assert_eq!(o.title, "Wrapper tool calls failing");
+    }
+
+    fn failed_action_key(producer: &str) -> String {
+        let row = LedgerRow::named(
+            "action.failed",
+            None,
+            None,
+            json!({"producer": producer, "duration_ms": 0, "correlation_id": "act_1"}),
+        );
+        of_row(1, &row)
+            .expect("a failed action is an observation")
+            .key
+    }
+
+    /// The first word of a producer put every in-process tool's failure in
+    /// one cause, `harness`, which no single fix can close.
+    #[test]
+    fn failed_harness_calls_of_two_tools_are_two_causes() {
+        assert_eq!(
+            failed_action_key("harness:fs.read"),
+            "action.failed:harness:fs.read"
+        );
+        assert_eq!(
+            failed_action_key("harness:self.propose_change"),
+            "action.failed:harness:self.propose_change"
+        );
+        assert_ne!(
+            failed_action_key("harness:task.close"),
+            failed_action_key("harness:fs.read")
+        );
+    }
+
+    /// A provider and a hand's backend are names; a wrapper's pid and a
+    /// reconciler's reason are not, so they stay one word.
+    #[test]
+    fn a_provider_is_named_but_a_wrapper_pid_is_not() {
+        assert_eq!(
+            failed_action_key("provider:anthropic"),
+            "action.failed:provider:anthropic"
+        );
+        assert_eq!(
+            failed_action_key("hand:lambda"),
+            "action.failed:hand:lambda"
+        );
+        assert_eq!(failed_action_key("wrapper:4242"), "action.failed:wrapper");
+        assert_eq!(
+            failed_action_key("reconciler:lost"),
+            "action.failed:reconciler"
+        );
+        assert_eq!(failed_action_key("hands:reaper"), "action.failed:hands");
+        assert_eq!(failed_action_key("proc"), "action.failed:proc");
+        assert_eq!(failed_action_key("harness"), "action.failed:harness");
+    }
+
+    fn note_of(kind: &str, data: Value) -> String {
+        of_row(7, &LedgerRow::named(kind, None, None, data))
+            .unwrap()
+            .note
+    }
+
+    /// A failed post's note says where it went and why it was refused, so the
+    /// item filed for it can tell one refusal from another. The kernel's own
+    /// row says only `outcome: failed`, which the note already says, so a row
+    /// with none of the rest reads as before.
+    #[test]
+    fn a_failed_post_note_names_its_target_and_reason() {
+        let note = note_of(
+            "action.failed",
+            json!({"producer": "discord", "correlation_id": "out_1", "duration_ms": 0,
+                   "tool": "outbox.post", "outbox": "discord:channel:42", "outcome": "failed",
+                   "detail": {"error": "not bound here any more (channel:42)"}}),
+        );
+        for needle in [
+            "out_1",
+            "outbox.post",
+            "discord:channel:42",
+            "not bound here any more (channel:42)",
+        ] {
+            assert!(note.contains(needle), "{needle} missing from {note}");
+        }
+        assert!(!note.contains("outcome"), "{note}");
+        let bare = note_of(
+            "action.failed",
+            json!({"producer": "proc", "correlation_id": "act_1", "duration_ms": 10,
+                   "outcome": "failed"}),
+        );
+        assert_eq!(bare, "action \"act_1\" failed after 10 ms");
+    }
+
+    /// The producer's words are one line of at most 240 characters.
+    #[test]
+    fn a_failed_posts_reason_is_one_short_line() {
+        let note = note_of(
+            "action.failed",
+            json!({"producer": "discord", "correlation_id": "out_2", "duration_ms": 0,
+                   "detail": {"error": format!("refused\n  twice {}", "x".repeat(500))}}),
+        );
+        assert!(note.contains("refused twice xxx"), "{note}");
+        assert!(!note.contains('\n'), "{note}");
+        assert!(
+            note.chars().count() < 340,
+            "{} characters",
+            note.chars().count()
+        );
+    }
+
+    fn turn_failed(reason: &str) -> Obs {
+        let row = LedgerRow::named(
+            "turn.failed",
+            None,
+            None,
+            json!({"loops": 2, "reason": reason, "cost_usd": 0.1}),
+        );
+        of_row(1, &row).expect("a failed turn is an observation")
+    }
+
+    /// A turn's `provider:<class>` reason was cut at its colon: every provider
+    /// failure keyed `turn.failed:provider`, one cause for an invalid request,
+    /// a rate limit and a timeout alike.
+    #[test]
+    fn a_failed_turn_keeps_the_providers_class_in_its_cause() {
+        let invalid = turn_failed("provider:invalid_request");
+        assert_eq!(invalid.key, "turn.failed:provider:invalid_request");
+        assert_eq!(invalid.title, "Turns failing with provider:invalid_request");
+        let limited = turn_failed("provider:rate_limited");
+        assert_eq!(limited.key, "turn.failed:provider:rate_limited");
+        assert_ne!(invalid.key, limited.key);
+    }
+
+    /// A reason with prose after its first colon, or none, keys as before.
+    #[test]
+    fn a_reason_with_prose_or_no_class_keys_as_before() {
+        assert_eq!(
+            turn_failed("timeout: the provider did not answer").key,
+            "turn.failed:timeout"
+        );
+        assert_eq!(turn_failed("over_limit").key, "turn.failed:over_limit");
+        assert_eq!(turn_failed("provider:").key, "turn.failed:provider");
+        assert_eq!(turn_failed("").key, "turn.failed:unknown");
+    }
+
+    /// The provider's refusal reads in the evidence, not its first word.
+    #[test]
+    fn a_provider_errors_note_says_what_the_provider_refused() {
+        let mut row = provider_error("invalid_request");
+        row.data["provider"] = json!("anthropic");
+        row.data["message"] = json!(
+            "invalid request (400): invalid_request_error: messages.1: a tool use\nwas found without a result"
+        );
+        let o = of_row(2, &row).unwrap();
+        assert_eq!(o.key, "provider.error:invalid_request:anthropic");
+        assert!(
+            o.note
+                .contains("messages.1: a tool use was found without a result"),
+            "{}",
+            o.note
+        );
+    }
+
+    /// A kernel failure's evidence says why the kernel refused: the key still
+    /// groups every refusal as one cause, but the note carries the message
+    /// (long ones cut), so the fixing run sees what to fix. A reason that is
+    /// only its own key, or none, adds nothing to repeat.
+    #[test]
+    fn a_failed_turns_note_keeps_the_reason() {
+        let o = turn_failed("kernel: execution exe_1 is cancelled, not runnable");
+        assert_eq!(o.key, "turn.failed:kernel");
+        assert_eq!(
+            o.note,
+            "turn failed (kernel) after 2 loops: kernel: execution exe_1 is cancelled, not runnable"
+        );
+        let long = turn_failed(&format!("kernel: {}", "x".repeat(500)));
+        assert!(long.note.chars().count() < 260, "{}", long.note);
+        assert_eq!(
+            turn_failed("provider:invalid_request").note,
+            "turn failed (provider:invalid_request) after 2 loops"
+        );
+        assert_eq!(turn_failed("").note, "turn failed (unknown) after 2 loops");
     }
 }
