@@ -1057,6 +1057,7 @@ mod tests {
         }
         assert_eq!(failed_of("role.v1", 2, 100), None, "two is under three");
         assert_eq!(failed_of("role.v1", 3, 400), None, "3 of 400 is under 1 %");
+        assert_eq!(failed_of("role.v1", 3, 301), None, "3 of 301 is under 1 %");
         assert_eq!(
             failed_of("role.v1", 0, 0),
             None,
