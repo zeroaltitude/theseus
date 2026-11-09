@@ -88,10 +88,9 @@ pub fn render(live: &[&ThreadInfo], here: &str, line_chars: usize) -> Option<Dig
     if lines.is_empty() && embargoed == 0 {
         return None;
     }
-    let mut text =
-        String::from(concat!(
-        "[Place digest: the other live threads of this place, as they stand now.",
-        " The harness supplies this; the owner did not write it, so do not acknowledge or restate it."
+    let mut text = String::from(concat!(
+        "[Place digest: the other live threads of this place, as they stand now. ",
+        crate::content::context_not_the_owners!()
     ));
     for l in &lines {
         text.push('\n');

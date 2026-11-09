@@ -588,14 +588,52 @@ pub fn harness_own(origin: Origin, author: Option<&str>) -> bool {
     origin == Origin::Harness && author.is_some_and(|a| HARNESS_AUTHORS.contains(&a))
 }
 
+/// [`NOT_FOR_THE_PERSON`] as a macro that expands to its literal, so a `const`
+/// text can compose it with `concat!`, which takes no `const` (the four
+/// nudge texts that are `const &str`). The one place the words are typed.
+macro_rules! not_for_the_person {
+    () => {
+        "Act on this note and say nothing about it to the person you are answering."
+    };
+}
+
+/// [`CONTEXT_NOT_THE_OWNERS`] as a macro, for `concat!`.
+macro_rules! context_not_the_owners {
+    () => {
+        "The harness supplies this; the owner did not write it, so do not acknowledge or restate it."
+    };
+}
+pub(crate) use context_not_the_owners;
+pub(crate) use not_for_the_person;
+
 /// The sentence every harness nudge ends with (theseus-emqbm): the nudge is
 /// the harness's, not the person's, so the model acts on it and says nothing
 /// about it where the person reads. The cause, not the symptom: a reply that
 /// never addresses the nudge reads as work, whatever a surface then does with
 /// it. `every_harness_nudge_says_not_to_answer_it_in_the_place` holds every
 /// text [`HARNESS_NUDGE_AUTHORS`] writes to it.
-pub const NOT_FOR_THE_PERSON: &str =
-    "Act on this note and say nothing about it to the person you are answering.";
+pub const NOT_FOR_THE_PERSON: &str = not_for_the_person!();
+
+/// The sentence every block the harness writes into a request as **context**
+/// ends with, where [`NOT_FOR_THE_PERSON`] is for a note the model acts on:
+/// the place digest, the thread card, the task arrangement and the fan-out
+/// cue. The harness supplies it, the owner did not write it, and the model
+/// does not answer it as a message just received (theseus-ectzg, the owner
+/// 2026-11-07: "it's talking to itself").
+///
+/// One sentence for four blocks because it is true of each: the digest's
+/// lines are what a cross-thread answer draws on, and "do not restate it"
+/// there means do not read it back to the owner, not do not use it. The fan-out
+/// cue is a suggestion the model weighs, so it cannot take "Act on this note"
+/// (it would read as "fan out"); this sentence tells it whose the note is and
+/// leaves the weighing to the cue's own "Do it only when the areas are
+/// independent". 91 bytes, which is what the digest's head already spent
+/// (`five_threads_fit_in_400_tokens` has 11 bytes of room). To drop "or
+/// restate" for the digest alone (S3), replace this const in
+/// `place_digest::render` with the literal minus those words.
+/// [`standing::FRAMING`](crate::standing::FRAMING) is the standing block's own
+/// words and stays as it is.
+pub const CONTEXT_NOT_THE_OWNERS: &str = context_not_the_owners!();
 
 /// The harness nudges, a subset of [`HARNESS_AUTHORS`]: the harness telling
 /// the model what to do next, which it then answers. A reply to one is the
@@ -1238,6 +1276,234 @@ mod tests {
                 "a harness nudge that does not say it: {t}"
             );
         }
+    }
+
+    /// The source of every file under `src` that is not a test file, with
+    /// its comment lines blanked and an inline `mod tests {` cut off. The
+    /// cut is at that module, never at the first `#[cfg(test)]` (a gated
+    /// item in the middle of a file is not the end of its code).
+    fn live_source() -> Vec<(String, String)> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut out = Vec::new();
+        let mut todo = vec![root.clone()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).expect("read the crate's source") {
+                let p = e.expect("a source entry").path();
+                if p.is_dir() {
+                    todo.push(p);
+                    continue;
+                }
+                let under_tests = p.strip_prefix(&root).unwrap().components().any(|c| {
+                    let c = c.as_os_str().to_string_lossy();
+                    c.starts_with("tests") || c.ends_with("_tests.rs")
+                });
+                if p.extension().is_none_or(|x| x != "rs") || under_tests {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&p).expect("read a source file");
+                let cut = text
+                    .find("#[cfg(test)]\nmod tests {")
+                    .or_else(|| text.find("#[cfg(test)]\n#[allow"))
+                    .unwrap_or(text.len());
+                let code: String = text[..cut]
+                    .lines()
+                    .filter(|l| !l.trim_start().starts_with("//"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let rel = p.strip_prefix(&root).unwrap().display().to_string();
+                out.push((rel, code));
+            }
+        }
+        out
+    }
+
+    /// The files that write a block into a model request, found by what they
+    /// do: a call of `attach_text(`/`attach_hint(` (not its definition), a
+    /// `"[The harness:` or `"The harness:` literal, or a use of one of the
+    /// sentences in this module.
+    fn block_writers() -> std::collections::BTreeMap<String, String> {
+        let mut found = std::collections::BTreeMap::new();
+        for (file, code) in live_source() {
+            let attaches = code.lines().any(|l| {
+                (l.contains("attach_text(") || l.contains("attach_hint("))
+                    && !l.contains("fn attach_")
+            });
+            let opens = code.contains("\"[The harness:") || code.contains("\"The harness:");
+            let uses = [
+                "NOT_FOR_THE_PERSON",
+                "CONTEXT_NOT_THE_OWNERS",
+                "not_for_the_person!",
+                "context_not_the_owners!",
+                "FRAMING",
+            ]
+            .iter()
+            .any(|w| code.contains(w));
+            let mut why = Vec::new();
+            if attaches {
+                why.push("attaches a block");
+            }
+            if opens {
+                why.push("opens \"[The harness:\"");
+            }
+            if uses {
+                why.push("uses a shared sentence");
+            }
+            if !why.is_empty() && file != "content.rs" {
+                found.insert(file, why.join(", "));
+            }
+        }
+        found
+    }
+
+    const NOTE: &str = "NOT_FOR_THE_PERSON";
+    const CONTEXT: &str = "CONTEXT_NOT_THE_OWNERS";
+    const FRAMING: &str = "FRAMING";
+
+    /// The claim: each file that writes a block, its class, and why.
+    fn block_classes() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[
+            (
+                "turn/close_out_step.rs",
+                NOTE,
+                "the doubt and the deliverable hint",
+            ),
+            ("turn/nudge_step.rs", NOTE, "the stop nudge"),
+            ("turn/helper_step.rs", NOTE, "the helper's report note"),
+            (
+                "turn/progress_step.rs",
+                NOTE,
+                "the steer, the stop, the doubt",
+            ),
+            ("compiler/place_digest.rs", CONTEXT, "the place digest"),
+            ("compiler/card.rs", CONTEXT, "the thread card"),
+            ("arrangement.rs", CONTEXT, "the task arrangement"),
+            ("turn/route_step/fan_out_cue.rs", CONTEXT, "the fan-out cue"),
+            (
+                "standing.rs",
+                FRAMING,
+                "every standing head, `standing::FRAMING`",
+            ),
+            (
+                "turn/tier.rs",
+                "neither",
+                "CODING_HINT: its \"[The harness:\" opener is its framing (11-08 audit)",
+            ),
+            (
+                "turn/clock_step.rs",
+                "neither",
+                "states a fact (the clock), not an instruction",
+            ),
+            (
+                "turn/end_note_step.rs",
+                "neither",
+                "owner question: harness:end_note is outside HARNESS_AUTHORS on purpose",
+            ),
+            (
+                "turn/persona_engage.rs",
+                "neither",
+                "states a fact (AGENTS.md)",
+            ),
+            (
+                "project/slice.rs",
+                "neither",
+                "bracketed state with token bounds (11-08 audit)",
+            ),
+            (
+                "commitments.rs",
+                "neither",
+                "bracketed state with token bounds (11-08 audit)",
+            ),
+            (
+                "task_graph/view.rs",
+                "neither",
+                "bracketed state with token bounds (11-08 audit); defines attach_text",
+            ),
+            (
+                "turn/digest_step.rs",
+                "neither",
+                "attaches the place digest, whose text carries CONTEXT",
+            ),
+            (
+                "card/noted.rs",
+                "neither",
+                "UNAUDITED: names the owner's own words today; not decided",
+            ),
+        ]
+    }
+
+    /// Every block the harness writes into a request says whose it is, in
+    /// one shared sentence, never in a hand-kept copy (theseus-ectzg: four
+    /// blocks had four wordings, and tightening one left three behind).
+    ///
+    /// Each file that writes a block is classed: it carries
+    /// [`NOT_FOR_THE_PERSON`] (a note the model acts on), carries
+    /// [`CONTEXT_NOT_THE_OWNERS`] (context it uses), carries
+    /// `standing::FRAMING`, or is neither, with the reason. The walk is the
+    /// world; the list is the claim. Nodes the harness relays as notes
+    /// (`Node::relayed(.., Origin::Harness, ..)` in `rpc/thread_*`,
+    /// `deferred_step`, `task_wait`, `retract`) are not reached by it.
+    #[test]
+    fn every_block_the_harness_writes_says_whose_it_is() {
+        let classes = block_classes();
+        let spec = crate::complete::MustBeComplete {
+            item: "a file that writes a block into a model request",
+            list: "content::tests::every_block_the_harness_writes_says_whose_it_is, the classes",
+            world: "the non-test source of crates/theseus-core/src that attaches a block, \
+                    opens a harness line, or uses a shared sentence",
+            add: "a block the harness writes into a request was added: class it \
+                  here. A note the model acts on ends with NOT_FOR_THE_PERSON, \
+                  context it uses with CONTEXT_NOT_THE_OWNERS, composed and never retyped; \
+                  or give the reason it needs neither",
+            drop: "a file stopped writing a block, or stopped carrying its sentence: a \
+                   block that lost its sentence is the regression to fix, not a row to \
+                   delete",
+            least: 12,
+            stale_fails: true,
+        };
+        let walked = block_writers();
+        crate::complete::check(
+            &spec,
+            classes
+                .iter()
+                .map(|(f, c, r)| ((*f).to_string(), format!("{c}: {r}"))),
+            walked.iter().map(|(f, w)| (f.clone(), w.clone())),
+        );
+        // The positive half: each block classed as carrying a sentence holds it.
+        let src = live_source();
+        let mut carrying = 0;
+        for (file, class, _) in classes.iter().filter(|(_, c, _)| *c != "neither") {
+            let code = &src.iter().find(|(f, _)| f == file).expect(file).1;
+            let macro_name = match *class {
+                NOTE => "not_for_the_person!",
+                CONTEXT => "context_not_the_owners!",
+                _ => "FRAMING",
+            };
+            assert!(
+                code.contains(class) || code.contains(macro_name),
+                "{file} is classed as carrying {class} and does not compose it"
+            );
+            carrying += 1;
+        }
+        assert!(carrying >= 9, "only {carrying} carrying files");
+        // And what each block renders carries the words.
+        let card = crate::compiler::card::text(
+            &serde_json::from_value(serde_json::json!({"slug": "s", "title": "T"})).unwrap(),
+        );
+        assert!(card.contains(CONTEXT_NOT_THE_OWNERS), "{card}");
+        let arrangement = crate::arrangement::render(&[]);
+        assert!(
+            arrangement.contains(CONTEXT_NOT_THE_OWNERS),
+            "{arrangement}"
+        );
+        // The fan-out cue's module is private to `turn`: its own test holds `LINE`.
+        let other: theseus_protocol::threads::ThreadInfo =
+            serde_json::from_value(serde_json::json!({"slug": "o", "title": "Other"})).unwrap();
+        let digest = crate::compiler::place_digest::render(&[&other], "home", 280).unwrap();
+        assert!(
+            digest.text.contains(CONTEXT_NOT_THE_OWNERS),
+            "{}",
+            digest.text
+        );
     }
 
     /// A long item splits at line boundaries, each piece knows its place, the

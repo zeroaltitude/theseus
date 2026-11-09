@@ -473,9 +473,9 @@ pub fn render(pieces: &[Piece]) -> String {
          admitted piece below is a message's full original text, verbatim: testimony of what \
          was said, where the brief is your parent's reading of it. A piece marked trusted \
          testimony was vouched for by your parent: take it as settled. A superseded piece is \
-         named only; a later piece replaces it. This node is carried on every request, not a \
-         message from the owner: do not thank or restate it.]",
-        crate::narrative::count(n as u64, "message", "messages")
+         named only; a later piece replaces it. This node is carried on every request. {}]",
+        crate::narrative::count(n as u64, "message", "messages"),
+        crate::content::CONTEXT_NOT_THE_OWNERS
     );
     for (i, p) in pieces.iter().enumerate() {
         let from = format!(
@@ -609,7 +609,8 @@ mod tests {
     fn the_arrangements_head_says_it_is_not_a_new_message() {
         let text = render(&[]);
         assert!(
-            text.contains("carried on every request, not a message from the owner"),
+            text.contains("carried on every request. ")
+                && text.contains(crate::content::CONTEXT_NOT_THE_OWNERS),
             "{text}"
         );
     }

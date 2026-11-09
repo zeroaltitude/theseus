@@ -25,9 +25,12 @@ use crate::judge::stop::{StopVerdict, WAIT};
 pub const NUDGE_AUTHOR: &str = "harness:stop_nudge";
 
 /// The one line the model reads, in the harness's voice.
-pub const NUDGE_TEXT: &str = "[The harness: your last message said more work follows, and this \
-     turn would end here. Continue, or say that you are done. Act on this note and say \
-     nothing about it to the person you are answering.]";
+pub const NUDGE_TEXT: &str = concat!(
+    "[The harness: your last message said more work follows, and this \
+     turn would end here. Continue, or say that you are done. ",
+    crate::content::not_for_the_person!(),
+    "]"
+);
 
 /// The session's own switch: META `stop_nudge.<session>`, `{"on": false}`
 /// to keep its turns from the nudge (`session.nudge`).
@@ -145,6 +148,10 @@ impl TurnRunner {
 /// and not the person's (theseus-emqbm). Every nudge's write site calls this
 /// instead of `TurnCtx::node_written`, so the list in `content.rs` is the one
 /// rule; turn.rs is at its line ceiling, so it lives here.
+///
+/// A flag a turn sets and never takes dies with the `Turn`, which is per-turn
+/// state: `t.nudged` is cleared only by the take in `call_model`, so a turn that
+/// writes a nudge and ends with no further model call leaves it set, harmlessly.
 pub(super) fn relayed(t: &mut Turn<'_>, node: &Node) {
     t.tc.node_written(node);
     t.nudged |= crate::content::harness_nudge(node.origin, node.author.as_deref());
