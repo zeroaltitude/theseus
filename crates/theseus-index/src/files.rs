@@ -29,6 +29,21 @@
 //! `[<file> · <section>]`. That head is what a recall hit cites: the hit's
 //! node is the message the file came with, and its text says which file and
 //! which page the passage is from.
+//!
+//! **Known limits of "once per digest".** The digest is counted across the
+//! whole index, not per session, so a file's one copy belongs to the node
+//! that carried it first, and two things follow:
+//!
+//! - *Erasure.* Erasing that node takes the text out even where a later node
+//!   still carries the file, and a rebuild does not put it back.
+//! - *Provenance.* A hit on the file's text cites the first node's message,
+//!   and so that node's session, even for an asker who attached the same
+//!   bytes in a session of their own and was never in the first one. Recall
+//!   is across sessions by design (ask in a new session about last week's
+//!   PDF), so the hit's text is not hidden; its citation is what can name a
+//!   session the asker was not in. Scoping the dedup per session would
+//!   cite the asker's own node but store each attached file once per
+//!   session, and was left alone until that cost is measured.
 
 use std::path::Path;
 
