@@ -414,8 +414,10 @@ impl Chat {
             }
         }
         if !lines.is_empty() {
+            // `fs_read` is `theseus_tools::wire_name("fs.read")`, the name the model
+            // is offered; this crate does not link theseus-tools.
             out.footer = format!(
-                "\n\nFiles named with @ (paths, not contents; read them with fs.read):\n{}",
+                "\n\nFiles named with @ (paths, not contents; read them with fs_read):\n{}",
                 lines.join("\n")
             );
         }

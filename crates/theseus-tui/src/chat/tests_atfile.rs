@@ -174,7 +174,7 @@ async fn the_submitted_turn_carries_the_path_for_the_gated_read() {
         input.contains(&abs),
         "the absolute path is in the turn:\n{input}"
     );
-    assert!(input.contains("fs.read"), "{input}");
+    assert!(input.contains("fs_read"), "{input}");
     assert!(
         !input.contains(SENTINEL),
         "never the file's bytes:\n{input}"
