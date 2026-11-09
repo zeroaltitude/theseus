@@ -575,6 +575,9 @@ impl TurnRunner {
         // (theseus-a2kh6).
         self.injection_read(t, verdict.as_ref(), reason);
         self.raise_tools(t, verdict.as_ref().filter(|_| reason.is_none()));
+        if let Some(b) = t.route.injection.as_mut() {
+            b.raise_low_effort(verdict.as_ref().filter(|_| reason.is_none()));
+        }
         self.verdict_asides(t, verdict.as_ref());
         self.record_route(
             t,

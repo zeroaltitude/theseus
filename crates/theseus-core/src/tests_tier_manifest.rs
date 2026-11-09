@@ -201,3 +201,34 @@ async fn a_paused_greeting_records_no_would_drop() {
     assert_eq!(res.recalled, 0, "none were attached");
     assert_eq!(m.would_drop, None);
 }
+
+/// The verdict lands after the pack (theseus-fpm2's `Late` hole): the pack fixed an ordinary
+/// budget for want of it, and a greeting `effort.v1` calls `low` still records what a bar would
+/// drop, so the shadow's sample is not missing its late turns. The route row says `verdict late`
+/// (the proof it was late), the route's own wait still catching it before the first compile, and the same late turn called `high` records nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_low_verdict_still_records_what_a_bar_would_drop() {
+    for (level, greeting) in [("low", true), ("high", false)] {
+        let jev = FakeJev::start().unwrap();
+        says(&jev, "sonnet", level, 0.95);
+        work(&jev, "conversation", 0.95);
+        jev.set_mode(theseus_judge::fake::FakeMode::Held);
+        let r = crate::tests_injection_tiers::tiered(&jev, 1, false, |c| {
+            c.routing.max_wait_ms = 2_000;
+            c.judge.total_secs = 30;
+        });
+        act_open(&r);
+        let late = jev.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            late.release();
+        });
+        let res = turn(&r.core, None, "Hello there, good morning!", None).await;
+        let m = recalled(&r, &res);
+        assert!(!m.admitted.is_empty(), "{level}: notes were admitted");
+        let row = decided(&r.core.store).pop().unwrap();
+        assert_eq!(row["injection"]["fallback"], "verdict late", "{level}: {row}");
+        let want = greeting.then_some(m.admitted.len() as u64);
+        assert_eq!(m.would_drop, want, "{level}");
+    }
+}

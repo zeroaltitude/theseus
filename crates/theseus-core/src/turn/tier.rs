@@ -156,6 +156,18 @@ pub fn is_low_effort(v: &Verdict) -> bool {
 }
 
 impl InjectionBudget {
+    /// The shadow small-talk bar's mark for a turn whose verdict landed after
+    /// the pack fixed a `Late` budget (theseus-fpm2): `injection_read` returns
+    /// at once once a budget is fixed, so without this a `low` verdict that
+    /// arrives late never sets `low_effort` and the turn is silently missing
+    /// from the shadow's sample. It sizes nothing: only the mark moves, and
+    /// only for a budget that fell back for want of a verdict.
+    pub(super) fn raise_low_effort(&mut self, verdict: Option<&Verdict>) {
+        if self.fallback == Some(LATE) && verdict.is_some_and(is_low_effort) {
+            self.low_effort = true;
+        }
+    }
+
     pub fn of((tier, fallback): (Tier, Option<&'static str>), cfg: &Config) -> Self {
         let (m, d) = (&cfg.memory, &cfg.tools.defer);
         let (recall_tokens, recall_items, admit_ceiling) = match tier {
