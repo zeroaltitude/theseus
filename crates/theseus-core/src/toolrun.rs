@@ -1589,6 +1589,12 @@ impl ToolRuntime {
         });
         let (t, input) = (tool.clone(), call.input.clone());
         let mut ctx = self.ctx_in(tc).into_owned();
+        // What this session has been handed, for the stale-edit guard
+        // (theseus-w2cs sub-item 2): the file tools alone, since they are
+        // the ones that hand a file's bytes over and the ones that write it.
+        if tool.family() == "fs" {
+            ctx.reads = Some(self.reads.bind(tc.session_id));
+        }
         // A toollet granted a secret reads it through the broker, bound to
         // this call (theseus-dcy). Its secrets settle first, as a turn's do,
         // since a toollet runs on a core and cannot wait.

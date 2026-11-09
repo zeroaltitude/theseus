@@ -20,6 +20,7 @@ pub mod docs;
 pub mod fit;
 pub mod fs;
 pub mod fs_read_cap;
+pub mod fs_stale;
 mod fs_window;
 pub mod git;
 pub mod image;
@@ -43,6 +44,8 @@ mod tests_narrow_read;
 mod tests_patch;
 #[cfg(test)]
 mod tests_read_cap;
+#[cfg(test)]
+mod tests_stale;
 #[cfg(test)]
 mod tests_window;
 pub mod text;
