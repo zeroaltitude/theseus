@@ -217,10 +217,6 @@ pub const EXEMPT: &[(Rule, &str)] = &[
         Rule::D13,
         "its budget is pinned, so the session asks (a question card) instead of notifying; asking is louder",
     ),
-    (
-        Rule::D5,
-        "its stop site, rsi/sealed/relay.rs, is a keel-held file: wiring it waits for the owner's Keel ack",
-    ),
 ];
 
 impl Rule {
