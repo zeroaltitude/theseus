@@ -1,7 +1,7 @@
 # The Discord DM task flow, locked by the owner on 2026-10-22. Change this file only with the
 # owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
 # Each place lists its messages in the order it shows them: its text when the test ended, its buttons as `[label (style) id]`, and its flags. Ids (a task's, a question's,
-# a session's), times, durations and the temp path are normalized (see `Names`); everything else is as the fake Discord saw it.
+# a session's), times, durations, costs and the temp path are normalized (see `Names`); everything else is as the fake Discord saw it.
 # The DM's lines after the owner's message arrive in a different order from run to run, so they are sorted.
 === the owner's DM (after the owner's message, sorted by text)
 --- 1 bot []
@@ -10,7 +10,7 @@
 START: run this as a background task, please
 --- 3 bot []
 Started.
--# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $0.0584 total ($0.0584 this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
+-# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $<cost> total ($<cost> this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
 --- 4 bot []
 (a reply)
 Starting.
@@ -22,7 +22,7 @@ Starting.
 === the task's forum post
 --- 1 bot [v2 silent]
 **Reef-chart: chart the reef** `…task-1`
-✅ done · started <time> · $0.07 of $25
+✅ done · started <time> · $<cost> of $25
 **🔧 Last calls**
 `sh -c echo $$ > <tmp>/gate.pid; n=0; while [ ! -f <tmp>/go ] && [ -d …`
 **Report** · done: reported
@@ -66,7 +66,7 @@ risk: writes a file · why it asks: you set this kind of call to ask first
 --- 3 bot []
 📋 **Task `task-1` finished** · Reef-chart: chart the reef · <#<post>>
 Written.
--# 2 turns · $0.0717 of $25 · <dur>
+-# 2 turns · $<cost> of $25 · <dur>
 === the one message a content label adds (theseus-9ymz0), in the DM
 --- 1 bot []
 ⚑ **injection** — this session is holding: a fetched page from `http.fetch https://example.com/x` tried to steer me, so writes, programs and sends are refused until you clear it.
