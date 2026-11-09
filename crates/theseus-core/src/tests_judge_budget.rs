@@ -33,6 +33,42 @@
 //! flipped it: the whole `--lib` suite of 5149 tests passed before and after,
 //! with no pin needed).
 
+//!
+//! The six raises the last sweep made (theseus-4vsrz, `63ca7587c`), at the
+//! lines they stood on its branch (`git grep -n total_secs` finds them now):
+//!
+//! | site | old -> new | the guard it stays under |
+//! |---|---|---|
+//! | `own_bench::tests::rig` (`own_bench/tests.rs`) | 2 -> 30 | none on the verdict path |
+//! | `own_bench::whole::judged_world` (`own_bench/whole/tests.rs`) | 2 -> 30 | none |
+//! | `tests_security::core` | 2 -> 15 | 20 s, twice |
+//! | `tests_notices::on_store` | 2 -> 15 | 20 s helper |
+//! | `tests_learn_loop::rig` | 5 -> 30 | none |
+//! | `tests_gateway` (theseus-discord) | 2 -> 15 | 20 s helper |
+//!
+//! Budgets the sweep left alone, read at base 85697868 (the line is the
+//! `git grep -n` hit; "verdict" is whether the test needs one):
+//!
+//! | site | budget | why it stays |
+//! |---|---|---|
+//! | `tests_inbound.rs:435` | 5 s | verdicts; `FakeMode::Slow(10 s)` at `:419` must reach class `timeout`, so the budget has to be short of it |
+//! | `tests_offer.rs:223` | 5 s | verdict; `LATE_BATCH` is 2.5 s (`:265`) and is the test |
+//! | `tests_stop_nudge.rs:60` | 3 s | verdicts, but the turn waits only `judge::stop::WAIT` (1 s), so the budget does not bind |
+//! | `tests_stop_nudge.rs:423` | 6 s | same: `Slow(3 s)` past the 1 s wait; a latent product-wait class, reported and not decided |
+//! | `google/tests_label.rs:562` | 10 s | verdict; below the in-body 20 s guard at `:585` |
+//! | `rpc/tests_thread_route.rs` | 17 sites at 5 s | the tests that need a verdict set `route_wait_ms = 3000` (`:584`, `:698`, `:752`, and five more), so the product's own wait binds |
+//! | `tests_rerank.rs:86` | 5 s | verdict; no short guard over it |
+//! | `tests_route.rs:306`, `:602`, `:965` | 30 s | already raised; `:602` holds `Held` on purpose and `:306` is `held()` with a 200 ms wait |
+//! | `theseus-discord/src/tests_gateway/content.rs:248` | 2 s | `FakeMode::Down` on purpose at `:234`: nothing is awaited |
+//!
+//! The daemon tests set a JSON budget and are not touched here:
+//! `crates/theseusd/tests/judge.rs:65`, `capture.rs:69`, `stop_nudge.rs:62`
+//! (5 s each) and `bench_profile.rs:135` (600).
+//!
+//! These rows were checked by reading each site's line and its neighbours,
+//! not by running a starve against each; the stop nudge's two sites are the
+//! ones most worth a later look.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 
