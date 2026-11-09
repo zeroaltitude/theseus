@@ -144,7 +144,9 @@ fn a_first_party_thinking_request_carries_the_binding_beta() {
     let on = run(&nodes, None, &spec("claude-opus-5", "You are Theseus."), 1);
     assert!(on.request.thinking.is_some(), "a thinking request");
     assert!(
-        on.request.betas.contains(&BETA_THINKING_BINDING.to_string()),
+        on.request
+            .betas
+            .contains(&BETA_THINKING_BINDING.to_string()),
         "{:?}",
         on.request.betas
     );
@@ -152,7 +154,9 @@ fn a_first_party_thinking_request_carries_the_binding_beta() {
     other.first_party = false;
     let off = run(&nodes, None, &other, 1);
     assert!(
-        !off.request.betas.contains(&BETA_THINKING_BINDING.to_string()),
+        !off.request
+            .betas
+            .contains(&BETA_THINKING_BINDING.to_string()),
         "{:?}",
         off.request.betas
     );

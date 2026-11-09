@@ -744,7 +744,9 @@ async fn a_fallbacks_request_is_one_its_model_takes_and_carries_no_fallback_of_i
     let reqs = r.fake.requests();
     assert_eq!(reqs.len(), 2);
     assert!(
-        !reqs[1].betas.contains(&crate::compiler::BETA_FALLBACKS.to_string()),
+        !reqs[1]
+            .betas
+            .contains(&crate::compiler::BETA_FALLBACKS.to_string()),
         "{:?}",
         reqs[1].betas
     );
