@@ -67,6 +67,8 @@ mod tests_handles;
 #[cfg(test)]
 mod tests_never;
 #[cfg(test)]
+mod tests_retry;
+#[cfg(test)]
 mod tests_same;
 #[cfg(test)]
 mod tests_seen;

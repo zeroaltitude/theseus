@@ -12,7 +12,13 @@ export type PackReport = {
 /**
  * `loop.v1`.
  */
-pack: string, calls: number, answered: number, failed: number, skipped: number, 
+pack: string, calls: number, answered: number, failed: number, 
+/**
+ * Of `failed`, the calls from the last day before the holdout's end
+ * on: what is failing now, not what failed once. None where the report
+ * stored none (a report from before it: read `failed`).
+ */
+failed_recent?: number, skipped: number, 
 /**
  * Judgments with at least one label that counts toward a question.
  */

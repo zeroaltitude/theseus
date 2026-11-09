@@ -180,7 +180,7 @@ fn sid(i: usize) -> String {
     session_id_of(&format!("ep_{:064x}", 0x7e44_0000 + i))
 }
 
-fn import(core: &Core) {
+pub(super) fn import(core: &Core) {
     let lines: Vec<ImportLine> = (0..3)
         .map(|i| ImportLine {
             line: i as u64 + 1,
@@ -289,7 +289,7 @@ pub(super) async fn until_rows(store: &Store, kind: &str, n: usize) -> Vec<Ledge
     }
 }
 
-async fn propose(
+pub(super) async fn propose(
     core: &Arc<Core>,
     dry_run: bool,
     cap: f64,
@@ -322,7 +322,7 @@ fn hold_orrin(core: &Core) {
 
 /// The extractor's two answers: the first session's, billed at $0.50; the
 /// second's.
-fn script_extractions(fake: &crate::provider::FakeProvider) {
+pub(super) fn script_extractions(fake: &crate::provider::FakeProvider) {
     {
         let mut s = fake.script.lock().unwrap();
         s.push_back(billed(answer(json!([
