@@ -28,6 +28,10 @@
 //!   the batch's `appended` (a take) but not in `touched` (nothing is new to
 //!   the people step). Refused, a session that was rewritten and then went
 //!   quiet would be rejected every night.
+//! - **A renumbered episode is refused** (a stored message moved to another
+//!   idx: an insertion, or a compaction that renumbers): appending past it
+//!   would drop the new message with the shifted ones and write a duplicate.
+//!   Refusing is the whole rule: no message is re-mapped.
 //! - **Anything else is refused and named**: an episode where no stored
 //!   message matches (another episode under a reused id), an episode that is
 //!   only the stored session's first messages (an older or cut view: taken,
@@ -90,6 +94,9 @@ pub(super) fn plan(
                     .all(|(m, (i, s))| m.idx == *i && m.sha256 == *s);
             if cut {
                 return Ok(Err(why.clone()));
+            }
+            if let Some(why) = moved(&stored, e) {
+                return Ok(Err(why));
             }
             // The prefix no longer matches (a rewrite, a compaction, a
             // resume): the new turns are those after the last stored message
@@ -216,6 +223,31 @@ pub(super) fn records(
     rec.last_active_ms = rec.last_active_ms.max(end);
     frame.push(NewRecord::json(kinds::SESSION, Some(&sid), &*rec)?.scoped(&tag_scope(&tag)));
     Ok(nodes)
+}
+
+/// A stored message the source renumbered, named: a stored `(i, d)` whose
+/// episode message at idx `i` is absent or another digest, while `d` sits in
+/// the episode at another idx `j` whose stored digest (if `j` is stored) is
+/// not `d`. Keyed by idx, never position: a text kept at its idx is no move.
+/// Appending past it would drop the new message with the shifted ones and
+/// write a duplicate, so the episode is refused.
+fn moved(stored: &[(u32, String)], e: &Episode) -> Option<String> {
+    let at: BTreeMap<u32, &str> = stored.iter().map(|(i, d)| (*i, d.as_str())).collect();
+    for (i, d) in stored {
+        if e.messages.iter().any(|m| m.idx == *i && m.sha256 == *d) {
+            continue;
+        }
+        let Some(j) = e.messages.iter().find(|m| {
+            m.idx != *i && m.sha256 == *d && at.get(&m.idx).is_none_or(|s| *s != m.sha256)
+        }) else {
+            continue;
+        };
+        return Some(format!(
+            "message {} holds what stored message {i} held (the source renumbered): not appended over",
+            j.idx
+        ));
+    }
+    None
 }
 
 /// Why the stored messages are not the episode's first ones, if they are not.

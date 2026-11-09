@@ -2620,7 +2620,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   episode with nothing after that message is taken quietly: no node is written, the record moves to the new hash and
   takes the mark, it counts in the batch's `appended` but not in `touched`, and the next run skips it (a session that was
   rewritten and went quiet is not rejected every night). Refused and named: an episode no stored message of which
-  matches (another episode under a reused id), an episode that is only the stored session's first messages and no more
+  matches (another episode under a reused id), an episode in which a stored message moved to another idx (the source
+  renumbered: an insertion or a compaction; appending past it would lose the new message and write a duplicate;
+  `append::moved`, keyed by idx, no message re-mapped), an episode that is only the stored session's first messages and no more
   (an older or cut view: taken, it would move the hash back and the source's current episode would then add nothing, for
   good), an episode of the same messages with another hash that diverged nowhere and adds nothing (its tag, place or
   labels differ), and an erased session, which is never appended to; the batch's
