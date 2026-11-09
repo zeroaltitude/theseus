@@ -148,24 +148,43 @@ fn word(v: &Value) -> String {
 }
 
 /// What a failed action's producer names, for a key: `backend:name` (as
-/// `harness:fs.read` or `provider:anthropic`) when the backend is one whose
-/// second part is a tool, a provider or a hand's backend, else the backend
-/// alone. The first word alone put every in-process tool's failure in one
-/// cause (`harness`), which no one fix can close; `wrapper:<pid>` and
-/// `reconciler:<why>` stay a word, since their second part is not a stable
-/// name.
+/// `harness:fs.read`, `async:aws.s3.get`, `inproc:fs.read` or
+/// `provider:anthropic`) when the backend is one whose second part is a tool,
+/// a provider or a hand's backend, else the backend alone. The first word
+/// alone put every tool's failure of a backend in one cause (`harness`,
+/// `async`: all of AWS and Google), which no one fix can close;
+/// `wrapper:<pid>`, `reconciler:<why>` and `hands:<why>` stay a word, since
+/// their second part is not a stable name. An MCP tool is `mcp:ext-<server>/<tool>`:
+/// it is named by its server (`async:mcp.ext_server`), not its tool, since
+/// the server is what one fix closes. Items filed under the old key (`async`,
+/// `inproc`) keep it: there is no migration.
 fn producer(v: &Value) -> String {
-    const NAMED: &[&str] = &["harness", "hand", "provider"];
+    const NAMED: &[&str] = &["harness", "hand", "provider", "async", "inproc"];
     let s = v.as_str().unwrap_or("").trim();
     let head = word(v);
     let name = s
         .split_once(':')
         .filter(|_| NAMED.contains(&head.as_str()))
-        .map(|(_, rest)| word(&Value::from(rest)))
+        .map(|(_, rest)| tool_word(rest))
         .filter(|n| n != "unknown");
     match name {
         Some(n) => format!("{head}:{n}"),
         None => head,
+    }
+}
+
+/// A tool's word: its name, or for an MCP tool `mcp.<server>` (cut at `/`,
+/// `-` kept as `_`).
+fn tool_word(rest: &str) -> String {
+    match rest.strip_prefix("mcp:") {
+        Some(m) => {
+            let server = m.split('/').next().unwrap_or("").replace('-', "_");
+            match word(&Value::from(server)) {
+                w if w == "unknown" => "mcp".into(),
+                w => format!("mcp.{w}"),
+            }
+        }
+        None => word(&Value::from(rest)),
     }
 }
 
@@ -526,6 +545,7 @@ fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
 pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Obs>> {
     let tags: Vec<String> = KINDS.iter().map(|k| ledger_kind(k)).collect();
     let mut out = Vec::new();
+    let mut twins = Twins::default();
     let (mut before, mut seen) = (None, 0usize);
     loop {
         let page = Page {
