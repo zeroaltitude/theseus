@@ -6,7 +6,7 @@
 //! are `theseus_protocol::why`'s, which Discord's `/why` uses too: this
 //! module only asks and prints. No recompile, no write, no frame.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use theseus_client::{resolve, Conn};
 use theseus_protocol::context::{ContextExplainParams, ContextExplainResult};
@@ -163,7 +163,7 @@ pub(crate) async fn find_turn(conn: &mut Conn, session_id: &str, given: &str) ->
         .await?;
     let x: ContextExplainResult = serde_json::from_value(list)?;
     let ids: Vec<&str> = x.turns.iter().map(|t| t.turn_id.as_str()).collect();
-    pick_turn(
+    resolve::pick_turn(
         &ids,
         s,
         "`theseus why` reads the newest {n} turns that compiled a context",
@@ -198,39 +198,11 @@ pub(crate) async fn find_started_turn(
 ) -> Result<String> {
     let ids = started_turns(conn, session_id).await?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    pick_turn(
+    resolve::pick_turn(
         &ids,
         resolve::trimmed(given),
         "the newest {n} turns of the session",
     )
-}
-
-/// `ids` hold `s` whole, else exactly one of them starts or ends with it;
-/// `listed` says, with `{n}` for the count, which turns were looked in.
-fn pick_turn(ids: &[&str], s: &str, listed: &str) -> Result<String> {
-    if let Some(t) = ids.iter().find(|t| **t == s) {
-        return Ok((*t).to_string());
-    }
-    if s.chars().count() < resolve::SHORTEST {
-        bail!("`{s}` is too short to name a turn: give at least four characters of its id");
-    }
-    let found: Vec<&str> = ids
-        .iter()
-        .copied()
-        .filter(|id| id.starts_with(s) || id.ends_with(s))
-        .collect();
-    match found.as_slice() {
-        [] => Err(anyhow!(
-            "no turn of this session is named `{s}` ({})",
-            listed.replace("{n}", &ids.len().to_string())
-        )),
-        [one] => Ok((*one).to_string()),
-        many => bail!(
-            "`{s}` names {} turns: {}",
-            many.len(),
-            many.iter().take(5).copied().collect::<Vec<_>>().join(", ")
-        ),
-    }
 }
 
 /// The session a command means when it names none: the most recently active
