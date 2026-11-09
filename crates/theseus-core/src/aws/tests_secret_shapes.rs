@@ -24,7 +24,7 @@
 //! data and customer content too, and holding every marked member would
 //! reach 1478 further operations and 2654 further members — a postal code, a
 //! given name, a control's description, a tag's value — against this rule's
-//! 163 and 119. The words alone are a guess about a name, and the names that
+//! 166 and 122. The words alone are a guess about a name, and the names that
 //! matter do not cooperate: a stream key arrives as `StreamKey.value`, a
 //! Grafana key as `key`, a TOTP seed as `SecretCode`, a channel's key as
 //! `Srt.passphrase`. Read together they keep the marking's authority — the
@@ -66,7 +66,7 @@
 
 use std::collections::HashSet;
 
-use theseus_aws::catalog::{Catalog, OperationRef, SecretBearing, ShapeId, ShapeRef};
+use theseus_aws::catalog::{Catalog, Kind, OperationRef, SecretBearing, ShapeId, ShapeRef};
 
 use super::secret::{HELD, NAMED};
 
@@ -177,6 +177,23 @@ const MARKED: &[(&str, &str, &str)] = &[
         "iot-managed-integrations",
         "GetProvisioningProfileResponse",
         "ClaimCertificate",
+    ),
+    // A PIN block, translated or generated: the member's plain reading, not
+    // a sourced fact (theseus-3i6d1).
+    (
+        "payment-cryptography-data",
+        "TranslatePinDataOutput",
+        "PinBlock",
+    ),
+    (
+        "payment-cryptography-data",
+        "GeneratePinDataOutput",
+        "EncryptedPinBlock",
+    ),
+    (
+        "payment-cryptography-data",
+        "GenerateMacEmvPinChangeOutput",
+        "EncryptedPinBlock",
     ),
 ];
 
@@ -898,7 +915,7 @@ fn the_rules_reach_is_what_the_design_doc_says() {
     let marking = reach(c, &marking_alone);
     assert_eq!(
         (conjunction, marking),
-        ((163, 119), (1478, 2654)),
+        ((166, 122), (1478, 2654)),
         "the rule's reach moved: the conjunction now selects {conjunction:?} \
          (operations, members) beyond the rule it replaced, and the marking alone would \
          select {marking:?}. Correct the module doc above and docs/design/aws-toolset.md."
@@ -1079,6 +1096,9 @@ const TRIAGED: &[(&str, &str, &str, &str)] = &[
     ("amplify", "Branch", "buildSpec", "the branch's build specification"),
     ("amplifybackend", "CreateBackendAuthVerificationMessageConfig", "EmailSettings", "the verification email's subject and body"),
     ("amplifybackend", "CreateBackendAuthVerificationMessageConfig", "SmsSettings", "the verification message's text"),
+    ("payment-cryptography-data", "PinData", "PinOffset", "a PIN offset, verification data derived from the PIN rather than the PIN block; masked now with its answer, a reading and a question for the owner"),
+    ("payment-cryptography-data", "PinData", "VerificationValue", "a PIN verification value, as the offset above; masked with its answer, a reading and a question for the owner"),
+    ("payment-cryptography-data", "GenerateMacEmvPinChangeOutput", "Mac", "a message authentication code over the change message, not a key or a PIN; masked with its answer, a reading"),
     ("chime", "Bot", "BotEmail", "an email address"),
     ("chime", "Bot", "DisplayName", "a display name"),
     ("chime", "AlexaForBusinessMetadata", "AlexaForBusinessRoomArn", "an ARN naming a room; a reading of the shape, not a sourced fact"),
@@ -1266,8 +1286,8 @@ fn every_marked_candidate_is_on_a_list() {
               way to tell which was decided",
         drop: "the member is gone from the catalog, or another branch of the \
                rule now reaches it: delete the row",
-        // 83 now: 19 on MARKED and 64 on TRIAGED (76 and 57 before the
-        // grafana workspace rows, theseus-3i6d1).
+        // 95 now: 23 on MARKED and 72 on TRIAGED (83 before the PIN-block rows:
+        // 20 and 69; 76 and 57 before the grafana workspace rows).
         least: 60,
         stale_fails: true,
     };
@@ -1277,5 +1297,78 @@ fn every_marked_candidate_is_on_a_list() {
         "the walk found {walked} candidates and MARKED alone has {}: \
          the walk cannot be reaching the rows it is meant to judge",
         MARKED.len()
+    );
+}
+
+/// Every member name under `shape`, structures through lists and maps, each
+/// shape entered once.
+fn member_names(shape: ShapeRef<'_>, seen: &mut HashSet<ShapeId>, out: &mut Vec<String>) {
+    match shape.kind() {
+        Kind::Structure => {
+            if !seen.insert(shape.id()) {
+                return;
+            }
+            for m in shape.members() {
+                out.push(m.name().to_string());
+                member_names(m.shape(), seen, out);
+            }
+        }
+        Kind::List => {
+            if let Some(m) = shape.list_member() {
+                member_names(m.shape(), seen, out);
+            }
+        }
+        Kind::Map => {
+            if let Some(m) = shape.map_value() {
+                member_names(m.shape(), seen, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `transfer:DescribeCertificate` was read as public (59f9568a0) and never
+/// measured. Walk its output shape from the embedded catalog: no member is,
+/// or ends with, `PrivateKey` in any case. The control is the same walk over
+/// `ImportCertificate`'s **input**, which must find one: a walk that finds
+/// nothing anywhere would pass the first half, and the control is what shows
+/// the walk can see the member. Both counts are asserted positive.
+#[test]
+fn transfers_describe_certificate_carries_no_private_key() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let svc = c.service("transfer").expect("the service decodes");
+    let names_of = |op: &str, input: bool| {
+        let op = svc
+            .operations()
+            .find(|o| o.name() == op)
+            .unwrap_or_else(|| panic!("transfer:{op} is in the catalog"));
+        let shape = if input { op.input() } else { op.output() };
+        let mut out = Vec::new();
+        member_names(
+            shape.expect("the operation has that shape"),
+            &mut HashSet::new(),
+            &mut out,
+        );
+        out
+    };
+    let is_key = |n: &String| n.to_ascii_lowercase().ends_with("privatekey");
+    let described = names_of("DescribeCertificate", false);
+    // Measured: 17 member names (the answer's certificate, its chain, its
+    // dates, its tags). A count a catalog update moves is a reason to read it.
+    assert_eq!(described.len(), 17, "{described:?}");
+    assert!(
+        described.iter().any(|n| n == "Certificate")
+            && described.iter().any(|n| n == "CertificateChain"),
+        "the walk must reach the answer's certificate members: {described:?}"
+    );
+    let keys: Vec<&String> = described.iter().filter(|n| is_key(n)).collect();
+    assert!(
+        keys.is_empty(),
+        "DescribeCertificate's answer names {keys:?}"
+    );
+    let imported = names_of("ImportCertificate", true);
+    assert!(
+        imported.iter().any(is_key),
+        "the control must find PrivateKey in ImportCertificate's input: {imported:?}"
     );
 }

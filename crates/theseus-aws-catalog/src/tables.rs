@@ -767,6 +767,12 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("payment-cryptography", "ExportKey"),
     secret("payment-cryptography-data", "GenerateAs2805KekValidation"),
     secret("payment-cryptography-data", "TranslateKeyMaterial"),
+    // A PIN block: marked sensitive, required, and named for what it is
+    // rather than for a credential word, so no name rule reached it
+    // (theseus-3i6d1). The member's plain reading, not a sourced fact.
+    secret("payment-cryptography-data", "TranslatePinData"),
+    secret("payment-cryptography-data", "GeneratePinData"),
+    secret("payment-cryptography-data", "GenerateMacEmvPinChange"),
     // A credential kept, read back whole.
     secret("ivs", "GetStreamKey"),
     secret("route53globalresolver", "GetAccessToken"),
@@ -1116,15 +1122,14 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "UpdateWorkspace",
         ],
     ),
-    // The Firebase server key of a GCM channel, `Credential`, unmarked.
-    ops(
-        "pinpoint",
-        &["DeleteGcmChannel", "GetGcmChannel", "UpdateGcmChannel"],
-    ),
-    // The Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
+    // The Firebase server key of a GCM channel, `Credential`, unmarked; and
+    // the Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
     ops(
         "pinpoint",
         &[
+            "DeleteGcmChannel",
+            "GetGcmChannel",
+            "UpdateGcmChannel",
             "DeleteBaiduChannel",
             "GetBaiduChannel",
             "UpdateBaiduChannel",
