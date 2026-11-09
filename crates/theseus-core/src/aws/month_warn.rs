@@ -133,10 +133,9 @@ impl crate::Core {
         }
     }
 
-    /// After a read of the account's budget: AWS Budgets applies its stop
-    /// action at 100% of the month's actual spend, so say so once a month
-    /// when a read shows the line was reached. The tender reads every six
-    /// hours, so this is seen at the next read, never before the stop.
+    /// After a read of the account's budget: when it shows the month's actual
+    /// spend at the line, tell the owner once a month. The tender reads every
+    /// six hours, so this is seen at the next read, never before the stop.
     pub(crate) fn aws_month_stopped(&self, account: &Account, b: &AwsBudgetStatus) {
         if b.limit_cents == 0 || b.actual_cents < b.limit_cents {
             return;
@@ -147,13 +146,35 @@ impl crate::Core {
         if told.as_deref() == Some(month.as_str()) {
             return;
         }
+        let written = (|| -> anyhow::Result<()> {
+            let Some((a, frame)) = self.stopped_frame(account, b, &month)? else {
+                return Ok(());
+            };
+            self.store.append(&frame)?;
+            self.outbox.posted(&a);
+            Ok(())
+        })();
+        if let Err(e) = written {
+            tracing::warn!(account = %account.id, error = %format!("{e:#}"), "aws: the month's stop was not told");
+        }
+    }
+
+    /// The month's stop as one frame: the staged post to the owner and the
+    /// META mark that says it was told, so a failed write leaves neither and
+    /// a restart cannot post twice. `None` when this run has told it.
+    fn stopped_frame(
+        &self,
+        account: &Account,
+        b: &AwsBudgetStatus,
+        month: &str,
+    ) -> anyhow::Result<Option<(theseus_kernel::Action, Vec<NewRecord>)>> {
         let detail = format!(
             "AWS Budgets applies its stop action when a month's actual spend reaches the \
              budget line, and account {} reached it. This was seen at the next budget read \
              (every six hours), so it cannot be earlier than the stop itself.",
             account.id
         );
-        let posted = self.outbox.notify_rule(
+        let staged = self.outbox.stage_rule(
             None,
             crate::rule_notice::Notice {
                 rule: crate::rule_notice::Rule::F1,
@@ -163,15 +184,16 @@ impl crate::Core {
                 scope: &format!("{}:{month}", account.id),
                 detail: &detail,
             },
-        );
-        if !posted {
-            return;
-        }
-        let marked = NewRecord::json(kinds::META, Some(&key), &month)
-            .and_then(|r| self.store.append(&[r]).map(|_| ()));
-        if let Err(e) = marked {
-            tracing::warn!(account = %account.id, error = %format!("{e:#}"), "aws: the month's stop mark was not written");
-        }
+        )?;
+        let Some((a, mut frame)) = staged else {
+            return Ok(None);
+        };
+        frame.push(NewRecord::json(
+            kinds::META,
+            Some(&stopped_key(&account.id)),
+            &month,
+        )?);
+        Ok(Some((a, frame)))
     }
 }
 
@@ -241,6 +263,24 @@ mod tests {
         // c. a later read, same month: still one.
         c.aws_month_stopped(&a, &at(10_500));
         assert_eq!(stopped_posts(&c).len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_stops_post_and_mark_are_one_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, key) = rig(dir.path());
+        let month = this_month();
+        let (_, frame) = c.stopped_frame(&a, &at(10_000), &month).unwrap().unwrap();
+        let marks: Vec<_> = frame
+            .iter()
+            .filter(|r| r.kind == kinds::META && r.key.as_deref() == Some(key.as_str()))
+            .collect();
+        assert_eq!(marks.len(), 1, "one mark in the frame");
+        assert_eq!(serde_json::from_slice::<String>(&marks[0].payload).unwrap(), month);
+        assert!(frame.len() >= 2, "the staged post is in it too: {}", frame.len());
+        // nothing is written until the caller appends the frame.
+        assert_eq!(c.store.get_meta::<String>(&key).unwrap(), None);
+        assert!(stopped_posts(&c).is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
