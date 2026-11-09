@@ -130,4 +130,63 @@ mod tests {
         reset_clock();
         assert!(now_unix_ms() < at, "the clock is back on the wall clock");
     }
+
+    /// Every file under `crates/` (walked from this crate's manifest, as
+    /// `crates/complete.rs` documents) that calls `move_clock_to(` or
+    /// `reset_clock(` must be this file, the core's `test_support.rs`, or a
+    /// file with a `#[cfg(test)]` in it: the two functions move the whole
+    /// process's clock, so a product path must never call them. The failure
+    /// names the file, the call and what to do.
+    ///
+    /// What it does not prove: a file that has a `#[cfg(test)]` module
+    /// elsewhere and a product call outside it would pass. It reads source
+    /// text and no clock, so it has no hour dependence.
+    #[test]
+    fn only_test_code_moves_the_clock() {
+        fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).expect("read a crates directory") {
+                let p = e.expect("an entry").path();
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned());
+                if p.is_dir() {
+                    if matches!(name.as_deref(), Some("target" | "node_modules" | ".git")) {
+                        continue;
+                    }
+                    walk(&p, files);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    files.push(p);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut files = Vec::new();
+        walk(&root, &mut files);
+        assert!(
+            files.len() > 500,
+            "the walk found only {} files: it read the wrong tree",
+            files.len()
+        );
+        let (mut sites, mut bad) = (0, Vec::new());
+        for p in &files {
+            let text = std::fs::read_to_string(p).unwrap_or_default();
+            let calls = text.matches("move_clock_to(").count() + text.matches("reset_clock(").count();
+            if calls == 0 {
+                continue;
+            }
+            sites += calls;
+            let shown = p.to_string_lossy().replace('\\', "/");
+            let allowed = shown.ends_with("theseus-protocol/src/time.rs")
+                || shown.ends_with("theseus-core/src/test_support.rs")
+                || text.contains("#[cfg(test)]");
+            if !allowed {
+                bad.push(shown);
+            }
+        }
+        assert!(sites >= 3, "the walk found only {sites} call sites");
+        assert!(
+            bad.is_empty(),
+            "{bad:?} call move_clock_to( or reset_clock( with no #[cfg(test)] in the file: \
+             these move the whole process's clock, so they are for tests alone. Move the \
+             call into a test module, or take the clock as a parameter."
+        );
+    }
 }
