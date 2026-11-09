@@ -236,7 +236,10 @@ impl Chat {
             self.at.sel = 0;
             self.at.closed = false;
         }
-        if self.at_query().is_some() && matches!(self.at.load, Load::Unasked) {
+        // The list is also wanted when an `@path` sits elsewhere in the line (a
+        // recalled message): Enter would refuse it for good otherwise.
+        let wanted = self.at_query().is_some() || !mentions(&self.editor.typed_text()).is_empty();
+        if wanted && matches!(self.at.load, Load::Unasked) {
             self.at.load = Load::Roots;
             return vec![call(method::TOOL_LIST, Value::Null, Purpose::AtRoots)];
         }

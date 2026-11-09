@@ -236,3 +236,32 @@ async fn a_double_at_sends_a_literal_and_a_paste_is_never_checked() {
     r.press(KeyCode::Enter).await;
     r.asked("turn.submit", 2).await;
 }
+
+/// A recalled line whose `@path` is not the word at the cursor still starts
+/// the listing, so the first Enter after it is not refused for good.
+#[tokio::test(start_paused = true)]
+async fn a_recalled_line_naming_a_path_mid_sentence_lists_the_files_and_sends() {
+    let p = project();
+    let dir = p.path().display().to_string();
+    let mut r = Rig::with_cfg(100, 40, tools_script(dir.clone()), {
+        let dir = dir.clone();
+        move |c| {
+            c.dir = dir.clone();
+            c.shown_dir = dir;
+            c.history = vec!["explain @src/lib.rs please".into()];
+        }
+    })
+    .await;
+    r.ready().await;
+    r.press(KeyCode::Up).await;
+    assert!(
+        r.text().contains("explain @src/lib.rs please"),
+        "{}",
+        r.text()
+    );
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 1).await;
+    assert_eq!(r.daemon.asked("turn.submit").len(), 1);
+}
