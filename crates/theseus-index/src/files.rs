@@ -41,9 +41,19 @@
 //!   bytes in a session of their own and was never in the first one. Recall
 //!   is across sessions by design (ask in a new session about last week's
 //!   PDF), so the hit's text is not hidden; its citation is what can name a
-//!   session the asker was not in. Scoping the dedup per session would
-//!   cite the asker's own node but store each attached file once per
-//!   session, and was left alone until that cost is measured.
+//!   session the asker was not in. The place rule bounds that reach but
+//!   does not remove it: recall drops a hit whose node sits in a place the
+//!   asker may not draw on (`Place::may_draw_on`: a shared place draws only
+//!   on its own place's sessions, a private place on any), so across shared
+//!   places the dedup shows as a miss, never a citation; inside one place,
+//!   or from a private place, the cited session can still be one the asker
+//!   was never in. Scoping the dedup per session would cite the asker's own
+//!   node but store each attached file once per session. That cost is
+//!   measured (`AGENTS.md`: one capped file of varied prose, 132 chunks,
+//!   411 KB of BM25 and 234 KB of vectors, about 645 KB), and the decision
+//!   stands: the figure is per file per session-repeat, and what it buys is
+//!   only a citation naming the asker's own session, for text recall already
+//!   returns whole.
 
 use std::path::Path;
 
