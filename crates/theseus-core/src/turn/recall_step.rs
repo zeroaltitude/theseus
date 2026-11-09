@@ -420,10 +420,11 @@ impl TurnRunner {
     /// Shadow of the small-talk bar (theseus-fpm2): when the turn's verdict
     /// says `low` effort, the manifest records how many admitted notes a bar
     /// would have left out. Nothing is dropped; the budget is the one already
-    /// fixed, so this never waits.
+    /// fixed, so this never waits. A paused manifest (the session's cap) holds
+    /// notes that were never attached, so it records none.
     fn mark_would_drop(t: &Turn<'_>, m: &mut RecallManifest) {
         let low = t.route.injection.as_ref().is_some_and(|b| b.low_effort);
-        if low && !m.admitted.is_empty() {
+        if low && m.outcome != "paused" && !m.admitted.is_empty() {
             m.would_drop = Some(m.admitted.len() as u64);
         }
     }

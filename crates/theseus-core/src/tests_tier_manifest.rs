@@ -171,3 +171,25 @@ async fn a_greeting_records_what_a_bar_would_drop_and_a_question_drops_nothing()
         assert_eq!(m.would_drop, want, "{message}");
     }
 }
+
+/// A greeting `effort.v1` calls `low` whose recall the session's cap paused: the notes were
+/// admitted, never attached (`recalled == 0`), so no bar could have "dropped" them, and the
+/// shadow field stays absent. A paused turn must not inflate the count the shadow exists to read
+/// (theseus-fpm2). Turn one fills the cap; turn two, a greeting, is paused. The positive state is
+/// asserted too: notes admitted, `outcome == "paused"`, nothing attached.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_paused_greeting_records_no_would_drop() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "sonnet", "low", 0.95);
+    work(&jev, "conversation", 0.95);
+    let r = tiered_open(&jev, 1, |c| c.memory.session_recall_cap_tokens = 200);
+    let first = turn(&r.core, None, "Hello there, good morning!", None).await;
+    assert!(first.recalled > 0, "turn one fills the cap");
+    let res = turn(&r.core, Some(&first.session_id), "Hello again, good evening!", None).await;
+    let rows = crate::tests_recall::recalls(&r.core, &res.session_id);
+    let m = rows.last().unwrap();
+    assert_eq!(m.outcome, "paused", "{m:?}");
+    assert!(!m.admitted.is_empty(), "notes were admitted");
+    assert_eq!(res.recalled, 0, "none were attached");
+    assert_eq!(m.would_drop, None);
+}
