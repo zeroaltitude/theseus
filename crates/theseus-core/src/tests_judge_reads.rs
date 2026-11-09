@@ -347,6 +347,7 @@ fn brake_today(now: u64) -> Vec<NewRecord> {
 /// not the scope's judgments.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_brakes_day_is_todays_rows_as_the_scan_counted_them() {
+    let _clock = crate::test_support::pin_mid_period();
     use crate::judge::notice::read_day;
     let r = rig();
     let c = &r.core;
@@ -379,6 +380,7 @@ async fn the_brakes_day_is_todays_rows_as_the_scan_counted_them() {
 /// the scan's, empty.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_brakes_page_begins_at_its_midnight() {
+    let _clock = crate::test_support::pin_mid_period();
     use crate::judge::notice::read_day;
     let r = rig();
     let c = &r.core;

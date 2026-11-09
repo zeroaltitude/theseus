@@ -30,6 +30,7 @@ fn audit(c: &Core, sample: u32) -> JudgeAuditParams {
 /// turns finds each judged already, and writes nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn backfills_states_equal_the_live_builders_byte_for_byte() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     let r = rig_with(texts(3), Some(&jev), |c| {
         c.judge.backfill_consent = true;
@@ -88,6 +89,7 @@ async fn backfills_states_equal_the_live_builders_byte_for_byte() {
 /// the report's split reads; a second run writes nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_backfill_judges_each_event_once_under_consent() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     let r = rig(texts(3), &jev, |c| c.judge.backfill_consent = true);
     let c = &r.core;
@@ -160,6 +162,7 @@ async fn a_backfill_judges_each_event_once_under_consent() {
 /// and every run is the owner's, from a private place.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_backfill_needs_consent_and_a_rebuildable_pack() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     let r = rig(texts(1), &jev, |_| {});
     let c = &r.core;
@@ -253,6 +256,7 @@ async fn a_backfill_needs_consent_and_a_rebuildable_pack() {
 /// `--since` is a local day, read as the midnight that begins it.
 #[test]
 fn since_is_a_local_day() {
+    let _clock = crate::test_support::pin_mid_period();
     let now = theseus_protocol::now_unix_ms();
     let day = crate::judge::spend::local_day(now);
     assert_eq!(

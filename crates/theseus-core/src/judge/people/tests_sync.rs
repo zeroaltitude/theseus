@@ -112,6 +112,7 @@ async fn the_people_step_reads_only_new_messages_and_moves_each_sessions_mark() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_people_step_holds_the_sweeps_cap_and_shares_its_day() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     script(&jev);
     // A cap too small for one session's worst case: none is begun, and it

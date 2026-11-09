@@ -20,6 +20,7 @@ use crate::tests_sink_backlog::{settled, written};
 /// store's record covers it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_block_raised_ahead_is_in_its_frames_own_record() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     let r = rig_with(texts(1), Some(&jev), |_| {});
     let (store, svc) = (&r.core.store, r.core.runner.judge.clone());

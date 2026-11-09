@@ -211,6 +211,7 @@ async fn with_no_pick_the_most_shared_name_names_it() {
 /// begun; the next day all three are.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_sweeps_new_asks_stop_at_the_days_money() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = kind_jev(0.9);
     pick(&jev, "n1", 0.9);
     let r = rig(jev, |c| c.ontology.sweep_usd_per_day = 1.0);
@@ -240,6 +241,7 @@ async fn the_sweeps_new_asks_stop_at_the_days_money() {
 /// kind name (only its pair; theseus-e3pxa).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kind_name_answer_waits_for_its_mint() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = kind_jev(0.9);
     pick(&jev, "n2", 0.9);
     let r = rig(jev, |_| {});
@@ -315,6 +317,7 @@ async fn a_chain_asked_over_two_nights_clusters() {
 /// A kept yes goes with its `kind <a> <b>` ask at 30 days, and not before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kept_yes_is_pruned_with_its_ask() {
+    let _clock = crate::test_support::pin_mid_period();
     let r = rig(FakeJev::start().unwrap(), |_| {});
     let old = fresh() - 31 * 24 * 3_600_000;
     let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
@@ -338,6 +341,7 @@ async fn a_kept_yes_is_pruned_with_its_ask() {
 /// sorts first joins it: the key changes, the kind-name ask is not paid again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kept_pick_follows_its_cluster_to_a_new_key() {
+    let _clock = crate::test_support::pin_mid_period();
     let r = rig(kind_jev(0.9), |_| {});
     plant_other(&r);
     said_other(&r, "o4", &["Ant Ledger"]);
@@ -362,6 +366,7 @@ async fn a_kept_pick_follows_its_cluster_to_a_new_key() {
 /// (theseus-7e7hc).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stale_kept_pick_is_dropped_and_its_cluster_asked_again() {
+    let _clock = crate::test_support::pin_mid_period();
     use theseus_protocol::OntologyKindAddParams;
     let jev = kind_jev(0.1);
     pick(&jev, "n2", 0.9);
@@ -518,6 +523,7 @@ async fn an_old_mark_with_no_offered_keeps_its_none_ask() {
 /// its ask at 30 days.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kind_name_ask_records_its_offer_and_loses_it_with_the_ask() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = kind_jev(0.9);
     pick(&jev, "n2", 0.9);
     let r = rig(jev, |_| {});
