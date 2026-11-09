@@ -415,7 +415,10 @@ fn an_imported_sessions_title_reaches_only_a_surface_that_reads_private_text() {
     assert_eq!(outside.title_was, None);
     // An ordinary session's title is the same for every surface.
     for private in [true, false] {
-        assert_eq!(ask(&plain, private).title.as_deref(), Some("an ordinary title"));
+        assert_eq!(
+            ask(&plain, private).title.as_deref(),
+            Some("an ordinary title")
+        );
     }
 }
 

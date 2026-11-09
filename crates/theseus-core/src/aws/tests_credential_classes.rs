@@ -269,12 +269,20 @@ fn cases() -> Vec<Case> {
             "request req-",
         ),
         case(
-            call("pinpoint", "GetGcmChannel", json!({"ApplicationId": "example-app"})),
+            call(
+                "pinpoint",
+                "GetGcmChannel",
+                json!({"ApplicationId": "example-app"}),
+            ),
             vec![("GCMChannelResponse.Credential", FCM_SERVER_KEY)],
             "example-app",
         ),
         case(
-            call("grafana", "DescribeWorkspace", json!({"workspaceId": "g-example"})),
+            call(
+                "grafana",
+                "DescribeWorkspace",
+                json!({"workspaceId": "g-example"}),
+            ),
             vec![("workspace.grafanaToken", WORKSPACE_TOKEN)],
             "g-example",
         ),
