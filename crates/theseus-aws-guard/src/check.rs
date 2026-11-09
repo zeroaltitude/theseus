@@ -108,7 +108,7 @@ impl GuardList {
         if !all.is_empty() {
             return Verdict::Floor(all);
         }
-        if self.destructive(op) {
+        if self.destructive(op) || permanent_version_delete(op, input) {
             return Verdict::Destructive;
         }
         Verdict::Clear
@@ -126,6 +126,26 @@ impl GuardList {
         format!(
             "{op} writes a stack outside the review; use aws.stack.plan, then aws.stack.apply or aws.stack.delete, which show the change set"
         )
+    }
+}
+
+/// A delete that names a version is permanent: S3 has no `DeleteObjectVersion` call, so it is
+/// `DeleteObject` (or the batch `DeleteObjects`) with a `VersionId`, which a name list cannot see.
+/// Without one, a versioned bucket only gets a delete marker, and whether a bucket is versioned is
+/// not the guard's to know, so a plain delete stays clear.
+fn permanent_version_delete(op: &str, input: &Value) -> bool {
+    let named = |v: &Value| {
+        v.get("VersionId")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+    };
+    match op {
+        "s3:DeleteObject" => named(input),
+        "s3:DeleteObjects" => input
+            .pointer("/Delete/Objects")
+            .and_then(Value::as_array)
+            .is_some_and(|objects| objects.iter().any(named)),
+        _ => false,
     }
 }
 
@@ -266,5 +286,37 @@ mod tests {
             l.check_call(&ctx(), "cloudformation:CreateChangeSet", &change_set),
             Verdict::Clear
         ));
+    }
+
+    #[test]
+    fn a_permanent_s3_version_delete_asks() {
+        let l = crate::embedded();
+        let destructive = |op: &str, input: serde_json::Value| {
+            matches!(l.check_call(&ctx(), op, &input), Verdict::Destructive)
+        };
+        // A version id makes the delete permanent, under either name.
+        let one =
+            json!({"Bucket": "theseus-data", "Key": "a.json", "VersionId": "3HL4kqtJlcpXroDTDmJ"});
+        assert!(destructive("s3:DeleteObject", one));
+        let many = json!({"Bucket": "theseus-data", "Delete": {"Objects": [
+            {"Key": "a.json"}, {"Key": "b.json", "VersionId": "3HL4kqtJlcpXroDTDmJ"}]}});
+        assert!(destructive("s3:DeleteObjects", many));
+        // Without one, it is the ordinary delete: a marker on a versioned bucket, so it stays clear.
+        let plain = json!({"Bucket": "theseus-data", "Key": "a.json"});
+        assert!(!destructive("s3:DeleteObject", plain));
+        let plain_many =
+            json!({"Bucket": "theseus-data", "Delete": {"Objects": [{"Key": "a.json"}]}});
+        assert!(!destructive("s3:DeleteObjects", plain_many));
+        let empty = json!({"Bucket": "theseus-data", "Key": "a.json", "VersionId": ""});
+        assert!(!destructive("s3:DeleteObject", empty));
+        // The rule is for those two operations only, and the name list still holds.
+        let get =
+            json!({"Bucket": "theseus-data", "Key": "a.json", "VersionId": "3HL4kqtJlcpXroDTDmJ"});
+        assert!(!destructive("s3:GetObject", get));
+        assert!(destructive(
+            "s3:DeleteBucket",
+            json!({"Bucket": "theseus-data"})
+        ));
+        assert!(!destructive("s3:ListBuckets", json!({})));
     }
 }

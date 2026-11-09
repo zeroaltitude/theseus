@@ -433,7 +433,7 @@ async fn a_spent_month_skips_and_says_so_once_and_the_first_starts_it_again() {
     assert!(post.body["text"]
         .as_str()
         .unwrap()
-        .contains("this month's $1.00 is spent"));
+        .contains("this routine's own month budget of $1.00"));
     assert!(after.month_told);
     // 2: skipped again, and silent.
     let (p, _) = plan(&env(&r), &after, &due).unwrap();
@@ -751,4 +751,59 @@ async fn a_skip_spends_no_run_and_moves_the_next_time_one_period() {
         1,
         "a refusal writes no row"
     );
+}
+
+/// The two `default_*` figures are what a routine that names none gets, not caps (theseus-tclcj): a
+/// routine's own figure is taken as named unless a ceiling is set, and above one it is refused,
+/// naming the key, never clamped.
+#[test]
+fn a_routines_own_dollars_are_bounded_only_by_a_ceiling_and_a_refusal_names_the_key() {
+    use crate::config::RoutinesConfig;
+    use crate::routine::check_budgets;
+    let open = RoutinesConfig::default();
+    // No ceiling: a figure well above the defaults is the routine's own, as before.
+    assert_eq!(check_budgets(&open, 5.0, 500.0), Ok(()));
+    // The positive control: an ordinary figure passes under ceilings.
+    let capped = RoutinesConfig {
+        max_run_usd: Some(2.0),
+        max_month_usd: Some(50.0),
+        ..RoutinesConfig::default()
+    };
+    assert_eq!(check_budgets(&capped, 0.25, 4.0), Ok(()));
+    assert_eq!(check_budgets(&capped, 2.0, 50.0), Ok(()));
+    // Above one, each is refused with the key that bounds it.
+    let run = check_budgets(&capped, 3.0, 40.0).unwrap_err();
+    assert!(
+        run.contains("max_run_usd") && !run.contains("max_month_usd"),
+        "{run}"
+    );
+    let month = check_budgets(&capped, 1.0, 500.0).unwrap_err();
+    assert!(
+        month.contains("max_month_usd") && !month.contains("max_run_usd"),
+        "{month}"
+    );
+    // The old rules still hold.
+    assert!(check_budgets(&capped, 0.0, 4.0).is_err());
+    assert!(check_budgets(&capped, 5.0, 4.0).is_err());
+    // A ceiling below a default would refuse a routine that names nothing, so the config says so.
+    let bad = RoutinesConfig {
+        max_month_usd: Some(1.0),
+        ..RoutinesConfig::default()
+    };
+    assert!(bad.validate().is_err());
+    assert!(capped.validate().is_ok());
+}
+
+/// The words a spent month says: whose figure it is, not "the" limit (theseus-tclcj).
+#[test]
+fn a_spent_month_says_the_figure_is_the_routines_own() {
+    let text = crate::routine::month_spent_text("Digest", 1.0, "ab12");
+    assert!(
+        text.contains("this routine's own month budget of $1.00"),
+        "{text}"
+    );
+    assert!(!text.contains("this month's $1.00 is spent"), "{text}");
+    let rule = crate::rule_notice::Rule::D14.spec();
+    assert!(!rule.key.contains("default_"), "{}", rule.key);
+    assert!(rule.key.contains("routine update"), "{}", rule.key);
 }
