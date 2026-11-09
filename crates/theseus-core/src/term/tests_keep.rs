@@ -707,8 +707,24 @@ async fn a_close_that_keeps_nothing_kills_the_job_of_an_exited_shell() {
     .unwrap();
     assert_eq!(closed.len(), 1);
     assert!(closed[0].left.is_empty(), "{:?}", closed[0]);
-    // At least the one job; an exact count waits for the distinct count
-    // (a job still alive a round later is signalled and counted again).
-    assert!(closed[0].killed >= 1, "the job is counted: {:?}", closed[0]);
+    assert_eq!(
+        closed[0].killed, 1,
+        "the one job is counted: {:?}",
+        closed[0]
+    );
     until("the job is gone", || marked(&job).is_empty()).await;
+}
+
+/// The kill's count is of distinct processes: one signalled again in a later
+/// round is not counted again. (The double count cannot be forced with real
+/// processes: it needs one still running after its SIGKILL.)
+#[test]
+fn killed_counts_distinct_processes() {
+    let p = |pid| theseus_kernel::tree::Proc { pid, start: 7 };
+    let (a, b, c) = (p(10), p(11), p(12));
+    let mut seen = std::collections::BTreeSet::new();
+    assert_eq!(pty::count_new(&mut seen, [a, b]), 2);
+    assert_eq!(pty::count_new(&mut seen, [b, c]), 1);
+    assert_eq!(pty::count_new(&mut seen, []), 0);
+    assert_eq!(seen.len(), 3);
 }

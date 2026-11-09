@@ -324,9 +324,9 @@ impl Pty {
     /// `groups` again (a new group may have formed meanwhile), and settles
     /// 5 ms; the first round that finds nothing alive ends it. A round finds
     /// what the last kill's victims forked before they died (theseus-z0kk).
-    /// Returns how many were signalled.
+    /// Returns how many distinct processes were signalled (`count_new`).
     fn kill_rounds(&self, procs: &[tree::Proc], groups: &[u32], below: Option<u32>) -> usize {
-        let mut killed = 0;
+        let mut seen = std::collections::BTreeSet::new();
         for _ in 0..KILL_ROUNDS {
             let late: Vec<tree::Proc> = procs
                 .iter()
@@ -338,17 +338,16 @@ impl Pty {
             if late.is_empty() {
                 break;
             }
-            for p in late {
-                if tree::signal(p, libc::SIGKILL) {
-                    killed += 1;
-                }
-            }
+            count_new(
+                &mut seen,
+                late.into_iter().filter(|p| tree::signal(*p, libc::SIGKILL)),
+            );
             for &g in groups {
                 signal_group(g, libc::SIGKILL);
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        killed
+        seen.len()
     }
 
     /// A close of a program that had already exited (theseus-d1zw). Its jobs
@@ -507,6 +506,16 @@ impl Pty {
 
 /// The rounds a close's final scan and kill repeat, at most (theseus-z0kk).
 const KILL_ROUNDS: usize = 5;
+
+/// How many of `signalled` were not in `seen`, which then holds them: a
+/// process still alive a round after its SIGKILL is signalled again and is
+/// not counted again.
+pub(super) fn count_new(
+    seen: &mut std::collections::BTreeSet<tree::Proc>,
+    signalled: impl IntoIterator<Item = tree::Proc>,
+) -> usize {
+    signalled.into_iter().filter(|p| seen.insert(*p)).count()
+}
 
 /// Why a keeping close left a process: a process group of its own in the
 /// terminal's session (a shell's `&` job, `nohup … &`), or a session of its
