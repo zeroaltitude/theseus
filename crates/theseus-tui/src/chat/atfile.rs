@@ -183,6 +183,25 @@ fn query_of(word: &str) -> Option<&str> {
 pub(super) struct Resolved {
     pub footer: String,
     pub attachments: Vec<theseus_protocol::Attachment>,
+    /// What the transcript says went by reference, so the person sees it.
+    pub note: String,
+}
+
+/// The dim line under the echo: what went by reference and what went as an
+/// image; empty when nothing did.
+fn attached_note(by_path: &[&str], images: &[&str]) -> String {
+    let mut parts = Vec::new();
+    if !by_path.is_empty() {
+        parts.push(format!("paths sent: {}", by_path.join(", ")));
+    }
+    if !images.is_empty() {
+        parts.push(format!("images attached: {}", images.join(", ")));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("  ↪ {}", parts.join(" · "))
+    }
 }
 
 /// Is a listed path an image the daemon renders for a vision model?
@@ -377,6 +396,7 @@ impl Chat {
         };
         let mut out = Resolved::default();
         let mut lines = Vec::new();
+        let (mut by_path, mut images) = (Vec::new(), Vec::new());
         for n in &names {
             if !ix.has(n) {
                 return Err(format!(
@@ -387,8 +407,10 @@ impl Chat {
             let abs = format!("{}/{n}", self.cfg.dir.trim_end_matches('/'));
             if is_image(n) {
                 out.attachments.push(Self::image_for(n, &abs)?);
+                images.push(n.as_str());
             } else {
                 lines.push(abs);
+                by_path.push(n.as_str());
             }
         }
         if !lines.is_empty() {
@@ -397,6 +419,7 @@ impl Chat {
                 lines.join("\n")
             );
         }
+        out.note = attached_note(&by_path, &images);
         Ok(out)
     }
 

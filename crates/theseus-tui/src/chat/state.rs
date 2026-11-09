@@ -785,6 +785,7 @@ impl Chat {
         let mut taken = self.editor.take();
         taken.text.push_str(&resolved.footer);
         taken.attachments = resolved.attachments;
+        taken.note = resolved.note;
         let (text, trimmed) = (taken.text.clone(), taken.text.trim());
         if trimmed.is_empty() {
             return Vec::new();
@@ -821,12 +822,20 @@ impl Chat {
             self.enqueue(taken);
             return effects;
         }
-        self.echo(&taken.shown);
+        self.echo_taken(&taken);
         match self.session.clone() {
             Some(sid) => effects.push(self.submit_call(&sid, text, &taken.attachments)),
             None => self.unsent.push((text, taken.attachments)),
         }
         effects
+    }
+
+    /// The message in the transcript, and under it what went by reference.
+    pub(super) fn echo_taken(&mut self, taken: &super::editor::Taken) {
+        self.echo(&taken.shown);
+        if !taken.note.is_empty() {
+            self.say_plain(Sty::Dim, &taken.note);
+        }
     }
 
     /// The message in the transcript: `›` and its lines.

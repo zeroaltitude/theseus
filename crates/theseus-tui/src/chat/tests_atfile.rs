@@ -376,3 +376,19 @@ async fn an_image_typed_while_a_turn_runs_carries_its_attachment_when_released()
     assert_eq!(atts.len(), 1, "{:?}", sent[0]);
     assert_eq!(atts[0]["data"], "iVBORw0KGgo=");
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_transcript_names_the_files_and_images_that_went_by_reference() {
+    let p = project_with_shot();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("see @notes.md and @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("paths sent: notes.md").await;
+    assert!(
+        r.text().contains("images attached: shot.png"),
+        "{}",
+        r.text()
+    );
+}

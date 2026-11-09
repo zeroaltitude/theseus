@@ -28,6 +28,8 @@ pub struct Taken {
     pub shown: String,
     /// Images named by `@path`, sent as attachments (the text keeps the path).
     pub attachments: Vec<theseus_protocol::Attachment>,
+    /// The dim line under the echo naming the files that went by reference.
+    pub note: String,
 }
 
 #[derive(Debug, Default)]
@@ -288,6 +290,7 @@ impl Editor {
             text,
             shown,
             attachments: Vec::new(),
+            note: String::new(),
         }
     }
 

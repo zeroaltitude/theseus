@@ -239,7 +239,7 @@ new lines, the dock again, in synchronized-output mode 2026).
   the loop (at most 32 MiB; reading it off-thread as `Effect::ListFiles` does is the follow-up if that ever shows). A missing,
   unreadable or over-cap image is refused in the dock naming the file and why, the line kept and nothing sent. `Taken.attachments`
   carries them through the queue (`release_queue`) and `Chat::unsent`; `submit_call` is the one place that builds the params.
-  `unqueue` restores the text only, so the next Enter reads the file again. In a task's view an image is refused (a task takes text).
+  The transcript says what went by reference under the echo (`↪ paths sent: … · images attached: …`, `Taken.note`), since the footer's absolute paths are not echoed. `unqueue` restores the text only, so the next Enter reads the file again. In a task's view an image is refused (a task takes text).
 - **`/why`** (theseus-vjzt, phase 2; `chat/why.rs`): the lines `theseus why` prints for the last compiled turn, dim for the backtick lines.
   Four reads go at once (`context.explain`, `policy.explain`, `ledger.tail` `route.decided`, `node.list` `tool_call`; each a
   `Purpose::Why(WhyPart)`) and the words come when all four have answered; a second `/why` meanwhile says "still reading it". A side
