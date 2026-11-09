@@ -131,6 +131,13 @@ pub struct PackReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(as = "Option<u32>", optional))]
     pub failed_recent: Option<u32>,
+    /// Of `calls`, those made in the same window as `failed_recent` (every
+    /// call, skipped included, written in the last day before the holdout's
+    /// end). The pair is a rate over one window; None where the report stored
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(as = "Option<u32>", optional))]
+    pub calls_recent: Option<u32>,
     pub skipped: u32,
     /// Judgments with at least one label that counts toward a question.
     pub labeled: u32,

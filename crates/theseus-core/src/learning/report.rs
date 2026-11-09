@@ -358,6 +358,10 @@ pub fn pack_report_of(
             seen,
             window.end_ms.saturating_sub(learn::DAY_MS),
         )),
+        calls_recent: Some(calls_since(
+            seen,
+            window.end_ms.saturating_sub(learn::DAY_MS),
+        )),
         skipped: count(&|o| matches!(o, Outcome::Skipped { .. })),
         labeled,
         baseline: pack
@@ -382,6 +386,12 @@ pub fn pack_report_of(
         undo: Vec::new(),
         undo_days: 0,
     }
+}
+
+/// Every call (skipped included, as `calls` counts them) written at or after
+/// `from_ms`: the denominator that goes with [`failed_since`].
+fn calls_since(seen: &[Seen], from_ms: u64) -> u32 {
+    seen.iter().filter(|s| s.row_ms >= from_ms).count() as u32
 }
 
 /// The failed calls made at or after `from_ms`. `failed` is all-time and never
