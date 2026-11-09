@@ -313,6 +313,7 @@ trap on_exit EXIT
 # skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one, since
 # the ARM runner sets its known skips this way; it names each line, with its profile and place, and whether HEAD has it
 # or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
+filters_found=no
 suite_filters() {
   local cfg=.config/nextest.toml found profile lineno text where
   found="$(awk '
@@ -324,6 +325,7 @@ suite_filters() {
     echo "gate: suite filters: none (no default-filter in $cfg, and the gate passes no -E): every test the workspace builds runs, but the #[ignore]d ones"
     return 0
   fi
+  filters_found=yes
   echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
   while IFS=$'\t' read -r profile lineno text; do
     where="only in the working tree, not in HEAD"
@@ -333,6 +335,25 @@ suite_filters() {
   echo "gate:   this run's profile: ${NEXTEST_PROFILE:-default}; a stale line goes with: git checkout -- $cfg"
   phase_label="suite filtered"
 }
+# What nextest says it applied, read back from its own line, e.g. `Starting 9304 tests across 205 binaries (60 tests
+# skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and
+# misses one set through NEXTEST_PROFILE, a config file passed in, or an overrides table. Nothing here changes the exit
+# status; a red suite never gets here (`set -e` stops the gate at the pipeline), and a filtered one is labelled, never cleared.
+suite_applied() {
+  local applied
+  applied="$(grep -oE 'including [0-9]+ tests? via profile\.[A-Za-z0-9_-]+\.default-filter' "$1" | head -1 || true)"
+  local n
+  n="$(sed -E 's/^including ([0-9]+) .*/\1/' <<<"$applied")"
+  if [ -n "$applied" ]; then
+    echo "gate: nextest applied a default-filter: $n test(s) excluded ($applied)"
+    phase_label="suite filtered"
+    if [ "$n" -gt 0 ] && [ "$filters_found" != yes ]; then
+      echo "gate: MISMATCH: the banner said no default-filter, and nextest excluded $n test(s) by one: read the line above"
+    fi
+  elif [ "$filters_found" = yes ]; then
+    echo "gate: MISMATCH: the banner said a default-filter is ACTIVE, and nextest's summary names none applied"
+  fi
+}
 suite() {
   local log="$gate_tmp/suite.log"
   suite_filters
@@ -340,6 +361,7 @@ suite() {
   if [ "$phase_label" = "suite filtered" ]; then
     echo "gate: the suite above ran under a default-filter (suite filters, above): its \"skipped\" count includes the tests the filter excluded"
   fi
+  suite_applied "$log"
   local flaky
   flaky="$(grep -E '^ *FLAKY ' "$log" || true)"
   if [ -n "$flaky" ]; then

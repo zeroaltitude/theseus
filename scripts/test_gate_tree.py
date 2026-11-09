@@ -64,6 +64,10 @@ case "$what" in
       echo "        FAIL [   0.100s] stub::a_test_that_fails_on_the_moved_tree"
       exit "$STUB_SUITE_RC"
     fi
+    if [ -n "${STUB_APPLIED:-}" ]; then
+      echo "────────────"
+      echo "     Starting 9 tests across 1 binaries ($STUB_APPLIED tests skipped, including $STUB_APPLIED tests via profile.default.default-filter)"
+    fi
     echo "     Summary [   1.000s] 9 tests run: 9 passed, 0 skipped"
     ;;
 esac
@@ -252,6 +256,25 @@ class GateTree(unittest.TestCase):
         self.assertNotIn("ran under a default-filter", out)
         self.assertRegex(out, r"\n  suite +\d+\n")
         self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
+
+    def test_a_filter_nextest_applied_that_the_banner_missed_is_a_mismatch(self):
+        # The banner re-derives the filter with awk; nextest's own line says what it applied (one set through
+        # NEXTEST_PROFILE, a config file passed in, or an overrides table never shows in the awk's reading).
+        rc, out, _ = self.gate(STUB_APPLIED="4")
+        self.assertEqual(rc, 0, "the exit status never changes: " + out)
+        self.assertIn("gate: suite filters: none", out)
+        self.assertIn("MISMATCH", out)
+        self.assertIn("4 test(s) excluded", out)
+        self.assertRegex(out, r"\n  suite filtered +\d+\n")
+
+    def test_a_filter_the_banner_named_and_nextest_applied_prints_its_count_and_no_mismatch(self):
+        self.stale_filter()
+        rc, out, _ = self.gate(STUB_APPLIED="2")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: suite filters: ACTIVE", out)
+        self.assertIn("2 test(s) excluded", out)
+        self.assertNotIn("MISMATCH", out)
+        self.assertRegex(out, r"\n  suite filtered +\d+\n")
 
     # ---- and what is not a move
 
