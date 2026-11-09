@@ -751,3 +751,35 @@ async fn an_ask_for_hands_is_frozen_named_on_the_card_and_granted_by_the_ack() {
         .is_none());
     assert!(!r.core.mcp.has_channel("ext-wordcount"));
 }
+
+/// `propose` makes the trial's `Beat`, so the rig cannot see it; `try_out`
+/// is called here with its own. A stamp after the server's tools are listed
+/// and one after each test: a deleted one would cut every real trial at the
+/// silence bound with `tests_trial` (fake tasks) still green (theseus-p1mv9).
+#[tokio::test]
+async fn a_trial_stamps_its_beat_after_the_listing_and_after_each_test() {
+    let r = rig();
+    let src = r.server("tools/wc", "ok");
+    let input = proposal(&src);
+    let i = super::input_of(&input).unwrap();
+    let ext = r.core.tools.extend.clone();
+    let frozen = super::freeze::freeze(&src, &ext.dir, &i.name, None).unwrap();
+    let cfg = super::trial_cfg(&i.command, &frozen.dir, &i.network);
+    let beat = Arc::new(super::Beat::default());
+    assert_eq!(beat.stamps(), 0);
+    let tried = super::try_out(
+        ext.board().expect("the rig's board"),
+        i.name.clone(),
+        cfg,
+        i.tests.clone(),
+        beat.clone(),
+    )
+    .await;
+    assert!(tried.error.is_none(), "{:?}", tried.error);
+    assert_eq!(tried.tests.len(), 3, "the proposal's three tests ran");
+    assert_eq!(
+        beat.stamps(),
+        1 + 3,
+        "one stamp for the listing, one a test"
+    );
+}
