@@ -31,7 +31,8 @@ path = "junit.xml"
 # and every other test still runs beside them at test-threads. It costs the four tests' serial time. The chain
 # test's rows are from 2026-11-07, before the fix that retired its retry (3b8ad233); it stays because the plan names
 # it and it costs about a second, and it comes out in the commit that shows it unneeded.
-# `cargo nextest show-config test-groups` lists the members.
+# `cargo nextest show-config test-groups` lists the members, and four is the count: a renamed test drops out of the
+# group silently, where a renamed package or binary is refused by nextest instead (exit 96).
 [test-groups.timing]
 max-threads = 1
 
