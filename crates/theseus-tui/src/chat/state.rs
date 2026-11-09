@@ -665,17 +665,7 @@ impl Chat {
             }
             Action::Escape => return self.escape(),
             Action::SendNow => return self.send_now(),
-            Action::ShowPaste => {
-                if let Some(text) = self.editor.paste_at_cursor().map(str::to_string) {
-                    self.say_plain(Sty::Dim, "pasted text:");
-                    for l in text.lines() {
-                        let row = format!("  {l}");
-                        self.say_plain(Sty::Dim, &row);
-                    }
-                } else {
-                    self.flash("nothing pasted here");
-                }
-            }
+            Action::ShowPaste => self.show_paste(),
             Action::Tasks => return self.open_task_picker(),
             Action::Interrupt => return self.interrupt(),
             Action::EndOfInput => {
@@ -686,6 +676,19 @@ impl Chat {
             }
         }
         Vec::new()
+    }
+
+    /// The folded paste under the cursor, shown whole.
+    fn show_paste(&mut self) {
+        if let Some(text) = self.editor.paste_at_cursor().map(str::to_string) {
+            self.say_plain(Sty::Dim, "pasted text:");
+            for l in text.lines() {
+                let row = format!("  {l}");
+                self.say_plain(Sty::Dim, &row);
+            }
+        } else {
+            self.flash("nothing pasted here");
+        }
     }
 
     /// The line was edited: the command list opens again, at its first row.
