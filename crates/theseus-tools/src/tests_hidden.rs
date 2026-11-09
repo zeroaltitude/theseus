@@ -156,3 +156,34 @@ fn list_glob_and_grep_mean_the_same_by_ignored() {
     want.sort();
     assert_eq!(all, want, "{all:?}");
 }
+
+/// A path ignored only by the account's global gitignore is listed, with and
+/// without `all`: `walk_builder` never reads it, since a listing must not
+/// depend on the daemon's account. The global config is a tempdir's own,
+/// pointed at by `GIT_CONFIG_GLOBAL`, which no other test in this crate reads
+/// (and every walk here sets `git_global(false)`, so a sibling that runs while
+/// it is set sees no change).
+#[test]
+fn list_shows_what_only_the_global_gitignore_ignores() {
+    let cfg = tempfile::tempdir().unwrap();
+    let excludes = cfg.path().join("global-ignore");
+    fs::write(&excludes, "globally-ignored.dat\n").unwrap();
+    let gitconfig = cfg.path().join(".gitconfig");
+    fs::write(
+        &gitconfig,
+        format!("[core]\n\texcludesFile = {}\n", excludes.display()),
+    )
+    .unwrap();
+    let d = tempfile::tempdir().unwrap();
+    fs::write(d.path().join("globally-ignored.dat"), "x").unwrap();
+    fs::write(d.path().join("ordinary.txt"), "x").unwrap();
+    let c = ToolCtx::for_tests(d.path());
+    std::env::set_var("GIT_CONFIG_GLOBAL", &gitconfig);
+    let plain = List.run(&json!({}), &c).map(|o| o.text);
+    let all = List.run(&json!({"all": true}), &c).map(|o| o.text);
+    std::env::remove_var("GIT_CONFIG_GLOBAL");
+    for text in [plain.unwrap(), all.unwrap()] {
+        assert!(text.contains("ordinary.txt"), "{text}");
+        assert!(text.contains("globally-ignored.dat"), "{text}");
+    }
+}
