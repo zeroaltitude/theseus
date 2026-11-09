@@ -175,8 +175,8 @@ pub const RULES: &[Spec] = &[
     s(
         Rule::D14,
         "D14",
-        "a routine's budget",
-        "[routines] default_run_usd / default_month_usd",
+        "a routine's own budget",
+        "theseus routine update <id> --month <usd>",
     ),
     s(
         Rule::D15,

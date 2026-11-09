@@ -22,7 +22,7 @@ use theseus_kernel::TimeZone;
 use theseus_tools::{parse, Backend, Plan, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::config::RoutinesConfig;
-use crate::routine::{create, prepare, usd_ok, NewRoutine};
+use crate::routine::{create, prepare, NewRoutine};
 use crate::toolrun::TurnCtx;
 
 pub const CREATE: &str = "routine.create";
@@ -165,11 +165,7 @@ impl Tool for RoutineCreate {
         let next = crate::routine::occurrences(&parsed, &self.zone, 3);
         let run = new.budget_usd.unwrap_or(self.cfg.default_run_usd);
         let month = new.month_usd.unwrap_or(self.cfg.default_month_usd);
-        if !(usd_ok(run) && usd_ok(month)) || run > month {
-            return Err(format!(
-                "a run's budget (${run}) must be above 0 and no more than the month's (${month})"
-            ));
-        }
+        crate::routine::check_budgets(&self.cfg, run, month)?;
         let card = crate::routine::Prepared::words(
             &new,
             &parsed.repeat,

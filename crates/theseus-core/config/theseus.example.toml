@@ -1289,6 +1289,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [routines]
 # default_run_usd = 0.50                  # the most one run may spend, when a routine names none
 # default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
+# max_run_usd = 2                         # a ceiling on the run figure a routine names for itself (unset: none); a higher one is refused, naming this key
+# max_month_usd = 50                      # the same for the month figure
 # max_routines = 50                       # live routines at once
 # run_deadline_secs = 900                 # how long a run's question outside its grant waits before the call is dropped and the run goes on without it
 
