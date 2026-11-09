@@ -232,6 +232,12 @@ new lines, the dock again, in synchronized-output mode 2026).
   list is refused at Enter, said in the dock, the line kept; `@@x` sends a literal `@x`; a paste is never checked. Tests:
   `chat/tests_commands.rs`, `chat/tests_atfile.rs`.
 
+- **`/why`** (theseus-vjzt, phase 2; `chat/why.rs`): the lines `theseus why` prints for the last compiled turn, dim for the backtick lines.
+  Four reads go at once (`context.explain`, `policy.explain`, `ledger.tail` `route.decided`, `node.list` `tool_call`; each a
+  `Purpose::Why(WhyPart)`) and the words come when all four have answered; a second `/why` meanwhile says "still reading it". A side
+  read that fails or does not decode leaves its section out; only `context.explain` failing is told (`could not read it: …`).
+  `why` is the last entry of `COMMANDS` before the debug-only `panic`: the menu's first six rows are asserted by tests. Tests: `chat/tests_why.rs`.
+
 - **Modes** (theseus-lyxy): Shift+Tab asks the daemon for the conversation's next mode (`session.mode`, ask → edits →
   plan → auto); in the chat it is the key map's `CycleMode`, in the board it works at the input line only (`i`), since in
   the list Shift+Tab is still the walk back through the queue. The mode and the plan are read once when a conversation is

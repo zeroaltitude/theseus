@@ -86,6 +86,8 @@ pub enum Purpose {
     Stop,
     /// `/context`: the session's last compile, by part.
     Context,
+    /// One of `/why`'s four reads.
+    Why(super::why::WhyPart),
     /// `/cost`: the day, from health.
     Cost,
     /// Rewind (theseus-23rk): the picker's messages, a restore of the files,
@@ -191,6 +193,8 @@ pub struct Chat {
     pub fill: Option<(u64, u64)>,
     /// What each turn this chat saw end cost.
     pub(super) turn_costs: Vec<Option<f64>>,
+    /// `/why`'s reads, while they are out.
+    pub(super) why: Option<super::why::WhyRead>,
     /// The last turn's link in the cockpit (theseus-x9swu), which `/inspect` says again.
     pub last_inspect: Option<String>,
     /// The conversation's mode and approved plan (theseus-lyxy).
@@ -290,6 +294,7 @@ impl Chat {
             cost: 0.0,
             fill: None,
             turn_costs: Vec::new(),
+            why: None,
             last_inspect: None,
             mode: SessionMode::default(),
             plan: Vec::new(),
