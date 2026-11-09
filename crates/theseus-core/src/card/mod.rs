@@ -59,6 +59,10 @@
 //!   asked what it has learned about the owner today can name what it heard.
 //!   Before it, the records were in no prompt at all and the answer could only
 //!   list what the daemon had done.
+//! - **`card.observed` (`tool.rs`) reaches the rest**: the block carries only
+//!   today's open notes, bounded, so a turn asked about a longer span reads
+//!   them with the tool instead, in the owner's own places only. The block is
+//!   the guarantee; the tool is the reach.
 //!
 //! Nothing here is added to the card without the owner's answer, and nothing
 //! enters a turn's cached prefix: the job is off every turn, and the standing
@@ -75,6 +79,7 @@ pub mod observe;
 pub mod run;
 pub mod state;
 pub mod tender;
+pub mod tool;
 pub mod write;
 
 #[cfg(test)]

@@ -20,6 +20,9 @@ pub const TOOLS: &str = "tools";
 pub const TASKS: &str = "tasks";
 /// The family of `task_wait` and `task_fan_out`.
 pub const HELPERS: &str = "helpers";
+/// The family of `card_observed` (theseus-6f8t0): what has been learned about
+/// the owner from his own words, deferred everywhere.
+pub const CARD: &str = "card";
 
 /// The families, with the line that says what each holds. An MCP server's
 /// tools are the family `mcp:<server>`, outside this table.
@@ -59,6 +62,14 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "routines that run on a schedule, and watches that tell you when something changes",
     ),
     ("threads", "read another thread of the conversation"),
+    // Deferred everywhere (theseus-6f8t0): the owner asks what has been
+    // learned about him now and then, nowhere near one session in five, so
+    // `first_request::ALWAYS_LOADED` is not where it belongs; a search for
+    // the question finds it.
+    (
+        CARD,
+        "what you have learned or noticed about the owner lately, from their own words, which is on their card only once they answer",
+    ),
     (
         "terminals",
         "interactive programs on a terminal: open, send keys, read the screen, close",
@@ -135,6 +146,7 @@ pub fn of_wire(wire: &str) -> String {
         "tools_find" => TOOLS,
         "file_read" => "files",
         "memory_lookup" => "memory",
+        "card_observed" => CARD,
         "proc_run" => "commands",
         "owner_ask" => "ask",
         "task_wait" | "task_fan_out" => HELPERS,

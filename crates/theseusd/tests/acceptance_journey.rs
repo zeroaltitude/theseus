@@ -1114,9 +1114,12 @@ fn a_paused_task_says_paused_first_and_the_cli_pauses_and_resumes_it() {
     assert_eq!(code, 0, "{out}{err}");
     within("paused", 1000, || r.view(&quay)["paused"] == true);
     let post = r.post_made(&quay);
+    // The cost is the spend of one turn against this rig's stand-in model, so
+    // it moves whenever the tools block does: $0.03 until `card_observed`
+    // joined the catalog (theseus-6f8t0).
     within("the card's paused line", 4000, || {
         let card = r.card(&post);
-        card.contains("paused") && card.contains("$0.03 of $25")
+        card.contains("paused") && card.contains("$0.04 of $25")
     });
     let (code, out, err) = r.cli(&["task", "resume", &quay]);
     assert_eq!(code, 0, "{out}{err}");

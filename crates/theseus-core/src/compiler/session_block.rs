@@ -5,12 +5,21 @@
 //! of one session's goes there (`crates/theseus-core/AGENTS.md`). What is
 //! the session's own, and the same for its every request, goes here: its
 //! directory, `Directory: /work/harbour-tides`, the one `ToolRuntime::cwd_for`
-//! resolves for its tools, and the CPUs its commands have, read once per
-//! process (`cpu::commands`, theseus-yct32). Static for the session: it
-//! changes only when the session moves (`turn.submit` with another `dir`),
-//! which is a `system_changed` recompile, as an edited context file is. So a request
-//! that replays a session's prefix replays this block's bytes unchanged.
-//! `project-context` (a later row) fills the same block.
+//! resolves for its tools, the CPUs its commands have, read once per
+//! process (`cpu::commands`, theseus-yct32), and the OS and architecture they
+//! run on, read once per process too (`cpu::os`, theseus-wadu). Static for the
+//! session: it changes only when the session moves (`turn.submit` with another
+//! `dir`), which is a `system_changed` recompile, as an edited context file is.
+//! So a request that replays a session's prefix replays this block's bytes
+//! unchanged.
+//!
+//! Last comes the project's own instruction files (`project_context`,
+//! theseus-wadu; `docs/design/project-context.md` §3): the owner's own
+//! user-level file, and, for a repository the owner has not granted, the one
+//! line naming how many files there are and how large they are, and nothing
+//! else of them. A nested directory's files join the block the first time a
+//! tool touches that directory, which is the `system_changed` recompile a
+//! session moving directory already is (§2).
 //!
 //! This block takes the fourth breakpoint; no other block may: the header,
 //! the context, this one, and the conversation's are the provider's four.
@@ -31,10 +40,17 @@ impl TurnRunner {
         if place.class == PlaceClass::Shared || !self.tools.enabled() {
             return String::new();
         }
-        format!(
-            "Directory: {}\n{}",
-            self.tools.cwd_for(dir).display(),
-            crate::cpu::commands::Cpus::of_commands().fact()
-        )
+        let cwd = self.tools.cwd_for(dir);
+        let mut text = format!(
+            "Directory: {}\n{}\n{}",
+            cwd.display(),
+            crate::cpu::commands::Cpus::of_commands().fact(),
+            crate::cpu::os::Os::of_machine().fact(),
+        );
+        if let Some(part) = crate::project_context::block(&self.cfg, &self.context_files, &cwd) {
+            text.push_str("\n\n");
+            text.push_str(&part);
+        }
+        text
     }
 }

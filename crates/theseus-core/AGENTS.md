@@ -419,6 +419,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of the owner's lines moves only the in-memory mark and writes no frame. Spawned after the turn, so the census and the
   turn path are unchanged. `observe::sweep` (called first by the live pass) reads each owner-alone session active in the
   last 48 h past its mark. Read with `theseus card observed`. Tests: `card/observe/tests.rs`.
+  **A turn's reach of the notes** (theseus-6f8t0): until the owner answers a question a note is on no card, so a turn
+  asked what it has learned about him had nothing to name though the note was kept (the owner, 2026-11-07: a favourite
+  animal said inside a question about the disk). Two things reach them, divided by span. **Today's** open notes ride in
+  the request's tail as a bounded block (`card/noted.rs`, attached in `turn/compile_step.rs`), which is what makes that
+  answer certain rather than a matter of the model electing to look: owner-alone places only, never a task's session,
+  never a model of restricted origin, after the cached prefix so it is no cache write. **Older than today**, or more than
+  the block's eight lines, is read by `card.observed` (`card/tool.rs`, dispatched in `toolrun.rs` by family `card`,
+  attached in `rpc/mod.rs`): `when` (today by default, read as `memory.lookup` reads it) and `limit`, open notes newest
+  first, each with its local day,
+  kind, id and session, under a head saying they are unconfirmed and on no card. The rest of the wall is whole — still no
+  node, no index, no recall, and no span past today in any prompt: only the tool's contract is in the request, as
+  `memory.lookup`'s is. **The tool's wall is the block's, clause for clause** (`card::tool::refusal`, the one point both
+  the runtime and the tests go through): the owner alone in the place (`tc.class`, then `Core::owner_alone_in` on the
+  session's place), never a task's session (its own record, as `turn/compile_step.rs` reads it — a task's place is its
+  parent's, so the place checks pass one through), and never a model of restricted origin (the turn's profile through
+  `TurnRunner::restricted_profile`; the data gate cannot stand in for it, since it moves a *labelled* session off such a
+  model and these notes raise no label). It is no `places::public_tool`, and it is not registered at
+  all with `[card] observe` off. Tests: `card/tool.rs`'s own, `card/tests_pure.rs`'s block test, and the four end-to-end
+  ones in `card/observe/tests.rs`.
   **The live pass** (theseus-6f8t0; `card/live.rs`, `rpc/card_stale.rs`): the observer's `card.obs.<id>` notes (META, never a node:
   not indexed, recalled or compiled; `CardObservation`, read through `state::observations` alone) become questions, nightly and after
   the archive's run in `card.propose`: the observer's sweep first, then expiry, then **Stale** (an observation that contradicts a live

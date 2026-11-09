@@ -31,7 +31,7 @@ use theseus_protocol::LedgerKind;
 
 use super::lines::{say, Line};
 use crate::config::PersonaView;
-use crate::context_files::{ContextPath, ContextReaders};
+use crate::context_files::{ContextPath, ContextReaders, Level};
 use crate::fact::initiative::InitiativeSpoke;
 use crate::places::PlaceClass;
 use crate::provider::{ModelResponse, ProviderRequest};
@@ -85,7 +85,7 @@ impl Core {
             .iter()
             .map(|f| ContextPath {
                 path: f.path().into(),
-                persona: Some(key.to_string()),
+                level: Level::Persona(key.to_string()),
                 public: f.readers() == ContextReaders::Public,
             })
             .collect();

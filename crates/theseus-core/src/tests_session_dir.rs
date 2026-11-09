@@ -315,11 +315,14 @@ async fn a_relative_directory_is_refused() {
 }
 
 /// The session block for `dir`: its directory, then its commands' CPUs
-/// (theseus-yct32).
+/// (theseus-yct32), then the OS and architecture they run on
+/// (theseus-wadu). No project part: these rigs' directories are in no
+/// repository and the state dir has no user-level file.
 fn block(dir: &std::path::Path) -> String {
     format!(
-        "Directory: {}\n{}",
+        "Directory: {}\n{}\n{}",
         dir.display(),
-        crate::cpu::commands::Cpus::of_commands().fact()
+        crate::cpu::commands::Cpus::of_commands().fact(),
+        crate::cpu::os::Os::of_machine().fact(),
     )
 }

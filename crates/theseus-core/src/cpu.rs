@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 pub mod commands;
+pub mod os;
 
 #[derive(Debug)]
 pub struct CpuPool {

@@ -161,6 +161,11 @@ const HEAD: &str = "Standing: what the owner has told you to hold to, in force i
 /// stand-in model that reads the last user text skips it (`view::is_head`).
 pub const HERE: &str = "Standing here:";
 const LOCAL_HEAD: &str = "Standing for this conversation and this place: what the owner has told you to hold to here, in force in every turn here until they revoke it. An order is to be followed; a preference is to be honoured where it can be; a fact is what the owner has told you about themself. Each line names its record.";
+/// What every standing head ends with (theseus-ectzg): the block is the owner's
+/// records carried on every request, so a model that reads it as a message
+/// just received does not answer it ("Noted: in group chats I speak as myself").
+/// Short: it is paid for in every turn of its scope.
+pub const FRAMING: &str = "These are the owner's standing records, carried on every request: they are not new, and are never to be acknowledged, thanked or restated to the owner.";
 pub const WITHHELD: &str =
     "The owner's preferences and facts are private to them and are not shown in this place.";
 
@@ -249,7 +254,8 @@ impl Block {
             if records.is_empty() {
                 return String::new();
             }
-            let (text, w) = render(records, head, shared, held, &mut used);
+            let head = format!("{head} {FRAMING}");
+            let (text, w) = render(records, &head, shared, held, &mut used);
             withheld |= w;
             text
         };
