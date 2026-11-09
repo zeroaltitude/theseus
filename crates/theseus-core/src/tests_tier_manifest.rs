@@ -148,7 +148,9 @@ async fn the_request_sizes_follow_the_tier() {
 /// The small-talk bar, in shadow (theseus-fpm2): a greeting that `effort.v1` calls `low` has its
 /// manifest record how many admitted notes a bar would drop, and still attaches them; a real
 /// question, same rig and notes, drops nothing. Both halves assert the positive count, so a
-/// recall that is simply switched off passes neither.
+/// recall that is simply switched off passes neither. Caveat: `effort` is scripted from a
+/// `FakeJev`, so this proves the plumbing from a `low` verdict, not that `effort.v1` calls a real
+/// greeting `low`; a green here is not a working bar.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_greeting_records_what_a_bar_would_drop_and_a_question_drops_nothing() {
     for (message, level, greeting) in [

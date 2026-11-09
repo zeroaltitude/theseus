@@ -144,6 +144,11 @@ pub fn is_coding(v: &Verdict) -> bool {
 
 /// The verdict says the reply needs the least effort: `effort.v1`'s `low` at
 /// its confirm bar (a greeting, small talk).
+///
+/// UNPROVEN: no test shows that `effort.v1` calls a real greeting `low`. The
+/// tests that read this (`tests_tier_manifest`) script the verdict with a
+/// `FakeJev`, so a green one proves the plumbing from a `low` verdict to the
+/// shadow `would_drop`, not that the bar would fire on real small talk.
 pub fn is_low_effort(v: &Verdict) -> bool {
     v.effort
         .as_ref()

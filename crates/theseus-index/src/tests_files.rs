@@ -383,9 +383,18 @@ fn a_blob_that_does_not_match_its_name_or_is_too_big_is_refused() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join(&wrong), serde_json::to_vec(&pages()).unwrap()).unwrap();
     assert!(crate::files::read_blob(&dir, &wrong).is_none());
-    let big = vec![b' '; crate::files::MAX_BLOB + 1];
+    // The bound is injected: a 1 KiB bound proves it without a 64 MiB file.
+    let bound = 1024;
+    let big = vec![b' '; bound + 1];
     let d = put_blob(&rig.store, &big);
-    assert!(crate::files::read_blob(&dir, &d).is_none());
+    assert!(crate::files::read_blob_within(&dir, &d, bound).is_none());
+    let exact = vec![b' '; bound];
+    let d = put_blob(&rig.store, &exact);
+    assert_eq!(
+        crate::files::read_blob_within(&dir, &d, bound),
+        Some(exact),
+        "a blob of exactly the bound reads"
+    );
 }
 
 /// The positive: a real digest still reads its blob.

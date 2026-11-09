@@ -79,6 +79,12 @@ fn is_digest(d: &str) -> bool {
 /// absolute component discards its base, so the shape is checked before it
 /// is ever a path.
 pub fn read_blob(dir: &Path, name: &str) -> Option<Vec<u8>> {
+    read_blob_within(dir, name, MAX_BLOB)
+}
+
+/// [`read_blob`] with the size bound named, so a test can prove the bound
+/// without a 64 MiB file.
+pub fn read_blob_within(dir: &Path, name: &str, max: usize) -> Option<Vec<u8>> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
     if !is_digest(name) {
@@ -87,10 +93,10 @@ pub fn read_blob(dir: &Path, name: &str) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
     std::fs::File::open(dir.join(name))
         .ok()?
-        .take(MAX_BLOB as u64 + 1)
+        .take(max as u64 + 1)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.len() > MAX_BLOB {
+    if bytes.len() > max {
         return None;
     }
     let hash: String = Sha256::digest(&bytes)

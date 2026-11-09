@@ -25,6 +25,19 @@
 //!   bound for a model of restricted origin carries none (theseus-9ymz0), and
 //!   a turn that recalled nothing in front of its model writes no node and
 //!   reports a count of zero (`recall_dropped`).
+//!   Known limits of the withholding:
+//!   (i) the pack's budget drops are still folded into the compile's report
+//!   when the node is then withheld: `recall_dropped` clears the rides, the
+//!   items and the count but not `Recalled::pending` or `drops`, which
+//!   `recall_compiled` extends `compiled.budget.dropped` with;
+//!   (ii) the withholding has no ledger row of its own: `recall_dropped`
+//!   writes none, and the `recall.ran` row was already queued (`record_ran`)
+//!   with the admitted notes, so a reader sees `recalled: 0` beside a row that
+//!   admitted a note with nothing joining them (`Recalled::withheld` is the
+//!   only record, and it lives in memory);
+//!   (iii) an assembled section (`Recalled::assembled`) can name a `recall_id`
+//!   whose node is now never written; the render and the situation check
+//!   leave it out (theseus-783a, `compiler/situation.rs`).
 
 use std::collections::BTreeSet;
 
