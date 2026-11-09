@@ -904,7 +904,10 @@ async fn a_failed_card_attempt_is_due_the_next_night_not_the_next_week() {
         "{got:?}"
     );
     let stored = State::read(&r.core.store).unwrap().last_run_ms;
-    assert_eq!(stored, None, "a failed attempt is not a run the interval counts");
+    assert_eq!(
+        stored, None,
+        "a failed attempt is not a run the interval counts"
+    );
     let cfg = &r.core.cfg;
     let hour = cfg.judge.learning_hour;
     let now = theseus_protocol::now_unix_ms();
