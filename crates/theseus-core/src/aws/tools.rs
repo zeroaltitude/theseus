@@ -433,6 +433,7 @@ impl Tool for CallTool {
                 .await
                 .map_err(|f| failure(&p.what(), f))?;
             let mut m = meta(&p.account.id, &p.region, &p.name(), &out);
+            let mut handles: Vec<String> = Vec::new();
             if p.secret {
                 // The value goes onto the board, never into the result.
                 let held = super::secret::hold(
@@ -453,9 +454,24 @@ impl Tool for CallTool {
                 }
                 // One that holds a secret only when it is there, with none
                 // this time, answers whole (theseus-qan5).
-                if !held.is_empty() {
-                    m["secrets"] = json!(held.iter().map(|h| &h.handle).collect::<Vec<_>>());
-                }
+                handles.extend(held.into_iter().map(|h| h.handle));
+            }
+            // Then the shape rule, over whatever the names left behind, on
+            // every call and not only a secret-bearing one: a presigned URL
+            // carries its own authorisation, so no name can catch it, and
+            // the operation that returns one is an ordinary read
+            // (theseus-3i6d1).
+            handles.extend(
+                super::presigned::hold(
+                    &p.account.board,
+                    &super::secret::label(&p.operation, &p.input),
+                    &mut out.body,
+                )
+                .into_iter()
+                .map(|h| h.handle),
+            );
+            if !handles.is_empty() {
+                m["secrets"] = json!(handles);
             }
             Ok((
                 ToolOutput {

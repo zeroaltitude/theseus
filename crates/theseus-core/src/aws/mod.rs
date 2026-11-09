@@ -57,6 +57,7 @@ pub mod logs;
 pub mod month_warn;
 pub mod narrow;
 pub mod policy_keys;
+pub mod presigned;
 pub mod s3;
 pub mod secret;
 pub mod session;
@@ -92,6 +93,8 @@ mod tests_mints;
 mod tests_network;
 #[cfg(test)]
 mod tests_outside;
+#[cfg(test)]
+mod tests_presigned;
 #[cfg(test)]
 mod tests_restore;
 #[cfg(test)]

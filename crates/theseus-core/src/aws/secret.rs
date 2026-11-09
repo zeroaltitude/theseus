@@ -120,7 +120,7 @@ pub struct Held {
 /// A handle's name: `aws-secret:` and what names the secret (the input's
 /// `SecretId` or `Name`, else the operation), then the member's path, in
 /// the characters a board name keeps.
-fn handle(label: &str, path: &str) -> String {
+pub(super) fn handle(label: &str, path: &str) -> String {
     let clean = |s: &str| -> String {
         s.chars()
             .map(|c| {
