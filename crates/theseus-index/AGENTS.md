@@ -60,7 +60,7 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   `files_unread`), and `theseus index status` prints them. On disk one capped file of varied prose measured 132
   chunks, 411 KB of BM25 and 234 KB of vectors (1,816 bytes a chunk), about 2.5x the text taken. Known limit: a
   digest's one copy belongs to the node that carried it first, so erasing that node takes the text out even where a
-  later node still carries the file; a rebuild does not put it back. Tests: `tests_files.rs`, `files::tests`.
+  later node still carries the file; a rebuild does not put it back. The same reach crosses sessions: a hit cites the first node's session (see `files.rs`'s header). Tests: `tests_files.rs`, `files::tests`.
 - **A node written again with nothing to index leaves the index** (`Tender::ingest`'s skip; an import's tombstone,
   theseus-0lrr.6): that holds inside one batch too, where the node's first record is indexed but not yet committed
   (`fresh`), as a rebuild meets a node and its tombstone together; `engine.holds` reads only what is committed.

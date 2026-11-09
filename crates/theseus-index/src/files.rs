@@ -29,8 +29,66 @@
 //! `[<file> · <section>]`. That head is what a recall hit cites: the hit's
 //! node is the message the file came with, and its text says which file and
 //! which page the passage is from.
+//!
+//! **Known limits of "once per digest".** The digest is counted across the
+//! whole index, not per session, so a file's one copy belongs to the node
+//! that carried it first, and two things follow:
+//!
+//! - *Erasure.* Erasing that node takes the text out even where a later node
+//!   still carries the file, and a rebuild does not put it back.
+//! - *Provenance.* A hit on the file's text cites the first node's message,
+//!   and so that node's session, even for an asker who attached the same
+//!   bytes in a session of their own and was never in the first one. Recall
+//!   is across sessions by design (ask in a new session about last week's
+//!   PDF), so the hit's text is not hidden; its citation is what can name a
+//!   session the asker was not in. Scoping the dedup per session would
+//!   cite the asker's own node but store each attached file once per
+//!   session, and was left alone until that cost is measured.
+
+use std::path::Path;
 
 use serde::Deserialize;
+
+/// The most one text blob may hold, in bytes. Core's reader has no bound;
+/// a blob of read text is a capped PDF's pages or a document's sections, far
+/// under this, so a larger one is not what core wrote.
+pub const MAX_BLOB: usize = 64 << 20;
+
+/// Whether `d` is a blob's name: 64 lower-case hex digits, as
+/// `theseus_core::blobs::digest` writes them. Restated here, not imported:
+/// this crate does not depend on the core.
+fn is_digest(d: &str) -> bool {
+    d.len() == 64
+        && d.bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
+/// A text blob's bytes, when `name` is a digest, the blob is within
+/// [`MAX_BLOB`], and its bytes hash to its name: core's reader's two guards
+/// plus the bound. `name` comes verbatim from a node, and `Path::join` with an
+/// absolute component discards its base, so the shape is checked before it
+/// is ever a path.
+pub fn read_blob(dir: &Path, name: &str) -> Option<Vec<u8>> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    if !is_digest(name) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(dir.join(name))
+        .ok()?
+        .take(MAX_BLOB as u64 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > MAX_BLOB {
+        return None;
+    }
+    let hash: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    (hash == name).then_some(bytes)
+}
 
 /// The most of one file's read text the index takes. `[tools]
 /// max_read_bytes`'s own default: the index never holds more of a file than
