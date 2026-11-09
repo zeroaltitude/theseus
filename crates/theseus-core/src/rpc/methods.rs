@@ -1912,6 +1912,11 @@ impl Core {
     /// start replays nothing.
     pub fn stopping_on(&self, signal: &str) {
         self.stop_record(json!({ "signal": signal }));
+        // Wake what parks on `shutdown`, as a client's `shutdown` does
+        // (theseus-tk57c): the web UI's server, the daemon's own MCP server
+        // and the harness loops. The signal arms only broke the accept loop,
+        // so these slept on until the runtime's end took them.
+        self.shutdown.notify_waiters();
     }
 
     /// The stop's row, then the checkpoint. From here no post is dispatched,

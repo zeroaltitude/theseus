@@ -2109,6 +2109,38 @@ impl tokio::io::AsyncWrite for Wire {
     }
 }
 
+/// A signal's stop wakes what waits on `core.shutdown` (theseus-tk57c): the
+/// web UI's server, the daemon's own MCP server and the harness loops park on
+/// it, and the signal arms used to record the stop and break the accept loop
+/// without ever waking them.
+#[tokio::test]
+async fn a_signals_stop_wakes_what_waits_on_the_shutdown() {
+    let core = test_core("unused");
+    let (ready, waiting) = tokio::sync::oneshot::channel();
+    let parked = {
+        let core = core.clone();
+        tokio::spawn(async move {
+            let stop = core.shutdown.notified();
+            tokio::pin!(stop);
+            stop.as_mut().enable();
+            let _ = ready.send(());
+            stop.await;
+        })
+    };
+    waiting.await.unwrap();
+    // Parked: nothing has woken it.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !parked.is_finished(),
+        "the waiter is parked before the stop"
+    );
+    core.stopping_on("SIGTERM");
+    tokio::time::timeout(Duration::from_secs(5), parked)
+        .await
+        .expect("a SIGTERM stop woke the waiter")
+        .unwrap();
+}
+
 /// A client's `shutdown` wakes the serving loops only once its answer is
 /// written (theseus-ur0). When they wake, the daemon's runtime ends and takes
 /// the connection's writer with it, so what is on the wire then is all the

@@ -180,9 +180,6 @@ impl Long {
         let mut said = String::new();
         let want_review = item.review.map(str::trim) != Some("none");
         if let (true, Some((book, cfg))) = (want_review, item.ext) {
-            if tc.task.is_some() {
-                return Err("a task cannot set up a routine: give `review: \"none\"`".into());
-            }
             if let Some(why) = crate::places::refusal(
                 tc.class,
                 crate::routine_tool::CREATE,

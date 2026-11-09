@@ -127,3 +127,84 @@ async fn a_task_s_routine_waits_on_the_owner_and_a_no_makes_nothing() {
     .await;
     assert!(routines().is_empty(), "a no makes no routine");
 }
+
+/// A task's project with a weekly review: the card waits on the owner as the
+/// routine's does, and the owner's yes makes the project and its review
+/// (theseus-ehqo7). Before, the yes was answered "a task cannot set up a
+/// routine: give `review: "none"`", a dead end after the owner had agreed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_s_project_review_is_made_by_the_owners_yes() {
+    let r = rig(
+        |req: &ProviderRequest| {
+            if first_user(req).contains("CHILD:") {
+                if answers_a_call(req) {
+                    return Scripted::text(&format!("Project result: {}", result_text(req)));
+                }
+                return Scripted::tools(
+                    "",
+                    &[(
+                        "t_project",
+                        "task_create",
+                        json!({"kind": "project", "title": "Harbour survey"}),
+                    )],
+                );
+            }
+            if answers_a_call(req) {
+                return Scripted::text("Started it.");
+            }
+            Scripted::tools(
+                "Starting it.",
+                &[(
+                    "t_task",
+                    "task_create",
+                    json!({"brief": "CHILD: plan a harbour survey", "arrangement": arranged()}),
+                )],
+            )
+        },
+        |_| {},
+    );
+    let parent = parent_session(&r.core);
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: "discord:dm:42".into(),
+        name: "DM @owner".into(),
+        private: true,
+        ..Default::default()
+    }]);
+    turn(&r.core, &parent, ASK).await;
+    let task = only_task(&r.core, &parent);
+    until("the project's card", || {
+        r.core.confirm_list().unwrap().len() == 1
+    })
+    .await;
+    let card = r.core.confirm_list().unwrap().remove(0);
+    assert_eq!(card.session_id, task.session_id);
+    assert!(
+        r.core
+            .runner
+            .tools
+            .routines
+            .all(&r.core.store)
+            .unwrap()
+            .is_empty(),
+        "nothing exists before the answer"
+    );
+    r.core
+        .confirm_action(&card.correlation_id, true, None, "cli")
+        .unwrap();
+    until("the task to finish", || {
+        crate::tests_tasks::exec(&r.core, &task.id).state == theseus_kernel::ExecState::Complete
+    })
+    .await;
+    let made = r.core.runner.tools.routines.all(&r.core.store).unwrap();
+    assert_eq!(made.len(), 1, "the owner's yes made no review: {made:?}");
+    let projects: Vec<_> = crate::task_graph::all(&r.core.store)
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.kind == theseus_protocol::tasks::TaskKind::Project)
+        .collect();
+    assert_eq!(projects.len(), 1, "the owner's yes made no project");
+    assert_eq!(
+        projects[0].review.as_deref(),
+        Some(made[0].session_id.as_str())
+    );
+}
