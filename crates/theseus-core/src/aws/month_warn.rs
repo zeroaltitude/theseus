@@ -171,7 +171,9 @@ impl crate::Core {
         let detail = format!(
             "A month's actual spend in account {} reached the budget line. Where this account \
              runs the foundation stack's stop action, AWS has now applied its deny-spend \
-             policy; Theseus does not read whether it ran. This was seen at the next budget \
+             policy; Theseus does not read whether it ran. The limit above is the budget line AWS holds, \
+             which the reconcile sets from `monthly_budget_usd` at a start, so the two can \
+             differ. This was seen at the next budget \
              read (every six hours), so it cannot be earlier than the stop itself.",
             account.id
         );
@@ -259,6 +261,7 @@ mod tests {
             "$100.00",
             "monthly_budget_usd",
             "does not read whether it ran",
+            "budget line AWS holds",
         ] {
             assert!(told[0].contains(w), "{w}: {}", told[0]);
         }
