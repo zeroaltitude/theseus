@@ -19,7 +19,7 @@ use theseus_protocol::index::{method, IndexHealth, IndexStatus};
 use theseus_protocol::TenderStatus;
 use tokio::time::Instant;
 
-use super::{call, down_why, CallError, IndexTender};
+use super::{call, down_why, CallError, IndexTender, STATUS_DEADLINE};
 
 /// How long one status read serves every caller.
 pub const STATUS_EVERY: Duration = Duration::from_secs(1);
@@ -61,7 +61,8 @@ impl IndexTender {
         }
         // One read at a time: a caller that waits here takes that read's
         // answer, and waits no longer than its own deadline.
-        let Ok(_asking) = tokio::time::timeout(deadline, self.asking.lock()).await else {
+        let Ok(asking) = tokio::time::timeout(deadline, self.asking.clone().lock_owned()).await
+        else {
             let late = CallError::NoAnswer(format!("no answer within {} ms", deadline.as_millis()));
             return self.answer(&tender, Some(&late));
         };
@@ -69,26 +70,47 @@ impl IndexTender {
             return h;
         }
         self.cache().reads += 1;
+        // The read is its own task, bounded by `STATUS_DEADLINE` and not by
+        // the caller's deadline: the caller stops waiting at its own, but the
+        // read it started goes on and lands in the cache. Cut with its
+        // caller, a tender whose status took longer than health's 100 ms was
+        // never read at all, and its line said "did not answer" for as long
+        // as it stayed slow.
+        let (socket, cache) = (self.socket(), self.cache.clone());
+        let read = tokio::spawn(async move {
+            let _asking = asking;
+            let asked =
+                call::<IndexStatus>(&socket, method::STATUS, Value::Null, STATUS_DEADLINE).await;
+            let mut c = cache.lock().unwrap_or_else(PoisonError::into_inner);
+            let failed = match asked {
+                Ok(s) => {
+                    c.last = Some((s, theseus_protocol::now_unix_ms()));
+                    None
+                }
+                Err(e) => Some(e),
+            };
+            c.tried = Some((Instant::now(), failed.clone()));
+            failed
+        });
         // The caller's deadline counts from its call, and its words name it.
         let left = deadline.saturating_sub(began.elapsed());
-        let socket = self.socket();
-        let ask = call::<IndexStatus>(&socket, method::STATUS, Value::Null, deadline);
-        let asked = tokio::time::timeout(left, ask).await.unwrap_or_else(|_| {
-            Err(CallError::NoAnswer(format!(
-                "no answer within {} ms",
-                deadline.as_millis()
-            )))
-        });
-        let mut c = self.cache();
-        let failed = match asked {
-            Ok(s) => {
-                c.last = Some((s, theseus_protocol::now_unix_ms()));
-                None
+        let failed = match tokio::time::timeout(left, read).await {
+            Ok(Ok(failed)) => failed,
+            Ok(Err(e)) => Some(CallError::NoAnswer(format!("the status read ended: {e}"))),
+            Err(_) => {
+                let late =
+                    CallError::NoAnswer(format!("no answer within {} ms", deadline.as_millis()));
+                let mut c = self.cache();
+                // Never over a read that landed in the meantime.
+                if c.tried
+                    .as_ref()
+                    .map_or(true, |(at, _)| at.elapsed() >= self.status_every)
+                {
+                    c.tried = Some((Instant::now(), Some(late.clone())));
+                }
+                Some(late)
             }
-            Err(e) => Some(e),
         };
-        c.tried = Some((Instant::now(), failed.clone()));
-        drop(c);
         self.answer(&tender, failed.as_ref())
     }
 
