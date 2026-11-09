@@ -725,8 +725,10 @@ async fn health_waits_no_longer_than_its_deadline_on_a_tender_that_does_not_answ
     );
     assert_eq!(h.state, "ready", "its last answer");
     let why = h.why.unwrap();
+    // The stand-in never answers, so at the caller's deadline its read is
+    // still out: said so (theseus-la5oc, the review's F3).
     assert!(
-        why.starts_with("its socket did not answer (no answer within 100 ms): its status as of "),
+        why.starts_with("its status read is still out after 100 ms: its status as of "),
         "{why}"
     );
     task.abort();
