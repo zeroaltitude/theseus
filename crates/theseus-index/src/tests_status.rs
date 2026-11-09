@@ -209,10 +209,61 @@ fn a_rebuild_names_the_number_that_moved_and_a_plain_install_resumes() {
         "{why}"
     );
     assert!(!why.contains("extractor"), "{why}");
-    // An unreadable cursor over an index is said so; no cursor at all is the
-    // caller's "missing".
+    // An unreadable cursor over an index is said so; no cursor at all over
+    // one is "missing" (`a_rebuild_names_what_is_missing_and_not_what_is_there`).
     assert!(rebuild_reason(None, true, true)
         .unwrap()
         .contains("unreadable"));
     assert_eq!(rebuild_reason(None, false, false), None);
+}
+
+/// A rebuild's reason names what is missing, and never says missing what is
+/// there (theseus-la5oc, the b2-tasks-and-tender review's F1): the words ride
+/// `IndexBackfill.why` to the health line, where "its cursor is missing" over
+/// an intact cursor read as a lost cursor. Every combination of a cursor that
+/// reads, a cursor file that exists, and an index that exists, in the words
+/// of what is not there.
+#[test]
+fn a_rebuild_names_what_is_missing_and_not_what_is_there() {
+    use crate::engine::SCHEMA_VERSION;
+    use crate::extract::EXTRACTOR_VERSION;
+    use crate::state::{Saved, CURSOR_FORMAT};
+    use crate::tender::rebuild_reason;
+    let intact = Saved {
+        format: CURSOR_FORMAT,
+        schema: SCHEMA_VERSION,
+        extractor: EXTRACTOR_VERSION,
+        cursor: theseus_follow::Cursor::start(),
+        saved_at_ms: 1,
+    };
+    // An intact cursor of this build over no index: the index is what is gone.
+    let why = rebuild_reason(Some(&intact), false, true).expect("no index, so a rebuild");
+    assert!(
+        why.starts_with("its index is missing") && !why.contains("cursor is missing"),
+        "{why}"
+    );
+    // No cursor file over an index: the cursor is missing, and the index is not.
+    assert_eq!(
+        rebuild_reason(None, true, false).as_deref(),
+        Some("its cursor is missing")
+    );
+    // A cursor file that does not read, over an index: unreadable, not missing.
+    let why = rebuild_reason(None, true, true).expect("unreadable");
+    assert!(
+        why.contains("unreadable") && !why.contains("missing"),
+        "{why}"
+    );
+    // One that does not read and no index: both are said, and neither is
+    // called missing when it is not.
+    let why = rebuild_reason(None, false, true).expect("no index and no cursor to read");
+    assert!(
+        why.starts_with("its index is missing")
+            && why.contains("cursor file is unreadable")
+            && !why.contains("cursor is missing"),
+        "{why}"
+    );
+    // Nothing at all is a first start: nothing is rebuilt, so nothing is said.
+    assert_eq!(rebuild_reason(None, false, false), None);
+    // And a cursor and an index the build can use are kept.
+    assert_eq!(rebuild_reason(Some(&intact), true, true), None);
 }

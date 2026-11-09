@@ -347,18 +347,27 @@ pub struct Step {
     pub committed: bool,
 }
 
-/// Why a saved cursor cannot be kept, in words that name what changed: the
-/// cursor holds the format, schema and extractor numbers the index was built
-/// under, never a binary's identity, so an install that bumps none of them
-/// resumes (theseus-la5oc). `None`: it can be kept (or there is none to keep;
-/// the caller says "missing").
+/// Why the index is rebuilt and not resumed, in words that name what is missing
+/// or what changed, and never call missing what is there: the cursor holds the
+/// format, schema and extractor numbers the index was built under, never a
+/// binary's identity, so an install that bumps none of them resumes
+/// (theseus-la5oc). The words ride `IndexBackfill.why` to the health line.
+/// `None`: the cursor and the index are kept, or there is neither (a first
+/// start, which rebuilds nothing).
 pub(crate) fn rebuild_reason(
     found: Option<&Saved>,
     had_index: bool,
     cursor_exists: bool,
 ) -> Option<String> {
     let Some(s) = found else {
-        return (cursor_exists && had_index).then(|| "its cursor file is unreadable".to_string());
+        return match (had_index, cursor_exists) {
+            (true, true) => Some("its cursor file is unreadable".to_string()),
+            (true, false) => Some("its cursor is missing".to_string()),
+            (false, true) => {
+                Some("its index is missing and its cursor file is unreadable".to_string())
+            }
+            (false, false) => None,
+        };
     };
     let moved = [
         ("cursor format", s.format, CURSOR_FORMAT),
@@ -371,7 +380,12 @@ pub(crate) fn rebuild_reason(
         .map(|(what, was, now)| format!("{what} {was} -> {now}"))
         .collect();
     if named.is_empty() {
-        None
+        // A cursor this build can keep, over an index that is gone: the
+        // cursor is intact, and has nothing to resume.
+        (!had_index).then(|| {
+            "its index is missing (its cursor is intact, but there is nothing to resume)"
+                .to_string()
+        })
     } else {
         Some(format!(
             "this build's {} (a rebuild window of a minute or so, recall read-degraded meanwhile)",
@@ -395,12 +409,8 @@ impl Tender {
         // The saved cursor holds only for an index this build would write.
         let had_index = paths.bm25().join("meta.json").exists();
         let found: Option<Saved> = state::load(&paths.cursor());
-        let why = rebuild_reason(found.as_ref(), had_index, paths.cursor().exists());
-        let saved = found.filter(|_| why.is_none() && had_index);
-        let mut why_rebuild = None;
-        if saved.is_none() && (had_index || paths.cursor().exists()) {
-            why_rebuild = Some(why.unwrap_or_else(|| "its cursor is missing".to_string()));
-        }
+        let mut why_rebuild = rebuild_reason(found.as_ref(), had_index, paths.cursor().exists());
+        let saved = found.filter(|_| why_rebuild.is_none());
         if saved.is_none() {
             let _ = fs::remove_dir_all(paths.bm25());
             let _ = fs::remove_file(paths.places());
