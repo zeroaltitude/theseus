@@ -186,6 +186,37 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     }
 }
 
+/// A producer's words as one line: whitespace collapsed, cut to `max`
+/// characters. Empty when it said nothing.
+fn line(text: &str, max: usize) -> String {
+    let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    one.chars().take(max).collect()
+}
+
+/// Where a failed action went and why, for its observation's note: the tool,
+/// the outbox target a post was bound for, and the producer's own reason
+/// (`detail.error`: a refusal's words, Discord's answer). A settle that wrote
+/// none says nothing. Without this a failing post reads as "failed after 0
+/// ms" and the item that fixes it cannot tell which refusal it is. The row's
+/// `outcome` is left out: the note already says failed.
+fn action_why(d: &Value) -> String {
+    let mut parts = Vec::new();
+    for (label, v) in [("tool", &d["tool"]), ("to", &d["outbox"])] {
+        if let Some(s) = v.as_str().filter(|s| !s.is_empty()) {
+            parts.push(format!("{label} {s}"));
+        }
+    }
+    let why = line(d["detail"]["error"].as_str().unwrap_or(""), 240);
+    if !why.is_empty() {
+        parts.push(format!("error: {why}"));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", parts.join("; "))
+    }
+}
+
 /// A failed action's observation. A job's own non-zero exit is its command's
 /// answer, not a fault of ours, so it is none. Timeouts, signals, stops and
 /// jobs that never started are faults, and each is its own cause; a row from
@@ -197,8 +228,10 @@ fn of_action_failed(mut o: Obs, d: &Value) -> Option<Obs> {
     o.key = format!("action.failed:{p}");
     o.title = calls_failing(&p);
     o.note = format!(
-        "action {} failed after {} ms",
-        d["correlation_id"], d["duration_ms"]
+        "action {} failed after {} ms{}",
+        d["correlation_id"],
+        d["duration_ms"],
+        action_why(d)
     );
     if let Some(f) = d["failure"].as_str() {
         if f == "exit" {
@@ -810,5 +843,57 @@ mod tests {
         assert_eq!(failed_action_key("hands:reaper"), "action.failed:hands");
         assert_eq!(failed_action_key("proc"), "action.failed:proc");
         assert_eq!(failed_action_key("harness"), "action.failed:harness");
+    }
+
+    fn note_of(kind: &str, data: Value) -> String {
+        of_row(7, &LedgerRow::named(kind, None, None, data))
+            .unwrap()
+            .note
+    }
+
+    /// A failed post's note says where it went and why it was refused, so the
+    /// item filed for it can tell one refusal from another. The kernel's own
+    /// row says only `outcome: failed`, which the note already says, so a row
+    /// with none of the rest reads as before.
+    #[test]
+    fn a_failed_post_note_names_its_target_and_reason() {
+        let note = note_of(
+            "action.failed",
+            json!({"producer": "discord", "correlation_id": "out_1", "duration_ms": 0,
+                   "tool": "outbox.post", "outbox": "discord:channel:42", "outcome": "failed",
+                   "detail": {"error": "not bound here any more (channel:42)"}}),
+        );
+        for needle in [
+            "out_1",
+            "outbox.post",
+            "discord:channel:42",
+            "not bound here any more (channel:42)",
+        ] {
+            assert!(note.contains(needle), "{needle} missing from {note}");
+        }
+        assert!(!note.contains("outcome"), "{note}");
+        let bare = note_of(
+            "action.failed",
+            json!({"producer": "proc", "correlation_id": "act_1", "duration_ms": 10,
+                   "outcome": "failed"}),
+        );
+        assert_eq!(bare, "action \"act_1\" failed after 10 ms");
+    }
+
+    /// The producer's words are one line of at most 240 characters.
+    #[test]
+    fn a_failed_posts_reason_is_one_short_line() {
+        let note = note_of(
+            "action.failed",
+            json!({"producer": "discord", "correlation_id": "out_2", "duration_ms": 0,
+                   "detail": {"error": format!("refused\n  twice {}", "x".repeat(500))}}),
+        );
+        assert!(note.contains("refused twice xxx"), "{note}");
+        assert!(!note.contains('\n'), "{note}");
+        assert!(
+            note.chars().count() < 340,
+            "{} characters",
+            note.chars().count()
+        );
     }
 }
