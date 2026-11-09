@@ -210,9 +210,10 @@ save_locked_record() {
 # between them ran on. It is computed here and not by that script, because the gate must not depend on a file of the tree
 # it judges: a branch cut before the script, and the throwaway repositories the guard's own tests run the gate in, lack it.
 # Blind spots, deliberately: an edit made and undone in the window moves no ref and leaves no mark, and
-# cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself.
+# cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself, and
+# bench/smoke/runs because scripts/release-smoke.sh writes a run's report there (tracked, so not gitignored) and a smoke run beside a gate is no move.
 tree_moved_status=75
-tree_unseen=(':(exclude)cockpit/src/protocol.gen')
+tree_unseen=(':(exclude)cockpit/src/protocol.gen' ':(exclude)bench/smoke/runs')
 tree_identity() {
   local head digest log
   head="$(git rev-parse HEAD 2>/dev/null || echo none)"
@@ -259,7 +260,19 @@ tree_moved_report() {
     { [ -f "$logfile" ] && tail -n "+$((${b_len//[!0-9]/0} + 1))" "$logfile" | cut -f2- | head -10 | sed 's/^/gate:     /'; } || true
   fi
   echo "gate: what was compiled and what was tested were not all of one tree, so nothing above is a pass or a failure of it."
-  echo "gate: do not check out, reset or edit a tree while a gate runs in it; rerun the gate (exit status $tree_moved_status)"
+  # The gate's cargo runs without --locked, so its first call rewrites a stale tracked Cargo.lock: that is a move (correct),
+  # but "rerun the gate" aborts the same way. When HEAD and the reflog are unchanged and Cargo.lock is the only path whose
+  # state changed, say what to do instead.
+  if [ "$b_head" = "$n_head" ] && [ "$b_log" = "$n_log" ] && [ "$(tree_paths_changed | grep -c .)" -gt 0 ] \
+    && [ "$(tree_paths_changed | grep -vc '^Cargo\.lock$')" -eq 0 ]; then
+    echo "gate: the first cargo rewrote a stale Cargo.lock: commit the regenerated Cargo.lock, then rerun the gate (exit status $tree_moved_status)"
+  else
+    echo "gate: do not check out, reset or edit a tree while a gate runs in it; rerun the gate (exit status $tree_moved_status)"
+  fi
+}
+# The paths whose state changed since the start, one per line (the porcelain's two status columns removed).
+tree_paths_changed() {
+  { diff "$gate_tmp/tree.paths" <(tree_paths) | grep '^[<>]' | sed -E 's/^[<>] .{2} //' | sort -u; } || true
 }
 # Is the tree not the one the gate began with? Prints the report and says yes (status 0) when it is not. A tree whose
 # identity cannot be read now counts as moved: what cannot be seen has not been shown to hold.
@@ -271,7 +284,9 @@ tree_moved() {
   tree_moved_report "$1" "$now"
 }
 tree_check() {
-  if tree_moved "$1"; then exit "$tree_moved_status"; fi
+  # The marker is how on_exit knows this 75 is ours: a phase's own command can exit 75 too (EX_TEMPFAIL). A file, since
+  # the locked part shares this directory with the gate but not its variables.
+  if tree_moved "$1"; then : >"$gate_tmp/tree.moved"; exit "$tree_moved_status"; fi
 }
 
 # A gate that a signal ends reads `$?` as 0 in this trap, so `gate_done` says it did not finish.
@@ -283,15 +298,24 @@ on_exit() {
     save_locked_record
     return
   fi
-  # A gate that failed is checked once more: on a tree that moved, the red is not a verdict.
-  if [ "$status" -ne 0 ] && [ "$status" -ne "$tree_moved_status" ] && tree_moved "the gate failed, and its tree had moved"; then
-    status=$tree_moved_status
+  # A gate that failed is checked once more: on a tree that moved, the red is not a verdict. A 75 counts as a move only
+  # when tree_check wrote its marker or the re-check finds one: a phase that exits 75 on an unmoved tree is a failure.
+  local moved=""
+  [ ! -e "$gate_tmp/tree.moved" ] || moved=1
+  if [ -z "$moved" ] && [ "$status" -ne 0 ] && tree_moved "the gate failed, and its tree had moved"; then
+    moved=1
   fi
   rm -rf "$gate_tmp"
-  if [ "$status" -eq "$tree_moved_status" ]; then
+  if [ -n "$moved" ]; then
     summary aborted
     echo "gate: ABORTED${phase_now:+ in $phase_now}: the tree moved, so this run is no verdict, pass or fail"
-    exit "$status"
+    exit "$tree_moved_status"
+  fi
+  if [ "$status" -eq "$tree_moved_status" ]; then
+    echo "gate: the phase exited $tree_moved_status (EX_TEMPFAIL) on a tree that had not moved: a failure, not the gate's abort"
+    summary failed
+    echo "gate: FAILED${phase_now:+ in $phase_now}"
+    exit 1
   fi
   if [ "$status" -ne 0 ] || [ -z "$gate_done" ]; then
     [ "$status" -ne 0 ] || echo "gate: stopped by a signal"
@@ -313,6 +337,7 @@ trap on_exit EXIT
 # skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one, since
 # the ARM runner sets its known skips this way; it names each line, with its profile and place, and whether HEAD has it
 # or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
+filters_found=no
 suite_filters() {
   local cfg=.config/nextest.toml found profile lineno text where
   found="$(awk '
@@ -324,6 +349,7 @@ suite_filters() {
     echo "gate: suite filters: none (no default-filter in $cfg, and the gate passes no -E): every test the workspace builds runs, but the #[ignore]d ones"
     return 0
   fi
+  filters_found=yes
   echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
   while IFS=$'\t' read -r profile lineno text; do
     where="only in the working tree, not in HEAD"
@@ -333,6 +359,25 @@ suite_filters() {
   echo "gate:   this run's profile: ${NEXTEST_PROFILE:-default}; a stale line goes with: git checkout -- $cfg"
   phase_label="suite filtered"
 }
+# What nextest says it applied, read back from its own line, e.g. `Starting 9304 tests across 205 binaries (60 tests
+# skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and
+# misses one set through NEXTEST_PROFILE, a config file passed in, or an overrides table. Nothing here changes the exit
+# status; a red suite never gets here (`set -e` stops the gate at the pipeline), and a filtered one is labelled, never cleared.
+suite_applied() {
+  local applied
+  applied="$(grep -oE 'including [0-9]+ tests? via profile\.[A-Za-z0-9_-]+\.default-filter' "$1" | head -1 || true)"
+  local n
+  n="$(sed -E 's/^including ([0-9]+) .*/\1/' <<<"$applied")"
+  if [ -n "$applied" ]; then
+    echo "gate: nextest applied a default-filter: $n test(s) excluded ($applied)"
+    phase_label="suite filtered"
+    if [ "$n" -gt 0 ] && [ "$filters_found" != yes ]; then
+      echo "gate: MISMATCH: the banner said no default-filter, and nextest excluded $n test(s) by one: read the line above"
+    fi
+  elif [ "$filters_found" = yes ]; then
+    echo "gate: MISMATCH: the banner said a default-filter is ACTIVE, and nextest's summary names none applied"
+  fi
+}
 suite() {
   local log="$gate_tmp/suite.log"
   suite_filters
@@ -340,6 +385,7 @@ suite() {
   if [ "$phase_label" = "suite filtered" ]; then
     echo "gate: the suite above ran under a default-filter (suite filters, above): its \"skipped\" count includes the tests the filter excluded"
   fi
+  suite_applied "$log"
   local flaky
   flaky="$(grep -E '^ *FLAKY ' "$log" || true)"
   if [ -n "$flaky" ]; then
@@ -556,16 +602,18 @@ size_step() {
 # machine that has never fetched has no database: the gate then checks the rest and
 # says that advisories were not, since a gate that fetched here would fail on an outage.
 deny_check() {
-  local db age
+  local db age deny_age_said
   db="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/advisory-dbs/advisory-db-*/ 2>/dev/null | head -1 || true)"
   if [ -z "$db" ]; then
     echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (\`cargo deny fetch db\` makes the gate's pin)"
     cargo deny --offline --log-level error check bans licenses sources
     return
   fi
-  if [ -f "${db}.git/FETCH_HEAD" ]; then
-    age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
-    [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; it is the gate's pin, and \`cargo deny fetch db\` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
+  age="$(deny_db_age "$db")"
+  deny_age_said="The advisory database's age is unknown (no FETCH_HEAD);"
+  [ "$age" = unknown ] || deny_age_said="The advisory database is $age days old;"
+  if [ "$age" != unknown ] && [ "$age" -gt 7 ]; then
+    echo "deny: the advisory database is $age days old; it is the gate's pin, and \`cargo deny fetch db\` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
   fi
   # A red here can come from the database moving while nobody touched the tree (it is the gate's pin: only a fetch
   # into it moves it, and deny-daily.sh keeps a database of its own). Say so, and say whose call it is: the gate
@@ -573,7 +621,7 @@ deny_check() {
   cargo deny --offline --log-level error check || {
     local rc=$?
     if cargo deny --offline --log-level error check bans licenses sources >/dev/null 2>&1; then
-      echo "deny: ONLY advisories failed; bans, licences and sources are clean. The advisory database is $(deny_db_age "$db") days old; it is the gate's pin and moves only when something fetches into it (the owner's \`cargo deny fetch db\`), not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
+      echo "deny: ONLY advisories failed; bans, licences and sources are clean. $deny_age_said it is the gate's pin and moves only when something fetches into it (the owner's \`cargo deny fetch db\`), not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
     fi
     return "$rc"
   }
@@ -760,9 +808,10 @@ scrub_phase() {
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
 # and that its cargo runs without an incremental cache. About 2 s. They run when this tree differs from main in the
 # script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
-# diff. main is origin/main, or the local main without one.
+# diff. They also hold scripts/deny-daily.sh and scripts/build.sh, which the same file tests. main is origin/main, or the
+# local main without one.
 gate_tests() {
-  local own=(scripts/gate.sh scripts/test_gate_tree.py) main
+  local own=(scripts/gate.sh scripts/test_gate_tree.py scripts/deny-daily.sh scripts/build.sh) main
   main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
   if [ -n "$main" ] && git diff --quiet "$main" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
     echo "gate tests: gate.sh and its tests are main's; its gate ran them"

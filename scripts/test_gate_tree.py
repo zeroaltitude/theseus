@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -43,10 +44,17 @@ move() {
   [ "${STUB_MOVE_AT:-}" = "$1" ] || return 0
   case "$STUB_MOVE" in
     edit) echo "an edit made while the gate ran" >>notes.txt ;;
+    smoke-run) mkdir -p bench/smoke/runs/2026-01-01-abcd1234 && echo report >bench/smoke/runs/2026-01-01-abcd1234/report.md ;;
+    lock) echo "# rewritten by the first cargo" >>Cargo.lock ;;
     away-and-back) git checkout -q --detach && git checkout -q main ;;
   esac
 }
+[ "$what" != deny ] || echo "$*" >>"$STUB_DENY_LOG"
 case "$what" in
+  deny)
+    # On request only advisories fail: the bare `check` reds, and `check bans licenses sources` passes.
+    if [ "${STUB_DENY:-}" = advisories ] && [ "${*: -1}" = check ]; then echo "error[vulnerability]: a stub advisory" >&2; exit 1; fi
+    ;;
   build)
     for b in theseusd theseus-sim theseus-index; do
       echo "{\"reason\":\"compiler-artifact\",\"executable\":\"$PWD/target/debug/$b\"}"
@@ -63,6 +71,10 @@ case "$what" in
     if [ "${STUB_SUITE_RC:-0}" != 0 ]; then
       echo "        FAIL [   0.100s] stub::a_test_that_fails_on_the_moved_tree"
       exit "$STUB_SUITE_RC"
+    fi
+    if [ -n "${STUB_APPLIED:-}" ]; then
+      echo "────────────"
+      echo "     Starting 9 tests across 1 binaries ($STUB_APPLIED tests skipped, including $STUB_APPLIED tests via profile.default.default-filter)"
     fi
     echo "     Summary [   1.000s] 9 tests run: 9 passed, 0 skipped"
     ;;
@@ -90,6 +102,7 @@ COMMITTED = {
     ".config/nextest.toml": NEXTEST,
     ".gitignore": "target\ncockpit/node_modules\ncrates/theseusd/cockpit/dist\n",
     "notes.txt": "the file a mover edits\n",
+    "Cargo.lock": "# a lock\n",
     "cockpit/package.json": "{}\n",
     "cockpit/src/protocol.gen/types.ts": "// generated\n",
     "crates/theseus-core/src/sandbox/self_build.rs": 'pub const NODE_PIN: &str = "1.2.3";\n',
@@ -195,6 +208,38 @@ class GateTree(unittest.TestCase):
         self.assertEqual(rc, MOVED, out)
         self.assertNotIn("gate: ok", out)
 
+    def test_a_phase_that_exits_75_on_an_unmoved_tree_is_a_failure_and_not_an_abort(self):
+        # 75 is also EX_TEMPFAIL: only a move the gate recorded (or re-found) is its abort.
+        rc, out, _ = self.gate(STUB_SUITE_RC="75")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("gate: FAILED in suite", out)
+        self.assertIn("a_test_that_fails_on_the_moved_tree", out)
+        self.assertIn("on a tree that had not moved", out)
+        self.assertNotIn("ABORTED", out)
+        self.assertNotIn("THE TREE MOVED", out)
+
+    def test_a_smoke_run_written_beside_the_gate_is_not_a_move(self):
+        # scripts/release-smoke.sh writes bench/smoke/runs/<run>/report.md, tracked and not ignored.
+        rc, out, calls = self.gate(STUB_MOVE_AT="suite", STUB_MOVE="smoke-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: ok", out)
+        self.assertTrue((self.root / "bench/smoke/runs/2026-01-01-abcd1234/report.md").exists(), "the move did happen")
+        self.assertTrue(any(c.startswith("suite ") for c in calls), calls)
+
+    def test_a_move_that_is_only_a_rewritten_cargo_lock_says_to_commit_it(self):
+        rc, out, _ = self.gate(STUB_MOVE_AT="build", STUB_MOVE="lock")
+        self.assertEqual(rc, MOVED, out)
+        self.assertIn("gate: ABORTED", out)
+        self.assertIn("Cargo.lock", out)
+        self.assertIn("the first cargo rewrote a stale Cargo.lock: commit the regenerated Cargo.lock, then rerun", out)
+        self.assertNotIn("do not check out, reset or edit a tree", out)
+
+    def test_a_move_of_another_file_keeps_the_old_advice(self):
+        rc, out, _ = self.gate(STUB_MOVE_AT="build", STUB_MOVE="edit")
+        self.assertEqual(rc, MOVED, out)
+        self.assertIn("do not check out, reset or edit a tree while a gate runs in it; rerun the gate", out)
+        self.assertNotIn("rewrote a stale Cargo.lock", out)
+
     # ---- the door's environment
 
     def test_the_doors_environment_does_not_reach_a_gate_these_tests_run(self):
@@ -253,6 +298,85 @@ class GateTree(unittest.TestCase):
         self.assertRegex(out, r"\n  suite +\d+\n")
         self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
 
+    def test_a_filter_nextest_applied_that_the_banner_missed_is_a_mismatch(self):
+        # The banner re-derives the filter with awk; nextest's own line says what it applied (one set through
+        # NEXTEST_PROFILE, a config file passed in, or an overrides table never shows in the awk's reading).
+        rc, out, _ = self.gate(STUB_APPLIED="4")
+        self.assertEqual(rc, 0, "the exit status never changes: " + out)
+        self.assertIn("gate: suite filters: none", out)
+        self.assertIn("MISMATCH", out)
+        self.assertIn("4 test(s) excluded", out)
+        self.assertRegex(out, r"\n  suite filtered +\d+\n")
+
+    def test_a_filter_the_banner_named_and_nextest_applied_prints_its_count_and_no_mismatch(self):
+        self.stale_filter()
+        rc, out, _ = self.gate(STUB_APPLIED="2")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: suite filters: ACTIVE", out)
+        self.assertIn("2 test(s) excluded", out)
+        self.assertNotIn("MISMATCH", out)
+        self.assertRegex(out, r"\n  suite filtered +\d+\n")
+
+    # ---- cargo deny: the gate's database is a pin, and the gate never fetches into it
+
+    def deny_gate(self, age_days=None, no_fetch_head=False, **env):
+        """deny_check through the real gate, with a CARGO_HOME of the test's own; (rc, output, deny argv lines)."""
+        cargo_home = self.home / ".cargo"
+        if age_days is not None:
+            db = cargo_home / "advisory-dbs" / "advisory-db-abcd1234"
+            (db / ".git").mkdir(parents=True, exist_ok=True)
+            fetch_head = db / ".git" / "FETCH_HEAD"
+            fetch_head.write_text("x\n")
+            then = time.time() - age_days * 86400
+            os.utime(fetch_head, (then, then))
+        if no_fetch_head:
+            (cargo_home / "advisory-dbs" / "advisory-db-abcd1234").mkdir(parents=True)
+        deny_log = Path(self.tmp.name) / "deny.log"
+        rc, out, _ = self.gate(CARGO_HOME=str(cargo_home), STUB_DENY_LOG=str(deny_log), **env)
+        calls = deny_log.read_text().splitlines() if deny_log.exists() else []
+        self.assertFalse([c for c in calls if "fetch" in c.split()], f"the gate fetched: {calls}")
+        return rc, out, calls
+
+    BANS = "deny --offline --log-level error check bans licenses sources"
+    FULL = "deny --offline --log-level error check"
+
+    def test_deny_without_a_database_says_advisories_were_not_checked_and_runs_no_command_from_its_echo(self):
+        rc, out, calls = self.deny_gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("advisories NOT checked (`cargo deny fetch db` makes the gate's pin)", out)
+        self.assertEqual(calls, [self.BANS], calls)
+
+    def test_deny_with_an_old_database_names_its_age_and_runs_no_command_from_its_echo(self):
+        rc, out, calls = self.deny_gate(age_days=15)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("is 15 days old", out)
+        self.assertIn("`cargo deny fetch db` moves it", out)
+        self.assertEqual(calls, [self.FULL], calls)
+
+    def test_deny_with_a_fresh_database_prints_no_age_line(self):
+        rc, out, calls = self.deny_gate(age_days=1)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("days old", out)
+        self.assertEqual(calls, [self.FULL], calls)
+
+    def test_deny_with_only_advisories_failing_says_so_and_fails_the_gate_in_deny(self):
+        rc, out, calls = self.deny_gate(age_days=15, STUB_DENY="advisories")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("ONLY advisories failed", out)
+        self.assertIn("`cargo deny fetch db`", out)
+        self.assertIn("gate: FAILED in deny", out)
+        self.assertEqual(calls, [self.FULL, self.BANS], calls)
+
+    def test_deny_with_a_database_of_unknown_age_never_says_unknown_days_old(self):
+        # One age, through deny_db_age: no FETCH_HEAD reads as a sentence, not "is unknown days old".
+        rc, out, calls = self.deny_gate(no_fetch_head=True, STUB_DENY="advisories")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("ONLY advisories failed", out)
+        self.assertNotIn("unknown days old", out)
+        self.assertIn("The advisory database's age is unknown (no FETCH_HEAD); it is the gate's pin", out)
+        self.assertNotIn("days old; it is the gate's pin, and", out, "no old-database line without an age")
+        self.assertEqual(calls, [self.FULL, self.BANS], calls)
+
     # ---- and what is not a move
 
     def test_an_unmoved_tree_passes_and_every_cargo_ran_without_incremental(self):
@@ -290,6 +414,131 @@ class GateTree(unittest.TestCase):
         before_suite = text.index('tree_check "before the suite"')
         self.assertLess(before_suite, text.index("phase suite suite"))
         self.assertRegex(text, r'\ntree_check "at the end"')
+
+
+# A stand-in cargo for deny-daily.sh: logs its argv and keeps a copy of the --config file it is given (the script deletes it).
+DENY_CARGO = r"""#!/usr/bin/env bash
+echo "$*" >>"$STUB_CALLS"
+while [ $# -gt 0 ]; do
+  if [ "$1" = --config ]; then cp "$2" "$STUB_CONFIG_COPY.$(wc -l <"$STUB_CALLS" | tr -d ' ')"; fi
+  shift
+done
+exit 0
+"""
+
+
+class DenyDaily(unittest.TestCase):
+    """scripts/deny-daily.sh is the half of the deny contract that must never touch the gate's database."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        tmp = Path(self.tmp.name)
+        self.home, self.repo = tmp / "home", tmp / "repo"
+        bin_dir = self.home / ".cargo" / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "bd").write_text("#!/bin/sh\nexit 0\n")
+        (bin_dir / "bd").chmod(0o755)
+        (tmp / "cargo").write_text(DENY_CARGO)
+        (tmp / "cargo").chmod(0o755)
+        self.repo.mkdir()
+        self.calls = tmp / "calls.log"
+        self.env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "",
+                    "THESEUS_REPO": str(self.repo), "THESEUS_CARGO": str(tmp / "cargo"), "THESEUS_DENY_DRY_RUN": "1",
+                    "THESEUS_DENY_DB": str(tmp / "daily-db"), "THESEUS_DENY_LOG": str(tmp / "daily.log"),
+                    "STUB_CALLS": str(self.calls), "STUB_CONFIG_COPY": str(tmp / "cfg"), "TMPDIR": str(tmp)}
+        self.tmp_path = tmp
+
+    def repo_with(self, deny_toml):
+        (self.repo / "deny.toml").write_text(deny_toml)
+        for args in (("init", "-q", "-b", "main"), ("add", "-A"), ("commit", "-q", "-m", "x")):
+            p = run(["git", *args], self.repo, self.env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+
+    def deny_daily(self):
+        p = run(["bash", str(HERE / "deny-daily.sh")], self.repo, self.env)
+        calls = self.calls.read_text().splitlines() if self.calls.exists() else []
+        return p.returncode, p.stdout + p.stderr, calls
+
+    def test_the_real_deny_toml_gets_the_jobs_own_database_and_both_calls_carry_the_config(self):
+        self.repo_with((REPO / "deny.toml").read_text())
+        rc, out, calls = self.deny_daily()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(calls), 2, calls)
+        for c in calls:
+            self.assertIn("--config", c)
+        self.assertIn(" fetch db index", calls[0])
+        self.assertTrue(calls[1].endswith(" check"), calls)
+        db = str(self.tmp_path / "daily-db")
+        for n in (1, 2):
+            lines = (self.tmp_path / f"cfg.{n}").read_text().splitlines()
+            at = lines.index("[advisories]")
+            self.assertEqual(lines[at + 1], f'db-path = "{db}"', "db-path sits directly under [advisories]")
+        self.assertFalse((self.home / ".cargo" / "advisory-dbs").exists(), "the gate's database was never created")
+
+    def test_a_deny_toml_without_an_advisories_table_stops_with_exit_3_and_calls_nothing(self):
+        self.repo_with('[licenses]\nallow = ["MIT"]\n')
+        rc, out, calls = self.deny_daily()
+        self.assertEqual(rc, 3, out)
+        self.assertIn("has no [advisories] table", out)
+        self.assertEqual(calls, [])
+
+
+# A stand-in cargo for build.sh: makes target/<profile>/theseusd (7 bytes) and, when STUB_BUILD_MOVE is set, edits a tracked file.
+BUILD_CARGO = r"""#!/usr/bin/env bash
+mkdir -p target/release
+printf 'daemon\n' >target/release/theseusd
+[ -z "${STUB_BUILD_MOVE:-}" ] || echo "edited during the build" >>notes.txt
+exit 0
+"""
+
+
+class BuildStamp(unittest.TestCase):
+    """build.sh stamps the tree it started from, and says so when the tree moved under the build."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        tmp = Path(self.tmp.name)
+        self.home, self.root = tmp / "home", tmp / "tree"
+        bin_dir = self.home / ".cargo" / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "cargo").write_text(BUILD_CARGO)
+        (bin_dir / "cargo").chmod(0o755)
+        (self.root / "scripts").mkdir(parents=True)
+        for name in ("build.sh", "tree-stamp.sh"):
+            (self.root / "scripts" / name).write_text((HERE / name).read_text())
+            (self.root / "scripts" / name).chmod(0o755)
+        (self.root / "scripts" / "discard-eh-frame.ld").write_text("")
+        (self.root / "notes.txt").write_text("a tracked file\n")
+        (self.root / ".gitignore").write_text("target\n")
+        self.env = {k: v for k, v in os.environ.items() if k not in ("CARGO_TARGET_DIR", "CARGO_HOME", "SOURCE_DATE_EPOCH")}
+        self.env.update({"HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_AUTHOR_NAME": "t",
+                         "GIT_AUTHOR_EMAIL": "", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": ""})
+        for args in (("init", "-q", "-b", "main"), ("add", "-A"), ("commit", "-q", "-m", "x")):
+            self.assertEqual(run(["git", *args], self.root, self.env).returncode, 0)
+
+    def build(self, **env):
+        return run(["bash", "scripts/build.sh"], self.root, {**self.env, **env})
+
+    def test_a_tree_that_moved_during_the_build_gets_no_stamp_and_both_identities_are_printed(self):
+        stamp = self.root / "target" / "release" / ".theseus-build-stamp"
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text("an old stamp\n")
+        head = run(["git", "rev-parse", "HEAD"], self.root, self.env).stdout.strip()
+        p = self.build(STUB_BUILD_MOVE="1")
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(stamp.exists(), "no stamp, and the old one is removed")
+        self.assertIn(f"before: {head} clean", p.stderr)
+        self.assertRegex(p.stderr, r"after:  " + head + r" [0-9a-f]{16}")
+
+    def test_an_unmoved_tree_is_stamped_with_its_before_identity_and_the_byte_count(self):
+        head = run(["git", "rev-parse", "HEAD"], self.root, self.env).stdout.strip()
+        p = self.build()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        stamp = (self.root / "target" / "release" / ".theseus-build-stamp").read_text()
+        self.assertEqual(stamp, f"{head} clean 7\n")
 
 
 if __name__ == "__main__":

@@ -102,6 +102,11 @@ for p in "${shipped[@]}"; do pkgs+=(-p "$p"); done
 for arg in "$@"; do
   case "$arg" in -p | -p?* | --package | --package=* | --workspace | --all) pkgs=() ;; esac
 done
+# The tree's identity and the size row's label are taken BEFORE the build, and the identity is compared after it: a tree
+# that moves mid-build (a checkout, a reset, an edit) used to be stamped and labelled as the moved tree. A `git archive`
+# tree has no .git, so both stamps read `none clean` and agree.
+stamp_before="$(scripts/tree-stamp.sh)"
+label_before="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached) $(git describe --always --dirty 2>/dev/null || echo none) size:$profile"
 cargo build --locked --profile "$profile" "${pkgs[@]}" "$@"
 
 # The size check (theseus-2m7jg): a release binary exists only here, so this is where its size is judged. The
@@ -109,15 +114,24 @@ cargo build --locked --profile "$profile" "${pkgs[@]}" "$@"
 # phase reads. Growth of more than 1 MB over the last recorded size of this profile fails the build; §9's 60 MB is
 # printed with its gap and fails nothing. THESEUS_SIZE_ACCEPT_GROWTH=1 records the growth as accepted.
 out="$target_dir/$profile"
+stamp_after="$(scripts/tree-stamp.sh)"
+if [ "$stamp_after" != "$stamp_before" ]; then
+  rm -f "$out/.theseus-build-stamp"
+  echo "build: the tree moved during the build, so no stamp is written and no size row is recorded:" >&2
+  echo "build:   before: $stamp_before ($label_before)" >&2
+  echo "build:   after:  $stamp_after" >&2
+  echo "build: what was built is not all of one tree; rerun it on a tree nobody touches" >&2
+  exit 1
+fi
 if [ -f "$out/theseusd" ]; then
-  printf '%s %s\n' "$(scripts/tree-stamp.sh)" "$(stat -c %s "$out/theseusd")" >"$out/.theseus-build-stamp"
+  printf '%s %s\n' "$stamp_before" "$(stat -c %s "$out/theseusd")" >"$out/.theseus-build-stamp"
 fi
 if [ -x "$out/theseus-sim" ] && [ -f "$out/theseusd" ]; then
   accept=()
   [ -z "${THESEUS_SIZE_ACCEPT_GROWTH:-}" ] || accept=(--accept-growth)
   "$out/theseus-sim" bench size --check --dir "$out" \
     --record "${THESEUS_BENCH_HISTORY:-$HOME/.cache/theseus/bench-history.csv}" \
-    --label "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached) $(git describe --always --dirty 2>/dev/null || echo none) size:$profile" \
+    --label "$label_before" \
     --baseline-tag "size:$profile" ${accept[@]+"${accept[@]}"} || {
     echo "build: the size check failed: a binary grew more than 1 MB over its last recorded size (THESEUS_SIZE_ACCEPT_GROWTH=1 accepts it)" >&2
     exit 1
