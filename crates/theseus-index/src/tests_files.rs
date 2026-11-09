@@ -397,6 +397,41 @@ fn a_blob_that_does_not_match_its_name_or_is_too_big_is_refused() {
     );
 }
 
+/// `read_blob` is bound by `MAX_BLOB`: the injected bound above proves
+/// `read_blob_within`, and nothing proved that the public reader passes the
+/// real one. A blob one byte over `MAX_BLOB`, named by the digest of its own
+/// bytes, is refused, so only the bound can have refused it (a wrong hash is
+/// refused too, which the test above covers); the same blob under a bound that
+/// admits it reads, which is the control. The file is sparse (`set_len`), so no
+/// 64 MiB is written; its digest is of the zeros it reads as, streamed.
+#[test]
+fn read_blob_refuses_a_blob_past_max_blob() {
+    use sha2::{Digest, Sha256};
+    let rig = Rig::new();
+    let dir = rig.store.join("blobs");
+    std::fs::create_dir_all(&dir).unwrap();
+    let len = crate::files::MAX_BLOB + 1;
+    let zeros = vec![0u8; 1 << 20];
+    let (mut hash, mut left) = (Sha256::new(), len);
+    while left > 0 {
+        let n = left.min(zeros.len());
+        hash.update(&zeros[..n]);
+        left -= n;
+    }
+    let name: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    std::fs::File::create(dir.join(&name))
+        .unwrap()
+        .set_len(len as u64)
+        .unwrap();
+    assert!(
+        crate::files::read_blob(&dir, &name).is_none(),
+        "one byte past MAX_BLOB is refused"
+    );
+    let read = crate::files::read_blob_within(&dir, &name, len)
+        .expect("it reads under a bound that admits it");
+    assert_eq!(read.len(), len, "its name is its hash, so it was the bound");
+}
+
 /// The positive: a real digest still reads its blob.
 #[test]
 fn a_real_digest_still_reads_its_blob() {
