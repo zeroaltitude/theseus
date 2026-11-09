@@ -1281,6 +1281,54 @@ esac
         assert_eq!(out["line"].as_ref().unwrap().expose(), "made-up-line");
     }
 
+    /// A trim takes the ends of a value and nothing else: a secret that holds
+    /// spaces, tabs or newlines inside (a passphrase, a multi-line key) comes out
+    /// whole on every path an `op` value takes, with its padding gone. The value
+    /// is a literal typed here, and every other test's is a single token, which a
+    /// trim that also ate the inside would pass.
+    #[tokio::test]
+    async fn a_trim_takes_the_ends_of_a_value_and_keeps_the_whitespace_inside_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let inside = "made-up first  line\n\tmade-up second line\nmade-up last line";
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("value.txt"), format!("\n  {inside}\t\n\n")).unwrap();
+        let reader = padded_op(dir.path());
+        std::fs::write(
+            &reader.op_bin,
+            "#!/bin/sh\ncat \"$(dirname \"$0\")/value.txt\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let r = SecretRef::parse("op://V/item/notesPlain").unwrap();
+        assert_eq!(reader.read(&r).await.unwrap().expose(), inside);
+        assert_eq!(reader.read_raw(r.op_ref()).await.unwrap().as_str(), inside);
+
+        let b = "--theseus-x-";
+        let text = format!("{b}0\n  {inside}\t\n\n{b}end\n");
+        let v = split_injected(&text, b, 1).unwrap();
+        assert_eq!(v[0].as_str(), inside);
+
+        let refs = refs(&[
+            ("plain", "op://V/plain/notesPlain"),
+            ("line", "op://V/note/notesPlain#key"),
+        ]);
+        let padded = format!("\n  {inside}\t\n");
+        let vault = fake::FakeVault::new(&[
+            ("op://V/plain/notesPlain", padded.as_str()),
+            (
+                "op://V/note/notesPlain",
+                "title: x\nkey:  made-up  spaced\tvalue \n",
+            ),
+        ]);
+        let names: Vec<String> = refs.keys().cloned().collect();
+        let (out, _) = round(&refs, &names, &vault).await;
+        assert_eq!(out["plain"].as_ref().unwrap().expose(), inside);
+        assert_eq!(
+            out["line"].as_ref().unwrap().expose(),
+            "made-up  spaced\tvalue"
+        );
+    }
+
     /// theseus-h66v4.5: the trim belongs to a resolved secret, not to everything the
     /// reader returns. The config note is a document, compared byte for byte against
     /// what was written, so the doorway the daemon reads it through keeps every byte,
