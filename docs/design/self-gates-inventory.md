@@ -110,7 +110,7 @@ fire say what it cut. `bs` = generous backstop (keel-class).
 | `max_wakes` `config/wake_limits.rs:14` | 5 at base, 20 on main | `wake.at` refused | count | — | yes | — | done on main (o1h3f.8); `wake_limits.rs` is another row's |
 | a task's repeating wake `wake.rs:69-75` (`TASK_REFUSAL`), `wake.rs:313` | refused | "a task must end … cannot set a repeating wake" | structural | — | yes, and says the one-shot alternative | — | **to change, optional.** Not a dead end (a chain of one-shots works) but a gate; left, because `wake.rs` is touched by `main`'s o1h3f.8 and the owner has not named it. **OWNER CALL.** |
 | a task cannot set up a routine: `routine_tool.rs` (lyxn7 (3)) | refused **after** the owner's yes: `plan` raises the card, and `run` returned "a task cannot set up a routine" | refused | structural | — | one sentence | — | **done for `routine_tool.rs`: this row's change (see D).** `task-depth` did not settle it (neither file is in its diff). |
-| a task cannot set up a project's review routine: `project/create.rs:184` (`a task cannot set up a routine: give \`review: "none"\``) | `task.create`'s plan naming a project's review routine waits for the owner (`task_graph/tools.rs:346-349`); the owner says yes; `project/create.rs:184` then refuses | refused | structural | — | one sentence | — | **kept: not changed by this row, still a dead end after a yes.** Left on purpose: a retained stop is the safe side, and a second behavioural edit is not a join-sized one. If the owner wants it gone it is a one-line follow-up row. |
+| a task cannot set up a project's review routine: `project/create.rs:184` (`a task cannot set up a routine: give \`review: "none"\``) | `task.create`'s plan naming a project's review routine waits for the owner (`task_graph/tools.rs:346-349`); the owner says yes; `project/create.rs:184` then refuses | refused | structural | — | one sentence | — | **done since this snapshot (2026-11-08, `b8637163`, theseus-ehqo7): the refusal is gone and the owner's yes makes the project's review** (`a_task_s_project_review_is_made_by_the_owners_yes`, `tests_routine_task.rs`). When this row landed it was kept on purpose, as the safe side, and not changed by this row. |
 | `max_routines` 50, `max_watches` 20, `max_reminders` 100, `max_ahead_days` 365 | | refusal at creation | count | — | yes | — | keep: bounds on standing state, cheap and visible |
 | `task.fan_out` | no count cap (by the owner's word); a floor of `helper_floor_usd` | refused only for the floor, depth or bad input | — | — | yes | — | keep |
 | external-text hold `external.rs` | until the owner trusts again; under notify one notice | a call that acts waits (ask) or is told once (notify) | — | — | yes | yes (security) | **keep (keel: outward / secrets)** |
@@ -146,8 +146,9 @@ Section B: **40 rows** (B1 9, B2 18, B3 13), counted once each. A row that repea
 
 **A task may propose a routine.** `routine_tool::run` refused when `tc.task.is_some()`; that refusal, and **only that
 one**, is removed. The refusal came *after* the owner's yes, so a task raised a card for something it could never do.
-The weekly review's refusal in `project::create` (`project/create.rs:184`) is **unchanged and still there**: a task's
-plan that names a project's review routine still dead-ends after the owner's yes (B3).
+The weekly review's refusal in `project::create` (`project/create.rs:184`) was **unchanged and still there** when this row
+landed: a task's plan that names a project's review routine dead-ended after the owner's yes (B3). It was removed on
+2026-11-08 (`b8637163`, theseus-ehqo7), so a project's review is made by the owner's yes too.
 
 The card stays (`routine.create` is `ASKS`, "always waits" — `task_graph/tools.rs:342`, theseus-pvm5c, and in
 `routine/grant.rs:40`'s `NEVER`, so no grant covers it), the owner's yes is the gate, and a routine run cannot make a

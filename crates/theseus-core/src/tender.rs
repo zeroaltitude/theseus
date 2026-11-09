@@ -79,8 +79,10 @@ pub const HEALTHY_RUN: Duration = Duration::from_secs(60);
 /// started at once, each stop, kill, and swap met one starting.
 pub const START_AFTER: Duration = Duration::from_secs(2);
 /// How long `health` waits for the tender's `index.status`. A tender answers
-/// in well under a millisecond, but its status reads the model's state, which
-/// an embedding batch may hold: then health says what it last heard.
+/// in well under a millisecond. Its status reads the model's state, which the
+/// pump holds only to pick its next step, never across a model load or an
+/// embedding batch (`vectors.rs`, `work_once`): a tender that is slower is
+/// slow for another reason, and health says what it last heard.
 pub const HEALTH_DEADLINE: Duration = Duration::from_millis(100);
 /// How long `index.status`, an explicit question, waits.
 pub const STATUS_DEADLINE: Duration = Duration::from_secs(2);

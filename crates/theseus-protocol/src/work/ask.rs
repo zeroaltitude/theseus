@@ -17,7 +17,8 @@ pub const OWNER_ASK: &str = "owner_ask";
 /// its default, and an extension's ack and a pack's promotion are declined.
 /// A call's question, and a budget question, are held past it (theseus-v2dnc);
 /// the core's `held_past_life` and the clients' cards all read this one list
-/// (theseus-lrc3m), and the cockpit's `heldquestion.ts` keeps a copy.
+/// (theseus-lrc3m); the cockpit's `heldquestion.ts` imports it as generated
+/// (`ts.rs` writes `protocol.gen/ExpiringTools.ts`), and keeps no copy.
 pub const EXPIRING_TOOLS: [&str; 3] = [OWNER_ASK, "extend.ack", "pack.promote"];
 
 /// Whether `tool`'s question is held until it is answered, never expired. A

@@ -1214,7 +1214,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   block in its brief's header paragraph (`Lineage::note`: depth, the root goal = the brief of the tree's first task cut at 600
   characters, and the chain of short ids and titles; about 560 characters at depth 10 with short titles), and a proposed brief
   equal after trimming to an ancestor task's brief is refused as a cycle (`cycle_refusal`, exact comparison, no model). The owner's
-  `task.start` still refuses a task as `home`. A routine cannot be set up by a task at any depth (`routine_tool.rs`). Tests:
+  `task.start` still refuses a task as `home`. A task at any depth may propose a routine, and a project's weekly review: the
+  owner's yes on its card makes it (`routine_tool.rs`, `project/create.rs`; `tests_routine_task.rs`). Tests:
   `tests_task_lineage.rs`, the kernel's `tests_tasks.rs`. A carve is a quarter of what is left by default, so a deep tree's
   tasks need a `budget_usd`: the fourth level of a $100 session holds under $2.
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
