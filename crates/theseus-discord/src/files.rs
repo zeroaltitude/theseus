@@ -251,13 +251,16 @@ pub fn client() -> reqwest::Client {
 
 /// Download one file, reading at most `cap` bytes plus one: a file longer
 /// than its reported size arrives cut, and the core marks the cut.
-async fn fetch(http: &reqwest::Client, url: &str, cap: u64) -> Result<Vec<u8>, String> {
-    let mut resp = http.get(url).send().await.map_err(|e| e.to_string())?;
+///
+/// An `Err` is its text and whether it was a timeout, which is not asked again.
+async fn fetch(http: &reqwest::Client, url: &str, cap: u64) -> Result<Vec<u8>, (String, bool)> {
+    let failed = |e: reqwest::Error| (e.to_string(), e.is_timeout());
+    let mut resp = http.get(url).send().await.map_err(failed)?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status().as_u16()));
+        return Err((format!("HTTP {}", resp.status().as_u16()), false));
     }
     let mut out = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+    while let Some(chunk) = resp.chunk().await.map_err(failed)? {
         out.extend_from_slice(&chunk);
         if out.len() as u64 > cap {
             out.truncate(cap as usize + 1);
@@ -272,18 +275,20 @@ async fn fetch(http: &reqwest::Client, url: &str, cap: u64) -> Result<Vec<u8>, S
 const ATTEMPTS: usize = 3;
 const RETRY_WAIT: [Duration; 2] = [Duration::from_millis(250), Duration::from_millis(1000)];
 
-/// `fetch`, asked again after a failure up to `ATTEMPTS` times; the last
-/// failure is the answer.
+/// `fetch`, asked again after a status or connection failure up to `ATTEMPTS`
+/// times; the last failure is the answer. A timeout is answered once: a link
+/// that hangs for `FETCH_TIMEOUT` is slow, not "not yet made", and three asks
+/// would hold the message's turn for three of them.
 async fn fetch_retrying(http: &reqwest::Client, url: &str, cap: u64) -> Result<Vec<u8>, String> {
     let mut last = fetch(http, url, cap).await;
     for wait in RETRY_WAIT.iter().take(ATTEMPTS - 1) {
-        if last.is_ok() {
+        if !matches!(last, Err((_, false))) {
             break;
         }
         tokio::time::sleep(*wait).await;
         last = fetch(http, url, cap).await;
     }
-    last
+    last.map_err(|(text, _)| text)
 }
 
 /// Every file of one message, in order: downloaded when its plan says so,
@@ -491,6 +496,52 @@ mod tests {
             }
         });
         (url, served)
+    }
+
+    /// A CDN that accepts and never answers: counts each request and holds its
+    /// connection open.
+    fn silent_cdn() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::Read;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/attachments/1/2/orders.pdf",
+            listener.local_addr().unwrap()
+        );
+        let served = std::sync::Arc::new(AtomicUsize::new(0));
+        let count = served.clone();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                count.fetch_add(1, Ordering::SeqCst);
+                held.push(stream);
+            }
+        });
+        (url, served)
+    }
+
+    /// A timed-out download is asked once, not `ATTEMPTS` times: a link that
+    /// hangs is slow, and each ask would cost `FETCH_TIMEOUT`.
+    #[tokio::test]
+    async fn a_download_that_times_out_is_not_asked_again() {
+        let (url, served) = silent_cdn();
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_millis(300))
+            .build()
+            .unwrap();
+        let f = FileMeta {
+            name: "orders.pdf".into(),
+            content_type: Some("application/pdf".into()),
+            size: 1_200,
+            url,
+        };
+        let got = fetch_all(http, vec![f], MAX).await;
+        assert!(got[0].not_read.is_some(), "{:?}", got[0]);
+        assert!(got[0].data.is_none());
+        assert_eq!(served.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     /// theseus-uck8: the first ask of a CDN link fails (it was only just
