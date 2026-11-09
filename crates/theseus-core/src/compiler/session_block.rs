@@ -15,7 +15,9 @@
 //!
 //! Last comes the project's own instruction files (`project_context`,
 //! theseus-wadu; `docs/design/project-context.md` §3): the owner's own
-//! user-level file, and, for a repository the owner has not granted, the one
+//! user-level file, then for a repository the owner has trusted
+//! (`project.trust`, a record in the store) its files under a frame, and for
+//! one the owner has not granted, the one
 //! line naming how many files there are and how large they are, and nothing
 //! else of them. A nested directory's files join the block the first time a
 //! tool touches that directory, which is the `system_changed` recompile a
@@ -52,7 +54,9 @@ impl TurnRunner {
             crate::cpu::commands::Cpus::of_commands().fact(),
             crate::cpu::os::Os::of_machine().fact(),
         );
-        if let Some(part) = crate::project_context::block(&self.cfg, &self.context_files, &cwd) {
+        if let Some(part) =
+            crate::project_context::block(&self.cfg, &self.store, &self.context_files, &cwd)
+        {
             text.push_str("\n\n");
             text.push_str(&part);
         }

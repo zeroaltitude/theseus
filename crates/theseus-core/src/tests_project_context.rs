@@ -1,6 +1,6 @@
 //! The repository's own instruction files on the live path (theseus-wadu,
-//! phase 1): what block 3 says about a repository the owner has not granted,
-//! and what it says about one granted through the test-only seam.
+//! phases 1 and 2): what block 3 says about a repository the owner has not
+//! granted, and what it says about one granted through `Core::project_trust`.
 //!
 //! The rig is `tests_session_dir`'s in miniature: a session works in a
 //! directory, and the model's request is the fake provider's.
@@ -209,7 +209,9 @@ async fn the_configured_budget_reaches_the_assembly() {
     let (repo, here) = hostile_repo(&r.root);
     // A file far past 500 tokens (1,500 bytes) of budget.
     std::fs::write(repo.join("AGENTS.md"), "w".repeat(40_000)).unwrap();
-    let _grant = crate::project_context::trust::grant_for_test(&repo);
+    r.core
+        .project_trust(&repo, "cli")
+        .expect("the owner trusts it");
     submit(&r.core, &here).await;
     let req = r.fake.requests().pop().expect("a request was sent");
     let block = session_block(&req);
@@ -231,7 +233,9 @@ async fn the_configured_budget_reaches_the_assembly() {
 async fn a_granted_repositorys_text_lands_in_block_3_deepest_last() {
     let r = rig();
     let (repo, here) = hostile_repo(&r.root);
-    let _grant = crate::project_context::trust::grant_for_test(&repo);
+    r.core
+        .project_trust(&repo, "cli")
+        .expect("the owner trusts it");
     submit(&r.core, &here).await;
     let req = r.fake.requests().pop().expect("a request was sent");
     let block = session_block(&req);
@@ -253,4 +257,62 @@ async fn a_granted_repositorys_text_lands_in_block_3_deepest_last() {
         !block.contains("not trusted and not read"),
         "a granted repository is read, not named"
     );
+}
+
+/// Phase 2: the grant is the owner's act, in the store. It is read back as a
+/// list, ledgered, takes effect for a turn after it, is taken back by an
+/// untrust, and a repository that is no repository is refused.
+#[tokio::test]
+async fn a_trust_is_a_record_a_row_and_is_revoked_by_an_untrust() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    assert!(r.core.project_trusted().unwrap().is_empty());
+
+    // A path inside the repository names it; the id is the root's.
+    let t = r.core.project_trust(&here, "cli").expect("trusted");
+    assert_eq!(t.id, crate::flow::spec::repo_id(&repo));
+    assert_eq!(t.grant.root, repo.display().to_string());
+    assert_eq!(r.core.project_trusted().unwrap(), vec![t.clone()]);
+    // Idempotent: a second trust writes nothing new and returns the first.
+    assert_eq!(r.core.project_trust(&repo, "cli").unwrap(), t);
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains(crate::project_context::FRAME), "{block}");
+    assert!(block.contains(IN_TEXT), "carried once trusted:\n{block}");
+
+    let rows = crate::test_support::ledger_rows_2k(&r.core, "project.trust");
+    assert_eq!(rows.len(), 1, "one row, for the one grant: {rows:?}");
+
+    r.core.project_untrust(&here, "cli").expect("revoked");
+    assert!(r.core.project_trusted().unwrap().is_empty());
+    assert!(
+        r.core.project_untrust(&here, "cli").is_err(),
+        "not trusted any more"
+    );
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(IN_TEXT), "named, not read again:\n{block}");
+    assert!(block.contains("not trusted and not read"), "{block}");
+
+    // No repository: refused, and nothing is written.
+    let bare = r.root.join("not-a-repo");
+    std::fs::create_dir_all(&bare).unwrap();
+    assert!(r.core.project_trust(&bare, "cli").is_err());
+    assert!(r.core.project_trusted().unwrap().is_empty());
+}
+
+/// A trust follows the canonical root and nothing else: a copy of the same
+/// repository elsewhere, with the same files, is not trusted.
+#[tokio::test]
+async fn a_copy_of_a_trusted_repository_elsewhere_inherits_nothing() {
+    let r = rig();
+    let (repo, _) = hostile_repo(&r.root);
+    r.core.project_trust(&repo, "cli").unwrap();
+    let other = r.root.join("copy");
+    std::fs::create_dir_all(other.join(".git")).unwrap();
+    std::fs::write(other.join("AGENTS.md"), format!("copy {IN_TEXT}\n")).unwrap();
+    submit(&r.core, &other.canonicalize().unwrap()).await;
+    let all = whole(&r.fake.requests().pop().unwrap());
+    assert!(!all.contains(IN_TEXT), "the copy is untrusted: not read");
 }
