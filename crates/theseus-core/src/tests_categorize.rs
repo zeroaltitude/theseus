@@ -323,7 +323,17 @@ fn rig_topics(
         cfg.judge.enabled = true;
         cfg.judge.api_base = j.base();
         cfg.judge.connect_secs = 1;
-        cfg.judge.total_secs = 1;
+        // Most tests here assert a categorize verdict or wait on one
+        // (`until_judged`), and `judge.total_secs` bounds the call itself: at
+        // 1 s a loaded host abandoned it before it answered, the product read
+        // `no_verdict`, and the test failed on a count or a proposal that
+        // looked like a product bug (the shape of theseus-2yh04). Raised past
+        // any run's work. It times nothing, since a call ends as its verdict
+        // lands. `until_judged`'s guard stays above it and both stay well
+        // inside nextest's 120 s kill, so a verdict that never comes fails
+        // on the assertion, not as a hang. A test that wants a short budget
+        // sets its own in its tweak.
+        cfg.judge.total_secs = 30;
     }
     for (pack, _) in crate::judge::WIRED {
         if *pack != categorize::PACK {
@@ -445,6 +455,14 @@ fn rows(store: &Store, kind: &str) -> Vec<(theseus_store::Record, LedgerRow)> {
 }
 
 /// Wait (on the runtime's timer) until `n` categorize judgments are recorded.
+///
+/// The guard is shared by every caller, and none of them wants to fail fast:
+/// each waits for a verdict the rig's `judge.total_secs` (30 s, set in
+/// `rig_topics`) allows to take that long. So the guard is above that budget,
+/// not below it (it was 20 s over a 1 s budget, and the other way round it
+/// would end the wait before the judge's own deadline), and it stays well
+/// inside nextest's 120 s kill so a missing verdict fails here, with its
+/// count, rather than as a hang. A quick verdict costs nothing.
 pub(crate) async fn until_judged(
     store: &Store,
     n: usize,
@@ -456,7 +474,7 @@ pub(crate) async fn until_judged(
             return r;
         }
         assert!(
-            t0.elapsed() < Duration::from_secs(20),
+            t0.elapsed() < Duration::from_secs(60),
             "{} of {n} judgments recorded",
             r.len()
         );
