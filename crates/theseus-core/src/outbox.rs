@@ -1758,7 +1758,7 @@ mod tests {
         assert_eq!(kinds_named_in(paren), vec![(1, "notice".to_string())]);
         // The kind after the literal `)`: only a span that steps over the
         // string reaches it. Catches: counting a `)` inside a literal.
-        let after = "a.to_operator(None, json!({\"t\": \")\", \"kind\": \"notice\"}))?;";
+        let after = "a.to_operator(None, json!({\"t\": \")\"}), json!({\"kind\": \"notice\"}))?;";
         assert_eq!(kinds_named_in(after), vec![(1, "notice".to_string())]);
 
         // A call named inside a string or a comment is not a call site. This
