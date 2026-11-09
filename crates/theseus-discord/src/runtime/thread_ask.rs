@@ -179,7 +179,7 @@ impl super::Place {
                 .iter()
                 .any(|(_, home, _)| *home == self.session_id)
         };
-        typing(self.inflight, self.stopping, self.renderer.busy(), asked())
+        typing(self.turning(), self.stopping, self.renderer.busy(), asked())
     }
 
     /// The router's question (theseus-rha2) posts its own card in this
