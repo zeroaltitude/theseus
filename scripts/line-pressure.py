@@ -23,7 +23,15 @@ lines are free; a multi-line string's lines count whole). Where it can disagree 
   - functions made by a macro (`macro_rules!` bodies, derives) are not seen by this script and are skipped by
     clippy, so a macro-expanded function is simply absent here;
   - a trait method without a body is not a function here; a closure is part of its function, as in clippy;
-  - a function whose attributes `allow` or `expect` too_many_lines is skipped (clippy does not judge it);
+  - a plain `async fn` is 2 lines longer by clippy than its body says (measured, below): the desugared body is
+    wrapped in a block that clippy counts, so this script adds 2 for an `async fn` unless its attributes include a
+    `test` one (`#[tokio::test]` rewrites it into a sync fn, which counts exactly). Measured on the base with
+    `too-many-lines-threshold = 85` in a scratch copy of clippy.toml, 364 flagged functions by `path:line`: sync
+    `fn` 207 of 207 exact, `#[tokio::test] async fn` 72 of 72 exact, plain `async fn` 85 of 85 exactly 2 short
+    before the rule; at exactly 100, clippy 29 and the script 19 before it. A `async` that is not on the `fn`'s own
+    line (a multi-line signature) is not seen, and counts as sync;
+  - a function whose attributes `allow` or `expect` too_many_lines is skipped (clippy does not judge it); only the
+    contiguous attribute and doc-comment block directly above the `fn` is read, never a neighbour's;
   - `#[cfg(test)]` code is included (the gate runs clippy with `--all-targets`).
 The calibration against clippy's own numbers is in scripts/tests/test_line_pressure.py's header.
 """
@@ -149,11 +157,37 @@ def clippy_lines(body):
     return count
 
 
+def attribute_block(src, line):
+    """The contiguous attribute and doc-comment lines directly above the `fn` on `line` (1-based), nearest
+    last. It stops at the previous item: a line ending in `;`, `{` or `}`, so a short neighbour's attributes
+    (which belong to the neighbour) are never read as this function's."""
+    lines = src.split("\n")
+    out = []
+    for l in reversed(lines[max(0, line - 40):line - 1]):
+        t = l.strip()
+        if t.endswith((";", "{", "}")):
+            break
+        out.append(l)
+    return list(reversed(out))
+
+
+def clippy_extra(src, line):
+    """2 for a plain `async fn` (see the header), else 0: `async` on the `fn`'s own line, and no `test`
+    attribute (`#[test]`, `#[tokio::test]`, ...) in its attribute block."""
+    head = src.split("\n")[line - 1]
+    m = re.search(r"\bfn\b", head)
+    head = head[:m.start()] if m else head
+    if not re.search(r"\basync\b", head):
+        return 0
+    if re.search(r"#\[[^\]]*\btest\b", "\n".join(attribute_block(src, line))):
+        return 0
+    return 2
+
+
 def exempt(src, line):
     """True when the attributes just above the `fn` on `line` allow or expect too_many_lines: clippy does not
     judge such a function, and an `expect` is the sweep's deliberate mark (theseus-goa8), not pressure."""
-    above = src.split("\n")[max(0, line - 10):line - 1]
-    text = "\n".join(l for l in above if not l.strip().startswith("//"))
+    text = "\n".join(l for l in attribute_block(src, line) if not l.strip().startswith("//"))
     for m in re.finditer(r"#\[(?:allow|expect)\((.*?)\)\]", text, re.S):
         if "clippy::too_many_lines" in m.group(1):
             return True
@@ -184,7 +218,7 @@ def scan(paths, threshold=THRESHOLD, margin=MARGIN):
             src = f.read()
         for name, line, body in functions(src):
             scanned += 1
-            n = clippy_lines(body)
+            n = clippy_lines(body) + clippy_extra(src, line)
             if exempt(src, line):
                 continue
             if n >= threshold - margin:
@@ -193,12 +227,12 @@ def scan(paths, threshold=THRESHOLD, margin=MARGIN):
     return scanned, near
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="functions near clippy's too_many_lines threshold (never fails on a report)")
     ap.add_argument("--margin", type=int, default=MARGIN)
     ap.add_argument("--threshold", type=int, default=THRESHOLD)
     ap.add_argument("paths", nargs="*")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if not a.paths:
         os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     scanned, near = scan(a.paths, a.threshold, a.margin)
