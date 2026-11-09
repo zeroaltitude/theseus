@@ -173,7 +173,7 @@ it is the reviewer's second blocking finding (theseus-rrqmr). Nothing in this ro
 - The live-stream whole-call, the 2 h build clocks, admission for wakes and tasks, `proc.run`'s hour and **`extend`'s
   100 s trial abort (B2)** are clock-only stops that should become progress-based. At the time they were not touched
   because each sat in a file another row was editing, or in the job wrapper the sandbox shares; the provider and
-  admission rows have since joined, so those two are open to a row now. They are the first items for the next row.
+  admission rows have since joined, so those two are open to a row now. They are the first items for the next row. **Since: `extend`'s trial abort is a 40 s silence bound with a 430 s ceiling (`0de164adc`, 2026-11-09, theseus-p1mv9), and admission for a wake or task turn ends on a still queue, a person's typed input never cut (`6c904656a`, 2026-11-08, theseus-p1mv9). The live-stream whole-call is UNVERIFIED here: `LIVE_STREAM_TOTALS` (`provider.rs:348`) still caps a live stream at 3 times the total, and row `provider Timeouts` above still calls it clock-only.**
 
 ### E addendum, 2026-10-27 (theseus-x1zz8)
 
@@ -191,7 +191,7 @@ here because the line above said "the first items for the next row", and this wa
   (`CEILING_FACTOR`, a constant rather than a config key — say so if the owner wants it
   configurable). Default values are unchanged. The gate, build and test constants in
   `rsi/tree.rs` were renamed `GATE_SILENCE`, `BUILD_SILENCE`, `TESTS_SILENCE` to say what they
-  now bound; **anything still citing `GATE_LIMIT` is citing a name that no longer exists.** **Since (`0de164adc`, 2026-11-09, theseus-p1mv9): the trial abort is now a 40 s silence bound with a 430 s ceiling (`TRIAL_SILENCE`, `TRIAL_CEILING`, `extend/mod.rs:85-93`; the call's deadline override, `:407`); `TRIAL_LIMIT` no longer exists.**
+  now bound; **anything still citing `GATE_LIMIT` is citing a name that no longer exists.**
 - **`extend`'s 100 s trial abort: a real deadline, left alone.** Every `Backend::Harness` call is
   already abandoned by the layer above at `INPROC_DEADLINE_MS = 120_000` (`toolrun.rs:458`), and
   a trial is waiting on a handshake and test calls with their own 20-30 s bounds, not producing
@@ -199,9 +199,8 @@ here because the line above said "the first items for the next row", and this wa
 - **The tenders' deadlines: real, and not model calls - left alone.** `tender.rs`, `tender/pair.rs` and
   `tender/status_cache.rs` bound a local unix socket to the index tender, not a model call. A
   silent socket is the failure being bounded, and every caller degrades rather than failing.
-- **Still open from the list above:** the live-stream whole-call, and admission for wakes and
-  tasks. Two residuals from this row are open too: `extend`'s healthy trial is still cut at 100 s
-  (the refusal is about the layer above it, not about the trial) **Since (`0de164adc`, 2026-11-09, theseus-p1mv9): the trial abort is now a 40 s silence bound with a 430 s ceiling (`TRIAL_SILENCE`, `TRIAL_CEILING`, `extend/mod.rs:85-93`; the call's deadline override, `:407`); `TRIAL_LIMIT` no longer exists.**, and `ran_past_limit_ms` has **no
+- **Still open from the list above:** the live-stream whole-call (**since `6c904656a`, 2026-11-08, theseus-p1mv9, admission for wakes and tasks is no longer open**). Two residuals from this row are open too: `extend`'s healthy trial is still cut at 100 s
+  (the refusal is about the layer above it, not about the trial; **since `0de164adc`, 2026-11-09, theseus-p1mv9, a 40 s silence bound with a 430 s ceiling**), and `ran_past_limit_ms` has **no
   reader** outside `probe_run::Logged` - for `proc.run` the value reaches the model in the
   completion's `detail`, but on the RSI and gate paths the "it was let run on, and told" half of
   the design currently goes nowhere, so do not read this section as saying the notice is delivered.

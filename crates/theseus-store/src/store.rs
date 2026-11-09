@@ -335,8 +335,13 @@ struct Inner {
     frame_times: FrameTimes,
     /// An index write failed past its bound after a good sync: the log holds
     /// frames the index lacks, so no checkpoint may claim a position past them
-    /// until the store is reopened and the open replays them.
-    index_gap: std::sync::atomic::AtomicBool,
+    /// until the store is reopened and the open replays them. The log's last
+    /// position when the gap opened; 0 is no gap (positions start at 1).
+    index_gap: AtomicU64,
+    /// A test's count of the warnings the gap's opening and the periodic
+    /// checkpoint's failure say.
+    #[cfg(test)]
+    warned: AtomicU64,
     /// A test's way to make the next batch slow, as a disk that stalls does:
     /// the writer counts this many milliseconds once into the frames' time, as
     /// if the commit had taken them, and sleeps none, so no fsync of the
@@ -960,6 +965,12 @@ impl WalStore {
         self
     }
 
+    /// Where the log's frames outrun the index: the position at which an index
+    /// write failed past its bound, until a reopen replays them.
+    pub fn index_gap(&self) -> Option<u64> {
+        Some(self.inner.index_gap.load(Ordering::Relaxed)).filter(|p| *p != 0)
+    }
+
     pub fn with_checkpoint_every(self, n: u64) -> Self {
         self.inner.checkpoint_every.store(n, Ordering::Relaxed);
         self
@@ -1367,7 +1378,9 @@ impl Inner {
             verified: None,
             pending_verified: VerifiedSlot::default(),
             queued: std::sync::atomic::AtomicI64::new(0),
-            index_gap: std::sync::atomic::AtomicBool::new(false),
+            index_gap: AtomicU64::new(0),
+            #[cfg(test)]
+            warned: AtomicU64::new(0),
             frame_times: FrameTimes::default(),
             #[cfg(test)]
             commit_extra_ms: AtomicU64::new(0),
@@ -1462,7 +1475,7 @@ impl Inner {
         // Unless a batch's index write failed past its bound: its frames are
         // in the log and not in the index, and a claim past them would hide
         // them from the next open's replay. Refused until a reopen.
-        if self.index_gap.load(Ordering::Relaxed) {
+        if self.index_gap.load(Ordering::Relaxed) != 0 {
             anyhow::bail!(
                 "the index lacks frames an earlier write failed to index; \
                  no checkpoint until the store is reopened"
@@ -1567,6 +1580,10 @@ impl Inner {
         if every == 0 || self.since_checkpoint.load(Ordering::Relaxed) < every {
             return;
         }
+        // Said once, when the gap opened: quiet while it stands.
+        if self.index_gap.load(Ordering::Relaxed) != 0 {
+            return;
+        }
         let t = std::time::Instant::now();
         match self.checkpoint_as(true) {
             Ok(at) => tracing::debug!(
@@ -1574,10 +1591,14 @@ impl Inner {
                 ms = t.elapsed().as_secs_f64() * 1000.0,
                 "store: periodic checkpoint"
             ),
-            Err(e) => tracing::warn!(
-                error = %format!("{e:#}"),
-                "store: the periodic checkpoint failed; the next open replays from the one before"
-            ),
+            Err(e) => {
+                #[cfg(test)]
+                self.warned.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    error = %format!("{e:#}"),
+                    "store: the periodic checkpoint failed; the next open replays from the one before"
+                );
+            }
         }
     }
 
@@ -1644,7 +1665,25 @@ impl Inner {
         if indexed {
             self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
         } else if synced {
-            self.index_gap.store(true, Ordering::Relaxed);
+            self.say_gap();
+        }
+    }
+
+    /// Opens the gap, saying so once (the first failure's position stands).
+    fn say_gap(&self) {
+        let at = self.wal.last_position().max(1);
+        if self
+            .index_gap
+            .compare_exchange(0, at, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            #[cfg(test)]
+            self.warned.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                position = at,
+                "store: the log holds frames the index lacks (up to this position); no checkpoint \
+                 is taken until a restart, and the next open replays them"
+            );
         }
     }
 

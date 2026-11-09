@@ -189,3 +189,32 @@ fn a_batch_whose_index_write_landed_but_failed_is_retried_to_the_same_index() {
     assert!(want.1 >= 3 && want.3 >= 3, "{want:?}");
     assert_eq!(reads(&retried), want);
 }
+
+#[test]
+fn an_index_gap_is_said_once_and_the_periodic_checkpoint_stays_quiet() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = WalStore::open(dir.path(), WalConfig::default())
+        .unwrap()
+        .with_checkpoint_every(1);
+    assert_eq!(s.index_gap(), None);
+    s.inner.index_fail.store(INDEX_TRIES, Ordering::SeqCst);
+    assert!(s.append(&[meta("a.1", 1)]).is_err());
+    s.append(&[meta("b.1", 2)]).unwrap();
+    s.inner.index_fail.store(INDEX_TRIES, Ordering::SeqCst);
+    assert!(s.append(&[meta("c.1", 3)]).is_err());
+    s.append(&[meta("d.1", 4)]).unwrap();
+    let at = s.index_gap().expect("the gap is open");
+    assert!((1..=s.last_position()).contains(&at), "{at}");
+    // Dropping the store joins the writer, so every periodic checkpoint ran.
+    let inner = s.inner.clone();
+    drop(s);
+    assert_eq!(
+        inner.warned.load(Ordering::Relaxed),
+        1,
+        "one warning for the gap, none from the periodic checkpoint"
+    );
+    drop(inner);
+    let s = open(dir.path());
+    assert_eq!(s.index_gap(), None);
+    assert_eq!(s.count_keys(kinds::META).unwrap(), 4);
+}

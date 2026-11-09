@@ -74,9 +74,14 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   index did (a failed sync cut its frames and leaves it), so the next row chains on the failed one and the open, which
   replays the frames, finds one chain. Past the bound the store also refuses every checkpoint until it is reopened
   (`index_gap`, `checkpoint_as`): a claim past the failed frames would hide them from the open's replay for good. The
-  periodic one logs that, the close's is logged, and an explicit `checkpoint()` (restore, the shape build, the outbox,
-  `rpc`) gets the error. The log keeps taking frames. `ledger_head()` is the log's head during the gap, while a walk
-  reads the index and ends at the last indexed row.
+  gap is said once, when it opens (`index_gap()` holds the log position then; `ledger.verify` names it when a
+  removed break lies past it), and the periodic checkpoint stays quiet while it stands; the close's is logged, and an
+  explicit `checkpoint()` (restore, the shape build, the outbox, `rpc`) gets the error. The log keeps taking frames.
+  `ledger_head()` is the log's head during the gap. A walk reads the index: it ends at the last indexed row until a
+  later ledger row is indexed, and then reports `removed` past the hole (seq 3 then 5) until the next open replays the
+  failed row (`tests_chain::a_walk_during_an_index_gap_finds_the_hole_and_a_reopen_heals_it`).
+  A caller answered `Err` for a ledger row must not append it again: its frame comes back at the open, and a second
+  append leaves two chained rows with one meaning (audited, theseus-lu5n: no caller does).
 - **The version rule: one format number** (P5b; Part III F4a; theseus-ptx1, Tier 7's 7.9 as the owner amended it). Any
   step that adds a field to a stored record (nested ones included), or changes the frame or record encoding, bumps
   `MANIFEST_FORMAT`, so an older binary refuses the newer store. It lands with the reader for the layout it replaces
