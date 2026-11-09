@@ -117,6 +117,41 @@ ends, a failed run's too (with `<- failed here` on the phase that stopped it, an
 too, after `gate: stopped by a signal`), and appends it to `~/.cache/theseus/gate-times.csv` (time, label, phase,
 seconds, status; `$THESEUS_GATE_TIMES`). The gate's own cost has a history now: read it before calling a gate slow.
 
+### A tree that moves under the gate (theseus-4vsrz)
+
+The gate compiles one tree and then runs the tests of whatever tree is there. On 2026-11-07 a builder detached a join's
+worktree and restored it inside the join gate's window: the gate reported four red tests that passed 15 of 15 on the
+identical commit, a false result that looked exactly like a real one. So the gate reads the tree's identity before anything
+runs (`tree_begin`) and checks it again before the lock, when it takes the lock (the wait can be hours), before the suite,
+and at the end; a gate that fails is checked once more on its way out.
+
+- **A tree that moved ABORTS the gate with exit status 75**, never a test failure (nextest's own is 100, the gate's 1 and
+  2). The log says `gate: ABORTED, THE TREE MOVED (<where>)`, the tree it built and the tree it found (the label and the
+  identity), what differs (HEAD, the paths whose state changed, HEAD's reflog entries since the start), and ends
+  `gate: ABORTED`, where a failed run says `gate: FAILED`. No test result of an aborted run is a verdict: rerun it, on a tree
+  nobody touches. `arm.sh result` shows it as `gate exit=75`.
+- **The identity** is the commit, a digest of the edits beyond it (tracked and untracked: `tree-stamp.sh`'s digest, minus
+  one path, computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
+  digest of HEAD's reflog. HEAD alone misses an edit, and the stamp alone misses a detach and a restore (the same commit
+  and the same files after it); the reflog writes a line for each. `cockpit/src/protocol.gen` is left out, since the
+  protocol phase rewrites it itself and fails saying `git add it`: that stays a failure, exit 1.
+- **What it cannot see:** an edit made and undone inside the window (no ref moves, nothing is left), and a move in the
+  seconds between two checks that is undone before the next. The guard is the rule beside it: never edit, check out,
+  reset or build in a tree a gate is running in (the join's worktree is the install tree and nobody else's workspace).
+- **A gate that rewrites its own expectations aborts too:** `THESEUS_GOLDEN=write` under the gate changes tracked files,
+  which is a moved tree, correctly (a test that rewrites its golden proves nothing). A stale `Cargo.lock` does the same:
+  the first cargo rewrites it, and the log names it among the paths.
+- **`CARGO_INCREMENTAL=0`** from the gate's first line, for all of its cargo, unless the caller sets its own value (an
+  edit loop that wants the cache says `CARGO_INCREMENTAL=1`). A lane is built once and gated once, so an incremental cache
+  is paid for and never reused: 47 GB of one lane's 68 GB target was `debug/incremental`. Flipping it half way builds a
+  second complete set of artifacts, so a caller wraps the whole run, never part of it. The first gate in a warm lane
+  that was built with it on builds once more; `rm -rf target/debug/incremental` after it.
+- **`scripts/test_gate_tree.py`** holds all of this: it runs the real gate in a throwaway repository with stand-in cargo,
+  node and npm (`$HOME/.cargo/bin` first on the gate's PATH is where they go) and moves the tree after the test build,
+  inside the suite, and by a checkout away and back. The gate's `gate tests` phase runs it, after `scrub`, when the tree
+  differs from main in `gate.sh` or the test; a gate of main's own tree says so and costs a diff. A
+  new phase of the gate that reads a command's output needs its stand-in there.
+
 ### The lock
 
 (theseus-rx91, theseus-lew7.) The suite's timing-sensitive tests and the benches need the machine to themselves, so one
