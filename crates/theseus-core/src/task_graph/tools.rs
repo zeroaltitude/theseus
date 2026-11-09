@@ -13,7 +13,8 @@
 //!   on the owner's tasks (`TaskRecord::is_owners`: a task session opened
 //!   with a brief, and every record from before theseus-ext.10). There the
 //!   call's plan names the authority (`Plan::authority`), so the gate makes it
-//!   wait at every posture, as the floor does. Asked, its proposal is written
+//!   wait at every posture, as the floor does (abandoning alone follows
+//!   `task.close` when the operator set it to `notify`: a notice, not an ask). Asked, its proposal is written
 //!   on the record (`proposed`, `task.change_proposed`); the operator's yes
 //!   runs the call, which applies it in one frame (`task.change_accepted`),
 //!   and a no clears it and leaves the task (`declined`,
@@ -313,8 +314,16 @@ pub fn authority_for(
     store: &crate::store::Store,
     name: &str,
     input: &Value,
-    mut plan: Plan,
+    plan: Plan,
+    abandon_follows_posture: bool,
 ) -> Plan {
+    let mut plan = plan;
+    // The operator set `task.close` below approve: abandoning then follows it,
+    // a notice, not a hard-coded ask. Objective and acceptance still ask.
+    if name == CLOSE && abandon_follows_posture {
+        plan.authority = None;
+        return plan;
+    }
     // A routine's creation always waits (theseus-pvm5c), and a command watch
     // asks the owner once at its creation (theseus-f2r2b): neither is a task
     // call, so this is not the place that clears their question; layer 1 only

@@ -144,3 +144,30 @@ async fn the_request_sizes_follow_the_tier() {
     );
     assert!(tokens(3) > tokens(1), "deep's 8,000 beat 1,500: {out:?}");
 }
+
+/// The small-talk bar, in shadow (theseus-fpm2): a greeting that `effort.v1` calls `low` has its
+/// manifest record how many admitted notes a bar would drop, and still attaches them; a real
+/// question, same rig and notes, drops nothing. Both halves assert the positive count, so a
+/// recall that is simply switched off passes neither.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_greeting_records_what_a_bar_would_drop_and_a_question_drops_nothing() {
+    for (message, level, greeting) in [
+        ("Hello there, good morning!", "low", true),
+        (ASK, "high", false),
+    ] {
+        let jev = FakeJev::start().unwrap();
+        says(&jev, "sonnet", level, 0.95);
+        work(&jev, "conversation", 0.95);
+        let r = tiered_open(&jev, 1, |_| {});
+        let res = turn(&r.core, None, message, None).await;
+        let m = recalled(&r, &res);
+        assert!(!m.admitted.is_empty(), "{message}: notes were admitted");
+        assert_eq!(
+            res.recalled as usize,
+            m.admitted.len(),
+            "{message}: shadow, so the notes still ride the request"
+        );
+        let want = greeting.then_some(m.admitted.len() as u64);
+        assert_eq!(m.would_drop, want, "{message}");
+    }
+}

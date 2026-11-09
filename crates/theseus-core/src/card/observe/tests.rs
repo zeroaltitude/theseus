@@ -21,6 +21,11 @@ use crate::tests_judge::kinds;
 
 const LAB: &str = "314159265358979323";
 const PRIVATE_LAB: &str = "271828182845904523";
+/// The rig's profiles by origin, as the catalog reads their providers' hosts:
+/// `glm` is served from a China-origin endpoint, `sonnet` from Anthropic's.
+/// Each test that turns on one asserts its origin first.
+const RESTRICTED: &str = "glm";
+const UNRESTRICTED: &str = "sonnet";
 const M1: &str = "Fix the build. I'm on the M1 now, by the way.";
 /// The sitting's planted line: a fact about the owner's own life, said in
 /// passing inside a request about something else, and what it says.
@@ -108,11 +113,11 @@ async fn exchange(core: &Arc<Core>, sid: &str, n: usize, at: usize) {
     exchange_of(core, sid, n, at, M1).await;
 }
 
-/// `n` owner lines, the one at `at` being `text`.
-async fn exchange_of(core: &Arc<Core>, sid: &str, n: usize, at: usize, text: &str) {
+/// [`exchange`], with the line at `at` given.
+async fn exchange_of(core: &Arc<Core>, sid: &str, n: usize, at: usize, line: &str) {
     for i in 0..n {
         let t = if i == at {
-            text.to_string()
+            line.to_string()
         } else {
             format!("Mooring line {i}: is it chafing at low tide?")
         };
@@ -903,4 +908,170 @@ async fn the_live_pass_sweeps_first_and_asks_of_what_it_read() {
     assert_eq!(obs[0].state, theseus_protocol::ObservationState::Used);
     let row = kinds(&r.core.store, "card.observed");
     assert_eq!(row[0].data["purpose"], "sweep");
+}
+
+// 12. A self-fact said in passing inside an off-topic question is learned, and
+//     a turn in the owner's own place can reach it and name it back to him.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_self_fact_inside_an_off_topic_question_is_learned_and_can_be_named() {
+    let r = rig_with(EVERY, |_| {});
+    let sid = session(&r.core, Some(&dm()));
+    script(&r, answers(json!([item("fact", ASIDE_FACT, &["L3"])])));
+    exchange_of(&r.core, &sid, EVERY, 2, ASIDE_LINE).await;
+    until("an observation", || !observed(&r.core).is_empty()).await;
+    settled(&r.core).await;
+
+    // It landed, cited to the line he said it in.
+    let obs = observed(&r.core);
+    assert_eq!(obs.len(), 1, "{obs:?}");
+    assert_eq!(obs[0].text, ASIDE_FACT);
+    assert_eq!(obs[0].state, theseus_protocol::ObservationState::Open);
+    let node = node_ids(&r.core, &sid)
+        .into_iter()
+        .find(|(_, t)| t == ASIDE_LINE)
+        .unwrap()
+        .0;
+    assert_eq!(obs[0].nodes, vec![node]);
+
+    // And a turn can reach it: a tool offers the card's open observations,
+    // and its answer names the fact and cites the day it was learned.
+    assert!(
+        r.core
+            .tools
+            .registry
+            .get(crate::card::tool::OBSERVED)
+            .is_some(),
+        "no tool offers the card's notes: asked what it has learned about the \
+         owner today, a turn has no way to name one"
+    );
+    let mine = crate::card::tool::owners_turn(UNRESTRICTED);
+    let out = crate::card::tool::call(r.core.clone(), &mine, &sid, json!({})).unwrap();
+    assert!(out.text.contains("praying mantis"), "{}", out.text);
+    assert!(out.text.contains(&obs[0].id), "{}", out.text);
+    assert_eq!(out.meta["observations"], 1, "{}", out.meta);
+    assert_eq!(out.meta["open"], 1, "{}", out.meta);
+
+    // Neither a shared place nor a guild channel bound private gets any of
+    // it: the card is the owner's alone. The bound-private one is the case
+    // the class check passes and the session's place refuses, so it is the
+    // one that holds the second layer rather than the first.
+    for target in [format!("channel:{LAB}"), format!("channel:{PRIVATE_LAB}")] {
+        let theirs = session(&r.core, Some(&target));
+        let asked = crate::card::tool::Asking {
+            class: r.core.runner.class_of(&theirs),
+            ..mine.clone()
+        };
+        let why = crate::card::tool::call(r.core.clone(), &asked, &theirs, json!({})).unwrap_err();
+        assert_eq!(why, crate::card::tool::NOT_ALONE, "{target}");
+    }
+}
+
+// 13. The notes are the owner's own unconfirmed words, so a model of
+//     restricted origin reads none of them through the tool, exactly as the
+//     day's block gives one none (`card/noted.rs`). Same records, same DM,
+//     same turn, and until this guard the two halves of one feature answered
+//     that question in opposite ways: the block's rule is the owner's
+//     standing one and the tool had no form of it. The data gate cannot
+//     stand in — it moves a *labelled* session off such a model, and these
+//     records raise no label, never being nodes and never indexed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_of_restricted_origin_reads_none_of_the_notes() {
+    let r = rig_with(EVERY, |_| {});
+    let sid = session(&r.core, Some(&dm()));
+    script(&r, answers(json!([item("fact", ASIDE_FACT, &["L3"])])));
+    exchange_of(&r.core, &sid, EVERY, 2, ASIDE_LINE).await;
+    until("an observation", || !observed(&r.core).is_empty()).await;
+    settled(&r.core).await;
+    assert_eq!(observed(&r.core).len(), 1);
+
+    // The two profiles this test turns on, as the catalog reads their hosts.
+    let (cfg, catalog) = (&r.core.cfg, &r.core.runner.catalog);
+    assert!(
+        cfg.profile_origin(RESTRICTED, catalog).restricted(),
+        "{RESTRICTED} is not restricted here: this test proves nothing"
+    );
+    assert!(!cfg.profile_origin(UNRESTRICTED, catalog).restricted());
+
+    // The owner's own DM, on a model that may have them.
+    let out = crate::card::tool::call(
+        r.core.clone(),
+        &crate::card::tool::owners_turn(UNRESTRICTED),
+        &sid,
+        json!({}),
+    )
+    .unwrap();
+    assert!(out.text.contains("praying mantis"), "{}", out.text);
+    assert_eq!(out.meta["observations"], 1, "{}", out.meta);
+
+    // The same call on a model of restricted origin reads none of them.
+    let why = crate::card::tool::call(
+        r.core.clone(),
+        &crate::card::tool::owners_turn(RESTRICTED),
+        &sid,
+        json!({}),
+    )
+    .unwrap_err();
+    assert_eq!(why, crate::card::tool::NOT_THIS_MODEL);
+
+    // And a turn whose model cannot be named at all is refused the same way:
+    // `restricted_profile` counts a profile that does not resolve, and the
+    // wall closes on what it cannot see.
+    for profile in [None, Some("no-such-profile".to_string())] {
+        let asked = crate::card::tool::Asking {
+            profile,
+            ..crate::card::tool::owners_turn(UNRESTRICTED)
+        };
+        let why = crate::card::tool::call(r.core.clone(), &asked, &sid, json!({})).unwrap_err();
+        assert_eq!(why, crate::card::tool::NOT_THIS_MODEL);
+    }
+}
+
+// 14. A task's session reads none of them either, though its place is its
+//     parent's DM and so passes both of the place checks. The day's block is
+//     kept out of a task by a guard of its own (`turn/compile_step.rs:88`,
+//     `if session.task.is_none()`) and the writer by another
+//     (`card/observe.rs`); this is that guard for the read, reading the same
+//     session record they do.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tasks_session_reads_none_of_the_notes() {
+    let r = rig_with(EVERY, |_| {});
+    let sid = session(&r.core, Some(&dm()));
+    script(&r, answers(json!([item("fact", ASIDE_FACT, &["L3"])])));
+    exchange_of(&r.core, &sid, EVERY, 2, ASIDE_LINE).await;
+    until("an observation", || !observed(&r.core).is_empty()).await;
+    settled(&r.core).await;
+    assert_eq!(observed(&r.core).len(), 1);
+
+    // A task started from that DM and reporting into it.
+    let task = {
+        let mut rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        rec.task = Some(TaskOf {
+            parent_session: sid.clone(),
+            parent_execution: "exe_x".into(),
+            by: "tool_x".into(),
+            target: None,
+            arrangement: None,
+            check: None,
+            notify_done: false,
+        });
+        r.core.store.put_session(&rec.session_id, &rec).unwrap();
+        r.core.outbox.bind_place(&dm(), &rec.session_id).ok();
+        rec.session_id
+    };
+    // Why it needs a guard of its own: a task's place is its parent's, so
+    // `capture::owner_alone` says yes to it, as it does to the owner's turn.
+    assert!(
+        r.core.owner_alone_in(&task),
+        "a task's place is no longer its parent's: re-read this guard"
+    );
+
+    let mine = crate::card::tool::owners_turn(UNRESTRICTED);
+    let out = crate::card::tool::call(r.core.clone(), &mine, &sid, json!({})).unwrap();
+    assert_eq!(
+        out.meta["observations"], 1,
+        "the owner's own turn reads them"
+    );
+
+    let why = crate::card::tool::call(r.core.clone(), &mine, &task, json!({})).unwrap_err();
+    assert_eq!(why, crate::card::tool::NOT_THIS_SESSION);
 }

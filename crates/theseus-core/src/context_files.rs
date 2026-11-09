@@ -82,15 +82,58 @@ pub const MAX_BYTES: usize = 64 * 1024;
 /// A file changed this shortly before it was read is read again next time.
 const RACY: Duration = Duration::from_secs(2);
 
+/// Which part of the request a context file belongs to, and which header it
+/// gets (theseus-c48, theseus-wadu). The first two are the layers' own; the
+/// last two land in the session's block, block 3 (`project-context` §3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Level {
+    /// `[context] files`: every session's, in the project layer.
+    #[default]
+    System,
+    /// `[personas.<name>] files`, in the persona layer.
+    Persona(String),
+    /// The owner's own user-level instruction file (`project-context` §1).
+    User,
+    /// A repository's own `AGENTS.md` or `CLAUDE.md`.
+    Project,
+}
+
+impl Level {
+    /// The persona whose file it is; None at every other level. What the
+    /// manifest's `ContextFileRef` records, unchanged since theseus-c48.
+    pub fn persona(&self) -> Option<String> {
+        match self {
+            Level::Persona(name) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    /// The level a stored record's `persona` names, for a reader that has
+    /// only the record (`withhold_shared`).
+    pub fn of_persona(persona: Option<&str>) -> Self {
+        match persona {
+            Some(name) => Level::Persona(name.to_string()),
+            None => Level::System,
+        }
+    }
+}
+
 /// A context file as the config names it, with its level (theseus-c48).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextPath {
     pub path: String,
-    /// The persona whose file it is; None: the system level.
-    pub persona: Option<String>,
+    /// Which part of the request carries it, and under which header.
+    pub level: Level,
     /// Its entry says `readers = "public"`: a shared place carries it (the
     /// place rule). Otherwise it is the owner's alone.
     pub public: bool,
+}
+
+impl ContextPath {
+    /// The persona whose file it is; None at every other level.
+    pub fn persona(&self) -> Option<String> {
+        self.level.persona()
+    }
 }
 
 /// One file as the system block carries it.
@@ -191,7 +234,7 @@ impl ContextFiles {
                         unreadable.push(Unreadable {
                             path: shown.clone(),
                             error: error.clone(),
-                            persona: p.persona.clone(),
+                            persona: p.persona(),
                         });
                     }
                     Arc::new(missing(&shown, &error))
@@ -199,11 +242,11 @@ impl ContextFiles {
             };
             files.push(ContextFile {
                 file: ContextFileRef {
-                    persona: p.persona.clone(),
+                    persona: p.persona(),
                     public: p.public,
                     ..held.file.clone()
                 },
-                section: format!("{}\n\n{}", header(&shown, p.persona.as_deref()), held.body),
+                section: format!("{}\n\n{}", header(&shown, &p.level), held.body),
             });
         }
         (files, unreadable)
@@ -253,7 +296,7 @@ pub fn withhold_shared(files: &mut [ContextFile]) {
         }
         f.section = format!(
             "{} — withheld: this place is shared, and the file is not marked readers = \"public\"",
-            header(&f.file.path, f.file.persona.as_deref()),
+            header(&f.file.path, &Level::of_persona(f.file.persona.as_deref())),
         );
         f.file.withheld = Some(SHARED_PLACE.into());
         f.file.digest = None;
@@ -274,12 +317,15 @@ fn reason(e: &std::io::Error) -> String {
     }
 }
 
-/// A file's header names it and its level, so a reader of the system block
-/// sees which files are every session's and which the persona's.
-fn header(shown: &str, persona: Option<&str>) -> String {
-    match persona {
-        None => format!("# Context file (system): {shown}"),
-        Some(name) => format!("# Context file (persona {name}): {shown}"),
+/// A file's header names it and its level, so a reader of the block sees
+/// which files are every session's, which the persona's, which the owner's
+/// own, and which the repository's.
+fn header(shown: &str, level: &Level) -> String {
+    match level {
+        Level::System => format!("# Context file (system): {shown}"),
+        Level::Persona(name) => format!("# Context file (persona {name}): {shown}"),
+        Level::User => format!("# Context file (user): {shown}"),
+        Level::Project => format!("# Context file (project): {shown}"),
     }
 }
 
@@ -348,7 +394,7 @@ mod tests {
             .iter()
             .map(|p| ContextPath {
                 path: p.to_string_lossy().into_owned(),
-                persona: None,
+                level: Level::System,
                 public: false,
             })
             .collect()
@@ -440,7 +486,7 @@ mod tests {
         aged(&b, 60);
         let at = |p: &Path, persona: Option<&str>| ContextPath {
             path: p.to_string_lossy().into_owned(),
-            persona: persona.map(str::to_string),
+            level: Level::of_persona(persona),
             public: false,
         };
         let cf = ContextFiles::default();

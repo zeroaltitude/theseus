@@ -94,6 +94,10 @@ pub struct InjectionBudget {
     /// theseus-a2kh6). The recall is packed by then, so [`Self::tier`] and the
     /// recall sizes stay the pack's and only the ceiling moved.
     pub admit_raised: bool,
+    /// The verdict acts and says the reply needs `low` effort (`effort.v1` at
+    /// its confirm bar): small talk. Read by the recall's shadow `would_drop`
+    /// (theseus-fpm2); it sizes nothing. Not in the row.
+    pub low_effort: bool,
 }
 
 /// The fallback of a budget fixed ordinary because no verdict had landed yet.
@@ -138,6 +142,14 @@ pub fn is_coding(v: &Verdict) -> bool {
         .is_some_and(|w| w.sure && w.choice == "coding")
 }
 
+/// The verdict says the reply needs the least effort: `effort.v1`'s `low` at
+/// its confirm bar (a greeting, small talk).
+pub fn is_low_effort(v: &Verdict) -> bool {
+    v.effort
+        .as_ref()
+        .is_some_and(|e| e.sure && e.level == "low")
+}
+
 impl InjectionBudget {
     pub fn of((tier, fallback): (Tier, Option<&'static str>), cfg: &Config) -> Self {
         let (m, d) = (&cfg.memory, &cfg.tools.defer);
@@ -157,6 +169,7 @@ impl InjectionBudget {
             admit_ceiling,
             coding: false,
             admit_raised: false,
+            low_effort: false,
         }
     }
 
@@ -166,6 +179,7 @@ impl InjectionBudget {
         let coding = matches!(seen, Seen::Verdict(v) if is_coding(v));
         let mut b = Self::of(tier_of(seen), cfg);
         b.coding = coding && b.fallback.is_none();
+        b.low_effort = matches!(seen, Seen::Verdict(v) if is_low_effort(v));
         b
     }
 

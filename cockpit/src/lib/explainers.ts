@@ -21,6 +21,12 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Fleet is every place and session; Ship is one session with its turns and tool calls; Turn is one turn’s model calls; Call is one call’s data. The lit dot is where you are. Scrolling the chart moves it too.',
     'When a ship looks wrong at fleet depth, go down a depth at a time to find the turn and the call that caused it, instead of searching the ledger.'),
 
+  // ---- a session's content labels (theseus-emqbm)
+  'session.unlabel': e(
+    'Take one content label off one session, from the link every reply\u2019s footer carries, at any time after the label went up.',
+    'The session and the label are the address you followed, and the line under them says what that label does to the session. Nothing changes until you press Remove: the page asks once because the removal cannot be undone from here, and because removing injection lets the session act again. What happened is said in the daemon\u2019s own words, including when the label is already off.',
+    'A label a reply shows is a label the session is still carrying: it keeps the session off a model of restricted origin, and injection stops its writes, programs and sends. Taking one off is how the operator says the item that raised it was fine, and the label and its removal stay in the ledger either way.'),
+
   // ---- the Agenda (theseus-p17fd)
   'agenda.week': e(
     'Show the week ahead on one strip: what is due, what runs, what is being watched and what starts, with the week just gone for the routines.',

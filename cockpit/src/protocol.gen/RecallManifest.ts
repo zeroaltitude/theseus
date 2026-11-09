@@ -75,6 +75,13 @@ budget_tokens: number, used_tokens: number, timings: RecallTimings,
  */
 arm?: string, 
 /**
+ * In shadow (theseus-fpm2): the turn's verdict said its reply needs `low`
+ * effort, small talk, and this many admitted notes are what a small-talk
+ * bar would have left out. Nothing was dropped: the notes were attached
+ * as before. Absent when the verdict did not say so.
+ */
+would_drop?: number, 
+/**
  * The pack's budget: its limit, what it used, and each item it dropped
  * for the budget (§2.11: never silently thinner).
  */

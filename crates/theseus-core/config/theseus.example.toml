@@ -720,7 +720,8 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # task's own calls are gated as usual, and it spends from this session's limit
 # "task.create" = "notify"
 # the task graph (39a): edits of its plan inherit enforcement; a change to a
-# task's objective or acceptance, or abandoning one, always waits for your yes
+# task's objective or acceptance always waits for your yes; abandoning one waits
+# too, unless you set "task.close" = "notify" below, which makes it a notice
 # "task.update" = "notify"
 # "task.split" = "notify"
 # "task.close" = "notify"
@@ -1289,6 +1290,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [routines]
 # default_run_usd = 0.50                  # the most one run may spend, when a routine names none
 # default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
+# max_run_usd = 2                         # a ceiling on the run figure a routine names for itself (unset: none); a higher one is refused, naming this key
+# max_month_usd = 50                      # the same for the month figure
 # max_routines = 50                       # live routines at once
 # run_deadline_secs = 900                 # how long a run's question outside its grant waits before the call is dropped and the run goes on without it
 
@@ -1352,6 +1355,18 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # dm_cards = true                       # a question that reaches your DM is its own card with Approve, Decline and Details (a batch, one card each), in plain words, and a reply to it answers it; false: the one-line post of before
 
 # ---------------------------------------------------------------- projects
+# ---------------------------------------------------------------- project
+# The repository's own instruction files (theseus-wadu): `AGENTS.md` and
+# `CLAUDE.md`, in every directory from the repository root down to the session's,
+# plus one user-level file of your own at <state_dir>/AGENTS.md. The user-level
+# file is yours and is read. A repository's files are *named, not read*, until
+# you grant that repository: block 3 says how many there are and how large they
+# are, and not one byte more, so no repository can write into the prompt. The
+# model may still open them with an ordinary read.
+# This is [project]; [projects] below it is long-term work on the task graph.
+# [project]
+# max_tokens = 8000                       # the most tokens a granted repository's files may take (500 to 64000)
+
 # A project is long-term work on the task graph: a goal, dated milestones that
 # remind you (a notice in your Home on the day, and one overdue notice, no
 # sound, a day after), a weekly review (a routine made with the project, whose

@@ -492,16 +492,26 @@ impl App {
             // The moment the countdown's seconds change.
             Some(self.now_ms + if left % 1000 == 0 { 1000 } else { left % 1000 })
         });
+        // A held question's label turns over by the second, the minute, the hour.
+        let waited = self
+            .card()
+            .and_then(|(q, _)| q.next_label_change(self.now_ms));
         // An elapsed time on a row repaints on the minute, never each second.
         let minute = self
             .board
             .work
             .ticking()
             .then(|| (self.now_ms / 60_000 + 1) * 60_000);
-        [countdown, self.notices.next_due(), self.save_at, minute]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            countdown,
+            waited,
+            self.notices.next_due(),
+            self.save_at,
+            minute,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// A deadline came: the notices that still hold fire, and the seen file

@@ -254,6 +254,17 @@ impl Core {
     /// their plan on, the most recently active session first. One scan of the open
     /// actions; a transcript is read only for a session with a tool call waiting.
     pub fn confirm_list(&self) -> Result<Vec<ConfirmRequest>> {
+        self.confirms_listed(false)
+    }
+
+    /// `confirm_list`, which says no deadline for a call's question: it is
+    /// held past its life, never expired (theseus-v2dnc), as a budget
+    /// question's says none. `first_notice` keeps the time of its first notice
+    /// there instead, for the list a Discord presser reads: its Details press
+    /// prints that time, and the DM flow is the owner's, changed only on his
+    /// word (theseus-lrc3m). The card's footer reads `confirm_request`'s own,
+    /// which no list touches.
+    pub(super) fn confirms_listed(&self, first_notice: bool) -> Result<Vec<ConfirmRequest>> {
         let pending = self.kernel.pending_confirms()?;
         let mut out = Vec::new();
         if pending.is_empty() {
@@ -278,10 +289,13 @@ impl Core {
             } else {
                 vec![]
             };
-            out.extend(
-                asks.into_iter()
-                    .filter_map(|a| self.confirm_request(a, &rec, &nodes)),
-            );
+            out.extend(asks.into_iter().filter_map(|a| {
+                let mut req = self.confirm_request(a, &rec, &nodes)?;
+                if !first_notice && super::question_waits::held_past_life(a) {
+                    req.expires_at_ms = 0;
+                }
+                Some(req)
+            }));
         }
         Ok(out)
     }

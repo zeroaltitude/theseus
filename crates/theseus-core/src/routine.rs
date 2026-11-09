@@ -437,6 +437,34 @@ pub fn usd_ok(usd: f64) -> bool {
     usd.is_finite() && usd > 0.0
 }
 
+/// A routine's own run and month figures: above 0, a run within the month, and within the
+/// config's ceilings when it sets them. The `default_*` keys are what a routine that names none
+/// gets, not caps, so a figure above a ceiling is refused (never clamped), naming the key
+/// (theseus-tclcj).
+pub fn check_budgets(cfg: &RoutinesConfig, run_usd: f64, month_usd: f64) -> Result<(), String> {
+    if !(usd_ok(run_usd) && usd_ok(month_usd)) || run_usd > month_usd {
+        return Err(format!(
+            "a run's budget (${run_usd}) must be above 0 and no more than the month's (${month_usd})"
+        ));
+    }
+    for (what, usd, key, ceiling) in [
+        ("a run's budget", run_usd, "max_run_usd", cfg.max_run_usd),
+        (
+            "a month's budget",
+            month_usd,
+            "max_month_usd",
+            cfg.max_month_usd,
+        ),
+    ] {
+        if let Some(max) = ceiling.filter(|max| usd > *max) {
+            return Err(format!(
+                "{what} (${usd}) is above the ${max} that `[routines] {key}` allows a routine"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn dollars(usd: f64) -> String {
     if (usd - usd.round()).abs() < 0.005 {
         format!("${}", usd.round() as i64)
@@ -609,11 +637,7 @@ pub fn prepare(
     };
     let run_usd = n.budget_usd.unwrap_or(cfg.default_run_usd);
     let month_usd = n.month_usd.unwrap_or(cfg.default_month_usd);
-    if !(usd_ok(run_usd) && usd_ok(month_usd)) || run_usd > month_usd {
-        return Err(format!(
-            "a run's budget (${run_usd}) must be above 0 and no more than the month's (${month_usd})"
-        ));
-    }
+    check_budgets(cfg, run_usd, month_usd)?;
     let catch_up = match &n.catch_up {
         Some(c) => CatchUp::parse(c).ok_or("catch_up is auto, one, or none")?,
         None => CatchUp::Auto,
@@ -1007,7 +1031,7 @@ pub(crate) fn month_spent_text(title: &str, month_usd: f64, id: &str) -> String 
     crate::owner_note::note(
         crate::owner_note::Kind::Action,
         &format!("{title}: runs are skipped until the 1st"),
-        &format!("this month's ${month_usd:.2} is spent"),
+        &format!("this routine's own month budget of ${month_usd:.2} (the figure it was given, not a system cap) is spent"),
         &format!("Raise it with `theseus routine update {id} --month <usd>`."),
     )
 }

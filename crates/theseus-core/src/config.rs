@@ -41,6 +41,7 @@ pub(crate) mod people;
 pub mod persona;
 pub mod prefix;
 pub mod privacy;
+mod project;
 mod projects;
 pub(crate) mod route;
 mod routines;
@@ -58,6 +59,7 @@ mod standing;
 mod threads;
 mod wake_limits;
 pub use cockpit::CockpitConfig;
+pub use project::ProjectConfig;
 pub use projects::ProjectsConfig;
 pub use routines::RoutinesConfig;
 mod watches;
@@ -217,6 +219,10 @@ pub struct Config {
     /// `[persona_import]`: the agent import and the recall boost (theseus-a8n7), `config/persona_settings.rs`.
     #[serde(default, skip_serializing_if = "PersonaSettings::is_default")]
     pub persona_import: PersonaSettings,
+    /// `[project]`: the repository's own instruction files' budget
+    /// (theseus-wadu), `config/project.rs`. Not `[projects]` below it.
+    #[serde(default, skip_serializing_if = "ProjectConfig::is_default")]
+    pub project: ProjectConfig,
     /// `[projects]`: long-term work (theseus-n5ui2), `config/projects.rs`.
     #[serde(default, skip_serializing_if = "ProjectsConfig::is_default")]
     pub projects: ProjectsConfig,
@@ -915,8 +921,13 @@ fn default_heartbeat_secs() -> u64 {
 fn default_deadline_secs() -> u64 {
     600
 }
+/// 15 minutes, as `theseus_protocol::notices::HELD_LIFE_MS` says in ms: the
+/// board reminds a held question by that same default life, so the two
+/// defaults are one constant and cannot drift (theseus-lrc3m, review G's G6).
+/// A configured `confirm_ttl_secs` does not move the board's reminder life;
+/// `notices::Rules` is always its `Default` (theseus-prejoin-k, review K's K-1).
 fn default_confirm_ttl_secs() -> u64 {
-    900
+    theseus_protocol::notices::HELD_LIFE_MS / 1000
 }
 fn default_min_repeat_minutes() -> u64 {
     5
@@ -1446,11 +1457,9 @@ impl Config {
     pub async fn load_text(source: &str, op: &OpReader) -> Result<(Self, String)> {
         let text = if source.starts_with("op://") {
             let r = SecretRef::parse(source)?;
-            let secret = op
-                .read(&r)
+            op.read_document(&r)
                 .await
-                .with_context(|| format!("reading config from {source}"))?;
-            secret.expose().to_string()
+                .with_context(|| format!("reading config from {source}"))?
         } else {
             let path = expand(source);
             std::fs::read_to_string(&path)
@@ -1684,6 +1693,7 @@ impl Config {
         self.route_bench.validate()?;
         self.prefix.validate()?;
         self.notify.validate()?;
+        self.project.validate()?;
         self.projects.validate()?;
         self.cache.validate(self)?;
         self.people.validate()?;
@@ -1792,6 +1802,7 @@ impl Config {
                 .chain(crate::lsp::NAMES)
                 .chain(crate::memory_lookup::NAMES)
                 .chain(crate::thread_read::NAMES)
+                .chain(crate::card::tool::NAMES)
                 .chain(crate::rsi::pr::NAMES)
                 .chain(crate::rsi::evidence::NAMES)
         };
@@ -2087,10 +2098,10 @@ impl Config {
         persona: Option<&str>,
         engaging: bool,
     ) -> Vec<crate::context_files::ContextPath> {
-        use crate::context_files::ContextPath;
+        use crate::context_files::{ContextPath, Level};
         let system = self.context.files.iter().map(|p| ContextPath {
             path: p.path().into(),
-            persona: None,
+            level: Level::System,
             public: p.readers() == crate::context_files::ContextReaders::Public,
         });
         // Where a message can engage another persona, every persona's soul
@@ -2105,7 +2116,7 @@ impl Config {
             .flat_map(|(name, p)| {
                 p.files.iter().map(|f| ContextPath {
                     path: f.path().into(),
-                    persona: Some(name.clone()),
+                    level: Level::Persona(name.clone()),
                     public: f.readers() == crate::context_files::ContextReaders::Public,
                 })
             });

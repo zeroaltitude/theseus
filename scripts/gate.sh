@@ -306,9 +306,40 @@ trap on_exit EXIT
 # and not of the gate; this says which ones flaked, so a retry is recorded and not
 # forgotten, in the output and in `$THESEUS_FLAKY_LOG` (time, label, test, attempt).
 # How a test gets onto the list, and off it, is in scripts/AGENTS.md.
+#
+# What the suite does not run is said first (theseus-4vsrz). The suite passes no `-E`, so a `default-filter` in
+# `.config/nextest.toml` is the only filter there is, and it skips its tests in every run: nextest counts them as
+# "skipped" with the #[ignore]d ones, so a stale line (uncommitted, kept in a lane from an earlier run: four tests
+# skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one, since
+# the ARM runner sets its known skips this way; it names each line, with its profile and place, and whether HEAD has it
+# or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
+suite_filters() {
+  local cfg=.config/nextest.toml found profile lineno text where
+  found="$(awk '
+    /^[[:space:]]*\[profile\.[A-Za-z0-9_-]+\]/ { p = $0; sub(/^[[:space:]]*\[profile\./, "", p); sub(/\].*$/, "", p); next }
+    /^[[:space:]]*\[/ { p = ""; next }
+    p != "" && /^[[:space:]]*default-filter[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); printf "%s\t%d\t%s\n", p, FNR, v }
+  ' "$cfg" 2>/dev/null || true)"
+  if [ -z "$found" ]; then
+    echo "gate: suite filters: none (no default-filter in $cfg, and the gate passes no -E): every test the workspace builds runs, but the #[ignore]d ones"
+    return 0
+  fi
+  echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
+  while IFS=$'\t' read -r profile lineno text; do
+    where="only in the working tree, not in HEAD"
+    if git show "HEAD:$cfg" 2>/dev/null | grep -qxF -- "$(sed -n "${lineno}p" "$cfg")"; then where="committed in HEAD"; fi
+    echo "gate:   profile $profile, $cfg:$lineno, $where: $text"
+  done <<<"$found"
+  echo "gate:   this run's profile: ${NEXTEST_PROFILE:-default}; a stale line goes with: git checkout -- $cfg"
+  phase_label="suite filtered"
+}
 suite() {
   local log="$gate_tmp/suite.log"
+  suite_filters
   cargo nextest run --workspace --no-fail-fast 2>&1 | tee "$log"
+  if [ "$phase_label" = "suite filtered" ]; then
+    echo "gate: the suite above ran under a default-filter (suite filters, above): its \"skipped\" count includes the tests the filter excluded"
+  fi
   local flaky
   flaky="$(grep -E '^ *FLAKY ' "$log" || true)"
   if [ -n "$flaky" ]; then
@@ -534,7 +565,23 @@ deny_check() {
     age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
     [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; scripts/deny-daily.sh refreshes it"
   fi
-  cargo deny --offline --log-level error check
+  # A red here can come from the database moving while nobody touched the tree (deny-daily.sh is the only thing that
+  # refreshes it). Say so, and say whose call it is: the gate itself never fetches, never ignores an advisory.
+  cargo deny --offline --log-level error check || {
+    local rc=$?
+    if cargo deny --offline --log-level error check bans licenses sources >/dev/null 2>&1; then
+      echo "deny: ONLY advisories failed; bans, licences and sources are clean. The advisory database is $(deny_db_age "$db") days old and moves when scripts/deny-daily.sh fetches, not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
+    fi
+    return "$rc"
+  }
+}
+# Whole days since the advisory database at $1 was last fetched ("unknown" without a FETCH_HEAD).
+deny_db_age() {
+  if [ -f "${1}.git/FETCH_HEAD" ]; then
+    echo $((($(date +%s) - $(stat -c %Y "${1}.git/FETCH_HEAD")) / 86400))
+  else
+    echo unknown
+  fi
 }
 
 # The keel guard (theseus-pw1q.1; the owner's decision on self-improvement, 2026-10-09): a range that deletes or

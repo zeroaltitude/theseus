@@ -298,6 +298,7 @@ async fn flag(core: &Arc<Core>, n: usize) {
 /// again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_31st_notice_of_a_day_trips_the_brake_until_the_next_day() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     jev.script("risky", Jev::Noul(0.97));
     let r = rig_with(echoes(), Some(&jev), posture(Posture::Open)).await;

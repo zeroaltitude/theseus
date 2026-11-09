@@ -458,6 +458,7 @@ async fn a_group_over_the_sessions_budget_meets_its_question() {
 /// more.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_hours_alert_fires_once_an_hour() {
+    let _clock = crate::test_support::pin_mid_period();
     use crate::provider::Scripted;
     let input = json!({"argv": ["true"], "count": 2});
     let r = rig_with(
@@ -923,6 +924,7 @@ fn notices(core: &crate::Core) -> Vec<String> {
 /// admits a group again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn runaway_mode_refuses_at_ten_times_the_hours_line() {
+    let _clock = crate::test_support::pin_mid_period();
     let group = two_hands_reserve().await;
     let r = runaway_rig(group, 9.9, 3);
     let first = turn(&r.core, "run two").await;
@@ -1002,6 +1004,7 @@ async fn runaway_mode_refuses_at_ten_times_the_hours_line() {
 /// runaway mode still runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ten_times_refuses_and_a_cancel_still_runs() {
+    let _clock = crate::test_support::pin_mid_period();
     let group = two_hands_reserve().await;
     let r = runaway_rig(group, 10.0, 1);
     let res = turn(&r.core, "run two").await;
@@ -1028,6 +1031,7 @@ async fn ten_times_refuses_and_a_cancel_still_runs() {
 /// clock) admits again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_days_line_trips_runaway_mode_the_same_way() {
+    let _clock = crate::test_support::pin_mid_period();
     let r = rig_with(vec![], |c| {
         for a in c.aws.accounts.values_mut() {
             a.hourly_alert_usd = 100.0;

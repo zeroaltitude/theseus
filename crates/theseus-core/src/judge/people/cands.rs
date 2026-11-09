@@ -10,7 +10,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use super::name_words;
-use super::same::{name_key, pair_key};
+use super::same::{name_key, pair_key, same_by_name};
 
 /// What the pass reads of a person.
 #[derive(Debug, Clone, Default)]
@@ -30,7 +30,7 @@ pub struct Who {
 pub struct Cand {
     pub a: String,
     pub b: String,
-    /// `handle`, `first_name`, `ambiguous` or `role`.
+    /// `handle`, `first_name`, `initial`, `ambiguous` or `role`.
     pub kind: &'static str,
     pub score: f64,
     pub why: String,
@@ -43,6 +43,7 @@ pub struct Cand {
 /// several is a question, with its names.
 const HANDLE: f64 = 0.95;
 const FIRST_NAME: f64 = 0.6;
+const INITIAL: f64 = 0.5;
 const ROLE: f64 = 0.35;
 const AMBIGUOUS: f64 = 0.3;
 
@@ -93,7 +94,9 @@ pub fn candidates(
         for b in &people[i + 1..] {
             let Some(c) = pair(a, b, &full) else { continue };
             // An equal key is the automatic merge's, not a question.
-            if name_key(&a.name) == name_key(&b.name) {
+            // (One that folds to the same key but abbreviates differently is
+            // not: it is a question, `initial`.)
+            if same_by_name(&a.name, &b.name) {
                 continue;
             }
             if forbidden.contains(&pair_key(&a.id, &b.id)) || apart(a, b) {
@@ -167,6 +170,20 @@ fn pair(a: &Who, b: &Who, full: &[&Who]) -> Option<Cand> {
             });
         }
     }
+    // One key, written differently: an abbreviated first name against a
+    // spelling that is not (`J. Calloway`, `j-calloway`). The key folds them,
+    // and the folding is no evidence (theseus-hui5a), so the owner is asked.
+    if name_key(&a.name) == name_key(&b.name) && !same_by_name(&a.name, &b.name) {
+        return Some(mk(
+            "initial",
+            INITIAL,
+            format!(
+                "\"{}\" and \"{}\" fold to one name, but one abbreviates a first name: ask, never merge",
+                a.name, b.name
+            ),
+            Vec::new(),
+        ));
+    }
     let role = |p: &Who| {
         p.role
             .split_whitespace()
@@ -203,6 +220,16 @@ mod tests {
 
     fn none(_: &Who, _: &Who) -> bool {
         false
+    }
+
+    #[test]
+    fn an_initial_against_a_handle_is_asked_and_two_alike_are_left_to_the_merge() {
+        let p = [who("a", "J. Calloway"), who("b", "j-calloway")];
+        let (c, _) = candidates(&p, &HashSet::new(), &none);
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].kind, "initial");
+        let alike = [who("a", "J. Calloway"), who("b", "J.Calloway")];
+        assert!(candidates(&alike, &HashSet::new(), &none).0.is_empty());
     }
 
     #[test]

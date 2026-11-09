@@ -319,6 +319,12 @@ pub struct CardListParams {
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discord: Option<crate::DiscordOrigin>,
+    /// Read this one proposal alone, as it stands, and expire nothing
+    /// (the DM Edit press, theseus-5pypl): the answer's `open`, `kept` or
+    /// `declined` holds it and only it, so a proposal due this instant is
+    /// still read, and still expires by the normal path when it is answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

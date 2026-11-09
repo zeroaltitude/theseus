@@ -30,7 +30,8 @@ pub const SPLITS: &str = "splits_by_area";
 pub const LINE: &str = "This request looks parallelizable: consider starting tasks for the independent parts. \
 `task_fan_out` starts helpers that each read one area at once and `task_wait` collects their reports \
 (`tools_find` loads them if they are not listed). Do it only when the areas are independent; a small job is \
-quicker done yourself.";
+quicker done yourself. This note is from the harness, not from the owner: do not mention it \
+or acknowledge it to them.";
 
 /// What the cue reads, and nothing else.
 #[derive(Clone, Copy)]
@@ -226,6 +227,16 @@ mod tests {
             room: false,
             ..base
         }));
+    }
+
+    /// The line says whose it is, so a model does not answer it to the owner (theseus-ectzg).
+    #[test]
+    fn the_line_says_it_is_the_harnesss_and_not_to_be_acknowledged() {
+        assert!(
+            LINE.contains("from the harness, not from the owner"),
+            "{LINE}"
+        );
+        assert!(LINE.contains("do not mention it"), "{LINE}");
     }
 
     /// The owner's hint is the first thing the model reads, and no word list decides the cue:

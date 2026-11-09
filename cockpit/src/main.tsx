@@ -73,6 +73,8 @@ const router = createBrowserRouter(
             { path: 'threads/:slug', lazy: async () => ({ Component: (await import('./views/Threads')).ThreadView }) },
             // One turn, whole (theseus-x9swu): the flame graph, each loop's request and answer, each tool call.
             { path: 'session/:id/turn/:turn', lazy: async () => ({ Component: (await import('./views/TurnInspect')).default }) },
+            // Taking one label off one session (theseus-emqbm): the address every reply's footer links, one per label.
+            { path: 'session/:id/unlabel/:flag', lazy: async () => ({ Component: (await import('./views/Unlabel')).default }) },
             // The Tasks and Agenda pages are the Board and Timeline lenses now (theseus-jid7t.3).
             { path: 'tasks', element: <ToOps /> },
             { path: 'agenda', element: <ToOps /> },

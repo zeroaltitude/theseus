@@ -102,7 +102,13 @@ It runs, in order:
    - The whole suite, `cargo nextest run --workspace`, last, so its red hides none of the checks
      above it (theseus-zsddv). A phase that fails ends the gate, so when one does, the locked part
      prints `gate: NOT RUN, no verdict, after the failure in <phase>: <phases>` naming what never
-     ran, and still reports the compile note.
+     ran, and still reports the compile note. Before it the gate says what the suite will not run
+     (theseus-4vsrz): `gate: suite filters: none`, or each `default-filter` it finds in `.config/nextest.toml` (its
+     profile, line and expression, and whether HEAD has it or only the working tree), and the phase is called
+     `suite filtered` in the table. The suite passes no `-E`, so a default-filter is the only filter there is, and
+     nextest counts what it skips with the `#[ignore]`d tests, so a stale line (the ARM runner's sed leaves one when
+     its gate's unit is stopped) was invisible in the result. The gate never refuses one: the ARM runner sets its
+     known skips this way.
 
    The benches run the test build's `theseusd`, `theseus-sim`, and `theseus-index`: the workspace's features, which
    the `features` phase holds an install's to.
@@ -347,6 +353,11 @@ A failed fetch is an outage, not a finding: it checks what is cached and files n
 failed; 2 the fetch failed and the check was clean on what is cached. It reads the repository and never builds or changes it
 (`--locked`), so it runs in the chain's tree. Its log is `~/.cache/theseus/deny-daily.log`.
 
+The gate's offline check is where a refresh shows up: the database moves when this job fetches, never with a branch, so a
+red `cargo deny` on an untouched tree is the database. When bans, licences and sources are clean and only advisories fail,
+the gate says so (`deny: ONLY advisories failed ...`) and names the owner's action: ignore each id in `deny.toml` with its
+reason, or bump the crate. The gate never fetches and never writes an ignore.
+
 It is not installed. To schedule it as the operator's user, once:
 
 ```ini
@@ -387,6 +398,17 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
 - **Off the list**: in the commit that fixes the test, proven under load (the load-flake recipe: loops at a lower nice
   than the test) and against a planted revert. Delete the override with it.
 - **A test not on the list that flakes fails the gate**, as before. The flaky log shows what has been passing on luck.
+
+### A test of the hour or the local day takes a test clock
+
+A gate runs for minutes from any start, so a suite can walk through midnight or the top of an hour (theseus-4vsrz:
+two tests of the local day failed a gate that began at 23:41, and one of the hour a gate that ran across 13:00). A test
+whose answer depends on the hour's or the day's turn starts with `let _clock = crate::test_support::pin_mid_period();`
+in theseus-core: the clock (`theseus_protocol::time::move_clock_to`, which `now_unix_ms` and the kernel's `RealClock`
+both read) is moved to the middle of a UTC hour near noon of the real local day, so its seconds cross neither, and the
+guard gives the wall clock back. The move is the process's: nextest, which the gate runs, gives each test a process of
+its own. A new test that takes `local_day(now)` or an hour's start from the clock, and then reads rows stamped after
+it, takes the pin; the gate no longer relies on a start window to keep it from the boundary.
 
 ## Releases: the pinned toolchain, one build script, and a reproducibility check
 

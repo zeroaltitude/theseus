@@ -28,6 +28,7 @@ import { flareOf, flaresOfRows, isStoppingFailure, newFlares } from './flares.ts
 import { buildModel, type ReachLink, type ShipModel } from './model'
 import { tpmOf } from './sea.ts'
 import { mergeActions } from './watch.ts'
+import { endsJob, jobsRunning } from './jobs.ts'
 
 type D = Record<string, unknown>
 
@@ -68,6 +69,8 @@ interface Live {
   born: Map<string, number>
   l1: Set<string>
   running: Set<string>
+  /** Jobs a `tool.ended` ended (not a background placeholder): a stale action list must not run them again. */
+  ended: Set<string>
   streaming: Map<string, number>
   failedAt: Map<string, number>
   reports: Map<string, number>
@@ -86,7 +89,7 @@ interface Live {
 }
 
 const fresh = (): Live => ({
-  nodes: new Map(), known: null, born: new Map(), l1: new Set(), running: new Set(), streaming: new Map(), failedAt: new Map(),
+  nodes: new Map(), known: null, born: new Map(), l1: new Set(), running: new Set(), ended: new Set(), streaming: new Map(), failedAt: new Map(),
   reports: new Map(), active: new Map(), knownSessions: null, bornSessions: new Map(), arrivals: [], reach: [], reachOf: null, progress: 0, now: Date.now(),
 })
 
@@ -235,6 +238,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
         case 'tool.ended':
           store.setState((s) => ({
             running: cid ? withSet(s.running, cid, false) : s.running,
+            ended: cid && endsJob(p.status) ? withSet(s.ended, cid, true) : s.ended,
             streaming: sid && s.streaming.has(sid) ? withMap(s.streaming, sid, undefined) : s.streaming,
           }))
           break
@@ -410,11 +414,9 @@ export function useShipLive(selected: string | undefined, world: World | null): 
       if (d.class === 'l1' && typeof d.correlation_id === 'string') l1.add(d.correlation_id)
     }
     // Jobs running: dispatched and not settled (the action list), and those tool.started said began.
-    const run = new Set(st.running)
+    const run = jobsRunning(st.running, st.ended, cancelled, actions ?? [])
     const reserved = new Map<string, number>()
     for (const a of actions ?? []) {
-      if (!a.settled_at_ms && a.dispatched_at_ms && a.tool === 'proc.run') run.add(a.correlation_id)
-      if (a.settled_at_ms) run.delete(a.correlation_id)
       if (!a.settled_at_ms && a.reserved_usd > 0) reserved.set(a.execution_id, (reserved.get(a.execution_id) ?? 0) + a.reserved_usd)
     }
     return buildModel({
@@ -437,7 +439,7 @@ export function useShipLive(selected: string | undefined, world: World | null): 
       now: st.now,
       placesSeen,
     })
-  }, [world, sl, el, tl, cl, jobs, actions, cancelled, st.nodes, st.l1, st.running, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now, placesSeen])
+  }, [world, sl, el, tl, cl, jobs, actions, cancelled, st.nodes, st.l1, st.running, st.ended, st.streaming, st.failedAt, st.reports, st.born, st.bornSessions, st.reach, st.active, st.now, placesSeen])
 
   const tpm = useMemo(() => (calls ? tpmOf(calls.rows, st.now) : null), [calls, st.now])
 

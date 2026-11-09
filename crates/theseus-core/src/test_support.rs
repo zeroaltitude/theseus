@@ -294,3 +294,64 @@ pub(crate) fn stranger() -> crate::approval::Answerer {
         agent: None,
     }
 }
+
+/// One hour, in milliseconds.
+const HOUR_MS: u64 = 3_600_000;
+
+/// What `pin_mid_period` holds: the process's clock on the time it moved it to, until this drops.
+pub(crate) struct ClockPin;
+
+impl Drop for ClockPin {
+    fn drop(&mut self) {
+        theseus_protocol::time::reset_clock();
+    }
+}
+
+/// The test clock of a test whose answer is the hour's or the local day's (theseus-4vsrz): the clock moved to the middle
+/// of a UTC hour near noon of today's local day, and running on from there. A test is seconds long, so it crosses neither
+/// the hour's turn (half an hour off) nor midnight (eleven hours off), however near either the real clock is: a gate that
+/// began at 23:41 and walked through midnight failed the day's tests, and one that ran across the hour failed the hour's.
+/// It keeps the real local day, so the day a row is stamped in is the one the test reads. Held for the test
+/// (`let _clock = pin_mid_period();`, first, before anything is stamped), and the process's, as `move_clock_to` says.
+pub(crate) fn pin_mid_period() -> ClockPin {
+    theseus_protocol::time::reset_clock();
+    let noon = crate::learning::local_midnight(theseus_protocol::now_unix_ms()) + 12 * HOUR_MS;
+    theseus_protocol::time::move_clock_to(noon - noon % HOUR_MS + HOUR_MS / 2);
+    ClockPin
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pin_sits_mid_hour_on_todays_local_day_and_runs_on_from_there() {
+        let before = theseus_protocol::now_unix_ms();
+        let pin = pin_mid_period();
+        let at = theseus_protocol::now_unix_ms();
+        let after = theseus_protocol::now_unix_ms();
+        let day = crate::learning::local_midnight(at);
+        assert!(
+            (HOUR_MS / 2..HOUR_MS / 2 + 5_000).contains(&(at % HOUR_MS)),
+            "{} ms into the hour",
+            at % HOUR_MS
+        );
+        assert!(
+            [before, after]
+                .map(crate::learning::local_midnight)
+                .contains(&day),
+            "the pin keeps the real local day"
+        );
+        assert!(
+            (10 * HOUR_MS..14 * HOUR_MS).contains(&(at - day)),
+            "{} h into the day",
+            (at - day) / HOUR_MS
+        );
+        assert!(after >= at, "and the clock runs on");
+        drop(pin);
+        assert!(
+            theseus_protocol::now_unix_ms().abs_diff(before) < 5_000,
+            "a dropped pin gives the wall clock back"
+        );
+    }
+}

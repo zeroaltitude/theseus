@@ -10,15 +10,13 @@ pub trait Clock: Send + Sync {
     fn now_ms(&self) -> u64;
 }
 
-/// The real wall clock.
+/// The real wall clock: the protocol's, the one every other reader takes, so a test that moves it
+/// (`theseus_protocol::time::move_clock_to`) moves the kernel's stamps with the rest.
 pub struct RealClock;
 
 impl Clock for RealClock {
     fn now_ms(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0)
+        theseus_protocol::now_unix_ms()
     }
 }
 
@@ -46,5 +44,26 @@ impl VirtualClock {
 impl Clock for VirtualClock {
     fn now_ms(&self) -> u64 {
         self.now.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_real_clock_is_the_protocols_and_follows_a_move_of_it() {
+        let at = 4_102_444_800_000;
+        theseus_protocol::time::move_clock_to(at);
+        let read = RealClock.now_ms();
+        theseus_protocol::time::reset_clock();
+        assert!(
+            (at..at + 5_000).contains(&read),
+            "{read} is not where the clock was put, {at}"
+        );
+        assert!(
+            RealClock.now_ms() < at,
+            "and back on the wall clock after a reset"
+        );
     }
 }

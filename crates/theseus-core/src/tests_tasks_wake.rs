@@ -310,9 +310,13 @@ async fn a_task_sessions_typed_turn_is_a_persons() {
 const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"];
 // 9908 and 7624 until 1.0.4: the tools note's line about the approve list
 // became one about the floor, four characters shorter (theseus-c4i8m).
-const DM_PERSON_TOKENS: u64 = 9906;
+// 9906 and 7622 until theseus-wadu, which put the OS and architecture in
+// block 3 beside the CPU fact: one line of 20 characters, the same bytes on
+// every machine of a family (`cpu::os`), so these counts stay machine-
+// independent as they were.
+const DM_PERSON_TOKENS: u64 = 9912;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7622;
+const CLI_PERSON_TOKENS: u64 = 7628;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what

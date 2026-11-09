@@ -53,7 +53,17 @@ fn rig(mode: MemoryMode, jev: Option<&FakeJev>, tweak: impl FnOnce(&mut crate::C
             c.judge.enabled = true;
             c.judge.api_base = base;
             c.judge.connect_secs = 1;
-            c.judge.total_secs = 2;
+            // These tests assert the citation verdict (`supported`, a
+            // checked row naming the heading), and `judge.total_secs` bounds
+            // the `citation.v1` call itself: at 2 s a loaded host abandoned
+            // the call before it answered, the check read `no_verdict`, and
+            // the test failed on the outcome as if the product were wrong
+            // (the shape of theseus-2yh04). Raised past any run's work. It
+            // times nothing here, since the call ends as the verdict lands,
+            // and it stays well inside nextest's 120 s kill, so a verdict
+            // that never comes still fails on the assertion, not as a hang.
+            // `consolidate` awaits the check inline, so no second bound.
+            c.judge.total_secs = 30;
         }
         c.memory.recall_deadline_ms = 2000;
         tweak(c);

@@ -239,3 +239,28 @@ async fn the_candidates_offer_a_first_name_and_leave_a_recorded_pair_out() {
     let got = ask();
     assert_eq!((got.candidates.len(), got.left_out), (0, 1));
 }
+
+/// An abbreviated initial ("J. Calloway") and a hyphenated handle
+/// ("j-calloway") fold to one key but are no evidence of one person
+/// (theseus-hui5a): the dot after a lone letter says a first name was cut
+/// short, which a handle's hyphen does not. They stay two (the owner is asked: `cands`,
+/// kind `initial`); two names that abbreviate alike, and the plain spellings
+/// the key was made for, still merge on the name alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_initial_and_a_handle_that_fold_alike_need_corroboration_to_merge() {
+    let r = rig(None, 0, |_| {});
+    plant(&r, "J. Calloway");
+    plant(&r, "j-calloway");
+    assert!(r.core.people_same_merge().unwrap().is_empty());
+    assert_eq!(live(&r, "jcalloway").len(), 2, "no evidence, no merge");
+
+    // Controls: alike abbreviations and the plain spellings merge as before.
+    plant(&r, "K. Dunmore");
+    plant(&r, "K.Dunmore");
+    plant(&r, "Pell Garrow");
+    plant(&r, "pell-garrow");
+    assert_eq!(r.core.people_same_merge().unwrap().len(), 2);
+    assert_eq!(live(&r, "kdunmore").len(), 1);
+    assert_eq!(live(&r, "pellgarrow").len(), 1);
+    assert_eq!(live(&r, "jcalloway").len(), 2, "still two");
+}

@@ -82,6 +82,22 @@ impl Core {
         })
     }
 
+    /// One proposal as it stands, in the list's shape and with nothing
+    /// expired (theseus-5pypl): a read of the proposal the DM Edit press
+    /// names, which must not sweep the card, or a proposal due this instant
+    /// would be declined inside the call that fetches its words.
+    pub(crate) fn card_view_of(&self, id: &str) -> Result<CardListResult> {
+        let all = theseus_store::blocking(|| state::proposals(&self.store))?;
+        let p = state::resolve(&all, id).map_err(|e| anyhow!(e))?.clone();
+        let mut out = CardListResult::default();
+        match p.state {
+            ProposalState::Open => out.open.push(p),
+            ProposalState::Kept => out.kept.push(p),
+            ProposalState::Declined => out.declined.push(p),
+        }
+        Ok(out)
+    }
+
     /// The open proposal `id` names (after expiry), or why there is none.
     pub(crate) async fn card_open(&self, id: &str) -> Result<CardProposal> {
         self.card_expire(theseus_protocol::now_unix_ms()).await?;

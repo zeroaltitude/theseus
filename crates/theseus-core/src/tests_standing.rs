@@ -673,6 +673,7 @@ async fn a_place_scope_names_a_bound_places_target() {
         .is_empty());
 }
 
+mod framing;
 mod surface;
 
 /// A record scoped to a persona rides the turns that speak as it and no

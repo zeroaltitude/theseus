@@ -72,3 +72,43 @@ export const wrongCall = (session: string, l: Pick<LabelView, 'flag' | 'judgment
         ask: wrongAskOf(l.flag, session),
       }
     : null
+
+// ---------------------------------------------------------------- the footer's removal link (theseus-emqbm)
+
+/** The four flags the daemon knows. The page refuses anything else rather than sending it. */
+export const FLAGS = ['injection', 'secret', 'confidential', 'personal'] as const
+
+/** What the Ship makes of `/session/:id/unlabel/:flag`, the address a reply's footer links. */
+export type UnlabelRoute =
+  | { ok: true; session: string; flag: string; effect?: string; ask: string; call: ReturnType<typeof unlabelCall> }
+  | { ok: false; why: string }
+
+/** Read the footer's address (theseus-emqbm). A reply's footer lists the labels its session carries, each a link here, so
+ *  the owner can take one off at any time and not only from the one message that raised it.
+ *
+ *  **It plans the removal; it does not make it.** The page shows what the removal does and takes one click, because the
+ *  address is a one-way door: `ContentFlags::raise_after` will not raise a flag again for anything that entered the session
+ *  before the removal, and removing `injection` unfreezes the session. A page that acted on load would act on a prefetch, a
+ *  reopened tab or a restored history entry, and nothing here could put it back. The footer still carries a link and no
+ *  button, which is what the owner asked for. */
+export function unlabelRoute(session: string | undefined, flag: string | undefined): UnlabelRoute {
+  if (!session) return { ok: false, why: 'That address names no session.' }
+  if (!flag || !(FLAGS as readonly string[]).includes(flag))
+    return { ok: false, why: `“${flag ?? ''}” is not a content label. They are ${FLAGS.join(', ')}.` }
+  const effect = FLAG_EFFECT[flag]
+  return { ok: true, session, flag, ...(effect ? { effect } : {}), ask: askOf(flag, session), call: unlabelCall(session, flag) }
+}
+
+/** What the page says once the daemon has answered, in the daemon's own voice (`/trust`'s: what the removal lets the
+ *  session do again). `by` is who the daemon recorded. */
+export const removedWords = (flag: string, by: string): string =>
+  `Removed the ${flag} label (by ${by})${flag === 'injection' ? ': calls that act run again' : ''}. The label and its removal stay in the ledger.`
+
+/** What the page says when the removal did not happen. A flag the session does not carry is an error from the daemon, and
+ *  it is the common one: the owner opened the same link twice, or took the label off from somewhere else. It is said
+ *  plainly, never as a failure. */
+export function unlabelFailureWords(flag: string, session: string, message: string): string {
+  if (message.includes('carries no')) return `The ${flag} label is already off ${session}. Nothing was changed.`
+  if (message.includes('does not count')) return `That removal was refused: ${message}`
+  return `That removal did not happen: ${message}`
+}

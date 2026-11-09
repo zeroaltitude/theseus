@@ -496,6 +496,31 @@ async fn a_set_synth_profile_still_pins_the_dream() {
     assert_eq!(model, "claude-haiku-5-5");
 }
 
+/// A pinned dream keeps the effort the exception exists to guarantee
+/// (theseus-xdi65's second finding): pinning `[memory] synth_profile` moves
+/// the model, not the writing's care, so a pin on a model that takes an
+/// effort still sends `high`, with thinking off.
+#[tokio::test]
+async fn a_pinned_dream_still_writes_at_high_effort() {
+    let r = rig(ANSWER, |c| c.memory.synth_profile = Some("sonnet".into()));
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!(done.written.len(), 1, "{done:?}");
+    let sent: Vec<_> = r
+        .model
+        .requests()
+        .into_iter()
+        .filter(|q| q.system.iter().any(|b| b["text"] == INSTRUCTIONS))
+        .collect();
+    assert_eq!(sent.len(), 1, "the dream's one request");
+    assert_eq!(sent[0].model, "claude-sonnet-5-5", "the pin's model");
+    assert_eq!(
+        sent[0].output_config,
+        Some(serde_json::json!({"effort": "high"})),
+        "the pin carries the effort"
+    );
+}
+
 /// The exception is not a way round the data rule: the dream reads private
 /// sessions' text, so whatever it names must be a model cleared for private
 /// material (US origin). A change of `DREAM_MODEL` to any other fails here.

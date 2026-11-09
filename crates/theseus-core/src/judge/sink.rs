@@ -412,11 +412,13 @@ impl JudgeService {
         self.built.get()?.judge.inner().breaker_of(pack)
     }
 
-    /// rerank's own breaker opening counts toward its day brake on the
-    /// ladder (26a: twice in a local day).
+    /// A pack's own breaker opening (`rerank`'s, `recall_cross`'s) counts
+    /// toward its day brake on the ladder (26a: twice in a local day). Any
+    /// breaker of its own is one: a pack declares the rule in its file, and
+    /// a breaker with no such pack's rule counts an event nothing reads.
     fn count_opened(&self, j: &Judgment, t: &theseus_judge::breaker::Transition) {
         if matches!(t, theseus_judge::breaker::Transition::Opened { .. })
-            && self.breaker_of(&j.pack) == Some(super::rerank::BREAKER)
+            && self.breaker_of(&j.pack).is_some()
         {
             let day = self.today();
             self.land(

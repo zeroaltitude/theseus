@@ -104,7 +104,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
         ContextStatus, ConfigStatus, NodeCacheHealth, PromptCacheHealth, ProfileTtl,
         ConfigRestart, SecretFailed, SecretSource, StartupPhase, Tightening, PolicyTightenParams,
         PolicyUntightenParams, TightenResult,
-        content::LabelView, content::ContentUnlabelParams, content::UnlabelResult, content::LabelRaised, notice::WaitingSplit, DiscordOrigin, BindingStatus, OutboxStatus,
+        content::LabelView, content::LabelLink, content::ContentUnlabelParams, content::UnlabelResult, content::LabelRaised, notice::WaitingSplit, DiscordOrigin, BindingStatus, OutboxStatus,
         PlaceStatus, TelemetryStatus, KernelStatus, ChildrenStatus, GrantStatus,
         ExecutionInfo,
         BudgetInfo, ExecutionListResult, ExecutionListParams, ActionInfo, ActionListParams, ActionListResult,

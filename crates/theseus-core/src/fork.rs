@@ -155,6 +155,28 @@ pub fn in_transcript(
     Ok(false)
 }
 
+/// The sessions whose transcript holds the node at `node_position` of
+/// `node_session`: forks of it cut at or after that position, and forks of
+/// those. A verdict that lands on the source after a fork was cut reaches
+/// these (theseus-sz6z9): the label follows the item, not the session.
+pub fn forks_holding(store: &Store, node_session: &str, node_position: u64) -> Result<Vec<String>> {
+    #[derive(Deserialize)]
+    struct Forked {
+        session_id: String,
+        #[serde(default)]
+        forked_from: Option<Box<ForkOrigin>>,
+    }
+    let mut out = Vec::new();
+    for f in store.list_sessions::<Forked>()? {
+        if f.forked_from.is_some()
+            && in_transcript(store, &f.session_id, node_session, node_position)?
+        {
+            out.push(f.session_id);
+        }
+    }
+    Ok(out)
+}
+
 /// A fork's content labels (theseus-9ymz0): the labels whose item the fork
 /// carries (the item's node is at or before the fork point; one whose node is
 /// unknown, or cannot be placed, is carried too, since fewer labels is never

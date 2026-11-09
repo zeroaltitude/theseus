@@ -91,6 +91,7 @@ pub mod outbox;
 pub mod outputs;
 pub mod own_bench;
 pub mod owner_note;
+mod pace;
 pub mod pacer;
 pub mod pack_names;
 pub mod parked;
@@ -105,6 +106,7 @@ pub mod places;
 pub mod policy;
 pub mod prefix;
 pub mod project;
+pub mod project_context;
 pub mod project_tool;
 pub mod provider;
 pub mod push;
@@ -513,6 +515,8 @@ mod tests_private_view;
 mod tests_proc_cap;
 #[cfg(test)]
 mod tests_progress;
+#[cfg(test)]
+mod tests_project_context;
 #[cfg(test)]
 mod tests_projects;
 #[cfg(test)]

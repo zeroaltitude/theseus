@@ -505,7 +505,7 @@ impl Place {
     /// The place's line of turns takes the prompt, one at a time: a turn in
     /// flight keeps its place, and the prompt is not queued behind it.
     pub(super) fn run_prompt(&mut self, r: McpPromptRef, by: &str) -> String {
-        if self.inflight {
+        if self.turning() {
             return "A turn is running here: let it finish, or `/stop` it, then run the prompt again.".into();
         }
         self.inflight = true;

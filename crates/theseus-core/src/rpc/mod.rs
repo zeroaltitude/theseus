@@ -1031,6 +1031,7 @@ impl Core {
         core.tools.self_pr.attach(&core);
         core.tools.lookup.attach(&core);
         core.tools.thread_read.attach(&core);
+        core.tools.card_observed.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools
             .admission
@@ -1305,7 +1306,7 @@ impl Core {
             // Each next stretch waits while the machine is busy, holding
             // nothing (theseus-tood).
             if stretches > 0 {
-                yielded += theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                yielded += crate::pace::quiet().await;
             }
             let Some(store) = core.upgrade().map(|c| c.store.inner().clone()) else {
                 break json!({"outcome": "stopped", "stretches": stretches});
@@ -1355,7 +1356,7 @@ impl Core {
             let outcome = loop {
                 // As the terms' stretches (theseus-tood).
                 if stretches > 0 {
-                    yielded += theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                    yielded += crate::pace::quiet().await;
                 }
                 let Some(store) = core.upgrade().map(|c| c.store.inner().clone()) else {
                     break json!({"outcome": "stopped", "stretches": stretches});

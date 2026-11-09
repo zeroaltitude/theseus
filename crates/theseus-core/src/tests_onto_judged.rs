@@ -205,6 +205,7 @@ async fn only_machine_pairs_that_look_alike_are_asked() {
 /// call is not begun; with the day's cap whole, it is.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_judged_sweep_stops_at_its_day_cap() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     jev.script("same_thing", Scripted::Noul(0.9));
     let r = rig(jev, |c| c.ontology.sweep_usd_per_day = 1.0);

@@ -58,6 +58,17 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   after a turn is recorded in shadow. The result's `nudged` (with `acted`) is on `turn.ended`'s row, which the prove
   counts. Tests: `tests_stop_nudge.rs`, theseusd's `tests/stop_nudge.rs`; the judge's other tests run loop.v1 in
   shadow (`tests_judge::judge_config` turns the switch off).
+  **A harness nudge's reply is not the owner's** (theseus-emqbm; `content::harness_nudge`,
+  `content::HARNESS_NUDGE_AUTHORS`, `turn::Turn::relayed`, `turn/reply_step.rs::posted_loops`): a loop whose request
+  ends with a harness nudge (`harness:progress`, `harness:stop_nudge`, `harness:helper`, the nudge subset of
+  `HARNESS_AUTHORS`) answers the harness, not the person, so its words are streamed to no place (`model.delta` and
+  `model.answered` are not sent for it; the span, the node and the turn's `output` are as ever) and the reply's post
+  leaves them out. **The floor**: the turn's last words always go out, whatever prompted them, so a turn the doubt
+  or the stop nudge bought one loop is never silence. The clock's line and the day ceiling's note are no nudges
+  (the first is a fact stated before most loops of a deadlined turn, the second is written when no call was made),
+  and each nudge's text ends with `content::NOT_FOR_THE_PERSON`, which attacks the cause: a reply that never
+  addresses the nudge reads as work on every surface. Tests: `tests_turn_progress.rs`'s last three,
+  `content.rs`'s `every_harness_nudge_*`.
   **The end note and what a command left** (theseus-53ujg.1; `[model] end_note`, on; `turn/end_note_step.rs`,
   `toolrun/job/beside.rs`, `rewind.rs`, wire `theseus_protocol::files_left`): a `proc.run` job's launch lists the
   entries of its directory and of the directories the turn's file tools wrote to (at most 8; one over 512 entries is
@@ -419,6 +430,25 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   of the owner's lines moves only the in-memory mark and writes no frame. Spawned after the turn, so the census and the
   turn path are unchanged. `observe::sweep` (called first by the live pass) reads each owner-alone session active in the
   last 48 h past its mark. Read with `theseus card observed`. Tests: `card/observe/tests.rs`.
+  **A turn's reach of the notes** (theseus-6f8t0): until the owner answers a question a note is on no card, so a turn
+  asked what it has learned about him had nothing to name though the note was kept (the owner, 2026-11-07: a favourite
+  animal said inside a question about the disk). Two things reach them, divided by span. **Today's** open notes ride in
+  the request's tail as a bounded block (`card/noted.rs`, attached in `turn/compile_step.rs`), which is what makes that
+  answer certain rather than a matter of the model electing to look: owner-alone places only, never a task's session,
+  never a model of restricted origin, after the cached prefix so it is no cache write. **Older than today**, or more than
+  the block's eight lines, is read by `card.observed` (`card/tool.rs`, dispatched in `toolrun.rs` by family `card`,
+  attached in `rpc/mod.rs`): `when` (today by default, read as `memory.lookup` reads it) and `limit`, open notes newest
+  first, each with its local day,
+  kind, id and session, under a head saying they are unconfirmed and on no card. The rest of the wall is whole — still no
+  node, no index, no recall, and no span past today in any prompt: only the tool's contract is in the request, as
+  `memory.lookup`'s is. **The tool's wall is the block's, clause for clause** (`card::tool::refusal`, the one point both
+  the runtime and the tests go through): the owner alone in the place (`tc.class`, then `Core::owner_alone_in` on the
+  session's place), never a task's session (its own record, as `turn/compile_step.rs` reads it — a task's place is its
+  parent's, so the place checks pass one through), and never a model of restricted origin (the turn's profile through
+  `TurnRunner::restricted_profile`; the data gate cannot stand in for it, since it moves a *labelled* session off such a
+  model and these notes raise no label). It is no `places::public_tool`, and it is not registered at
+  all with `[card] observe` off. Tests: `card/tool.rs`'s own, `card/tests_pure.rs`'s block test, and the four end-to-end
+  ones in `card/observe/tests.rs`.
   **The live pass** (theseus-6f8t0; `card/live.rs`, `rpc/card_stale.rs`): the observer's `card.obs.<id>` notes (META, never a node:
   not indexed, recalled or compiled; `CardObservation`, read through `state::observations` alone) become questions, nightly and after
   the archive's run in `card.propose`: the observer's sweep first, then expiry, then **Stale** (an observation that contradicts a live

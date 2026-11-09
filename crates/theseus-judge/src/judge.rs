@@ -373,9 +373,14 @@ struct OwnBreaker {
 }
 
 /// A pack's id: what stands before its version in its name (`recall_cross`
-/// of `recall_cross.v1`). A pack's id is a snake id (`pack::safe_id`'s
-/// rule: lower-case letters, digits and `_`), so it holds no dot and the
-/// first one ends it; a string with no dot is an id already.
+/// of `recall_cross.v1`). A pack's name is its id, `.v`, and its version
+/// (`Pack::name`), and a pack's id is a snake id: `Pack::parse` refuses any
+/// other (`pack::snake_id`: a lower-case letter first, then lower-case
+/// letters, digits and `_`), and every version, compiled or learned, loads
+/// through it. So an id holds no dot and the first one in a name ends it; a
+/// string with no dot is an id already. (Not `pack::safe_id`, which does
+/// allow a dot: it vets a question's option ids and keys, never a pack's id,
+/// so its looser rule does not reach here.)
 fn pack_id(pack: &str) -> &str {
     pack.split('.').next().unwrap_or(pack)
 }

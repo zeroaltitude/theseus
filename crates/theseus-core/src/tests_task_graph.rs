@@ -535,6 +535,62 @@ async fn a_layer_one_change_waits_and_accept_applies_it_and_decline_leaves_it() 
         .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// With `task.close = notify` set by the operator, abandoning the owner's
+/// task is a notice, not an ask; an objective change still asks, and with the
+/// line unset (the test above) abandoning still asks.
+#[tokio::test]
+async fn abandoning_follows_an_explicit_notify_but_an_objective_change_still_asks() {
+    let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
+        cfg.policy.tools.insert("task.update".into(), Posture::Open);
+        cfg.policy
+            .tools
+            .insert("task.close".into(), Posture::Notify);
+    });
+    let c = &r.core;
+    let s = session(c);
+    r.model
+        .hold_tasks
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    r.calls(&[(
+        "task_create",
+        json!({"brief": "Chart every buoy of the outer harbour and report the depths.",
+               "title": "Chart the outer harbour", "acceptance": ["a chart exists"],
+               "arrangement": {"pieces": [{"quote": QUOTE, "role": "objective"}]}}),
+    )]);
+    turn(c, &s, ASK).await;
+    let t = r.by_title("Chart the outer harbour");
+    assert!(t.is_owners(), "{t:?}");
+
+    // The positive control: an objective change still waits.
+    r.calls(&[(
+        "task_update",
+        json!({"id": t.id, "version": 1, "patch": {"objective": "chart the inner harbour instead"}}),
+    )]);
+    turn(c, &s, "make it the inner harbour").await;
+    let asked = c.confirm_list().unwrap();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(asked[0].reason.contains("layer 1"), "{}", asked[0].reason);
+    c.confirm_action(&asked[0].correlation_id, false, None, "cli")
+        .unwrap();
+    until("the declined call", || c.confirm_list().unwrap().is_empty()).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Abandoning runs at notify: no question, the task is abandoned.
+    r.calls(&[(
+        "task_close",
+        json!({"id": t.id, "version": 1, "outcome": "abandoned"}),
+    )]);
+    turn(c, &s, "drop it").await;
+    assert!(c.confirm_list().unwrap().is_empty());
+    assert_eq!(r.task(&t.id).state, TaskState::Abandoned);
+    assert!(rows(c, "tool.notified")
+        .iter()
+        .any(|row| format!("{row:?}").contains("task.close")));
+    r.model
+        .hold_tasks
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// A layer-1 change is answered through `work.answer` with its own two
 /// options (theseus-ds5os): `accept` applies it, `decline` leaves the task as
 /// it was, and a call's `approve` is not one of them.

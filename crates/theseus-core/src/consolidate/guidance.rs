@@ -136,12 +136,16 @@ pub const MARK: &str = "onto.dream.last";
 /// listed in `crates/theseus-core/AGENTS.md` ("The one site that is not
 /// Jev's") and in the `[memory] synth_profile` template comment.
 pub const DREAM_MODEL: (&str, &str) = ("anthropic", "claude-sonnet-5-5");
-/// The effort [`DREAM_MODEL`] writes at: sent as `output_config.effort`, with
-/// **thinking on** — the model's own adaptive thinking, nothing sent to turn
-/// it off (the owner, 2026-11-07 17:33: "I think it's ok to turn thinking on
-/// and gently raise the budget"). A high effort is only a setting while the
-/// cap leaves nothing to think with, which is why [`MAX_TOKENS`] moved in the
-/// same breath.
+/// The effort the dream writes at, whether it runs [`DREAM_MODEL`] or a pinned
+/// `synth_profile`'s model (a pin moves the model, not the care): sent as
+/// `output_config.effort` where the model takes one, with **thinking on** on
+/// either path — the model's own adaptive thinking, nothing sent to turn it
+/// off (the owner, 2026-11-07 17:33: "I think it's ok to turn thinking on and
+/// gently raise the budget"). A high effort is only a setting while the cap
+/// leaves nothing to think with (at 250 tokens it was spent thinking,
+/// theseus-050g2), which is why [`MAX_TOKENS`] moved in the same breath. That
+/// cap is sized for Sonnet's adaptive thinking on a small prompt, so a pinned
+/// model that thinks whether asked or not still waits ([`Wait::ThinksUnasked`]).
 pub const DREAM_EFFORT: Effort = Effort::High;
 
 /// What the profile is told, before the sessions.
@@ -368,7 +372,9 @@ impl Core {
             let target = self
                 .runner
                 .resolve_target(&live, Some(&profile), None, None);
-            (target.map_err(|_| Wait::Profile)?, None)
+            // The pin moves the model, not the care: the effort stays
+            // ([`output_config`] drops it for a model that takes none).
+            (target.map_err(|_| Wait::Profile)?, Some(DREAM_EFFORT))
         } else {
             let (provider, model) = DREAM_MODEL;
             let target = self

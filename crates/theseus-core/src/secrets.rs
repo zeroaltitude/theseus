@@ -5,7 +5,12 @@
 //! a container, CI, or anyone without a vault). Those resolve locally,
 //! before any `op` call, and `theseusd check` and health name each one with
 //! its source. Values live in zeroizing memory and are never logged, stored,
-//! or written anywhere but the header they belong in.
+//! or written anywhere but the header they belong in. A resolved secret is
+//! trimmed wherever it comes from (a variable, a file, `op read`, an `op inject`
+//! slice, a fetched note's line), because it rides unmodified in a request
+//! header and a header refuses a newline (theseus-h66v4.5). A document is not a
+//! secret: the config note is read whole through `read_document`, byte for byte,
+//! because its copy is compared against what was written.
 //!
 //! Serve first (FAST, §2; theseus-qa0). The daemon answers its socket before
 //! any secret resolves: `resolve_into` fills a `SecretBoard` in the
@@ -111,10 +116,10 @@ impl SecretRef {
         &self.op_ref
     }
 
-    /// Apply the `#label` selection, if any, to a fetched value.
+    /// Apply the `#label` selection, if any, to a fetched value; the result is trimmed.
     pub fn select(&self, value: String) -> Result<String> {
         let Some(label) = &self.line_label else {
-            return Ok(value);
+            return Ok(value.trim().to_string());
         };
         let want = label.to_ascii_lowercase();
         for line in value.lines() {
@@ -228,7 +233,8 @@ pub fn check_local(reference: &str) -> Result<()> {
 }
 
 /// The value of a local entry (`is_local`), or why it has none; `None` for an
-/// `op://` reference. A variable's value and a file's text are trimmed.
+/// `op://` reference. A variable's value and a file's text are trimmed, as
+/// every secret the vault gives is (`read_raw`, `split_injected`, `select`).
 pub(crate) fn local_value(reference: &str) -> Option<Result<Secret, String>> {
     if let Some(var) = reference.strip_prefix("env:") {
         return Some(match std::env::var(var) {
@@ -349,7 +355,8 @@ impl OpReader {
         c
     }
 
-    /// One reference, `#label` applied (the config note itself is read this way).
+    /// One secret, `#label` applied, trimmed (theseus-h66v4.5). A document, the
+    /// config note, is not a secret: it is read by `read_document`.
     pub async fn read(&self, r: &SecretRef) -> Result<Secret> {
         let raw = self
             .read_raw(r.op_ref())
@@ -358,7 +365,37 @@ impl OpReader {
         Ok(Secret::new(r.select(raw.to_string())?))
     }
 
+    /// One document, such as the config note, exactly as stored: no trim, so a
+    /// trailing newline and a leading blank line survive. It is a `String`, not a
+    /// `Secret`, so a document cannot be passed where a resolved secret is wanted.
+    /// A `#label` still selects a field, and a field is a value, so it is trimmed.
+    pub async fn read_document(&self, r: &SecretRef) -> Result<String> {
+        let text = self
+            .run_read(r.op_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!("op read {} failed: {e}", r.as_str()))?;
+        if r.line_label.is_some() {
+            return r.select(text.to_string());
+        }
+        Ok(text.to_string())
+    }
+
+    /// A secret's value from `op read`, trimmed: a stored value may end in a newline
+    /// of its own, with or without `--no-newline`, and the emptiness check is on what
+    /// is kept.
     async fn read_raw(&self, op_ref: &str) -> Result<Zeroizing<String>, String> {
+        let text = self.run_read(op_ref).await?;
+        let value = Zeroizing::new(text.trim().to_string());
+        if value.is_empty() {
+            return Err("op returned an empty value".into());
+        }
+        Ok(value)
+    }
+
+    /// What `op read` printed, untouched; empty is an error. The one place `op read`
+    /// runs: whoever calls it chooses whether the text is a secret (`read_raw`, which
+    /// trims) or a document (`read_document`, which does not).
+    async fn run_read(&self, op_ref: &str) -> Result<Zeroizing<String>, String> {
         if let Some(why) = &self.absent {
             return Err(format!("no 1Password access: {why}"));
         }
@@ -379,13 +416,13 @@ impl OpReader {
             // op's stderr describes the failure; it does not echo values.
             return Err(op_error(&out.stderr));
         }
-        let value = Zeroizing::new(
+        let text = Zeroizing::new(
             String::from_utf8(out.stdout).map_err(|_| "op returned non-UTF-8".to_string())?,
         );
-        if value.is_empty() {
+        if text.is_empty() {
             return Err("op returned an empty value".into());
         }
-        Ok(value)
+        Ok(text)
     }
 
     /// Every reference through one `op inject`: one process and one vault
@@ -473,7 +510,8 @@ impl Fetch for OpReader {
     }
 }
 
-/// The values between `op inject`'s boundary lines, in order, or `None` if
+/// The values between `op inject`'s boundary lines, in order, each trimmed (the
+/// template's own newline is not in a slice, a value's own is), or `None` if
 /// the output is not the template's shape.
 fn split_injected(text: &str, boundary: &str, n: usize) -> Option<Vec<Zeroizing<String>>> {
     let mut rest = text.strip_prefix(&format!("{boundary}0\n"))?;
@@ -485,7 +523,7 @@ fn split_injected(text: &str, boundary: &str, n: usize) -> Option<Vec<Zeroizing<
             format!("\n{boundary}end\n")
         };
         let at = rest.find(&next)?;
-        out.push(Zeroizing::new(rest[..at].to_string()));
+        out.push(Zeroizing::new(rest[..at].trim().to_string()));
         rest = &rest[at + next.len()..];
     }
     Some(out)
@@ -1133,6 +1171,212 @@ mod tests {
         assert_eq!(v, ["first", "line one\nline two", ""]);
         assert!(split_injected("garbage", b, 1).is_none());
         assert!(split_injected(&format!("{b}0\nno end"), b, 1).is_none());
+    }
+
+    /// theseus-h66v4.5: a resolved value is trimmed however it was obtained, because
+    /// it rides unmodified in a request header, and a header refuses a newline. The
+    /// expected values are literals typed here, never read from a vault.
+    fn padded_op(dir: &std::path::Path) -> OpReader {
+        use std::os::unix::fs::PermissionsExt;
+        let op_bin = dir.join("op");
+        // A stored value that ends in a newline of its own, as a note's field does,
+        // whether or not `op` adds one.
+        std::fs::write(
+            &op_bin,
+            r#"#!/bin/sh
+case "$1" in
+  read) printf 'made-up-read-value\n' ;;
+  inject) awk '/^\{\{ .* \}\}$/ { n++; printf "made-up-inject-%d\n\n", n; next } { print }' ;;
+  *) exit 1 ;;
+esac
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        OpReader {
+            token: Secret::new("test-not-a-token".into()),
+            op_bin,
+            token_file: None,
+            absent: None,
+        }
+    }
+
+    #[test]
+    fn a_variable_and_a_file_resolve_trimmed() {
+        use std::os::unix::fs::PermissionsExt;
+        std::env::set_var("THESEUS_H66V45_PADDED", "  made-up-env-value \n");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("key");
+        std::fs::write(&file, "\n  made-up-file-value\t\n\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let env = local_value("env:THESEUS_H66V45_PADDED").unwrap().unwrap();
+        assert_eq!(env.expose(), "made-up-env-value");
+        let got = local_value(&format!("file:{}", file.display()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.expose(), "made-up-file-value");
+    }
+
+    #[tokio::test]
+    async fn an_op_read_resolves_trimmed() {
+        let dir = tempfile::tempdir().unwrap();
+        let reader = padded_op(dir.path());
+        let r = SecretRef::parse("op://V/item/notesPlain").unwrap();
+        let got = reader.read(&r).await.unwrap();
+        assert_eq!(got.expose(), "made-up-read-value");
+        let raw = reader.read_raw(r.op_ref()).await.unwrap();
+        assert_eq!(raw.as_str(), "made-up-read-value");
+    }
+
+    #[tokio::test]
+    async fn an_op_read_of_only_whitespace_is_an_empty_value() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let reader = padded_op(dir.path());
+        std::fs::write(&reader.op_bin, "#!/bin/sh\nprintf ' \\n'\n").unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let e = reader.read_raw("op://V/item/notesPlain").await.unwrap_err();
+        assert_eq!(e, "op returned an empty value");
+    }
+
+    #[tokio::test]
+    async fn an_op_inject_resolves_each_value_trimmed() {
+        let dir = tempfile::tempdir().unwrap();
+        let reader = padded_op(dir.path());
+        let refs = vec![
+            "op://V/one/notesPlain".to_string(),
+            "op://V/two/notesPlain".to_string(),
+        ];
+        let Ok(got) = reader.inject(&refs).await else {
+            panic!("op inject failed");
+        };
+        let got: Vec<&str> = got.iter().map(|s| s.as_str()).collect();
+        assert_eq!(got, ["made-up-inject-1", "made-up-inject-2"]);
+    }
+
+    /// The template's own newline is not in a slice (the boundary search starts at
+    /// it); a value's own trailing newline is, until the slice is trimmed.
+    #[test]
+    fn a_slice_keeps_no_trailing_whitespace_of_the_value() {
+        let b = "--theseus-x-";
+        let text = format!("{b}0\nmade-up-a\n\n{b}1\n  made-up-b \n\n\n{b}end\n");
+        let v = split_injected(&text, b, 2).unwrap();
+        let v: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+        assert_eq!(v, ["made-up-a", "made-up-b"]);
+    }
+
+    #[tokio::test]
+    async fn a_round_resolves_a_fetched_value_trimmed() {
+        let refs = refs(&[
+            ("plain", "op://V/plain/notesPlain"),
+            ("line", "op://V/note/notesPlain#key"),
+        ]);
+        let vault = fake::FakeVault::new(&[
+            ("op://V/plain/notesPlain", "made-up-plain\n"),
+            ("op://V/note/notesPlain", "title: x\nkey: made-up-line \n"),
+        ]);
+        let names: Vec<String> = refs.keys().cloned().collect();
+        let (out, _) = round(&refs, &names, &vault).await;
+        assert_eq!(out["plain"].as_ref().unwrap().expose(), "made-up-plain");
+        assert_eq!(out["line"].as_ref().unwrap().expose(), "made-up-line");
+    }
+
+    /// A trim takes the ends of a value and nothing else: a secret that holds
+    /// spaces, tabs or newlines inside (a passphrase, a multi-line key) comes out
+    /// whole on every path an `op` value takes, with its padding gone. The value
+    /// is a literal typed here, and every other test's is a single token, which a
+    /// trim that also ate the inside would pass.
+    #[tokio::test]
+    async fn a_trim_takes_the_ends_of_a_value_and_keeps_the_whitespace_inside_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let inside = "made-up first  line\n\tmade-up second line\nmade-up last line";
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("value.txt"), format!("\n  {inside}\t\n\n")).unwrap();
+        let reader = padded_op(dir.path());
+        std::fs::write(
+            &reader.op_bin,
+            "#!/bin/sh\ncat \"$(dirname \"$0\")/value.txt\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let r = SecretRef::parse("op://V/item/notesPlain").unwrap();
+        assert_eq!(reader.read(&r).await.unwrap().expose(), inside);
+        assert_eq!(reader.read_raw(r.op_ref()).await.unwrap().as_str(), inside);
+
+        let b = "--theseus-x-";
+        let text = format!("{b}0\n  {inside}\t\n\n{b}end\n");
+        let v = split_injected(&text, b, 1).unwrap();
+        assert_eq!(v[0].as_str(), inside);
+
+        let refs = refs(&[
+            ("plain", "op://V/plain/notesPlain"),
+            ("line", "op://V/note/notesPlain#key"),
+        ]);
+        let padded = format!("\n  {inside}\t\n");
+        let vault = fake::FakeVault::new(&[
+            ("op://V/plain/notesPlain", padded.as_str()),
+            (
+                "op://V/note/notesPlain",
+                "title: x\nkey:  made-up  spaced\tvalue \n",
+            ),
+        ]);
+        let names: Vec<String> = refs.keys().cloned().collect();
+        let (out, _) = round(&refs, &names, &vault).await;
+        assert_eq!(out["plain"].as_ref().unwrap().expose(), inside);
+        assert_eq!(
+            out["line"].as_ref().unwrap().expose(),
+            "made-up  spaced\tvalue"
+        );
+    }
+
+    /// theseus-h66v4.5: the trim belongs to a resolved secret, not to everything the
+    /// reader returns. The config note is a document, compared byte for byte against
+    /// what was written, so the doorway the daemon reads it through keeps every byte,
+    /// a trailing newline included. The note is a literal typed here.
+    #[tokio::test]
+    async fn the_config_note_read_through_the_reader_keeps_its_bytes() {
+        use crate::config_gate::ReadNote;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let note = "\n[made_up]\nkey = 1\n\n# a made-up comment\n";
+        std::fs::write(dir.path().join("note.txt"), note).unwrap();
+        let mut reader = padded_op(dir.path());
+        std::fs::write(
+            &reader.op_bin,
+            "#!/bin/sh\ncat \"$(dirname \"$0\")/note.txt\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        reader.absent = None;
+        let reference = "op://V/note/notesPlain";
+        let got = reader.read_note(reference).await.unwrap();
+        assert!(
+            got.ends_with('\n'),
+            "the stored note ends in a newline: {got:?}"
+        );
+        assert_eq!(got, note);
+        // The same reference as a secret is trimmed: both halves of the boundary.
+        let r = SecretRef::parse(reference).unwrap();
+        assert_eq!(reader.read(&r).await.unwrap().expose(), note.trim());
+    }
+
+    #[tokio::test]
+    async fn a_document_read_is_whole_and_a_field_of_it_is_a_trimmed_value() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let note = "title: x\nkey: made-up-line \n\n";
+        std::fs::write(dir.path().join("note.txt"), note).unwrap();
+        let reader = padded_op(dir.path());
+        std::fs::write(
+            &reader.op_bin,
+            "#!/bin/sh\ncat \"$(dirname \"$0\")/note.txt\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&reader.op_bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let whole = SecretRef::parse("op://V/note/notesPlain").unwrap();
+        assert_eq!(reader.read_document(&whole).await.unwrap(), note);
+        let field = SecretRef::parse("op://V/note/notesPlain#key").unwrap();
+        assert_eq!(reader.read_document(&field).await.unwrap(), "made-up-line");
     }
 
     #[test]

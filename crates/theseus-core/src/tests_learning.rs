@@ -554,6 +554,7 @@ async fn the_reports_numbers_equal_learns_on_the_same_pairs() {
 /// of the minimum it says "insufficient" with its counts.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_holdout_is_frozen_into_the_report() {
+    let _clock = crate::test_support::pin_mid_period();
     let r = rig(texts(0), |_| {});
     let c = &r.core;
     let now = theseus_protocol::now_unix_ms();
@@ -1336,4 +1337,42 @@ fn a_machine_label_never_grades_the_reports_holdout() {
         .unwrap();
     assert_eq!(whole.labeled, 3, "the whole report counts them all");
     assert_eq!(h.train, 1);
+}
+
+/// `failed` is all-time and never falls; `failed_recent` is the day to the
+/// report's end and after, so one old burst of failures (judge.failed:people.v1,
+/// 12 calls on Oct 8-9) is not read as failing now.
+#[test]
+fn the_report_counts_the_failures_of_the_last_day_apart_from_the_old() {
+    use crate::learning::{report::pack_report, Seen};
+    use theseus_judge::learn::Window;
+    let day = DAY_MS;
+    let window = Window::latest(40 * day, 14);
+    let seen = |id: &str, at: u64, failed: bool| {
+        let mut j = judgment(id, "people.v1", vec![], json!({}), 10);
+        if failed {
+            j.outcome = serde_json::from_value(json!({
+                "outcome": "failed", "error": {"class": "network", "message": "down"},
+                "class": "network", "transient": true, "usage_unknown": false,
+            }))
+            .unwrap();
+        }
+        Seen {
+            position: at,
+            at_ms: at,
+            judgment: j,
+        }
+    };
+    let old = vec![
+        seen("jdg_old1", 10 * day, true),
+        seen("jdg_old2", 10 * day + 1, true),
+        seen("jdg_ok", 39 * day + day / 2, false),
+    ];
+    let none = std::collections::HashMap::new();
+    let r = pack_report("people.v1", &old, &none, window);
+    assert_eq!((r.failed, r.failed_recent), (2, Some(0)), "old failures");
+    let mut now = old;
+    now.push(seen("jdg_new", 39 * day + day / 2, true));
+    let r = pack_report("people.v1", &now, &none, window);
+    assert_eq!((r.failed, r.failed_recent), (3, Some(1)), "a new failure");
 }

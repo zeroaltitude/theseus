@@ -1150,6 +1150,8 @@ fn footer(r: &TurnSubmitResult) -> String {
     ) {
         bits.push(format!("stopped: {}", r.stop_reason));
     }
+    // What the session carries, and the way off it (theseus-emqbm).
+    bits.extend(labels_bit(&r.labels));
     // The turn in the cockpit (theseus-x9swu): a masked link, its brackets
     // keeping Discord from an embed, on this line and no other.
     if let Some(u) = &r.inspect_url {
@@ -1158,6 +1160,34 @@ fn footer(r: &TurnSubmitResult) -> String {
     let lines = r.harness_lines(); // a refusal's fallback, a nudge (theseus-7gir.18, theseus-fh0u)
     let fell: String = lines.iter().map(|l| format!("-# {l}\n")).collect();
     format!("{fell}-# {}", bits.join(" · "))
+}
+
+/// The footer's label bit (theseus-emqbm): the labels the session carries now,
+/// each with a link that removes that one from that session.
+///
+/// The owner asked that a message always show the labels it is carrying and
+/// give a way off them at any time, "without a big button": the **Remove**
+/// button on the message that raises a label is reachable only at the moment
+/// it goes up, so the footer carries a link instead. The flag's word is always
+/// shown; the link rides beside it, and is left out when the daemon serves no
+/// web UI and `[cockpit] public_url` names none, so the label is still said.
+///
+/// **A session with no labels gets `None`**, so the footer is byte for byte
+/// the footer it was: nothing is appended, no separator and no empty bracket.
+/// `render::tests::a_session_with_no_labels_has_the_footer_it_always_had`
+/// holds that, and the locked DM flow's golden pins it.
+fn labels_bit(labels: &[theseus_protocol::LabelLink]) -> Option<String> {
+    if labels.is_empty() {
+        return None;
+    }
+    let each: Vec<String> = labels
+        .iter()
+        .map(|l| match &l.remove_url {
+            Some(u) => format!("{} ([remove](<{u}>))", l.flag),
+            None => l.flag.clone(),
+        })
+        .collect();
+    Some(format!("labels: {}", each.join(", ")))
 }
 
 /// One short line for a tool call: the argument a person would look for.
@@ -1420,6 +1450,59 @@ mod tests {
             fed[0].1
         );
         assert!(!alone[0].1.contains("recalled"), "{}", alone[0].1);
+    }
+
+    /// The footer lists the labels the session carries now (theseus-emqbm),
+    /// each with a link that removes that one from that session, so the
+    /// operator can take one off at any time and not only from the message
+    /// that raised it. The links follow `[inspect]`'s house form: masked,
+    /// in angle brackets so Discord draws no embed, on the footer's one line.
+    ///
+    /// **The empty case is the assertion this row turns on**: a session with
+    /// no labels gets the footer it always had, byte for byte, which is what
+    /// keeps the locked DM flow's golden where it is.
+    #[test]
+    fn the_footer_lists_the_sessions_labels_each_a_link_that_removes_it() {
+        let link = |flag: &str| format!("http://localhost:17433/session/s/unlabel/{flag}");
+        let mut two = ended("t1", None);
+        two["labels"] = json!([
+            {"flag": "injection", "remove_url": link("injection")},
+            {"flag": "personal", "remove_url": link("personal")},
+        ]);
+        let with = footer(&result_of(two));
+        // Both labels are named, each with its own link, and each link
+        // carries this session's id and that flag and no other.
+        assert_eq!(with.lines().count(), 1, "the footer stays one line: {with}");
+        assert!(
+            with.contains(&format!(
+                "labels: injection ([remove](<{}>)), personal ([remove](<{}>))",
+                link("injection"),
+                link("personal")
+            )),
+            "{with}"
+        );
+        assert_eq!(with.matches("[remove](<").count(), 2, "{with}");
+        // A label with no address (no web UI, no `public_url`) is still said.
+        let mut bare = ended("t2", None);
+        bare["labels"] = json!([{"flag": "secret"}]);
+        let bare = footer(&result_of(bare));
+        assert!(bare.ends_with(" · 4.2 s · labels: secret"), "{bare}");
+        assert!(!bare.contains("remove"), "{bare}");
+    }
+
+    /// A session carrying nothing produces the footer it always produced: no
+    /// separator, no count, no empty bracket (theseus-emqbm). Asserted beside
+    /// the positive count above, so an empty label list cannot pass both.
+    #[test]
+    fn a_session_with_no_labels_has_the_footer_it_always_had() {
+        let mut with = ended("t1", None);
+        with["inspect_url"] = json!("http://localhost:17433/session/s/turn/t1");
+        let before = "-# sonnet · claude-sonnet-5 · 2 loops · 1 tool call · $47.52 total \
+($0.0123 this reply) · 4.2 s · [inspect](<http://localhost:17433/session/s/turn/t1>)";
+        assert_eq!(footer(&result_of(with)), before);
+        let plain = footer(&result_of(ended("t2", None)));
+        assert!(!plain.contains("labels"), "{plain}");
+        assert!(!plain.contains("remove"), "{plain}");
     }
 
     /// The footer links to its turn in the cockpit (theseus-x9swu): a masked

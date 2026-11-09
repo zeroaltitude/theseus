@@ -315,9 +315,20 @@ pub struct Server {
     /// The requests of its own its connection answers: an extension's hands
     /// broker (theseus-pw1q.14), none for any other server.
     serve: Option<theseus_mcp::client::Served>,
+    /// A loaded extension's acked tool names (theseus-ext.13): the only tools
+    /// of its server the catalog offers, whatever its `tools/list` answers.
+    /// None for a configured server, which offers all it lists.
+    acked: Option<Vec<String>>,
 }
 
 impl Server {
+    /// Whether the catalog may offer this server's tool `tool`.
+    fn offers(&self, tool: &str) -> bool {
+        self.acked
+            .as_ref()
+            .is_none_or(|a| a.iter().any(|t| t == tool))
+    }
+
     fn new(name: &str, cfg: &McpServerConfig, stored: Option<StoredList>) -> Self {
         let mut live = Live {
             state: Some(if cfg.enabled {
@@ -341,6 +352,7 @@ impl Server {
             errors: AtomicU64::new(0),
             restart: Notify::new(),
             serve: None,
+            acked: None,
         }
     }
 
@@ -661,7 +673,13 @@ impl McpBoard {
         let mut pairs: Vec<(Arc<Server>, Listed)> = Vec::new();
         let servers = self.servers.values().cloned().chain(self.loaded_servers());
         for s in servers.filter(|s| s.cfg.enabled) {
-            for t in s.live().tools.clone() {
+            for t in s
+                .live()
+                .tools
+                .clone()
+                .into_iter()
+                .filter(|t| s.offers(&t.name))
+            {
                 pairs.push((s.clone(), t));
             }
         }

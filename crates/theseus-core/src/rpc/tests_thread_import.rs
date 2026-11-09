@@ -434,6 +434,7 @@ async fn nothing_of_the_history_enters_a_thread_or_a_session() {
 /// says why, and asks no model.
 #[tokio::test]
 async fn a_spent_day_makes_a_thread_without_a_card() {
+    let _clock = crate::test_support::pin_mid_period();
     let r = rig(vec![], |_| {});
     import_export(&r.core).await;
     let today = crate::judge::spend::local_day(theseus_protocol::now_unix_ms());

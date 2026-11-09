@@ -271,10 +271,15 @@ pub(crate) fn gate(
         }
         _ => "any call its posture alone asked about".to_string(),
     };
+    // What the call reaches outside the roots stays in the reason: the mode
+    // loosens the posture, never the record of the access.
+    let outside = rt.policy.outside_labels(plan);
     let rule = format!(
-        "{} — notify ({} mode: {what}, this conversation; shift+tab changes it)",
+        "{} — notify ({} mode: {what}, this conversation; shift+tab changes it{}{})",
         tool.name(),
-        mode.name()
+        mode.name(),
+        if outside.is_empty() { "" } else { "; " },
+        outside.join("; ")
     );
     Decision {
         notify: Some(Notice {

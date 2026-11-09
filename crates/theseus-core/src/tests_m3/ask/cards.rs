@@ -110,7 +110,10 @@ async fn dm_cards_off_is_todays_post() {
     let corr = res.awaiting_confirm.unwrap();
     let t0 = r.core.kernel.action(&corr).unwrap().unwrap().planned_at_ms;
     assert_eq!(r.core.escalate_questions(t0 + 61_000), 1);
-    let req = r.core.confirm_list().unwrap().remove(0);
+    // The request is read as the poster reads it (`pending_confirms`), not
+    // from `confirm_list`: the list shows a held call's deadline as none,
+    // while the post, whose card footer reads the time, keeps the real one.
+    let req = r.core.pending_confirms(&res.session_id).unwrap().remove(0);
     let a = r.core.kernel.action(&corr).unwrap().unwrap();
     let who = r.core.asker_name(&req);
     let posted = crate::outbox::body_of(&needs_you_posts(&r)[0]).clone();

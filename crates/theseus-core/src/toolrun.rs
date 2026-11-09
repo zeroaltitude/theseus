@@ -325,6 +325,8 @@ pub struct ToolRuntime {
     pub routines: crate::routine::Book,
     /// What `thread.read` reads (theseus-f2g0): the core, once built.
     pub thread_read: crate::thread_read::Board,
+    /// What `card.observed` reads (theseus-6f8t0): the core, once built.
+    pub card_observed: crate::card::tool::Board,
     /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
     pub defer: crate::tools_defer::Board,
     /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
@@ -505,6 +507,7 @@ impl ToolRuntime {
             lookup: Default::default(),
             routines: Default::default(),
             thread_read: Default::default(),
+            card_observed: Default::default(),
             defer: Default::default(),
             projects: Default::default(),
             jobs: Default::default(),
@@ -591,6 +594,15 @@ impl ToolRuntime {
             granted: Some(granted),
             ..d.at_least(need, &why, &setting, tool, &plan.summary)
         }
+    }
+
+    /// Whether abandoning a task follows `task.close`'s posture: the operator
+    /// set that line in `[policy.tools]` to `notify` and it is still notify
+    /// now (a tightening to approve ends it). Unset, or `open`, keeps the ask.
+    pub fn abandon_follows_posture(&self) -> bool {
+        let name = crate::task_graph::tools::CLOSE;
+        self.policy.tools.contains_key(name)
+            && self.posture_now(name).posture == crate::policy::Posture::Notify
     }
 
     /// A tool's posture now: the config's, or its tightening's when that is
@@ -1000,7 +1012,13 @@ impl ToolRuntime {
         let planned = tool.plan(&call.input, &ctx);
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
-            crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
+            crate::task_graph::tools::authority_for(
+                tc.store,
+                tool.name(),
+                &call.input,
+                p,
+                self.abandon_follows_posture(),
+            )
         });
         // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
         let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
@@ -1455,7 +1473,9 @@ impl ToolRuntime {
                 }
             }
             name if crate::task_graph::tools::is_edit(name) => {
-                let how = (ran_at == Posture::Approve, self.leases.lease_ms());
+                let approved = ran_at == Posture::Approve
+                    || (name == crate::task_graph::tools::CLOSE && self.abandon_follows_posture());
+                let how = (approved, self.leases.lease_ms());
                 crate::task_graph::tools::run(tc, name, &call.input, correlation_id, how)
                     .map(|d| edit.take(d))
             }
@@ -1613,6 +1633,8 @@ impl ToolRuntime {
                 crate::memory_lookup::FAMILY => self.lookup.run(tc, &input),
                 // Another thread, read on purpose (theseus-f2g0).
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
+                // What has been kept about the owner, asked for (theseus-6f8t0).
+                crate::card::tool::FAMILY => self.card_observed.run(tc, &input),
                 crate::tools_defer::FAMILY => self.defer.run(tc.session_id, &input),
                 // Part of a thread, a thread of its own (theseus-vt9k).
                 crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),
@@ -2011,6 +2033,12 @@ pub fn build_runtime(
         r.register(Arc::new(crate::memory_lookup::MemoryLookup));
         // Another thread's card and notes, read on purpose (theseus-f2g0).
         r.register(Arc::new(crate::thread_read::ThreadRead));
+        // What the live observer has kept about the owner, read when he asks
+        // what it has learned about him (theseus-6f8t0). With the observer
+        // off nothing is kept, so the tool is not offered at all.
+        if cfg.card.observe {
+            r.register(Arc::new(crate::card::tool::CardObserved));
+        }
         crate::rsi::pr::register(cfg, &mut r);
         crate::rsi::evidence::register(cfg, &mut r);
         r.register(Arc::new(crate::tools_defer::find::FindTool));
@@ -2144,6 +2172,7 @@ pub fn build_runtime(
         lookup: Default::default(),
         routines: crate::routine::Book::new(&cfg.routines),
         thread_read: Default::default(),
+        card_observed: Default::default(),
         defer: Default::default(),
         projects: cfg.projects.clone(),
         jobs: Default::default(),
