@@ -2086,7 +2086,7 @@ pub(crate) fn withhold_session_words(i: &mut theseus_protocol::SessionInfo) {
 
 /// An imported node as a surface that reads no private text sees it: who,
 /// when and how big, never what it said (theseus-a7pr).
-fn withheld_node(mut i: theseus_protocol::NodeInfo) -> theseus_protocol::NodeInfo {
+pub(crate) fn withheld_node(mut i: theseus_protocol::NodeInfo) -> theseus_protocol::NodeInfo {
     i.text = crate::books::WITHHELD.into();
     i.thinking = String::new();
     i.detail = Value::Null;
