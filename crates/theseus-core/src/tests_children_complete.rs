@@ -201,7 +201,7 @@ fn a_planted_bare_spawn_is_named() {
     std::fs::create_dir_all(&src).unwrap();
     std::fs::write(
         src.join("planted.rs"),
-        &format!(
+        format!(
             "fn f(x: &mut std::process::Command) {{\n    let _c = x.spawn{};\n}}\n",
             "()"
         ),
@@ -209,7 +209,7 @@ fn a_planted_bare_spawn_is_named() {
     .unwrap();
     std::fs::write(
         src.join("planted2.rs"),
-        &format!(
+        format!(
             "fn g(x: &mut std::process::Command) {{ let _c = x.spawn{}.unwrap(); }}\n",
             "()"
         ),
