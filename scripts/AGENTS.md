@@ -282,6 +282,17 @@ false) and `keel-file` (the guard itself, its door, a gate phase gone). The test
 cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.only` and `{ skip: }` options, and
 `assert.*` calls).
 
+- **Two halves, and a non-keel file is not exempt (theseus-4vsrz).** A brief or a builder must say which it means.
+  (a) *Where*: `KEEL_FILES`, `KEEL_PREFIXES` and `LOCKED_FLOW_PREFIXES` in the guard name files whose edit needs an ack
+  whatever it does (`keel-file`, `locked-flow`). (b) *What*: the erosion rules (`test-removed`, `test-ignored`,
+  `assert-removed`, `assert-weakened`, `allow-added`, `budget-raised`, `cap-raised`, `ceiling-raised`, `ci-loosened`)
+  judge what the change does, in ANY file: a file outside `KEEL_FILES` that loses one assertion fails the gate in
+  about a second, before a test runs. Clearing (a) says nothing about (b), so "the file is not keel-class" never means
+  "no `Keel:` trailer is needed". A ruling that deletes or weakens an assertion comes with the owner's quote, or is
+  marked as needing one. Never ack across a batch boundary: when a finding names a file the change never touched,
+  `git grep` the symbol at the base and at the head first, and judge at the branch's own base (`--base $(git
+  merge-base <base> HEAD)`): a base that is not an ancestor of HEAD reads what the base's side added as removed.
+  `scripts/keel-batch-repro.sh` shows a real `test-removed` re-attributed to an unrelated file in a batch.
 - **The range.** Main is `origin/main` (the local `main` only where there is no `origin/main`): a join's local main is
   ahead of it by exactly what the join's gate judges. On a branch, merge-base(HEAD, main)..the working tree, so the gate
   before a commit judges what it will hold, and a join whose fix is a commit after its merge is judged whole (until
