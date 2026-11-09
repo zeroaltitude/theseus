@@ -184,6 +184,9 @@ pub struct Switch {
     pub(crate) notice_day: Mutex<Option<String>>,
     /// One backlog move at a time: a night, a drop, a move (`backlog.rs`).
     pub(crate) backlog: Mutex<()>,
+    /// The starts no note has told yet: one read and write at a time
+    /// (`backlog/folded.rs`).
+    pub(crate) folded: Mutex<()>,
     /// The self pipeline's one tick at a time, its one self-join pass at a
     /// time, and its kick (`pipeline.rs`, theseus-pw1q.16).
     pub(crate) pipeline: pipeline::Shared,

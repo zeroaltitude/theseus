@@ -434,27 +434,45 @@ impl Core {
     }
 
     /// One line to the owner's DM (the digest's path) when the night filed,
-    /// started, trimmed or holds something for the owner.
+    /// started, trimmed or holds something for the owner. The builds the
+    /// pipeline started since the last note are listed in it, in the night's
+    /// own words, so they are told once and in one place.
     pub(super) fn backlog_tell(&self, w: &Work, night: &Night) {
-        if night.said_nothing() || !self.runner.place_rule.owner_dm_bound() {
+        if !self.runner.place_rule.owner_dm_bound() {
             return;
         }
-        let text = night_text(night, |id| Item {
-            title: w
-                .tasks
-                .get(id)
-                .map_or_else(|| id.to_string(), |t| t.title.clone()),
+        let folded = self.folded_read();
+        let mut said = night.clone();
+        said.started.extend(folded.as_started(&night.started));
+        said.started_more += folded.more as usize;
+        if said.said_nothing() {
+            return;
+        }
+        let text = night_text(&said, |id| Item {
+            title: w.tasks.get(id).map_or_else(
+                || {
+                    folded
+                        .started
+                        .iter()
+                        .find(|p| p.item == id)
+                        .map_or_else(|| id.to_string(), |p| p.title.clone())
+                },
+                |t| t.title.clone(),
+            ),
             count: w.st.items.get(id).map_or(0, |m| m.count),
             since_ms: w.tasks.get(id).map_or(0, |t| t.created_at_ms),
         });
-        self.stage_self_digest(&text);
+        if self.stage_self_digest(&text) {
+            self.folded_told(&folded);
+        }
     }
 
     /// One `self_digest` post to the owner's DM; a failure is logged, never
-    /// raised (the night's and the pipeline's tick's lines share it).
-    pub(crate) fn stage_self_digest(&self, text: &str) {
+    /// raised (the night's and the pipeline's tick's lines share it). Whether
+    /// the post was written.
+    pub(crate) fn stage_self_digest(&self, text: &str) -> bool {
         if !self.runner.place_rule.owner_dm_bound() {
-            return;
+            return false;
         }
         let written = (|| -> Result<()> {
             let (a, frame) = self
@@ -464,40 +482,20 @@ impl Core {
             self.outbox.posted(&a);
             Ok(())
         })();
-        if let Err(e) = written {
+        if let Err(e) = &written {
             tracing::warn!(error = %format!("{e:#}"), "self backlog: the owner's note was not written");
         }
+        written.is_ok()
     }
 
-    /// A pipeline tick that started builds tells the owner in one line, in
-    /// the night's own words ([`night_text`]); a tick that started nothing
-    /// says nothing. `started` is `(item, title)`, in order.
+    /// A pipeline tick that started builds says nothing at once: they are
+    /// recorded, `(item, title)` in order, and the next note that goes out
+    /// (the night's, or the morning's) lists them with the rest. Five ticks
+    /// in two and a half hours were five "1 started" lines, each the same
+    /// note about a different pack (the owner, 2026-11-09). A note that waits
+    /// for the owner's word (an `Action`) is the night's, and posts at once.
     pub(crate) fn pipeline_tell(&self, started: &[(String, String)]) {
-        if started.is_empty() || !self.runner.place_rule.owner_dm_bound() {
-            return;
-        }
-        let night = Night {
-            started: started
-                .iter()
-                .map(|(item, title)| Started {
-                    item: item.clone(),
-                    title: title.clone(),
-                    session_id: String::new(),
-                    objective: String::new(),
-                    mint: None,
-                })
-                .collect(),
-            ..Night::default()
-        };
-        let text = night_text(&night, |id| Item {
-            title: started
-                .iter()
-                .find(|(i, _)| i == id)
-                .map_or_else(|| id.to_string(), |(_, t)| t.clone()),
-            count: 0,
-            since_ms: 0,
-        });
-        self.stage_self_digest(&text);
+        self.folded_add(started);
     }
 }
 
@@ -506,6 +504,7 @@ impl Night {
     pub(crate) fn said_nothing(&self) -> bool {
         self.filed.is_empty()
             && self.started.is_empty()
+            && self.started_more == 0
             && self.trimmed.is_empty()
             && self.kept_out == 0
     }
@@ -539,6 +538,9 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
     for s in &night.started {
         body.push_str(&format!("- started work on: {}\n", line(&s.item)));
     }
+    if night.started_more > 0 {
+        body.push_str(&format!("- and {} more started\n", night.started_more));
+    }
     for id in night.filed.iter().take(10) {
         let held = night.waiting.contains(id);
         body.push_str(&format!(
@@ -567,7 +569,7 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
     let mut counts = vec![];
     for (n, what) in [
         (night.filed.len(), "new"),
-        (night.started.len(), "started"),
+        (night.started.len() + night.started_more, "started"),
         (night.trimmed.len(), "dropped"),
     ] {
         if n > 0 {

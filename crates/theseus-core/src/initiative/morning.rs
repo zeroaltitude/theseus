@@ -132,6 +132,10 @@ impl Core {
                 "memory notes proposed",
             ),
             (ontology, "ontology changes by the night's sweep and dream"),
+            (
+                self.folded_read().count() as u64,
+                "self-improvement builds started since the last note",
+            ),
         ];
         let total: u64 =
             items.iter().map(|(n, _)| n).sum::<u64>() + google.map_or(0, Day::happened);
@@ -164,6 +168,9 @@ impl Core {
         // The ontology's writes go in verbatim after the voiced words: the
         // model never rewords an undo id (theseus-0umqz).
         let ontology = self.onto_night_lines(now);
+        // The builds the self pipeline started since the last note go in the
+        // same way: told here or in the night's note, whichever goes first.
+        let folded = self.folded_read();
         if let Some((brief, n)) = self.morning_facts(now, google.as_ref(), ontology.len() as u64) {
             let waiting = google.as_ref().is_some_and(|g| g.drafts > 0);
             let mut spoken = self
@@ -181,10 +188,16 @@ impl Core {
             if !ontology.is_empty() {
                 spoken.text = format!("{}\n\n{}", spoken.text, ontology.join("\n"));
             }
+            if !folded.is_empty() {
+                spoken.text = format!("{}\n\n{}", spoken.text, folded.lines().join("\n"));
+            }
             // A sensitive calendar's events reach the DM and no ledger row.
             let held = google.as_ref().is_some_and(|g| g.sensitive);
-            if let Err(e) = self.initiative_post_as("morning", &spoken, held) {
-                tracing::warn!(error = %format!("{e:#}"), "the morning note was not written");
+            match self.initiative_post_as("morning", &spoken, held) {
+                Ok(()) => self.folded_told(&folded),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "the morning note was not written");
+                }
             }
         }
         let mark = NewRecord::json(kinds::META, Some(MARK), &json!(day))

@@ -34,7 +34,8 @@
 //! the pipeline's free build slots, `[self] pipeline_builds` less the builds in
 //! flight, theseus-awycv) move to running: a session whose execution's principal is the reserved
 //! `"self"` (so the budget counts it, and it holds no owner handle), a
-//! `self.backlog.started` row, and one line to the owner's DM. The first turn
+//! `self.backlog.started` row, and a line in the night's note to the owner's DM
+//! (a start the pipeline makes later is listed in the next note: `folded`). The first turn
 //! tells the model to call `self.propose_change { item, issue, why }`, the
 //! branch builder's tool; the turn runs from [`tender`], after the night has
 //! written.
@@ -47,6 +48,7 @@
 //!
 //! What it keeps beside the tasks is one META record ([`state`]).
 
+mod folded;
 mod graduate;
 mod keel;
 mod rank;
@@ -101,6 +103,9 @@ pub struct Night {
     pub too_low: usize,
     pub ranked: usize,
     pub started: Vec<Started>,
+    /// Starts the note tells beyond those listed in `started` (the pipeline's,
+    /// folded into this note, past the cap): said as a count.
+    pub started_more: usize,
     /// Items that did not start, with why: their tree could not be opened.
     pub held: Vec<(String, String)>,
     /// Open items waiting on the owner (keel marks), filed this night.

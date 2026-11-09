@@ -39,8 +39,11 @@
 //! reason changes). A start is the [`Builder`]'s: [`Local`] (self-pr's
 //! sandboxed tree, through the backlog's own start: a `"self"` session and
 //! its first turn) is the only one. A tick that started at least one build
-//! stages one `self_digest` line in the night's words. While the pipeline runs,
-//! the night files and ranks and starts nothing itself.
+//! records them and says nothing at once: the next note that goes out (the
+//! night's, or the morning's) lists them in one place, in the night's words
+//! (`backlog/folded.rs`; the owner, 2026-11-09, after five "1 started" lines in
+//! two and a half hours). While the pipeline runs, the night files and ranks
+//! and starts nothing itself.
 //!
 //! **Reviews and joins** are self-join's: [`Core::self_join_pass`] reviews
 //! each green branch once per head and joins at most one a pass, under
@@ -380,8 +383,8 @@ impl Core {
         }
         tick.join_due = !q.reviewing.is_empty() || !q.joining.is_empty();
         let started = self.pipeline_starts(seams, &place, &q, &mut w, &mut tick);
-        // One line a tick, naming every build it started, even when a later
-        // start was held or failed (theseus-o1h3f.6).
+        // Every build the tick started, even when a later start was held or
+        // failed, recorded for the next note (theseus-o1h3f.6).
         let told: Vec<(String, String)> = tick
             .started
             .iter()

@@ -124,7 +124,95 @@ pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
     for c in by.values_mut() {
         c.pattern = c.obs.iter().rev().find_map(|o| o.pattern.clone());
     }
+    collapse_failed(&mut by);
     by.into_values().collect()
+}
+
+/// The key every pack's failed judgments share, before the pack's name.
+const FAILED_PREFIX: &str = "judge.failed:";
+/// The key of a night's failed judgments from two or more packs.
+const FAILED_MANY: &str = "judge.failed";
+
+/// Two or more packs whose judgments failed in one night are one cause, not
+/// one item each (the owner, 2026-11-09: seven items from one night, each
+/// started in a session of its own). They become one candidate, `judge.failed`,
+/// whose one observation lists `pack: failed/calls` a line per pack; a night
+/// with one such pack keeps that pack's own key and words.
+fn collapse_failed(by: &mut BTreeMap<String, Candidate>) {
+    let keys: Vec<String> = by
+        .keys()
+        .filter(|k| k.starts_with(FAILED_PREFIX))
+        .cloned()
+        .collect();
+    if keys.len() < 2 {
+        return;
+    }
+    let packs: Vec<Candidate> = keys.iter().filter_map(|k| by.remove(k)).collect();
+    let obs: Vec<&Obs> = packs.iter().flat_map(|c| &c.obs).collect();
+    let newest = obs
+        .iter()
+        .max_by(|a, b| a.at_ms.cmp(&b.at_ms).then_with(|| a.id.cmp(&b.id)))
+        .map(|o| (o.id.clone(), o.at_ms))
+        .unwrap_or_default();
+    let note = packs
+        .iter()
+        .map(|c| {
+            let pack = c.key.strip_prefix(FAILED_PREFIX).unwrap_or(&c.key);
+            let counts = c
+                .obs
+                .last()
+                .and_then(|o| counts_of(&o.note))
+                .unwrap_or_else(|| "?/?".into());
+            format!("{pack}: {counts}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let title = format!("Jev's judgments fail in {} packs", packs.len());
+    let one = Obs {
+        key: FAILED_MANY.into(),
+        title: title.clone(),
+        source: "learning".into(),
+        id: newest.0,
+        note,
+        at_ms: newest.1,
+        usd: obs.iter().map(|o| o.usd).sum(),
+        person: obs.iter().any(|o| o.person),
+        task_failed: obs.iter().any(|o| o.task_failed),
+        work: obs.iter().map(|o| o.work).max().unwrap_or(3),
+        graduate: None,
+        pattern: None,
+    };
+    by.insert(
+        FAILED_MANY.into(),
+        Candidate {
+            key: FAILED_MANY.into(),
+            title,
+            source: "learning".into(),
+            obs: vec![one],
+            graduate: None,
+            pattern: None,
+        },
+    );
+}
+
+/// `failed/calls` of a failed-judgments note ([`failed_note`]'s words).
+fn counts_of(note: &str) -> Option<String> {
+    let mut w = note.split_whitespace();
+    let failed = w.next()?.parse::<u64>().ok()?;
+    let calls = (w.next()? == "of").then(|| w.next()?.parse::<u64>().ok())??;
+    Some(format!("{failed}/{calls}"))
+}
+
+fn failed_note(failed: u64, calls: u64, pack: &str) -> String {
+    format!("{failed} of {calls} {pack} calls failed in the learning report")
+}
+
+/// Whether a pack's failed judgments are a cause: at least three, and at least
+/// one call in a hundred, or every call it made. One failed call among
+/// thousands is noise (the owner, 2026-11-09: one of 2,910 route.v10 calls
+/// filed an item, each a session of its own).
+fn failed_is_a_cause(failed: u64, calls: u64) -> bool {
+    failed > 0 && (failed == calls || (failed >= 3 && failed.saturating_mul(100) >= calls))
 }
 
 /// A word of a row's text, for a key: lowercase letters, digits and `_`,
@@ -513,7 +601,10 @@ fn of_slow(mut o: Obs, d: &Value) -> Option<Obs> {
     Some(o)
 }
 
-/// A learning report with failed judgments or many disagreements.
+/// A learning report with failed judgments or many disagreements. Failed
+/// judgments file only when they are a cause ([`failed_is_a_cause`]): the
+/// report holds counts and no failure times, so a failure just after a daemon
+/// start (a restart's collateral) cannot be told from the rest here.
 fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
     let r = &d["report"];
     let pack = word(&r["pack"]);
@@ -526,10 +617,10 @@ fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
         r["disagreements"].as_u64().unwrap_or(0),
     );
     o.source = "learning".into();
-    if failed > 0 {
-        o.key = format!("judge.failed:{pack}");
+    if failed_is_a_cause(failed, calls) {
+        o.key = format!("{FAILED_PREFIX}{pack}");
         o.title = format!("Jev's {pack} judgments fail");
-        o.note = format!("{failed} of {calls} {pack} calls failed in the learning report");
+        o.note = failed_note(failed, calls, &pack);
     } else if labeled >= 10 && disagree * 4 > labeled {
         o.key = format!("judge.disagree:{pack}");
         o.title = format!("Jev's {pack} disagrees with the owner's labels");
@@ -866,12 +957,122 @@ mod tests {
     fn an_old_burst_of_failed_judgments_is_not_filed_again() {
         let stopped = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 0});
         assert!(report_obs(stopped).is_none());
-        let going = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 3});
+        let going = json!({"pack": "people.v1", "calls": 9000, "failed": 120, "failed_recent": 90});
         let o = report_obs(going).unwrap();
         assert_eq!(o.key, "judge.failed:people.v1");
-        assert!(o.note.starts_with("3 of 9000"), "{}", o.note);
-        let legacy = json!({"pack": "people.v1", "calls": 9000, "failed": 12});
+        assert!(o.note.starts_with("90 of 9000"), "{}", o.note);
+        let legacy = json!({"pack": "people.v1", "calls": 9000, "failed": 90});
         assert_eq!(report_obs(legacy).unwrap().key, "judge.failed:people.v1");
+    }
+
+    fn failed_of(pack: &str, failed: u64, calls: u64) -> Option<Obs> {
+        report_obs(json!({"pack": pack, "calls": calls, "failed": failed, "failed_recent": failed}))
+    }
+
+    /// One failed call among thousands is noise (the owner, 2026-11-09: one of
+    /// 2,910 route.v10 calls, one of 94 split.v1 and one of 448 role.v1 each
+    /// filed an item and each cost a session): it files nothing.
+    #[test]
+    fn one_failed_call_among_many_files_nothing() {
+        for (pack, calls) in [("route.v10", 2_910), ("split.v1", 94), ("role.v1", 448)] {
+            assert_eq!(failed_of(pack, 1, calls), None, "{pack}");
+        }
+        assert_eq!(failed_of("role.v1", 2, 100), None, "two is under three");
+        assert_eq!(failed_of("role.v1", 3, 400), None, "3 of 400 is under 1 %");
+        assert_eq!(
+            failed_of("role.v1", 0, 0),
+            None,
+            "nothing called, nothing failed"
+        );
+    }
+
+    /// Three failures and one call in a hundred are a cause; so is a pack
+    /// every one of whose calls failed, even one call.
+    #[test]
+    fn a_failing_pack_files_at_three_and_one_percent_or_when_every_call_failed() {
+        let three = failed_of("effort.v1", 3, 100).expect("3 of 100");
+        assert_eq!(three.key, "judge.failed:effort.v1");
+        assert_eq!(
+            three.note,
+            "3 of 100 effort.v1 calls failed in the learning report"
+        );
+        assert!(failed_of("effort.v1", 3, 300).is_some(), "exactly 1 %");
+        assert!(failed_of("effort.v1", 5, 100).is_some());
+        assert_eq!(
+            failed_of("onto.v1", 1, 1).expect("1 of 1").key,
+            "judge.failed:onto.v1"
+        );
+        assert!(failed_of("onto.v1", 2, 2).is_some(), "every call failed");
+    }
+
+    /// A pack under the failure bar still files its disagreement, as it did.
+    #[test]
+    fn a_pack_with_one_failure_still_files_its_disagreement() {
+        let r = json!({
+            "pack": "role.v1", "calls": 448, "failed": 1, "failed_recent": 1,
+            "labeled": 20, "disagreements": 10,
+        });
+        assert_eq!(report_obs(r).unwrap().key, "judge.disagree:role.v1");
+    }
+
+    fn obs_at(pack: &str, failed: u64, calls: u64, pos: u64) -> Obs {
+        let row = LedgerRow::named(
+            "judge.report",
+            None,
+            None,
+            json!({"report": {"pack": pack, "calls": calls, "failed": failed, "failed_recent": failed}}),
+        );
+        of_row(pos, &row).expect("a failing pack")
+    }
+
+    /// Packs failing in one night are one cause: one candidate whose note
+    /// lists `pack: failed/calls` a line per pack, in the pack's order.
+    #[test]
+    fn three_failing_packs_in_a_night_are_one_candidate_with_a_line_each() {
+        let cands = group(vec![
+            obs_at("role.v1", 12, 448, 3),
+            obs_at("continue.v1", 4, 94, 1),
+            obs_at("onto.v1", 1, 1, 2),
+        ]);
+        assert_eq!(cands.len(), 1, "{cands:?}");
+        let c = &cands[0];
+        assert_eq!(c.key, "judge.failed");
+        assert_eq!(c.title, "Jev's judgments fail in 3 packs");
+        assert_eq!(c.source, "learning");
+        assert_eq!(c.obs.len(), 1);
+        assert_eq!(c.obs[0].key, "judge.failed");
+        assert_eq!(
+            c.obs[0].note,
+            "continue.v1: 4/94\nonto.v1: 1/1\nrole.v1: 12/448"
+        );
+        assert_eq!(c.obs[0].id, "ledger:3", "the newest row's id");
+        assert!(c.person() && c.work() == 3);
+    }
+
+    /// One failing pack keeps its own key and words; the other causes of the
+    /// night and a disagreement are left as they were.
+    #[test]
+    fn one_failing_pack_keeps_its_own_key_and_the_others_are_untouched() {
+        let disagree = report_obs(json!({
+            "pack": "split.v1", "calls": 94, "failed": 0, "labeled": 20, "disagreements": 10,
+        }))
+        .expect("a disagreement");
+        let other = turn_failed("timeout");
+        let cands = group(vec![obs_at("role.v1", 4, 448, 1), disagree, other]);
+        let keys: Vec<&str> = cands.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "judge.disagree:split.v1",
+                "judge.failed:role.v1",
+                "turn.failed:timeout"
+            ]
+        );
+        assert_eq!(cands[1].title, "Jev's role.v1 judgments fail");
+        assert_eq!(
+            cands[1].obs[0].note,
+            "4 of 448 role.v1 calls failed in the learning report"
+        );
     }
 
     fn failed_job(pid: u32, failure: Option<&str>) -> LedgerRow {
