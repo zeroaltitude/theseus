@@ -377,6 +377,10 @@ suite_filters() {
 # skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and
 # misses one set through NEXTEST_PROFILE, a config file passed in, or an overrides table. Nothing here changes the exit
 # status; a red suite never gets here (`set -e` stops the gate at the pipeline), and a filtered one is labelled, never cleared.
+# Observed: a sweep of recorded green gate logs found 51 occurrences in 48 files in exactly four forms, `including 18 tests`,
+# `including 2 tests`, `including 4 tests` and `including 7 tests via profile.default.default-filter`, every one matched by
+# the pattern below and every one naming profile.default. The singular `including 1 test via profile` was never seen, so
+# the `tests?` in the pattern stays deliberately: that branch is still unverified against a real one-test run.
 suite_applied() {
   local applied
   applied="$(grep -oE 'including [0-9]+ tests? via profile\.[A-Za-z0-9_-]+\.default-filter' "$1" | head -1 || true)"
