@@ -400,5 +400,74 @@ class GateTree(unittest.TestCase):
         self.assertRegex(text, r'\ntree_check "at the end"')
 
 
+# A stand-in cargo for deny-daily.sh: logs its argv and keeps a copy of the --config file it is given (the script deletes it).
+DENY_CARGO = r"""#!/usr/bin/env bash
+echo "$*" >>"$STUB_CALLS"
+while [ $# -gt 0 ]; do
+  if [ "$1" = --config ]; then cp "$2" "$STUB_CONFIG_COPY.$(wc -l <"$STUB_CALLS" | tr -d ' ')"; fi
+  shift
+done
+exit 0
+"""
+
+
+class DenyDaily(unittest.TestCase):
+    """scripts/deny-daily.sh is the half of the deny contract that must never touch the gate's database."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        tmp = Path(self.tmp.name)
+        self.home, self.repo = tmp / "home", tmp / "repo"
+        bin_dir = self.home / ".cargo" / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "bd").write_text("#!/bin/sh\nexit 0\n")
+        (bin_dir / "bd").chmod(0o755)
+        (tmp / "cargo").write_text(DENY_CARGO)
+        (tmp / "cargo").chmod(0o755)
+        self.repo.mkdir()
+        self.calls = tmp / "calls.log"
+        self.env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "",
+                    "THESEUS_REPO": str(self.repo), "THESEUS_CARGO": str(tmp / "cargo"), "THESEUS_DENY_DRY_RUN": "1",
+                    "THESEUS_DENY_DB": str(tmp / "daily-db"), "THESEUS_DENY_LOG": str(tmp / "daily.log"),
+                    "STUB_CALLS": str(self.calls), "STUB_CONFIG_COPY": str(tmp / "cfg"), "TMPDIR": str(tmp)}
+        self.tmp_path = tmp
+
+    def repo_with(self, deny_toml):
+        (self.repo / "deny.toml").write_text(deny_toml)
+        for args in (("init", "-q", "-b", "main"), ("add", "-A"), ("commit", "-q", "-m", "x")):
+            p = run(["git", *args], self.repo, self.env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+
+    def deny_daily(self):
+        p = run(["bash", str(HERE / "deny-daily.sh")], self.repo, self.env)
+        calls = self.calls.read_text().splitlines() if self.calls.exists() else []
+        return p.returncode, p.stdout + p.stderr, calls
+
+    def test_the_real_deny_toml_gets_the_jobs_own_database_and_both_calls_carry_the_config(self):
+        self.repo_with((REPO / "deny.toml").read_text())
+        rc, out, calls = self.deny_daily()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(calls), 2, calls)
+        for c in calls:
+            self.assertIn("--config", c)
+        self.assertIn(" fetch db index", calls[0])
+        self.assertTrue(calls[1].endswith(" check"), calls)
+        db = str(self.tmp_path / "daily-db")
+        for n in (1, 2):
+            lines = (self.tmp_path / f"cfg.{n}").read_text().splitlines()
+            at = lines.index("[advisories]")
+            self.assertEqual(lines[at + 1], f'db-path = "{db}"', "db-path sits directly under [advisories]")
+        self.assertFalse((self.home / ".cargo" / "advisory-dbs").exists(), "the gate's database was never created")
+
+    def test_a_deny_toml_without_an_advisories_table_stops_with_exit_3_and_calls_nothing(self):
+        self.repo_with('[licenses]\nallow = ["MIT"]\n')
+        rc, out, calls = self.deny_daily()
+        self.assertEqual(rc, 3, out)
+        self.assertIn("has no [advisories] table", out)
+        self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

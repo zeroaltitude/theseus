@@ -796,9 +796,10 @@ scrub_phase() {
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
 # and that its cargo runs without an incremental cache. About 2 s. They run when this tree differs from main in the
 # script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
-# diff. main is origin/main, or the local main without one.
+# diff. They also hold scripts/deny-daily.sh and scripts/build.sh, which the same file tests. main is origin/main, or the
+# local main without one.
 gate_tests() {
-  local own=(scripts/gate.sh scripts/test_gate_tree.py) main
+  local own=(scripts/gate.sh scripts/test_gate_tree.py scripts/deny-daily.sh scripts/build.sh) main
   main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
   if [ -n "$main" ] && git diff --quiet "$main" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
     echo "gate tests: gate.sh and its tests are main's; its gate ran them"
