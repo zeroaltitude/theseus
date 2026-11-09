@@ -5,7 +5,7 @@ use std::fs;
 
 use serde_json::json;
 
-use crate::fs::{Glob, Grep};
+use crate::fs::{Glob, Grep, List};
 use crate::{Tool, ToolCtx};
 
 fn tree() -> (tempfile::TempDir, ToolCtx) {
@@ -92,4 +92,67 @@ fn glob_skips_hidden_by_default_and_reaches_them_with_all() {
         "{all}"
     );
     assert!(!all.contains(".git/"), "{all}");
+}
+
+/// A tree whose ignored files are ignored by different means: `.git/info/exclude`
+/// (`excluded.txt`), `.gitignore` (`ignored.txt`), and a dot name.
+fn ignores() -> (tempfile::TempDir, ToolCtx) {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    fs::create_dir_all(p.join(".git/info")).unwrap();
+    fs::write(p.join(".git/info/exclude"), "excluded.txt\n").unwrap();
+    fs::write(p.join(".gitignore"), "ignored.txt\n").unwrap();
+    for f in [
+        "a.txt",
+        ".dot.txt",
+        "excluded.txt",
+        "ignored.txt",
+        ".git/in.txt",
+    ] {
+        fs::write(p.join(f), "needle\n").unwrap();
+    }
+    let c = ToolCtx::for_tests(p);
+    (d, c)
+}
+
+/// `fs.list`'s entry names: each line, indentation and size dropped.
+fn list_names(c: &ToolCtx, all: bool) -> Vec<String> {
+    let out = List
+        .run(&json!({"all": all}), c)
+        .map_err(|e| e.message)
+        .unwrap();
+    let mut v: Vec<String> = out
+        .text
+        .lines()
+        .filter(|l| l.starts_with("  "))
+        .map(|l| l.trim().split(" (").next().unwrap().to_string())
+        .collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn list_glob_and_grep_mean_the_same_by_ignored() {
+    let (d, c) = ignores();
+    let glob = |all: bool| {
+        let o = Glob
+            .run(&json!({"pattern": "**/*.txt", "all": all}), &c)
+            .map_err(|e| e.message)
+            .unwrap();
+        files(&d, &o.text)
+    };
+    let grep_files = |all: bool| files(&d, &grep(&c, json!({"all": all})).unwrap());
+    let everything = [".dot.txt", "a.txt", "excluded.txt", "ignored.txt"];
+    assert_eq!(glob(false), vec!["a.txt"]);
+    assert_eq!(grep_files(false), vec!["a.txt"]);
+    assert_eq!(glob(true), everything);
+    assert_eq!(grep_files(true), everything);
+    let plain = list_names(&c, false);
+    assert_eq!(plain, vec!["a.txt"], "{plain:?}");
+    // `.gitignore` itself is a hidden file, so `all` lists it too; `.git` never.
+    let all = list_names(&c, true);
+    let mut want: Vec<&str> = everything.to_vec();
+    want.push(".gitignore");
+    want.sort();
+    assert_eq!(all, want, "{all:?}");
 }

@@ -285,8 +285,12 @@ fn is_all_crlf(s: &str) -> bool {
     s.contains("\r\n") && !s.replace("\r\n", "").contains('\n')
 }
 
-/// `all` is `fs.list`'s flag: hidden and ignored entries too.
-fn walker(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::Walk {
+/// The one walk `fs.list`, `fs.glob` and `fs.grep` share, so "ignored" means
+/// one thing. `all` shows hidden and ignored entries too; `.git` is never
+/// walked. The global gitignore is never read, since a listing must not
+/// depend on the daemon's account, and the scope lines name only
+/// ".gitignore'd" paths.
+fn walk_builder(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::WalkBuilder {
     let mut b = ignore::WalkBuilder::new(base);
     b.hidden(!all)
         .git_ignore(!all)
@@ -294,13 +298,15 @@ fn walker(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::Walk {
         .git_exclude(!all)
         .ignore(!all)
         .parents(!all)
-        .require_git(false);
-    if let Some(d) = max_depth {
-        b.max_depth(Some(d));
-    }
+        .require_git(false)
+        .max_depth(max_depth);
     // Never descend into VCS internals even when hidden files are shown.
     b.filter_entry(|e| e.file_name() != ".git");
-    b.build()
+    b
+}
+
+fn walker(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::Walk {
+    walk_builder(base, all, max_depth).build()
 }
 
 /// What `fs.glob` and `fs.grep` never walk, which their results state as part
@@ -1665,14 +1671,7 @@ impl Tool for List {
         }
         let depth = a.depth.unwrap_or(2).clamp(1, 6);
         let mut entries: Vec<(PathBuf, bool, u64)> = Vec::new();
-        let mut b = ignore::WalkBuilder::new(&base);
-        b.max_depth(Some(depth))
-            .hidden(!a.all)
-            .git_ignore(!a.all)
-            .ignore(!a.all)
-            .parents(!a.all)
-            .require_git(false);
-        b.filter_entry(|e| e.file_name() != ".git");
+        let mut b = walk_builder(&base, a.all, Some(depth));
         b.sort_by_file_path(|x, y| x.cmp(y));
         let mut total = 0usize;
         // What the listing leaves out (theseus-8ye): the directories at the
