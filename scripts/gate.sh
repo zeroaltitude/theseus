@@ -549,21 +549,23 @@ size_step() {
 # sources need no network, and advisories are read from the database as its last fetch
 # left it, so an outage of GitHub or crates.io can no longer fail a commit: 27e1237
 # met a crate yanked between two gates and had to bump Cargo.lock mid-step.
-# `scripts/deny-daily.sh` keeps the database fresh and files an issue for a finding
-# (and is the only thing that fetches); the gate says when the database is old. A
+# The gate's database is a pin (theseus-4vsrz): only the owner's `cargo deny fetch db`
+# moves it, so the result depends on the tree and not on the day. `scripts/deny-daily.sh`
+# fetches into a database of its own, files an issue for a finding, and never touches
+# this one; the gate says when its database is old. A
 # machine that has never fetched has no database: the gate then checks the rest and
 # says that advisories were not, since a gate that fetched here would fail on an outage.
 deny_check() {
   local db age
   db="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/advisory-dbs/advisory-db-*/ 2>/dev/null | head -1 || true)"
   if [ -z "$db" ]; then
-    echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (scripts/deny-daily.sh fetches one)"
+    echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (`cargo deny fetch db` makes the gate's pin)"
     cargo deny --offline --log-level error check bans licenses sources
     return
   fi
   if [ -f "${db}.git/FETCH_HEAD" ]; then
     age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
-    [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; scripts/deny-daily.sh refreshes it"
+    [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; it is the gate's pin, and `cargo deny fetch db` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
   fi
   cargo deny --offline --log-level error check
 }
