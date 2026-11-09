@@ -59,6 +59,29 @@ fn xml(n: usize, body: String) -> Reply {
     )
 }
 
+/// Pinpoint's GCM channel and Grafana's workspaces (theseus-3i6d1), by their
+/// paths: each carries a credential no model marks.
+fn pinpoint_and_grafana(path: &str, n: usize) -> Option<Reply> {
+    if path.ends_with("/channels/gcm") {
+        return Some(rest(
+            n,
+            json!({"id": "example-app", "ApplicationId": "example-app", "Platform": "GCM",
+                   "Credential": FCM_SERVER_KEY, "Enabled": true, "IsArchived": false, "Version": 1}),
+        ));
+    }
+    if path.starts_with("/workspaces") {
+        let workspace = json!({"id": "g-example", "name": "example-workspace",
+                               "status": "ACTIVE", "grafanaToken": WORKSPACE_TOKEN});
+        let body = if path == "/workspaces" {
+            json!({ "workspaces": [workspace] })
+        } else {
+            json!({ "workspace": workspace })
+        };
+        return Some(rest(n, body));
+    }
+    None
+}
+
 fn answers(s: &Seen, n: usize) -> Reply {
     if s.action() == Some("GetCallerIdentity") {
         return sts(ACCOUNT, n);
@@ -127,22 +150,8 @@ fn answers(s: &Seen, n: usize) -> Reply {
             json!({"keyName": "example-key", "key": GRAFANA_KEY, "workspaceId": "g-example"}),
         );
     }
-    if path.ends_with("/channels/gcm") {
-        return rest(
-            n,
-            json!({"id": "example-app", "ApplicationId": "example-app", "Platform": "GCM",
-                   "Credential": FCM_SERVER_KEY, "Enabled": true, "IsArchived": false, "Version": 1}),
-        );
-    }
-    if path.starts_with("/workspaces") {
-        let workspace = json!({"id": "g-example", "name": "example-workspace",
-                               "status": "ACTIVE", "grafanaToken": WORKSPACE_TOKEN});
-        let body = if path == "/workspaces" {
-            json!({ "workspaces": [workspace] })
-        } else {
-            json!({ "workspace": workspace })
-        };
-        return rest(n, body);
+    if let Some(r) = pinpoint_and_grafana(path, n) {
+        return r;
     }
     let stream_key = json!({
         "arn": "arn:aws:ivs:us-west-2:111122223333:stream-key/example",
