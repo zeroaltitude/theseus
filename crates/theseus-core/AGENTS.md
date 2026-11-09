@@ -343,7 +343,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
   under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
-  call, so a stop keeps what was spent), an answer over 400 characters refused, never cut, a session whose first or last
+  call, so a stop keeps what was spent; a pinned `synth_profile` sends the dream's high effort too, `guidance.rs:337`, so a pinned dream costs more per call than it once did and can reach that daily limit), an answer over 400 characters refused, never cut, a session whose first or last
   message cannot be read left out (the category waits only below 5 left), a category that waits says why in `Dreamed.waits` (`Wait`: different profiles, a profile or provider that is missing, a model that thinks unasked, too few readable sessions, no price), which the tender logs, and `[ontology] dream_guidance` off (default
   on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
   write of the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim
