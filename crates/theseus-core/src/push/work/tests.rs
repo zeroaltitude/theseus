@@ -7,7 +7,7 @@ use theseus_kernel::{Action, ActionState, RetryClass};
 use theseus_protocol::notices::{Notice, Urgency, Why};
 use theseus_protocol::work::{WorkKind, WorkRef, WorkState, WorkView};
 
-use super::settle::bump;
+use super::settle::{bump, same_work};
 use super::views::blank;
 use super::*;
 
@@ -311,4 +311,17 @@ fn a_suspended_records_step_reads_paused_not_working() {
     // Not held: a waiting view is work under way, as before.
     task.paused = false;
     assert_eq!(attention_of(&task).level, Level::Working);
+}
+
+/// `same_work` reads the forum address: a view that differs only in
+/// `forum_url` is not the same work, so a patch that gives an ended task its
+/// link is installed and sent (theseus-emqbm).
+#[test]
+fn a_view_differing_only_in_its_forum_url_is_not_the_same_work() {
+    let a = child("exe_root", 1, WorkState::Running);
+    assert!(same_work(&a, &a.clone()), "a clone is the same work");
+    let mut b = a.clone();
+    b.forum_url = Some("post:4242/777".into());
+    assert!(!same_work(&a, &b), "only the address differs");
+    assert!(!same_work(&b, &a));
 }
