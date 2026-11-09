@@ -169,6 +169,40 @@ fn producer(v: &Value) -> String {
     }
 }
 
+/// A reason's key: its first token (up to whitespace) as up to two
+/// `:`-joined words, so `provider:invalid_request` stays itself and
+/// `provider:rate_limited` is another cause. `word` alone cuts at the first
+/// `:`, which filed every provider failure of a turn under `provider`, a cause
+/// that said nothing of which failure it was. A reason with prose after its
+/// first colon (`timeout: the provider did not answer`) keys as before.
+fn reason_word(v: &Value) -> String {
+    let token = v.as_str().unwrap_or("").split_whitespace().next();
+    let parts: Vec<String> = token
+        .unwrap_or("")
+        .split(':')
+        .filter(|p| !p.is_empty())
+        .take(2)
+        .map(|p| word(&Value::from(p)))
+        .collect();
+    if parts.is_empty() {
+        "unknown".into()
+    } else {
+        parts.join(":")
+    }
+}
+
+/// The start of a message for a note, as one line cut to `max` characters:
+/// `word` leaves a provider's `invalid request (400): ...` as `invalid`,
+/// which hid what the provider refused. `unknown` when it said nothing.
+fn gist(v: &Value, max: usize) -> String {
+    let text = line(v.as_str().unwrap_or(""), max);
+    if text.is_empty() {
+        "unknown".into()
+    } else {
+        text
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -255,7 +289,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
     match kind {
         "action.failed" => return of_action_failed(o, d),
         "turn.failed" => {
-            let r = word(&d["reason"]);
+            let r = reason_word(&d["reason"]);
             o.key = format!("turn.failed:{r}");
             o.title = format!("Turns failing with {r}");
             o.note = format!("turn failed ({r}) after {} loops", d["loops"]);
@@ -288,7 +322,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             o.note = format!(
                 "{p} {c} after {} ms: {}",
                 d["elapsed_ms"],
-                word(&d["message"])
+                gist(&d["message"], 160)
             );
             (o.person, o.work) = (true, 3);
         }
@@ -894,6 +928,59 @@ mod tests {
             note.chars().count() < 340,
             "{} characters",
             note.chars().count()
+        );
+    }
+
+    fn turn_failed(reason: &str) -> Obs {
+        let row = LedgerRow::named(
+            "turn.failed",
+            None,
+            None,
+            json!({"loops": 2, "reason": reason, "cost_usd": 0.1}),
+        );
+        of_row(1, &row).expect("a failed turn is an observation")
+    }
+
+    /// A turn's `provider:<class>` reason was cut at its colon: every provider
+    /// failure keyed `turn.failed:provider`, one cause for an invalid request,
+    /// a rate limit and a timeout alike.
+    #[test]
+    fn a_failed_turn_keeps_the_providers_class_in_its_cause() {
+        let invalid = turn_failed("provider:invalid_request");
+        assert_eq!(invalid.key, "turn.failed:provider:invalid_request");
+        assert_eq!(invalid.title, "Turns failing with provider:invalid_request");
+        let limited = turn_failed("provider:rate_limited");
+        assert_eq!(limited.key, "turn.failed:provider:rate_limited");
+        assert_ne!(invalid.key, limited.key);
+    }
+
+    /// A reason with prose after its first colon, or none, keys as before.
+    #[test]
+    fn a_reason_with_prose_or_no_class_keys_as_before() {
+        assert_eq!(
+            turn_failed("timeout: the provider did not answer").key,
+            "turn.failed:timeout"
+        );
+        assert_eq!(turn_failed("over_limit").key, "turn.failed:over_limit");
+        assert_eq!(turn_failed("provider:").key, "turn.failed:provider");
+        assert_eq!(turn_failed("").key, "turn.failed:unknown");
+    }
+
+    /// The provider's refusal reads in the evidence, not its first word.
+    #[test]
+    fn a_provider_errors_note_says_what_the_provider_refused() {
+        let mut row = provider_error("invalid_request");
+        row.data["provider"] = json!("anthropic");
+        row.data["message"] = json!(
+            "invalid request (400): invalid_request_error: messages.1: a tool use\nwas found without a result"
+        );
+        let o = of_row(2, &row).unwrap();
+        assert_eq!(o.key, "provider.error:invalid_request:anthropic");
+        assert!(
+            o.note
+                .contains("messages.1: a tool use was found without a result"),
+            "{}",
+            o.note
         );
     }
 }
