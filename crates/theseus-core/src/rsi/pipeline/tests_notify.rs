@@ -162,6 +162,49 @@ async fn the_morning_note_lists_the_waiting_starts_and_takes_only_those() {
     assert_eq!(left.started[0].item, "tsk_late");
 }
 
+/// A note takes off exactly what it counted, by identity: a start that lands
+/// between its read and its post (even with the list full) stays alone, and a
+/// start added again counts once, in the list or past it.
+#[tokio::test]
+async fn a_note_takes_off_what_it_counted_and_a_re_added_start_counts_once() {
+    let r = rig_with(1, 30.0);
+    bind_dm(&r);
+    let add = |i: &str| {
+        r.core
+            .folded_add(&[(format!("tsk_{i}"), format!("Fix cause {i}"))]);
+    };
+    for i in 0..10 {
+        add(&format!("{i:02}"));
+    }
+    let snapshot = r.core.folded_read();
+    add("late");
+    r.core.folded_told(&snapshot);
+    let left = r.core.folded_read();
+    assert_eq!(left.count(), 1, "{left:?}");
+    assert_eq!(left.started[0].item, "tsk_late", "{left:?}");
+    r.core.folded_told(&left);
+    assert!(r.core.folded_read().is_empty());
+    // The list is past its cap when the note reads: its "and 2 more" names
+    // two starts, and a start that lands after must not take their place.
+    for i in 0..12 {
+        add(&format!("{i:02}"));
+    }
+    let snapshot = r.core.folded_read();
+    assert_eq!((snapshot.started.len(), snapshot.more), (10, 2));
+    add("late");
+    r.core.folded_told(&snapshot);
+    let left = r.core.folded_read();
+    assert_eq!(left.count(), 1, "{left:?}");
+    assert_eq!(left.started[0].item, "tsk_late", "{left:?}");
+    r.core.folded_told(&left);
+    for i in 0..11 {
+        add(&format!("{i:02}"));
+    }
+    add("00");
+    let again = r.core.folded_read();
+    assert_eq!(again.count(), 11, "{again:?}");
+}
+
 /// Starts past what a note lists are counted, not dropped silently: twelve
 /// are ten lines and "and 2 more started", and the title counts all twelve.
 #[tokio::test]

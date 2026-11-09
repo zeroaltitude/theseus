@@ -27,8 +27,11 @@ use crate::rpc::Core;
 
 /// The META key of the starts not told yet.
 pub const KEY: &str = "self.digest.folded";
-/// The starts a note lists; older ones are counted, not kept.
+/// The starts a note lists; older ones are counted in the note.
 pub(crate) const LISTED: usize = 10;
+/// The starts the record keeps by name, so a note can take off exactly the ones
+/// it counted; past it the oldest are only counted (`Folded::more`).
+const KEPT: usize = 200;
 
 /// A start waiting for a note.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,17 +44,37 @@ pub(crate) struct Pending {
 /// What no note has told yet.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Folded {
-    /// Oldest first, at most [`LISTED`].
+    /// Oldest first. As read (`Core::folded_read`) at most [`LISTED`]; as
+    /// stored, up to `KEPT`, so a start a tick added while a note was
+    /// posting can never push one the note named into the count.
     #[serde(default)]
     pub started: Vec<Pending>,
-    /// Starts older than those, past the cap.
+    /// Starts older than those: the stored count of the ones past `KEPT`
+    /// (and, in a record from before it, past the old cap), and, as read, the
+    /// older starts the note counts.
     #[serde(default)]
     pub more: u64,
+    /// As read only, never stored: the older starts counted in `more` that
+    /// are still named in the record, so [`Core::folded_told`] takes off
+    /// exactly them.
+    #[serde(skip)]
+    pub hidden: Vec<Pending>,
 }
 
 impl Folded {
     pub(crate) fn is_empty(&self) -> bool {
         self.started.is_empty() && self.more == 0
+    }
+
+    /// What a note sees: the newest [`LISTED`] starts, the rest counted in
+    /// `more` and named in `hidden`.
+    fn view(mut self) -> Folded {
+        if self.started.len() > LISTED {
+            let cut = self.started.len() - LISTED;
+            self.hidden = self.started.drain(..cut).collect();
+            self.more += cut as u64;
+        }
+        self
     }
 
     /// How many starts it holds.
@@ -94,7 +117,7 @@ impl Core {
     /// What is waiting for a note, read under the lock.
     pub(crate) fn folded_read(&self) -> Folded {
         let _one = self.rsi.folded.lock().unwrap_or_else(|e| e.into_inner());
-        self.folded_load()
+        self.folded_load().view()
     }
 
     fn folded_load(&self) -> Folded {
@@ -133,7 +156,7 @@ impl Core {
                 at_ms,
             });
         }
-        while f.started.len() > LISTED {
+        while f.started.len() > KEPT {
             f.started.remove(0);
             f.more += 1;
         }
@@ -145,8 +168,14 @@ impl Core {
         let _one = self.rsi.folded.lock().unwrap_or_else(|e| e.into_inner());
         let mut f = self.folded_load();
         let before = f.clone();
-        f.started.retain(|p| !told.started.contains(p));
-        f.more = f.more.saturating_sub(told.more);
+        // What the note counted is named in `hidden` (its `more` holds those
+        // and the record's own count): take each off by identity, and only the
+        // record's own count off the number.
+        f.started
+            .retain(|p| !told.started.contains(p) && !told.hidden.contains(p));
+        f.more = f
+            .more
+            .saturating_sub(told.more.saturating_sub(told.hidden.len() as u64));
         if f != before {
             self.folded_write(&f);
         }
