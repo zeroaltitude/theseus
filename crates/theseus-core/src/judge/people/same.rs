@@ -19,6 +19,26 @@ pub fn name_key(name: &str) -> String {
         .collect()
 }
 
+/// Whether `name` writes a first name short: a lone letter with a dot after
+/// it (`J. Calloway`, `J.Calloway`). A hyphen or a space after a lone letter
+/// (`j-calloway`, a handle) says nothing of the kind. The key folds both to
+/// `jcalloway`, so a key alone cannot tell a person whose first name was cut
+/// from a handle that merely looks like it (theseus-hui5a).
+pub fn abbreviated(name: &str) -> bool {
+    let cs: Vec<char> = name.trim().trim_start_matches('@').chars().collect();
+    cs.iter().enumerate().any(|(i, c)| {
+        c.is_alphabetic() && cs.get(i + 1) == Some(&'.') && (i == 0 || !cs[i - 1].is_alphanumeric())
+    })
+}
+
+/// Whether two names are one person by the name alone: equal keys, written
+/// alike as to abbreviation. Anything else that folds to one key needs a
+/// handle both hold (`same_by_handle`) before the automatic merge takes it.
+pub fn same_by_name(a: &str, b: &str) -> bool {
+    let key = name_key(a);
+    !key.is_empty() && key == name_key(b) && abbreviated(a) == abbreviated(b)
+}
+
 /// An unordered pair of person ids as one string: the smaller first, so
 /// `(a, b)` and `(b, a)` are the same pair.
 pub fn pair_key(a: &str, b: &str) -> String {
@@ -54,6 +74,26 @@ mod tests {
             assert_ne!(name_key(a), name_key(b), "{a:?} / {b:?}");
         }
         assert_eq!(name_key(" - . "), "");
+    }
+
+    /// The line's case, with invented names: an initial against a handle.
+    #[test]
+    fn an_initial_is_not_a_hyphenated_handle_but_two_alike_are_one() {
+        assert!(abbreviated("J. Calloway") && abbreviated("J.Calloway"));
+        assert!(abbreviated("@t.ormsby"));
+        for plain in [
+            "j-calloway",
+            "J Calloway",
+            "Bram.Teller",
+            "Bram Teller",
+            "bramteller",
+        ] {
+            assert!(!abbreviated(plain), "{plain:?}");
+        }
+        assert!(!same_by_name("J. Calloway", "j-calloway"));
+        assert!(same_by_name("J. Calloway", "J.Calloway"));
+        assert!(same_by_name("Bram.Teller", "bram-teller"));
+        assert!(!same_by_name(" - ", "."));
     }
 
     #[test]
