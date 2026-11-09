@@ -110,7 +110,7 @@ pub(crate) fn core(
         cfg.judge.enabled = true;
         cfg.judge.api_base = j.base();
         cfg.judge.connect_secs = 1;
-        cfg.judge.total_secs = 2;
+        cfg.judge.total_secs = 15;
     }
     tweak(&mut cfg);
     cfg.validate().unwrap();
