@@ -921,10 +921,22 @@ async fn a_failed_card_attempt_is_due_the_next_night_not_the_next_week() {
     assert!(at >= now + 7 * 86_400_000, "{at}");
 }
 
-/// A run that fails writes no state; it is not due again at once either.
+/// A run that fails writes no state; it is not due again at once either, and
+/// it is due the next night, not the interval's week (theseus-kinfs). The
+/// tender reads the wall clock, which `start_paused` does not move, so the
+/// learning hour is set twelve hours from the local hour the test runs in:
+/// the next night is then eleven to twelve hours off, outside the window
+/// below, whatever hour the suite runs. With the default hour, a run between
+/// midnight and 03:00 had that night inside the window, and its second
+/// attempt counted there.
 #[tokio::test(start_paused = true)]
 async fn a_failed_card_run_is_not_due_again_at_once() {
-    let r = rig(vec![], |c| c.card.profile = Some("no-such-profile".into()));
+    use std::time::Duration;
+    let r = rig(vec![], |c| {
+        c.card.profile = Some("no-such-profile".into());
+        let here = crate::wake::local(theseus_protocol::now_unix_ms()).hour;
+        c.judge.learning_hour = ((here + 12) % 24) as u8;
+    });
     let log = Log::default();
     let _g = tracing::subscriber::set_default(
         tracing_subscriber::fmt()
@@ -933,11 +945,24 @@ async fn a_failed_card_run_is_not_due_again_at_once() {
             .finish(),
     );
     r.core.card_after_serving();
-    tokio::time::sleep(
-        crate::learning::tender::AFTER_START + std::time::Duration::from_secs(3 * 3600),
-    )
-    .await;
+    let window = crate::learning::tender::AFTER_START + Duration::from_secs(3 * 3600);
+    tokio::time::sleep(window).await;
     assert_eq!(log.count("card: the run did not happen"), 1);
+    // The second attempt is the next night's learning hour, which the window
+    // does not reach: not before it, and not a week later.
+    let now = theseus_protocol::now_unix_ms();
+    let hour = r.core.cfg.judge.learning_hour;
+    let night = crate::learning::tender::due(now, hour, Some(now)).0 - now;
+    let night = Duration::from_millis(night);
+    assert!(night > Duration::from_secs(3 * 3600 + 120), "{night:?}");
+    tokio::time::sleep(night - Duration::from_secs(3 * 3600 + 60)).await;
+    assert_eq!(log.count("card: the run did not happen"), 1);
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert_eq!(
+        log.count("card: the run did not happen"),
+        2,
+        "a failed attempt is due the next night, not after the interval"
+    );
 }
 
 /// A full queue pauses the job, it does not turn it off: once the owner
