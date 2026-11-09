@@ -181,7 +181,10 @@ mod tests {
         };
         let none = store_lines(&with_cache(None));
         assert_eq!(none.len(), 1, "only the cache line: {none:?}");
-        assert!(none.iter().all(|(_, l)| !l.contains("index write")), "{none:?}");
+        assert!(
+            none.iter().all(|(_, l)| !l.contains("index write")),
+            "{none:?}"
+        );
         assert_eq!(store_lines(&with_cache(Some(7))).len(), 2);
         assert!(store_lines(&StoreStatus::default()).is_empty());
     }
