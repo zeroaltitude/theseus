@@ -1022,7 +1022,9 @@ mod tests {
             None,
             json!({"report": {"pack": pack, "calls": calls, "failed": failed, "failed_recent": failed}}),
         );
-        of_row(pos, &row).expect("a failing pack")
+        let mut o = of_row(pos, &row).expect("a failing pack");
+        o.at_ms = 1_000 * pos;
+        o
     }
 
     /// Packs failing in one night are one cause: one candidate whose note
@@ -1058,7 +1060,7 @@ mod tests {
         }))
         .expect("a disagreement");
         let other = turn_failed("timeout");
-        let cands = group(vec![obs_at("role.v1", 4, 448, 1), disagree, other]);
+        let cands = group(vec![obs_at("role.v1", 5, 448, 1), disagree, other]);
         let keys: Vec<&str> = cands.iter().map(|c| c.key.as_str()).collect();
         assert_eq!(
             keys,
@@ -1071,7 +1073,7 @@ mod tests {
         assert_eq!(cands[1].title, "Jev's role.v1 judgments fail");
         assert_eq!(
             cands[1].obs[0].note,
-            "4 of 448 role.v1 calls failed in the learning report"
+            "5 of 448 role.v1 calls failed in the learning report"
         );
     }
 
