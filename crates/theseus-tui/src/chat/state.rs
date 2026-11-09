@@ -596,8 +596,7 @@ impl Chat {
             }
             Action::Insert(c) => {
                 self.editor.insert(c);
-                self.menu = 0;
-                self.menu_closed = false;
+                self.edited();
                 return self.typing();
             }
             Action::Submit => {
@@ -614,10 +613,12 @@ impl Chat {
             Action::Newline => self.editor.newline(),
             Action::Backspace => {
                 self.editor.backspace();
-                self.menu = 0;
-                self.menu_closed = false;
+                self.edited();
             }
-            Action::Delete => self.editor.delete(),
+            Action::Delete => {
+                self.editor.delete();
+                self.edited();
+            }
             Action::Left => self.editor.left(),
             Action::Right => self.editor.right(),
             Action::Home => self.editor.home(),
@@ -683,6 +684,12 @@ impl Chat {
             }
         }
         Vec::new()
+    }
+
+    /// The line was edited: the command list opens again, at its first row.
+    fn edited(&mut self) {
+        self.menu = 0;
+        self.menu_closed = false;
     }
 
     /// Ctrl-C: clear the line; on an empty one, the second leaves.
