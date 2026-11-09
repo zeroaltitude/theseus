@@ -256,7 +256,7 @@ class GateTree(unittest.TestCase):
         self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run, in this tree: {calls}")
 
     def test_the_identity_comment_names_as_many_unseen_paths_as_tree_unseen_holds(self):
-        # The comment said "minus one path" over a two-entry list; a count keeps it from drifting again.
+        # The comment once named one path over a two-entry list; a count keeps it from drifting again.
         lines = (HERE / "gate.sh").read_text().splitlines()
         arrays = [ln for ln in lines if ln.startswith("tree_unseen=(")]
         self.assertEqual(len(arrays), 1, arrays)

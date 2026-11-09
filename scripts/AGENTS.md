@@ -143,10 +143,11 @@ and at the end; a gate that fails is checked once more on its way out.
   `gate: ABORTED`, where a failed run says `gate: FAILED`. No test result of an aborted run is a verdict: rerun it, on a tree
   nobody touches. `arm.sh result` shows it as `gate exit=75`.
 - **The identity** is the commit, a digest of the edits beyond it (tracked and untracked: `tree-stamp.sh`'s digest, minus
-  one path, computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
+  two paths (`cockpit/src/protocol.gen`, `bench/smoke/runs`), computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
   digest of HEAD's reflog. HEAD alone misses an edit, and the stamp alone misses a detach and a restore (the same commit
-  and the same files after it); the reflog writes a line for each. `cockpit/src/protocol.gen` is left out, since the
-  protocol phase rewrites it itself and fails saying `git add it`: that stays a failure, exit 1.
+  and the same files after it); the reflog writes a line for each. Both are left out: the
+  protocol phase rewrites `cockpit/src/protocol.gen` itself and fails saying `git add it` (that stays a failure, exit 1), and
+  `scripts/release-smoke.sh` writes a run's report under `bench/smoke/runs` (tracked, so not gitignored), and a smoke run beside a gate is no move.
 - **What it cannot see:** an edit made and undone inside the window (no ref moves, nothing is left), and a move in the
   seconds between two checks that is undone before the next. The guard is the rule beside it: never edit, check out,
   reset or build in a tree a gate is running in (the join's worktree is the install tree and nobody else's workspace).
