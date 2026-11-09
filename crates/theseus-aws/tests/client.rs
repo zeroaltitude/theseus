@@ -786,3 +786,21 @@ fn presigned_urls() {
         )
         .is_err());
 }
+
+/// An empty object is still a PUT with a body of zero bytes: S3 answers 411
+/// to one that carries no `Content-Length` at all (theseus-mpr03).
+#[tokio::test]
+async fn an_empty_put_carries_a_content_length_of_zero() {
+    let fake = Fake::start(vec![Reply::new(200, "")]).await;
+    let a = Attribution::default();
+    let input = json!({"Bucket": "example-theseus-bucket", "Key": "out/empty.txt", "Body": {"base64": ""}});
+    client(&fake)
+        .call(&call("s3", "PutObject", &input, &a), &creds())
+        .await
+        .unwrap();
+    let seen = fake.seen();
+    assert_eq!(seen.len(), 1, "one PutObject reached the fake");
+    assert_eq!(seen[0].method, "PUT");
+    assert!(seen[0].body.is_empty());
+    assert_eq!(seen[0].header("content-length"), Some("0"));
+}

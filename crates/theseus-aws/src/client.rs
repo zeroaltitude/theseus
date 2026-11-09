@@ -542,6 +542,11 @@ impl Client {
         for (k, v) in &req.headers {
             rb = rb.header(k.as_str(), v.as_str());
         }
+        // hyper leaves `Content-Length` off an empty body; S3 answers a PUT
+        // without one with 411 (theseus-mpr03). It is not a signed header.
+        if req.body.is_empty() && matches!(&*req.method, "PUT" | "POST" | "PATCH") {
+            rb = rb.header(reqwest::header::CONTENT_LENGTH, "0");
+        }
         let mut resp = rb.body(req.body.clone()).send().await.map_err(|e| {
             // A connection that never opened sent nothing; anything later
             // may have reached AWS.
