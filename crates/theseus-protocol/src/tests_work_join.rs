@@ -135,6 +135,13 @@ fn lossy(x: &ExecutionView) -> Attention {
     if a.label.starts_with("ready · wake ") {
         a.label = "ready".into();
     }
+    // A task parked on input (theseus-7axv): the push says `parked` and
+    // works, while the work view still reads the task as `ready` (its state
+    // table, `tests_work.rs`, pins Ready for a task waiting on input; the
+    // work board's reading is left for the owner's ruling).
+    if a.label.starts_with("parked") {
+        (a.level, a.label) = (Level::Ready, "ready".into());
+    }
     if a.level == Level::Working && !STATES[..8].contains(&x.state.as_str()) {
         a.label = "working".into();
     }

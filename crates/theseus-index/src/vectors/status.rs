@@ -128,6 +128,19 @@ impl Vectors {
 
 #[cfg(test)]
 impl Vectors {
+    /// A thread that panics holding the stats lock, so the next status call
+    /// on this lock panics too (a connection thread dying mid-request).
+    pub(crate) fn poison_stats(&self) {
+        std::thread::scope(|s| {
+            let _ = s
+                .spawn(|| {
+                    let _held = self.stats.lock().unwrap();
+                    panic!("a test poisons the stats lock");
+                })
+                .join();
+        });
+    }
+
     /// The table's lock, held as a writer holds it (a compaction, a batch's
     /// append): the status tests' stand-in for the embedding work.
     pub(crate) fn hold_table(&self) -> std::sync::RwLockWriteGuard<'_, Table> {

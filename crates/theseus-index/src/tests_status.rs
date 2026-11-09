@@ -107,3 +107,68 @@ fn the_status_answers_past_a_full_socket() {
     assert_eq!(active.load(Ordering::SeqCst), server::MAX_CONNECTIONS);
     drop(held);
 }
+
+/// The measure the health line's 100 ms deadline is judged by
+/// (theseus-la5oc): with every ordinary slot held and the status lane in
+/// use, the status still answers, and how long it takes is printed. The
+/// bound asserted is the deadline's own, so a tender whose status needs
+/// more than health gives it fails here, and the number says by how much.
+#[test]
+fn the_status_answers_inside_health_s_deadline_with_every_slot_held() {
+    const HEALTH_DEADLINE: Duration = Duration::from_millis(100);
+    let v = VRig::new();
+    let mut t: Tender = v.open();
+    settle_all(&mut t);
+    let sock = v.rig._tmp.path().join("s.sock");
+    let (_served, active) = server::spawn_counted(&sock, t.shared()).unwrap();
+    let held: Vec<UnixStream> = (0..server::MAX_CONNECTIONS)
+        .map(|_| UnixStream::connect(&sock).unwrap())
+        .collect();
+    let t0 = Instant::now();
+    while active.load(Ordering::SeqCst) < server::MAX_CONNECTIONS {
+        assert!(t0.elapsed() < Duration::from_secs(10), "not accepted");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let mut took = Vec::new();
+    for _ in 0..50 {
+        let t0 = Instant::now();
+        let s = status(&sock, HEALTH_DEADLINE).expect("a status inside health's deadline");
+        took.push(t0.elapsed());
+        assert!(s.vectors.is_some());
+    }
+    took.sort();
+    assert_eq!(took.len(), 50, "fifty answers, not an empty set");
+    let (p50, max) = (took[25], took[49]);
+    eprintln!("status, 16 slots held: p50 {p50:?}, max {max:?}");
+    assert!(max < HEALTH_DEADLINE, "the slowest answer took {max:?}");
+    drop(held);
+}
+
+/// A connection's thread that dies mid-request (here: a poisoned lock under
+/// the status) gives its slot back. Before, the count was let go only on a
+/// clean return, so each such death held one of the sixteen slots for the
+/// life of the tender.
+#[test]
+fn a_connection_that_panics_gives_back_its_slot() {
+    let v = VRig::new();
+    let mut t: Tender = v.open();
+    settle_all(&mut t);
+    let shared = t.shared();
+    let sock = v.rig._tmp.path().join("s.sock");
+    let (_served, active) = server::spawn_counted(&sock, shared.clone()).unwrap();
+    status(&sock, Duration::from_secs(3)).expect("healthy before the lock is poisoned");
+    shared.vectors.poison_stats();
+    for _ in 0..3 {
+        let e = status(&sock, Duration::from_secs(3)).expect_err("the status panics now");
+        assert!(e.to_string().contains("closed"), "{e}");
+    }
+    let t0 = Instant::now();
+    while active.load(Ordering::SeqCst) != 0 {
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "three dead connections still count {} slots",
+            active.load(Ordering::SeqCst)
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
