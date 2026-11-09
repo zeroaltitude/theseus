@@ -1269,3 +1269,28 @@ mod tests {
         assert_eq!(f.line(), "injection, secret");
     }
 }
+
+/// The labels a reply's footer lists (theseus-emqbm), in the flags' own order
+/// ([`ContentFlags::raise`] keeps them sorted), each with the Ship address that
+/// removes it from this session ([`crate::config::CockpitConfig::unlabel_link`]).
+///
+/// The owner asked that a message always show the labels it is carrying and
+/// offer a way off them at any time; the one Discord message raised when a
+/// label goes up is reachable only at that moment. A session with no labels
+/// gives an empty list, and an empty list is left out of the wire, so a reply
+/// that has none is byte for byte the reply it was.
+pub fn footer_labels(
+    cockpit: &crate::config::CockpitConfig,
+    session_id: &str,
+    flags: Option<&ContentFlags>,
+) -> Vec<theseus_protocol::LabelLink> {
+    flags.map_or_else(Vec::new, |f| {
+        f.labels
+            .iter()
+            .map(|l| theseus_protocol::LabelLink {
+                flag: l.flag.as_str().into(),
+                remove_url: cockpit.unlabel_link(session_id, l.flag.as_str()),
+            })
+            .collect()
+    })
+}
