@@ -518,11 +518,19 @@ pub fn check(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<Fired> {
                 && (!degenerate || canary_body_moved(&canary)))
             .then(|| Fired {
                 rule: rule.name().to_string(),
-                why: format!(
-                    "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the control's median of {base:.0} ({} and {} tasks)",
-                    canary.len(),
-                    control.len()
-                ),
+                why: if base == 0.0 {
+                    format!(
+                        "the canary's median task spends {per_task:.0} micro-dollars against a control arm that spent nothing ({} and {} tasks)",
+                        canary.len(),
+                        control.len()
+                    )
+                } else {
+                    format!(
+                        "the canary's median task spends {per_task:.0} micro-dollars, over {ratio} times the control's median of {base:.0} ({} and {} tasks)",
+                        canary.len(),
+                        control.len()
+                    )
+                },
             })
         }
         RollbackRule::OperatorStopWithinNudge => events.iter().find_map(|e| match e {
@@ -1085,7 +1093,11 @@ mod tests {
         assert_eq!(events.len(), 24, "both arms' tasks are in the sample");
         let fired = check(&r, &events).expect("spend against a free control rolls the pack back");
         assert_eq!(fired.rule, "spend_ratio");
-        assert!(fired.why.contains("median of 0"), "{}", fired.why);
+        assert_eq!(
+            fired.why,
+            "the canary's median task spends 10000 micro-dollars against a control arm that spent nothing (12 and 12 tasks)"
+        );
+        assert!(!fired.why.contains("median of 0"), "{}", fired.why);
         // Noise on both sides is still no signal: a canary whose median is
         // at the floor spent nothing worth a rollback.
         assert_eq!(check(&r, &run(0)), None, "free against free");
