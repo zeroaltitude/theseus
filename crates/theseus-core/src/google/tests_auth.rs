@@ -372,6 +372,36 @@ async fn the_refresh_token_never_reaches_op_argv() {
 }
 
 #[tokio::test]
+async fn a_blank_secret_is_refused_before_anything_is_written() {
+    use crate::secrets::{write::store, Secret};
+    let (r, op) = op_rig("ok").await;
+    // The reference is built at run time: no vault literal in the source.
+    let reference = format!("{}://vault/theseus-blank/token", "op");
+    let blank = Secret::new("   ".into());
+    let e = store(&op, &reference, &blank).await.unwrap_err();
+    assert!(e.contains("nothing was written"), "{e}");
+    let argv = lines(r.dir.path(), "op.argv");
+    assert!(
+        !argv.contains("item create") && !argv.contains("item edit"),
+        "no write reached op: {argv}"
+    );
+    // A file entry refuses before it writes, too.
+    let file = file_ref(r.dir.path());
+    let e = store(&op, &file, &blank).await.unwrap_err();
+    assert!(e.contains("nothing was written"), "{e}");
+    assert!(
+        !r.dir.path().join("google-refresh-token").exists(),
+        "no file was left behind"
+    );
+    // Positive count: a real value writes exactly one create.
+    store(&op, &reference, &Secret::new("a-real-value".into()))
+        .await
+        .unwrap();
+    let argv = lines(r.dir.path(), "op.argv");
+    assert_eq!(argv.matches("item create").count(), 1, "{argv}");
+}
+
+#[tokio::test]
 async fn a_minted_token_is_read_back_before_success() {
     let (r, _) = op_rig("ok").await;
     let (id, state) = begin(&r).await;
