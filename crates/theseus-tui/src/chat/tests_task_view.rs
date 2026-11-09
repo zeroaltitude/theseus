@@ -614,3 +614,63 @@ async fn the_header_says_paused_and_what_the_progress_line_says() {
     let head = dock(&r).lines().next().unwrap().to_string();
     assert!(head.contains("step 3 of 5 · $0.40 of $2"), "{head}");
 }
+
+// ------------------------------------------- an image is not carried to a task
+
+/// The task view's daemon, which also names the workspace root, so an `@` file
+/// in the line resolves.
+fn daemon_with_root(root: String) -> Script {
+    let base = daemon(false);
+    Arc::new(move |m, p| {
+        if m == "tool.list" {
+            return Ok(json!({
+                "tools": [], "roots": [root], "shell_fallback_ratio": 0.0, "calls_total": 0
+            }));
+        }
+        base(m, p)
+    })
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_image_in_a_joined_tasks_line_is_refused_and_nothing_is_read_or_sent() {
+    let p = tempfile::tempdir().unwrap();
+    std::fs::write(p.path().join("shot.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+    let dir = p.path().display().to_string();
+    let root = dir.clone();
+    let mut r = Rig::with_cfg(100, 40, daemon_with_root(root), move |c| {
+        c.dir = dir.clone();
+        c.shown_dir = dir;
+    })
+    .await;
+    r.ready().await;
+    r.asked("work.watch", 1).await;
+    r.settle().await;
+    joined(&mut r).await;
+    r.type_text("see @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await; // closes the picker, keeps the line
+    r.press(KeyCode::Enter).await;
+    r.settle().await;
+    assert_eq!(submits(&r).len(), 0, "nothing is sent to the task");
+    r.shows("an image is not carried to a task").await;
+    assert!(
+        r.text().contains("/back to the conversation"),
+        "{}",
+        r.text()
+    );
+    assert_eq!(
+        r.daemon.asked("fs.read").len(),
+        0,
+        "no read went to the daemon"
+    );
+    assert_eq!(
+        r.daemon.asked("tool.list").len(),
+        1,
+        "the roots were read once"
+    );
+    assert!(
+        r.text().contains("see @shot.png"),
+        "the line is kept:\n{}",
+        r.text()
+    );
+}
