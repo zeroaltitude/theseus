@@ -590,16 +590,18 @@ size_step() {
 # machine that has never fetched has no database: the gate then checks the rest and
 # says that advisories were not, since a gate that fetched here would fail on an outage.
 deny_check() {
-  local db age
+  local db age deny_age_said
   db="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/advisory-dbs/advisory-db-*/ 2>/dev/null | head -1 || true)"
   if [ -z "$db" ]; then
     echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (\`cargo deny fetch db\` makes the gate's pin)"
     cargo deny --offline --log-level error check bans licenses sources
     return
   fi
-  if [ -f "${db}.git/FETCH_HEAD" ]; then
-    age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
-    [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; it is the gate's pin, and \`cargo deny fetch db\` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
+  age="$(deny_db_age "$db")"
+  deny_age_said="The advisory database's age is unknown (no FETCH_HEAD);"
+  [ "$age" = unknown ] || deny_age_said="The advisory database is $age days old;"
+  if [ "$age" != unknown ] && [ "$age" -gt 7 ]; then
+    echo "deny: the advisory database is $age days old; it is the gate's pin, and \`cargo deny fetch db\` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
   fi
   # A red here can come from the database moving while nobody touched the tree (it is the gate's pin: only a fetch
   # into it moves it, and deny-daily.sh keeps a database of its own). Say so, and say whose call it is: the gate
@@ -607,7 +609,7 @@ deny_check() {
   cargo deny --offline --log-level error check || {
     local rc=$?
     if cargo deny --offline --log-level error check bans licenses sources >/dev/null 2>&1; then
-      echo "deny: ONLY advisories failed; bans, licences and sources are clean. The advisory database is $(deny_db_age "$db") days old; it is the gate's pin and moves only when something fetches into it (the owner's \`cargo deny fetch db\`), not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
+      echo "deny: ONLY advisories failed; bans, licences and sources are clean. $deny_age_said it is the gate's pin and moves only when something fetches into it (the owner's \`cargo deny fetch db\`), not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
     fi
     return "$rc"
   }

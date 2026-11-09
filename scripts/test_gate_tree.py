@@ -303,7 +303,7 @@ class GateTree(unittest.TestCase):
 
     # ---- cargo deny: the gate's database is a pin, and the gate never fetches into it
 
-    def deny_gate(self, age_days=None, **env):
+    def deny_gate(self, age_days=None, no_fetch_head=False, **env):
         """deny_check through the real gate, with a CARGO_HOME of the test's own; (rc, output, deny argv lines)."""
         cargo_home = self.home / ".cargo"
         if age_days is not None:
@@ -313,6 +313,8 @@ class GateTree(unittest.TestCase):
             fetch_head.write_text("x\n")
             then = time.time() - age_days * 86400
             os.utime(fetch_head, (then, then))
+        if no_fetch_head:
+            (cargo_home / "advisory-dbs" / "advisory-db-abcd1234").mkdir(parents=True)
         deny_log = Path(self.tmp.name) / "deny.log"
         rc, out, _ = self.gate(CARGO_HOME=str(cargo_home), STUB_DENY_LOG=str(deny_log), **env)
         calls = deny_log.read_text().splitlines() if deny_log.exists() else []
@@ -347,6 +349,16 @@ class GateTree(unittest.TestCase):
         self.assertIn("ONLY advisories failed", out)
         self.assertIn("`cargo deny fetch db`", out)
         self.assertIn("gate: FAILED in deny", out)
+        self.assertEqual(calls, [self.FULL, self.BANS], calls)
+
+    def test_deny_with_a_database_of_unknown_age_never_says_unknown_days_old(self):
+        # One age, through deny_db_age: no FETCH_HEAD reads as a sentence, not "is unknown days old".
+        rc, out, calls = self.deny_gate(no_fetch_head=True, STUB_DENY="advisories")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("ONLY advisories failed", out)
+        self.assertNotIn("unknown days old", out)
+        self.assertIn("The advisory database's age is unknown (no FETCH_HEAD); it is the gate's pin", out)
+        self.assertNotIn("days old; it is the gate's pin, and", out, "no old-database line without an age")
         self.assertEqual(calls, [self.FULL, self.BANS], calls)
 
     # ---- and what is not a move
