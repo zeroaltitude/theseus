@@ -7,6 +7,7 @@ use theseus_client::render::{self, Tag};
 use theseus_protocol::{usd, ConfirmRequest};
 
 use crate::board::Question;
+use crate::held;
 
 /// An approval's first line: who wants to do what in plain words
 /// (theseus-cudar), else the tool and its call.
@@ -70,7 +71,12 @@ pub fn lines(
             // The countdown and the floor on a line of their own, before the
             // reason: a long reason (a path, a command) wraps over rows of its
             // own (`ui::card_rows`), and would push them down.
-            out.extend(when(c.floor, c.expires_at_ms, now_ms));
+            out.extend(when(
+                c.floor,
+                held::deadline_of(c),
+                held::waited_label(c, now_ms),
+                now_ms,
+            ));
             out.extend(confirm_why(c));
             out.extend(preview(c));
             if let Some(t) = c.task.as_ref().filter(|_| c.plain.is_none()) {
@@ -117,7 +123,7 @@ pub fn lines(
         }
         Question::Brief(p) => {
             out.push((Tag::Ask, format!("⏸ confirm {}: {}", p.tool, p.reason)));
-            out.extend(when(p.floor, p.expires_at_ms, now_ms));
+            out.extend(when(p.floor, p.expires_at_ms, None, now_ms));
             out.push((Tag::Dim, "  reading the whole question…".to_string()));
             push_refusal(&mut out, refused);
             out.push((Tag::Plain, "  [y] approve  [n] decline".to_string()));
@@ -213,7 +219,7 @@ fn ask_lines(
             ask.as_ref().map_or("a question", |a| a.question.as_str())
         ),
     ));
-    out.extend(when(false, c.expires_at_ms, now_ms));
+    out.extend(when(false, c.expires_at_ms, None, now_ms));
     for (i, o) in ask.iter().flat_map(|a| a.options.iter()).enumerate() {
         let detail = o.detail.as_deref().map(|d| format!(" — {d}"));
         out.push((
@@ -236,12 +242,19 @@ fn push_refusal(out: &mut Vec<(Tag, String)>, refused: Option<&str>) {
     }
 }
 
-/// `  expires in 4:12 · FLOOR`: none for a question with neither.
-fn when(floor: bool, expires_at_ms: u64, now_ms: u64) -> Option<(Tag, String)> {
+/// `  expires in 4:12 · FLOOR`, or `  waiting 12 min · FLOOR` for a question
+/// held past its life (`held`): none for a question with neither.
+fn when(
+    floor: bool,
+    expires_at_ms: u64,
+    waited: Option<String>,
+    now_ms: u64,
+) -> Option<(Tag, String)> {
     let mut parts = Vec::new();
     if expires_at_ms > 0 {
         parts.push(countdown(expires_at_ms, now_ms));
     }
+    parts.extend(waited);
     if floor {
         parts.push("FLOOR".to_string());
     }
