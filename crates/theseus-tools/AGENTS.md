@@ -15,6 +15,12 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 - `src/fs.rs` (`fs.read`, `write`, `edit`, `patch`, `glob`, `grep`, `list`), `src/git.rs` (`git.diff`, `git.log`,
   through gitoxide, no git CLI), `src/text.rs` (`text.diff`), `src/proc.rs` (`proc.run`, the escape hatch), and
   `src/image.rs`.
+- **`fs.rs`'s walk and line endings.** `fs.glob`, `fs.grep` and `fs.list` share one `all` flag and one walk
+  (`walk_builder`): "ignored" is `.gitignore`, `.ignore`, parents and `.git/info/exclude`, the global gitignore is
+  never read, hidden files are skipped, and `.git` is never walked, with or without `all`. `fs.edit` matches a quote
+  that is not found as given against a file with CRLFs with each quoted newline reading either ending
+  (`lf_regions`), and writes each replacement with its region's own endings: its newlines take them in order,
+  any beyond take the region's last (`splice_lf_regions`). `fs.patch` converts only an all-CRLF file (`is_all_crlf`).
 - **What `fs.read` reads**: text with line numbers; an image as an image (`Media::Image`); a PDF as its pages,
   `pages` (`3`, `3-5`, `21-`), up to 20 a read and the first 20 without one, cut out as a PDF of their own with
   their text (`Media::Pdf`, through theseus-files' capped converter; `pdf_pages` in `src/docs.rs`, which
