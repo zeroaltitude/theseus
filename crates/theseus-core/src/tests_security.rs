@@ -502,7 +502,11 @@ async fn a_press_with_a_call_labels_its_judgments_in_its_frame() {
     assert_eq!(calls.len(), 2);
     // Pressed before Jev has answered: the rows are not written yet.
     assert!(security_rows(&r.core.store, "judge.call").is_empty());
-    let frames = || r.core.store.stats().unwrap().frames_appended;
+    // The press's own frames, counted on this thread: `tighten` is one call with no await, so what
+    // this thread appends across it is what the press wrote. The store's count is every writer's,
+    // and the judge's sink writes a second frame at once when a judgment (the memory pass's) lands
+    // while its first is being written, which can fall inside the press.
+    let frames = theseus_store::frames_written_here;
     let f0 = frames();
     r.core.tighten("proc.run", Some(&calls[0]), "test").unwrap();
     assert_eq!(
