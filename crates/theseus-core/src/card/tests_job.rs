@@ -888,6 +888,36 @@ async fn a_full_card_does_not_rerun_within_its_interval() {
     assert_eq!(log.count("card: the run finished"), 1);
 }
 
+/// A failed attempt (the model's answer made no cards) waits one night, not
+/// the interval (theseus-kinfs): it leaves the stored last run alone, which
+/// is what the interval counts from, and the tender's own mark of the start
+/// moves only the night. The due point is asserted, not "sooner than a week".
+/// (Planted revert: set `last_run_ms` after a failed call again.)
+#[tokio::test]
+async fn a_failed_card_attempt_is_due_the_next_night_not_the_next_week() {
+    use super::tender::next_at_after;
+    let r = rig(vec![Scripted::tools("", &[])], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    assert!(
+        got.stopped.as_deref().unwrap().starts_with("a call failed"),
+        "{got:?}"
+    );
+    let stored = State::read(&r.core.store).unwrap().last_run_ms;
+    assert_eq!(stored, None, "a failed attempt is not a run the interval counts");
+    let cfg = &r.core.cfg;
+    let hour = cfg.judge.learning_hour;
+    let now = theseus_protocol::now_unix_ms();
+    let (at, _) = next_at_after(now, hour, cfg.card.every_days, stored, Some(now));
+    let night = crate::learning::tender::due(now, hour, Some(now)).0;
+    assert_eq!(at, night, "the next night's learning hour");
+    assert!(at <= now + 86_400_000 + 1, "{at} is more than a night away");
+    // A run that did succeed still waits the interval.
+    let (at, why) = next_at_after(now, hour, 7, Some(now), Some(now));
+    assert_eq!(why, "weekly");
+    assert!(at >= now + 7 * 86_400_000, "{at}");
+}
+
 /// A run that fails writes no state; it is not due again at once either.
 #[tokio::test(start_paused = true)]
 async fn a_failed_card_run_is_not_due_again_at_once() {

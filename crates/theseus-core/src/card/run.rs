@@ -276,7 +276,13 @@ impl Core {
                 break;
             }
         }
-        job.st.last_run_ms = Some(now);
+        // A failed call is not a run the interval counts from: it leaves the
+        // stored mark alone, so the next attempt is the next night's, not the
+        // interval's (theseus-kinfs; the tender's own mark keeps it from
+        // being due again before then).
+        if !out.stopped.as_deref().is_some_and(is_failed_call) {
+            job.st.last_run_ms = Some(now);
+        }
         self.people_write(&[job.st.record()?]).await?;
         Ok(out)
     }
@@ -325,9 +331,6 @@ impl Core {
         hold.settle(cost);
         let cost_usd = micros_to_usd(cost);
         job.st.spend(&job.today, cost_usd);
-        if job.live.is_none() {
-            job.st.last_run_ms = Some(job.now);
-        }
         out.calls += 1;
         out.spent_usd += cost_usd;
         out.spent_today_usd = job.st.spent_on(&job.today);
@@ -338,6 +341,9 @@ impl Core {
         out.dropped += dropped;
         out.one_task += u64::from(parsed.one_task);
         let ids: Vec<String> = made.iter().map(|p| p.id.clone()).collect();
+        if job.live.is_none() && failed.is_none() {
+            job.st.last_run_ms = Some(job.now);
+        }
         let f = CardProposed {
             run: &job.run,
             profile: &job.target.profile,
@@ -382,7 +388,7 @@ impl Core {
         self.rec(None).announce(&f);
         out.proposed.extend(made);
         if let Some(why) = failed {
-            out.stopped = Some(format!("a call failed: {why}"));
+            out.stopped = Some(format!("{FAILED_CALL}{why}"));
             return Ok(false);
         }
         Ok(true)
@@ -568,4 +574,12 @@ pub(super) fn proposal(
         observations: Vec::new(),
         posted_ms: None,
     }
+}
+
+/// What `stopped` begins with when a model call failed.
+const FAILED_CALL: &str = "a call failed: ";
+
+/// Whether a run's `stopped` words say a model call failed.
+fn is_failed_call(stopped: &str) -> bool {
+    stopped.starts_with(FAILED_CALL)
 }
