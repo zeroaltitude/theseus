@@ -36,3 +36,12 @@ pub use report::{Exit, Scratch, Started};
 pub use spawn::{refusal, refused_here, spawn, SandboxChild, SpawnError, Stdio, ROOT_REFUSED};
 pub use spec::{Init, Limits, Spec, HOSTNAME, INIT_ROLE};
 pub use view::DEVICES;
+
+/// The shared shape for a list that must be complete (theseus-3i6d1):
+/// `crates/complete.rs`, one file included by each crate that needs it
+/// rather than a dependency of its own. `seccomp::tests` uses it to hold
+/// `seccomp::denied()` against the parity rule it is built from.
+#[cfg(test)]
+mod complete {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../complete.rs"));
+}

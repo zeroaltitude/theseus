@@ -276,7 +276,7 @@ to get whole-of-AWS reach:
   The marking alone is not a credential rule, because AWS marks `sensitive` to keep a value out of
   logs, so the marking covers personal data and customer content too: taking every marked member
   would reach 1478 further operations and 2654 further members, down to postal codes and tag values,
-  against this rule's 147 and 105. The name alone is a guess, and the names that matter do not
+  against this rule's 162 and 118. The name alone is a guess, and the names that matter do not
   cooperate — a stream key arrives as `StreamKey.value`, a Grafana workspace key as `key`, a TOTP seed
   as `SecretCode`, a channel's key as `Srt.passphrase`. Reading the shape's name as well as the
   member's is what finds `StreamKey.value`: `value` says nothing and `StreamKey` says all of it. All
@@ -292,13 +292,20 @@ to get whole-of-AWS reach:
   what it is — EC2's `VpnConnectionDeviceSampleConfiguration`, which carries the tunnels' pre-shared
   keys in its body, a thin client's `activationCode`, a domain's `AuthCode`, an MFA device's
   `QRCodePNG`, which encodes the same seed as the `Base32StringSeed` beside it, and a kdb
-  `signedConnectionString`. `ENDS` is read by the **walk** as well as by the rule, which is what
+  `signedConnectionString`. `MARKED` is now **complete as well as unstale** (theseus-3i6d1):
+  `every_marked_candidate_is_on_a_list` walks the catalog's secret-bearing answers rather than the
+  list, and every marked member of one whose name says nothing of what it is must be on `MARKED`
+  because it is a credential, or on `TRIAGED` because someone read it and it is not. That walk is
+  what added EC2's `VpnConnection.CustomerGatewayConfiguration`, Cognito's four auth `Session`
+  values, CodeCatalyst's signed `streamUrl`, Amplify Backend's four social-provider settings, DMS's
+  Oracle `SecurityDbEncryption` and IoT's `ClaimCertificate`, which is why the figures above moved
+  from 147 and 105. `ENDS` is read by the **walk** as well as by the rule, which is what
   closed the partial holds: a secret-bearing call that held one secret and handed another to the
   model in the same result, which is worse than holding nothing because the answer reads as covered.
   Connect's `StartWebRTCContact` did exactly that with `ParticipantToken` beside its held join token.
   Every credential-shaped member of a secret-bearing answer must now be one the walk holds.
 
-  The rule selects 147 operations beyond its predecessor; each is now a secret-bearing row or an
+  The rule selects 162 operations beyond its predecessor; each is now a secret-bearing row or an
   allowed row with its reason — 25 `SECRET` rows, 18 `WHEN_PRESENT` groups covering 52 operations,
   and 23 allowed rows.)_
 - **Retry class** (§3.16), from the traits:

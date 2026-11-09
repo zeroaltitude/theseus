@@ -24,7 +24,7 @@
 //! data and customer content too, and holding every marked member would
 //! reach 1478 further operations and 2654 further members — a postal code, a
 //! given name, a control's description, a tag's value — against this rule's
-//! 147 and 105. The words alone are a guess about a name, and the names that
+//! 162 and 118. The words alone are a guess about a name, and the names that
 //! matter do not cooperate: a stream key arrives as `StreamKey.value`, a
 //! Grafana key as `key`, a TOTP seed as `SecretCode`, a channel's key as
 //! `Srt.passphrase`. Read together they keep the marking's authority — the
@@ -119,6 +119,58 @@ const MARKED: &[(&str, &str, &str)] = &[
         "finspace",
         "GetKxConnectionStringResponse",
         "signedConnectionString",
+    ),
+    // The rows below were found by `every_marked_candidate_is_on_a_list`
+    // (theseus-3i6d1), which walks the catalog instead of reading this list:
+    // every one is a marked member of a secret-bearing answer whose name says
+    // nothing of what it is, and no other branch of the rule reaches it. The
+    // walk holds them all at run time already (they are marked); what these
+    // rows add is that their operation must stay secret-bearing.
+    // the social provider's client id and client secret.
+    ("amplifybackend", "SocialProviderSettings", "Facebook"),
+    // the social provider's client id and client secret.
+    ("amplifybackend", "SocialProviderSettings", "Google"),
+    // the social provider's client id and client secret.
+    (
+        "amplifybackend",
+        "SocialProviderSettings",
+        "LoginWithAmazon",
+    ),
+    // the provider's key id, team id and private key.
+    (
+        "amplifybackend",
+        "SocialProviderSettings",
+        "SignInWithApple",
+    ),
+    // a signed URL that opens the session: whoever holds it is in.
+    ("codecatalyst", "DevEnvironmentAccessDetails", "streamUrl"),
+    // the structure holding that URL and the session token.
+    (
+        "codecatalyst",
+        "StartDevEnvironmentSessionResponse",
+        "accessDetails",
+    ),
+    // the auth session that carries a challenge to its answer.
+    ("cognito-idp", "AdminInitiateAuthResponse", "Session"),
+    // the auth session that carries a challenge to its answer.
+    (
+        "cognito-idp",
+        "AdminRespondToAuthChallengeResponse",
+        "Session",
+    ),
+    // the auth session that carries a challenge to its answer.
+    ("cognito-idp", "InitiateAuthResponse", "Session"),
+    // the auth session that carries a challenge to its answer.
+    ("cognito-idp", "RespondToAuthChallengeResponse", "Session"),
+    // the Oracle TDE password DMS uses to read encrypted redo logs.
+    ("dms", "OracleSettings", "SecurityDbEncryption"),
+    // the generated device configuration, with the tunnels' pre-shared keys in its body, exactly as GetVpnConnectionDeviceSampleConfiguration's is.
+    ("ec2", "VpnConnection", "CustomerGatewayConfiguration"),
+    // the claim certificate a device provisions itself with.
+    (
+        "iot-managed-integrations",
+        "CreateProvisioningProfileResponse",
+        "ClaimCertificate",
     ),
 ];
 
@@ -840,7 +892,7 @@ fn the_rules_reach_is_what_the_design_doc_says() {
     let marking = reach(c, &marking_alone);
     assert_eq!(
         (conjunction, marking),
-        ((147, 105), (1478, 2654)),
+        ((162, 118), (1478, 2654)),
         "the rule's reach moved: the conjunction now selects {conjunction:?} \
          (operations, members) beyond the rule it replaced, and the marking alone would \
          select {marking:?}. Correct the module doc above and docs/design/aws-toolset.md."
@@ -1006,4 +1058,205 @@ fn scan_operation(
         }
     }
     bad
+}
+
+/// Members of a secret-bearing answer that AWS marks `sensitive` and whose
+/// names say nothing of what they are — the shape [`MARKED`] exists for —
+/// which someone has looked at and judged **not** credentials
+/// (theseus-3i6d1).
+///
+/// A row is a decision, so write what the member actually is. A row that
+/// matches nothing is stale and fails, exactly as an [`ALLOWED`] row does.
+const TRIAGED: &[(&str, &str, &str, &str)] = &[
+("amplify", "App", "buildSpec", "the app's build specification, the project's own build file"),
+    ("amplify", "AutoBranchCreationConfig", "buildSpec", "the build specification a new branch inherits"),
+    ("amplify", "Branch", "buildSpec", "the branch's build specification"),
+    ("amplifybackend", "CreateBackendAuthVerificationMessageConfig", "EmailSettings", "the verification email's subject and body"),
+    ("amplifybackend", "CreateBackendAuthVerificationMessageConfig", "SmsSettings", "the verification message's text"),
+    ("chime", "Bot", "BotEmail", "an email address"),
+    ("chime", "Bot", "DisplayName", "a display name"),
+    ("chime-sdk-identity", "AppInstanceUserEndpoint", "Name", "an endpoint's name"),
+    ("chime-sdk-meetings", "Attendee", "ExternalUserId", "the caller's own id for an attendee; the attendee's JoinToken is held by name"),
+    ("chime-sdk-meetings", "CreateAttendeeError", "ExternalUserId", "the same id, echoed on the error"),
+    ("chime-sdk-meetings", "Meeting", "ExternalMeetingId", "the caller's own id for the meeting"),
+    ("chime-sdk-meetings", "Meeting", "MeetingHostId", "the host's identifier"),
+    ("cognito-idp", "UserPoolClientType", "ClientId", "the app client's public id; its ClientSecret carries a credential word and is held by the rule"),
+    ("connecthealth", "PatientInsightsEncounterContext", "encounterReason", "clinical text about a patient"),
+    ("connecthealth", "PatientInsightsPatientContext", "dateOfBirth", "a patient's date of birth"),
+    ("connecthealth", "PatientInsightsPatientContext", "patientId", "a patient's identifier"),
+    ("connecthealth", "PatientInsightsPatientContext", "pronouns", "a patient's pronouns"),
+    ("connecthealth", "UserContext", "userId", "the requesting clinician's identifier"),
+    ("datazone", "CreateConnectionOutput", "description", "the connection's description"),
+    ("datazone", "GetConnectionOutput", "description", "the connection's description"),
+    ("datazone", "UpdateConnectionOutput", "description", "the connection's description"),
+    ("ds", "DirectoryDescription", "ShareNotes", "the note sent with a directory share request"),
+    ("firehose", "HttpEndpointCommonAttribute", "AttributeName", "the name of an attribute the operator chose to send with each record"),
+    ("firehose", "HttpEndpointCommonAttribute", "AttributeValue", "its value, which the operator chose; the destination's AccessKey is held by name"),
+    ("firehose", "HttpEndpointDescription", "Url", "the HTTP destination's URL"),
+    ("firehose", "RedshiftDestinationDescription", "Username", "a user name; the password beside it carries a credential word"),
+    ("firehose", "SnowflakeDestinationDescription", "AccountUrl", "the Snowflake account's URL"),
+    ("firehose", "SnowflakeDestinationDescription", "ContentColumnName", "a column name"),
+    ("firehose", "SnowflakeDestinationDescription", "Database", "a database name"),
+    ("firehose", "SnowflakeDestinationDescription", "MetaDataColumnName", "a column name"),
+    ("firehose", "SnowflakeDestinationDescription", "Schema", "a schema name"),
+    ("firehose", "SnowflakeDestinationDescription", "Table", "a table name"),
+    ("firehose", "SnowflakeDestinationDescription", "User", "a user name; the private key beside it carries a credential word"),
+    ("firehose", "SnowflakeRoleConfiguration", "SnowflakeRole", "a role name"),
+    ("firehose", "SnowflakeVpcConfiguration", "PrivateLinkVpceId", "a VPC endpoint id"),
+    ("gamelift", "InstanceAccess", "IpAddress", "the instance's address; the Credentials beside it are held by name"),
+    ("glue", "Job", "CodeGenConfigurationNodes", "the visual job's generated node graph"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "Brand", "a device's brand"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "Classification", "a device's classification"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "ConnectorDeviceId", "a device's id with its connector"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "InternationalArticleNumber", "a device's article number"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "MacAddress", "a device's MAC address"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "Model", "a device's model"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "Owner", "a device's owner"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "SerialNumber", "a device's serial number"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "Tags", "the device's tags"),
+    ("iot-managed-integrations", "GetManagedThingResponse", "UniversalProductCode", "a device's product code"),
+    ("mediapackage", "IngestEndpoint", "Username", "the ingest user's name; its password carries a credential word"),
+    ("quicksight", "AssetBundleImportSourceDescription", "Body", "where the bundle under import was read from"),
+    ("s3", "CreateSessionOutput", "SSEKMSEncryptionContext", "the KMS encryption context, which is additional authenticated data and not a key"),
+    ("ssm", "Parameter", "Value", "whatever the operator stored; held by its marking alone and no credential by name, as the module doc says"),
+    ("ssm", "ParameterHistory", "Value", "the same value, in its history"),
+    ("workspaces-thin-client", "Environment", "desktopEndpoint", "the desktop service's URL"),
+    ("workspaces-thin-client", "Environment", "deviceCreationTags", "the tags a new device is given"),
+    ("workspaces-thin-client", "Environment", "name", "the environment's name; its activationCode is on MARKED"),
+    ("workspaces-thin-client", "EnvironmentSummary", "desktopEndpoint", "the desktop service's URL"),
+    ("workspaces-thin-client", "EnvironmentSummary", "name", "the environment's name; its activationCode is on MARKED"),
+];
+
+/// One candidate for [`MARKED`]: a marked, wordless member of a
+/// secret-bearing answer that no branch of [`credential_shaped`] reaches.
+fn marked_candidates(c: &Catalog) -> std::collections::BTreeMap<String, String> {
+    fn go(
+        service: &str,
+        shape: ShapeRef<'_>,
+        tokens: &[&str],
+        seen: &mut HashSet<ShapeId>,
+        out: &mut std::collections::BTreeMap<String, String>,
+        op: &str,
+    ) {
+        if !seen.insert(shape.id()) {
+            return;
+        }
+        for m in shape.members() {
+            let skipped = tokens.contains(&m.name())
+                || m.name().eq_ignore_ascii_case("NextToken")
+                || (shape.name() == "Tag"
+                    && ["Key", "tagKey"]
+                        .iter()
+                        .any(|k| k.eq_ignore_ascii_case(m.name())));
+            // Marked by AWS, and wordless: neither its own name nor the name
+            // of the shape holding it says what it is. That is precisely the
+            // case a reader cannot settle from the catalog alone, and so
+            // precisely the case a list must settle.
+            let candidate = !skipped
+                && m.shape().is_sensitive()
+                && !carries(m.name())
+                && !carries(shape.name())
+                && !super::secret::named(m.name(), m.shape())
+                && !HELD
+                    .iter()
+                    .any(|(s, p, x)| *s == service && *p == shape.name() && *x == m.name());
+            if candidate {
+                out.entry(format!("{service} {} {}", shape.name(), m.name()))
+                    .or_insert_with(|| format!("in {service}:{op}'s answer"));
+            }
+            go(service, m.shape(), tokens, seen, out, op);
+        }
+        if let Some(m) = shape.list_member() {
+            go(service, m.shape(), tokens, seen, out, op);
+        }
+        if let Some(m) = shape.map_value() {
+            go(service, m.shape(), tokens, seen, out, op);
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    for e in c.services() {
+        let svc = c.service(&e.name).expect("the service decodes");
+        for op in svc.operations() {
+            if op.classify().secret == SecretBearing::No {
+                continue;
+            }
+            let Some(output) = op.output() else { continue };
+            let tokens: Vec<&str> = op
+                .paginator()
+                .map(|p| p.output_tokens())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|t| t.rsplit('.').next().unwrap_or(t))
+                .collect();
+            go(
+                &e.name,
+                output,
+                &tokens,
+                &mut HashSet::new(),
+                &mut out,
+                op.name(),
+            );
+        }
+    }
+    out
+}
+
+/// **Completeness for [`MARKED`]** (theseus-3i6d1), in the shape of
+/// `crates/complete.rs`.
+///
+/// `no_marked_row_can_be_deleted_in_silence` and the staleness checks in
+/// `every_credential_shaped_output_is_secret_bearing_or_allowed` guard one
+/// direction: a row that stops belonging fails. Nothing failed in the other
+/// direction — when something **belongs** on the list and is not on it — and
+/// that asymmetry is the whole of the complaint: a weekly catalog update can
+/// add a marked, bland-named credential beside a held one and no test has a
+/// question to ask about it.
+///
+/// So the catalog is walked, not the list. Every marked member of a
+/// secret-bearing answer whose name (and whose shape's name) carries no
+/// credential word, and that no other branch of the rule reaches, is a
+/// candidate: it must be on [`MARKED`], because it is a credential, or on
+/// [`TRIAGED`], because someone read it and it is not. A candidate on
+/// neither fails, naming the member, the operation, and both lists.
+///
+/// Why a secret-bearing answer and not every answer: AWS marks `sensitive`
+/// for logging, so the whole marked set is 2,654 members — postal codes,
+/// given names, a tag's value. The members that matter are the ones already
+/// travelling beside a credential, where a miss is a *partial hold*: an
+/// answer that reads as covered and is not.
+#[test]
+fn every_marked_candidate_is_on_a_list() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let found = marked_candidates(c);
+    let listed: Vec<(String, String)> = MARKED
+        .iter()
+        .map(|(s, p, m)| (format!("{s} {p} {m}"), "MARKED: a credential".to_string()))
+        .chain(
+            TRIAGED
+                .iter()
+                .map(|(s, p, m, why)| (format!("{s} {p} {m}"), format!("TRIAGED: {why}"))),
+        )
+        .collect();
+    let spec = crate::complete::MustBeComplete {
+        item: "a marked, wordless member of a secret-bearing answer",
+        list: "aws::tests_secret_shapes::MARKED and TRIAGED",
+        world: "the walk of the embedded catalog's secret-bearing operations",
+        add: "read the member. If it is a credential, add it to MARKED, which \
+              makes it credential-shaped and requires its operation to be \
+              secret-bearing. If it is not, add it to TRIAGED with what it \
+              actually is. Leaving it on neither means the next person has no \
+              way to tell which was decided",
+        drop: "the member is gone from the catalog, or another branch of the \
+               rule now reaches it: delete the row",
+        // 76 when this was written: 19 on MARKED and 57 on TRIAGED.
+        least: 60,
+        stale_fails: true,
+    };
+    let walked = crate::complete::check(&spec, listed, found);
+    assert!(
+        walked >= MARKED.len(),
+        "the walk found {walked} candidates and MARKED alone has {}: \
+         the walk cannot be reaching the rows it is meant to judge",
+        MARKED.len()
+    );
 }
