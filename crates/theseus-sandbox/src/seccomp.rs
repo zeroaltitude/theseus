@@ -465,12 +465,15 @@ mod tests {
     /// list it is judging and says nothing at all about a call the list
     /// leaves out. The reviewer proved it: deleting `perf_event_open` from
     /// `denied()` left the whole sandbox suite 40/40 green, and the live
-    /// contract names 10 of the list's 45 entries, so 35 denied calls were
+    /// contract's clause 6 loop names ten keys, of which eight are entries
+    /// of the list (`unshare`, `mount`, `ptrace`, `bpf`, `keyctl`,
+    /// `io_uring_setup`, `setns`, `syslog`; `clone_newuser` and `clone_newnet`
+    /// are the clone-flag rule, not entries), so 37 of the 45 denied calls were
     /// asserted by nothing and any one of them could be dropped in silence.
     ///
     /// This is the other document. Each row is `(why it is refused, its
     /// name, its number)`, grouped by the reason rather than by the order
-    /// `denied()` happens to build its vector in. **The two hold the same 44
+    /// `denied()` happens to build its vector in. **The two hold the same 45
     /// entries in the same order, with the reasons added (and x86_64's three
     /// more, `iopl`, `ioperm` and `uselib`, are in `MUST_DENY_X86` beside
     /// their own rows in `denied()`): they are one text copied twice.** `the_filter_denies_every_call_the_parity_rule_requires`
@@ -596,6 +599,20 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         let v = [v, MUST_DENY_X86.to_vec()].concat();
         v
+    }
+
+    /// The doc sentence at the top of `MUST_DENY` states how many entries the
+    /// portable table holds; this holds the prose and the count together so
+    /// they cannot drift again (the sentence once said 44: counting `libc::SYS_`
+    /// tokens misses `kexec_file_load`, whose number is a local constant).
+    #[test]
+    fn the_portable_table_holds_the_45_entries_its_doc_says() {
+        assert_eq!(
+            MUST_DENY.len(),
+            45,
+            "the doc sentence on MUST_DENY says 45 entries: change the sentence \
+             and this count together"
+        );
     }
 
     /// The completeness test (theseus-3i6d1), in the shape of
