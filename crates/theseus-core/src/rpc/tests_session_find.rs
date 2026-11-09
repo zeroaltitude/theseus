@@ -468,3 +468,45 @@ async fn session_list_through_the_dispatch_withholds_an_imported_sessions_title(
     assert_eq!(title_of(&rows, &imported).as_deref(), Some(KESTREL));
     assert_eq!(title_of(&rows, &plain).as_deref(), Some("the tide log"));
 }
+
+/// `node.list` through a real connection (theseus-a7pr's proof gap, seven
+/// lines from `session.history`): the arm must pass `conn.surface`. `Mcp` is
+/// refused before dispatch (`NOT_FOR_MCP`), so the surfaces that read no
+/// private text here are `Unnamed` and `Discord`. Planted, never committed:
+/// `server.rs`'s `NODE_LIST` arm as `route(params, |p| self.node_list_for(p,
+/// true))` reddens this test, and not `tests_history`'s one level lower.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_list_through_the_dispatch_withholds_an_imported_sessions_words() {
+    use crate::approval::Surface;
+    let c = core();
+    let (imported, plain) = imported_and_plain(&c);
+    let ask = |session: &str, surface: Surface| {
+        let params = serde_json::json!({ "session_id": session });
+        let c = c.clone();
+        async move {
+            crate::tests_mcp_memory::rpc(&c, surface, theseus_protocol::method::NODE_LIST, params)
+                .await
+                .unwrap()
+        }
+    };
+    for surface in [Surface::Unnamed, Surface::Discord] {
+        let said = ask(&imported, surface).await;
+        assert_eq!(
+            said["nodes"].as_array().map(Vec::len),
+            Some(2),
+            "{surface:?}: the nodes are listed, not dropped: {said}"
+        );
+        assert!(
+            !said.to_string().contains(KESTREL_SAID),
+            "{surface:?} read a node: {said}"
+        );
+    }
+    let owner = ask(&imported, Surface::Cli).await;
+    assert_eq!(owner["nodes"].as_array().map(Vec::len), Some(2), "{owner}");
+    assert!(owner.to_string().contains(KESTREL_SAID), "{owner}");
+    for surface in [Surface::Unnamed, Surface::Discord, Surface::Cli] {
+        let said = ask(&plain, surface).await;
+        assert_eq!(said["nodes"].as_array().map(Vec::len), Some(2), "{said}");
+        assert!(said.to_string().contains("the tide is out"), "{said}");
+    }
+}
