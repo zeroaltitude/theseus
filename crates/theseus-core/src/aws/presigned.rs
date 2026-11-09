@@ -62,8 +62,10 @@
 //!
 //! **The vocabulary is a guard, and how it is kept.** [`SIGNATURE`],
 //! [`KEYED_BY`] and [`SCHEMES`] are hand-kept lists: a spelling missing from
-//! them is a presigned URL the model reads. They are therefore judged against
-//! a walk, not against themselves (`crates/complete.rs`):
+//! them is a presigned URL the model reads. [`SIGNATURE`] and [`KEYED_BY`] are
+//! judged against a walk, not against themselves (`crates/complete.rs`);
+//! [`SCHEMES`] is private, hand-kept and compared by nothing, so a scheme
+//! missing from it is not caught by any test:
 //! `tests_presigned::the_presigned_vocabulary_holds_every_parameter_the_real_signer_writes`
 //! reads the URL the repository's own SigV4 signer writes and fails on any
 //! parameter the lists do not hold. That reaches the SigV4 spelling only. The

@@ -453,7 +453,9 @@ fn a_presigned_url_is_held_in_every_operations_output_and_an_ordinary_one_in_non
 
 /// The query parameters a presigned URL carries that are **not** signature
 /// material: the time it was made, how long it lives, which headers the
-/// signature covers. Everything else the real signer writes must be on
+/// signature covers, and the session token of temporary credentials (a
+/// parameter the signer writes that signs nothing, `x-amz-security-token`).
+/// Everything else the real signer writes must be on
 /// `presigned`'s vocabulary.
 const NOT_VOCABULARY: &[&str] = &[
     "x-amz-date",

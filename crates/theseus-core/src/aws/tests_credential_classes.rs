@@ -11,6 +11,13 @@
 //! Here each answers with a handle instead, the board holds the value, and
 //! the rest of the result comes through untouched.
 //!
+//! Added after that pass, from the second review's sweep (theseus-3i6d1):
+//! pinpoint's Firebase server key (`GCMChannelResponse.Credential`) and its
+//! Baidu twin, grafana's workspace token (`grafanaToken`), an IoT managed
+//! integrations device's claim certificate (`GetProvisioningProfile`), and a
+//! chime user's `PersonalPIN`. An EKS Anywhere licence's `token` also reaches
+//! the model and is left to the `ALLOWED` row that decides it.
+//!
 //! Two classes came with the shape rule (theseus-3i6d1) and are measured in
 //! `tests_presigned.rs`, not here: a presigned URL, which carries its own
 //! authorisation in the value and so is held by what the value looks like
