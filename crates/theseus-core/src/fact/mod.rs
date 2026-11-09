@@ -79,6 +79,7 @@ pub mod place;
 pub mod prefix;
 pub mod privacy;
 pub mod progress;
+pub mod project;
 pub mod recall;
 pub mod retract;
 pub mod retry;
@@ -532,6 +533,7 @@ facts![
     flow::FlowLoaded<'static>,
     flow::FlowRetired<'static>,
     flow::FlowRan<'static>,
+    project::ProjectTrust<'static>,
     retry::FailureDismissed<'static>,
     retry::TaskRetried<'static>,
     ops::SessionProfileSet<'static>,
