@@ -288,6 +288,8 @@ mod tests_checkpoint_effort;
 #[cfg(test)]
 mod tests_checkpoint_open;
 #[cfg(test)]
+mod tests_children_complete;
+#[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
 mod tests_coding_hint;
