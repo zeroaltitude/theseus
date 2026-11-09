@@ -363,19 +363,38 @@ fn the_config_names_the_guard_and_the_store() {
     assert!(open(&cfg).is_some());
 }
 
-/// The strings of the first tuple `name = (` .. `)` in the keel guard's source.
+/// The strings of the first tuple `name = (` .. `)` in the keel guard's source,
+/// read line by line: a `#` comment is dropped, the quoted strings of the code
+/// left are collected, and the tuple ends at the line that closes it, whether
+/// on its own line or on the opening one.
+///
+/// This is `rsi::join::keel`'s copy, so both read the guard's lists the same
+/// way. The older form here ended at the *first* `)` anywhere in the body,
+/// which a comment inside the tuple supplies, and so read only the paths above
+/// that comment: 13 of `KEEL_FILES`'s 23. Every `KEEL_PATHS` entry happened to
+/// be among the 13, so the test below passed while it could not have seen a
+/// path added after that comment.
 fn guard_tuple(src: &str, name: &str) -> Vec<String> {
     let after = src
         .split_once(&format!("\n{name} = ("))
         .unwrap_or_else(|| panic!("scripts/keel-guard.py has no {name}"))
         .1;
-    let body = after.split_once("\n)").map_or(after, |(b, _)| b);
-    let body = body.split_once(')').map_or(body, |(b, _)| b);
-    body.split('"')
-        .skip(1)
-        .step_by(2)
-        .map(str::to_string)
-        .collect()
+    let mut out = Vec::new();
+    for line in after.lines() {
+        let code = line.split('#').next().unwrap_or_default();
+        let mut rest = code;
+        while let Some(i) = rest.find('"') {
+            let tail = &rest[i + 1..];
+            let Some(j) = tail.find('"') else { break };
+            out.push(tail[..j].to_string());
+            rest = &tail[j + 1..];
+        }
+        // The tuple's close, on its own line or on the opening one.
+        if code.contains(')') {
+            break;
+        }
+    }
+    out
 }
 
 #[test]
@@ -385,6 +404,27 @@ fn the_keel_guard_holds_every_keel_path() {
     let files = guard_tuple(&src, "KEEL_FILES");
     let prefixes = guard_tuple(&src, "KEEL_PREFIXES");
     assert!(!files.is_empty() && !prefixes.is_empty(), "{files:?}");
+    // The whole list, not the part above the first comment that holds a `)`:
+    // a second, line-based count says how many entries the tuple has, and the
+    // parser must read every one of them. Without this the test is met by a
+    // short read of a list that happens to begin with the paths it wants.
+    let by_line = src
+        .split_once("\nKEEL_FILES = (")
+        .expect("scripts/keel-guard.py has no KEEL_FILES")
+        .1
+        .split_once("\n)")
+        .expect("KEEL_FILES is not closed")
+        .0
+        .lines()
+        .filter(|l| l.trim_start().starts_with('"'))
+        .count();
+    assert!(by_line >= 23, "the line count itself is wrong: {by_line}");
+    assert_eq!(
+        files.len(),
+        by_line,
+        "{} read of {by_line}: {files:?}",
+        files.len()
+    );
     let missing: Vec<&str> = KEEL_PATHS
         .iter()
         .copied()
