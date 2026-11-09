@@ -390,7 +390,7 @@ fn the_models_words_on_abandoning_name_the_notify_posture() {
     let desc = tools::TaskClose.description();
     for (what, text) in [("head", head.as_str()), ("description", desc)] {
         assert!(
-            text.contains("task.close") && text.contains("notify"),
+            text.contains("abandon") && text.contains("notify") && !text.contains("task.close"),
             "{what}: {text}"
         );
     }
