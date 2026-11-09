@@ -137,6 +137,8 @@ mod tests_home_claim;
 #[cfg(test)]
 mod tests_imported;
 #[cfg(test)]
+mod tests_imported_fields;
+#[cfg(test)]
 mod tests_inspect;
 #[cfg(test)]
 mod tests_ledger;

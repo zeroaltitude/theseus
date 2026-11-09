@@ -1820,6 +1820,99 @@ mod tests {
         assert_eq!(idx.keys_ending(2, "1", 10).unwrap(), vec!["t1"]);
     }
 
+    /// The state `tests/index_reapply.rs` cannot build through `apply`
+    /// (`apply_run` through a tombstone run committed, `remove_meta_keys` not):
+    /// a retry over it equals one `apply` (theseus-lu5n review F1).
+    #[test]
+    fn a_retry_over_a_committed_tombstone_run_whose_keys_stayed_equals_one_apply() {
+        let e = |p: u64, kind: u16, key: Option<&str>, scope: Option<&str>| IndexEntry {
+            position: p,
+            kind,
+            key: key.map(str::to_string),
+            scope: scope.map(str::to_string),
+            loc: Location {
+                segment: 1,
+                offset: p * 100,
+                len: 10,
+            },
+            terms: None,
+            sums: None,
+            at_unix_ms: p * 30_000,
+            tags: Vec::new(),
+        };
+        let m = kinds::META;
+        let t = kinds::TOMBSTONE;
+        let history = vec![
+            e(1, m, Some("a"), Some("s0")),
+            e(2, m, Some("b"), Some("s1")),
+            e(3, m, Some("c"), None),
+        ];
+        // Records, a run ending two keys, a key written again, records after.
+        let whole = vec![
+            e(4, m, Some("d"), Some("s0")),
+            e(5, t, Some("a"), Some("s0")),
+            e(6, t, Some("b"), None),
+            e(7, 1, Some("k"), Some("s1")),
+            e(8, m, Some("a"), None),
+        ];
+        let end_of_run = 3; // whole[..3] ends with the tombstone run
+        let open = |name: &str| {
+            let dir = tempfile::tempdir().unwrap();
+            let idx = RedbIndex::open(&dir.path().join(name)).unwrap();
+            idx.apply(&history, false).unwrap();
+            (dir, idx)
+        };
+        let (_d1, once) = open("once.redb");
+        once.apply(&whole, false).unwrap();
+        let (_d2, retried) = open("retried.redb");
+        // The failed apply: the run's records are in, the keys they end stay.
+        retried.apply_run(&whole[..end_of_run], false).unwrap();
+        assert_eq!(
+            retried.count_keys(m).unwrap(),
+            4,
+            "keys a and b not yet removed"
+        );
+        retried.apply(&whole, false).unwrap();
+
+        let all = |i: &RedbIndex| {
+            let mut out = Vec::new();
+            for kind in [m, t, 1] {
+                let (a, w) = (
+                    i.count_keys(kind).unwrap(),
+                    i.count_keys_walked(kind).unwrap(),
+                );
+                assert_eq!(a, w, "count_keys({kind}) maintained != walked");
+                let (c, cw) = (
+                    i.count_of_kind(kind).unwrap(),
+                    i.count_of_kind_walked(kind).unwrap(),
+                );
+                assert_eq!(c, cw, "count_of_kind({kind}) maintained != walked");
+                out.push(format!(
+                    "{kind}: keys {a} kind {c} totals {:?} births {:?}",
+                    i.totals(kind).unwrap(),
+                    i.keys_by_birth(kind, None, usize::MAX).unwrap()
+                ));
+            }
+            for sc in ["s0", "s1"] {
+                let (a, w) = (
+                    i.count_in_scope(sc).unwrap(),
+                    i.count_in_scope_walked(sc).unwrap(),
+                );
+                assert_eq!(a, w, "count_in_scope({sc}) maintained != walked");
+                out.push(format!("scope {sc}: {a}"));
+            }
+            out
+        };
+        assert!(
+            once.shaped() && retried.shaped(),
+            "the maintained counts are in play"
+        );
+        assert_eq!(all(&once), all(&retried));
+        // Positive sizes: tombstones counted, keys a and b removed then a back.
+        assert_eq!(once.count_of_kind(t).unwrap(), 2);
+        assert_eq!(once.count_keys(m).unwrap(), 3, "b removed; c, d, a again");
+    }
+
     #[test]
     fn redb_index() {
         let dir = tempfile::tempdir().unwrap();

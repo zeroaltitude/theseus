@@ -322,6 +322,10 @@ fn seccomp_profile() -> Result<(), String> {
         "setns",
         "clone_newuser",
         "clone_newnet",
+        // The kernel crypto API and a hypervisor transport: sockets of
+        // these families are refused by family.
+        "socket_alg",
+        "socket_vsock",
         // The host's kernel log (theseus-8f50c): `syslog(SYSLOG_ACTION_READ_ALL)`
         // needs no capability where `kernel.dmesg_restrict` is 0, and a user
         // namespace does not virtualize the ring buffer, so the filter is the
@@ -1274,6 +1278,15 @@ mod probe {
         raw(r)
     }
 
+    /// `socket(family, ty, 0)`, closing any descriptor it returns.
+    fn socket_of(family: libc::c_int, ty: libc::c_int) -> Value {
+        let r = unsafe { libc::socket(family, ty, 0) };
+        if r >= 0 {
+            unsafe { libc::close(r) };
+        }
+        raw(r as i64)
+    }
+
     fn seccomp() -> Value {
         let mut m = Map::new();
         let mut put = |k: &str, v: Value| {
@@ -1335,6 +1348,8 @@ mod probe {
             "kmsg",
             outcome(fs::OpenOptions::new().read(true).open("/proc/kmsg")),
         );
+        put("socket_alg", socket_of(libc::AF_ALG, libc::SOCK_SEQPACKET));
+        put("socket_vsock", socket_of(libc::AF_VSOCK, libc::SOCK_STREAM));
         put("clone_newuser", clone_with(libc::CLONE_NEWUSER));
         put("clone_newnet", clone_with(libc::CLONE_NEWNET));
         put("fork", in_child(|| {}));

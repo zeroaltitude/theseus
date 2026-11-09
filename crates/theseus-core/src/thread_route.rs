@@ -657,8 +657,8 @@ pub fn above_every_root<'b>(
     }
     (!above.is_empty()).then(|| {
         format!(
-            "This turn ran in {}, above the roots of {}, so its directory placed nothing. \
-             To place a message by directory, cd into a root, name a file by its absolute \
+            "This turn ran in {}, above the roots of {}, so its directory could not choose \
+             among them. To place a message by directory, cd into a root, name a file by its absolute \
              path, or /move it.",
             here.display(),
             above.join(", ")

@@ -426,8 +426,14 @@ fn resolved(p: &Path) -> io::Result<Option<fs::Metadata>> {
 /// written under it on the host after the view was built, at a path this
 /// function skipped, appears in the view unmasked. (A reviewer hid a dangling
 /// link and an absent path, started a job, wrote both 600 ms later, and the
-/// job read them in full.) Nothing here can close that: a mount needs a
-/// target, and a read-only bind of the host forbids making one. What does
+/// job read them in full.) Nothing here can close that for a read-only
+/// bind: a mount needs a target, and that bind forbids making one. The other
+/// two cases differ, and `mask` does not take them: a read-write path
+/// (`Part::ReadWrite`, `bind_rw`) could be given a target, but making it
+/// would write into the operator's real host tree; a workspace overlay
+/// (`Part::Workspace`) could be given one in its own upper layer, which never
+/// reaches the host, so a mask there is makeable and is left undone only
+/// because nothing here does it (an open question, not a property). What does
 /// hold is what the paragraph above says: the job's command does not exist
 /// while the view is built, the root is read-only by the time it does, and a
 /// mount point that was covered cannot be unlinked from inside. So `hidden`
@@ -559,26 +565,6 @@ mod tests {
     /// behind it is None. Flip it back to a non-following read and the two
     /// link cases below go the other way, which is the defect this row
     /// closes in both of its call sites at once.
-    /// The skip is a behaviour, held here so it is a decision and not an
-    /// accident: a hidden path that resolves to nothing is left alone (no
-    /// mount, nothing made at it), and `mask` says nothing about it. What it
-    /// cannot do about content that arrives later is `mask`'s doc.
-    #[test]
-    fn a_hidden_path_that_resolves_to_nothing_is_skipped_and_left_absent() {
-        let dir = std::env::temp_dir().join(format!("theseus-mask-skip-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let absent = dir.join("absent");
-        let dangling = dir.join("dangling");
-        std::os::unix::fs::symlink(dir.join("nowhere"), &dangling).unwrap();
-        for p in [&absent, &dangling] {
-            assert!(resolved(p).unwrap().is_none(), "{} resolves", p.display());
-            mask(p).expect("a path that resolves to nothing is skipped");
-        }
-        assert!(!absent.exists(), "mask made the absent path");
-        assert!(dangling.symlink_metadata().is_ok(), "mask removed the link");
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
     #[test]
     fn a_path_is_resolved_the_way_the_mount_will_resolve_it() {
         let d = tempfile::tempdir().expect("a temp dir");
@@ -612,6 +598,25 @@ mod tests {
         }
         // A non-directory in the middle of a path is nothing too (ENOTDIR).
         assert!(at("file/under").is_none());
+    }
+
+    /// The skip is a behaviour, held here so it is a decision and not an
+    /// accident: a hidden path that resolves to nothing is left alone (no
+    /// mount, nothing made at it), and `mask` says nothing about it. What it
+    /// cannot do about content that arrives later is `mask`'s doc.
+    #[test]
+    fn a_hidden_path_that_resolves_to_nothing_is_skipped_and_left_absent() {
+        let tmp = tempfile::tempdir().expect("a temp dir");
+        let dir = tmp.path().to_path_buf();
+        let absent = dir.join("absent");
+        let dangling = dir.join("dangling");
+        std::os::unix::fs::symlink(dir.join("nowhere"), &dangling).unwrap();
+        for p in [&absent, &dangling] {
+            assert!(resolved(p).unwrap().is_none(), "{} resolves", p.display());
+            mask(p).expect("a path that resolves to nothing is skipped");
+        }
+        assert!(!absent.exists(), "mask made the absent path");
+        assert!(dangling.symlink_metadata().is_ok(), "mask removed the link");
     }
 
     #[test]

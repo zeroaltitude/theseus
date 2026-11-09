@@ -20,7 +20,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   the session's total beside the reply's own cost (`TurnSubmitResult::cost_words`, theseus-c0bb).
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments: a
   text file as its text, any other file as its bytes up to `[tools] max_attachment_bytes`, 32 MiB, which the core
-  keeps and reads, an image as an image and a PDF page by page; a file over its cap is listed; theseus-c9l6),
+  keeps and reads, an image as an image and a PDF page by page; a file over its cap is listed; a download is asked up to three times, a timeout once; theseus-c9l6),
   `src/viewers.rs` (who can view a channel), and `src/rpc_client.rs` (the in-process protocol connection).
 - **Places** (the place rule, theseus-nbsh): a `[[channel]]` with `private = true` is a private place (its session
   gets everything); any other guild channel is shared (the public tools alone). The binding tells the core its places

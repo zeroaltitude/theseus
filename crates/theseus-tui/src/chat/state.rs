@@ -442,6 +442,8 @@ impl Chat {
 
     pub fn disconnected(&mut self) {
         self.at_lost();
+        // The four /why answers die with the connection's pending calls.
+        self.why = None;
         if !self.offline {
             self.offline = true;
             self.offline_at = Some(self.now_ms);
@@ -663,17 +665,7 @@ impl Chat {
             }
             Action::Escape => return self.escape(),
             Action::SendNow => return self.send_now(),
-            Action::ShowPaste => {
-                if let Some(text) = self.editor.paste_at_cursor().map(str::to_string) {
-                    self.say_plain(Sty::Dim, "pasted text:");
-                    for l in text.lines() {
-                        let row = format!("  {l}");
-                        self.say_plain(Sty::Dim, &row);
-                    }
-                } else {
-                    self.flash("nothing pasted here");
-                }
-            }
+            Action::ShowPaste => self.show_paste(),
             Action::Tasks => return self.open_task_picker(),
             Action::Interrupt => return self.interrupt(),
             Action::EndOfInput => {
@@ -684,6 +676,19 @@ impl Chat {
             }
         }
         Vec::new()
+    }
+
+    /// The folded paste under the cursor, shown whole.
+    fn show_paste(&mut self) {
+        if let Some(text) = self.editor.paste_at_cursor().map(str::to_string) {
+            self.say_plain(Sty::Dim, "pasted text:");
+            for l in text.lines() {
+                let row = format!("  {l}");
+                self.say_plain(Sty::Dim, &row);
+            }
+        } else {
+            self.flash("nothing pasted here");
+        }
     }
 
     /// The line was edited: the command list opens again, at its first row.
@@ -772,6 +777,9 @@ impl Chat {
     pub fn submit(&mut self) -> Vec<Effect> {
         if self.ask.note {
             return self.send_note();
+        }
+        if let Some(effects) = self.at_reread() {
+            return effects;
         }
         // A message that names @files must name listed ones, or it is not sent.
         let resolved = if self.editor.text().trim_start().starts_with('/') {

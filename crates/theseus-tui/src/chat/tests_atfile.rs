@@ -201,6 +201,10 @@ async fn a_file_that_is_not_listed_is_refused_visibly_and_nothing_is_sent() {
     r.shows("no file matches @nope.rs").await;
     r.press(KeyCode::Esc).await;
     r.press(KeyCode::Enter).await;
+    // The first miss re-reads the list once; the second Enter refuses.
+    r.shows("reading it again").await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
     r.shows("@nope.rs: no such file under").await;
     assert!(r.daemon.asked("turn.submit").is_empty());
     assert!(
@@ -213,6 +217,9 @@ async fn a_file_that_is_not_listed_is_refused_visibly_and_nothing_is_sent() {
     r.ctrl('c').await;
     r.type_text("open @/etc/hostname").await;
     r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.settle().await;
     r.press(KeyCode::Enter).await;
     r.shows("@/etc/hostname: no such file under").await;
     assert!(r.daemon.asked("turn.submit").is_empty());
@@ -289,6 +296,9 @@ async fn a_short_paste_is_typed_text_so_a_pasted_at_word_is_checked() {
     r.paste("# cron\n@reboot /usr/bin/foo\n").await;
     r.settle().await;
     r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.settle().await;
     r.press(KeyCode::Enter).await;
     r.shows("@reboot: no such file under").await;
     assert!(
@@ -391,4 +401,48 @@ async fn the_transcript_names_the_files_and_images_that_went_by_reference() {
         "{}",
         r.text()
     );
+}
+
+/// A file made after the listing is found by one re-read at Enter (phase 1's
+/// F4); a name that is still missing after it is refused, with no loop.
+#[tokio::test(start_paused = true)]
+async fn a_name_missing_from_the_list_is_read_for_once_at_enter() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @R").await;
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Backspace).await;
+    r.press(KeyCode::Backspace).await;
+    touch(p.path(), "new.md");
+    r.type_text("@new.md").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("not in the list; reading it again").await;
+    r.asked("tool.list", 2).await;
+    assert!(r.daemon.asked("turn.submit").is_empty());
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 1).await;
+    let sent = r.daemon.asked("turn.submit");
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].to_string().contains("new.md"), "{}", sent[0]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_name_that_never_exists_is_refused_after_its_one_re_read() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @nope.md").await;
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.asked("tool.list", 2).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@nope.md: no such file under").await;
+    r.settle().await;
+    assert_eq!(r.daemon.asked("tool.list").len(), 2, "one re-read, no loop");
+    assert!(r.daemon.asked("turn.submit").is_empty());
 }

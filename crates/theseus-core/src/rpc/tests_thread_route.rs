@@ -1896,6 +1896,47 @@ async fn a_turn_above_every_root_says_so_in_its_row() {
     assert_eq!(said, 2, "the words came from above a root, and only there");
 }
 
+/// The same words, in the mixed directory (theseus-2gtyi): `/w/projects` is
+/// above `dev`'s root and apart from `ops`'s, so the rule did place something
+/// (it set `ops` apart). The sentence must not say the directory "placed
+/// nothing"; it names `dev`, the thread it could not choose among, and not
+/// `ops`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_above_one_root_and_apart_from_another_does_not_say_nothing_was_placed() {
+    let jev = FakeJev::start().unwrap();
+    let r = rig(&jev, 8);
+    let c = &r.core;
+    thread(
+        c,
+        "dev",
+        "lighthouse dev",
+        ws(&["#412"], &[], &["/w/projects/lighthouse"]),
+    );
+    thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
+    let dm = home(c, Some(&format!("dm:{OWNER}")));
+    thread_answer(&jev, "home", 0.95);
+    let mut p = params(&dm, "[dry-run] Start 2 tasks: bash slow.sh census 2", None);
+    p.dir = Some("/w/projects".into());
+    let mut w = Wire::open(c);
+    let id = w.send(method::TURN_SUBMIT, p).await;
+    w.response(id).await;
+    let routed = rows(c, "thread.routed");
+    let last = &routed.last().expect("a routed row").data;
+    let words = last["above"]
+        .as_str()
+        .expect("the mixed case is still said");
+    assert!(
+        words.contains("dev") && words.contains("/w/projects"),
+        "{words}"
+    );
+    assert!(!words.contains("ops"), "{words}");
+    assert!(!words.contains("placed nothing"), "{words}");
+    assert!(
+        words.contains("/move") && words.contains("cd into a root"),
+        "{words}"
+    );
+}
+
 /// A message the owner moved grows the thread it was moved to, and not the
 /// one it ran in (theseus-iw50k): what its words grew into the wrong thread
 /// is taken back before the message runs again, so the right thread, which

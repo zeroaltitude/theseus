@@ -5,9 +5,11 @@
 //! A batch with tombstones is several transactions (the records up to a run
 //! of tombstones, the keys the run ends, the rest), so a failure between two
 //! leaves the index holding a prefix of the batch, and a retry applies the
-//! whole of it again. For every prefix a failed `apply` can leave (each cut
-//! at the start or the end of a tombstone run) and for a twice-applied
-//! batch, every observer must answer as it does after one `apply`, and each
+//! whole of it again. For every cut expressible through the public `apply`
+//! (the prefix ending before or after a tombstone run; the state with a
+//! run's records in and its keys not yet removed is `index::tests`'
+//! `a_retry_over_a_committed_tombstone_run_whose_keys_stayed_equals_one_apply`)
+//! and for a twice-applied batch, every observer must answer as it does after one `apply`, and each
 //! maintained count must equal its walked twin.
 
 use rand::rngs::StdRng;

@@ -26,6 +26,12 @@ CALIBRATION = [
     ("crates/theseus-ontology/src/person.rs", "merge", 98),
     ("crates/theseus-store/src/store.rs", "commit", 95),
     ("crates/theseus-follow/src/lib.rs", "read_into", 96),
+    # Plain `async fn`s: clippy counts 2 more than the body alone (the script adds 2). Measured at base 85697868
+    # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
+    # exactly 2 short before the rule. Re-measure a moved row; never loosen it.
+    ("crates/theseus-core/src/card/run.rs", "card_run", 89),
+    ("crates/theseus-core/src/rpc/server.rs", "dispatch", 92),
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 100),
 ]
 
 
@@ -72,6 +78,27 @@ class Walker(unittest.TestCase):
     def test_an_empty_scan_exits_nonzero_instead_of_reporting_no_pressure(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(lp.scan([d])[0], 0)
+            self.assertEqual(lp.main([d]), 2)
+
+    def test_a_marked_short_neighbour_does_not_hide_the_function_below_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "neighbours.rs"), "w") as f:
+                f.write('#[expect(clippy::too_many_lines, reason = "x")]\nfn short_marked() { let a = 1; }\n\n')
+                f.write(long_fn("tall_unmarked", 99))
+            scanned, near = lp.scan([d], threshold=100, margin=5)
+            self.assertEqual(scanned, 2)
+            self.assertEqual([(n, name) for n, _, _, name in near], [(99, "tall_unmarked")])
+
+    def test_a_plain_async_fn_counts_two_more_and_a_tokio_test_does_not(self):
+        with tempfile.TemporaryDirectory() as d:
+            body = "".join(f"    let v{i} = {i};\n" for i in range(96))
+            with open(os.path.join(d, "asyncs.rs"), "w") as f:
+                f.write(f"pub async fn plain() {{\n{body}}}\n")
+                f.write(f"#[tokio::test]\nasync fn a_test() {{\n{body}}}\n")
+                f.write(f"fn sync() {{\n{body}}}\n")
+            scanned, near = lp.scan([d], threshold=100, margin=5)
+            self.assertEqual(scanned, 3)
+            self.assertEqual(sorted((n, name) for n, _, _, name in near), [(96, "a_test"), (96, "sync"), (98, "plain")])
 
 
 class Calibration(unittest.TestCase):
@@ -79,7 +106,8 @@ class Calibration(unittest.TestCase):
         self.assertGreaterEqual(len(CALIBRATION), 3)
         for path, name, want in CALIBRATION:
             with open(os.path.join(ROOT, path), encoding="utf-8") as f:
-                counts = [lp.clippy_lines(b) for n, _, b in lp.functions(f.read()) if n == name]
+                src = f.read()
+                counts = [lp.clippy_lines(b) + lp.clippy_extra(src, ln) for n, ln, b in lp.functions(src) if n == name]
             self.assertIn(want, counts, f"{path} {name}: clippy said {want}, script said {counts}")
 
 

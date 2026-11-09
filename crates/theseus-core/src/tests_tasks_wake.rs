@@ -314,9 +314,12 @@ const DM_PERSON: [&str; 5] = ["commands", "files", "memory", "reminders", "web"]
 // block 3 beside the CPU fact: one line of 20 characters, the same bytes on
 // every machine of a family (`cpu::os`), so these counts stay machine-
 // independent as they were.
-const DM_PERSON_TOKENS: u64 = 9912;
+// And 9912 and 7628 until `fs.grep` and `fs.glob` took the hidden-files
+// `all` flag (theseus-w2cs): two schema properties and two longer
+// descriptions in a family a person's turn loads.
+const DM_PERSON_TOKENS: u64 = 10036;
 const CLI_PERSON: [&str; 3] = ["commands", "files", "memory"];
-const CLI_PERSON_TOKENS: u64 = 7628;
+const CLI_PERSON_TOKENS: u64 = 7752;
 
 /// The shipped default (theseus-6su0y), which the rigs above turn off: a person's turn in a
 /// private place carries the tasks family without asking for one, and that is the whole of what
