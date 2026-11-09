@@ -581,7 +581,13 @@ mod tests {
         let all = recalls_lines(&MemoryRecallsResult {
             session_id: "ses_a".into(),
             total: 2,
-            recalls: vec![m.clone(), RecallManifest { would_drop: None, ..m }],
+            recalls: vec![
+                m.clone(),
+                RecallManifest {
+                    would_drop: None,
+                    ..m
+                },
+            ],
         })
         .into_iter()
         .map(|l| l.text)

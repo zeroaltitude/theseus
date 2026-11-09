@@ -193,7 +193,13 @@ async fn a_paused_greeting_records_no_would_drop() {
     });
     let first = turn(&r.core, None, "Hello there, good morning!", None).await;
     assert!(first.recalled > 0, "turn one fills the cap");
-    let res = turn(&r.core, Some(&first.session_id), "Hello again, good evening!", None).await;
+    let res = turn(
+        &r.core,
+        Some(&first.session_id),
+        "Hello again, good evening!",
+        None,
+    )
+    .await;
     let rows = crate::tests_recall::recalls(&r.core, &res.session_id);
     let m = rows.last().unwrap();
     assert_eq!(m.outcome, "paused", "{m:?}");
@@ -227,7 +233,10 @@ async fn a_late_low_verdict_still_records_what_a_bar_would_drop() {
         let m = recalled(&r, &res);
         assert!(!m.admitted.is_empty(), "{level}: notes were admitted");
         let row = decided(&r.core.store).pop().unwrap();
-        assert_eq!(row["injection"]["fallback"], "verdict late", "{level}: {row}");
+        assert_eq!(
+            row["injection"]["fallback"], "verdict late",
+            "{level}: {row}"
+        );
         let want = greeting.then_some(m.admitted.len() as u64);
         assert_eq!(m.would_drop, want, "{level}");
     }
