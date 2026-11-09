@@ -2,7 +2,7 @@
 //! config that gives its line more room, and keeps a lowered line's.
 
 use super::runaway::{self, Sink};
-use super::tests_hands::{calls, rig, rows};
+use super::tests_hands::{calls, group_of, play_since, record, rig, rows, state_of, turn, until};
 use crate::aws::Account;
 
 const DAY_LINE: u64 = 1;
@@ -121,4 +121,50 @@ async fn a_removed_daily_line_ends_its_mark() {
     });
     assert!(runaway::current(&r.core.store, &without, now).is_none());
     assert_eq!(sink.admit(&without, 1, now).unwrap(), None);
+}
+
+/// One Lambda hand whose invocation ran `init` before its child did (a cold
+/// start), settled through the real poller: what the hour's meter counts for
+/// it, and whether the brake (a line of 200 micro-dollars: 100 at a factor
+/// of 2) is reached (theseus-63wzi).
+async fn settled_after_init(init: std::time::Duration) -> (u64, bool) {
+    let r = rig(calls(serde_json::json!({"argv": ["true"]})));
+    turn(&r.core, "run one hand").await;
+    let a = rebuilt(&r, |c| {
+        c.hourly_alert_usd = 0.000_1;
+        c.daily_budget_usd = None;
+        c.runaway_factor = 2.0;
+    });
+    let g = group_of(&r.core);
+    let spec = r.state.invoked().remove(0);
+    r.core.poll_hands_after_serving();
+    // The real hand role, its clock begun `init` before its child ran.
+    play_since(&spec, super::hand::Began::now().earlier_by(init)).await;
+    until("the hand to settle", || {
+        state_of(&r.core, &spec.correlation_id).is_settled()
+    })
+    .await;
+    assert_eq!(record(&r.core, &g).hands.len(), 1);
+    let now = theseus_protocol::now_unix_ms();
+    let micros =
+        runaway::spend_since(&r.core.kernel, &r.core.store, &a.id, now - 3_600_000).unwrap();
+    let fired = sink!(r).observe(&a, now).unwrap().is_some();
+    (micros, fired)
+}
+
+/// A cold start's init is billed with the invocation, so it is in what a
+/// hand settles at, and the brake reads it: the same job, thirteen seconds
+/// of init before it, reaches the line a bare child's run does not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cold_starts_init_is_in_what_the_brake_reads() {
+    let (warm, warm_fired) = settled_after_init(std::time::Duration::ZERO).await;
+    let (cold, cold_fired) = settled_after_init(std::time::Duration::from_secs(13)).await;
+    // 2048 MB for 13 s at Lambda's rate is about 433 micro-dollars.
+    assert!(
+        (400..=500).contains(&cold),
+        "13 s of init at 2 GB: {cold} micro-dollars"
+    );
+    assert!(warm < 50, "a bare child's run: {warm} micro-dollars");
+    assert!(cold_fired, "the brake fires on the whole invocation");
+    assert!(!warm_fired, "and not on a bare child's run");
 }

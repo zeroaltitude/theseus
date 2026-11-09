@@ -483,7 +483,12 @@ pub(super) async fn until(what: &str, f: impl Fn() -> bool) {
 /// The hand role, run here against the fake, as the Lambda would run it:
 /// its envelope lands on the fake queue.
 pub(super) async fn play(spec: &HandSpec) -> Envelope {
-    hand::run(
+    play_since(spec, hand::Began::now()).await
+}
+
+/// `play`, its invocation begun at `began`: a cold start's init before it.
+pub(super) async fn play_since(spec: &HandSpec, began: hand::Began) -> Envelope {
+    hand::run_since(
         spec,
         Some("inv-played".into()),
         &Creds::fixed(theseus_aws::Credentials::new(
@@ -492,6 +497,7 @@ pub(super) async fn play(spec: &HandSpec) -> Envelope {
             None,
             None,
         )),
+        began,
     )
     .await
     .expect("the hand ran and sent its envelope")
