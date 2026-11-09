@@ -242,7 +242,8 @@ fn asked(notes: &[Notification]) -> Vec<theseus_protocol::ConfirmRequest> {
 /// it is a list (theseus-lrc3m): it is held past its life, never expired
 /// (theseus-v2dnc), so `confirm.list`, the watch's snapshot and the board's
 /// view say none (0), while the live `confirm.requested` (which the Discord
-/// card is drawn from) keeps its plan's time and the TTL. The live one's
+/// card is drawn from) keeps its plan's time and the TTL, as does the list a
+/// Discord presser reads (its Details press prints it). The live one's
 /// `requested_at_ms` is its plan's time, as the lists say. Before, the live
 /// one took the time it was asked, a frame's write later.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
