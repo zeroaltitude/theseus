@@ -64,6 +64,15 @@ pub(crate) fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
 }
 
 /// The config with every wired pack as the build gives it.
+///
+/// `judge.total_secs` is 10 here, below `until_judged`'s 20 s guard and well
+/// inside nextest's 120 s kill. It was 1 s, which is less than the build's 5 s:
+/// a rig that inherited it lost its verdict to a loaded host, the call was
+/// abandoned and booked as a timeout, and the test failed about a missing
+/// verdict (theseus-2yh04, theseus-4vsrz). Measured at the flip: 85 files
+/// reference `tests_judge::`; the whole `theseus-core --lib` suite (5149 tests)
+/// passed before and after, and no test needed a pin of its own. A test that
+/// stages a slow judge on purpose sets its own short budget in its rig closure.
 pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
     let mut cfg = Config::example();
     cfg.server.state_dir = state.to_string_lossy().into_owned();
@@ -75,7 +84,7 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
         cfg.judge.enabled = true;
         cfg.judge.api_base = j.base();
         cfg.judge.connect_secs = 1;
-        cfg.judge.total_secs = 1;
+        cfg.judge.total_secs = 10;
     }
     // loop.v1 in shadow, judged after the turn: the judge's own machinery
     // (the sink, the budget, the ladder, the learning loop) is tested on it
