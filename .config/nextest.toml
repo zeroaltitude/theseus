@@ -22,19 +22,3 @@ path = "junit.xml"
 # "The flaky list"). Retries are for named tests only: a blanket retry would hide
 # a real race. A test goes on this list in the commit that files its issue, with
 # the issue's id in a comment; it comes off in the commit that fixes it.
-
-
-# theseus-75t4q (the owner, 2026-11-03 00:03): tests_onto_names' two-nights chain test hangs to the 120 s
-# slow-timeout kill under load and passes alone in under a second. Measured alone on plain main it was 8 of 11
-# passed with 3 timing out at 120 s, the passing runs spreading from 1.6 s to 58 s: the bimodal-wait shape of
-# the theseus-70qg1 family, not a wrong answer. INSTANCE COUNT: 3 timeouts in 11 runs alone on plain main and
-# 3 in 10 on a five-lane tree (2026-10-25), and 120 s timeouts in the 1.0.4 wave's loaded gates (ev3ir attempt 3,
-# kn9or row 6); this is the list's first entry. Remove it in the commit that fixes the family. slow-timeout
-# is untouched: a hang still ends at 120 s, and is retried.
-#
-# RE-MEASURED on a 4-core cloud VM, base 4683adb8 (2026-11-09): 20 of 20 passed alone (`--test-threads 1`, 0.2 to
-# 0.3 s) and 6 of 6 passed inside the whole theseus-core crate (0.21 to 0.30 s), so this image did not reproduce the
-# 120 s hang and neither confirms nor corrects the instance count above. Not reproduced here is no evidence it is gone.
-[[profile.default.overrides]]
-filter = 'package(theseus-core) & test(=tests_onto_names::a_chain_asked_over_two_nights_clusters)'
-retries = 2
