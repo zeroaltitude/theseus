@@ -119,6 +119,13 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub arm: Option<String>,
+    /// In shadow (theseus-fpm2): the turn's verdict said its reply needs `low`
+    /// effort, small talk, and this many admitted notes are what a small-talk
+    /// bar would have left out. Nothing was dropped: the notes were attached
+    /// as before. Absent when the verdict did not say so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub would_drop: Option<u64>,
     /// The pack's budget: its limit, what it used, and each item it dropped
     /// for the budget (§2.11: never silently thinner).
     #[serde(default, skip_serializing_if = "Option::is_none")]
