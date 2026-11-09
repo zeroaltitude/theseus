@@ -339,25 +339,39 @@ trap on_exit EXIT
 # or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
 filters_found=no
 suite_filters() {
-  local cfg=.config/nextest.toml found profile lineno text where
-  found="$(awk '
+  local cfg=.config/nextest.toml found profile lineno text where mine run="${NEXTEST_PROFILE:-default}" any=no
+  # Each found line carries whether it is this run's: it sits under [profile.<run>], or under [profile.default] while
+  # [profile.<run>] has none (nextest's profiles inherit from default). A line elsewhere is named and is no filter here.
+  found="$(awk -v run="$run" '
     /^[[:space:]]*\[profile\.[A-Za-z0-9_-]+\]/ { p = $0; sub(/^[[:space:]]*\[profile\./, "", p); sub(/\].*$/, "", p); next }
     /^[[:space:]]*\[/ { p = ""; next }
-    p != "" && /^[[:space:]]*default-filter[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); printf "%s\t%d\t%s\n", p, FNR, v }
+    p != "" && /^[[:space:]]*default-filter[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); n++; P[n] = p; L[n] = FNR; V[n] = v; if (p == run) own = 1 }
+    END { for (i = 1; i <= n; i++) printf "%s\t%d\t%s\t%s\n", P[i], L[i], (P[i] == run || (P[i] == "default" && !own)) ? "yes" : "no", V[i] }
   ' "$cfg" 2>/dev/null || true)"
   if [ -z "$found" ]; then
     echo "gate: suite filters: none (no default-filter in $cfg, and the gate passes no -E): every test the workspace builds runs, but the #[ignore]d ones"
     return 0
   fi
-  filters_found=yes
-  echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
-  while IFS=$'\t' read -r profile lineno text; do
+  while IFS=$'\t' read -r profile lineno mine text; do
+    [ "$mine" != yes ] || any=yes
+  done <<<"$found"
+  if [ "$any" = yes ]; then
+    filters_found=yes
+    echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
+    phase_label="suite filtered"
+  else
+    echo "gate: suite filters: none for this run (profile $run); a default-filter sits in another profile, named below and not applied:"
+  fi
+  while IFS=$'\t' read -r profile lineno mine text; do
     where="only in the working tree, not in HEAD"
     if git show "HEAD:$cfg" 2>/dev/null | grep -qxF -- "$(sed -n "${lineno}p" "$cfg")"; then where="committed in HEAD"; fi
-    echo "gate:   profile $profile, $cfg:$lineno, $where: $text"
+    if [ "$mine" = yes ]; then
+      echo "gate:   profile $profile, $cfg:$lineno, $where: $text"
+    else
+      echo "gate:   profile $profile, $cfg:$lineno, $where, NOT this run's: $text"
+    fi
   done <<<"$found"
-  echo "gate:   this run's profile: ${NEXTEST_PROFILE:-default}; a stale line goes with: git checkout -- $cfg"
-  phase_label="suite filtered"
+  [ "$any" != yes ] || echo "gate:   this run's profile: $run; a stale line goes with: git checkout -- $cfg"
 }
 # What nextest says it applied, read back from its own line, e.g. `Starting 9304 tests across 205 binaries (60 tests
 # skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and

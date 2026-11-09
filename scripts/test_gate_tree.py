@@ -280,6 +280,18 @@ class GateTree(unittest.TestCase):
         self.assertRegex(out, r"\n  suite filtered +\d+\n", "the table does not call a filtered suite `suite`")
         self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
 
+    def test_a_default_filter_parked_in_a_profile_the_run_does_not_use_is_named_and_no_mismatch(self):
+        # nextest ran the default profile and rightly applied nothing: a filter under [profile.arm] is not this run's.
+        path = self.root / ".config" / "nextest.toml"
+        path.write_text(path.read_text() + "\n[profile.arm]\n" + FILTER + "\n")
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("MISMATCH", out)
+        self.assertIn("profile arm", out, "still named, losing it would be the worse bug")
+        self.assertIn(".config/nextest.toml:", out)
+        self.assertRegex(out, r"\n  suite +\d+\n", "not this run's filter: the phase is plain")
+        self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
+
     def test_a_committed_default_filter_is_named_as_committed(self):
         self.stale_filter(committed=True)
         rc, out, _ = self.gate()
