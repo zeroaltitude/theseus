@@ -3,6 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { deadlineOf, isHeld, waitedLabel } from '../src/lib/heldquestion.ts'
+import { EXPIRING_TOOLS } from '../src/protocol.gen/ExpiringTools.ts'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -27,7 +28,9 @@ test('a held question says how long it has waited, not that it expired', () => {
 })
 
 test('a question that expires keeps its deadline and says nothing of a wait', () => {
-  for (const tool of ['owner_ask', 'extend.ack', 'pack.promote']) {
+  // The daemon's own list, generated into `protocol.gen`: a hand copy here would share its drift, and an empty list would pass the loop.
+  assert.ok(EXPIRING_TOOLS.length > 0 && (EXPIRING_TOOLS as readonly string[]).includes('owner_ask'), 'the generated list holds the questions that expire')
+  for (const tool of EXPIRING_TOOLS) {
     const c = ask({ tool })
     assert.equal(isHeld(c), false, tool)
     assert.equal(deadlineOf(c), c.expires_at_ms, tool)

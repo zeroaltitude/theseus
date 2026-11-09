@@ -3,10 +3,13 @@
 // `confirm.requested` still carries it (the Discord card is drawn from the same request). So a card decides "held" by the
 // question's kind, never by that field, and says how long it has waited instead of a deadline that has not passed. Pure: no DOM.
 import type { ConfirmRequest } from '@protocol'
+import { EXPIRING_TOOLS } from '../protocol.gen/ExpiringTools.ts'
 
-/** The questions that still expire at their life: an `owner_ask` applies its default, and an extension's ack and a pack's
- *  promotion are declined (the daemon's `held_past_life` is the complement of these and the budget question). */
-const EXPIRING: readonly string[] = ['owner_ask', 'extend.ack', 'pack.promote']
+// The questions that still expire at their life (an `owner_ask` applies its default, and an extension's ack and a pack's
+// promotion are declined) are the daemon's own list, `work::ask::EXPIRING_TOOLS`, generated into `protocol.gen/ExpiringTools.ts`:
+// there is no copy here to fall behind it, and the gate holds the generated file to the Rust list. The daemon's
+// `held_past_life` is the complement of that list and the budget question.
+const EXPIRING: readonly string[] = EXPIRING_TOOLS
 
 /** Whether the question is held until it is answered: a call's, not a budget question (which says so itself) and not one
  *  that expires. */
