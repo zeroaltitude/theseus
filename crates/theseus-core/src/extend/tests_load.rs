@@ -475,6 +475,39 @@ async fn a_restart_starts_it_after_serving_from_the_frozen_copy() {
     assert!(said.contains("as frozen"), "{said}");
 }
 
+/// theseus-ext.13: the ack names a tool list, and the board offers exactly
+/// that: a server that lists a tool the ack did not name (after a restart, or
+/// because it always did) never has it in the catalog, so the model never sees
+/// it; the acked tools are all still offered.
+#[tokio::test]
+async fn a_tool_the_ack_did_not_name_is_never_offered() {
+    let r = rig();
+    let src = r.server("tools/wc", "ok", WC);
+    let q = r.propose(&src).await;
+    r.ack(&q);
+    let ext = |r: &Rig| -> Vec<String> {
+        r.catalog()
+            .into_iter()
+            .filter(|t| t.starts_with("mcp__ext-wordcount__"))
+            .collect()
+    };
+    assert_eq!(ext(&r).len(), 5, "{:?}", r.catalog());
+    // The ack named four of the five tools the server lists.
+    let mut l = super::load::LoadedSet::read(&r.core.store).unwrap().loaded["wordcount"].clone();
+    assert!(l.tools.iter().any(|t| t == "add"));
+    l.tools.retain(|t| t != "add");
+    let stored = crate::mcp::read_stored(&r.core.store, &l.server());
+    assert_eq!(stored.as_ref().unwrap().tools.len(), 5);
+    r.core.board_load(&l, stored);
+    let offered = ext(&r);
+    assert_eq!(offered.len(), 4, "{offered:?}");
+    assert!(
+        !offered.iter().any(|t| t == "mcp__ext-wordcount__add"),
+        "an unacked tool is offered: {offered:?}"
+    );
+    assert!(offered.iter().any(|t| t == TOOL), "{offered:?}");
+}
+
 /// The brief's third test: a revoke from a shared place is refused and
 /// changes nothing; the owner's drops its tools from the catalog and the
 /// next turn, stops its server (its connection closes), and keeps the
