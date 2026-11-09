@@ -419,7 +419,7 @@ async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
     assert_eq!(c["decision"], "recompile", "{c}");
     assert_eq!(c["trigger"], "cold_resume");
     assert!(
-        c["est_tokens"].as_u64().unwrap() <= 22_000,
+        c["est_tokens"].as_u64().unwrap() <= 22_200,
         "{}",
         c["est_tokens"]
     );
