@@ -364,6 +364,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and
   `standing::missing`, run by the situation step after `situation::check`, fails a compile whose system lacks one it
   should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`).
+  **Every head ends with `standing::FRAMING`** (theseus-ectzg): the records are the owner's, carried on every request, never
+  to be acknowledged, thanked or restated, so a model that reads the block as a message just received does not answer it.
+  The thread card, the task arrangement, the fan-out cue and the place digest (`compiler/place_digest.rs`) say the same of
+  themselves in their own words; a new block the harness writes into a request says it too. The engaged persona's tail
+  line (`engage::Engaged::line`) states a fact, not an instruction, and was judged not to need it.
   **A surface scope** (theseus-slvl.4, store format 34; `StandingScope::Surface(name)`, `terminal` for the CLI and the TUI,
   `cockpit`, `discord`, `voice`, `mcp`): the record is in no system block, so the system and tools stay byte-identical
   across surfaces. `Block::here` renders the turn's surface's records as a "Standing here:" block with the same kinds
