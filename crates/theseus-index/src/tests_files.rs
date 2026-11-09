@@ -353,6 +353,17 @@ fn a_traversing_text_value_is_not_a_blob() {
     assert_eq!((indexed, unread), (0, 1));
 }
 
+/// A blob of the right name that does not hash to it is unread, end to end: the node is still
+/// indexed, its file text is not, and status counts it (the digest guard, theseus-lv2u).
+#[test]
+fn a_blob_that_does_not_hash_to_its_name_is_unread_and_its_node_is_still_indexed() {
+    let name = "b".repeat(64);
+    let rel = format!("blobs/{name}");
+    let (found, indexed, unread) = indexed_via(|_| name.clone(), &rel);
+    assert!(!found, "a blob that does not hash to its name is not read");
+    assert_eq!((found, indexed, unread), (false, 0, 1));
+}
+
 #[test]
 fn an_overlong_text_value_is_not_a_blob() {
     let long = "a".repeat(200);
@@ -393,6 +404,8 @@ fn a_real_digest_still_reads_its_blob() {
 /// path a rebuild takes (a fresh index, ingest from the WAL's start), over
 /// 3,000 nodes of about 400 bytes, timed and printed as nodes per second.
 /// The rig's vectors are off, so this is the BM25 and entity ingest alone.
+/// Rate: not yet measured here (fill in from a `--no-capture` run). nextest hides the printed figure on a pass;
+/// run with `--no-capture` to see it.
 #[test]
 fn bench_a_backfill_from_the_wals_start() {
     let rig = Rig::new();
