@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use super::{Turn, TurnRunner};
-use crate::config::{Config, PackMode};
+use crate::config::Config;
 use crate::judge::inbound::RouteWait;
 use crate::routing::Verdict;
 use crate::toolrun::session_dir::read_window;
@@ -226,8 +226,7 @@ impl TurnRunner {
         if let Some(b) = &t.route.injection {
             return b.clone();
         }
-        let live = t.route.mode.unwrap_or(PackMode::Shadow) >= PackMode::Canary
-            && !self.judge.breaker_open();
+        let live = t.route.live();
         let deciding = t.route.wait.is_some() && live && t.route.steer.is_none();
         let peeked = match deciding {
             true => peek(&mut t.route.wait),
