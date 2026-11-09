@@ -793,7 +793,8 @@ fn presigned_urls() {
 async fn an_empty_put_carries_a_content_length_of_zero() {
     let fake = Fake::start(vec![Reply::new(200, "")]).await;
     let a = Attribution::default();
-    let input = json!({"Bucket": "example-theseus-bucket", "Key": "out/empty.txt", "Body": {"base64": ""}});
+    let input =
+        json!({"Bucket": "example-theseus-bucket", "Key": "out/empty.txt", "Body": {"base64": ""}});
     client(&fake)
         .call(&call("s3", "PutObject", &input, &a), &creds())
         .await
