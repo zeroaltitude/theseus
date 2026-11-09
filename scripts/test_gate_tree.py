@@ -152,7 +152,9 @@ class GateTree(unittest.TestCase):
 
     def gate(self, **env):
         """The real gate.sh, with the stand-ins; (exit status, its output, the stand-in cargo's log lines)."""
-        base = {k: v for k, v in self.git_env.items() if k != "CARGO_INCREMENTAL"}
+        # What a door, or a caller judging a moved base, leaves in the environment is the tree it judges and not this one's.
+        outer = ("CARGO_INCREMENTAL", "THESEUS_GATE_ROOT", "THESEUS_GATE_DOOR", "THESEUS_KEEL_BASE")
+        base = {k: v for k, v in self.git_env.items() if k not in outer}
         e = {**base, "THESEUS_GATE_NO_BENCH": "1", "THESEUS_GATE_NO_SCRUB": "1", "STUB_LOG": str(self.log),
              "STUB_MOVE": "edit", **env}
         p = run(["bash", "scripts/gate.sh"], self.root, e)
@@ -192,6 +194,21 @@ class GateTree(unittest.TestCase):
         rc, out, _ = self.gate(STUB_MOVE_AT="suite")
         self.assertEqual(rc, MOVED, out)
         self.assertNotIn("gate: ok", out)
+
+    # ---- the door's environment
+
+    def test_the_doors_environment_does_not_reach_a_gate_these_tests_run(self):
+        # Main's gate judges a branch that changes gate.sh or this file with THESEUS_GATE_ROOT (the tree it judges) and
+        # THESEUS_GATE_DOOR=judge in its environment, the door's word to the copy it starts, and its `gate tests` phase
+        # runs these: a gate here that took them went to the tree the door judges and ran there, and 7 of the 8 tests of
+        # main's own failed on the ARM host that way (2026-11-08, theseus-4vsrz). Seeded here the way a door passes them.
+        elsewhere = Path(self.tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        self.git_env.update({"THESEUS_GATE_ROOT": str(elsewhere), "THESEUS_GATE_DOOR": "judge", "THESEUS_KEEL_BASE": "no-such-rev"})
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: ok", out)
+        self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run, in this tree: {calls}")
 
     # ---- what the suite does not run
 
