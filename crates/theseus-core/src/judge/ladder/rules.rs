@@ -106,7 +106,10 @@ pub fn brakes_today(store: &Store, day: &str) -> BTreeSet<String> {
 impl Ladder {
     /// An event a pack's rules count, as it lands: kept as a `pack.event`
     /// row (scoped to its pack id and today), then every version of the pack
-    /// that acts is checked. Returns the rollbacks it wrote.
+    /// that acts is checked. Returns the rollbacks it wrote. Four of the nine
+    /// kinds never arrive here in production: no call site builds a
+    /// `TaskSpend`, `OperatorStop`, `OnPath` or `RoleSwitch`, so their rules
+    /// cannot fire; `tests_rollback_census` in theseus-judge holds the list.
     pub fn land(&self, pack: &str, event: CanaryEvent) -> Vec<PackModeRow> {
         self.with(|l, me| {
             let id = id_of(pack).to_string();
