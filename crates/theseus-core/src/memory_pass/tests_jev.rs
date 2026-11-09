@@ -38,7 +38,14 @@ fn rig(jev: &FakeJev, tweak: impl FnOnce(&mut crate::Config)) -> crate::tests_re
         c.judge.enabled = true;
         c.judge.api_base = base;
         c.judge.connect_secs = 1;
-        c.judge.total_secs = 1;
+        // These tests wait on `memory.v1` and `attribution.v1` rows, and
+        // `judge.total_secs` bounds each call itself: at 1 s a loaded host
+        // abandoned the call before it answered, no row came, and `until`
+        // gave up (the shape of theseus-2yh04). Raised past any run's work;
+        // it times nothing, since a call ends as its verdict lands. `until`'s
+        // guard is raised above it, and both stay well inside nextest's 120 s
+        // kill, so a verdict that never comes fails on the assertion.
+        c.judge.total_secs = 30;
         c.memory.recall_deadline_ms = 2000;
         tweak(c);
     })
@@ -64,7 +71,7 @@ fn state_of(c: &Core, row: &LedgerRow) -> Value {
 async fn until(what: &str, f: impl Fn() -> bool) {
     let t0 = Instant::now();
     while !f() {
-        assert!(t0.elapsed() < Duration::from_secs(20), "never: {what}");
+        assert!(t0.elapsed() < Duration::from_secs(60), "never: {what}");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
