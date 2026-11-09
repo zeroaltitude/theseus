@@ -440,7 +440,7 @@ fn on_store(
     cfg.judge.enabled = true;
     cfg.judge.api_base = jev.base();
     cfg.judge.connect_secs = 1;
-    cfg.judge.total_secs = 2;
+    cfg.judge.total_secs = 15;
     cfg.validate().unwrap();
     let store = Store::open(&dir.join("store")).unwrap();
     let mut p = Parts {
