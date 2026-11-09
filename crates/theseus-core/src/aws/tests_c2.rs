@@ -910,6 +910,33 @@ async fn iac_only_and_stack_writes_are_invalid_input_and_nothing_is_sent() {
     assert!(fake.seen().is_empty(), "nothing was sent");
 }
 
+/// A delete that names a version is permanent, so it waits at the call tool's own posture, while the
+/// same delete without a version id does not (theseus-wand).
+#[test]
+fn a_permanent_version_delete_waits_and_a_plain_delete_does_not() {
+    let fake = Fake::start(|_, n| sts(ACCOUNT, n));
+    let aws = layer(&fake, false, None);
+    let call = tool(&aws, "aws.call");
+    let p = policy(&[
+        ("read", Posture::Open),
+        ("write", Posture::Notify),
+        ("run", Posture::Notify),
+    ]);
+    let key = json!({"Bucket": "theseus-scratch", "Key": "a.json"});
+    let mut pinned = key.clone();
+    pinned["VersionId"] = json!("3HL4kqtJlcpXroDTDmJ");
+    let hard = plan(&call, "s3", "DeleteObject", pinned).unwrap();
+    assert!(hard.aws.as_ref().unwrap().destructive);
+    let d = p.decide(call.as_ref(), &hard);
+    assert!(
+        d.posture == Posture::Approve && d.reason.contains("destructive"),
+        "{d:?}"
+    );
+    let soft = plan(&call, "s3", "DeleteObject", key).unwrap();
+    assert!(!soft.aws.as_ref().unwrap().destructive);
+    assert_ne!(p.decide(call.as_ref(), &soft).posture, Posture::Approve);
+}
+
 /// A deletion of what holds state waits (§3.9's approve list) at every
 /// posture; a plain write takes `[policy.aws] write`, a run `run`, a read
 /// `read`; and the tools' own postures follow their classes.
