@@ -327,6 +327,7 @@ impl Pty {
     /// Returns how many distinct processes were signalled (`count_new`).
     fn kill_rounds(&self, procs: &[tree::Proc], groups: &[u32], below: Option<u32>) -> usize {
         let mut seen = std::collections::BTreeSet::new();
+        let mut killed = 0;
         for _ in 0..KILL_ROUNDS {
             let late: Vec<tree::Proc> = procs
                 .iter()
@@ -338,7 +339,7 @@ impl Pty {
             if late.is_empty() {
                 break;
             }
-            count_new(
+            killed += count_new(
                 &mut seen,
                 late.into_iter().filter(|p| tree::signal(*p, libc::SIGKILL)),
             );
@@ -347,7 +348,7 @@ impl Pty {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        seen.len()
+        killed
     }
 
     /// A close of a program that had already exited (theseus-d1zw). Its jobs
