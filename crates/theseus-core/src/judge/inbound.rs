@@ -800,6 +800,22 @@ impl JudgeService {
             let a: Vec<Ask> = a.into_iter().cloned().collect();
             built.judge.inner().reserve_micros(&a).unwrap_or(0)
         };
+        // One class over all three requests, and one summed need: a request
+        // is live when ANY ask in it is (`Class::of_asks`), so a shadow ask
+        // that shares a request with a live one spends as live and is not
+        // stopped at `SHADOW_STOP_PERCENT`. At the wired modes (`WIRED`) that
+        // is `role.v1` and the non-route `split.v1` (both shadow) riding the
+        // `rest` request with `classify` and `directive` (live): `plan`
+        // batches packs of one state, model and assets, and all four ask on
+        // the `inbound` state. Taking a class per request would change
+        // nothing here, since `rest` is live either way; only splitting a
+        // request's reservation by ask would, and that changes who pays: the
+        // owner's call. Not traced to micro-dollars (that needs a built
+        // state): by question count, the shadow share of `rest` is role's 1
+        // and split's 1 of classify's 9, directive's 2 and those 2, so about
+        // 2 of 13 questions (15%). With the route family on, `split.v1` rides
+        // the route lane (live, with route, effort and work) instead, and
+        // `rest` carries `role` alone beside `classify` and `directive`.
         let class = spend::Class::of_asks(route.iter().chain(&alone).chain(&rest).copied());
         let need = reserve(route) + reserve(alone) + reserve(rest);
         let beside = self.reserve_beside(today, need, class)?;
