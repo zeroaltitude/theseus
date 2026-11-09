@@ -140,9 +140,13 @@ async fn an_old_records_change_waits_and_its_expiry_clears_the_proposal() {
 
     // Nobody answers: the question is held past its life (theseus-v2dnc), so
     // the proposal stays on the record, and the life is counted in one frame.
+    // The list gives it no deadline (theseus-lrc3m); its first life ends at
+    // its plan's time plus the TTL.
+    assert_eq!(q.expires_at_ms, 0, "a held question lists no expiry");
+    let life = q.requested_at_ms + c.kernel.config().confirm_ttl_ms;
     let frames = theseus_store::frames_written_here();
-    assert_eq!(c.expire_questions(q.expires_at_ms - 1), 0);
-    assert_eq!(c.expire_questions(q.expires_at_ms), 0);
+    assert_eq!(c.expire_questions(life - 1), 0);
+    assert_eq!(c.expire_questions(life), 0);
     assert_eq!(
         theseus_store::frames_written_here(),
         frames + 1,

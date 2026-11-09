@@ -238,9 +238,11 @@ fn asked(notes: &[Notification]) -> Vec<theseus_protocol::ConfirmRequest> {
         .collect()
 }
 
-/// A question's expiry is one number everywhere: the live
-/// `confirm.requested`, `confirm.list`, the watch's snapshot and the board's
-/// view all say its plan's time and the TTL, and the live one's
+/// A call's question says its plan's time everywhere, and no deadline where
+/// it is a list (theseus-lrc3m): it is held past its life, never expired
+/// (theseus-v2dnc), so `confirm.list`, the watch's snapshot and the board's
+/// view say none (0), while the live `confirm.requested` (which the Discord
+/// card is drawn from) keeps its plan's time and the TTL. The live one's
 /// `requested_at_ms` is its plan's time, as the lists say. Before, the live
 /// one took the time it was asked, a frame's write later.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -283,12 +285,12 @@ async fn a_questions_expiry_is_the_same_number_everywhere() {
     assert_eq!(listed.len(), 1);
     assert_eq!(
         (listed[0].requested_at_ms, listed[0].expires_at_ms),
-        (q[0].planned_at_ms, want),
+        (q[0].planned_at_ms, 0),
         "confirm.list"
     );
     settled(&r.core).await;
     let board = r.core.push.view_of_session(&sid).unwrap();
-    assert_eq!(board.pending[0].expires_at_ms, want, "the board: {board:?}");
+    assert_eq!(board.pending[0].expires_at_ms, 0, "the board: {board:?}");
     let mut w = Raw::connect(&r.core, "watcher", 1 << 20);
     let snap: ExecutionsWatchResult = serde_json::from_value(
         w.call(1, method::EXECUTIONS_WATCH, json!({}))
@@ -302,7 +304,7 @@ async fn a_questions_expiry_is_the_same_number_everywhere() {
         .iter()
         .find(|v| v.execution_id == exec)
         .unwrap();
-    assert_eq!(v.pending[0].expires_at_ms, want, "the snapshot: {v:?}");
+    assert_eq!(v.pending[0].expires_at_ms, 0, "the snapshot: {v:?}");
 }
 
 /// A question is in `confirm.list` from its plan on, while its turn still
