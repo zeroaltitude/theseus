@@ -388,3 +388,36 @@ fn a_real_digest_still_reads_its_blob() {
         Some(bytes)
     );
 }
+
+/// The measure the schema bump's rebuild asks for (theseus-ectzg): the same
+/// path a rebuild takes (a fresh index, ingest from the WAL's start), over
+/// 3,000 nodes of about 400 bytes, timed and printed as nodes per second.
+/// The rig's vectors are off, so this is the BM25 and entity ingest alone.
+#[test]
+fn bench_a_backfill_from_the_wals_start() {
+    let rig = Rig::new();
+    let nodes: Vec<Node> = (0..3000)
+        .map(|n| {
+            Node::user_with(
+                &format!("ses_{}", n % 40),
+                Some("turn_1"),
+                "cli",
+                &prose(n, 400),
+                Vec::new(),
+            )
+        })
+        .collect();
+    for chunk in nodes.chunks(100) {
+        rig.put(chunk);
+    }
+    let mut t = rig.open();
+    let started = std::time::Instant::now();
+    settle(&mut t);
+    let secs = started.elapsed().as_secs_f64();
+    let indexed = t.shared().status().nodes_indexed;
+    println!(
+        "backfill: {indexed} nodes in {secs:.2} s = {:.0} nodes/s",
+        indexed as f64 / secs
+    );
+    assert_eq!(indexed, 3000);
+}
