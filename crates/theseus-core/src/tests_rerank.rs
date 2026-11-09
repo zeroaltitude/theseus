@@ -541,7 +541,10 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
             // rerank's: the window opens after them, or it counts that frame.
             let t0 = std::time::Instant::now();
             while crate::tests_judge::kinds(&c.store, "memory.gated").len() < 2 {
-                assert!(t0.elapsed() < Duration::from_secs(20), "the warm-up's memory rows");
+                assert!(
+                    t0.elapsed() < Duration::from_secs(20),
+                    "the warm-up's memory rows"
+                );
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
             // The next waits on Jev past the turn and the sink's window.
