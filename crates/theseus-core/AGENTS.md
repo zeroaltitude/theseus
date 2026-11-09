@@ -259,8 +259,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   memory: an unnamed guild place is shared), and reads each private channel's viewers once (`private_place_viewed`,
   `place.viewed`), for health's `places:` line. In a trusted guild it reads none, and health names each private
   channel there `(in a trusted guild)` (`Core::trust_guilds`, `PlaceInfo.trusted_guild`). M6's recall draws in a
-  shared place only on that place's own sessions (and the books, when built, will too). Tests: `tests_places.rs`,
-  `places::tests`.
+  shared place only on that place's own sessions (and the books, when built, will too). `session.history`, `session.list`
+  and `node.list` take the asking surface and withhold an imported session's words from one that reads no private text
+  (`Surface::reads_private`; `docs/design/imported-surface.md` is the rule). A new protocol method is classified into
+  `ALLOWED`, `JUDGED` or `NOT_FOR_MCP` (`mcp_server.rs`) before it lands, and the census in `mcp_server::tests` fails
+  otherwise. The correction layer steers only a turn whose place class is `PlaceClass::Private`
+  (`turn/route_step/correct.rs`, theseus-c2rv); how far "private" reaches there is for the owner to confirm. Tests:
+  `tests_places.rs`, `places::tests`.
   - **Ceilings** (step 38a, theseus-ext.3; `ceiling.rs`): the bindings file may give a place a ceiling, which
     narrows what its class allows and never widens it. It is read with the class (`TurnRunner::view_of`, so a task
     has its parent's), and rides in `TurnCtx.ceiling`: its `tools` filter the catalog (`PlaceView::offered`) and the
