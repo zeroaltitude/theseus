@@ -1836,6 +1836,49 @@ async fn the_client_keeps_no_permit_back_when_the_pack_itself_is_off() {
     );
 }
 
+/// `session.fork` of `sid` at `at`, as the CLI does it.
+fn fork_at(r: &Rig, sid: &str, at: &str) -> String {
+    r.core
+        .session_fork(
+            theseus_protocol::SessionForkParams {
+                session: sid.into(),
+                at: at.into(),
+                ..Default::default()
+            },
+            crate::approval::Surface::Cli,
+        )
+        .unwrap()
+        .session_id
+}
+
+/// One turn on `sid`: a fork needs a session that has taken one.
+async fn take_a_turn(core: std::sync::Arc<crate::Core>, sid: String) {
+    let rec = core
+        .store
+        .get_session::<SessionRecord>(&sid)
+        .unwrap()
+        .unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    core.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            surface: None,
+            session: rec,
+            input: Some("hello".into()),
+            target,
+            sink: crate::bus::EventSink::new(core.bus.clone(), &sid, None),
+            author: "the CLI".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            answer_at: None,
+        })
+        .await
+        .unwrap();
+}
+
 /// theseus-sz6z9: a fork cut while an ask is out on its source gets the label
 /// when the verdict lands, if the fork carries the item. A fork cut before the
 /// item does not (its transcript lacks it), a fork cut after the landing
@@ -1843,62 +1886,18 @@ async fn the_client_keeps_no_permit_back_when_the_pack_itself_is_off() {
 /// found on carries nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_fork_cut_while_a_check_is_out_gets_its_label() {
-    use theseus_protocol::SessionForkParams;
-    let fork = |r: &Rig, sid: &str, at: &str| {
-        r.core
-            .session_fork(
-                SessionForkParams {
-                    session: sid.into(),
-                    at: at.into(),
-                    ..Default::default()
-                },
-                crate::approval::Surface::Cli,
-            )
-            .unwrap()
-            .session_id
-    };
     let jev = FakeJev::start().unwrap();
     no(&jev);
     let r = rig_with(texts(2), Some(&jev), |c| {
         c.judge.packs.remove(PACK);
         c.judge.total_secs = 5;
     });
-    // A fork needs a session that has taken a turn.
-    let turn = |sid: String| {
-        let core = r.core.clone();
-        async move {
-            let rec = core
-                .store
-                .get_session::<SessionRecord>(&sid)
-                .unwrap()
-                .unwrap();
-            let (live, _) = core.live_profile();
-            let target = core.runner.resolve_target(&live, None, None, None).unwrap();
-            core.runner
-                .run(crate::turn::TurnRequest {
-                    prompt: None,
-                    surface: None,
-                    session: rec,
-                    input: Some("hello".into()),
-                    target,
-                    sink: crate::bus::EventSink::new(core.bus.clone(), &sid, None),
-                    author: "the CLI".into(),
-                    recompile: None,
-                    attachments: vec![],
-                    arrived: None,
-                    reply_to: None,
-                    answer_at: None,
-                })
-                .await
-                .unwrap();
-        }
-    };
     let clean = session(&r);
-    turn(clean.clone()).await;
+    take_a_turn(r.core.clone(), clean.clone()).await;
     item_in(&r, &clean, "c1", ItemKind::OperatorMessage, "plain words");
-    let control = fork(&r, &clean, "c1");
+    let control = fork_at(&r, &clean, "c1");
     let sid = session(&r);
-    turn(sid.clone()).await;
+    take_a_turn(r.core.clone(), sid.clone()).await;
     // The turns' own asks have landed; from here Jev holds, and finds an injection.
     for s in [&clean, &sid] {
         until(&r, "content.judged", 1).await;
@@ -1925,8 +1924,8 @@ async fn a_fork_cut_while_a_check_is_out_gets_its_label() {
         "the check is out"
     );
     // Forked while it is out: one that holds the item, one cut before it.
-    let holding = fork(&r, &sid, "n2");
-    let cut_before = fork(&r, &sid, "n0");
+    let holding = fork_at(&r, &sid, "n2");
+    let cut_before = fork_at(&r, &sid, "n0");
     for f in [&holding, &cut_before] {
         assert!(!flags(&r, f).has(Flag::Injection), "no label yet");
     }
@@ -1956,7 +1955,7 @@ async fn a_fork_cut_while_a_check_is_out_gets_its_label() {
         "a fork cut before the item does not hold it"
     );
     // After the landing, a fork carries it as ever.
-    assert!(flags(&r, &fork(&r, &sid, "n2")).has(Flag::Injection));
+    assert!(flags(&r, &fork_at(&r, &sid, "n2")).has(Flag::Injection));
     // A session with nothing found carries nothing, and so does its fork.
     assert_eq!(flags(&r, &clean), ContentFlags::default());
     assert_eq!(flags(&r, &control), ContentFlags::default());
