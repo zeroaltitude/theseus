@@ -1609,7 +1609,13 @@ impl Inner {
     /// open indexes them, and a head left behind would chain two rows on one
     /// link. A failed sync cut its frames, so the head stays. An index write
     /// that failed past its bound opens the gap checkpoints refuse across.
-    fn after_index(&self, synced: bool, indexed: bool, records: u64, chained: chain_writer::ChainState) {
+    fn after_index(
+        &self,
+        synced: bool,
+        indexed: bool,
+        records: u64,
+        chained: chain_writer::ChainState,
+    ) {
         if synced {
             *self.chain.lock().unwrap() = chained;
         }

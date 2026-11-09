@@ -68,7 +68,7 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   their writer may have answered them. Followers meet the cut as a rewind (theseus-follow checks the frame behind
   its cursor after each read). An index write that fails after a good sync is tried again, up to three times
   (`index_batch`, theseus-lu5n): its frames are durable, and `apply` over what a failed one left equals one whole
-  `apply` (`tests/index_reapply.rs` holds that for every cut of a tombstone batch), so a retry is safe. The batch is
+  `apply` (`tests/index_reapply.rs` holds that for every cut of a tombstone batch `apply` can express; `index::tests` holds the state a failing `remove_meta_keys` leaves), so a retry is safe. The batch is
   answered Ok once indexed. After the third failure it still fails, its frames, durable, coming back at the next
   open. The ledger chain head follows the log, not the index: it moves once a batch's frames are synced, whatever the
   index did (a failed sync cut its frames and leaves it), so the next row chains on the failed one and the open, which
