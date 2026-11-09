@@ -26,6 +26,10 @@ pub struct Taken {
     pub text: String,
     /// As the transcript shows it, every paste a chip.
     pub shown: String,
+    /// Images named by `@path`, sent as attachments (the text keeps the path).
+    pub attachments: Vec<theseus_protocol::Attachment>,
+    /// The dim line under the echo naming the files that went by reference.
+    pub note: String,
 }
 
 #[derive(Debug, Default)]
@@ -228,8 +232,9 @@ impl Editor {
         self.insert_str(with);
     }
 
-    /// What was typed, a paste (folded or not) never counted: a space stands
-    /// for each chip. Words only the person's own keys made.
+    /// What was typed: a space stands for each chip, so a FOLDED paste is
+    /// never counted. A paste of [`FOLD_LINES`] lines or fewer is inserted as
+    /// text and is counted like typing (theseus-vjzt).
     pub fn typed_text(&self) -> String {
         self.buf
             .iter()
@@ -281,7 +286,12 @@ impl Editor {
                 self.hist.remove(0);
             }
         }
-        Taken { text, shown }
+        Taken {
+            text,
+            shown,
+            attachments: Vec::new(),
+            note: String::new(),
+        }
     }
 
     /// The paste under the cursor or just before it, whole (Ctrl-O).

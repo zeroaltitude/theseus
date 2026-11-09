@@ -65,8 +65,8 @@ impl Chat {
         };
         let taken = self.queued.remove(0);
         self.released = true;
-        self.echo(&taken.shown);
-        vec![self.submit_call(&sid, taken.text)]
+        self.echo_taken(&taken);
+        vec![self.submit_call(&sid, taken.text, &taken.attachments)]
     }
 }
 
