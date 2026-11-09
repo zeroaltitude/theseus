@@ -186,6 +186,7 @@ ledger_kinds! {
     GoogleCalled = "google.called",
     GoogleRevoked = "google.revoked",
     JudgeShed = "judge.shed",
+    JudgeSpendSuppressed = "judge.spend.suppressed",
     KeepWarm = "keep_warm",
     LedgerChainStarted = "ledger.chain_started",
     LedgerHistoryPinned = "ledger.history_pinned",

@@ -477,6 +477,89 @@ fn canary_far_above_control(per_task: f64, control: &[u64], ratio: f64) -> bool 
     top > SPEND_FLOOR_MICROS && per_task > ratio * top
 }
 
+/// Why the spend rule declined to decide (theseus-ig13o): it reads nothing
+/// into a sample too small to compare, or a canary too cheap to be a signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpendHeld {
+    /// An arm has fewer than the rule's `min_tasks` tasks.
+    TooFewTasks,
+    /// Both arms have enough tasks, and the canary's median task spend is at
+    /// or under `SPEND_FLOOR_MICROS`.
+    CanaryUnderFloor,
+}
+
+impl SpendHeld {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SpendHeld::TooFewTasks => "too_few_tasks",
+            SpendHeld::CanaryUnderFloor => "canary_under_floor",
+        }
+    }
+}
+
+/// A decision the spend rule declined to make, and the numbers it read, for
+/// the ledger's row (`judge.spend.suppressed`): a quiet rule is then told
+/// from a working one by the record, not by the absence of a rollback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpendSuppressed {
+    pub reason: SpendHeld,
+    pub canary_tasks: usize,
+    pub control_tasks: usize,
+    pub min_tasks: usize,
+    /// The canary's median task spend in micro-dollars, none with no tasks.
+    pub canary_median_micros: Option<f64>,
+    /// What the canary's median must pass for the rule to read it.
+    pub floor_micros: f64,
+}
+
+/// The tasks' spend by arm, as the spend rule reads it: the canary's, then
+/// the control's.
+fn spend_by_arm(events: &[CanaryEvent]) -> (Vec<u64>, Vec<u64>) {
+    let spend = |arm: Arm| -> Vec<u64> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                CanaryEvent::TaskSpend { arm: a, micros, .. } if *a == arm => Some(*micros),
+                _ => None,
+            })
+            .collect()
+    };
+    (spend(Arm::Canary), spend(Arm::Control))
+}
+
+/// Why the spend rule declines to decide on two arms' spend, or `None` when
+/// it decides. The one place both cases are named, so `check` and the row
+/// that records them cannot disagree.
+fn spend_declined(canary: &[u64], control: &[u64], min_tasks: usize) -> Option<SpendSuppressed> {
+    let canary_median_micros = median(canary);
+    let held = |reason| SpendSuppressed {
+        reason,
+        canary_tasks: canary.len(),
+        control_tasks: control.len(),
+        min_tasks,
+        canary_median_micros,
+        floor_micros: SPEND_FLOOR_MICROS,
+    };
+    if canary.len() < min_tasks || control.len() < min_tasks {
+        return Some(held(SpendHeld::TooFewTasks));
+    }
+    canary_median_micros
+        .is_some_and(|m| m <= SPEND_FLOOR_MICROS)
+        .then(|| held(SpendHeld::CanaryUnderFloor))
+}
+
+/// The decision `rule` declined to make on `events`, if it is the spend rule
+/// and it declined: why, and the numbers. `check` returns `None` for these
+/// and for a rule that read its numbers and found no regression; only these
+/// are a rule not deciding.
+pub fn spend_suppressed(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<SpendSuppressed> {
+    let RollbackRule::SpendRatio { min_tasks, .. } = rule else {
+        return None;
+    };
+    let (canary, control) = spend_by_arm(events);
+    spend_declined(&canary, &control, *min_tasks)
+}
+
 /// The spend rule's verdict on two arms' per-task spend: why it fires, or
 /// `None`. Wholly here so `check` stays short.
 fn spend_ratio_why(canary: &[u64], control: &[u64], ratio: f64) -> Option<String> {
@@ -550,17 +633,8 @@ pub fn check(rule: &RollbackRule, events: &[CanaryEvent]) -> Option<Fired> {
             _ => None,
         }),
         RollbackRule::SpendRatio { ratio, min_tasks } => {
-            let spend = |arm: Arm| -> Vec<u64> {
-                events
-                    .iter()
-                    .filter_map(|e| match e {
-                        CanaryEvent::TaskSpend { arm: a, micros, .. } if *a == arm => Some(*micros),
-                        _ => None,
-                    })
-                    .collect()
-            };
-            let (canary, control) = (spend(Arm::Canary), spend(Arm::Control));
-            if canary.len() < *min_tasks || control.len() < *min_tasks {
+            let (canary, control) = spend_by_arm(events);
+            if spend_declined(&canary, &control, *min_tasks).is_some() {
                 return None;
             }
             // Like against like. Task spend is right-skewed (many cheap
@@ -1010,6 +1084,85 @@ mod tests {
         let near = run(&|i| if i < 7 { 40 } else { 40_000 });
         assert_eq!(near.len(), 24, "both arms' tasks are in the sample");
         assert!(check(&r, &near).is_some(), "nor is a near-free one");
+    }
+
+    /// The spend rule's two refusals to decide are named, with the numbers it
+    /// read (theseus-ig13o): too few tasks, and a canary at or under the
+    /// floor. A rule that decided, to fire or not to, is not among them, and
+    /// `check` agrees with the classifier in every case.
+    #[test]
+    fn the_spend_rule_names_what_it_declines_to_decide() {
+        let r = RollbackRule::SpendRatio {
+            ratio: 2.0,
+            min_tasks: 10,
+        };
+        let arms = |canary: &[u64], control: &[u64]| -> Vec<CanaryEvent> {
+            let spend = |arm, (i, micros): (usize, &u64)| CanaryEvent::TaskSpend {
+                task: format!("t{i}"),
+                arm,
+                micros: *micros,
+            };
+            let k = canary.iter().enumerate().map(|c| spend(Arm::Canary, c));
+            k.chain(control.iter().enumerate().map(|c| spend(Arm::Control, c)))
+                .collect()
+        };
+        // Nine canary tasks against ten control: the sample is short.
+        let few = arms(&[9_000; 9], &[1_000; 10]);
+        assert_eq!(few.len(), 19, "both arms' tasks are in the sample");
+        assert_eq!(
+            spend_suppressed(&r, &few),
+            Some(SpendSuppressed {
+                reason: SpendHeld::TooFewTasks,
+                canary_tasks: 9,
+                control_tasks: 10,
+                min_tasks: 10,
+                canary_median_micros: Some(9_000.0),
+                floor_micros: SPEND_FLOOR_MICROS,
+            })
+        );
+        assert!(check(&r, &few).is_none());
+        // No tasks at all is the same refusal, with nothing to take a median of.
+        let held = spend_suppressed(&r, &[]).expect("no tasks");
+        assert_eq!(held.reason, SpendHeld::TooFewTasks);
+        assert_eq!(
+            (
+                held.canary_tasks,
+                held.control_tasks,
+                held.canary_median_micros
+            ),
+            (0, 0, None)
+        );
+        assert_eq!(held.reason.as_str(), "too_few_tasks");
+        // Ten and ten, the canary's median fifty micro-dollars: under the floor.
+        let cheap = arms(&[50; 10], &[1_000; 10]);
+        assert_eq!(cheap.len(), 20);
+        let held = spend_suppressed(&r, &cheap).expect("a canary under the floor");
+        assert_eq!(held.reason, SpendHeld::CanaryUnderFloor);
+        assert_eq!(held.reason.as_str(), "canary_under_floor");
+        assert_eq!(
+            (
+                held.canary_tasks,
+                held.control_tasks,
+                held.canary_median_micros
+            ),
+            (10, 10, Some(50.0))
+        );
+        assert!(check(&r, &cheap).is_none());
+        // The floor itself is under it, as `check` reads it.
+        let at = arms(&[100; 10], &[1_000; 10]);
+        let held = spend_suppressed(&r, &at).expect("at the floor is under it");
+        assert_eq!(held.reason, SpendHeld::CanaryUnderFloor);
+        assert!(check(&r, &at).is_none());
+        // A rule that decided is not suppressed: it fired...
+        let hot = arms(&[5_000; 10], &[1_000; 10]);
+        assert!(check(&r, &hot).is_some());
+        assert_eq!(spend_suppressed(&r, &hot), None);
+        // ...or it read the numbers and found nothing to roll back for.
+        let same = arms(&[1_100; 10], &[1_000; 10]);
+        assert!(check(&r, &same).is_none());
+        assert_eq!(spend_suppressed(&r, &same), None);
+        // No other rule is a spend rule.
+        assert_eq!(spend_suppressed(&RollbackRule::NudgeLoop, &few), None);
     }
 
     fn spend_of(events: &[CanaryEvent], a: Arm) -> Vec<u64> {

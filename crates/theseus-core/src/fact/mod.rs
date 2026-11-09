@@ -509,6 +509,7 @@ facts![
     onto::OntoNamed<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
+    ladder::SpendSuppressed<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,

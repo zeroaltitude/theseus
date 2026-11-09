@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_judge::fake::{FakeJev, Scripted as Jev};
-use theseus_judge::learn::CanaryEvent;
+use theseus_judge::learn::{Arm, CanaryEvent};
 use theseus_judge::Judgment;
 use theseus_protocol::learning::JudgeLabelParams;
 use theseus_protocol::packs::{PackModeRow, PackPromoteParams, PackRollbackParams};
@@ -405,6 +405,134 @@ async fn a_rules_trigger_rolls_a_pack_back() {
         .unwrap();
     j.land("loop.v1", CanaryEvent::OnPath { ms: 10 });
     assert_eq!(j.ladder().standing("loop.v1").rung, Rung::Canary);
+}
+
+/// A finished task's spend, by arm, as the spend rule counts it.
+fn spend(task: &str, arm: Arm, micros: u64) -> CanaryEvent {
+    CanaryEvent::TaskSpend {
+        task: task.into(),
+        arm,
+        micros,
+    }
+}
+
+/// The `judge.spend.suppressed` rows, oldest first: each a decision the spend
+/// rule declined to make.
+fn held(core: &Core) -> Vec<Value> {
+    crate::test_support::rows_100k(core, "judge.spend.suppressed")
+}
+
+/// What a suppressed spend decision's row carries.
+fn held_row(reason: &str, canary: (u64, Value), control: u64) -> Value {
+    json!({
+        "pack": "loop.v1",
+        "rule": "spend_ratio",
+        "reason": reason,
+        "canary_tasks": canary.0,
+        "control_tasks": control,
+        "min_tasks": 10,
+        "canary_median_micros": canary.1,
+        "floor_micros": 100.0,
+    })
+}
+
+/// The spend rule declines to decide on too few tasks, and each time it does a
+/// `judge.spend.suppressed` row says so, with the pack, the reason and the
+/// numbers (theseus-ig13o F3): a task's spend landing asks it, an event that
+/// leaves the same numbers does not, and the nightly check asks it again. It
+/// rolls nothing back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_spend_rule_short_of_tasks_leaves_a_row_saying_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = core_at(dir.path(), None, |_| {});
+    let j = &c.runner.judge;
+    assert!(held(&c).is_empty(), "nothing is asked before a spend lands");
+    j.land("loop.v1", spend("k0", Arm::Canary, 5_000));
+    assert_eq!(
+        held(&c),
+        vec![held_row("too_few_tasks", (1, json!(5_000.0)), 0)],
+        "one canary task and no control: the first decision, declined"
+    );
+    j.land("loop.v1", spend("c0", Arm::Control, 1_000));
+    let got = held(&c);
+    assert_eq!(got.len(), 2, "each declined decision is a row");
+    assert_eq!(
+        got[1],
+        held_row("too_few_tasks", (1, json!(5_000.0)), 1),
+        "with the numbers it read then"
+    );
+    j.land("loop.v1", CanaryEvent::OnPath { ms: 10 });
+    assert_eq!(
+        held(&c).len(),
+        2,
+        "an event that leaves its numbers asks nothing"
+    );
+    j.ladder().recheck();
+    let got = held(&c);
+    assert_eq!(got.len(), 3, "the nightly check asks it again");
+    assert_eq!(got[2], got[1], "of the same numbers");
+    assert!(
+        rows(&c, "loop.v1").iter().all(|r| r.mode != "rolled_back"),
+        "declining is not a rollback"
+    );
+}
+
+/// With a sample on both arms and a canary whose median is under the floor,
+/// the rule declines the other way, and the row says so: the canary's median
+/// and the floor it did not pass.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_canary_under_the_floor_leaves_a_row_saying_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = core_at(dir.path(), None, |_| {});
+    let j = &c.runner.judge;
+    for i in 0..10 {
+        j.land("loop.v1", spend(&format!("c{i}"), Arm::Control, 1_000));
+    }
+    for i in 0..10 {
+        j.land("loop.v1", spend(&format!("k{i}"), Arm::Canary, 50));
+    }
+    let got = held(&c);
+    assert_eq!(got.len(), 20, "each of the twenty decisions was declined");
+    let short = got
+        .iter()
+        .filter(|r| r["reason"] == "too_few_tasks")
+        .count();
+    assert_eq!(short, 19, "until the tenth canary task landed");
+    assert_eq!(
+        got[19],
+        held_row("canary_under_floor", (10, json!(50.0)), 10),
+        "ten and ten: a canary median of 50 micro-dollars, under the 100 floor"
+    );
+    assert!(
+        rows(&c, "loop.v1").iter().all(|r| r.mode != "rolled_back"),
+        "declining is not a rollback"
+    );
+}
+
+/// A spend decision that fires writes no suppressed row: the rule decided, and
+/// its rollback is the record. The ninth canary task is the last declined
+/// decision; the tenth fires.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_spend_rule_that_fires_leaves_no_suppressed_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = core_at(dir.path(), None, |_| {});
+    let j = &c.runner.judge;
+    for i in 0..10 {
+        j.land("loop.v1", spend(&format!("c{i}"), Arm::Control, 1_000));
+    }
+    for i in 0..9 {
+        j.land("loop.v1", spend(&format!("k{i}"), Arm::Canary, 5_000));
+    }
+    assert_eq!(held(&c).len(), 19, "nineteen decisions declined");
+    assert!(rows(&c, "loop.v1").iter().all(|r| r.mode != "rolled_back"));
+    j.land("loop.v1", spend("k9", Arm::Canary, 5_000));
+    assert_eq!(held(&c).len(), 19, "the tenth decided: no row of its own");
+    let back = rows(&c, "loop.v1").pop().expect("the rollback");
+    assert_eq!(
+        (back.mode.as_str(), back.rule.as_deref()),
+        ("rolled_back", Some("spend_ratio")),
+        "ten and ten at five times the control's median fires"
+    );
 }
 
 /// The packs live before the ladder are adopted once, at its first read

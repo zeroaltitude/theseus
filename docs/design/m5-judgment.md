@@ -243,6 +243,7 @@ and no one-way door: an older binary still opens a store with judgments in it.
 | `pack.event` (26a) | none, `pack.event:<id>:<day>` | one event a rollback rule counts: a label in words, a pin, a breaker's opening, a notice; a restart reads the day back |
 | `judge.report` | none, `judge:<pack>` | the nightly summary (§2.9) |
 | `judge.paused`, `judge.resumed`, `judge.circuit`, `judge.shed` | none, `judge` | the shadow budget, the breaker, and shedding, as they happen. _As built (23b): `judge.resumed` is written at the first reservation of a new local day after a paused one, known in process only, so a restart forgets the pause and writes none_ |
+| `judge.spend.suppressed` | none, none | a decision the spend rule declined to make (theseus-ig13o): the pack version, the rule, why (`too_few_tasks`, an arm under `min_tasks`; or `canary_under_floor`, the canary's median task spend at or under the floor) and the numbers it read: each arm's task count, `min_tasks`, the canary's median and the floor. One row per declined decision, written when a task's spend lands and at the nightly check, so a quiet spend rule is told from a working one; a decision that fires writes none, its rollback is the record |
 
 - **The state** goes to a content-addressed blob (`blobs.rs`), written before its row, so a row never names a
   missing blob. The row keeps the digest and the inputs by reference, so a later builder version can rebuild
