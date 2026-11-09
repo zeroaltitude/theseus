@@ -57,7 +57,10 @@ async fn a_questions_notice_count_ends_when_the_question_does() {
     let listed = r.core.confirm_list().unwrap();
     // The list gives a held question no deadline (theseus-lrc3m); its first
     // life ends at its plan's time plus the TTL.
-    assert_eq!(listed[0].expires_at_ms, 0, "a held question lists no expiry");
+    assert_eq!(
+        listed[0].expires_at_ms, 0,
+        "a held question lists no expiry"
+    );
     let due = listed[0].requested_at_ms + r.core.kernel.config().confirm_ttl_ms;
     assert_eq!(r.core.expire_questions(due), 0, "held, not expired");
     assert_eq!(waiting(&r).len(), 1, "told once");
