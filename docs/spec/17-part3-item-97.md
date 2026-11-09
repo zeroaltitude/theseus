@@ -243,10 +243,14 @@ path, which the core then wakes a second time, so such a turn writes two `execut
 Observatory was being deleted (Item 86), so only the cockpit's panel names the task.
 
 **Known gaps.** theseus-7axv (P3): a `/stop` on a task still leaves it waiting on input with no wake (pre-existing,
-W1's stop branch), so only a turn submitted to the task's session continues it; and a parked task's pill reads
-`○ ready · wake HH:MM`, "ready for you", though no one gives a task input ("parked · wake HH:MM" would be truer, in
-theseus-protocol's `attention()`). The kernel simulator has no invariant for the new rule (a blanket one would be wrong,
-since `/stop` legitimately leaves a task waiting). The core's output golden fails under a UTC clock (theseus-ig6n).
+W1's stop branch), so only a turn submitted to the task's session continues it _(Not a gap, found 2026-11-09: W1's stop
+branch refuses a task, `KernelError::StopTask` in `stops.rs`, pinned by `tests_stops.rs`, and has since W1 itself,
+2026-09-30, `2975183d9`, so a `/stop` never leaves a task waiting on input; a task ends by `task.cancel`.)_; and a
+parked task's pill reads `○ ready · wake HH:MM`, "ready for you", though no one gives a task input ("parked · wake
+HH:MM" would be truer, in theseus-protocol's `attention()`) _(Closed 2026-11-08 by theseus-7axv, `509735ad`: a task parked
+on input reads `parked` and working, not ready, in `attention()`, `push.rs`.)_. The kernel simulator has no invariant for
+the new rule (a blanket one would be wrong, since `/stop` legitimately leaves a task waiting _(it does not: see the first
+clause)_). The core's output golden fails under a UTC clock (theseus-ig6n).
 
 ### Item 99. 30a: recall's first stage, in shadow: the `MemoryScience` trait and its baseline, the place-safe pipeline, a `recall.shadow` row of references, `memory.search` and `memory.recalls` (theseus-6fn.1, roadmap row 52, with theseus-celu.20; the fourth cloud batch's memory-recall session, fired 2026-10-03 19:30 from d9b0931, Opus 5.5; 022d088 and 56f8218; reviewed 22:06 to 22:16 by the batch-4 harvest wake, with a live check on a copy of the operator's store; joined 2026-10-04 00:19 at 8e38ff74, a signed merge onto e369db7b, by the harvest wake 7379d0cc; installed 14:09 at bddfd407, install #1)
 
