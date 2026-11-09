@@ -37,7 +37,7 @@ use crate::compiler::{
     compile, situation, CompileInput, Compiled, Overflowed, Recompile, RequestSpec,
 };
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
-use crate::content::ItemKind;
+use crate::content::{footer_labels, ItemKind};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
 use crate::narrative::{self, Narrator};
@@ -3323,11 +3323,7 @@ impl TurnRunner {
             if r.pending_recompile.is_none() {
                 r.pending_recompile = unused_recompile;
             }
-            labels = crate::content::footer_labels(
-                &self.cfg.cockpit,
-                t.tc.session_id,
-                r.data.as_deref(),
-            );
+            labels = footer_labels(&self.cfg.cockpit, t.tc.session_id, r.data.as_deref());
         }) {
             Ok(hold) => hold,
             Err(e) => return Err(Self::fault(t, session, e)),
