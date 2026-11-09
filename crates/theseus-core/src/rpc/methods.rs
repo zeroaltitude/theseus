@@ -1307,8 +1307,15 @@ impl Core {
         let known = cards.as_deref().unwrap_or(&page.nodes);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, known)));
         let cites = self.page_cites(&p.session_id, &page.nodes)?;
+        let mut session = self.session_info(&rec, &asks);
+        if withhold {
+            // The record's own text: the title is the first message's first
+            // 60 characters, and the earlier title is the same (theseus-a7pr).
+            session.title = None;
+            session.title_was = None;
+        }
         Ok(theseus_protocol::SessionHistoryResult {
-            session: self.session_info(&rec, &asks),
+            session,
             pending_confirms: self.confirms_of(&pending, &rec, known),
             nodes: page
                 .nodes
@@ -1493,9 +1500,32 @@ impl Core {
         Ok(theseus_protocol::CompilationListResult { compilations: out })
     }
 
+    /// `node.list` as a test asks it: the owner's surface. Production reaches
+    /// the list only through [`Core::node_list_on`], so no route can forget
+    /// the surface (theseus-a7pr).
+    #[cfg(test)]
     pub(super) fn node_list(
         &self,
         p: theseus_protocol::NodeListParams,
+    ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
+        self.node_list_for(p, true)
+    }
+
+    /// `node.list` as `surface` asks it: a surface that reads no private text
+    /// is given an imported session's nodes with their text withheld, as
+    /// `session.history` gives them (theseus-a7pr).
+    pub(super) fn node_list_on(
+        &self,
+        p: theseus_protocol::NodeListParams,
+        surface: crate::approval::Surface,
+    ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
+        self.node_list_for(p, surface.reads_private())
+    }
+
+    pub(crate) fn node_list_for(
+        &self,
+        p: theseus_protocol::NodeListParams,
+        private: bool,
     ) -> Result<theseus_protocol::NodeListResult, RpcFailure> {
         let n = p.n.unwrap_or(100).min(2000);
         // A kind or a session reads its tag's newest `n` (theseus-96w2);
@@ -1529,7 +1559,13 @@ impl Core {
         Ok(theseus_protocol::NodeListResult {
             nodes: nodes
                 .iter()
-                .map(|(pos, node)| Self::node_info(*pos, node))
+                .map(|(pos, node)| {
+                    let info = Self::node_info(*pos, node);
+                    match !private && crate::import::is_imported(&node.session_id) {
+                        true => withheld_node(info),
+                        false => info,
+                    }
+                })
                 .collect(),
             total: self.store.node_count()?,
         })
