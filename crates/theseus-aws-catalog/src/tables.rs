@@ -1087,6 +1087,9 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "ModifyCluster",
         ],
     ),
+    // The claim certificate a profile's Get answers with when it has one:
+    // the Create twin is a `SECRET` row. Optional here, so `WHEN_PRESENT`.
+    ops("iot-managed-integrations", &["GetProvisioningProfile"]),
     // The shared secret of a procurement portal, where one is configured.
     ops("invoicing", &["GetProcurementPortalPreference"]),
     // A workspace's `grafanaToken`, which the model does not mark and which

@@ -24,7 +24,7 @@
 //! data and customer content too, and holding every marked member would
 //! reach 1478 further operations and 2654 further members — a postal code, a
 //! given name, a control's description, a tag's value — against this rule's
-//! 162 and 118. The words alone are a guess about a name, and the names that
+//! 163 and 119. The words alone are a guess about a name, and the names that
 //! matter do not cooperate: a stream key arrives as `StreamKey.value`, a
 //! Grafana key as `key`, a TOTP seed as `SecretCode`, a channel's key as
 //! `Srt.passphrase`. Read together they keep the marking's authority — the
@@ -170,6 +170,12 @@ const MARKED: &[(&str, &str, &str)] = &[
     (
         "iot-managed-integrations",
         "CreateProvisioningProfileResponse",
+        "ClaimCertificate",
+    ),
+    // the same certificate, on the Get twin's answer (theseus-3i6d1).
+    (
+        "iot-managed-integrations",
+        "GetProvisioningProfileResponse",
         "ClaimCertificate",
     ),
 ];
@@ -892,7 +898,7 @@ fn the_rules_reach_is_what_the_design_doc_says() {
     let marking = reach(c, &marking_alone);
     assert_eq!(
         (conjunction, marking),
-        ((162, 118), (1478, 2654)),
+        ((163, 119), (1478, 2654)),
         "the rule's reach moved: the conjunction now selects {conjunction:?} \
          (operations, members) beyond the rule it replaced, and the marking alone would \
          select {marking:?}. Correct the module doc above and docs/design/aws-toolset.md."
@@ -1121,6 +1127,7 @@ const TRIAGED: &[(&str, &str, &str, &str)] = &[
     ("iot-managed-integrations", "GetManagedThingResponse", "Owner", "a device's owner"),
     ("iot-managed-integrations", "GetManagedThingResponse", "SerialNumber", "a device's serial number"),
     ("iot-managed-integrations", "GetManagedThingResponse", "Tags", "the device's tags"),
+    ("iot-managed-integrations", "GetProvisioningProfileResponse", "Tags", "the profile's tags; a reading of the shape, not a sourced fact"),
     ("iot-managed-integrations", "GetManagedThingResponse", "UniversalProductCode", "a device's product code"),
     ("mediapackage", "IngestEndpoint", "Username", "the ingest user's name; its password carries a credential word"),
     ("quicksight", "AssetBundleImportSourceDescription", "Body", "where the bundle under import was read from"),

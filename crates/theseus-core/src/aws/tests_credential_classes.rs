@@ -40,6 +40,7 @@ const CHAP_TARGET: &str = "example-chap-target-secret-0008";
 const VPN_PRE_SHARED_KEY: &str = "example-vpn-pre-shared-key-0009";
 const FCM_SERVER_KEY: &str = "example-fcm-server-key-0010";
 const WORKSPACE_TOKEN: &str = "example-workspace-token-0011";
+const CLAIM_CERTIFICATE: &str = "example-claim-certificate-0012";
 
 /// The channel a listing shows: no credential anywhere in it.
 const CHANNEL_NAME: &str = "example-channel-name";
@@ -85,6 +86,20 @@ fn pinpoint_and_grafana(path: &str, n: usize) -> Option<Reply> {
             json!({ "workspace": workspace })
         };
         return Some(rest(n, body));
+    }
+    None
+}
+
+/// The classes theseus-3i6d1's second review named and the first pass left:
+/// a device's claim certificate, by its path.
+fn more_classes(path: &str, n: usize) -> Option<Reply> {
+    if path.starts_with("/provisioning-profiles/") {
+        return Some(rest(
+            n,
+            json!({"Id": "example-profile", "Name": "example-profile-name",
+                   "ProvisioningType": "FLEET_PROVISIONING",
+                   "ClaimCertificate": CLAIM_CERTIFICATE}),
+        ));
     }
     None
 }
@@ -157,7 +172,7 @@ fn answers(s: &Seen, n: usize) -> Reply {
             json!({"keyName": "example-key", "key": GRAFANA_KEY, "workspaceId": "g-example"}),
         );
     }
-    if let Some(r) = pinpoint_and_grafana(path, n) {
+    if let Some(r) = pinpoint_and_grafana(path, n).or_else(|| more_classes(path, n)) {
         return r;
     }
     let stream_key = json!({
@@ -212,8 +227,28 @@ fn case(call: Value, held: Vec<(&'static str, &'static str)>, shown: &'static st
     Case { call, held, shown }
 }
 
-/// Every class, and the credentials each must hold.
+/// The classes of `base_cases` and `more_cases`.
 fn cases() -> Vec<Case> {
+    let mut all = base_cases();
+    all.extend(more_cases());
+    all
+}
+
+/// The classes that came after the first pass.
+fn more_cases() -> Vec<Case> {
+    vec![case(
+        call(
+            "iot-managed-integrations",
+            "GetProvisioningProfile",
+            json!({"Identifier": "example-profile"}),
+        ),
+        vec![("ClaimCertificate", CLAIM_CERTIFICATE)],
+        "example-profile-name",
+    )]
+}
+
+/// Every class of the first passes, and the credentials each must hold.
+fn base_cases() -> Vec<Case> {
     vec![
         case(
             call(
