@@ -56,7 +56,7 @@ pub fn index_line(h: &theseus_protocol::index::IndexHealth) -> String {
     }
     if let Some(b) = &s.backfill {
         line.push_str(&format!(
-            " · backfill {} of {}",
+            " · backfill {} of {} (expected: the index is rebuilt from the WAL after an upgrade or a request)",
             fmt_bytes(b.done_bytes),
             fmt_bytes(b.total_bytes)
         ));
@@ -272,6 +272,29 @@ mod tests {
             sources: BTreeMap::new(),
             fused: 0.5,
         }
+    }
+
+    /// A rebuild after an upgrade or a request is expected, and health says so
+    /// (theseus-ectzg): a backfill reads as a window that ends, not a fault.
+    #[test]
+    fn a_backfill_is_said_to_be_expected() {
+        use theseus_protocol::index::{IndexBackfill, IndexHealth, IndexStatus};
+        let mut h = IndexHealth {
+            state: "backfilling".into(),
+            status: Some(IndexStatus {
+                backfill: Some(IndexBackfill {
+                    done_bytes: 10,
+                    total_bytes: 100,
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let line = index_line(&h);
+        assert!(line.contains("backfill 10 B of 100 B"), "{line}");
+        assert!(line.contains("expected"), "{line}");
+        h.status.as_mut().unwrap().backfill = None;
+        assert!(!index_line(&h).contains("expected"));
     }
 
     /// A hit's line names its date (theseus-w9qv): the index gave it, and the
