@@ -442,6 +442,8 @@ impl Chat {
 
     pub fn disconnected(&mut self) {
         self.at_lost();
+        // The four /why answers die with the connection's pending calls.
+        self.why = None;
         if !self.offline {
             self.offline = true;
             self.offline_at = Some(self.now_ms);
