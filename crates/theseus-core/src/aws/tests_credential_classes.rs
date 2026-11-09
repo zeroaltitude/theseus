@@ -279,12 +279,20 @@ fn more_cases() -> Vec<Case> {
 fn measured_cases() -> Vec<Case> {
     vec![
         case(
-            call("pinpoint", "GetBaiduChannel", json!({"ApplicationId": "example-app"})),
+            call(
+                "pinpoint",
+                "GetBaiduChannel",
+                json!({"ApplicationId": "example-app"}),
+            ),
             vec![("BaiduChannelResponse.Credential", BAIDU_CREDENTIAL)],
             "example-app",
         ),
         case(
-            call("chime", "GetUser", json!({"AccountId": "example-account", "UserId": "example-user"})),
+            call(
+                "chime",
+                "GetUser",
+                json!({"AccountId": "example-account", "UserId": "example-user"}),
+            ),
             vec![("User.PersonalPIN", CHIME_PIN)],
             // The user's DisplayName is a marked member of the same answer
             // and is now masked with it (the owner's question, carried).

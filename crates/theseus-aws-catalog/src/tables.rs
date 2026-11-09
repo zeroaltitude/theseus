@@ -1124,7 +1124,11 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
     // The Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
     ops(
         "pinpoint",
-        &["DeleteBaiduChannel", "GetBaiduChannel", "UpdateBaiduChannel"],
+        &[
+            "DeleteBaiduChannel",
+            "GetBaiduChannel",
+            "UpdateBaiduChannel",
+        ],
     ),
 ];
 
