@@ -104,7 +104,9 @@ pub const MARK: &str = "onto.dream.last";
 /// listed in `crates/theseus-core/AGENTS.md` ("The one site that is not
 /// Jev's") and in the `[memory] synth_profile` template comment.
 pub const DREAM_MODEL: (&str, &str) = ("anthropic", "claude-sonnet-5-5");
-/// The effort [`DREAM_MODEL`] writes at: sent as `output_config.effort`, with
+/// The effort the dream writes at, whether it runs [`DREAM_MODEL`] or a pinned
+/// `synth_profile`'s model (a pin moves the model, not the care): sent as
+/// `output_config.effort` where the model takes one, with
 /// thinking still off (a high effort with the cap of 250 tokens would be
 /// spent thinking, theseus-050g2).
 pub const DREAM_EFFORT: Effort = Effort::High;
@@ -330,7 +332,9 @@ impl Core {
             let target = self
                 .runner
                 .resolve_target(&live, Some(&profile), None, None);
-            (target.map_err(|_| Wait::Profile)?, None)
+            // The pin moves the model, not the care: the effort stays
+            // ([`output_config`] drops it for a model that takes none).
+            (target.map_err(|_| Wait::Profile)?, Some(DREAM_EFFORT))
         } else {
             let (provider, model) = DREAM_MODEL;
             let target = self

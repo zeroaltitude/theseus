@@ -1271,8 +1271,8 @@ the session's (the live arm's session path waits for 26b). The shadow call uses 
 a permit instead of being shed, and its timeouts count toward the breaker every pack shares (eight then). Twenty Nouls
 are two questions of ten, inside the loader's rule.
 
-**Known gaps.** theseus-mm4a (P2: no test that a note labeled wrong or stale never reaches Jev or the repack; 32d takes it
-first). With the judge on, a shadow recall clones the pipeline's candidates and builds the rerank's input before the
+**Known gaps.** (theseus-mm4a, the test that a note labeled wrong or stale never reaches Jev or the repack, was closed by
+Item 141, step 32d.) With the judge on, a shadow recall clones the pipeline's candidates and builds the rerank's input before the
 mode check (microseconds; checking the mode first would make the judge-off path free). A rerank at the day's limit writes
 no row (`Skip` has no day-limit reason). No narrative line or notification of its own. theseus-judge's tests hold four
 copies of the one-line `Ask.id` test, one per branch of the stack.

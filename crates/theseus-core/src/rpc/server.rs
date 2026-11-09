@@ -330,7 +330,7 @@ impl Core {
             method::SESSION_RECOMPILE => route(params, |p| self.session_recompile(p, conn)),
             method::CATALOG_LIST => reply(self.catalog_list()),
             method::COMPILATION_LIST => route(params, |p| self.compilation_list(p)),
-            method::NODE_LIST => route(params, |p| self.node_list(p)),
+            method::NODE_LIST => route(params, |p| self.node_list_on(p, conn.surface)),
             // A walk may read several sessions, so it runs off the serving
             // workers. Its params are parsed first: none fails at once.
             method::NODE_REACH => {
@@ -390,7 +390,7 @@ impl Core {
             method::SESSION_WAIT => reply(self.session_wait(parse(params)?, conn).await?),
             m if super::index_rebuild::OWN.contains(&m) => self.rpc_index(m, params, conn).await,
             m @ (method::MEMORY_SEARCH | method::MEMORY_LOOKUP) => self.mem(m, params, conn).await,
-            m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.memory_reads(m, params),
+            m @ (method::MEMORY_RECALLS | method::MEMORY_CITES) => self.mem_reads(m, params, conn),
             method::MEMORY_LABEL | method::FACT_RETRACT => self.rpc_acts(&req.method, params, conn),
             // Jev's judgments (M5 23b): their rows, and one with its state.
             method::JUDGE_LIST | method::JUDGE_GET => self.rpc_reads(&req.method, params),

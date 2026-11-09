@@ -994,6 +994,12 @@ pub struct ModelAnswered<'a> {
     pub call_t0: u64,
     pub turn_id: &'a str,
     pub loop_index: u32,
+    /// This loop answers a harness nudge, not the person (theseus-emqbm):
+    /// its words go to no client, so no place shows them. The event is still
+    /// sent, with no text, because a surface counts a turn's loops by it: a
+    /// renderer that never hears of the loop files its tool lines under the
+    /// loop before. The span and the trace marks are written as ever.
+    pub quiet: bool,
 }
 
 impl Fact for ModelAnswered<'_> {
@@ -1003,7 +1009,10 @@ impl Fact for ModelAnswered<'_> {
         Some(Event::ModelAnswered(theseus_protocol::ModelDelta {
             turn_id: self.turn_id.into(),
             loop_index: self.loop_index,
-            text: self.resp.text.clone(),
+            text: match self.quiet {
+                true => String::new(),
+                false => self.resp.text.clone(),
+            },
         }))
     }
 
@@ -1615,6 +1624,7 @@ impl Fact for ProviderError<'_> {
             "elapsed_ms": self.elapsed_ms,
             "detail": self.detail,
             "message": self.message,
+            "correlation_id": self.correlation_id,
         })
     }
 

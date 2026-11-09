@@ -600,6 +600,32 @@ pub(crate) fn learned_loop(c: &Core) {
     c.runner.judge.lineage().forget();
 }
 
+/// A learned version of recall_cross.v1, `recall_cross.v101`, in its
+/// lineage, as [`learned_loop`] does for loop.v1.
+pub(crate) fn learned_cross(c: &Core) {
+    let text = include_str!("../../theseus-judge/packs/recall_cross.v1.toml").replacen(
+        "version = 1",
+        "version = 101",
+        1,
+    );
+    let pack = theseus_judge::Pack::parse(&text).unwrap();
+    assert_eq!(pack.name(), "recall_cross.v101");
+    let l = crate::judge::lineage::Learned {
+        pack: std::sync::Arc::new(pack),
+        text,
+        parent: "recall_cross.v1".into(),
+        root: "recall_cross.v1".into(),
+        proposal: "prp_heron".into(),
+        at_ms: END,
+    };
+    let mut r = ledger(LedgerKind::PackVersion, None, l.data(), END - 120_000);
+    r.key = Some(crate::judge::lineage::key("recall_cross.v101"));
+    c.store
+        .append(&[r.scoped(&crate::judge::lineage::scope("recall_cross.v1"))])
+        .unwrap();
+    c.runner.judge.lineage().forget();
+}
+
 /// A task judged by a learned version standing in loop.v1's place is left
 /// out as `learned_version`, never `never_judged` (theseus-ag0t); one judged
 /// by both, its stops not all loop.v1's, is left out too; the others are as
@@ -743,6 +769,7 @@ fn seen(id: &str, session: &str, arm: &str, work: &str, position: u64) -> Seen {
     Seen {
         position,
         at_ms: position,
+        row_ms: position,
         judgment: judgment(id, "loop.v1", session, arm, work, 1_000),
     }
 }
@@ -929,6 +956,7 @@ fn promote(id: &str, p: f64, at_ms: u64) -> Seen {
     Seen {
         position: at_ms,
         at_ms,
+        row_ms: at_ms,
         judgment: j,
     }
 }

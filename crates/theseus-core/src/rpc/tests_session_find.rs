@@ -212,3 +212,131 @@ fn a_page_goes_back_by_its_cursor_and_the_filter_pages_like_the_list() {
         "each of the directory's sessions once, none of the other's"
     );
 }
+
+/// The fourth door of theseus-a7pr, as it actually is on this base.
+///
+/// The follow-up said `session.list { with_text }` returns an imported
+/// session's `first_text`, `last_text`, `prompts` and `title` to every
+/// surface. Three of those four it cannot: `with_text` is filled only on the
+/// scanning path (`session_list_in`), and every scanning path reads
+/// `live_sessions`/`sessions_paged`, which step past the imported keys
+/// (theseus-7087) — so an imported session is in no `with_text` answer at
+/// all. The path that is open is `session.list { ids }`, which reads each
+/// named record straight from the store with no import filter and no
+/// surface, and hands back its `title`: `session::title_from` of its summary
+/// or its first message, the same sixty characters `session.history` was
+/// patched for one door up. This test holds both halves, so neither the
+/// closed door nor the open one can change in silence.
+#[test]
+fn an_imported_sessions_words_reach_only_a_surface_that_reads_private_text() {
+    let c = core();
+    let imported = format!("{}{}", crate::import::SESSION_PREFIX, "00c0ffee");
+    {
+        let mut r =
+            crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+        r.session_id = imported.clone();
+        r.title = Some("the kestrel count on the north ridge".into());
+        r.title_was = vec!["the first heading".into()];
+        r.dir = Some("/work/tides".into());
+        r.last_active_ms = theseus_protocol::now_unix_ms();
+        c.store.put_session(&imported, &r).unwrap();
+    }
+    let plain = open_in(&c, "/work/tides", theseus_protocol::now_unix_ms(), 1);
+    {
+        let mut r: crate::session::SessionRecord = c.store.get_session(&plain).unwrap().unwrap();
+        r.title = Some("the tide log".into());
+        c.store.put_session(&plain, &r).unwrap();
+    }
+    for (id, said) in [
+        (&imported, "forty kestrels over the ridge"),
+        (&plain, "the tide is out"),
+    ] {
+        let n = Node::user(id, None, "operator", said).record().unwrap();
+        c.store.append(&[n]).unwrap();
+    }
+
+    let by_ids = |private: bool| {
+        c.session_list_for(
+            SessionListParams {
+                ids: Some(vec![imported.clone(), plain.clone()]),
+                ..Default::default()
+            },
+            private,
+        )
+        .unwrap()
+        .sessions
+    };
+    let row = |rows: &[theseus_protocol::SessionInfo], id: &str| {
+        rows.iter()
+            .find(|s| s.session_id == id)
+            .unwrap_or_else(|| panic!("{id} is not in the list"))
+            .clone()
+    };
+
+    // The open door: `ids` reads the record itself, so the imported session
+    // is there, and its title is its first message.
+    let owner = by_ids(true);
+    assert_eq!(owner.len(), 2, "both sessions are read by id");
+    let mine = row(&owner, &imported);
+    assert_eq!(
+        mine.title.as_deref(),
+        Some("the kestrel count on the north ridge"),
+        "the owner's own surface reads it"
+    );
+    assert_eq!(
+        mine.title_was.as_deref(),
+        Some(["the first heading".to_string()].as_slice())
+    );
+
+    let untrusted = by_ids(false);
+    assert_eq!(untrusted.len(), 2, "the row is listed, not dropped");
+    let withheld = row(&untrusted, &imported);
+    assert_eq!(withheld.session_id, imported);
+    assert_eq!(withheld.title, None, "its first message's words leaked");
+    assert_eq!(
+        withheld.title_was, None,
+        "an earlier title is the same words"
+    );
+
+    // A session that is not imported is untouched on either surface.
+    for rows in [&owner, &untrusted] {
+        assert_eq!(row(rows, &plain).title.as_deref(), Some("the tide log"));
+    }
+
+    // The door the follow-up named, which is shut one level down: the
+    // scanning path steps past every imported key, so `with_text` cannot
+    // reach one. Asserted with the positive count, so an empty answer, or a
+    // scan that found nothing, cannot meet the bar.
+    for private in [true, false] {
+        let scanned = c
+            .session_list_for(
+                SessionListParams {
+                    with_text: true,
+                    ..Default::default()
+                },
+                private,
+            )
+            .unwrap()
+            .sessions;
+        assert!(
+            scanned.iter().any(|s| s.session_id == plain),
+            "the scan found the ordinary session"
+        );
+        assert!(
+            scanned
+                .iter()
+                .all(|s| !crate::import::is_imported(&s.session_id)),
+            "an imported session reached a with_text answer: {:?}",
+            scanned.iter().map(|s| &s.session_id).collect::<Vec<_>>()
+        );
+        let other = row(&scanned, &plain);
+        assert!(
+            other
+                .first_text
+                .as_deref()
+                .is_some_and(|t| t.contains("the tide is out")),
+            "with_text still fills an ordinary session's words: {:?}",
+            other.first_text
+        );
+    }
+}

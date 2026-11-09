@@ -64,3 +64,25 @@ async fn esc_closes_the_menu_and_typing_opens_it_again() {
         r.text()
     );
 }
+
+/// Forward-delete is an edit like any other: after Esc closed the list, it
+/// opens it again.
+#[tokio::test(start_paused = true)]
+async fn forward_delete_opens_a_closed_menu_again() {
+    let mut r = Rig::new(100, 30).await;
+    r.ready().await;
+    r.type_text("/quit").await;
+    r.press(KeyCode::Left).await;
+    r.press(KeyCode::Esc).await;
+    assert!(
+        !r.text().contains("leave; the conversation goes on"),
+        "closed:\n{}",
+        r.text()
+    );
+    r.press(KeyCode::Delete).await;
+    assert!(
+        r.text().contains("leave; the conversation goes on"),
+        "open again:\n{}",
+        r.text()
+    );
+}

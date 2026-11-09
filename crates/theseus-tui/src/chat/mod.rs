@@ -46,6 +46,7 @@ mod tasks;
 mod thread_ask;
 mod usage;
 mod welcome;
+mod why;
 
 #[cfg(test)]
 mod tests;
@@ -75,6 +76,8 @@ mod tests_thread_ask;
 mod tests_usage;
 #[cfg(test)]
 mod tests_welcome;
+#[cfg(test)]
+mod tests_why;
 
 use anyhow::{anyhow, Result};
 use theseus_client::Conn;

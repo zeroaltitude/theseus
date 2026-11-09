@@ -104,17 +104,16 @@ impl Core {
     /// message is placed: the turn's directory is the submit's `dir`, else the session's; a
     /// thread's relative roots are read under its own session's directory (where its working set
     /// grew them, `thread_grow.rs`). One point read per live thread with relative roots, and none
-    /// when the turn's directory is unknown.
+    /// when the turn's directory is unknown. Gives the words for a directory above every root
+    /// (`thread_route::above_every_root`), for the turn's `thread.routed` row.
     pub(super) fn keep_apart_by_dir(
         &self,
         p: &theseus_protocol::TurnSubmitParams,
         session: &crate::session::SessionRecord,
         live: &[&ThreadInfo],
         pre: &mut [crate::thread_route::Pre],
-    ) {
-        let Some(dir) = p.dir.as_deref().or(session.dir.as_deref()) else {
-            return;
-        };
+    ) -> Option<String> {
+        let dir = p.dir.as_deref().or(session.dir.as_deref())?;
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let bases: Vec<(String, Option<String>)> = live
             .iter()
@@ -150,6 +149,8 @@ impl Core {
         if !dropped.is_empty() {
             tracing::debug!(dir, threads = ?dropped, "the turn's directory lies under none of these threads' roots");
         }
+        // The silent case: above every root the rule drops nothing, and the row says so.
+        crate::thread_route::above_every_root(live, Some(dir), base, home.as_deref())
     }
 
     /// After a routed turn: one that ran at home (no thread) has its nodes become the thread its

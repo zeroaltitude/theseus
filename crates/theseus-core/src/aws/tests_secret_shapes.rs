@@ -1105,6 +1105,13 @@ const TRIAGED: &[(&str, &str, &str, &str)] = &[
     ("firehose", "SnowflakeVpcConfiguration", "PrivateLinkVpceId", "a VPC endpoint id"),
     ("gamelift", "InstanceAccess", "IpAddress", "the instance's address; the Credentials beside it are held by name"),
     ("glue", "Job", "CodeGenConfigurationNodes", "the visual job's generated node graph"),
+    ("grafana", "WorkspaceDescription", "description", "the workspace's description; its grafanaToken is held by a HELD row"),
+    ("grafana", "WorkspaceDescription", "name", "the workspace's name"),
+    ("grafana", "WorkspaceDescription", "organizationRoleName", "a role name"),
+    ("grafana", "WorkspaceDescription", "organizationalUnits", "organizational unit names"),
+    ("grafana", "WorkspaceDescription", "workspaceRoleArn", "a role's ARN"),
+    ("grafana", "WorkspaceSummary", "description", "the workspace's description; its grafanaToken is held by a HELD row"),
+    ("grafana", "WorkspaceSummary", "name", "the workspace's name"),
     ("iot-managed-integrations", "GetManagedThingResponse", "Brand", "a device's brand"),
     ("iot-managed-integrations", "GetManagedThingResponse", "Classification", "a device's classification"),
     ("iot-managed-integrations", "GetManagedThingResponse", "ConnectorDeviceId", "a device's id with its connector"),
@@ -1248,7 +1255,8 @@ fn every_marked_candidate_is_on_a_list() {
               way to tell which was decided",
         drop: "the member is gone from the catalog, or another branch of the \
                rule now reaches it: delete the row",
-        // 76 when this was written: 19 on MARKED and 57 on TRIAGED.
+        // 83 now: 19 on MARKED and 64 on TRIAGED (76 and 57 before the
+        // grafana workspace rows, theseus-3i6d1).
         least: 60,
         stale_fails: true,
     };

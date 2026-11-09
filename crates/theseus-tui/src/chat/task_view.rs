@@ -634,7 +634,7 @@ impl Chat {
             b.sent.push(shown.to_string());
         }
         if let Some(sid) = self.session.clone() {
-            effects.push(self.submit_call(&sid, said));
+            effects.push(self.submit_call(&sid, said, &[]));
         }
         effects
     }

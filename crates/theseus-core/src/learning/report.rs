@@ -354,6 +354,10 @@ pub fn pack_report_of(
         calls: seen.len() as u32,
         answered: answered.len() as u32,
         failed: count(&|o| matches!(o, Outcome::Failed { .. })),
+        failed_recent: Some(failed_since(
+            seen,
+            window.end_ms.saturating_sub(learn::DAY_MS),
+        )),
         skipped: count(&|o| matches!(o, Outcome::Skipped { .. })),
         labeled,
         baseline: pack
@@ -378,6 +382,17 @@ pub fn pack_report_of(
         undo: Vec::new(),
         undo_days: 0,
     }
+}
+
+/// The failed calls made at or after `from_ms`. `failed` is all-time and never
+/// falls, so a cause keyed on it would re-file one old burst every night; this
+/// is what is failing now. A call's time is `Seen::row_ms`, when its row was
+/// written: a learning backfill's `at_ms` is the judged event's, so a backfill
+/// failing today over old events still counts.
+fn failed_since(seen: &[Seen], from_ms: u64) -> u32 {
+    seen.iter()
+        .filter(|s| matches!(s.judgment.outcome, Outcome::Failed { .. }) && s.row_ms >= from_ms)
+        .count() as u32
 }
 
 /// The holdout: the answered judgments inside the window (`learn`'s

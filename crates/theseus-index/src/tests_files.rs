@@ -305,3 +305,141 @@ fn dir_bytes(dir: &Path) -> u64 {
         })
         .sum()
 }
+
+/// A node whose `text` is not a digest (theseus-lv2u follow-up): the blob
+/// read must refuse it before it is a path. `Path::join` with an absolute
+/// component discards the base, so an absolute value read any file the
+/// tender could open, and `..` left the blobs.
+fn node_naming_text(rig: &Rig, session: &str, text: String) -> (Node, std::path::PathBuf) {
+    let mut a = kept_pdf(&rig.store, "named.pdf", &pages());
+    let AttachmentContent::File { text: t, .. } = &mut a.content else {
+        panic!()
+    };
+    *t = Some(text);
+    (
+        Node::user_with(session, Some("turn_1"), "cli", "this one", vec![a]),
+        rig.store.clone(),
+    )
+}
+
+/// Index one node naming `text`, with a decoy sections file at `decoy`, and
+/// say whether the decoy's marker reached the index and what status counted.
+fn indexed_via(text: impl Fn(&Path) -> String, decoy_rel: &str) -> (bool, u64, u64) {
+    let rig = Rig::new();
+    let decoy = rig.store.join(decoy_rel);
+    std::fs::create_dir_all(decoy.parent().unwrap()).unwrap();
+    std::fs::write(&decoy, serde_json::to_vec(&pages()).unwrap()).unwrap();
+    let (node, _) = node_naming_text(&rig, "ses_escape", text(&decoy));
+    rig.put(&[node]);
+    let mut t = rig.open();
+    settle(&mut t);
+    let s = t.shared().status();
+    (!marked(&t).is_empty(), s.files_indexed, s.files_unread)
+}
+
+#[test]
+fn an_absolute_text_value_is_not_a_blob() {
+    let (found, indexed, unread) =
+        indexed_via(|d| d.to_string_lossy().into_owned(), "outside/loot.json");
+    assert!(!found, "an absolute path must not be read as a blob");
+    assert_eq!((indexed, unread), (0, 1));
+}
+
+#[test]
+fn a_traversing_text_value_is_not_a_blob() {
+    let (found, indexed, unread) =
+        indexed_via(|_| "../outside/loot.json".into(), "outside/loot.json");
+    assert!(!found, "`..` must not leave the blobs");
+    assert_eq!((indexed, unread), (0, 1));
+}
+
+/// A blob of the right name that does not hash to it is unread, end to end: the node is still
+/// indexed, its file text is not, and status counts it (the digest guard, theseus-lv2u).
+#[test]
+fn a_blob_that_does_not_hash_to_its_name_is_unread_and_its_node_is_still_indexed() {
+    let name = "b".repeat(64);
+    let rel = format!("blobs/{name}");
+    let (found, indexed, unread) = indexed_via(|_| name.clone(), &rel);
+    assert!(!found, "a blob that does not hash to its name is not read");
+    assert_eq!((found, indexed, unread), (false, 0, 1));
+}
+
+#[test]
+fn an_overlong_text_value_is_not_a_blob() {
+    let long = "a".repeat(200);
+    let rel = format!("blobs/{long}");
+    let (found, indexed, unread) = indexed_via(|_| long.clone(), &rel);
+    assert!(!found, "a value that is not a digest is refused whole");
+    assert_eq!((indexed, unread), (0, 1));
+}
+
+/// A blob whose bytes do not hash to its name, and one past the size bound,
+/// are refused as core's reader refuses the first.
+#[test]
+fn a_blob_that_does_not_match_its_name_or_is_too_big_is_refused() {
+    let rig = Rig::new();
+    let wrong = "b".repeat(64);
+    let dir = rig.store.join("blobs");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(&wrong), serde_json::to_vec(&pages()).unwrap()).unwrap();
+    assert!(crate::files::read_blob(&dir, &wrong).is_none());
+    // The bound is injected: a 1 KiB bound proves it without a 64 MiB file.
+    let bound = 1024;
+    let big = vec![b' '; bound + 1];
+    let d = put_blob(&rig.store, &big);
+    assert!(crate::files::read_blob_within(&dir, &d, bound).is_none());
+    let exact = vec![b' '; bound];
+    let d = put_blob(&rig.store, &exact);
+    assert_eq!(
+        crate::files::read_blob_within(&dir, &d, bound),
+        Some(exact),
+        "a blob of exactly the bound reads"
+    );
+}
+
+/// The positive: a real digest still reads its blob.
+#[test]
+fn a_real_digest_still_reads_its_blob() {
+    let rig = Rig::new();
+    let bytes = serde_json::to_vec(&pages()).unwrap();
+    let d = put_blob(&rig.store, &bytes);
+    assert_eq!(
+        crate::files::read_blob(&rig.store.join("blobs"), &d),
+        Some(bytes)
+    );
+}
+
+/// The measure the schema bump's rebuild asks for (theseus-ectzg): the same
+/// path a rebuild takes (a fresh index, ingest from the WAL's start), over
+/// 3,000 nodes of about 400 bytes, timed and printed as nodes per second.
+/// The rig's vectors are off, so this is the BM25 and entity ingest alone.
+/// Measured on a 4-core VM, vectors off: 3,000 nodes in 2.61 s, about 1,150 nodes/s (one run). nextest hides the printed figure on a pass;
+/// run with `--no-capture` to see it.
+#[test]
+fn bench_a_backfill_from_the_wals_start() {
+    let rig = Rig::new();
+    let nodes: Vec<Node> = (0..3000)
+        .map(|n| {
+            Node::user_with(
+                &format!("ses_{}", n % 40),
+                Some("turn_1"),
+                "cli",
+                &prose(n, 400),
+                Vec::new(),
+            )
+        })
+        .collect();
+    for chunk in nodes.chunks(100) {
+        rig.put(chunk);
+    }
+    let mut t = rig.open();
+    let started = std::time::Instant::now();
+    settle(&mut t);
+    let secs = started.elapsed().as_secs_f64();
+    let indexed = t.shared().status().nodes_indexed;
+    println!(
+        "backfill: {indexed} nodes in {secs:.2} s = {:.0} nodes/s",
+        indexed as f64 / secs
+    );
+    assert_eq!(indexed, 3000);
+}

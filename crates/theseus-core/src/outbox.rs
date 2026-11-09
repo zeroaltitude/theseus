@@ -530,6 +530,21 @@ impl Outbox {
         for q in settled_cards {
             ix.cards.remove(&q);
         }
+        self.read_meta_into(&mut ix)?;
+        tracing::info!(
+            posts = posts.len(),
+            open = ix.open.len(),
+            places = ix.targets.len(),
+            ms = t0.elapsed().as_millis() as u64,
+            "outbox read"
+        );
+        Ok(ix)
+    }
+
+    /// The META records the index holds (a task's target, a thread's shown
+    /// place, a place's session), read at load (split out of `load` to keep
+    /// it under clippy's line ceiling).
+    fn read_meta_into(&self, ix: &mut Index) -> Result<()> {
         for r in self.store.inner().latest_of_kind(kinds::META)? {
             let key = r.key.as_deref().unwrap_or("");
             if let Some(task) = key.strip_prefix(TASK_META_PREFIX) {
@@ -554,14 +569,7 @@ impl Outbox {
                 ix.targets.insert(sid, format!("discord:{place}"));
             }
         }
-        tracing::info!(
-            posts = posts.len(),
-            open = ix.open.len(),
-            places = ix.targets.len(),
-            ms = t0.elapsed().as_millis() as u64,
-            "outbox read"
-        );
-        Ok(ix)
+        Ok(())
     }
 
     fn bump(&self) {
@@ -1410,7 +1418,7 @@ mod tests {
     /// to the `)` that closes it, counting nesting and stepping over literals
     /// and comments. Taking the next `;` instead — which this did until the
     /// review of theseus-gm7bd — over-runs for every call in expression
-    /// position: at `capture/act.rs` it ran 187 bytes past the call, out
+    /// position: at `capture/act.rs` it ran 149 bytes past the call, out
     /// through two closing braces and a doc comment and into the next
     /// function. Nothing failed only because no over-run happened to contain
     /// a `"kind":`, and `kind` is a common word in this crate, so the next
@@ -1512,9 +1520,12 @@ mod tests {
     }
 
     /// **The census of operator call sites whose kind no test can read**
-    /// (theseus-3i6d1): one row per file under `src/`, with the number of
-    /// `to_operator`/`stage_to_operator` calls in it that name no literal
-    /// kind.
+    /// (theseus-3i6d1): one row per file under `src/` that holds a
+    /// `to_operator`/`stage_to_operator` call naming no literal kind. A row
+    /// is a file, never a count (theseus-4vsrz): a count is a per-file
+    /// number that two branches can both bump to the same wrong total and
+    /// merge clean, so the walk derives each file's count at test time and
+    /// the list holds only the set of files.
     ///
     /// Those are the calls `the_operator_call_sites_name_only_listed_kinds`
     /// cannot see, and the ones `hold_operator_kind` only catches on a path
@@ -1523,44 +1534,46 @@ mod tests {
     /// a hand-kept list with no completeness test is how the delivery
     /// failure theseus-haw2b got in.
     ///
-    /// This table closes it the only way a static check can: by counting.
-    /// Add such a call and the count moves, and
+    /// This table closes it the only way a static check can: by walking.
+    /// Add such a call in a file the table lacks and
     /// `every_operator_call_site_is_accounted_for` fails naming your file.
     /// What to do when it does is in that test's message: put the kind in
     /// [`OPERATOR_KINDS`], make sure some test drives the call so
-    /// `hold_operator_kind` can see it, and then update the row here.
+    /// `hold_operator_kind` can see it, and then add the file here. A further
+    /// computed call in a file already listed is not a census event: the
+    /// run-time hold (`hold_operator_kind`) is what reads it.
     ///
     /// It is a census, not a permission: a row here does not make a kind
     /// legal, it records that this call's kind cannot be read from the
     /// source and must be held at run time instead.
-    const COMPUTED_SITES: &[(&str, usize)] = &[
-        ("capture/act.rs", 1),
-        ("card/dm.rs", 1),
-        ("day_ceiling.rs", 1),
-        ("initiative/digest.rs", 1),
-        ("initiative/speak.rs", 1),
-        ("judge/notice.rs", 3),
-        ("judge/onto/stage.rs", 1),
-        ("mcp/mod.rs", 1),
-        ("needs_you.rs", 1),
-        ("outbox.rs", 2),
-        ("personas/note.rs", 1),
-        ("retract.rs", 1),
-        ("rpc/disk_watch.rs", 1),
-        ("rpc/question_waits.rs", 1),
-        ("rpc/routines_watch.rs", 1),
-        ("rpc/thread_seal.rs", 1),
-        ("rsi/digest.rs", 1),
-        ("rsi/digest/notice.rs", 1),
-        ("rsi/narrow.rs", 1),
-        ("rsi/pr.rs", 2),
-        ("rule_notice.rs", 1),
-        ("sweep_notice.rs", 1),
-        ("thread_link_seen.rs", 1),
-        ("turn/admission.rs", 1),
-        ("turn/ceiling_step.rs", 1),
-        ("turn/home_size_step.rs", 1),
-        ("turn/personal_step.rs", 1),
+    const COMPUTED_SITES: &[&str] = &[
+        "capture/act.rs",
+        "card/dm.rs",
+        "day_ceiling.rs",
+        "initiative/digest.rs",
+        "initiative/speak.rs",
+        "judge/notice.rs",
+        "judge/onto/stage.rs",
+        "mcp/mod.rs",
+        "needs_you.rs",
+        "outbox.rs",
+        "personas/note.rs",
+        "retract.rs",
+        "rpc/disk_watch.rs",
+        "rpc/question_waits.rs",
+        "rpc/routines_watch.rs",
+        "rpc/thread_seal.rs",
+        "rsi/digest.rs",
+        "rsi/digest/notice.rs",
+        "rsi/narrow.rs",
+        "rsi/pr.rs",
+        "rule_notice.rs",
+        "sweep_notice.rs",
+        "thread_link_seen.rs",
+        "turn/admission.rs",
+        "turn/ceiling_step.rs",
+        "turn/home_size_step.rs",
+        "turn/personal_step.rs",
     ];
 
     /// Staged is listed, statically (theseus-gm7bd): every operator call in
@@ -1670,10 +1683,10 @@ mod tests {
             add: "a call site was added whose kind this crate's source does not \
                   name. Put that kind in outbox::OPERATOR_KINDS (an unlisted \
                   kind settles Failed, theseus-haw2b), make sure a test drives \
-                  the call so hold_operator_kind can see it, and then write the \
-                  file's new count into COMPUTED_SITES",
-            drop: "a call site went, or its kind became a literal: write the \
-                   file's new count into COMPUTED_SITES, or delete its row",
+                  the call so hold_operator_kind can see it, and then add the \
+                  file to COMPUTED_SITES",
+            drop: "a file's last computed-kind call went, or its kind became a \
+                   literal: delete its row from COMPUTED_SITES",
             // 25 files held 29 such calls when this was written; a bar of
             // 20 files is low enough not to need an edit for every move and
             // high enough that a walk which stopped matching fails here.
@@ -1684,10 +1697,10 @@ mod tests {
             &spec,
             COMPUTED_SITES
                 .iter()
-                .map(|(p, n)| (format!("{p}: {n} with a computed kind"), String::new())),
+                .map(|p| ((*p).to_string(), String::new())),
             computed
                 .iter()
-                .map(|(p, n)| (format!("{p}: {n} with a computed kind"), String::new())),
+                .map(|(p, n)| (p.clone(), format!("{n} computed-kind calls"))),
         );
         assert!(walked >= 20, "{walked} files walked");
     }
@@ -1727,6 +1740,26 @@ mod tests {
             "the span must not run past the call's own `)`"
         );
 
+        // What each of the next four catches (theseus-4vsrz, B7). Each puts
+        // its `"kind":` where only the right span reaches it, so each fails
+        // under the one revert it names and passes under the others.
+        //
+        // Expression position: the `"kind":` sits in the next arm, before the
+        // first `;`, so reading to the next `;` finds it and the call's own
+        // `)` does not. Catches: ending the span at a `;` instead of a `)`.
+        let arm = "let x = match q {\n    true => a.to_operator(None, body),\n\
+                   false => j!({\"kind\": \"nope\"}),\n};";
+        assert!(
+            kinds_named_in(arm).is_empty(),
+            "the arm after the call is not the call's"
+        );
+        // A `;` inside the call (a block in its body) does not end it, and
+        // a `)` nested deeper than the call's own does not either, so the
+        // kind after both is still read. Catches: ending at the first `;`,
+        // and ending at the first `)`.
+        let inner =
+            "a.to_operator(None, json!({\"t\": { let n = f(g(1)); n }, \"kind\": \"disk\"}))?;";
+        assert_eq!(kinds_named_in(inner), vec![(1, "disk".to_string())]);
         // A nested `)` inside the call does not end it early.
         let nested = "a.to_operator(None, json!({\"kind\": f(g(1), \"x\")}))?;";
         assert!(
@@ -1737,6 +1770,10 @@ mod tests {
         // A `)` inside a string literal does not end it either.
         let paren = "a.to_operator(None, json!({\"kind\": \"notice\", \"t\": \")\"}))?;";
         assert_eq!(kinds_named_in(paren), vec![(1, "notice".to_string())]);
+        // The kind after the literal `)`: only a span that steps over the
+        // string reaches it. Catches: counting a `)` inside a literal.
+        let after = "a.to_operator(None, json!({\"t\": \")\"}), json!({\"kind\": \"notice\"}))?;";
+        assert_eq!(kinds_named_in(after), vec![(1, "notice".to_string())]);
 
         // A call named inside a string or a comment is not a call site. This
         // module's own fixtures are exactly that, and were being counted.

@@ -368,3 +368,109 @@ fn an_imported_sessions_text_reaches_only_a_surface_that_reads_private_text() {
         assert!(h.nodes.iter().all(|n| n.text.starts_with("message ")));
     }
 }
+
+/// The session's own record rides every history answer, and it carries the
+/// imported session's first message as its title (and its earlier title):
+/// up to 60 characters of what the owner said. A surface that reads no
+/// private text is not given them either (theseus-a7pr, door F1).
+#[test]
+fn an_imported_sessions_title_reaches_only_a_surface_that_reads_private_text() {
+    const FIRST_WORDS: &str = "invented first words about the quarterly plan";
+    let core = test_core("ok");
+    let imported = {
+        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+        let id = format!("{}{}", crate::import::SESSION_PREFIX, "00ab12ce");
+        rec.session_id = id.clone();
+        rec.title = Some(FIRST_WORDS.into());
+        rec.title_was = vec![FIRST_WORDS.into()];
+        core.store.put_session(&id, &rec).unwrap();
+        id
+    };
+    let plain = {
+        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+        rec.title = Some("an ordinary title".into());
+        core.store.put_session(&rec.session_id, &rec).unwrap();
+        rec.session_id
+    };
+    let ask = |session: &str, private: bool| {
+        core.session_history_for(
+            SessionHistoryParams {
+                session_id: session.into(),
+                n: None,
+                after: None,
+                before: None,
+            },
+            private,
+        )
+        .unwrap()
+        .session
+    };
+    let owner = ask(&imported, true);
+    assert_eq!(owner.title.as_deref(), Some(FIRST_WORDS));
+    assert_eq!(owner.title_was, Some(vec![FIRST_WORDS.to_string()]));
+    let outside = ask(&imported, false);
+    let said = serde_json::to_string(&outside).unwrap();
+    assert!(!said.contains("quarterly"), "the title leaked: {said}");
+    assert_eq!(outside.title, None);
+    assert_eq!(outside.title_was, None);
+    // An ordinary session's title is the same for every surface.
+    for private in [true, false] {
+        assert_eq!(
+            ask(&plain, private).title.as_deref(),
+            Some("an ordinary title")
+        );
+    }
+}
+
+/// `node.list` is the same defect seven lines from the one `session.history`
+/// closed: it named no surface, so an imported session's nodes came back with
+/// their text to any connection. The production door now takes the surface
+/// (`node_list` itself is test-only, as `session_history` is), and a surface
+/// that reads no private text is given the nodes withheld (theseus-a7pr, door
+/// F3). Both sides assert a positive count.
+#[test]
+fn node_list_withholds_an_imported_sessions_text_from_a_surface_that_reads_no_private_text() {
+    use crate::approval::Surface;
+    use theseus_protocol::NodeListParams;
+    let core = test_core("ok");
+    let imported = {
+        let mut rec = SessionRecord::new(SessionKind::Conversation, None);
+        let id = format!("{}{}", crate::import::SESSION_PREFIX, "00ab12cf");
+        rec.session_id = id.clone();
+        core.store.put_session(&id, &rec).unwrap();
+        id
+    };
+    let plain = open(&core);
+    write(&core, &imported, 3, 3);
+    write(&core, &plain, 3, 3);
+    let ask = |session: &str, surface: Surface| {
+        core.node_list_on(
+            NodeListParams {
+                session_id: Some(session.into()),
+                kind: None,
+                n: None,
+            },
+            surface,
+        )
+        .unwrap()
+        .nodes
+    };
+    for surface in [Surface::Cli, Surface::Web] {
+        let nodes = ask(&imported, surface);
+        assert_eq!(nodes.len(), 3, "{surface:?} reads all three");
+        assert!(nodes.iter().all(|n| n.text.starts_with("message ")));
+    }
+    for surface in [Surface::Mcp, Surface::Discord, Surface::Unnamed] {
+        let nodes = ask(&imported, surface);
+        assert_eq!(nodes.len(), 3, "the nodes are listed, not dropped");
+        for n in &nodes {
+            assert!(!n.text.contains("message "), "text leaked: {}", n.text);
+            assert_eq!(n.text, crate::books::WITHHELD);
+        }
+    }
+    for surface in [Surface::Cli, Surface::Mcp] {
+        let nodes = ask(&plain, surface);
+        assert_eq!(nodes.len(), 3);
+        assert!(nodes.iter().all(|n| n.text.starts_with("message ")));
+    }
+}

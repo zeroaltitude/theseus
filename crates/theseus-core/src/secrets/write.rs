@@ -123,7 +123,8 @@ impl OpReader {
         self.put(&r.vault, &r.item, field, value.expose(), exists)
             .await?;
         let back = self.read_raw(r.op_ref()).await?;
-        if digest(&back) != digest(value.expose()) {
+        // A read is trimmed (theseus-h66v4.5), so the written value is compared trimmed.
+        if digest(&back) != digest(value.expose().trim()) {
             return Err("the stored value did not read back as written".into());
         }
         Ok(())

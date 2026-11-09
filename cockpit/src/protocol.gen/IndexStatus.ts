@@ -58,7 +58,9 @@ files_repeated: number,
 files_cut: number, 
 /**
  * Kept files whose read text could not be read (its blob gone, or in
- * no shape this build knows): their node is indexed without it.
+ * no shape this build knows, or whose bytes no longer hash to their
+ * name): their node is indexed without it. A non-zero count on a store
+ * with on-disk damage is the digest guard working, not a new fault.
  */
 files_unread: number, rebuilds: number, extractor: number, schema: number, rss_bytes: number, started_at_ms: number, last_commit_ms: number, last_error?: string, last_error_ms: number, 
 /**

@@ -586,6 +586,53 @@ async fn abandoning_follows_an_explicit_notify_but_an_objective_change_still_ask
     assert!(rows(c, "tool.notified")
         .iter()
         .any(|row| format!("{row:?}").contains("task.close")));
+    // Nobody was asked, so no consent is recorded; the close itself is.
+    assert!(
+        rows(c, "task.change_accepted").is_empty(),
+        "{:?}",
+        rows(c, "task.change_accepted")
+    );
+    assert_eq!(rows(c, "task.closed").len(), 1);
+    r.model
+        .hold_tasks
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// With `task.close` unset, abandoning the owner's task asks; the operator's
+/// yes closes it and records exactly one acceptance and one close.
+#[tokio::test]
+async fn an_abandon_the_operator_said_yes_to_records_one_acceptance() {
+    let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
+        cfg.policy.tools.insert("task.update".into(), Posture::Open);
+    });
+    let c = &r.core;
+    let s = session(c);
+    r.model
+        .hold_tasks
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    r.calls(&[(
+        "task_create",
+        json!({"brief": "Chart every buoy of the outer harbour and report the depths.",
+               "title": "Chart the outer harbour", "acceptance": ["a chart exists"],
+               "arrangement": {"pieces": [{"quote": QUOTE, "role": "objective"}]}}),
+    )]);
+    turn(c, &s, ASK).await;
+    let t = r.by_title("Chart the outer harbour");
+    r.calls(&[(
+        "task_close",
+        json!({"id": t.id, "version": 1, "outcome": "abandoned"}),
+    )]);
+    turn(c, &s, "drop it").await;
+    let asked = c.confirm_list().unwrap();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    c.confirm_action(&asked[0].correlation_id, true, None, "cli")
+        .unwrap();
+    until("the abandon", || {
+        r.task(&t.id).state == TaskState::Abandoned
+    })
+    .await;
+    assert_eq!(rows(c, "task.change_accepted").len(), 1);
+    assert_eq!(rows(c, "task.closed").len(), 1);
     r.model
         .hold_tasks
         .store(false, std::sync::atomic::Ordering::SeqCst);

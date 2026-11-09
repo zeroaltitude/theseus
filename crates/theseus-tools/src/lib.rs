@@ -33,6 +33,8 @@ pub mod rx;
 #[cfg(test)]
 mod tests_binary;
 #[cfg(test)]
+mod tests_crlf;
+#[cfg(test)]
 mod tests_narrow_read;
 #[cfg(test)]
 mod tests_patch;

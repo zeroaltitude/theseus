@@ -177,6 +177,42 @@ fn query_of(word: &str) -> Option<&str> {
     (!q.starts_with('@')).then_some(q)
 }
 
+/// What goes with a message that names files: the footer of paths, and the
+/// images as attachments.
+#[derive(Default)]
+pub(super) struct Resolved {
+    pub footer: String,
+    pub attachments: Vec<theseus_protocol::Attachment>,
+    /// What the transcript says went by reference, so the person sees it.
+    pub note: String,
+}
+
+/// The dim line under the echo: what went by reference and what went as an
+/// image; empty when nothing did.
+fn attached_note(by_path: &[&str], images: &[&str]) -> String {
+    let mut parts = Vec::new();
+    if !by_path.is_empty() {
+        parts.push(format!("paths sent: {}", by_path.join(", ")));
+    }
+    if !images.is_empty() {
+        parts.push(format!("images attached: {}", images.join(", ")));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("  ↪ {}", parts.join(" · "))
+    }
+}
+
+/// Is a listed path an image the daemon renders for a vision model?
+fn is_image(name: &str) -> bool {
+    let ext = Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")
+}
+
 /// Every `@path` the text names, as typed: words that begin with one `@`.
 /// A trailing `,;:!?)` is the sentence's, not the path's. `@@x` and a lone
 /// `@` name nothing.
@@ -236,7 +272,10 @@ impl Chat {
             self.at.sel = 0;
             self.at.closed = false;
         }
-        if self.at_query().is_some() && matches!(self.at.load, Load::Unasked) {
+        // The list is also wanted when an `@path` sits elsewhere in the line (a
+        // recalled message): Enter would refuse it for good otherwise.
+        let wanted = self.at_query().is_some() || !mentions(&self.editor.typed_text()).is_empty();
+        if wanted && matches!(self.at.load, Load::Unasked) {
             self.at.load = Load::Roots;
             return vec![call(method::TOOL_LIST, Value::Null, Purpose::AtRoots)];
         }
@@ -333,12 +372,15 @@ impl Chat {
     }
 
     /// Before a message goes: every `@path` it names must be a listed file.
-    /// Ok carries the footer to add (empty when the message names none); Err
-    /// is what to tell the person, and nothing is sent.
-    pub(super) fn at_resolve(&self) -> Result<String, String> {
+    /// Ok carries what goes with the message (a footer of paths for the files,
+    /// the images as attachments); Err is what to tell the person, and nothing
+    /// is sent. An image (png, jpg, jpeg, gif, webp) is read here, in `submit`,
+    /// by the CLI's `attachment_for`, and goes as an `Attachment` instead of
+    /// a path.
+    pub(super) fn at_resolve(&self) -> Result<Resolved, String> {
         let names = mentions(&self.editor.typed_text());
         if names.is_empty() {
-            return Ok(String::new());
+            return Ok(Resolved::default());
         }
         let ix = match &self.at.load {
             Load::Ready(ix) => ix,
@@ -352,7 +394,9 @@ impl Chat {
                 ))
             }
         };
+        let mut out = Resolved::default();
         let mut lines = Vec::new();
+        let (mut by_path, mut images) = (Vec::new(), Vec::new());
         for n in &names {
             if !ix.has(n) {
                 return Err(format!(
@@ -360,12 +404,37 @@ impl Chat {
                     self.cfg.shown_dir
                 ));
             }
-            lines.push(format!("{}/{n}", self.cfg.dir.trim_end_matches('/')));
+            let abs = format!("{}/{n}", self.cfg.dir.trim_end_matches('/'));
+            if is_image(n) {
+                out.attachments.push(Self::image_for(n, &abs)?);
+                images.push(n.as_str());
+            } else {
+                lines.push(abs);
+                by_path.push(n.as_str());
+            }
         }
-        Ok(format!(
-            "\n\nFiles named with @ (paths, not contents; read them with fs.read):\n{}",
-            lines.join("\n")
-        ))
+        if !lines.is_empty() {
+            // `fs_read` is `theseus_tools::wire_name("fs.read")`, the name the model
+            // is offered; this crate does not link theseus-tools.
+            out.footer = format!(
+                "\n\nFiles named with @ (paths, not contents; read them with fs_read):\n{}",
+                lines.join("\n")
+            );
+        }
+        out.note = attached_note(&by_path, &images);
+        Ok(out)
+    }
+
+    /// One image as an attachment, or the refusal's words (an unreadable
+    /// file, or one over the CLI's cap, which `attachment_for` reports as
+    /// `not_read`).
+    fn image_for(name: &str, abs: &str) -> Result<theseus_protocol::Attachment, String> {
+        let a = theseus_client::attach::attachment_labeled(Path::new(abs), "@image")
+            .map_err(|e| format!("@{name}: {e:#}"))?;
+        match &a.not_read {
+            Some(why) => Err(format!("@{name}: {why}")),
+            None => Ok(a),
+        }
     }
 
     /// The rows under the input while the word at the cursor is an `@word`.

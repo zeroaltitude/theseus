@@ -1,5 +1,5 @@
 //! The session's system block (theseus-aab7): block 3, after the header and
-//! the context block, with no breakpoint of its own.
+//! the context block, with no cache breakpoint of its own.
 //!
 //! The header is one cache entry for every session of a profile, so nothing
 //! of one session's goes there (`crates/theseus-core/AGENTS.md`). What is
@@ -23,8 +23,13 @@
 //! tool touches that directory, which is the `system_changed` recompile a
 //! session moving directory already is (§2).
 //!
-//! This block takes no breakpoint of its own: `layers::cache_layout` leaves it
-//! unmarked by name, so its per-session variance costs no cache entry.
+//! This block takes **no** breakpoint (`layers::cache_layout` leaves it
+//! unmarked, whatever its size). The provider's four are the header, the
+//! persona, the project layer, and the conversation's automatic one, which
+//! sits after this block and so covers it: what changes here changes only
+//! the conversation's entry and leaves the three layers above it cached.
+//! `tests_layers::the_request_is_three_layers_a_session_block_and_the_messages`
+//! holds it (`[true, true, true, false]`).
 
 use crate::ceiling::PlaceView;
 use crate::places::PlaceClass;

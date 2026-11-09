@@ -1273,6 +1273,7 @@ fn a_machine_label_never_grades_the_reports_holdout() {
     let seen = |id: &str, at: u64| Seen {
         position: at,
         at_ms: at,
+        row_ms: at,
         judgment: judgment(
             id,
             "route.v4",
@@ -1337,4 +1338,74 @@ fn a_machine_label_never_grades_the_reports_holdout() {
         .unwrap();
     assert_eq!(whole.labeled, 3, "the whole report counts them all");
     assert_eq!(h.train, 1);
+}
+
+/// `failed` is all-time and never falls; `failed_recent` is the day to the
+/// report's end and after, so one old burst of failures (judge.failed:people.v1,
+/// 12 calls on Oct 8-9) is not read as failing now.
+#[test]
+fn the_report_counts_the_failures_of_the_last_day_apart_from_the_old() {
+    use crate::learning::{report::pack_report, Seen};
+    use theseus_judge::learn::Window;
+    let day = DAY_MS;
+    let window = Window::latest(40 * day, 14);
+    let seen = |id: &str, at: u64, failed: bool| {
+        let mut j = judgment(id, "people.v1", vec![], json!({}), 10);
+        if failed {
+            j.outcome = serde_json::from_value(json!({
+                "outcome": "failed", "error": {"class": "network", "message": "down"},
+                "class": "network", "transient": true, "usage_unknown": false,
+            }))
+            .unwrap();
+        }
+        Seen {
+            position: at,
+            at_ms: at,
+            row_ms: at,
+            judgment: j,
+        }
+    };
+    let old = vec![
+        seen("jdg_old1", 10 * day, true),
+        seen("jdg_old2", 10 * day + 1, true),
+        seen("jdg_ok", 39 * day + day / 2, false),
+    ];
+    let none = std::collections::HashMap::new();
+    let r = pack_report("people.v1", &old, &none, window);
+    assert_eq!((r.failed, r.failed_recent), (2, Some(0)), "old failures");
+    let mut now = old;
+    now.push(seen("jdg_new", 39 * day + day / 2, true));
+    let r = pack_report("people.v1", &now, &none, window);
+    assert_eq!((r.failed, r.failed_recent), (3, Some(1)), "a new failure");
+}
+
+/// A backfill's `Seen::at_ms` is the judged event's time, not when it ran: a
+/// backfill that fails today over old events is failing now.
+#[test]
+fn a_backfill_failure_made_today_is_failing_now() {
+    use crate::learning::{report::pack_report, Seen};
+    use theseus_judge::learn::Window;
+    let day = DAY_MS;
+    let window = Window::latest(40 * day, 14);
+    let failed = |id: &str, at: u64, row: u64| {
+        let mut j = judgment(id, "people.v1", vec![], json!({}), 10);
+        j.outcome = serde_json::from_value(json!({
+            "outcome": "failed", "error": {"class": "network", "message": "down"},
+            "class": "network", "transient": true, "usage_unknown": false,
+        }))
+        .unwrap();
+        Seen {
+            position: at,
+            at_ms: at,
+            row_ms: row,
+            judgment: j,
+        }
+    };
+    let seen = vec![
+        failed("jdg_backfill", 10 * day, 39 * day + day / 2),
+        failed("jdg_old", 10 * day, 10 * day),
+    ];
+    let none = std::collections::HashMap::new();
+    let r = pack_report("people.v1", &seen, &none, window);
+    assert_eq!((r.failed, r.failed_recent), (2, Some(1)));
 }

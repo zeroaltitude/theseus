@@ -629,6 +629,43 @@ pub fn holds_path(t: &ThreadInfo, p: &Path, dir: Option<&str>, home: Option<&Pat
             .any(|r| p.starts_with(r))
 }
 
+/// The directory rule's silence, in words (theseus-2gtyi): when the turn's
+/// directory lies above every root, `apart_by_dir` finds each thread near
+/// (a root lies under the directory), drops nothing, and so says nothing.
+/// This says it: none of the threads with roots has a root holding the
+/// directory, and at least one has a root under it. Under a root, apart
+/// from all of them, with no roots or no directory: none (the rule speaks
+/// for itself, or has nothing to say).
+pub fn above_every_root<'b>(
+    threads: &[&ThreadInfo],
+    dir: Option<&str>,
+    base: impl Fn(&ThreadInfo) -> Option<&'b str>,
+    home: Option<&Path>,
+) -> Option<String> {
+    let here = dir.and_then(|d| entry_path(d, None, home))?;
+    let mut above = Vec::new();
+    for t in threads {
+        let roots: Vec<PathBuf> = (t.working_set.roots.iter())
+            .filter_map(|r| entry_path(r, base(t), home))
+            .collect();
+        if roots.iter().any(|r| here.starts_with(r)) {
+            return None;
+        }
+        if roots.iter().any(|r| r.starts_with(&here)) {
+            above.push(t.slug.as_str());
+        }
+    }
+    (!above.is_empty()).then(|| {
+        format!(
+            "This turn ran in {}, above the roots of {}, so its directory placed nothing. \
+             To place a message by directory, cd into a root, name a file by its absolute \
+             path, or /move it.",
+            here.display(),
+            above.join(", ")
+        )
+    })
+}
+
 /// The directory rule (theseus-vw8k7): a thread whose roots are known keeps
 /// only the evidence that names it when the turn runs in a directory apart
 /// from all of them. With the turn's directory known (absolute after `~`),
@@ -2329,6 +2366,44 @@ mod tests {
             Some(home),
         );
         assert_eq!(pre, before);
+    }
+
+    /// The directory rule's silence, in words (theseus-2gtyi): from a
+    /// directory above every root the rule drops nothing, and says so once
+    /// in the row; from under a root, or apart from all of them, it adds
+    /// nothing.
+    #[test]
+    fn a_directory_above_every_root_is_said_in_words() {
+        let home = Path::new("/h");
+        let dev = th(
+            "dev",
+            "lighthouse dev",
+            ws(&[], &[], &[], &[], &[], &["~/projects/lighthouse"]),
+        );
+        let ops = th("ops", "ops rota", ws(&["#977"], &[], &[], &[], &[], &[]));
+        let t = [&dev, &ops];
+        let said = |dir: Option<&str>| above_every_root(&t, dir, |_| None, Some(home));
+        let words = said(Some("~")).expect("above the roots");
+        assert!(words.contains("/h,"), "{words}");
+        assert!(words.contains("dev"), "{words}");
+        assert!(!words.contains("ops"), "{words}");
+        for w in ["cd into a root", "absolute path", "/move"] {
+            assert!(words.contains(w), "{w}: {words}");
+        }
+        assert_eq!(said(Some("/h")), said(Some("~")));
+        for dir in [
+            Some("/h/projects/lighthouse"),
+            Some("/h/projects/lighthouse/src"),
+            Some("/h/elsewhere"),
+            Some("relative"),
+            None,
+        ] {
+            assert_eq!(said(dir), None, "{dir:?}");
+        }
+        assert_eq!(
+            above_every_root(&[&ops], Some("/h"), |_| None, Some(home)),
+            None
+        );
     }
 
     /// The directory rule's file hits (theseus-vw8k7): a file named bare, as

@@ -11,6 +11,13 @@
 //! Here each answers with a handle instead, the board holds the value, and
 //! the rest of the result comes through untouched.
 //!
+//! Two classes came with the shape rule (theseus-3i6d1) and are measured in
+//! `tests_presigned.rs`, not here: a presigned URL, which carries its own
+//! authorisation in the value and so is held by what the value looks like
+//! and not by its member's name, and the continuation `call_text` prints
+//! beside the body, which the catalog's paginators show to be an opaque
+//! cursor or an id and which is therefore left whole.
+//!
 //! The control at the end is the other half of the plant: an ordinary call
 //! with no credential in it still answers whole. A guard that withheld
 //! every result would pass the tests above and fail this one.
@@ -31,6 +38,8 @@ const MFA_SESSION: &str = "example-mfa-association-session-0006";
 const CHAP_INITIATOR: &str = "example-chap-initiator-secret-0007";
 const CHAP_TARGET: &str = "example-chap-target-secret-0008";
 const VPN_PRE_SHARED_KEY: &str = "example-vpn-pre-shared-key-0009";
+const FCM_SERVER_KEY: &str = "example-fcm-server-key-0010";
+const WORKSPACE_TOKEN: &str = "example-workspace-token-0011";
 
 /// The channel a listing shows: no credential anywhere in it.
 const CHANNEL_NAME: &str = "example-channel-name";
@@ -55,6 +64,29 @@ fn xml(n: usize, body: String) -> Reply {
         ],
         body,
     )
+}
+
+/// Pinpoint's GCM channel and Grafana's workspaces (theseus-3i6d1), by their
+/// paths: each carries a credential no model marks.
+fn pinpoint_and_grafana(path: &str, n: usize) -> Option<Reply> {
+    if path.ends_with("/channels/gcm") {
+        return Some(rest(
+            n,
+            json!({"id": "example-app", "ApplicationId": "example-app", "Platform": "GCM",
+                   "Credential": FCM_SERVER_KEY, "Enabled": true, "IsArchived": false, "Version": 1}),
+        ));
+    }
+    if path.starts_with("/workspaces") {
+        let workspace = json!({"id": "g-example", "name": "example-workspace",
+                               "status": "ACTIVE", "grafanaToken": WORKSPACE_TOKEN});
+        let body = if path == "/workspaces" {
+            json!({ "workspaces": [workspace] })
+        } else {
+            json!({ "workspace": workspace })
+        };
+        return Some(rest(n, body));
+    }
+    None
 }
 
 fn answers(s: &Seen, n: usize) -> Reply {
@@ -124,6 +156,9 @@ fn answers(s: &Seen, n: usize) -> Reply {
             n,
             json!({"keyName": "example-key", "key": GRAFANA_KEY, "workspaceId": "g-example"}),
         );
+    }
+    if let Some(r) = pinpoint_and_grafana(path, n) {
+        return r;
     }
     let stream_key = json!({
         "arn": "arn:aws:ivs:us-west-2:111122223333:stream-key/example",
@@ -248,6 +283,29 @@ fn cases() -> Vec<Case> {
             ),
             vec![("VpnConnectionDeviceSampleConfiguration", VPN_PRE_SHARED_KEY)],
             "request req-",
+        ),
+        case(
+            call(
+                "pinpoint",
+                "GetGcmChannel",
+                json!({"ApplicationId": "example-app"}),
+            ),
+            vec![("GCMChannelResponse.Credential", FCM_SERVER_KEY)],
+            "example-app",
+        ),
+        case(
+            call(
+                "grafana",
+                "DescribeWorkspace",
+                json!({"workspaceId": "g-example"}),
+            ),
+            vec![("workspace.grafanaToken", WORKSPACE_TOKEN)],
+            "g-example",
+        ),
+        case(
+            call("grafana", "ListWorkspaces", json!({})),
+            vec![("workspaces[0].grafanaToken", WORKSPACE_TOKEN)],
+            "g-example",
         ),
     ]
 }

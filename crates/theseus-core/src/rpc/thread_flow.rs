@@ -119,6 +119,7 @@ fn fresh_row(home: &str) -> RoutedRow {
         ask: None,
         early: false,
         movable: false,
+        above: None,
     }
 }
 
@@ -366,7 +367,7 @@ impl Core {
         if at.1 == crate::places::PlaceClass::Private {
             self.learned_thread(&p.input, &mut pre);
         }
-        self.keep_apart_by_dir(p, session, live, &mut pre);
+        row.above = self.keep_apart_by_dir(p, session, live, &mut pre);
         row.pre = pre
             .iter()
             .map(|x| (x.slug.clone(), x.score, x.hits.clone()))

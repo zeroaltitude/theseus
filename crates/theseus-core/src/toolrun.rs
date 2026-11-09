@@ -1473,9 +1473,10 @@ impl ToolRuntime {
                 }
             }
             name if crate::task_graph::tools::is_edit(name) => {
-                let approved = ran_at == Posture::Approve
+                let said_yes = ran_at == Posture::Approve;
+                let approved = said_yes
                     || (name == crate::task_graph::tools::CLOSE && self.abandon_follows_posture());
-                let how = (approved, self.leases.lease_ms());
+                let how = (approved, said_yes, self.leases.lease_ms());
                 crate::task_graph::tools::run(tc, name, &call.input, correlation_id, how)
                     .map(|d| edit.take(d))
             }

@@ -47,6 +47,8 @@ pub mod revoke;
 mod tests;
 #[cfg(test)]
 mod tests_load;
+#[cfg(test)]
+mod tests_trial;
 pub mod usage;
 
 use std::path::{Path, PathBuf};
@@ -79,11 +81,18 @@ pub const MAX_NAME: usize = 28;
 pub const MAX_TESTS: usize = 20;
 pub const MAX_DESCRIPTION_CHARS: usize = 1_000;
 /// The longest the trial waits for the server's handshake and list, and for
-/// each test's call: the whole trial stays under the 120 s a harness call
-/// may take.
+/// each test's call. The trial as a whole has no clock of its own: it is cut
+/// after `TRIAL_SILENCE` without a finished step (the server listed, or a
+/// test answered), and at `TRIAL_CEILING`, the sum of every step's bound.
 pub const START_TIMEOUT_SECS: u64 = 30;
 pub const CALL_TIMEOUT_SECS: u64 = 20;
-pub const TRIAL_LIMIT: Duration = Duration::from_secs(100);
+/// Longer than any one step's bound, so only a wedge trips it.
+pub const TRIAL_SILENCE: Duration = Duration::from_secs(START_TIMEOUT_SECS + 10);
+/// The start and every test at its own bound: the most a trial can take.
+pub const TRIAL_CEILING: Duration =
+    Duration::from_secs(START_TIMEOUT_SECS + MAX_TESTS as u64 * CALL_TIMEOUT_SECS);
+/// What the call may run past its trial's ceiling: the freeze and the ask.
+const TRIAL_MARGIN: Duration = Duration::from_secs(30);
 /// What a proposal whose trial a cancel or a stop aborted returns: the
 /// runtime then answers the call as the cancel settled it.
 pub const STOPPED: &str = "stopped while it was tried";
@@ -394,6 +403,10 @@ impl Tool for Propose {
         PROPOSE
     }
 
+    fn deadline(&self) -> Option<Duration> {
+        Some(TRIAL_CEILING + TRIAL_MARGIN)
+    }
+
     fn description(&self) -> &str {
         "Propose a small MCP server you wrote as an extension. Its directory (inside the \
          workspace) is frozen by its SHA-256, started in the sandbox (L1) with no network unless \
@@ -505,6 +518,7 @@ async fn try_out(
     name: String,
     cfg: McpServerConfig,
     tests: Vec<TestSpec>,
+    beat: Arc<Beat>,
 ) -> Tried {
     let t0 = Instant::now();
     let server = format!("{SERVER_PREFIX}{name}");
@@ -522,6 +536,7 @@ async fn try_out(
             }
         }
     };
+    beat.stamp();
     let tools = trial
         .tools
         .iter()
@@ -540,6 +555,7 @@ async fn try_out(
             Ok(Ok(r)) => judged(spec, &r.text_for_model(), r.is_error),
         };
         runs.push(run);
+        beat.stamp();
     }
     drop(trial);
     Tried {
@@ -600,6 +616,75 @@ fn trial_cfg(command: &[String], frozen: &Path, network: &[String]) -> McpServer
     }
 }
 
+/// A trial's progress: a stamp for each step it finishes.
+pub(crate) struct Beat {
+    count: std::sync::atomic::AtomicUsize,
+    last: std::sync::Mutex<tokio::time::Instant>,
+}
+
+impl Default for Beat {
+    fn default() -> Self {
+        Beat {
+            count: 0.into(),
+            last: std::sync::Mutex::new(tokio::time::Instant::now()),
+        }
+    }
+}
+
+impl Beat {
+    pub(crate) fn stamp(&self) {
+        self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = tokio::time::Instant::now();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stamps(&self) -> usize {
+        self.count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn last(&self) -> tokio::time::Instant {
+        *self.last.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+/// Wait for the trial `task`, aborting it when no step has finished for
+/// `silence`, or when it has run `ceiling` in all. A cancel or a stop that
+/// aborted the task answers `STOPPED`; each cut says which bound fired.
+pub(crate) async fn wait_trial<T>(
+    task: &mut tokio::task::JoinHandle<T>,
+    beat: &Beat,
+    silence: Duration,
+    ceiling: Duration,
+) -> Result<T, String> {
+    let end = tokio::time::Instant::now() + ceiling;
+    loop {
+        let seen = beat.last();
+        let due = (seen + silence).min(end);
+        tokio::select! {
+            r = &mut *task => {
+                return match r {
+                    Ok(t) => Ok(t),
+                    Err(e) if e.is_cancelled() => Err(STOPPED.into()),
+                    Err(e) => Err(format!("the trial failed: {e}")),
+                };
+            }
+            () = tokio::time::sleep_until(due) => {
+                if tokio::time::Instant::now() >= end {
+                    task.abort();
+                    return Err(format!("the trial ran past its {} s ceiling", ceiling.as_secs()));
+                }
+                if beat.last() == seen {
+                    task.abort();
+                    return Err(format!(
+                        "the trial went {} s without finishing a step",
+                        silence.as_secs()
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// Run `extend.propose` for the call `correlation_id` of the turn `tc`:
 /// freeze, try, write the manifest and ask. An error is the result the
 /// model reads.
@@ -639,17 +724,16 @@ pub async fn propose(
     // The trial is a task of its own, so a cancel or a stop aborts it, and
     // the trial's drop stops its server.
     let cfg = trial_cfg(&i.command, &frozen.dir, &i.network);
-    let mut task = tokio::spawn(try_out(board, i.name.clone(), cfg, i.tests.clone()));
+    let beat = Arc::new(Beat::default());
+    let mut task = tokio::spawn(try_out(
+        board,
+        i.name.clone(),
+        cfg,
+        i.tests.clone(),
+        beat.clone(),
+    ));
     let _stoppable = rt.stops.track(correlation_id, task.abort_handle());
-    let tried = match tokio::time::timeout(TRIAL_LIMIT, &mut task).await {
-        Ok(Ok(t)) => t,
-        Ok(Err(e)) if e.is_cancelled() => return Err(STOPPED.into()),
-        Ok(Err(e)) => return Err(format!("the trial failed: {e}")),
-        Err(_) => {
-            task.abort();
-            return Err(format!("the trial took over {} s", TRIAL_LIMIT.as_secs()));
-        }
-    };
+    let tried = wait_trial(&mut task, &beat, TRIAL_SILENCE, TRIAL_CEILING).await?;
     let names: Vec<String> = tried.tools.iter().map(|t| t.name.clone()).collect();
     let mut m = Manifest {
         name: i.name.clone(),

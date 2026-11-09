@@ -23,6 +23,10 @@
   plants a FAKE name (through `SCRUB_EXTRA_NAMES`) in a scratch repo, runs gate.sh's own `scrub_added` under `set -e`,
   and runs the cloud reviewers' `scrub-branch.sh` (`THESEUS_SCRUB_BRANCH`; its tests are skipped where it is absent). Its
   git calls ignore the developer's global config (a signing agent that is locked hung it). Never put a real name in a test.
+- `line-pressure.py`, `tests/test_line_pressure.py` (theseus-4vsrz): functions within 5 lines of clippy's `too_many_lines`
+  ceiling (100), closest first, as `path:line fn N/100`. Always exits 0 on a report (a warning, not a gate: clippy holds the
+  ceiling); exits 2 only when it scanned nothing. Counts as clippy does (body without braces, blank and comment-only lines
+  free); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
@@ -115,8 +119,9 @@ It runs, in order:
 3. *Without it again*:
    - `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database
      as its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was
-     yanked between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh`
-     refreshes it.
+     yanked between two gates), and the gate says when that database is more than 7 days old. The database is the
+     gate's pin (theseus-4vsrz): only the owner's `cargo deny fetch db` moves it, and `deny-daily.sh` keeps a database
+     of its own, so a fetch never reddens a gate.
 
 It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
 ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`; a signal's
@@ -282,6 +287,17 @@ false) and `keel-file` (the guard itself, its door, a gate phase gone). The test
 cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.only` and `{ skip: }` options, and
 `assert.*` calls).
 
+- **Two halves, and a non-keel file is not exempt (theseus-4vsrz).** A brief or a builder must say which it means.
+  (a) *Where*: `KEEL_FILES`, `KEEL_PREFIXES` and `LOCKED_FLOW_PREFIXES` in the guard name files whose edit needs an ack
+  whatever it does (`keel-file`, `locked-flow`). (b) *What*: the erosion rules (`test-removed`, `test-ignored`,
+  `assert-removed`, `assert-weakened`, `allow-added`, `budget-raised`, `cap-raised`, `ceiling-raised`, `ci-loosened`)
+  judge what the change does, in ANY file: a file outside `KEEL_FILES` that loses one assertion fails the gate in
+  about a second, before a test runs. Clearing (a) says nothing about (b), so "the file is not keel-class" never means
+  "no `Keel:` trailer is needed". A ruling that deletes or weakens an assertion comes with the owner's quote, or is
+  marked as needing one. Never ack across a batch boundary: when a finding names a file the change never touched,
+  `git grep` the symbol at the base and at the head first, and judge at the branch's own base (`--base $(git
+  merge-base <base> HEAD)`): a base that is not an ancestor of HEAD reads what the base's side added as removed.
+  `scripts/keel-batch-repro.sh` shows a real `test-removed` re-attributed to an unrelated file in a batch.
 - **The range.** Main is `origin/main` (the local `main` only where there is no `origin/main`): a join's local main is
   ahead of it by exactly what the join's gate judges. On a branch, merge-base(HEAD, main)..the working tree, so the gate
   before a commit judges what it will hold, and a join whose fix is a commit after its merge is judged whole (until
@@ -346,12 +362,23 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
 
 ### The daily deny job
 
-`deny-daily.sh` is what keeps the commit gate's offline `cargo deny` honest (theseus-goa8; review 2's SC2). It fetches the
-advisory database and the registry index, runs the whole `cargo deny check` against them, and, when that fails, files one
+`deny-daily.sh` is the fresh half of two contracts (theseus-goa8; theseus-4vsrz). The gate's `cargo deny --offline` judges
+the tree against the database in `~/.cargo/advisory-dbs`, which only the owner's `cargo deny fetch db` moves, so main is
+never red tomorrow with no commit in between. This job fetches into its own database (`THESEUS_DENY_DB`, default
+`~/.cache/theseus/deny-daily-db`, reached through a generated config that sets `db-path`), so its fetch never changes the
+gate's. It fetches that database and the registry index, runs the whole `cargo deny check` against them, and, when that fails, files one
 Beads issue (owner `main`, waiting for an available agent, labels `security` and `deny-daily`) unless one is already open.
 A failed fetch is an outage, not a finding: it checks what is cached and files nothing. Exit status: 0 all clear; 1 the check
-failed; 2 the fetch failed and the check was clean on what is cached. It reads the repository and never builds or changes it
+failed; 2 the fetch failed and the check was clean on what is cached; 3 the `deny.toml` in use (the tree's, or
+`THESEUS_DENY_CONFIG`) has no `[advisories]` table to point at the job's database, so nothing was fetched or checked (the
+unit shows as failed). It reads the repository and never builds or changes it
 (`--locked`), so it runs in the chain's tree. Its log is `~/.cache/theseus/deny-daily.log`.
+
+The gate's offline check is where a move of its pin shows up: that database moves only when something fetches into it (the
+owner's `cargo deny fetch db`; never a branch, never this job), so a red `cargo deny` on an untouched tree means the pin
+moved. When bans, licences and sources are clean and only advisories fail,
+the gate says so (`deny: ONLY advisories failed ...`) and names the owner's action: ignore each id in `deny.toml` with its
+reason, or bump the crate. The gate never fetches and never writes an ignore.
 
 It is not installed. To schedule it as the operator's user, once:
 

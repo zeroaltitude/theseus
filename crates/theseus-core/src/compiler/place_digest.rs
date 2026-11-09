@@ -89,7 +89,10 @@ pub fn render(live: &[&ThreadInfo], here: &str, line_chars: usize) -> Option<Dig
         return None;
     }
     let mut text =
-        String::from("[Place digest: the other live threads of this place, as they stand now.");
+        String::from(concat!(
+        "[Place digest: the other live threads of this place, as they stand now.",
+        " The harness supplies this; the owner did not write it, so do not acknowledge or restate it."
+    ));
     for l in &lines {
         text.push('\n');
         text.push_str(l);
@@ -140,11 +143,25 @@ mod tests {
         let d = render(&[&t], "home", 280).unwrap();
         assert_eq!(
             d.text,
-            "[Place digest: the other live threads of this place, as they stand now.\n\
+            "[Place digest: the other live threads of this place, as they stand now. \
+             The harness supplies this; the owner did not write it, so do not acknowledge or restate it.\n\
              - from thread \u{ab}the tarnlib PR\u{bb}: goal: Finish the tarnlib PR this week. | \
              latest: all four comments answered | dated: merge by 2026-11-19]"
         );
         assert_eq!((d.shown, d.embargoed), (1, 0));
+    }
+
+    /// theseus-ectzg: the digest reaches the model as a block it was not
+    /// given by the owner, so it says so, as the standing block does.
+    #[test]
+    fn the_head_says_it_is_not_the_owners_and_not_to_be_acknowledged() {
+        let t = thread("pr-round", "the tarnlib PR", &["merge by 2026-11-19"]);
+        let d = render(&[&t], "home", 280).unwrap();
+        let head = d.text.lines().next().unwrap();
+        assert_eq!(d.shown, 1, "a line is shown beside the head");
+        assert!(head.starts_with("[Place digest"), "{head}");
+        assert!(head.contains("owner did not write it"), "{head}");
+        assert!(head.contains("do not acknowledge"), "{head}");
     }
 
     #[test]
@@ -201,7 +218,8 @@ mod tests {
         let d = render(&[&sealed, &pending], "pr-round", 280).unwrap();
         assert_eq!(
             d.text,
-            "[Place digest: the other live threads of this place, as they stand now.\n\
+            "[Place digest: the other live threads of this place, as they stand now. \
+             The harness supplies this; the owner did not write it, so do not acknowledge or restate it.\n\
              2 embargoed threads (not shown).]"
         );
         assert_eq!((d.shown, d.embargoed), (0, 2));
