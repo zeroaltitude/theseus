@@ -101,6 +101,18 @@ async fn a_longer_system_prompt_changes_no_model() {
 /// weighed as one number. If a later release makes the prefix small, the
 /// `assert!(fixed > context)` here is the line to re-read rather than to
 /// delete: it would mean the cliff of 2026-11-07 can no longer happen.
+///
+/// A second assertion stood here until 2026-11-08, `context * 2 < cold`, and
+/// it is gone because it was the same cliff halved: it passed by 46 tokens of
+/// 30,000 on `main`, and one ordinary tool definition added to the catalog
+/// (+89) crossed it. It did not measure what its message said either.
+/// `context` is `est.saturating_sub(fixed)` — the difference between the
+/// router's estimate and this test's own recomputation of the prefix — so its
+/// residual tracks the size of the tool catalog, not what the session carries:
+/// adding a tool inflates both terms and the mismatch lands in `context`. A
+/// size assertion is what this row exists to take out of the suite, as the
+/// paragraph above says; the shape assertion is the one that holds however
+/// the prompt grows, and it widened when the assertion went.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
     let jev = FakeJev::start().unwrap();
@@ -111,7 +123,6 @@ async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
 
     let rows = crate::tests_route::decided(&r.core.store);
     let est = rows[0]["est_tokens"].as_u64().expect("the row's estimate");
-    let cold = r.core.cfg.routing.cold_switch_tokens;
 
     let q = r.claude.requests().pop().expect("the request it sent");
     let len = |v: &serde_json::Value| serde_json::to_string(v).map_or(0, |s| s.len() as u64);
@@ -125,9 +136,5 @@ async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
     assert!(
         fixed > context,
         "the universal prefix is most of the request: prefix {fixed}, the session's {context}"
-    );
-    assert!(
-        context * 2 < cold,
-        "one message is nowhere near the bound: {context} of {cold}"
     );
 }
