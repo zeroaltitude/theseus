@@ -138,7 +138,9 @@ fn more_classes(path: &str, n: usize) -> Option<Reply> {
 /// by the model, wordless, and on operations no table named (theseus-3i6d1).
 fn pin_blocks(path: &str, n: usize) -> Option<Reply> {
     let body = match path {
-        "/pindata/translate" => json!({"PinBlock": TRANSLATED_PIN_BLOCK, "KeyArn": "example-key-arn"}),
+        "/pindata/translate" => {
+            json!({"PinBlock": TRANSLATED_PIN_BLOCK, "KeyArn": "example-key-arn"})
+        }
         "/pindata/generate" => json!({"EncryptedPinBlock": GENERATED_PIN_BLOCK,
                                        "EncryptionKeyArn": "example-key-arn"}),
         "/macemvpinchange/generate" => json!({"EncryptedPinBlock": EMV_PIN_BLOCK,
@@ -321,17 +323,29 @@ fn measured_cases() -> Vec<Case> {
             "example-user",
         ),
         case(
-            call("payment-cryptography-data", "TranslatePinData", translate_input()),
+            call(
+                "payment-cryptography-data",
+                "TranslatePinData",
+                translate_input(),
+            ),
             vec![("PinBlock", TRANSLATED_PIN_BLOCK)],
             "example-key-arn",
         ),
         case(
-            call("payment-cryptography-data", "GeneratePinData", generate_input()),
+            call(
+                "payment-cryptography-data",
+                "GeneratePinData",
+                generate_input(),
+            ),
             vec![("EncryptedPinBlock", GENERATED_PIN_BLOCK)],
             "example-key-arn",
         ),
         case(
-            call("payment-cryptography-data", "GenerateMacEmvPinChange", emv_input()),
+            call(
+                "payment-cryptography-data",
+                "GenerateMacEmvPinChange",
+                emv_input(),
+            ),
             vec![("EncryptedPinBlock", EMV_PIN_BLOCK)],
             "example-key-arn",
         ),

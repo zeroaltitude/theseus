@@ -1344,7 +1344,11 @@ fn transfers_describe_certificate_carries_no_private_key() {
             .unwrap_or_else(|| panic!("transfer:{op} is in the catalog"));
         let shape = if input { op.input() } else { op.output() };
         let mut out = Vec::new();
-        member_names(shape.expect("the operation has that shape"), &mut HashSet::new(), &mut out);
+        member_names(
+            shape.expect("the operation has that shape"),
+            &mut HashSet::new(),
+            &mut out,
+        );
         out
     };
     let is_key = |n: &String| n.to_ascii_lowercase().ends_with("privatekey");
@@ -1358,7 +1362,10 @@ fn transfers_describe_certificate_carries_no_private_key() {
         "the walk must reach the answer's certificate members: {described:?}"
     );
     let keys: Vec<&String> = described.iter().filter(|n| is_key(n)).collect();
-    assert!(keys.is_empty(), "DescribeCertificate's answer names {keys:?}");
+    assert!(
+        keys.is_empty(),
+        "DescribeCertificate's answer names {keys:?}"
+    );
     let imported = names_of("ImportCertificate", true);
     assert!(
         imported.iter().any(is_key),
