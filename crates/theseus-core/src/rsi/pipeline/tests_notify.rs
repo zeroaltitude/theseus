@@ -202,7 +202,7 @@ async fn a_note_that_waits_for_the_owner_posts_at_once_with_the_waiting_starts()
             "approval.refused",
             None,
             None,
-            json!({"act": "self.resume", "who": "discord:1", "why": "not the owner"}),
+            json!({"act": "self.resume", "who": "stranger", "why": "not the owner"}),
         );
         row.at_unix_ms = t0 + (1 + i) * 60_000;
         r.core.store.append_ledger(&row).unwrap();
