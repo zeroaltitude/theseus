@@ -350,7 +350,11 @@ pub struct Step {
 /// under, never a binary's identity, so an install that bumps none of them
 /// resumes (theseus-la5oc). `None`: it can be kept (or there is none to keep;
 /// the caller says "missing").
-pub(crate) fn rebuild_reason(found: Option<&Saved>, had_index: bool, cursor_exists: bool) -> Option<String> {
+pub(crate) fn rebuild_reason(
+    found: Option<&Saved>,
+    had_index: bool,
+    cursor_exists: bool,
+) -> Option<String> {
     let Some(s) = found else {
         return (cursor_exists && had_index).then(|| "its cursor file is unreadable".to_string());
     };

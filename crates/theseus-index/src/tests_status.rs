@@ -195,16 +195,24 @@ fn a_rebuild_names_the_number_that_moved_and_a_plain_install_resumes() {
         None
     );
     // A schema that moved is named, with the window the operator will see.
-    let why = rebuild_reason(Some(&saved(SCHEMA_VERSION + 1, EXTRACTOR_VERSION)), true, true)
-        .expect("a moved schema rebuilds");
+    let why = rebuild_reason(
+        Some(&saved(SCHEMA_VERSION + 1, EXTRACTOR_VERSION)),
+        true,
+        true,
+    )
+    .expect("a moved schema rebuilds");
     assert!(
-        why.contains(&format!("index schema {} -> {SCHEMA_VERSION}", SCHEMA_VERSION + 1))
-            && why.contains("recall read-degraded"),
+        why.contains(&format!(
+            "index schema {} -> {SCHEMA_VERSION}",
+            SCHEMA_VERSION + 1
+        )) && why.contains("recall read-degraded"),
         "{why}"
     );
     assert!(!why.contains("extractor"), "{why}");
     // An unreadable cursor over an index is said so; no cursor at all is the
     // caller's "missing".
-    assert!(rebuild_reason(None, true, true).unwrap().contains("unreadable"));
+    assert!(rebuild_reason(None, true, true)
+        .unwrap()
+        .contains("unreadable"));
     assert_eq!(rebuild_reason(None, false, false), None);
 }
