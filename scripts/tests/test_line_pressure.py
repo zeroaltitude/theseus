@@ -100,6 +100,20 @@ class Walker(unittest.TestCase):
             self.assertEqual(scanned, 3)
             self.assertEqual(sorted((n, name) for n, _, _, name in near), [(96, "a_test"), (96, "sync"), (98, "plain")])
 
+    def test_a_cfg_test_gate_is_not_a_test_attribute_so_its_plain_async_fn_still_counts_two_more(self):
+        # Only an attribute whose own path ends in `test` (`#[test]`, `#[tokio::test(..)]`) turns an `async fn`
+        # into a sync one; `#[cfg(test)]` and `#[cfg(not(test))]` gate an item and leave it `async` (clippy counts
+        # it 2 higher), so the script must too. Six such functions were read 2 short before this.
+        with tempfile.TemporaryDirectory() as d:
+            body = "".join(f"    let v{i} = {i};\n" for i in range(96))
+            with open(os.path.join(d, "gated.rs"), "w") as f:
+                f.write(f"#[cfg(test)]\nasync fn gated() {{\n{body}}}\n")
+                f.write(f"#[cfg(not(test))]\nasync fn not_gated() {{\n{body}}}\n")
+                f.write(f'#[tokio::test(flavor = "multi_thread")]\nasync fn multi() {{\n{body}}}\n')
+            scanned, near = lp.scan([d], threshold=100, margin=5)
+            self.assertEqual(scanned, 3)
+            self.assertEqual(sorted((n, name) for n, _, _, name in near), [(96, "multi"), (98, "gated"), (98, "not_gated")])
+
 
 class Calibration(unittest.TestCase):
     def test_the_count_matches_clippys_on_real_functions(self):
