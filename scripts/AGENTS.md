@@ -353,6 +353,11 @@ A failed fetch is an outage, not a finding: it checks what is cached and files n
 failed; 2 the fetch failed and the check was clean on what is cached. It reads the repository and never builds or changes it
 (`--locked`), so it runs in the chain's tree. Its log is `~/.cache/theseus/deny-daily.log`.
 
+The gate's offline check is where a refresh shows up: the database moves when this job fetches, never with a branch, so a
+red `cargo deny` on an untouched tree is the database. When bans, licences and sources are clean and only advisories fail,
+the gate says so (`deny: ONLY advisories failed ...`) and names the owner's action: ignore each id in `deny.toml` with its
+reason, or bump the crate. The gate never fetches and never writes an ignore.
+
 It is not installed. To schedule it as the operator's user, once:
 
 ```ini

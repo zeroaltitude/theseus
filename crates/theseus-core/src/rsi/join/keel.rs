@@ -533,6 +533,39 @@ mod tests {
         out
     }
 
+    /// The parser reads every entry of `KEEL_FILES`, not the ones above the
+    /// first comment with a `)` in it (`sealed::tests`'s older copy read 13
+    /// of 23). The count is checked against a second, line-based count, and
+    /// the ten paths that sit below that comment are named.
+    #[test]
+    fn the_parser_reads_every_entry_of_the_guards_file_list() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let src = std::fs::read_to_string(root.join("scripts/keel-guard.py")).unwrap();
+        let files = guard_tuple(&src, "KEEL_FILES");
+        let body = src.split_once("\nKEEL_FILES = (").unwrap().1;
+        let body = body.split_once("\n)").unwrap().0;
+        let by_line = body
+            .lines()
+            .filter(|l| l.trim_start().starts_with('"'))
+            .count();
+        assert!(by_line >= 23, "the line count itself is wrong: {by_line}");
+        assert_eq!(files.len(), by_line, "{files:?}");
+        for p in [
+            "crates/theseus-core/src/routing.rs",
+            "crates/theseus-core/src/turn/data_step.rs",
+            "crates/theseus-core/src/content/cn.rs",
+            "crates/theseus-core/src/data_gate.rs",
+            "crates/theseus-core/src/exits.rs",
+            "crates/theseus-core/src/peer.rs",
+            "crates/theseus-core/src/peer_proc.rs",
+            "crates/theseusd/src/web.rs",
+            "scripts/scrub-added.sh",
+            "scripts/test_scrub_added.py",
+        ] {
+            assert!(files.iter().any(|f| f == p), "{p} not read: {files:?}");
+        }
+    }
+
     /// One source for the two lists (theseus-ozplq): every file main's keel
     /// guard holds is in a class, so a path added to `KEEL_FILES` with no
     /// class to hold it fails here rather than reaching main behind a branch's

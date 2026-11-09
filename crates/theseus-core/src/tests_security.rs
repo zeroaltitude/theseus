@@ -644,21 +644,40 @@ async fn started_after(jev: Option<&FakeJev>) -> (Duration, Duration) {
     (started, took)
 }
 
+/// Measured on a 4-core host (27 loaded runs beside 6 to 8 busy loops, 15
+/// alone): `on` 0.24 s alone and at most 0.33 s loaded, `took` 1.27 s alone and
+/// at most 1.5 s loaded, against bounds of 3 s and 4 s. A dispatch that waited
+/// on the 5 s judgment starts at 5 s or later, on every attempt. Load can
+/// stretch a turn's own time, though, past those bounds (a join gate at load
+/// about 10 once measured 7 s), and the bounds stay as they are: the test asks
+/// the question up to `ATTEMPTS` times and passes when one attempt answers
+/// within them, so a busy host costs a rerun and a real wait still fails.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn with_jev_slow_tool_started_comes_as_fast_as_with_the_judge_off() {
+    const ATTEMPTS: usize = 3;
     let jev = FakeJev::start().unwrap();
     jev.set_mode(FakeMode::Slow(Duration::from_secs(5)));
-    let (off, _) = started_after(None).await;
-    let (on, took) = started_after(Some(&jev)).await;
-    // A dispatch that waited on the judgment would start past 5 s; load
-    // stretches a turn's own time, never to 3 s.
+    let within = |off: Duration, on: Duration, took: Duration| {
+        on < off + Duration::from_millis(1500)
+            && on < Duration::from_secs(3)
+            && took < Duration::from_secs(4)
+    };
+    let (mut off, mut on, mut took) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+    for _ in 0..ATTEMPTS {
+        off = started_after(None).await.0;
+        (on, took) = started_after(Some(&jev)).await;
+        if within(off, on, took) {
+            break;
+        }
+    }
+    // The last attempt's own figures, which are the passing attempt's when one passed.
     assert!(
         on < off + Duration::from_millis(1500),
         "on {on:?}, off {off:?}"
     );
     assert!(
         on < Duration::from_secs(3) && took < Duration::from_secs(4),
-        "{on:?} {took:?}"
+        "{on:?} {took:?} (after {ATTEMPTS} attempts at most)"
     );
     assert!(jev.connections() >= 1, "it was judged");
 }
