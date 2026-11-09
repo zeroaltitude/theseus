@@ -1410,7 +1410,7 @@ mod tests {
     /// to the `)` that closes it, counting nesting and stepping over literals
     /// and comments. Taking the next `;` instead — which this did until the
     /// review of theseus-gm7bd — over-runs for every call in expression
-    /// position: at `capture/act.rs` it ran 187 bytes past the call, out
+    /// position: at `capture/act.rs` it ran 149 bytes past the call, out
     /// through two closing braces and a doc comment and into the next
     /// function. Nothing failed only because no over-run happened to contain
     /// a `"kind":`, and `kind` is a common word in this crate, so the next
@@ -1727,6 +1727,26 @@ mod tests {
             "the span must not run past the call's own `)`"
         );
 
+        // What each of the next four catches (theseus-4vsrz, B7). Each puts
+        // its `"kind":` where only the right span reaches it, so each fails
+        // under the one revert it names and passes under the others.
+        //
+        // Expression position: the `"kind":` sits in the next arm, before the
+        // first `;`, so reading to the next `;` finds it and the call's own
+        // `)` does not. Catches: ending the span at a `;` instead of a `)`.
+        let arm = "let x = match q {\n    true => a.to_operator(None, body),\n\
+                   false => j!({\"kind\": \"nope\"}),\n};";
+        assert!(
+            kinds_named_in(arm).is_empty(),
+            "the arm after the call is not the call's"
+        );
+        // A `;` inside the call (a block in its body) does not end it, and
+        // a `)` nested deeper than the call's own does not either, so the
+        // kind after both is still read. Catches: ending at the first `;`,
+        // and ending at the first `)`.
+        let inner =
+            "a.to_operator(None, json!({\"t\": { let n = f(g(1)); n }, \"kind\": \"disk\"}))?;";
+        assert_eq!(kinds_named_in(inner), vec![(1, "disk".to_string())]);
         // A nested `)` inside the call does not end it early.
         let nested = "a.to_operator(None, json!({\"kind\": f(g(1), \"x\")}))?;";
         assert!(
@@ -1737,6 +1757,10 @@ mod tests {
         // A `)` inside a string literal does not end it either.
         let paren = "a.to_operator(None, json!({\"kind\": \"notice\", \"t\": \")\"}))?;";
         assert_eq!(kinds_named_in(paren), vec![(1, "notice".to_string())]);
+        // The kind after the literal `)`: only a span that steps over the
+        // string reaches it. Catches: counting a `)` inside a literal.
+        let after = "a.to_operator(None, json!({\"t\": \")\"}), json!({\"kind\": \"notice\"}))?;";
+        assert_eq!(kinds_named_in(after), vec![(1, "notice".to_string())]);
 
         // A call named inside a string or a comment is not a call site. This
         // module's own fixtures are exactly that, and were being counted.
