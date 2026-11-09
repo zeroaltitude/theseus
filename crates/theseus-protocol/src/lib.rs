@@ -22,7 +22,7 @@ pub mod census;
 pub mod check;
 pub mod cite;
 pub mod content;
-pub use content::{ContentUnlabelParams, LabelRaised, LabelView, UnlabelResult};
+pub use content::{ContentUnlabelParams, LabelLink, LabelRaised, LabelView, UnlabelResult};
 pub mod context;
 mod cost;
 pub mod cred;
@@ -2141,6 +2141,14 @@ pub struct TurnSubmitResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub inspect_url: Option<String>,
+    /// The content labels the session carries now (theseus-emqbm), in the
+    /// flags' order, each with the address that removes it. A reply's footer
+    /// lists them, so the operator can take one off at any time, not only from
+    /// the one message that raised it. Empty when the session carries none,
+    /// and from a daemon before them: a footer with nothing to list is
+    /// byte-identical to the footer before this field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<content::LabelLink>,
 }
 
 fn is_zero_u32(n: &u32) -> bool {

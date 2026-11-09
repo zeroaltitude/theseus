@@ -229,7 +229,9 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
 - `ts.rs`: the TypeScript export.
 - `content.rs` (theseus-9ymz0): `LabelView` (a session's label as `SessionInfo.labels` carries it), `ContentUnlabelParams` and `UnlabelResult`
   (`content.unlabel`, and the params of `session.unlabelled`) and `LabelRaised` (`session.labelled`). The words are the core's: the flags `injection`,
-  `secret`, `confidential`, `personal`.
+  `secret`, `confidential`, `personal`. Since theseus-emqbm also `LabelLink` (a label as a reply's footer shows it: the flag and the
+  address that removes it) and `unlabel_url`, the one place `<base>/session/<session>/unlabel/<flag>` is written; `TurnSubmitResult.labels`
+  carries them, absent from the bytes when empty, so a reply from a session with no labels is byte for byte the reply it was.
 
 ## The CLI's spellings and the wire (theseus-rwpbg.10)
 

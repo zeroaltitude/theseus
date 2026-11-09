@@ -3271,6 +3271,30 @@ impl TurnRunner {
         )
     }
 
+    /// The labels a reply's footer lists (theseus-emqbm), in the flags' own
+    /// order (`ContentFlags::raise` keeps them sorted), each with the Ship
+    /// address that removes it from this session. The owner asked that a
+    /// message always show the labels it is carrying and offer a way off them
+    /// at any time; the one message raised when a label goes up is reachable
+    /// only at that moment. A session with no labels gives an empty list, and
+    /// an empty list is left out of the wire, so a reply that has none is
+    /// byte for byte the reply it was.
+    fn footer_labels(
+        &self,
+        session_id: &str,
+        flags: Option<&crate::content::ContentFlags>,
+    ) -> Vec<theseus_protocol::LabelLink> {
+        flags.map_or_else(Vec::new, |f| {
+            f.labels
+                .iter()
+                .map(|l| theseus_protocol::LabelLink {
+                    flag: l.flag.as_str().into(),
+                    remove_url: self.cfg.cockpit.unlabel_link(session_id, l.flag.as_str()),
+                })
+                .collect()
+        })
+    }
+
     /// The turn's root span's closing attributes: its frames, and the slowest
     /// frame the store's writer answered since its input arrived
     /// (theseus-w7dk), for `bench turn` to name.
@@ -3309,6 +3333,11 @@ impl TurnRunner {
         t.close_books(session);
         session.last_target = Some(Self::ran_on(&t));
         let w0 = t.trace.now_us();
+        // The labels the session carries once this turn's are merged in
+        // (theseus-emqbm): read from the stored record under its lock, where
+        // the merge has just happened, so a label this turn raised is on the
+        // reply that carries it. No store read of its own.
+        let mut labels = vec![];
         // Only the turn's own fields: a recompile asked meanwhile stays
         // (theseus-xeo). The record rides in the turn's last frame, where
         // the rows before it here and after it wait too; the span times its
@@ -3318,6 +3347,7 @@ impl TurnRunner {
             if r.pending_recompile.is_none() {
                 r.pending_recompile = unused_recompile;
             }
+            labels = self.footer_labels(t.tc.session_id, r.data.as_deref());
         }) {
             Ok(hold) => hold,
             Err(e) => return Err(Self::fault(t, session, e)),
@@ -3368,6 +3398,7 @@ impl TurnRunner {
             thread: None,
             filed: None,
             inspect_url: self.cfg.cockpit.turn_link(t.tc.session_id, t.tc.turn_id),
+            labels,
         };
         result.raised = self.defer_ended(&mut t);
         self.initiative_rows(&mut t, &result);

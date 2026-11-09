@@ -85,3 +85,32 @@ pub struct LabelRaised {
     pub session_id: String,
     pub label: LabelView,
 }
+
+/// One label a session carries, as a reply's footer shows it (theseus-emqbm):
+/// the flag's word, and the Ship address that removes that flag from that
+/// session. The footer lists what the session carries *now*, so a label can be
+/// taken off at any time after the one message that raised it, which is
+/// reachable only at the moment it was raised.
+///
+/// `remove_url` is absent when no web UI runs and no `[cockpit] public_url`
+/// names one: the surface then says the label and offers no link.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LabelLink {
+    /// `injection`, `secret`, `confidential` or `personal`.
+    pub flag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub remove_url: Option<String>,
+}
+
+/// Where the Ship removes one label from one session:
+/// `<base>/session/<session>/unlabel/<flag>`. A base's trailing slash is
+/// dropped, and the address carries no key or token: it is the cockpit's own
+/// client-side route, behind the web UI's own door.
+pub fn unlabel_url(base: &str, session_id: &str, flag: &str) -> String {
+    format!(
+        "{}/session/{session_id}/unlabel/{flag}",
+        base.trim_end_matches('/')
+    )
+}
