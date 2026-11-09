@@ -53,7 +53,9 @@ fn stopped_key(account: &str) -> String {
     format!("aws.month_stopped.{account}")
 }
 
-/// `2026-10`, on the daemon's clock.
+/// `2026-10`, of an instant, in the daemon's zone. Callers pass the budget
+/// read's own instant (`AwsBudgetStatus::read_at_unix_ms`, set by
+/// `tend::read_budget`), never a second clock read.
 fn month_of(now_ms: u64) -> String {
     let l = crate::wake::local(now_ms);
     format!("{:04}-{:02}", l.year, l.month)
@@ -85,8 +87,7 @@ impl crate::Core {
         if warn == 0 || b.actual_cents < warn {
             return;
         }
-        let now = theseus_protocol::now_unix_ms();
-        let month = month_of(now);
+        let month = month_of(b.read_at_unix_ms);
         let key = meta_key(&account.id);
         if self
             .store
@@ -140,7 +141,7 @@ impl crate::Core {
         if b.limit_cents == 0 || b.actual_cents < b.limit_cents {
             return;
         }
-        let month = month_of(theseus_protocol::now_unix_ms());
+        let month = month_of(b.read_at_unix_ms);
         let key = stopped_key(&account.id);
         let told = self.store.get_meta::<String>(&key).ok().flatten();
         if told.as_deref() == Some(month.as_str()) {
@@ -222,17 +223,27 @@ mod tests {
             .collect()
     }
 
+    /// The instant every read in these tests is taken at: noon on 2026-01-01
+    /// UTC, so no test reads the clock.
+    fn pinned() -> u64 {
+        theseus_protocol::time::days_from_civil(2026, 1, 1) as u64 * 86_400_000 + 12 * 3_600_000
+    }
+
     fn at(actual_cents: u64) -> AwsBudgetStatus {
+        at_ms(actual_cents, pinned())
+    }
+
+    fn at_ms(actual_cents: u64, read_at_unix_ms: u64) -> AwsBudgetStatus {
         AwsBudgetStatus {
             limit_cents: 10_000,
             actual_cents,
             forecast_cents: None,
-            read_at_unix_ms: 0,
+            read_at_unix_ms,
         }
     }
 
     fn this_month() -> String {
-        month_of(theseus_protocol::now_unix_ms())
+        month_of(pinned())
     }
 
     /// A core, its only account, and the stop's META key.
@@ -302,6 +313,34 @@ mod tests {
         // nothing is written until the caller appends the frame.
         assert_eq!(c.store.get_meta::<String>(&key).unwrap(), None);
         assert!(stopped_posts(&c).is_empty());
+    }
+
+    /// The month is the read's own instant, not a second clock read: a read
+    /// a second before the local month turned marks the old month, one at the
+    /// turn the new one, whatever the clock says now and in any zone.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_month_is_the_reads_own_instant() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, key) = rig(dir.path());
+        let noon = pinned();
+        let turn = crate::learning::local_midnight(noon);
+        assert_ne!(
+            month_of(turn - 1_000),
+            month_of(turn),
+            "the straddle exists here"
+        );
+        c.aws_month_stopped(&a, &at_ms(10_000, turn - 1_000));
+        assert_eq!(stopped_posts(&c).len(), 1);
+        assert_eq!(
+            c.store.get_meta::<String>(&key).unwrap().as_deref(),
+            Some(month_of(turn - 1_000).as_str())
+        );
+        c.aws_month_stopped(&a, &at_ms(10_000, turn));
+        assert_eq!(stopped_posts(&c).len(), 2, "the new month is told again");
+        assert_eq!(
+            c.store.get_meta::<String>(&key).unwrap().as_deref(),
+            Some(month_of(turn).as_str())
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
