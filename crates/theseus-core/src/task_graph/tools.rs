@@ -490,7 +490,8 @@ impl Tool for TaskClose {
         "Close a task: `done` with its evidence (each an identity, such as `commit:<sha>` or \
          `job:<id>`, and its node when you have one), or `abandoned`. Evidence is only ever \
          added. Abandoning a task the task graph marks \"the operator's objective\" is the \
-         operator's: it waits for the operator's yes; any other task's applies at once. Name \
+         operator's: it waits for the operator's yes unless the operator set `task.close` to \
+         notify, then it runs and tells them; any other task's applies at once. Name \
          the `version` you read; a stale one is refused with the task as it is now."
     }
 

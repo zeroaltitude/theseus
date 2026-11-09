@@ -166,7 +166,8 @@ pub fn render_for(
         "{HEAD} {open} open, {closed} closed. Edit it with \
          task_update, task_split, and task_close, naming the version you read. On a task marked \
          \"{OWNERS_MARK}\", an objective or acceptance change, or abandoning, waits for the \
-         operator; on any other, it applies at once.]"
+         operator (abandoning only runs and tells them if they set `task.close` to notify); on \
+         any other, it applies at once.]"
     );
     let mut lines: Vec<&(bool, bool, String)> = full.iter().collect();
     let mut left_out = 0u32;
