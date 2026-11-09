@@ -153,8 +153,10 @@ fn word(v: &Value) -> String {
 /// a provider or a hand's backend, else the backend alone. The first word
 /// alone put every tool's failure of a backend in one cause (`harness`,
 /// `async`: all of AWS and Google), which no one fix can close;
-/// `wrapper:<pid>`, `reconciler:<why>` and `hands:<why>` stay a word, since
-/// their second part is not a stable name. An MCP tool is `mcp:ext-<server>/<tool>`:
+/// `wrapper:<pid>` and `reconciler:<why>` stay a word, since their second part
+/// is not a stable name. `hands:launch`, `hands:group` and `hands:reaper` have
+/// stable second parts and still key as one cause, `hands`: the key does not
+/// split them (theseus-cia5b). An MCP tool is `mcp:ext-<server>/<tool>`:
 /// it is named by its server (`async:mcp.ext_server`), not its tool, since
 /// the server is what one fix closes. Items filed under the old key (`async`,
 /// `inproc`) keep it: there is no migration.
@@ -589,7 +591,9 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
 /// id. They are one failure, so the action row is left out when its twin is in
 /// the window. Pairing is across pages, after the loop. A call with no twin (a
 /// compaction's summary writes none) or whose twin lies outside the window
-/// stays filed.
+/// stays filed. Pairing is forward-only: a `provider.error` row written before
+/// it carried the call's id (theseus-cia5b) has none to pair by, so its action
+/// row stays filed beside it for as long as that row is in the window.
 #[derive(Default)]
 struct Twins {
     errors: std::collections::HashSet<String>,
