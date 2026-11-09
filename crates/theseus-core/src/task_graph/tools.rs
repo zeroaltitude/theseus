@@ -647,19 +647,21 @@ pub(super) fn cas(tc: &TurnCtx<'_>, rec: &TaskRecord, version: u64) -> Result<()
 }
 
 /// Run one edit (the harness's side). `approved`: the operator approved the
-/// call, which a layer-1 change needs. `lease_ms`: a claim's lease, which
+/// call, which a layer-1 change needs; `said_yes`: it was really asked and
+/// answered (an abandon that only follows a notify posture is approved, not
+/// asked). `lease_ms`: a claim's lease, which
 /// the holder's edit renews (39b).
 pub fn run<'a>(
     tc: &TurnCtx<'a>,
     name: &str,
     input: &Value,
     correlation_id: &str,
-    (approved, lease_ms): (bool, u64),
+    (approved, said_yes, lease_ms): (bool, bool, u64),
 ) -> Result<Done<'a>, String> {
     match name {
         UPDATE => update(tc, input, approved, lease_ms),
         SPLIT => split(tc, input, correlation_id, lease_ms),
-        CLOSE => close(tc, input, correlation_id, approved),
+        CLOSE => close(tc, input, correlation_id, approved, said_yes),
         super::lease::CLAIM => super::lease::claim(tc, input, lease_ms),
         other => Err(format!("{other} is not a task tool")),
     }
@@ -851,6 +853,7 @@ fn close<'a>(
     input: &Value,
     correlation_id: &str,
     approved: bool,
+    said_yes: bool,
 ) -> Result<Done<'a>, String> {
     let mut done = Done::default();
     let now = theseus_protocol::now_unix_ms();
@@ -898,7 +901,7 @@ fn close<'a>(
     rec.claim = None;
     rec.version += 1;
     rec.updated_at_ms = now;
-    if i.outcome == Outcome::Abandoned && owners {
+    if i.outcome == Outcome::Abandoned && owners && said_yes {
         let c = change(tc, &rec, Some(from), json!({"fields": "abandon"}));
         done.row(tc, "change_accepted", c)?;
     }
