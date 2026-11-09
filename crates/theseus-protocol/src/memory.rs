@@ -124,13 +124,22 @@ pub struct RecallManifest {
     /// bar would have left out. Nothing was dropped: the notes were attached
     /// as before. Absent when the verdict did not say so, and for a manifest
     /// that paused at the session's recall cap: its notes were admitted but
-    /// never attached, so no bar had anything to drop. The count is of
+    /// never attached, so no bar had anything to drop. Absent, too, for a turn
+    /// whose verdict missed the route's own wait (`routing.max_wait_ms`): the
+    /// verdict lands for the session's next message, and nothing marks this
+    /// turn afterwards, so that greeting is missing from the sample. A count
+    /// over these rows is of the low-effort turns whose verdict arrived in
+    /// time, not of every one; a verdict that arrives inside the wait, after
+    /// the pack fixed its budget without it, is counted. The count is of
     /// ADMITTED notes: a restricted-origin model's withholding is decided
     /// after the compile and is not visible where this is written.
     ///
     /// Read it: `theseus memory recalled SESSION` prints a line per recall and
-    /// a total; across sessions, `theseus ledger -k recall.ran -n <N> --json`,
-    /// counting rows with `data.would_drop` (UNVERIFIED invocation).
+    /// a total; across sessions, `theseus ledger -k recall.ran -n <N> --json`
+    /// (`theseus ledger` is hidden from `theseus help`; `--json` is needed, the
+    /// plain form cuts each row's data at 160 characters) returns the newest
+    /// N recall rows of every session, and the rows with `data.would_drop` are
+    /// the count.
     ///
     /// The bar for promoting the drop from shadow to live is the owner's to
     /// set; a candidate: at least 200 low-effort turns read this way, and for

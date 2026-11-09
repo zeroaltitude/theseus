@@ -208,10 +208,13 @@ async fn a_paused_greeting_records_no_would_drop() {
     assert_eq!(m.would_drop, None);
 }
 
-/// The verdict lands after the pack (theseus-fpm2's `Late` hole): the pack fixed an ordinary
-/// budget for want of it, and a greeting `effort.v1` calls `low` still records what a bar would
-/// drop, so the shadow's sample is not missing its late turns. The route row says `verdict late`
-/// (the proof it was late), the route's own wait still catching it before the first compile, and the same late turn called `high` records nothing.
+/// The verdict lands after the pack (theseus-fpm2's `Late` hole) but inside the route's own wait:
+/// the pack fixed an ordinary budget for want of it, and a greeting `effort.v1` calls `low` still
+/// records what a bar would drop, so the shadow's sample is not missing the late turns that wait
+/// catches (here 150 ms into a 2 s wait). The route row says `verdict late` (the proof it was late
+/// at the pack), the route's own wait still catching it before the first compile, and the same
+/// late turn called `high` records nothing. A verdict that misses that wait is not this test's:
+/// `a_verdict_that_misses_the_routes_wait_records_no_would_drop` pins it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_late_low_verdict_still_records_what_a_bar_would_drop() {
     for (level, greeting) in [("low", true), ("high", false)] {
@@ -240,4 +243,40 @@ async fn a_late_low_verdict_still_records_what_a_bar_would_drop() {
         let want = greeting.then_some(m.admitted.len() as u64);
         assert_eq!(m.would_drop, want, "{level}");
     }
+}
+
+/// The hole the test above does not cover, pinned on purpose (theseus-fpm2's `Late` hole): a
+/// greeting whose `low` verdict misses the route's own wait (`routing.max_wait_ms`; here the judge
+/// is held past it) is `Got::Late` in `route_step.rs`'s `read_verdict`, its verdict lands for the
+/// session's next message, and this turn records no `would_drop`. The shadow's sample is short by
+/// every low-effort turn the wait missed; `RecallManifest::would_drop`'s doc says so. What closes
+/// it: marking such a turn when its verdict arrives (a design change to the route step, not made).
+/// What makes this fail: any edit that records `would_drop` for a turn like this one, which is
+/// then the edit to make, with that doc changed to match.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_verdict_that_misses_the_routes_wait_records_no_would_drop() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "sonnet", "low", 0.95);
+    work(&jev, "conversation", 0.95);
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    let r = crate::tests_injection_tiers::tiered(&jev, 1, false, |c| {
+        c.routing.max_wait_ms = 100;
+        c.judge.total_secs = 30;
+    });
+    act_open(&r);
+    let res = turn(&r.core, None, "Hello there, good morning!", None).await;
+    let m = recalled(&r, &res);
+    assert!(!m.admitted.is_empty(), "notes were admitted");
+    let row = decided(&r.core.store).pop().unwrap();
+    assert_eq!(row["injection"]["fallback"], "verdict late", "{row}");
+    assert_eq!(
+        (&row["late"], &row["reason"], &row["answered_ms"]),
+        (&true.into(), &"late".into(), &Value::Null),
+        "the route's own wait ended with no verdict: {row}"
+    );
+    assert_eq!(
+        m.would_drop, None,
+        "a verdict that missed the wait marks nothing"
+    );
+    jev.release();
 }
