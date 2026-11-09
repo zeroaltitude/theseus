@@ -8,6 +8,13 @@ slow-timeout = { period = "60s", terminate-after = 2 }
 # A test's leftover child processes (a daemon, an `op`) get this long to exit.
 leak-timeout = "500ms"
 
+# A gate writes a JUnit report, so a flake becomes a row with its attempts recorded: nextest puts each retried
+# test's attempts in the file (a `flakyFailure` or `rerunFailure` element per failed try) and the timing of
+# each. It lands at target/nextest/default/junit.xml, inside the ignored target directory. scripts/gate.sh
+# does not read it (the FLAKY lines on stdout are what it parses); a person or a later phase may.
+[profile.default.junit]
+path = "junit.xml"
+
 # The flaky list (theseus-goa8; review 2's C7). A test that fails under load by
 # construction, and has an issue that fixes it, retries here, so a gate does not
 # fail for it and does not hide that it flaked: nextest names each test that passed
