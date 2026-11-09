@@ -3385,6 +3385,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   writes no frame and takes no session or execution lock. The index counts a row at the time it was written, so the
   window's own times then decide by each row's `at_unix_ms`. Tests: `rpc/tests_window.rs` (a busy day's window, 6,000
   report rows in 13 pages, read in 0.14 s in a debug build).
+- **A search's words on a surface that reads none** (theseus-snb3, w9qv's lanes E and F; `rpc/search_text.rs`):
+  `index.query`, `memory.search` and `memory.recalls` take the connection's surface (`Surface::reads_private`) as
+  `import.sessions` and `session.history` do. A surface that reads no private text (Discord's binding, the MCP server, a
+  connection no listener named) is given every hit's ids, position, kind, origin, author, place, date, sources and scores,
+  and for a hit of a session in a private place (an imported one always: `TurnRunner::place_of`), or in a place that
+  cannot be read, no text (`WITHHELD` stands in) and no entities. A session in a shared place keeps its words: these
+  methods are told no place to speak for, so which shared place the caller is in is the pack's `may_draw_on`, not this.
+  It is defence in depth: the MCP server's allowlist leaves both searches out and the Discord binding calls neither.
+  What it does not do is hide that a private session holds the query's words, since the hit and its score stay (the
+  `import.sessions` rule drops the words instead). **A job reads what the CLI reads** (lane F): a job's own
+  `theseus memory index search` or `theseus memory search` asks the same socket as `Surface::Cli`, and the CLI refuses a
+  job only an owner's act (`OPERATORS`), so an L0 job reads outside-integrity text too (`IndexHit.external` says
+  which). That is the speed bump the root `AGENTS.md` names, said here for reads; the `external` marker does not
+  survive the copy into a program's result, which is an item the content classifier judges like any other
+  (`content.rs`), and under L1 the socket is out of the job's view. Tests: `rpc/tests_search_text.rs` (each method
+  over the CLI, the web UI, Discord's binding and an unnamed connection, positive counts on both sides).
 - **The ledger's hash chain** (theseus-bmkxk, store format 31): the store's writer chains every ledger row
   (`theseus-store`'s guide); core reads it. `ledger.verify` (`rpc/ledger_verify.rs`, a read: no frame, no lock, on the
   blocking pool; `theseus ledger verify|head`) walks it with `theseus_store::chain_walk::verify` and answers the head and

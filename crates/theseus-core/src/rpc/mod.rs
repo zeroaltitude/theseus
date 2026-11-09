@@ -87,6 +87,7 @@ mod route_correct;
 mod routines;
 pub(crate) mod routines_watch;
 mod rsi;
+mod search_text;
 mod server;
 mod session_dir;
 mod session_find;
@@ -170,6 +171,8 @@ mod tests_prefix;
 mod tests_rewind;
 #[cfg(test)]
 mod tests_scratch;
+#[cfg(test)]
+mod tests_search_text;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]
