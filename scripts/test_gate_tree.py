@@ -255,6 +255,19 @@ class GateTree(unittest.TestCase):
         self.assertIn("gate: ok", out)
         self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run, in this tree: {calls}")
 
+    def test_the_identity_comment_names_as_many_unseen_paths_as_tree_unseen_holds(self):
+        # The comment said "minus one path" over a two-entry list; a count keeps it from drifting again.
+        lines = (HERE / "gate.sh").read_text().splitlines()
+        arrays = [ln for ln in lines if ln.startswith("tree_unseen=(")]
+        self.assertEqual(len(arrays), 1, arrays)
+        self.assertEqual(arrays[0].count(":(exclude)"), 2, arrays[0])
+        sentence = [ln for ln in lines if "minus " in ln and "tree-stamp" not in ln and "protocol.gen and" in ln]
+        self.assertEqual(len(sentence), 1, sentence)
+        self.assertIn("minus two paths", sentence[0])
+        for path in ("cockpit/src/protocol.gen", "bench/smoke/runs"):
+            self.assertIn(path, arrays[0])
+            self.assertIn(path, sentence[0])
+
     # ---- what the suite does not run
 
     def stale_filter(self, committed=False):

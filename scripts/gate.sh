@@ -205,7 +205,7 @@ save_locked_record() {
 # be hours), before the suite, and at the end. A tree that moved ABORTS the gate with exit status 75 and a message of
 # its own, never a test failure; and a gate that failed is checked too, since a failure on a moved tree is no verdict.
 # The identity is the commit, a digest of the edits beyond it (tracked and untracked: the digest scripts/tree-stamp.sh
-# prints, minus one path), and the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree
+# prints, minus two paths, cockpit/src/protocol.gen and bench/smoke/runs), and the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree
 # detached and restored in the window is the same commit and the same files, and not the tree the compile and the tests
 # between them ran on. It is computed here and not by that script, because the gate must not depend on a file of the tree
 # it judges: a branch cut before the script, and the throwaway repositories the guard's own tests run the gate in, lack it.
