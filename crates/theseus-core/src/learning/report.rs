@@ -386,11 +386,12 @@ pub fn pack_report_of(
 
 /// The failed calls made at or after `from_ms`. `failed` is all-time and never
 /// falls, so a cause keyed on it would re-file one old burst every night; this
-/// is what is failing now. A call's time is `Seen::at_ms`: for one the learning
-/// backfill made, the judged event's.
+/// is what is failing now. A call's time is `Seen::row_ms`, when its row was
+/// written: a learning backfill's `at_ms` is the judged event's, so a backfill
+/// failing today over old events still counts.
 fn failed_since(seen: &[Seen], from_ms: u64) -> u32 {
     seen.iter()
-        .filter(|s| matches!(s.judgment.outcome, Outcome::Failed { .. }) && s.at_ms >= from_ms)
+        .filter(|s| matches!(s.judgment.outcome, Outcome::Failed { .. }) && s.row_ms >= from_ms)
         .count() as u32
 }
 

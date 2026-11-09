@@ -942,6 +942,7 @@ fn replay_result(
             Seen {
                 position: s.position,
                 at_ms: s.at_ms,
+                row_ms: s.row_ms,
                 judgment: j,
             }
         })
@@ -1119,6 +1120,7 @@ mod tests {
         Seen {
             position: 1,
             at_ms: 1,
+            row_ms: 1,
             judgment,
         }
     }
