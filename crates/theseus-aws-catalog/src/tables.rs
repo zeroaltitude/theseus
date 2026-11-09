@@ -819,7 +819,17 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
         "appstream",
         &["CreateDirectoryConfig", "UpdateDirectoryConfig"],
     ),
-    ops("chime", &["ListBots"]),
+    ops(
+        "chime",
+        &[
+            "CreateUser",
+            "GetUser",
+            "ListBots",
+            "ListUsers",
+            "ResetPersonalPIN",
+            "UpdateUser",
+        ],
+    ),
     ops("chime-sdk-identity", &["DescribeAppInstanceUserEndpoint"]),
     ops(
         "chime-sdk-meetings",
@@ -1110,6 +1120,11 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
     ops(
         "pinpoint",
         &["DeleteGcmChannel", "GetGcmChannel", "UpdateGcmChannel"],
+    ),
+    // The Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
+    ops(
+        "pinpoint",
+        &["DeleteBaiduChannel", "GetBaiduChannel", "UpdateBaiduChannel"],
     ),
 ];
 

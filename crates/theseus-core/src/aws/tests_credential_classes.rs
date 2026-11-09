@@ -41,6 +41,8 @@ const VPN_PRE_SHARED_KEY: &str = "example-vpn-pre-shared-key-0009";
 const FCM_SERVER_KEY: &str = "example-fcm-server-key-0010";
 const WORKSPACE_TOKEN: &str = "example-workspace-token-0011";
 const CLAIM_CERTIFICATE: &str = "example-claim-certificate-0012";
+const BAIDU_CREDENTIAL: &str = "example-baidu-credential-0013";
+const CHIME_PIN: &str = "example-chime-personal-pin-0014";
 
 /// The channel a listing shows: no credential anywhere in it.
 const CHANNEL_NAME: &str = "example-channel-name";
@@ -99,6 +101,20 @@ fn more_classes(path: &str, n: usize) -> Option<Reply> {
             json!({"Id": "example-profile", "Name": "example-profile-name",
                    "ProvisioningType": "FLEET_PROVISIONING",
                    "ClaimCertificate": CLAIM_CERTIFICATE}),
+        ));
+    }
+    if path.ends_with("/channels/baidu") {
+        return Some(rest(
+            n,
+            json!({"id": "example-app", "ApplicationId": "example-app", "Platform": "BAIDU",
+                   "Credential": BAIDU_CREDENTIAL, "Enabled": true, "Version": 1}),
+        ));
+    }
+    if path.contains("/users/") {
+        return Some(rest(
+            n,
+            json!({"User": {"UserId": "example-user", "PersonalPIN": CHIME_PIN,
+                            "DisplayName": "example-display-name"}}),
         ));
     }
     None
@@ -245,6 +261,29 @@ fn more_cases() -> Vec<Case> {
         vec![("ClaimCertificate", CLAIM_CERTIFICATE)],
         "example-profile-name",
     )]
+    .into_iter()
+    .chain(measured_cases())
+    .collect()
+}
+
+/// Members the second review's sweep named, held only where the catalog walk
+/// measured them reaching the model (theseus-3i6d1). "A PIN" and "a licence
+/// token" are the members' plain readings, not sourced facts.
+fn measured_cases() -> Vec<Case> {
+    vec![
+        case(
+            call("pinpoint", "GetBaiduChannel", json!({"ApplicationId": "example-app"})),
+            vec![("BaiduChannelResponse.Credential", BAIDU_CREDENTIAL)],
+            "example-app",
+        ),
+        case(
+            call("chime", "GetUser", json!({"AccountId": "example-account", "UserId": "example-user"})),
+            vec![("User.PersonalPIN", CHIME_PIN)],
+            // The user's DisplayName is a marked member of the same answer
+            // and is now masked with it (the owner's question, carried).
+            "example-user",
+        ),
+    ]
 }
 
 /// Every class of the first passes, and the credentials each must hold.
