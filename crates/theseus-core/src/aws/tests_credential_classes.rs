@@ -31,6 +31,8 @@ const MFA_SESSION: &str = "example-mfa-association-session-0006";
 const CHAP_INITIATOR: &str = "example-chap-initiator-secret-0007";
 const CHAP_TARGET: &str = "example-chap-target-secret-0008";
 const VPN_PRE_SHARED_KEY: &str = "example-vpn-pre-shared-key-0009";
+const FCM_SERVER_KEY: &str = "example-fcm-server-key-0010";
+const WORKSPACE_TOKEN: &str = "example-workspace-token-0011";
 
 /// The channel a listing shows: no credential anywhere in it.
 const CHANNEL_NAME: &str = "example-channel-name";
@@ -124,6 +126,23 @@ fn answers(s: &Seen, n: usize) -> Reply {
             n,
             json!({"keyName": "example-key", "key": GRAFANA_KEY, "workspaceId": "g-example"}),
         );
+    }
+    if path.ends_with("/channels/gcm") {
+        return rest(
+            n,
+            json!({"id": "example-app", "ApplicationId": "example-app", "Platform": "GCM",
+                   "Credential": FCM_SERVER_KEY, "Enabled": true, "IsArchived": false, "Version": 1}),
+        );
+    }
+    if path.starts_with("/workspaces") {
+        let workspace = json!({"id": "g-example", "name": "example-workspace",
+                               "status": "ACTIVE", "grafanaToken": WORKSPACE_TOKEN});
+        let body = if path == "/workspaces" {
+            json!({ "workspaces": [workspace] })
+        } else {
+            json!({ "workspace": workspace })
+        };
+        return rest(n, body);
     }
     let stream_key = json!({
         "arn": "arn:aws:ivs:us-west-2:111122223333:stream-key/example",
@@ -248,6 +267,21 @@ fn cases() -> Vec<Case> {
             ),
             vec![("VpnConnectionDeviceSampleConfiguration", VPN_PRE_SHARED_KEY)],
             "request req-",
+        ),
+        case(
+            call("pinpoint", "GetGcmChannel", json!({"ApplicationId": "example-app"})),
+            vec![("GCMChannelResponse.Credential", FCM_SERVER_KEY)],
+            "example-app",
+        ),
+        case(
+            call("grafana", "DescribeWorkspace", json!({"workspaceId": "g-example"})),
+            vec![("workspace.grafanaToken", WORKSPACE_TOKEN)],
+            "g-example",
+        ),
+        case(
+            call("grafana", "ListWorkspaces", json!({})),
+            vec![("workspaces[0].grafanaToken", WORKSPACE_TOKEN)],
+            "g-example",
         ),
     ]
 }

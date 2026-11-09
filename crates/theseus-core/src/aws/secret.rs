@@ -107,6 +107,14 @@ pub(super) const HELD: &[(&str, &str, &str)] = &[
     // credential, and it rode out beside the held `ConnectionToken`
     // (theseus-37ds).
     ("connectparticipant", "Websocket", "Url"),
+    // Pinpoint's Firebase server key, and Grafana's workspace token: neither
+    // is marked, and `Credential` is no place in `NAMED` (its name is
+    // everywhere). Each needs its operations `WHEN_PRESENT` in the catalog,
+    // because the walk never runs on a `secret=No` operation
+    // (theseus-3i6d1).
+    ("pinpoint", "GCMChannelResponse", "Credential"),
+    ("grafana", "WorkspaceDescription", "grafanaToken"),
+    ("grafana", "WorkspaceSummary", "grafanaToken"),
 ];
 
 /// One secret a result held: its handle, and where it was.
