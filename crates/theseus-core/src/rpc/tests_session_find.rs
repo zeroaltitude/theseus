@@ -340,3 +340,131 @@ fn an_imported_sessions_words_reach_only_a_surface_that_reads_private_text() {
         );
     }
 }
+
+/// An imported session and an ordinary one, each with two messages, and the
+/// title the imported one's words gave it.
+const KESTREL: &str = "the kestrel count on the north ridge";
+const KESTREL_SAID: &str = "forty kestrels over the ridge";
+
+fn imported_and_plain(c: &Core) -> (String, String) {
+    let imported = format!("{}{}", crate::import::SESSION_PREFIX, "00c0ffee");
+    let mut r =
+        crate::session::SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    r.session_id = imported.clone();
+    r.title = Some(KESTREL.into());
+    r.last_active_ms = theseus_protocol::now_unix_ms();
+    c.store.put_session(&imported, &r).unwrap();
+    let plain = open_in(c, "/work/tides", theseus_protocol::now_unix_ms(), 1);
+    let mut r: crate::session::SessionRecord = c.store.get_session(&plain).unwrap().unwrap();
+    r.title = Some("the tide log".into());
+    c.store.put_session(&plain, &r).unwrap();
+    for (id, said) in [(&imported, KESTREL_SAID), (&plain, "the tide is out")] {
+        for _ in 0..2 {
+            let n = Node::user(id, None, "operator", said).record().unwrap();
+            c.store.append(&[n]).unwrap();
+        }
+    }
+    (imported, plain)
+}
+
+/// The dispatch arm itself (theseus-a7pr's proof gap): `session.history`
+/// through a real connection, on each surface. The tests below dispatch
+/// (`session_history_for`, `session_list_for`) are one level under the
+/// route, so a route that stopped passing `conn.surface` left them green.
+/// Planted, never committed: `server.rs`'s `SESSION_HISTORY` arm calling
+/// `session_history_for(p, true)` reddens this test, and not those.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_history_through_the_dispatch_withholds_an_imported_sessions_words() {
+    use crate::approval::Surface;
+    let c = core();
+    let (imported, plain) = imported_and_plain(&c);
+    let ask = |session: &str, surface: Surface| {
+        let params = serde_json::json!({ "session_id": session });
+        let c = c.clone();
+        async move {
+            crate::tests_mcp_memory::rpc(
+                &c,
+                surface,
+                theseus_protocol::method::SESSION_HISTORY,
+                params,
+            )
+            .await
+            .unwrap()
+        }
+    };
+    for surface in [Surface::Mcp, Surface::Unnamed] {
+        let said = ask(&imported, surface).await;
+        let text = said.to_string();
+        assert!(
+            !text.contains(KESTREL),
+            "{surface:?} read the title: {text}"
+        );
+        assert!(
+            !text.contains(KESTREL_SAID),
+            "{surface:?} read a node: {text}"
+        );
+        assert_eq!(
+            said["nodes"].as_array().map(Vec::len),
+            Some(2),
+            "{surface:?}: the nodes are listed, not dropped"
+        );
+    }
+    let owner = ask(&imported, Surface::Cli).await;
+    let text = owner.to_string();
+    assert!(text.contains(KESTREL), "the owner's title: {text}");
+    assert!(text.contains(KESTREL_SAID), "the owner's node: {text}");
+    assert_eq!(owner["nodes"].as_array().map(Vec::len), Some(2));
+    for surface in [Surface::Mcp, Surface::Unnamed, Surface::Cli] {
+        let said = ask(&plain, surface).await;
+        let text = said.to_string();
+        assert!(text.contains("the tide log"), "{surface:?}: {text}");
+        assert!(text.contains("the tide is out"), "{surface:?}: {text}");
+    }
+}
+
+/// `session.list { ids }` through a real connection. `Mcp` is refused before
+/// dispatch (`NOT_FOR_MCP`), so the surfaces that read no private text here
+/// are `Unnamed` and `Discord`. Planted, never committed: `sessions.rs`'s
+/// `SESSION_LIST` arm calling `session_list_for(p, true)` reddens it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_list_through_the_dispatch_withholds_an_imported_sessions_title() {
+    use crate::approval::Surface;
+    let c = core();
+    let (imported, plain) = imported_and_plain(&c);
+    let ask = |surface: Surface| {
+        let params = serde_json::json!({ "ids": [imported, plain] });
+        let c = c.clone();
+        async move {
+            crate::tests_mcp_memory::rpc(
+                &c,
+                surface,
+                theseus_protocol::method::SESSION_LIST,
+                params,
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let title_of = |rows: &serde_json::Value, id: &str| {
+        let row = rows["sessions"]
+            .as_array()
+            .and_then(|a| a.iter().find(|s| s["session_id"] == id))
+            .unwrap_or_else(|| panic!("{id} is not listed: {rows}"))
+            .clone();
+        row.get("title").and_then(|t| t.as_str()).map(String::from)
+    };
+    for surface in [Surface::Unnamed, Surface::Discord] {
+        let rows = ask(surface).await;
+        assert_eq!(rows["sessions"].as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            title_of(&rows, &imported),
+            None,
+            "{surface:?} read the title"
+        );
+        assert_eq!(title_of(&rows, &plain).as_deref(), Some("the tide log"));
+    }
+    let rows = ask(Surface::Cli).await;
+    assert_eq!(rows["sessions"].as_array().map(Vec::len), Some(2));
+    assert_eq!(title_of(&rows, &imported).as_deref(), Some(KESTREL));
+    assert_eq!(title_of(&rows, &plain).as_deref(), Some("the tide log"));
+}

@@ -82,7 +82,7 @@ was asked four times.
 The withhold itself is one function per wire shape, used at every door:
 
 - `withheld_node(NodeInfo)` — exists.
-- `withheld_session(SessionInfo)` — new: `title`, `title_was`, `first_text`, `last_text`, `prompts`.
+- `withhold_session_words(&mut SessionInfo)` — new: `title`, `title_was`, `first_text`, `last_text`, `prompts`.
 
 A door is closed by taking the surface and mapping the shape through its function. There is no second
 mechanism.
@@ -98,10 +98,12 @@ Three bars, in order of how much they are worth.
    `crates/complete.rs`'s `check`. A method added to the protocol and left unclassified fails it; a name left
    on a list after its method is removed or renamed fails it too.
 2. **A new surface defaults to withheld.** True today: `reads_private` is `Cli | Web`.
-3. **A new text-bearing field on `SessionInfo` or `NodeInfo` defaults to withheld.** *Not* true, and not
-   solved here. It needs (b) or (c), or a field census on each type. The honest state is that this is the
-   one bar of the three that is still an eye-check, and the two withhold functions are where a reviewer
-   looks. Noted as open rather than claimed.
+3. **A new text-bearing field on `SessionInfo` or `NodeInfo` must be decided.** Not "defaults to withheld", but
+   checked: `crates/theseus-core/src/rpc/tests_imported_fields.rs` walks each type's own definition and fails, by
+   field name, unless every `pub` field is on `WITHHELD` (the helper clears it) or `SHOWN` (with the reason it holds
+   none of the session's words). A second test runs `withhold_session_words` and `withheld_node` over fully planted
+   values and checks each list against what the helper does. A new field therefore fails the build until someone
+   writes down which list it is on.
 
 The bar that is *not* met by an empty set matters here as much as anywhere: each withhold test asserts the
 positive side too — the owner's own surface still gets the text, and a session that is not imported is
