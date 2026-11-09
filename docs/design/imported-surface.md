@@ -9,13 +9,17 @@ previous fix. This note is the rule, so the fourth finding is the last one found
 | Door | Found | State on this base |
 |---|---|---|
 | `session.history`'s nodes (`text`, `thinking`, `detail`, `cites`) | 2026-11-08 | closed: `history_on(p, conn.surface)` (`rpc/server.rs:326`), `withheld_node` |
-| `session.history`'s `session` block — its `title` | 2026-11-08, reviewing the fix | **open**: `methods.rs:1311` builds `session_info` outside the withhold branch |
-| `node.list` | 2026-11-08, reviewing the fix | routed with no surface (`rpc/server.rs:333`); out of MCP's reach only because `NODE_LIST` is absent from `mcp_server::ALLOWED` |
+| `session.history`'s `session` block — its `title` | 2026-11-08, reviewing the fix | closed on the 2026-11-09 01:20 departure, and again here through the shared helper |
+| `node.list` | 2026-11-08, reviewing the fix | closed on the 2026-11-09 01:20 departure: `node_list_on(p, conn.surface)` (`rpc/server.rs:333`) |
 | `session.list` — its `title`, by the `ids` path | 2026-11-09 | **open**: routed through `sessions::OWN` (`rpc/server.rs:318`) with no surface argument |
 
 All four are the same shape: **a read method that returns a session's content, routed to every surface,
 with no surface check**. Three of the four were latent rather than designed-safe: they are out of an MCP
 client's reach because its method list happens not to name them.
+
+The states above are as of the 2026-11-09 01:20 departure, which closed two of them door by door. That is
+three patches in two days for one question, which is the case for writing the rule down rather than a
+reason not to.
 
 ## 1. What is the protected thing
 
@@ -113,9 +117,9 @@ Nothing, on this base, that the owner would notice.
   withheld with it, but they were never reachable: see the correction below.
 - **`session.history`'s `session.title`.** Discord's in-process binding reads history. For an imported
   session it will now see no title. That is a visible change and it is the point of the finding.
-- **`node.list`.** Left as it is by this note: it takes no surface, and closing it means giving it one. It is
-  listed in `NOT_FOR_MCP`, so the classification now says in writing that it is refused rather than
-  accidentally absent.
+- **`node.list`.** Closed by the 2026-11-09 01:20 departure, which gave it the surface this note argued it
+  needed. It is also in `NOT_FOR_MCP`, so the classification now says in writing that MCP is refused it,
+  rather than leaving that to an absence.
 - **`memory_get` / `memory_search` over the MCP server.** An owner call, deliberately not decided here: with
   `[mcp_server] memory` on (off by default), `memory_get` returns an imported session's text because
   `place_of` reads it private. Either answer is defensible — the setting is the owner's explicit yes, and the
