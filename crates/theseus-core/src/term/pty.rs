@@ -255,10 +255,7 @@ impl Pty {
         if let Ok(Some(status)) = c.try_wait() {
             // The program is gone; anything it left in its group still goes.
             signal_group(self.pid, libc::SIGKILL);
-            return Ended {
-                status: Some(status),
-                ..Ended::default()
-            };
+            return self.after_exit(status, keep_background);
         }
         // Its descendants as they are now: one that left the process group
         // (a `setsid` of its own) is still signalled by its pid.
@@ -323,6 +320,45 @@ impl Pty {
         }
         Ended {
             status: c.wait().ok(),
+            killed,
+            left: Vec::new(),
+        }
+    }
+
+    /// A close of a program that had already exited (theseus-d1zw). Its jobs
+    /// are no longer below it (they were reparented), so the processes still
+    /// holding its pty are what is found, the way a close finds a process
+    /// that left the tree. Kept, they are named as a live shell's are; else
+    /// they end, as every close that keeps nothing ends them.
+    fn after_exit(&self, status: std::process::ExitStatus, keep_background: bool) -> Ended {
+        let held: Vec<tree::Proc> = holders(&self.slave_path)
+            .into_iter()
+            .filter(|p| pgid(p.pid).is_some_and(|g| g != self.pid))
+            .collect();
+        if keep_background {
+            let left = held
+                .into_iter()
+                .map(|p| Kept {
+                    proc: p,
+                    program: comm(p.pid),
+                    why: match sid_of(p.pid) == Some(self.pid) {
+                        true => WHY_BACKGROUND,
+                        false => WHY_SESSION,
+                    },
+                })
+                .collect();
+            return Ended {
+                status: Some(status),
+                killed: 0,
+                left,
+            };
+        }
+        let killed = held
+            .iter()
+            .filter(|p| tree::signal(**p, libc::SIGKILL))
+            .count();
+        Ended {
+            status: Some(status),
             killed,
             left: Vec::new(),
         }

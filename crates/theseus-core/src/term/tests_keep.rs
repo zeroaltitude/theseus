@@ -466,3 +466,70 @@ async fn a_shell_that_ends_on_sigterm_gets_no_hang_up_and_its_job_is_kept() {
     })
     .await;
 }
+
+/// A shell that has already exited, with a background job it started still
+/// running: the close finds the job by the pty it holds, and names it as it
+/// names a job of a live shell, so the book tracks it (theseus-d1zw). The
+/// positive is the job's own pid, `sleep` and why it was left.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shell_that_exited_leaves_its_background_job_tracked() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let run = run_tag(8);
+    let job = mark(&run, AMPERSAND);
+    let (o, _) = call(
+        &terms,
+        "s1",
+        OPEN,
+        json!({"argv": ["bash", "--norc", "--noprofile", "-i"], "cols": 200}),
+        d.path(),
+    )
+    .await;
+    let sh = id_of(&o);
+    let text = format!("PS1='k''eep# '; sleep {job} & exit\n");
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": sh, "text": text}),
+        d.path(),
+    )
+    .await;
+    until("the job started and the shell exited", || {
+        !marked(&job).is_empty()
+            && terms
+                .all()
+                .iter()
+                .any(|t| t.id == sh && t.pty.exited().is_some())
+    })
+    .await;
+    let pid = marked(&job)[0];
+    let closed = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.close_where(BY_SESSION_END, |t| t.session == "s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(closed.len(), 1);
+    let c = &closed[0];
+    let named: Vec<(u32, &str, &str)> = c
+        .left
+        .iter()
+        .map(|k| (k.proc.pid, k.program.as_str(), k.why))
+        .collect();
+    assert_eq!(
+        named,
+        vec![(pid, "sleep", pty::WHY_BACKGROUND)],
+        "the job of the exited shell is named"
+    );
+    assert_eq!(terms.left_info().len(), 1);
+    assert_eq!(marked(&job).len(), 1, "it was left running, not killed");
+    let ended = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.end_left("s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(ended.len(), 1);
+    until("the left job ended", || marked(&job).is_empty()).await;
+}
