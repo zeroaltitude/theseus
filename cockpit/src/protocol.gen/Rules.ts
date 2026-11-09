@@ -14,7 +14,12 @@ long_run_ms: number,
 /**
  * A question is reminded of once, at this share of its life: half.
  */
-remind_at: number, finished: Finished, 
+remind_at: number, 
+/**
+ * The life a held question is reminded by, as it has no deadline of its
+ * own (theseus-lrc3m): `[kernel] confirm_ttl_secs`'s default, 15 minutes.
+ */
+held_life_ms: number, finished: Finished, 
 /**
  * At most one Interrupt per root in this window: 10 s.
  */
