@@ -1004,7 +1004,11 @@ async fn a_gate_ends_at_its_cap() {
 /// and reaches `until` through `super::*`, so it counts without an import.
 ///
 /// **Not in the family**, with the reason: `tests_gateway::horizon` waits with
-/// `Rig::until`, a method of its own (two separate reds, accounted apart);
+/// `Rig::until` (`tests_gateway.rs`), a method of the gateway rig that 17 files
+/// under `tests_gateway/` call as `r.until(`, horizon among them (two separate
+/// reds, accounted apart). Four more private `until` helpers live in the crate
+/// (`tests_outbox.rs`, `courier/tests_catchup.rs`, `runtime/voice/tests_tasks.rs`,
+/// `runtime/emoji.rs`) and are no part of this guard either;
 /// and theseusd's `an_acting_call_waits_and_the_cli_approves_it` is a test of
 /// another crate with Discord disabled, so it shares no helper with these.
 #[cfg(test)]
@@ -1022,22 +1026,69 @@ const UNTIL_FAMILY: &[&str] = &[
     "tests_war_room.rs",
 ];
 
+/// Whether `text` reaches this module's `until` by any written form: the brace
+/// import (`tests_task_threads::{bound, until}`), the plain `use`
+/// (`use crate::tests_task_threads::until;`) or a path-qualified call
+/// (`crate::tests_task_threads::until(..)`). A path that names another item
+/// of the module (`::bound(`) is not a reference to `until`.
+#[cfg(test)]
+fn reaches_until(text: &str) -> bool {
+    text.split("tests_task_threads::").skip(1).any(|rest| {
+        if let Some(list) = rest.strip_prefix('{') {
+            let list = list.split('}').next().unwrap_or("");
+            list.split(',').any(|w| w.trim() == "until")
+        } else {
+            let word: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            word == "until"
+        }
+    })
+}
+
+/// Every `.rs` file under `dir`, recursively, as its path relative to `root`
+/// with `/` separators (a top-level file is its bare name).
+#[cfg(test)]
+fn rs_files_under(root: &Path, dir: &Path, out: &mut Vec<(String, std::path::PathBuf)>) {
+    for e in std::fs::read_dir(dir).expect("read a source directory") {
+        let p = e.expect("a source entry").path();
+        if p.is_dir() {
+            rs_files_under(root, &p, out);
+        } else if p.extension().is_some_and(|x| x == "rs") {
+            let rel = p.strip_prefix(root).expect("under src");
+            let rel: Vec<_> = rel.iter().map(|c| c.to_string_lossy()).collect();
+            out.push((rel.join("/"), p));
+        }
+    }
+}
+
+#[test]
+fn the_rule_reads_every_way_a_file_reaches_until() {
+    assert!(reaches_until("use crate::tests_task_threads::{bound, until};"));
+    assert!(reaches_until("use crate::tests_task_threads::{\n    bound,\n    until,\n};"));
+    assert!(reaches_until("use crate::tests_task_threads::until;"));
+    assert!(reaches_until("let x = crate::tests_task_threads::until(&r, f).await;"));
+    // Negatives, so the predicate cannot be constant-true.
+    assert!(!reaches_until("crate::tests_task_threads::bound(&r, post.id);"));
+    assert!(!reaches_until("use crate::tests_task_threads::{bound, until_not};"));
+    assert!(!reaches_until("use crate::tests_task_threads::untilx;"));
+    assert!(!reaches_until("nothing here"));
+}
+
 #[test]
 fn the_until_family_is_exactly_the_files_that_share_its_guard() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut found: Vec<String> = vec!["tests_task_threads.rs".into(), "tests_task_react.rs".into()];
-    for e in std::fs::read_dir(&src).expect("read the crate's source") {
-        let p = e.expect("a source entry").path();
-        if p.extension().is_none_or(|x| x != "rs") {
-            continue;
-        }
+    let mut files = Vec::new();
+    rs_files_under(&src, &src, &mut files);
+    assert!(
+        files.iter().any(|(rel, _)| rel.contains('/')),
+        "the walk did not descend into a subdirectory"
+    );
+    for (name, p) in files {
         let text = std::fs::read_to_string(&p).expect("read a source file");
-        let imports_until = text.split("tests_task_threads::{").skip(1).any(|rest| {
-            let list = rest.split("};").next().unwrap_or("");
-            list.split(',').any(|w| w.trim() == "until")
-        });
-        let name = p.file_name().unwrap().to_string_lossy().into_owned();
-        if imports_until && !found.contains(&name) {
+        if reaches_until(&text) && !found.contains(&name) {
             found.push(name);
         }
     }
@@ -1066,7 +1117,7 @@ fn the_until_family_is_exactly_the_files_that_share_its_guard() {
             text.contains(&format!("fn {test}")),
             "{test} is not in {file}"
         );
-        assert!(UNTIL_FAMILY.contains(&file));
+        assert!(found.iter().any(|f| f == file), "{file} was not found by the scan");
     }
     // The ones that are not: neither mentions this module at all.
     let horizon = std::fs::read_to_string(src.join("tests_gateway/horizon.rs")).expect("horizon");
