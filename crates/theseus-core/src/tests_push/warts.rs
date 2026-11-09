@@ -305,6 +305,29 @@ async fn a_questions_expiry_is_the_same_number_everywhere() {
         .find(|v| v.execution_id == exec)
         .unwrap();
     assert_eq!(v.pending[0].expires_at_ms, 0, "the snapshot: {v:?}");
+    // The list a Discord presser reads is the one surface that keeps the
+    // time: its Details press prints it, and the DM flow is the owner's, not
+    // changed without his word. Anyone else's says none.
+    assert_eq!(
+        listed_deadline(&mut w, 2, json!({})).await,
+        0,
+        "a plain list"
+    );
+    let discord = json!({"discord": {"user_id": "u1", "channel_id": "c1"}});
+    assert_eq!(
+        listed_deadline(&mut w, 3, discord).await,
+        want,
+        "a Discord presser's list keeps the time its Details press prints"
+    );
+}
+
+/// The deadline `confirm.list` gives the one question waiting, to a
+/// connection that sends `params`.
+async fn listed_deadline(w: &mut Raw, id: u64, params: Value) -> u64 {
+    let got = w.call(id, method::CONFIRM_LIST, params).await.result;
+    let list: theseus_protocol::ConfirmListResult = serde_json::from_value(got.unwrap()).unwrap();
+    assert_eq!(list.confirms.len(), 1, "one question waits");
+    list.confirms[0].expires_at_ms
 }
 
 /// A question is in `confirm.list` from its plan on, while its turn still
