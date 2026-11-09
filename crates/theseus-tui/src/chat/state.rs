@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use theseus_protocol::modes::{PlanItem, SessionMode};
 use theseus_protocol::{method, warm::Typist, ConfirmRequest};
 
+use super::atfile::Resolved;
 use super::banner;
 use super::commands;
 use super::editor::Editor;
@@ -227,7 +228,7 @@ pub struct Chat {
     pub(super) ended: HashSet<String>,
     pub(super) answered_text: HashSet<String>,
     pub(super) proposed: std::collections::HashMap<String, (String, Value)>,
-    pub(super) unsent: Vec<String>,
+    pub(super) unsent: Vec<(String, Vec<theseus_protocol::Attachment>)>,
     /// The owner's last message in this conversation (never a task's), for
     /// `make that a task`.
     pub(super) last_said: Option<String>,
@@ -766,19 +767,24 @@ impl Chat {
             return self.send_note();
         }
         // A message that names @files must name listed ones, or it is not sent.
-        let footer = if self.editor.text().trim_start().starts_with('/') {
-            String::new()
+        let resolved = if self.editor.text().trim_start().starts_with('/') {
+            Resolved::default()
         } else {
             match self.at_resolve() {
-                Ok(f) => f,
+                Ok(r) => r,
                 Err(why) => {
                     self.flash(why);
                     return Vec::new();
                 }
             }
         };
+        if !resolved.attachments.is_empty() && self.view.is_some() {
+            self.flash("an image is not carried to a task · /back to the conversation");
+            return Vec::new();
+        }
         let mut taken = self.editor.take();
-        taken.text.push_str(&footer);
+        taken.text.push_str(&resolved.footer);
+        taken.attachments = resolved.attachments;
         let (text, trimmed) = (taken.text.clone(), taken.text.trim());
         if trimmed.is_empty() {
             return Vec::new();
@@ -817,8 +823,8 @@ impl Chat {
         }
         self.echo(&taken.shown);
         match self.session.clone() {
-            Some(sid) => effects.push(self.submit_call(&sid, text)),
-            None => self.unsent.push(text),
+            Some(sid) => effects.push(self.submit_call(&sid, text, &taken.attachments)),
+            None => self.unsent.push((text, taken.attachments)),
         }
         effects
     }
@@ -848,8 +854,18 @@ impl Chat {
         }
     }
 
-    pub(super) fn submit_call(&self, sid: &str, text: String) -> Effect {
+    /// The one place a `turn.submit` of the conversation is built; `attachments`
+    /// (images named by `@path`) ride as the protocol's `attachments`.
+    pub(super) fn submit_call(
+        &self,
+        sid: &str,
+        text: String,
+        attachments: &[theseus_protocol::Attachment],
+    ) -> Effect {
         let mut params = json!({ "session_id": sid, "input": text, "author": AUTHOR });
+        if !attachments.is_empty() {
+            params["attachments"] = json!(attachments);
+        }
         if let Some(p) = &self.profile {
             params["profile"] = json!(p);
             params["carried"] = json!(true);

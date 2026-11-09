@@ -177,6 +177,23 @@ fn query_of(word: &str) -> Option<&str> {
     (!q.starts_with('@')).then_some(q)
 }
 
+/// What goes with a message that names files: the footer of paths, and the
+/// images as attachments.
+#[derive(Default)]
+pub(super) struct Resolved {
+    pub footer: String,
+    pub attachments: Vec<theseus_protocol::Attachment>,
+}
+
+/// Is a listed path an image the daemon renders for a vision model?
+fn is_image(name: &str) -> bool {
+    let ext = Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")
+}
+
 /// Every `@path` the text names, as typed: words that begin with one `@`.
 /// A trailing `,;:!?)` is the sentence's, not the path's. `@@x` and a lone
 /// `@` name nothing.
@@ -336,12 +353,15 @@ impl Chat {
     }
 
     /// Before a message goes: every `@path` it names must be a listed file.
-    /// Ok carries the footer to add (empty when the message names none); Err
-    /// is what to tell the person, and nothing is sent.
-    pub(super) fn at_resolve(&self) -> Result<String, String> {
+    /// Ok carries what goes with the message (a footer of paths for the files,
+    /// the images as attachments); Err is what to tell the person, and nothing
+    /// is sent. An image (png, jpg, jpeg, gif, webp) is read here, in `submit`,
+    /// by the CLI's `attachment_for`, and goes as an `Attachment` instead of
+    /// a path.
+    pub(super) fn at_resolve(&self) -> Result<Resolved, String> {
         let names = mentions(&self.editor.typed_text());
         if names.is_empty() {
-            return Ok(String::new());
+            return Ok(Resolved::default());
         }
         let ix = match &self.at.load {
             Load::Ready(ix) => ix,
@@ -355,6 +375,7 @@ impl Chat {
                 ))
             }
         };
+        let mut out = Resolved::default();
         let mut lines = Vec::new();
         for n in &names {
             if !ix.has(n) {
@@ -363,12 +384,32 @@ impl Chat {
                     self.cfg.shown_dir
                 ));
             }
-            lines.push(format!("{}/{n}", self.cfg.dir.trim_end_matches('/')));
+            let abs = format!("{}/{n}", self.cfg.dir.trim_end_matches('/'));
+            if is_image(n) {
+                out.attachments.push(Self::image_for(n, &abs)?);
+            } else {
+                lines.push(abs);
+            }
         }
-        Ok(format!(
-            "\n\nFiles named with @ (paths, not contents; read them with fs.read):\n{}",
-            lines.join("\n")
-        ))
+        if !lines.is_empty() {
+            out.footer = format!(
+                "\n\nFiles named with @ (paths, not contents; read them with fs.read):\n{}",
+                lines.join("\n")
+            );
+        }
+        Ok(out)
+    }
+
+    /// One image as an attachment, or the refusal's words (an unreadable
+    /// file, or one over the CLI's cap, which `attachment_for` reports as
+    /// `not_read`).
+    fn image_for(name: &str, abs: &str) -> Result<theseus_protocol::Attachment, String> {
+        let a = theseus_client::attach::attachment_labeled(Path::new(abs), "@image")
+            .map_err(|e| format!("@{name}: {e:#}"))?;
+        match &a.not_read {
+            Some(why) => Err(format!("@{name}: {why}")),
+            None => Ok(a),
+        }
     }
 
     /// The rows under the input while the word at the cursor is an `@word`.

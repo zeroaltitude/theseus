@@ -282,3 +282,83 @@ async fn a_short_paste_is_typed_text_so_a_pasted_at_word_is_checked() {
         "nothing is sent while a pasted @word names no file"
     );
 }
+
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+/// A project whose `shot.png` holds the PNG signature, and a `notes.md`.
+fn project_with_shot() -> tempfile::TempDir {
+    let p = project();
+    std::fs::write(p.path().join("shot.png"), PNG).unwrap();
+    touch(p.path(), "notes.md");
+    p
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_image_named_by_path_goes_as_an_attachment_and_a_text_file_keeps_its_path() {
+    let p = project_with_shot();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 1).await;
+    let sent = r.daemon.asked("turn.submit");
+    let atts = sent[0]["attachments"].as_array().expect("attachments");
+    assert_eq!(atts.len(), 1, "{:?}", sent[0]);
+    assert_eq!(atts[0]["name"], "shot.png");
+    assert_eq!(atts[0]["size"], 8);
+    assert_eq!(atts[0]["data"], "iVBORw0KGgo=");
+    let input = sent[0]["input"].as_str().unwrap();
+    assert_eq!(input, "look at @shot.png", "no path footer for an image");
+
+    // Beside a text file: the file keeps its path footer, the image its attachment.
+    r.type_text("both @shot.png and @notes.md").await;
+    r.shows("@notes.md").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 2).await;
+    let sent = r.daemon.asked("turn.submit");
+    let input = sent[1]["input"].as_str().unwrap();
+    let notes = format!("{}/notes.md", p.path().display());
+    assert!(input.contains(&notes), "{input}");
+    assert!(
+        !input.contains("shot.png\n") && !input.ends_with("/shot.png"),
+        "the image is not in the footer:\n{input}"
+    );
+    assert_eq!(sent[1]["attachments"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_image_over_the_cap_is_refused_visibly_and_nothing_is_sent() {
+    let p = project_with_shot();
+    // Sparse: no 32 MiB is ever allocated.
+    let big = std::fs::File::create(p.path().join("big.png")).unwrap();
+    big.set_len(32 * 1024 * 1024 + 1).unwrap();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("see @big.png").await;
+    r.shows("@big.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("over the 32 MiB limit").await;
+    assert!(r.daemon.asked("turn.submit").is_empty());
+    assert!(r.text().contains("› see @big.png"), "{}", r.text());
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_image_typed_while_a_turn_runs_carries_its_attachment_when_released() {
+    let p = project_with_shot();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.starts_turn("trn_1");
+    r.type_text("see @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("queued › see @shot.png").await;
+    assert!(r.daemon.asked("turn.submit").is_empty(), "it waits");
+    r.ends_turn("trn_1", "");
+    r.asked("turn.submit", 1).await;
+    let sent = r.daemon.asked("turn.submit");
+    let atts = sent[0]["attachments"].as_array().expect("attachments");
+    assert_eq!(atts.len(), 1, "{:?}", sent[0]);
+    assert_eq!(atts[0]["data"], "iVBORw0KGgo=");
+}

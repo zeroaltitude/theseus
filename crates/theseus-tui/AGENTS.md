@@ -232,6 +232,14 @@ new lines, the dock again, in synchronized-output mode 2026).
   list is refused at Enter, said in the dock, the line kept; `@@x` sends a literal `@x`; a FOLDED paste (more than 5 lines) is never checked, but a shorter one is typed text, so a pasted `@reboot` or `@scope/pkg` in it is refused like a typed one (an owner question: should a short pasted `@word` block a message?). Tests:
   `chat/tests_commands.rs`, `chat/tests_atfile.rs`.
 
+- **Images by path** (theseus-vjzt, phase 2): an `@path` the picker lists with the extension png, jpg, jpeg, gif or webp goes as a
+  protocol `Attachment` (name, media type, size, base64 `data`, built by `theseus_client::attach::attachment_labeled`, the CLI's
+  `--attach` builder and its 32 MiB cap) in `turn.submit`'s `attachments`, and not in the path footer; any other `@path` is unchanged.
+  Chosen over a `/image PATH` command because `@` already finds the file and refuses a missing one. The file is read in `submit`, on
+  the loop (at most 32 MiB; reading it off-thread as `Effect::ListFiles` does is the follow-up if that ever shows). A missing,
+  unreadable or over-cap image is refused in the dock naming the file and why, the line kept and nothing sent. `Taken.attachments`
+  carries them through the queue (`release_queue`) and `Chat::unsent`; `submit_call` is the one place that builds the params.
+  `unqueue` restores the text only, so the next Enter reads the file again. In a task's view an image is refused (a task takes text).
 - **`/why`** (theseus-vjzt, phase 2; `chat/why.rs`): the lines `theseus why` prints for the last compiled turn, dim for the backtick lines.
   Four reads go at once (`context.explain`, `policy.explain`, `ledger.tail` `route.decided`, `node.list` `tool_call`; each a
   `Purpose::Why(WhyPart)`) and the words come when all four have answered; a second `/why` meanwhile says "still reading it". A side

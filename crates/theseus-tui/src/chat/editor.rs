@@ -26,6 +26,8 @@ pub struct Taken {
     pub text: String,
     /// As the transcript shows it, every paste a chip.
     pub shown: String,
+    /// Images named by `@path`, sent as attachments (the text keeps the path).
+    pub attachments: Vec<theseus_protocol::Attachment>,
 }
 
 #[derive(Debug, Default)]
@@ -282,7 +284,11 @@ impl Editor {
                 self.hist.remove(0);
             }
         }
-        Taken { text, shown }
+        Taken {
+            text,
+            shown,
+            attachments: Vec::new(),
+        }
     }
 
     /// The paste under the cursor or just before it, whole (Ctrl-O).

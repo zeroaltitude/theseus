@@ -259,8 +259,8 @@ impl Chat {
                 Purpose::Mode,
             ),
         ];
-        for text in std::mem::take(&mut self.unsent) {
-            out.push(self.submit_call(sid, text));
+        for (text, attachments) in std::mem::take(&mut self.unsent) {
+            out.push(self.submit_call(sid, text, &attachments));
         }
         out
     }
