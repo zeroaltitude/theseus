@@ -31,7 +31,7 @@ CALIBRATION = [
     # exactly 2 short before the rule. Re-measure a moved row; never loosen it.
     ("crates/theseus-core/src/card/run.rs", "card_run", 89),
     ("crates/theseus-core/src/rpc/server.rs", "dispatch", 92),
-    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 100),
+    ("crates/theseus-core/src/turn/compile_step.rs", "compile_step", 88),
 ]
 
 
