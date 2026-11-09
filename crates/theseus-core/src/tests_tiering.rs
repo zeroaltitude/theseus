@@ -90,14 +90,17 @@ const HERON: &str = "Remember: the grey heron nests by the old weir at Millbrook
 /// "Act, then tell" sentence joined the prefix (theseus-dfoug: +39 tokens; 46,000 to 46,300 no longer compact,
 /// 46,400 to 50,000 hold: a sweep at its join). And 46,800 until `card_observed` joined the catalog
 /// (theseus-6f8t0: deferred, counted whole here; 46,800 and 47,000 compacted, 47,200 to 50,000 hold:
-/// a sweep at its join).
+/// a sweep at its join). And 47,400 until `fs.grep` and `fs.glob` took the hidden-files `all` flag
+/// (theseus-w2cs: +124 tokens, so a summary of its own cap no longer fits beside the kept turns and
+/// every compile stays a ring instead; 47,000 and 47,200 no longer compact, 47,400 to 52,000 hold:
+/// a sweep at its join. 47,400 still holds, so the move is for room, not repair).
 fn small_window(c: &mut crate::Config, mb: u64, summary: &str) {
     c.memory.node_cache_mb = mb;
     c.memory.summary_profile = Some(summary.into());
     c.catalog.insert(
         "claude-sonnet-5-5".into(),
         CatalogRow {
-            context_window: Some(47_400),
+            context_window: Some(48_200),
             max_output_tokens: Some(2_000),
             ..Default::default()
         },
