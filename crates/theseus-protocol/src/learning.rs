@@ -125,6 +125,12 @@ pub struct PackReport {
     pub calls: u32,
     pub answered: u32,
     pub failed: u32,
+    /// Of `failed`, the calls from the last day before the holdout's end
+    /// on: what is failing now, not what failed once. None where the report
+    /// stored none (a report from before it: read `failed`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(as = "Option<u32>", optional))]
+    pub failed_recent: Option<u32>,
     pub skipped: u32,
     /// Judgments with at least one label that counts toward a question.
     pub labeled: u32,

@@ -391,7 +391,10 @@ fn of_slow(mut o: Obs, d: &Value) -> Option<Obs> {
 fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
     let r = &d["report"];
     let pack = word(&r["pack"]);
-    let (calls, failed) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
+    let (calls, failed_all) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
+    // `failed` is all-time and never falls: key on the recent count, and on
+    // the total only for a report stored before there was one.
+    let failed = r["failed_recent"].as_u64().unwrap_or(failed_all);
     let (labeled, disagree) = (
         r["labeled"].as_u64().unwrap_or(0),
         r["disagreements"].as_u64().unwrap_or(0),
@@ -673,6 +676,29 @@ mod tests {
     fn a_turn_ended_row_without_elapsed_files_nothing() {
         let row = ended(json!({"first_token_ms": 20_000, "model": "quill9"}));
         assert_eq!(of_row(1, &row), None);
+    }
+
+    fn report_obs(report: Value) -> Option<Obs> {
+        of_row(
+            7,
+            &LedgerRow::named("judge.report", None, None, json!({"report": report})),
+        )
+    }
+
+    /// The report's `failed` is all-time and never falls, so keying on it
+    /// re-filed one old burst every night (judge.failed:people.v1). The cause
+    /// follows `failed_recent`; a report stored before it falls back to the
+    /// total.
+    #[test]
+    fn an_old_burst_of_failed_judgments_is_not_filed_again() {
+        let stopped = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 0});
+        assert!(report_obs(stopped).is_none());
+        let going = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 3});
+        let o = report_obs(going).unwrap();
+        assert_eq!(o.key, "judge.failed:people.v1");
+        assert!(o.note.starts_with("3 of 9000"), "{}", o.note);
+        let legacy = json!({"pack": "people.v1", "calls": 9000, "failed": 12});
+        assert_eq!(report_obs(legacy).unwrap().key, "judge.failed:people.v1");
     }
 
     fn failed_job(pid: u32, failure: Option<&str>) -> LedgerRow {
