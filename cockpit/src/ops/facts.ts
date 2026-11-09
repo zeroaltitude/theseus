@@ -63,6 +63,12 @@ export function reportFacts(line: string | undefined, whole: string | null | und
   const text = whole?.trim()
   // A report not read, or one the session holds no text for, is never called complete: the line is its first line.
   if (!text) return { label: 'report (first line)', line, more: false }
+  // The line can come from another source than the whole (a failure's reason, `ended_reason`): when the whole does not
+  // begin with it, the line is not the start of that report, so the report's own first line is shown instead.
+  if (!text.startsWith(line.trim())) {
+    const first = text.split('\n', 1)[0].trim()
+    return text === first ? { label: 'report (complete)', line: first, more: false } : { label: 'report (first line)', line: first, more: true, full: text }
+  }
   if (text === line.trim()) return { label: 'report (complete)', line, more: false }
   return { label: 'report (first line)', line, more: true, full: text }
 }
