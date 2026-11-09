@@ -203,6 +203,19 @@ fn gist(v: &Value, max: usize) -> String {
     }
 }
 
+/// What a failed turn's reason says beyond its key, for the note: the whole
+/// reason as one line cut to 200 characters, so a `kernel: <why>` refusal
+/// (one cause, by its key) still says which refusal it was. Nothing when the
+/// reason is only its key or is absent.
+fn reason_said(v: &Value, key: &str) -> String {
+    let text = line(v.as_str().unwrap_or(""), 200);
+    if text.is_empty() || text == key {
+        String::new()
+    } else {
+        format!(": {text}")
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -292,7 +305,11 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
             let r = reason_word(&d["reason"]);
             o.key = format!("turn.failed:{r}");
             o.title = format!("Turns failing with {r}");
-            o.note = format!("turn failed ({r}) after {} loops", d["loops"]);
+            o.note = format!(
+                "turn failed ({r}) after {} loops{}",
+                d["loops"],
+                reason_said(&d["reason"], &r)
+            );
             o.usd = d["cost_usd"].as_f64().unwrap_or(0.0);
             (o.person, o.task_failed, o.work) = (true, true, 3);
         }
@@ -982,5 +999,26 @@ mod tests {
             "{}",
             o.note
         );
+    }
+
+    /// A kernel failure's evidence says why the kernel refused: the key still
+    /// groups every refusal as one cause, but the note carries the message
+    /// (long ones cut), so the fixing run sees what to fix. A reason that is
+    /// only its own key, or none, adds nothing to repeat.
+    #[test]
+    fn a_failed_turns_note_keeps_the_reason() {
+        let o = turn_failed("kernel: execution exe_1 is cancelled, not runnable");
+        assert_eq!(o.key, "turn.failed:kernel");
+        assert_eq!(
+            o.note,
+            "turn failed (kernel) after 2 loops: kernel: execution exe_1 is cancelled, not runnable"
+        );
+        let long = turn_failed(&format!("kernel: {}", "x".repeat(500)));
+        assert!(long.note.chars().count() < 260, "{}", long.note);
+        assert_eq!(
+            turn_failed("provider:invalid_request").note,
+            "turn failed (provider:invalid_request) after 2 loops"
+        );
+        assert_eq!(turn_failed("").note, "turn failed (unknown) after 2 loops");
     }
 }
