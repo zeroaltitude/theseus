@@ -1457,11 +1457,9 @@ impl Config {
     pub async fn load_text(source: &str, op: &OpReader) -> Result<(Self, String)> {
         let text = if source.starts_with("op://") {
             let r = SecretRef::parse(source)?;
-            let secret = op
-                .read(&r)
+            op.read_document(&r)
                 .await
-                .with_context(|| format!("reading config from {source}"))?;
-            secret.expose().to_string()
+                .with_context(|| format!("reading config from {source}"))?
         } else {
             let path = expand(source);
             std::fs::read_to_string(&path)
