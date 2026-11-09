@@ -17,6 +17,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [self-gates-inventory.md](self-gates-inventory.md): every gate, wait and stop on Theseus's own work, one row each, and which can become notify-then-work without losing a money backstop (theseus-nmod9). States as of install #91; the money and AWS lines and the keel list are all marked keep.
 - [onto-sweep-pace.md](onto-sweep-pace.md): why the onto sweep's wait between questions hung a chain test on a loaded host, the two loaded arms and the asymmetry between them, the gdb stack that named `pressure::quiet` rather than a deadlock, and the four sibling sites with the same latent shape, now on the same wait (theseus-75t4q, theseus-qc5r6).
 - [imported-surface.md](imported-surface.md): what reaches an imported session's content (theseus-a7pr): the protected thing, where the surface check lives, what fail-closed means for a method nobody classified, and what a fail-closed default refuses.
+- [abandon-said-in-words.md](abandon-said-in-words.md): what would have to be true for the owner's words to answer an outstanding abandon card (theseus-3i6d1): where the owner's recent messages are already held and for how long, the rule for whose words they are, the two rules that disagree about a bound private channel, and the four questions that are still open.
 
 And one review:
 
