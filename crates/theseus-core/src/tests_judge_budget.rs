@@ -111,8 +111,9 @@ fn enables_the_judge(text: &str) -> bool {
 fn has_a_budget(text: &str) -> bool {
     text.lines().any(|l| {
         let l = l.trim_start();
-        !l.starts_with("//") && l.contains("total_secs") && l.contains('=')
-    }) || text.contains("judge_config")
+        !l.starts_with("//")
+            && ((l.contains("total_secs") && l.contains('=')) || l.contains("judge_config"))
+    })
 }
 
 fn walk(dir: &Path, out: &mut Vec<(String, String)>, root: &Path) {
@@ -185,8 +186,12 @@ fn the_rule_reads_what_a_file_sets() {
     assert!(has_a_budget("c.judge.total_secs = 10;"));
     assert!(has_a_budget("let c = tests_judge::judge_config(dir, j);"));
     assert!(!has_a_budget("// c.judge.total_secs = 10;"));
-    assert!(!has_a_budget("// unlike judge_config, this rig sets its own budget"));
+    assert!(!has_a_budget(
+        "// unlike judge_config, this rig sets its own budget"
+    ));
     assert!(!has_a_budget("/// see judge_config for the shared rig"));
-    assert!(has_a_budget("  let c = judge_config(dir, j); // shared rig"));
+    assert!(has_a_budget(
+        "  let c = judge_config(dir, j); // shared rig"
+    ));
     assert!(!enables_the_judge("let x = 1;"));
 }
