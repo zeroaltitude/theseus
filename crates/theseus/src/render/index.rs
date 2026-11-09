@@ -60,6 +60,9 @@ pub fn index_line(h: &theseus_protocol::index::IndexHealth) -> String {
             fmt_bytes(b.done_bytes),
             fmt_bytes(b.total_bytes)
         ));
+        if let Some(why) = &b.why {
+            line.push_str(&format!(" · why: {why}"));
+        }
     }
     // The vectors' backlog and the tender's memory (theseus-agqn).
     if let Some(v) = s.vectors.as_ref().filter(|v| v.model != "off") {
@@ -274,6 +277,38 @@ mod tests {
         }
     }
 
+    /// A rebuild's reason is on the health line, so a backfill after an
+    /// install reads as expected; a first build says nothing more.
+    #[test]
+    fn a_rebuild_says_why_on_the_index_line() {
+        use theseus_protocol::index::{IndexBackfill, IndexHealth, IndexStatus};
+        let mut s = IndexStatus {
+            state: "backfilling".into(),
+            ..IndexStatus::default()
+        };
+        s.backfill = Some(IndexBackfill {
+            done_bytes: 0,
+            total_bytes: 4096,
+            why: Some("its cursor was written by a build with another index schema".into()),
+        });
+        let h = IndexHealth {
+            state: "backfilling".into(),
+            status: Some(s.clone()),
+            ..IndexHealth::default()
+        };
+        let line = index_line(&h);
+        assert!(
+            line.contains("why: its cursor was written by a build with another index schema"),
+            "{line}"
+        );
+        s.backfill.as_mut().unwrap().why = None;
+        let h = IndexHealth {
+            status: Some(s),
+            ..h
+        };
+        assert!(!index_line(&h).contains("rebuilding"));
+    }
+
     /// A rebuild after an upgrade or a request is expected, and health says so
     /// (theseus-ectzg): a backfill reads as a window that ends, not a fault.
     #[test]
@@ -285,6 +320,7 @@ mod tests {
                 backfill: Some(IndexBackfill {
                     done_bytes: 10,
                     total_bytes: 100,
+                    why: None,
                 }),
                 ..Default::default()
             }),

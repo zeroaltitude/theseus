@@ -329,6 +329,8 @@ pub struct Tender {
     saved_at: Instant,
     /// Where the current backfill began, and the bytes it had to read.
     backfill: Option<(Cursor, u64)>,
+    /// Why that backfill is a rebuild of an index that existed, if it is one.
+    rebuild_why: Option<String>,
     /// Test hook: fail right after a commit, before the cursor is written.
     #[cfg(test)]
     pub(crate) crash_after_commit: bool,
@@ -345,6 +347,21 @@ pub struct Step {
     pub committed: bool,
 }
 
+/// What a saved cursor was written under that this build is not, if
+/// anything: the cursor holds format, schema and extractor numbers, never a
+/// binary's identity, so an install that changes none of them resumes.
+fn cursor_differs(s: &Saved) -> Option<&'static str> {
+    if s.format != CURSOR_FORMAT {
+        Some("cursor format")
+    } else if s.schema != SCHEMA_VERSION {
+        Some("index schema")
+    } else if s.extractor != EXTRACTOR_VERSION {
+        Some("text extractor")
+    } else {
+        None
+    }
+}
+
 impl Tender {
     /// Take the index directory's lock, open (or rebuild) the index, and
     /// open the follower at its cursor. Nothing is read from the WAL yet.
@@ -359,15 +376,15 @@ impl Tender {
 
         // The saved cursor holds only for an index this build would write.
         let had_index = paths.bm25().join("meta.json").exists();
-        let saved: Option<Saved> = state::load(&paths.cursor()).filter(|s: &Saved| {
-            s.format == CURSOR_FORMAT
-                && s.schema == SCHEMA_VERSION
-                && s.extractor == EXTRACTOR_VERSION
-                && had_index
-        });
+        let on_disk: Option<Saved> = state::load(&paths.cursor());
+        let differs = on_disk.as_ref().and_then(cursor_differs);
+        let saved: Option<Saved> = on_disk.filter(|_| differs.is_none() && had_index);
         let mut why_rebuild = None;
         if saved.is_none() && (had_index || paths.cursor().exists()) {
-            why_rebuild = Some("its cursor is missing or from another build".to_string());
+            why_rebuild = Some(match differs {
+                Some(what) => format!("its cursor was written by a build with another {what}"),
+                None => "its cursor is missing or unreadable".to_string(),
+            });
         }
         if saved.is_none() {
             let _ = fs::remove_dir_all(paths.bm25());
@@ -446,6 +463,11 @@ impl Tender {
                 schema: SCHEMA_VERSION,
                 started_at_ms: now_unix_ms(),
                 rebuilds: u64::from(why_rebuild.is_some()),
+                backfill: why_rebuild.as_ref().map(|why| Backfill {
+                    done_bytes: 0,
+                    total_bytes: total,
+                    why: Some(why.clone()),
+                }),
                 ..IndexStatus::default()
             }),
             caught_up_ms: Mutex::new(now_unix_ms()),
@@ -465,6 +487,7 @@ impl Tender {
         }
         Ok(Self {
             backfill: Some((cursor.clone(), total)),
+            rebuild_why: why_rebuild.clone(),
             saved: cursor,
             saved_at: Instant::now(),
             cfg,
@@ -749,6 +772,7 @@ impl Tender {
         if !behind {
             *self.shared.caught_up_ms.lock().unwrap() = now_unix_ms();
             if self.backfill.take().is_some() {
+                self.rebuild_why = None;
                 tracing::info!(position = c.position, "index: caught up with the WAL");
                 // The rows are every chunk now: dead vectors can be counted.
                 self.shared.vectors.on_caught_up();
@@ -757,6 +781,7 @@ impl Tender {
         let backfill = self.backfill.as_ref().map(|(from, total)| Backfill {
             done_bytes: bytes_between(&self.cfg.wal_dir(), from, &c),
             total_bytes: *total,
+            why: self.rebuild_why.clone(),
         });
         let waiting = match stop {
             Stop::Partial {
@@ -791,6 +816,7 @@ impl Tender {
         self.save()?;
         let total = wal_bytes_after(&self.cfg.wal_dir(), 0, 0);
         self.backfill = Some((Cursor::start(), total));
+        self.rebuild_why = Some(why.to_string());
         self.shared.set(|s| {
             s.rebuilds += 1;
             s.state = "backfilling".into();

@@ -3,4 +3,11 @@
 /**
  * A backfill's progress, in WAL bytes.
  */
-export type IndexBackfill = { done_bytes: number, total_bytes: number, };
+export type IndexBackfill = { done_bytes: number, total_bytes: number, 
+/**
+ * Why an index that existed is being built again (a build that changed
+ * the cursor's format, the schema or the extractor, or a WAL rewound):
+ * the window is expected, and recall reads partly until it ends. None
+ * for a first build.
+ */
+why?: string, };
