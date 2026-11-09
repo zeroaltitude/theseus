@@ -80,13 +80,17 @@ arm?: string,
  * bar would have left out. Nothing was dropped: the notes were attached
  * as before. Absent when the verdict did not say so, and for a manifest
  * that paused at the session's recall cap: its notes were admitted but
- * never attached, so no bar had anything to drop. Absent, too, for a turn
+ * never attached, so no bar had anything to drop, and for one that
+ * admitted no notes at all. Absent, too, for a turn
  * whose verdict missed the route's own wait (`routing.max_wait_ms`): the
  * verdict lands for the session's next message, and nothing marks this
  * turn afterwards, so that greeting is missing from the sample. A count
  * over these rows is of the low-effort turns whose verdict arrived in
  * time, not of every one; a verdict that arrives inside the wait, after
- * the pack fixed its budget without it, is counted. The count is of
+ * the pack fixed its budget without it, is counted. A turn whose own
+ * verdict is late can still be marked from the PREVIOUS message's late
+ * verdict, which the route carries to it, so a count over these rows
+ * mixes the two. The count is of
  * ADMITTED notes: a restricted-origin model's withholding is decided
  * after the compile and is not visible where this is written.
  *
