@@ -399,6 +399,7 @@ impl TurnRunner {
             item.text = None;
         }
         let t1 = t.trace.now_us();
+        Self::mark_would_drop(t, &mut m);
         // The row waits for the route (theseus-n7nc).
         if t.route.deciding() {
             t.recall.held.push((m, t0, t1));
@@ -410,8 +411,20 @@ impl TurnRunner {
     /// The route is known (theseus-n7nc): the rows held while routing decided
     /// are recorded.
     pub(super) fn recall_routed(t: &mut Turn<'_>) {
-        for (m, t0, t1) in std::mem::take(&mut t.recall.held) {
+        for (mut m, t0, t1) in std::mem::take(&mut t.recall.held) {
+            Self::mark_would_drop(t, &mut m);
             Self::record_ran(t, &m, t0, t1);
+        }
+    }
+
+    /// Shadow of the small-talk bar (theseus-fpm2): when the turn's verdict
+    /// says `low` effort, the manifest records how many admitted notes a bar
+    /// would have left out. Nothing is dropped; the budget is the one already
+    /// fixed, so this never waits.
+    fn mark_would_drop(t: &Turn<'_>, m: &mut RecallManifest) {
+        let low = t.route.injection.as_ref().is_some_and(|b| b.low_effort);
+        if low && !m.admitted.is_empty() {
+            m.would_drop = Some(m.admitted.len() as u64);
         }
     }
 
