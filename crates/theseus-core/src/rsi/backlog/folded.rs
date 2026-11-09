@@ -9,6 +9,15 @@
 //! what it listed, after its post was written: a start that lands between its
 //! read and its post waits for the next note, and a post that failed leaves
 //! every start where it was.
+//!
+//! **Lock order: `Switch::backlog`, then `Switch::folded`, never the reverse.**
+//! The night holds the backlog lock (`backlog_night`) through `backlog_tell`,
+//! which takes the folded lock in `folded_read` and again in `folded_told`. No
+//! code under the folded lock takes the backlog lock: `folded_read`,
+//! `folded_add` and `folded_told` only load and append the one META record.
+//! A caller that holds neither (the tick's `folded_add`) takes the folded lock
+//! alone, which is safe. Backlog sites: `backlog.rs` (the night), `start.rs`
+//! (two), `word.rs` (five); folded sites: the three functions here.
 
 use serde::{Deserialize, Serialize};
 use theseus_store::{kinds, NewRecord};
