@@ -274,6 +274,7 @@ fn read_row(sid: &str, ago: u64) -> theseus_store::NewRecord {
 /// 10 (warm, nothing avoided). `thread show` and health say the same.
 #[tokio::test]
 async fn the_days_numbers_come_from_the_ledgers_rows() {
+    let _clock = crate::test_support::pin_mid_period();
     let dir = tempfile::tempdir().unwrap();
     let (core, _) = build(dir.path(), config(4.0));
     let sid = thread(&core, "numbers");

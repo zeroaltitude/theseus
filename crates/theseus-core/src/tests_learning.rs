@@ -554,6 +554,7 @@ async fn the_reports_numbers_equal_learns_on_the_same_pairs() {
 /// of the minimum it says "insufficient" with its counts.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_holdout_is_frozen_into_the_report() {
+    let _clock = crate::test_support::pin_mid_period();
     let r = rig(texts(0), |_| {});
     let c = &r.core;
     let now = theseus_protocol::now_unix_ms();
