@@ -501,7 +501,10 @@ mod tests {
     /// Ends `silent_cdn`'s thread when dropped: it sets the flag and connects
     /// once, so the blocked `accept` returns, the thread ends and the held
     /// connections close.
-    struct Stop(std::sync::Arc<std::sync::atomic::AtomicBool>, std::net::SocketAddr);
+    struct Stop(
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        std::net::SocketAddr,
+    );
 
     impl Drop for Stop {
         fn drop(&mut self) {
@@ -512,11 +515,7 @@ mod tests {
 
     /// A CDN that accepts and never answers: counts each request and holds its
     /// connection open until the returned `Stop` is dropped.
-    fn silent_cdn() -> (
-        String,
-        std::sync::Arc<std::sync::atomic::AtomicUsize>,
-        Stop,
-    ) {
+    fn silent_cdn() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>, Stop) {
         use std::io::Read;
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
