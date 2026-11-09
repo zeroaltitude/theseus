@@ -122,17 +122,19 @@ impl TurnRunner {
         };
         // classify.v4's `scope` answer, for the place digest (theseus-98bz.9):
         // a steered message's is not the running turn's.
+        let mut breaker_open = false;
         let wait = early.and_then(|(mut e, said)| {
             if !steered {
                 t.digest.scope = e.scope.take();
             }
+            breaker_open = e.breaker_open;
             e.adopt(&mut t.trace, said)
         });
         if steered {
             return;
         }
         let asked = wait.is_some();
-        Self::route_asked(t, wait, route, images);
+        Self::route_asked(t, wait, route, images, breaker_open);
         // The owner's correction, or the layer (theseus-q31l): a turn that
         // asked the route pack can be steered; any turn's words can label.
         self.correction_point(t, &node.id, text, author, place.as_deref(), route, asked);

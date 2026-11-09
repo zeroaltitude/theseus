@@ -454,6 +454,49 @@ async fn a_failing_jev_or_the_judge_off_leaves_the_request_unrouted() {
     }
 }
 
+/// A turn asked Jev with its breaker closed, so its failed calls are
+/// `no_verdict` however many of them there were: five transient failures in a
+/// row open the breaker, and this rig's message makes exactly five calls
+/// (route, effort, work, split and the batch). The turn once read the breaker
+/// at its first compile, so which side of the fifth failure that read fell on,
+/// a millisecond's width, decided `no_verdict` against `shadow` (a turn that
+/// began with the breaker open is `shadow`). Here the turn is held at its first
+/// compile until its own calls have opened the breaker, the order the test
+/// above met only by chance: the answer is the same either way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_whose_own_failed_calls_open_the_breaker_still_reads_no_verdict() {
+    let jev = FakeJev::start().unwrap();
+    jev.set_mode(FakeMode::Down);
+    let r = rig(Some(&jev), 1, |_| {});
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    assert!(
+        !r.core.runner.judge.breaker_open(),
+        "closed as the turn asks"
+    );
+    let core = r.core.clone();
+    crate::turn::first_compile_hook(
+        &rec.session_id,
+        Box::new(move || {
+            let t0 = Instant::now();
+            while !core.runner.judge.breaker_open() {
+                assert!(
+                    t0.elapsed() < Duration::from_secs(10),
+                    "its own calls never opened it"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }),
+    );
+    let res = turn(&r.core, Some(&rec.session_id), "Say done.", None).await;
+    assert!(
+        r.core.runner.judge.breaker_open(),
+        "open by the time it read"
+    );
+    assert_eq!(res.profile, "sonnet");
+    assert_eq!(res.route.as_ref().unwrap().reason, "no_verdict");
+}
+
 /// A verdict past the wait applies from the next message: the first turn
 /// says `late` and stays; the next, whose own verdict is late too, moves on
 /// the first's.

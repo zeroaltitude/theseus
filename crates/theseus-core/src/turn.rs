@@ -119,6 +119,8 @@ pub(crate) mod tier;
 mod title_step;
 
 pub use request::TurnRequest;
+#[cfg(test)]
+pub(crate) use route_step::first_compile_hook;
 pub use route_step::{LiveSwitched, SWITCHED};
 
 /// The built-in persona at the front of the system prompt of a session whose

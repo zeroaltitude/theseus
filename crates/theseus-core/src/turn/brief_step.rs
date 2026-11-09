@@ -62,6 +62,7 @@ impl TurnRunner {
         let restricted = theseus_judge::builders::RestrictedModels::allowed_if(
             self.cn_read(t) == super::data_step::Cn::Allowed,
         );
+        let breaker_open = self.judge.breaker_open();
         let wait = self.judge.at_brief(
             &mut t.trace,
             Inbound {
@@ -86,7 +87,7 @@ impl TurnRunner {
             },
         );
         t.route.brief = wait.is_some();
-        Self::route_asked(t, wait, route, false);
+        Self::route_asked(t, wait, route, false, breaker_open);
     }
 
     /// The brief's verdict as the task's base: Jev's pick, at once, by the
