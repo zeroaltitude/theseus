@@ -168,7 +168,8 @@ mod tests {
         let (mut sites, mut bad) = (0, Vec::new());
         for p in &files {
             let text = std::fs::read_to_string(p).unwrap_or_default();
-            let calls = text.matches("move_clock_to(").count() + text.matches("reset_clock(").count();
+            let calls =
+                text.matches("move_clock_to(").count() + text.matches("reset_clock(").count();
             if calls == 0 {
                 continue;
             }
