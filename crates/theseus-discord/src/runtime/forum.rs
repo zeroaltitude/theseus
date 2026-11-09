@@ -1786,7 +1786,7 @@ mod tests {
             task: "exe_reef".into(),
             forum: 5,
             post: 777,
-            guild: "100000000000000001".into(),
+            guild: "4242".into(),
             created_ms: 1,
             ended_ms: None,
             link: None,
@@ -1802,7 +1802,7 @@ mod tests {
             parent: 1,
             parent_session: "ses_dm".into(),
             name: "kelp".into(),
-            guild: Some(100000000000000001),
+            guild: Some(4242),
             private: true,
             ceiling: None,
             created_ms: 1,
@@ -1810,11 +1810,11 @@ mod tests {
         });
         assert_eq!(
             shared.task_link("exe_reef").as_deref(),
-            Some("https://discord.com/channels/100000000000000001/777")
+            Some("https://discord.com/channels/4242/777")
         );
         assert_eq!(
             shared.task_link("exe_kelp").as_deref(),
-            Some("https://discord.com/channels/100000000000000001/888")
+            Some("https://discord.com/channels/4242/888")
         );
         assert_eq!(shared.task_link("exe_none"), None);
     }

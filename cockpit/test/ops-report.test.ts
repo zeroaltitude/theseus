@@ -39,7 +39,7 @@ test('a done task’s card links its deck and its transcript beside open, and na
 })
 
 test('a task whose view carries a forum address links it as the third link, and a task without one has two', () => {
-  const url = 'https://discord.com/channels/100000000000000001/777'
+  const url = 'https://discord.com/channels/4242/777'
   const row = new Map(boardRows({ ...board(), now: NOW }).map((r) => [r.id, r])).get('ses_t4')!
   const linked = cardFacts({ ...row, view: { ...row.view!, forum_url: url } }, NOW)
   assert.equal(linked.links.length, 3)

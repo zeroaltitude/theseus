@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn a_shared_place_is_not_given_the_forum_address_and_a_private_one_is() {
         let mut v = view("exe_reef", WorkKind::Task, 5);
-        v.forum_url = Some("https://discord.com/channels/100000000000000001/777".into());
+        v.forum_url = Some("https://discord.com/channels/4242/777".into());
         let scrubber = Scrubber::default();
         let guarded = Scope {
             roots: None,

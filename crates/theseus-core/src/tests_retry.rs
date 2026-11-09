@@ -426,7 +426,7 @@ async fn a_tasks_view_carries_the_registered_forum_url_and_only_its_own() {
     let k = known.clone();
     r.core.push.set_task_links(Arc::new(move |id| {
         (k.lock().unwrap().as_deref() == Some(id))
-            .then(|| "https://discord.com/channels/100000000000000001/777".to_string())
+            .then(|| "https://discord.com/channels/4242/777".to_string())
     }));
     let (parent, failed) = failed_task(&r).await;
     r.core.push.ensure(&r.core).await.unwrap();
@@ -446,7 +446,7 @@ async fn a_tasks_view_carries_the_registered_forum_url_and_only_its_own() {
     .await;
     assert_eq!(
         work_view(&r.core, &id).forum_url.as_deref(),
-        Some("https://discord.com/channels/100000000000000001/777")
+        Some("https://discord.com/channels/4242/777")
     );
     let root = crate::tests_tasks::parent_exec(&r.core, &parent).id;
     assert_eq!(
