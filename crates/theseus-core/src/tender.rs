@@ -249,10 +249,10 @@ pub struct IndexTender {
     board: Mutex<Board>,
     /// The tender's status as last read, shared by every caller
     /// (`status_cache`, theseus-id8d).
-    cache: Mutex<status_cache::Cache>,
+    cache: Arc<Mutex<status_cache::Cache>>,
     /// Held by the one caller reading the status now: the others wait for
     /// its answer instead of asking again.
-    asking: tokio::sync::Mutex<()>,
+    asking: Arc<tokio::sync::Mutex<()>>,
     /// How long one read serves every caller: [`STATUS_EVERY`].
     status_every: Duration,
     events: mpsc::UnboundedSender<Event>,
@@ -294,8 +294,8 @@ impl IndexTender {
                 why: None,
                 stopping: false,
             }),
-            cache: Mutex::default(),
-            asking: tokio::sync::Mutex::new(()),
+            cache: Arc::default(),
+            asking: Arc::new(tokio::sync::Mutex::new(())),
             status_every: STATUS_EVERY,
             events,
             inbox: Mutex::new(Some(inbox)),

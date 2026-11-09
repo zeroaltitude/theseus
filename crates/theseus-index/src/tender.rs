@@ -329,6 +329,8 @@ pub struct Tender {
     saved_at: Instant,
     /// Where the current backfill began, and the bytes it had to read.
     backfill: Option<(Cursor, u64)>,
+    /// Why that backfill is a rebuild of an index that existed, if it is one.
+    rebuild_why: Option<String>,
     /// Test hook: fail right after a commit, before the cursor is written.
     #[cfg(test)]
     pub(crate) crash_after_commit: bool,
@@ -476,6 +478,11 @@ impl Tender {
                 schema: SCHEMA_VERSION,
                 started_at_ms: now_unix_ms(),
                 rebuilds: u64::from(why_rebuild.is_some()),
+                backfill: why_rebuild.as_ref().map(|why| Backfill {
+                    done_bytes: 0,
+                    total_bytes: total,
+                    why: Some(why.clone()),
+                }),
                 ..IndexStatus::default()
             }),
             caught_up_ms: Mutex::new(now_unix_ms()),
@@ -495,6 +502,7 @@ impl Tender {
         }
         Ok(Self {
             backfill: Some((cursor.clone(), total)),
+            rebuild_why: why_rebuild,
             saved: cursor,
             saved_at: Instant::now(),
             cfg,
@@ -779,6 +787,7 @@ impl Tender {
         if !behind {
             *self.shared.caught_up_ms.lock().unwrap() = now_unix_ms();
             if self.backfill.take().is_some() {
+                self.rebuild_why = None;
                 tracing::info!(position = c.position, "index: caught up with the WAL");
                 // The rows are every chunk now: dead vectors can be counted.
                 self.shared.vectors.on_caught_up();
@@ -787,6 +796,7 @@ impl Tender {
         let backfill = self.backfill.as_ref().map(|(from, total)| Backfill {
             done_bytes: bytes_between(&self.cfg.wal_dir(), from, &c),
             total_bytes: *total,
+            why: self.rebuild_why.clone(),
         });
         let waiting = match stop {
             Stop::Partial {
@@ -821,6 +831,7 @@ impl Tender {
         self.save()?;
         let total = wal_bytes_after(&self.cfg.wal_dir(), 0, 0);
         self.backfill = Some((Cursor::start(), total));
+        self.rebuild_why = Some(why.to_string());
         self.shared.set(|s| {
             s.rebuilds += 1;
             s.state = "backfilling".into();

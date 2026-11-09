@@ -732,6 +732,68 @@ async fn health_waits_no_longer_than_its_deadline_on_a_tender_that_does_not_answ
     task.abort();
 }
 
+/// A tender that answers `index.status` slower than health's deadline, but
+/// does answer (a big index counting its chunks under load): health returns
+/// at its deadline, and the read it started is not thrown away with its
+/// caller. Cut at the deadline every time, as it was, no read ever landed and
+/// the line said "did not answer" for as long as the tender stayed slow.
+#[tokio::test]
+async fn a_slow_status_answer_lands_in_the_cache_after_health_has_moved_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let os = Arc::new(FakeOs::default());
+    let (t, _) = supervisor(IndexConfig::default(), dir.path(), os.clone());
+    let task = tokio::spawn(t.clone().run());
+    settle().await;
+    let sock = dir.path().join("index");
+    std::fs::create_dir_all(&sock).unwrap();
+    let listener = tokio::net::UnixListener::bind(sock.join("sock")).unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((s, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let (r, mut w) = s.into_split();
+                let mut lines = BufReader::new(r).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                    let req: Request = serde_json::from_str(&line).unwrap();
+                    let status = IndexStatus {
+                        state: "ready".into(),
+                        pid: 7,
+                        ..IndexStatus::default()
+                    };
+                    let mut out = serde_json::to_vec(&Response::ok(req.id, status)).unwrap();
+                    out.push(b'\n');
+                    let _ = w.write_all(&out).await;
+                }
+            });
+        }
+    });
+    let first = t.health(HEALTH_DEADLINE).await;
+    assert_eq!(first.state, "down", "nothing has answered yet");
+    assert!(
+        first.why.unwrap().contains("no answer within 100 ms"),
+        "the caller is told its own deadline passed"
+    );
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    let later = t.health(HEALTH_DEADLINE).await;
+    assert_eq!(
+        later.state, "ready",
+        "the slow read landed: {:?}",
+        later.why
+    );
+    // Asked again and slow again, it shows what landed, seconds old, and
+    // says so; never `down`, never `stale`.
+    let why = later.why.clone().unwrap_or_default();
+    assert!(
+        !why.contains("stale") && !why.contains("connecting"),
+        "{why}"
+    );
+    assert_eq!(later.status.map(|s| s.pid), Some(7));
+    task.abort();
+}
+
 /// Health's block asks no socket before its supervisor runs a tender: a
 /// stand-in that would answer `ready` (a predecessor's, still dying) is not
 /// asked, while `index.status`, an explicit question, asks it whatever the
