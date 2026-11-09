@@ -24,7 +24,7 @@ CALIBRATION = [
     ("crates/theseus-ontology/src/kind.rs", "interpreted_seeds", 96),
     ("crates/theseus-ontology/src/ontology.rs", "load", 96),
     ("crates/theseus-ontology/src/person.rs", "merge", 98),
-    ("crates/theseus-store/src/store.rs", "commit", 95),
+    ("crates/theseus-store/src/store.rs", "commit", 93),
     ("crates/theseus-follow/src/lib.rs", "read_into", 96),
     # Plain `async fn`s: clippy counts 2 more than the body alone (the script adds 2). Measured at base 85697868
     # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
