@@ -1520,9 +1520,12 @@ mod tests {
     }
 
     /// **The census of operator call sites whose kind no test can read**
-    /// (theseus-3i6d1): one row per file under `src/`, with the number of
-    /// `to_operator`/`stage_to_operator` calls in it that name no literal
-    /// kind.
+    /// (theseus-3i6d1): one row per file under `src/` that holds a
+    /// `to_operator`/`stage_to_operator` call naming no literal kind. A row
+    /// is a file, never a count (theseus-4vsrz): a count is a per-file
+    /// number that two branches can both bump to the same wrong total and
+    /// merge clean, so the walk derives each file's count at test time and
+    /// the list holds only the set of files.
     ///
     /// Those are the calls `the_operator_call_sites_name_only_listed_kinds`
     /// cannot see, and the ones `hold_operator_kind` only catches on a path
@@ -1531,44 +1534,46 @@ mod tests {
     /// a hand-kept list with no completeness test is how the delivery
     /// failure theseus-haw2b got in.
     ///
-    /// This table closes it the only way a static check can: by counting.
-    /// Add such a call and the count moves, and
+    /// This table closes it the only way a static check can: by walking.
+    /// Add such a call in a file the table lacks and
     /// `every_operator_call_site_is_accounted_for` fails naming your file.
     /// What to do when it does is in that test's message: put the kind in
     /// [`OPERATOR_KINDS`], make sure some test drives the call so
-    /// `hold_operator_kind` can see it, and then update the row here.
+    /// `hold_operator_kind` can see it, and then add the file here. A further
+    /// computed call in a file already listed is not a census event: the
+    /// run-time hold (`hold_operator_kind`) is what reads it.
     ///
     /// It is a census, not a permission: a row here does not make a kind
     /// legal, it records that this call's kind cannot be read from the
     /// source and must be held at run time instead.
-    const COMPUTED_SITES: &[(&str, usize)] = &[
-        ("capture/act.rs", 1),
-        ("card/dm.rs", 1),
-        ("day_ceiling.rs", 1),
-        ("initiative/digest.rs", 1),
-        ("initiative/speak.rs", 1),
-        ("judge/notice.rs", 3),
-        ("judge/onto/stage.rs", 1),
-        ("mcp/mod.rs", 1),
-        ("needs_you.rs", 1),
-        ("outbox.rs", 2),
-        ("personas/note.rs", 1),
-        ("retract.rs", 1),
-        ("rpc/disk_watch.rs", 1),
-        ("rpc/question_waits.rs", 1),
-        ("rpc/routines_watch.rs", 1),
-        ("rpc/thread_seal.rs", 1),
-        ("rsi/digest.rs", 1),
-        ("rsi/digest/notice.rs", 1),
-        ("rsi/narrow.rs", 1),
-        ("rsi/pr.rs", 2),
-        ("rule_notice.rs", 1),
-        ("sweep_notice.rs", 1),
-        ("thread_link_seen.rs", 1),
-        ("turn/admission.rs", 1),
-        ("turn/ceiling_step.rs", 1),
-        ("turn/home_size_step.rs", 1),
-        ("turn/personal_step.rs", 1),
+    const COMPUTED_SITES: &[&str] = &[
+        "capture/act.rs",
+        "card/dm.rs",
+        "day_ceiling.rs",
+        "initiative/digest.rs",
+        "initiative/speak.rs",
+        "judge/notice.rs",
+        "judge/onto/stage.rs",
+        "mcp/mod.rs",
+        "needs_you.rs",
+        "outbox.rs",
+        "personas/note.rs",
+        "retract.rs",
+        "rpc/disk_watch.rs",
+        "rpc/question_waits.rs",
+        "rpc/routines_watch.rs",
+        "rpc/thread_seal.rs",
+        "rsi/digest.rs",
+        "rsi/digest/notice.rs",
+        "rsi/narrow.rs",
+        "rsi/pr.rs",
+        "rule_notice.rs",
+        "sweep_notice.rs",
+        "thread_link_seen.rs",
+        "turn/admission.rs",
+        "turn/ceiling_step.rs",
+        "turn/home_size_step.rs",
+        "turn/personal_step.rs",
     ];
 
     /// Staged is listed, statically (theseus-gm7bd): every operator call in
@@ -1678,10 +1683,10 @@ mod tests {
             add: "a call site was added whose kind this crate's source does not \
                   name. Put that kind in outbox::OPERATOR_KINDS (an unlisted \
                   kind settles Failed, theseus-haw2b), make sure a test drives \
-                  the call so hold_operator_kind can see it, and then write the \
-                  file's new count into COMPUTED_SITES",
-            drop: "a call site went, or its kind became a literal: write the \
-                   file's new count into COMPUTED_SITES, or delete its row",
+                  the call so hold_operator_kind can see it, and then add the \
+                  file to COMPUTED_SITES",
+            drop: "a file's last computed-kind call went, or its kind became a \
+                   literal: delete its row from COMPUTED_SITES",
             // 25 files held 29 such calls when this was written; a bar of
             // 20 files is low enough not to need an edit for every move and
             // high enough that a walk which stopped matching fails here.
@@ -1692,10 +1697,10 @@ mod tests {
             &spec,
             COMPUTED_SITES
                 .iter()
-                .map(|(p, n)| (format!("{p}: {n} with a computed kind"), String::new())),
+                .map(|p| ((*p).to_string(), String::new())),
             computed
                 .iter()
-                .map(|(p, n)| (format!("{p}: {n} with a computed kind"), String::new())),
+                .map(|(p, n)| (p.clone(), format!("{n} computed-kind calls"))),
         );
         assert!(walked >= 20, "{walked} files walked");
     }
