@@ -215,9 +215,7 @@ pub fn members_of<'a>(notes: impl IntoIterator<Item = &'a str>) -> Vec<String> {
         };
         let pack = pack.trim();
         let shaped = counts.split_once('/').is_some_and(|(f, c)| {
-            !f.is_empty()
-                && f.bytes().all(|b| b.is_ascii_digit() || b == b'?')
-                && !c.is_empty()
+            !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit() || b == b'?') && !c.is_empty()
         });
         let key = format!("{FAILED_PREFIX}{pack}");
         if shaped && !pack.is_empty() && !pack.contains(' ') && !out.contains(&key) {
@@ -1020,7 +1018,10 @@ mod tests {
         assert!(o.note.starts_with("50 of 50"), "{}", o.note);
         let quiet = json!({"pack": "alpha.v1", "calls": 10_000, "failed": 60,
             "failed_recent": 2, "calls_recent": 300});
-        assert!(report_obs(quiet).is_none(), "2 recent failures are under three");
+        assert!(
+            report_obs(quiet).is_none(),
+            "2 recent failures are under three"
+        );
     }
 
     /// Three failing packs, one of them dropped: the dropped one keeps its own

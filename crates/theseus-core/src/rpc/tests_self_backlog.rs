@@ -893,7 +893,9 @@ fn a_drop_of_the_folded_failed_item_means_its_packs() {
     assert_eq!(night.kept_out, 2, "{night:?}");
     assert_eq!(night.filed.len(), 1, "{night:?}");
     assert!(
-        listed(&c).iter().any(|i| i.cause == "judge.failed:delta.v1"),
+        listed(&c)
+            .iter()
+            .any(|i| i.cause == "judge.failed:delta.v1"),
         "the pack not dropped is filed under its own key"
     );
     // Night three: two new packs fold again.
@@ -907,5 +909,9 @@ fn a_drop_of_the_folded_failed_item_means_its_packs() {
         .into_iter()
         .filter(|i| i.cause == "judge.failed" && i.state != "abandoned")
         .collect();
-    assert_eq!(folded.len(), 1, "two new failing packs file judge.failed again");
+    assert_eq!(
+        folded.len(),
+        1,
+        "two new failing packs file judge.failed again"
+    );
 }

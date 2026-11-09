@@ -230,7 +230,11 @@ async fn a_post_that_failed_leaves_every_start_where_it_was() {
     let said = lines(&r);
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(said[0].contains("1 started"), "{}", said[0]);
-    assert!(r.core.folded_read().is_empty(), "told once: {:?}", r.core.folded_read());
+    assert!(
+        r.core.folded_read().is_empty(),
+        "told once: {:?}",
+        r.core.folded_read()
+    );
 }
 
 fn contains(hay: &[u8], needle: &[u8]) -> bool {
