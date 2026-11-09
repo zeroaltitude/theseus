@@ -371,8 +371,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`).
   **Every head ends with `standing::FRAMING`** (theseus-ectzg): the records are the owner's, carried on every request, never
   to be acknowledged, thanked or restated, so a model that reads the block as a message just received does not answer it.
-  The thread card, the task arrangement, the fan-out cue and the place digest (`compiler/place_digest.rs`) say the same of
-  themselves in their own words; a new block the harness writes into a request says it too. The engaged persona's tail
+  The thread card, the task arrangement, the fan-out cue and the place digest (`compiler/place_digest.rs`) compose
+  `content::CONTEXT_NOT_THE_OWNERS` (`context_not_the_owners!()` inside a `concat!`), and each nudge text ends with
+  `content::NOT_FOR_THE_PERSON`: never retype either. A new block the harness writes into a request says it too, and
+  `content::tests::every_block_the_harness_writes_says_whose_it_is` fails until the file is classed. The engaged persona's tail
   line (`engage::Engaged::line`) states a fact, not an instruction, and was judged not to need it.
   **A surface scope** (theseus-slvl.4, store format 34; `StandingScope::Surface(name)`, `terminal` for the CLI and the TUI,
   `cockpit`, `discord`, `voice`, `mcp`): the record is in no system block, so the system and tools stay byte-identical
