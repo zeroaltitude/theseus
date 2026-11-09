@@ -1122,15 +1122,14 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "UpdateWorkspace",
         ],
     ),
-    // The Firebase server key of a GCM channel, `Credential`, unmarked.
-    ops(
-        "pinpoint",
-        &["DeleteGcmChannel", "GetGcmChannel", "UpdateGcmChannel"],
-    ),
-    // The Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
+    // The Firebase server key of a GCM channel, `Credential`, unmarked; and
+    // the Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
     ops(
         "pinpoint",
         &[
+            "DeleteGcmChannel",
+            "GetGcmChannel",
+            "UpdateGcmChannel",
             "DeleteBaiduChannel",
             "GetBaiduChannel",
             "UpdateBaiduChannel",

@@ -66,7 +66,7 @@
 
 use std::collections::HashSet;
 
-use theseus_aws::catalog::{Catalog, OperationRef, SecretBearing, ShapeId, ShapeRef};
+use theseus_aws::catalog::{Catalog, Kind, OperationRef, SecretBearing, ShapeId, ShapeRef};
 
 use super::secret::{HELD, NAMED};
 
@@ -1297,5 +1297,71 @@ fn every_marked_candidate_is_on_a_list() {
         "the walk found {walked} candidates and MARKED alone has {}: \
          the walk cannot be reaching the rows it is meant to judge",
         MARKED.len()
+    );
+}
+
+/// Every member name under `shape`, structures through lists and maps, each
+/// shape entered once.
+fn member_names(shape: ShapeRef<'_>, seen: &mut HashSet<ShapeId>, out: &mut Vec<String>) {
+    match shape.kind() {
+        Kind::Structure => {
+            if !seen.insert(shape.id()) {
+                return;
+            }
+            for m in shape.members() {
+                out.push(m.name().to_string());
+                member_names(m.shape(), seen, out);
+            }
+        }
+        Kind::List => {
+            if let Some(m) = shape.list_member() {
+                member_names(m.shape(), seen, out);
+            }
+        }
+        Kind::Map => {
+            if let Some(m) = shape.map_value() {
+                member_names(m.shape(), seen, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `transfer:DescribeCertificate` was read as public (59f9568a0) and never
+/// measured. Walk its output shape from the embedded catalog: no member is,
+/// or ends with, `PrivateKey` in any case. The control is the same walk over
+/// `ImportCertificate`'s **input**, which must find one: a walk that finds
+/// nothing anywhere would pass the first half, and the control is what shows
+/// the walk can see the member. Both counts are asserted positive.
+#[test]
+fn transfers_describe_certificate_carries_no_private_key() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let svc = c.service("transfer").expect("the service decodes");
+    let names_of = |op: &str, input: bool| {
+        let op = svc
+            .operations()
+            .find(|o| o.name() == op)
+            .unwrap_or_else(|| panic!("transfer:{op} is in the catalog"));
+        let shape = if input { op.input() } else { op.output() };
+        let mut out = Vec::new();
+        member_names(shape.expect("the operation has that shape"), &mut HashSet::new(), &mut out);
+        out
+    };
+    let is_key = |n: &String| n.to_ascii_lowercase().ends_with("privatekey");
+    let described = names_of("DescribeCertificate", false);
+    // Measured: 17 member names (the answer's certificate, its chain, its
+    // dates, its tags). A count a catalog update moves is a reason to read it.
+    assert_eq!(described.len(), 17, "{described:?}");
+    assert!(
+        described.iter().any(|n| n == "Certificate")
+            && described.iter().any(|n| n == "CertificateChain"),
+        "the walk must reach the answer's certificate members: {described:?}"
+    );
+    let keys: Vec<&String> = described.iter().filter(|n| is_key(n)).collect();
+    assert!(keys.is_empty(), "DescribeCertificate's answer names {keys:?}");
+    let imported = names_of("ImportCertificate", true);
+    assert!(
+        imported.iter().any(is_key),
+        "the control must find PrivateKey in ImportCertificate's input: {imported:?}"
     );
 }
