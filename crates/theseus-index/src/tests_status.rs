@@ -172,3 +172,39 @@ fn a_connection_that_panics_gives_back_its_slot() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+
+/// A cursor holds the numbers its index was built under and no binary's
+/// identity, so an install that moved none of them resumes, and one that
+/// moved a number says which, in the words the tender logs (theseus-la5oc).
+#[test]
+fn a_rebuild_names_the_number_that_moved_and_a_plain_install_resumes() {
+    use crate::engine::SCHEMA_VERSION;
+    use crate::extract::EXTRACTOR_VERSION;
+    use crate::state::{Saved, CURSOR_FORMAT};
+    use crate::tender::rebuild_reason;
+    let saved = |schema, extractor| Saved {
+        format: CURSOR_FORMAT,
+        schema,
+        extractor,
+        cursor: theseus_follow::Cursor::start(),
+        saved_at_ms: 1,
+    };
+    // Another binary, the same numbers: the cursor is kept.
+    assert_eq!(
+        rebuild_reason(Some(&saved(SCHEMA_VERSION, EXTRACTOR_VERSION)), true, true),
+        None
+    );
+    // A schema that moved is named, with the window the operator will see.
+    let why = rebuild_reason(Some(&saved(SCHEMA_VERSION + 1, EXTRACTOR_VERSION)), true, true)
+        .expect("a moved schema rebuilds");
+    assert!(
+        why.contains(&format!("index schema {} -> {SCHEMA_VERSION}", SCHEMA_VERSION + 1))
+            && why.contains("recall read-degraded"),
+        "{why}"
+    );
+    assert!(!why.contains("extractor"), "{why}");
+    // An unreadable cursor over an index is said so; no cursor at all is the
+    // caller's "missing".
+    assert!(rebuild_reason(None, true, true).unwrap().contains("unreadable"));
+    assert_eq!(rebuild_reason(None, false, false), None);
+}
