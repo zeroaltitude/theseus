@@ -229,7 +229,7 @@ new lines, the dock again, in synchronized-output mode 2026).
   root; no symlink is followed; `.git`, `node_modules` and `target` are skipped; at most 20,000 files, 12 deep), and a keystroke
   only filters that list in memory. Tab or Enter writes `@path`; **a message that names `@path` carries the path, never the bytes**
   (a footer line with the absolute path and "read them with fs.read"), so the read is the ordinary gated `fs.read`. A name not in the
-  list is refused at Enter, said in the dock, the line kept; `@@x` sends a literal `@x`; a paste is never checked. Tests:
+  list is refused at Enter, said in the dock, the line kept; `@@x` sends a literal `@x`; a FOLDED paste (more than 5 lines) is never checked, but a shorter one is typed text, so a pasted `@reboot` or `@scope/pkg` in it is refused like a typed one (an owner question: should a short pasted `@word` block a message?). Tests:
   `chat/tests_commands.rs`, `chat/tests_atfile.rs`.
 
 - **`/why`** (theseus-vjzt, phase 2; `chat/why.rs`): the lines `theseus why` prints for the last compiled turn, dim for the backtick lines.

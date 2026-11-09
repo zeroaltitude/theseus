@@ -219,7 +219,7 @@ async fn nothing_is_offered_or_sent_when_the_directory_is_outside_the_roots() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_double_at_sends_a_literal_and_a_paste_is_never_checked() {
+async fn a_double_at_sends_a_literal_and_a_folded_paste_is_never_checked() {
     let p = project();
     let mut r = rig_in(&p, &p.path().display().to_string()).await;
     r.type_text("ask @@bob about it").await;
@@ -264,4 +264,21 @@ async fn a_recalled_line_naming_a_path_mid_sentence_lists_the_files_and_sends() 
     r.press(KeyCode::Enter).await;
     r.asked("turn.submit", 1).await;
     assert_eq!(r.daemon.asked("turn.submit").len(), 1);
+}
+
+/// A paste of five lines or fewer is not folded: it is typed text, so `@word`
+/// in it is checked like any other (today's behaviour; an owner question).
+#[tokio::test(start_paused = true)]
+async fn a_short_paste_is_typed_text_so_a_pasted_at_word_is_checked() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.paste("# cron\n@reboot /usr/bin/foo\n").await;
+    r.settle().await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@reboot: no such file under").await;
+    assert!(
+        r.daemon.asked("turn.submit").is_empty(),
+        "nothing is sent while a pasted @word names no file"
+    );
 }

@@ -228,8 +228,9 @@ impl Editor {
         self.insert_str(with);
     }
 
-    /// What was typed, a paste (folded or not) never counted: a space stands
-    /// for each chip. Words only the person's own keys made.
+    /// What was typed: a space stands for each chip, so a FOLDED paste is
+    /// never counted. A paste of [`FOLD_LINES`] lines or fewer is inserted as
+    /// text and is counted like typing (theseus-vjzt).
     pub fn typed_text(&self) -> String {
         self.buf
             .iter()
