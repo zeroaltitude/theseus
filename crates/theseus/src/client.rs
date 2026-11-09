@@ -298,7 +298,7 @@ pub fn job_session() -> Option<String> {
 /// and picks the session's model), and a session's retirement and its
 /// reopening (theseus-emqx: a retired session leaves the default view), and the
 /// Operations page's verbs (theseus-5iqf8: a session's model hold, a task's home and its start).
-pub const OPERATORS: [(&str, &str); 109] = [
+pub const OPERATORS: [(&str, &str); 111] = [
     (method::GOOGLE_AUTH_BEGIN, "theseus google auth"),
     (method::GOOGLE_AUTH_FINISH, "theseus google auth"),
     (method::GOOGLE_REVOKE, "theseus google revoke"),
@@ -372,6 +372,8 @@ pub const OPERATORS: [(&str, &str); 109] = [
     (method::EXECUTION_DISMISS, "theseus dismiss"),
     (method::TASK_RETRY, "theseus retry"),
     (method::STANDING_ADD, "theseus standing add"),
+    (method::PROJECT_TRUST, "theseus project trust"),
+    (method::PROJECT_UNTRUST, "theseus project untrust"),
     (method::CARD_PROPOSE, "theseus card propose"),
     (
         method::CARD_ANSWER,
@@ -564,6 +566,18 @@ mod tests {
             assert!(e.to_string().contains("theseus standing"), "{e}");
         }
         assert!(refuse_in_a_job(method::STANDING_LIST, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// A job's process cannot grant or take back a repository's trust
+    /// (theseus-wadu): a granted file rides every prompt of its sessions.
+    /// The list is a read, and goes.
+    #[test]
+    fn a_jobs_process_cannot_write_a_repositorys_trust() {
+        for m in [method::PROJECT_TRUST, method::PROJECT_UNTRUST] {
+            let e = refuse_in_a_job(m, Some("ses_0000aa1b2c3")).unwrap_err();
+            assert!(e.to_string().contains("theseus project"), "{e}");
+        }
+        assert!(refuse_in_a_job(method::PROJECT_TRUSTED, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     /// A job's process cannot run the card's job, answer its questions or

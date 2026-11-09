@@ -2,7 +2,8 @@
 //! on the task graph. `projects` lists them (a bar of milestones done, the next
 //! milestone and its date, the weekly review's next run); `project show ID`
 //! prints the tree with dates; `project new`, `attach` and `detach` are the
-//! owner's acts (refused inside a job, `client::OPERATORS`). The review's run
+//! owner's acts (refused inside a job, `client::OPERATORS`), as are `trust` and
+//! `untrust` (a repository's own instruction files, theseus-wadu); `trusted` lists them. The review's run
 //! log is `theseus routine runs <review>`.
 
 use anyhow::Result;
@@ -11,8 +12,9 @@ use theseus_client::Conn;
 use theseus_protocol::method;
 use theseus_protocol::projects::{
     MilestoneSpec, ProjectAttachParams, ProjectAttachResult, ProjectCreateParams,
-    ProjectCreateResult, ProjectInfo, ProjectListParams, ProjectListResult, ProjectShowParams,
-    ProjectShowResult,
+    ProjectCreateResult, ProjectGrant, ProjectInfo, ProjectListParams, ProjectListResult,
+    ProjectShowParams, ProjectShowResult, ProjectTrustParams, ProjectTrustedParams,
+    ProjectTrustedResult,
 };
 use theseus_protocol::tasks::{TaskKind, TaskRecord};
 
@@ -54,6 +56,13 @@ pub enum ProjectCmd {
     Attach { session: String, id: String },
     /// Detach a session from its project.
     Detach { session: String },
+    /// Trust a repository: its own AGENTS.md and CLAUDE.md join the system block. Yours to give, from
+    /// your own shell; the path defaults to the current directory.
+    Trust { path: Option<String> },
+    /// Take a repository's trust back; its files are named, not read.
+    Untrust { path: Option<String> },
+    /// The trusted repositories.
+    Trusted,
 }
 
 impl Default for ProjectCmd {
@@ -127,7 +136,46 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: ProjectCmd) -> Result<()> {
         }
         ProjectCmd::Attach { session, id } => attach(conn, json, session, Some(id)).await,
         ProjectCmd::Detach { session } => attach(conn, json, session, None).await,
+        ProjectCmd::Trust { path } => trust(conn, json, method::PROJECT_TRUST, path).await,
+        ProjectCmd::Untrust { path } => trust(conn, json, method::PROJECT_UNTRUST, path).await,
+        ProjectCmd::Trusted => {
+            let v = conn
+                .request(method::PROJECT_TRUSTED, ProjectTrustedParams {})
+                .await?;
+            output(json, v, |r: ProjectTrustedResult| {
+                if r.trusted.is_empty() {
+                    println!("no repository is trusted");
+                }
+                for g in &r.trusted {
+                    println!("{}  {}  (by {} via {})", short(&g.id), g.root, g.by, g.via);
+                }
+                Ok(())
+            })
+        }
     }
+}
+
+/// `theseus project trust|untrust`: the path made absolute here, against the
+/// CLI's own directory, since the daemon would read it against its own.
+async fn trust(conn: &mut Conn, json: bool, name: &str, path: Option<String>) -> Result<()> {
+    let path = match path {
+        Some(p) => std::path::absolute(p)?,
+        None => std::env::current_dir()?,
+    };
+    let params = ProjectTrustParams {
+        path: path.to_string_lossy().into_owned(),
+        ..Default::default()
+    };
+    let v = conn.request(name, params).await?;
+    output(json, v, |g: ProjectGrant| {
+        let verb = if name == method::PROJECT_TRUST {
+            "trusted"
+        } else {
+            "untrusted"
+        };
+        println!("{verb}: {} ({})", g.root, short(&g.id));
+        Ok(())
+    })
 }
 
 /// `theseus projects`.
