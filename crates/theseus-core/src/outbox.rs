@@ -1744,7 +1744,8 @@ mod tests {
         // a `)` nested deeper than the call's own does not either, so the
         // kind after both is still read. Catches: ending at the first `;`,
         // and ending at the first `)`.
-        let inner = "a.to_operator(None, json!({\"t\": { let n = f(g(1)); n }, \"kind\": \"disk\"}))?;";
+        let inner =
+            "a.to_operator(None, json!({\"t\": { let n = f(g(1)); n }, \"kind\": \"disk\"}))?;";
         assert_eq!(kinds_named_in(inner), vec![(1, "disk".to_string())]);
         // A nested `)` inside the call does not end it early.
         let nested = "a.to_operator(None, json!({\"kind\": f(g(1), \"x\")}))?;";

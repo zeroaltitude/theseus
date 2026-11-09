@@ -1042,18 +1042,30 @@ fn the_until_family_is_exactly_the_files_that_share_its_guard() {
         }
     }
     found.sort();
-    assert!(found.len() >= 10, "the scan found only {found:?}: it read the wrong tree");
+    assert!(
+        found.len() >= 10,
+        "the scan found only {found:?}: it read the wrong tree"
+    );
     assert_eq!(
         found, UNTIL_FAMILY,
         "a file started or stopped sharing `until`: update UNTIL_FAMILY and its doc"
     );
     // The members the bead names, in the files that make them members.
     for (file, test) in [
-        ("tests_walk1b.rs", "a_dm_message_routed_to_a_placeless_thread_still_sees_its_tasks"),
-        ("tests_task_react.rs", "pause_parks_a_running_task_without_a_report_and_resume_lets_it_report"),
+        (
+            "tests_walk1b.rs",
+            "a_dm_message_routed_to_a_placeless_thread_still_sees_its_tasks",
+        ),
+        (
+            "tests_task_react.rs",
+            "pause_parks_a_running_task_without_a_report_and_resume_lets_it_report",
+        ),
     ] {
         let text = std::fs::read_to_string(src.join(file)).expect("a family file");
-        assert!(text.contains(&format!("fn {test}")), "{test} is not in {file}");
+        assert!(
+            text.contains(&format!("fn {test}")),
+            "{test} is not in {file}"
+        );
         assert!(UNTIL_FAMILY.contains(&file));
     }
     // The ones that are not: neither mentions this module at all.
