@@ -104,7 +104,7 @@ impl IndexTender {
                 // Never over a read that landed in the meantime.
                 if c.tried
                     .as_ref()
-                    .map_or(true, |(at, _)| at.elapsed() >= self.status_every)
+                    .is_none_or(|(at, _)| at.elapsed() >= self.status_every)
                 {
                     c.tried = Some((Instant::now(), Some(late.clone())));
                 }

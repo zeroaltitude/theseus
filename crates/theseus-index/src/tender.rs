@@ -487,7 +487,7 @@ impl Tender {
         }
         Ok(Self {
             backfill: Some((cursor.clone(), total)),
-            rebuild_why: why_rebuild.clone(),
+            rebuild_why: why_rebuild,
             saved: cursor,
             saved_at: Instant::now(),
             cfg,
