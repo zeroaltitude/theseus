@@ -778,6 +778,9 @@ impl Chat {
         if self.ask.note {
             return self.send_note();
         }
+        if let Some(effects) = self.at_reread() {
+            return effects;
+        }
         // A message that names @files must name listed ones, or it is not sent.
         let resolved = if self.editor.text().trim_start().starts_with('/') {
             Resolved::default()
