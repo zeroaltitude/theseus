@@ -91,6 +91,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("content.v1", include_str!("../packs/content.v1.toml")),
     ("content.v2", include_str!("../packs/content.v2.toml")),
     ("content.v3", include_str!("../packs/content.v3.toml")),
+    ("content.v4", include_str!("../packs/content.v4.toml")),
     ("split.v1", include_str!("../packs/split.v1.toml")),
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
     ("undo.v1", include_str!("../packs/undo.v1.toml")),
@@ -1716,11 +1717,11 @@ mod tests {
         let six: Vec<&(&str, &str)> = EMBEDDED.iter().filter(|(f, _)| *f != "probe.v1").collect();
         assert_eq!(
             six.len(),
-            38,
+            39,
             "§2.4's six, security.v3, rerank.v1, memory.v1, attribution.v1, route.v5 to v8, route.v10, effort.v1, work.v1, \
              citation.v1, people.v1, people_seen.v1, classify.v2 to v4, compare.v1, heard.v1, directive.v1, \
              onto.v1, same_thing.v1, two_things.v1, same_kind.v1, name_it.v1, recall_cross.v1, families.v1, \
-             content.v1 to v3, split.v1, undo.v1 and delay.v1"
+             content.v1 to v4, split.v1, undo.v1 and delay.v1"
         );
         for (file, text) in six {
             let p = Pack::parse(text).unwrap_or_else(|e| panic!("{file}: {e}"));

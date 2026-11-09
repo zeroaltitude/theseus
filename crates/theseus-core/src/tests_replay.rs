@@ -722,7 +722,10 @@ fn content_judgment_by(
 /// that asks the same things is only rebanded, with no state sent). Its
 /// questions are the incumbent's, `injection` still conditional.
 fn content_next() -> String {
-    CONTENT_V3.replacen("version = 3", "version = 4", 1).replacen(
+    // Version 5: the candidate must be a version this build does not dispatch, and
+    // `content.v4` became the wired pack at theseus-3i6d1 (the privacy bar), so the
+    // next unused number moved up by one. Nothing else about these tests changes.
+    CONTENT_V3.replacen("version = 3", "version = 5", 1).replacen(
         "Judge what this item reveals, not what it is about: does it reveal an organisation's",
         "Judge carefully what this item reveals, not what it is about: does it reveal an organisation's",
         1,
@@ -732,7 +735,7 @@ fn content_next() -> String {
 /// The same candidate at a learned version (25f numbers a learned pack from
 /// `propose::LEARNED_FROM`, 101).
 fn content_learned() -> String {
-    content_next().replacen("version = 4", "version = 101", 1)
+    content_next().replacen("version = 5", "version = 101", 1)
 }
 
 async fn replay_content(c: &Arc<Core>, ids: &[&str]) -> JudgeReplayResult {

@@ -59,13 +59,18 @@ use crate::node::{Body, Node};
 
 /// The pack: the four content questions about one item.
 ///
+/// v4 since theseus-3i6d1 (the owner, 2026-11-08): `personal` asks whether an
+/// item shows specifically sensitive information about a person that it would
+/// not be appropriate to publish, instead of whether it is personal at all. The
+/// other three questions are v3's byte for byte.
+///
 /// v3 since theseus-gyjyo.11: the state carries who wrote the item, where the
 /// session speaks and works, whether the operator lists that tree as open
 /// source, and the operator's own paragraph (`content_scene`). v2 (theseus-78qay,
 /// the owner, 2026-10-27: a flag describes what an item REVEALS, not what it is
 /// ABOUT) and v1 stay embedded, as the record of what the judgments before each
 /// bump were answered against.
-pub const PACK: &str = "content.v3";
+pub const PACK: &str = "content.v4";
 
 /// How long a session's queue waits, after its first item, for the rest of the
 /// loop's results to join the batch.

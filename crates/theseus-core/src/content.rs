@@ -55,7 +55,16 @@ pub enum Flag {
     Secret,
     /// The item shows an organisation's non-public matter.
     Confidential,
-    /// The item shows a person's private information.
+    /// The item shows specifically sensitive information about a person:
+    /// something it would not be appropriate to publish. The question is not
+    /// whether the item is personal -- a favourite animal, a hobby and a plan
+    /// to go to the shops all are, and publishing none of them harms anyone --
+    /// but whether publishing would expose, harm or embarrass the person
+    /// (the owner, 2026-11-08, theseus-3i6d1: "this shouldn't be 'is it
+    /// personal' it should be 'is this specifically sensitive information that
+    /// would not be appropriate to be publicly shared'"). The pack asks it in
+    /// those words from `content.v4`; the wire name stays `personal`, which is
+    /// what every stored label, config key and surface already says.
     Personal,
 }
 
@@ -116,7 +125,9 @@ impl Flag {
             Flag::Injection => "something in this session tried to steer me",
             Flag::Secret => "this session has seen the value of a credential",
             Flag::Confidential => "this session has seen an organisation's non-public matter",
-            Flag::Personal => "this session has seen a person's private information",
+            Flag::Personal => {
+                "this session has seen information about a person that should not be made public"
+            }
         }
     }
 }
