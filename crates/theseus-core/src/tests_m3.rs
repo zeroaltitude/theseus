@@ -6203,6 +6203,11 @@ mod parallel {
             self.released.notify_all();
         }
 
+        /// How many runs have started.
+        fn started(&self) -> usize {
+            *self.arrivals.lock().unwrap()
+        }
+
         fn wait_held(&self) {
             let held = self.held.lock().unwrap();
             let _ = self
@@ -6469,16 +6474,48 @@ mod parallel {
     }
 
     /// A call's time is its run's own, not its wait for the turn (theseus-a60,
-    /// theseus-b38m). The wait is made long and known: a task beside the turn,
-    /// on the test's one thread, blocks it for `STALL` once the first read has
-    /// run, so every result that is ready waits that long in the turn's task.
-    /// The reads' own times are then far under it (a bound of a half, not a
-    /// wall bound on a read), and the turn's tools span holds the stall, so
+    /// theseus-b38m). The wait is made long and known: the turn's own task, on
+    /// the test's one thread, blocks for `STALL` at its first poll after a read
+    /// has begun, so every result that is ready waits that long in the turn's
+    /// task. The reads' own times are then far under it (a bound of a half, not
+    /// a wall bound on a read), and the turn's tools span holds the stall, so
     /// the wait was there to be counted. A time taken from the turn's
-    /// receipt would read the stall, and fail.
+    /// receipt would read the stall, and fail. The stall is taken inside the
+    /// turn's poll, before it can take a result, so it lands in the wait of
+    /// every call that has begun. A task beside the turn took it once a read
+    /// had run, and a loaded host could have the turn take all seven results
+    /// before that task was polled: the stall then landed in no call's wait
+    /// (theseus-4vsrz).
     #[tokio::test]
     async fn a_calls_time_is_its_own_run_not_its_wait_for_the_turn() {
         const STALL: Duration = Duration::from_millis(1200);
+        /// The turn, taking the stall at its first poll after a read has begun.
+        struct Stalled<F> {
+            turn: std::pin::Pin<Box<F>>,
+            timing: Arc<Timing>,
+            stalled: bool,
+        }
+        impl<F: std::future::Future> std::future::Future for Stalled<F> {
+            type Output = F::Output;
+            fn poll(
+                self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<F::Output> {
+                let me = self.get_mut();
+                if !me.stalled && me.timing.started() > 0 {
+                    me.stalled = true;
+                    std::thread::sleep(STALL);
+                }
+                let polled = me.turn.as_mut().poll(cx);
+                if polled.is_ready() {
+                    assert!(
+                        me.stalled,
+                        "the turn ended with no read begun: no stall was taken"
+                    );
+                }
+                polled
+            }
+        }
         let timing = Arc::<Timing>::default();
         let seven: Vec<_> = (1..=7)
             .map(|i| read(&format!("q{i}"), "hello.txt"))
@@ -6496,23 +6533,15 @@ mod parallel {
             )],
         );
         std::fs::write(r.root.join("hello.txt"), "hi\n").unwrap();
+        // A read takes at least this long, so none ends in the poll that began it.
+        timing.set(&[("fs.read:hello.txt", 50)]);
         let core = r.core.clone();
-        let running =
-            tokio::spawn(async move { turn(&core, None, "read hello.txt seven times").await });
-        let t = timing.clone();
-        let stall = tokio::spawn(async move {
-            let t0 = Instant::now();
-            while t.runs.lock().unwrap().is_empty() {
-                assert!(
-                    t0.elapsed() < Duration::from_secs(60),
-                    "no read ran in 60 s"
-                );
-                tokio::task::yield_now().await;
-            }
-            std::thread::sleep(STALL);
+        let running = tokio::spawn(Stalled {
+            turn: Box::pin(async move { turn(&core, None, "read hello.txt seven times").await }),
+            timing: timing.clone(),
+            stalled: false,
         });
         let res = running.await.unwrap();
-        stall.await.unwrap();
         assert_eq!(res.tool_calls, 7);
         let times: Vec<u64> = r
             .core
