@@ -320,3 +320,98 @@ async fn a_failing_cross_judge_opens_only_its_own_breaker() {
     assert_eq!(circuits().len(), 1);
     jev.release();
 }
+
+/// An open of `recall_cross` is counted on the ladder (theseus-tbqpy's rule,
+/// wired): the same five unanswered calls leave a `pack.event` row for the
+/// pack, which the sink once wrote for `rerank` alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cross_breaker_open_lands_on_the_ladder() {
+    let jev = FakeJev::start().unwrap();
+    jev.script(
+        "scope",
+        Jev::Choice {
+            option: "thread".into(),
+            confidence: 0.95,
+        },
+    );
+    jev.hold_when("8453");
+    let r = rigged(&jev, |c| {
+        pack_mode(c, crate::judge::inbound::CLASSIFY_PACK, PackMode::Live);
+    });
+    let c = &r.core;
+    let pipe = world(c, 0);
+    let rows = |kind: &str| {
+        c.store
+            .ledger_tail::<crate::ledger::LedgerRow>(5000)
+            .unwrap()
+            .into_iter()
+            .map(|(_, r)| r)
+            .filter(|r| r.kind == kind)
+            .collect::<Vec<_>>()
+    };
+    for _ in 1..=5 {
+        turn(c, &pipe, "Regenerate the report with the new cutoff.").await;
+    }
+    let t0 = std::time::Instant::now();
+    while rows("judge.circuit").is_empty() {
+        assert!(t0.elapsed() < Duration::from_secs(60), "never opened");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let t0 = std::time::Instant::now();
+    while rows("pack.event").is_empty() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the open never became a ladder event"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let events = rows("pack.event");
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].data["pack"], CROSS_PACK);
+    assert!(
+        events[0].data["event"].to_string().to_lowercase().contains("breaker"),
+        "{:?}",
+        events[0].data
+    );
+    jev.release();
+}
+
+/// A learned version of `recall_cross.v1` the ladder placed is the one that
+/// runs (theseus-zbttu, wired): the request names `recall_cross.v101`, and
+/// none names the root.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_placed_learned_cross_version_is_the_one_asked() {
+    let jev = FakeJev::start().unwrap();
+    jev.script("same_subject.1", Jev::Noul(0.95));
+    jev.script("same_subject.2", Jev::Noul(0.05));
+    let r = rigged(&jev, |_| {});
+    let c = &r.core;
+    let pipe = world(c, 0);
+    crate::tests_prove::learned_cross(c);
+    c.runner
+        .judge
+        .ladder()
+        .write(theseus_protocol::packs::PackModeRow {
+            pack: "recall_cross.v101".into(),
+            mode: "live".into(),
+            from: "off".into(),
+            who: "system".into(),
+            why: "learned (prp_heron): the cross test".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        c.runner.judge.placed_read(CROSS_PACK, &pipe),
+        "recall_cross.v101",
+        "the version stands in the root's place"
+    );
+    turn(c, &pipe, "Regenerate the report with the new cutoff.").await;
+    let all: Vec<String> = jev
+        .seen()
+        .iter()
+        .map(|s| serde_json::to_string(&s.body).unwrap())
+        .collect();
+    let learned = all.iter().filter(|b| b.contains("recall_cross.v101/")).count();
+    assert!(learned >= 1, "the learned version was never asked");
+    assert_eq!(cross_requests(&jev).len(), 0, "the root was asked");
+}
