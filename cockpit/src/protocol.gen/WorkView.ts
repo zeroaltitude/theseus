@@ -137,6 +137,14 @@ retry_of?: string,
  */
 thread?: string, 
 /**
+ * Where the task's forum post (else its Discord thread) is, as an address
+ * the owner can open (`https://discord.com/channels/<guild>/<post>`).
+ * Absent when no post or thread is known: a daemon with no Discord binding,
+ * a task in a place with no forum, or a row dropped after its day. A shared
+ * place is never given it.
+ */
+forum_url?: string, 
+/**
  * Why a wake exists: `remind`, `check`, `routine`, `watch`.
  */
 purpose?: string, 
