@@ -1,6 +1,8 @@
 == cli
 {
-  "betas": [],
+  "betas": [
+    "thinking-binding-controls-#-#-#"
+  ],
   "cache_control": {
     "type": "ephemeral"
   },
@@ -56,7 +58,9 @@ tools: channel_post channel_read extend_propose file_read fs_edit fs_glob fs_gre
 tools sha256: 91a0e988119a16ebfa4b1687903c76bc477689e939a8223201efa0b0ac166390
 == dm
 {
-  "betas": [],
+  "betas": [
+    "thinking-binding-controls-#-#-#"
+  ],
   "cache_control": {
     "type": "ephemeral"
   },

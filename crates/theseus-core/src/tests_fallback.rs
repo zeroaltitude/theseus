@@ -743,7 +743,11 @@ async fn a_fallbacks_request_is_one_its_model_takes_and_carries_no_fallback_of_i
     assert_eq!(res.model, "claude-opus-5");
     let reqs = r.fake.requests();
     assert_eq!(reqs.len(), 2);
-    assert!(reqs[1].betas.is_empty(), "{:?}", reqs[1].betas);
+    assert!(
+        !reqs[1].betas.contains(&crate::compiler::BETA_FALLBACKS.to_string()),
+        "{:?}",
+        reqs[1].betas
+    );
     assert!(
         !reqs[1].extra.contains_key("fallbacks"),
         "{:?}",

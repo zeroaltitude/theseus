@@ -83,6 +83,11 @@ pub const COMPILATION_SCHEMA: u16 = 1;
 
 pub const BETA_THINKING_UPDATES: &str = "thinking-display-updates-2026-08-18";
 pub const BETA_FALLBACKS: &str = "server-side-fallback-2026-07-01";
+/// With it a response's `input_transformations` names each thinking block the
+/// provider let stand against the request's binding, `thinking_mismatch_allowed`:
+/// the prefix-drift canary (theseus-ig13o). Sent on every first-party thinking
+/// request; it changes no behaviour, only what the response reports.
+pub const BETA_THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
 
 /// What a compilation froze: everything that, if it changed, would change the
 /// prefix bytes or invalidate thinking blocks.
@@ -998,6 +1003,13 @@ fn render_kept(
                 ThinkingDisplay::Omitted => "omitted",
                 _ => "summarized",
             };
+            // The prefix-drift canary (theseus-ig13o): the response says
+            // what drifted. First-party only, as the other betas are, and on
+            // A retry on a fallback model is the same request with the model
+            // swapped, so it carries the same beta.
+            if spec.first_party {
+                betas.push(BETA_THINKING_BINDING.to_string());
+            }
             Some(json!({"type": "adaptive", "display": display}))
         }
         _ => None,

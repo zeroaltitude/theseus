@@ -1046,6 +1046,29 @@ pub struct ProviderCall<'a> {
     pub origin: &'a str,
 }
 
+/// The entry `input_transformations` carries for a thinking block the
+/// provider let stand against the request's binding.
+pub const THINKING_MISMATCH_ALLOWED: &str = "thinking_mismatch_allowed";
+
+/// How many `thinking_mismatch_allowed` entries a response's
+/// `input_transformations` holds: none when the field is absent (the beta
+/// not sent, or a provider that has none).
+pub fn thinking_mismatches(t: Option<&Value>) -> u64 {
+    match t {
+        Some(Value::String(s)) => u64::from(s == THINKING_MISMATCH_ALLOWED),
+        Some(Value::Array(a)) => a.iter().map(|e| thinking_mismatches(Some(e))).sum(),
+        Some(Value::Object(m)) => m
+            .iter()
+            .map(|(k, v)| match (k == THINKING_MISMATCH_ALLOWED, v) {
+                (true, Value::Array(a)) => a.len() as u64,
+                (true, _) => 1,
+                (false, v) => thinking_mismatches(Some(v)),
+            })
+            .sum(),
+        _ => 0,
+    }
+}
+
 impl Fact for ProviderCall<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ProviderCall);
 
@@ -1065,6 +1088,7 @@ impl Fact for ProviderCall<'_> {
             "stop_details": resp.stop_details,
             "blocks": resp.content.len(),
             "input_transformations": resp.input_transformations,
+            "thinking_mismatch_allowed": thinking_mismatches(resp.input_transformations.as_ref()),
             "node_id": self.node_id,
             "origin": self.origin,
         });
@@ -2096,5 +2120,27 @@ impl Fact for RetryDecided<'_> {
             ),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_mismatch {
+    use super::*;
+
+    /// The canary's count: each entry of the kind, wherever the provider
+    /// nests it, and nothing for a field that is absent or says something
+    /// else. The positive counts are asserted, so an empty reading cannot pass.
+    #[test]
+    fn thinking_mismatch_entries_are_counted() {
+        let entry = json!({"type": THINKING_MISMATCH_ALLOWED, "block": 2});
+        let other = json!({"type": "cache_control_dropped"});
+        let some = json!([entry, other, entry]);
+        assert_eq!(thinking_mismatches(Some(&some)), 2);
+        let nested = json!({"messages": [{"transformations": [entry]}], "system": [other]});
+        assert_eq!(thinking_mismatches(Some(&nested)), 1);
+        let keyed = json!({THINKING_MISMATCH_ALLOWED: [1, 2, 3]});
+        assert_eq!(thinking_mismatches(Some(&keyed)), 3);
+        assert_eq!(thinking_mismatches(Some(&json!([other]))), 0);
+        assert_eq!(thinking_mismatches(None), 0);
     }
 }

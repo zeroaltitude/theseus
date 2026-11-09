@@ -134,6 +134,30 @@ fn run(
     })
 }
 
+/// The prefix-drift canary (theseus-ig13o, F2): a first-party request to a
+/// thinking model carries the thinking-binding beta, so a drifting prefix
+/// shows as `thinking_mismatch_allowed` entries in the response; a request
+/// that is not first-party, or to a model with no thinking, does not.
+#[test]
+fn a_first_party_thinking_request_carries_the_binding_beta() {
+    let nodes = vec![(1, Node::user("s", None, "web", "read /x"))];
+    let on = run(&nodes, None, &spec("claude-opus-5", "You are Theseus."), 1);
+    assert!(on.request.thinking.is_some(), "a thinking request");
+    assert!(
+        on.request.betas.contains(&BETA_THINKING_BINDING.to_string()),
+        "{:?}",
+        on.request.betas
+    );
+    let mut other = spec("claude-opus-5", "You are Theseus.");
+    other.first_party = false;
+    let off = run(&nodes, None, &other, 1);
+    assert!(
+        !off.request.betas.contains(&BETA_THINKING_BINDING.to_string()),
+        "{:?}",
+        off.request.betas
+    );
+}
+
 #[test]
 fn appending_keeps_every_earlier_byte_and_tool_results_follow_their_call() {
     let sp = spec("claude-opus-5", "You are Theseus.");
