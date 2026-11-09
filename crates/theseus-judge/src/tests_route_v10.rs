@@ -74,7 +74,14 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
     let ids: Vec<&str> = model.options.iter().map(|o| o.id.as_str()).collect();
     assert_eq!(
         ids,
-        ["haiku", "sonnet", "opus", "fable", "deepseek_flash", "parent"],
+        [
+            "haiku",
+            "sonnet",
+            "opus",
+            "fable",
+            "deepseek_flash",
+            "parent"
+        ],
         "the five models, then the one option that names none"
     );
     // The declared default is `parent`, and the daemon runs it: an answer under the bar leaves
