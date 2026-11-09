@@ -819,10 +819,9 @@ fn nodes_of(episodes: &[Value]) -> u64 {
         .sum()
 }
 
-/// `episodes` imported in batches of 50, each under a frame at `CAP`: a
-/// frame boundary waits while the machine is busy
-/// (`pressure::quiet_blocking`), up to 10 s, which a test under load cannot
-/// spare.
+/// `episodes` imported in batches of 50, each under a frame at `CAP`, so each
+/// batch is one frame. A frame boundary is where a run waits while the machine
+/// is busy, up to 10 s; a test build's wait is none (`pace::quiet_blocking_unless`).
 fn import_quietly(c: &Arc<Core>, episodes: &[Value]) {
     for chunk in episodes.chunks(50) {
         let p = ImportEpisodesParams {

@@ -143,7 +143,7 @@ thread_local! {
 pub(crate) fn pace() -> std::time::Duration {
     #[cfg(test)]
     PACES.with(|c| c.set(c.get() + 1));
-    let waited = theseus_store::pressure::quiet_blocking_unless(
+    let waited = crate::pace::quiet_blocking_unless(
         theseus_store::pressure::BOUND,
         crate::startup::stop_has_begun,
     );

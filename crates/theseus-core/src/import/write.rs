@@ -242,10 +242,7 @@ fn import_batch_cut(
         if frame.full() {
             write_frame(store, &mut frame, &mut counts, &sent)?;
             out.frames += 1;
-            theseus_store::pressure::quiet_blocking_unless(
-                theseus_store::pressure::BOUND,
-                &stopping,
-            );
+            crate::pace::quiet_blocking_unless(theseus_store::pressure::BOUND, &stopping);
             // The rest waits for the batch sent again.
             if stopping() {
                 stopped = true;
@@ -661,10 +658,7 @@ pub(super) fn erase_in(
             store.append(&std::mem::take(&mut frame.records))?;
             frame.bytes = 0;
             frames += 1;
-            theseus_store::pressure::quiet_blocking_unless(
-                theseus_store::pressure::BOUND,
-                &stopping,
-            );
+            crate::pace::quiet_blocking_unless(theseus_store::pressure::BOUND, &stopping);
             // The rest waits for a rerun: this much is counted, and its row
             // is written below.
             if stopping() {
