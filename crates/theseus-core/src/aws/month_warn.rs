@@ -169,9 +169,10 @@ impl crate::Core {
         month: &str,
     ) -> anyhow::Result<Option<(theseus_kernel::Action, Vec<NewRecord>)>> {
         let detail = format!(
-            "AWS Budgets applies its stop action when a month's actual spend reaches the \
-             budget line, and account {} reached it. This was seen at the next budget read \
-             (every six hours), so it cannot be earlier than the stop itself.",
+            "A month's actual spend in account {} reached the budget line. Where this account \
+             runs the foundation stack's stop action, AWS has now applied its deny-spend \
+             policy; Theseus does not read whether it ran. This was seen at the next budget \
+             read (every six hours), so it cannot be earlier than the stop itself.",
             account.id
         );
         let staged = self.outbox.stage_rule(
@@ -253,9 +254,15 @@ mod tests {
         c.aws_month_stopped(&a, &at(10_000));
         let told = stopped_posts(&c);
         assert_eq!(told.len(), 1, "one notice: {told:?}");
-        for w in ["Rule F1 stopped", "$100.00", "monthly_budget_usd"] {
+        for w in [
+            "Rule F1 stopped",
+            "$100.00",
+            "monthly_budget_usd",
+            "does not read whether it ran",
+        ] {
             assert!(told[0].contains(w), "{w}: {}", told[0]);
         }
+        assert!(!told[0].contains("applies its stop action when"), "{}", told[0]);
         assert_eq!(
             c.store.get_meta::<String>(&key).unwrap().as_deref(),
             Some(this_month().as_str())
