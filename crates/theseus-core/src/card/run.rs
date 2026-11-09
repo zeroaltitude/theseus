@@ -280,9 +280,7 @@ impl Core {
         // stored mark alone, so the next attempt is the next night's, not the
         // interval's (theseus-kinfs; the tender's own mark keeps it from
         // being due again before then).
-        if !out.stopped.as_deref().is_some_and(is_failed_call) {
-            job.st.last_run_ms = Some(now);
-        }
+        job.st.last_run_ms = run_mark(&out, job.st.last_run_ms, now);
         self.people_write(&[job.st.record()?]).await?;
         Ok(out)
     }
@@ -582,4 +580,14 @@ const FAILED_CALL: &str = "a call failed: ";
 /// Whether a run's `stopped` words say a model call failed.
 fn is_failed_call(stopped: &str) -> bool {
     stopped.starts_with(FAILED_CALL)
+}
+
+/// The stored last run after a run: `now`, unless a call failed, which
+/// leaves the mark as it was (theseus-kinfs).
+fn run_mark(out: &CardProposeResult, was: Option<u64>, now: u64) -> Option<u64> {
+    if out.stopped.as_deref().is_some_and(is_failed_call) {
+        was
+    } else {
+        Some(now)
+    }
 }
