@@ -11,6 +11,13 @@
 //! Here each answers with a handle instead, the board holds the value, and
 //! the rest of the result comes through untouched.
 //!
+//! Added after that pass, from the second review's sweep (theseus-3i6d1):
+//! pinpoint's Firebase server key (`GCMChannelResponse.Credential`) and its
+//! Baidu twin, grafana's workspace token (`grafanaToken`), an IoT managed
+//! integrations device's claim certificate (`GetProvisioningProfile`), and a
+//! chime user's `PersonalPIN`. An EKS Anywhere licence's `token` also reaches
+//! the model and is left to the `ALLOWED` row that decides it.
+//!
 //! Two classes came with the shape rule (theseus-3i6d1) and are measured in
 //! `tests_presigned.rs`, not here: a presigned URL, which carries its own
 //! authorisation in the value and so is held by what the value looks like
@@ -40,6 +47,9 @@ const CHAP_TARGET: &str = "example-chap-target-secret-0008";
 const VPN_PRE_SHARED_KEY: &str = "example-vpn-pre-shared-key-0009";
 const FCM_SERVER_KEY: &str = "example-fcm-server-key-0010";
 const WORKSPACE_TOKEN: &str = "example-workspace-token-0011";
+const CLAIM_CERTIFICATE: &str = "example-claim-certificate-0012";
+const BAIDU_CREDENTIAL: &str = "example-baidu-credential-0013";
+const CHIME_PIN: &str = "example-chime-personal-pin-0014";
 
 /// The channel a listing shows: no credential anywhere in it.
 const CHANNEL_NAME: &str = "example-channel-name";
@@ -85,6 +95,34 @@ fn pinpoint_and_grafana(path: &str, n: usize) -> Option<Reply> {
             json!({ "workspace": workspace })
         };
         return Some(rest(n, body));
+    }
+    None
+}
+
+/// The classes theseus-3i6d1's second review named and the first pass left:
+/// a device's claim certificate, by its path.
+fn more_classes(path: &str, n: usize) -> Option<Reply> {
+    if path.starts_with("/provisioning-profiles/") {
+        return Some(rest(
+            n,
+            json!({"Id": "example-profile", "Name": "example-profile-name",
+                   "ProvisioningType": "FLEET_PROVISIONING",
+                   "ClaimCertificate": CLAIM_CERTIFICATE}),
+        ));
+    }
+    if path.ends_with("/channels/baidu") {
+        return Some(rest(
+            n,
+            json!({"id": "example-app", "ApplicationId": "example-app", "Platform": "BAIDU",
+                   "Credential": BAIDU_CREDENTIAL, "Enabled": true, "Version": 1}),
+        ));
+    }
+    if path.contains("/users/") {
+        return Some(rest(
+            n,
+            json!({"User": {"UserId": "example-user", "PersonalPIN": CHIME_PIN,
+                            "DisplayName": "example-display-name"}}),
+        ));
     }
     None
 }
@@ -157,7 +195,7 @@ fn answers(s: &Seen, n: usize) -> Reply {
             json!({"keyName": "example-key", "key": GRAFANA_KEY, "workspaceId": "g-example"}),
         );
     }
-    if let Some(r) = pinpoint_and_grafana(path, n) {
+    if let Some(r) = pinpoint_and_grafana(path, n).or_else(|| more_classes(path, n)) {
         return r;
     }
     let stream_key = json!({
@@ -212,8 +250,59 @@ fn case(call: Value, held: Vec<(&'static str, &'static str)>, shown: &'static st
     Case { call, held, shown }
 }
 
-/// Every class, and the credentials each must hold.
+/// The classes of `base_cases` and `more_cases`.
 fn cases() -> Vec<Case> {
+    let mut all = base_cases();
+    all.extend(more_cases());
+    all
+}
+
+/// The classes that came after the first pass.
+fn more_cases() -> Vec<Case> {
+    vec![case(
+        call(
+            "iot-managed-integrations",
+            "GetProvisioningProfile",
+            json!({"Identifier": "example-profile"}),
+        ),
+        vec![("ClaimCertificate", CLAIM_CERTIFICATE)],
+        "example-profile-name",
+    )]
+    .into_iter()
+    .chain(measured_cases())
+    .collect()
+}
+
+/// Members the second review's sweep named, held only where the catalog walk
+/// measured them reaching the model (theseus-3i6d1). "A PIN" and "a licence
+/// token" are the members' plain readings, not sourced facts.
+fn measured_cases() -> Vec<Case> {
+    vec![
+        case(
+            call(
+                "pinpoint",
+                "GetBaiduChannel",
+                json!({"ApplicationId": "example-app"}),
+            ),
+            vec![("BaiduChannelResponse.Credential", BAIDU_CREDENTIAL)],
+            "example-app",
+        ),
+        case(
+            call(
+                "chime",
+                "GetUser",
+                json!({"AccountId": "example-account", "UserId": "example-user"}),
+            ),
+            vec![("User.PersonalPIN", CHIME_PIN)],
+            // The user's DisplayName is a marked member of the same answer
+            // and is now masked with it (the owner's question, carried).
+            "example-user",
+        ),
+    ]
+}
+
+/// Every class of the first passes, and the credentials each must hold.
+fn base_cases() -> Vec<Case> {
     vec![
         case(
             call(

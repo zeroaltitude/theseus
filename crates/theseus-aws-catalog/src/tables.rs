@@ -819,7 +819,17 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
         "appstream",
         &["CreateDirectoryConfig", "UpdateDirectoryConfig"],
     ),
-    ops("chime", &["ListBots"]),
+    ops(
+        "chime",
+        &[
+            "CreateUser",
+            "GetUser",
+            "ListBots",
+            "ListUsers",
+            "ResetPersonalPIN",
+            "UpdateUser",
+        ],
+    ),
     ops("chime-sdk-identity", &["DescribeAppInstanceUserEndpoint"]),
     ops(
         "chime-sdk-meetings",
@@ -1087,6 +1097,9 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "ModifyCluster",
         ],
     ),
+    // The claim certificate a profile's Get answers with when it has one:
+    // the Create twin is a `SECRET` row. Optional here, so `WHEN_PRESENT`.
+    ops("iot-managed-integrations", &["GetProvisioningProfile"]),
     // The shared secret of a procurement portal, where one is configured.
     ops("invoicing", &["GetProcurementPortalPreference"]),
     // A workspace's `grafanaToken`, which the model does not mark and which
@@ -1107,6 +1120,15 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
     ops(
         "pinpoint",
         &["DeleteGcmChannel", "GetGcmChannel", "UpdateGcmChannel"],
+    ),
+    // The Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
+    ops(
+        "pinpoint",
+        &[
+            "DeleteBaiduChannel",
+            "GetBaiduChannel",
+            "UpdateBaiduChannel",
+        ],
     ),
 ];
 

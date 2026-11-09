@@ -113,6 +113,10 @@ pub(super) const HELD: &[(&str, &str, &str)] = &[
     // because the walk never runs on a `secret=No` operation
     // (theseus-3i6d1).
     ("pinpoint", "GCMChannelResponse", "Credential"),
+    ("pinpoint", "BaiduChannelResponse", "Credential"),
+    // A chime user's `PersonalPIN`: the member's plain reading, unmarked in
+    // the model (theseus-3i6d1).
+    ("chime", "User", "PersonalPIN"),
     ("grafana", "WorkspaceDescription", "grafanaToken"),
     ("grafana", "WorkspaceSummary", "grafanaToken"),
 ];

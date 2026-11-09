@@ -453,7 +453,9 @@ fn a_presigned_url_is_held_in_every_operations_output_and_an_ordinary_one_in_non
 
 /// The query parameters a presigned URL carries that are **not** signature
 /// material: the time it was made, how long it lives, which headers the
-/// signature covers. Everything else the real signer writes must be on
+/// signature covers, and the session token of temporary credentials (a
+/// parameter the signer writes that signs nothing, `x-amz-security-token`).
+/// Everything else the real signer writes must be on
 /// `presigned`'s vocabulary.
 const NOT_VOCABULARY: &[&str] = &[
     "x-amz-date",
@@ -633,3 +635,53 @@ const MEASURED_TOKENS: &[&str] = &[
     "nextToken",
     "position",
 ];
+
+/// The five operations the second review named by hand (theseus-3i6d1): the
+/// mailmanager address-list import jobs' `PreSignedUrl` and security-ir's
+/// `attachmentPresignedUrl`. The catalog-wide test above reaches them only by
+/// inference (its `synth` stops at depth 6), so this one names them: each must
+/// be planted before the hold and held after it, and the count must be 5.
+#[test]
+fn the_five_named_operations_are_planted_and_held() {
+    const NAMED_FIVE: [(&str, &str); 5] = [
+        ("mailmanager", "CreateAddressListImportJob"),
+        ("mailmanager", "GetAddressListImportJob"),
+        ("mailmanager", "ListAddressListImportJobs"),
+        ("security-ir", "GetCaseAttachmentDownloadUrl"),
+        ("security-ir", "GetCaseAttachmentUploadUrl"),
+    ];
+    let signature =
+        "X-Amz-Signature=1111111111111111111111111111111111111111111111111111111111111111";
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let b = board();
+    let (mut held, mut bad) = (0usize, Vec::new());
+    for (service, op_name) in NAMED_FIVE {
+        let svc = c.service(service).expect("the service decodes");
+        let Some(op) = svc.operations().find(|o| o.name() == op_name) else {
+            bad.push(format!("{service}:{op_name} is not in the catalog"));
+            continue;
+        };
+        let Some(output) = op.output() else {
+            bad.push(format!("{service}:{op_name} has no output"));
+            continue;
+        };
+        let cl = op.classify();
+        let secret = cl.secret != SecretBearing::No && cl.secret.for_input(&json!({}));
+        let mut body = synth(output, PRESIGNED_S3, &mut HashSet::new(), 0);
+        if !carries(&body, signature) {
+            bad.push(format!("{service}:{op_name} was not planted"));
+            continue;
+        }
+        if secret {
+            let _ = super::secret::hold(&b, service, op_name, &json!({}), &mut body);
+        }
+        let _ = super::presigned::hold(&b, op_name, &mut body);
+        if carries(&body, signature) {
+            bad.push(format!("{service}:{op_name} still carries the signature"));
+        } else {
+            held += 1;
+        }
+    }
+    assert!(bad.is_empty(), "{bad:?}");
+    assert_eq!(held, 5, "every one of the five is planted and held");
+}
