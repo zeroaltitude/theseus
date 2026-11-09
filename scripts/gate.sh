@@ -271,7 +271,9 @@ tree_moved() {
   tree_moved_report "$1" "$now"
 }
 tree_check() {
-  if tree_moved "$1"; then exit "$tree_moved_status"; fi
+  # The marker is how on_exit knows this 75 is ours: a phase's own command can exit 75 too (EX_TEMPFAIL). A file, since
+  # the locked part shares this directory with the gate but not its variables.
+  if tree_moved "$1"; then : >"$gate_tmp/tree.moved"; exit "$tree_moved_status"; fi
 }
 
 # A gate that a signal ends reads `$?` as 0 in this trap, so `gate_done` says it did not finish.
@@ -283,15 +285,24 @@ on_exit() {
     save_locked_record
     return
   fi
-  # A gate that failed is checked once more: on a tree that moved, the red is not a verdict.
-  if [ "$status" -ne 0 ] && [ "$status" -ne "$tree_moved_status" ] && tree_moved "the gate failed, and its tree had moved"; then
-    status=$tree_moved_status
+  # A gate that failed is checked once more: on a tree that moved, the red is not a verdict. A 75 counts as a move only
+  # when tree_check wrote its marker or the re-check finds one: a phase that exits 75 on an unmoved tree is a failure.
+  local moved=""
+  [ ! -e "$gate_tmp/tree.moved" ] || moved=1
+  if [ -z "$moved" ] && [ "$status" -ne 0 ] && tree_moved "the gate failed, and its tree had moved"; then
+    moved=1
   fi
   rm -rf "$gate_tmp"
-  if [ "$status" -eq "$tree_moved_status" ]; then
+  if [ -n "$moved" ]; then
     summary aborted
     echo "gate: ABORTED${phase_now:+ in $phase_now}: the tree moved, so this run is no verdict, pass or fail"
-    exit "$status"
+    exit "$tree_moved_status"
+  fi
+  if [ "$status" -eq "$tree_moved_status" ]; then
+    echo "gate: the phase exited $tree_moved_status (EX_TEMPFAIL) on a tree that had not moved: a failure, not the gate's abort"
+    summary failed
+    echo "gate: FAILED${phase_now:+ in $phase_now}"
+    exit 1
   fi
   if [ "$status" -ne 0 ] || [ -z "$gate_done" ]; then
     [ "$status" -ne 0 ] || echo "gate: stopped by a signal"

@@ -199,6 +199,16 @@ class GateTree(unittest.TestCase):
         self.assertEqual(rc, MOVED, out)
         self.assertNotIn("gate: ok", out)
 
+    def test_a_phase_that_exits_75_on_an_unmoved_tree_is_a_failure_and_not_an_abort(self):
+        # 75 is also EX_TEMPFAIL: only a move the gate recorded (or re-found) is its abort.
+        rc, out, _ = self.gate(STUB_SUITE_RC="75")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("gate: FAILED in suite", out)
+        self.assertIn("a_test_that_fails_on_the_moved_tree", out)
+        self.assertIn("on a tree that had not moved", out)
+        self.assertNotIn("ABORTED", out)
+        self.assertNotIn("THE TREE MOVED", out)
+
     # ---- the door's environment
 
     def test_the_doors_environment_does_not_reach_a_gate_these_tests_run(self):
