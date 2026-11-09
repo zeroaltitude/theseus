@@ -5,6 +5,18 @@
 //! So a card decides "held" by the question's kind, never by that field, and
 //! says how long it has waited instead of a deadline that has not passed. The
 //! cockpit's `heldquestion.ts` does the same.
+//!
+//! **The kind test is a proxy, and it is wrong for a routine run** (review
+//! G's G1). A call's question raised inside a routine's run does have a
+//! deadline — `ask_ttl_ms` gives it `[routines] run_deadline_secs`, not the
+//! confirm lifetime — and at that deadline `expire_questions` drops the call
+//! and returns the run to its schedule, before it ever reaches the held test
+//! (`confirms.rs`: `queue_if_routine` comes first). The card says `waiting …`
+//! anyway, because `ConfirmRequest` carries nothing that tells a routine
+//! run's question apart from any other call's. `tests_questions.rs`'s
+//! `a_routine_runs_question_says_waiting_while_the_run_deadline_drops_it`
+//! pins that gap. Closing it needs F3's `expires` stamp on the Action at plan
+//! time, which is a store-format change and so is post-1.0.4.
 
 use theseus_protocol::work::ask::held_tool;
 use theseus_protocol::ConfirmRequest;

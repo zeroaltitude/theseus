@@ -114,6 +114,14 @@ pub enum Finished {
     Everything,
 }
 
+/// The life a held question is reminded by, in ms: 15 minutes. One constant
+/// for two crates (theseus-lrc3m, review G's G6) — the core's
+/// `default_confirm_ttl_secs()` is this number in seconds, so raising the
+/// configured default moves the held reminder with it and neither side can
+/// drift from the other. It lives here because `theseus-core` depends on
+/// `theseus-protocol` and not the other way round.
+pub const HELD_LIFE_MS: u64 = 15 * 60_000;
+
 /// The policy's numbers, as the owner's thread decided them: data, so a
 /// config section can tune them later without code.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -125,7 +133,8 @@ pub struct Rules {
     /// A question is reminded of once, at this share of its life: half.
     pub remind_at: f32,
     /// The life a held question is reminded by, as it has no deadline of its
-    /// own (theseus-lrc3m): `[kernel] confirm_ttl_secs`'s default, 15 minutes.
+    /// own (theseus-lrc3m): `HELD_LIFE_MS`, the same 15 minutes
+    /// `[kernel] confirm_ttl_secs` defaults to, and the same constant.
     pub held_life_ms: u64,
     pub finished: Finished,
     /// At most one Interrupt per root in this window: 10 s.
@@ -160,7 +169,7 @@ impl Default for Rules {
         Self {
             long_run_ms: 300_000,
             remind_at: 0.5,
-            held_life_ms: 15 * 60_000,
+            held_life_ms: HELD_LIFE_MS,
             finished: Finished::LongRoots,
             burst_ms: 10_000,
             initiative: Initiative::Normal,
