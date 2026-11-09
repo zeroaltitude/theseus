@@ -1,0 +1,87 @@
+"""Tests for scripts/line-pressure.py (theseus-4vsrz, 1.0.5 B7).
+
+Run: python3 -m unittest -q scripts/tests/test_line_pressure.py
+
+CALIBRATION is the script's count against clippy's own, taken on the base commit by lowering
+`too-many-lines-threshold` in a scratch copy of clippy.toml (never committed) and reading the numbers clippy
+printed ("this function has too many lines (N/T)"). The real functions are read from the working tree, so a
+function that has since changed makes its row fail: re-measure it and update the row, do not loosen the test.
+"""
+import importlib.util
+import os
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+spec = importlib.util.spec_from_file_location("line_pressure", os.path.join(HERE, "..", "line-pressure.py"))
+lp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(lp)
+
+# (path, function name, clippy's count)
+CALIBRATION = [
+    ("crates/theseus-ontology/src/compose.rs", "compose", 95),
+    ("crates/theseus-ontology/src/kind.rs", "interpreted_seeds", 96),
+    ("crates/theseus-ontology/src/ontology.rs", "load", 96),
+    ("crates/theseus-ontology/src/person.rs", "merge", 98),
+    ("crates/theseus-store/src/store.rs", "commit", 95),
+    ("crates/theseus-follow/src/lib.rs", "read_into", 96),
+]
+
+
+def long_fn(name, code_lines, attrs=""):
+    body = "".join(f"    let v{i} = {i};\n" for i in range(code_lines))
+    return f"{attrs}fn {name}() {{\n{body}}}\n"
+
+
+class Counter(unittest.TestCase):
+    def test_blank_and_comment_lines_are_free_and_a_string_counts_whole(self):
+        body = (
+            '\n  let a = 1;\n\n  // a note\n  /* block\n     comment */\n'
+            '  let s = "one\ntwo\n// not a comment line\nthree";\n  let b = 2; // trailing\n'
+        )
+        # code: `let a`, `let s = "one`, `two`, `three";`, `let b`; the `//` line inside the string is read as a
+        # comment, as clippy's textual scan reads it.
+        self.assertEqual(lp.clippy_lines(body), 5)
+
+    def test_braces_in_strings_and_comments_do_not_move_the_end_of_a_body(self):
+        src = 'fn a() {\n let s = "}";\n // }\n let c = \'}\';\n let r = r#"}"#;\n}\nfn b() {\n let x = 1;\n}\n'
+        got = {n: lp.clippy_lines(b) for n, _, b in lp.functions(src)}
+        self.assertEqual(got, {"a": 3, "b": 1})
+
+
+class Walker(unittest.TestCase):
+    def test_a_planted_long_function_is_named_with_its_count_and_the_scan_is_not_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "planted.rs"), "w") as f:
+                f.write(long_fn("at_ninety_eight", 98))
+                f.write(long_fn("at_the_ceiling", 100))
+                f.write(long_fn("far_below", 20))
+                f.write(long_fn("marked", 140, '#[expect(\n    clippy::too_many_lines,\n    reason = "x"\n)]\n'))
+            scanned, near = lp.scan([d], threshold=100, margin=5)
+            # The positive bar: an enumeration that read nothing would pass "nothing near" on an empty set.
+            self.assertEqual(scanned, 4)
+            self.assertEqual([(n, name) for n, _, _, name in near], [(100, "at_the_ceiling"), (98, "at_ninety_eight")])
+            self.assertTrue(all(p.endswith("planted.rs") for _, p, _, _ in near))
+
+    def test_the_repository_scan_reads_a_large_tree(self):
+        scanned, near = lp.scan([os.path.join(ROOT, "crates", "theseus-protocol")])
+        self.assertGreater(scanned, 100)
+        self.assertTrue(all(n >= 95 for n, _, _, _ in near))
+
+    def test_an_empty_scan_exits_nonzero_instead_of_reporting_no_pressure(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(lp.scan([d])[0], 0)
+
+
+class Calibration(unittest.TestCase):
+    def test_the_count_matches_clippys_on_real_functions(self):
+        self.assertGreaterEqual(len(CALIBRATION), 3)
+        for path, name, want in CALIBRATION:
+            with open(os.path.join(ROOT, path), encoding="utf-8") as f:
+                counts = [lp.clippy_lines(b) for n, _, b in lp.functions(f.read()) if n == name]
+            self.assertIn(want, counts, f"{path} {name}: clippy said {want}, script said {counts}")
+
+
+if __name__ == "__main__":
+    unittest.main()

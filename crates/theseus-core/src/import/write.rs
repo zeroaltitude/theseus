@@ -569,6 +569,21 @@ pub fn erase_unless(
     erase_in(store, tag, why, by, stopping, FRAME_RECORDS)
 }
 
+/// An erase stopped before its first frame: nothing written, nothing to
+/// forget (split out of `erase_in` to keep it under clippy's line ceiling).
+fn stopped_before_writing(tag: &str, t0: Instant) -> Erasure {
+    let result = ImportEraseResult {
+        tag: tag.to_string(),
+        ms: t0.elapsed().as_secs_f64() * 1e3,
+        ..ImportEraseResult::default()
+    };
+    Erasure {
+        result,
+        nodes: Vec::new(),
+        stopped: true,
+    }
+}
+
 /// [`erase_unless`], its frames cut past `cap` records, as
 /// [`import_batch_in`]'s.
 pub(super) fn erase_in(
@@ -586,17 +601,7 @@ pub(super) fn erase_in(
     let now = theseus_protocol::now_unix_ms();
     // Stopped before its first frame, an erase has written nothing.
     let Some(sessions) = sessions_of_tag(store, tag, &stopping)? else {
-        let result = ImportEraseResult {
-            tag: tag.to_string(),
-            ms: t0.elapsed().as_secs_f64() * 1e3,
-            ..ImportEraseResult::default()
-        };
-        let (nodes, stopped) = (Vec::new(), true);
-        return Ok(Erasure {
-            result,
-            nodes,
-            stopped,
-        });
+        return Ok(stopped_before_writing(tag, t0));
     };
     // The tag's sessions erased before this run, a cut run's among them:
     // each frame's count starts from them, never from the stored count,
