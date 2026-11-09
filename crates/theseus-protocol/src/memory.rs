@@ -135,8 +135,11 @@ pub struct RecallManifest {
     /// after the compile and is not visible where this is written.
     ///
     /// Read it: `theseus memory recalled SESSION` prints a line per recall and
-    /// a total; across sessions, `theseus ledger -k recall.ran -n <N> --json`,
-    /// counting rows with `data.would_drop` (UNVERIFIED invocation).
+    /// a total; across sessions, `theseus ledger -k recall.ran -n <N> --json`
+    /// (`theseus ledger` is hidden from `theseus help`; `--json` is needed, the
+    /// plain form cuts each row's data at 160 characters) returns the newest
+    /// N recall rows of every session, and the rows with `data.would_drop` are
+    /// the count.
     ///
     /// The bar for promoting the drop from shadow to live is the owner's to
     /// set; a candidate: at least 200 low-effort turns read this way, and for
