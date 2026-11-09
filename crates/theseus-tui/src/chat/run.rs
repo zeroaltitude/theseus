@@ -35,6 +35,7 @@ pub const FRAME: Duration = Duration::from_millis(33);
 
 /// A finished `@` listing.
 type Listing = Result<Walked, String>;
+type ImagesRead = Result<Vec<theseus_protocol::Attachment>, String>;
 
 enum Woke {
     Daemon(Result<Option<Message>>),
@@ -42,6 +43,7 @@ enum Woke {
     Deadline,
     Signal,
     Files(Option<Listing>),
+    Images(Option<ImagesRead>),
 }
 
 pub struct Runner {
@@ -66,6 +68,9 @@ pub struct Runner {
     /// `@` listings, finished off the loop's thread (`Effect::ListFiles`).
     files_tx: UnboundedSender<Listing>,
     files_rx: UnboundedReceiver<Listing>,
+    /// Image reads, finished off the loop's thread (`Effect::ReadImages`).
+    images_tx: UnboundedSender<ImagesRead>,
+    images_rx: UnboundedReceiver<ImagesRead>,
     /// Frames drawn, for a test that holds the redraw count.
     pub frames: u64,
 }
@@ -79,6 +84,7 @@ impl Runner {
         clock: fn() -> u64,
     ) -> Self {
         let (files_tx, files_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (images_tx, images_rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             chat,
             conn,
@@ -98,6 +104,8 @@ impl Runner {
             signals: None,
             files_tx,
             files_rx,
+            images_tx,
+            images_rx,
             frames: 0,
         }
     }
@@ -139,6 +147,7 @@ impl Runner {
             let events = &mut self.events;
             let signals = &mut self.signals;
             let files = &mut self.files_rx;
+            let images = &mut self.images_rx;
             tokio::select! {
                 m = async {
                     match conn {
@@ -148,6 +157,7 @@ impl Runner {
                 } => Woke::Daemon(m),
                 e = events.recv() => Woke::Terminal(e),
                 f = files.recv() => Woke::Files(f),
+                i = images.recv() => Woke::Images(i),
                 _ = async {
                     match deadline {
                         Some(at) => tokio::time::sleep_until(at).await,
@@ -180,7 +190,12 @@ impl Runner {
                 self.chat.at_walked(w);
                 self.dirty = true;
             }
-            Woke::Files(None) => {}
+            Woke::Files(None) | Woke::Images(None) => {}
+            Woke::Images(Some(read)) => {
+                let effects = self.chat.images_read(read);
+                self.dirty = true;
+                self.apply(effects).await;
+            }
             Woke::Deadline => self.deadlines().await,
         }
         self.maybe_draw();
@@ -294,6 +309,12 @@ impl Runner {
                     }));
                 }
                 Effect::SaveHistory(messages) => self.save_history(messages),
+                Effect::ReadImages(list) => {
+                    let tx = self.images_tx.clone();
+                    drop(tokio::task::spawn_blocking(move || {
+                        let _ = tx.send(super::atfile::read_images(list));
+                    }));
+                }
                 Effect::ListFiles { dir, roots } => {
                     let tx = self.files_tx.clone();
                     drop(tokio::task::spawn_blocking(move || {
