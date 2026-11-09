@@ -49,7 +49,7 @@ move() {
     away-and-back) git checkout -q --detach && git checkout -q main ;;
   esac
 }
-[ "$what" != deny ] || echo "$*" >>"$STUB_DENY_LOG"
+[ "$what" != deny ] || echo "$*" >>"${STUB_DENY_LOG:-/dev/null}"
 case "$what" in
   deny)
     # On request only advisories fail: the bare `check` reds, and `check bans licenses sources` passes.
@@ -255,6 +255,19 @@ class GateTree(unittest.TestCase):
         self.assertIn("gate: ok", out)
         self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run, in this tree: {calls}")
 
+    def test_the_identity_comment_names_as_many_unseen_paths_as_tree_unseen_holds(self):
+        # The comment once named one path over a two-entry list; a count keeps it from drifting again.
+        lines = (HERE / "gate.sh").read_text().splitlines()
+        arrays = [ln for ln in lines if ln.startswith("tree_unseen=(")]
+        self.assertEqual(len(arrays), 1, arrays)
+        self.assertEqual(arrays[0].count(":(exclude)"), 2, arrays[0])
+        sentence = [ln for ln in lines if "minus " in ln and "tree-stamp" not in ln and "protocol.gen and" in ln]
+        self.assertEqual(len(sentence), 1, sentence)
+        self.assertIn("minus two paths", sentence[0])
+        for path in ("cockpit/src/protocol.gen", "bench/smoke/runs"):
+            self.assertIn(path, arrays[0])
+            self.assertIn(path, sentence[0])
+
     # ---- what the suite does not run
 
     def stale_filter(self, committed=False):
@@ -278,6 +291,18 @@ class GateTree(unittest.TestCase):
         self.assertIn("only in the working tree, not in HEAD", out)
         self.assertIn("ran under a default-filter", out, "said again beside the verdict")
         self.assertRegex(out, r"\n  suite filtered +\d+\n", "the table does not call a filtered suite `suite`")
+        self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
+
+    def test_a_default_filter_parked_in_a_profile_the_run_does_not_use_is_named_and_no_mismatch(self):
+        # nextest ran the default profile and rightly applied nothing: a filter under [profile.arm] is not this run's.
+        path = self.root / ".config" / "nextest.toml"
+        path.write_text(path.read_text() + "\n[profile.arm]\n" + FILTER + "\n")
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("MISMATCH", out)
+        self.assertIn("profile arm", out, "still named, losing it would be the worse bug")
+        self.assertIn(".config/nextest.toml:", out)
+        self.assertRegex(out, r"\n  suite +\d+\n", "not this run's filter: the phase is plain")
         self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
 
     def test_a_committed_default_filter_is_named_as_committed(self):
@@ -389,6 +414,9 @@ class GateTree(unittest.TestCase):
         for phase in ("fmt", "tree", "clippy", "build", "registry", "protocol", "suite", "deny"):
             self.assertTrue(any(c.startswith(phase + " ") for c in calls), f"no `{phase}` call in {calls}")
         self.assertEqual({c.split(" ", 1)[1] for c in calls}, {"inc=0"}, calls)
+        # The deny phase ran (a positive), and the stand-in cargo wrote no redirect error into the output.
+        self.assertIn("deny: no advisory database", out)
+        self.assertNotIn("No such file or directory", out)
 
     def test_an_incremental_build_the_caller_asked_for_holds_from_the_first_cargo_to_the_last(self):
         # Flipping it half way builds a second complete set of artifacts, so the gate sets one value for all of it.

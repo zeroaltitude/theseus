@@ -205,7 +205,7 @@ save_locked_record() {
 # be hours), before the suite, and at the end. A tree that moved ABORTS the gate with exit status 75 and a message of
 # its own, never a test failure; and a gate that failed is checked too, since a failure on a moved tree is no verdict.
 # The identity is the commit, a digest of the edits beyond it (tracked and untracked: the digest scripts/tree-stamp.sh
-# prints, minus one path), and the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree
+# prints, minus two paths, cockpit/src/protocol.gen and bench/smoke/runs), and the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree
 # detached and restored in the window is the same commit and the same files, and not the tree the compile and the tests
 # between them ran on. It is computed here and not by that script, because the gate must not depend on a file of the tree
 # it judges: a branch cut before the script, and the throwaway repositories the guard's own tests run the gate in, lack it.
@@ -339,30 +339,48 @@ trap on_exit EXIT
 # or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
 filters_found=no
 suite_filters() {
-  local cfg=.config/nextest.toml found profile lineno text where
-  found="$(awk '
+  local cfg=.config/nextest.toml found profile lineno text where mine run="${NEXTEST_PROFILE:-default}" any=no
+  # Each found line carries whether it is this run's: it sits under [profile.<run>], or under [profile.default] while
+  # [profile.<run>] has none (nextest's profiles inherit from default). A line elsewhere is named and is no filter here.
+  found="$(awk -v run="$run" '
     /^[[:space:]]*\[profile\.[A-Za-z0-9_-]+\]/ { p = $0; sub(/^[[:space:]]*\[profile\./, "", p); sub(/\].*$/, "", p); next }
     /^[[:space:]]*\[/ { p = ""; next }
-    p != "" && /^[[:space:]]*default-filter[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); printf "%s\t%d\t%s\n", p, FNR, v }
+    p != "" && /^[[:space:]]*default-filter[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); n++; P[n] = p; L[n] = FNR; V[n] = v; if (p == run) own = 1 }
+    END { for (i = 1; i <= n; i++) printf "%s\t%d\t%s\t%s\n", P[i], L[i], (P[i] == run || (P[i] == "default" && !own)) ? "yes" : "no", V[i] }
   ' "$cfg" 2>/dev/null || true)"
   if [ -z "$found" ]; then
     echo "gate: suite filters: none (no default-filter in $cfg, and the gate passes no -E): every test the workspace builds runs, but the #[ignore]d ones"
     return 0
   fi
-  filters_found=yes
-  echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
-  while IFS=$'\t' read -r profile lineno text; do
+  while IFS=$'\t' read -r profile lineno mine text; do
+    [ "$mine" != yes ] || any=yes
+  done <<<"$found"
+  if [ "$any" = yes ]; then
+    filters_found=yes
+    echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
+    phase_label="suite filtered"
+  else
+    echo "gate: suite filters: none for this run (profile $run); a default-filter sits in another profile, named below and not applied:"
+  fi
+  while IFS=$'\t' read -r profile lineno mine text; do
     where="only in the working tree, not in HEAD"
     if git show "HEAD:$cfg" 2>/dev/null | grep -qxF -- "$(sed -n "${lineno}p" "$cfg")"; then where="committed in HEAD"; fi
-    echo "gate:   profile $profile, $cfg:$lineno, $where: $text"
+    if [ "$mine" = yes ]; then
+      echo "gate:   profile $profile, $cfg:$lineno, $where: $text"
+    else
+      echo "gate:   profile $profile, $cfg:$lineno, $where, NOT this run's: $text"
+    fi
   done <<<"$found"
-  echo "gate:   this run's profile: ${NEXTEST_PROFILE:-default}; a stale line goes with: git checkout -- $cfg"
-  phase_label="suite filtered"
+  [ "$any" != yes ] || echo "gate:   this run's profile: $run; a stale line goes with: git checkout -- $cfg"
 }
 # What nextest says it applied, read back from its own line, e.g. `Starting 9304 tests across 205 binaries (60 tests
 # skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and
 # misses one set through NEXTEST_PROFILE, a config file passed in, or an overrides table. Nothing here changes the exit
 # status; a red suite never gets here (`set -e` stops the gate at the pipeline), and a filtered one is labelled, never cleared.
+# Observed: a sweep of recorded green gate logs found 51 occurrences in 48 files in exactly four forms, `including 18 tests`,
+# `including 2 tests`, `including 4 tests` and `including 7 tests via profile.default.default-filter`, every one matched by
+# the pattern below and every one naming profile.default. The singular `including 1 test via profile` was never seen, so
+# the `tests?` in the pattern stays deliberately: that branch is still unverified against a real one-test run.
 suite_applied() {
   local applied
   applied="$(grep -oE 'including [0-9]+ tests? via profile\.[A-Za-z0-9_-]+\.default-filter' "$1" | head -1 || true)"
@@ -806,7 +824,9 @@ scrub_phase() {
 
 # This script's own tests (theseus-4vsrz): scripts/test_gate_tree.py runs the real gate in a throwaway repository, its
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
-# and that its cargo runs without an incremental cache. About 2 s. They run when this tree differs from main in the
+# and that its cargo runs without an incremental cache. About 10 s for 29 tests on a 4-core cloud VM (9.9 s measured;
+# an earlier 6.7 s came from another machine, and "about 2 s" was wrong): each GateTree case runs the whole gate in a
+# throwaway repository, so every case added costs about a third of a second. They run when this tree differs from main in the
 # script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
 # diff. They also hold scripts/deny-daily.sh and scripts/build.sh, which the same file tests. main is origin/main, or the
 # local main without one.
