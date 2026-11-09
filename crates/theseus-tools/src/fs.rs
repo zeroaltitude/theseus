@@ -212,6 +212,16 @@ fn create_dirs(dir: &Path, umask: Option<u32>) -> std::io::Result<()> {
     Ok(())
 }
 
+/// `s` with every line ending a CRLF, whatever it was.
+fn to_crlf(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\n', "\r\n")
+}
+
+/// Whether every line ending in `s` is a CRLF, and there is at least one.
+fn is_all_crlf(s: &str) -> bool {
+    s.contains("\r\n") && !s.replace("\r\n", "").contains('\n')
+}
+
 fn walker(base: &Path, hidden: bool, max_depth: Option<usize>) -> ignore::Walk {
     let mut b = ignore::WalkBuilder::new(base);
     b.hidden(!hidden)
@@ -640,7 +650,16 @@ impl Tool for Edit {
         let a: EditArgs = parse(input).map_err(ToolFailure::new)?;
         let path = ctx.resolve(&a.path);
         let before = read_regular_text(&path, "fs_edit")?;
-        let n = before.matches(a.old_string.as_str()).count();
+        // `fs.read` shows a line without its `\r`, so a model quotes bare
+        // `\n`. When the text as given is not in a file that has CRLF endings,
+        // match it with CRLF endings, and write the replacement the same way:
+        // only the edited text changes, every other line keeps its ending.
+        let (old_string, new_string) =
+            match before.contains("\r\n") && !before.contains(a.old_string.as_str()) {
+                true => (to_crlf(&a.old_string), to_crlf(&a.new_string)),
+                false => (a.old_string.clone(), a.new_string.clone()),
+            };
+        let n = before.matches(old_string.as_str()).count();
         if n == 0 {
             return Err(ToolFailure::new(format!(
                 "old_string was not found in {}. Read the file again and copy the exact text, including whitespace and indentation.",
@@ -654,9 +673,9 @@ impl Tool for Edit {
             )));
         }
         let after = if a.replace_all {
-            before.replace(a.old_string.as_str(), &a.new_string)
+            before.replace(old_string.as_str(), &new_string)
         } else {
-            before.replacen(a.old_string.as_str(), &a.new_string, 1)
+            before.replacen(old_string.as_str(), &new_string, 1)
         };
         write_atomic(&path, after.as_bytes(), ctx.umask)?;
         let name = path.display().to_string();
@@ -811,7 +830,16 @@ impl Tool for Patch {
             let p = diffy::Patch::from_str(&text).map_err(|e| {
                 ToolFailure::new(format!("cannot parse the section for {target}: {e}"))
             })?;
-            let applied = diffy::apply(&original, &p).map_err(|e| ToolFailure::new(format!("the patch does not apply to {target}: {e}. Read the file and regenerate the hunk against its current contents.")))?;
+            // A file whose endings are all CRLF is patched as the read showed
+            // it, and written back with CRLF endings.
+            let crlf = is_all_crlf(&original);
+            let basis = if crlf {
+                original.replace("\r\n", "\n")
+            } else {
+                original.clone()
+            };
+            let applied = diffy::apply(&basis, &p).map_err(|e| ToolFailure::new(format!("the patch does not apply to {target}: {e}. Read the file and regenerate the hunk against its current contents.")))?;
+            let applied = if crlf { to_crlf(&applied) } else { applied };
             // A deletion carries the whole file, so the call records what it
             // removed and stays reversible.
             if f.new.is_none() && !applied.is_empty() {
