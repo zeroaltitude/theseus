@@ -706,7 +706,11 @@ const BULK: usize = 4096;
 /// `keycounts` as the index applies it. A new record kind needs no `tests_layouts` sample
 /// (`theseus-store/AGENTS.md`); a build older than this one reads a tombstone as one more
 /// ordinary kind of record and brings the ended keys back.
-const MANIFEST_FORMAT: u32 = 56;
+/// 57 = an imported session's divergence mark (theseus-ectzg): a SESSION record's `imported`
+/// block gains `diverged_at`, the first stored `idx` that differs each time a later episode
+/// stopped matching what was stored, once for each, in the order seen; it is left out while
+/// empty. A record from before reads it empty and writes back without it.
+const MANIFEST_FORMAT: u32 = 57;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

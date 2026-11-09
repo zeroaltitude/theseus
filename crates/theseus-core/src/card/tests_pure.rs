@@ -40,6 +40,7 @@ fn imported(kind: &str, name: Option<&str>, file: &str) -> ImportedFrom {
         line: 1,
         imported_at_ms: 3,
         erased: None,
+        diverged_at: vec![],
     }
 }
 

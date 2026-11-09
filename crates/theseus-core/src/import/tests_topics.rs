@@ -8,13 +8,14 @@
 //! declared are kept), and a restart reads the same; the operator's own
 //! membership is kept and counts first; a label no topic is made of stays
 //! a label; a stop ends a run between frames and a rerun finishes it; a
-//! kinds row that does not name the import is refused with its fix; and
-//! `import.topics` is the owner's, from a private place.
+//! kinds row that does not name the import is refused with its fix; the
+//! mark a rewritten, grown session carries is no topic; and `import.topics`
+//! is the owner's, from a private place.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use serde_json::json;
+use serde_json::{json, Value};
 use theseus_ontology::{
     Category, CategoryId, Guidance, Kind, MemberList, Membership, Ontology, Origin, Record,
 };
@@ -24,11 +25,13 @@ use theseus_protocol::import::{
 use theseus_protocol::{method, OntologyListParams};
 use theseus_store::Store as _;
 
-use super::tests::{call, call_as};
+use super::tests::{call, call_as, import as import_lines, lines};
+use super::tests_append::{sync, TAG as SYNC_TAG};
 use super::topics::{self, plan, Plan};
 use super::{episode, session_id_of, write};
 use crate::approval::{Client, Surface};
 use crate::config::MemoryMode;
+use crate::session::SessionRecord;
 use crate::tests_recall::{rig_with, Rig};
 use crate::Core;
 
@@ -582,4 +585,55 @@ async fn topics_from_no_private_place_are_refused() {
     .unwrap_err();
     assert_eq!(e.0, theseus_protocol::error_code::REFUSED, "{e:?}");
     assert!(!snapshot(c).categories().any(|c| c.kind() == "topic"));
+}
+
+/// A session the sync imported, then saw rewritten and grown (theseus-ectzg),
+/// is marked as diverged, and the mark is provenance, not a topic: the run
+/// makes the topics the session's real label makes and no other, and the
+/// session holds the one membership of that label.
+#[tokio::test]
+async fn a_diverged_prefix_mark_never_becomes_a_topic() {
+    let rig = rig();
+    let c = &rig.core;
+    let episode_of = |tag: &str, len: u32, rewritten: bool| -> Value {
+        let idxs: Vec<u32> = (0..len).collect();
+        let mut e = sync(8, tag, &idxs);
+        e["labels"]["topic"] = json!(["garden/beds"]);
+        if rewritten {
+            e["messages"][3]["text"] = json!("Message 3: the tide log was rewritten at the quay.");
+        }
+        e["hash"] = json!(episode::hash_of(&e));
+        e
+    };
+    let first = episode_of(SYNC_TAG, 10, false);
+    let sid = session_id_of(first["episode_id"].as_str().unwrap());
+    import_lines(c, lines(&[first])).await;
+    let got = import_lines(c, lines(&[episode_of("openclaw-sync-2026-11", 12, true)])).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 2), "{got:?}");
+
+    let r = run(c, SYNC_TAG).await;
+    let o = snapshot(c);
+    let mut made: Vec<String> = paths(&o).into_values().collect();
+    made.sort();
+    assert_eq!(
+        made,
+        vec!["garden".to_string(), "garden/beds".to_string()],
+        "the topics of the real label, and none from the mark"
+    );
+    assert_eq!(
+        (r.sessions, r.labels, r.topics, r.made, r.unplaced),
+        (1, 1, 2, 2, 0),
+        "{r:?}"
+    );
+    assert_eq!(
+        held(&o, &sid),
+        vec![("garden/beds".to_string(), Origin::Import)]
+    );
+    // And the mark is there to be read: recorded on the session, in a field
+    // of its own, beside the labels the pipeline gave it, unchanged.
+    let rec: SessionRecord = c.store.get_session(&sid).unwrap().unwrap();
+    let imp = rec.imported.as_deref().unwrap();
+    assert_eq!(imp.diverged_at, vec![3]);
+    assert_eq!(imp.labels.topic, vec!["garden/beds".to_string()]);
 }
