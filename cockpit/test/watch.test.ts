@@ -127,10 +127,11 @@ test('a job known only from its light still works, and a running session with no
 })
 
 test('the questions waiting say what they would do, how long they waited, and the time left; the worst first', () => {
+  // The two that count down are questions that expire (an extension's ack); a call's question holds until answered, below.
   const confirms = [
     {
-      correlation_id: 'act_write', session_id: 'ses_r', execution_id: 'exe_r', tool: 'fs.write', input: {}, by: 'operator', floor: false,
-      reason: 'create /tmp/x/projects/harbour/log.md (38 bytes): fs.write — approve ([policy.tools] "fs.write" = approve)',
+      correlation_id: 'act_write', session_id: 'ses_r', execution_id: 'exe_r', tool: 'extend.ack', input: {}, by: 'operator', floor: false,
+      reason: 'create /tmp/x/projects/harbour/log.md (38 bytes): extend.ack — approve ([policy.tools] "extend.ack" = approve)',
       requested_at_ms: NOW - 5 * MIN, expires_at_ms: NOW + 10 * MIN,
     },
     {
@@ -139,8 +140,8 @@ test('the questions waiting say what they would do, how long they waited, and th
       budget: { spent_usd: 0, limit_usd: 0.00001, needed_usd: 0.066929, lifetime_usd: 0 }, task: { task_id: 'ses_g', short: 'e4398c', title: 'Count every gull' },
     },
     {
-      correlation_id: 'act_old', session_id: 'ses_r', execution_id: 'exe_r', tool: 'fs.write', input: {}, by: 'operator', floor: false,
-      reason: 'create /tmp/x/notes.md: fs.write — approve', requested_at_ms: NOW - 16 * MIN, expires_at_ms: NOW - MIN,
+      correlation_id: 'act_old', session_id: 'ses_r', execution_id: 'exe_r', tool: 'extend.ack', input: {}, by: 'operator', floor: false,
+      reason: 'create /tmp/x/notes.md: extend.ack — approve', requested_at_ms: NOW - 16 * MIN, expires_at_ms: NOW - MIN,
     },
   ] as any[]
   const model = fleet([
@@ -156,13 +157,34 @@ test('the questions waiting say what they would do, how long they waited, and th
   assert.equal(w.waiting.value, '4')
   assert.equal(w.waiting.caption, 'waiting for your answer: 2 approvals, 1 budget question and 1 session that needs you')
   assert.deepEqual(w.waiting.lines.map((l) => [l.tag, l.text, l.detail, l.flag]), [
-    ['fs.write', 'create /tmp/x/notes.md', 'waited 16m · expired · What changed in the tide tables', 'expired'],
-    ['fs.write', 'create …/harbour/log.md (38 bytes)', 'waited 5m · 10m left · What changed in the tide tables', undefined],
+    ['extend.ack', 'create /tmp/x/notes.md', 'waited 16m · expired · What changed in the tide tables', 'expired'],
+    ['extend.ack', 'create …/harbour/log.md (38 bytes)', 'waited 5m · 10m left · What changed in the tide tables', undefined],
     ['budget', 'needs $0.067 · limit $0.00001', 'waited 20m · holds until answered · Count every gull', undefined],
   ])
   assert.deepEqual(w.waiting.lines[1].to, { session: 'ses_r', node: 'tcl_write' })
   assert.equal(w.waiting.more, 1)
   assert.deepEqual(w.waiting.focus, { vessels: ['ses_g', 'ses_r', 'ses_x'], lights: ['tcl_write'] })
+})
+
+test('a call\'s question holds until answered, whatever time its record carries; a question that expires still counts down (theseus-lrc3m)', () => {
+  // Under the time machine the questions are the fold's, read from the ledger, where a held call's `expires_at_ms` is
+  // its first notice and no deadline (live, `confirm.list` zeroes it). Past that moment the watch must not call it expired.
+  const q = (id: string, tool: string, expires_at_ms: number) => ({
+    correlation_id: id, session_id: 'ses_r', execution_id: 'exe_r', tool, input: {}, by: 'operator', floor: false,
+    reason: `${id} waits: ${tool} — approve`, requested_at_ms: NOW - 40 * MIN, expires_at_ms,
+  }) as any
+  const confirms = [q('act_held', 'fs.write', NOW - 25 * MIN), q('act_ask', 'owner_ask', NOW + 5 * MIN), q('act_gone', 'extend.ack', NOW - MIN)]
+  const w = watchOf(at({ model: fleet([{ id: 'ses_r', title: 'Tide tables' }]), confirms }))
+  // The soonest deadline first, then what holds until answered: the held call sorts with the budget questions, not first.
+  assert.deepEqual(w.waiting.lines.map((l) => [l.tag, l.detail, l.flag]), [
+    ['extend.ack', 'waited 40m · expired · Tide tables', 'expired'],
+    ['owner_ask', 'waited 40m · 5m left · Tide tables', undefined],
+    ['fs.write', 'waited 40m · holds until answered · Tide tables', undefined],
+  ])
+  assert.match(w.waiting.lines[2].title ?? '', /it holds until answered\.$/)
+  assert.doesNotMatch(w.waiting.lines[2].title ?? '', /expire/)
+  assert.match(w.waiting.lines[0].title ?? '', /it has expired/, 'a question that expires still says so')
+  assert.match(w.waiting.lines[1].title ?? '', /it expires in 5m/)
 })
 
 test("today's spend counts from local midnight, by hour, with its pace and the top session", () => {

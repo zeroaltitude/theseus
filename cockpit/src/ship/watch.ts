@@ -10,6 +10,7 @@
 import type { ActionInfo, ConfirmRequest, LedgerEntry } from '@protocol'
 import type { Light, ShipModel, Vessel } from './model.ts'
 import { ago, ms, short, span, usd } from '../lib/figures.ts'
+import { deadlineOf } from '../lib/heldquestion.ts'
 import { isStoppingFailure } from './flares.ts'
 
 export const HOUR_MS = 3_600_000
@@ -1155,14 +1156,16 @@ function waiting(input: WatchInput, look: Look): Waiting {
   const others = (model?.vessels ?? []).filter((v) => v.attention?.level === 'needs_you' && !asking.has(v.id))
   const approvals = qs.filter((c) => !c.budget).length
   const budgets = qs.length - approvals
-  // Worst first: the soonest to expire, then the budget questions (they hold until answered), the longest waiting first.
-  qs.sort((a, b) => (a.expires_at_ms || Infinity) - (b.expires_at_ms || Infinity) || a.requested_at_ms - b.requested_at_ms)
+  // Worst first: the soonest to expire, then the questions that hold until answered (a call's, and a budget's), the longest
+  // waiting first. A deadline is `deadlineOf`'s, never the raw `expires_at_ms`: under the time machine that is a held call's first notice.
+  qs.sort((a, b) => (deadlineOf(a) || Infinity) - (deadlineOf(b) || Infinity) || a.requested_at_ms - b.requested_at_ms)
   const lines: WatchLine[] = qs.map((c) => {
     const call = look.call.get(c.correlation_id)
     const who = c.task?.title ?? look.title(c.session_id)
     const waited = `waited ${span(now - c.requested_at_ms)}`
-    const left = c.expires_at_ms > 0 ? (c.expires_at_ms > now ? `${span(c.expires_at_ms - now)} left` : 'expired') : 'holds until answered'
-    const expired = c.expires_at_ms > 0 && c.expires_at_ms <= now
+    const due = deadlineOf(c)
+    const left = due > 0 ? (due > now ? `${span(due - now)} left` : 'expired') : 'holds until answered'
+    const expired = due > 0 && due <= now
     if (c.budget) {
       const b = c.budget
       return {
@@ -1177,7 +1180,7 @@ function waiting(input: WatchInput, look: Look): Waiting {
     return {
       id: `ask:${c.correlation_id}`, tag: c.tool, text: shortPaths(oneLine(plan)), detail: `${waited} · ${left} · ${who}`,
       flag: expired ? 'expired' : undefined, tone: expired ? 'fault' : 'wait',
-      title: `${c.tool} waits for your answer in "${who}": ${oneLine(c.reason)}${c.floor ? ' (the floor asks: it touches the harness itself)' : ''}. It has waited ${span(now - c.requested_at_ms)}; ${c.expires_at_ms > 0 ? (expired ? 'it has expired' : `it expires in ${span(c.expires_at_ms - now)}`) : 'it holds until answered'}.`,
+      title: `${c.tool} waits for your answer in "${who}": ${oneLine(c.reason)}${c.floor ? ' (the floor asks: it touches the harness itself)' : ''}. It has waited ${span(now - c.requested_at_ms)}; ${due > 0 ? (expired ? 'it has expired' : `it expires in ${span(due - now)}`) : 'it holds until answered'}.`,
       to: { session: c.session_id, node: call?.id },
     }
   })
