@@ -218,3 +218,18 @@ fn an_index_gap_is_said_once_and_the_periodic_checkpoint_stays_quiet() {
     assert_eq!(s.index_gap(), None);
     assert_eq!(s.count_keys(kinds::META).unwrap(), 4);
 }
+
+/// `stats()` carries the gap's position for health (theseus-lu5n): absent
+/// before a gap opens, the log position once it has, absent after a reopen.
+#[test]
+fn stats_carry_the_index_gap_until_a_reopen_heals_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = WalStore::open(dir.path(), WalConfig::default()).unwrap();
+    assert_eq!(s.stats().unwrap().index_gap, None);
+    s.inner.index_fail.store(INDEX_TRIES, Ordering::SeqCst);
+    assert!(s.append(&[meta("a.1", 1)]).is_err());
+    let at = s.index_gap().expect("the gap is open");
+    assert_eq!(s.stats().unwrap().index_gap, Some(at));
+    drop(s);
+    assert_eq!(open(dir.path()).stats().unwrap().index_gap, None);
+}
