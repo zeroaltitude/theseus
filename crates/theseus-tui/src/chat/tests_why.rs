@@ -98,7 +98,10 @@ fn why_calls(effects: Vec<super::state::Effect>) -> usize {
 }
 
 fn notice(c: &super::state::Chat) -> String {
-    c.notice.as_ref().map(|(t, _)| t.clone()).unwrap_or_default()
+    c.notice
+        .as_ref()
+        .map(|(t, _)| t.clone())
+        .unwrap_or_default()
 }
 
 #[test]
