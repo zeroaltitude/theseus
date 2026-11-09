@@ -72,7 +72,7 @@ impl TurnRunner {
             NOTE,
         );
         t.tc.store.append(&[node.record()?])?;
-        t.relayed(&node);
+        super::nudge_step::relayed(t, &node);
         Ok(())
     }
 }

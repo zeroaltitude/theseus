@@ -419,15 +419,13 @@ struct Turn<'a> {
     /// Each loop that said something: its index and its assistant node,
     /// which the reply's post names (theseus-q4v).
     said: Vec<(u32, String)>,
-    /// A harness nudge ([`crate::content::harness_nudge`]) is the newest
-    /// thing this turn relayed, so the next loop's words answer the harness
-    /// and not the person (theseus-emqbm). Taken by that loop's call.
+    /// A harness nudge is the newest thing this turn relayed, so the next
+    /// loop's words answer the harness and not the person (theseus-emqbm,
+    /// `nudge_step::relayed`). Taken by that loop's call.
     nudged: bool,
-    /// The loops whose words answered a harness nudge: they are the
-    /// harness's business, so they are streamed nowhere and left out of the
-    /// reply's post, which keeps the turn's last words whatever prompted
-    /// them (`stage_reply`). The nodes are written as ever: the history, the
-    /// inspector and the turn's own `output` hold them.
+    /// The loops whose words answered one: streamed nowhere and left out of
+    /// the reply's post, which keeps the turn's last words whatever prompted
+    /// them (`reply_step::posted_loops`). The nodes are written as ever.
     nudge_answers: std::collections::BTreeSet<u32>,
     /// The surface's message the turn answers (a Discord message id).
     reply_to: Option<String>,
@@ -662,17 +660,6 @@ impl<'a> Turn<'a> {
         session.tool_calls += self.tool_calls as u64;
         session.cost_usd += self.cost.unwrap_or(0.0);
         add_usage(&mut session.usage, &self.usage);
-    }
-
-    /// A node the turn relayed into its own transcript: announced as any
-    /// written node is, and, when it is a harness nudge
-    /// ([`crate::content::harness_nudge`]), noted, so that the loop that
-    /// answers it is the harness's business and not the person's
-    /// (theseus-emqbm). Every write site of a nudge calls this instead of
-    /// `TurnCtx::node_written`, so the list in `content.rs` is the one rule.
-    pub(crate) fn relayed(&mut self, node: &Node) {
-        self.tc.node_written(node);
-        self.nudged |= crate::content::harness_nudge(node.origin, node.author.as_deref());
     }
 }
 
@@ -2499,10 +2486,8 @@ impl TurnRunner {
         }
 
         // This loop answers a harness nudge, not the person (theseus-emqbm):
-        // its words are the harness's business, so they are streamed to no
-        // place and the reply's post leaves them out. Taken here, at the
-        // call the nudge rides in: the loop after this one answers whatever
-        // came back, not the nudge.
+        // its words go to no place. Taken here, at the call the nudge rides
+        // in: the loop after this one answers what came back, not the nudge.
         let quiet = std::mem::take(&mut t.nudged);
         if quiet {
             t.nudge_answers.insert(i);
@@ -2514,8 +2499,7 @@ impl TurnRunner {
         let counted = streamed.clone();
         let mut on_delta = move |d: Delta<'_>| match d {
             // A quiet loop's text is still counted (the cut estimate reads
-            // the count, not the stream) and still written as a node; only
-            // the live message is left unmade.
+            // the count, not the stream) and still written as a node.
             Delta::Text(text) => {
                 counted.fetch_add(text.chars().count() as u64, Ordering::Relaxed);
                 if quiet {

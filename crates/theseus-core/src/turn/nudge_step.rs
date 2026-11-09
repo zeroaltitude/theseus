@@ -131,13 +131,26 @@ impl TurnRunner {
             NUDGE_TEXT,
         );
         t.tc.store.append(&[node.record()?])?;
-        t.relayed(&node);
+        relayed(t, &node);
         let before = t.last.as_ref().map(|r| r.text.clone()).unwrap_or_default();
         t.nudge.sent = Some((nudge, t.tool_calls, before));
         t.stop_reason.clear();
         Ok(true)
     }
+}
 
+/// A node a turn relayed into its own transcript: announced as any written
+/// node is, and, when it is a harness nudge ([`crate::content::harness_nudge`]),
+/// noted on the turn, so the loop that answers it is the harness's business
+/// and not the person's (theseus-emqbm). Every nudge's write site calls this
+/// instead of `TurnCtx::node_written`, so the list in `content.rs` is the one
+/// rule; turn.rs is at its line ceiling, so it lives here.
+pub(super) fn relayed(t: &mut Turn<'_>, node: &Node) {
+    t.tc.node_written(node);
+    t.nudged |= crate::content::harness_nudge(node.origin, node.author.as_deref());
+}
+
+impl TurnRunner {
     /// `loop.v1`'s mark at the turn's end (23b), unless the turn's last stop
     /// was judged live at the stop.
     pub(super) fn mark_end(&self, t: &mut Turn<'_>, result: &TurnSubmitResult) {
