@@ -32,6 +32,10 @@ day one.
 - **Everywhere:** a reply that draws on memory cites the message, with its date and place.
 - **Terminal:** `theseus why` lists each recalled note with why it was recalled and what was left out;
   `theseus import` and `import list`; `theseus card observed` shows what live learning kept from your own lines.
+- **In the conversation:** ask what it has learned about you lately and it names those same kept lines, each with
+  the day and the conversation you said it in, and says plainly that none is on your card until you answer. What
+  it kept today it carries with it, so it can answer the moment you ask; anything older it reads only when you
+  ask for it. Either way it is only where you are the one writing, and none of it reaches a shared place.
 - **Discord:** up to three question cards a day in your DM (Add, Pattern, Stale) from the nightly pass, answered
   Keep, Edit, Not this or End it. Nothing becomes a record without your answer.
 
