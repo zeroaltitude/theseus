@@ -158,7 +158,13 @@ function RowWhole({ r, confirms, past, now, cx }: { r: OpsRow; confirms: readonl
         {f.paused ? <Pill tone="wait">{f.pill}</Pill> : <StatePill state={f.pill} />}
         <span className="num text-[10.5px] text-ink-faint">{r.kind} · {f.short}</span>
         {r.data && r.data !== 'open' && <Pill tone="wait" title="the floor keeps this to models of US origin"><Lock size={10} /> {r.data}</Pill>}
-        {f.links.map((l, i) => <Link key={l.label} to={l.href} className={cn('flex items-center gap-1 text-[11.5px] text-live hover:underline', i === 0 && 'ml-auto')} title={i === 0 ? `o: ${l.title}` : l.title}>{l.label} <ExternalLink size={11} /></Link>)}
+        {f.links.map((l, i) => {
+          const cls = cn('flex items-center gap-1 text-[11.5px] text-live hover:underline', i === 0 && 'ml-auto')
+          const title = i === 0 ? `o: ${l.title}` : l.title
+          return l.external
+            ? <a key={l.label} href={l.href} target="_blank" rel="noreferrer noopener" className={cls} title={title}>{l.label} <ExternalLink size={11} /></a>
+            : <Link key={l.label} to={l.href} className={cls} title={title}>{l.label} <ExternalLink size={11} /></Link>
+        })}
       </div>
       <div className={r.kind === 'conversation' ? 'font-display text-[15px] font-bold tracking-[0.02em] text-ink' : 'text-[14px] font-semibold text-ink'}>{f.title}</div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">

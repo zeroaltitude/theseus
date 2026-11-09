@@ -38,6 +38,16 @@ test('a done task’s card links its deck and its transcript beside open, and na
   assert.ok(wake.links?.every((l) => l.label !== 'transcript'), 'a wake has no transcript of its own')
 })
 
+test('a task whose view carries a forum address links it as the third link, and a task without one has two', () => {
+  const url = 'https://discord.com/channels/100000000000000001/777'
+  const row = new Map(boardRows({ ...board(), now: NOW }).map((r) => [r.id, r])).get('ses_t4')!
+  const linked = cardFacts({ ...row, view: { ...row.view!, forum_url: url } }, NOW)
+  assert.equal(linked.links.length, 3)
+  assert.deepEqual(linked.links[2], { label: 'on Discord', href: url, title: 'its forum post, or its thread when it has none', external: true })
+  assert.deepEqual(linked.links.slice(0, 2).map((l) => l.label), ['open', 'transcript'])
+  assert.equal(cardFacts(row, NOW).links.length, 2, 'no field, no claim')
+})
+
 test('the whole report is the last message the task ended with, of which the card’s line is the first', () => {
   const nodes = [
     { kind: 'assistant_message', text: 'Working on it.' },

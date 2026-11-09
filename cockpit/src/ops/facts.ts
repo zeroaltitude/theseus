@@ -46,15 +46,15 @@ export interface CardFacts {
   question?: string
   /** When it is due, for a scheduled row. */
   due?: string
-  /** Where the inspector sends the owner beside the title: its deck, and for a task or a conversation its transcript.
-   *  A task's forum post is not here: the daemon keeps that address in its Discord runtime and no protocol type
-   *  carries it to the page (theseus-emqbm). The Discord runtime already builds task-to-URL maps for its own board
-   *  (`Shared::task_links`, `theseus-discord/src/runtime/forum.rs`), so the route is a protocol field filled through a
-   *  registry that runtime sets, not a core-side read of its `discord.task_posts` key. */
+  /** Where the inspector sends the owner beside the title: its deck, and for a task or a conversation its transcript,
+   *  and, when its view carries `forum_url`, its Discord post (theseus-emqbm). The daemon fills that field from a
+   *  registry the Discord runtime sets (`Shared::task_link`, `theseus-discord/src/runtime/forum.rs`); it is absent
+   *  with no Discord binding, in a place with no forum, and once the row is dropped (a day after the task ends, up
+   *  to 30 days unread), and then no link is drawn and none is claimed. */
   links: CardLink[]
 }
 
-export interface CardLink { label: string; href: string; title: string }
+export interface CardLink { label: string; href: string; title: string; external?: boolean }
 
 /** An ended task's report as the inspector words it: the label over the line, and the whole report when the line is
  *  only its start. `whole` is the report's whole text once read, null when the session holds none, undefined unread. */
@@ -116,6 +116,9 @@ function linksOf(r: OpsRow, living: boolean): CardLink[] {
   const href = `/session/${r.sessionId}`
   const out: CardLink[] = [{ label: living ? 'open · join' : 'open', href, title: 'its deck' }]
   if (r.kind === 'task' || r.kind === 'conversation') out.push({ label: 'transcript', href, title: 'everything it said and did, in its deck' })
+  // The address is a post, or the task's thread when it has no post: `on Discord` is true of both.
+  const url = r.view?.forum_url
+  if (r.kind === 'task' && url) out.push({ label: 'on Discord', href: url, title: 'its forum post, or its thread when it has none', external: true })
   return out
 }
 
