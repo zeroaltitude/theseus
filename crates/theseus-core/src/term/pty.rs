@@ -311,12 +311,27 @@ impl Pty {
         for &g in &groups {
             signal_group(g, libc::SIGKILL);
         }
+        let killed = self.kill_rounds(&procs, &groups, Some(self.pid));
+        Ended {
+            status: c.wait().ok(),
+            killed,
+            left: Vec::new(),
+        }
+    }
+
+    /// The kill's rounds: each scans what is alive among `procs`, below
+    /// `below` (when given) and holding the pty, SIGKILLs each, signals
+    /// `groups` again (a new group may have formed meanwhile), and settles
+    /// 5 ms; the first round that finds nothing alive ends it. A round finds
+    /// what the last kill's victims forked before they died (theseus-z0kk).
+    /// Returns how many were signalled.
+    fn kill_rounds(&self, procs: &[tree::Proc], groups: &[u32], below: Option<u32>) -> usize {
         let mut killed = 0;
         for _ in 0..KILL_ROUNDS {
             let late: Vec<tree::Proc> = procs
                 .iter()
                 .copied()
-                .chain(tree::descendants(self.pid))
+                .chain(below.into_iter().flat_map(tree::descendants))
                 .chain(holders(&self.slave_path))
                 .filter(|p| tree::alive(*p))
                 .collect();
@@ -328,18 +343,12 @@ impl Pty {
                     killed += 1;
                 }
             }
-            // Each is a zombie or gone a moment after; a new group may have
-            // formed meanwhile, so the groups met are signalled again.
-            for &g in &groups {
+            for &g in groups {
                 signal_group(g, libc::SIGKILL);
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        Ended {
-            status: c.wait().ok(),
-            killed,
-            left: Vec::new(),
-        }
+        killed
     }
 
     /// A close of a program that had already exited (theseus-d1zw). Its jobs
@@ -370,10 +379,17 @@ impl Pty {
                 left,
             };
         }
-        let killed = held
-            .iter()
-            .filter(|p| tree::signal(**p, libc::SIGKILL))
-            .count();
+        // The program was reaped, so its pid may be recycled: its own group
+        // and its descendants are not read, only what holds the pty, by
+        // processes (`tree::signal` checks the start time) and by the groups
+        // those were in, repeated as a live close's kill is (theseus-z0kk).
+        // SAFETY: reads this process's own group id.
+        let mine = unsafe { libc::getpgrp() } as u32;
+        let mut groups: Vec<u32> = held.iter().filter_map(|p| pgid(p.pid)).collect();
+        groups.sort_unstable();
+        groups.dedup();
+        groups.retain(|&g| g > 1 && g != mine);
+        let killed = self.kill_rounds(&held, &groups, None);
         Ended {
             status: Some(status),
             killed,
