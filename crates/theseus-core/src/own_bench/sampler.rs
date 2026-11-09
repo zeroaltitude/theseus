@@ -305,7 +305,7 @@ impl Core {
     async fn quiet_before_replay(self: &Arc<Self>) {
         let me = Arc::downgrade(self);
         let _ = tokio::task::spawn_blocking(move || {
-            theseus_store::pressure::quiet_blocking_unless(theseus_store::pressure::BOUND, || {
+            crate::pace::quiet_blocking_unless(theseus_store::pressure::BOUND, || {
                 me.upgrade().is_none_or(|c| c.outbox.stopping())
             })
         })

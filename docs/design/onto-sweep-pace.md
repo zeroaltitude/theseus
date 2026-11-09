@@ -58,3 +58,20 @@ pressure, a control that the real wait does wait there) and, for the onto sweep 
 `pressure`'s `a_chunk_waits_while_busy_and_goes_when_quiet_within_the_bound` and its real `/proc/pressure` reading by
 `tests/pressure.rs`. A daemon's own tests link `theseus-core` built without `cfg(test)`, so they wait as in
 production.
+
+## The blocking waits (theseus-la5oc)
+
+The store's blocking wait (`quiet_blocking`, `quiet_blocking_unless`) had the same shape in a test, and it was not
+latent. A reading found ten call sites in `theseus-core`; a run of the crate's whole suite on a busy host (the
+suite's own load, CPU pressure 52 to 59 %) reached six of them: 32 calls in 18 tests, 17 of which waited, 211 s in all
+and one test 70 s (the topics import's seven waits of 10 s). Those six (`import/topics.rs`, `import/write.rs` twice,
+`own_bench/sampler.rs`, `recall/adjacency.rs`, `rsi/mine/night.rs`, whose bound is 2 s, not 10) now call
+`pace::quiet_blocking(_unless)`, which a test build answers with zero. It waits only where the test has faked the
+pressure itself (`tests_activation_pace::INNER`): `a_clean_stop_ends_the_warm_builds_waits` holds a stop ending a
+wait that is really there, and fails if the skip is unconditional. The production bound is untouched at every site.
+
+The other four (the nightly consolidation's plan, the learning tender's packs, the ledger pin, the WAL's history
+check) keep the store's wait, because no test of the crate runs them to it: `theseusd`'s start is their caller, and a
+daemon's own tests link the crate without `cfg(test)`, which this skip cannot reach. The sites are held by
+`pace::tests::no_blocking_caller_in_core_waits_on_the_raw_pressure_but_the_daemons_four`, which names the four and
+asserts that each still calls the store's wait, so a fifth caller or a stale exception both fail it.

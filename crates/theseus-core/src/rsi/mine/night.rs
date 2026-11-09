@@ -109,7 +109,7 @@ impl Core {
             )?
         } else {
             if write {
-                theseus_store::pressure::quiet_blocking(QUIET);
+                crate::pace::quiet_blocking(QUIET);
             }
             read::fold(
                 &self.store,

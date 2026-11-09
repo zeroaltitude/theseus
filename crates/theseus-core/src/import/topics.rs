@@ -479,10 +479,7 @@ pub(super) fn write_frames(
         })?;
         *frames += 1;
         if left.peek().is_some() {
-            theseus_store::pressure::quiet_blocking_unless(
-                theseus_store::pressure::BOUND,
-                stopping,
-            );
+            crate::pace::quiet_blocking_unless(theseus_store::pressure::BOUND, stopping);
             if stopping() {
                 return Ok(true);
             }
