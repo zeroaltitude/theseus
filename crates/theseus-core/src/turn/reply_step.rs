@@ -55,7 +55,7 @@ impl TurnRunner {
         let mut body = json!({
             "kind": "reply",
             "turn_id": result.turn_id,
-            "loops": t.said,
+            "loops": Self::posted_loops(t),
             "result": footer,
             "reply_to": t.reply_to,
         });
@@ -76,6 +76,27 @@ impl TurnRunner {
         }
         t.tc.posts.lock().unwrap().push(post);
         Ok(())
+    }
+
+    /// The loops of the turn whose words the place gets (theseus-emqbm).
+    ///
+    /// A loop that answered a harness nudge answered the harness, not the
+    /// person: he did not ask, so he gets no answer, and the words stay in
+    /// the session's nodes for the history and the inspector. **The floor:
+    /// the turn's last words always go out**, whatever prompted them. A turn
+    /// nudged at its close and ended by the answer to that nudge is reachable
+    /// (`close_out_step`'s doubt and `nudge_step`'s stop nudge both fire on a
+    /// loop that made no tool calls, and the loop they buy can end the turn),
+    /// and silence there is the other half of this release's complaint. What
+    /// keeps those last words from reading as a reply to the harness is the
+    /// nudge's own last sentence (`content::NOT_FOR_THE_PERSON`).
+    fn posted_loops(t: &Turn<'_>) -> Vec<(u32, String)> {
+        let last = t.said.last().map(|(i, _)| *i);
+        t.said
+            .iter()
+            .filter(|(i, _)| Some(*i) == last || !t.nudge_answers.contains(i))
+            .cloned()
+            .collect()
     }
 
     /// The brief of the task this reply offers (theseus-bh3t.5): `classify.v3`

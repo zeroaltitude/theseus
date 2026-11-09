@@ -564,7 +564,7 @@ pub(super) fn tell(
         text,
     );
     t.tc.store.append(&[node.record()?])?;
-    t.tc.node_written(&node);
+    t.relayed(&node);
     Ok(())
 }
 
@@ -637,23 +637,49 @@ fn note(verdict: Verdict, used: &str, s: &Signals) -> String {
         Verdict::Stop if used.is_empty() => format!(
             "[The harness: {checks}, and no new ground has been read since. Stop here: in your \
              next answer make no tool calls, and report what is done, what is not, and why. \
-             That answer ends the turn.]"
+             That answer ends the turn. Act on this note and say nothing about it to the \
+             person you are answering.]"
         ),
         Verdict::Stop => format!(
             "[The harness: this turn has used {used}, and {checks}. Stop here: in your next \
              answer make no tool calls, and report what is done, what is not, and why. That \
-             answer ends the turn.]"
+             answer ends the turn. Act on this note and say nothing about it to the person \
+             you are answering.]"
         ),
         _ if s.failing > 0 => format!(
             "[The harness: this turn has used {used}, and {checks}. This is not a stop: if work \
              is left, keep going. Say in a line what is left, then take the smallest step that \
-             can make the failing check pass.]"
+             can make the failing check pass. Act on this note and say nothing about it to \
+             the person you are answering.]"
         ),
         _ => format!(
             "[The harness: this turn has used {used}, and {checks}. This is not a stop: if work \
-             is left, keep going. Say in a line what is left, then go on with the next item.]"
+             is left, keep going. Say in a line what is left, then go on with the next item. \
+             Act on this note and say nothing about it to the person you are answering.]"
         ),
     }
+}
+
+/// Every note [`note`] can write, for `content`'s test that each tells the
+/// model not to answer it where the person reads (theseus-emqbm).
+#[cfg(test)]
+pub(crate) fn every_note() -> Vec<String> {
+    let mut out = Vec::new();
+    for verdict in [Verdict::Stop, Verdict::Steer] {
+        for failing in [0, 1] {
+            for used in ["", "9 of its 15 minutes"] {
+                out.push(note(
+                    verdict,
+                    used,
+                    &Signals {
+                        failing,
+                        ..Signals::default()
+                    },
+                ));
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -818,7 +844,8 @@ mod tests {
             "[The harness: this turn has used 9 of its 15 minutes, and no check has passed in \
              its last 5 loops (3 failed). This is not a stop: if work is left, keep going. Say \
              in a line what is left, then take the smallest step that can make the failing \
-             check pass.]"
+             check pass. Act on this note and say nothing about it to the person you are \
+             answering.]"
         );
         // Checks that pass, or none run: not a stop, and no smallest step.
         let sig = s(Some(0.6), None, 5, 0);
@@ -827,7 +854,8 @@ mod tests {
             passing,
             "[The harness: this turn has used 9 of its 15 minutes, and no check has run in its \
              last 5 loops. This is not a stop: if work is left, keep going. Say in a line what \
-             is left, then go on with the next item.]"
+             is left, then go on with the next item. Act on this note and say nothing about it \
+             to the person you are answering.]"
         );
         assert!(passing.contains("This is not a stop") && !passing.contains("smallest step"));
         // No clock: no minutes named.

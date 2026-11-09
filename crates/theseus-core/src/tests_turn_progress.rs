@@ -1204,3 +1204,167 @@ async fn a_failure_that_flips_between_two_is_still_a_stall() {
     assert_eq!(rows[0]["condition"], "stalled");
     assert_eq!(rows[0]["loop"], 8);
 }
+
+/// A loop with its own words and one passing command, for a turn that keeps
+/// working after the harness nudged it.
+fn works(root: &Path, text: &str, id: &str) -> Scripted {
+    let input = json!({"argv": ["sh", "-c", "exit 0"], "cwd": root.display().to_string()});
+    Scripted::tools(text, &[(id, "proc_run", input)])
+}
+
+/// The rig of the two tests below: the owner's DM, so the place is private
+/// and `may_continue` lets the doubt send the turn back to work.
+fn dm_rig(script: impl FnOnce(&Path) -> Vec<Scripted>) -> Rig {
+    rig_with(script, |c| {
+        c.places.owner = Some(vec![format!("discord:{OWNER}")]);
+    })
+}
+
+/// The reply post staged for `place`: its loops, as `(index, text)`, in the
+/// order the binding writes its messages.
+fn posted(r: &Rig, place: &str) -> Vec<(u32, String)> {
+    let posts = r.core.outbox.open_for(&format!("discord:{place}"));
+    assert_eq!(posts.len(), 1, "one reply post");
+    let body = crate::outbox::body_of(&posts[0]).clone();
+    assert_eq!(body["kind"], "reply");
+    r.core.outbox.reply_texts(&body)
+}
+
+/// Which loops the live stream carried words for: a `model.delta` or a
+/// `model.answered` of that loop that reached the session's watchers with
+/// text in it. A quiet loop's `model.answered` still goes, with no text, so
+/// a renderer keeps its tool lines in their own message.
+fn streamed(
+    notes: &mut tokio::sync::mpsc::UnboundedReceiver<theseus_protocol::Message>,
+) -> Vec<u32> {
+    let mut out = Vec::new();
+    while let Ok(m) = notes.try_recv() {
+        let theseus_protocol::Message::Notification(n) = m else {
+            continue;
+        };
+        if n.method != theseus_protocol::notify::MODEL_DELTA
+            && n.method != theseus_protocol::notify::MODEL_ANSWERED
+        {
+            continue;
+        }
+        let said = n.params["text"].as_str().is_some_and(|t| !t.is_empty());
+        if let (Some(i), true) = (n.params["loop_index"].as_u64(), said) {
+            let i = i as u32;
+            if !out.contains(&i) {
+                out.push(i);
+            }
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
+/// **The row's bar** (theseus-emqbm, the owner 2026-11-07): the harness's
+/// doubt is a `harness:progress` message the owner never wrote, so the
+/// model's answer to it is posted nowhere and streamed nowhere — on Discord
+/// it read as the model talking to itself. The turn's own words, before the
+/// nudge and after the work it bought, go out as ever.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_harness_nudges_reply_is_not_posted_to_the_place() {
+    let r = dm_rig(|root| {
+        vec![
+            works(root, "Running the loader check.", "c1"),
+            Scripted::text("The tide tables are built, but I haven't tested the loader."),
+            works(root, "The harness is right; I'll check that now.", "c2"),
+            Scripted::text("Checked: the loader passes. The tide tables are ready."),
+        ]
+    });
+    let (tx, mut notes) = tokio::sync::mpsc::unbounded_channel();
+    *r.core.bus.tap.lock().unwrap() = Some(tx);
+    let dm = format!("dm:{OWNER}");
+    let (_, res) = r.turn_in(Some(&dm)).await;
+    assert_eq!(res.loops, 4, "the doubt bought loop 2");
+    // The nudge really fired: without this the bar below is met by a turn
+    // that was never nudged at all.
+    let reqs = r.requests();
+    assert_eq!(reqs.len(), 4);
+    assert!(
+        messages(&reqs[2]).contains("names something it did not check or run"),
+        "loop 2's request carries the doubt: {}",
+        messages(&reqs[2])
+    );
+    assert!(
+        messages(&reqs[2]).contains("say nothing about it to the person you are answering"),
+        "the doubt tells the model not to answer it in the place"
+    );
+    // The bar: the place gets three messages, loop 2's is not among them,
+    // and none of the three names the harness.
+    let out = posted(&r, &dm);
+    assert_eq!(
+        out.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+        vec![0, 1, 3],
+        "loop 2 answered the harness: {out:?}"
+    );
+    for (i, text) in &out {
+        assert!(
+            !text.to_lowercase().contains("the harness"),
+            "loop {i} names the harness: {text}"
+        );
+    }
+    assert_eq!(out[0].1, "Running the loader check.");
+    assert_eq!(out[2].1, "Checked: the loader passes. The tide tables are ready.");
+    // And the live stream never made the message the post would not seal.
+    assert_eq!(streamed(&mut notes), vec![0, 1, 3]);
+}
+
+/// The positive control, which is the whole risk of this change: a turn
+/// nobody nudged posts every loop that said anything, and streams every one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unnudged_turns_every_loop_is_still_posted_and_streamed() {
+    let r = dm_rig(|root| {
+        vec![
+            works(root, "Running the loader check.", "c1"),
+            works(root, "Now the tide tables.", "c2"),
+            Scripted::text("The tide tables are built and the loader passes."),
+        ]
+    });
+    let (tx, mut notes) = tokio::sync::mpsc::unbounded_channel();
+    *r.core.bus.tap.lock().unwrap() = Some(tx);
+    let dm = format!("dm:{OWNER}");
+    let (sid, res) = r.turn_in(Some(&dm)).await;
+    assert_eq!(res.loops, 3);
+    assert!(r.rows(&sid).is_empty(), "nothing nudged it");
+    let out = posted(&r, &dm);
+    assert_eq!(
+        out,
+        vec![
+            (0, "Running the loader check.".to_string()),
+            (1, "Now the tide tables.".to_string()),
+            (2, "The tide tables are built and the loader passes.".to_string()),
+        ]
+    );
+    assert_eq!(streamed(&mut notes), vec![0, 1, 2]);
+}
+
+/// The floor (theseus-emqbm): a turn whose answer to the nudge *is* its last
+/// word is posted all the same. Silence after a nudge is the other half of
+/// the complaint, so the words go out; what keeps them from reading as a
+/// reply to the harness is the nudge's own last sentence.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_turns_last_words_go_out_whatever_prompted_them() {
+    let r = dm_rig(|root| {
+        vec![
+            works(root, "Running the loader check.", "c1"),
+            Scripted::text("The tide tables are built, but I haven't tested the loader."),
+            Scripted::text("I checked the loader after all: it passes."),
+        ]
+    });
+    let dm = format!("dm:{OWNER}");
+    let (sid, res) = r.turn_in(Some(&dm)).await;
+    assert_eq!(res.loops, 3, "the doubt bought loop 2");
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "doubt");
+    let out = posted(&r, &dm);
+    assert_eq!(
+        out.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+        vec![0, 1, 2],
+        "the last loop is the turn's answer: {out:?}"
+    );
+    assert_eq!(out[2].1, "I checked the loader after all: it passes.");
+}
