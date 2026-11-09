@@ -115,8 +115,9 @@ It runs, in order:
 3. *Without it again*:
    - `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database
      as its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was
-     yanked between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh`
-     refreshes it.
+     yanked between two gates), and the gate says when that database is more than 7 days old. The database is the
+     gate's pin (theseus-4vsrz): only the owner's `cargo deny fetch db` moves it, and `deny-daily.sh` keeps a database
+     of its own, so a fetch never reddens a gate.
 
 It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
 ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`; a signal's
@@ -357,15 +358,21 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
 
 ### The daily deny job
 
-`deny-daily.sh` is what keeps the commit gate's offline `cargo deny` honest (theseus-goa8; review 2's SC2). It fetches the
-advisory database and the registry index, runs the whole `cargo deny check` against them, and, when that fails, files one
+`deny-daily.sh` is the fresh half of two contracts (theseus-goa8; theseus-4vsrz). The gate's `cargo deny --offline` judges
+the tree against the database in `~/.cargo/advisory-dbs`, which only the owner's `cargo deny fetch db` moves, so main is
+never red tomorrow with no commit in between. This job fetches into its own database (`THESEUS_DENY_DB`, default
+`~/.cache/theseus/deny-daily-db`, reached through a generated config that sets `db-path`), so its fetch never changes the
+gate's. It fetches that database and the registry index, runs the whole `cargo deny check` against them, and, when that fails, files one
 Beads issue (owner `main`, waiting for an available agent, labels `security` and `deny-daily`) unless one is already open.
 A failed fetch is an outage, not a finding: it checks what is cached and files nothing. Exit status: 0 all clear; 1 the check
-failed; 2 the fetch failed and the check was clean on what is cached. It reads the repository and never builds or changes it
+failed; 2 the fetch failed and the check was clean on what is cached; 3 the `deny.toml` in use (the tree's, or
+`THESEUS_DENY_CONFIG`) has no `[advisories]` table to point at the job's database, so nothing was fetched or checked (the
+unit shows as failed). It reads the repository and never builds or changes it
 (`--locked`), so it runs in the chain's tree. Its log is `~/.cache/theseus/deny-daily.log`.
 
-The gate's offline check is where a refresh shows up: the database moves when this job fetches, never with a branch, so a
-red `cargo deny` on an untouched tree is the database. When bans, licences and sources are clean and only advisories fail,
+The gate's offline check is where a move of its pin shows up: that database moves only when something fetches into it (the
+owner's `cargo deny fetch db`; never a branch, never this job), so a red `cargo deny` on an untouched tree means the pin
+moved. When bans, licences and sources are clean and only advisories fail,
 the gate says so (`deny: ONLY advisories failed ...`) and names the owner's action: ignore each id in `deny.toml` with its
 reason, or bump the crate. The gate never fetches and never writes an ignore.
 
