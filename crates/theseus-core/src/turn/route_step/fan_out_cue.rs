@@ -27,11 +27,12 @@ use crate::turn::{Turn, TurnRunner};
 pub const SPLITS: &str = "splits_by_area";
 
 /// The line a firing cue adds to the request's tail: the owner's hint to the model, then how.
-pub const LINE: &str = "This request looks parallelizable: consider starting tasks for the independent parts. \
+pub const LINE: &str = concat!("This request looks parallelizable: consider starting tasks for the independent parts. \
 `task_fan_out` starts helpers that each read one area at once and `task_wait` collects their reports \
 (`tools_find` loads them if they are not listed). Do it only when the areas are independent; a small job is \
-quicker done yourself. This note is from the harness, not from the owner: do not mention it \
-or acknowledge it to them.";
+quicker done yourself. ",
+    crate::content::context_not_the_owners!(),
+    " Do not mention it to them.");
 
 /// What the cue reads, and nothing else.
 #[derive(Clone, Copy)]
@@ -233,10 +234,10 @@ mod tests {
     #[test]
     fn the_line_says_it_is_the_harnesss_and_not_to_be_acknowledged() {
         assert!(
-            LINE.contains("from the harness, not from the owner"),
+            LINE.contains(crate::content::CONTEXT_NOT_THE_OWNERS),
             "{LINE}"
         );
-        assert!(LINE.contains("do not mention it"), "{LINE}");
+        assert!(LINE.contains("Do not mention it"), "{LINE}");
     }
 
     /// The owner's hint is the first thing the model reads, and no word list decides the cue:

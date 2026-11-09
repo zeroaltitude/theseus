@@ -86,12 +86,13 @@ pub fn text(t: &ThreadInfo) -> String {
             out.push_str(&format!("\n- {line}"));
         }
     }
-    out.push_str(
-        "\nThis card is carried on every request, not a message from the owner: do not \
-         acknowledge or restate it. It is as of the last time the conversation was rewritten; \
-         a line you add with thread.note shows here after the next rewrite, and in the \
-         meantime in your own call.]",
-    );
+    out.push_str(concat!(
+        "\nThis card is carried on every request. ",
+        crate::content::context_not_the_owners!(),
+        " It is as of the last time the conversation was rewritten; \
+             a line you add with thread.note shows here after the next rewrite, and in the \
+             meantime in your own call.]"
+    ));
     out
 }
 
