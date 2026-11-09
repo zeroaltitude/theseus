@@ -542,6 +542,8 @@ async fn a_routine_the_model_sets_up_waits_on_one_card_and_is_listed_in_its_comm
         "{}",
         card.reason
     );
+    assert!(card.reason.contains("not a system cap"), "{}", card.reason);
+    assert!(card.reason.contains("$0.50 a run"), "{}", card.reason);
     let listed = rpc(&r.core, "routine.list", json!({})).await.unwrap();
     assert!(
         listed["routines"].as_array().unwrap().is_empty(),
@@ -806,4 +808,24 @@ fn a_spent_month_says_the_figure_is_the_routines_own() {
     let rule = crate::rule_notice::Rule::D14.spec();
     assert!(!rule.key.contains("default_"), "{}", rule.key);
     assert!(rule.key.contains("routine update"), "{}", rule.key);
+}
+
+/// The creation card says the dollars are the routine's own, once, in both
+/// builders (theseus-tclcj). `Prepared::card` has no caller outside tests.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_card_spells_the_budget_once() {
+    let r = rig();
+    let words = crate::routine::budget_words(0.5, 10.0);
+    assert!(words.contains("not a system cap"), "{words}");
+    let new = crate::routine::NewRoutine {
+        title: "Tide check".into(),
+        schedule: "weekdays 08:00".into(),
+        brief: BRIEF.into(),
+        ..Default::default()
+    };
+    let cfg = crate::config::RoutinesConfig::default();
+    let prepared = crate::routine::prepare(&r.core.kernel, &cfg, &new, "owner", None).unwrap();
+    let card = prepared.card(&r.core.kernel.config().zone);
+    assert_eq!(card.matches(&words).count(), 1, "{card}");
+    assert_eq!(card.matches("a run").count(), 1, "{card}");
 }

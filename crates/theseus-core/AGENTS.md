@@ -2808,8 +2808,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `NOTHING NEW` when there is nothing to say, and such a run only logs (`TaskOf::target_for`, `routine::quiet`, the run's mark
   `routine.run:<task session>`). A run of a routine notifies at its limit instead of asking (`Kernel::overdraws`); A routine's **grant** (theseus-52tut, below) is its wake's `TaskRun.tools`. The model's `routine.create` (`routine_tool.rs`) is private-place only
   and always waits for the owner's yes: its plan names an authority, which `task_graph::tools::authority_for` keeps for it, and
-  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · up to $0.50 a
-  run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
+  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · its own budget, not a
+  system cap: up to $0.50 a run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
   Morning digest (next Fri)`, from `Book::made_in`, memory only). `[kernel] max_routines` moved to `[routines] max_routines`.
   **A start, an optional stop, and what a run carries** (theseus-97b8c; the owner 2026-10-28, "start, optional stop, interval,
   etc ... a super smart cron but internally treats it as a long term task", and "further bringing task stuff under deterministic

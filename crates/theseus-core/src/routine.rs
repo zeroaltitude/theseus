@@ -473,6 +473,17 @@ fn dollars(usd: f64) -> String {
     }
 }
 
+/// The routine's own budget as a card spells it: figures the routine carries
+/// (the model's, else the defaults), bounded only by `[routines] max_run_usd`
+/// and `max_month_usd` when the owner set them, so never read as a system cap.
+pub(crate) fn budget_words(run_usd: f64, month_usd: f64) -> String {
+    format!(
+        "its own budget, not a system cap: up to {} a run, {} a month",
+        dollars(run_usd),
+        dollars(month_usd)
+    )
+}
+
 impl Prepared {
     /// The card from its parts, before a routine is prepared (the tool's plan).
     pub fn words(
@@ -488,7 +499,7 @@ impl Prepared {
         let to = n.deliver_to.as_deref().unwrap_or("dm");
         let next: Vec<String> = next.iter().map(|m| when(zone, *m)).collect();
         format!(
-            "Create routine \"{}\": {}{} (next: {}) · {} · up to {} a run, {} a month · {} · {}",
+            "Create routine \"{}\": {}{} (next: {}) · {} · {} · {} · {}",
             n.title.trim(),
             at_words(&describe(repeat, zone)),
             bounds
@@ -496,28 +507,27 @@ impl Prepared {
                 .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
             next.join(", "),
             stop_words(bounds.stop.as_ref()),
-            dollars(run_usd),
-            dollars(month_usd),
+            budget_words(run_usd, month_usd),
             deliver_words(to, speak),
             trust_words(&n.grant),
         )
     }
 
     /// `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00,
-    /// Mon 08:00, Tue 08:00) · up to $0.50 a run, $10 a month · posts to your DM`
+    /// Mon 08:00, Tue 08:00) · its own budget, not a system cap: up to $0.50 a run, $10 a month ·
+    /// posts to your DM`
     pub fn card(&self, zone: &TimeZone) -> String {
         let s = &self.spec;
         let next: Vec<String> = self.next.iter().map(|m| when(zone, *m)).collect();
         format!(
-            "Create routine \"{}\": {}{} (next: {}) · {} · up to {} a run, {} a month · {} · {}",
+            "Create routine \"{}\": {}{} (next: {}) · {} · {} · {} · {}",
             s.title,
             at_words(&describe(&self.repeat, zone)),
             s.start_ms
                 .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
             next.join(", "),
             stop_words(s.stop.as_ref()),
-            dollars(micros_to_usd(s.run_micros)),
-            dollars(micros_to_usd(s.month_micros)),
+            budget_words(micros_to_usd(s.run_micros), micros_to_usd(s.month_micros)),
             deliver_words(&s.deliver_to, s.speak),
             trust_words(&self.grant),
         )
