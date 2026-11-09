@@ -469,5 +469,61 @@ class DenyDaily(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+# A stand-in cargo for build.sh: makes target/<profile>/theseusd (7 bytes) and, when STUB_BUILD_MOVE is set, edits a tracked file.
+BUILD_CARGO = r"""#!/usr/bin/env bash
+mkdir -p target/release
+printf 'daemon\n' >target/release/theseusd
+[ -z "${STUB_BUILD_MOVE:-}" ] || echo "edited during the build" >>notes.txt
+exit 0
+"""
+
+
+class BuildStamp(unittest.TestCase):
+    """build.sh stamps the tree it started from, and says so when the tree moved under the build."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        tmp = Path(self.tmp.name)
+        self.home, self.root = tmp / "home", tmp / "tree"
+        bin_dir = self.home / ".cargo" / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "cargo").write_text(BUILD_CARGO)
+        (bin_dir / "cargo").chmod(0o755)
+        (self.root / "scripts").mkdir(parents=True)
+        for name in ("build.sh", "tree-stamp.sh"):
+            (self.root / "scripts" / name).write_text((HERE / name).read_text())
+            (self.root / "scripts" / name).chmod(0o755)
+        (self.root / "scripts" / "discard-eh-frame.ld").write_text("")
+        (self.root / "notes.txt").write_text("a tracked file\n")
+        (self.root / ".gitignore").write_text("target\n")
+        self.env = {k: v for k, v in os.environ.items() if k not in ("CARGO_TARGET_DIR", "CARGO_HOME", "SOURCE_DATE_EPOCH")}
+        self.env.update({"HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_AUTHOR_NAME": "t",
+                         "GIT_AUTHOR_EMAIL": "", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": ""})
+        for args in (("init", "-q", "-b", "main"), ("add", "-A"), ("commit", "-q", "-m", "x")):
+            self.assertEqual(run(["git", *args], self.root, self.env).returncode, 0)
+
+    def build(self, **env):
+        return run(["bash", "scripts/build.sh"], self.root, {**self.env, **env})
+
+    def test_a_tree_that_moved_during_the_build_gets_no_stamp_and_both_identities_are_printed(self):
+        stamp = self.root / "target" / "release" / ".theseus-build-stamp"
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text("an old stamp\n")
+        head = run(["git", "rev-parse", "HEAD"], self.root, self.env).stdout.strip()
+        p = self.build(STUB_BUILD_MOVE="1")
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(stamp.exists(), "no stamp, and the old one is removed")
+        self.assertIn(f"before: {head} clean", p.stderr)
+        self.assertRegex(p.stderr, r"after:  " + head + r" [0-9a-f]{16}")
+
+    def test_an_unmoved_tree_is_stamped_with_its_before_identity_and_the_byte_count(self):
+        head = run(["git", "rev-parse", "HEAD"], self.root, self.env).stdout.strip()
+        p = self.build()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        stamp = (self.root / "target" / "release" / ".theseus-build-stamp").read_text()
+        self.assertEqual(stamp, f"{head} clean 7\n")
+
+
 if __name__ == "__main__":
     unittest.main()
