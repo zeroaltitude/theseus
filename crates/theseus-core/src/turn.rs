@@ -37,7 +37,7 @@ use crate::compiler::{
     compile, situation, CompileInput, Compiled, Overflowed, Recompile, RequestSpec,
 };
 use crate::config::{CacheTtl, Effort, ThinkingDisplay};
-use crate::content::ItemKind;
+use crate::content::{footer_labels, ItemKind};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
 use crate::narrative::{self, Narrator};
@@ -3309,6 +3309,11 @@ impl TurnRunner {
         t.close_books(session);
         session.last_target = Some(Self::ran_on(&t));
         let w0 = t.trace.now_us();
+        // The labels the session carries once this turn's are merged in
+        // (theseus-emqbm), read under the record's lock where that merge
+        // happens, so a label this turn raised is on the reply that carries
+        // it. No store read of its own; the words are `content::footer_labels`.
+        let mut labels = vec![];
         // Only the turn's own fields: a recompile asked meanwhile stays
         // (theseus-xeo). The record rides in the turn's last frame, where
         // the rows before it here and after it wait too; the span times its
@@ -3318,6 +3323,7 @@ impl TurnRunner {
             if r.pending_recompile.is_none() {
                 r.pending_recompile = unused_recompile;
             }
+            labels = footer_labels(&self.cfg.cockpit, t.tc.session_id, r.data.as_deref());
         }) {
             Ok(hold) => hold,
             Err(e) => return Err(Self::fault(t, session, e)),
@@ -3368,6 +3374,7 @@ impl TurnRunner {
             thread: None,
             filed: None,
             inspect_url: self.cfg.cockpit.turn_link(t.tc.session_id, t.tc.turn_id),
+            labels,
         };
         result.raised = self.defer_ended(&mut t);
         self.initiative_rows(&mut t, &result);

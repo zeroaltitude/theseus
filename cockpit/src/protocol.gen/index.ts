@@ -316,6 +316,7 @@ export type * from './JudgeReplayResult';
 export type * from './JudgeScored';
 export type * from './KernelStatus';
 export type * from './LabelCounts';
+export type * from './LabelLink';
 export type * from './LabelRaised';
 export type * from './LabelView';
 export type * from './LatencyRow';

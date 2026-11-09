@@ -278,3 +278,90 @@ async fn rpc_as(
     let _ = srv.await;
     out
 }
+
+/// A reply's result carries the labels its session carries now (theseus-emqbm),
+/// each with the Ship address that removes that one, so every reply's footer
+/// can list them and the operator can take one off at any time and not only
+/// from the one message that raised it.
+///
+/// The positive count is asserted beside the empty case below, so an empty
+/// list cannot satisfy both.
+#[tokio::test]
+async fn a_turns_result_carries_the_sessions_labels_each_with_its_removal_address() {
+    let dir = tempfile::tempdir().unwrap();
+    let (core, sid) = labelled(dir.path());
+    let r = turn(&core, &sid, "hello").await;
+    assert_eq!(
+        r.labels.iter().map(|l| l.flag.as_str()).collect::<Vec<_>>(),
+        vec!["injection", "secret"],
+        "both labels, in the flags' order"
+    );
+    for l in &r.labels {
+        assert_eq!(
+            l.remove_url.as_deref(),
+            Some(format!("http://localhost:7433/session/{sid}/unlabel/{}", l.flag).as_str()),
+            "{l:?}"
+        );
+    }
+    // The removal takes a label off the next reply's list, which is the point
+    // of listing them: the footer says what the session carries now.
+    core.unlabel_session(&sid, "injection", "test").unwrap();
+    let r = turn(&core, &sid, "again").await;
+    assert_eq!(
+        r.labels.iter().map(|l| l.flag.as_str()).collect::<Vec<_>>(),
+        vec!["secret"]
+    );
+}
+
+/// A session carrying nothing carries nothing on its result, and the field is
+/// not on the wire at all (theseus-emqbm): the reply a surface draws from it is
+/// byte for byte the reply it drew before this row, which is what keeps the
+/// locked Discord DM flow's golden where it is.
+#[tokio::test]
+async fn a_session_with_no_labels_puts_nothing_on_its_result_or_on_the_wire() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = core_in(dir.path());
+    let sid = session(&core);
+    let r = turn(&core, &sid, "hello").await;
+    assert!(r.labels.is_empty(), "{:?}", r.labels);
+    let wire = serde_json::to_value(&r).unwrap();
+    assert!(
+        wire.get("labels").is_none(),
+        "an empty list is left out of the bytes: {wire}"
+    );
+    // And a labelled session's result does put it there, so the check above
+    // cannot pass because nothing ever writes the field.
+    let (core, sid) = labelled(dir.path().join("two").as_path());
+    let wire = serde_json::to_value(turn(&core, &sid, "hello").await).unwrap();
+    assert_eq!(wire["labels"][0]["flag"], "injection", "{wire}");
+    assert!(wire["labels"][0]["remove_url"].is_string(), "{wire}");
+}
+
+/// One turn on `core`'s stand-in model, as `tests_defer`'s `say` runs one.
+async fn turn(core: &Arc<Core>, sid: &str, input: &str) -> theseus_protocol::TurnSubmitResult {
+    let rec = core
+        .store
+        .get_session::<SessionRecord>(sid)
+        .unwrap()
+        .unwrap();
+    let (live, _) = core.live_profile();
+    let target = core.runner.resolve_target(&live, None, None, None).unwrap();
+    let sink = crate::bus::EventSink::new(core.bus.clone(), sid, None);
+    core.runner
+        .run(crate::turn::TurnRequest {
+            prompt: None,
+            answer_at: None,
+            session: rec,
+            input: Some(input.into()),
+            target,
+            sink,
+            author: "cli".into(),
+            recompile: None,
+            attachments: vec![],
+            arrived: None,
+            reply_to: None,
+            surface: None,
+        })
+        .await
+        .unwrap()
+}

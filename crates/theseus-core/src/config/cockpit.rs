@@ -71,6 +71,16 @@ impl CockpitConfig {
             base, session_id, turn_id,
         ))
     }
+
+    /// Where the Ship removes one label from one session (theseus-emqbm), as a
+    /// reply's footer links it: none when no web UI runs and no `public_url`
+    /// names one, exactly as `turn_link`.
+    pub fn unlabel_link(&self, session_id: &str, flag: &str) -> Option<String> {
+        let base = self.public_url.as_deref().or(self.base.as_deref())?;
+        Some(theseus_protocol::content::unlabel_url(
+            base, session_id, flag,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -121,6 +131,29 @@ mod tests {
             assert!(crate::Config::parse(&format!("{secrets}\n[cockpit]\n{bad}\n")).is_err());
         }
         assert!(crate::Config::from_toml("[cockpit]\nbogus = 1\n").is_err());
+    }
+
+    /// A label's removal address is built from the same base as the turn's
+    /// link, so a reply's footer links both or neither (theseus-emqbm).
+    #[test]
+    fn a_labels_removal_address_follows_the_same_base_as_the_turns_link() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert_eq!(
+            cfg.cockpit.unlabel_link("ses_a", "injection").as_deref(),
+            Some("http://localhost:7433/session/ses_a/unlabel/injection")
+        );
+        let relay =
+            crate::Config::from_toml("[cockpit]\npublic_url = \"http://localhost:17433/\"\n")
+                .unwrap();
+        assert_eq!(
+            relay.cockpit.unlabel_link("ses_a", "secret").as_deref(),
+            Some("http://localhost:17433/session/ses_a/unlabel/secret"),
+            "the trailing slash is dropped, as the turn's link drops it"
+        );
+        let mut off = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        off.cockpit.resolve(7433, false);
+        assert_eq!(off.cockpit.unlabel_link("ses_a", "secret"), None);
+        assert_eq!(off.cockpit.turn_link("ses_a", "turn_b"), None);
     }
 
     /// A reply links the cockpit only where one runs: web off and no public URL gives no link;
