@@ -1000,6 +1000,13 @@ async fn a_gate_ends_at_its_cap() {
 /// live only in a bead's prose, and the prose named a test that could not be
 /// in it. This is the record, and the test below holds it to the source.
 ///
+/// **Why this list stays bespoke and does not use `complete::MustBeComplete`**
+/// (item 5, B7): theseus-discord does not include `complete.rs`, and the
+/// scan's whole value is its failure, which already names both sets (what the
+/// walk found and what the list holds) and the edit to make. Re-expressing it
+/// would move the same walk behind another message, so the walk's holes (item
+/// 1) were the defect, and are closed here.
+///
 /// `tests_task_react` is a child of this module (`mod react`, by `#[path]`)
 /// and reaches `until` through `super::*`, so it counts without an import.
 ///
@@ -1065,13 +1072,23 @@ fn rs_files_under(root: &Path, dir: &Path, out: &mut Vec<(String, std::path::Pat
 
 #[test]
 fn the_rule_reads_every_way_a_file_reaches_until() {
-    assert!(reaches_until("use crate::tests_task_threads::{bound, until};"));
-    assert!(reaches_until("use crate::tests_task_threads::{\n    bound,\n    until,\n};"));
+    assert!(reaches_until(
+        "use crate::tests_task_threads::{bound, until};"
+    ));
+    assert!(reaches_until(
+        "use crate::tests_task_threads::{\n    bound,\n    until,\n};"
+    ));
     assert!(reaches_until("use crate::tests_task_threads::until;"));
-    assert!(reaches_until("let x = crate::tests_task_threads::until(&r, f).await;"));
+    assert!(reaches_until(
+        "let x = crate::tests_task_threads::until(&r, f).await;"
+    ));
     // Negatives, so the predicate cannot be constant-true.
-    assert!(!reaches_until("crate::tests_task_threads::bound(&r, post.id);"));
-    assert!(!reaches_until("use crate::tests_task_threads::{bound, until_not};"));
+    assert!(!reaches_until(
+        "crate::tests_task_threads::bound(&r, post.id);"
+    ));
+    assert!(!reaches_until(
+        "use crate::tests_task_threads::{bound, until_not};"
+    ));
     assert!(!reaches_until("use crate::tests_task_threads::untilx;"));
     assert!(!reaches_until("nothing here"));
 }
@@ -1117,7 +1134,10 @@ fn the_until_family_is_exactly_the_files_that_share_its_guard() {
             text.contains(&format!("fn {test}")),
             "{test} is not in {file}"
         );
-        assert!(found.iter().any(|f| f == file), "{file} was not found by the scan");
+        assert!(
+            found.iter().any(|f| f == file),
+            "{file} was not found by the scan"
+        );
     }
     // The ones that are not: neither mentions this module at all.
     let horizon = std::fs::read_to_string(src.join("tests_gateway/horizon.rs")).expect("horizon");
