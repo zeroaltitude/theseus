@@ -220,6 +220,33 @@ async fn a_run_proposes_cited_questions() {
     assert_eq!(stored.len(), 2);
 }
 
+/// The card's spend is counted by the day's ceiling (theseus-9n1i2): the
+/// day's read, as a restart makes it, finds the call's cost. The test reads
+/// the cost from the run's own `card.proposed` row and the day's total from
+/// `day_ceiling::read_today`, so taking `card.proposed` out of
+/// `SPEND_KINDS` leaves the total at zero and fails it. (Planted revert:
+/// delete `"card.proposed"` from `SPEND_KINDS`.)
+#[tokio::test]
+async fn a_proposed_card_call_is_inside_the_day_ceilings_spend() {
+    let r = rig(vec![two()], |_| {});
+    archive(&r).await;
+    propose(&r).await;
+    let spent = rows(&r.core, "card.proposed");
+    assert_eq!(spent.len(), 1, "the run made one call");
+    let cost = spent[0].data["cost_usd"].as_f64().unwrap();
+    let micros = theseus_kernel::usd_to_micros(cost);
+    assert!(micros > 0, "the call cost nothing: {cost}");
+    let day = crate::day_ceiling::read_today(&r.core.store, 0, "today", 200_000_000)
+        .unwrap()
+        .expect("the pages are built");
+    assert!(day.rows >= 1, "the day's read found no spend rows: {day:?}");
+    assert_eq!(
+        day.seed.spent, micros,
+        "the day ceiling does not count the card's call: is `card.proposed` in \
+         day_ceiling::SPEND_KINDS?"
+    );
+}
+
 /// A second run over the same history proposes nothing and asks nothing.
 /// (Planted revert: forget the sent episodes and the open proposals' sources
 /// in `state::seen`, and the second run calls again.)
