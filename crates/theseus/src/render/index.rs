@@ -56,12 +56,19 @@ pub fn index_line(h: &theseus_protocol::index::IndexHealth) -> String {
     }
     if let Some(b) = &s.backfill {
         line.push_str(&format!(
-            " · backfill {} of {} (expected: the index is rebuilt from the WAL after an upgrade or a request)",
+            " · backfill {} of {}",
             fmt_bytes(b.done_bytes),
             fmt_bytes(b.total_bytes)
         ));
-        if let Some(why) = &b.why {
-            line.push_str(&format!(" · why: {why}"));
+        // The tender's own reason is the whole explanation: "expected, after
+        // an upgrade or a request" is the general case, and said of a rebuild
+        // whose cause was an index that did not open, or a WAL that was
+        // replaced, it would be false. Only a backfill that gave none says it.
+        match &b.why {
+            Some(why) => line.push_str(&format!(" · why: {why}")),
+            None => line.push_str(
+                " (expected: the index is rebuilt from the WAL after an upgrade or a request)",
+            ),
         }
     }
     // The vectors' backlog and the tender's memory (theseus-agqn).
@@ -277,8 +284,8 @@ mod tests {
         }
     }
 
-    /// A rebuild's reason is on the health line, so a backfill after an
-    /// install reads as expected; a first build says nothing more.
+    /// A rebuild's reason is on the health line, in the tender's own words,
+    /// and a first build says nothing more.
     #[test]
     fn a_rebuild_says_why_on_the_index_line() {
         use theseus_protocol::index::{IndexBackfill, IndexHealth, IndexStatus};
@@ -314,8 +321,44 @@ mod tests {
         assert!(!index_line(&h).contains("rebuilding"));
     }
 
+    /// A rebuild whose reason is known says that reason, and does not also call
+    /// itself "expected, after an upgrade or a request" (theseus-la5oc): the
+    /// reason is the whole explanation, and for an index that did not open or a
+    /// WAL that was replaced the general sentence would be false. One that
+    /// gave no reason is the case `a_backfill_is_said_to_be_expected` keeps.
+    #[test]
+    fn a_rebuild_with_a_reason_does_not_also_call_itself_expected() {
+        use theseus_protocol::index::{IndexBackfill, IndexHealth, IndexStatus};
+        for why in [
+            "this build's index schema 3 -> 4 (a rebuild window of a minute or so, recall read-degraded meanwhile)",
+            "its index is missing (its cursor is intact, but there is nothing to resume)",
+            "its index did not open: a segment is corrupt",
+            "the WAL was rewound or replaced: the cursor's segment is gone",
+        ] {
+            let h = IndexHealth {
+                state: "backfilling".into(),
+                status: Some(IndexStatus {
+                    backfill: Some(IndexBackfill {
+                        done_bytes: 10,
+                        total_bytes: 100,
+                        why: Some(why.into()),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let line = index_line(&h);
+            assert!(
+                line.contains("backfill 10 B of 100 B") && line.contains(&format!("why: {why}")),
+                "{line}"
+            );
+            assert!(!line.contains("expected"), "{line}");
+        }
+    }
+
     /// A rebuild after an upgrade or a request is expected, and health says so
-    /// (theseus-ectzg): a backfill reads as a window that ends, not a fault.
+    /// when the tender gave no reason (theseus-ectzg): a backfill reads as a
+    /// window that ends, not a fault.
     #[test]
     fn a_backfill_is_said_to_be_expected() {
         use theseus_protocol::index::{IndexBackfill, IndexHealth, IndexStatus};
