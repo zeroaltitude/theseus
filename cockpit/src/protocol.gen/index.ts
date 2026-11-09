@@ -330,6 +330,7 @@ export type * from './LearningReport';
 export type * from './LearningReportParams';
 export type * from './LedgerBreak';
 export type * from './LedgerEntry';
+export type * from './LedgerGap';
 export type * from './LedgerHead';
 export type * from './LedgerTailParams';
 export type * from './LedgerTailResult';
