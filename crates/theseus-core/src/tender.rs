@@ -778,13 +778,22 @@ pub enum TenderMiss {
 pub(crate) fn down_why(t: &TenderStatus, call: Option<&CallError>) -> String {
     let met = || call.map_or_else(|| "no tender runs".to_string(), |c| c.to_string());
     match t.state.as_str() {
-        "running" => format!("its socket did not answer ({})", met()),
+        "running" => match call {
+            Some(CallError::Answered { code, message }) => refused_words(*code, message),
+            _ => format!("its socket did not answer ({})", met()),
+        },
         "pending" => t
             .why
             .clone()
             .unwrap_or_else(|| "it starts once the daemon serves".into()),
         _ => t.why.clone().unwrap_or_else(met),
     }
+}
+
+/// A tender that answered with an error: its socket answered, so no "did not
+/// answer" (`down_why` and the status cache's `old_words` share it).
+pub(crate) fn refused_words(code: i64, message: &str) -> String {
+    format!("its status read was refused: {message} ({code})")
 }
 
 /// Why a call to the tender failed.
