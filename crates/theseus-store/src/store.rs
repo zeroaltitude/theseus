@@ -725,7 +725,8 @@ const BULK: usize = 4096;
 /// 57 = an imported session's divergence mark (theseus-ectzg): a SESSION record's `imported`
 /// block gains `diverged_at`, the first stored `idx` that differs each time a later episode
 /// stopped matching what was stored, once for each, in the order seen; it is left out while
-/// empty. A record from before reads it empty and writes back without it.
+/// empty. A record from before reads it empty and writes back without it; the sample is
+/// `tests_layouts::SESSION_IMPORTED_AT_56`, written by hand from an invented episode.
 const MANIFEST_FORMAT: u32 = 57;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
