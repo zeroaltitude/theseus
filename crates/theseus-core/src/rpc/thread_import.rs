@@ -18,6 +18,7 @@
 //!   any session; the card is a derived summary on the thread's record,
 //!   citing the episodes by handle.
 
+use crate::sweep_notice::SweepId;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -316,6 +317,12 @@ impl Core {
         };
         let cap = self.cfg.threads.import_day_usd;
         let left = (cap - day.spent_usd).max(0.0);
+        self.runner.sweep_heads_up(
+            SweepId::ThreadImport,
+            theseus_kernel::usd_to_micros(cap),
+            theseus_kernel::usd_to_micros(day.spent_usd),
+            need,
+        );
         if micros_to_usd(need) > left {
             self.outbox.notify_rule(
                 None,

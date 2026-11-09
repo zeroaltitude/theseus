@@ -464,6 +464,16 @@ impl Run<'_> {
         }
     }
 
+    /// A question's worst case would pass the day's cap: the sweep's stop,
+    /// told to the owner once (`sweep_notice`).
+    pub(super) fn stopping(&self, need: Micros) {
+        let cap = usd_to_micros(self.core.runner.cfg.ontology.sweep_usd_per_day);
+        let spent = usd_to_micros(self.before).saturating_add(self.spent);
+        self.core
+            .runner
+            .sweep_heads_up(crate::sweep_notice::SweepId::Ontology, cap, spent, need);
+    }
+
     pub(super) fn left(&self) -> Micros {
         self.cap.saturating_sub(self.spent)
     }
@@ -513,6 +523,7 @@ impl Run<'_> {
                     }
                 }
                 Asked::Over(need) => {
+                    self.stopping(need);
                     tracing::info!(
                         need,
                         "ontology: the sweep's day cap would pass; no more pairs"
@@ -574,6 +585,7 @@ impl Run<'_> {
                     }
                 }
                 Asked::Over(need) => {
+                    self.stopping(need);
                     tracing::info!(
                         need,
                         "ontology: the sweep's day cap would pass; no more splits"

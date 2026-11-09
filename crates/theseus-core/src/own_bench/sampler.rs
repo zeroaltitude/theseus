@@ -9,6 +9,7 @@
 //! attachment's bytes to a provider other than the original's
 //! (`Core::crossing`).
 
+use crate::sweep_notice::SweepId;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -183,6 +184,9 @@ impl Core {
                     skip(&mut out, "shared_place");
                     continue;
                 }
+                // A replay costs something: at the cap, the next one is the stop.
+                self.runner
+                    .sweep_heads_up(SweepId::RouteBench, cap, spent, 1);
                 if spent >= cap {
                     self.outbox.notify_rule(
                         None,

@@ -118,3 +118,33 @@ impl Fact for DayCeilingWarned<'_> {
         say.line(Session, self.text.to_string());
     }
 }
+
+/// `sweep.stopping`: a background sweep (one of the seven with a day budget
+/// of its own) is going to stop for the day (`stage` "near") or has stopped
+/// (`stage` "stopped"). Written at most once a stage a day a sweep, with the
+/// owner's post when a DM with the owner is bound.
+pub struct SweepStopping<'a> {
+    pub sweep: &'a str,
+    pub row: &'a str,
+    pub key: &'a str,
+    pub stage: &'a str,
+    pub cap_micros: u64,
+    pub spent_micros: u64,
+    pub needed_micros: u64,
+    pub posted: bool,
+    pub text: &'a str,
+}
+
+impl Fact for SweepStopping<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::SweepStopping);
+
+    fn row(&self) -> Value {
+        json!({"sweep": self.sweep, "row": self.row, "key": self.key, "stage": self.stage,
+               "cap_micros": self.cap_micros, "spent_micros": self.spent_micros,
+               "needed_micros": self.needed_micros, "posted": self.posted})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(Session, self.text.to_string());
+    }
+}

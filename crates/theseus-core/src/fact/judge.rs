@@ -217,6 +217,45 @@ impl Fact for JudgePaused<'_> {
     }
 }
 
+/// A class of the judge's day budget reached its line, or a further multiple
+/// of it, and judges on: past the line the owner is told, at the line and at
+/// each multiple (`1x`, `2x` ... `10x`), and only the stop at ten times it
+/// skips a judgment (`JudgePaused`). Said once per multiple a day.
+pub struct JudgeOverLine<'a> {
+    pub what: &'a str,
+    pub day: &'a str,
+    pub line_micros: u64,
+    pub multiple: u64,
+    pub stop_micros: u64,
+    pub spent_micros: u64,
+}
+
+impl Fact for JudgeOverLine<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeOverLine);
+
+    fn row(&self) -> Value {
+        json!({"what": self.what, "day": self.day, "line_micros": self.line_micros,
+            "multiple": self.multiple, "stop_micros": self.stop_micros,
+            "spent_micros": self.spent_micros})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        let who = match self.what {
+            "live" => "Judging",
+            _ => "Shadow judging",
+        };
+        say.line(
+            NarrativePart::Session,
+            format!(
+                "{who} is at {}x its {} line for today, and goes on. It stops at {}.",
+                self.multiple,
+                usd(self.line_micros),
+                usd(self.stop_micros)
+            ),
+        );
+    }
+}
+
 /// Shadow judging resumed (23b): the first judgment of a new local day
 /// after a day it paused, in this process (a restart forgets the pause, and
 /// says nothing).

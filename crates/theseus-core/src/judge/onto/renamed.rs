@@ -138,6 +138,7 @@ impl Run<'_> {
                     }
                 }
                 Asked::Over(need) => {
+                    self.stopping(need);
                     tracing::info!(
                         need,
                         "ontology: the sweep's day cap would pass; no more renames"
@@ -223,6 +224,7 @@ impl Run<'_> {
                     }
                 }
                 Asked::Over(need) => {
+                    self.stopping(need);
                     tracing::info!(
                         need,
                         "ontology: the sweep's day cap would pass; no more name pairs"
@@ -317,6 +319,7 @@ impl Run<'_> {
                     self.paid(key, cost);
                 }
                 Asked::Over(need) => {
+                    self.stopping(need);
                     tracing::info!(
                         need,
                         "ontology: the sweep's day cap would pass; no more kind names"

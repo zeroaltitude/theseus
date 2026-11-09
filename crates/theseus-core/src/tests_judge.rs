@@ -524,8 +524,9 @@ async fn an_unpriced_jev_model_is_never_called() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tiny_day_limit_pauses_shadow_with_one_row() {
     let jev = FakeJev::start().unwrap();
+    // 20 micros: shadow's line is 14 and it stops at ten times that, 140.
     let r = rig_with(texts(6), Some(&jev), |c| {
-        c.judge.shadow_limit_usd_per_day = 0.0002
+        c.judge.shadow_limit_usd_per_day = 0.00002
     });
     let sid = turn(&r.core, None, "one").await.session_id;
     for i in 2..=6 {
@@ -538,19 +539,19 @@ async fn a_tiny_day_limit_pauses_shadow_with_one_row() {
     let made = jev.connections();
     assert!(
         (1..6).contains(&made),
-        "{made} judgments were made under $0.0002"
+        "{made} judgments were made under $0.00002"
     );
     let paused = kinds(&r.core.store, "judge.paused");
     assert_eq!(paused.len(), 1, "{paused:?}");
     assert_eq!(
         paused[0].data["limit_micros"], 140,
-        "shadow's line, 70% of 200"
+        "ten times shadow's line, 70% of 20"
     );
     let h = r.core.health().judge.unwrap();
     assert!(h.paused);
     assert_eq!(h.calls_today as usize, made);
     assert_eq!(h.skipped_today as usize, 6 - made);
-    assert!(h.spend_today_usd <= 0.0002, "{}", h.spend_today_usd);
+    assert!(h.spend_today_usd <= 0.00014, "{}", h.spend_today_usd);
 }
 
 /// A restart books the rest of today's block as spent at its first

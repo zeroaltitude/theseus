@@ -38,6 +38,7 @@
 //!   reads each such session's lines past its mark, due or not, so the end of
 //!   the day's last conversation is not lost. Its rows say `sweep`.
 
+use crate::sweep_notice::SweepId;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -386,6 +387,12 @@ impl Core {
         };
         let st = blocking(|| State::read(&self.store))?;
         let left = (self.cfg.card.day_usd - st.spent_on(&spend::local_day(now))).max(0.0);
+        self.runner.sweep_heads_up(
+            SweepId::Card,
+            theseus_kernel::usd_to_micros(self.cfg.card.day_usd),
+            theseus_kernel::usd_to_micros(st.spent_on(&spend::local_day(now))),
+            need,
+        );
         if micros_to_usd(need) > left {
             return Ok(Asked::Not(Seen::Stopped(format!(
                 "budget: ${left:.2} of [card] day_usd is left, under a call's worst case"

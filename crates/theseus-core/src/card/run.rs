@@ -19,6 +19,7 @@
 //! offered (`settle_conflicts`, theseus-ly75u): the one with more support
 //! stays, and the run's result notes the other.
 
+use crate::sweep_notice::SweepId;
 use theseus_kernel::micros_to_usd;
 use theseus_protocol::{
     card_options, card_question, CardProposal, CardProposeResult, CardSource, ProposalState,
@@ -308,31 +309,10 @@ impl Core {
             out.stopped = Some(format!("no price for {}", job.target.model));
             return Ok(false);
         };
-        let left = (job.cfg.day_usd - job.st.spent_on(&job.today)).max(0.0);
-        if micros_to_usd(need) > left {
-            self.outbox.notify_rule(
-                None,
-                crate::rule_notice::Notice {
-                    rule: crate::rule_notice::Rule::D16,
-                    outcome: crate::rule_notice::Outcome::Refused,
-                    limit_usd: job.cfg.day_usd,
-                    figure_usd: job.cfg.day_usd - left + micros_to_usd(need),
-                    scope: &job.today,
-                    detail: "The call's worst case would pass what is left, so it was not made.",
-                },
-            );
-            out.stopped = Some(format!(
-                "budget: ${:.2} of [card] day_usd ${:.2} is left, under a call's worst case (${:.2})",
-                left,
-                job.cfg.day_usd,
-                micros_to_usd(need)
-            ));
-            return Ok(false);
-        }
-        let hold = match self.runner.day_hold(need, "card") {
+        let hold = match self.card_reserve(job, need) {
             Ok(h) => h,
             Err(why) => {
-                out.stopped = Some(format!("budget: {why}"));
+                out.stopped = Some(why);
                 return Ok(false);
             }
         };
@@ -406,6 +386,45 @@ impl Core {
             return Ok(false);
         }
         Ok(true)
+    }
+
+    /// A call's worst case, `need`, held on the card's day line and then on
+    /// the day ceiling: the hold, or the words `out.stopped` takes. The owner
+    /// is told first that the line is near, and again when it would be passed.
+    fn card_reserve(
+        &self,
+        job: &Job<'_>,
+        need: theseus_kernel::Micros,
+    ) -> Result<theseus_kernel::Hold, String> {
+        let left = (job.cfg.day_usd - job.st.spent_on(&job.today)).max(0.0);
+        self.runner.sweep_heads_up(
+            SweepId::Card,
+            theseus_kernel::usd_to_micros(job.cfg.day_usd),
+            theseus_kernel::usd_to_micros(job.st.spent_on(&job.today)),
+            need,
+        );
+        if micros_to_usd(need) > left {
+            self.outbox.notify_rule(
+                None,
+                crate::rule_notice::Notice {
+                    rule: crate::rule_notice::Rule::D16,
+                    outcome: crate::rule_notice::Outcome::Refused,
+                    limit_usd: job.cfg.day_usd,
+                    figure_usd: job.cfg.day_usd - left + micros_to_usd(need),
+                    scope: &job.today,
+                    detail: "The call's worst case would pass what is left, so it was not made.",
+                },
+            );
+            return Err(format!(
+                "budget: ${:.2} of [card] day_usd ${:.2} is left, under a call's worst case (${:.2})",
+                left,
+                job.cfg.day_usd,
+                micros_to_usd(need)
+            ));
+        }
+        self.runner
+            .day_hold(need, "card")
+            .map_err(|why| format!("budget: {why}"))
     }
 
     /// The card's model and provider: `[card] profile` when it is set (a

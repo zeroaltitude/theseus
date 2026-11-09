@@ -39,6 +39,7 @@
 //! it, and only while `[ontology] dream_guidance` is on (the default; off is
 //! its rollback: nothing is read, called or written).
 
+use crate::sweep_notice::SweepId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -418,6 +419,8 @@ impl Core {
                     continue;
                 }
             };
+            self.runner
+                .sweep_heads_up(SweepId::Consolidation, limit, spent, need);
             if spent.saturating_add(need) > limit {
                 self.outbox.notify_rule(
                     None,
