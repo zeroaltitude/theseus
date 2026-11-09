@@ -12,7 +12,7 @@ import { boardRows } from '../src/ops/board.ts'
 import { queueOf } from '../src/ops/queue.ts'
 import { cardFacts, itemFacts, threadFacts, threadPanelFacts } from '../src/ops/facts.ts'
 import { groupThreads } from '../src/lib/threadboard.ts'
-import { board, NOW, view } from './ops-fixtures.ts'
+import { board, expiring, NOW, view } from './ops-fixtures.ts'
 
 const src = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
 
@@ -58,7 +58,8 @@ function made(fn: FactFn): Set<string> {
   if (fn === 'cardFacts') for (const r of boardRows({ ...b, now: NOW })) add(cardFacts(r, NOW))
   if (fn === 'threadFacts') for (const t of grouped.threads) add(threadFacts(t, NOW))
   if (fn === 'threadPanelFacts') add(threadPanelFacts(row, grouped.threads[0], NOW))
-  if (fn === 'itemFacts') for (const i of queueOf({ confirms: b.confirms, views: b.views, groups: b.groups })) add(itemFacts(i, NOW))
+  // The board's one approval is a held call, which has no countdown (theseus-lrc3m): `left` is made by a question that expires.
+  if (fn === 'itemFacts') for (const i of queueOf({ confirms: [...b.confirms, expiring()], views: b.views, groups: b.groups })) add(itemFacts(i, NOW))
   return out
 }
 
