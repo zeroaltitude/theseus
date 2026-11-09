@@ -2620,7 +2620,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   episode with nothing after that message is taken quietly: no node is written, the record moves to the new hash and
   takes the mark, it counts in the batch's `appended` but not in `touched`, and the next run skips it (a session that was
   rewritten and went quiet is not rejected every night). Refused and named: an episode no stored message of which
-  matches (another episode under a reused id), an episode that is only the stored session's first messages and no more
+  matches (another episode under a reused id), an episode in which a stored message moved to another idx (the source
+  renumbered: an insertion or a compaction; appending past it would lose the new message and write a duplicate;
+  `append::moved`, keyed by idx, no message re-mapped), an episode that is only the stored session's first messages and no more
   (an older or cut view: taken, it would move the hash back and the source's current episode would then add nothing, for
   good), an episode of the same messages with another hash that diverged nowhere and adds nothing (its tag, place or
   labels differ), and an erased session, which is never appended to; the batch's
@@ -3553,7 +3555,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   binding alone, a conversation that speaks in a Discord place of any class: `rpc/work_board.rs::may_watch`, theseus-2j2ka;
   it draws that place's board in that place), scrubbed, and cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
   counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
-  question's reminder (rule 2 of the policy) is not made. **The daemon's own work** (theseus-jn17m; `push/work/system.rs`):
+  question's reminder (rule 2 of the policy) is made on the driver's tick (`WorkBoard::remind`, `settle.rs`). A task's
+  view carries `WorkView.forum_url`, answered by a registry the Discord runtime sets (`Push::set_task_links`, kept
+  across the seed's carry-over in `Push::ensure`); `WorkBoard::relink` (`seed.rs`) patches the held views when the
+  registry is set and after the carry-over, so a restart keeps an ended task's link (theseus-emqbm; tests
+  `tests_retry.rs`). **The daemon's own work** (theseus-jn17m; `push/work/system.rs`):
   one root, `system` (`Theseus`, kind `System`), whose children are the system jobs of the last hour, made from rows the
   daemon already writes, in the frames it already writes: `import.batch` (a client's `batch` and `batches` ride the
   params and the row, and the tag's source; the last batch, `batch == batches`, ends the job; the sync's batches carry no

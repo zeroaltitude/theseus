@@ -49,7 +49,8 @@ export interface CardFacts {
   /** Where the inspector sends the owner beside the title: its deck, and for a task or a conversation its transcript,
    *  and, when its view carries `forum_url`, its Discord post (theseus-emqbm). The daemon fills that field from a
    *  registry the Discord runtime sets (`Shared::task_link`, `theseus-discord/src/runtime/forum.rs`); it is absent
-   *  with no Discord binding, in a place with no forum, and once the row is dropped (a day after the task ends, up
+   *  with no Discord binding, in a place with no forum (a restart no longer loses it: the core patches the held views
+   *  when the registry is set), and once the row is dropped (a day after the task ends, up
    *  to 30 days unread), and then no link is drawn and none is claimed. */
   links: CardLink[]
 }

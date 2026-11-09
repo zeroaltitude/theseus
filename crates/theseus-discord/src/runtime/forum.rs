@@ -449,9 +449,11 @@ pub(crate) fn post_name(task: &str, title: &str) -> String {
 impl Shared {
     /// Start the forum worker, once, and read the forums the file binds.
     pub(super) fn start_task_forums(self: &Arc<Self>, b: &Bindings) {
-        self.register_task_links();
         self.task_posts.set_forums(b);
         self.task_posts.load(&self.core.store);
+        // After the posts load: the core refreshes the views it holds when
+        // the registry is set (theseus-emqbm), so the list must be read first.
+        self.register_task_links();
         let (tx, rx) = mpsc::unbounded_channel();
         let (make_tx, make_rx) = mpsc::unbounded_channel();
         if self.task_posts.tx.set(tx).is_ok() && self.task_posts.make_tx.set(make_tx).is_ok() {
