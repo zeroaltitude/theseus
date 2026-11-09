@@ -369,7 +369,10 @@ async fn a_cross_breaker_open_lands_on_the_ladder() {
     assert_eq!(events.len(), 1, "{events:?}");
     assert_eq!(events[0].data["pack"], CROSS_PACK);
     assert!(
-        events[0].data["event"].to_string().to_lowercase().contains("breaker"),
+        events[0].data["event"]
+            .to_string()
+            .to_lowercase()
+            .contains("breaker"),
         "{:?}",
         events[0].data
     );
@@ -411,7 +414,10 @@ async fn a_placed_learned_cross_version_is_the_one_asked() {
         .iter()
         .map(|s| serde_json::to_string(&s.body).unwrap())
         .collect();
-    let learned = all.iter().filter(|b| b.contains("recall_cross.v101/")).count();
+    let learned = all
+        .iter()
+        .filter(|b| b.contains("recall_cross.v101/"))
+        .count();
     assert!(learned >= 1, "the learned version was never asked");
     assert_eq!(cross_requests(&jev).len(), 0, "the root was asked");
 }
