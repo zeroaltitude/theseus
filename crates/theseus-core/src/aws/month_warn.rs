@@ -43,6 +43,26 @@ impl Fact for MonthWarned<'_> {
     }
 }
 
+/// `aws.month_stopped`: the month's actual AWS spend reached the budget line,
+/// where the account's stop action applies. Once a month an account; written
+/// in the frame of the owner's notice and the mark that says it was told.
+pub struct MonthStopped<'a> {
+    pub account: &'a str,
+    pub month: &'a str,
+    pub actual_cents: u64,
+    pub limit_cents: u64,
+}
+
+impl Fact for MonthStopped<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::AwsMonthStopped);
+
+    fn row(&self) -> Value {
+        json!({"account": self.account, "month": self.month,
+               "actual_usd": self.actual_cents as f64 / 100.0,
+               "limit_usd": self.limit_cents as f64 / 100.0})
+    }
+}
+
 /// The META key that holds the month an account was last warned in.
 fn meta_key(account: &str) -> String {
     format!("aws.month_warned.{account}")
@@ -192,6 +212,13 @@ impl crate::Core {
         let Some((a, mut frame)) = staged else {
             return Ok(None);
         };
+        let f = MonthStopped {
+            account: &account.id,
+            month,
+            actual_cents: b.actual_cents,
+            limit_cents: b.limit_cents,
+        };
+        frame.push(crate::fact::row(&f, None, None)?);
         frame.push(NewRecord::json(
             kinds::META,
             Some(&stopped_key(&account.id)),
@@ -310,6 +337,27 @@ mod tests {
             "the staged post is in it too: {}",
             frame.len()
         );
+        // the audit row rides the same frame: exactly one ledger record, of
+        // the stop's own kind, naming the account, the month and the figures.
+        let rows: Vec<crate::ledger::LedgerRow> = frame
+            .iter()
+            .filter(|r| r.kind == kinds::LEDGER)
+            .map(|r| serde_json::from_slice(&r.payload).unwrap())
+            .collect();
+        let stopped: Vec<_> = rows
+            .iter()
+            .filter(|r| r.kind == "aws.month_stopped")
+            .collect();
+        assert_eq!(
+            stopped.len(),
+            1,
+            "one aws.month_stopped row in the frame: {rows:?}"
+        );
+        let d = &stopped[0].data;
+        assert_eq!(d["account"].as_str(), Some(a.id.as_str()));
+        assert_eq!(d["month"].as_str(), Some(month.as_str()));
+        assert_eq!(d["limit_usd"].as_f64(), Some(100.0));
+        assert_eq!(d["actual_usd"].as_f64(), Some(100.0));
         // nothing is written until the caller appends the frame.
         assert_eq!(c.store.get_meta::<String>(&key).unwrap(), None);
         assert!(stopped_posts(&c).is_empty());
