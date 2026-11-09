@@ -91,6 +91,7 @@ fn refusals(r: &Rig) -> Vec<String> {
 /// its row; and no hand's spec names anything that reaches the broker.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_200_file_batch_runs_inside_the_cap() {
+    let _clock = crate::test_support::pin_mid_period();
     let r = rig(vec![]);
     load(&r, &loaded(Some(grant(0.25, &["lambda"], 20))));
     assert!(r.core.mcp.has_channel(&format!("ext-{NAME}")));

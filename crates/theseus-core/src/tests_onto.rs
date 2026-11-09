@@ -408,6 +408,7 @@ async fn the_turns_wait_is_unchanged_with_onto_in_a_slow_batch() {
 /// same day makes none, and the session's next onto.v1 offers the names.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_naming_call_is_made_once_a_session_kind_and_day() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     jev.script_onto("topic", "new", 0.9);
     jev.script_onto("topic_name", "none", 0.9);
@@ -457,6 +458,7 @@ async fn the_naming_call_is_made_once_a_session_kind_and_day() {
 /// next such message names it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_naming_call_cut_at_its_cap_keeps_the_days_slot() {
+    let _clock = crate::test_support::pin_mid_period();
     let jev = FakeJev::start().unwrap();
     jev.script_onto("topic", "new", 0.9);
     jev.script_onto("topic_name", "none", 0.9);
