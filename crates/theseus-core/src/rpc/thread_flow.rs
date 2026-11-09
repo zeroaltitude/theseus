@@ -180,18 +180,7 @@ impl Core {
         let mut early: Option<Early> = None;
         let mut scored: Vec<Pre> = Vec::new();
         let mut judgment: Judged = None;
-        let reply_thread = p
-            .in_reply_to
-            .as_deref()
-            .and_then(|t| state.thread_of_turn(t));
-        let addr = address(
-            &Addressing {
-                text: &p.input,
-                place: place.as_deref(),
-                reply_thread: reply_thread.as_deref(),
-            },
-            &live,
-        );
+        let addr = self.addressed(p, place.as_deref(), &live);
         let tag = match addr {
             Some(a) => explicit_tag(&a, &live, p),
             None => {
@@ -215,16 +204,7 @@ impl Core {
         }
         // A placement below the act bar may be wrong (the misroute guard).
         self.arm_guard(&tag, &run_session, &live, &scored);
-        if tag.slug.is_some() {
-            // The thread's replies and cards go back to the place the
-            // message came from, or nowhere for the CLI.
-            if let Err(e) = self
-                .outbox
-                .show_at(&run_session.session_id, place.as_deref())
-            {
-                tracing::warn!(error = %format!("{e:#}"), "a thread's reply place was not written");
-            }
-        }
+        self.show_thread_at(&tag, &run_session, place.as_deref());
         state.arrived(&home, tag.slug.as_deref(), now);
         (row.to, row.session) = (tag.slug.clone(), run_session.session_id.clone());
         (row.how, row.confidence, row.movable) = (tag.how, tag.confidence, tag.movable);
@@ -259,6 +239,38 @@ impl Core {
         };
         *session = run_session;
         Ok(Some(routing))
+    }
+
+    /// What a message addresses: a thread in its own words, or the thread of
+    /// the turn it replies to.
+    fn addressed(
+        &self,
+        p: &TurnSubmitParams,
+        place: Option<&str>,
+        live: &[&ThreadInfo],
+    ) -> Option<Address> {
+        let reply_thread = p
+            .in_reply_to
+            .as_deref()
+            .and_then(|t| self.runner.threads.route.thread_of_turn(t));
+        address(
+            &Addressing {
+                text: &p.input,
+                place,
+                reply_thread: reply_thread.as_deref(),
+            },
+            live,
+        )
+    }
+
+    /// A message the router put in a thread: the thread's replies and cards
+    /// go back to the place the message came from, or nowhere for the CLI.
+    fn show_thread_at(&self, tag: &ThreadTag, run_session: &SessionRecord, place: Option<&str>) {
+        if tag.slug.is_some() {
+            if let Err(e) = self.outbox.show_at(&run_session.session_id, place) {
+                tracing::warn!(error = %format!("{e:#}"), "a thread's reply place was not written");
+            }
+        }
     }
 
     /// The sender hears where its message went now, not at the turn's end
