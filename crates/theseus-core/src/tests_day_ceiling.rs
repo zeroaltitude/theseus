@@ -576,9 +576,19 @@ fn the_card_observer_is_a_spend_kind() {
 /// other way round: the list of the one kind that was planted could pass
 /// while another spend kind was left out of the ceiling.
 /// **The reasons are the author's reading of each row, not a decision of the
-/// owner's:** the three marked `undecided` are open questions.
+/// owner's:** each marked `undecided` is an open question.
+///
+/// The walk reads each `impl Fact` item whole ([`fact_impls`]) and cannot lose
+/// a row without saying so: an item that names `"cost_usd"` and has no row or
+/// no ledger kind it can read fails the test, where it used to be skipped, and
+/// `FOUND` is the number of kinds it finds today, so one lost is a red and not
+/// slack.
 #[test]
 fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
+    /// The ledger kinds the walk finds today: one per `impl Fact` whose row
+    /// names `"cost_usd"`. Raise it with a new priced row; a walk that finds
+    /// fewer has read less than it did.
+    const FOUND: usize = 19;
     const NOT_SPEND_KINDS: &[(&str, &str)] = &[
         ("provider.call", "its call is an action row, counted as action.succeeded"),
         ("provider.cut", "its call is an action row, counted as action.failed"),
@@ -603,20 +613,27 @@ fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();
-        for imp in text
-            .split("impl")
-            .skip(1)
-            .filter(|p| p.contains(" Fact for "))
-        {
-            let Some(row) = imp.split("fn row(&self)").nth(1) else {
-                continue;
-            };
-            let row = row.split("\n    fn ").next().unwrap_or(row);
-            let Some(variant) = imp
+        let file = path.file_name().unwrap().to_string_lossy().into_owned();
+        for imp in fact_impls(&file, &text) {
+            let row = imp
+                .split("fn row(&self)")
+                .nth(1)
+                .map(|r| r.split("\n    fn ").next().unwrap_or(r));
+            let variant = imp
                 .split("const KIND: Option<LedgerKind> = Some(LedgerKind::")
                 .nth(1)
-                .and_then(|r| r.split(')').next())
-            else {
+                .and_then(|r| r.split(')').next());
+            let (Some(row), Some(variant)) = (row, variant) else {
+                // A fact with no row, or no ledger kind, writes no ledger row;
+                // one that names "cost_usd" all the same is a row this walk
+                // cannot read, which is a finding, not a skip.
+                assert!(
+                    !imp.contains("\"cost_usd\""),
+                    "{file}: `{}` names \"cost_usd\" but has no `fn row(&self)` or no \
+                     `const KIND: Option<LedgerKind> = Some(LedgerKind::..)` this walk reads: \
+                     read it as the walk does, or count it by hand",
+                    imp.lines().next().unwrap_or_default()
+                );
                 continue;
             };
             if row.contains("\"cost_usd\"") {
@@ -625,10 +642,7 @@ fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
                     .find(|k| format!("{k:?}") == variant)
                     .unwrap_or_else(|| panic!("{variant} is no ledger kind"))
                     .as_str();
-                found.push((
-                    kind.to_string(),
-                    path.file_name().unwrap().to_string_lossy().into(),
-                ));
+                found.push((kind.to_string(), file.clone()));
             }
         }
     }
@@ -638,7 +652,7 @@ fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
         world: "the `impl Fact` rows under crates/theseus-core/src/fact whose row holds cost_usd",
         add: "if the row's dollars are model spend nothing else counts, add its kind to day_ceiling::SPEND_KINDS; if they are counted elsewhere or are no model spend, add it to NOT_SPEND_KINDS with the reason",
         drop: "remove it: no fact row of that kind carries cost_usd now",
-        least: 15,
+        least: FOUND,
         stale_fails: false,
     };
     let listed = crate::day_ceiling::SPEND_KINDS
@@ -650,5 +664,39 @@ fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
                 .map(|(k, why)| ((*k).to_string(), (*why).to_string())),
         );
     let walked = crate::complete::check(&spec, listed, found);
-    assert!(walked >= 15, "walked {walked}");
+    assert!(walked >= FOUND, "walked {walked}");
+}
+
+/// Each `impl .. Fact for ..` item of `text`, from its `impl` line to its
+/// closing brace (rustfmt's: a line that is only `}`, at the `impl`'s own
+/// indent), so a word in a comment can neither cut one short nor run it into
+/// the item after it: the walk used to split on the bare word "impl", and a
+/// comment holding it dropped the row below it with nothing said. The count is
+/// checked against the file's own count of ` Fact for `, so a header this
+/// cannot read as an item is a failure and not a skip.
+fn fact_impls(file: &str, text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut items = Vec::new();
+    let mut at = 0;
+    while at < lines.len() {
+        let head = lines[at].trim_start();
+        if !(head.starts_with("impl") && head.contains(" Fact for ")) {
+            at += 1;
+            continue;
+        }
+        let close = format!("{}}}", &lines[at][..lines[at].len() - head.len()]);
+        let end = at
+            + lines[at..]
+                .iter()
+                .position(|l| *l == close)
+                .unwrap_or_else(|| panic!("{file}: `{head}` has no closing brace at its indent"));
+        items.push(lines[at..=end].join("\n"));
+        at = end + 1;
+    }
+    assert_eq!(
+        items.len(),
+        text.matches(" Fact for ").count(),
+        "{file}: a ` Fact for ` that is not an `impl` item this walk reads"
+    );
+    items
 }
