@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -47,7 +48,12 @@ move() {
     away-and-back) git checkout -q --detach && git checkout -q main ;;
   esac
 }
+[ "$what" != deny ] || echo "$*" >>"$STUB_DENY_LOG"
 case "$what" in
+  deny)
+    # On request only advisories fail: the bare `check` reds, and `check bans licenses sources` passes.
+    if [ "${STUB_DENY:-}" = advisories ] && [ "${*: -1}" = check ]; then echo "error[vulnerability]: a stub advisory" >&2; exit 1; fi
+    ;;
   build)
     for b in theseusd theseus-sim theseus-index; do
       echo "{\"reason\":\"compiler-artifact\",\"executable\":\"$PWD/target/debug/$b\"}"
@@ -294,6 +300,54 @@ class GateTree(unittest.TestCase):
         self.assertIn("2 test(s) excluded", out)
         self.assertNotIn("MISMATCH", out)
         self.assertRegex(out, r"\n  suite filtered +\d+\n")
+
+    # ---- cargo deny: the gate's database is a pin, and the gate never fetches into it
+
+    def deny_gate(self, age_days=None, **env):
+        """deny_check through the real gate, with a CARGO_HOME of the test's own; (rc, output, deny argv lines)."""
+        cargo_home = self.home / ".cargo"
+        if age_days is not None:
+            db = cargo_home / "advisory-dbs" / "advisory-db-abcd1234"
+            (db / ".git").mkdir(parents=True, exist_ok=True)
+            fetch_head = db / ".git" / "FETCH_HEAD"
+            fetch_head.write_text("x\n")
+            then = time.time() - age_days * 86400
+            os.utime(fetch_head, (then, then))
+        deny_log = Path(self.tmp.name) / "deny.log"
+        rc, out, _ = self.gate(CARGO_HOME=str(cargo_home), STUB_DENY_LOG=str(deny_log), **env)
+        calls = deny_log.read_text().splitlines() if deny_log.exists() else []
+        self.assertFalse([c for c in calls if "fetch" in c.split()], f"the gate fetched: {calls}")
+        return rc, out, calls
+
+    BANS = "deny --offline --log-level error check bans licenses sources"
+    FULL = "deny --offline --log-level error check"
+
+    def test_deny_without_a_database_says_advisories_were_not_checked_and_runs_no_command_from_its_echo(self):
+        rc, out, calls = self.deny_gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("advisories NOT checked (`cargo deny fetch db` makes the gate's pin)", out)
+        self.assertEqual(calls, [self.BANS], calls)
+
+    def test_deny_with_an_old_database_names_its_age_and_runs_no_command_from_its_echo(self):
+        rc, out, calls = self.deny_gate(age_days=15)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("is 15 days old", out)
+        self.assertIn("`cargo deny fetch db` moves it", out)
+        self.assertEqual(calls, [self.FULL], calls)
+
+    def test_deny_with_a_fresh_database_prints_no_age_line(self):
+        rc, out, calls = self.deny_gate(age_days=1)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("days old", out)
+        self.assertEqual(calls, [self.FULL], calls)
+
+    def test_deny_with_only_advisories_failing_says_so_and_fails_the_gate_in_deny(self):
+        rc, out, calls = self.deny_gate(age_days=15, STUB_DENY="advisories")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("ONLY advisories failed", out)
+        self.assertIn("`cargo deny fetch db`", out)
+        self.assertIn("gate: FAILED in deny", out)
+        self.assertEqual(calls, [self.FULL, self.BANS], calls)
 
     # ---- and what is not a move
 
