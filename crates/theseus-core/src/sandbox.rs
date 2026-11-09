@@ -404,6 +404,7 @@ fn l1_decision(
         notify: None,
         floor: false,
         granted: None,
+        outside: vec![],
     }
 }
 
@@ -424,6 +425,7 @@ pub fn decision(tool: &str, why: &str, egress: &[String]) -> Decision {
         }),
         floor: false,
         granted: None,
+        outside: vec![],
     }
 }
 
