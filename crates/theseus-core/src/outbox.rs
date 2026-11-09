@@ -1540,8 +1540,9 @@ mod tests {
     /// What to do when it does is in that test's message: put the kind in
     /// [`OPERATOR_KINDS`], make sure some test drives the call so
     /// `hold_operator_kind` can see it, and then add the file here. A further
-    /// computed call in a file already listed is not a census event: the
-    /// run-time hold (`hold_operator_kind`) is what reads it.
+    /// computed call in a file already listed is not a census event, and
+    /// nothing static catches it: only the run-time hold
+    /// (`hold_operator_kind`) reads it, and only on a path some test drives.
     ///
     /// It is a census, not a permission: a row here does not make a kind
     /// legal, it records that this call's kind cannot be read from the
@@ -1632,13 +1633,15 @@ mod tests {
     /// construction. `hold_operator_kind` holds a computed kind, but only on
     /// a path some test drives, and a new call site is exactly the thing
     /// that may have none. So neither reaches a call whose kind is computed
-    /// *and* which nothing exercises, and that gap is what this closes: the
-    /// call sites are counted per file, so one that appears anywhere under
-    /// `src/` moves a number and fails here, whether or not any test ever
-    /// runs it.
+    /// *and* which nothing exercises, and that gap is what this closes only
+    /// in part: what is compared is the set of files holding a computed-kind
+    /// call, not a count per file. A call in a file nobody has listed fails
+    /// here, whether or not any test ever runs it; a further computed-kind
+    /// call in a file already listed passes, and nothing static catches it
+    /// (the run-time hold reads it only on a path some test drives).
     ///
     /// It does not read a computed kind — nothing static can. What it
-    /// guarantees is that **no such call site can be added in silence**.
+    /// guarantees is that **no file can gain its first such call in silence**.
     #[test]
     fn every_operator_call_site_is_accounted_for() {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -1733,6 +1736,8 @@ mod tests {
         // The span is the call's own argument list, not everything up to the
         // next `;`. A call in expression position has no `;` of its own, and
         // reading to the next one walked out of the function entirely.
+        // This `expr` alone guards nothing: it passes under the old
+        // `;`-ended code too. `arm` below is the fixture that guards this rule.
         let expr = "let x = match q {\n    true => a.to_operator(None, body),\n\
                     false => Err(e),\n};\nfn next() { j!({\"kind\": \"nope\"}); }";
         assert!(
@@ -1740,9 +1745,11 @@ mod tests {
             "the span must not run past the call's own `)`"
         );
 
-        // What each of the next four catches (theseus-4vsrz, B7). Each puts
-        // its `"kind":` where only the right span reaches it, so each fails
-        // under the one revert it names and passes under the others.
+        // What each of the next three guarding fixtures (`arm`, `inner`,
+        // `after`) catches (theseus-4vsrz, B7). Each puts its `"kind":` where
+        // only the right span reaches it, so each fails under the one revert
+        // it names and passes under the others. `nested` and `paren` sit among
+        // them and guard nothing alone.
         //
         // Expression position: the `"kind":` sits in the next arm, before the
         // first `;`, so reading to the next `;` finds it and the call's own
@@ -1760,14 +1767,18 @@ mod tests {
         let inner =
             "a.to_operator(None, json!({\"t\": { let n = f(g(1)); n }, \"kind\": \"disk\"}))?;";
         assert_eq!(kinds_named_in(inner), vec![(1, "disk".to_string())]);
-        // A nested `)` inside the call does not end it early.
+        // A nested `)` inside the call does not end it early. This `nested`
+        // alone guards nothing: it passes under every variant of the span
+        // rule. `inner` above is the fixture that guards the nesting rule.
         let nested = "a.to_operator(None, json!({\"kind\": f(g(1), \"x\")}))?;";
         assert!(
             kinds_named_in(nested).is_empty(),
             "a computed kind names none"
         );
 
-        // A `)` inside a string literal does not end it either.
+        // A `)` inside a string literal does not end it either. This `paren`
+        // alone guards nothing: it passes under every variant. `after` below
+        // is the fixture that guards the string rule.
         let paren = "a.to_operator(None, json!({\"kind\": \"notice\", \"t\": \")\"}))?;";
         assert_eq!(kinds_named_in(paren), vec![(1, "notice".to_string())]);
         // The kind after the literal `)`: only a span that steps over the
