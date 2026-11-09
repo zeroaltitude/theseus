@@ -1848,6 +1848,54 @@ async fn a_file_named_from_another_directory_is_not_the_threads() {
     }
 }
 
+/// The directory rule's silence, in words (theseus-2gtyi): a turn typed in a
+/// directory above every thread's root (home) finds each thread near, so the
+/// rule drops nothing; the `thread.routed` row says so, naming the directory
+/// and the way out. From inside a root, or apart from all of them, the row
+/// carries no such words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_above_every_root_says_so_in_its_row() {
+    const ROOT: &str = "/w/projects/lighthouse";
+    let mut said = 0;
+    for (dir, above) in [
+        ("/w/projects", true),
+        ("/w", true),
+        ("/w/projects/lighthouse/crates", false),
+        ("/w/projects/walkthrough", false),
+    ] {
+        let jev = FakeJev::start().unwrap();
+        let r = rig(&jev, 8);
+        let c = &r.core;
+        thread(c, "dev", "lighthouse dev", ws(&["#412"], &[], &[ROOT]));
+        thread(c, "ops", "ops rota", ws(&["#977"], &[], &["/w/srv/ops"]));
+        let dm = home(c, Some(&format!("dm:{OWNER}")));
+        thread_answer(&jev, "home", 0.95);
+        let mut p = params(&dm, "[dry-run] Start 2 tasks: bash slow.sh census 2", None);
+        p.dir = Some(dir.into());
+        let mut w = Wire::open(c);
+        let id = w.send(method::TURN_SUBMIT, p).await;
+        w.response(id).await;
+        let routed = rows(c, "thread.routed");
+        let last = &routed.last().expect("a routed row").data;
+        match (above, last["above"].as_str()) {
+            (true, Some(words)) => {
+                said += 1;
+                assert!(words.contains(dir), "{dir}: {words}");
+                // Only a thread whose root lies under the directory is named.
+                assert!(words.contains("dev"), "{words}");
+                assert_eq!(words.contains("ops"), dir == "/w", "{words}");
+                assert!(
+                    words.contains("/move") && words.contains("cd into a root"),
+                    "{words}"
+                );
+            }
+            (false, None) => {}
+            (_, got) => panic!("{dir}: above {above}, row said {got:?}: {last}"),
+        }
+    }
+    assert_eq!(said, 2, "the words came from above a root, and only there");
+}
+
 /// A message the owner moved grows the thread it was moved to, and not the
 /// one it ran in (theseus-iw50k): what its words grew into the wrong thread
 /// is taken back before the message runs again, so the right thread, which
