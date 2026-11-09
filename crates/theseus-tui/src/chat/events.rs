@@ -111,7 +111,9 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Welcome => self.welcome_said(v),
-            // `AtRoots` is taken before this match (`at_roots`).
+            // `AtRoots` is taken before this match (`at_roots`), and so is `Why`
+            // (`why_got`): these two arms never run. A re-route of either through
+            // here must call its handler, not do nothing.
             Purpose::Watch
             | Purpose::Answer
             | Purpose::Route
@@ -136,6 +138,8 @@ impl Chat {
     fn failed(&mut self, purpose: Purpose, e: &RpcError) -> Vec<Effect> {
         match purpose {
             // An older daemon has no digest, and the chat says nothing of it.
+            // `AtRoots` and `Why` never arrive here (`answered` takes them first);
+            // if one is re-routed, `why_got`'s Err path must run instead.
             Purpose::Typing | Purpose::Welcome | Purpose::AtRoots | Purpose::Why(_) => Vec::new(),
             Purpose::Route => {
                 self.thread_answer_refused(&e.message);

@@ -168,6 +168,8 @@ pub struct AtFiles {
     closed: bool,
     /// The word the selection was made for.
     word: String,
+    /// A miss at Enter has already had its one re-read of the list.
+    reread: bool,
 }
 
 /// The `@word` that ends at the cursor, without its `@`; None when the word
@@ -369,6 +371,29 @@ impl Chat {
             Ok(w) => Load::Ready(Index::new(w)),
             Err(why) => Load::Failed(why),
         };
+    }
+
+    /// A miss at Enter, the first time: read the list again once (a file made
+    /// since the listing), and say so. The second miss is refused by
+    /// `at_resolve`, so there is no loop. None when nothing is missing.
+    pub(super) fn at_reread(&mut self) -> Option<Vec<Effect>> {
+        let Load::Ready(ix) = &self.at.load else {
+            return None;
+        };
+        let missing = mentions(&self.editor.typed_text())
+            .iter()
+            .any(|n| !ix.has(n));
+        if !missing {
+            self.at.reread = false;
+            return None;
+        }
+        if std::mem::replace(&mut self.at.reread, true) {
+            self.at.reread = false;
+            return None;
+        }
+        self.at.load = Load::Roots;
+        self.flash("not in the list; reading it again · enter again");
+        Some(vec![call(method::TOOL_LIST, Value::Null, Purpose::AtRoots)])
     }
 
     /// Before a message goes: every `@path` it names must be a listed file.

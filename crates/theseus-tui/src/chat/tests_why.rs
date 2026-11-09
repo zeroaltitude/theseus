@@ -86,3 +86,41 @@ async fn a_failed_context_read_is_told_and_nothing_else_shows() {
     r.shows("could not read it: the store is busy").await;
     assert!(!r.text().contains("ran on:"), "{}", r.text());
 }
+
+// ------------------------------------------------ a lost connection
+
+fn why_calls(effects: Vec<super::state::Effect>) -> usize {
+    use super::state::{Effect, Purpose};
+    effects
+        .into_iter()
+        .filter(|e| matches!(e, Effect::Call(c) if matches!(c.purpose, Purpose::Why(_))))
+        .count()
+}
+
+fn notice(c: &super::state::Chat) -> String {
+    c.notice
+        .as_ref()
+        .map(|(t, _)| t.clone())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_lost_connection_does_not_leave_why_stuck_on_still_reading_it() {
+    use super::state::Chat;
+    use super::tests::{cfg, T0};
+    let mut c = Chat::new(cfg(std::path::PathBuf::from("/nonexistent/history")), T0);
+    c.session = Some(SID.to_string());
+    assert_eq!(why_calls(super::why::why(&mut c, "")), 4);
+    // Unanswered and still connected: a second /why refuses and sends nothing.
+    assert_eq!(why_calls(super::why::why(&mut c, "")), 0);
+    assert!(notice(&c).contains("still reading it"), "{}", notice(&c));
+    c.notice = None;
+    // The four answers die with the connection.
+    c.disconnected();
+    assert_eq!(
+        why_calls(super::why::why(&mut c, "")),
+        4,
+        "the next /why asks its four reads again"
+    );
+    assert!(!notice(&c).contains("still reading it"), "{}", notice(&c));
+}
