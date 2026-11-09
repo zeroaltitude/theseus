@@ -217,13 +217,80 @@ fn to_crlf(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\n', "\r\n")
 }
 
+/// Byte ranges of `before` that equal `quote` when each `\r\n` in `before`
+/// (and in `quote`) is read as `\n`: a quote over a mixed file, where one
+/// region spans both endings. Counted as `str::matches` counts (not
+/// overlapping, left to right), so uniqueness and `replace_all` hold.
+fn lf_regions(before: &str, quote: &str) -> Vec<(usize, usize)> {
+    let quote = quote.replace("\r\n", "\n");
+    let mut norm = String::with_capacity(before.len());
+    // `at[i]` is the byte of `before` that byte `i` of `norm` came from.
+    let mut at = Vec::with_capacity(before.len() + 1);
+    let b = before.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        let crlf = b[i] == b'\r' && b.get(i + 1) == Some(&b'\n');
+        let len = if crlf {
+            2
+        } else {
+            before[i..].chars().next().map_or(1, char::len_utf8)
+        };
+        let piece = if crlf { "\n" } else { &before[i..i + len] };
+        at.extend(std::iter::repeat_n(i, piece.len()));
+        norm.push_str(piece);
+        i += len;
+    }
+    at.push(before.len());
+    match quote.is_empty() {
+        true => Vec::new(),
+        false => norm
+            .match_indices(quote.as_str())
+            .map(|(s, m)| (at[s], at[s + m.len()]))
+            .collect(),
+    }
+}
+
+/// `before` with each of `regions` replaced by `new` (its newlines read as
+/// `\n`). A replacement's newlines take the region's own line endings in
+/// order; a newline beyond them takes the region's last ending, and a region
+/// with no newline gives `\r\n` (the file has CRLF). Every byte outside a
+/// region is copied as it was.
+fn splice_lf_regions(before: &str, regions: &[(usize, usize)], new: &str) -> String {
+    let new = new.replace("\r\n", "\n");
+    let mut out = String::with_capacity(before.len());
+    let mut last = 0;
+    for &(s, e) in regions {
+        out.push_str(&before[last..s]);
+        let ends: Vec<&str> = before[s..e]
+            .split_inclusive('\n')
+            .filter(|l| l.ends_with('\n'))
+            .map(|l| if l.ends_with("\r\n") { "\r\n" } else { "\n" })
+            .collect();
+        let mut k = 0;
+        for (j, line) in new.split('\n').enumerate() {
+            if j > 0 {
+                out.push_str(ends.get(k).or(ends.last()).copied().unwrap_or("\r\n"));
+                k += 1;
+            }
+            out.push_str(line);
+        }
+        last = e;
+    }
+    out.push_str(&before[last..]);
+    out
+}
+
 /// Whether every line ending in `s` is a CRLF, and there is at least one.
 fn is_all_crlf(s: &str) -> bool {
     s.contains("\r\n") && !s.replace("\r\n", "").contains('\n')
 }
 
-/// `all` is `fs.list`'s flag: hidden and ignored entries too.
-fn walker(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::Walk {
+/// The one walk `fs.list`, `fs.glob` and `fs.grep` share, so "ignored" means
+/// one thing. `all` shows hidden and ignored entries too; `.git` is never
+/// walked. The global gitignore is never read, since a listing must not
+/// depend on the daemon's account, and the scope lines name only
+/// ".gitignore'd" paths.
+fn walk_builder(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::WalkBuilder {
     let mut b = ignore::WalkBuilder::new(base);
     b.hidden(!all)
         .git_ignore(!all)
@@ -231,13 +298,15 @@ fn walker(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::Walk {
         .git_exclude(!all)
         .ignore(!all)
         .parents(!all)
-        .require_git(false);
-    if let Some(d) = max_depth {
-        b.max_depth(Some(d));
-    }
+        .require_git(false)
+        .max_depth(max_depth);
     // Never descend into VCS internals even when hidden files are shown.
     b.filter_entry(|e| e.file_name() != ".git");
-    b.build()
+    b
+}
+
+fn walker(base: &Path, all: bool, max_depth: Option<usize>) -> ignore::Walk {
+    walk_builder(base, all, max_depth).build()
 }
 
 /// What `fs.glob` and `fs.grep` never walk, which their results state as part
@@ -664,14 +733,17 @@ impl Tool for Edit {
         let before = read_regular_text(&path, "fs_edit")?;
         // `fs.read` shows a line without its `\r`, so a model quotes bare
         // `\n`. When the text as given is not in a file that has CRLF endings,
-        // match it with CRLF endings, and write the replacement the same way:
-        // only the edited text changes, every other line keeps its ending.
-        let (old_string, new_string) =
-            match before.contains("\r\n") && !before.contains(a.old_string.as_str()) {
-                true => (to_crlf(&a.old_string), to_crlf(&a.new_string)),
-                false => (a.old_string.clone(), a.new_string.clone()),
-            };
-        let n = before.matches(old_string.as_str()).count();
+        // match the quote with each quoted newline reading either ending
+        // (`lf_regions`), and write each replacement with its region's own
+        // endings (`splice_lf_regions`): only the edited text changes.
+        let regions = match before.contains("\r\n") && !before.contains(a.old_string.as_str()) {
+            true => Some(lf_regions(&before, &a.old_string)),
+            false => None,
+        };
+        let n = match &regions {
+            Some(r) => r.len(),
+            None => before.matches(a.old_string.as_str()).count(),
+        };
         if n == 0 {
             return Err(ToolFailure::new(format!(
                 "old_string was not found in {}. Read the file again and copy the exact text, including whitespace and indentation.",
@@ -684,10 +756,13 @@ impl Tool for Edit {
                 path.display()
             )));
         }
-        let after = if a.replace_all {
-            before.replace(old_string.as_str(), &new_string)
-        } else {
-            before.replacen(old_string.as_str(), &new_string, 1)
+        let after = match regions {
+            Some(mut r) => {
+                r.truncate(if a.replace_all { n } else { 1 });
+                splice_lf_regions(&before, &r, &a.new_string)
+            }
+            None if a.replace_all => before.replace(a.old_string.as_str(), &a.new_string),
+            None => before.replacen(a.old_string.as_str(), &a.new_string, 1),
         };
         write_atomic(&path, after.as_bytes(), ctx.umask)?;
         let name = path.display().to_string();
@@ -1596,14 +1671,7 @@ impl Tool for List {
         }
         let depth = a.depth.unwrap_or(2).clamp(1, 6);
         let mut entries: Vec<(PathBuf, bool, u64)> = Vec::new();
-        let mut b = ignore::WalkBuilder::new(&base);
-        b.max_depth(Some(depth))
-            .hidden(!a.all)
-            .git_ignore(!a.all)
-            .ignore(!a.all)
-            .parents(!a.all)
-            .require_git(false);
-        b.filter_entry(|e| e.file_name() != ".git");
+        let mut b = walk_builder(&base, a.all, Some(depth));
         b.sort_by_file_path(|x, y| x.cmp(y));
         let mut total = 0usize;
         // What the listing leaves out (theseus-8ye): the directories at the

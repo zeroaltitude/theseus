@@ -658,7 +658,7 @@ async fn a_keeping_close_names_a_child_forked_into_a_new_session_during_it() {
 /// ones.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_close_of_an_exited_shell_leaves_no_child_forked_into_a_new_session() {
-    let n = 10;
+    let n = 20;
     let (bad, why) = closes_leaving(n, "19", false, BY_TOOL, true).await;
     println!("exited shell: {bad} of {n} closes left a child: {why:?}");
     assert!(bad <= 1, "{bad} of {n} closes left a child: {why:?}");

@@ -19,6 +19,11 @@ const NODE_SRC: &str = include_str!(concat!(
     "/../theseus-protocol/src/nodes.rs"
 ));
 
+// The worlds the lists describe, counted at base b93c885f: `SessionInfo` has 31
+// `pub` fields (5 withheld, 26 shown) and `NodeInfo` 12 (3 withheld, 9 shown).
+// The `least` floors below are 28 and 10, a little under, so a census that
+// walks almost nothing still fails.
+
 /// `SessionInfo` fields `withhold_session_words` clears.
 const SESSION_WITHHELD: &[&str] = &["title", "title_was", "first_text", "last_text", "prompts"];
 
@@ -134,15 +139,15 @@ fn every_session_info_field_is_withheld_or_said_to_be_safe() {
         "SessionInfo",
         SESSION_WITHHELD,
         SESSION_SHOWN,
-        25,
+        28,
     );
-    assert!(n >= 25, "{n} fields walked");
+    assert!(n >= 28, "{n} fields walked");
 }
 
 #[test]
 fn every_node_info_field_is_withheld_or_said_to_be_safe() {
-    let n = census(NODE_SRC, "NodeInfo", NODE_WITHHELD, NODE_SHOWN, 9);
-    assert!(n >= 9, "{n} fields walked");
+    let n = census(NODE_SRC, "NodeInfo", NODE_WITHHELD, NODE_SHOWN, 10);
+    assert!(n >= 10, "{n} fields walked");
 }
 
 /// A new `Option<String>` field fails the census by name, for good: the
@@ -156,7 +161,7 @@ fn a_new_text_field_on_session_info_fails_the_census_by_name() {
         "pub struct SessionInfo {\n    pub planted_words: Option<String>,\n",
     );
     assert_ne!(planted, SESSION_SRC, "the splice found no struct");
-    census(&planted, "SessionInfo", SESSION_WITHHELD, SESSION_SHOWN, 25);
+    census(&planted, "SessionInfo", SESSION_WITHHELD, SESSION_SHOWN, 28);
 }
 
 #[test]
@@ -167,7 +172,7 @@ fn a_new_text_field_on_node_info_fails_the_census_by_name() {
         "pub struct NodeInfo {\n    pub planted_words: String,\n",
     );
     assert_ne!(planted, NODE_SRC, "the splice found no struct");
-    census(&planted, "NodeInfo", NODE_WITHHELD, NODE_SHOWN, 9);
+    census(&planted, "NodeInfo", NODE_WITHHELD, NODE_SHOWN, 10);
 }
 
 /// Every field of the value, planted, so a field the helper changes (or
