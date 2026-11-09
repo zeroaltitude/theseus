@@ -453,6 +453,19 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `parse`, `buttons`, `content_press`). A press is `content.unlabel` as the presser, judged by `judge_act`, which `/trust` also goes through (it is this press for `injection`, typed); a counted press settles the
   message, a guest's is refused and told alone. The DM golden gets one section at its end for it (recorded apart, so every locked line is as it was);
   `tests_gateway/content.rs` drives the press.
+- **Every reply's footer lists the session's labels** (theseus-emqbm; `render::labels_bit`): after the stop words and before
+  `[inspect]`, `labels: injection ([remove](<url>)), personal ([remove](<url>))`, one entry per label the session carries **now**
+  and a masked link each, in angle brackets as `[inspect]`'s is, on the footer's one line. The Remove button above is reachable
+  only at the moment a label goes up; this is reachable at any time afterwards, which is what the owner asked for ("messages
+  should always show labels they are currently carrying ... a link to the ship UI that has a special url to immediately remove
+  the label from the session id"), and it is a link, not a button. The words and the addresses are the core's
+  (`TurnSubmitResult.labels`, `theseus_protocol::LabelLink`, built in `turn.rs`'s `footer_labels` from the stored record under
+  its own lock, so a label this turn raised is on the reply that carries it); a label whose daemon serves no web UI has no
+  address and is still named. **A session with no labels appends nothing** — no separator, no count, no empty bracket — so the
+  locked DM flow's golden does not move; `render::tests::a_session_with_no_labels_has_the_footer_it_always_had` and the core's
+  `tests_unlabel::a_session_with_no_labels_puts_nothing_on_its_result_or_on_the_wire` hold it. The link opens the cockpit's own
+  client-side route `/session/<id>/unlabel/<flag>` (`cockpit/src/views/Unlabel.tsx`), which asks once and then calls
+  `content.unlabel`, so the core judges it as it judges the button's press and `theseusd`'s `web.rs` is untouched.
 - **The mode on the board line** (theseus-lyxy): the task board's first line ends `· mode: plan` when the place's session is
   not in `ask` (`render::board`'s `mode`; no key, no command: Discord only shows it), and a `session.mode` notification
   redraws that board (`runtime/board.rs::routed`). A place with no task has no board, so shows none.
