@@ -23,7 +23,7 @@ const HEADER: &str = "\
 # The Discord DM task flow, locked by the owner on 2026-10-22. Change this file only with the
 # owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
 # Each place lists its messages in the order it shows them: its text when the test ended, its buttons as `[label (style) id]`, and its flags. Ids (a task's, a question's,
-# a session's), times, durations and the temp path are normalized (see `Names`); everything else is as the fake Discord saw it.
+# a session's), times, durations, costs and the temp path are normalized (see `Names`); everything else is as the fake Discord saw it.
 # The DM's lines after the owner's message arrive in a different order from run to run, so they are sorted.
 ";
 
@@ -110,6 +110,22 @@ impl Names {
                         rest = &tail[hex..];
                         continue 'scan;
                     }
+                }
+            }
+            // A cost in cents (`$0.0584`, `$0.07`) is what the request was priced at,
+            // and it moves by a hundredth of a cent whenever a prompt grows by a few
+            // tokens. What the owner locked is the flow's messages, not its arithmetic,
+            // so the cost is a name like the rest. A budget (`$25`) carries no cents and
+            // is config, so it stays as it is.
+            if let Some(tail) = rest.strip_prefix('$') {
+                let whole = tail.bytes().take_while(u8::is_ascii_digit).count();
+                let cents = tail[whole..]
+                    .strip_prefix('.')
+                    .map_or(0, |f| f.bytes().take_while(u8::is_ascii_digit).count());
+                if whole > 0 && cents >= 2 {
+                    out.push_str("$<cost>");
+                    rest = &tail[whole + 1 + cents..];
+                    continue;
                 }
             }
             let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
@@ -395,6 +411,15 @@ fn record(r: &Rig, forum: u64, home: u64, asked: &Msg) -> String {
 
 /// The record against the golden file, or written to it on `THESEUS_GOLDEN=write`.
 fn check(got: &str) {
+    // The cost is normalized, so "no dollar figure moved" would be satisfied by a
+    // record that shows no cost at all: the reply's footer and the task's report both
+    // price themselves, and the flow the owner locked says so.
+    let costs = got.matches("$<cost>").count();
+    assert!(
+        costs >= 2,
+        "the flow still prices its replies: expected `$<cost>` in the reply footer and the \
+         task's report, found {costs} in\n{got}"
+    );
     if std::env::var("THESEUS_GOLDEN").as_deref() == Ok("write") {
         std::fs::create_dir_all(Path::new(GOLDEN).parent().unwrap()).unwrap();
         std::fs::write(GOLDEN, got).unwrap();
