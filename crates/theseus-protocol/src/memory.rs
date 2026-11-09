@@ -130,7 +130,10 @@ pub struct RecallManifest {
     /// turn afterwards, so that greeting is missing from the sample. A count
     /// over these rows is of the low-effort turns whose verdict arrived in
     /// time, not of every one; a verdict that arrives inside the wait, after
-    /// the pack fixed its budget without it, is counted. The count is of
+    /// the pack fixed its budget without it, is counted. A turn whose own
+    /// verdict is late can still be marked from the PREVIOUS message's late
+    /// verdict, which the route carries to it, so a count over these rows
+    /// mixes the two. The count is of
     /// ADMITTED notes: a restricted-origin model's withholding is decided
     /// after the compile and is not visible where this is written.
     ///
