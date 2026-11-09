@@ -588,6 +588,43 @@ pub fn harness_own(origin: Origin, author: Option<&str>) -> bool {
     origin == Origin::Harness && author.is_some_and(|a| HARNESS_AUTHORS.contains(&a))
 }
 
+/// The sentence every harness nudge ends with (theseus-emqbm): the nudge is
+/// the harness's, not the person's, so the model acts on it and says nothing
+/// about it where the person reads. The cause, not the symptom: a reply that
+/// never addresses the nudge reads as work, whatever a surface then does with
+/// it. `every_harness_nudge_says_not_to_answer_it_in_the_place` holds every
+/// text [`HARNESS_NUDGE_AUTHORS`] writes to it.
+pub const NOT_FOR_THE_PERSON: &str =
+    "Act on this note and say nothing about it to the person you are answering.";
+
+/// The harness nudges, a subset of [`HARNESS_AUTHORS`]: the harness telling
+/// the model what to do next, which it then answers. A reply to one is the
+/// harness's business and not the person's, so it is not posted to the place
+/// ([`crate::turn`]'s `nudge_answers`; theseus-emqbm, the owner 2026-11-07:
+/// on Discord it read as the model talking to itself).
+///
+/// **Why not every [`HARNESS_AUTHORS`] entry.** The clock's line is a fact
+/// the harness states before most loops of a turn with a deadline, not an
+/// instruction, and the model's work goes on past it; holding back every such
+/// loop's words would silence a deadlined turn, not tidy it. The day
+/// ceiling's note is written when no call was made, so no answer to it
+/// exists. Both are left out on purpose, and each entry here is its write
+/// site's own constant, as [`HARNESS_AUTHORS`]' are, so a rename fails to
+/// compile. `every_harness_nudge_is_the_harnesss_own_words` keeps this list
+/// inside that one.
+pub const HARNESS_NUDGE_AUTHORS: [&str; 3] = [
+    crate::turn::progress_step::PROGRESS_AUTHOR, // the steer, the stop, the doubt, the hint
+    crate::turn::nudge_step::NUDGE_AUTHOR,       // "continue, or say that you are done"
+    crate::turn::helper_step::NOTE_AUTHOR,       // "write your report now"
+];
+
+/// Whether a node is a harness nudge ([`HARNESS_NUDGE_AUTHORS`]): the
+/// harness's own words ([`harness_own`], which this asks rather than
+/// restating) telling the model what to do next.
+pub fn harness_nudge(origin: Origin, author: Option<&str>) -> bool {
+    harness_own(origin, author) && author.is_some_and(|a| HARNESS_NUDGE_AUTHORS.contains(&a))
+}
+
 /// **The one definition of an item** (theseus-sh1n3): the text the content
 /// pack classifies, or `None` for a node that is no item.
 ///
@@ -1158,6 +1195,48 @@ mod tests {
         for a in HARNESS_AUTHORS {
             assert!(harness_own(Origin::Harness, Some(a)), "{a}");
             assert!(!harness_own(Origin::Agent, Some(a)), "{a} under agent");
+        }
+    }
+
+    /// Every nudge author is one of the harness's own authors, so the two
+    /// lists cannot drift apart, and the two the nudge list leaves out are
+    /// left out: the clock's line and the day ceiling's note are facts, not
+    /// instructions the model answers.
+    #[test]
+    fn every_harness_nudge_is_the_harnesss_own_words() {
+        for a in HARNESS_NUDGE_AUTHORS {
+            assert!(HARNESS_AUTHORS.contains(&a), "{a} is no harness author");
+            assert!(harness_nudge(Origin::Harness, Some(a)), "{a}");
+            assert!(!harness_nudge(Origin::Agent, Some(a)), "{a} under agent");
+        }
+        for a in [
+            crate::turn::clock_step::CLOCK_AUTHOR,
+            crate::turn::ceiling_step::NOTE_AUTHOR,
+        ] {
+            assert!(harness_own(Origin::Harness, Some(a)), "{a}");
+            assert!(!harness_nudge(Origin::Harness, Some(a)), "{a} is no nudge");
+        }
+    }
+
+    /// Every text a nudge author writes tells the model not to answer it
+    /// where the person reads (theseus-emqbm). The constants are literals, so
+    /// the sentence is written into each rather than appended; this is what
+    /// keeps them from drifting.
+    #[test]
+    fn every_harness_nudge_says_not_to_answer_it_in_the_place() {
+        use crate::turn::{close_out_step, helper_step, nudge_step, progress_step};
+        let mut texts = vec![
+            close_out_step::DOUBT_TEXT.to_string(),
+            close_out_step::DELIVERABLE_HINT.to_string(),
+            nudge_step::NUDGE_TEXT.to_string(),
+            helper_step::NOTE.to_string(),
+        ];
+        texts.extend(progress_step::every_note());
+        for t in &texts {
+            assert!(
+                t.contains(NOT_FOR_THE_PERSON),
+                "a harness nudge that does not say it: {t}"
+            );
         }
     }
 

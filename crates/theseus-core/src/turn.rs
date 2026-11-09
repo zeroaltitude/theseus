@@ -67,7 +67,7 @@ pub(crate) mod ceiling_step;
 mod checkpoint_step;
 mod cite_step;
 pub mod clock_step;
-mod close_out_step;
+pub(crate) mod close_out_step;
 mod content_step;
 pub mod delay_step;
 pub(crate) use budget_words::{budget_question, lower_cap, Kept};
@@ -419,6 +419,14 @@ struct Turn<'a> {
     /// Each loop that said something: its index and its assistant node,
     /// which the reply's post names (theseus-q4v).
     said: Vec<(u32, String)>,
+    /// A harness nudge is the newest thing this turn relayed, so the next
+    /// loop's words answer the harness and not the person (theseus-emqbm,
+    /// `nudge_step::relayed`). Taken by that loop's call.
+    nudged: bool,
+    /// The loops whose words answered one: streamed nowhere and left out of
+    /// the reply's post, which keeps the turn's last words whatever prompted
+    /// them (`reply_step::posted_loops`). The nodes are written as ever.
+    nudge_answers: std::collections::BTreeSet<u32>,
     /// The surface's message the turn answers (a Discord message id).
     reply_to: Option<String>,
     /// Where its reply is posted instead of its session's place.
@@ -579,6 +587,8 @@ impl<'a> Turn<'a> {
             background: Vec::new(),
             stop_reason: String::new(),
             said: Vec::new(),
+            nudged: false,
+            nudge_answers: std::collections::BTreeSet::new(),
             reply_to: None,
             answer_at: None,
             wakes: Vec::new(),
@@ -2475,14 +2485,26 @@ impl TurnRunner {
             t.trace.set_root(json!({ "syncs_before_call": syncs }));
         }
 
+        // This loop answers a harness nudge, not the person (theseus-emqbm):
+        // its words go to no place. Taken here, at the call the nudge rides
+        // in: the loop after this one answers what came back, not the nudge.
+        let quiet = std::mem::take(&mut t.nudged);
+        if quiet {
+            t.nudge_answers.insert(i);
+        }
         let (sink, tid) = (t.tc.sink.clone(), t.tc.turn_id.to_string());
         // The characters streamed so far, thinking included (it is billed as
         // output): what a call a stop cuts is estimated from (theseus-yey).
         let streamed = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let counted = streamed.clone();
         let mut on_delta = move |d: Delta<'_>| match d {
+            // A quiet loop's text is still counted (the cut estimate reads
+            // the count, not the stream) and still written as a node.
             Delta::Text(text) => {
                 counted.fetch_add(text.chars().count() as u64, Ordering::Relaxed);
+                if quiet {
+                    return;
+                }
                 To::Sink(&sink).tell(&fact::turn::ModelDelta {
                     turn_id: &tid,
                     loop_index: i,
@@ -2578,6 +2600,7 @@ impl TurnRunner {
                     call_t0,
                     turn_id: t.tc.turn_id,
                     loop_index: i,
+                    quiet,
                 });
                 let node = self.settle_call(t, &action, compiled, &resp, started_ms, i)?;
                 Ok(Called::Answered(Box::new((resp, node))))
