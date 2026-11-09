@@ -147,6 +147,28 @@ fn word(v: &Value) -> String {
     }
 }
 
+/// What a failed action's producer names, for a key: `backend:name` (as
+/// `harness:fs.read` or `provider:anthropic`) when the backend is one whose
+/// second part is a tool, a provider or a hand's backend, else the backend
+/// alone. The first word alone put every in-process tool's failure in one
+/// cause (`harness`), which no one fix can close; `wrapper:<pid>` and
+/// `reconciler:<why>` stay a word, since their second part is not a stable
+/// name.
+fn producer(v: &Value) -> String {
+    const NAMED: &[&str] = &["harness", "hand", "provider"];
+    let s = v.as_str().unwrap_or("").trim();
+    let head = word(v);
+    let name = s
+        .split_once(':')
+        .filter(|_| NAMED.contains(&head.as_str()))
+        .map(|(_, rest)| word(&Value::from(rest)))
+        .filter(|n| n != "unknown");
+    match name {
+        Some(n) => format!("{head}:{n}"),
+        None => head,
+    }
+}
+
 fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
     Obs {
         key: String::new(),
@@ -168,9 +190,10 @@ fn obs(kind: &str, pos: u64, row: &LedgerRow) -> Obs {
 /// answer, not a fault of ours, so it is none. Timeouts, signals, stops and
 /// jobs that never started are faults, and each is its own cause; a row from
 /// before the ledger named the failure keeps the old key. The pid in a
-/// producer (`wrapper:<pid>`) never splits a cause: `word` stops at `:`.
+/// producer (`wrapper:<pid>`) never splits a cause: `producer` stops at `:`
+/// for a backend whose second part is not a name.
 fn of_action_failed(mut o: Obs, d: &Value) -> Option<Obs> {
-    let p = word(&d["producer"]);
+    let p = producer(&d["producer"]);
     o.key = format!("action.failed:{p}");
     o.title = calls_failing(&p);
     o.note = format!(
@@ -735,5 +758,57 @@ mod tests {
         let o = of_row(1, &failed_job(10, None)).unwrap();
         assert_eq!(o.key, "action.failed:wrapper");
         assert_eq!(o.title, "Wrapper tool calls failing");
+    }
+
+    fn failed_action_key(producer: &str) -> String {
+        let row = LedgerRow::named(
+            "action.failed",
+            None,
+            None,
+            json!({"producer": producer, "duration_ms": 0, "correlation_id": "act_1"}),
+        );
+        of_row(1, &row)
+            .expect("a failed action is an observation")
+            .key
+    }
+
+    /// The first word of a producer put every in-process tool's failure in
+    /// one cause, `harness`, which no single fix can close.
+    #[test]
+    fn failed_harness_calls_of_two_tools_are_two_causes() {
+        assert_eq!(
+            failed_action_key("harness:fs.read"),
+            "action.failed:harness:fs.read"
+        );
+        assert_eq!(
+            failed_action_key("harness:self.propose_change"),
+            "action.failed:harness:self.propose_change"
+        );
+        assert_ne!(
+            failed_action_key("harness:task.close"),
+            failed_action_key("harness:fs.read")
+        );
+    }
+
+    /// A provider and a hand's backend are names; a wrapper's pid and a
+    /// reconciler's reason are not, so they stay one word.
+    #[test]
+    fn a_provider_is_named_but_a_wrapper_pid_is_not() {
+        assert_eq!(
+            failed_action_key("provider:anthropic"),
+            "action.failed:provider:anthropic"
+        );
+        assert_eq!(
+            failed_action_key("hand:lambda"),
+            "action.failed:hand:lambda"
+        );
+        assert_eq!(failed_action_key("wrapper:4242"), "action.failed:wrapper");
+        assert_eq!(
+            failed_action_key("reconciler:lost"),
+            "action.failed:reconciler"
+        );
+        assert_eq!(failed_action_key("hands:reaper"), "action.failed:hands");
+        assert_eq!(failed_action_key("proc"), "action.failed:proc");
+        assert_eq!(failed_action_key("harness"), "action.failed:harness");
     }
 }
