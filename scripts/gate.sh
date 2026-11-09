@@ -260,7 +260,19 @@ tree_moved_report() {
     { [ -f "$logfile" ] && tail -n "+$((${b_len//[!0-9]/0} + 1))" "$logfile" | cut -f2- | head -10 | sed 's/^/gate:     /'; } || true
   fi
   echo "gate: what was compiled and what was tested were not all of one tree, so nothing above is a pass or a failure of it."
-  echo "gate: do not check out, reset or edit a tree while a gate runs in it; rerun the gate (exit status $tree_moved_status)"
+  # The gate's cargo runs without --locked, so its first call rewrites a stale tracked Cargo.lock: that is a move (correct),
+  # but "rerun the gate" aborts the same way. When HEAD and the reflog are unchanged and Cargo.lock is the only path whose
+  # state changed, say what to do instead.
+  if [ "$b_head" = "$n_head" ] && [ "$b_log" = "$n_log" ] && [ "$(tree_paths_changed | grep -c .)" -gt 0 ] \
+    && [ "$(tree_paths_changed | grep -vc '^Cargo\.lock$')" -eq 0 ]; then
+    echo "gate: the first cargo rewrote a stale Cargo.lock: commit the regenerated Cargo.lock, then rerun the gate (exit status $tree_moved_status)"
+  else
+    echo "gate: do not check out, reset or edit a tree while a gate runs in it; rerun the gate (exit status $tree_moved_status)"
+  fi
+}
+# The paths whose state changed since the start, one per line (the porcelain's two status columns removed).
+tree_paths_changed() {
+  { diff "$gate_tmp/tree.paths" <(tree_paths) | grep '^[<>]' | sed -E 's/^[<>] .{2} //' | sort -u; } || true
 }
 # Is the tree not the one the gate began with? Prints the report and says yes (status 0) when it is not. A tree whose
 # identity cannot be read now counts as moved: what cannot be seen has not been shown to hold.

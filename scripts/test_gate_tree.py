@@ -45,6 +45,7 @@ move() {
   case "$STUB_MOVE" in
     edit) echo "an edit made while the gate ran" >>notes.txt ;;
     smoke-run) mkdir -p bench/smoke/runs/2026-01-01-abcd1234 && echo report >bench/smoke/runs/2026-01-01-abcd1234/report.md ;;
+    lock) echo "# rewritten by the first cargo" >>Cargo.lock ;;
     away-and-back) git checkout -q --detach && git checkout -q main ;;
   esac
 }
@@ -101,6 +102,7 @@ COMMITTED = {
     ".config/nextest.toml": NEXTEST,
     ".gitignore": "target\ncockpit/node_modules\ncrates/theseusd/cockpit/dist\n",
     "notes.txt": "the file a mover edits\n",
+    "Cargo.lock": "# a lock\n",
     "cockpit/package.json": "{}\n",
     "cockpit/src/protocol.gen/types.ts": "// generated\n",
     "crates/theseus-core/src/sandbox/self_build.rs": 'pub const NODE_PIN: &str = "1.2.3";\n',
@@ -223,6 +225,20 @@ class GateTree(unittest.TestCase):
         self.assertIn("gate: ok", out)
         self.assertTrue((self.root / "bench/smoke/runs/2026-01-01-abcd1234/report.md").exists(), "the move did happen")
         self.assertTrue(any(c.startswith("suite ") for c in calls), calls)
+
+    def test_a_move_that_is_only_a_rewritten_cargo_lock_says_to_commit_it(self):
+        rc, out, _ = self.gate(STUB_MOVE_AT="build", STUB_MOVE="lock")
+        self.assertEqual(rc, MOVED, out)
+        self.assertIn("gate: ABORTED", out)
+        self.assertIn("Cargo.lock", out)
+        self.assertIn("the first cargo rewrote a stale Cargo.lock: commit the regenerated Cargo.lock, then rerun", out)
+        self.assertNotIn("do not check out, reset or edit a tree", out)
+
+    def test_a_move_of_another_file_keeps_the_old_advice(self):
+        rc, out, _ = self.gate(STUB_MOVE_AT="build", STUB_MOVE="edit")
+        self.assertEqual(rc, MOVED, out)
+        self.assertIn("do not check out, reset or edit a tree while a gate runs in it; rerun the gate", out)
+        self.assertNotIn("rewrote a stale Cargo.lock", out)
 
     # ---- the door's environment
 
