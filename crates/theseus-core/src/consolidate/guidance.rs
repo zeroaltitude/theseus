@@ -125,8 +125,9 @@ pub const MARK: &str = "onto.dream.last";
 ///   writer's mistake repeats across sessions; the work is the careful
 ///   writing the owner calls coding, not a cheap triage, so the model is
 ///   fixed at the strong end instead of left to a price-driven pick.
-/// - **Its cost is bounded elsewhere**: three calls at a 250-token cap, under
-///   `[memory] synth_limit_usd_per_day`, reserved at worst case first.
+/// - **Its cost is bounded elsewhere**: three calls at the [`MAX_TOKENS`] cap
+///   (2,048, with thinking on), under `[memory] synth_limit_usd_per_day`,
+///   reserved at worst case first.
 ///
 /// The data rule is not part of the exception: the call still goes through
 /// the provider chokepoint, and the test `the_dreams_model_is_cleared_for_

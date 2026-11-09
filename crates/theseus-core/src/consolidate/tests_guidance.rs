@@ -499,7 +499,10 @@ async fn a_set_synth_profile_still_pins_the_dream() {
 /// A pinned dream keeps the effort the exception exists to guarantee
 /// (theseus-xdi65's second finding): pinning `[memory] synth_profile` moves
 /// the model, not the writing's care, so a pin on a model that takes an
-/// effort still sends `high`, with thinking off.
+/// effort still sends `high`. Thinking is on there as on the unset path (the
+/// request takes no thinking argument, so no path can turn it off); this test
+/// reads the pin's model and effort, and
+/// `an_unset_synth_profile_dreams_on_sonnet_at_high_effort` reads the thinking.
 #[tokio::test]
 async fn a_pinned_dream_still_writes_at_high_effort() {
     let r = rig(ANSWER, |c| c.memory.synth_profile = Some("sonnet".into()));
