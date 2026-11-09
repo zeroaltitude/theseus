@@ -104,10 +104,13 @@ impl Core {
     /// `card.list`: what waits, what was kept and declined, the spend.
     pub async fn card_list(
         &self,
-        _p: &CardListParams,
+        p: &CardListParams,
         who: impl Into<Answerer>,
     ) -> Result<theseus_protocol::CardListResult, RpcFailure> {
         self.judge_card(&who.into(), method::CARD_LIST, "the card's proposals")?;
+        if let Some(id) = &p.id {
+            return self.card_view_of(id).map_err(RpcFailure::invalid);
+        }
         self.card_view().await.map_err(RpcFailure::invalid)
     }
 

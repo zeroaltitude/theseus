@@ -132,6 +132,26 @@ fn told(option: &str, r: &CardAnswerResult) -> String {
     }
 }
 
+/// The words Edit opens its modal with, from the one-proposal read: the
+/// open proposal's own text, or why there is none to edit, in this area's
+/// voice (`told`'s, and the core's "{id} is already {state}"). A proposal
+/// at or past its expiry is said declined, as its answer will find it.
+fn edit_words(l: &CardListResult, id: &str, now_ms: u64) -> Result<String, String> {
+    if let Some(p) = l.open.iter().find(|p| p.id == id) {
+        return if p.expires_ms <= now_ms {
+            Err(format!("{id} is already declined"))
+        } else {
+            Ok(p.text.clone())
+        };
+    }
+    let state = if l.kept.iter().any(|p| p.id == id) {
+        "kept"
+    } else {
+        "declined"
+    };
+    Err(format!("{id} is already {state}"))
+}
+
 impl Shared {
     /// A press of a card question's button.
     pub(super) async fn card_question_press(
@@ -142,28 +162,36 @@ impl Shared {
         discord: Option<DiscordOrigin>,
     ) {
         if press.verb == "edit" {
-            // The proposal's words, as the presser may read them; none when
-            // the core refuses them, and the answer will be refused too.
-            let words = match self
+            // The one proposal's words, read as it stands: nothing is
+            // expired by the read (theseus-5pypl), and the owner never gets
+            // an empty box: a proposal that cannot be edited is said, alone.
+            let read = self
                 .rpc
                 .call::<_, CardListResult>(
                     method::CARD_LIST,
                     CardListParams {
                         author: Some(who.to_string()),
                         discord,
+                        id: Some(press.id.clone()),
                     },
                 )
-                .await
-            {
-                Ok(l) => l
-                    .open
-                    .iter()
-                    .find(|p| p.id == press.id)
-                    .map(|p| p.text.clone())
-                    .unwrap_or_default(),
-                Err(_) => String::new(),
+                .await;
+            let words = match read {
+                Ok(l) => edit_words(&l, &press.id, theseus_protocol::now_unix_ms()),
+                Err(e) => Err(super::capture_card::failed(&e)),
             };
-            self.respond_modal(i, &modal(&press.id, &words)).await;
+            match words {
+                Ok(w) => self.respond_modal(i, &modal(&press.id, &w)).await,
+                Err(said) => {
+                    self.respond(
+                        i,
+                        InteractionResponseType::ChannelMessageWithSource,
+                        Some(said),
+                        true,
+                    )
+                    .await;
+                }
+            }
             return;
         }
         self.card_answer_as(i, &press.id, option_of(&press.verb), None, who, discord)
@@ -321,5 +349,46 @@ mod tests {
             "card": {"id": "cdp_00000001", "ask": "stale"}});
         assert_eq!(card_of(&body), ("stale".into(), "cdp_00000001".into()));
         assert_eq!(card_of(&json!({})), ("add".into(), String::new()));
+    }
+
+    fn prop(id: &str, text: &str, expires_ms: u64) -> theseus_protocol::CardProposal {
+        serde_json::from_value(json!({
+            "id": id, "kind": "fact", "scope": {"kind": "everywhere"}, "text": text,
+            "question": "q", "options": [], "sources": [], "support": 1,
+            "created_ms": 1, "expires_ms": expires_ms, "state": "open", "run": "r"
+        }))
+        .unwrap()
+    }
+
+    /// The Edit press never opens an empty box: the words, or why not.
+    #[test]
+    fn edit_opens_with_the_words_or_says_why_not() {
+        let open = |p| CardListResult {
+            open: vec![p],
+            ..Default::default()
+        };
+        let live = open(prop("cdp_1", "prefers tabs", 2_000));
+        assert_eq!(edit_words(&live, "cdp_1", 1_000), Ok("prefers tabs".into()));
+        // Due at this instant: said, not an empty modal.
+        assert_eq!(
+            edit_words(&live, "cdp_1", 2_000),
+            Err("cdp_1 is already declined".into())
+        );
+        let declined = CardListResult {
+            declined: vec![prop("cdp_1", "x", 1)],
+            ..Default::default()
+        };
+        assert_eq!(
+            edit_words(&declined, "cdp_1", 1_000),
+            Err("cdp_1 is already declined".into())
+        );
+        let kept = CardListResult {
+            kept: vec![prop("cdp_1", "x", 1)],
+            ..Default::default()
+        };
+        assert_eq!(
+            edit_words(&kept, "cdp_1", 1_000),
+            Err("cdp_1 is already kept".into())
+        );
     }
 }
