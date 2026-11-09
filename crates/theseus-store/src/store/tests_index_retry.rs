@@ -81,6 +81,9 @@ fn a_failed_index_write_is_retried_and_the_batch_is_answered_ok() {
     assert_eq!(s.count_keys(kinds::META).unwrap(), 1);
 }
 
+/// Covers a retry whose first try failed before it touched the index (the
+/// hook's `index_fail`), so no retry here runs over leftovers; see
+/// `a_batch_whose_index_write_landed_but_failed_is_retried_to_the_same_index`.
 #[test]
 fn a_tombstone_batch_retried_equals_the_same_batch_untouched() {
     let (d1, d2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
@@ -155,4 +158,34 @@ fn a_failed_batch_comes_back_at_the_open_without_a_checkpoint() {
     let a = s.latest_by_key(kinds::META, "a.1").unwrap().unwrap();
     assert_eq!(a.decode::<u64>().unwrap(), 1);
     assert_eq!(s.count_keys(kinds::META).unwrap(), 2);
+}
+
+#[test]
+fn a_batch_whose_index_write_landed_but_failed_is_retried_to_the_same_index() {
+    let (d1, d2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (plain, retried) = (open(d1.path()), open(d2.path()));
+    script(&plain);
+    retried
+        .append(&[meta("a.1", 1), meta("a.2", 2), meta("b.1", 3)])
+        .unwrap();
+    // The tombstone batch's first try writes the whole batch and then fails:
+    // the retry runs over an index that already holds all of it.
+    retried.inner.index_fail_after.store(1, Ordering::SeqCst);
+    retried
+        .append(&[
+            meta("a.2", 20),
+            NewRecord::delete_meta("a.1"),
+            meta("c.1", 4),
+            NewRecord::delete_meta("b.1"),
+            meta("a.1", 5),
+        ])
+        .unwrap();
+    assert_eq!(retried.inner.index_fail_after.load(Ordering::SeqCst), 0);
+    retried
+        .append(&[NewRecord::delete_meta("a.1"), NewRecord::delete_meta("zz")])
+        .unwrap();
+    retried.append(&[meta("a.1", 100)]).unwrap();
+    let want = reads(&plain);
+    assert!(want.1 >= 3 && want.3 >= 3, "{want:?}");
+    assert_eq!(reads(&retried), want);
 }

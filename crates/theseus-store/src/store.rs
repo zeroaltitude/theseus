@@ -347,6 +347,11 @@ struct Inner {
     /// many `apply`s fail with an injected error before they touch the index.
     #[cfg(test)]
     index_fail: std::sync::atomic::AtomicU32,
+    /// Like `index_fail`, but the `apply` runs first and the write is then
+    /// reported failed: the index keeps the whole batch, as a commit that
+    /// landed and whose answer was lost does.
+    #[cfg(test)]
+    index_fail_after: std::sync::atomic::AtomicU32,
     /// A test's way to hold a checkpoint, as a disk under writeback holds
     /// one: the next checkpoint waits until this channel's sender sends or
     /// drops.
@@ -1368,6 +1373,8 @@ impl Inner {
             #[cfg(test)]
             index_fail: std::sync::atomic::AtomicU32::new(0),
             #[cfg(test)]
+            index_fail_after: std::sync::atomic::AtomicU32::new(0),
+            #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
             refused: Mutex::new((BTreeSet::new(), 0)),
             chain: Mutex::new(chain_writer::ChainState::default()),
@@ -1575,8 +1582,10 @@ impl Inner {
 
     /// The batch's index write, tried up to `INDEX_TRIES` times: its frames are
     /// durable already, and `apply` over what a failed one left equals one
-    /// whole `apply` (`tests/index_reapply.rs`), so a retry is safe. A failure
-    /// past the bound is the caller's, as it was before the retry.
+    /// whole `apply` (`tests/index_reapply.rs`), so a retry is safe. The tries
+    /// follow each other at once: a full disk is met three times, and what
+    /// they buy is transient contention on redb's write lock. A failure past
+    /// the bound is the caller's, as it was before the retry.
     fn index_batch(&self, entries: &[IndexEntry]) -> Result<()> {
         let mut tries = 0;
         loop {
@@ -1591,7 +1600,19 @@ impl Inner {
             let wrote = if injected {
                 Err(anyhow::anyhow!("an injected index failure"))
             } else {
-                self.index.apply(entries, false)
+                let applied = self.index.apply(entries, false);
+                #[cfg(test)]
+                let applied = applied.and_then(|()| {
+                    match self.index_fail_after.fetch_update(
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                        |n| n.checked_sub(1),
+                    ) {
+                        Ok(_) => Err(anyhow::anyhow!("an injected failure after the write")),
+                        Err(_) => Ok(()),
+                    }
+                });
+                applied
             };
             match wrote {
                 Ok(()) => return Ok(()),
