@@ -74,7 +74,20 @@ NODE = "#!/bin/sh\necho v1.2.3\n"
 NPM = "#!/bin/sh\n[ \"$2\" != test ] || echo 'ℹ tests 1'\nexit 0\n"
 PASSES = "#!/bin/sh\nexit 0\n"
 
+# The lane's nextest config: what the ARM runner edits (its sed puts a default-filter after test-threads), with a
+# commented default-filter as the real file has in its prose, which is no filter.
+NEXTEST = """[profile.default]
+test-threads = 8
+# default-filter = "not (test(=a_comment_is_no_filter))"
+slow-timeout = { period = "60s", terminate-after = 2 }
+"""
+FILTER = (
+    'default-filter = "not (test(=the_owner_starts_asks_answers_joins_pauses_ends_and_finds_two_tasks)'
+    ' | test(=rendering_costs_little_per_hundred_lines))"'
+)
+
 COMMITTED = {
+    ".config/nextest.toml": NEXTEST,
     ".gitignore": "target\ncockpit/node_modules\ncrates/theseusd/cockpit/dist\n",
     "notes.txt": "the file a mover edits\n",
     "cockpit/package.json": "{}\n",
@@ -179,6 +192,49 @@ class GateTree(unittest.TestCase):
         rc, out, _ = self.gate(STUB_MOVE_AT="suite")
         self.assertEqual(rc, MOVED, out)
         self.assertNotIn("gate: ok", out)
+
+    # ---- what the suite does not run
+
+    def stale_filter(self, committed=False):
+        """A default-filter after test-threads in the lane's config, as the ARM runner's sed puts one."""
+        path = self.root / ".config" / "nextest.toml"
+        path.write_text(path.read_text().replace("test-threads = 8\n", "test-threads = 8\n" + FILTER + "\n"))
+        if committed:
+            self.git("add", "-A")
+            self.git("commit", "-q", "-m", "a committed default-filter")
+
+    def test_a_default_filter_left_in_the_lane_is_named_by_the_gate(self):
+        # 2026-11-07: an uncommitted line a lane kept from an earlier run skipped four tests from every run, nextest
+        # counted them as "skipped" with the ignored ones, and the gate said ok: nothing in the result told.
+        self.stale_filter()
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, "a gate never refuses one, the ARM runner sets its known skips this way: " + out)
+        self.assertIn("gate: suite filters: ACTIVE", out)
+        self.assertIn("test(=the_owner_starts_asks_answers_joins_pauses_ends_and_finds_two_tasks)", out)
+        self.assertIn("test(=rendering_costs_little_per_hundred_lines)", out, "the whole expression, not its start")
+        self.assertIn("profile default, .config/nextest.toml:3", out, "which profile, and the line to delete")
+        self.assertIn("only in the working tree, not in HEAD", out)
+        self.assertIn("ran under a default-filter", out, "said again beside the verdict")
+        self.assertRegex(out, r"\n  suite filtered +\d+\n", "the table does not call a filtered suite `suite`")
+        self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
+
+    def test_a_committed_default_filter_is_named_as_committed(self):
+        self.stale_filter(committed=True)
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: suite filters: ACTIVE", out)
+        self.assertIn("committed in HEAD", out)
+        self.assertNotIn("not in HEAD", out)
+
+    def test_a_gate_with_no_default_filter_says_none(self):
+        # The comment in the fixture's config names a default-filter and is none.
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: suite filters: none", out)
+        self.assertNotIn("ACTIVE", out)
+        self.assertNotIn("ran under a default-filter", out)
+        self.assertRegex(out, r"\n  suite +\d+\n")
+        self.assertTrue(any(c.startswith("suite ") for c in calls), f"the suite did run: {calls}")
 
     # ---- and what is not a move
 
