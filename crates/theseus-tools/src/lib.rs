@@ -28,6 +28,7 @@ pub mod magic;
 pub mod net;
 pub mod paths;
 pub mod proc;
+pub mod reads;
 mod recount;
 pub mod rx;
 #[cfg(test)]
@@ -298,6 +299,10 @@ pub struct ToolCtx {
     /// The secrets this call's tool was granted, set per call by the runtime
     /// (theseus-dcy). `None`: it was granted none.
     pub secrets: Option<Arc<dyn Secrets>>,
+    /// What this call's session has been handed (theseus-w2cs sub-item 2),
+    /// bound to that session by the runtime. `None`: nothing is noted and
+    /// nothing is checked, so a write behaves as it did before the guard.
+    pub reads: Option<Arc<dyn reads::Reads>>,
     /// The operator approved this call: it ran at `approve`. Set per call by
     /// the runtime. Only then does `http.fetch` reach the private address its
     /// URL names (DD5).
@@ -326,6 +331,7 @@ impl ToolCtx {
             proc_timeout_max_secs: 3600,
             cores: None,
             secrets: None,
+            reads: None,
             approved: false,
             umask: None,
             aws: None,

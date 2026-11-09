@@ -60,6 +60,7 @@ mod parallel;
 mod peek;
 mod proc_cap;
 mod proposal;
+pub mod reads;
 mod result_node;
 mod resume;
 mod self_pr;
@@ -299,6 +300,9 @@ pub struct ToolRuntime {
     /// The jobs turns wait on (Tier 7.1): the drain leaves each one's
     /// completion to its turn, and wakes it.
     pub job_waits: Arc<JobWaits>,
+    /// What each session has been handed (theseus-w2cs sub-item 2): the
+    /// stale-edit guard's board, bound to the calling session per call.
+    pub reads: Arc<reads::ReadRecords>,
     /// Where a capped result's whole output is kept (theseus-v73m).
     pub outputs: crate::outputs::Outputs,
     /// The admission queue (theseus-4g0l): the turn waits in it, and a job's wait lends its slot.
@@ -498,6 +502,7 @@ impl ToolRuntime {
             public_roots: Vec::new(),
             sealed: Default::default(),
             job_waits: Arc::default(),
+            reads: Arc::default(),
             outputs: crate::outputs::Outputs::off(),
             admission: crate::turn::admission::Admission::new(8, Duration::from_secs(600)),
             mcp: Default::default(),
@@ -2124,6 +2129,7 @@ pub fn build_runtime(
         result_max_chars: t.result_max_chars,
         proc_sync_secs: t.proc_sync_secs,
         job_wait_max_secs: t.job_wait_max_secs,
+        reads: Default::default(),
         parallel_runs: t.parallel_runs.max(1),
         parallel_reads: t.parallel_reads.max(1),
         parallel_writes: t.parallel_writes.max(1),
