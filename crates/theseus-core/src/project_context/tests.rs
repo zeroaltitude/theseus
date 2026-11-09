@@ -172,6 +172,48 @@ fn the_root_takes_half_and_the_nested_chain_takes_the_rest_deepest_first() {
     assert!(at('r') < at('c'), "the root reads before the deepest");
 }
 
+/// §6 ("whatever either side leaves unused is available to the other"): a
+/// root file the first pass cut to half the budget grows again in the last
+/// pass up to what the nested chain left, so a one-root repository carries
+/// the whole budget and not half of it (theseus-wadu, finding F2).
+#[test]
+fn a_root_file_cut_at_half_grows_into_what_the_chain_left() {
+    let budget = 2_000;
+    // (a) A one-root repository: a 1,500-byte body is over half the budget
+    // (1,000) and under all of it, so it is carried whole.
+    let repo = Repo::new();
+    let body = "r".repeat(1_500);
+    repo.write("AGENTS.md", &body);
+    let d = found_of(&repo, &repo.root());
+    let a = assemble(&ContextFiles::default(), &d.project, budget);
+    assert_eq!(a.records.len(), 1);
+    assert_eq!(a.records[0].fate, Fate::Whole, "{:?}", a.records[0]);
+    assert!(a.text.contains(&body), "the whole body is carried");
+    // (b) With a nested file of 200 bytes, both are whole.
+    let repo = Repo::new();
+    repo.write("AGENTS.md", &body);
+    repo.write("n/AGENTS.md", &"n".repeat(200));
+    let d = found_of(&repo, &repo.root().join("n"));
+    let a = assemble(&ContextFiles::default(), &d.project, budget);
+    let fates: Vec<Fate> = a.records.iter().map(|r| r.fate).collect();
+    assert_eq!(fates, [Fate::Whole, Fate::Whole], "{fates:?}");
+    // (c) The carried sections never sum to more than the budget.
+    assert!(a.text.len() <= budget, "{} bytes", a.text.len());
+    // A nested file that needs most of the room still takes it: the root is
+    // held to half while the chain wants the rest.
+    let repo = Repo::new();
+    repo.write("AGENTS.md", &"r".repeat(1_900));
+    repo.write("n/AGENTS.md", &"n".repeat(900));
+    let d = found_of(&repo, &repo.root().join("n"));
+    let a = assemble(&ContextFiles::default(), &d.project, budget);
+    assert!(
+        matches!(a.records[0].fate, Fate::Cut { .. }),
+        "{:?}",
+        a.records[0]
+    );
+    assert_eq!(a.records[1].fate, Fate::Whole, "{:?}", a.records[1]);
+}
+
 /// §6: a file that does not fit whole is cut at a character boundary with
 /// the note naming how much is here; one that does not fit at all is named
 /// but not carried, and its record keeps the file's real byte count.

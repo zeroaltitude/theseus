@@ -301,15 +301,30 @@ fn spend(plan: &mut [Plan], budget: usize) {
     let mut nested: Vec<usize> = (0..plan.len()).filter(|i| plan[*i].depth > 0).collect();
     nested.sort_by_key(|i| std::cmp::Reverse(plan[*i].depth));
     let mut used = 0usize;
-    allocate(plan, &root, budget.div_ceil(2), &mut used);
-    allocate(plan, &nested, budget, &mut used);
-    allocate(plan, &root, budget, &mut used);
+    allocate(plan, &root, budget.div_ceil(2), &mut used, false);
+    allocate(plan, &nested, budget, &mut used, false);
+    // The last pass also reopens a root file pass 1 cut at half: it grows
+    // into what the chain left (§6), never past the whole budget.
+    allocate(plan, &root, budget, &mut used, true);
 }
 
 /// Each of `order` not yet settled takes what it needs, while `used` stays
-/// under `ceiling`.
-fn allocate(plan: &mut [Plan], order: &[usize], ceiling: usize, used: &mut usize) {
+/// under `ceiling`. With `regrow`, a file an earlier pass cut is settled again
+/// against the room it and everything else leave (`used` always holds its
+/// `kept`, so the subtraction cannot underflow).
+fn allocate(plan: &mut [Plan], order: &[usize], ceiling: usize, used: &mut usize, regrow: bool) {
     for i in order.iter().copied() {
+        if let (true, Fate::Cut { kept }) = (regrow, plan[i].fate) {
+            let room = ceiling.saturating_sub(used.saturating_sub(kept));
+            if plan[i].size <= room {
+                plan[i].fate = Fate::Whole;
+                *used = used.saturating_sub(kept) + plan[i].size;
+            } else if room > kept {
+                plan[i].fate = Fate::Cut { kept: room };
+                *used = used.saturating_sub(kept) + room;
+            }
+            continue;
+        }
         if !open(&plan[i]) {
             continue;
         }
