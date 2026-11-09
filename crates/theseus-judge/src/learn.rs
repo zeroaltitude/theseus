@@ -271,7 +271,9 @@ pub enum RollbackRule {
     /// is right-skewed, so a mean against a median fires on one deep task.
     /// Where the control's median is at or under the floor the comparison is
     /// no longer a ratio (`ratio` times 0 is 0), so the canary must also show
-    /// that its body moved, not its middle: see `canary_body_moved`.
+    /// that its body moved, not its middle (`canary_body_moved`), or that its
+    /// median task costs over `ratio` times the control's dearest one
+    /// (`canary_far_above_control`).
     SpendRatio { ratio: f64, min_tasks: usize },
     /// The operator stops or cancels a task within its nudge.
     OperatorStopWithinNudge,
@@ -431,8 +433,10 @@ pub const NEAR_IDENTICAL: f64 = 0.9;
 /// be an absolute threshold wearing a ratio's clothes: on a workload where
 /// half the tasks make no priced call, which arm's median lands on a priced
 /// task is a coin flip. So a control at or under the floor also asks for the
-/// canary's lower quartile over it (`canary_body_moved`), and for a control
-/// above the floor nothing changes.
+/// canary's lower quartile over it (`canary_body_moved`), or its median over
+/// `ratio` times the control's dearest task (`canary_far_above_control`, which
+/// no share of priced tasks can stand in for), and for a control above the
+/// floor nothing changes.
 ///
 /// What the floor guards is the other end: two arms that both did almost no
 /// priced work. A hundred micro-dollars is a hundredth of a US cent; no task
@@ -448,9 +452,11 @@ pub const SPEND_FLOOR_MICROS: f64 = 100.0;
 /// (nearest rank, so the third smallest of 12) is over `SPEND_FLOOR_MICROS`.
 ///
 /// Used only where the control's median is at or under the floor, where the
-/// ratio test passes anything. Three quarters of the canary's tasks must then
-/// spend real money, which two arms of one half-free workload do not do by
-/// chance when the control's median is free: its priced share is under half.
+/// ratio test passes anything. At least `n - ceil(n / 4) + 1` of the canary's
+/// `n` tasks must then spend real money (the nearest rank is `ceil(n / 4)`, so
+/// 8 of 10 tasks, 10 of 12, and about three quarters only as `n` grows), which
+/// two arms of one half-free workload do not do by chance when the control's
+/// median is free: its priced share is under half.
 /// Chosen over a priced-share margin between the arms because it needs no
 /// second parameter and reads the canary alone, as the floor does.
 fn canary_body_moved(canary: &[u64]) -> bool {
