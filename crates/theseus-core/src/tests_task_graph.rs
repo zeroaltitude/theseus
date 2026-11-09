@@ -627,7 +627,10 @@ async fn an_abandon_the_operator_said_yes_to_records_one_acceptance() {
     assert_eq!(asked.len(), 1, "{asked:?}");
     c.confirm_action(&asked[0].correlation_id, true, None, "cli")
         .unwrap();
-    until("the abandon", || r.task(&t.id).state == TaskState::Abandoned).await;
+    until("the abandon", || {
+        r.task(&t.id).state == TaskState::Abandoned
+    })
+    .await;
     assert_eq!(rows(c, "task.change_accepted").len(), 1);
     assert_eq!(rows(c, "task.closed").len(), 1);
     r.model

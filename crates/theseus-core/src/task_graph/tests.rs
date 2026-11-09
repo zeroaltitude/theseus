@@ -373,3 +373,25 @@ fn a_tasks_home_is_its_roots_origin_or_a_task_sessions_parents() {
     assert_eq!(home(&all, &all[5]), "ses_harbour");
     assert_eq!(homed(&all, "ses_lighthouse").len(), 5);
 }
+
+/// What the model is told about abandoning is true in both postures: it asks
+/// unless the operator set `task.close` to notify (theseus-3i6d1).
+#[test]
+fn the_models_words_on_abandoning_name_the_notify_posture() {
+    use theseus_tools::Tool;
+    let all = vec![task(
+        "tsk_aaaa01",
+        "ses_lighthouse",
+        None,
+        TaskState::Accepted,
+    )];
+    let head = view::render(&all, "ses_lighthouse").unwrap().text;
+    let head = head.lines().next().unwrap().to_string();
+    let desc = tools::TaskClose.description();
+    for (what, text) in [("head", head.as_str()), ("description", desc)] {
+        assert!(
+            text.contains("task.close") && text.contains("notify"),
+            "{what}: {text}"
+        );
+    }
+}
