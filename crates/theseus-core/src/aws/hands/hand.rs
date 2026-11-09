@@ -420,6 +420,12 @@ async fn run_job(spec: &HandSpec, dir: &Path, aws: &HandAws<'_>, out: Arc<Mutex<
         .stderr(std::process::Stdio::piped())
         .process_group(0)
         .kill_on_drop(true);
+    // Deliberately not registered with `children::spawn`, and not a pattern to
+    // copy into the serving daemon: this runs in the `theseusd hand` process,
+    // which exits at main.rs's `Cmd::Hand` arm before `reap_children` installs
+    // its SIGCHLD sweep, so nothing can reap this child before the `wait()`
+    // below. In the daemon the same bare spawn would lose that race.
+    // `tests_children_complete` tables this file with that reason.
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
