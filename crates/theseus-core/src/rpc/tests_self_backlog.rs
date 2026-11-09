@@ -154,6 +154,58 @@ fn seed_day(c: &Core, t0: u64) {
     }
 }
 
+/// One failed model call writes two rows, the kernel's `action.failed` and
+/// `provider.error`; they are one cause, filed once. A call with no twin (a
+/// compaction's summary) still files as an action failure.
+#[test]
+fn a_failed_model_call_is_filed_once_not_once_per_row() {
+    let c = acting(0, 20);
+    let t0 = theseus_protocol::now_unix_ms();
+    for i in 0..3u64 {
+        let id = format!("act_{i}");
+        seed(
+            &c,
+            "provider.error",
+            json!({"class": "overloaded", "provider": "anthropic", "correlation_id": id}),
+            t0 - (i + 1) * HOUR,
+        );
+        seed(
+            &c,
+            "action.failed",
+            json!({"producer": "provider:anthropic", "duration_ms": 5, "correlation_id": id,
+                   "failure": null}),
+            t0 - (i + 1) * HOUR + 3,
+        );
+    }
+    c.backlog_night(tick()).unwrap();
+    let causes: Vec<String> = listed(&c).into_iter().map(|i| i.cause).collect();
+    assert!(
+        causes.contains(&"provider.error:overloaded:anthropic".to_string()),
+        "{causes:?}"
+    );
+    assert!(
+        !causes.contains(&"action.failed:provider:anthropic".to_string()),
+        "the twin is filed once: {causes:?}"
+    );
+    // The positive half, on a ledger of its own (a night reads only new rows).
+    let c = acting(0, 20);
+    for i in 0..3u64 {
+        seed(
+            &c,
+            "action.failed",
+            json!({"producer": "provider:anthropic", "duration_ms": 5,
+                   "correlation_id": format!("act_c{i}"), "purpose": "compaction"}),
+            t0 - (i + 1) * HOUR,
+        );
+    }
+    c.backlog_night(tick()).unwrap();
+    let causes: Vec<String> = listed(&c).into_iter().map(|i| i.cause).collect();
+    assert!(
+        causes.contains(&"action.failed:provider:anthropic".to_string()),
+        "a call with no twin still files: {causes:?}"
+    );
+}
+
 #[test]
 fn a_seeded_days_ledger_files_the_right_items_with_their_evidence() {
     let c = acting(0, 20);
