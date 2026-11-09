@@ -345,6 +345,39 @@ pub struct Step {
     pub committed: bool,
 }
 
+/// Why a saved cursor cannot be kept, in words that name what changed: the
+/// cursor holds the format, schema and extractor numbers the index was built
+/// under, never a binary's identity, so an install that bumps none of them
+/// resumes (theseus-la5oc). `None`: it can be kept (or there is none to keep;
+/// the caller says "missing").
+pub(crate) fn rebuild_reason(
+    found: Option<&Saved>,
+    had_index: bool,
+    cursor_exists: bool,
+) -> Option<String> {
+    let Some(s) = found else {
+        return (cursor_exists && had_index).then(|| "its cursor file is unreadable".to_string());
+    };
+    let moved = [
+        ("cursor format", s.format, CURSOR_FORMAT),
+        ("index schema", s.schema, SCHEMA_VERSION),
+        ("extractor", s.extractor, EXTRACTOR_VERSION),
+    ];
+    let named: Vec<String> = moved
+        .iter()
+        .filter(|(_, was, now)| was != now)
+        .map(|(what, was, now)| format!("{what} {was} -> {now}"))
+        .collect();
+    if named.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "this build's {} (a rebuild window of a minute or so, recall read-degraded meanwhile)",
+            named.join(", ")
+        ))
+    }
+}
+
 impl Tender {
     /// Take the index directory's lock, open (or rebuild) the index, and
     /// open the follower at its cursor. Nothing is read from the WAL yet.
@@ -359,15 +392,12 @@ impl Tender {
 
         // The saved cursor holds only for an index this build would write.
         let had_index = paths.bm25().join("meta.json").exists();
-        let saved: Option<Saved> = state::load(&paths.cursor()).filter(|s: &Saved| {
-            s.format == CURSOR_FORMAT
-                && s.schema == SCHEMA_VERSION
-                && s.extractor == EXTRACTOR_VERSION
-                && had_index
-        });
+        let found: Option<Saved> = state::load(&paths.cursor());
+        let why = rebuild_reason(found.as_ref(), had_index, paths.cursor().exists());
+        let saved = found.filter(|_| why.is_none() && had_index);
         let mut why_rebuild = None;
         if saved.is_none() && (had_index || paths.cursor().exists()) {
-            why_rebuild = Some("its cursor is missing or from another build".to_string());
+            why_rebuild = Some(why.unwrap_or_else(|| "its cursor is missing".to_string()));
         }
         if saved.is_none() {
             let _ = fs::remove_dir_all(paths.bm25());
