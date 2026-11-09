@@ -184,8 +184,8 @@ async fn a_session_started_in_a_directory_works_there() {
 }
 
 /// Two sessions in two directories send the header's bytes exactly, and
-/// differ only in block 3, which carries the fourth breakpoint: the
-/// header's, the context's, its own, and the conversation's.
+/// differ only in block 3, which takes no breakpoint of its own: the layers
+/// use three, and the conversation's automatic one is the fourth.
 #[tokio::test]
 async fn two_sessions_share_the_header_and_differ_only_in_block_3() {
     let r = rig(vec![Scripted::text("one"), Scripted::text("two")]);

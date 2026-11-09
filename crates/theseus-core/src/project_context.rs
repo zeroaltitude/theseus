@@ -14,8 +14,11 @@
 //!
 //! The user-level file is a different thing and is carried live: it is the
 //! owner's own file, under the state directory, with exactly the standing of
-//! `[context] files`. No repository can write it without the gate, and no
-//! grant stands between it and the prompt.
+//! `[context] files`, and no grant stands between it and the prompt. It is not
+//! on the tool floor (`toolrun/guarded.rs` floors the store, the spool, the
+//! bindings and the credential paths, not this file), so a tool's `fs.write`
+//! reaches it at the `notify` posture; flooring it is an open question on the
+//! `theseus.toml` line of row theseus-3i6d1.
 //!
 //! FAST: discovery is `stat` alone, two names per directory from the
 //! repository root down to the session's directory, and the reading is the
@@ -38,7 +41,8 @@ pub const NAMES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// The owner's own user-level instruction file, under the state directory.
 /// The design names "one user-level file of the owner's own" (§1) and leaves
 /// its path open; this is Theseus's own directory, so the file needs no
-/// configuration and no repository can reach it without the gate.
+/// configuration. It is not on the tool floor: a tool's write reaches it at
+/// `notify`, and whether to floor it is the `theseus.toml` line's open question.
 pub const USER_FILE: &str = "AGENTS.md";
 
 /// A discovered instruction file: it exists, it is a regular file, and this
