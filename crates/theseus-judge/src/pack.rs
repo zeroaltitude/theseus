@@ -1098,7 +1098,7 @@ mod tests {
             .iter()
             .find(|a| a.def == "model")
             .expect("route.v10 asks `model`");
-        assert_eq!(model.no_match.as_deref(), Some("sonnet"));
+        assert_eq!(model.no_match.as_deref(), Some("parent"));
     }
 
     /// [`crate::AnswerRecord::ran`] is the one place a declared default is
@@ -1135,7 +1135,7 @@ mod tests {
         );
         assert_eq!(
             rec(0.30).ran(),
-            Some("sonnet"),
+            Some("parent"),
             "under the bar, the declared default"
         );
         // A question that declares none has nothing to run under its bar.
@@ -1569,7 +1569,7 @@ mod tests {
                 "route.v10",
                 &[
                     "Inbound Route SessionProfile Route",
-                    "model Choice decides [haiku sonnet opus fable deepseek_flash]",
+                    "model Choice decides [haiku sonnet opus fable deepseek_flash parent]",
                     "persona Choice from Personas + [prior] only_when Personas",
                     "personal Choice [none elicit expose]",
                     "seal Choice [yes no] only_when ThreadNow",

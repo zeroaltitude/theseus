@@ -153,11 +153,10 @@ fn a_pick_at_the_base_stays_and_clears_a_hold() {
 /// A pick under the `model` question's bar stays on the turn's own profile and
 /// says `unsure`.
 ///
-/// **The pack says otherwise, and the two are knowingly apart**
-/// (theseus-ig13o). route.v10's `model` question declares
-/// `no_match = "sonnet"` and the replay grades an under-bar answer as
-/// `sonnet`; this path runs neither. See
-/// `the_model_question_declares_a_default_the_live_path_does_not_run`.
+/// **That is the pack's own instruction, not a divergence from it**
+/// (theseus-ig13o): route.v10 declares `no_match = "parent"`, the answer
+/// carries it, and `decide` runs it. See
+/// `the_declared_default_is_what_the_live_path_runs`.
 #[test]
 fn a_pick_under_the_bar_stays_and_says_unsure() {
     let v = Verdict {
@@ -171,41 +170,68 @@ fn a_pick_under_the_bar_stays_and_says_unsure() {
     );
 }
 
-/// **The divergence, pinned** (theseus-ig13o). The `model` question declares a
-/// default, the answer carries it, `Pick::ran` says what it would run — and
-/// `decide` runs none of it, standing on the turn's own profile instead. Three
-/// facts in one test, because each alone is misleading:
+/// **The rule** (theseus-ig13o, and the owner's one word of 2026-11-07 16:46,
+/// "Parent"): the `model` question's declared default is what the live path
+/// runs under the bar, and route.v10 declares `parent` — the model the turn is
+/// already on. Five facts in one test, because each alone is misleading:
 ///
-/// 1. the pack declares `sonnet`, and the answer carries it off the pack, so
+/// 1. the pack declares `parent`, and the ask carries it onto the answer, so
 ///    the value is genuinely in hand on the live path;
-/// 2. `Pick::ran` applies it, so honouring it is one line in `decide`;
-/// 3. `decide` does not, for any declared value — a planted `haiku` changes
-///    nothing — so this is not a value that happens to agree, it is a value
-///    that is not read.
+/// 2. `Pick::ran` applies it: the declared default under the bar, Jev's own
+///    option at or above it;
+/// 3. `decide` runs it — an under-bar answer leaves the turn on its own
+///    profile, `unsure`, from whatever base, which is what `parent` means;
+/// 4. **the value is read, not merely agreed with**: a planted default naming
+///    a real model routes the under-bar answer *there*. Without this the test
+///    would pass just as well against a `decide` that ignored the pack and
+///    stayed by coincidence, which is what it did until this row;
+/// 5. `parent` names no catalog model and resolves to no profile, so staying
+///    is the only thing it can mean — it can never fall through to a lookup.
 ///
-/// Running it moves twelve tests, two of which are named rules in the opposite
-/// direction (`tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`
-/// and `tests_data_open::a_judged_clean_session_runs_on_the_restricted_model`),
-/// so which of the pack and the daemon is wrong is the owner's call. This test
-/// exists so that the day it is decided, closing the gap is a deliberate edit
-/// here and not a silent one.
+/// Until 2026-11-07 the pack declared `sonnet` and this path stood on the
+/// turn's own profile, so the reviewable table and the act were two rules.
+/// Honouring `sonnet` was built and measured and moved twelve tests, two of
+/// them named rules the other way
+/// (`tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`,
+/// `tests_data_open::a_judged_clean_session_runs_on_the_restricted_model`).
+/// The owner closed it from the pack's side instead, so those twelve stand.
 #[test]
-fn the_model_question_declares_a_default_the_live_path_does_not_run() {
+fn the_declared_default_is_what_the_live_path_runs() {
     // 1. Declared, and carried onto the answer by the ask.
-    assert_eq!(declared(), "sonnet");
+    assert_eq!(declared(), model::PARENT);
     let carried = theseus_judge::pack::by_name("route.v10")
         .expect("route.v10")
         .ask(&theseus_judge::pack::Dynamic::default())
         .iter()
         .find(|a| a.def == "model")
         .and_then(|a| a.no_match.clone());
-    assert_eq!(carried.as_deref(), Some("sonnet"));
+    assert_eq!(carried.as_deref(), Some(model::PARENT));
     // 2. `ran` applies it.
     let under = carrying("opus", 0.45, false, carried);
-    assert_eq!(under.ran(), Some("sonnet"));
+    assert_eq!(under.ran(), Some(model::PARENT));
     assert_eq!(pick("opus", 0.95, true).ran(), Some("opus"));
-    // 3. `decide` does not, for the declared value or for a planted one.
-    for planted in [Some("sonnet"), Some("haiku"), None] {
+    // 3. `decide` runs it: the parent's model, from any base.
+    for base in ["haiku", "fable", "sonnet"] {
+        let v = Verdict {
+            model: Some(pick("opus", 0.45, false)),
+            ..open("opus")
+        };
+        let got = d(&v, base, 1_000);
+        assert_eq!(
+            (got.profile.as_str(), got.reason, got.switch),
+            (base, Reason::Unsure, false),
+            "the declared `parent`, from {base}"
+        );
+        assert_eq!(got.hold, HoldNext::Clear);
+    }
+    // 4. Read, not agreed with: a planted default that names a model routes
+    //    there, and one the daemon cannot run is a `fallback`, not a stay.
+    for (planted, want) in [
+        (Some("sonnet"), ("sonnet", Reason::Verdict, true)),
+        (Some("fable"), ("fable", Reason::Verdict, true)),
+        (Some("kimi"), ("haiku", Reason::Fallback, false)),
+        (None, ("haiku", Reason::Unsure, false)),
+    ] {
         let v = Verdict {
             model: Some(carrying("opus", 0.45, false, planted.map(str::to_string))),
             ..open("opus")
@@ -213,10 +239,27 @@ fn the_model_question_declares_a_default_the_live_path_does_not_run() {
         let got = d(&v, "haiku", 1_000);
         assert_eq!(
             (got.profile.as_str(), got.reason, got.switch),
-            ("haiku", Reason::Unsure, false),
-            "declared {planted:?}: the turn's own profile, whatever the pack says"
+            want,
+            "a declared {planted:?} is what runs"
         );
     }
+    // 5. `parent` is no model and no profile: staying is all it can mean.
+    assert_eq!(model::model_of(model::PARENT), None);
+    assert_eq!(model::profile_for(model::PARENT, &five_options()), None);
+}
+
+/// Jev may name `parent` itself, above the bar: the same act, said as a
+/// verdict rather than as an unsure answer. No profile is looked up, so a base
+/// no profile runs is not turned into a `fallback`.
+#[test]
+fn a_sure_parent_answer_stays_on_the_turns_own_model() {
+    let v = open(model::PARENT);
+    let got = d(&v, "opus", 400_000);
+    assert_eq!(
+        (got.profile.as_str(), got.reason, got.switch),
+        ("opus", Reason::Verdict, false)
+    );
+    assert_eq!(got.hold, HoldNext::Clear);
 }
 
 #[test]
@@ -382,24 +425,32 @@ fn fixture() -> theseus_judge::Pack {
 
 /// Every option a pack's `model` question offers is one the daemon can run, and
 /// the table names no model the pack does not offer: the two lists are one. The
-/// fixture is route.v10's shape, so the check bites here; the embedded sweep
-/// below bites on the real route.v10 once it is in the build, and on any pack
-/// that later asks `model`.
+/// fixture carries the five models only, so the check bites here on the models
+/// themselves; **route.v10 is the five and then [`model::PARENT`]**, which
+/// names no model and is asserted separately, and the embedded sweep below
+/// bites on it and on any pack that later asks `model`.
 #[test]
 fn the_models_options_and_the_daemons_table_are_one_list() {
+    let offered = |p: &theseus_judge::Pack| -> Vec<String> {
+        p.questions
+            .iter()
+            .find(|q| q.id == "model")
+            .unwrap()
+            .options
+            .iter()
+            .map(|o| o.id.clone())
+            .collect()
+    };
+    let named: Vec<String> = model::OPTIONS.iter().map(|(o, _)| o.to_string()).collect();
     let pack = fixture();
     assert_eq!(model::unknown_options(&pack), Vec::<String>::new());
-    let offered: Vec<String> = pack
-        .questions
-        .iter()
-        .find(|q| q.id == "model")
-        .unwrap()
-        .options
-        .iter()
-        .map(|o| o.id.clone())
-        .collect();
-    let named: Vec<String> = model::OPTIONS.iter().map(|(o, _)| o.to_string()).collect();
-    assert_eq!(offered, named, "same options, same order");
+    assert_eq!(offered(&pack), named, "same options, same order");
+    // The acting pack: the table, then the one option that is not a model.
+    let v10 = theseus_judge::pack::by_name("route.v10").expect("route.v10");
+    assert_eq!(model::unknown_options(&v10), Vec::<String>::new());
+    let mut want = named;
+    want.push(model::PARENT.to_string());
+    assert_eq!(offered(&v10), want, "the table, then `parent`");
 }
 
 #[test]

@@ -647,7 +647,8 @@ mod tests {
     #[test]
     fn a_pick_under_the_confirm_bar_is_named_not_reported_as_a_different_answer() {
         let cases = vec![
-            // Right pick under the bar: the daemon runs sonnet, a miss.
+            // Right pick under the bar: the daemon runs the question's `no_match`
+            // (`sonnet` is this sample's; route.v10's own is `parent`), a miss.
             case(
                 "W18",
                 true,

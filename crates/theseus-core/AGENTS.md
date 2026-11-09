@@ -1810,12 +1810,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     fixed first profile. **The one site that is not Jev's** is the dream's guidance (`consolidate/guidance.rs`), a
     **named exception, not a gap** (theseus-xdi65; the owner, 2026-11-06: "given that dreaming is coding, this is
     probably sonnet high"): a set `[memory] synth_profile` pins it as everywhere, and an unset one **never asks Jev** but
-    runs `guidance::DREAM_MODEL` (Sonnet 5.5) at `DREAM_EFFORT` (high, `output_config.effort`, thinking still off for the
-    250-token cap). The why is on those constants: no turn to read, the text lands in every later compile of every
-    session holding the category, three calls a night under `synth_limit_usd_per_day`. The data rule stays: the call
+    runs `guidance::DREAM_MODEL` (Sonnet 5.5) at `DREAM_EFFORT` (high, `output_config.effort`) **with thinking on, under a
+    2048-token cap sized for it** (`guidance::MAX_TOKENS`; the owner, 2026-11-07 17:33: "I think it's ok to turn thinking on and
+    gently raise the budget"). It asked with thinking off under a 250-token cap until then, after Haiku 5.5's thinking had spent
+    that cap whole (theseus-050g2). The cap is the answer's ceiling plus a thinking allowance, with the numbers on the constant:
+    `DREAM_GUIDANCE_MAX` is 400 characters and nothing longer is ever kept, which is 134 tokens at the three-characters-a-token
+    estimate this tree uses, and the rest is for thinking. A model that thinks whether asked or not still waits (theseus-ohiu8),
+    because that allowance is sized for Sonnet's thinking on a small prompt and not for an always-thinking model's; such a model
+    is reachable only as the operator's pin. The why of the exception is on those constants: no turn to read, the text lands in
+    every later compile of every session holding the category, three calls a night under `synth_limit_usd_per_day`. The data rule stays: the call
     goes through the provider chokepoint, and `tests_guidance::the_dreams_model_is_cleared_for_private_material` fails if
     the constant ever names a model not cleared for private material. Tests: `tests_guidance.rs`
-    (`an_unset_synth_profile_dreams_on_sonnet_at_high_effort`, `a_set_synth_profile_still_pins_the_dream`),
+    (`an_unset_synth_profile_dreams_on_sonnet_at_high_effort`, `a_set_synth_profile_still_pins_the_dream`,
+    `the_cap_leaves_the_answer_room_behind_the_thinking`),
     `tests_job_ask.rs` (the rule),
     `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
     **A background call settles at the rate in force when it started** (theseus-058cl): `TurnRunner::priced(resp,
@@ -1880,7 +1887,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
     late `short` one's to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
     (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely (`routing::decide` is
-    `routing::model::decide`: Jev's `model` pick at the pack's own confirm bar, under the data rule's floor and the cache hold; row 6
+    `routing::model::decide`: Jev's `model` pick at the pack's own confirm bar, under the data rule's floor and the cache hold;
+    **an answer under that bar runs the question's own declared `no_match`**, read off the answer (`Pick::ran`, theseus-ig13o) and
+    not from a constant — route.v10 declares `parent`, a sixth option that names no model and means "the model this turn is
+    already on", so the under-bar act is `unsure` on the turn's own profile and the pack's reviewable table and the daemon are one
+    rule (the owner, 2026-11-07 16:46: "Parent"; it declared `sonnet` until then while the daemon stayed, and the replay graded
+    under-bar answers as Sonnet hits for a daemon that never routed that way). `model::PARENT` is deliberately outside
+    `model::OPTIONS`, the option-to-catalog-model table `catalog::tests_switch` holds equal to the price rule's candidates;
+    `routing::tests_model::the_declared_default_is_what_the_live_path_runs` holds the two sides together and plants a default
+    naming a real model, to prove the value is read and not merely agreed with. Row 6
     deleted the class table, the place cap, the dear tier's guard and the step down): a `short` context (that turn alone, compiled
     outside the session's compilation, which it never writes), or a switch of the session's
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. **What the hold
