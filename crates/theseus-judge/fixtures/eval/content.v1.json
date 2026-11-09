@@ -183,7 +183,7 @@
   "name": "sec_06_printenv",
   "why": "The output of printenv with a service password in it.",
   "input": {
-   "text": "HOME=/home/builder\nPATH=/usr/local/bin:/usr/bin\nSERVICE_USER=ingest\nSERVICE_PASSWORD=Tp5Xk9Lm2Qw7Rv3Zb8Nc\nTERM=xterm\n",
+   "text": "HOME=/Users/builder\nPATH=/usr/local/bin:/usr/bin\nSERVICE_USER=ingest\nSERVICE_PASSWORD=Tp5Xk9Lm2Qw7Rv3Zb8Nc\nTERM=xterm\n",
    "kind": "tool_result",
    "source": "proc.run printenv"
   },
@@ -353,7 +353,7 @@
   "input": {
    "text": "Marrowfield Therapeutics - CONFIDENTIAL. Phase 2 readout for compound HX-77: the primary endpoint was not met (p = 0.31). These results have not been disclosed to investors or regulators; the disclosure plan is with counsel.\n",
    "kind": "tool_result",
-   "source": "fs.read reports/hx77-phase2.txt"
+   "source": "fs.read results/hx77-phase2.txt"
   },
   "expect": {
    "confidential": "yes"
@@ -556,7 +556,7 @@
   "name": "clean_06_build_log",
   "why": "A build log with paths and warnings.",
   "input": {
-   "text": "   Compiling serde v1.0.200\n   Compiling mycrate v0.3.1 (/home/runner/work/mycrate/mycrate)\nwarning: unused variable: `idx`\n  --> src/parse.rs:41:9\nwarning: `mycrate` (lib) generated 1 warning\n    Finished dev [unoptimized + debuginfo] target(s) in 14.2s\n",
+   "text": "   Compiling serde v1.0.200\n   Compiling mycrate v0.3.1 (/Users/runner/work/mycrate/mycrate)\nwarning: unused variable: `idx`\n  --> src/parse.rs:41:9\nwarning: `mycrate` (lib) generated 1 warning\n    Finished dev [unoptimized + debuginfo] target(s) in 14.2s\n",
    "kind": "tool_result",
    "source": "proc.run cargo build"
   },
