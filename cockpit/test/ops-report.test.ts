@@ -59,3 +59,9 @@ test('the inspector draws the labelled report, its full-report toggle and every 
   assert.match(src, /f\.links\.map\(/, 'and the card’s links, not one hard-wired deck link')
   assert.doesNotMatch(src, /\{f\.report && <>/, 'the card’s own line is no longer drawn under a bare `report` label')
 })
+
+test('a line from another source than the whole never fronts it: the report’s own first line is shown', () => {
+  const reason = 'failed: out of budget'
+  assert.deepEqual(reportFacts(reason, LONG), { label: 'report (first line)', line: LINE, more: true, full: LONG })
+  assert.deepEqual(reportFacts(reason, LINE), { label: 'report (complete)', line: LINE, more: false })
+})
