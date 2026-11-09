@@ -14,7 +14,8 @@
 //! - **Three layers** (`tools.rs`): the plan (title, children, deps, owner)
 //!   applies; evidence only appends; the objective and acceptance, and
 //!   abandoning, are the operator's, and a change to them waits at the gate
-//!   as the floor's calls do, until the operator answers it.
+//!   as the floor's calls do, until the operator answers it (abandoning alone
+//!   follows an explicit `[policy.tools] task.close = "notify"`: it runs and tells them).
 //! - **A session's task follows its execution when read** (`state_now`):
 //!   running is `in_progress`, a card waiting `waiting_human`, a budget
 //!   question or a cancel `suspended`. Its record is written at its own

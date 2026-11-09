@@ -6,6 +6,8 @@
 //!
 //! - [`client`]: a connection to a daemon, over its socket or a spawned
 //!   `theseusd --stdio`. It prints nothing and knows no command line.
+//! - [`attach`]: a file as `turn.submit` carries it, for `ask --attach` and
+//!   the chat's image by path (theseus-vjzt).
 //! - [`render`]: what a terminal shows of the daemon's answers and events, as
 //!   [`render::Line`]s, each a text with a style tag. The CLI prints the
 //!   text, and the TUI styles it by its tag.
@@ -20,6 +22,7 @@
 //! - [`resolve`]: the one rule by which a command names a session, an
 //!   execution or a question: its id, or a unique end of it (theseus-0n1v).
 
+pub mod attach;
 pub mod client;
 pub mod current;
 pub mod names;

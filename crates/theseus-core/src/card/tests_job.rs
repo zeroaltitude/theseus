@@ -220,6 +220,33 @@ async fn a_run_proposes_cited_questions() {
     assert_eq!(stored.len(), 2);
 }
 
+/// The card's spend is counted by the day's ceiling (theseus-9n1i2): the
+/// day's read, as a restart makes it, finds the call's cost. The test reads
+/// the cost from the run's own `card.proposed` row and the day's total from
+/// `day_ceiling::read_today`, so taking `card.proposed` out of
+/// `SPEND_KINDS` leaves the total at zero and fails it. (Planted revert:
+/// delete `"card.proposed"` from `SPEND_KINDS`.)
+#[tokio::test]
+async fn a_proposed_card_call_is_inside_the_day_ceilings_spend() {
+    let r = rig(vec![two()], |_| {});
+    archive(&r).await;
+    propose(&r).await;
+    let spent = rows(&r.core, "card.proposed");
+    assert_eq!(spent.len(), 1, "the run made one call");
+    let cost = spent[0].data["cost_usd"].as_f64().unwrap();
+    let micros = theseus_kernel::usd_to_micros(cost);
+    assert!(micros > 0, "the call cost nothing: {cost}");
+    let day = crate::day_ceiling::read_today(&r.core.store, 0, "today", 200_000_000)
+        .unwrap()
+        .expect("the pages are built");
+    assert!(day.rows >= 1, "the day's read found no spend rows: {day:?}");
+    assert_eq!(
+        day.seed.spent, micros,
+        "the day ceiling does not count the card's call: is `card.proposed` in \
+         day_ceiling::SPEND_KINDS?"
+    );
+}
+
 /// A second run over the same history proposes nothing and asks nothing.
 /// (Planted revert: forget the sent episodes and the open proposals' sources
 /// in `state::seen`, and the second run calls again.)
@@ -861,10 +888,55 @@ async fn a_full_card_does_not_rerun_within_its_interval() {
     assert_eq!(log.count("card: the run finished"), 1);
 }
 
-/// A run that fails writes no state; it is not due again at once either.
+/// A failed attempt (the model's answer made no cards) waits one night, not
+/// the interval (theseus-kinfs): it leaves the stored last run alone, which
+/// is what the interval counts from, and the tender's own mark of the start
+/// moves only the night. The due point is asserted, not "sooner than a week".
+/// (Planted revert: set `last_run_ms` after a failed call again.)
+#[tokio::test]
+async fn a_failed_card_attempt_is_due_the_next_night_not_the_next_week() {
+    use super::tender::next_at_after;
+    let r = rig(vec![Scripted::tools("", &[])], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    assert!(
+        got.stopped.as_deref().unwrap().starts_with("a call failed"),
+        "{got:?}"
+    );
+    let stored = State::read(&r.core.store).unwrap().last_run_ms;
+    assert_eq!(
+        stored, None,
+        "a failed attempt is not a run the interval counts"
+    );
+    let cfg = &r.core.cfg;
+    let hour = cfg.judge.learning_hour;
+    let now = theseus_protocol::now_unix_ms();
+    let (at, _) = next_at_after(now, hour, cfg.card.every_days, stored, Some(now));
+    let night = crate::learning::tender::due(now, hour, Some(now)).0;
+    assert_eq!(at, night, "the next night's learning hour");
+    assert!(at <= now + 86_400_000 + 1, "{at} is more than a night away");
+    // A run that did succeed still waits the interval.
+    let (at, why) = next_at_after(now, hour, 7, Some(now), Some(now));
+    assert_eq!(why, "weekly");
+    assert!(at >= now + 7 * 86_400_000, "{at}");
+}
+
+/// A run that fails writes no state; it is not due again at once either, and
+/// it is due the next night, not the interval's week (theseus-kinfs). The
+/// tender reads the wall clock, which `start_paused` does not move, so the
+/// learning hour is set twelve hours from the local hour the test runs in:
+/// the next night is then eleven to twelve hours off, outside the window
+/// below, whatever hour the suite runs. With the default hour, a run between
+/// midnight and 03:00 had that night inside the window, and its second
+/// attempt counted there.
 #[tokio::test(start_paused = true)]
 async fn a_failed_card_run_is_not_due_again_at_once() {
-    let r = rig(vec![], |c| c.card.profile = Some("no-such-profile".into()));
+    use std::time::Duration;
+    let r = rig(vec![], |c| {
+        c.card.profile = Some("no-such-profile".into());
+        let here = crate::wake::local(theseus_protocol::now_unix_ms()).hour;
+        c.judge.learning_hour = ((here + 12) % 24) as u8;
+    });
     let log = Log::default();
     let _g = tracing::subscriber::set_default(
         tracing_subscriber::fmt()
@@ -873,11 +945,24 @@ async fn a_failed_card_run_is_not_due_again_at_once() {
             .finish(),
     );
     r.core.card_after_serving();
-    tokio::time::sleep(
-        crate::learning::tender::AFTER_START + std::time::Duration::from_secs(3 * 3600),
-    )
-    .await;
+    let window = crate::learning::tender::AFTER_START + Duration::from_secs(3 * 3600);
+    tokio::time::sleep(window).await;
     assert_eq!(log.count("card: the run did not happen"), 1);
+    // The second attempt is the next night's learning hour, which the window
+    // does not reach: not before it, and not a week later.
+    let now = theseus_protocol::now_unix_ms();
+    let hour = r.core.cfg.judge.learning_hour;
+    let night = crate::learning::tender::due(now, hour, Some(now)).0 - now;
+    let night = Duration::from_millis(night);
+    assert!(night > Duration::from_secs(3 * 3600 + 120), "{night:?}");
+    tokio::time::sleep(night - Duration::from_secs(3 * 3600 + 60)).await;
+    assert_eq!(log.count("card: the run did not happen"), 1);
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert_eq!(
+        log.count("card: the run did not happen"),
+        2,
+        "a failed attempt is due the next night, not after the interval"
+    );
 }
 
 /// A full queue pauses the job, it does not turn it off: once the owner

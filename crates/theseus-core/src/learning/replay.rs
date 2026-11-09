@@ -919,6 +919,18 @@ fn select(
     })
 }
 
+impl Seen {
+    /// This call's place and times, with another judgment.
+    fn answered_as(&self, judgment: Judgment) -> Seen {
+        Seen {
+            position: self.position,
+            at_ms: self.at_ms,
+            row_ms: self.row_ms,
+            judgment,
+        }
+    }
+}
+
 /// Both sides' numbers on the judgments the candidate answered, and what
 /// it fixed and broke.
 fn replay_result(
@@ -939,11 +951,7 @@ fn replay_result(
             let mut j = j.clone();
             // Graded by the incumbent's labels, which name its id.
             j.id = s.judgment.id.clone();
-            Seen {
-                position: s.position,
-                at_ms: s.at_ms,
-                judgment: j,
-            }
+            s.answered_as(j)
         })
         .collect();
     let all = Window {
@@ -1119,6 +1127,7 @@ mod tests {
         Seen {
             position: 1,
             at_ms: 1,
+            row_ms: 1,
             judgment,
         }
     }

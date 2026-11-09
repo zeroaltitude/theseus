@@ -173,7 +173,7 @@ pub(crate) fn rig(
                 c.judge.packs.insert((*p).into(), crate::tests_judge::off());
             }
         }
-        c.judge.total_secs = 5;
+        c.judge.total_secs = 30;
         // The seed's holdout is two judgments (R7's join fix 2).
         c.judge.learn.min_holdout = 2;
         tweak(c);

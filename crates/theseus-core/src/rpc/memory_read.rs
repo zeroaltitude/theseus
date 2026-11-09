@@ -43,7 +43,10 @@ impl Core {
                 self.rpc_memory_lookup(super::server::parse(params)?, conn.surface)
                     .await?,
             ),
-            _ => reply(self.memory_search(super::server::parse(params)?).await?),
+            _ => reply(
+                self.memory_search_for(super::server::parse(params)?, conn.surface.reads_private())
+                    .await?,
+            ),
         }
     }
 

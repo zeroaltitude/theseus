@@ -343,7 +343,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
   under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
-  call, so a stop keeps what was spent), an answer over 400 characters refused, never cut, a session whose first or last
+  call, so a stop keeps what was spent; a pinned `synth_profile` sends the dream's high effort too, `guidance.rs:337`, so a pinned dream costs more per call than it once did and can reach that daily limit), an answer over 400 characters refused, never cut, a session whose first or last
   message cannot be read left out (the category waits only below 5 left), a category that waits says why in `Dreamed.waits` (`Wait`: different profiles, a profile or provider that is missing, a model that thinks unasked, too few readable sessions, no price), which the tender logs, and `[ontology] dream_guidance` off (default
   on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
   write of the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim
@@ -364,6 +364,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and
   `standing::missing`, run by the situation step after `situation::check`, fails a compile whose system lacks one it
   should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`).
+  **Every head ends with `standing::FRAMING`** (theseus-ectzg): the records are the owner's, carried on every request, never
+  to be acknowledged, thanked or restated, so a model that reads the block as a message just received does not answer it.
+  The thread card, the task arrangement, the fan-out cue and the place digest (`compiler/place_digest.rs`) say the same of
+  themselves in their own words; a new block the harness writes into a request says it too. The engaged persona's tail
+  line (`engage::Engaged::line`) states a fact, not an instruction, and was judged not to need it.
   **A surface scope** (theseus-slvl.4, store format 34; `StandingScope::Surface(name)`, `terminal` for the CLI and the TUI,
   `cockpit`, `discord`, `voice`, `mcp`): the record is in no system block, so the system and tools stay byte-identical
   across surfaces. `Block::here` renders the turn's surface's records as a "Standing here:" block with the same kinds
@@ -2803,8 +2808,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `NOTHING NEW` when there is nothing to say, and such a run only logs (`TaskOf::target_for`, `routine::quiet`, the run's mark
   `routine.run:<task session>`). A run of a routine notifies at its limit instead of asking (`Kernel::overdraws`); A routine's **grant** (theseus-52tut, below) is its wake's `TaskRun.tools`. The model's `routine.create` (`routine_tool.rs`) is private-place only
   and always waits for the owner's yes: its plan names an authority, which `task_graph::tools::authority_for` keeps for it, and
-  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · up to $0.50 a
-  run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
+  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · its own budget, not a
+  system cap: up to $0.50 a run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
   Morning digest (next Fri)`, from `Book::made_in`, memory only). `[kernel] max_routines` moved to `[routines] max_routines`.
   **A start, an optional stop, and what a run carries** (theseus-97b8c; the owner 2026-10-28, "start, optional stop, interval,
   etc ... a super smart cron but internally treats it as a long term task", and "further bringing task stuff under deterministic
@@ -3385,6 +3390,22 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   writes no frame and takes no session or execution lock. The index counts a row at the time it was written, so the
   window's own times then decide by each row's `at_unix_ms`. Tests: `rpc/tests_window.rs` (a busy day's window, 6,000
   report rows in 13 pages, read in 0.14 s in a debug build).
+- **A search's words on a surface that reads none** (theseus-snb3, w9qv's lanes E and F; `rpc/search_text.rs`):
+  `index.query`, `memory.search` and `memory.recalls` take the connection's surface (`Surface::reads_private`) as
+  `import.sessions` and `session.history` do. A surface that reads no private text (Discord's binding, the MCP server, a
+  connection no listener named) is given every hit's ids, position, kind, origin, author, place, date, sources and scores,
+  and for a hit of a session in a private place (an imported one always: `TurnRunner::place_of`), or in a place that
+  cannot be read, no text (`WITHHELD` stands in) and no entities. A session in a shared place keeps its words: these
+  methods are told no place to speak for, so which shared place the caller is in is the pack's `may_draw_on`, not this.
+  It is defence in depth: the MCP server's allowlist leaves both searches out and the Discord binding calls neither.
+  What it does not do is hide that a private session holds the query's words, since the hit and its score stay (the
+  `import.sessions` rule drops the words instead). **A job reads what the CLI reads** (lane F): a job's own
+  `theseus memory index search` or `theseus memory search` asks the same socket as `Surface::Cli`, and the CLI refuses a
+  job only an owner's act (`OPERATORS`), so an L0 job reads outside-integrity text too (`IndexHit.external` says
+  which). That is the speed bump the root `AGENTS.md` names, said here for reads; the `external` marker does not
+  survive the copy into a program's result, which is an item the content classifier judges like any other
+  (`content.rs`), and under L1 the socket is out of the job's view. Tests: `rpc/tests_search_text.rs` (each method
+  over the CLI, the web UI, Discord's binding and an unnamed connection, positive counts on both sides).
 - **The ledger's hash chain** (theseus-bmkxk, store format 31): the store's writer chains every ledger row
   (`theseus-store`'s guide); core reads it. `ledger.verify` (`rpc/ledger_verify.rs`, a read: no frame, no lock, on the
   blocking pool; `theseus ledger verify|head`) walks it with `theseus_store::chain_walk::verify` and answers the head and

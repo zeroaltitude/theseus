@@ -169,6 +169,10 @@ pub struct Early {
     /// the turn wrote its message (theseus-slvl.5 on thread-route's early
     /// judge): the turn's session and the message's node, sent at `adopt`.
     pub said: Option<tokio::sync::oneshot::Sender<(String, String)>>,
+    /// Jev's breaker was open as the asks were begun, read before any of them
+    /// went out: what the turn that adopts them reads as its own, where five
+    /// failed calls of its own may open the breaker before it looks.
+    pub breaker_open: bool,
 }
 
 impl Early {
@@ -529,6 +533,7 @@ impl JudgeService {
             }
             false => (None, None),
         };
+        let breaker_open = self.breaker_open();
         rt.spawn(judge_inbound(
             self.me.clone(),
             packs,
@@ -544,6 +549,7 @@ impl JudgeService {
             thread: trx,
             scope: srx,
             said,
+            breaker_open,
         })
     }
 

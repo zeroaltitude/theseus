@@ -289,7 +289,10 @@ mod tests {
         s.backfill = Some(IndexBackfill {
             done_bytes: 0,
             total_bytes: 4096,
-            why: Some("its cursor was written by a build with another index schema".into()),
+            why: Some(
+                "this build's index schema 3 -> 4 (a rebuild window of a minute or so, recall read-degraded meanwhile)"
+                    .into(),
+            ),
         });
         let h = IndexHealth {
             state: "backfilling".into(),
@@ -298,7 +301,9 @@ mod tests {
         };
         let line = index_line(&h);
         assert!(
-            line.contains("why: its cursor was written by a build with another index schema"),
+            line.contains(
+                "why: this build's index schema 3 -> 4 (a rebuild window of a minute or so, recall read-degraded meanwhile)"
+            ),
             "{line}"
         );
         s.backfill.as_mut().unwrap().why = None;

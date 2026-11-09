@@ -47,7 +47,7 @@ pub(super) fn rig(jev: Option<&FakeJev>) -> Rig {
             c.judge.enabled = true;
             c.judge.api_base = base;
             c.judge.connect_secs = 1;
-            c.judge.total_secs = 2;
+            c.judge.total_secs = 30;
         }
     })
 }

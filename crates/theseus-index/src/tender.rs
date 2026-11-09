@@ -347,18 +347,36 @@ pub struct Step {
     pub committed: bool,
 }
 
-/// What a saved cursor was written under that this build is not, if
-/// anything: the cursor holds format, schema and extractor numbers, never a
-/// binary's identity, so an install that changes none of them resumes.
-fn cursor_differs(s: &Saved) -> Option<&'static str> {
-    if s.format != CURSOR_FORMAT {
-        Some("cursor format")
-    } else if s.schema != SCHEMA_VERSION {
-        Some("index schema")
-    } else if s.extractor != EXTRACTOR_VERSION {
-        Some("text extractor")
-    } else {
+/// Why a saved cursor cannot be kept, in words that name what changed: the
+/// cursor holds the format, schema and extractor numbers the index was built
+/// under, never a binary's identity, so an install that bumps none of them
+/// resumes (theseus-la5oc). `None`: it can be kept (or there is none to keep;
+/// the caller says "missing").
+pub(crate) fn rebuild_reason(
+    found: Option<&Saved>,
+    had_index: bool,
+    cursor_exists: bool,
+) -> Option<String> {
+    let Some(s) = found else {
+        return (cursor_exists && had_index).then(|| "its cursor file is unreadable".to_string());
+    };
+    let moved = [
+        ("cursor format", s.format, CURSOR_FORMAT),
+        ("index schema", s.schema, SCHEMA_VERSION),
+        ("extractor", s.extractor, EXTRACTOR_VERSION),
+    ];
+    let named: Vec<String> = moved
+        .iter()
+        .filter(|(_, was, now)| was != now)
+        .map(|(what, was, now)| format!("{what} {was} -> {now}"))
+        .collect();
+    if named.is_empty() {
         None
+    } else {
+        Some(format!(
+            "this build's {} (a rebuild window of a minute or so, recall read-degraded meanwhile)",
+            named.join(", ")
+        ))
     }
 }
 
@@ -376,15 +394,12 @@ impl Tender {
 
         // The saved cursor holds only for an index this build would write.
         let had_index = paths.bm25().join("meta.json").exists();
-        let on_disk: Option<Saved> = state::load(&paths.cursor());
-        let differs = on_disk.as_ref().and_then(cursor_differs);
-        let saved: Option<Saved> = on_disk.filter(|_| differs.is_none() && had_index);
+        let found: Option<Saved> = state::load(&paths.cursor());
+        let why = rebuild_reason(found.as_ref(), had_index, paths.cursor().exists());
+        let saved = found.filter(|_| why.is_none() && had_index);
         let mut why_rebuild = None;
         if saved.is_none() && (had_index || paths.cursor().exists()) {
-            why_rebuild = Some(match differs {
-                Some(what) => format!("its cursor was written by a build with another {what}"),
-                None => "its cursor is missing or unreadable".to_string(),
-            });
+            why_rebuild = Some(why.unwrap_or_else(|| "its cursor is missing".to_string()));
         }
         if saved.is_none() {
             let _ = fs::remove_dir_all(paths.bm25());

@@ -32,7 +32,23 @@ pub fn next_at(
     every_days: u32,
     last_run_ms: Option<u64>,
 ) -> (u64, &'static str) {
-    let (at, trigger) = due(now_ms, hour, last_run_ms);
+    next_at_after(now_ms, hour, every_days, last_run_ms, None)
+}
+
+/// [`next_at`], with the tender's own mark of this process's last attempt
+/// (`ran_ms`). The interval counts from the stored last run alone, which a
+/// failed attempt does not move (theseus-kinfs); the process's mark only
+/// keeps an attempt from being due again before the next learning hour. So a
+/// failed attempt is due the next night, and a run that wrote its mark waits
+/// the interval.
+pub fn next_at_after(
+    now_ms: u64,
+    hour: u8,
+    every_days: u32,
+    last_run_ms: Option<u64>,
+    ran_ms: Option<u64>,
+) -> (u64, &'static str) {
+    let (at, trigger) = due(now_ms, hour, last_run_ms.max(ran_ms));
     let floor = last_run_ms.map_or(0, |l| l + u64::from(every_days) * DAY_MS);
     if at >= floor {
         return (at, trigger);
@@ -64,8 +80,13 @@ impl Core {
                 let hour = c.cfg.judge.learning_hour;
                 let archive = (c.cfg.card.every_days > 0 && !st.done).then(|| {
                     let here = ran_at.load(Ordering::Relaxed);
-                    let last = st.last_run_ms.max((here > 0).then_some(here));
-                    next_at(now, hour, c.cfg.card.every_days, last)
+                    next_at_after(
+                        now,
+                        hour,
+                        c.cfg.card.every_days,
+                        st.last_run_ms,
+                        (here > 0).then_some(here),
+                    )
                 });
                 let live = c.cfg.card.observe.then(|| {
                     let here = live_at.load(Ordering::Relaxed);
@@ -121,8 +142,8 @@ impl Core {
         let archive_on = cfg.every_days > 0 && !st.done;
         let archive_due = archive_on && {
             let here = ran.load(Ordering::Relaxed);
-            let last = st.last_run_ms.max((here > 0).then_some(here));
-            next_at(now, hour, cfg.every_days, last).0 <= now
+            let ran = (here > 0).then_some(here);
+            next_at_after(now, hour, cfg.every_days, st.last_run_ms, ran).0 <= now
         };
         let live_due = cfg.observe && {
             let here = ran_live.load(Ordering::Relaxed);

@@ -48,7 +48,9 @@ export interface CardFacts {
   due?: string
   /** Where the inspector sends the owner beside the title: its deck, and for a task or a conversation its transcript.
    *  A task's forum post is not here: the daemon keeps that address in its Discord runtime and no protocol type
-   *  carries it to the page (theseus-emqbm). */
+   *  carries it to the page (theseus-emqbm). The Discord runtime already builds task-to-URL maps for its own board
+   *  (`Shared::task_links`, `theseus-discord/src/runtime/forum.rs`), so the route is a protocol field filled through a
+   *  registry that runtime sets, not a core-side read of its `discord.task_posts` key. */
   links: CardLink[]
 }
 

@@ -148,24 +148,43 @@ fn word(v: &Value) -> String {
 }
 
 /// What a failed action's producer names, for a key: `backend:name` (as
-/// `harness:fs.read` or `provider:anthropic`) when the backend is one whose
-/// second part is a tool, a provider or a hand's backend, else the backend
-/// alone. The first word alone put every in-process tool's failure in one
-/// cause (`harness`), which no one fix can close; `wrapper:<pid>` and
-/// `reconciler:<why>` stay a word, since their second part is not a stable
-/// name.
+/// `harness:fs.read`, `async:aws.s3.get`, `inproc:fs.read` or
+/// `provider:anthropic`) when the backend is one whose second part is a tool,
+/// a provider or a hand's backend, else the backend alone. The first word
+/// alone put every tool's failure of a backend in one cause (`harness`,
+/// `async`: all of AWS and Google), which no one fix can close;
+/// `wrapper:<pid>`, `reconciler:<why>` and `hands:<why>` stay a word, since
+/// their second part is not a stable name. An MCP tool is `mcp:ext-<server>/<tool>`:
+/// it is named by its server (`async:mcp.ext_server`), not its tool, since
+/// the server is what one fix closes. Items filed under the old key (`async`,
+/// `inproc`) keep it: there is no migration.
 fn producer(v: &Value) -> String {
-    const NAMED: &[&str] = &["harness", "hand", "provider"];
+    const NAMED: &[&str] = &["harness", "hand", "provider", "async", "inproc"];
     let s = v.as_str().unwrap_or("").trim();
     let head = word(v);
     let name = s
         .split_once(':')
         .filter(|_| NAMED.contains(&head.as_str()))
-        .map(|(_, rest)| word(&Value::from(rest)))
+        .map(|(_, rest)| tool_word(rest))
         .filter(|n| n != "unknown");
     match name {
         Some(n) => format!("{head}:{n}"),
         None => head,
+    }
+}
+
+/// A tool's word: its name, or for an MCP tool `mcp.<server>` (cut at `/`,
+/// `-` kept as `_`).
+fn tool_word(rest: &str) -> String {
+    match rest.strip_prefix("mcp:") {
+        Some(m) => {
+            let server = m.split('/').next().unwrap_or("").replace('-', "_");
+            match word(&Value::from(server)) {
+                w if w == "unknown" => "mcp".into(),
+                w => format!("mcp.{w}"),
+            }
+        }
+        None => word(&Value::from(rest)),
     }
 }
 
@@ -526,6 +545,7 @@ fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
 pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Obs>> {
     let tags: Vec<String> = KINDS.iter().map(|k| ledger_kind(k)).collect();
     let mut out = Vec::new();
+    let mut twins = Twins::default();
     let (mut before, mut seen) = (None, 0usize);
     loop {
         let page = Page {
@@ -548,6 +568,7 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
             if row.at_unix_ms <= since_ms || row.at_unix_ms > until_ms {
                 continue;
             }
+            twins.note(r.position, &row);
             if let Some(o) = of_row(r.position, &row) {
                 out.push(o);
             }
@@ -557,8 +578,53 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
             _ => break,
         }
     }
+    let doubled = twins.doubled();
+    out.retain(|o| !doubled.contains(&o.id));
     out.sort_by(|a, b| a.at_ms.cmp(&b.at_ms).then_with(|| a.id.cmp(&b.id)));
     Ok(out)
+}
+
+/// A failed model call writes two rows: the kernel's `action.failed` (producer
+/// `provider:<name>`) and `provider.error`, both with the call's correlation
+/// id. They are one failure, so the action row is left out when its twin is in
+/// the window. Pairing is across pages, after the loop. A call with no twin (a
+/// compaction's summary writes none) or whose twin lies outside the window
+/// stays filed.
+#[derive(Default)]
+struct Twins {
+    errors: std::collections::HashSet<String>,
+    actions: Vec<(String, String)>,
+}
+
+impl Twins {
+    fn note(&mut self, pos: u64, row: &LedgerRow) {
+        let Some(id) = row.data["correlation_id"].as_str() else {
+            return;
+        };
+        match row.kind.as_str() {
+            "provider.error" => {
+                self.errors.insert(id.to_string());
+            }
+            "action.failed"
+                if row.data["producer"]
+                    .as_str()
+                    .is_some_and(|p| p.starts_with("provider:")) =>
+            {
+                self.actions.push((format!("ledger:{pos}"), id.to_string()));
+            }
+            _ => {}
+        }
+    }
+
+    /// The observation ids of the action rows that have a twin.
+    fn doubled(self) -> std::collections::HashSet<String> {
+        let errors = self.errors;
+        self.actions
+            .into_iter()
+            .filter(|(_, id)| errors.contains(id))
+            .map(|(o, _)| o)
+            .collect()
+    }
 }
 
 /// Health's warnings, as observations dated `date`: a disk under its
@@ -894,6 +960,26 @@ mod tests {
         assert_eq!(failed_action_key("hands:reaper"), "action.failed:hands");
         assert_eq!(failed_action_key("proc"), "action.failed:proc");
         assert_eq!(failed_action_key("harness"), "action.failed:harness");
+    }
+
+    /// An async or in-process tool is named, as a harness one is: every AWS
+    /// and Google tool filed under one `async` cause.
+    #[test]
+    fn an_async_or_inproc_tool_failure_names_its_tool() {
+        let s3 = failed_action_key("async:aws.s3.get");
+        let mail = failed_action_key("async:google.mail.send");
+        assert_eq!(s3, "action.failed:async:aws.s3.get");
+        assert_eq!(mail, "action.failed:async:google.mail.send");
+        assert_ne!(s3, mail);
+        assert_eq!(
+            failed_action_key("inproc:fs.read"),
+            "action.failed:inproc:fs.read"
+        );
+        assert_eq!(
+            failed_action_key("async:mcp:ext-wordcount/count"),
+            "action.failed:async:mcp.ext_wordcount"
+        );
+        assert_eq!(failed_action_key("async"), "action.failed:async");
     }
 
     fn note_of(kind: &str, data: Value) -> String {

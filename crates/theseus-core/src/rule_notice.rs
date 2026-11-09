@@ -221,10 +221,6 @@ pub const EXEMPT: &[(Rule, &str)] = &[
         Rule::D5,
         "its stop site, rsi/sealed/relay.rs, is a keel-held file: wiring it waits for the owner's Keel ack",
     ),
-    (
-        Rule::F1,
-        "the stop happens inside AWS Budgets, not in this process; no code path here sees it",
-    ),
 ];
 
 impl Rule {

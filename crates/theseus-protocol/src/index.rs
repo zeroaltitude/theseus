@@ -578,7 +578,9 @@ pub struct IndexStatus {
     #[serde(default)]
     pub files_cut: u64,
     /// Kept files whose read text could not be read (its blob gone, or in
-    /// no shape this build knows): their node is indexed without it.
+    /// no shape this build knows, or whose bytes no longer hash to their
+    /// name): their node is indexed without it. A non-zero count on a store
+    /// with on-disk damage is the digest guard working, not a new fault.
     #[serde(default)]
     pub files_unread: u64,
     pub rebuilds: u64,

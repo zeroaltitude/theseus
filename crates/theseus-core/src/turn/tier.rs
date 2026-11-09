@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use super::{Turn, TurnRunner};
-use crate::config::{Config, PackMode};
+use crate::config::Config;
 use crate::judge::inbound::RouteWait;
 use crate::routing::Verdict;
 use crate::toolrun::session_dir::read_window;
@@ -144,6 +144,11 @@ pub fn is_coding(v: &Verdict) -> bool {
 
 /// The verdict says the reply needs the least effort: `effort.v1`'s `low` at
 /// its confirm bar (a greeting, small talk).
+///
+/// UNPROVEN: no test shows that `effort.v1` calls a real greeting `low`. The
+/// tests that read this (`tests_tier_manifest`) script the verdict with a
+/// `FakeJev`, so a green one proves the plumbing from a `low` verdict to the
+/// shadow `would_drop`, not that the bar would fire on real small talk.
 pub fn is_low_effort(v: &Verdict) -> bool {
     v.effort
         .as_ref()
@@ -151,6 +156,18 @@ pub fn is_low_effort(v: &Verdict) -> bool {
 }
 
 impl InjectionBudget {
+    /// The shadow small-talk bar's mark for a turn whose verdict landed after
+    /// the pack fixed a `Late` budget (theseus-fpm2): `injection_read` returns
+    /// at once once a budget is fixed, so without this a `low` verdict that
+    /// arrives late never sets `low_effort` and the turn is silently missing
+    /// from the shadow's sample. It sizes nothing: only the mark moves, and
+    /// only for a budget that fell back for want of a verdict.
+    pub(super) fn raise_low_effort(&mut self, verdict: Option<&Verdict>) {
+        if self.fallback == Some(LATE) && verdict.is_some_and(is_low_effort) {
+            self.low_effort = true;
+        }
+    }
+
     pub fn of((tier, fallback): (Tier, Option<&'static str>), cfg: &Config) -> Self {
         let (m, d) = (&cfg.memory, &cfg.tools.defer);
         let (recall_tokens, recall_items, admit_ceiling) = match tier {
@@ -226,8 +243,7 @@ impl TurnRunner {
         if let Some(b) = &t.route.injection {
             return b.clone();
         }
-        let live = t.route.mode.unwrap_or(PackMode::Shadow) >= PackMode::Canary
-            && !self.judge.breaker_open();
+        let live = t.route.live();
         let deciding = t.route.wait.is_some() && live && t.route.steer.is_none();
         let peeked = match deciding {
             true => peek(&mut t.route.wait),

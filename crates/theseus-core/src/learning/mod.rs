@@ -90,6 +90,8 @@ pub struct Seen {
     /// When its row was written; a backfilled one's, when its event
     /// happened (`context.event_at_ms`, 25d).
     pub at_ms: u64,
+    /// When its row was written, backfilled or not: what "failing now" reads.
+    pub row_ms: u64,
     pub judgment: Judgment,
 }
 
@@ -150,6 +152,7 @@ pub fn read_scope(store: &Store, pack_id: &str) -> anyhow::Result<Scope> {
                     .push(Seen {
                         position: r.position,
                         at_ms,
+                        row_ms: row.at_unix_ms,
                         judgment,
                     });
             }

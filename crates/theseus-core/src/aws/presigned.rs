@@ -59,6 +59,19 @@
 //! is: the value is on the secrets board under its handle, the result says
 //! so, and nothing is lost — it is withheld from the model, not from the
 //! machine.
+//!
+//! **The vocabulary is a guard, and how it is kept.** [`SIGNATURE`],
+//! [`KEYED_BY`] and [`SCHEMES`] are hand-kept lists: a spelling missing from
+//! them is a presigned URL the model reads. They are therefore judged against
+//! a walk, not against themselves (`crates/complete.rs`):
+//! `tests_presigned::the_presigned_vocabulary_holds_every_parameter_the_real_signer_writes`
+//! reads the URL the repository's own SigV4 signer writes and fails on any
+//! parameter the lists do not hold. That reaches the SigV4 spelling only. The
+//! older query signing (`Signature`, `AWSAccessKeyId`) and CloudFront's
+//! (`Key-Pair-Id`) are AWS's, no walk here enumerates them, and they stay by
+//! hand. The pass also covers `out.body` and not `out.next`: a continuation
+//! is an opaque cursor or an id in every paginator of the catalog
+//! (`tests_presigned::no_paginator_token_names_a_credential_or_a_url`).
 
 use serde_json::{json, Value};
 
@@ -67,7 +80,7 @@ use crate::secrets::{Secret, SecretBoard};
 
 /// Query parameters whose value is a signature. A presigned URL has one
 /// with a non-empty value; nothing else does.
-const SIGNATURE: &[&str] = &["x-amz-signature", "signature"];
+pub(super) const SIGNATURE: &[&str] = &["x-amz-signature", "signature"];
 
 /// Query parameters that name the key a signature was made with. One of
 /// these beside a [`SIGNATURE`] is what tells a signed URL from a field that
@@ -77,7 +90,7 @@ const SIGNATURE: &[&str] = &["x-amz-signature", "signature"];
 /// A CloudFront custom policy's `Policy` parameter is deliberately not here:
 /// a URL that carries one carries `Key-Pair-Id` as well, so the row would
 /// add nothing but a false-positive surface on an ordinary `?policy=` field.
-const KEYED_BY: &[&str] = &[
+pub(super) const KEYED_BY: &[&str] = &[
     "x-amz-credential",
     "x-amz-algorithm",
     "awsaccesskeyid",

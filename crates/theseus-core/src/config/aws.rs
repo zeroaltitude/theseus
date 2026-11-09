@@ -376,6 +376,17 @@ impl super::Config {
             }
             a.check_runaway_factor(id)?;
         }
+        self.check_durability()?;
+        for key in self.policy.aws.keys() {
+            aws_policy_key(key).map_err(anyhow::Error::msg)?;
+        }
+        Ok(())
+    }
+
+    /// Durability ships the store from one account, and only through its
+    /// role (split out of `validate_aws` to keep it under clippy's line
+    /// ceiling).
+    fn check_durability(&self) -> Result<()> {
         let shipping: Vec<&String> = self
             .aws
             .accounts
@@ -402,9 +413,6 @@ impl super::Config {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-        }
-        for key in self.policy.aws.keys() {
-            aws_policy_key(key).map_err(anyhow::Error::msg)?;
         }
         Ok(())
     }

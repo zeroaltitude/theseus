@@ -405,6 +405,11 @@ impl JudgeService {
             .await;
         let (_, spent) = self.settle_round(today, need, &retried);
         spent_all += spent;
+        // `Judge::judge` gives one judgment per ask, in the asks' order
+        // (theseus-judge's `judge.rs`): `again` was built from `failed`, so the
+        // zip pairs each retry with the ask it repeats. A change there would
+        // silently mis-attribute these ids as well as the costs.
+        debug_assert_eq!(retried.len(), failed.len());
         for ((i, _, _), j) in failed.iter().zip(&retried) {
             ids[*i] = j.id.clone();
         }
