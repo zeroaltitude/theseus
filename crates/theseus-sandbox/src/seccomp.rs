@@ -225,7 +225,12 @@ pub fn program() -> Vec<sock_filter> {
     p.push(jmp(JGE, X32_SYSCALL_BIT, To::Kill, To::Next));
     p.push(jmp(JEQ, libc::SYS_clone as u32, To::CloneFlags, To::Next));
     p.push(jmp(JEQ, libc::SYS_clone3 as u32, To::Enosys, To::Next));
-    p.push(jmp(JEQ, libc::SYS_socket as u32, To::SocketFamily, To::Next));
+    p.push(jmp(
+        JEQ,
+        libc::SYS_socket as u32,
+        To::SocketFamily,
+        To::Next,
+    ));
     for (_, nr) in denied() {
         p.push(jmp(JEQ, nr as u32, To::Eperm, To::Next));
     }
