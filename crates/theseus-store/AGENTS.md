@@ -66,8 +66,11 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   and a roll's sync is one of them. The log is broken instead (it refuses frames, saying why) when the cut or its
   sync fails, or when the open found frames past the last position known synced and no sync has covered them yet:
   their writer may have answered them. Followers meet the cut as a rewind (theseus-follow checks the frame behind
-  its cursor after each read). An index write that fails after a good sync still fails its batch, and its frames,
-  durable, come back at the next open: not yet fixed.
+  its cursor after each read). An index write that fails after a good sync is tried again, up to three times
+  (`index_batch`, theseus-lu5n): its frames are durable, and `apply` over what a failed one left equals one whole
+  `apply` (`tests/index_reapply.rs` holds that for every cut of a tombstone batch), so a retry is safe. The batch is
+  answered Ok once indexed. After the third failure it still fails, its frames, durable, coming back at the next
+  open, and the ledger chain head is not advanced for them (the next batch chains from the stale head): not yet fixed.
 - **The version rule: one format number** (P5b; Part III F4a; theseus-ptx1, Tier 7's 7.9 as the owner amended it). Any
   step that adds a field to a stored record (nested ones included), or changes the frame or record encoding, bumps
   `MANIFEST_FORMAT`, so an older binary refuses the newer store. It lands with the reader for the layout it replaces

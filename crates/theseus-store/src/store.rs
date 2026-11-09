@@ -339,6 +339,10 @@ struct Inner {
     /// disk's own can outrun the plant (theseus-1b2zm).
     #[cfg(test)]
     commit_extra_ms: AtomicU64,
+    /// A test's way to fail the next index writes, as a full disk does: this
+    /// many `apply`s fail with an injected error before they touch the index.
+    #[cfg(test)]
+    index_fail: std::sync::atomic::AtomicU32,
     /// A test's way to hold a checkpoint, as a disk under writeback holds
     /// one: the next checkpoint waits until this channel's sender sends or
     /// drops.
@@ -476,6 +480,9 @@ fn run_blocking(f: &mut dyn FnMut()) {
         _ => f(),
     }
 }
+
+/// How many times a batch's index write is tried before its frames fail.
+const INDEX_TRIES: u32 = 3;
 
 /// tokio's budget for one poll of a task (`Budget::initial`, tokio 1.53).
 /// `tests_blocking` fails if a section leaves any of it.
@@ -1354,6 +1361,8 @@ impl Inner {
             #[cfg(test)]
             commit_extra_ms: AtomicU64::new(0),
             #[cfg(test)]
+            index_fail: std::sync::atomic::AtomicU32::new(0),
+            #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
             refused: Mutex::new((BTreeSet::new(), 0)),
             chain: Mutex::new(chain_writer::ChainState::default()),
@@ -1550,6 +1559,36 @@ impl Inner {
         }
     }
 
+    /// The batch's index write, tried up to `INDEX_TRIES` times: its frames are
+    /// durable already, and `apply` over what a failed one left equals one
+    /// whole `apply` (`tests/index_reapply.rs`), so a retry is safe. A failure
+    /// past the bound is the caller's, as it was before the retry.
+    fn index_batch(&self, entries: &[IndexEntry]) -> Result<()> {
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            #[cfg(test)]
+            let injected = self
+                .index_fail
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok();
+            #[cfg(not(test))]
+            let injected = false;
+            let wrote = if injected {
+                Err(anyhow::anyhow!("an injected index failure"))
+            } else {
+                self.index.apply(entries, false)
+            };
+            match wrote {
+                Ok(()) => return Ok(()),
+                Err(e) if tries >= INDEX_TRIES => {
+                    return Err(e.context(format!("the index write failed {tries} times")))
+                }
+                Err(e) => tracing::warn!(tries, "the index write failed, trying again: {e:#}"),
+            }
+        }
+    }
+
     /// Write, sync, index, and answer one batch.
     fn commit(&self, mut batch: Vec<Job>) {
         let began = std::time::Instant::now();
@@ -1624,7 +1663,7 @@ impl Inner {
             if entries.is_empty() {
                 Ok(())
             } else {
-                self.index.apply(&entries, false)
+                self.index_batch(&entries)
             }
         });
         if indexed.is_ok() {
@@ -2048,6 +2087,8 @@ mod tests_blocking;
 mod tests_chain;
 #[cfg(test)]
 mod tests_frame_times;
+#[cfg(test)]
+mod tests_index_retry;
 #[cfg(test)]
 mod tests_keyed;
 #[cfg(test)]
