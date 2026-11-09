@@ -205,14 +205,21 @@ async fn a_wrong_must_case_is_shown_with_jevs_option_and_confidence_and_the_must
 
 /// theseus-mir9c: the replay grades what routing decides. A pick under a
 /// question's `confirm` bar is that question's `no_match` (route.v10's `model`:
-/// `sonnet`; effort.v1's: `high`), the way the daemon's `sure` reads it; the raw
-/// picks are counted beside.
+/// `parent`, the model the turn is already on, since the owner's one word of
+/// 2026-11-07 16:46, theseus-ig13o; effort.v1's: `high`), the way the daemon's
+/// `sure` reads it; the raw picks are counted beside. The grade is the pack's
+/// own declared default, so the test reads that default off the pack and holds
+/// the graded answer equal to it, beside the literal each is today. No case in
+/// the cases file is labelled `parent`, so an under-bar `model` answer is a miss
+/// however right the pick was (W18's `opus` below); `theseus-judge`'s
+/// `tests_route_v10` says what that costs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let jev = FakeJev::start().unwrap();
     let r = cases_rig(&jev);
     script(&jev, "route.v10", V10, "model", &|id| match id {
-        // W18 wants opus: a right opus under the bar runs sonnet.
+        // W18 wants opus: a right opus under the bar runs `parent`, the model the
+        // turn is already on, so it is a miss.
         "W18" => Some(("opus", 0.35)),
         // L2 wants haiku: haiku at the bar (0.40, route.v10's model bar) stands.
         "L2" => Some(("haiku", 0.40)),
@@ -228,6 +235,13 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
     let out = r.core.judge_replay(params(), "cli").await.unwrap();
     let cases = out.cases.unwrap();
     let get = |id: &str| cases.cases.iter().find(|c| c.id == id).unwrap();
+    // A question's declared `no_match`, read off the embedded pack the replay was graded by.
+    let declared = |pack: &str, question: &str| {
+        theseus_judge::pack::by_name(pack)
+            .expect("the pack is embedded")
+            .question(question)
+            .and_then(|q| q.no_match.clone())
+    };
     let w18 = get("W18");
     assert_eq!(
         (
@@ -237,7 +251,12 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
             w18.model.confirm,
             w18.model.confidence
         ),
-        ("opus", "sonnet", true, 0.40, 0.35)
+        ("opus", "parent", true, 0.40, 0.35)
+    );
+    // The graded answer is the pack's declared default, not a value that merely agrees with it.
+    assert_eq!(
+        declared("route.v10", "model").as_deref(),
+        Some(w18.model.got.as_str())
     );
     assert!(!w18.model.agrees && w18.model.raw_agrees);
     // At the bar, nothing changes.
@@ -269,6 +288,10 @@ async fn a_pick_under_the_confirm_bar_is_graded_as_its_questions_no_match() {
             l3.effort.sub_confirm
         ),
         ("medium", "high", true)
+    );
+    assert_eq!(
+        declared("effort.v1", "effort").as_deref(),
+        Some(l3.effort.got.as_str())
     );
     assert!(!l3.effort.agrees && l3.effort.close && l3.effort.raw_agrees);
     let l11 = get("L11");
