@@ -11,7 +11,7 @@ previous fix. This note is the rule, so the fourth finding is the last one found
 | `session.history`'s nodes (`text`, `thinking`, `detail`, `cites`) | 2026-11-08 | closed: `history_on(p, conn.surface)` (`rpc/server.rs:326`), `withheld_node` |
 | `session.history`'s `session` block — its `title` | 2026-11-08, reviewing the fix | **open**: `methods.rs:1311` builds `session_info` outside the withhold branch |
 | `node.list` | 2026-11-08, reviewing the fix | routed with no surface (`rpc/server.rs:333`); out of MCP's reach only because `NODE_LIST` is absent from `mcp_server::ALLOWED` |
-| `session.list` / `session.find` with `with_text` (`first_text`, `last_text`, `prompts`, `title`) | 2026-11-09 | **open**: routed through `sessions::OWN` (`rpc/server.rs:318`) with no surface argument |
+| `session.list` — its `title`, by the `ids` path | 2026-11-09 | **open**: routed through `sessions::OWN` (`rpc/server.rs:318`) with no surface argument |
 
 All four are the same shape: **a read method that returns a session's content, routed to every surface,
 with no surface check**. Three of the four were latent rather than designed-safe: they are out of an MCP
@@ -107,11 +107,10 @@ unaffected — so a test that loaded nothing cannot pass.
 
 Nothing, on this base, that the owner would notice.
 
-- **`session.list` / `session.find`.** The only callers that pass `with_text` are the CLI's `-c`/`-r` picker
-  and the cockpit, both `reads_private()` surfaces; they are unaffected. A Discord-binding or unnamed-surface
-  caller loses an imported session's `title`, `first_text`, `last_text` and `prompts` and keeps the row, its
-  id, its counts and its state — the same shape `session.history` already answers with. No caller on this
-  base asks for those fields from such a surface.
+- **`session.list`.** A Discord-binding or unnamed-surface caller loses an imported session's `title` and
+  `title_was` and keeps the row, its id, its counts and its state — the same shape `session.history` already
+  answers with. No caller on this base asks for them from such a surface. The `with_text` fields are
+  withheld with it, but they were never reachable: see the correction below.
 - **`session.history`'s `session.title`.** Discord's in-process binding reads history. For an imported
   session it will now see no title. That is a visible change and it is the point of the finding.
 - **`node.list`.** Left as it is by this note: it takes no surface, and closing it means giving it one. It is
@@ -122,6 +121,28 @@ Nothing, on this base, that the owner would notice.
   `place_of` reads it private. Either answer is defensible — the setting is the owner's explicit yes, and the
   episodes are the owner's own words — and the design does not pre-empt it. If the answer is "withhold", the
   mechanism is already written: `nodes_of` gains the `is_imported` check beside its `place_of` one.
+
+## A correction to the follow-up this note answers
+
+The reviewer's line said `session.list`/`session.find` with `with_text` returns an imported session's
+`first_text`, `last_text`, `prompts` **and** `title` to every surface. Three of those four it cannot, and the
+difference is worth writing down because it changes where the door is.
+
+`with_text` is filled only on the scanning path (`rpc/session_find.rs`'s `session_list_scanning`, which calls
+`words_of`), and every scanning path reads `live_sessions` (`store.rs:860`) or `sessions_paged`
+(`rpc/pages.rs:171`). Both step past the imported keys by construction — that is theseus-7087, and it is there
+for speed as much as for privacy, since the imported keys are one run in key order. So **no imported session
+reaches a `with_text` answer at all.**
+
+What is open is `session.list { ids }` (`rpc/methods.rs`'s `session_list_unfiltered`), which reads each named
+record straight from the store with no import filter, and hands back its `title` — `session::title_from` of
+the episode's summary or its first message, which `import::write` fills, so up to sixty characters of the
+owner's own words. It does not fill the `with_text` fields.
+
+The fix is unaffected: the withhold sits after every path `session.list` can take, so it covers the `ids` path
+and would cover a `with_text` path if one ever reached an imported session. The test holds both halves, the
+open path refused and the closed one asserted closed with its positive count, so a later change that lets the
+scanning path through an imported key cannot pass in silence.
 
 ## What this note does not do
 
