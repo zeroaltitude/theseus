@@ -110,6 +110,7 @@ impl Ladder {
     pub fn land(&self, pack: &str, event: CanaryEvent) -> Vec<PackModeRow> {
         self.with(|l, me| {
             let id = id_of(pack).to_string();
+            let spend = matches!(event, CanaryEvent::TaskSpend { .. });
             let f = crate::fact::ladder::PackEventLanded {
                 pack,
                 event: &event,
@@ -127,13 +128,20 @@ impl Ladder {
                     tracing::warn!(error = %format!("{e:#}"), pack, "judge: an event the ladder counts was not written");
                 }
             }
-            me.check_in(l, Some(&id))
+            me.check_in(l, Some(&id), spend)
         })
     }
 
     /// Check every version that acts (of `only` the pack id given), and roll
-    /// back each one a rule fires for.
-    pub(crate) fn check_in(&self, l: &mut Loaded, only: Option<&str>) -> Vec<PackModeRow> {
+    /// back each one a rule fires for. `spend` says the spend rule's input
+    /// moved or the nightly check asked, so a decision it declines is
+    /// recorded (`note_spend_held`).
+    pub(crate) fn check_in(
+        &self,
+        l: &mut Loaded,
+        only: Option<&str>,
+        spend: bool,
+    ) -> Vec<PackModeRow> {
         let versions: Vec<String> = l
             .rows
             .keys()
@@ -159,10 +167,11 @@ impl Ladder {
                         .collect()
                 })
                 .unwrap_or_default();
-            let Some(fired) = learn::check_all(&rules_of(&pack), &events)
-                .into_iter()
-                .next()
-            else {
+            let rules = rules_of(&pack);
+            if spend {
+                self.note_spend_held(&pack, &rules, &events);
+            }
+            let Some(fired) = learn::check_all(&rules, &events).into_iter().next() else {
                 continue;
             };
             match self.roll_back_in(l, &pack, s.rung, s.share, &fired) {
@@ -173,6 +182,29 @@ impl Ladder {
             }
         }
         out
+    }
+
+    /// A decision the spend rule declined to make, each a
+    /// `judge.spend.suppressed` row (theseus-ig13o F3): the pack version, why,
+    /// and the numbers. A rule that holds its tongue says so, so a quiet one
+    /// is never taken for one that is working. Asked when a task's spend
+    /// lands and at the nightly check; any other event leaves the same
+    /// numbers and no new decision.
+    fn note_spend_held(&self, pack: &str, rules: &[RollbackRule], events: &[CanaryEvent]) {
+        for rule in rules {
+            let Some(held) = learn::spend_suppressed(rule, events) else {
+                continue;
+            };
+            let f = crate::fact::ladder::SpendSuppressed {
+                pack,
+                rule: rule.name(),
+                held: &held,
+            };
+            if let Err(e) = crate::fact::row(&f, None, None).and_then(|r| self.store().append(&[r]))
+            {
+                tracing::warn!(error = %format!("{e:#}"), pack, "judge: a suppressed spend decision was not written");
+            }
+        }
     }
 
     /// A rule's rollback: its row, a brake's `until` the next midnight.
@@ -208,6 +240,6 @@ impl Ladder {
     /// and check every pack's rules on the day's events.
     pub fn recheck(&self) -> Vec<PackModeRow> {
         self.forget();
-        self.with(|l, me| me.check_in(l, None))
+        self.with(|l, me| me.check_in(l, None, true))
     }
 }
