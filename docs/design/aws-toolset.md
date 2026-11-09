@@ -306,8 +306,8 @@ to get whole-of-AWS reach:
   Every credential-shaped member of a secret-bearing answer must now be one the walk holds.
 
   The rule selects 166 operations beyond its predecessor; each is now a secret-bearing row or an
-  allowed row with its reason — 28 `SECRET` rows, 19 `WHEN_PRESENT` groups covering 61 operations,
-  and 23 allowed rows.)_
+  allowed row with its reason — 28 `SECRET` rows, 20 `WHEN_PRESENT` groups covering 66 operations,
+  and 22 allowed rows.)_
 - **Retry class** (§3.16), from the traits:
   - `@readonly` or `@idempotent` is `safe_to_repeat`.
   - A member marked `@idempotencyToken` is filled from the call's correlation id, which makes the call
