@@ -452,6 +452,23 @@ async fn a_still_missing_name_is_re_read_once_however_many_enters_follow() {
     assert_eq!(r.daemon.asked("tool.list").len(), 2, "one re-read, not one per two Enters");
 }
 
+/// A command line skips the `@` rule, so it loses no Enter to the re-read.
+#[tokio::test(start_paused = true)]
+async fn a_command_line_with_an_unlisted_at_word_runs_at_the_first_enter() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("/help @nope").await;
+    r.shows("no file matches @nope").await;
+    r.press(KeyCode::Esc).await;
+    let mark = r.bytes();
+    r.press(KeyCode::Enter).await;
+    r.settle().await;
+    let said = r.written_since(mark);
+    assert!(said.contains("what you can do here"), "{said}");
+    assert!(!said.contains("reading it again"), "{said}");
+    assert_eq!(r.daemon.asked("tool.list").len(), 1, "no re-read for a command");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_name_that_never_exists_is_refused_after_its_one_re_read() {
     let p = project();

@@ -778,13 +778,14 @@ impl Chat {
         if self.ask.note {
             return self.send_note();
         }
-        if let Some(effects) = self.at_reread() {
-            return effects;
-        }
-        // A message that names @files must name listed ones, or it is not sent.
+        // A message that names @files must name listed ones, or it is not sent;
+        // a command line skips the `@` rule, its re-read too.
         let resolved = if self.editor.text().trim_start().starts_with('/') {
             Resolved::default()
         } else {
+            if let Some(effects) = self.at_reread() {
+                return effects;
+            }
             match self.at_resolve() {
                 Ok(r) => r,
                 Err(why) => {
