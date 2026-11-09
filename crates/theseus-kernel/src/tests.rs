@@ -844,6 +844,34 @@ fn unknown_then_genuine_success_resolves_and_budget_moves_held_to_spent() {
 }
 
 #[test]
+fn a_failed_jobs_row_names_how_it_failed() {
+    let w = world();
+    let (sid, _e, g) = running(&w);
+    let a = dispatched(&w, &g, "proc.run", 0);
+    let mut c = completion(&a.correlation_id, Outcome::Failed, None);
+    c.producer = "wrapper:4242".into();
+    c.detail = Some(serde_json::json!({"timed_out": true, "exit_code": null, "signal": 9}));
+    w.kernel.accept_completion(&c).unwrap();
+    let failed = rows(&w, &sid, "action.failed");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["failure"], "timeout");
+    assert_eq!(failed[0]["producer"], "wrapper:4242");
+}
+
+#[test]
+fn a_failed_row_without_detail_names_no_failure() {
+    let w = world();
+    let (sid, _e, g) = running(&w);
+    let a = dispatched(&w, &g, "proc.run", 0);
+    w.kernel
+        .accept_completion(&completion(&a.correlation_id, Outcome::Failed, None))
+        .unwrap();
+    let failed = rows(&w, &sid, "action.failed");
+    assert_eq!(failed.len(), 1);
+    assert!(failed[0].get("failure").is_none());
+}
+
+#[test]
 fn overdue_action_with_spooled_evidence_settles_from_the_reconciler() {
     let w = world();
     let (_, e, g) = running(&w);

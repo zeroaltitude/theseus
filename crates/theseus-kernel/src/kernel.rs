@@ -2479,6 +2479,8 @@ impl Kernel {
         if book {
             crate::earlier::booked_row(&mut data, &a);
         }
+        // How a job failed, for the nightly read (failure.rs).
+        crate::failure::stamp(&mut data, c);
         frame.push(self.ledger(kind, Some(&a.session_id), data)?);
         // Every queue writes its row, in its frame (theseus-2xep).
         if queued {
