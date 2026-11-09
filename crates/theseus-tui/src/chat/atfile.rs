@@ -10,6 +10,9 @@
 //! no file's content and so has no second, uncapped way for bytes to enter a
 //! request (the other choice, a file's text in the message, was rejected for
 //! that reason, and because a client's read would skip the gate's labels).
+//! The one exception is an image (png, jpg, jpeg, gif, webp): it goes as an
+//! `Attachment`, read by the CLI's builder (`read_images`) off the loop's
+//! thread (`Effect::ReadImages`), its answer `Chat::images_read`.
 //!
 //! Like the session picker (`picker.rs`) the list is read once and a keystroke
 //! filters it in memory: no request, no stat. The read is two steps and both
@@ -171,6 +174,9 @@ pub struct AtFiles {
     /// The missing names the list was already read again for at Enter: a
     /// name is re-read for once, never again while it stays missing.
     reread: Vec<String>,
+    /// An image read is out: the line it was for (as typed) and what goes
+    /// with it. One at a time.
+    reading: Option<(String, Resolved)>,
 }
 
 /// The `@word` that ends at the cursor, without its `@`; None when the word
@@ -182,10 +188,12 @@ fn query_of(word: &str) -> Option<&str> {
 
 /// What goes with a message that names files: the footer of paths, and the
 /// images as attachments.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct Resolved {
     pub footer: String,
     pub attachments: Vec<theseus_protocol::Attachment>,
+    /// Images still to read, `(name, absolute path)`: `at_resolve` reads none.
+    pub images: Vec<(String, String)>,
     /// What the transcript says went by reference, so the person sees it.
     pub note: String,
 }
@@ -402,10 +410,10 @@ impl Chat {
 
     /// Before a message goes: every `@path` it names must be a listed file.
     /// Ok carries what goes with the message (a footer of paths for the files,
-    /// the images as attachments); Err is what to tell the person, and nothing
-    /// is sent. An image (png, jpg, jpeg, gif, webp) is read here, in `submit`,
-    /// by the CLI's `attachment_for`, and goes as an `Attachment` instead of
-    /// a path.
+    /// the images still to read in `images`); Err is what to tell the person,
+    /// and nothing is sent. Nothing is read here: an image (png, jpg, jpeg,
+    /// gif, webp) is named in `images` and read off the loop by `read_images`
+    /// (`Effect::ReadImages`), then goes as an `Attachment` instead of a path.
     pub(super) fn at_resolve(&self) -> Result<Resolved, String> {
         let names = mentions(&self.editor.typed_text());
         if names.is_empty() {
@@ -435,7 +443,7 @@ impl Chat {
             }
             let abs = format!("{}/{n}", self.cfg.dir.trim_end_matches('/'));
             if is_image(n) {
-                out.attachments.push(Self::image_for(n, &abs)?);
+                out.images.push((n.clone(), abs));
                 images.push(n.as_str());
             } else {
                 lines.push(abs);
@@ -454,15 +462,44 @@ impl Chat {
         Ok(out)
     }
 
-    /// One image as an attachment, or the refusal's words (an unreadable
-    /// file, or one over the CLI's cap, which `attachment_for` reports as
-    /// `not_read`).
-    fn image_for(name: &str, abs: &str) -> Result<theseus_protocol::Attachment, String> {
-        let a = theseus_client::attach::attachment_labeled(Path::new(abs), "@image")
-            .map_err(|e| format!("@{name}: {e:#}"))?;
-        match &a.not_read {
-            Some(why) => Err(format!("@{name}: {why}")),
-            None => Ok(a),
+    /// An image read is out: a second Enter starts no second read.
+    pub(super) fn image_reading(&self) -> bool {
+        self.at.reading.is_some()
+    }
+
+    /// The read for `resolved`'s images goes out; the line, as typed, is
+    /// remembered so the answer can tell an edited line from the one it was for.
+    pub(super) fn image_read_started(&mut self, mut resolved: Resolved) -> Vec<Effect> {
+        self.flash("reading the image…");
+        let names = std::mem::take(&mut resolved.images);
+        self.at.reading = Some((self.editor.typed_text(), resolved));
+        vec![Effect::ReadImages(names)]
+    }
+
+    /// The image read finished (the runner hands `read_images`' result here).
+    /// An error is said in the dock, naming the file and why, and the line is
+    /// kept; so is a line edited meanwhile (it is not the one that was read
+    /// for), which the next Enter reads afresh.
+    pub fn images_read(
+        &mut self,
+        result: Result<Vec<theseus_protocol::Attachment>, String>,
+    ) -> Vec<Effect> {
+        let Some((line, mut resolved)) = self.at.reading.take() else {
+            return Vec::new();
+        };
+        match result {
+            Err(why) => {
+                self.flash(why);
+                Vec::new()
+            }
+            Ok(_) if self.editor.typed_text() != line => {
+                self.flash("the line changed while the image was read · enter again");
+                Vec::new()
+            }
+            Ok(attachments) => {
+                resolved.attachments = attachments;
+                self.send_resolved(resolved)
+            }
         }
     }
 
@@ -513,4 +550,23 @@ impl Chat {
             }
         }
     }
+}
+
+/// Reads the named images, `(name, absolute path)`, as the CLI's `--attach`
+/// does (`attachment_labeled`, its 32 MiB cap); the first refusal is the
+/// answer, in words that name the file. Blocking: the runner calls it on a
+/// blocking thread.
+pub fn read_images(
+    list: Vec<(String, String)>,
+) -> Result<Vec<theseus_protocol::Attachment>, String> {
+    list.into_iter()
+        .map(|(name, abs)| {
+            let a = theseus_client::attach::attachment_labeled(Path::new(&abs), "@image")
+                .map_err(|e| format!("@{name}: {e:#}"))?;
+            match &a.not_read {
+                Some(why) => Err(format!("@{name}: {why}")),
+                None => Ok(a),
+            }
+        })
+        .collect()
 }

@@ -158,6 +158,9 @@ pub enum Effect {
     },
     /// A ping for an Interrupt: the terminal's bell.
     Bell,
+    /// Read these images, `(name, absolute path)`, off the loop's thread; the
+    /// answer is `atfile::read_images`' result, given to `Chat::images_read`.
+    ReadImages(Vec<(String, String)>),
     /// The operator looked at the board at this position and time: the seen file.
     Look(PathBuf, u64, u64),
     Quit,
@@ -794,10 +797,23 @@ impl Chat {
                 }
             }
         };
-        if !resolved.attachments.is_empty() && self.view.is_some() {
-            self.flash("an image is not carried to a task · /back to the conversation");
-            return Vec::new();
+        if !resolved.images.is_empty() {
+            if self.view.is_some() {
+                self.flash("an image is not carried to a task · /back to the conversation");
+                return Vec::new();
+            }
+            if self.image_reading() {
+                self.flash("still reading the image · one moment");
+                return Vec::new();
+            }
+            return self.image_read_started(resolved);
         }
+        self.send_resolved(resolved)
+    }
+
+    /// The send half of Enter, for a line whose `@` names are resolved (and
+    /// whose images, if any, are read).
+    pub(super) fn send_resolved(&mut self, resolved: Resolved) -> Vec<Effect> {
         let mut taken = self.editor.take();
         taken.text.push_str(&resolved.footer);
         taken.attachments = resolved.attachments;

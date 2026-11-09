@@ -449,7 +449,11 @@ async fn a_still_missing_name_is_re_read_once_however_many_enters_follow() {
     r.shows("@nope.md: no such file under").await;
     r.settle().await;
     assert!(r.daemon.asked("turn.submit").is_empty());
-    assert_eq!(r.daemon.asked("tool.list").len(), 2, "one re-read, not one per two Enters");
+    assert_eq!(
+        r.daemon.asked("tool.list").len(),
+        2,
+        "one re-read, not one per two Enters"
+    );
 }
 
 /// A command line skips the `@` rule, so it loses no Enter to the re-read.
@@ -466,7 +470,11 @@ async fn a_command_line_with_an_unlisted_at_word_runs_at_the_first_enter() {
     let said = r.written_since(mark);
     assert!(said.contains("what you can do here"), "{said}");
     assert!(!said.contains("reading it again"), "{said}");
-    assert_eq!(r.daemon.asked("tool.list").len(), 1, "no re-read for a command");
+    assert_eq!(
+        r.daemon.asked("tool.list").len(),
+        1,
+        "no re-read for a command"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -485,4 +493,91 @@ async fn a_name_that_never_exists_is_refused_after_its_one_re_read() {
     r.settle().await;
     assert_eq!(r.daemon.asked("tool.list").len(), 2, "one re-read, no loop");
     assert!(r.daemon.asked("turn.submit").is_empty());
+}
+
+fn calls_of(fx: &[super::state::Effect], method: &str) -> usize {
+    use super::state::Effect;
+    fx.iter()
+        .filter(|e| matches!(e, Effect::Call(c) if c.method == method))
+        .count()
+}
+
+fn reads_of(fx: &[super::state::Effect]) -> Vec<Vec<(String, String)>> {
+    use super::state::Effect;
+    fx.iter()
+        .filter_map(|e| match e {
+            Effect::ReadImages(l) => Some(l.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The chat over a directory holding `shot.png`, its list ready, and a line
+/// naming it typed.
+fn chat_with_shot_line(dir: &Path) -> super::state::Chat {
+    use super::atfile::Walked;
+    use super::tests::{cfg, SID, T0};
+    let mut c = super::state::Chat::new(cfg(std::path::PathBuf::from("/nonexistent/history")), T0);
+    c.session = Some(SID.to_string());
+    c.cfg.dir = dir.display().to_string();
+    c.at_walked(Ok(Walked {
+        files: vec!["shot.png".into()],
+        truncated: false,
+    }));
+    c.editor.insert_str("look at @shot.png");
+    c
+}
+
+/// The image is read by an effect, off the loop: Enter returns the read and no
+/// `turn.submit`; the answer sends the one turn with its attachment.
+#[test]
+fn an_image_is_read_by_an_effect_and_sent_when_the_read_answers() {
+    let p = project_with_shot();
+    let mut c = chat_with_shot_line(p.path());
+    let fx = c.submit();
+    let reads = reads_of(&fx);
+    assert_eq!(reads.len(), 1, "one read effect");
+    assert_eq!(reads[0].len(), 1);
+    assert_eq!(reads[0][0].0, "shot.png");
+    assert_eq!(
+        calls_of(&fx, "turn.submit"),
+        0,
+        "nothing sent before the read"
+    );
+    // A second Enter while the read is out starts no second read, sends nothing.
+    let again = c.submit();
+    assert!(reads_of(&again).is_empty() && calls_of(&again, "turn.submit") == 0);
+    // The runner reads it and hands the result back.
+    let sent = c.images_read(super::atfile::read_images(reads[0].clone()));
+    assert_eq!(calls_of(&sent, "turn.submit"), 1);
+    let params = sent
+        .iter()
+        .find_map(|e| match e {
+            super::state::Effect::Call(c) if c.method == "turn.submit" => Some(c.params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let atts = params["attachments"].as_array().unwrap();
+    assert_eq!(atts.len(), 1);
+    assert_eq!(atts[0]["name"], "shot.png");
+    assert_eq!(atts[0]["data"], "iVBORw0KGgo=");
+}
+
+/// A failed read is said in the dock, the line stays, nothing goes; a line
+/// edited while the read was out is not sent either.
+#[test]
+fn a_failed_read_or_an_edited_line_sends_nothing_and_keeps_the_line() {
+    let p = project_with_shot();
+    let mut c = chat_with_shot_line(p.path());
+    let fx = c.submit();
+    let fail = c.images_read(Err("@shot.png: it vanished".into()));
+    assert!(fail.is_empty(), "{fail:?}");
+    assert_eq!(c.editor.typed_text(), "look at @shot.png");
+    // The read is over, so a new Enter reads again; then the line is edited.
+    let again = c.submit();
+    assert_eq!(reads_of(&again).len(), 1);
+    c.editor.insert_str(" please");
+    let late = c.images_read(super::atfile::read_images(reads_of(&fx)[0].clone()));
+    assert!(late.is_empty(), "an edited line is not sent: {late:?}");
+    assert_eq!(c.editor.typed_text(), "look at @shot.png please");
 }
