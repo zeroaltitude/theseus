@@ -16,10 +16,12 @@
 //!   a `[memory] synth_profile` that is set pins it, as it pins every other
 //!   background job (`"session"` takes the profile all the sampled sessions
 //!   last used, and a category whose sessions disagree waits, counted), and an
-//!   unset key does not ask Jev but runs [`DREAM_MODEL`] at [`DREAM_EFFORT`].
-//!   A category whose model thinks whether asked or not (Opus 5.5, Fable 5.x,
-//!   GLM, DeepSeek) waits too, since its 250 cap would go to thinking
-//!   (theseus-ohiu8). The request holds the category's name and path, and for
+//!   unset key does not ask Jev but runs [`DREAM_MODEL`] at [`DREAM_EFFORT`],
+//!   **thinking on**, under a cap sized for it ([`MAX_TOKENS`]; the owner,
+//!   2026-11-07 17:33). A category whose model thinks whether asked or not
+//!   (Opus 5.5, Fable 5.x, GLM, DeepSeek) waits even so, because that cap is
+//!   sized for Sonnet's thinking and not for theirs (theseus-ohiu8, and the
+//!   comment at the check). The request holds the category's name and path, and for
 //!   its newest [`SAMPLE`] sessions the title and the first and last message
 //!   the person wrote, each cut to [`TEXT_CHARS`] characters and scrubbed. A
 //!   session whose first or last message cannot be read is left out, and the
@@ -45,7 +47,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use theseus_judge::price::{micros_to_usd, usd_to_micros, Micros};
 use theseus_ontology::{
     Basis, Category, CategoryId, Guidance, Ontology, Origin, Record, DREAM_GUIDANCE_MAX,
@@ -70,11 +72,41 @@ pub const PER_NIGHT: usize = 3;
 pub const SAMPLE: usize = 12;
 /// A title or a message, in characters at most.
 pub const TEXT_CHARS: usize = 300;
-/// The answer's most tokens: 400 characters and some to spare, asked with
-/// thinking off (theseus-050g2: Haiku 5.5's default thinking spent the cap,
-/// and every night's answer came back empty). A profile whose model cannot
-/// turn thinking off waits instead (theseus-ohiu8).
-pub const MAX_TOKENS: u32 = 250;
+/// The answer's most tokens, **with thinking on**: the owner, 2026-11-07
+/// 17:33, "I think it's ok to turn thinking on and gently raise the budget".
+/// Until then the call asked with thinking off at a cap of 250 (theseus-050g2:
+/// Haiku 5.5's default thinking spent that cap and every night's answer came
+/// back empty), and [`DREAM_EFFORT`] was an effort setting with nothing to
+/// think with. The numbers this is set from:
+///
+/// - **The answer can never need more than 134 tokens.** [`dream_write`]
+///   refuses an answer over `DREAM_GUIDANCE_MAX` (400 characters), never
+///   cutting it to fit, and [`INSTRUCTIONS`] asks for at most 400 as well; at
+///   the three characters a token this tree counts when it wants a
+///   conservative estimate (`turn::CHARS_PER_TOKEN`,
+///   `routing::checkpoint::CHARS_PER_TOKEN`) that ceiling is 400 / 3 = 134
+///   tokens. The guidance answers that exist to be measured are far under it:
+///   62 characters (`tests_guidance`'s scripted answer, about 21 tokens) and
+///   30 (`tests_consolidate`'s synthesis, about 10). The live ledger's own p95
+///   is not readable from a build lane, so the ceiling is what this is sized
+///   against, and the ceiling is the number that binds: nothing longer is ever
+///   kept.
+/// - **The rest is the thinking allowance.** 250 is a measured *lower bound*
+///   on what a short call's thinking spends, not an allowance: at 250 the
+///   thinking took all of it (theseus-050g2). The one place in this tree that
+///   budgets for thinking on purpose is the exam reviewer — 4096 tokens for a
+///   verdict of "a few dozen tokens" behind Fable 5.1's thinking
+///   (`rsi::exams::review::MAX_TOKENS`, theseus-j06y6).
+/// - **So 2048**: 134 for the answer and 1914 for thinking, half the one
+///   measured allowance for a prompt a fraction of that one's size, and eight
+///   times the old cap. The worst case is reserved before the call, so a
+///   three-category night reserves about $0.06 of the $0.50 default
+///   `[memory] synth_limit_usd_per_day` at Sonnet's $10 a million output,
+///   where 250 reserved about $0.01.
+///
+/// Too small a cap fails loudly, not quietly: the answer comes back on
+/// `max_tokens` and [`Core::dream_guidance`] refuses and counts it.
+pub const MAX_TOKENS: u32 = 2_048;
 /// The META record of the night's spend, by local day.
 pub const MARK: &str = "onto.dream.last";
 
@@ -105,8 +137,11 @@ pub const MARK: &str = "onto.dream.last";
 /// Jev's") and in the `[memory] synth_profile` template comment.
 pub const DREAM_MODEL: (&str, &str) = ("anthropic", "claude-sonnet-5-5");
 /// The effort [`DREAM_MODEL`] writes at: sent as `output_config.effort`, with
-/// thinking still off (a high effort with the cap of 250 tokens would be
-/// spent thinking, theseus-050g2).
+/// **thinking on** — the model's own adaptive thinking, nothing sent to turn
+/// it off (the owner, 2026-11-07 17:33: "I think it's ok to turn thinking on
+/// and gently raise the budget"). A high effort is only a setting while the
+/// cap leaves nothing to think with, which is why [`MAX_TOKENS`] moved in the
+/// same breath.
 pub const DREAM_EFFORT: Effort = Effort::High;
 
 /// What the profile is told, before the sessions.
@@ -187,7 +222,7 @@ fn cut(text: &str) -> String {
 /// The request for one category: the instructions, then the category and its
 /// sessions, numbered, scrubbed.
 fn request_for(
-    (model, thinking): (&str, Option<Value>),
+    model: &str,
     category: &Category,
     path: &str,
     seen: &[Seen],
@@ -218,7 +253,10 @@ fn request_for(
         system: vec![json!({"type": "text", "text": INSTRUCTIONS})],
         messages: vec![json!({"role": "user", "content": [{"type": "text", "text": content}]})],
         tools: Vec::new(),
-        thinking,
+        // Thinking is on: nothing is sent to turn it off, so the model's own
+        // adaptive thinking runs (the owner, 2026-11-07 17:33). [`MAX_TOKENS`]
+        // is sized for it; there is deliberately no way to turn it off here.
+        thinking: None,
         output_config: None,
         cache_control: None,
         betas: Vec::new(),
@@ -344,12 +382,17 @@ impl Core {
             .get(&target.provider)
             .cloned()
             .ok_or(Wait::Provider)?;
-        // A model that cannot turn thinking off spends the 250 cap thinking
-        // and is cut or empty every time: the category waits, counted, rather
-        // than reserve, send and pay for the same refusal each night
-        // (theseus-ohiu8). Stateless on purpose: a try count would pay for
-        // its first tries and need a record kept; this one costs nothing and
-        // lifts the night the profile changes.
+        // A model that thinks whether asked or not still waits (theseus-ohiu8),
+        // for a narrower reason than before: thinking is on now and
+        // [`MAX_TOKENS`] has an allowance for it, but that allowance is sized
+        // for Sonnet's adaptive thinking on a small prompt, and the one
+        // measurement this tree has of an always-thinking model's appetite is
+        // the exam reviewer's 4096 (theseus-j06y6) — twice what is reserved
+        // here. Such a model is reachable only as the operator's pin (the
+        // unset key runs [`DREAM_MODEL`], which is not one), and lifting the
+        // wait for it is a cap decision, not this row's. Stateless on purpose:
+        // a try count would pay for its first tries and need a record kept;
+        // this one costs nothing and lifts the night the profile changes.
         if self.runner.catalog.thinks_unasked(&target.model) {
             return Err(Wait::ThinksUnasked(target.model));
         }
@@ -378,10 +421,10 @@ impl Core {
             .collect::<Vec<_>>()
             .join(" › ");
         let scrubber = self.tools.scrubber.clone();
-        let thinking = self.runner.catalog.thinking_off(&target.model);
-        let model = (target.model.as_str(), thinking);
         let category = o.category(id).ok_or(Wait::NoCategory)?;
-        let mut request = request_for(model, category, &path, &seen, &|t| scrubber.scrub(t).0);
+        let mut request = request_for(&target.model, category, &path, &seen, &|t| {
+            scrubber.scrub(t).0
+        });
         request.output_config =
             crate::compiler::output_config(self.runner.catalog.get(&target.model), effort);
         let need = self.audit_reserve(&request).ok_or(Wait::NoPrice)?;

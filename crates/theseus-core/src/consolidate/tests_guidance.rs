@@ -11,7 +11,7 @@ use theseus_ontology::{
 };
 use theseus_protocol::{now_unix_ms, SessionKind};
 
-use super::guidance::{INSTRUCTIONS, MARK, PER_NIGHT};
+use super::guidance::{INSTRUCTIONS, MARK, MAX_TOKENS, PER_NIGHT};
 use crate::node::Node;
 use crate::provider::FakeProvider;
 use crate::rpc::Parts;
@@ -185,7 +185,7 @@ async fn guidance_over_400_characters_is_refused_not_cut() {
 }
 
 /// Guidance cut off at its cap (theseus-050g2) is refused, never written;
-/// the request asks with thinking off.
+/// the request asks with thinking on, under [`MAX_TOKENS`].
 #[tokio::test]
 async fn guidance_cut_off_at_its_cap_is_refused() {
     let r = rig(ANSWER, |_| {});
@@ -204,15 +204,18 @@ async fn guidance_cut_off_at_its_cap_is_refused() {
         .into_iter()
         .find(|q| q.system.iter().any(|b| b["text"] == INSTRUCTIONS))
         .expect("the call");
-    let want = r.core.runner.catalog.thinking_off(&request.model);
-    assert!(want.is_some(), "{} turns thinking off", request.model);
-    assert_eq!(request.thinking, want);
+    assert_eq!(
+        request.thinking, None,
+        "nothing is sent to turn thinking off: the model's own runs"
+    );
+    assert_eq!(request.max_tokens, MAX_TOKENS);
 }
 
-/// A profile whose model cannot turn thinking off (Opus 5.5 always thinks)
-/// spends the 250 cap thinking, so its category waits, counted, and nothing is
-/// sent or reserved: the same categories are no longer re-asked every night
-/// (theseus-ohiu8).
+/// A profile whose model thinks whether asked or not (Opus 5.5) still waits,
+/// counted, with nothing sent or reserved: the same categories are not
+/// re-asked every night (theseus-ohiu8). Thinking being on since 2026-11-07
+/// does not lift it — [`MAX_TOKENS`] is sized for Sonnet's thinking, not for
+/// an always-thinking model's, and such a model is reachable only as a pin.
 #[tokio::test]
 async fn a_category_whose_model_always_thinks_waits_unasked() {
     // Pinned: a set key is the one way to put the dream on such a model.
@@ -393,7 +396,7 @@ async fn a_waiting_category_says_why() {
 
 /// The dream's model is route.v10's one named exception (theseus-xdi65): with
 /// `[memory] synth_profile` unset it neither asks Jev nor follows the
-/// sessions' profile, it runs Sonnet 5.5 at high effort, thinking off. The
+/// sessions' profile, it runs Sonnet 5.5 at high effort with thinking on. The
 /// sessions last used `haikuhi` here, so a revert to "the sessions' profile"
 /// (the key's old unset meaning) sends Haiku with no effort and fails this.
 #[tokio::test]
@@ -415,10 +418,64 @@ async fn an_unset_synth_profile_dreams_on_sonnet_at_high_effort() {
         Some(serde_json::json!({"effort": "high"}))
     );
     assert_eq!(
-        sent[0].thinking,
-        Some(serde_json::json!({"type": "between_tools"})),
-        "thinking stays off: the cap is 250 tokens"
+        sent[0].thinking, None,
+        "thinking is on: nothing is sent to turn it off"
     );
+    assert_eq!(sent[0].max_tokens, MAX_TOKENS);
+}
+
+/// **The cap leaves the answer room behind the thinking** (the owner,
+/// 2026-11-07 17:33: "I think it's ok to turn thinking on and gently raise the
+/// budget"). Three facts, because the cap alone says nothing:
+///
+/// 1. the call asks with thinking on, under [`MAX_TOKENS`], which is the
+///    documented 2048 and not the 250 it was while thinking was off;
+/// 2. the cap carries the answer's whole ceiling — `DREAM_GUIDANCE_MAX`
+///    characters at the three-characters-a-token estimate this tree uses — and
+///    a thinking allowance that is a multiple of the 250 that was once spent
+///    entirely on thinking (theseus-050g2). Lowering the cap back toward 250
+///    with thinking on fails here;
+/// 3. an answer at that ceiling, behind a thinking block, is **written**, not
+///    refused: thinking in the response does not cost the answer its place.
+#[tokio::test]
+async fn the_cap_leaves_the_answer_room_behind_the_thinking() {
+    // 2. The documented number, and what it is made of.
+    assert_eq!(MAX_TOKENS, 2_048);
+    let ceiling = (DREAM_GUIDANCE_MAX as u32).div_ceil(3);
+    assert_eq!(ceiling, 134, "400 characters at three a token");
+    assert!(
+        MAX_TOKENS >= ceiling + 4 * 250,
+        "the answer's ceiling ({ceiling}) and a thinking allowance that is a \
+         multiple of the 250 thinking once spent whole: {MAX_TOKENS}"
+    );
+    // 3. A ceiling-length answer behind a thinking block is written.
+    let full = "x".repeat(DREAM_GUIDANCE_MAX);
+    let r = rig(ANSWER, |_| {});
+    *r.model.script.lock().unwrap() = [crate::provider::Scripted::Blocks {
+        blocks: vec![
+            serde_json::json!({"type": "thinking", "thinking": "weighing what the sessions settled"}),
+            serde_json::json!({"type": "text", "text": full}),
+        ],
+        stop_reason: "end_turn".into(),
+    }]
+    .into();
+    plant(&r.core, "harbour", "jev:j-0001", 5);
+    let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
+    assert_eq!((done.written.len(), done.refused), (1, 0), "{done:?}");
+    let g = snapshot(&r.core)
+        .guidance(&id("topic:harbour"))
+        .expect("written")
+        .clone();
+    assert_eq!(g.text.chars().count(), DREAM_GUIDANCE_MAX);
+    // 1. And the call that carried it asked with thinking on, under the cap.
+    let sent = r
+        .model
+        .requests()
+        .into_iter()
+        .find(|q| q.system.iter().any(|b| b["text"] == INSTRUCTIONS))
+        .expect("the dream's request");
+    assert_eq!(sent.thinking, None);
+    assert_eq!(sent.max_tokens, MAX_TOKENS);
 }
 
 /// A set key still pins the dream, whatever the exception says: the operator
