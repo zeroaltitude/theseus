@@ -2,24 +2,26 @@
 //! does with Jev's answers, and nothing beyond them.
 //!
 //! - **The pick** is the `model` answer at or above its `confirm` bar (`sure`).
-//!   Under it nothing routes: the turn stays on its own profile, `unsure`.
+//!   Under it **the question's own declared default runs** ([`super::Pick::ran`],
+//!   carried off the pack that was asked, theseus-ig13o), and route.v10
+//!   declares [`PARENT`]: the turn stays on the model it is already on,
+//!   `unsure`. **So the pack's table and this path are one rule, read from the
+//!   pack** — the owner, 2026-11-07 16:46, asked for one word, "Parent", and
+//!   that word is the pack's.
 //!
-//!   **This diverges from the pack, knowingly** (theseus-ig13o). route.v10's
-//!   `model` question declares `no_match = "sonnet"`, and the replay grades an
-//!   under-bar answer as `sonnet` (`route_cases::check`), so the pack's
-//!   measured accuracy is the accuracy of a daemon that routes to sonnet here.
-//!   This one does not. Since theseus-ig13o the declared default is carried on
-//!   the answer and [`super::Pick::ran`] would apply it in one line; the whole
-//!   change was built and measured, and **it moves twelve tests**, among them
-//!   `tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`,
-//!   which is a named rule and not an oversight, and
-//!   `tests_data_open::a_judged_clean_session_runs_on_the_restricted_model`,
-//!   where a session the data rule has *cleared* for a restricted model would
-//!   be pulled off it by an answer Jev was not sure about. Both are the
-//!   owner's to decide, so the pack and the live path are left apart and said
-//!   to be apart, rather than reconciled by a builder in either direction.
-//!   `tests_model::the_model_question_declares_a_default_the_live_path_does_not_run`
-//!   holds the divergence so it cannot be closed by accident.
+//!   Until then the pack declared `sonnet` while this path stood on the turn's
+//!   own profile, and the replay graded an under-bar answer as `sonnet`
+//!   (`route_cases::check`), so the pack's measured accuracy described a
+//!   daemon that routed to Sonnet here and no such daemon existed. Honouring
+//!   `sonnet` instead was built and measured and **moved twelve tests**, among
+//!   them `tests_task_brief::a_verdict_under_its_bar_leaves_the_parents_model`
+//!   and `tests_data_open::a_judged_clean_session_runs_on_the_restricted_model`
+//!   (a session the data rule has *cleared* for a restricted model, pulled off
+//!   it by an answer Jev was not sure about). Changing the declaration, not the
+//!   act, is what the owner chose: all twelve stand.
+//!   `tests_model::the_declared_default_is_what_the_live_path_runs` holds the
+//!   two together — a planted default of a real model routes there, so the
+//!   value is read and not merely agreed with.
 //! - **Which profile** runs a pick: one configured to run the option's catalog
 //!   model ([`OPTIONS`]), the profile named for the option first. Jev reaches a
 //!   model by its id, never by a profile's name.
@@ -58,8 +60,17 @@
 use super::{Ask, Decision, Hold, HoldNext, Profile, Profiles, Reason};
 use crate::config::RoutingConfig;
 
+/// The one `model` option that names no model: the turn keeps the model it is
+/// already on (a session's own profile; for a task, its parent's). route.v10
+/// declares it as the question's `no_match`, so an answer under the bar runs
+/// it, and Jev may also name it when no listed model is the answer. It is not
+/// in [`OPTIONS`] because there is no catalog model and no profile to resolve:
+/// the decision is to stay, and [`decide`] takes it before any lookup.
+pub const PARENT: &str = "parent";
+
 /// The `model` question's options, and the catalog model each names. A model
 /// nowhere best is not here: it is reachable only as the operator's pin.
+/// [`PARENT`] is not here either, for the opposite reason: it names no model.
 pub const OPTIONS: [(&str, &str); 5] = [
     ("haiku", "claude-haiku-5-5"),
     ("sonnet", "claude-sonnet-5-5"),
@@ -72,13 +83,14 @@ pub const OPTIONS: [(&str, &str); 5] = [
 /// pack that asks `model` (what makes route.v10 act, `JudgeService::route_pack`,
 /// by whatever path the pack reached the daemon) must name only models the
 /// daemon can run, or every pick of the unnamed one is a silent `fallback`.
-/// Empty for a pack that asks no `model` question.
+/// Empty for a pack that asks no `model` question. [`PARENT`] is not one of
+/// them: the daemon runs it, by staying.
 pub fn unknown_options(pack: &theseus_judge::Pack) -> Vec<String> {
     pack.questions
         .iter()
         .filter(|q| q.id == "model")
         .flat_map(|q| q.options.iter().map(|o| o.id.clone()))
-        .filter(|id| model_of(id).is_none())
+        .filter(|id| id != PARENT && model_of(id).is_none())
         .collect()
 }
 
@@ -122,10 +134,24 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
         // No `model` answer (a pin, or Jev left it): the turn's own profile.
         return stay(Reason::NoVerdict);
     };
-    if !m.sure {
+    // What the answer runs: Jev's own option at or above the `confirm` bar,
+    // else the question's declared default, carried off the pack that was
+    // asked. A Choice always declares one (the loader refuses a pack whose
+    // does not), so `None` here is only a judgment written before
+    // theseus-ig13o carried the value: the turn's own profile, as then.
+    let Some(choice) = m.ran() else {
         return stay(Reason::Unsure);
+    };
+    if choice == PARENT {
+        // The answer is to stay: no model is named, so there is nothing to
+        // look up, nothing to refuse and no hold to set. `unsure` where the
+        // bar chose it, `verdict` where Jev did.
+        return stay(match m.sure {
+            true => Reason::Verdict,
+            false => Reason::Unsure,
+        });
     }
-    let Some(name) = profile_for(&m.choice, profiles) else {
+    let Some(name) = profile_for(choice, profiles) else {
         return stay(Reason::Fallback);
     };
     if let Some(why) = refusal(&profiles[name], a) {
@@ -148,7 +174,7 @@ pub fn decide(cfg: &RoutingConfig, profiles: &Profiles, a: &Ask<'_>) -> Decision
         reason: Reason::CacheHold,
         switch: false,
         hold: HoldNext::Set(Hold {
-            mode: m.choice.clone(),
+            mode: choice.to_string(),
             profile: name.to_string(),
             turn: v.turn.clone(),
         }),

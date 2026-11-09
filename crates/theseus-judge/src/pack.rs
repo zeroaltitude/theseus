@@ -1098,7 +1098,7 @@ mod tests {
             .iter()
             .find(|a| a.def == "model")
             .expect("route.v10 asks `model`");
-        assert_eq!(model.no_match.as_deref(), Some("sonnet"));
+        assert_eq!(model.no_match.as_deref(), Some("parent"));
     }
 
     /// [`crate::AnswerRecord::ran`] is the one place a declared default is
