@@ -38,3 +38,16 @@ max-threads = 1
 [[profile.default.overrides]]
 filter = '(package(theseus-core) & test(=tests_onto_names::a_chain_asked_over_two_nights_clusters)) | (binary_id(=theseus-sim::sim) & test(=the_kernel_holds_its_invariants_under_seeded_faults)) | (binary_id(=theseusd::stops) & test(=a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker)) | (binary_id(=theseusd::versions) & test(=the_history_check_after_serving_finds_a_corrupt_frame_and_says_so))'
 test-group = "timing"
+
+# The nightly flake hunt (theseus-4vsrz, B7), a run of the whole suite with `--profile flakehunt` at 03:00 on the ARM
+# reduced slot. It is the default profile (thread count, timeouts, JUnit and the timing group are inherited) with two
+# settings added: retries = 2 gives every failing test two more tries, and flaky-result = "fail" counts a test that
+# passed on a retry as FAILED, so the run exits 100 and target/nextest/flakehunt/junit.xml holds a
+# `<failure type="flaky failure">` for it with the first attempt's panic in a `flakyFailure` element. Every flake
+# becomes a row with its attempts recorded, and a flake that exhausts its retries is a finding, not a pass. The
+# gate never reads this profile: scripts/gate.sh runs the default one, whose retries stay named tests only.
+# flaky-result is a key of nextest 0.9.146, which both hosts run; a nextest that does not know it prints
+# "ignoring unknown configuration key" and exits 0 on a flake, so check that warning when the version changes.
+[profile.flakehunt]
+retries = 2
+flaky-result = "fail"
