@@ -64,8 +64,8 @@ build.
     reads it as a `suspended` record, but only a stop that is not a cancel (out of budget) keeps ended work open. The
     inspector's report is `reportFacts`: `report (complete)` when the line is all of it, else `report (first line)` with
     a full-report toggle (the task's last message, `reportTextOf`, read for the selected card only), and the card's links
-    are its deck and its transcript. A task's forum post is not linked: its address lives in the Discord runtime and no
-    protocol type carries it to the page.
+    are its deck and its transcript, and `on Discord` (its forum post, else its thread) when its view carries `forum_url`,
+    which the daemon fills from a registry the Discord runtime sets; absent, nothing is drawn.
   - **The lenses**: the Board (`ops/BoardLens.tsx` over `ops/board.ts`: five columns over `taskboard.ts`'s `rowsOf`,
     with conversations, jobs, and what is due today); the Threads lens (`ops/ThreadsLens.tsx`); the Timeline lens (below);
     and the Graph lens (`ops/GraphLens.tsx`, below).

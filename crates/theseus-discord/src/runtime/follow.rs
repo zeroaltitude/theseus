@@ -424,6 +424,28 @@ mod tests {
         }
         let why = shared.follow("discord:dm:7", 1, &without).unwrap_err();
         assert_eq!(why, "That task has no session to follow.");
+
+        // The refusal's other promised place: a channel the bindings name
+        // private is let through to the same next check.
+        shared
+            .core
+            .bind_places(vec![theseus_core::places::BoundPlace {
+                target: "discord:channel:77".into(),
+                name: "#lab".into(),
+                private: true,
+                ..Default::default()
+            }]);
+        let why = shared
+            .follow("discord:channel:77", 1, &without)
+            .unwrap_err();
+        assert_eq!(why, "That task has no session to follow.");
+
+        // The positive beside the absences above: a follow that is let
+        // through takes a slot. Read before any await (this test runs on the
+        // current-thread runtime), so the spawned follow has not ended yet.
+        shared.follow("discord:dm:7", 1, &with_session).unwrap();
+        assert_eq!(shared.cmds.follows.count("discord:dm:7"), 1, "a slot taken");
+        assert_eq!(shared.cmds.follows.count("discord:channel:42"), 0);
     }
 
     #[test]

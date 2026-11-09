@@ -34,6 +34,7 @@ fn task(n: usize) -> theseus_protocol::work::WorkView {
     use theseus_protocol::{Attention, Level};
     theseus_protocol::work::WorkView {
         moved_to: None,
+        forum_url: None,
         id: format!("exe_01J0000000000000000000{n:04}"),
         kind: WorkKind::Task,
         position: 1,

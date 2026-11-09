@@ -826,6 +826,7 @@ mod tests {
     ) -> WorkView {
         WorkView {
             moved_to: None,
+            forum_url: None,
             id: id.into(),
             kind,
             position,
