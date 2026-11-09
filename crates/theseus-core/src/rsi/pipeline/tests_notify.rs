@@ -205,6 +205,38 @@ async fn a_note_takes_off_what_it_counted_and_a_re_added_start_counts_once() {
     assert_eq!(again.count(), 11, "{again:?}");
 }
 
+/// A post that failed leaves every start where it was: the night's note does
+/// not reach the store, so the record still names the item, and the next
+/// night's note lists it once and leaves the record empty. (The morning note's
+/// twin, `morning.rs`, runs only from a spawned task, so it is left to its own
+/// tests.)
+#[tokio::test]
+async fn a_post_that_failed_leaves_every_start_where_it_was() {
+    let _clock = crate::test_support::pin_mid_period();
+    let r = rig_with(1, 30.0);
+    bind_dm(&r);
+    let t = r.tick().await;
+    assert_eq!(t.started.len(), 1, "{t:?}");
+    r.core
+        .store
+        .fail_plain_frame(|rs| rs.iter().any(|x| contains(&x.payload, b"self_digest")));
+    let first = night_now();
+    r.core.backlog_night(first).unwrap();
+    assert!(lines(&r).is_empty(), "the post failed: {:?}", lines(&r));
+    let waiting = r.core.folded_read();
+    assert_eq!(waiting.count(), 1, "{waiting:?}");
+    assert_eq!(waiting.started[0].item, t.started[0], "{waiting:?}");
+    r.core.backlog_night(first + 24 * 3_600_000).unwrap();
+    let said = lines(&r);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("1 started"), "{}", said[0]);
+    assert!(r.core.folded_read().is_empty(), "told once: {:?}", r.core.folded_read());
+}
+
+fn contains(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len()).any(|w| w == needle)
+}
+
 /// Starts past what a note lists are counted, not dropped silently: twelve
 /// are ten lines and "and 2 more started", and the title counts all twelve.
 #[tokio::test]
