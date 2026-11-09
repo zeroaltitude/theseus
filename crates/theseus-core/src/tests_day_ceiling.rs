@@ -567,3 +567,88 @@ fn the_card_observer_is_a_spend_kind() {
         );
     }
 }
+
+/// Every fact row that carries a `cost_usd` is either one of the day
+/// ceiling's spend kinds or on this list with the reason its dollars are
+/// counted elsewhere or are no model spend (theseus-9n1i2). The walk reads
+/// `fact/*.rs` for each `impl Fact` whose `row` holds `"cost_usd"` and judges
+/// the kinds it finds against `SPEND_KINDS` and `NOT_SPEND_KINDS`, never the
+/// other way round: the list of the one kind that was planted could pass
+/// while another spend kind was left out of the ceiling.
+/// **The reasons are the author's reading of each row, not a decision of the
+/// owner's:** the three marked `undecided` are open questions.
+#[test]
+fn every_fact_row_that_carries_dollars_is_counted_by_the_day_or_says_why_not() {
+    const NOT_SPEND_KINDS: &[(&str, &str)] = &[
+        ("provider.call", "its call is an action row, counted as action.succeeded"),
+        ("provider.cut", "its call is an action row, counted as action.failed"),
+        ("context.recompiled", "a compile's estimate, no call of its own"),
+        ("context.compacted", "its summary call is an action row (correlation_id), counted there"),
+        ("turn.failed", "a roll-up of the turn's action rows"),
+        ("turn.ended", "a roll-up of the turn's action rows"),
+        ("route.decided", "the checkpoint's judgment, settled as a judge call (undecided: not read to the ceiling)"),
+        ("extend.hands.settled", "an extension's hands, AWS dollars, not model spend"),
+        ("turn.replayed", "a replay's own budget, [route_bench] replay_day_usd (undecided: not read to the ceiling)"),
+        ("self.review.verdict", "a self session's model calls are its own action rows (undecided)"),
+        ("self.joined", "a self session's model calls are its own action rows (undecided)"),
+        ("self.branch.built", "a self session's model calls are its own action rows (undecided)"),
+        ("self.exam.counted", "a self session's model calls are its own action rows (undecided)"),
+        ("self.sealed.scored", "metered by the model relay, not a day-ceiling row (undecided)"),
+    ];
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/fact");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for imp in text
+            .split("impl")
+            .skip(1)
+            .filter(|p| p.contains(" Fact for "))
+        {
+            let Some(row) = imp.split("fn row(&self)").nth(1) else {
+                continue;
+            };
+            let row = row.split("\n    fn ").next().unwrap_or(row);
+            let Some(variant) = imp
+                .split("const KIND: Option<LedgerKind> = Some(LedgerKind::")
+                .nth(1)
+                .and_then(|r| r.split(')').next())
+            else {
+                continue;
+            };
+            if row.contains("\"cost_usd\"") {
+                let kind = theseus_protocol::LedgerKind::ALL
+                    .iter()
+                    .find(|k| format!("{k:?}") == variant)
+                    .unwrap_or_else(|| panic!("{variant} is no ledger kind"))
+                    .as_str();
+                found.push((
+                    kind.to_string(),
+                    path.file_name().unwrap().to_string_lossy().into(),
+                ));
+            }
+        }
+    }
+    let spec = crate::complete::MustBeComplete {
+        item: "a fact row carrying cost_usd",
+        list: "day_ceiling::SPEND_KINDS, or NOT_SPEND_KINDS in this test",
+        world: "the `impl Fact` rows under crates/theseus-core/src/fact whose row holds cost_usd",
+        add: "if the row's dollars are model spend nothing else counts, add its kind to day_ceiling::SPEND_KINDS; if they are counted elsewhere or are no model spend, add it to NOT_SPEND_KINDS with the reason",
+        drop: "remove it: no fact row of that kind carries cost_usd now",
+        least: 15,
+        stale_fails: false,
+    };
+    let listed = crate::day_ceiling::SPEND_KINDS
+        .iter()
+        .map(|k| ((*k).to_string(), String::new()))
+        .chain(
+            NOT_SPEND_KINDS
+                .iter()
+                .map(|(k, why)| ((*k).to_string(), (*why).to_string())),
+        );
+    let walked = crate::complete::check(&spec, listed, found);
+    assert!(walked >= 15, "walked {walked}");
+}
