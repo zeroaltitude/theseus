@@ -106,6 +106,7 @@ impl Candidate {
 }
 
 /// Fold observations into candidates, one per key, by key.
+#[cfg(test)]
 pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
     group_with(obs, &|_| false)
 }
