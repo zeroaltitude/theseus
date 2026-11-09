@@ -13,8 +13,11 @@ use super::tests::{script, Rig};
 fn touch(root: &Path, rel: &str) {
     let p = root.join(rel);
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-    std::fs::write(p, "x").unwrap();
+    std::fs::write(p, SENTINEL).unwrap();
 }
+
+/// What every fixture file holds: a word that must never reach a turn.
+const SENTINEL: &str = "pelican-ledger-9137";
 
 /// A project: a few sources, and things the listing must leave out.
 fn project() -> tempfile::TempDir {
@@ -172,10 +175,21 @@ async fn the_submitted_turn_carries_the_path_for_the_gated_read() {
         "the absolute path is in the turn:\n{input}"
     );
     assert!(input.contains("fs.read"), "{input}");
-    assert!(!input.contains("\nx"), "never the file's bytes:\n{input}");
     assert!(
-        sent[0].get("attachments").is_none(),
-        "no attachment carries bytes"
+        !input.contains(SENTINEL),
+        "never the file's bytes:\n{input}"
+    );
+    let mut keys: Vec<&str> = sent[0]
+        .as_object()
+        .expect("params")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["author", "input", "session_id"],
+        "exactly these keys: a path that adds attachments must trip this"
     );
 }
 
