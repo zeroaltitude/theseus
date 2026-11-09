@@ -17,7 +17,8 @@ long_run_ms: number,
 remind_at: number, 
 /**
  * The life a held question is reminded by, as it has no deadline of its
- * own (theseus-lrc3m): `[kernel] confirm_ttl_secs`'s default, 15 minutes.
+ * own (theseus-lrc3m): `HELD_LIFE_MS`, the same 15 minutes
+ * `[kernel] confirm_ttl_secs` defaults to, and the same constant.
  */
 held_life_ms: number, finished: Finished, 
 /**
