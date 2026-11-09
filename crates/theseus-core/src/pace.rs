@@ -28,10 +28,21 @@ pub(crate) async fn pace() {
     quiet().await;
 }
 
-/// [`pace`], and how long it waited: where the first look found the machine quiet,
-/// zero. The red state: the production wait in every build, tests included.
+/// [`pace`], and how long it waited: zero in a test, and where the first look found
+/// the machine quiet.
+#[cfg(not(test))]
 pub(crate) async fn quiet() -> Duration {
     theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await
+}
+
+/// A test's wait: none, and zero said so. Written as a function returning a
+/// ready future rather than an `async fn` that never awaits: the two are the
+/// same to every caller (`quiet().await`), and this way the skip needs no
+/// `#[allow(clippy::unused_async)]` — an added allow is a keel erosion, and a
+/// test's convenience is not a reason to spend the owner's yes on one.
+#[cfg(test)]
+pub(crate) fn quiet() -> std::future::Ready<Duration> {
+    std::future::ready(Duration::ZERO)
 }
 
 #[cfg(test)]
