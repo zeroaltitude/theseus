@@ -596,6 +596,15 @@ impl ToolRuntime {
         }
     }
 
+    /// Whether abandoning a task follows `task.close`'s posture: the operator
+    /// set that line in `[policy.tools]` to `notify` and it is still notify
+    /// now (a tightening to approve ends it). Unset, or `open`, keeps the ask.
+    pub fn abandon_follows_posture(&self) -> bool {
+        let name = crate::task_graph::tools::CLOSE;
+        self.policy.tools.contains_key(name)
+            && self.posture_now(name).posture == crate::policy::Posture::Notify
+    }
+
     /// A tool's posture now: the config's, or its tightening's when that is
     /// stricter (theseus-sgh).
     pub fn posture_now(&self, name: &str) -> crate::policy::PostureNow {
@@ -1003,7 +1012,13 @@ impl ToolRuntime {
         let planned = tool.plan(&call.input, &ctx);
         // Layer 1 guards only the owner's tasks (theseus-ext.10).
         let planned = planned.map(|p| {
-            crate::task_graph::tools::authority_for(tc.store, tool.name(), &call.input, p)
+            crate::task_graph::tools::authority_for(
+                tc.store,
+                tool.name(),
+                &call.input,
+                p,
+                self.abandon_follows_posture(),
+            )
         });
         // A job tool's job is its session's; a stop runs its program (theseus-n8gk).
         let planned = planned.and_then(|p| self.job_planned(tc, tool.name(), &call.input, p));
@@ -1458,7 +1473,9 @@ impl ToolRuntime {
                 }
             }
             name if crate::task_graph::tools::is_edit(name) => {
-                let how = (ran_at == Posture::Approve, self.leases.lease_ms());
+                let approved = ran_at == Posture::Approve
+                    || (name == crate::task_graph::tools::CLOSE && self.abandon_follows_posture());
+                let how = (approved, self.leases.lease_ms());
                 crate::task_graph::tools::run(tc, name, &call.input, correlation_id, how)
                     .map(|d| edit.take(d))
             }
