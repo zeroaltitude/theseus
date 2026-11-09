@@ -228,7 +228,7 @@ impl crate::rpc::Core {
         self.tools.extend.floors.set(l);
         let serve = self.tools.extend.channel(l);
         self.mcp
-            .load_extension(&l.server(), l.server_cfg(), stored, serve);
+            .load_extension(&l.server(), l.server_cfg(), stored, serve, l.tools.clone());
     }
 }
 

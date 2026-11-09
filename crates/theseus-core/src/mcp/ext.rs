@@ -80,9 +80,13 @@ impl McpBoard {
         cfg: McpServerConfig,
         stored: Option<StoredList>,
         serve: Option<theseus_mcp::client::Served>,
+        acked: Vec<String>,
     ) {
+        // Only the acked tools are ever offered (theseus-ext.13): a tool the
+        // server lists beyond them never reaches the catalog.
         let server = Arc::new(Server {
             serve,
+            acked: Some(acked),
             ..Server::new(name, &cfg, stored)
         });
         // Under the list's lock, so `start` either sees it or has started.

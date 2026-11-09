@@ -615,10 +615,62 @@ impl JudgeService {
             if rec.data.as_deref().and_then(ContentFlags::disqualifies_cn).is_some());
         // What was raised is told after it is written, in the session's own words,
         // and to the operator's surfaces.
+        for (at, label) in &fresh {
+            self.label_forks(session, &landings[*at].item, label);
+        }
         for (_, label) in fresh {
             self.tell_label(session, label);
         }
         self.tell_unjudged(session, landings, kept_off);
+    }
+
+    /// A label a verdict raised on `session` also goes on each fork whose
+    /// transcript holds the item (theseus-sz6z9): a fork cut while the ask was
+    /// in flight copied labels the verdict had not yet written, and a fork
+    /// treated as unlabelled can reach a model of restricted origin. The label
+    /// follows the item, as `fork::data_through` carries it for a fork cut
+    /// later; an item whose place is unknown is held by every fork (fewer
+    /// labels is never the safe side). A fork the item is not in, or that
+    /// already holds the label, is left as it is.
+    fn label_forks(&self, session: &str, it: &ContentItem, label: &Label) {
+        let at = self
+            .store
+            .get_node(&it.node)
+            .ok()
+            .flatten()
+            .map_or(0, |(p, _)| p);
+        let forks = match crate::fork::forks_holding(&self.store, session, at) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "judge: a session's forks were not read, so they were not labelled");
+                return;
+            }
+        };
+        for fork in forks {
+            // Nothing is written for a fork that already holds the label.
+            let holds = match self
+                .store
+                .get_session::<crate::session::SessionRecord>(&fork)
+            {
+                Ok(Some(rec)) => {
+                    let mut flags = rec.data.map(|b| *b).unwrap_or_default();
+                    !flags.raise_after(label.clone(), it.entered_ms)
+                }
+                _ => true,
+            };
+            if holds {
+                continue;
+            }
+            let put = self.store.update_session(&fork, |rec| {
+                let mut flags = take_flags(rec);
+                flags.raise_after(label.clone(), it.entered_ms);
+                put_flags(rec, flags);
+                Ok(Vec::new())
+            });
+            if let Err(e) = put {
+                tracing::warn!(error = %format!("{e:#}"), "judge: a fork's content label was not written");
+            }
+        }
     }
 
     /// Tell the owner, once, that asks failed: after the retry, so the notice
