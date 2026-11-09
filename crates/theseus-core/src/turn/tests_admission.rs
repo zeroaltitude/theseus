@@ -1130,6 +1130,58 @@ mod behind_its_own_turn {
         );
     }
 
+    /// **A dependent site with the switch off reaches its fallback, whatever
+    /// the free pre-check would say** (theseus-5x8ry; the decision: the off
+    /// switch is read before the pre-check, which `reconsider` already does,
+    /// and this pins it). A moved signal, and a deterministic course, are
+    /// what the pre-check answers without asking; with
+    /// `reconsider_every_secs = 0` neither may be handed back as an answer,
+    /// because that would stop a site that depends on this spine from ever
+    /// falling back. With the switch on, the same delays are the pre-check's.
+    /// (Planted revert: move the `reconsider_every()` read below `pre_check`
+    /// in `reconsider`.)
+    #[tokio::test(start_paused = true)]
+    async fn with_the_switch_off_the_pre_check_never_answers_a_delay() {
+        use crate::turn::delay_step::{Course, Delay, DelayKind, Signal};
+        let delay = |moved: bool, course: Option<Course>| Delay {
+            kind: DelayKind::AdmissionSlot,
+            what: "a dependent site's wait".into(),
+            execution: "ses_dep".into(),
+            session: "ses_dep".into(),
+            elapsed: Duration::from_secs(660),
+            signals: vec![Signal {
+                name: "the work moved",
+                moved,
+            }],
+            last_step: None,
+            reason: None,
+            deterministic: course,
+        };
+        let cases = || {
+            [
+                (delay(true, None), Course::KeepGoing),
+                (delay(false, Some(Course::SwitchModel)), Course::SwitchModel),
+            ]
+        };
+        let (off, _dir) = core_with(|c| c.kernel.reconsider_every_secs = 0);
+        let mut n = 0;
+        for (d, _) in cases() {
+            let r = off.runner.reconsider(d).await;
+            assert!(r.fall_back, "the site must reach its fallback: {r:?}");
+            assert_eq!(r.course, Course::KeepGoing);
+            assert!(r.notice.is_empty(), "off does nothing at all: {r:?}");
+            n += 1;
+        }
+        let (on, _dir2) = core();
+        for (d, expected) in cases() {
+            let r = on.runner.reconsider(d).await;
+            assert!(!r.fall_back, "{r:?}");
+            assert_eq!(r.course, expected, "the pre-check's own answer");
+            n += 1;
+        }
+        assert_eq!(n, 4, "both switches, both delays");
+    }
+
     /// A task turn that is not the owner's typed input still ends at the
     /// window behind its own execution's turn - but only after the
     /// reconsideration has twice found no adviser (theseus-5x8ry). The bound
