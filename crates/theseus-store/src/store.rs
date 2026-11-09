@@ -333,6 +333,10 @@ struct Inner {
     queued: std::sync::atomic::AtomicI64,
     /// The time the writer took over each recent frame (theseus-w7dk).
     frame_times: FrameTimes,
+    /// An index write failed past its bound after a good sync: the log holds
+    /// frames the index lacks, so no checkpoint may claim a position past them
+    /// until the store is reopened and the open replays them.
+    index_gap: std::sync::atomic::AtomicBool,
     /// A test's way to make the next batch slow, as a disk that stalls does:
     /// the writer counts this many milliseconds once into the frames' time, as
     /// if the commit had taken them, and sleeps none, so no fsync of the
@@ -1357,6 +1361,7 @@ impl Inner {
             verified: None,
             pending_verified: VerifiedSlot::default(),
             queued: std::sync::atomic::AtomicI64::new(0),
+            index_gap: std::sync::atomic::AtomicBool::new(false),
             frame_times: FrameTimes::default(),
             #[cfg(test)]
             commit_extra_ms: AtomicU64::new(0),
@@ -1446,6 +1451,15 @@ impl Inner {
         // No batch between its WAL write and its index write: every frame up
         // to `last` is synced and indexed.
         let _alone = self.appending.write().unwrap();
+        // Unless a batch's index write failed past its bound: its frames are
+        // in the log and not in the index, and a claim past them would hide
+        // them from the next open's replay. Refused until a reopen.
+        if self.index_gap.load(Ordering::Relaxed) {
+            anyhow::bail!(
+                "the index lacks frames an earlier write failed to index; \
+                 no checkpoint until the store is reopened"
+            );
+        }
         #[cfg(test)]
         {
             let hold = self.checkpoint_hold.lock().unwrap().take();
@@ -1589,6 +1603,23 @@ impl Inner {
         }
     }
 
+    /// The batch's bookkeeping once its index write is over. The ledger's head
+    /// follows the log: it moves once the frames are synced, whatever the
+    /// index did, since a failed index write leaves them durable and the next
+    /// open indexes them, and a head left behind would chain two rows on one
+    /// link. A failed sync cut its frames, so the head stays. An index write
+    /// that failed past its bound opens the gap checkpoints refuse across.
+    fn after_index(&self, synced: bool, indexed: bool, records: u64, chained: chain_writer::ChainState) {
+        if synced {
+            *self.chain.lock().unwrap() = chained;
+        }
+        if indexed {
+            self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
+        } else if synced {
+            self.index_gap.store(true, Ordering::Relaxed);
+        }
+    }
+
     /// Write, sync, index, and answer one batch.
     fn commit(&self, mut batch: Vec<Job>) {
         let began = std::time::Instant::now();
@@ -1636,6 +1667,7 @@ impl Inner {
         // Then the index, in one transaction: a reader never sees a frame
         // the disk may yet lose.
         let mut records = 0u64;
+        let synced_ok = synced.is_ok();
         let indexed = synced.and_then(|()| {
             let mut entries = Vec::new();
             for (job, placed) in batch.iter().zip(&written) {
@@ -1666,10 +1698,7 @@ impl Inner {
                 self.index_batch(&entries)
             }
         });
-        if indexed.is_ok() {
-            self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
-            *self.chain.lock().unwrap() = chained;
-        }
+        self.after_index(synced_ok, indexed.is_ok(), records, chained);
         let answered = std::time::Instant::now();
         let us = answered.duration_since(began).as_micros() as u64;
         #[cfg(test)]

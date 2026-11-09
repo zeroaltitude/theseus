@@ -119,3 +119,40 @@ fn an_index_that_keeps_failing_still_fails_the_batch() {
     assert!(format!("{err:#}").contains("index"), "{err:#}");
     assert_eq!(s.inner.index_fail.load(Ordering::SeqCst), 100 - 3);
 }
+
+#[test]
+fn a_failed_batch_comes_back_at_the_open_though_a_checkpoint_ran() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let s = open(dir.path());
+        s.inner.index_fail.store(INDEX_TRIES, Ordering::SeqCst);
+        assert!(s.append(&[meta("a.1", 1)]).is_err());
+        s.append(&[meta("b.1", 2)]).unwrap();
+        // A checkpoint may not claim the failed frame's position: the open
+        // replays only what follows the index's checkpoint.
+        assert!(s.checkpoint().is_err(), "refused while the index has a gap");
+    }
+    let s = open(dir.path());
+    let a = s.latest_by_key(kinds::META, "a.1").unwrap().unwrap();
+    assert_eq!(a.decode::<u64>().unwrap(), 1, "the failed frame came back");
+    let (keys, walked) = (
+        s.count_keys(kinds::META).unwrap(),
+        s.inner.index.count_keys_walked(kinds::META).unwrap(),
+    );
+    assert_eq!((keys, walked), (2, 2));
+}
+
+#[test]
+fn a_failed_batch_comes_back_at_the_open_without_a_checkpoint() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let s = open(dir.path());
+        s.inner.index_fail.store(INDEX_TRIES, Ordering::SeqCst);
+        assert!(s.append(&[meta("a.1", 1)]).is_err());
+        s.append(&[meta("b.1", 2)]).unwrap();
+    }
+    let s = open(dir.path());
+    let a = s.latest_by_key(kinds::META, "a.1").unwrap().unwrap();
+    assert_eq!(a.decode::<u64>().unwrap(), 1);
+    assert_eq!(s.count_keys(kinds::META).unwrap(), 2);
+}
