@@ -429,6 +429,29 @@ async fn a_name_missing_from_the_list_is_read_for_once_at_enter() {
     assert!(sent[0].to_string().contains("new.md"), "{}", sent[0]);
 }
 
+/// Enter 1 re-reads, Enter 2 refuses, and Enter 3 must refuse again without
+/// walking the tree (the re-arm used to make every other Enter a re-read).
+#[tokio::test(start_paused = true)]
+async fn a_still_missing_name_is_re_read_once_however_many_enters_follow() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @nope.md").await;
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.asked("tool.list", 2).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@nope.md: no such file under").await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@nope.md: no such file under").await;
+    r.settle().await;
+    assert!(r.daemon.asked("turn.submit").is_empty());
+    assert_eq!(r.daemon.asked("tool.list").len(), 2, "one re-read, not one per two Enters");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_name_that_never_exists_is_refused_after_its_one_re_read() {
     let p = project();
