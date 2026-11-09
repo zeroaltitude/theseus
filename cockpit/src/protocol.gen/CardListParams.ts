@@ -4,4 +4,11 @@ import type { DiscordOrigin } from "./DiscordOrigin";
 /**
  * `card.list`.
  */
-export type CardListParams = { author?: string | null, discord?: DiscordOrigin | null, };
+export type CardListParams = { author?: string | null, discord?: DiscordOrigin | null, 
+/**
+ * Read this one proposal alone, as it stands, and expire nothing
+ * (the DM Edit press, theseus-5pypl): the answer's `open`, `kept` or
+ * `declined` holds it and only it, so a proposal due this instant is
+ * still read, and still expires by the normal path when it is answered.
+ */
+id?: string | null, };

@@ -1278,3 +1278,82 @@ fn an_observation_round_trips_and_has_no_trait_kind() {
     bad["kind"] = json!("trait");
     assert!(serde_json::from_value::<theseus_protocol::CardObservation>(bad).is_err());
 }
+
+/// The DM Edit press reads the one proposal it names and expires nothing
+/// (theseus-5pypl): a proposal due this very instant still gives its words,
+/// the sweep is not run by the read, and the normal path still expires it.
+/// (Planted revert: make `card_list` with an id call `card_view`, and the due
+/// proposal is gone from `open`: the press got an empty box.)
+#[tokio::test]
+async fn the_edit_press_reads_a_due_proposal_without_expiring_anything() {
+    let r = rig(vec![two()], |_| {});
+    archive(&r).await;
+    let got = propose(&r).await;
+    assert_eq!(got.proposed.len(), 2, "{got:?}");
+    let (due, fresh) = (got.proposed[0].clone(), got.proposed[1].clone());
+    let mut past = due.clone();
+    past.expires_ms = theseus_protocol::now_unix_ms() - 1;
+    r.core
+        .people_write(&[state::record(&past).unwrap()])
+        .await
+        .unwrap();
+
+    // The press's read: the due proposal's own words, still open.
+    let p = CardListParams {
+        id: Some(due.id.clone()),
+        ..Default::default()
+    };
+    let one = r.core.card_list(&p, cli()).await.unwrap();
+    assert_eq!(one.open.len(), 1, "{one:?}");
+    assert_eq!(
+        (one.open[0].id.as_str(), one.open[0].text.as_str()),
+        (due.id.as_str(), due.text.as_str())
+    );
+    assert!(!one.open[0].text.is_empty());
+    assert!(one.kept.is_empty() && one.declined.is_empty());
+    // Nothing was expired by it: no row, both still open in the store.
+    assert!(rows(&r.core, "card.answered").is_empty());
+    let all = state::proposals(&r.core.store).unwrap();
+    assert_eq!(state::in_state(&all, ProposalState::Open).count(), 2);
+
+    // Positive control: an unexpired proposal reads with its own text.
+    let p = CardListParams {
+        id: Some(fresh.id.clone()),
+        ..Default::default()
+    };
+    let one = r.core.card_list(&p, cli()).await.unwrap();
+    assert_eq!(one.open[0].text, fresh.text);
+
+    // Someone else cannot read it.
+    let stranger = Answerer {
+        label: "discord:777".into(),
+        surface: Surface::Discord,
+        discord: Some(theseus_protocol::DiscordOrigin {
+            user_id: "777".into(),
+            channel_id: "42".into(),
+            guild_id: Some("7".into()),
+        }),
+        agent: None,
+    };
+    assert!(r.core.card_list(&p, stranger).await.is_err());
+
+    // The expiry still happens, by the normal path: exactly the due one.
+    let view = r
+        .core
+        .card_list(&CardListParams::default(), cli())
+        .await
+        .unwrap();
+    assert_eq!(view.open.len(), 1);
+    assert_eq!(view.open[0].id, fresh.id);
+    assert_eq!(view.declined.len(), 1);
+    assert_eq!(view.declined[0].id, due.id);
+    assert_eq!(view.declined[0].answered_by.as_deref(), Some("expiry"));
+    assert_eq!(rows(&r.core, "card.answered").len(), 1);
+    // And once expired, the press's read says so (declined), not an empty open.
+    let p = CardListParams {
+        id: Some(due.id.clone()),
+        ..Default::default()
+    };
+    let one = r.core.card_list(&p, cli()).await.unwrap();
+    assert!(one.open.is_empty() && one.declined.len() == 1);
+}
