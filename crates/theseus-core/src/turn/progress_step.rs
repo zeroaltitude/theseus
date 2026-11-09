@@ -68,6 +68,7 @@ mod failure_key;
 
 use super::clock_step::Deadline;
 use super::*;
+use crate::content::NOT_FOR_THE_PERSON;
 use crate::fact::progress::TurnProgress;
 use std::collections::HashSet;
 
@@ -637,25 +638,22 @@ fn note(verdict: Verdict, used: &str, s: &Signals) -> String {
         Verdict::Stop if used.is_empty() => format!(
             "[The harness: {checks}, and no new ground has been read since. Stop here: in your \
              next answer make no tool calls, and report what is done, what is not, and why. \
-             That answer ends the turn. Act on this note and say nothing about it to the \
-             person you are answering.]"
+             That answer ends the turn. {NOT_FOR_THE_PERSON}]"
         ),
         Verdict::Stop => format!(
             "[The harness: this turn has used {used}, and {checks}. Stop here: in your next \
              answer make no tool calls, and report what is done, what is not, and why. That \
-             answer ends the turn. Act on this note and say nothing about it to the person \
-             you are answering.]"
+             answer ends the turn. {NOT_FOR_THE_PERSON}]"
         ),
         _ if s.failing > 0 => format!(
             "[The harness: this turn has used {used}, and {checks}. This is not a stop: if work \
              is left, keep going. Say in a line what is left, then take the smallest step that \
-             can make the failing check pass. Act on this note and say nothing about it to \
-             the person you are answering.]"
+             can make the failing check pass. {NOT_FOR_THE_PERSON}]"
         ),
         _ => format!(
             "[The harness: this turn has used {used}, and {checks}. This is not a stop: if work \
              is left, keep going. Say in a line what is left, then go on with the next item. \
-             Act on this note and say nothing about it to the person you are answering.]"
+             {NOT_FOR_THE_PERSON}]"
         ),
     }
 }

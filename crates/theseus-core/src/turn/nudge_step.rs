@@ -25,9 +25,12 @@ use crate::judge::stop::{StopVerdict, WAIT};
 pub const NUDGE_AUTHOR: &str = "harness:stop_nudge";
 
 /// The one line the model reads, in the harness's voice.
-pub const NUDGE_TEXT: &str = "[The harness: your last message said more work follows, and this \
-     turn would end here. Continue, or say that you are done. Act on this note and say \
-     nothing about it to the person you are answering.]";
+pub const NUDGE_TEXT: &str = concat!(
+    "[The harness: your last message said more work follows, and this \
+     turn would end here. Continue, or say that you are done. ",
+    crate::content::not_for_the_person!(),
+    "]"
+);
 
 /// The session's own switch: META `stop_nudge.<session>`, `{"on": false}`
 /// to keep its turns from the nudge (`session.nudge`).

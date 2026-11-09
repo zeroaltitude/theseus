@@ -54,10 +54,10 @@ use crate::tools_defer::PlaceKind;
 pub const CLOSE_OUT_SHARE: f64 = 0.4;
 
 /// What the tail of a working turn's request says (theseus-eb4o4).
-pub const DELIVERABLE_HINT: &str = "[The harness: before you report this work done, call what you built once, the way the task spells it. Named options in the task are options on the command line; the input the task lists first comes first; a path handed to a program that outlives the call is absolute. Where two readings are both cheap to support, support both. Act on this note and say nothing about it to the person you are answering.]";
+pub const DELIVERABLE_HINT: &str = concat!("[The harness: before you report this work done, call what you built once, the way the task spells it. Named options in the task are options on the command line; the input the task lists first comes first; a path handed to a program that outlives the call is absolute. Where two readings are both cheap to support, support both. ", crate::content::not_for_the_person!(), "]");
 
 /// What the harness says to a turn whose closing message named a doubt.
-pub const DOUBT_TEXT: &str = "[The harness: your last message names something it did not check or run. Check it now if you can, then finish; if you cannot, say why. Act on this note and say nothing about it to the person you are answering.]";
+pub const DOUBT_TEXT: &str = concat!("[The harness: your last message names something it did not check or run. Check it now if you can, then finish; if you cannot, say why. ", crate::content::not_for_the_person!(), "]");
 
 /// What a closing message says when it names a gap in its own checking, as a
 /// turn's own words have it (lowercase, straight quotes, [`own_words`]): a

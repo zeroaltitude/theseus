@@ -604,6 +604,8 @@ macro_rules! context_not_the_owners {
     };
 }
 pub(crate) use context_not_the_owners;
+pub(crate) use not_for_the_person;
+
 /// The sentence every harness nudge ends with (theseus-emqbm): the nudge is
 /// the harness's, not the person's, so the model acts on it and says nothing
 /// about it where the person reads. The cause, not the symptom: a reply that
@@ -1477,13 +1479,7 @@ mod tests {
                 _ => "FRAMING",
             };
             assert!(
-                code.contains(class)
-                    || code.contains(macro_name)
-                    // The nudge texts still hold a hand copy (split across lines
-                    // by `\`) until they compose the constant;
-                    // `every_harness_nudge_says_not_to_answer_it_in_the_place`
-                    // holds their words meanwhile.
-                    || *class == NOTE,
+                code.contains(class) || code.contains(macro_name),
                 "{file} is classed as carrying {class} and does not compose it"
             );
             carrying += 1;
