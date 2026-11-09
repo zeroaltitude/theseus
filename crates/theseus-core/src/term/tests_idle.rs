@@ -268,6 +268,45 @@ async fn a_repl_computing_is_not_idle() {
     terms.close_session("s1", BY_TOOL);
 }
 
+/// The shape of old CPython's `time.sleep` in any interpreter: a REPL asleep
+/// in a select of no descriptors (`select.select([], [], [], 1)`, which glibc
+/// makes a `pselect6` of zero), in front of its pty and not at its line.
+/// `a_repl_computing_is_not_idle` has the host's own `time.sleep`, which is
+/// that call only before 3.11; this one is on every host (theseus-3ni3t).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_repl_asleep_in_an_empty_select_is_not_idle() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let (o, _) = call(
+        &terms,
+        "s1",
+        OPEN,
+        json!({"argv": ["python3", "-q"]}),
+        d.path(),
+    )
+    .await;
+    let py = id_of(&o);
+    read_until(&terms, "s1", &py, ">>> ", d.path()).await;
+    let text = "import select; select.select([], [], [], 1); print('sl' + 'ept')\n";
+    let sent = Instant::now();
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": py, "text": text}),
+        d.path(),
+    )
+    .await;
+    let text = idle_read(&terms, &py, 10_000, d.path()).await;
+    assert!(text.contains("Waited: its program is idle"), "{text}");
+    assert!(
+        text.contains("\nslept\n") || text.contains("|slept"),
+        "{text}"
+    );
+    assert!(sent.elapsed() >= Duration::from_millis(1_000), "{text}");
+    terms.close_session("s1", BY_TOOL);
+}
+
 /// The syscall numbers `waits_in` reads, by architecture: read, then the
 /// select, poll and epoll calls (aarch64 has no `select` or `poll` of its own,
 /// so its first two are the `pselect6` and `ppoll` of the other columns).

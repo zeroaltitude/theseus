@@ -875,3 +875,80 @@ async fn a_mode_survives_a_restart_and_never_a_new_conversation() {
     );
     assert_eq!(r.core.tools.modes.mode_of(&fresh), SessionMode::Ask);
 }
+
+/// A call outside the roots that auto mode loosens keeps its outside-roots
+/// label in the reason the ledger records (theseus-m9fdg.4). Edits mode never
+/// loosens such a call, and says nothing of the roots for one inside them.
+#[tokio::test]
+async fn a_loosened_call_keeps_its_outside_roots_label() {
+    let r = rig(vec![]);
+    let sid = new_session(&r);
+    let dir = r.root.clone();
+    let away = json!({"path": "/etc/theseus-modes-test", "content": "x\n"});
+    put(&r, &sid, SessionMode::Auto);
+    let d = ordered(
+        &r,
+        &sid,
+        "fs.write",
+        away.clone(),
+        PlaceClass::Private,
+        &dir,
+    );
+    assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    assert!(
+        d.notify
+            .as_ref()
+            .unwrap()
+            .setting
+            .starts_with("ran in auto mode"),
+        "{}",
+        d.reason
+    );
+    let label = "outside your project folder: /etc/theseus-modes-test";
+    assert!(
+        d.reason.contains(label),
+        "auto lost the label: {}",
+        d.reason
+    );
+    let row = d.record();
+    assert!(row.reason.contains(label), "the record: {}", row.reason);
+    // Inside the roots there is nothing to label.
+    let d = ordered(
+        &r,
+        &sid,
+        "fs.write",
+        write_in(&r, "a.txt"),
+        PlaceClass::Private,
+        &dir,
+    );
+    assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    assert!(
+        !d.reason.contains("outside your project folder"),
+        "{}",
+        d.reason
+    );
+    // Edits mode asks for the outside write, so the label stays with the
+    // question; inside, its notice carries none.
+    put(&r, &sid, SessionMode::Edits);
+    let d = ordered(&r, &sid, "fs.write", away, PlaceClass::Private, &dir);
+    assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
+    assert!(
+        d.reason.contains(label),
+        "edits asked without it: {}",
+        d.reason
+    );
+    let d = ordered(
+        &r,
+        &sid,
+        "fs.write",
+        write_in(&r, "a.txt"),
+        PlaceClass::Private,
+        &dir,
+    );
+    assert_eq!(d.posture, Posture::Notify, "{}", d.reason);
+    assert!(
+        !d.reason.contains("outside your project folder"),
+        "{}",
+        d.reason
+    );
+}
