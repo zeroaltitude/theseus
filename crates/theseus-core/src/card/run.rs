@@ -276,10 +276,14 @@ impl Core {
                 break;
             }
         }
-        // A failed call is not a run the interval counts from: it leaves the
-        // stored mark alone, so the next attempt is the next night's, not the
-        // interval's (theseus-kinfs; the tender's own mark keeps it from
-        // being due again before then).
+        // A failed call is not a run the interval counts from, as far as the run
+        // got: the mark is what the run's own calls left it (`card_call` moves it
+        // on each one that succeeds). A run in which none did keeps the stored
+        // mark, so its next attempt is the next night's, not the interval's; one
+        // that succeeded first counts from its start and waits the interval. A
+        // stop of any other kind that gets here (no price, a budget refusal, a
+        // full board) is a run, and counts (theseus-kinfs; the tender's own mark
+        // keeps a failed run from being due again before then).
         job.st.last_run_ms = run_mark(&out, job.st.last_run_ms, now);
         self.people_write(&[job.st.record()?]).await?;
         Ok(out)
@@ -582,8 +586,9 @@ fn is_failed_call(stopped: &str) -> bool {
     stopped.starts_with(FAILED_CALL)
 }
 
-/// The stored last run after a run: `now`, unless a call failed, which
-/// leaves the mark as it was (theseus-kinfs).
+/// The stored last run after a run: `now`, unless a call failed, which leaves
+/// `was`, the mark as the run's own calls left it: the stored one where none
+/// succeeded (theseus-kinfs). Any other stop that gets here counts as a run.
 fn run_mark(out: &CardProposeResult, was: Option<u64>, now: u64) -> Option<u64> {
     if out.stopped.as_deref().is_some_and(is_failed_call) {
         was
