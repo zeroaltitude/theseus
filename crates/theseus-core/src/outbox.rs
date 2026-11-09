@@ -530,6 +530,21 @@ impl Outbox {
         for q in settled_cards {
             ix.cards.remove(&q);
         }
+        self.read_meta_into(&mut ix)?;
+        tracing::info!(
+            posts = posts.len(),
+            open = ix.open.len(),
+            places = ix.targets.len(),
+            ms = t0.elapsed().as_millis() as u64,
+            "outbox read"
+        );
+        Ok(ix)
+    }
+
+    /// The META records the index holds (a task's target, a thread's shown
+    /// place, a place's session), read at load (split out of `load` to keep
+    /// it under clippy's line ceiling).
+    fn read_meta_into(&self, ix: &mut Index) -> Result<()> {
         for r in self.store.inner().latest_of_kind(kinds::META)? {
             let key = r.key.as_deref().unwrap_or("");
             if let Some(task) = key.strip_prefix(TASK_META_PREFIX) {
@@ -554,14 +569,7 @@ impl Outbox {
                 ix.targets.insert(sid, format!("discord:{place}"));
             }
         }
-        tracing::info!(
-            posts = posts.len(),
-            open = ix.open.len(),
-            places = ix.targets.len(),
-            ms = t0.elapsed().as_millis() as u64,
-            "outbox read"
-        );
-        Ok(ix)
+        Ok(())
     }
 
     fn bump(&self) {
