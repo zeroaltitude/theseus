@@ -33,6 +33,7 @@ mod work;
 use board::{parent_session, seed_inputs, Board};
 #[cfg(test)]
 use board::{seed, seed_from, seed_recent};
+pub use work::TaskLinks;
 use work::WorkBoard;
 pub use work::{DigestRead as WorkDigestRead, Out as WorkOut, Scope as WorkScope};
 
@@ -298,7 +299,14 @@ impl Push {
                 })
                 .await??;
                 *self.board.lock().unwrap() = board;
-                *self.work.lock().unwrap() = work;
+                {
+                    // The seed builds a fresh board: the runtime's registry
+                    // (set at its start, maybe before this seed) carries over.
+                    let mut held = self.work.lock().unwrap();
+                    let mut work = work;
+                    work.task_links = held.task_links.take();
+                    *held = work;
+                }
                 // Jobs running as the daemon started are sampled too.
                 self.wake_sampler();
                 while let Ok(Some(f)) = rx.try_recv() {
@@ -469,6 +477,13 @@ impl Push {
         if let Some(out) = out {
             core.bus.publish_work(&out, &core.tools.scrubber);
         }
+    }
+
+    /// Where a task's post or thread is, asked as each task's view is built
+    /// (theseus-emqbm). Set by the Discord runtime at start, which holds its
+    /// own state weakly. Lives on the push, since the work board is built here.
+    pub fn set_task_links(&self, f: TaskLinks) {
+        self.work.lock().unwrap().task_links = Some(f);
     }
 
     /// The thread groups the work board holds.

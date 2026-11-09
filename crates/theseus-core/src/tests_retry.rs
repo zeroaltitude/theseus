@@ -412,3 +412,46 @@ async fn only_a_failure_is_dismissed_and_only_a_failed_task_retried() {
     assert_eq!((b.at_ms, b.written), (a.at_ms, false));
     assert_eq!(theseus_store::frames_written_here(), before);
 }
+
+/// A task's view carries the address the Discord runtime registered for it
+/// (`WorkView.forum_url`), and no other view does. The registry is a fake
+/// that knows one id once the task exists; both halves assert, so a registry
+/// that always answers `None`, or always `Some`, fails. Timing: a view is
+/// rebuilt on the board's events, not when the address is made, so the task's
+/// already-built view stays bare until its next event (here, the dismissal).
+#[tokio::test]
+async fn a_tasks_view_carries_the_registered_forum_url_and_only_its_own() {
+    let r = rig_with_a_failing_task();
+    let known: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+    let k = known.clone();
+    r.core.push.set_task_links(Arc::new(move |id| {
+        (k.lock().unwrap().as_deref() == Some(id))
+            .then(|| "https://discord.com/channels/100000000000000001/777".to_string())
+    }));
+    let (parent, failed) = failed_task(&r).await;
+    r.core.push.ensure(&r.core).await.unwrap();
+    let id = failed.id.clone();
+    assert_eq!(work_view(&r.core, &id).forum_url, None, "nothing known yet");
+
+    *known.lock().unwrap() = Some(id.clone());
+    assert_eq!(
+        work_view(&r.core, &id).forum_url,
+        None,
+        "a view is rebuilt on an event, not when the address is made"
+    );
+    r.core.dismiss_failure(&id, &cli()).unwrap();
+    until("the board rebuilds the task's view", || {
+        work_view(&r.core, &id).forum_url.is_some()
+    })
+    .await;
+    assert_eq!(
+        work_view(&r.core, &id).forum_url.as_deref(),
+        Some("https://discord.com/channels/100000000000000001/777")
+    );
+    let root = crate::tests_tasks::parent_exec(&r.core, &parent).id;
+    assert_eq!(
+        work_view(&r.core, &root).forum_url,
+        None,
+        "not its parent's"
+    );
+}

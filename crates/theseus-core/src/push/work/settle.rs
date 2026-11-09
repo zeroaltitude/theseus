@@ -43,6 +43,7 @@ pub(super) fn same_work(a: &WorkView, b: &WorkView) -> bool {
         && a.dismissed == b.dismissed
         && a.retry_of == b.retry_of
         && a.thread == b.thread
+        && a.forum_url == b.forum_url
         && a.purpose == b.purpose
         && a.next_at_ms == b.next_at_ms
         && a.series == b.series

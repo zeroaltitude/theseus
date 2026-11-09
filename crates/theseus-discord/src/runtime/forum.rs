@@ -449,6 +449,7 @@ pub(crate) fn post_name(task: &str, title: &str) -> String {
 impl Shared {
     /// Start the forum worker, once, and read the forums the file binds.
     pub(super) fn start_task_forums(self: &Arc<Self>, b: &Bindings) {
+        self.register_task_links();
         self.task_posts.set_forums(b);
         self.task_posts.load(&self.core.store);
         let (tx, rx) = mpsc::unbounded_channel();
@@ -459,6 +460,24 @@ impl Shared {
         self.start_default_forum(b);
     }
 
+    /// Where one task's post or thread is: a post first (it is the card), else
+    /// its thread. The rule `task_links` applies to each row of the board.
+    pub(crate) fn task_link(&self, id: &str) -> Option<String> {
+        self.task_posts
+            .url_of(id)
+            .or_else(|| self.task_threads.url_of(id))
+    }
+
+    /// Tell the core where tasks are linked, so its work views carry it
+    /// (`WorkView.forum_url`). Held weakly: `Shared` holds the core, and a
+    /// strong reference back would be a cycle that never drops.
+    pub(super) fn register_task_links(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        self.core
+            .push
+            .set_task_links(Arc::new(move |id| me.upgrade()?.task_link(id)));
+    }
+
     /// Where each task of the projection's parts has a thread or a post, for
     /// the board's rows (a post first: it is the card).
     pub(crate) fn task_links(&self, p: &super::tasks::Projection) -> HashMap<String, String> {
@@ -466,13 +485,7 @@ impl Shared {
             .iter()
             .chain(&p.working)
             .chain(&p.done)
-            .filter_map(|v| {
-                let url = self
-                    .task_posts
-                    .url_of(&v.id)
-                    .or_else(|| self.task_threads.url_of(&v.id))?;
-                Some((v.id.clone(), url))
-            })
+            .filter_map(|v| Some((v.id.clone(), self.task_link(&v.id)?)))
             .collect()
     }
 }
@@ -1752,5 +1765,57 @@ mod tests {
         );
         assert!(name.starts_with("a1b2c3 · Fix x"), "{name}");
         assert_eq!(name.chars().count(), 100);
+    }
+
+    /// What the runtime tells the core about where a task is linked
+    /// (`WorkView.forum_url`): the post's address when it has one, else its
+    /// thread's, else nothing. Both halves assert, and a second task proves it
+    /// is keyed by the task.
+    #[tokio::test]
+    async fn the_registered_link_is_the_post_then_the_thread_and_else_nothing() {
+        use crate::runtime::threads::{Made, PlaceKind};
+        use crate::runtime::{shared_for_tests, tests::core_with};
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |_| {},
+        );
+        let shared = shared_for_tests(&core);
+        shared.task_posts.posts.lock().unwrap().push(Post {
+            task: "exe_reef".into(),
+            forum: 5,
+            post: 777,
+            guild: "100000000000000001".into(),
+            created_ms: 1,
+            ended_ms: None,
+            link: None,
+            bound: None,
+            read_ms: None,
+            archived_ms: None,
+        });
+        shared.task_threads.add(Made {
+            task: "exe_kelp".into(),
+            session: "ses_kelp".into(),
+            thread: 888,
+            kind: PlaceKind::Thread,
+            parent: 1,
+            parent_session: "ses_dm".into(),
+            name: "kelp".into(),
+            guild: Some(100000000000000001),
+            private: true,
+            ceiling: None,
+            created_ms: 1,
+            ended_ms: None,
+        });
+        assert_eq!(
+            shared.task_link("exe_reef").as_deref(),
+            Some("https://discord.com/channels/100000000000000001/777")
+        );
+        assert_eq!(
+            shared.task_link("exe_kelp").as_deref(),
+            Some("https://discord.com/channels/100000000000000001/888")
+        );
+        assert_eq!(shared.task_link("exe_none"), None);
     }
 }

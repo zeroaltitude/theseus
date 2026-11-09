@@ -528,6 +528,7 @@ pub(crate) mod tests {
         use theseus_protocol::{Attention, Level};
         WorkView {
             moved_to: None,
+            forum_url: None,
             id: id.into(),
             kind: WorkKind::Task,
             position: 1,
