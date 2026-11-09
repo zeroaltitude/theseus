@@ -21,6 +21,7 @@ use theseus_protocol::import::{ImportPeopleParams, ImportPeopleResult, PeoplePro
 use super::lines;
 use super::run::{meta, Session};
 use crate::import::tag_scope;
+use crate::pace::pace;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
 
@@ -155,7 +156,7 @@ impl Core {
         run.r.done_before = run.r.sessions - todo.len() as u64;
         for (i, (sid, title)) in todo.iter().enumerate() {
             if i > 0 && !p.dry_run {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             let left = (todo.len() - i) as u64;
             let stop = match self.outbox.stopping() {

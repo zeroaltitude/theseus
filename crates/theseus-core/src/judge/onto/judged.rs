@@ -60,6 +60,7 @@ use theseus_ontology::{CategoryId, Ontology, Origin, Step};
 use super::sweep::Swept;
 use crate::config::PackMode;
 use crate::judge::{spend, JudgeService, ScrubWith};
+use crate::pace::pace;
 use crate::places::PlaceClass;
 use crate::rpc::Core;
 use crate::session::SessionRecord;
@@ -507,7 +508,7 @@ impl Run<'_> {
                 second,
             };
             if asked > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             let context = json!({"a": a, "b": b});
             let judge = &self.core.runner.judge;
@@ -569,7 +570,7 @@ impl Run<'_> {
             let names = input.names();
             let sampled = input.sessions.clone();
             if asked > 0 {
-                theseus_store::pressure::quiet(theseus_store::pressure::BOUND).await;
+                pace().await;
             }
             let context = json!({"category": parent});
             let judge = &self.core.runner.judge;
