@@ -598,6 +598,11 @@ mod tests {
         }
         // A non-directory in the middle of a path is nothing too (ENOTDIR).
         assert!(at("file/under").is_none());
+        // Every other failure is an error, and the init's to report: a name
+        // past NAME_MAX is ENAMETOOLONG on any filesystem, and a `resolved`
+        // that took it for nothing would skip a cover or a bind in silence.
+        let e = resolved(&p(&"x".repeat(300))).expect_err("a name past NAME_MAX");
+        assert_eq!(e.raw_os_error(), Some(libc::ENAMETOOLONG));
     }
 
     /// The skip is a behaviour, held here so it is a decision and not an
