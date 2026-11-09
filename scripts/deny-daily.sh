@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # The daily supply-chain job (theseus-goa8; review 2's SC2). The commit gate runs
-# `cargo deny --offline`: licences, bans, and sources need no network, and
-# advisories are read from the database as the last fetch left it, so an outage
-# upstream can never fail a commit. This job is what keeps that database fresh,
-# and what finds a new advisory or a yanked crate the day it appears:
+# `cargo deny --offline` against the advisory database in ~/.cargo/advisory-dbs, which
+# only changes when the owner runs `cargo deny fetch db` on purpose (theseus-4vsrz):
+# the gate judges the tree against a pinned set, so main is not red tomorrow with no
+# commit in between. This job is the other contract: it fetches into a database of its
+# own (default ~/.cache/theseus/deny-daily-db), never the gate's, so its fetch can
+# never redden a gate, and it finds a new advisory or a yanked crate the day it appears:
 #
-#   1. fetch the advisory database and the registry index (the one thing the
-#      gate no longer does);
+#   1. fetch the advisory database (into its own copy) and the registry index;
 #   2. run the whole `cargo deny check` against them;
 #   3. when it fails, file one Beads issue (owner main, waiting for an
 #      available agent) and say so, unless one is already open (`bd create` has no
@@ -23,6 +24,8 @@
 #   THESEUS_DENY_CONFIG  a deny.toml to use instead of the tree's (a test's)
 #   THESEUS_DENY_DRY_RUN a non-empty value prints the issue it would file
 #   THESEUS_DENY_LOG     the log (default ~/.cache/theseus/deny-daily.log)
+#   THESEUS_DENY_DB      the daily job's own advisory database
+#                        (default ~/.cache/theseus/deny-daily-db)
 set -euo pipefail
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
 repo="${THESEUS_REPO:-$HOME/projects/theseus}"
@@ -30,11 +33,19 @@ log="${THESEUS_DENY_LOG:-$HOME/.cache/theseus/deny-daily.log}"
 cd "$repo"
 mkdir -p "$(dirname "$log")"
 cargo="${THESEUS_CARGO:-cargo}"
-config=()
-[ -z "${THESEUS_DENY_CONFIG:-}" ] || config=(--config "$THESEUS_DENY_CONFIG")
+dbdir="${THESEUS_DENY_DB:-$HOME/.cache/theseus/deny-daily-db}"
+mkdir -p "$dbdir"
 
 out="$(mktemp "${TMPDIR:-/tmp}/theseus-deny.XXXXXX")"
-trap 'rm -f "$out"' EXIT
+cfg="$(mktemp "${TMPDIR:-/tmp}/theseus-deny-cfg.XXXXXX")"
+trap 'rm -f "$out" "$cfg"' EXIT
+# The deny.toml in use, with `db-path` pointing at this job's own database, so that
+# neither its fetch nor its check touches the one the gate reads. `db-path` is not
+# set in deny.toml, so the line goes right after its `[advisories]` header.
+src="${THESEUS_DENY_CONFIG:-$repo/deny.toml}"
+awk -v d="$dbdir" '{print} /^\[advisories\]/{print "db-path = \"" d "\""}' "$src" >"$cfg"
+grep -q '^db-path = ' "$cfg" || { echo "deny-daily: $src has no [advisories] table to point at $dbdir" >&2; exit 3; }
+config=(--config "$cfg")
 {
   echo "== deny-daily $(date -Iseconds): $repo at $(git rev-parse --short HEAD)"
   fetched=yes
