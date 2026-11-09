@@ -1287,6 +1287,17 @@ mod probe {
         raw(r as i64)
     }
 
+    /// The socket-family and clone-flag probes, each with its own key: a new
+    /// one of either kind is one line here, not in `seccomp`.
+    fn family_probes() -> Vec<(&'static str, Value)> {
+        vec![
+            ("socket_alg", socket_of(libc::AF_ALG, libc::SOCK_SEQPACKET)),
+            ("socket_vsock", socket_of(libc::AF_VSOCK, libc::SOCK_STREAM)),
+            ("clone_newuser", clone_with(libc::CLONE_NEWUSER)),
+            ("clone_newnet", clone_with(libc::CLONE_NEWNET)),
+        ]
+    }
+
     fn seccomp() -> Value {
         let mut m = Map::new();
         let mut put = |k: &str, v: Value| {
@@ -1348,10 +1359,7 @@ mod probe {
             "kmsg",
             outcome(fs::OpenOptions::new().read(true).open("/proc/kmsg")),
         );
-        put("socket_alg", socket_of(libc::AF_ALG, libc::SOCK_SEQPACKET));
-        put("socket_vsock", socket_of(libc::AF_VSOCK, libc::SOCK_STREAM));
-        put("clone_newuser", clone_with(libc::CLONE_NEWUSER));
-        put("clone_newnet", clone_with(libc::CLONE_NEWNET));
+        family_probes().into_iter().for_each(|(k, v)| put(k, v));
         put("fork", in_child(|| {}));
         put(
             "thread",
