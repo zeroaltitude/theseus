@@ -1,8 +1,10 @@
 //! RSI tells the owner and never parks (theseus-o1h3f.6), through the
-//! pipeline's rig: a tick that started builds stages one `self_digest` line
-//! in the night's own words, a tick that started nothing stages none; an item
-//! two reviews rejected is dropped with both findings and the way back, not
-//! parked; and the keel still files `waiting_human` and never starts.
+//! pipeline's rig: a tick that started builds says nothing at once, and the
+//! next note that goes out (the night's, or the morning's) lists them, once,
+//! in the night's own words (the owner, 2026-11-09: five "1 started" lines in
+//! two and a half hours); an item two reviews rejected is dropped with both
+//! findings and the way back, not parked; and the keel still files
+//! `waiting_human` and never starts.
 
 use serde_json::json;
 use theseus_protocol::tasks::TaskState;
@@ -30,14 +32,23 @@ fn lines(r: &Rig) -> Vec<String> {
         .collect()
 }
 
-fn title_of(r: &Rig, item: &str) -> String {
+fn task_of(r: &Rig, item: &str) -> theseus_protocol::tasks::TaskRecord {
     crate::task_graph::get(&r.core.store, item)
         .unwrap()
         .unwrap()
-        .title
 }
 
-/// The night's own words for these items, as `night_text` words them.
+fn title_of(r: &Rig, item: &str) -> String {
+    task_of(r, item).title
+}
+
+/// A night's note, an hour on: what it posts, and when.
+fn night_now() -> u64 {
+    theseus_protocol::now_unix_ms() + 3_600_000
+}
+
+/// The night's own words for these items, as `night_text` words them for
+/// items filed by one sighting each (the rig's three causes).
 fn nights_words(r: &Rig, items: &[String]) -> String {
     let night = Night {
         started: items
@@ -54,44 +65,153 @@ fn nights_words(r: &Rig, items: &[String]) -> String {
     };
     night_text(&night, |id| Item {
         title: title_of(r, id),
-        count: 0,
-        since_ms: 0,
+        count: 1,
+        since_ms: task_of(r, id).created_at_ms,
     })
 }
 
-/// A tick that starts one build stages one line in `night_text`'s words,
-/// naming the item; the next tick, which starts nothing, stages none.
+/// A tick that starts one build says nothing at once, and neither does the
+/// next, which starts nothing; the night's note lists the item once, in the
+/// night's words, and the note after it has nothing to add.
 #[tokio::test]
-async fn a_tick_that_started_a_build_tells_the_owner_once() {
+async fn a_tick_that_started_a_build_tells_the_owner_once_in_the_next_note() {
     let r = rig_with(1, 30.0);
     bind_dm(&r);
     let t = r.tick().await;
     assert_eq!(t.started.len(), 1, "{t:?}");
+    assert!(lines(&r).is_empty(), "no line of its own: {:?}", lines(&r));
+    let t2 = r.tick().await;
+    assert!(t2.started.is_empty(), "the one slot is taken: {t2:?}");
+    assert!(lines(&r).is_empty(), "{:?}", lines(&r));
+    r.core.backlog_night(night_now()).unwrap();
     let said = lines(&r);
     assert_eq!(said.len(), 1, "{said:?}");
     assert_eq!(said[0], nights_words(&r, &t.started), "the night's wording");
     assert!(said[0].contains(&t.started[0]), "{}", said[0]);
-    let t = r.tick().await;
-    assert!(t.started.is_empty(), "the one slot is taken: {t:?}");
-    assert_eq!(
-        lines(&r).len(),
-        1,
-        "a tick that started nothing says nothing"
-    );
+    r.core.backlog_night(night_now() + 1).unwrap();
+    assert_eq!(lines(&r).len(), 1, "told once: nothing is left to tell");
 }
 
-/// One line a tick, not one per item: two builds started together are both
-/// named in the one line.
+/// One line, not one per item: two builds started together are both named in
+/// the one note that tells them.
 #[tokio::test]
 async fn a_tick_that_started_two_builds_names_both_in_one_line() {
     let r = rig_with(2, 30.0);
     bind_dm(&r);
     let t = r.tick().await;
     assert_eq!(t.started.len(), 2, "{t:?}");
+    assert!(lines(&r).is_empty(), "{:?}", lines(&r));
+    r.core.backlog_night(night_now()).unwrap();
     let said = lines(&r);
     assert_eq!(said.len(), 1, "{said:?}");
     assert_eq!(said[0], nights_words(&r, &t.started));
     assert!(t.started.iter().all(|i| said[0].contains(i.as_str())));
+}
+
+/// Two starts on two later ticks (the first build's turn ended, its slot
+/// freed) post nothing: the day's five "1 started" lines are one line in the
+/// next note, naming both, with the one count in its title.
+#[tokio::test]
+async fn two_later_starts_post_nothing_and_are_one_line_in_the_next_note() {
+    let mut r = rig_with(1, 30.0);
+    bind_dm(&r);
+    let first = r.tick().await.started;
+    r.grace = std::time::Duration::ZERO;
+    let second = r.tick().await.started;
+    assert_eq!((first.len(), second.len()), (1, 1), "{first:?} {second:?}");
+    assert_ne!(first, second);
+    assert!(lines(&r).is_empty(), "no FYI per start: {:?}", lines(&r));
+    r.core.backlog_night(night_now()).unwrap();
+    let said = lines(&r);
+    assert_eq!(said.len(), 1, "{said:?}");
+    let both = [first, second].concat();
+    assert_eq!(said[0], nights_words(&r, &both));
+    assert!(said[0].contains("2 started"), "{}", said[0]);
+}
+
+/// The morning note's facts count the starts waiting for a note, its lines
+/// name each in the night's words, and a note that listed them takes only
+/// those off (a start that came after is still waiting).
+#[tokio::test]
+async fn the_morning_note_lists_the_waiting_starts_and_takes_only_those() {
+    let r = rig_with(1, 30.0);
+    bind_dm(&r);
+    assert!(r.core.morning_facts(night_now(), None, 0).is_none());
+    let t = r.tick().await;
+    let folded = r.core.folded_read();
+    assert_eq!(folded.count(), 1, "{folded:?}");
+    let (brief, n) = r.core.morning_facts(night_now(), None, 0).expect("a start");
+    assert_eq!(n, 1);
+    assert!(
+        brief.contains("- 1 self-improvement builds started since the last note"),
+        "{brief}"
+    );
+    assert_eq!(
+        folded.lines(),
+        [format!(
+            "- started work on: {} (item {})",
+            title_of(&r, &t.started[0]),
+            t.started[0]
+        )]
+    );
+    r.core
+        .folded_add(&[("tsk_late".into(), "A late start".into())]);
+    r.core.folded_told(&folded);
+    let left = r.core.folded_read();
+    assert_eq!(left.started.len(), 1, "{left:?}");
+    assert_eq!(left.started[0].item, "tsk_late");
+}
+
+/// Starts past what a note lists are counted, not dropped silently: twelve
+/// are ten lines and "and 2 more started", and the title counts all twelve.
+#[tokio::test]
+async fn starts_past_the_cap_are_counted_in_the_note() {
+    let r = rig_with(1, 30.0);
+    bind_dm(&r);
+    for i in 0..12 {
+        r.core
+            .folded_add(&[(format!("tsk_{i:02}"), format!("Fix cause {i:02}"))]);
+    }
+    let folded = r.core.folded_read();
+    assert_eq!((folded.started.len(), folded.more), (10, 2), "{folded:?}");
+    r.core.backlog_night(night_now()).unwrap();
+    let said = lines(&r);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(
+        said[0].matches("- started work on: ").count(),
+        10,
+        "{}",
+        said[0]
+    );
+    assert!(said[0].contains("- and 2 more started"), "{}", said[0]);
+    assert!(said[0].contains("12 started"), "{}", said[0]);
+    assert!(r.core.folded_read().is_empty(), "all told");
+}
+
+/// A note that waits for the owner's word is never folded: the night's keel
+/// card posts at once as an action, and carries the waiting starts with it.
+#[tokio::test]
+async fn a_note_that_waits_for_the_owner_posts_at_once_with_the_waiting_starts() {
+    let r = rig_with(1, 30.0);
+    bind_dm(&r);
+    let t = r.tick().await;
+    assert!(lines(&r).is_empty(), "{:?}", lines(&r));
+    let t0 = theseus_protocol::now_unix_ms();
+    for i in 0..2u64 {
+        let mut row = LedgerRow::named(
+            "approval.refused",
+            None,
+            None,
+            json!({"act": "self.resume", "who": "stranger", "why": "not the owner"}),
+        );
+        row.at_unix_ms = t0 + (1 + i) * 60_000;
+        r.core.store.append_ledger(&row).unwrap();
+    }
+    r.core.backlog_night(t0 + 4 * 3_600_000).unwrap();
+    let said = lines(&r);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("waiting for your word"), "{}", said[0]);
+    assert!(said[0].contains(&t.started[0]), "{}", said[0]);
 }
 
 /// Two rejections drop the item: failed, not `waiting_human`, no `parked:`
