@@ -532,6 +532,7 @@ impl crate::Core {
                         Ok(b) => {
                             if let Some(c) = core.upgrade() {
                                 c.aws_month_warned(&account, &b);
+                                c.aws_month_stopped(&account, &b);
                             }
                             account.tended.lock().unwrap().budget = Some(b)
                         }
