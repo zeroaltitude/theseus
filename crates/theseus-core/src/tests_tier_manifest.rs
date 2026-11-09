@@ -332,3 +332,28 @@ async fn a_late_verdict_marks_the_next_messages_would_drop() {
     );
     jev.release();
 }
+
+/// `would_drop` is absent when nothing was admitted, too (`mark_would_drop`'s third conjunct):
+/// the same `low` greeting is driven twice, once with the harbour notes admitted (`would_drop`
+/// is the count, above zero) and once with `recall_floor` at its top, so nothing clears the floor
+/// (`admitted` is empty, a recall row is still written, and `would_drop` is absent). The
+/// admitted-notes twin is what stops the absent case passing for want of a manifest. A reader
+/// counting low-effort turns from `recall.ran` rows misses the empty ones; the field's doc says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_greeting_that_admitted_nothing_records_no_would_drop() {
+    for (floor, admits) in [(None, true), (Some(1.0), false)] {
+        let jev = FakeJev::start().unwrap();
+        says(&jev, "sonnet", "low", 0.95);
+        work(&jev, "conversation", 0.95);
+        let r = tiered_open(&jev, 1, |c| {
+            if let Some(f) = floor {
+                c.memory.recall_floor = f;
+            }
+        });
+        let res = turn(&r.core, None, "Hello there, good morning!", None).await;
+        let m = recalled(&r, &res);
+        assert_eq!(m.admitted.is_empty(), !admits, "floor {floor:?}: {m:?}");
+        let want = admits.then_some(m.admitted.len() as u64);
+        assert_eq!(m.would_drop, want, "floor {floor:?}");
+    }
+}

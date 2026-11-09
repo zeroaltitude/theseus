@@ -124,7 +124,8 @@ pub struct RecallManifest {
     /// bar would have left out. Nothing was dropped: the notes were attached
     /// as before. Absent when the verdict did not say so, and for a manifest
     /// that paused at the session's recall cap: its notes were admitted but
-    /// never attached, so no bar had anything to drop. Absent, too, for a turn
+    /// never attached, so no bar had anything to drop, and for one that
+    /// admitted no notes at all. Absent, too, for a turn
     /// whose verdict missed the route's own wait (`routing.max_wait_ms`): the
     /// verdict lands for the session's next message, and nothing marks this
     /// turn afterwards, so that greeting is missing from the sample. A count
