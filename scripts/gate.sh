@@ -567,12 +567,13 @@ deny_check() {
     age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
     [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; it is the gate's pin, and \`cargo deny fetch db\` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
   fi
-  # A red here can come from the database moving while nobody touched the tree (deny-daily.sh is the only thing that
-  # refreshes it). Say so, and say whose call it is: the gate itself never fetches, never ignores an advisory.
+  # A red here can come from the database moving while nobody touched the tree (it is the gate's pin: only a fetch
+  # into it moves it, and deny-daily.sh keeps a database of its own). Say so, and say whose call it is: the gate
+  # itself never fetches, never ignores an advisory.
   cargo deny --offline --log-level error check || {
     local rc=$?
     if cargo deny --offline --log-level error check bans licenses sources >/dev/null 2>&1; then
-      echo "deny: ONLY advisories failed; bans, licences and sources are clean. The advisory database is $(deny_db_age "$db") days old and moves when scripts/deny-daily.sh fetches, not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
+      echo "deny: ONLY advisories failed; bans, licences and sources are clean. The advisory database is $(deny_db_age "$db") days old; it is the gate's pin and moves only when something fetches into it (the owner's \`cargo deny fetch db\`), not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
     fi
     return "$rc"
   }

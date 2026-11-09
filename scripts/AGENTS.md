@@ -359,8 +359,9 @@ failed; 2 the fetch failed and the check was clean on what is cached; 3 the `den
 unit shows as failed). It reads the repository and never builds or changes it
 (`--locked`), so it runs in the chain's tree. Its log is `~/.cache/theseus/deny-daily.log`.
 
-The gate's offline check is where a refresh shows up: the database moves when this job fetches, never with a branch, so a
-red `cargo deny` on an untouched tree is the database. When bans, licences and sources are clean and only advisories fail,
+The gate's offline check is where a move of its pin shows up: that database moves only when something fetches into it (the
+owner's `cargo deny fetch db`; never a branch, never this job), so a red `cargo deny` on an untouched tree means the pin
+moved. When bans, licences and sources are clean and only advisories fail,
 the gate says so (`deny: ONLY advisories failed ...`) and names the owner's action: ignore each id in `deny.toml` with its
 reason, or bump the crate. The gate never fetches and never writes an ignore.
 
