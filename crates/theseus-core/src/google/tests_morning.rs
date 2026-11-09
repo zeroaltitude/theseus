@@ -129,6 +129,24 @@ fn unread(id: &str, from: &str, subject: &str) -> MsgSpec {
     MsgSpec::new(id, from, subject, "Hello.").label("UNREAD")
 }
 
+/// `HH:MM–HH:MM` in the daemon's zone for two UTC clock times on 2026-10-22.
+fn span(a: &str, b: &str) -> String {
+    format!(
+        "{}–{}",
+        local_hm("2026-10-22", a),
+        local_hm("2026-10-22", b)
+    )
+}
+
+/// `HH:MM` in the daemon's zone for the UTC clock time `utc_hm` on `date`.
+fn local_hm(date: &str, utc_hm: &str) -> String {
+    let ms = crate::wake::parse_at(&format!("{date}T{utc_hm}:00Z")).unwrap();
+    let off = crate::recall::stamp::system(ms).offset_secs;
+    let secs = (ms / 1000) as i64 + off;
+    let into_day = secs.rem_euclid(86_400);
+    format!("{:02}:{:02}", into_day / 3600, into_day % 3600 / 60)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn morning_note_lists_todays_events() {
     let m = rig(true, said(), |_| {}).await;
@@ -141,18 +159,23 @@ async fn morning_note_lists_todays_events() {
             event("e3", "2026-10-22T18:00:00Z", "2026-10-22T18:30:00Z", "Focus time", 1, false)]}),
     );
     let brief = note(&m, &m.model).await;
-    // In the daemon's zone (the gate's TZ is Phoenix, UTC-7), one line each.
+    // In the daemon's zone, one line each. The zone is read the way the note
+    // reads it, at the event's own instant, so the test holds under any TZ
+    // (it once spelled Phoenix's hours and failed on a UTC host).
     assert!(
-        brief.contains("09:00–09:30 · Design review · 3 attendees · call: https://meet.example.test/abc-defg · conflict"),
+        brief.contains(&format!("{} · Design review · 3 attendees · call: https://meet.example.test/abc-defg · conflict", span("16:00", "16:30"))),
         "{brief}"
     );
     assert!(
-        brief.contains("09:15–09:45 · Budget call · conflict"),
+        brief.contains(&format!(
+            "{} · Budget call · conflict",
+            span("16:15", "16:45")
+        )),
         "{brief}"
     );
+    let focus = format!("{} · Focus time · 1 attendees", span("18:00", "18:30"));
     assert!(
-        brief.contains("11:00–11:30 · Focus time · 1 attendees")
-            && !brief.contains("Focus time · 1 attendees · conflict"),
+        brief.contains(&focus) && !brief.contains(&format!("{focus} · conflict")),
         "{brief}"
     );
     // A day with meetings is a day something happened, and the calls are rows.
@@ -406,11 +429,14 @@ mod calendars {
         let (m, _cals) = rigged(said(), |_| {}).await;
         let brief = note(&m, &m.model).await;
         assert!(
-            brief.contains("- [Personal] 09:00–09:30 · Dentist"),
+            brief.contains(&format!(
+                "- [Personal] {} · Dentist",
+                span("16:00", "16:30")
+            )),
             "{brief}"
         );
         assert!(
-            brief.contains("- [Work] 09:15–09:45 · Board prep"),
+            brief.contains(&format!("- [Work] {} · Board prep", span("16:15", "16:45"))),
             "{brief}"
         );
         // A meeting on one calendar that overlaps one on the other is a conflict.
@@ -428,7 +454,10 @@ mod calendars {
             json!({"items": [event("e1", "2026-10-22T16:00:00Z", "2026-10-22T16:30:00Z", "Standup", 0, false)]}),
         );
         let brief = note(&m, &m.model).await;
-        assert!(brief.contains("- 09:00–09:30 · Standup"), "{brief}");
+        assert!(
+            brief.contains(&format!("- {} · Standup", span("16:00", "16:30"))),
+            "{brief}"
+        );
         assert!(
             !brief.contains("[primary]") && !brief.contains("unreachable"),
             "{brief}"
@@ -477,7 +506,8 @@ mod calendars {
         let brief = note(&m, &m.model).await;
         assert!(brief.contains("Work unreachable"), "{brief}");
         assert!(
-            brief.contains("[Personal] 09:00–09:30 · Dentist") && !brief.contains("Board prep"),
+            brief.contains(&format!("[Personal] {} · Dentist", span("16:00", "16:30")))
+                && !brief.contains("Board prep"),
             "{brief}"
         );
         assert_eq!(rows(&m.core, "initiative.spoke")[0]["text"], SAID);
