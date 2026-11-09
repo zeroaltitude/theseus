@@ -567,6 +567,7 @@ async fn reading_a_sealed_thread_asks_the_owner_first() {
         notify: None,
         floor: false,
         granted: None,
+        outside: vec![],
     };
     let gate = |thread: &str| {
         crate::thread_read::gate(

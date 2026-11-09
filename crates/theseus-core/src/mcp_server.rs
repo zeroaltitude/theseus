@@ -539,6 +539,7 @@ mod tests {
             notify: None,
             floor: false,
             granted: None,
+            outside: vec![],
         };
         let d = floor(
             open(),

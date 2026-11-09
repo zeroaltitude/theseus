@@ -696,6 +696,7 @@ async fn its_posture_is_the_policy_lines_and_its_loads_ceiling_floors_it() {
         notify: None,
         floor: false,
         granted: None,
+        outside: vec![],
     };
     let held = floors.floor("mcp:ext-wordcount/echo", d.clone(), "echo");
     assert_eq!(held.posture, Posture::Approve);
