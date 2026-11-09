@@ -1307,7 +1307,10 @@ async fn a_harness_nudges_reply_is_not_posted_to_the_place() {
         );
     }
     assert_eq!(out[0].1, "Running the loader check.");
-    assert_eq!(out[2].1, "Checked: the loader passes. The tide tables are ready.");
+    assert_eq!(
+        out[2].1,
+        "Checked: the loader passes. The tide tables are ready."
+    );
     // And the live stream never made the message the post would not seal.
     assert_eq!(streamed(&mut notes), vec![0, 1, 3]);
 }
@@ -1335,7 +1338,10 @@ async fn an_unnudged_turns_every_loop_is_still_posted_and_streamed() {
         vec![
             (0, "Running the loader check.".to_string()),
             (1, "Now the tide tables.".to_string()),
-            (2, "The tide tables are built and the loader passes.".to_string()),
+            (
+                2,
+                "The tide tables are built and the loader passes.".to_string()
+            ),
         ]
     );
     assert_eq!(streamed(&mut notes), vec![0, 1, 2]);
