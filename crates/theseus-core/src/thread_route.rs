@@ -2400,7 +2400,10 @@ mod tests {
         ] {
             assert_eq!(said(dir), None, "{dir:?}");
         }
-        assert_eq!(above_every_root(&[&ops], Some("/h"), |_| None, Some(home)), None);
+        assert_eq!(
+            above_every_root(&[&ops], Some("/h"), |_| None, Some(home)),
+            None
+        );
     }
 
     /// The directory rule's file hits (theseus-vw8k7): a file named bare, as

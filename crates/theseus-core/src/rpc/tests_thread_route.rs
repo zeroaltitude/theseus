@@ -1884,7 +1884,10 @@ async fn a_turn_above_every_root_says_so_in_its_row() {
                 // Only a thread whose root lies under the directory is named.
                 assert!(words.contains("dev"), "{words}");
                 assert_eq!(words.contains("ops"), dir == "/w", "{words}");
-                assert!(words.contains("/move") && words.contains("cd into a root"), "{words}");
+                assert!(
+                    words.contains("/move") && words.contains("cd into a root"),
+                    "{words}"
+                );
             }
             (false, None) => {}
             (_, got) => panic!("{dir}: above {above}, row said {got:?}: {last}"),
