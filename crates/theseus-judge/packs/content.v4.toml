@@ -129,7 +129,7 @@
 # reveal-versus-about, with the near-misses named in `no` where they can be seen. The
 # wording as it stands measured precision 0.746 -> 0.898 at the raising bar with recall
 # held at 1.000, and clears 12 of the 14 shapes that cost the cn cell its trials
-# (`~/reports/theseus-78qay/report.md`).
+# (the theseus-78qay report).
 #
 # **Where the deterministic scrubber sits, stated correctly, because the first draft of
 # this comment got it wrong and a reviewer caught it.** Every item of every kind reaches
