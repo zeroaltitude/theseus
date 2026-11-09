@@ -265,7 +265,11 @@ mod tests {
         ] {
             assert!(told[0].contains(w), "{w}: {}", told[0]);
         }
-        assert!(!told[0].contains("applies its stop action when"), "{}", told[0]);
+        assert!(
+            !told[0].contains("applies its stop action when"),
+            "{}",
+            told[0]
+        );
         assert_eq!(
             c.store.get_meta::<String>(&key).unwrap().as_deref(),
             Some(this_month().as_str())
@@ -286,8 +290,15 @@ mod tests {
             .filter(|r| r.kind == kinds::META && r.key.as_deref() == Some(key.as_str()))
             .collect();
         assert_eq!(marks.len(), 1, "one mark in the frame");
-        assert_eq!(serde_json::from_slice::<String>(&marks[0].payload).unwrap(), month);
-        assert!(frame.len() >= 2, "the staged post is in it too: {}", frame.len());
+        assert_eq!(
+            serde_json::from_slice::<String>(&marks[0].payload).unwrap(),
+            month
+        );
+        assert!(
+            frame.len() >= 2,
+            "the staged post is in it too: {}",
+            frame.len()
+        );
         // nothing is written until the caller appends the frame.
         assert_eq!(c.store.get_meta::<String>(&key).unwrap(), None);
         assert!(stopped_posts(&c).is_empty());
