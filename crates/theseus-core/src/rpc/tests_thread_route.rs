@@ -1899,8 +1899,9 @@ async fn a_turn_above_every_root_says_so_in_its_row() {
 /// The same words, in the mixed directory (theseus-2gtyi): `/w/projects` is
 /// above `dev`'s root and apart from `ops`'s, so the rule did place something
 /// (it set `ops` apart). The sentence must not say the directory "placed
-/// nothing"; it names `dev`, the thread it could not choose among, and not
-/// `ops`.
+/// nothing" nor that it "could not choose among" a list of one; it names
+/// `dev`, and says a thread whose roots lie elsewhere is still set apart,
+/// without naming `ops`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_turn_above_one_root_and_apart_from_another_does_not_say_nothing_was_placed() {
     let jev = FakeJev::start().unwrap();
@@ -1931,6 +1932,8 @@ async fn a_turn_above_one_root_and_apart_from_another_does_not_say_nothing_was_p
     );
     assert!(!words.contains("ops"), "{words}");
     assert!(!words.contains("placed nothing"), "{words}");
+    assert!(!words.contains("among them"), "{words}");
+    assert!(words.contains("is still set apart"), "{words}");
     assert!(
         words.contains("/move") && words.contains("cd into a root"),
         "{words}"
