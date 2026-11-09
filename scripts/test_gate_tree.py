@@ -49,7 +49,7 @@ move() {
     away-and-back) git checkout -q --detach && git checkout -q main ;;
   esac
 }
-[ "$what" != deny ] || echo "$*" >>"$STUB_DENY_LOG"
+[ "$what" != deny ] || echo "$*" >>"${STUB_DENY_LOG:-/dev/null}"
 case "$what" in
   deny)
     # On request only advisories fail: the bare `check` reds, and `check bans licenses sources` passes.
@@ -401,6 +401,9 @@ class GateTree(unittest.TestCase):
         for phase in ("fmt", "tree", "clippy", "build", "registry", "protocol", "suite", "deny"):
             self.assertTrue(any(c.startswith(phase + " ") for c in calls), f"no `{phase}` call in {calls}")
         self.assertEqual({c.split(" ", 1)[1] for c in calls}, {"inc=0"}, calls)
+        # The deny phase ran (a positive), and the stand-in cargo wrote no redirect error into the output.
+        self.assertIn("deny: no advisory database", out)
+        self.assertNotIn("No such file or directory", out)
 
     def test_an_incremental_build_the_caller_asked_for_holds_from_the_first_cargo_to_the_last(self):
         # Flipping it half way builds a second complete set of artifacts, so the gate sets one value for all of it.
