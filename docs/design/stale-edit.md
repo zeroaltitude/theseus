@@ -102,9 +102,13 @@ exactly: a write never brings a path under the guard.
 Quoted as the code says them:
 
 ```
-{path} changed since you read it. Read it again, then write: your edit was made against contents that are no
-longer there, and nothing was written.
+{path} changed since you read it, so this change was made against contents that are
+no longer there. Nothing was written. Read the file again, then write.
 ```
+
+(`fs_stale::stale_words`, `crates/theseus-tools/src/fs_stale.rs`. It is one string in the source and is
+wrapped here only to fit the page. The commit that wrote this note quoted a draft of it; this is what the
+code says.)
 
 The recovery it names is the owner's own assumption, under test:
 

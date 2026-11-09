@@ -143,6 +143,30 @@ fn two_edits_after_one_read_both_land() {
 }
 
 #[test]
+fn a_refused_session_recovers_by_reading_again_and_then_writes() {
+    // The owner's own assumption, under test (`docs/design/stale-edit.md`
+    // §4): "i'm assuming the model can respond to the refuse with a new read,
+    // then write". If this ever fails, the feature is wrong.
+    //
+    // This is also the `rsi` self-session case. A self session fails open
+    // where the POLICY layer would hold a call for approval; a read-record
+    // refusal is a `ToolFailure`, not an approval, so it has no fail-open
+    // path -- and under this rule it needs none, because the only session
+    // that sees the refusal is one that genuinely lost a race, and it
+    // recovers here in two calls with no owner in the loop. Reaching a real
+    // `rsi` session from this crate would need a daemon, so the case is named
+    // rather than staged; what it turns on is this crate's behaviour.
+    let (d, c) = guarded();
+    read_it(&c);
+    changed_underneath(&d);
+    assert!(edit_two(&c).is_err(), "it is refused once");
+    read_it(&c);
+    let said = edit_two(&c).expect("and the re-read is enough to write");
+    assert!(said.contains("Replaced 1 occurrence"), "{said}");
+    assert_eq!(text(&d), "one\nTWO\nthree\nfour\nfive\n");
+}
+
+#[test]
 fn a_patch_over_a_file_that_moved_is_refused_and_writes_none_of_its_files() {
     let d = tempfile::tempdir().unwrap();
     fs::write(d.path().join("a.txt"), "one\n").unwrap();
