@@ -208,10 +208,13 @@ async fn a_paused_greeting_records_no_would_drop() {
     assert_eq!(m.would_drop, None);
 }
 
-/// The verdict lands after the pack (theseus-fpm2's `Late` hole): the pack fixed an ordinary
-/// budget for want of it, and a greeting `effort.v1` calls `low` still records what a bar would
-/// drop, so the shadow's sample is not missing its late turns. The route row says `verdict late`
-/// (the proof it was late), the route's own wait still catching it before the first compile, and the same late turn called `high` records nothing.
+/// The verdict lands after the pack (theseus-fpm2's `Late` hole) but inside the route's own wait:
+/// the pack fixed an ordinary budget for want of it, and a greeting `effort.v1` calls `low` still
+/// records what a bar would drop, so the shadow's sample is not missing the late turns that wait
+/// catches (here 150 ms into a 2 s wait). The route row says `verdict late` (the proof it was late
+/// at the pack), the route's own wait still catching it before the first compile, and the same
+/// late turn called `high` records nothing. A verdict that misses that wait is not this test's:
+/// `a_verdict_that_misses_the_routes_wait_records_no_would_drop` pins it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_late_low_verdict_still_records_what_a_bar_would_drop() {
     for (level, greeting) in [("low", true), ("high", false)] {
