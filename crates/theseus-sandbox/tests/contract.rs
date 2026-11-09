@@ -1323,6 +1323,34 @@ mod probe {
         raw(r as i64)
     }
 
+    /// Each family the filter refuses by family, under its own key: the next
+    /// one to probe is a row here and no line in `seccomp`.
+    fn socket_families(put: &mut impl FnMut(&str, Value)) {
+        for (key, family, ty) in [
+            ("socket_alg", libc::AF_ALG, libc::SOCK_SEQPACKET),
+            ("socket_vsock", libc::AF_VSOCK, libc::SOCK_STREAM),
+        ] {
+            put(key, socket_of(family, ty));
+        }
+    }
+
+    /// The kernel's ring buffer, read whole (SYSLOG_ACTION_READ_ALL). Only
+    /// the count is reported: the host's log is never printed.
+    fn syslog_read_all(put: &mut impl FnMut(&str, Value)) {
+        const SYSLOG_ACTION_READ_ALL: libc::c_long = 3;
+        let mut buf = [0u8; 4096];
+        let r = unsafe {
+            libc::syscall(
+                libc::SYS_syslog,
+                SYSLOG_ACTION_READ_ALL,
+                buf.as_mut_ptr(),
+                buf.len(),
+            )
+        };
+        put("syslog", raw(r));
+        put("syslog_bytes", json!(r.max(-1)));
+    }
+
     fn seccomp() -> Value {
         let mut m = Map::new();
         let mut put = |k: &str, v: Value| {
@@ -1366,26 +1394,14 @@ mod probe {
                 libc::waitpid(r as i32, std::ptr::null_mut(), 0);
             }
             put("clone3", raw(r));
-            // The kernel's ring buffer, read whole (SYSLOG_ACTION_READ_ALL).
-            // Only the count is reported: the host's log is never printed.
-            const SYSLOG_ACTION_READ_ALL: libc::c_long = 3;
-            let mut buf = [0u8; 4096];
-            let r = libc::syscall(
-                libc::SYS_syslog,
-                SYSLOG_ACTION_READ_ALL,
-                buf.as_mut_ptr(),
-                buf.len(),
-            );
-            put("syslog", raw(r));
-            put("syslog_bytes", json!(r.max(-1)));
         }
+        syslog_read_all(&mut put);
         // The ring buffer's other door, a file rather than a call.
         put(
             "kmsg",
             outcome(fs::OpenOptions::new().read(true).open("/proc/kmsg")),
         );
-        put("socket_alg", socket_of(libc::AF_ALG, libc::SOCK_SEQPACKET));
-        put("socket_vsock", socket_of(libc::AF_VSOCK, libc::SOCK_STREAM));
+        socket_families(&mut put);
         put("clone_newuser", clone_with(libc::CLONE_NEWUSER));
         put("clone_newnet", clone_with(libc::CLONE_NEWNET));
         put("fork", in_child(|| {}));
