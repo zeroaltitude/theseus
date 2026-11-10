@@ -9,7 +9,7 @@ use theseus_protocol::own_bench::TurnReplayParams;
 use theseus_protocol::LedgerKind;
 
 use super::sampler::{pick, Candidate, PER_CELL};
-use super::tests::{asked, rig, script};
+use super::tests::{asked, rig, rig_compare_only, script};
 use crate::fact::own_bench::RouteReplayJudged;
 use crate::provider::FakeProvider;
 use crate::tests_recall::{session, turn, Rig, PIER};
@@ -72,14 +72,32 @@ fn now() -> u64 {
 #[tokio::test]
 async fn the_sampler_replays_a_cells_turns_one_rung_down_and_judges_each() {
     let jev = jev_same();
-    let r = rig(Some(&jev));
+    // This test counts judged replays, so nothing else may judge on the
+    // client: see `rig_compare_only`.
+    let r = rig_compare_only(&jev);
     script(&r, &["a", "b", "c", "d", "r1", "r2", "r3", "r4"]);
     let mut turns = Vec::new();
     for _ in 0..4 {
         turns.push(asked(&r).await);
     }
     let out = r.core.replay_sample(now()).await.unwrap();
-    assert_eq!((out.replayed, out.judged), (3, 3), "{out:?}");
+    // A replay that was not judged says why in its own row's `unjudged`;
+    // `Sampled`'s debug does not carry it, so a bare `(3, 2)` names no
+    // mechanism at all and reads like a miscount.
+    let unjudged: Vec<String> = judged_rows(&r)
+        .iter()
+        .map(|row| {
+            format!(
+                "verdict={} unjudged={}",
+                row.data["verdict"], row.data["unjudged"]
+            )
+        })
+        .collect();
+    assert_eq!(
+        (out.replayed, out.judged),
+        (3, 3),
+        "{out:?} rows={unjudged:?}"
+    );
     assert_eq!(out.stopped, None);
     let rows = judged_rows(&r);
     assert_eq!(rows.len(), 3);
