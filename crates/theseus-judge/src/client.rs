@@ -1095,6 +1095,19 @@ impl JevClient {
     /// connections it holds are used again before the pool's idle time
     /// closes them (theseus-ddbi: the keeper, every [`KEEP_WARM`] of
     /// silence). `None`: a warm-up was in flight, nothing was sent.
+    ///
+    /// **What it guarantees is `n` requests, never `n` sockets.** Each of
+    /// the `n` `HEAD`s is one request, so a server counts exactly `n` of
+    /// them and bills none; the number of TCP connections they ride is
+    /// hyper's, and nothing here bounds it. The pool is uncapped (no
+    /// `pool_max_idle_per_host` above), and a checkout that finds no idle
+    /// connection at the instant it is polled races a fresh connect, so a
+    /// round can leave more sockets open than it asked for and a later
+    /// round takes `n` of however many the pool then holds. A test that
+    /// pins the socket count is pinning something this function does not
+    /// promise; pin the warm-ups and the billed calls instead.
+    /// theseus-core's `tests_route_wait` carries the hunt that
+    /// established this, above its keeper test.
     pub async fn refresh(&self, n: usize) -> Option<(Duration, bool)> {
         if self.reach.warming.swap(true, Ordering::AcqRel) {
             return None;

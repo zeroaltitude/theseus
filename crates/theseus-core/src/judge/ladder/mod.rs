@@ -469,8 +469,14 @@ impl Ladder {
         self.with(|l, me| adopt::adopt_missing(me, l));
     }
 
-    /// Drop what is loaded: the next read is from the store (the nightly
-    /// check's).
+    /// Drop what is loaded: the next read is from the store.
+    ///
+    /// Nothing calls this today. The nightly check is [`Ladder::recheck`],
+    /// which goes through [`Ladder::reread`] (a swap in one step under the
+    /// lock), not through here. To re-read, use `reread`, whose lock is held
+    /// across the scan so a write that lands in it is not lost; pairing
+    /// `forget` with [`Ladder::with`] is the unload-then-read shape that fix
+    /// replaced, and is not covered by its test.
     pub fn forget(&self) {
         *lock(&self.loaded) = None;
     }
@@ -478,7 +484,8 @@ impl Ladder {
     /// Read it again from the store, now (a row written in a caller's
     /// frame), so health never falls back to the wired lines meanwhile.
     pub fn reload(&self) {
-        self.reread();
+        // A failed read is already warned in `reread` and leaves what is loaded.
+        let _ = self.reread();
     }
 
     /// Read the store again and put what it gives in the place of what is
@@ -497,6 +504,7 @@ impl Ladder {
     /// [`Ladder::standing`] until the next read). Nothing is ever taken out
     /// of `loaded` here, so a ladder that has been read is never unloaded
     /// meanwhile: a thread that asks waits for the swap, and is told it is.
+    #[must_use = "whether the re-read replaced what was loaded; discard it on purpose with `let _ =`"]
     pub(crate) fn reread(&self) -> bool {
         let mut g = lock(&self.loaded);
         match self.load() {

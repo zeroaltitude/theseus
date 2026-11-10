@@ -107,12 +107,14 @@ impl Core {
     /// What happened in the last day, as the note's facts: none, nothing to say.
     /// With `[google]`, the day's meetings and mail join them (`google`), and
     /// what waits on the owner says so. `ontology` is how many writes the
-    /// night's sweep and dream made.
+    /// night's sweep and dream made, and `folded` how many self-improvement
+    /// starts the caller read (once) and will list and take off.
     pub(crate) fn morning_facts(
         &self,
         now: u64,
         google: Option<&Day>,
         ontology: u64,
+        folded: u64,
     ) -> Option<(String, u64)> {
         let since = now.saturating_sub(DAY_MS);
         let count = |k| {
@@ -133,7 +135,7 @@ impl Core {
             ),
             (ontology, "ontology changes by the night's sweep and dream"),
             (
-                self.folded_read().count() as u64,
+                folded,
                 "self-improvement builds started since the last note",
             ),
         ];
@@ -171,7 +173,12 @@ impl Core {
         // The builds the self pipeline started since the last note go in the
         // same way: told here or in the night's note, whichever goes first.
         let folded = self.folded_read();
-        if let Some((brief, n)) = self.morning_facts(now, google.as_ref(), ontology.len() as u64) {
+        if let Some((brief, n)) = self.morning_facts(
+            now,
+            google.as_ref(),
+            ontology.len() as u64,
+            folded.count() as u64,
+        ) {
             let waiting = google.as_ref().is_some_and(|g| g.drafts > 0);
             let mut spoken = self
                 .initiative_speak(&Facts {

@@ -67,9 +67,10 @@ pub(super) fn rig(jev: Option<&FakeJev>) -> Rig {
 /// `unjudged` reads `circuit_open` or `shed`, and the replay itself was
 /// fine. Measured 2 of 20 that way, as `(3, 0) … circuit_open`.
 ///
-/// It is not the plain [`rig`] because turning the packs off changes the
-/// compiled system blocks, which `a_turns_first_request_is_rebuilt_byte_for_byte`
-/// compares byte for byte.
+/// It is not the plain [`rig`] because the plain rig leaves the judge's packs
+/// at their build defaults, and a test that counts judged replays has to
+/// narrow the client to the one pack it counts: this rig is the plain rig plus
+/// that narrowing, built for `tests_sampler`, its one caller.
 pub(super) fn rig_compare_only(jev: &FakeJev) -> Rig {
     let board = board();
     let base = jev.base();

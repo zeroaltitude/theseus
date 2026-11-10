@@ -254,6 +254,311 @@ fn thresholds_caps_and_shapes_are_checked() {
     );
 }
 
+// The five guards `Pack::parse` runs on a pack's own fields before it reads a
+// question (`check_header`): the identity, the pinned model, the state cap, the
+// sample, and that the pack asks anything. Each is pinned whole: the rule, the
+// message, the pack name it is reported under, and no question named, at and
+// either side of its edge; then the order they report in, and that all of them
+// come before the first question is read. `refused` says only which rule fired.
+
+/// The one error a pack text is refused with, every field of it.
+fn refusal(text: &str) -> PackError {
+    match Pack::parse(text) {
+        Ok(p) => panic!("{} loaded", p.name()),
+        Err(e) => e,
+    }
+}
+
+/// The pack a text loads as, or the reason it did not.
+fn loaded(text: &str) -> Pack {
+    Pack::parse(text).unwrap_or_else(|e| panic!("refused: {e}"))
+}
+
+/// What a header guard refuses with: no question is named, none was read.
+fn header_error(pack: &str, rule: Rule, detail: &str) -> PackError {
+    PackError {
+        pack: pack.into(),
+        question: None,
+        rule,
+        detail: detail.into(),
+    }
+}
+
+/// `text` with the first `from` replaced by `to`.
+fn edit(text: &str, from: &str, to: &str) -> String {
+    assert!(text.contains(from), "the test pack lacks {from:?}");
+    text.replacen(from, to, 1)
+}
+
+/// `text` with every question cut away, leaving an empty `[questions]` table.
+fn without_questions(text: &str) -> String {
+    let at = text.find("\n[questions.").expect("the pack has questions");
+    format!("{}\n[questions]\n", &text[..at])
+}
+
+/// `text` with its first question (`cause`) no longer a question.
+fn with_a_bad_question(text: &str) -> String {
+    edit(
+        text,
+        "instructions = \"What most likely caused this build failure?\"",
+        "instructions = \"Why?\"",
+    )
+}
+
+const IDENTITY: &str = "the id is lowercase snake case and the version at least 1";
+
+#[test]
+fn an_id_that_is_not_snake_case_or_a_version_of_zero_is_refused_as_identity() {
+    let id = |id: &str| edit(GOOD, "id = \"probe\"", &format!("id = \"{id}\""));
+    // The pack is named by the id and version it was given, bad as they are.
+    // (\u{e9} is lowercase, but not ASCII.)
+    for bad in [
+        "Probe",
+        "pro be",
+        "",
+        "pro-be",
+        "9probe",
+        "_probe",
+        "prob\u{e9}",
+    ] {
+        assert_eq!(
+            refusal(&id(bad)),
+            header_error(&format!("{bad}.v1"), Rule::Identity, IDENTITY),
+            "the id {bad:?}"
+        );
+    }
+    let long = "a".repeat(49);
+    assert_eq!(
+        refusal(&id(&long)),
+        header_error(&format!("{long}.v1"), Rule::Identity, IDENTITY),
+        "49 characters"
+    );
+    assert_eq!(loaded(&id(&"a".repeat(48))).id.len(), 48, "48 characters");
+    assert_eq!(loaded(&id("probe_2")).name(), "probe_2.v1");
+    // Version 0 refuses on its own, with a good id: it is the other half.
+    assert_eq!(
+        refusal(&with("version = 1", "version = 0")),
+        header_error("probe.v0", Rule::Identity, IDENTITY)
+    );
+    assert_eq!(
+        refusal(&edit(&id("Probe"), "version = 1", "version = 0")),
+        header_error("Probe.v0", Rule::Identity, IDENTITY)
+    );
+    assert_eq!(
+        loaded(&with("version = 1", "version = 2")).name(),
+        "probe.v2"
+    );
+}
+
+#[test]
+fn a_model_that_is_not_pinned_is_refused_naming_it() {
+    let model = |m: &str| {
+        with(
+            "jev_model = \"jev-1.13.0\"",
+            &format!("jev_model = \"{m}\""),
+        )
+    };
+    assert_eq!(
+        refusal(&model("jev-latest")),
+        header_error(
+            "probe.v1",
+            Rule::PinnedModel,
+            "\"jev-latest\" is not a pinned model such as jev-1.13.0 (jev-latest never)"
+        )
+    );
+    // Each way a name can fall short of `jev-<major>.<minor>.<patch>`.
+    for bad in [
+        "jev-1.13",
+        "jev-1.13.0.1",
+        "",
+        "gpt-1.13.0",
+        "jev-1..0",
+        "jev-1.13.0a",
+    ] {
+        assert_eq!(
+            refusal(&model(bad)),
+            header_error(
+                "probe.v1",
+                Rule::PinnedModel,
+                &format!("{bad:?} is not a pinned model such as jev-1.13.0 (jev-latest never)")
+            ),
+            "the model {bad:?}"
+        );
+    }
+    assert_eq!(loaded(&model("jev-0.0.0")).jev_model, "jev-0.0.0");
+}
+
+#[test]
+fn the_state_cap_is_one_to_thirty_two_thousand_inclusive() {
+    let cap = |n: u64| {
+        with(
+            "state_cap_tokens = 1000",
+            &format!("state_cap_tokens = {n}"),
+        )
+    };
+    for bad in [0, 32_001, 40_000] {
+        assert_eq!(
+            refusal(&cap(bad)),
+            header_error(
+                "probe.v1",
+                Rule::StateCap,
+                &format!("{bad} is not within 1..=32000")
+            ),
+            "a cap of {bad}"
+        );
+    }
+    // Both edges are in.
+    for good in [1, 32_000] {
+        assert_eq!(loaded(&cap(good)).state_cap_tokens, good);
+    }
+}
+
+#[test]
+fn the_sample_is_zero_to_one_inclusive_and_nan_is_refused() {
+    let sample = |s: &str| with("sample = 1.0", &format!("sample = {s}"));
+    for bad in ["1.5", "1.0000001", "-0.1", "nan", "inf", "-inf"] {
+        // `NaN` is what a float prints as; TOML spells it `nan`.
+        let shown = if bad == "nan" { "NaN" } else { bad };
+        assert_eq!(
+            refusal(&sample(bad)),
+            header_error(
+                "probe.v1",
+                Rule::Sample,
+                &format!("{shown} is not within 0..=1")
+            ),
+            "a sample of {bad}"
+        );
+    }
+    for good in ["0.0", "0.5", "1.0"] {
+        assert_eq!(
+            loaded(&sample(good)).sample,
+            good.parse::<f64>().unwrap(),
+            "a sample of {good}"
+        );
+    }
+}
+
+#[test]
+fn a_pack_that_asks_nothing_is_refused_and_one_question_is_enough() {
+    assert_eq!(
+        refusal(&without_questions(GOOD)),
+        header_error(
+            "probe.v1",
+            Rule::QuestionId,
+            "a pack asks at least one question"
+        )
+    );
+    // One is enough: the guard is on none, not on fewer than two.
+    let one = GOOD
+        .split_once("\n[questions.severity]")
+        .expect("the probe pack's second question")
+        .0;
+    assert_eq!(loaded(one).questions.len(), 1);
+}
+
+/// One header fault: how to put it into the good pack, and what the loader
+/// says of it.
+struct Fault {
+    put: fn(&str) -> String,
+    rule: Rule,
+    detail: &'static str,
+}
+
+/// The five header faults, in the order the loader reports them. The empty
+/// `[questions]` table goes last: it cuts the file short.
+fn header_faults() -> [Fault; 5] {
+    [
+        Fault {
+            put: |t| edit(t, "id = \"probe\"", "id = \"Probe\""),
+            rule: Rule::Identity,
+            detail: IDENTITY,
+        },
+        Fault {
+            put: |t| {
+                edit(
+                    t,
+                    "jev_model = \"jev-1.13.0\"",
+                    "jev_model = \"jev-latest\"",
+                )
+            },
+            rule: Rule::PinnedModel,
+            detail: "\"jev-latest\" is not a pinned model such as jev-1.13.0 (jev-latest never)",
+        },
+        Fault {
+            put: |t| edit(t, "state_cap_tokens = 1000", "state_cap_tokens = 40000"),
+            rule: Rule::StateCap,
+            detail: "40000 is not within 1..=32000",
+        },
+        Fault {
+            put: |t| edit(t, "sample = 1.0", "sample = 1.5"),
+            rule: Rule::Sample,
+            detail: "1.5 is not within 0..=1",
+        },
+        Fault {
+            put: without_questions,
+            rule: Rule::QuestionId,
+            detail: "a pack asks at least one question",
+        },
+    ]
+}
+
+/// The good pack with the faults whose bits are set in `mask` put into it,
+/// and what the loader must refuse it with: the first of them in report order.
+fn with_header_faults(mask: u32) -> (String, PackError) {
+    let faults = header_faults();
+    let mut text = GOOD.to_string();
+    for (i, fault) in faults.iter().enumerate() {
+        if mask & (1 << i) != 0 {
+            text = (fault.put)(&text);
+        }
+    }
+    let first = (0..faults.len())
+        .find(|i| mask & (1 << i) != 0)
+        .expect("a fault");
+    // Only the identity fault changes the name a pack is reported under.
+    let pack = if mask & 1 != 0 {
+        "Probe.v1"
+    } else {
+        "probe.v1"
+    };
+    let Fault { rule, detail, .. } = faults[first];
+    (text, header_error(pack, rule, detail))
+}
+
+#[test]
+fn the_header_guards_report_in_order_whichever_of_them_a_pack_trips() {
+    // All 31 ways to trip one or more of the five: the first of identity,
+    // model, cap, sample and asks-nothing that is tripped is the one reported.
+    for mask in 1..32 {
+        let (text, want) = with_header_faults(mask);
+        assert_eq!(refusal(&text), want, "faults {mask:05b}");
+    }
+}
+
+#[test]
+fn the_header_is_judged_before_any_question_is_read() {
+    // The bad question is bad by itself, and is named when it is the only fault.
+    assert_eq!(
+        refusal(&with_a_bad_question(GOOD)),
+        PackError {
+            pack: "probe.v1".into(),
+            question: Some("cause".into()),
+            rule: Rule::Instructions,
+            detail: "a question of at least four words, ending in '?'".into(),
+        }
+    );
+    // Beside any header fault it is never reached. (Without questions there
+    // is none to be bad, so the fifth fault is not in this.)
+    for mask in 1..16 {
+        let (text, want) = with_header_faults(mask);
+        assert_eq!(
+            refusal(&with_a_bad_question(&text)),
+            want,
+            "faults {mask:04b} and a bad question"
+        );
+    }
+}
+
 #[test]
 fn dynamic_options_come_first_and_the_static_ones_follow() {
     let text = with(

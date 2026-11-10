@@ -315,7 +315,7 @@ async fn backfill(r: &Rig, jev: &FakeJev, owner: &str) {
             confidence: 0.95,
         },
     );
-    r.fake.script.lock().unwrap().push_back(answer(json!([
+    r.fake.when_tool(super::extract::TOOL, answer(json!([
         {"name": "Wren Halloway", "handles": [], "role_line": "Takes the north gauge readings.", "evidence": ["L3"]},
         {"name": "Tern", "handles": [], "role_line": "", "evidence": ["L1"]},
         {"name": "Sable", "handles": [], "role_line": "", "evidence": ["L1"]},

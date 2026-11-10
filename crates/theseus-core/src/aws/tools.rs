@@ -434,6 +434,10 @@ impl Tool for CallTool {
                 .map_err(|f| failure(&p.what(), f))?;
             let mut m = meta(&p.account.id, &p.region, &p.name(), &out);
             let mut handles: Vec<String> = Vec::new();
+            // Handle -> the rule that held it (theseus-3i6d1). A second
+            // key, never a change to `secrets`: eight sites read that
+            // array's elements as plain strings and it is a surface.
+            let mut rules = Map::new();
             if p.secret {
                 // The value goes onto the board, never into the result.
                 let held = super::secret::hold(
@@ -454,24 +458,27 @@ impl Tool for CallTool {
                 }
                 // One that holds a secret only when it is there, with none
                 // this time, answers whole (theseus-qan5).
-                handles.extend(held.into_iter().map(|h| h.handle));
+                for h in held {
+                    rules.insert(h.handle.clone(), json!(h.rule.as_str()));
+                    handles.push(h.handle);
+                }
             }
             // Then the shape rule, over whatever the names left behind, on
             // every call and not only a secret-bearing one: a presigned URL
             // carries its own authorisation, so no name can catch it, and
             // the operation that returns one is an ordinary read
             // (theseus-3i6d1).
-            handles.extend(
-                super::presigned::hold(
-                    &p.account.board,
-                    &super::secret::label(&p.operation, &p.input),
-                    &mut out.body,
-                )
-                .into_iter()
-                .map(|h| h.handle),
-            );
+            for h in super::presigned::hold(
+                &p.account.board,
+                &super::secret::label(&p.operation, &p.input),
+                &mut out.body,
+            ) {
+                rules.insert(h.handle.clone(), json!(h.rule.as_str()));
+                handles.push(h.handle);
+            }
             if !handles.is_empty() {
                 m["secrets"] = json!(handles);
+                m["secret_rules"] = Value::Object(rules);
             }
             Ok((
                 ToolOutput {

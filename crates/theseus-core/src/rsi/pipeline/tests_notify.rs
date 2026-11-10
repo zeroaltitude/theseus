@@ -136,11 +136,14 @@ async fn two_later_starts_post_nothing_and_are_one_line_in_the_next_note() {
 async fn the_morning_note_lists_the_waiting_starts_and_takes_only_those() {
     let r = rig_with(1, 30.0);
     bind_dm(&r);
-    assert!(r.core.morning_facts(night_now(), None, 0).is_none());
+    assert!(r.core.morning_facts(night_now(), None, 0, 0).is_none());
     let t = r.tick().await;
     let folded = r.core.folded_read();
     assert_eq!(folded.count(), 1, "{folded:?}");
-    let (brief, n) = r.core.morning_facts(night_now(), None, 0).expect("a start");
+    let (brief, n) = r
+        .core
+        .morning_facts(night_now(), None, 0, folded.count() as u64)
+        .expect("a start");
     assert_eq!(n, 1);
     assert!(
         brief.contains("- 1 self-improvement builds started since the last note"),
@@ -160,6 +163,30 @@ async fn the_morning_note_lists_the_waiting_starts_and_takes_only_those() {
     let left = r.core.folded_read();
     assert_eq!(left.started.len(), 1, "{left:?}");
     assert_eq!(left.started[0].item, "tsk_late");
+}
+
+/// The note reads the folded record once: the count it speaks is the count it
+/// lists and takes off, so a start that lands after the read is in none of
+/// the three and waits for the next note (folded.rs's own promise).
+#[tokio::test]
+async fn the_morning_facts_count_what_the_one_read_holds_not_a_second_read() {
+    let r = rig_with(1, 30.0);
+    bind_dm(&r);
+    r.tick().await;
+    let folded = r.core.folded_read();
+    assert_eq!(folded.count(), 1, "{folded:?}");
+    r.core
+        .folded_add(&[("tsk_late".into(), "A late start".into())]);
+    let (brief, n) = r
+        .core
+        .morning_facts(night_now(), None, 0, folded.count() as u64)
+        .expect("a start");
+    assert_eq!(n, 1);
+    assert!(
+        brief.contains("- 1 self-improvement builds started since the last note"),
+        "{brief}"
+    );
+    assert_eq!(r.core.folded_read().count(), 2, "the late start is waiting");
 }
 
 /// A note takes off exactly what it counted, by identity: a start that lands
