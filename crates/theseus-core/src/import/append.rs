@@ -164,11 +164,15 @@ pub(super) fn plan(
         //    both the safe answer and the one on main.
         let whole = e.messages.len() == stored.len();
         if whole && super::episode::DIGESTED_SOURCES.contains(&e.source.as_str()) {
+            // `idx_of` is `route`'s own: empty on this path, because a
+            // matched prefix renumbers nothing. Carried rather than written
+            // afresh, so the two `Plan` literals stay one shape.
             return Ok(Ok(Plan {
                 from,
                 skip,
                 summary,
                 diverged,
+                idx_of,
             }));
         }
         if !whole {
