@@ -569,6 +569,11 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+        // Then settle before reading. `fetch_all` has already returned, so a
+        // regression's second and third asks are at least in the backlog and
+        // counting them is fast; reading the instant the count reaches 1 lets
+        // a three-ask regression still read 1 and pass.
+        tokio::time::sleep(Duration::from_millis(200)).await;
         let asked = served.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(asked, 1, "asked once");
         assert!(asked < ATTEMPTS, "not asked {ATTEMPTS} times");
