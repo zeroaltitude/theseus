@@ -2597,7 +2597,8 @@ impl TurnRunner {
                 call_started,
                 i,
             )),
-            Ok(Ok(resp)) => {
+            Ok(Ok(mut resp)) => {
+                Self::strip_standing_ack(t, &mut resp, i);
                 t.record(&fact::turn::ModelAnswered {
                     resp: &resp,
                     call_t0,
