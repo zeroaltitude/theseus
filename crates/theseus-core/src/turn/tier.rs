@@ -154,6 +154,19 @@ pub fn is_coding(v: &Verdict) -> bool {
 /// withholding itself ([`TurnRunner::small_talk_bar`]), not that the bar
 /// would fire on real small talk. That unproven premise is why the key is
 /// off by default: see its doc in `config::memory`.
+///
+/// **The bar reads this and deliberately does not read `classify`'s `social`
+/// label.** That is the row's own decision (theseus-ectzg's B4 line: "Design
+/// handed over: read `effort == low` from the already-peeked verdict in
+/// tier.rs, record `would_drop` on RecallManifest in shadow, leave classify's
+/// `social` until it is plumbed"), not an oversight. The effort answer is
+/// peeked here already, for the tier, so the bar costs the turn no model call
+/// and no wait, which is what `tier.rs`'s module doc means by "never a wait";
+/// `social` reaches no turn at all. What would have to exist before the bar
+/// could read it: a `social` question answered in the inbound batch, carried
+/// on [`Verdict`] (which has no field for one) so a pack and a compile can
+/// read it without waiting, and a rule for which answer wins when the two
+/// disagree. Until all three exist, the effort answer is the whole of the bar.
 pub fn is_low_effort(v: &Verdict) -> bool {
     v.effort
         .as_ref()
