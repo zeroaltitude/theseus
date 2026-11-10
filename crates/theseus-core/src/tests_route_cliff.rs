@@ -113,6 +113,32 @@ async fn a_longer_system_prompt_changes_no_model() {
 /// size assertion is what this row exists to take out of the suite, as the
 /// paragraph above says; the shape assertion is the one that holds however
 /// the prompt grows, and it widened when the assertion went.
+///
+/// **Where the figure is watched now** (theseus-4vsrz, B7). Deleting the
+/// assertion left nothing watching an ordinary turn against
+/// `cold_switch_tokens`, though it was then half of it — 14,977 of 30,000 on
+/// this rig. The watch that replaced it is not an assertion and is not here.
+/// **It is in the gate's `turn` bench, which already censuses every place
+/// class:** `theseus-sim`'s `perf/counted.rs` now prints each place's session
+/// own context with its share of that place's `cold_switch_tokens`, recorded
+/// and never judged, in a line a reader already reads every run. Beside it,
+/// `theseus-sim bench prompt` records a fresh session's first request per
+/// place class against a committed baseline
+/// (`crates/theseus-sim/baselines/prompt.json`), and since this row it also
+/// records the **session's own context** — the total less the tool
+/// definitions and the header block — with its share of that place's
+/// `cold_switch_tokens`. It warns on movement off the baseline and never
+/// fails; `scripts/prompt-step.sh` is the gate phase that runs it. That
+/// figure is **not** this test's 14,977: a fresh census carries no message,
+/// so it read 0-29 tokens on 2026-11-10 and is the floor of a one-message
+/// turn. What it catches is the regression — the prefix counted back into the
+/// bound's quantity would take it from 29 to about 7,600. Two reasons it
+/// lives there rather than in an assertion here. It takes both terms from one
+/// census, so it has none of the two-estimate residual that makes `context`
+/// below track the catalog's size rather than the session's content. And a
+/// gate on it would be the same mistake again: a ceiling on a quantity that
+/// grows with every tool we add, reddening departures for drift that is
+/// legally inside its limit.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
     let jev = FakeJev::start().unwrap();

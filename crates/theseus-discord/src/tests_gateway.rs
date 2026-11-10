@@ -26,7 +26,7 @@ pub(crate) const LAB: u64 = 900_000_000_000_000_010;
 pub(crate) const ANA_DM: u64 = ANA + 1;
 
 /// `#lab`, where ana may drive Theseus, bound private or shared, and ana's DM.
-fn bindings(lab_private: bool) -> String {
+pub(crate) fn bindings(lab_private: bool) -> String {
     format!(
         "guild_id = \"{DEFAULT_GUILD}\"\n\
          [[channel]]\nid = \"{LAB}\"\nname = \"lab\"\nusers = [\"{ANA}\"]\nmention_only = false\nprivate = {lab_private}\n\

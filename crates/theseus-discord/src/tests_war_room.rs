@@ -150,6 +150,15 @@ async fn a_guests_comment_reaches_no_session_and_no_model_and_the_owner_hears_it
             .all(|m| !m.content.contains("💬") || m.silent()),
         "a relay never pings"
     );
+    // The notice goes to the thread's place, the relays above to the channel's;
+    // `say_pointer` orders posts only "in order with the place's other posts",
+    // so waiting on the channel says nothing about the thread. Wait for the
+    // notice to arrive, as `tests_task_threads.rs` does for the same string,
+    // and then count it: the "exactly once" half is what this test is for.
+    until(&r, "the thread says the task does not read it", || {
+        said(&r, thread).contains("The task doesn't read guests' messages")
+    })
+    .await;
     let said_once = said(&r, thread)
         .matches("The task doesn't read guests' messages")
         .count();

@@ -137,6 +137,7 @@ COMMITTED = {
     "scripts/build.sh": PASSES,
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
+    "scripts/prompt-step.sh": PASSES,
 }
 # The real scripts the gate runs here. line-pressure.py is real rather than a stand-in because the whole point of
 # its phase is that it cannot fail a gate, and the interesting case is the one this repository IS: a tree with
@@ -171,7 +172,8 @@ class GateTree(unittest.TestCase):
             files[f"scripts/{name}"] = (HERE / name).read_text()
         for name, text in files.items():
             self.put(self.root / name, text)
-        for sh in ("gate.sh", "keel-guard.py", "shape.sh", "build.sh", "recall-tests.sh", "size-step.sh"):
+        for sh in ("gate.sh", "keel-guard.py", "shape.sh", "build.sh", "recall-tests.sh", "size-step.sh",
+                   "prompt-step.sh"):
             (self.root / "scripts" / sh).chmod(0o755)
         self.git("init", "-q", "-b", "main")
         self.git("add", "-A")
