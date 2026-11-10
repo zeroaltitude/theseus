@@ -47,7 +47,7 @@ if [ "${1:-}" = --locked-part ]; then
   asked=$3
   label=$4
 elif [ "$#" -ne 0 ]; then
-  echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_NO_BENCH=1, THESEUS_GATE_BENCH_ALLOWANCE=PERCENT)" >&2
+  echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_NO_BENCH=1, THESEUS_GATE_BENCH_ALLOWANCE=PERCENT, THESEUS_GATE_MIN_FREE_GB=GB)" >&2
   exit 2
 fi
 case "${THESEUS_GATE_LOCK:-inner}" in
@@ -71,6 +71,17 @@ case "$allowance" in
     exit 2
     ;;
 esac
+# The disk floor (theseus-4vsrz; see disk_floor): the free GB the target's filesystem must have for the gate to start.
+# The default is a backstop and not a capacity plan: a cloud VM has about 39 GB in all, so it cannot be higher for them,
+# and a host that builds 40-75 GB targets and wants more room sets a higher one itself. 0 is no floor.
+min_free_gb="${THESEUS_GATE_MIN_FREE_GB:-10}"
+case "$min_free_gb" in
+  *[!0-9]*)
+    echo "gate: THESEUS_GATE_MIN_FREE_GB is '$min_free_gb'; it is a whole number of GB (0: no floor)" >&2
+    exit 2
+    ;;
+esac
+min_free_gb=$((10#$min_free_gb))
 lock="${THESEUS_GATE_LOCK_FILE:-$HOME/.cache/theseus-gate.lock}"
 
 # Is the lock file open in process $1? /proc answers for this user's processes only.
@@ -1085,6 +1096,44 @@ if [ "$part" = locked ]; then
   exit 0
 fi
 
+# THE DISK FLOOR (theseus-4vsrz). A gate begun on a nearly full disk dies part way through its build and leaves a target
+# nobody can read: on 2026-11-07 `/` was 631 GB of 639 GB used, 2.1 GB free, and a 40-minute build began on it. So before the
+# first compile the gate reads the free space of the filesystem that holds `target` (df follows a symlink, and a lane's target
+# may be on another disk; a lane that has not built has no target yet, and the nearest directory that exists is on the disk
+# it will be made on) and refuses, with a status of its own (73) and the number it read, below THESEUS_GATE_MIN_FREE_GB.
+# It deletes nothing: pruning is the lane tooling's, and a gate that clears caches changes the tree it judges. The GB shown
+# are truncated to a tenth, so a disk a block under the floor is never printed as at it. A df it cannot read refuses too,
+# since a gate that cannot show it has room has not shown it; 0 skips the read. Its place is after fmt and before the first
+# phase that resolves or compiles, never ahead of fmt: the guard's own tests run this gate in throwaway repositories under
+# the temp directory and expect it to fail at fmt there, and that directory can be a small tmpfs (9.5 GB free on the ARM
+# host, 2026-11-09: eight of those tests were refused by the first version, which stood at the head of the flow).
+disk_floor_status=73
+disk_floor() {
+  local dir=target kb where tenths free
+  if [ "$min_free_gb" -eq 0 ]; then
+    echo "gate: disk floor: off (THESEUS_GATE_MIN_FREE_GB=0)"
+    return 0
+  fi
+  while [ ! -e "$dir" ] && [ "$dir" != . ]; do dir="$(dirname "$dir")"; done
+  where="$(readlink -f -- "$dir")"
+  kb="$(df -Pk -- "$dir" 2>/dev/null | awk 'NR == 2 { print $4 }' || true)"
+  case "$kb" in
+    '' | *[!0-9]*)
+      echo "gate: REFUSED: could not read the free space on $where, so the gate cannot show it has room to build (exit status $disk_floor_status)" >&2
+      echo "gate: fix df, or run on purpose with THESEUS_GATE_MIN_FREE_GB=0 (no floor)" >&2
+      exit "$disk_floor_status"
+      ;;
+  esac
+  tenths=$((kb * 10 / 1048576))
+  free="$((tenths / 10)).$((tenths % 10))"
+  if [ "$kb" -lt $((min_free_gb * 1048576)) ]; then
+    echo "gate: REFUSED: only $free GB free on $where, below the disk floor of $min_free_gb GB (exit status $disk_floor_status)" >&2
+    echo "gate: a build begun here can die part way and leave a half-written target; free space (a merged lane's target is regenerable) and rerun, or run on purpose with THESEUS_GATE_MIN_FREE_GB=<a smaller whole number of GB> (0: no floor). The gate deletes nothing itself" >&2
+    exit "$disk_floor_status"
+  fi
+  echo "gate: disk floor: $free GB free on $where (floor $min_free_gb GB)"
+}
+
 # The tree's identity, before anything runs: every check below is a check of this tree (THE TREE THE GATE JUDGES).
 tree_begin
 # The door, then the keel: neither needs a build, so a branch that removed what would fail it stops in seconds.
@@ -1106,6 +1155,8 @@ phase "gate tests" gate_tests
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The last cheap phase: from the next one on, the gate resolves and compiles, and a disk that cannot hold it refuses here.
+phase "disk floor" disk_floor
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
 phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings
