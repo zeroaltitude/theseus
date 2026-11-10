@@ -77,7 +77,7 @@
 
 use serde_json::{json, Value};
 
-use super::secret::{handle, Held};
+use super::secret::{handle, Held, Rule};
 use crate::secrets::{Secret, SecretBoard};
 
 /// Query parameters whose value is a signature. A presigned URL has one
@@ -162,6 +162,10 @@ pub fn hold(board: &SecretBoard, label: &str, body: &mut Value) -> Vec<Held> {
         held.push(Held {
             handle: h.clone(),
             path: path.to_string(),
+            // This pass is the value rule for signed URLs, and it runs on
+            // every call, not only a secret-bearing one; it is named like
+            // any other rule rather than left blank (theseus-3i6d1).
+            rule: Rule::Presigned,
         });
         h
     });

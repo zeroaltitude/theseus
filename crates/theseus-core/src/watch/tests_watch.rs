@@ -204,6 +204,20 @@ fn pending(core: &Core) -> usize {
 /// that came to say MERGED, within one interval of the change; the owner
 /// hears it as an Interrupt with the value and what the wait cost; the watch
 /// is gone; and no model was called.
+///
+/// The bound (700 + 500 + 1_500 = 2_700 ms) was measured at 61e72bf6, on a
+/// 4-core homogeneous VM running as root, a single process per run (one
+/// test), with `t0.elapsed()` printed by a temporary `eprintln!` that was not
+/// committed. Idle: 8 runs, nothing else running; min 986, median 995, max
+/// 1005 ms. Loaded: 22 runs beside 6 busy-loop shells (more runnable threads
+/// than cores, equal priority); min 981, median 1000.5, max 1019 ms. Worst
+/// observation 1019 ms, a margin of 1681 ms (62 %) under the bound. The
+/// elapsed is a constant about 1000 ms, not a spread: the check is due 700 ms
+/// after the last one, but the driver only looks on its 500 ms tick, so the
+/// due time rounds up to the second tick (700 -> 1000), and the hop after the
+/// check is inside the `until` poll's 20 ms. Load moved nothing here. NOT
+/// produced here: a full-suite run beside other tests, and the big.LITTLE
+/// core scheduling the review named, which only the owner's host can test.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_watch_is_met_within_one_interval_of_the_change() {
     let dir = tempfile::tempdir().unwrap();

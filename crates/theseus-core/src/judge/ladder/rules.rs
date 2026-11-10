@@ -242,7 +242,8 @@ impl Ladder {
     /// The nightly check (25c's run): read the ladder again from the store,
     /// and check every pack's rules on the day's events.
     pub fn recheck(&self) -> Vec<PackModeRow> {
-        self.reread();
+        // A failed read is already warned in `reread`; the check runs on what stands.
+        let _ = self.reread();
         self.with(|l, me| me.check_in(l, None, true))
     }
 }
