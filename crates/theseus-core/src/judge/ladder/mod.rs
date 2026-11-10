@@ -442,8 +442,29 @@ impl Ladder {
     /// Read it again from the store, now (a row written in a caller's
     /// frame), so health never falls back to the wired lines meanwhile.
     pub fn reload(&self) {
-        self.forget();
-        self.with(|_, _| ());
+        self.reread();
+    }
+
+    /// Read the store again and put what it gives in the place of what is
+    /// loaded, in one step. A read that fails leaves what is loaded as it
+    /// stands: the pre-read line ([`Ladder::unread`], capped at shadow) is
+    /// for before the warm read (theseus-289c), and a ladder that has been
+    /// read never goes back to it -- a pack that silently dropped to shadow
+    /// there would be recorded as a shadow pack by every point that asked
+    /// afterwards. Returns whether what is loaded was replaced.
+    pub(crate) fn reread(&self) -> bool {
+        match self.load() {
+            Ok(fresh) => {
+                let mut g = lock(&self.loaded);
+                let l = g.insert(fresh);
+                adopt::adopt_missing(self, l);
+                true
+            }
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "judge: the ladder was not read again; every pack stands where it was read");
+                false
+            }
+        }
     }
 
     fn load(&self) -> Result<Loaded> {
