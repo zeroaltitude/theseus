@@ -76,7 +76,7 @@ fn swept_rows(r: &Rig) -> Vec<crate::ledger::LedgerRow> {
 async fn the_sweep_extracts_what_the_gate_let_pass_once_in_private_places() {
     let (_jev, r, private, shared) = shut_gate(2.0).await;
     let before = until_marked(&r, &private).await;
-    r.fake.script.lock().unwrap().push_back(answer(json!([
+    r.fake.when_tool(super::extract::TOOL, answer(json!([
         {"name": "Wren Halloway", "handles": [], "role_line": "Keeps the tide tables.", "evidence": ["L1"]}
     ])));
     let s = r.core.people_sweep("nightly").await.unwrap();

@@ -915,3 +915,59 @@ fn a_drop_of_the_folded_failed_item_means_its_packs() {
         "two new failing packs file judge.failed again"
     );
 }
+
+/// An open item whose only evidence is one sighting, last seen over 14 days
+/// before the night, retires: abandoned and unranked, but not remembered as
+/// dropped, so the cause files afresh when it comes back. An item seen twice
+/// is as old and stays: the rule is a conjunction, not an age sweep. Every
+/// clock here is the night's own argument (`n1 + 15 * DAY`), never the wall's.
+#[test]
+fn a_one_sighting_item_over_14_days_old_retires_without_being_remembered() {
+    let c = acting(0, 20);
+    let by = |cause: &str| {
+        listed(&c)
+            .into_iter()
+            .filter(|i| i.cause == cause)
+            .collect::<Vec<_>>()
+    };
+    failed_turn(&c, "overloaded: once", tick());
+    failed_turn(&c, "timeout: first", tick());
+    failed_turn(&c, "timeout: second", tick());
+    let n1 = tick();
+    let first = c.backlog_night(n1).unwrap();
+    assert_eq!(first.filed.len(), 2, "{first:?}");
+    assert!(first.retired.is_empty(), "{first:?}");
+    let once = by("turn.failed:overloaded");
+    let twice = by("turn.failed:timeout");
+    assert_eq!(
+        (once.len(), once[0].count, once[0].state.as_str()),
+        (1, 1, "proposed")
+    );
+    assert_eq!((twice.len(), twice[0].count), (1, 2));
+    // Fourteen days on is not yet "over 14 days old": both stay.
+    let early = c.backlog_night(n1 + 13 * DAY).unwrap();
+    assert!(early.retired.is_empty(), "{early:?}");
+
+    let second = c.backlog_night(n1 + 15 * DAY).unwrap();
+    assert_eq!(second.retired, vec![once[0].id.clone()], "{second:?}");
+    let once_now = by("turn.failed:overloaded");
+    assert_eq!(
+        (once_now[0].state.as_str(), once_now[0].rank),
+        ("abandoned", 0)
+    );
+    let twice_now = by("turn.failed:timeout");
+    assert_eq!(twice_now[0].state, "proposed", "two sightings are kept");
+    assert!(twice_now[0].rank > 0);
+
+    // A retire, not a suppress: nothing remembers the cause (an owner's drop
+    // does, and keeps it from ever being filed again), so a later sighting
+    // files it afresh. The ledger's windows follow the write clock, so a row
+    // cannot be written for a night 15 days ahead of it: the proof is the
+    // record, not a third night.
+    let ledger = rows(&c, "self.backlog.dropped");
+    assert_eq!(ledger.len(), 1, "{ledger:?}");
+    assert_eq!(ledger[0]["cause"], "turn.failed:overloaded");
+    assert_eq!(ledger[0]["remembered"], false, "{ledger:?}");
+    let back = c.self_backlog(&SelfBacklogParams { all: true }).unwrap();
+    assert!(back.dropped.is_empty(), "{:?}", back.dropped);
+}

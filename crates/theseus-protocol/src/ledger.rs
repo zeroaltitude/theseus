@@ -256,6 +256,7 @@ ledger_kinds! {
     ProviderRoutedBack = "provider.routed_back",
     RecallRan = "recall.ran",
     RecallShadow = "recall.shadow",
+    RecallWithheld = "recall.withheld",
     Reconcile = "reconcile",
     RequestRedacted = "request.redacted",
     SandboxEgress = "sandbox.egress",

@@ -551,6 +551,39 @@ async fn a_warm_up_opens_connections_and_a_warm_client_sends_none() {
     assert!(cold.warm(), "a call's answer warms the client");
 }
 
+/// What a round of [`JevClient::refresh`] guarantees, with the connections
+/// kept ([`FakeJev::keep_alive`]): **its requests, not its sockets**. Three
+/// rounds of five send exactly fifteen warm-ups and bill nothing, and the
+/// rounds after the first open no socket of their own -- but the count of
+/// sockets is hyper's, so this pins `>= n`, never `== n`. theseus-core's
+/// keeper test pins `== n`; the hunt above it says why that is the bar in
+/// question and not a bar this client meets by construction
+/// (theseus-4vsrz).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refresh_sends_its_warm_ups_again_on_the_connections_it_holds() {
+    let fake = FakeJev::start().unwrap();
+    fake.keep_alive(Duration::ZERO);
+    let client = client_for(&fake, 2000, 8);
+    for round in 1..=3 {
+        client.refresh(5).await.expect("sent");
+        assert_eq!(fake.warmups(), 5 * round, "five a round, round {round}");
+        assert_eq!(fake.connections(), 0, "nothing billed, round {round}");
+        assert!(
+            fake.opened() >= 5,
+            "five went out, round {round}: opened={}",
+            fake.opened()
+        );
+    }
+    // The point of keeping them: the later rounds rode what the first
+    // opened, so no round after the first needs five sockets of its own.
+    assert!(
+        fake.opened() < 15,
+        "the rounds rode kept connections: opened={}",
+        fake.opened()
+    );
+    assert!(fake.seen().is_empty(), "no body, no key");
+}
+
 /// The fake's latencies (theseus-ddbi): a request of one pack's questions
 /// waits `single`, a batch of several packs' `batch`.
 #[tokio::test]
