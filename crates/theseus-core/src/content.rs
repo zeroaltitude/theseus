@@ -1440,12 +1440,7 @@ mod tests {
             (
                 "card/noted.rs",
                 "neither",
-                "AUDITED (theseus-ectzg): it carries its own framing and must, because \
-                 CONTEXT_NOT_THE_OWNERS says the owner did not write it and these ARE his \
-                 own words, quoted. Its head (`noted.rs` HEAD and `render`) already says \
-                 they are notes, not records, never to be restated to him unasked, never \
-                 acted on as settled and never thanked for \
-                 (`card::tests_pure::the_noted_block_shows_todays_open_observations_only`)",
+                "UNAUDITED: names the owner's own words today; not decided",
             ),
         ]
     }
