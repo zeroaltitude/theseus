@@ -345,9 +345,11 @@ trap on_exit EXIT
 # What the suite does not run is said first (theseus-4vsrz). The suite passes no `-E`, so a `default-filter` in
 # `.config/nextest.toml` is the only filter there is, and it skips its tests in every run: nextest counts them as
 # "skipped" with the #[ignore]d ones, so a stale line (uncommitted, kept in a lane from an earlier run: four tests
-# skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one, since
-# the ARM runner sets its known skips this way; it names each line, with its profile and place, and whether HEAD has it
-# or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
+# skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one. It names
+# each line, with its profile and place, and whether HEAD has it or the working tree alone does. A line under this run's
+# profile (or under [profile.default] while the run's profile has none) is ACTIVE: the gate says so again beside the
+# suite's summary and calls the phase `suite filtered`. A line parked under another profile is named, marked NOT this
+# run's, and changes nothing: the phase keeps its name.
 filters_found=no
 suite_filters() {
   local cfg=.config/nextest.toml found profile lineno text where mine run="${NEXTEST_PROFILE:-default}" any=no
