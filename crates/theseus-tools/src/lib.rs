@@ -25,6 +25,7 @@ pub mod fs_stale;
 mod fs_walk;
 mod fs_window;
 pub mod git;
+pub mod git_state;
 pub mod image;
 pub mod jobs;
 pub mod magic;
