@@ -112,11 +112,11 @@ It runs, in order:
      prints `gate: NOT RUN, no verdict, after the failure in <phase>: <phases>` naming what never
      ran, and still reports the compile note. Before it the gate says what the suite will not run
      (theseus-4vsrz): `gate: suite filters: none`, or each `default-filter` it finds in `.config/nextest.toml` (its
-     profile, line and expression, and whether HEAD has it or only the working tree), and the phase is called
-     `suite filtered` in the table. The suite passes no `-E`, so a default-filter is the only filter there is, and
-     nextest counts what it skips with the `#[ignore]`d tests, so a stale line (the ARM runner's sed leaves one when
-     its gate's unit is stopped) was invisible in the result. The gate never refuses one: the ARM runner sets its
-     known skips this way.
+     profile, line and expression, and whether HEAD has it or only the working tree). A line under this run's profile
+     (or under `[profile.default]` while the run's profile has none) is ACTIVE: the phase is called `suite filtered` in
+     the table. A line parked under another profile is named and marked `NOT this run's`, and the phase keeps its name.
+     The suite passes no `-E`, so a default-filter is the only filter there is, and nextest counts what it skips with the
+     `#[ignore]`d tests, so a stale line was invisible in the result. The gate never refuses one.
 
    The benches run the test build's `theseusd`, `theseus-sim`, and `theseus-index`: the workspace's features, which
    the `features` phase holds an install's to.
@@ -167,6 +167,22 @@ and at the end; a gate that fails is checked once more on its way out.
   inside the suite, and by a checkout away and back. The gate's `gate tests` phase runs it, after `scrub`, when the tree
   differs from main in `gate.sh` or the test; a gate of main's own tree says so and costs a diff. A
   new phase of the gate that reads a command's output needs its stand-in there.
+
+### A disk too full to build (THESEUS_GATE_MIN_FREE_GB)
+
+Before its first compile the gate reads the free space of the filesystem that holds `target` and refuses to start below
+a floor, so a build is not begun on a disk it would fill (`disk_floor` in `gate.sh`).
+
+- **The floor is 10 GB**, from `THESEUS_GATE_MIN_FREE_GB` (default 10). It is a whole number of GB: anything else exits 2
+  with `it is a whole number of GB`. `0` turns the floor off, and the log says so.
+- **Below the floor the gate exits with status 73**, its own (nextest's is 100, the gate's 1 and 2, a moved tree's 75).
+  The log says `gate: REFUSED: only <n> GB free on <where>, below the disk floor of <floor> GB (exit status 73)`. A
+  `df` it cannot read refuses with 73 too: a gate that cannot show it has room has not shown it.
+- **It measures the filesystem holding `target`**, following a symlink; a lane that has not built yet has no `target`, so
+  the nearest directory that exists stands in for the disk it will be made on. It runs after fmt and before the first
+  phase that resolves or compiles.
+- **It deletes nothing.** Pruning is the lane tooling's, and a gate that clears caches changes the tree it judges. Free
+  space yourself and rerun, or run on purpose with a smaller whole number or `0`.
 
 ### The lock
 
@@ -437,6 +453,18 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   name (commit ids change at the re-sign): `tests_security::a_press_with_a_call_labels_its_judgments_in_its_frame`
   (a store-wide frame counter beside a live judge) and
   `tests_m3::parallel::a_calls_time_is_its_own_run_not_its_wait_for_the_turn` (order forced, then a seam in the rig).
+
+- **The `timing` group is a different instrument.** A test that measures a small time under load goes in
+  `[test-groups.timing]` (`.config/nextest.toml`), with an override that names it, and the group runs its members one at
+  a time. It sets no retry: no race is hidden, and a failure still fails the gate. `cargo nextest show-config
+  test-groups` lists its members, so nothing here counts them.
+- **`flakehunt` is a profile the gate does not run.** `[profile.flakehunt]` in the same file is the default profile with
+  `retries = 2` and `flaky-result = "fail"`, so a test that passed only on a retry fails the run. It is for a whole-suite
+  hunt by hand (`cargo nextest run --workspace --profile flakehunt`); the gate runs the default profile. Since
+  2026-11-10 a nightly run of it exists as well: a user timer on the main machine fires at 03:05 local and sends
+  `origin/main`'s tip to an ARM lane for the whole suite. That timer, its unit and its script are not in this
+  repository, so this file cannot say whether it is installed and does not try to; `systemctl --user list-timers
+  theseus-flakehunt.timer` answers that.
 
 ### A test of the hour or the local day takes a test clock
 
