@@ -2,6 +2,36 @@
 //! stand-ins: `/agenda`, `/routine`, `/snooze`, `/watch`, the board's Coming
 //! up and Routines, a routine's report and failure, a met watch, and what a
 //! shared place is never shown.
+//!
+//! **What makes a test here load-sensitive** (theseus-a0kte, accounted apart
+//! from the `until` family at 12889bcf). The default-forum mechanism cannot
+//! reach any of them: this rig's bindings file writes no `private` beside its
+//! `guild_id` (`super::bindings`), so `Bindings::trusted()` is empty and
+//! `start_default_forum` sets `Stand::Off` and returns. Three things here are
+//! load-sensitive on their own, and none of them is that mechanism:
+//!
+//! 1. **The wait is bounded at 20 s**, `Rig::until` (`tests_gateway.rs`), five
+//!    times tighter than `tests_task_threads::until`'s 100 s. Every wait in
+//!    this file is one of those, and each gets its own 20 s from when it is
+//!    called, so a slow host spends them one at a time rather than
+//!    cumulatively.
+//! 2. **Three waits are not waits at all but fixed real-time sleeps**, and
+//!    only the first of the three guards a negative: `a_shared_place_…`'s
+//!    1,500 ms, `a_routines_failure_…`'s 1,500 ms before `posts == 1`, and
+//!    `met_watch`'s 2,500 ms before its caller asserts `posts.len() == 1`.
+//!    `met_watch` also sets the watch's period to 700 ms, so that sleep is
+//!    about three and a half further checks. **A count of 2 there is a wrong
+//!    answer, not a timeout**: it would mean a met watch posted twice, which
+//!    is a defect at any load and belongs in a fix, never on a flaky list.
+//! 3. **The three `multi_thread` tests** (the routine failure and the two
+//!    met-watch ones) are the ones that need real concurrency, so they are
+//!    the ones a host running more tests than it has cores starves.
+//!
+//! Checked and excluded, with how: an hour-of-day dependency in
+//! `agenda_renders_…`, which sets a reminder three hours out and then asserts
+//! `when: today` shows it. `Span::Today` is a rolling `now_ms + 24 h`
+//! (`render/horizon.rs`), not a local-day boundary, so the hour cannot move
+//! that answer.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
