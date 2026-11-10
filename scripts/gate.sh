@@ -46,9 +46,53 @@ if [ "${1:-}" = --locked-part ]; then
   locked_dir=$2
   asked=$3
   label=$4
+elif [ "${1:-}" = --bench-bins ]; then
+  [ "$#" -eq 2 ] || { echo "gate: --bench-bins takes one cargo message file" >&2; exit 2; }
+  part=bench-bins
+  bins_json=$2
 elif [ "$#" -ne 0 ]; then
   echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_NO_BENCH=1, THESEUS_GATE_BENCH_ALLOWANCE=PERCENT, THESEUS_GATE_MIN_FREE_GB=GB)" >&2
   exit 2
+fi
+
+# Where cargo builds this tree (theseus-1eemp), which is not always `./target`. A self build's tree is a
+# worktree whose CARGO_TARGET_DIR is `<state>/self/target/<item>`, outside the checkout (rsi/tree.rs), and
+# a lane's gate is given one of its own. The debug binaries the benches run live there, so the check that
+# the test build made them and the benches that run them both read this, never `target/` on faith. Taking
+# it on faith is what failed every self build from theseus-7ykr's check to this row: 22 in a row died in
+# `test build`, naming a binary cargo had just built, before one test of their change ran. cargo answers
+# when the environment does not, so a `.cargo/config.toml` `build.target-dir` is right too (one call, 60 ms
+# warm); `$PWD/target` is the last word, for a tree cargo cannot read.
+target_dir="${CARGO_TARGET_DIR:-}"
+if [ -z "$target_dir" ]; then
+  cargo_meta="$(cargo metadata --no-deps --format-version 1 2>/dev/null || true)"
+  target_dir="$(printf '%s' "$cargo_meta" | grep -o '"target_directory":"[^"]*"' | cut -d'"' -f4 || true)"
+fi
+[ -n "$target_dir" ] || target_dir="$PWD/target"
+debug="$target_dir/debug"
+
+# The debug binaries the benches run: `theseusd`, `theseus-sim`, and the `theseus-index` the daemon starts
+# beside itself, which cargo builds for the integration tests that run them. `test_build` (below) builds
+# them, and this checks that it did: cargo's messages name every binary the build produced, fresh or
+# relinked, and one it does not name is one the benches would run stale. `json` is a cargo message file.
+bench_bins=(theseusd theseus-sim theseus-index)
+bench_bins_check() {
+  local json="$1" b exe
+  for b in "${bench_bins[@]}"; do
+    exe="$(grep -o "\"executable\":\"[^\"]*/debug/$b\"" "$json" | head -1 | cut -d'"' -f4 || true)"
+    if [ -z "$exe" ] || ! [ "$debug/$b" -ef "$exe" ]; then
+      echo "gate: the test build did not build $debug/$b${exe:+ (it built $exe)}, which the benches run,"
+      echo "gate: so they would run a stale one. Cargo builds a package's binaries for its integration tests, and"
+      echo "gate: none needs $b now: build it in test_build, after the tests' build"
+      return 1
+    fi
+  done
+}
+# `--bench-bins JSON` is that check alone over a planted message file: it builds nothing, takes no lock and
+# reads no git, so bench/recall/test_bench_bins.py can drive it over a self-shaped tree and a lane-shaped
+# one. The gate's own flow starts below.
+if [ "$part" = bench-bins ]; then
+  if bench_bins_check "$bins_json"; then exit 0; else exit 1; fi
 fi
 case "${THESEUS_GATE_LOCK:-inner}" in
   inner) ;;
@@ -480,7 +524,7 @@ protocol_types() {
 # passes. A passing run warns about a phase within 10% of its limit.
 # `theseus-sim bench history` reads it (theseus-1hk).
 lifecycle() {
-  target/debug/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label" "${busy_args[@]}"
+  "$debug"/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label" "${busy_args[@]}"
 }
 # A neighbour's sustained IO (a parallel build, a package install) stalls a
 # start's fsyncs for seconds, and then the bench measures the neighbour, not
@@ -581,11 +625,11 @@ jobs_bench() {
     echo "jobs: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
     return 0
   fi
-  target/debug/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}" || {
+  "$debug"/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}" || {
     echo "jobs: an L1 start's p95 missed its target; running the bench once more"
     sync
     settle
-    target/debug/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}"
+    "$debug"/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}"
   }
 }
 
@@ -601,7 +645,7 @@ jobs_bench() {
 # kind, and no burst (about 5 s); at the join, ten runs and a burst of 30 turns,
 # which the history records (about 11 s).
 turn_bench() {
-  target/debug/theseus-sim bench turn --check "$@"
+  "$debug"/theseus-sim bench turn --check "$@"
 }
 turn_step() {
   local args=(--runs 5 --burst 0)
@@ -960,28 +1004,19 @@ features() {
 }
 
 # The test build, the last compile before the lock: every test binary the suite runs, and the debug binaries the
-# benches run, `target/debug/theseusd`, `theseus-sim`, and the `theseus-index` the daemon starts beside itself,
+# benches run (`$debug`'s `theseusd`, `theseus-sim` and the `theseus-index` the daemon starts beside itself),
 # which cargo builds for the integration tests that run them. Until theseus-7ykr a `bench build` (`cargo build -p`
 # of the five shipped binaries) ran before it, a second feature set of the shared crates (6 minutes cold here,
-# seconds to a minute warm), and cargo links `target/debug/<bin>` from the build it ran last, so this one replaced
+# seconds to a minute warm), and cargo links `$debug/<bin>` from the build it ran last, so this one replaced
 # them before any bench ran: the benches only ever ran this build's binaries. They have the workspace's features,
-# and the features phase holds the five's to the same. Cargo's messages name every binary the build produced,
-# fresh or relinked, and this fails naming a bench binary it did not, where the benches would run a stale one.
-bench_bins=(theseusd theseus-sim theseus-index)
+# and the features phase holds the five's to the same. `bench_bins_check`, up at the top beside the target
+# directory it reads, holds that: a bench binary this build did not name is one the benches would run stale.
 test_build() {
-  local json="$gate_tmp/test-build.json" b exe
+  local json="$gate_tmp/test-build.json"
   # (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
   env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run \
     --cargo-message-format json-render-diagnostics >"$json"
-  for b in "${bench_bins[@]}"; do
-    exe="$(grep -o "\"executable\":\"[^\"]*/debug/$b\"" "$json" | head -1 | cut -d'"' -f4 || true)"
-    if [ -z "$exe" ] || ! [ "target/debug/$b" -ef "$exe" ]; then
-      echo "gate: the test build did not build target/debug/$b${exe:+ (it built $exe)}, which the benches run,"
-      echo "gate: so they would run a stale one. Cargo builds a package's binaries for its integration tests, and"
-      echo "gate: none needs $b now: build it in test_build, after the tests' build"
-      return 1
-    fi
-  done
+  bench_bins_check "$json"
 }
 
 # Nothing compiles under the lock: the compile phases built what the locked part runs. When
