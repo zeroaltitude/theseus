@@ -61,7 +61,7 @@ async fn the_people_step_reads_only_new_messages_and_moves_each_sessions_mark() 
         session_id_of(a["episode_id"].as_str().unwrap()),
         session_id_of(b["episode_id"].as_str().unwrap()),
     );
-    r.fake.script.lock().unwrap().push_back(answer(json!([])));
+    r.fake.when_tool(super::extract::TOOL, answer(json!([])));
     let first = r.core.people_sync(vec![sa.clone()]).await.unwrap();
     assert_eq!((first.due, first.swept), (1, 1), "{first:?}");
     assert_eq!(first.done, vec![sa.clone()]);
@@ -81,7 +81,7 @@ async fn the_people_step_reads_only_new_messages_and_moves_each_sessions_mark() 
 
     // The session grows by two messages: only they are read.
     import(&r, &[sync(10, "openclaw-sync-2026-11", &[0, 2, 4, 6, 8])]);
-    r.fake.script.lock().unwrap().push_back(answer(json!([])));
+    r.fake.when_tool(super::extract::TOOL, answer(json!([])));
     let again = r.core.people_sync(vec![sa.clone()]).await.unwrap();
     assert_eq!((again.due, again.swept), (1, 1), "{again:?}");
     let reqs = asked(&r);

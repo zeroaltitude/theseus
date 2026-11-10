@@ -844,7 +844,7 @@ impl TurnRunner {
         self.cfg
             .all_providers()
             .get(provider)
-            .map(|p| p.api_base.contains("api.anthropic.com"))
+            .map(|p| crate::provider::is_first_party(&p.api_base))
             .unwrap_or(false)
     }
 

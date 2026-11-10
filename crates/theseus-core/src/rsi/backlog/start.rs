@@ -506,6 +506,7 @@ impl Night {
             && self.started.is_empty()
             && self.started_more == 0
             && self.trimmed.is_empty()
+            && self.retired.is_empty()
             && self.kept_out == 0
     }
 }
@@ -559,6 +560,12 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
     for id in &night.trimmed {
         body.push_str(&format!("- dropped for size: {}\n", line(id)));
     }
+    for id in &night.retired {
+        body.push_str(&format!(
+            "- retired, seen once and not again: {}\n",
+            line(id)
+        ));
+    }
     if night.kept_out > 0 {
         body.push_str(&format!(
             "- {} kept out: dropped by you, or an item whose build never ran; `theseus self backlog --all` lists them, `theseus self retry <item>` puts one back\n",
@@ -571,6 +578,7 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
         (night.filed.len(), "new"),
         (night.started.len() + night.started_more, "started"),
         (night.trimmed.len(), "dropped"),
+        (night.retired.len(), "retired"),
     ] {
         if n > 0 {
             counts.push(format!("{n} {what}"));

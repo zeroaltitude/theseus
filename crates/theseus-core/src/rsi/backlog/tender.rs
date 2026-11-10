@@ -67,7 +67,7 @@ impl Core {
                         Ok(n) => {
                             tracing::info!(
                                 gate = %n.gate, candidates = n.candidates, filed = n.filed.len(),
-                                updated = n.updated.len(), trimmed = n.trimmed.len(),
+                                updated = n.updated.len(), trimmed = n.trimmed.len(), retired = n.retired.len(),
                                 started = n.started.len(), "self backlog: the night ran"
                             );
                             c.rsi.pipeline.kick();

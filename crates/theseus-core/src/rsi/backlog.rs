@@ -84,6 +84,9 @@ pub const PARENT_TITLE: &str = "Self-improvement backlog";
 /// A night reads at most this far back (ms).
 const MAX_WINDOW_MS: u64 = 2 * 86_400_000;
 const DAY_MS: u64 = 86_400_000;
+/// An open item whose only evidence is one sighting, last seen longer ago
+/// than this, retires (never suppressed: the cause can be filed again).
+const RETIRE_AFTER_MS: u64 = 14 * DAY_MS;
 
 /// What a night did.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -99,6 +102,9 @@ pub struct Night {
     pub kept_out: usize,
     /// Open items dropped for the backlog's size.
     pub trimmed: Vec<String>,
+    /// Open items retired: one sighting, last seen over 14 days ago. Not
+    /// remembered as dropped, so the cause files again if it comes back.
+    pub retired: Vec<String>,
     /// Candidates that would have ranked past the size: not filed.
     pub too_low: usize,
     pub ranked: usize,
@@ -159,13 +165,15 @@ fn objective_of(c: &Candidate, item: &str) -> String {
     if let Some(p) = &c.pattern {
         return p.brief.clone();
     }
+    let seen = match c.key == read::FAILED_MANY {
+        true => format!("in {} packs in one night", c.seen()),
+        false => format!("{} times", c.seen()),
+    };
     format!(
-        "Fix the cause `{}`: {}.\n\nSeen {} times; the evidence is on this task. Find the root \
+        "Fix the cause `{}`: {}.\n\nSeen {}; the evidence is on this task. Find the root \
          cause, fix it with a test that fails without the fix, and call \
          self.propose_change {{ item: \"{item}\", issue: <the issue>, why: <one sentence> }}.",
-        c.key,
-        c.title,
-        c.obs.len()
+        c.key, c.title, seen
     )
 }
 
@@ -363,6 +371,33 @@ impl Work {
         }
     }
 
+    /// Retire the open items whose only evidence is one sighting older than
+    /// [`RETIRE_AFTER_MS`]: abandoned like a size trim, with `remember` off,
+    /// so a later sighting of the cause files it afresh. An item in progress
+    /// is not open and is never touched; two sightings are never retired.
+    fn retire_stale(&mut self, by: &str, night: &mut Night) {
+        let stale: Vec<String> = self
+            .tasks
+            .values()
+            .filter(|t| is_open(t))
+            .filter(|t| {
+                self.st.items.get(&t.id).is_some_and(|m| {
+                    m.count == 1 && self.now.saturating_sub(m.last_ms) > RETIRE_AFTER_MS
+                })
+            })
+            .map(|t| t.id.clone())
+            .collect();
+        for id in stale {
+            self.drop_item(
+                &id,
+                by,
+                "retired: one sighting, more than 14 days ago",
+                false,
+            );
+            night.retired.push(id);
+        }
+    }
+
     /// Take back an item made tonight, before its frame is written.
     fn forget(&mut self, id: &str) {
         self.tasks.remove(id);
@@ -548,6 +583,7 @@ impl Core {
             None => Default::default(),
         };
         Self::backlog_file(&mut w, &cands, &unjudged, &mut night);
+        w.retire_stale("night", &mut night);
         w.rank(cfg.backlog_max_open as usize, "night", &mut night);
         self.backlog_write(&mut w)?;
         if gate(&self.self_ctx()) != Gate::Allowed {
