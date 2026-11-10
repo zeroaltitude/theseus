@@ -462,6 +462,52 @@ async fn a_spent_month_skips_and_says_so_once_and_the_first_starts_it_again() {
     );
 }
 
+/// The rule notices the owner was sent for a skipped run, as `rule_posts`
+/// reads D5's in the relay's tests: the operator outbox's `spend_ceiling` posts.
+fn rule_posts(r: &Rig) -> Vec<String> {
+    r.core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "spend_ceiling")
+        .map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect()
+}
+
+/// Rules D14 and D15 (theseus-3i6d1): a spent month tells the owner which rule
+/// skipped the run. `held_back` picks D15 for a title beginning `Review: ` (a
+/// project's weekly review) and D14 for any other routine; nothing else
+/// asserted that branch.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skipped_run_names_d14_for_a_routine_and_d15_for_a_review() {
+    for (title, rule, other) in [
+        ("Tidy the scratch notes", "Rule D14 skipped", "D15"),
+        ("Review: the harbour project", "Rule D15 skipped", "D14"),
+    ] {
+        let r = rig();
+        made(&r.core, json!({"month_usd": 1.0})).await;
+        let now = r.core.kernel.now_ms();
+        let this_month = theseus_kernel::cron::month_key(&r.core.kernel.config().zone, now);
+        let (spec, mut due) = routine_and_due(&r, &this_month);
+        let mut spec = spec.as_ref().clone();
+        spec.title = title.into();
+        due.spent_micros = spec.month_micros;
+        due.available_micros = 0;
+        due.available_after_reset_micros = 0;
+        let (p, _) = plan(&env(&r), &Arc::new(spec), &due).unwrap();
+        assert!(matches!(p, RoutinePlan::Skip { .. }), "{title}: skipped");
+        let told = rule_posts(&r);
+        assert_eq!(told.len(), 1, "{title}: one notice: {told:?}");
+        assert!(told[0].contains(rule), "{title}: {}", told[0]);
+        assert!(!told[0].contains(other), "{title}: {}", told[0]);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn after_downtime_one_catch_up_says_how_many_were_missed_or_none_runs() {
     let r = rig();
