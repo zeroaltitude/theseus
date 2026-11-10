@@ -1,7 +1,9 @@
-//! One id resolver for the commands that name a session or an execution
-//! (theseus-0n1v): `history`, `watch`, `stop`, `cancel`,
-//! `wait` and `explain`. An id is named whole, or by a unique end of it of at
-//! least four characters, as `theseus tasks` and the terminal UI show them
+//! One id resolver for the commands that name a session, an execution or a
+//! turn (theseus-0n1v): `history`, `watch`, `stop`, `cancel`, `wait` and
+//! `explain` name a session or an execution, and `why` names a turn
+//! (`pick_turn`, below). A session's or an execution's id is named whole, or
+//! by a unique end of it of at least four characters (a turn's, by a unique
+//! start or end of at least four), as `theseus tasks` and the terminal UI show them
 //! (`…a1b2c3`). A task's ids share their tail (`act_X` opens `exe_X` in
 //! `ses_X`, recorded as `tsk_X`), so an end may match a session's id and its
 //! execution's at once: that is one thing, not two. An end that matches two
