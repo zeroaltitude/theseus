@@ -243,8 +243,11 @@ new lines, the dock again, in synchronized-output mode 2026).
   unreadable or over-cap image is refused in the dock naming the file and why, the line kept and nothing sent. `Taken.attachments`
   carries them through the queue (`release_queue`) and `Chat::unsent`; `submit_call` is the one place that builds the params.
   The transcript says what went by reference under the echo (`↪ paths sent: … · images attached: …`, `Taken.note`), since the footer's absolute paths are not echoed. `unqueue` restores the text only, so the next Enter reads the file again. In a task's view an image is refused (a task takes text).
-- **`/why`** (theseus-vjzt, phase 2; `chat/why.rs`): the lines `theseus why` prints for the last compiled turn, dim for the backtick lines.
-  Four reads go at once (`context.explain`, `policy.explain`, `ledger.tail` `route.decided`, `node.list` `tool_call`; each a
+- **`/why [TURN]`** (theseus-vjzt, phase 2; `chat/why.rs`): the lines `theseus why` prints, dim for the backtick lines: with no
+  argument for the newest compiled turn, with one for the turn it names (a whole id, or a unique start or end of at least four
+  characters, `resolve::pick_turn`). A named turn costs one read first, `ledger.tail` for `turn.started` (`WhyPart::Turns`),
+  to list the session's turns; an argument too short to name one is refused before anything is read.
+  Then four reads go at once (`context.explain`, `policy.explain`, `ledger.tail` `route.decided`, `node.list` `tool_call`; each a
   `Purpose::Why(WhyPart)`) and the words come when all four have answered; a second `/why` meanwhile says "still reading it". A side
   read that fails or does not decode leaves its section out; only `context.explain` failing is told (`could not read it: …`).
   `why` is the last entry of `COMMANDS` before the debug-only `panic`: the menu's first six rows are asserted by tests. Tests: `chat/tests_why.rs`.

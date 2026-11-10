@@ -43,7 +43,7 @@ The real reason is the second row. A model legitimately knows a file's contents 
 read calls every one of those a mistake, and it does so in every session on the machine.
 
 **`rsi` self-sessions are the case that made it unacceptable.** A self session's calls fail open where the
-*policy* layer would hold them for approval (`ToolPolicy::fails_open`, `toolrun/order.rs`), so self-improvement is
+*policy* layer would hold them for approval (`ToolPolicy::fails_open`, `crates/theseus-core/src/policy.rs`), so self-improvement is
 never stuck waiting for an owner who is asleep. A read-record refusal is not an approval: it is a `ToolFailure`,
 an ordinary tool error, and there is no fail-open path for one and no reason to invent one. Under *required*, a
 self session that knew a file by any other route would be stopped dead with nothing to answer. Under the rule in
