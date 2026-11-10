@@ -1444,6 +1444,9 @@ pub struct FakeProvider {
     pub stop_reason: String,
     pub fail_with: Option<ProviderError>,
     pub script: std::sync::Mutex<std::collections::VecDeque<Scripted>>,
+    /// Answers chosen by the request's shape, tried before `script`'s queue
+    /// (`FakeProvider::when_tool`).
+    pub shaped: std::sync::Mutex<Vec<(String, Scripted)>>,
     pub requests: std::sync::Mutex<Vec<ProviderRequest>>,
     /// Artificial latency before the response, for concurrency tests.
     pub delay_ms: u64,
@@ -1491,6 +1494,7 @@ impl Default for FakeProvider {
             stop_reason: "end_turn".into(),
             fail_with: None,
             script: Default::default(),
+            shaped: Default::default(),
             requests: Default::default(),
             delay_ms: 0,
             warms: Default::default(),
@@ -1508,6 +1512,25 @@ impl FakeProvider {
     }
     pub fn requests(&self) -> Vec<ProviderRequest> {
         self.requests.lock().unwrap().clone()
+    }
+    /// Script `answer` for the request that carries the tool `tool`, whatever
+    /// its position among the rig's calls. The answer is used once (as a
+    /// queued one is) and the first rule that matches wins; a request no
+    /// rule matches takes the next queued answer, as ever.
+    pub fn when_tool(&self, tool: &str, answer: Scripted) {
+        self.shaped.lock().unwrap().push((tool.to_string(), answer));
+    }
+    /// The answer for `req`: a shaped one when a rule matches, else the queue's next.
+    fn next_answer(&self, req: &ProviderRequest) -> Option<Scripted> {
+        let mut shaped = self.shaped.lock().unwrap();
+        let hit = shaped
+            .iter()
+            .position(|(tool, _)| req.tools.iter().any(|t| t["name"] == tool.as_str()));
+        if let Some(i) = hit {
+            return Some(shaped.remove(i).1);
+        }
+        drop(shaped);
+        self.script.lock().unwrap().pop_front()
     }
 }
 
@@ -1557,7 +1580,7 @@ impl Provider for FakeProvider {
             if let Some(e) = &self.fail_with {
                 return Err(e.clone().into());
             }
-            let mut next = self.script.lock().unwrap().pop_front();
+            let mut next = self.next_answer(req);
             let mut billed = None;
             match next {
                 Some(Scripted::Billed { usage, then }) => {
@@ -1647,6 +1670,71 @@ impl Provider for FakeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One call on the fake, with the tools named: its answer's text.
+    async fn ask(fake: &FakeProvider, tools: &[&str]) -> String {
+        let req = ProviderRequest {
+            model: "m".into(),
+            messages: vec![serde_json::json!({"role": "user", "content": []})],
+            tools: tools
+                .iter()
+                .map(|t| serde_json::json!({"name": t}))
+                .collect(),
+            ..Default::default()
+        };
+        let mut sink = |_: Delta<'_>| {};
+        let got = fake.stream_message(&req, &mut sink).await.unwrap();
+        // Every block, as a name for a tool call or the text itself.
+        got.content
+            .iter()
+            .map(|b| match b["type"].as_str() {
+                Some("tool_use") => format!("call:{}", b["name"].as_str().unwrap_or_default()),
+                _ => b["text"].as_str().unwrap_or_default().to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    /// The class fix (theseus-core's people rigs): the answer scripted for
+    /// the request that carries a tool reaches that request, though another
+    /// call came first and was scripted second. Positional, the turn's own
+    /// call would take the extraction's answer. Measured at the extraction
+    /// cut at its cap, 6 of 40 runs on a starved CPU, and never yet seen at
+    /// its siblings (`tests.rs`' unforced-tool test, which an earlier note
+    /// put at :705 though the file ends before it, now at :646 of its base).
+    #[tokio::test]
+    async fn an_answer_scripted_for_a_tool_reaches_the_request_that_carries_it() {
+        let fake = FakeProvider::default();
+        fake.when_tool("propose_people", Scripted::text("the extraction's answer"));
+        fake.script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::text("the turn's answer"));
+        // The turn's call comes second to the script and first to the fake.
+        let turn = ask(&fake, &["fs.read"]).await;
+        let extraction = ask(&fake, &["propose_people"]).await;
+        let at = fake
+            .requests()
+            .iter()
+            .position(|q| q.tools.iter().any(|t| t["name"] == "propose_people"));
+        assert_eq!(
+            at,
+            Some(1),
+            "the extraction's call was #{at:?}, want #Some(1)"
+        );
+        assert_eq!(extraction, "the extraction's answer", "turn got {turn:?}");
+        assert_eq!(turn, "the turn's answer");
+        // A rule answers once: the next call takes the plain reply.
+        assert_eq!(ask(&fake, &["propose_people"]).await, "fake reply");
+    }
+
+    #[tokio::test]
+    async fn without_a_shaped_rule_answers_still_arrive_in_queue_order() {
+        let fake = FakeProvider::scripted(vec![Scripted::text("first"), Scripted::text("second")]);
+        assert_eq!(ask(&fake, &["propose_people"]).await, "first");
+        assert_eq!(ask(&fake, &["fs.read"]).await, "second");
+        assert_eq!(ask(&fake, &["fs.read"]).await, "fake reply");
+    }
 
     #[test]
     fn a_cut_answer_is_named_by_one_test_and_one_phrase() {
