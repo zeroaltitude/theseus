@@ -25,17 +25,16 @@
 //!   bound for a model of restricted origin carries none (theseus-9ymz0), and
 //!   a turn that recalled nothing in front of its model writes no node and
 //!   reports a count of zero (`recall_dropped`).
+//!   The withholding writes a `recall.withheld` row (`recall_dropped`,
+//!   scoped with the recall's other rows) carrying the `recall_id` of the
+//!   `recall.ran` row that admitted the notes and how many it admitted, so a
+//!   reader can tell "withheld" from "nothing matched" (theseus-ectzg).
 //!   Known limits of the withholding:
 //!   (i) the pack's budget drops are still folded into the compile's report
 //!   when the node is then withheld: `recall_dropped` clears the rides, the
 //!   items and the count but not `Recalled::pending` or `drops`, which
 //!   `recall_compiled` extends `compiled.budget.dropped` with;
-//!   (ii) the withholding has no ledger row of its own: `recall_dropped`
-//!   writes none, and the `recall.ran` row was already queued (`record_ran`)
-//!   with the admitted notes, so a reader sees `recalled: 0` beside a row that
-//!   admitted a note with nothing joining them (`Recalled::withheld` is the
-//!   only record, and it lives in memory);
-//!   (iii) an assembled section (`Recalled::assembled`) can name a `recall_id`
+//!   (ii) an assembled section (`Recalled::assembled`) can name a `recall_id`
 //!   whose node is now never written; the render and the situation check
 //!   leave it out (theseus-783a, `compiler/situation.rs`).
 
@@ -48,7 +47,7 @@ use super::{Turn, TurnRunner};
 use crate::compiler::Compiled;
 use crate::config::memory::{Assigned, MemoryArm};
 use crate::config::MemoryMode;
-use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow};
+use crate::fact::recall::{scope, ArmAssigned, RecallRan, RecallShadow, RecallWithheld};
 use crate::graph::{Edge, EdgeKind, VIA_RECALL};
 use crate::node::{Body, Node, RecalledRef};
 use crate::recall::render::{self, Sources};
@@ -647,11 +646,40 @@ impl TurnRunner {
     /// never written, so the notes stay where they were, for the next request
     /// that may carry them.
     pub(super) fn recall_dropped(t: &mut Turn<'_>) -> Vec<NewRecord> {
+        // A turn with no pending recall withheld nothing: no node was built.
+        let record = match t.recall.recall_id.is_empty() {
+            true => Vec::new(),
+            false => Self::withheld_row(t),
+        };
         t.recall.rides.clear();
         t.recall.items.clear();
         t.recall.recall_id.clear();
         t.recall.count = 0;
-        Vec::new()
+        record
+    }
+
+    /// The `recall.withheld` row for the recall the compile did not carry,
+    /// scoped with the turn's other recall rows.
+    fn withheld_row(t: &Turn<'_>) -> Vec<NewRecord> {
+        // The join key is the manifest's `recall_id`, which the node's body
+        // holds; the node's own id (never written) rides beside it.
+        let recall_id = match t.recall.pending.as_ref().map(|n| &n.body) {
+            Some(Body::Recall { recall_id, .. }) => recall_id.as_str(),
+            _ => "",
+        };
+        let row = RecallWithheld {
+            recall_id,
+            node_id: &t.recall.recall_id,
+            admitted: t.recall.count,
+            profile: &t.target.profile,
+        };
+        match t.tc.rec().row(&row) {
+            Ok(r) => vec![r.scoped(&scope(t.tc.session_id))],
+            Err(e) => {
+                tracing::warn!(error = %e, "recall: its withholding row cannot be encoded");
+                Vec::new()
+            }
+        }
     }
 
     /// [`Self::recall_view`] for the turn's own compile, which also records

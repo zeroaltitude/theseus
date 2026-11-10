@@ -461,3 +461,40 @@ async fn a_turn_whose_request_carried_no_recall_writes_no_recall_node() {
         }
     }
 }
+
+/// A withheld recall leaves a ledger row of its own, joined to the admission
+/// it dropped (theseus-ectzg, fpm2 F1).
+///
+/// The `recall.ran` row is queued before the compile knows the request
+/// carries nothing, so it says one note was admitted; the turn's reply says
+/// `recalled: 0`. The `recall.withheld` row joins the two: the same
+/// `recall_id`, and the number of notes the request did not carry. The
+/// unrestricted half is the positive count: the same scenario writes no such
+/// row, so a row written for every turn cannot pass.
+#[tokio::test]
+async fn a_withheld_recall_writes_a_row_that_joins_the_admission_it_dropped() {
+    for restricted in [false, true] {
+        let r = canary_with(|c| {
+            if restricted {
+                c.serve_default_from_cn();
+            }
+        });
+        let c = &r.core;
+        let a = session(c, None, &[HERON]);
+        let b = session(c, None, &[]);
+        c.runner.memory.set_ask(index_of(c, vec![]));
+        turn(c, &b, "warm up").await;
+        c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
+        turn(c, &b, "Where does the grey heron nest?").await;
+        let m = recalls(c, &b).pop().expect("a recall.ran row");
+        assert_eq!(admitted(&m).len(), 1, "recall admitted the note ({restricted})");
+        let withheld = rows(c, &b, "recall.withheld");
+        if restricted {
+            assert_eq!(withheld.len(), 1, "one withholding row, joined to the admission");
+            assert_eq!(withheld[0].data["recall_id"], m.recall_id.as_str());
+            assert_eq!(withheld[0].data["admitted"], 1, "the notes the request did not carry");
+        } else {
+            assert!(withheld.is_empty(), "a request that carried it withheld nothing");
+        }
+    }
+}
