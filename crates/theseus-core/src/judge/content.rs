@@ -124,8 +124,14 @@ impl ContentItem {
     /// compile time and the compiler writes them into the request's system
     /// text, and **no node of the transcript ever holds them**. So no
     /// [`crate::content::Flag`] can be raised on them, `Injection` included.
-    /// That is the price of granting a repository, it is structural, and
-    /// `theseus-wadu`'s design did not state it.
+    /// That is the price of granting a repository and it is structural.
+    /// `docs/design/project-context.md` §7, "What a grant actually costs",
+    /// states it in those words and has since the design's first commit: "a
+    /// grant is precisely a trade: the owner gives up the injection label's
+    /// protection over that repository's instruction text, in exchange for
+    /// the model having read it". What the document does not say, and what
+    /// follows here, is that the trade is **chosen** rather than merely true,
+    /// and why.
     ///
     /// For `Injection` it is also the right answer, for four reasons that are
     /// about the *band* and not about the text:
