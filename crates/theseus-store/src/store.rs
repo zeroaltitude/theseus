@@ -75,6 +75,11 @@ pub struct StoreStats {
     /// reads scan, as before.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shape_pending: bool,
+    /// The log position an index write failed past its tries at, while that
+    /// gap stands (`WalStore::index_gap`, theseus-lu5n): the log is ahead of
+    /// the index until the next open replays it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_gap: Option<u64>,
     /// Records a list read skipped since open because their reads are
     /// refused (a corrupt frame the history check found, R4): how many, and
     /// the first `REFUSED_SHOWN` of their positions, lowest first.
@@ -2087,6 +2092,7 @@ impl Store for WalStore {
             index_moved_aside: s.moved_aside.clone(),
             terms_pending: !s.terms_whole(),
             shape_pending: !s.index.shaped(),
+            index_gap: self.index_gap(),
             refused_records,
             refused_positions,
         })

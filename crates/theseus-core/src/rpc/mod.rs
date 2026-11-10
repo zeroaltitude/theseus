@@ -1444,8 +1444,10 @@ impl Core {
     pub fn store_status(&self) -> theseus_protocol::StoreStatus {
         let st = self.store.stats().ok();
         let refused_records = st.as_ref().map_or(0, |s| s.refused_records);
+        let index_gap = st.as_ref().and_then(|s| s.index_gap);
         theseus_protocol::StoreStatus {
             refused_records,
+            index_gap,
             refused_positions: st.map(|s| s.refused_positions).unwrap_or_default(),
             repair: (refused_records > 0).then(|| crate::restore::REPAIR.into()),
             node_cache: Some(self.store.node_cache().health()),
