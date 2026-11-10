@@ -58,6 +58,10 @@ const PRESIGNED_LOG: &str = "https://example-logs.s3.us-east-1.amazonaws.com/ses
 const PLAIN_URL: &str =
     "https://console.example-cloud.test/lambda/home?region=us-west-2#/functions/example-plain";
 
+/// An ordinary continuation token: base64-looking, with the `=` padding and
+/// the `+` and `/` a real one carries, and no URL in it.
+const OPAQUE_CURSOR: &str = "eyJsYXN0IjoiZXhhbXBsZS10YWJsZSIsIm4iOjQyfQ+/ab==";
+
 const FUNCTION: &str = "example-function";
 const PLAIN_FUNCTION: &str = "example-plain";
 const FUNCTION_ARN: &str = "arn:aws:lambda:us-west-2:111122223333:function:example-function";
@@ -79,6 +83,19 @@ fn rest(n: usize, body: Value) -> Reply {
 fn answers(s: &Seen, n: usize) -> Reply {
     if s.action() == Some("GetCallerIdentity") {
         return sts(ACCOUNT, n);
+    }
+    if target(s) == Some("ListTables") {
+        // Limit 5 asks for the page whose continuation is a signed URL, any
+        // other for an opaque cursor: the two answers `out.next` can be.
+        let token = if s.body.contains("\"Limit\":5") {
+            PRESIGNED_S3
+        } else {
+            OPAQUE_CURSOR
+        };
+        return json_reply(
+            n,
+            json!({"TableNames": ["example-table"], "LastEvaluatedTableName": token}),
+        );
     }
     if target(s) == Some("GetGameSessionLogUrl") {
         return json_reply(n, json!({"PreSignedUrl": PRESIGNED_LOG}));
@@ -220,6 +237,72 @@ async fn a_presigned_url_is_held_whatever_its_member_is_called() {
         bad.len(),
         bad.join("\n")
     );
+}
+
+/// `out.next` is a member of the answer the model reads, and a continuation
+/// is the field a signed URL can arrive in (theseus-3i6d1). The paginator's
+/// token here is a presigned URL: it must be held by the same pass that holds
+/// `out.body`, the board must keep it, and the "call again with these" line
+/// must show a handle rather than the signature.
+#[tokio::test]
+async fn a_presigned_url_in_the_continuation_is_held() {
+    let fake = Fake::start(answers);
+    let b = board();
+    let aws = layer(&fake, b.clone());
+    let out = run(&aws, call("dynamodb", "ListTables", json!({"Limit": 5}))).await;
+    assert!(
+        out.text.contains("More pages remain"),
+        "the continuation is the thing under test:\n{}",
+        out.text
+    );
+    let said = format!("{} {}", out.text, out.meta);
+    assert!(
+        !said.contains(PRESIGNED_S3) && !said.contains("X-Amz-Signature="),
+        "the continuation reaches the model with its signature:\n{}",
+        out.text
+    );
+    let handles: Vec<String> = out.meta["secrets"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|h| h.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let h = handles
+        .iter()
+        .find(|h| h.contains("next.ExclusiveStartTableName"))
+        .unwrap_or_else(|| panic!("no handle for the continuation in {handles:?}"));
+    assert_eq!(
+        b.get(h).map(|s| s.expose().to_string()).as_deref(),
+        Some(PRESIGNED_S3),
+        "the board does not keep the URL"
+    );
+    assert!(out.text.contains(h.as_str()), "the handle is not shown");
+    assert!(out.text.contains("example-table"), "the body is gone");
+}
+
+/// The negative: an ordinary opaque continuation passes through byte for
+/// byte, because a mask that ate cursors would break paging, which is worse
+/// than the hole. The positive count is asserted too.
+#[tokio::test]
+async fn an_opaque_continuation_still_reaches_the_model_whole() {
+    let fake = Fake::start(answers);
+    let b = board();
+    let aws = layer(&fake, b.clone());
+    let out = run(&aws, call("dynamodb", "ListTables", json!({"Limit": 6}))).await;
+    let want = format!(
+        "these in \"input\": {}\n",
+        json!({"ExclusiveStartTableName": OPAQUE_CURSOR})
+    );
+    assert!(
+        out.text.contains(&want),
+        "the continuation was changed:\n{}",
+        out.text
+    );
+    assert!(!out.text.contains("<masked"), "{}", out.text);
+    assert!(out.meta.get("secrets").is_none(), "{}", out.meta);
+    assert_eq!(out.meta["more"], json!(true));
 }
 
 /// The control: the same operation and the same member, an ordinary URL.
@@ -538,13 +621,14 @@ fn the_presigned_vocabulary_holds_every_parameter_the_real_signer_writes() {
 }
 
 /// **What can reach `out.next`** (theseus-3i6d1): the continuation `call_text`
-/// prints beside the body, unmasked. Measured over the embedded catalog:
+/// prints beside the body. Measured over the embedded catalog:
 /// every paginator's output token. None is a signature, a key, or a URL: they
 /// are opaque cursors (`NextToken`, `Marker`), resource ids (`Jobs[-1].JobId`,
 /// `ShardId`) and one data key (`Contents[-1].Key`, an object's name). So
-/// `out.next` is not masked: a handle in a token's place would break the
-/// "call again with these in `input`" the text offers, for a leak nobody can
-/// point to. This census pins the measurement: a token expression the catalog
+/// `out.next` goes through the presigned pass (`presigned::hold_next`) and
+/// nothing wider: a handle in a cursor's place would break the "call again
+/// with these in `input`" the text offers, and the pass touches only a value
+/// that is a signed URL. This census pins the measurement: a token expression the catalog
 /// gains fails, naming itself, to be judged the same way.
 #[test]
 fn no_paginator_token_names_a_credential_or_a_url() {

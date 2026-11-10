@@ -71,9 +71,12 @@
 //! parameter the lists do not hold. That reaches the SigV4 spelling only. The
 //! older query signing (`Signature`, `AWSAccessKeyId`) and CloudFront's
 //! (`Key-Pair-Id`) are AWS's, no walk here enumerates them, and they stay by
-//! hand. The pass also covers `out.body` and not `out.next`: a continuation
-//! is an opaque cursor or an id in every paginator of the catalog
-//! (`tests_presigned::no_paginator_token_names_a_credential_or_a_url`).
+//! hand. The pass covers `out.next` as well as `out.body` ([`hold_next`], the same
+//! walk and the same predicate): a continuation is an opaque cursor or an id in
+//! every paginator of the catalog
+//! (`tests_presigned::no_paginator_token_names_a_credential_or_a_url`), so
+//! [`is_presigned`] matches none in practice, and it is masked all the same so
+//! that the one field a signed URL could ride in is not the one left unguarded.
 
 use serde_json::{json, Value};
 
@@ -155,8 +158,27 @@ fn where_it_points(s: &str) -> String {
 /// Hold every presigned URL in `body` on `board`, masked in place: the
 /// handles held, in the order they were found.
 pub fn hold(board: &SecretBoard, label: &str, body: &mut Value) -> Vec<Held> {
+    hold_under(board, label, "", body)
+}
+
+/// [`hold`] over a call's continuation, `out.next`: the very same pass, its
+/// paths rooted at `next` so a handle can never meet the body's own.
+pub fn hold_next(
+    board: &SecretBoard,
+    label: &str,
+    next: &mut serde_json::Map<String, Value>,
+) -> Vec<Held> {
+    let mut whole = Value::Object(std::mem::take(next));
+    let held = hold_under(board, label, "next", &mut whole);
+    if let Value::Object(o) = whole {
+        *next = o;
+    }
+    held
+}
+
+fn hold_under(board: &SecretBoard, label: &str, root: &str, body: &mut Value) -> Vec<Held> {
     let mut held = Vec::new();
-    walk(body, "", &mut |path, s| {
+    walk(body, root, &mut |path, s| {
         let h = handle(label, path);
         board.hold(&h, Secret::new(s.to_string()));
         held.push(Held {
