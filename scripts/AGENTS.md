@@ -460,8 +460,11 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   test-groups` lists its members, so nothing here counts them.
 - **`flakehunt` is a profile the gate does not run.** `[profile.flakehunt]` in the same file is the default profile with
   `retries = 2` and `flaky-result = "fail"`, so a test that passed only on a retry fails the run. It is for a whole-suite
-  hunt by hand (`cargo nextest run --workspace --profile flakehunt`); the gate runs the default profile. No scheduled
-  run of it exists today: the profile landed and the timer did not.
+  hunt by hand (`cargo nextest run --workspace --profile flakehunt`); the gate runs the default profile. Since
+  2026-11-10 a nightly run of it exists as well: a user timer on the main machine fires at 03:05 local and sends
+  `origin/main`'s tip to an ARM lane for the whole suite. That timer, its unit and its script are not in this
+  repository, so this file cannot say whether it is installed and does not try to; `systemctl --user list-timers
+  theseus-flakehunt.timer` answers that.
 
 ### A test of the hour or the local day takes a test clock
 
