@@ -64,7 +64,7 @@
 //!
 //! The rule lives here, not in the catalog, so it reads the walk's own names.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use theseus_aws::catalog::{Catalog, Kind, OperationRef, SecretBearing, ShapeId, ShapeRef};
 
@@ -1409,5 +1409,162 @@ fn the_five_eks_operations_that_answer_with_a_license_token_hold_it() {
             .iter()
             .any(|a| a.service == "eks" && a.member == "License.token"),
         "no allowed row may excuse License.token again"
+    );
+}
+
+/// One walk of a secret-bearing output for the wholesale census below: what
+/// the walk replaces as one opaque token, and where each [`TRIAGED`] row is
+/// reached.
+///
+/// It stops descending at a member the walk holds, because
+/// `secret::walk` does: a held member's whole value is replaced, and
+/// nothing under it is visited or named.
+struct Swallowed<'a> {
+    service: &'a str,
+    seen: HashSet<ShapeId>,
+    /// `Shape.member (MapShape)` for each `Kind::Map` member replaced whole.
+    maps: BTreeSet<String>,
+    /// A `TRIAGED` row reached, and how: under an ancestor the walk already
+    /// holds (so it never gets a handle of its own), or in its own right.
+    triaged: BTreeMap<String, (bool, bool)>,
+}
+
+impl Swallowed<'_> {
+    fn go(&mut self, shape: ShapeRef<'_>, held_above: bool) {
+        if !self.seen.insert(shape.id()) {
+            return;
+        }
+        for m in shape.members() {
+            let holds = walk_holds(self.service, shape.name(), m.name(), m.shape());
+            let in_triaged = TRIAGED
+                .iter()
+                .any(|(s, p, mm, _)| *s == self.service && *p == shape.name() && *mm == m.name());
+            if in_triaged {
+                let row = format!("{} {} {}", self.service, shape.name(), m.name());
+                let e = self.triaged.entry(row).or_insert((false, false));
+                if held_above {
+                    e.0 = true;
+                } else if holds {
+                    e.1 = true;
+                }
+            }
+            if held_above || holds {
+                if m.shape().kind() == Kind::Map {
+                    self.maps.insert(format!(
+                        "{}.{} ({})",
+                        shape.name(),
+                        m.name(),
+                        m.shape().name()
+                    ));
+                }
+                continue;
+            }
+            self.go(m.shape(), false);
+        }
+        if let Some(m) = shape.list_member() {
+            self.go(m.shape(), held_above);
+        }
+        if let Some(m) = shape.map_value() {
+            self.go(m.shape(), held_above);
+        }
+    }
+}
+
+/// How much the wholesale replacement swallows, counted and not judged
+/// (theseus-3i6d1).
+///
+/// `secret::walk` replaces a held value entire: `value_of` turns an object
+/// into its JSON text, the board holds that, and the answer reads
+/// `{"secret": handle, "shape": "<masked: an object>"}`. For a marked tag
+/// map that is one opaque token -- no key, no count, nothing -- and until
+/// this test nobody knew how many members sat in that position, so the
+/// owner's open question about over-masking (`grafana DescribeWorkspace`'s
+/// workspace `name`) could not be weighed against a number.
+///
+/// **This test decides nothing.** Whether any of it should be unmasked is
+/// the owner's call, and an exemption or an unmarking is not this row's
+/// work. It delivers the two numbers and names what they are.
+///
+/// Measured on the embedded catalog at base 61e72bf6. A count a catalog
+/// update moves is a reason to read it, not to raise it.
+#[test]
+fn what_the_wholesale_mask_swallows_is_counted() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let mut walked = 0usize;
+    let mut ops: BTreeSet<String> = BTreeSet::new();
+    let mut maps: BTreeSet<String> = BTreeSet::new();
+    let mut triaged: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    for e in c.services() {
+        let svc = c.service(&e.name).expect("the service decodes");
+        for op in svc.operations() {
+            if op.classify().secret == SecretBearing::No {
+                continue;
+            }
+            let Some(output) = op.output() else { continue };
+            walked += 1;
+            let mut w = Swallowed {
+                service: &e.name,
+                seen: HashSet::new(),
+                maps: BTreeSet::new(),
+                triaged: BTreeMap::new(),
+            };
+            w.go(output, false);
+            for (row, (above, own)) in w.triaged {
+                let e2 = triaged.entry(row).or_insert((false, false));
+                e2.0 |= above;
+                e2.1 |= own;
+            }
+            if !w.maps.is_empty() {
+                ops.insert(format!("{}:{}", e.name, op.name()));
+                maps.extend(w.maps);
+            }
+        }
+    }
+    // The positive floor: a walk that read nothing would meet every "zero"
+    // bar below. 347 secret-bearing operations have an output at the base.
+    assert!(
+        walked >= 300,
+        "the walk read only {walked} secret-bearing outputs, so it read the wrong tree"
+    );
+
+    // THE FIRST NUMBER. Six operations reach a `Kind::Map` member the walk
+    // replaces as one opaque token, across four distinct members. Those four
+    // are every map the owner's question is about: three tag maps and a
+    // generated node graph.
+    assert_eq!(
+        maps.iter().map(String::as_str).collect::<Vec<_>>(),
+        [
+            "Environment.deviceCreationTags (DeviceCreationTagsMap)",
+            "GetManagedThingResponse.Tags (TagsMap)",
+            "GetProvisioningProfileResponse.Tags (TagsMap)",
+            "Job.CodeGenConfigurationNodes (CodeGenConfigurationNodes)",
+        ],
+        "the map members replaced wholesale"
+    );
+    assert_eq!(ops.len(), 6, "the operations that reach one: {ops:?}");
+
+    // THE SECOND NUMBER. Every one of the 72 `TRIAGED` rows is reached, and
+    // **none** of them is masked only because an ancestor is: each is marked
+    // in its own right, so each gets a handle of its own and is visible as a
+    // separate reading in the answer. Nothing hides inside another's mask.
+    // This is the half of the ruling that could have gone either way, and it
+    // went the good way; the count is asserted so that stops being an
+    // assumption.
+    assert_eq!(triaged.len(), TRIAGED.len(), "every TRIAGED row is reached");
+    assert!(
+        triaged.len() >= 60,
+        "the TRIAGED walk read {}",
+        triaged.len()
+    );
+    let swallowed_only: Vec<&String> = triaged
+        .iter()
+        .filter(|(_, (above, own))| *above && !*own)
+        .map(|(row, _)| row)
+        .collect();
+    assert!(
+        swallowed_only.is_empty(),
+        "{} TRIAGED rows are masked only because an ancestor is, so their \
+         reading is invisible in the answer: {swallowed_only:?}",
+        swallowed_only.len()
     );
 }

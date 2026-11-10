@@ -66,6 +66,7 @@ pub mod stack_tags;
 pub mod tend;
 pub mod tools;
 pub mod trail;
+mod value_shape;
 
 #[cfg(test)]
 mod tests;
@@ -99,6 +100,8 @@ mod tests_presigned;
 mod tests_restore;
 #[cfg(test)]
 mod tests_resumed;
+#[cfg(test)]
+mod tests_secret_rules;
 #[cfg(test)]
 mod tests_secret_shapes;
 #[cfg(test)]
