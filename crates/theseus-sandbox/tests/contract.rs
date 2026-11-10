@@ -375,6 +375,12 @@ fn devices() -> Result<(), String> {
     check(v["mknod"] != "ok", format!("mknod: {}", v["mknod"]))
 }
 
+/// Docker's five read-only names under /proc: the one list the clause below
+/// and the probe in `mod probe` both read. It is written out here, not taken
+/// from the view's list (`PROC_READONLY` in the view): a name dropped from
+/// that list must not drop from this check with it.
+const PROC_RO_NAMES: [&str; 5] = ["bus", "fs", "irq", "sys", "sysrq-trigger"];
+
 // Clause 8: /proc and /sys masked.
 fn proc_and_sys_masked() -> Result<(), String> {
     let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
@@ -418,9 +424,8 @@ fn proc_and_sys_masked() -> Result<(), String> {
     // The line above reads `sys` alone. Each of Docker's five names that the
     // host's procfs has must be a read-only mount of its own in the job, and
     // one it lacks has no mount and does not stop the job. The names are
-    // written out here, not taken from the view's list: a name dropped from
-    // that list must not drop from this check with it.
-    let names = ["bus", "fs", "irq", "sys", "sysrq-trigger"];
+    // `PROC_RO_NAMES`, not the view's list (see its doc).
+    let names = PROC_RO_NAMES;
     let present: Vec<&str> = names
         .into_iter()
         .filter(|n| Path::new("/proc").join(n).exists())
@@ -428,6 +433,15 @@ fn proc_and_sys_masked() -> Result<(), String> {
     check(
         !present.is_empty(),
         "the host's /proc has none of the five read-only names: nothing to check",
+    )?;
+    // A name the probe reports and the list lacks would be checked by no one.
+    check(
+        v["proc_ro"].as_object().map(|o| o.len()) == Some(names.len()),
+        format!(
+            "proc_ro holds not exactly the {} names: {}",
+            names.len(),
+            v["proc_ro"]
+        ),
     )?;
     for n in names {
         let want = if present.contains(&n) { "ro" } else { "none" };
@@ -1528,7 +1542,7 @@ mod probe {
         });
         // Docker's read-only names under /proc, each by the mount of its own
         // that makes it so: "ro", "rw", or "none" for no mount at its path.
-        let proc_ro: Map<String, Value> = ["bus", "fs", "irq", "sys", "sysrq-trigger"]
+        let proc_ro: Map<String, Value> = super::PROC_RO_NAMES
             .into_iter()
             .map(|n| {
                 let at = format!("/proc/{n}");
