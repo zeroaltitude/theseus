@@ -1063,6 +1063,20 @@ session — a first import writes the episode's length, an append adds the nodes
 length as the source last reported it (`import/mod.rs:261-264`). After a quiet take those two numbers differ on
 purpose, and the field's doc now says which one it is.
 
+**Store format 57.** `ImportedFrom.diverged_at`: the first stored `idx` at which a later episode of an imported
+session stopped matching what the store holds — a rewrite, a compaction or a resume — recorded once for each such
+episode, in the order seen. It is **left out while empty**, so a record written before this build reads with an
+empty `diverged_at` and writes back byte for byte, and a record this build writes without a divergence is
+indistinguishable from one the old build wrote. Downgrading is not a field question at all: a build whose
+`MANIFEST_FORMAT` is below 57 refuses to open the store at its manifest (`Manifest::check`), with the install-newer
+message, so no older build ever reaches a record carrying the mark. `append` takes the messages after the last
+stored message whose digest still matches, and never a stored `idx` again; where there are no such messages the
+take is quiet (no node is written) and the mark alone records what happened. The format's sample is
+`tests_layouts::SESSION_IMPORTED_AT_56` — a record as **format 56** wrote it, with the provenance block and no
+divergence mark, typed by hand from a synthetic episode so that it is not today's encoder's own output
+(`a_format_56_imported_session_is_not_the_encoders_output` holds it apart from that encoder and asserts the
+byte-for-byte round trip, then adds a mark and asserts the encoded form carries `"diverged_at":[3]`).
+
 **Divergence from plan.** The import was planned and recorded as one direction of travel: Item 201 brings the
 owner's prior assistant history in whole, idempotent and erasable by tag, and theseus-pjmj7 then made the nightly
 run incremental so that an episode which grew is appended to. Neither planned for a source that **rewrites** what
