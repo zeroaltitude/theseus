@@ -355,6 +355,21 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
 - **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
   came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
   (`wait_for(`, `.until(`) keeps its check.
+- **A pairing found only by similarity, landing in another file, is a GUESS, and in a batch it misattributes
+  (theseus-4vsrz).** Measured at `12889bcf` with `scripts/keel-batch-repro.sh`: the deleted routing test and the
+  unrelated new voice test are paired because their bodies are **0.63 alike** by difflib over their words, over
+  `SIMILAR`, which is 0.5. So "the pairing crosses files whose contents share nothing" is the wrong diagnosis, and a
+  fix that refused a share-nothing pairing would not catch this one: the two bodies share their whole skeleton. What
+  goes wrong is downstream of the pairing, in what the pair is then judged to prove. The finding changes **rule**,
+  `test-removed` to `assert-removed`, and **file**, from the one that held the deleted test to the paired one, which
+  eroded nothing — so a trailer that named the real file stops covering it, and the guard's own remedy text asks for
+  a trailer against the innocent file. Writing that trailer would be a false statement that the owner authorised an
+  erosion where none exists; never write it. When a finding names a file your change never touched, `git grep` the
+  symbol at the base and at the head first: here it is in two files at the base and in none at the head, which
+  proves the erosion real and its attribution false.
+- **`scripts/keel-batch-repro.sh` takes a candidate guard as its one argument** (`scripts/keel-batch-repro.sh
+  path/to/keel-guard.py`, default the tree's). That is the seam for judging a proposed fix to the pairing without
+  editing the guard, which is `keel-file` and needs the owner's signed yes.
 - **Its suite**, `scripts/test_keel_guard.py`, builds a throwaway repository per case (signed cases with throwaway
   keys in their own `GNUPGHOME`, and the real `gate.sh` run in a throwaway repository for its range and its door); the
   gate runs it when the guard, the suite or `gate.sh` differs from the base. Run it alone
