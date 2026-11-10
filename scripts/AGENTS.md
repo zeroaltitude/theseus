@@ -454,6 +454,15 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
   (a store-wide frame counter beside a live judge) and
   `tests_m3::parallel::a_calls_time_is_its_own_run_not_its_wait_for_the_turn` (order forced, then a seam in the rig).
 
+- **The `timing` group is a different instrument.** A test that measures a small time under load goes in
+  `[test-groups.timing]` (`.config/nextest.toml`), with an override that names it, and the group runs its members one at
+  a time. It sets no retry: no race is hidden, and a failure still fails the gate. `cargo nextest show-config
+  test-groups` lists its members, so nothing here counts them.
+- **`flakehunt` is a profile the gate does not run.** `[profile.flakehunt]` in the same file is the default profile with
+  `retries = 2` and `flaky-result = "fail"`, so a test that passed only on a retry fails the run. It is for a whole-suite
+  hunt by hand (`cargo nextest run --workspace --profile flakehunt`); the gate runs the default profile. No scheduled
+  run of it exists today: the profile landed and the timer did not.
+
 ### A test of the hour or the local day takes a test clock
 
 A gate runs for minutes from any start, so a suite can walk through midnight or the top of an hour (theseus-4vsrz:
