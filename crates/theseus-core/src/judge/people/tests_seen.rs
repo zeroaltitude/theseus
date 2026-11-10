@@ -168,10 +168,13 @@ async fn over_the_gate_exactly_one_extraction_runs() {
         },
     );
     let r = rig(Some(&jev), EVERY, people_on);
-    r.fake.script.lock().unwrap().push_back(answer(json!([
-        {"name": "Wren Halloway", "handles": [], "role_line": "Takes the north gauge readings.",
-         "evidence": ["L1"]}
-    ])));
+    r.fake.when_tool(
+        super::extract::TOOL,
+        answer(json!([
+            {"name": "Wren Halloway", "handles": [], "role_line": "Takes the north gauge readings.",
+             "evidence": ["L1"]}
+        ])),
+    );
     let sid = session(&r.core, None);
     moorings(&r.core, &sid, EVERY).await;
     until("the extraction's row", || {

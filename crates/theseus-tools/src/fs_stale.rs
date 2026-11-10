@@ -50,6 +50,12 @@ pub fn fresh(ctx: &ToolCtx, path: &Path) -> Result<(), ToolFailure> {
 /// This call wrote `path`: move its note on to what the file is now, so the
 /// next write of the same file is not refused by this one. Where there is no
 /// note, there is still none: a write never brings a path under the guard.
+///
+/// **A window, left open on purpose.** `Mark::at(path)` runs here, after the
+/// caller's write has landed, so a third party's write between that write and
+/// this stat is recorded as this session's own state, and the next write is
+/// not refused when it should be. This guard notes and checks; it does not
+/// hold under a concurrent writer. No lock, no mark taken before the write.
 pub fn wrote(ctx: &ToolCtx, path: &Path) {
     let (Some(r), Some(m)) = (ctx.reads.as_ref(), Mark::at(path)) else {
         return;

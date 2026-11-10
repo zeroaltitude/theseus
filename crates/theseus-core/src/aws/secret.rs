@@ -121,12 +121,64 @@ pub(super) const HELD: &[(&str, &str, &str)] = &[
     ("grafana", "WorkspaceSummary", "grafanaToken"),
 ];
 
-/// One secret a result held: its handle, and where it was.
+/// Which rule held a secret (theseus-3i6d1).
+///
+/// The walk knew this at `walk`'s first line and threw it away, so an
+/// answer said *that* a value was held and never *why*. The owner's open
+/// question about over-masking turns on the distinction: `grafana
+/// DescribeWorkspace`'s `grafanaToken` is a credential by decision (a
+/// [`HELD`] row) while its workspace `name` is held only because AWS's own
+/// model marks the member and a `WHEN_PRESENT` row runs the walk over the
+/// whole answer. The two were indistinguishable from the record.
+///
+/// Reading, not policy: nothing here changes what is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rule {
+    /// The map key's own shape is marked sensitive, so every value under
+    /// it is (`walk_map`'s `sensitive_key`).
+    SensitiveKey,
+    /// AWS's own model marks the member's shape `sensitive`.
+    Marked,
+    /// The member's name, or a map entry's key, is one of [`NAMED`] or
+    /// ends in one of [`ENDS`].
+    Named,
+    /// A [`HELD`] row names the member in this service.
+    Held,
+    /// The value's characters are a credential's
+    /// ([`super::value_shape::credential_shaped`]), under a key no name
+    /// rule reaches.
+    ValueShape,
+    /// The value is a presigned URL, which carries its own authorisation
+    /// ([`super::presigned::is_presigned`]). Written by the second pass
+    /// over the body, which runs on every call and not only a
+    /// secret-bearing one, so it is a rule of the same family and is named
+    /// beside the others rather than left blank.
+    Presigned,
+}
+
+impl Rule {
+    /// The one word an answer carries. These strings are a surface: a
+    /// reader joins them to a handle, so rename one only with its readers.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Rule::SensitiveKey => "sensitive_key",
+            Rule::Marked => "marked",
+            Rule::Named => "named",
+            Rule::Held => "held",
+            Rule::ValueShape => "value_shape",
+            Rule::Presigned => "presigned",
+        }
+    }
+}
+
+/// One secret a result held: its handle, where it was, and what held it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Held {
     pub handle: String,
     /// The member's path in the output: `SecretString`, `Parameters[1].Value`.
     pub path: String,
+    /// Which rule held it (theseus-3i6d1).
+    pub rule: Rule,
 }
 
 /// A handle's name: `aws-secret:` and what names the secret (the input's
@@ -218,19 +270,27 @@ pub(super) fn named(name: &str, shape: ShapeRef<'_>) -> bool {
 /// Walk `v` along `shape`, replacing every secret with its mask, and
 /// holding its value on `board`. `held` is the service's [`HELD`] rows, as
 /// (shape, member).
+///
+/// `from_above` is the rule the caller already settled for this position —
+/// a [`HELD`] row on the structure member, a marked map key's shape, or a
+/// map value whose characters are a credential's — and it wins, because it
+/// is the more specific reading. It was a bare `bool` until theseus-3i6d1,
+/// which is why nothing could say which rule held what.
 fn walk(
     v: &mut Value,
     shape: ShapeRef<'_>,
     name: Option<&str>,
     path: &str,
-    sensitive: bool,
+    from_above: Option<Rule>,
     held: &[(&str, &str)],
-    keep: &mut dyn FnMut(&str, &Value) -> String,
+    keep: &mut dyn FnMut(&str, &Value, Rule) -> String,
 ) {
-    let secret = sensitive || shape.is_sensitive() || name.is_some_and(|n| named(n, shape));
-    if secret {
+    let secret = from_above
+        .or_else(|| shape.is_sensitive().then_some(Rule::Marked))
+        .or_else(|| name.is_some_and(|n| named(n, shape)).then_some(Rule::Named));
+    if let Some(rule) = secret {
         if let Some(_value) = value_of(v) {
-            let handle = keep(path, v);
+            let handle = keep(path, v, rule);
             *v = masked(v, &handle);
         }
         return;
@@ -246,7 +306,8 @@ fn walk(
                     };
                     let by_shape = held
                         .iter()
-                        .any(|(s, n)| *s == shape.name() && *n == m.name());
+                        .any(|(s, n)| *s == shape.name() && *n == m.name())
+                        .then_some(Rule::Held);
                     walk(x, m.shape(), Some(m.name()), &p, by_shape, held, keep);
                 }
             }
@@ -259,30 +320,73 @@ fn walk(
                         m.shape(),
                         name,
                         &format!("{path}[{i}]"),
-                        false,
-                        held,
-                        keep,
-                    );
-                }
-            }
-        }
-        (Kind::Map, Value::Object(o)) => {
-            if let Some(m) = shape.map_value() {
-                let sensitive_key = shape.map_key().is_some_and(|k| k.shape().is_sensitive());
-                for (k, x) in o.iter_mut() {
-                    walk(
-                        x,
-                        m.shape(),
                         None,
-                        &format!("{path}.{k}"),
-                        sensitive_key,
                         held,
                         keep,
                     );
                 }
             }
         }
+        (Kind::Map, Value::Object(o)) => walk_map(o, shape, path, held, keep),
         _ => {}
+    }
+}
+
+/// The `Map` arm of [`walk`]: each entry walked under the map's value shape,
+/// with the entry's **key in the name position**, and its **value's
+/// characters** read when nothing else has held it (theseus-3i6d1).
+///
+/// The arm used to recurse with `None` there, so [`named`] — [`NAMED`] and
+/// the compound [`ENDS`] — was never consulted on a map value, and an entry
+/// keyed `SessionToken`, or keyed anything ending in `ApiKey` or `Password`,
+/// reached the model verbatim while the identical name on a structure
+/// member was held. The arm already read the key's *shape*
+/// (`sensitive_key`); it dropped only the key's text. A map's key is a name
+/// as a member's is, so the name rules read it as one.
+///
+/// The value rule is [`super::value_shape::credential_shaped`], read last
+/// and only on a scalar `Kind::String` the key's name, the value's shape
+/// and the key's shape have all left alone: a credential pasted into a tag
+/// or an environment variable is under a key nobody names, so no name rule
+/// can ever reach it.
+///
+/// Both rules only ever hold more: nothing masked before is unmasked here.
+fn walk_map(
+    o: &mut Map<String, Value>,
+    shape: ShapeRef<'_>,
+    path: &str,
+    held: &[(&str, &str)],
+    keep: &mut dyn FnMut(&str, &Value, Rule) -> String,
+) {
+    let Some(m) = shape.map_value() else { return };
+    let sensitive_key = shape.map_key().is_some_and(|k| k.shape().is_sensitive());
+    for (k, x) in o.iter_mut() {
+        // The value rule, last: only where the key's shape, the value's
+        // shape and the key's name have all said nothing, and only on a
+        // scalar string. A value rule on every unmarked scalar of every
+        // answer is a far larger blast radius and is not what this is.
+        let by_value = !sensitive_key
+            && m.shape().kind() == Kind::String
+            && !m.shape().is_sensitive()
+            && !named(k, m.shape())
+            && x.as_str()
+                .is_some_and(super::value_shape::credential_shaped);
+        let from_above = if sensitive_key {
+            Some(Rule::SensitiveKey)
+        } else if by_value {
+            Some(Rule::ValueShape)
+        } else {
+            None
+        };
+        walk(
+            x,
+            m.shape(),
+            Some(k.as_str()),
+            &format!("{path}.{k}"),
+            from_above,
+            held,
+            keep,
+        );
     }
 }
 
@@ -306,7 +410,7 @@ pub fn hold(
     };
     let label = label(operation, input);
     let mut held = Vec::new();
-    let mut keep = |path: &str, v: &Value| -> String {
+    let mut keep = |path: &str, v: &Value, rule: Rule| -> String {
         let h = handle(&label, path);
         if let Some(value) = value_of(v) {
             board.hold(&h, Secret::new(value));
@@ -314,6 +418,7 @@ pub fn hold(
         held.push(Held {
             handle: h.clone(),
             path: path.to_string(),
+            rule,
         });
         h
     };
@@ -322,7 +427,7 @@ pub fn hold(
         .filter(|(s, _, _)| *s == service)
         .map(|(_, shape, member)| (*shape, *member))
         .collect();
-    walk(body, shape, None, "", false, &by_shape, &mut keep);
+    walk(body, shape, None, "", None, &by_shape, &mut keep);
     Ok(held)
 }
 
@@ -542,5 +647,135 @@ mod tests {
             // What is not a credential still comes through.
             assert!(after.contains("contact-example") || after.contains("ConnectionExpiry"));
         }
+    }
+
+    /// A map's **key** is a name, and the name rules read it (theseus-3i6d1).
+    ///
+    /// Until this test the `Map` arm recursed with `None` in the walk's
+    /// `name` position, so [`named`] — `NAMED` and the compound `ENDS` — was
+    /// never consulted on a map value. An entry keyed `SessionToken`, or
+    /// keyed anything ending in `ApiKey`, reached the model verbatim, while
+    /// the identical name on a structure member was held. The arm already
+    /// read the key's *shape* (`sensitive_key`); it dropped only its text.
+    ///
+    /// `amplify:GetApp` is one of the 85 secret-bearing operations whose
+    /// output reaches an unmarked `Kind::Map` of plain strings (the count is
+    /// in this commit's message): an app's `environmentVariables`, which is
+    /// where a deployment's credentials actually live.
+    ///
+    /// **Planted revert**: put `None` back in the `Map` arm's `name`
+    /// position and this test names the keys it expected held.
+    #[test]
+    fn a_map_entry_keyed_like_a_credential_is_held_as_a_member_of_that_name_is() {
+        const SESSION: &str = "example-session-token-0021";
+        const DEPLOY: &str = "example-deploy-api-key-0022";
+        const ORDINARY: &str = "staging";
+        let board = SecretBoard::empty();
+        let mut body = json!({
+            "app": {
+                "appId": "example-app-0023",
+                "name": "example-app",
+                "environmentVariables": {
+                    "SessionToken": SESSION,
+                    "DeployApiKey": DEPLOY,
+                    "env": ORDINARY,
+                }
+            }
+        });
+        let held = hold(
+            &board,
+            "amplify",
+            "GetApp",
+            &json!({"appId": "example-app-0023"}),
+            &mut body,
+        )
+        .expect("amplify:GetApp is in the catalog");
+        let mut paths: Vec<&str> = held.iter().map(|h| h.path.as_str()).collect();
+        paths.sort_unstable();
+        // Positive bars: exactly the two credential-named keys, so an empty
+        // result cannot pass this test.
+        assert_eq!(
+            paths,
+            [
+                "app.environmentVariables.DeployApiKey",
+                "app.environmentVariables.SessionToken"
+            ],
+            "the keys held: {held:?}"
+        );
+        for h in &held {
+            assert!(
+                board.get(&h.handle).is_some(),
+                "{} is on the board",
+                h.handle
+            );
+        }
+        let after = body.to_string();
+        assert!(
+            !after.contains(SESSION),
+            "the session token is still there:\n{after}"
+        );
+        assert!(
+            !after.contains(DEPLOY),
+            "the api key is still there:\n{after}"
+        );
+        // The ordinary key's value comes through unchanged.
+        assert_eq!(body["app"]["environmentVariables"]["env"], json!(ORDINARY));
+    }
+
+    /// A map's **value** is read too, when no name and no marking holds it
+    /// (theseus-3i6d1).
+    ///
+    /// Until this test nothing under `aws/` read a value's characters but
+    /// `presigned::is_presigned`, which recognises signed URLs and nothing
+    /// else. So a credential pasted into a tag or an environment variable
+    /// — an `AKIA…`, a `ghp_…`, a JWT — under a key nobody names and a
+    /// shape nobody marks went to the model whole. `super::value_shape` is
+    /// the seam that reads it; its own table pins the AWS corpus.
+    ///
+    /// Same operation as the key test, so the two rules are seen on one
+    /// answer: one entry carries an invented access-key-shaped value under
+    /// an ordinary key, the other a benign tag value.
+    ///
+    /// **Planted revert**: drop the value branch from `walk_map` and this
+    /// test names the value it expected held.
+    #[test]
+    fn a_map_value_shaped_like_a_credential_is_held_though_no_name_or_marking_says_so() {
+        const PLANTED: &str = "AKIAEXAMPLEACCESSKEY";
+        const BENIGN: &str = "us-west-2";
+        let board = SecretBoard::empty();
+        let mut body = json!({
+            "app": {
+                "appId": "example-app-0024",
+                "name": "example-app",
+                "environmentVariables": {
+                    "DEPLOY_TARGET": PLANTED,
+                    "REGION": BENIGN,
+                }
+            }
+        });
+        let held = hold(
+            &board,
+            "amplify",
+            "GetApp",
+            &json!({"appId": "example-app-0024"}),
+            &mut body,
+        )
+        .expect("amplify:GetApp is in the catalog");
+        // Positive bar: exactly the one entry, so an empty result cannot
+        // pass, and the benign tag is not swept up with it.
+        let paths: Vec<&str> = held.iter().map(|h| h.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["app.environmentVariables.DEPLOY_TARGET"],
+            "the values held: {held:?}"
+        );
+        assert_eq!(
+            board.get(&held[0].handle).map(|s| s.expose().to_string()),
+            Some(PLANTED.to_string()),
+            "the value is on the board"
+        );
+        let after = body.to_string();
+        assert!(!after.contains(PLANTED), "the key is still there:\n{after}");
+        assert_eq!(body["app"]["environmentVariables"]["REGION"], json!(BENIGN));
     }
 }

@@ -29,6 +29,18 @@
 // `theseus-tui`'s `a_routine_runs_question_says_waiting_while_the_run_deadline_drops_it`
 // does.
 //
+// **The other pattern, "a rule that lives only in a comment".** The tell: a
+// comment or doc sentence states a rule ("never X", "always Y before Z") that
+// no test and no code executes, so the sentence can go false and nothing
+// fails. The fix is one of two: write the test that holds the rule, or delete
+// the sentence. A comment may explain a rule a test holds; it may not be the
+// only place the rule is kept.
+//
+// **Corrected, historical.** The `tests_tier_work.rs` citation above is no
+// longer a live instance: those sentences are no longer in that file, and no
+// commit is named here because the history to find it was not searched. The
+// pattern stands with no live instance known today.
+//
 // **The shape.** Whatever *enumerates* the thing being listed — the call
 // sites in a crate's source, the requirement a filter is built against, the
 // members of a catalog — is walked by the test, and the list is judged

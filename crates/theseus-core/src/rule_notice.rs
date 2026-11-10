@@ -444,6 +444,18 @@ mod tests {
         out
     }
 
+    /// What this census proves: for every rule not in `EXEMPT`, some function
+    /// in the crate's source calls `notify_rule` or `stage_rule` and spells the
+    /// rule whole, and no exempt rule has such a site. A source census only.
+    /// What it does not prove: that the call is reached. Removing the *call* to
+    /// a function that holds the `notify_rule` call, and keeping the function,
+    /// leaves this test green (the compiler says only `dead_code`); a planted
+    /// revert like that was caught by the behaviour test alone. Three rules
+    /// have a behaviour test that reads the staged post and asserts its text:
+    /// F1 (`aws::month_warn::tests`), D5 (`rsi::sealed::tests_relay`, the
+    /// item's line tells the owner once) and A4 (`tests_money`); D14 and D15
+    /// are read by `tests_routines::a_skipped_run_names_d14_for_a_routine_and_d15_for_a_review`.
+    /// The other rules rest on this census alone.
     #[test]
     fn every_rule_is_routed() {
         assert_eq!(

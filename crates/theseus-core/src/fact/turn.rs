@@ -1036,6 +1036,26 @@ impl Fact for ModelAnswered<'_> {
     }
 }
 
+/// The `input_transformations` entry for a replayed thinking block the
+/// provider would not bind to the request it arrived in, but let through
+/// to the model unchanged. It is the drift the canary watches for: the
+/// turn answers normally, so nothing else in the row would ever say so.
+pub const THINKING_MISMATCH_ALLOWED: &str = "thinking_mismatch_allowed";
+
+/// How many such entries a response carries. `input_transformations` is a
+/// list of objects with a `type`; absent (no beta, or a provider that sends
+/// none) and any other shape count none, and an entry whose `type` we do
+/// not know is skipped rather than guessed at, because later checks add
+/// kinds to the list.
+pub fn thinking_mismatches(t: Option<&Value>) -> u64 {
+    t.and_then(Value::as_array).map_or(0, |entries| {
+        entries
+            .iter()
+            .filter(|e| e.get("type").and_then(Value::as_str) == Some(THINKING_MISMATCH_ALLOWED))
+            .count() as u64
+    })
+}
+
 /// The model call settled with its answer (`provider.call`): its row rides
 /// in its completion's frame, after the assistant node (theseus-qa0).
 pub struct ProviderCall<'a> {
@@ -1074,6 +1094,7 @@ impl Fact for ProviderCall<'_> {
             "stop_details": resp.stop_details,
             "blocks": resp.content.len(),
             "input_transformations": resp.input_transformations,
+            "thinking_mismatch_allowed": thinking_mismatches(resp.input_transformations.as_ref()),
             "node_id": self.node_id,
             "origin": self.origin,
         });
@@ -2106,5 +2127,36 @@ impl Fact for RetryDecided<'_> {
             ),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_binding_canary {
+    use super::*;
+
+    /// What the canary counts, in the shape the provider documents: a list
+    /// of entries, each with a `type`. The counts asserted are positive as
+    /// well as zero, so a reading that found nothing could not pass; and an
+    /// entry of a kind we do not know is skipped, not guessed at.
+    #[test]
+    fn only_mismatch_allowed_entries_are_counted() {
+        let allowed = json!({"type": THINKING_MISMATCH_ALLOWED, "path": "messages.7.content.0",
+                             "reason": "prefix_binding_mismatch"});
+        let dropped = json!({"type": "thinking_dropped", "path": "messages.9.content.0",
+                             "reason": "prefix_binding_mismatch"});
+        let later = json!({"type": "a_kind_added_after_this_was_written"});
+
+        // Two of three, and the unknown kind is skipped rather than counted.
+        let mixed = json!([allowed, dropped, allowed, later]);
+        assert_eq!(thinking_mismatches(Some(&mixed)), 2);
+        // The honest case the live path sees: present, and nothing drifted.
+        assert_eq!(thinking_mismatches(Some(&json!([]))), 0);
+        // Only drops: the enforced shape, which this field does not count.
+        assert_eq!(thinking_mismatches(Some(&json!([dropped]))), 0);
+        // Absent, which is what a response without the beta carries.
+        assert_eq!(thinking_mismatches(None), 0);
+        // A shape that is not the documented list counts none, never panics.
+        assert_eq!(thinking_mismatches(Some(&Value::Null)), 0);
+        assert_eq!(thinking_mismatches(Some(&json!({"type": "x"}))), 0);
     }
 }

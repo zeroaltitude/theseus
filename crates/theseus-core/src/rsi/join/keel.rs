@@ -504,12 +504,12 @@ mod tests {
     /// a comment is dropped first, then the tuple ends at the `)` that is
     /// left, whether on its own line or on the opening one.
     ///
-    /// `sealed::tests`'s older copy of this ends at the *first* `)` anywhere
-    /// in the body, which a comment inside the tuple supplies, and so reads
-    /// only the paths above that comment. That is harmless there today (every
-    /// `KEEL_PATHS` entry is above it) and is its own row; here it hid four of
-    /// the guard's files, `routing.rs` and `turn/data_step.rs` among them, and
-    /// this test passed while the gap it is here to catch was open.
+    /// `sealed::tests`'s copy once ended at the *first* `)` anywhere in the
+    /// body, which a comment inside the tuple supplies, and so read only the
+    /// paths above that comment; here that hid four of the guard's files,
+    /// `routing.rs` and `turn/data_step.rs` among them, and this test passed
+    /// while the gap it is here to catch was open. That copy has since been
+    /// fixed (see `rsi/sealed/tests.rs`), and the two now agree.
     fn guard_tuple(src: &str, name: &str) -> Vec<String> {
         let after = src
             .split_once(&format!("\n{name} = ("))
