@@ -117,7 +117,11 @@ async fn a_longer_system_prompt_changes_no_model() {
 /// **Where the figure is watched now** (theseus-4vsrz, B7). Deleting the
 /// assertion left nothing watching an ordinary turn against
 /// `cold_switch_tokens`, though it was then half of it — 14,977 of 30,000 on
-/// this rig. The watch that replaced it is not an assertion and is not here:
+/// this rig. The watch that replaced it is not an assertion and is not here.
+/// **It is in the gate's `turn` bench, which already censuses every place
+/// class:** `theseus-sim`'s `perf/counted.rs` now prints each place's session
+/// own context with its share of that place's `cold_switch_tokens`, recorded
+/// and never judged, in a line a reader already reads every run. Beside it,
 /// `theseus-sim bench prompt` records a fresh session's first request per
 /// place class against a committed baseline
 /// (`crates/theseus-sim/baselines/prompt.json`), and since this row it also

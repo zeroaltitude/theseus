@@ -82,7 +82,17 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     `SYNCS_BEFORE_FIRST_BYTE`, 2, `PLAIN_SYNCS_BEFORE_CALL` since theseus-2uby, only goes down), a fresh session's first request in tokens as sent, per kind of place (a second
     scratch daemon of the default config, `context.census`'s total for `cli`, `task`, `dm`, `channel` and `headless`; at most
     `theseus_core::first_request::budget`: 8,000 in the cli and task places, 15,000 in the DM's, and the channel's and the
-    headless run's own, theseus-to0xw; its bytes, and the bench config's, are recorded, not judged), and no timer
+    headless run's own, theseus-to0xw; its bytes, and the bench config's, are recorded, not judged),
+    **the same request's session's own context per place — its total less the tools and the first system block, the
+    header — with its share of `[routing] cold_switch_tokens`, recorded and NEVER judged** (theseus-4vsrz, B7: this
+    is the quantity that bound governs and the figure the deleted `tests_route_cliff` size assertion watched until
+    2026-11-08, after which nothing watched it; it is here rather than in a parallel instrument because this bench
+    already takes the census, and both its terms come from the one census so the catalog cancels instead of leaking
+    into a residual. **Measured 0-29 tokens on 2026-11-10** — a fresh request carries no message, so it is a
+    one-message turn's floor, not the whole of it; what it catches is the prefix being counted back into the bound's
+    quantity, which was the 2026-11-07 cliff and would take it to about 7,600 in one step. It adds no verdict on
+    purpose: `first_request::budget` already holds the totals and `scripts/shape.sh` owns the hard ceilings), and no
+    timer
     between a delta and its write (a paced stream of 8 chunks reaches the client as 8 `model.delta`s, and in
     lockstep each chunk reaches it alone). A delta's way to the client is recorded. Each kind's harness overhead
     (`src/perf/overhead.rs`, theseus-4w1h: the turn less its model and its tools, the commits included, split into
