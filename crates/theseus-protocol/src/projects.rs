@@ -3,7 +3,9 @@
 //! milestones (kind `milestone`, dated) and plan items under it; a session
 //! attaches to one (`project.attach`) and its requests carry the project's
 //! slice. These are the owner's verbs' params and results, and the progress a
-//! list shows. The records themselves are `tasks::TaskRecord`'s.
+//! list shows. The records themselves are `tasks::TaskRecord`'s. The last
+//! types are the owner's grant of a repository's own instruction files
+//! (theseus-wadu): `project.trust`, `project.untrust`, `project.trusted`.
 
 use serde::{Deserialize, Serialize};
 
@@ -221,4 +223,42 @@ mod tests {
         assert_eq!(p.bar(4), "▰▰▱▱ 1/2");
         assert_eq!(ProjectProgress::default().bar(3), "▱▱▱ 0/0");
     }
+}
+
+/// `project.trust` and `project.untrust`: the repository holding `path`, an
+/// absolute path inside it. `author` and `discord` say who asks, as
+/// `standing.revoke`'s do.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProjectTrustParams {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+}
+
+/// `project.trusted`: no params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProjectTrustedParams {}
+
+/// One trusted repository: its id, canonical root, who granted it and when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProjectGrant {
+    pub id: String,
+    pub root: String,
+    pub by: String,
+    pub via: String,
+    pub at_ms: u64,
+}
+
+/// `project.trusted`'s answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ProjectTrustedResult {
+    pub trusted: Vec<ProjectGrant>,
 }

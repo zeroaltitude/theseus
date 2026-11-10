@@ -589,7 +589,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
   asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
   never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
-  (`capture::owner_alone`: no place, or an owner's DM) and never a task's. `judge_inbound` hands its judgment to
+  (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
+  outstanding card is open (`docs/design/abandon-said-in-words.md`). `judge_inbound` hands its judgment to
   `Core::capture_directive` once the batch settles, off the turn's path. The bands are the pack's own (`act` 0.80, `confirm`
   0.50): `capture::decide` (pure) keeps at the act band, asks from the confirm band, and below it only notes a correction
   (`standing.candidate`) to propose it when its words overlap one noted in the last week (`capture::words::same`); an order
@@ -3447,7 +3448,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The ledger's hash chain** (theseus-bmkxk, store format 31): the store's writer chains every ledger row
   (`theseus-store`'s guide); core reads it. `ledger.verify` (`rpc/ledger_verify.rs`, a read: no frame, no lock, on the
   blocking pool; `theseus ledger verify|head`) walks it with `theseus_store::chain_walk::verify` and answers the head and
-  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short. `ledger_pin.rs`: a store
+  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short, and its `ledger_gap` is the store's index gap while one
+  stands (`ledger_gap.rs`, theseus-lu5n: the log keeps recording, the next open replays; a `ledger-gap` thread looks once
+  a second, holds the core by `Weak`, and posts one `notice` to the owner per gap, since the writer that sees it cannot
+  post a frame from where it stands). `ledger_pin.rs`: a store
   from before the chain has its old rows pinned once, after serving, on a `ledger-pin` thread that paces itself and holds
   the core by `Weak` and begins `START_AFTER` (2 s) after serving (a thread holding the store at a stop right after serving keeps its close from checkpointing: `early_signal` fails; `ledger.history_pinned` and the META key `ledger.history_pinned` in one frame; the chain's start
   row counts them, so the start path reads no history). The durability tender puts the head (`SEQ:DIGEST`) on each

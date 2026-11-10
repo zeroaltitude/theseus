@@ -95,6 +95,23 @@ pub const CLONE_NEW_MASK: u32 = (libc::CLONE_NEWNS
 /// reading this list: a call taken out of `denied()` is then a filter that
 /// allows it, and the test says so by name. Adding a call here means adding
 /// it there, with its reason, and the failure names both places.
+///
+/// **The comparison with Docker, on record, and none of it applied**
+/// (theseus-3i6d1; measured for `e702aaa7`, which refused `AF_ALG` and
+/// `AF_VSOCK`, against Docker's `moby/profiles` `seccomp/default.json`, read
+/// 2026-11-09; the figures below are as measured in that commit, not
+/// re-derived). Docker allows `socket` only for the families
+/// `0,1,2,7-10,13-18,21,22,24,26-33,35,36,39,41-45`, so beyond those two it
+/// refuses twelve families this filter allows: AX25, IPX, APPLETALK, NETROM,
+/// ROSE, DECnet, ECONET, ATMSVC, IRDA, WANPIPE, ISDN and CAIF. Fifteen x86_64
+/// calls that Docker never allows run here: `_sysctl`, `afs_syscall`,
+/// `create_module`, `get_kernel_syms`, `getpmsg`, `migrate_pages`,
+/// `move_pages`, `nfsservctl`, `putpmsg`, `query_module`, `security`, `sysfs`,
+/// `tuxcall`, `ustat` and `vserver`. And `socketpair`, which Docker allows
+/// unconditionally, has no rule here. Applying any of this is the owner's
+/// question (apply the measured diff now, or vendor Docker's profile or a
+/// syscall table as data first, so that a call on neither list is enumerated
+/// by someone); until it is answered the filter allows all of the above.
 pub fn denied() -> Vec<(&'static str, libc::c_long)> {
     let v = vec![
         ("unshare", libc::SYS_unshare),
@@ -506,7 +523,7 @@ mod tests {
     /// list it is judging and says nothing at all about a call the list
     /// leaves out. The reviewer proved it: deleting `perf_event_open` from
     /// `denied()` left the whole sandbox suite 40/40 green, and the live
-    /// contract's clause 6 loop names ten keys, of which eight are entries
+    /// contract's clause 6 loop names keys of which eight are entries
     /// of the list (`unshare`, `mount`, `ptrace`, `bpf`, `keyctl`,
     /// `io_uring_setup`, `setns`, `syslog`; `clone_newuser` and `clone_newnet`
     /// are the clone-flag rule, not entries), so 37 of the 45 denied calls were

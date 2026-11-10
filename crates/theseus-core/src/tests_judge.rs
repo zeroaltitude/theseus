@@ -313,11 +313,17 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     let r = rig_with(texts(2), Some(&jev), |_| {});
     let first = turn(&r.core, None, "warm up").await;
     until_judged(&r.core.store, 1).await;
+    // The counter is the store's, so any writer beside the turn moves it: the
+    // sink's frame for this turn's judgment, if Jev answered before the
+    // test's task woke, would read as the turn's own. Jev holds this turn's
+    // answer until the window is closed: its rows land after, by order.
+    jev.set_mode(FakeMode::Held);
     let before = r.core.store.stats().unwrap().frames_appended;
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     let frames = r.core.store.stats().unwrap().frames_appended - before;
     assert_eq!(res.loops, 1);
     assert!(frames <= 4, "a judged plain turn wrote {frames} frames");
+    jev.release();
     until_judged(&r.core.store, 2).await;
 }
 

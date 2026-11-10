@@ -1394,6 +1394,7 @@ impl TurnRunner {
             };
         let rec = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));
         if session_ended {
+            self.tools.reads.forget(&failure_sink.session_id);
             self.tools.job_waits.task_settled();
             self.tools.job_waits.steers.unjoin(&failure_sink.session_id);
             let by = crate::term::BY_SESSION_END;

@@ -261,5 +261,6 @@ async fn a_turn_that_made_a_task_gets_no_late_offer() {
 const SLOW_BATCH: std::time::Duration = std::time::Duration::from_millis(850);
 /// The late-offer test's batch: past the reply even on a loaded machine (a
 /// gate's reply took 1,053 ms beside an 850 ms batch, which then rode it),
-/// under that test's 5 s judge budget (the rig's is 1 s).
+/// under that test's 5 s judge budget (set at its rig, equal to the build default;
+/// `tests_judge::judge_config` sets 10 s).
 const LATE_BATCH: std::time::Duration = std::time::Duration::from_millis(2_500);

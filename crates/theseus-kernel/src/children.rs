@@ -27,6 +27,11 @@
 //! owner: had it been, it would have been registered before the sweep could
 //! look. Every child the daemon starts goes through `spawn`. One that did not,
 //! and was waited for by its spawner, could be reaped here as an orphan.
+//!
+//! That last sentence is asserted: theseus-core's `tests_children_complete`
+//! walks every spawn call in the daemon's crates and fails on a file that
+//! starts a child outside `spawn` without a tabled reason (the job wrapper
+//! and the `hand` role never run the sweep).
 
 use std::collections::BTreeMap;
 use std::io;

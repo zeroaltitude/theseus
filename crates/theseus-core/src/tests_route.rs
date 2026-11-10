@@ -941,8 +941,9 @@ async fn a_routed_turn_still_writes_and_sends_its_recall() {
 ///
 /// The switch is the whole of it, so the turn must have its verdict, and two
 /// bounds stand between it and one. The build's `judge.total_secs` was 1 s
-/// (`tests_judge::judge_config` now gives 10 s, and this rig 30 s), and a second would bound the `route.v1` call
-/// itself (`Urgency::Live`), so on a loaded host the call was abandoned
+/// (`tests_judge::judge_config` now gives 10 s, and this rig 30 s), and a
+/// second would bound the `route.v1` call itself (`Urgency::Live`), so on a
+/// loaded host the call was abandoned
 /// before it answered, the turn read `no_verdict` and ran on the session's
 /// own profile, and this test failed on the profile -- the only red of an
 /// otherwise green gate, about 1 run in 12 (theseus-2yh04). It is raised here

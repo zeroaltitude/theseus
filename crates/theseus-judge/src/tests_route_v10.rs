@@ -120,6 +120,8 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
                 .to_string()
         })
         .collect();
+    // `on_path_p95` is unfed (see `tests_rollback_census`): this pins the rule's presence in the
+    // pack, not that it can fire.
     assert_eq!(rules, ["labels_per_day", "on_path_p95", "pins_per_day"]);
 }
 

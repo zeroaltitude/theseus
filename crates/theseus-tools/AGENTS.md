@@ -38,6 +38,10 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
   the next offset, never a hole; the runtime cuts it at the same cap the same way (`Tool::result_max_chars`). The
   window's scan bound holds at a line's end, not at the reader's buffer's edge. The runtime stores what a tool returns in the blobs (`run_with_media`, and
   `run_async_with_media` for an async tool).
+- **The stale edit** (theseus-w2cs; `src/reads.rs`, `src/fs_stale.rs`, the rule in `docs/design/stale-edit.md`): a
+  returning `fs.read` notes the state the file was in (its length and mtime, never a hash), and `fs.edit` and
+  `fs.patch` refuse a write to a file that changed since — **only where a note exists**; no note is never a refusal,
+  and a write moves a note it finds on but creates none. A `ToolCtx` with no `reads` board notes and checks nothing.
 - **`proc.run`'s `steps`** (theseus-7gir.3): a batch in place of `argv`, exactly one of the two, at most
   `MAX_STEPS` (16). `Tool::steps` gives each step as the call it would be alone (the gate judges each), and
   `Tool::jobs` each step's job, every directory checked before the first starts; the plan's `steps` holds each argv.

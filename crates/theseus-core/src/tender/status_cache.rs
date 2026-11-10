@@ -21,7 +21,7 @@ use theseus_protocol::index::{method, IndexHealth, IndexStatus};
 use theseus_protocol::TenderStatus;
 use tokio::time::Instant;
 
-use super::{call, down_why, CallError, IndexTender, STATUS_DEADLINE};
+use super::{call, down_why, refused_words, CallError, IndexTender, STATUS_DEADLINE};
 
 /// How long one status read serves every caller.
 pub const STATUS_EVERY: Duration = Duration::from_secs(1);
@@ -212,6 +212,10 @@ fn old_words(m: &Miss, age_ms: u64) -> String {
                 "its status read is still out after {} ms: its status as of {seconds:.1} s ago",
                 d.as_millis()
             ),
+            Miss::Ended(CallError::Answered { code, message }) => format!(
+                "{}: its status as of {seconds:.1} s ago",
+                refused_words(*code, message)
+            ),
             Miss::Ended(e) => {
                 format!("its socket did not answer ({e}): its status as of {seconds:.1} s ago")
             }
@@ -227,6 +231,10 @@ fn old_words(m: &Miss, age_ms: u64) -> String {
         Miss::Out(d) => format!(
             "stale: its status is {age} old, and its latest read is still out after {} ms",
             d.as_millis()
+        ),
+        Miss::Ended(CallError::Answered { code, message }) => format!(
+            "stale: its status is {age} old, and {}",
+            refused_words(*code, message)
         ),
         Miss::Ended(e) => {
             format!("stale: its status is {age} old, and its socket did not answer ({e})")
@@ -294,5 +302,26 @@ mod tests {
         );
         // With no status to show, a read still out is worded as it was.
         assert_eq!(out.error().to_string(), "no answer within 100 ms");
+    }
+
+    /// A tender that answered with an error is not "did not answer", at a
+    /// recent age and a stale one.
+    #[test]
+    fn a_refused_status_read_is_not_a_socket_that_did_not_answer() {
+        let m = Miss::Ended(CallError::Answered {
+            code: -32001,
+            message: "no vector for that node yet".into(),
+        });
+        let recent = old_words(&m, 2_500);
+        let stale = old_words(&m, 5 * 3_600_000 + 60_000);
+        assert_eq!(
+            recent,
+            "its status read was refused: no vector for that node yet (-32001): its status as of 2.5 s ago"
+        );
+        assert_eq!(
+            stale,
+            "stale: its status is 5 h old, and its status read was refused: no vector for that node yet (-32001)"
+        );
+        assert!(!recent.contains("did not answer") && !stale.contains("did not answer"));
     }
 }

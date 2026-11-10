@@ -93,6 +93,11 @@ fn report_broken(
     }
 }
 
+/// The note fires only for a break strictly past the gap (`b.position > at`).
+/// A break AT the gap is not pinned as reachable: `say_gap` records
+/// `wal.last_position().max(1)` when the write fails, so the unindexed frames
+/// end at `at`, and only a later indexed row can produce the break. The
+/// `position == at` tuple below holds the boundary all the same.
 #[test]
 fn a_removed_break_past_an_index_gap_names_the_gap_and_stays_broken() {
     use theseus_store::chain_walk::Fault;
@@ -111,6 +116,7 @@ fn a_removed_break_past_an_index_gap_names_the_gap_and_stays_broken() {
     for (r, gap) in [
         (report_broken(9, removed()), None),
         (report_broken(4, removed()), Some(5)),
+        (report_broken(5, removed()), Some(5)),
         (report_broken(9, Fault::Edited), Some(5)),
     ] {
         let v = super::ledger_verify::result_of(r, 0, gap);

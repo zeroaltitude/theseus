@@ -317,7 +317,7 @@ pub mod method {
         WATCH_CREATE = "watch.create", WATCH_LIST = "watch.list",
         /// Projects (theseus-n5ui2, `projects.rs`): long-term work on the task graph, with milestones, a weekly
         /// review, and a slice in every session that attaches.
-        PROJECT_CREATE = "project.create", PROJECT_LIST = "project.list", PROJECT_SHOW = "project.show", PROJECT_ATTACH = "project.attach",
+        PROJECT_CREATE = "project.create", PROJECT_LIST = "project.list", PROJECT_SHOW = "project.show", PROJECT_ATTACH = "project.attach", PROJECT_TRUST = "project.trust", PROJECT_UNTRUST = "project.untrust", PROJECT_TRUSTED = "project.trusted",
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
         /// The push (theseus-in3): a snapshot of every execution that needs someone or works, then `execution.changed`, `confirm.requested`, and `confirm.resolved` for every session, until `executions.unwatch`. A read.
@@ -703,6 +703,9 @@ pub struct HealthResult {
     /// (`3fa1c09e…#1204`); absent before the chain starts (theseus-bmkxk).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ledger_head: Option<String>,
+    /// The index lags the log, while it does (theseus-lu5n): absent when whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger_gap: Option<LedgerGap>,
     #[serde(default)]
     pub telemetry: TelemetryStatus,
     /// The durable kernel (M2): executions, actions, admission.

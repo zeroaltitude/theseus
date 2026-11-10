@@ -177,12 +177,7 @@ impl TurnRunner {
             situation: &given,
             // The render kept across turns, under this view of the nodes:
             // the old attachments a cold rewrite stubbed (theseus-0l3g).
-            kept: Some((&self.kept, {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                format!("{stubbed:?}").hash(&mut h);
-                h.finish()
-            })),
+            kept: Some((&self.kept, Self::stubbed_key(&stubbed))),
         };
         // Where the ring cut, a summary in its place (30c); past the window
         // with nothing left to drop, the turn fails before any call.
@@ -196,15 +191,7 @@ impl TurnRunner {
         Self::recall_compiled(t, &mut compiled);
         t.fill = super::fill_step::Fill::of(&compiled, self.fill_window(spec));
         self.home_size_checked(t, compiled.est_tokens, i);
-        // A clearing pass (theseus-3ki0): one row a pass.
-        if let Some(pass) = compiled.cleared {
-            t.record(&fact::compaction::Cleared {
-                compilation_id: &compiled.compilation.id,
-                pass,
-                limit: compiled.budget.limit_tokens,
-                loop_index: i,
-            });
-        }
+        Self::cleared_recorded(t, &compiled, i);
         Self::standing_listed(t, &mut compiled);
         self.defer_noted(t, spec, &compiled);
         let (tasks, project) = self.tail_blocks(t, session, &mut compiled);
@@ -242,6 +229,27 @@ impl TurnRunner {
         }
         self.compiled_rows(t, &summary, &compiled, spec, (c0, c1), i);
         Ok(Ok(compiled))
+    }
+
+    /// The view of the nodes the kept render is held under (theseus-0l3g): a
+    /// digest of the old attachments a cold rewrite stubbed.
+    fn stubbed_key(stubbed: &[theseus_protocol::StubbedFile]) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        format!("{stubbed:?}").hash(&mut h);
+        h.finish()
+    }
+
+    /// A clearing pass (theseus-3ki0): one row a pass.
+    fn cleared_recorded(t: &mut Turn<'_>, compiled: &Compiled, i: u32) {
+        if let Some(pass) = compiled.cleared {
+            t.record(&fact::compaction::Cleared {
+                compilation_id: &compiled.compilation.id,
+                pass,
+                limit: compiled.budget.limit_tokens,
+                loop_index: i,
+            });
+        }
     }
 
     /// The new compilation's system blocks, each stored once under its digest

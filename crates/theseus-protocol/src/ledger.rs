@@ -64,6 +64,7 @@ ledger_kinds! {
     ApprovalRefused = "approval.refused",
     AwsBudgetReconciled = "aws.budget.reconciled",
     AwsMonthWarning = "aws.month_warning",
+    AwsMonthStopped = "aws.month_stopped",
     AwsCalled = "aws.called",
     AwsHandsLaunched = "aws.hands.launched",
     AwsHandsSettled = "aws.hands.settled",

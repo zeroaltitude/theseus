@@ -22,8 +22,8 @@ const ran = (model: string, ...levels: string[]) => levels.map((effort) => ({ mo
 
 test('modelLabel: the model in the owner’s words, a date dropped and the version dotted', () => {
   assert.deepEqual(
-    ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-fable-5-1', 'claude-haiku-4-5-20251001', 'glm-5.3-flash', 'glm-5.3', 'deepseek-v4'].map(modelLabel),
-    ['Sonnet 5.5', 'Opus 5.5', 'Haiku 5.5', 'Fable 5.1', 'Haiku 4.5', 'GLM 5.3 Flash', 'GLM 5.3', 'Deepseek V4'])
+    ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-fable-5-1', 'claude-fable-5-2', 'claude-haiku-4-5-20251001', 'glm-5.3-flash', 'glm-5.3', 'deepseek-v4'].map(modelLabel),
+    ['Sonnet 5.5', 'Opus 5.5', 'Haiku 5.5', 'Fable 5.1', 'Fable 5.2', 'Haiku 4.5', 'GLM 5.3 Flash', 'GLM 5.3', 'Deepseek V4'])
 })
 
 test('modelsStrip: a profile row carries the effort its profile is configured at', () => {

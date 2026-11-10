@@ -316,3 +316,77 @@ async fn a_copy_of_a_trusted_repository_elsewhere_inherits_nothing() {
     let all = whole(&r.fake.requests().pop().unwrap());
     assert!(!all.contains(IN_TEXT), "the copy is untrusted: not read");
 }
+
+/// Phase 3: the grant through the protocol's dispatch, judged as `standing.add`
+/// is. A surface that is no private place is refused and writes nothing (the
+/// zeros), and the CLI's grant writes exactly one row, lists, carries the
+/// text and is taken back (the positive count behind them).
+#[tokio::test]
+async fn the_grant_is_reachable_through_the_dispatch_and_judged_as_standing_is() {
+    use crate::approval::Surface;
+    use crate::tests_mcp_memory::rpc;
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    let path = repo.to_string_lossy().into_owned();
+    for surface in [Surface::Unnamed, Surface::Mcp] {
+        let e = rpc(&r.core, surface, "project.trust", json!({"path": path}))
+            .await
+            .expect_err("not an approval surface");
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
+    }
+    assert!(r.core.project_trusted().unwrap().is_empty());
+    assert!(crate::test_support::ledger_rows_2k(&r.core, "project.trust").is_empty());
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains("not trusted and not read"), "{block}");
+
+    let e = rpc(
+        &r.core,
+        Surface::Cli,
+        "project.trust",
+        json!({"path": "tide-gauges"}),
+    )
+    .await
+    .expect_err("a relative path");
+    assert_eq!(
+        e.code,
+        theseus_protocol::error_code::INVALID_PARAMS,
+        "{e:?}"
+    );
+
+    let got = rpc(
+        &r.core,
+        Surface::Cli,
+        "project.trust",
+        json!({"path": path}),
+    )
+    .await
+    .expect("the CLI may grant");
+    assert_eq!(got["root"], json!(repo.display().to_string()), "{got}");
+    assert_eq!(
+        crate::test_support::ledger_rows_2k(&r.core, "project.trust").len(),
+        1
+    );
+    let list = rpc(&r.core, Surface::Cli, "project.trusted", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(list["trusted"].as_array().map(Vec::len), Some(1), "{list}");
+    assert_eq!(list["trusted"][0]["root"], got["root"]);
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains(crate::project_context::FRAME), "{block}");
+    assert!(block.contains(IN_TEXT), "{block}");
+
+    rpc(
+        &r.core,
+        Surface::Cli,
+        "project.untrust",
+        json!({"path": path}),
+    )
+    .await
+    .expect("untrust");
+    let list = rpc(&r.core, Surface::Cli, "project.trusted", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(list["trusted"].as_array().map(Vec::len), Some(0), "{list}");
+}

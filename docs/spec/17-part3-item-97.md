@@ -166,7 +166,7 @@ theseus-4t3c (P3), theseus-wand (to build), theseus-ig6n (P3).
 ("a task that has nothing left to wait on is done"). So "check the build now, and again in ten minutes, then report"
 could not be a task. M7's design (`docs/design/m7-surface.md` §2.2) gave 37b one rule: a task may set one-shot wakes,
 parks on them, and reports once when it has nothing left to wait on; a repeating wake stays refused, since a task must
-end.
+end. _(Since 2026-11-09, theseus-ehqo7, the owner at 15:48: a task's repeating wake is set when it carries an `until` no later than 30 days from now, and refused without one or past it, naming the rule and the one-shot way out (`task_repeat_refusal`, `crates/theseus-core/src/wake.rs`).)_
 
 **What the session found.** The kernel already did most of it: a task's end and its cancel both drop its wakes in
 their own frame, `wakes::free` treats waiting on input as free so the due scan fires a parked task's wake, and the
