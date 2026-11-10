@@ -477,7 +477,10 @@ async fn the_date_and_the_git_state_are_in_the_tail_and_the_prefix_does_not_move
         "the breakpoint sits ahead of the facts: marked {marked:?}, facts at {date}"
     );
     let (tail_b, _) = tail_of(&reqs[1]);
-    assert!(tail_b.iter().any(|t| t.contains("2026-12-10")), "{tail_b:?}");
+    assert!(
+        tail_b.iter().any(|t| t.contains("2026-12-10")),
+        "{tail_b:?}"
+    );
 
     // Nothing of either fact is in the system, and the system is byte for
     // byte the same across the two days.
@@ -499,7 +502,8 @@ async fn a_directory_that_is_no_repository_says_unknown_and_the_turn_goes_on() {
     submit(&r.core, &dir).await;
     let (tail, _) = tail_of(&r.fake.requests().pop().unwrap());
     assert!(
-        tail.iter().any(|t| t.starts_with("Date: ") && t.ends_with("\nGit: unknown")),
+        tail.iter()
+            .any(|t| t.starts_with("Date: ") && t.ends_with("\nGit: unknown")),
         "{tail:?}"
     );
 }

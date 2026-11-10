@@ -98,6 +98,13 @@ fn scan(repo: &gix::Repository, wd: &Path, deadline: Instant) -> Tree {
     let Ok(index) = repo.index_or_empty() else {
         return Tree::Unknown;
     };
+    // Git's racy rule: an entry stamped in the index's own second may have
+    // changed since without its stat moving, so its bytes are compared.
+    let written = std::fs::metadata(repo.index_path())
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(u32::MAX, |d| d.as_secs() as u32);
     for (n, e) in index.entries().iter().enumerate() {
         if n >= ENTRY_MAX || (n % 64 == 0 && Instant::now() >= deadline) {
             return Tree::Unknown;
@@ -121,7 +128,10 @@ fn scan(repo: &gix::Repository, wd: &Path, deadline: Instant) -> Tree {
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as u32);
-        if md.len() as u32 == e.stat.size && mtime == Some(e.stat.mtime.secs) {
+        if md.len() as u32 == e.stat.size
+            && mtime == Some(e.stat.mtime.secs)
+            && e.stat.mtime.secs < written
+        {
             continue;
         }
         // The stat moved (a touch, a checkout): only the bytes can say.
@@ -196,10 +206,16 @@ mod tests {
         std::fs::write(root.join("a.txt"), "one\n").unwrap();
         assert_eq!(line(root, WAIT), "Git: branch harbour, tracked files clean");
         std::fs::write(root.join("a.txt"), "two\n").unwrap();
-        assert_eq!(line(root, WAIT), "Git: branch harbour, tracked files changed");
+        assert_eq!(
+            line(root, WAIT),
+            "Git: branch harbour, tracked files changed"
+        );
         git(root, &["checkout", "-q", "-f", "--detach"]);
         let l = line(root, WAIT);
-        assert!(l.starts_with("Git: detached at ") && l.ends_with(", tracked files clean"), "{l}");
+        assert!(
+            l.starts_with("Git: detached at ") && l.ends_with(", tracked files clean"),
+            "{l}"
+        );
     }
 
     #[test]
@@ -219,6 +235,9 @@ mod tests {
         git(d.path(), &["add", "."]);
         git(d.path(), &["commit", "-q", "-m", "c"]);
         // Zero budget: the first entry check (n = 0) is already late.
-        assert_eq!(line(d.path(), Duration::ZERO), "Git: branch m, changes unknown");
+        assert_eq!(
+            line(d.path(), Duration::ZERO),
+            "Git: branch m, changes unknown"
+        );
     }
 }
