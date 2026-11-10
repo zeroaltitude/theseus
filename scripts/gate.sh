@@ -159,6 +159,10 @@ phase_began=0
 summary_printed=""
 # A phase that passed may name how, in the table: `scrub ok` and `scrub skipped` read differently at a glance.
 phase_label=""
+# What the `line pressure` phase found, repeated under the table so it reaches a reader who sees only the tail
+# (`ec2.sh tail LANE gate` is 30 lines by default, and that phase runs minutes of compiling before the end).
+# Empty when the phase did not run: every locked part, and any gate that stopped before it.
+line_pressure_said=""
 phase() {
   phase_now="$1"
   phase_began=$SECONDS
@@ -183,6 +187,7 @@ summary() {
     printf '  %-16s %5d  <- failed here\n' "$phase_now" "$((SECONDS - phase_began))"
   fi
   printf '  %-16s %5d\n' total "$total"
+  [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
   mkdir -p "$(dirname "$times")" 2>/dev/null || true
   {
     [ -s "$times" ] || echo "time,label,phase,seconds,status"
@@ -855,6 +860,77 @@ gate_tests() {
   PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_gate_tree.py
 }
 
+# The approach to clippy's function ceiling, as a WARNING and never a verdict (theseus-4vsrz; the owner's ruling,
+# 2026-11-10). `shape.sh` above holds the FILE ceiling and clippy below holds the FUNCTION one, at 100 lines; what
+# neither says is which functions sit at 99. Two branches that each add three lines to a function at 95 pass alone
+# and fail merged, and on 2026-11-10 seventeen functions on main were at exactly 100 with no headroom at all. So
+# scripts/line-pressure.py names them, and the count goes under the phase table where a reader of the tail gets it.
+#
+# IT NEVER DECIDES THE GATE'S STATUS, and that is the ruling, not an oversight. A second threshold on the same
+# quantity would redden departures for files that are inside their limits, and this build has already been bitten
+# by a trend rule that blocked on its own output (the may-build trend rule, memory may-build-trend-rule-self-blocks).
+# The instrument agrees: it exits 0 on a report by construction and 2 only when it read nothing. The `|| true`
+# covers the exit-2 case and a missing or broken script, neither of which is a verdict on a branch's code.
+#
+# MARGIN 5, the script's own default, chosen from this tree's distribution on 2026-11-10 (5e71c15a, 37,654
+# functions scanned): margin 0 lists 17, 3 lists 93, 5 lists 142, 8 lists 201, 10 lists 260, 15 lists 388. 5 is the
+# narrowest window that still covers the two-siblings-at-95 case above, and the widest whose output reads as a list
+# rather than a dump — a warning nobody reads is worth nothing. THE FULL LIST IS CAPPED at the 20 tightest (the
+# script sorts closest-first), which on this tree is every function at exactly 100 plus the next three; the whole
+# list is one command away and the phase says so, so nothing is hidden.
+line_pressure_margin=5
+line_pressure_show=20
+line_pressure() {
+  local out
+  out="$(PYTHONDONTWRITEBYTECODE=1 python3 scripts/line-pressure.py --margin "$line_pressure_margin" 2>&1 || true)"
+  if [ -z "$out" ]; then
+    line_pressure_said="line pressure: scripts/line-pressure.py said nothing (it is a warning, so the gate goes on)"
+    echo "gate: $line_pressure_said"
+    return 0
+  fi
+  printf '%s\n' "$out" | head -n "$line_pressure_show"
+  local listed
+  listed=$(printf '%s\n' "$out" | grep -c '/[0-9]* *\(OVER\)\?$' || true)
+  if [ "$listed" -gt "$line_pressure_show" ]; then
+    echo "line pressure: $((listed - line_pressure_show)) more, closest first; all of them:" \
+      "python3 scripts/line-pressure.py --margin $line_pressure_margin"
+  fi
+  line_pressure_said="$(printf '%s\n' "$out" | sed -n 's/^line-pressure: /line pressure: /p' | tail -1)"
+  [ -n "$line_pressure_said" ] || line_pressure_said="line pressure: margin $line_pressure_margin, no count line (a warning only)"
+  return 0
+}
+
+# scripts/tests/*: the unit tests of the Python helpers that are not gate.sh's own — the three `scripts/test_*.py`
+# suites beside this script each have a fatal phase of their own, above. Run and REPORTED, never fatal: the same
+# ruling as the phase above, applied for consistency rather than because the risk is the same.
+#
+# THE ARGUMENT FOR MAKING THESE FATAL, recorded for the owner rather than acted on (theseus-4vsrz R3): these are
+# not a threshold on the tree at all. They are deterministic unit tests of a script's own correctness, they read no
+# host state, and a failure means a helper lies rather than that a branch is over a limit — which is exactly the
+# class of the guard's own test suite, already fatal three phases above. Both suites are cheap (9 tests in 0.4 s
+# and 15 in 10.3 s, measured on 5e71c15a), so cost is not the reason either. A non-fatal test suite is read only
+# when something else has already gone wrong, so this wiring buys less than the fatal version would. It is left
+# non-fatal because the ruling said to leave it non-fatal and say so; the decision is the owner's.
+script_tests() {
+  local t rc=0 bad=()
+  for t in scripts/tests/test_*.py; do
+    [ -e "$t" ] || continue
+    if PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q "$t"; then
+      echo "script tests: $t ok"
+    else
+      rc=$?
+      bad+=("$t")
+    fi
+  done
+  if [ "${#bad[@]}" -gt 0 ]; then
+    echo "script tests: FAILED (${bad[*]}), rc $rc — REPORTED AND NOT FATAL (theseus-4vsrz): these are the"
+    echo "script tests: helpers' own unit tests, so a failure here means a helper lies, not that this branch is"
+    echo "script tests: over a limit. Fix it in its own change; the owner decides whether this phase becomes fatal."
+    phase_label="script tests warned"
+  fi
+  return 0
+}
+
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
 # the log's last 40 lines, where the phase table alone said only "cockpit <- failed here". A passing `test` tees
 # node's own summary (`ℹ tests N`, `ℹ pass N`, ...) into the gate's own output, which `arm.sh tail` keeps even
@@ -1159,6 +1235,11 @@ phase "gate tests" gate_tests
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The two warning phases, between the file ceiling above and clippy's function ceiling below, and before the
+# compiles so that a branch which reddens clippy's `too_many_lines` already has the near-ceiling list above the
+# failure. Neither can fail the gate (their own comments say why).
+phase "line pressure" line_pressure
+phase "script tests" script_tests
 # The last cheap phase: from the next one on, the gate resolves and compiles, and a disk that cannot hold it refuses here.
 phase "disk floor" disk_floor
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
