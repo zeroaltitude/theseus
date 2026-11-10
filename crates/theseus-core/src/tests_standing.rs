@@ -36,6 +36,8 @@ const LAB: u64 = 314_159_265_358_979_323;
 #[derive(Default)]
 struct Model {
     requests: Mutex<Vec<ProviderRequest>>,
+    /// What it answers instead of "Hello." (a test of the answer's check).
+    reply: Mutex<Option<String>>,
 }
 
 impl Provider for Model {
@@ -49,7 +51,9 @@ impl Provider for Model {
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
             self.requests.lock().unwrap().push(req.clone());
-            let f = FakeProvider::scripted(vec![Scripted::text("Hello.")]);
+            let said = self.reply.lock().unwrap().clone();
+            let f =
+                FakeProvider::scripted(vec![Scripted::text(said.as_deref().unwrap_or("Hello."))]);
             f.stream_message(req, on_delta).await
         })
     }
@@ -673,6 +677,7 @@ async fn a_place_scope_names_a_bound_places_target() {
         .is_empty());
 }
 
+mod ack;
 mod framing;
 mod surface;
 
