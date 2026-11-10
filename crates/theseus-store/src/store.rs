@@ -738,7 +738,11 @@ const BULK: usize = 4096;
 /// stopped matching what was stored, once for each, in the order seen; it is left out while
 /// empty. A record from before reads it empty and writes back without it; the sample is
 /// `tests_layouts::SESSION_IMPORTED_AT_56`, written by hand from an invented episode.
-const MANIFEST_FORMAT: u32 = 57;
+/// 58 = a context file's level in the manifest (theseus-wadu): a COMPILATION record's
+/// `manifest.context_files` entry gains `level` (`system`, `persona`, `user`, `project`), left
+/// out for the system level. A record from before reads every file as `system` and writes back
+/// byte for byte; the sample is `tests_layouts::COMPILATION_AT_57`, written by hand.
+const MANIFEST_FORMAT: u32 = 58;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

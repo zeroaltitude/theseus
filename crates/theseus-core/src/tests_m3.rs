@@ -4102,6 +4102,7 @@ async fn a_context_file_puts_its_rule_in_the_system_block_and_its_digest_in_the_
         cut: false,
         missing: None,
         persona: None,
+        level: Default::default(),
         public: false,
         withheld: None,
     };

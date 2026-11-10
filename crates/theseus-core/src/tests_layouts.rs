@@ -217,7 +217,37 @@ fn a_format_54_routine_reads_as_one_that_runs_until_it_is_paused() {
 /// holds it apart from that encoder.
 pub(crate) const SESSION_IMPORTED_AT_56: &str = r#"{"session_id":"ses_ep0000000000000000000000000000000000000000000000000000000cafe0156","kind":"conversation","label":"imported","created_at_unix_ms":1790000000561,"turns":0,"last_turn_id":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"last_active_ms":1790000000561,"cost_usd":0.0,"tool_calls":0,"imported":{"tag":"tern-fixture-56","episode_id":"ep_0000000000000000000000000000000000000000000000000000000cafe0156","hash":"h56-invented","source":"harbour-export","agent":"quill","place":{"kind":"dm","name":"Harbour desk","id":"4400000156"},"labels":{"sensitivity":"public","partner":null,"topic":["garden/beds"],"book_hint":null,"credential_redacted":false},"as_of":{"start_ms":1790000000500,"end_ms":1790000000540},"messages":1,"summary":false,"file":"harbour-export.jsonl","line":156,"imported_at_ms":1790000000560}}"#;
 
+/// A compilation as format 57 wrote it (theseus-ectzg's build), before a context file's level
+/// (58, theseus-wadu): by hand, three files, one a persona's. It reads every file as the system
+/// level and writes back byte for byte; `a_format_57_compilation_reads_its_files_at_the_system_level`
+/// holds it apart from today's encoder.
+pub(crate) const COMPILATION_AT_57: &str = r#"{"id":"cmp_00000000000000000000000000000571","schema":1,"session_id":"ses_00000000000000000000000000000570","created_at_ms":1790000000571,"trigger":"new_session","strategy":"transcript","as_of":97,"includes":["msg_00000000000000000000000000000571"],"derived_from":null,"manifest":{"compiler_version":1,"renderer_version":2,"profile":"sonnet","provider":"anthropic","model":"claude-sonnet-5-5","system_digest":"0123456789abcdef","tools_digest":"fedcba9876543210","tools":["fs_read"],"catalog_version":"2026-11-01","context_window":1000000,"strip_thinking":false,"context_files":[{"path":"/work/tide-gauges/AGENTS.md","digest":"a1b2c3d4e5f60718","bytes":2048},{"path":"/work/rules.md","digest":"0f1e2d3c4b5a6978","bytes":512,"public":true},{"path":"/work/clerk.md","digest":"1122334455667788","bytes":64,"persona":"clerk"}]},"situation":{"kind":"conversation_start"}}"#;
+
+#[test]
+fn a_format_57_compilation_reads_its_files_at_the_system_level() {
+    use theseus_protocol::ContextLevel;
+    let mut c: crate::compiler::Compilation = serde_json::from_str(COMPILATION_AT_57).unwrap();
+    let files = &c.manifest.context_files;
+    assert_eq!(files.len(), 3, "the three files decode");
+    assert!(files.iter().all(|f| f.level == ContextLevel::System));
+    assert!(!COMPILATION_AT_57.contains("\"level\""));
+    assert_eq!(serde_json::to_string(&c).unwrap(), COMPILATION_AT_57);
+    // Format 58's field lands and reads back; the literal is untouched.
+    c.manifest.context_files[0].level = ContextLevel::Project;
+    let text = serde_json::to_string(&c).unwrap();
+    assert!(text.contains(r#""level":"project""#), "{text}");
+    let back: crate::compiler::Compilation = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.manifest.context_files[0].level, ContextLevel::Project);
+    assert!(!COMPILATION_AT_57.contains("\"level\""));
+}
+
 const SAMPLES: &[Sample] = &[
+    Sample {
+        kind: kinds::COMPILATION,
+        layout: "a compilation at format 57 (theseus-ectzg's build) with context files: before a file's level (58, theseus-wadu)",
+        bytes: COMPILATION_AT_57,
+        kept: Kept::All,
+    },
     Sample {
         kind: kinds::SESSION,
         layout: "an imported session at format 56 (theseus-ectzg's build before its divergence mark): before `ImportedFrom.diverged_at` (57)",
