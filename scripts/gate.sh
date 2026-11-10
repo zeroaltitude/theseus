@@ -345,9 +345,11 @@ trap on_exit EXIT
 # What the suite does not run is said first (theseus-4vsrz). The suite passes no `-E`, so a `default-filter` in
 # `.config/nextest.toml` is the only filter there is, and it skips its tests in every run: nextest counts them as
 # "skipped" with the #[ignore]d ones, so a stale line (uncommitted, kept in a lane from an earlier run: four tests
-# skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one, since
-# the ARM runner sets its known skips this way; it names each line, with its profile and place, and whether HEAD has it
-# or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
+# skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one. It names
+# each line, with its profile and place, and whether HEAD has it or the working tree alone does. A line under this run's
+# profile (or under [profile.default] while the run's profile has none) is ACTIVE: the gate says so again beside the
+# suite's summary and calls the phase `suite filtered`. A line parked under another profile is named, marked NOT this
+# run's, and changes nothing: the phase keeps its name.
 filters_found=no
 suite_filters() {
   local cfg=.config/nextest.toml found profile lineno text where mine run="${NEXTEST_PROFILE:-default}" any=no
@@ -388,9 +390,11 @@ suite_filters() {
 # skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and
 # misses one set through NEXTEST_PROFILE, a config file passed in, or an overrides table. Nothing here changes the exit
 # status; a red suite never gets here (`set -e` stops the gate at the pipeline), and a filtered one is labelled, never cleared.
-# Observed: a sweep of recorded green gate logs found 51 occurrences in 48 files in exactly four forms, `including 18 tests`,
-# `including 2 tests`, `including 4 tests` and `including 7 tests via profile.default.default-filter`, every one matched by
-# the pattern below and every one naming profile.default. The singular `including 1 test via profile` was never seen, so
+# Observed on 2026-11-09, in one sweep of one host's recorded green gate logs (carried from an earlier row's report, not
+# re-run since: those logs are not in this repository), 51 occurrences in 48 files in exactly four forms, `including 18
+# tests`, `including 2 tests`, `including 4 tests` and `including 7 tests via profile.default.default-filter`, every one
+# matched by the pattern below and every one naming profile.default. That is a dated sample, not a property of the
+# gate's output. The singular `including 1 test via profile` was never seen, so
 # the `tests?` in the pattern stays deliberately: that branch is still unverified against a real one-test run.
 suite_applied() {
   local applied
@@ -835,8 +839,8 @@ scrub_phase() {
 
 # This script's own tests (theseus-4vsrz): scripts/test_gate_tree.py runs the real gate in a throwaway repository, its
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
-# and that its cargo runs without an incremental cache. About 10 s for 29 tests on a 4-core cloud VM (9.9 s measured;
-# an earlier 6.7 s came from another machine, and "about 2 s" was wrong): each GateTree case runs the whole gate in a
+# and that its cargo runs without an incremental cache. About 17 s for 38 tests on a 4-core cloud VM (16.8 s measured;
+# earlier figures of 9.9 s for 29 tests, 6.7 s from another machine, and "about 2 s" were all wrong): each GateTree case runs the whole gate in a
 # throwaway repository, so every case added costs about a third of a second. They run when this tree differs from main in the
 # script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
 # diff. They also hold scripts/deny-daily.sh and scripts/build.sh, which the same file tests. main is origin/main, or the
