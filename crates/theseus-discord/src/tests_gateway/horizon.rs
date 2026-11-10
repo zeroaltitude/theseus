@@ -11,7 +11,10 @@
 //! load-sensitive on their own, and none of them is that mechanism:
 //!
 //! 1. **The wait is bounded at 20 s**, `Rig::until` (`tests_gateway.rs`), five
-//!    times tighter than `tests_task_threads::until`'s 100 s. Every wait in
+//!    times tighter than the `until` of `tests_task_threads`, which is 100 s.
+//!    (Written that way round on purpose: the family's own scan reads the
+//!    path-qualified form as a membership claim, in a doc comment as much as
+//!    in code, so naming it here with `::` would enrol this file.) Every wait in
 //!    this file is one of those, and each gets its own 20 s from when it is
 //!    called, so a slow host spends them one at a time rather than
 //!    cumulatively.
