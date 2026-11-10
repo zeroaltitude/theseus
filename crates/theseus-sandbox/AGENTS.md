@@ -71,6 +71,15 @@ server in L1, M7 43a).
   re-execs itself as the init and the probe. `clause_09_root_is_refused` is the one case to run as root (`sudo
   <binary> --exact clause_09_root_is_refused`); as root every other case fails, since every job is refused.
   `tests/bench.rs`: 100 spawns, p50 and p95, against 25 ms.
+- `tests/contract.rs`'s clause-6 probes have one idiom: a group of them is a `fn name(put: &mut impl FnMut(&str,
+  Value))` that carries its own insertions, one helper per rule the filter has — `socket_families` and `clone_flags`
+  for its two argument rules, `syslog_read_all` for the ring buffer's call — and `probe::seccomp` calls each in one
+  line. A new probe of a kind already covered is a row in that helper and no line in `seccomp`; a new KIND is a new
+  helper of the same shape. Chosen on 2026-11-10 (theseus-3i6d1) over one `-> Vec<(&'static str, Value)>` returning
+  both argument rules' probes together: a probe is an effect in either shape (`clone_with` forks and waits,
+  `socket_of` opens and closes), so the value shape buys no purity to test, and the filter keeps its two argument
+  rules apart — `To::CloneFlags` and `To::SocketFamily` in `src/seccomp.rs`, with one unit test each — so the probes
+  that prove them stay apart too.
 - 17b's daemon tests (`crates/theseusd/tests/sandbox.rs`) run real L1 jobs through the whole daemon, and 18c's
   run them through a real proxy to a stand-in host (`THESEUS_TEST_EGRESS_DNS`, which only a debug build reads).
 - `tests/bench.rs`'s `connect_first_byte_200` (18c): a `CONNECT`'s first byte through the proxy against a direct

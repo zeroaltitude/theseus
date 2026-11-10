@@ -192,6 +192,31 @@ pub struct Counted {
     /// does not bill as tokens).
     pub first_request_bytes: u64,
     pub first_request_bytes_bench: u64,
+    /// The same request's **session's own context** for each place: its total
+    /// less the universal prefix, the tool definitions and the first system
+    /// block (the header), which every place class carries identically.
+    /// Recorded, never judged (theseus-4vsrz, B7).
+    ///
+    /// This is the quantity `[routing] cold_switch_tokens` bounds -- its own
+    /// doc says "the session's own context, not the request's size" -- and
+    /// until 2026-11-08 one assertion in `tests_route_cliff` watched an
+    /// ordinary turn against it. It went on the owner's word, rightly: it was
+    /// a size assertion on a figure that grows with every tool we add, and it
+    /// was a residual between two independent estimates rather than a
+    /// measurement. **Nothing then watched the figure at all**, so it is
+    /// recorded here, in the census this bench already takes, rather than in a
+    /// parallel instrument. Both terms come from the one census, so the
+    /// catalog cancels exactly instead of leaking into the figure.
+    ///
+    /// It is **not** judged and must not be: `scripts/shape.sh` owns the hard
+    /// ceilings, `first_request::budget` already holds the totals above, and a
+    /// second ceiling on an uncalibrated share would redden a departure for
+    /// drift that is legally inside its limit. What it is for is the
+    /// regression: a fresh request carries no message, so this read 0-29
+    /// tokens on 2026-11-10, and the prefix being counted back into the
+    /// bound's quantity -- the 2026-11-07 cliff -- would take it to about
+    /// 7,600 in one step, in a line a reader already reads every gate.
+    pub first_request_own: std::collections::BTreeMap<String, u64>,
     /// The free stream: the deltas the client got, of `chunks`.
     pub deltas_seen: usize,
     /// The lockstep stream: the chunks the client saw alone, of `chunks`.
@@ -241,6 +266,9 @@ impl Counted {
     }
 
     pub fn lines(&self) -> Vec<String> {
+        // The bound the own context is read against: the config default, which
+        // is what the scratch daemon the census ran on was started with.
+        let cold = theseus_core::config::RoutingConfig::default().cold_switch_tokens;
         let delta = self.delta_ms.map_or_else(
             || "not read".to_string(),
             |s| {
@@ -269,6 +297,22 @@ impl Counted {
                     .join(", "),
                 self.first_request_bytes as f64 / 1024.0,
                 self.first_request_bytes_bench as f64 / 1024.0
+            ),
+            format!(
+                "  the same request's session's own context, its total less the tools and the header block, \
+                 against [routing] cold_switch_tokens of {cold}: {} (recorded, not judged: the figure the \
+                 tests_route_cliff size assertion watched until it was deleted on 2026-11-08, and that \
+                 nothing watched after it -- theseus-4vsrz. A fresh request carries no message, so this is \
+                 that turn's floor; a jump to the thousands is the universal prefix being counted back into \
+                 the bound's quantity, which is what the 2026-11-07 cliff was)",
+                self.first_request_own
+                    .iter()
+                    .map(|(place, n)| {
+                        let share = (cold > 0).then(|| format!(" {:.1}%", *n as f64 * 100.0 / cold as f64));
+                        format!("{place} {n}{}", share.unwrap_or_default())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             format!(
                 "  deltas: {} of {} chunks reached the client; in lockstep {} of {} alone; a delta's way {delta}",
@@ -352,11 +396,20 @@ fn counted_turn(
 /// a model). A scratch daemon of its own (its config only the stand-in, a
 /// key from the environment, and its paths), one turn, the census, then its
 /// clean stop.
+/// What a scratch daemon of the DEFAULT config says of a fresh session's
+/// first request: its bytes as the stand-in logged them, and per place its
+/// total in tokens and the session's own context within it (theseus-4vsrz).
+struct FirstRequest {
+    bytes: u64,
+    tokens: std::collections::BTreeMap<String, u64>,
+    own: std::collections::BTreeMap<String, u64>,
+}
+
 fn default_first_request(
     theseusd: &Path,
     base: &str,
     model_entries: &impl Fn(usize) -> Vec<Entry>,
-) -> Result<(u64, std::collections::BTreeMap<String, u64>)> {
+) -> Result<FirstRequest> {
     const OPENING: &str = "the default tools' first request";
     let dir = tempfile::tempdir()?;
     let (state, sock, projects) = (
@@ -419,14 +472,21 @@ fn default_first_request(
             .map(|e| e.req_bytes)
             .context("the stand-in logged no request from the daemon of the default config")?;
         let mut tokens = std::collections::BTreeMap::new();
+        let mut own = std::collections::BTreeMap::new();
         for place in PLACES {
             let census = call_on(&sock, "context.census", json!({"place": place}), |_| {})?;
             let total = census["total_tokens"]
                 .as_u64()
                 .with_context(|| format!("the census of the {place} place has no total"))?;
             tokens.insert(place.to_string(), total);
+            // The universal prefix as the router counts it: every tool
+            // definition, and the FIRST system block, which is the header
+            // (the blocks after it are what the session carries).
+            let prefix = census["tools_tokens"].as_u64().unwrap_or(0)
+                + census["system"][0]["tokens"].as_u64().unwrap_or(0);
+            own.insert(place.to_string(), total.saturating_sub(prefix));
         }
-        Ok((bytes, tokens))
+        Ok(FirstRequest { bytes, tokens, own })
     })();
     let stop = UnixStream::connect(&sock).and_then(|s| {
         let req =
@@ -466,8 +526,7 @@ pub fn run(
     model_entries: impl Fn(usize) -> Vec<Entry>,
 ) -> Result<Counted> {
     let chunks = Pace::default().chunks;
-    let (first_request_bytes, first_request_tokens) =
-        default_first_request(&d.rig.theseusd, base, &model_entries)?;
+    let first = default_first_request(&d.rig.theseusd, base, &model_entries)?;
     let fresh = d.open_session("bench counted")?;
     let before = model_entries(0).len();
     counted_turn(d, counter, &fresh, false, 0)?;
@@ -498,9 +557,10 @@ pub fn run(
         chunks,
         syncs_before_request: before_req,
         syncs_before_first_byte: before_byte,
-        first_request_tokens,
-        first_request_bytes,
+        first_request_tokens: first.tokens,
+        first_request_bytes: first.bytes,
         first_request_bytes_bench,
+        first_request_own: first.own,
         deltas_seen,
         deltas_alone: a.alone,
         delta_ms: Summary::of(&delta_ms),
@@ -548,6 +608,29 @@ mod tests {
             assert!(verdict(&counted(&[(place, budget)]), place).ok);
             assert!(!verdict(&counted(&[(place, budget + 1)]), place).ok);
         }
+    }
+
+    /// The cliff's figure is recorded and NEVER judged (theseus-4vsrz, B7): it reaches the lines with its
+    /// share of `cold_switch_tokens`, and it adds no verdict -- `scripts/shape.sh` owns the hard ceilings, and
+    /// a second one on an uncalibrated share would redden a departure for drift inside its limit.
+    #[test]
+    fn the_own_context_is_a_line_with_its_share_and_never_a_verdict() {
+        let c = Counted {
+            first_request_own: [("cli".to_string(), 29), ("dm".to_string(), 7_600)]
+                .into_iter()
+                .collect(),
+            ..counted(&[("cli", 7_000)])
+        };
+        let said = c.lines().join("\n");
+        assert!(said.contains("cold_switch_tokens of 30000"), "{said}");
+        assert!(said.contains("cli 29 0.1%"), "{said}");
+        assert!(said.contains("dm 7600 25.3%"), "{said}");
+        assert!(said.contains("not judged"), "{said}");
+        assert!(
+            c.verdicts().iter().all(|v| !v.phase.contains("own")),
+            "{:?}",
+            c.verdicts()
+        );
     }
 
     /// The byte line is gone: a request big in bytes (deferred tools' definitions) is judged on its tokens.
