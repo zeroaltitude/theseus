@@ -947,7 +947,15 @@ line_pressure() {
     echo "gate: $line_pressure_said"
     return 0
   fi
-  printf '%s\n' "$out" | head -n "$line_pressure_show"
+  # `sed -n 1,Np`, never `head -n N`: this output is longer than the cap BY DESIGN, and `head` closes the pipe the
+  # moment it has its N lines, so `printf` takes EPIPE, the pipeline fails under `pipefail`, and `set -e` aborts this
+  # function before its own `return 0` below — failing a gate that this phase is never meant to decide (the 13:30
+  # departure of 2026-11-10: `printf: write error: Broken pipe`, then `gate: FAILED in line pressure`). Whether
+  # `printf` is signalled at all depends on whether it finishes writing before `head` exits, so it is host- and
+  # size-dependent: 11 KB fits a Linux pipe's 64 KiB buffer and so never failed on the x86 fleet, and it did fail on
+  # the ARM host. `sed` reads its input to EOF, so the writer is never signalled and there is nothing to suppress.
+  # Same hazard as the `git cat-file … | grep -q` note above.
+  printf '%s\n' "$out" | sed -n "1,${line_pressure_show}p"
   local listed
   listed=$(printf '%s\n' "$out" | grep -c '/[0-9]* *\(OVER\)\?$' || true)
   if [ "$listed" -gt "$line_pressure_show" ]; then
@@ -1308,6 +1316,13 @@ phase "test build" test_build
 # lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
 # TOML parse). test_gate_order.py holds this order.
 phase "recall tests" scripts/recall-tests.sh
+# The prompt census, for the record (theseus-4vsrz, B7): a fresh session's first request per place, the session's
+# own context within it, and that context's share of `[routing] cold_switch_tokens` -- the quantity the cliff
+# assertion deleted on 2026-11-08 used to watch, which nothing watched after it went. AFTER the test build, like
+# the recall tests: it runs the debug theseusd and theseus-sim and says it skipped when either is missing. It
+# NEVER fails the gate: a printed warning and a committed baseline, never a ceiling (scripts/prompt-step.sh's own
+# doc says why, and scripts/shape.sh owns the hard ones).
+phase prompt scripts/prompt-step.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi

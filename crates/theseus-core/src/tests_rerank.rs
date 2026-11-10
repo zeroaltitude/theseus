@@ -520,9 +520,49 @@ async fn a_slow_or_failing_jev_changes_no_turn() {
     }
 }
 
+/// `frames_appended` once the store is at rest: no judgment queued, and the
+/// counter still across a look.
+///
+/// **Why a turn's frames are measured from rest and not from now**
+/// (theseus-4vsrz, B7). `frames_appended` is the WHOLE STORE's counter, so a
+/// difference across a turn charges that turn with every frame any writer
+/// appended meanwhile. The judge's sink is such a writer, and on a busy
+/// daemon it stops waiting for a gap between turns: once a pass has lasted
+/// its quiet bound, `judge::sink::run`'s `since` lets its frame go **beside a
+/// running turn** (theseus-s1am). A pass already in flight when the window
+/// opens therefore lands inside the measurement, and that is how this test
+/// read 5 where it writes 4. Waiting for rest removes the foreign frame
+/// rather than making room for it: the bound stays 4.
+///
+/// Bounded, and loud if rest never comes: a store that keeps writing is a
+/// finding, not something to wait out.
+async fn frames_at_rest(c: &Core) -> u64 {
+    let t0 = Instant::now();
+    loop {
+        let at = c.store.stats().unwrap().frames_appended;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if c.runner.judge.unwritten() == 0 && c.store.stats().unwrap().frames_appended == at {
+            return at;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "the store never went quiet: {at} frames, {} judgments queued",
+            c.runner.judge.unwritten()
+        );
+    }
+}
+
 /// A reranked turn writes the frames it writes with the judge off: the
 /// rerank's reservation draws on a block written before, and its row rides
 /// in the sink's own frame, after the turn.
+///
+/// **It sits exactly on its bound, in both arms** (measured 2026-11-10,
+/// theseus-4vsrz: 6 runs, 12 arms, `frames` was 4 every time and never 5).
+/// `frames <= 4` therefore has no margin at all, and a fifth frame in the
+/// turn's own path -- a new record written per turn, a frame split -- reds it
+/// legitimately. That is the bound doing its job and is not to be widened;
+/// what [`frames_at_rest`] removes is the other thing that produced a 5,
+/// a neighbouring writer's frame landing inside the window.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reranked_turn_keeps_its_frame_budget() {
     let mut counts = Vec::new();
@@ -551,11 +591,16 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
             jev.set_mode(FakeMode::Slow(Duration::from_secs(10)));
             c.runner.judge.set_rerank_deadline(Duration::from_secs(5));
         }
-        let before = c.store.stats().unwrap().frames_appended;
+        let before = frames_at_rest(c).await;
         let res = turn(c, &here, "Where does the grey heron nest?").await;
         let frames = c.store.stats().unwrap().frames_appended - before;
         assert_eq!(res.loops, 1);
-        assert!(frames <= 4, "judged {judged}: a plain turn wrote {frames}");
+        assert!(
+            frames <= 4,
+            "judged {judged}: a plain turn wrote {frames} frames from a store at rest \
+             ({} judgments queued now)",
+            c.runner.judge.unwritten()
+        );
         counts.push(frames);
     }
     assert_eq!(counts[0], counts[1], "the rerank changed the turn's frames");
