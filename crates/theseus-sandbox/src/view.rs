@@ -331,17 +331,55 @@ fn proc(atime: libc::c_ulong) -> Result<(), Failure> {
     for name in PROC_MASKED {
         mask(&Path::new("/proc").join(name)).stage(format!("masking /proc/{name}"))?;
     }
+    // The dispositions are the skip's only witness, and nothing the init
+    // itself needs: see `proc_readonly`.
+    proc_readonly(Path::new("/proc")).map(drop)
+}
+
+/// What `proc_readonly` left at one of `PROC_READONLY`'s names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcRo {
+    /// Bound onto itself and made read-only.
+    Bound,
+    /// Nothing is behind the name in this procfs: nothing to bind, and
+    /// nothing to fail the job over.
+    Absent,
+}
+
+/// Each of `PROC_READONLY`'s names under `root`, made a read-only mount of
+/// its own, and what that left at each.
+///
+/// The resolution is the same one the bind will do, and the same three errors
+/// are skipped (theseus-txh9w): these binds are the only thing making
+/// `/proc/sys` and `/proc/sysrq-trigger` read-only, since `/proc` is not
+/// mounted `MS_RDONLY` and the root's attributes are not recursive, so an
+/// error swallowed here would quietly leave them writable.
+///
+/// **`root` is a parameter, and the dispositions come back, for one reason**
+/// (theseus-3i6d1, P7). `Absent` is the whole of what the resolution step is
+/// for, and on an ordinary procfs it is never reached: all five names are
+/// real entries there, so a binding that resolves first and a binding that
+/// does not are indistinguishable, and deleting the resolution went unnoticed
+/// by every clause of the live contract. A real procfs *can* lack all five —
+/// `mount -t proc -o subset=pid` hides every non-pid entry (Linux 5.8) — so
+/// the arm is reachable, and the test below reaches it by passing such a
+/// procfs as `root`.
+///
+/// **This is a parameter, not a hook.** The one caller passes `/proc`; no
+/// operator, config file or environment variable can reach this choice, and a
+/// `/proc` root or a name list that one could reach would be a bypass of the
+/// read-only binds rather than a test of them. Returning the dispositions is
+/// the other half: a bare `continue` leaves no trace of itself anywhere, which
+/// is exactly what "has no live guard" named.
+fn proc_readonly(root: &Path) -> Result<Vec<(&'static str, ProcRo)>, Failure> {
+    let mut done = Vec::with_capacity(PROC_READONLY.len());
     for name in PROC_READONLY {
-        // The same resolution the bind below will do, and the same three
-        // errors skipped (theseus-txh9w): these binds are the only thing
-        // making /proc/sys and /proc/sysrq-trigger read-only, since /proc is
-        // not mounted MS_RDONLY and the root's attributes are not recursive,
-        // so an error swallowed here would quietly leave them writable.
-        let p = Path::new("/proc").join(name);
+        let p = root.join(name);
         if resolved(&p)
-            .stage(format!("reading /proc/{name}"))?
+            .stage(format!("reading {}", p.display()))?
             .is_none()
         {
+            done.push((name, ProcRo::Absent));
             continue;
         }
         let t = c(&p).stage("a /proc path")?;
@@ -353,9 +391,10 @@ fn proc(atime: libc::c_ulong) -> Result<(), Failure> {
                     MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV | MOUNT_ATTR_NOEXEC,
                 )
             })
-            .stage(format!("making /proc/{name} read-only"))?;
+            .stage(format!("making {} read-only", p.display()))?;
+        done.push((name, ProcRo::Bound));
     }
-    Ok(())
+    Ok(done)
 }
 
 /// A fresh sysfs, read-only, for the job's own network namespace. False if
@@ -535,6 +574,8 @@ fn atime_flags(path: &str) -> libc::c_ulong {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CStr;
+
     use super::*;
 
     #[test]
@@ -627,5 +668,173 @@ mod tests {
     #[test]
     fn a_host_path_is_found_under_the_old_root() {
         assert_eq!(host(Path::new("/usr/bin")), Path::new("/.oldroot/usr/bin"));
+    }
+
+    /// How many of `done` ended each way, as one line: a count, so that an
+    /// empty answer cannot read as a pass.
+    fn tally(what: &str, done: &[(&str, ProcRo)]) -> String {
+        let n = |d: ProcRo| done.iter().filter(|(_, x)| *x == d).count();
+        format!(
+            "{what}: {} bound, {} absent\n",
+            n(ProcRo::Bound),
+            n(ProcRo::Absent)
+        )
+    }
+
+    /// Runs `f` as root of a fresh user, mount and pid namespace and returns
+    /// what it wrote: `"ok\n<detail>"` or `"err\n<why>"`.
+    ///
+    /// A procfs mount is refused unless the mounter is *inside* the pid
+    /// namespace it describes (measured: `unshare --user --mount` alone gets
+    /// EPERM, `--user --mount --pid --fork` mounts), so this unshares, maps
+    /// the uid as `spawn::map` does, unshares the pid namespace and forks:
+    /// the grandchild is its pid 1 and does the mounting. `MS_REC |
+    /// MS_PRIVATE` on `/` first, as `build` does, so nothing mounted here
+    /// propagates back to the host. Both children leave by `_exit`, so no
+    /// destructor of the parent's runs twice — in particular not the
+    /// `TempDir`'s.
+    fn in_a_namespace(out: &Path, f: impl FnOnce() -> Result<String, String>) -> String {
+        let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+        match unsafe { libc::fork() } {
+            -1 => panic!("fork: {}", io::Error::last_os_error()),
+            0 => {
+                let at = |w: &'static str| move |e: io::Error| format!("{w}: {e}");
+                let run = || -> Result<String, String> {
+                    crate::sys::cvt(unsafe {
+                        libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNS)
+                    })
+                    .map_err(at("unsharing the user and mount namespaces"))?;
+                    fs::write("/proc/self/setgroups", "deny").map_err(at("denying setgroups"))?;
+                    fs::write("/proc/self/uid_map", format!("0 {uid} 1\n"))
+                        .map_err(at("the uid map"))?;
+                    fs::write("/proc/self/gid_map", format!("0 {gid} 1\n"))
+                        .map_err(at("the gid map"))?;
+                    sys::mount(None, c"/", None, libc::MS_REC | libc::MS_PRIVATE, None)
+                        .map_err(at("making the mounts private"))?;
+                    crate::sys::cvt(unsafe { libc::unshare(libc::CLONE_NEWPID) })
+                        .map_err(at("unsharing the pid namespace"))?;
+                    match unsafe { libc::fork() } {
+                        -1 => Err(format!("fork: {}", io::Error::last_os_error())),
+                        0 => {
+                            let said = f();
+                            let _ = fs::write(
+                                out,
+                                match &said {
+                                    Ok(s) => format!("ok\n{s}"),
+                                    Err(s) => format!("err\n{s}"),
+                                },
+                            );
+                            unsafe { libc::_exit(i32::from(said.is_err())) }
+                        }
+                        pid => {
+                            let mut status = 0;
+                            crate::sys::cvt(unsafe { libc::waitpid(pid, &mut status, 0) })
+                                .map_err(at("waiting for the namespace's pid 1"))?;
+                            Ok(String::new())
+                        }
+                    }
+                };
+                if let Err(why) = run() {
+                    let _ = fs::write(out, format!("err\n{why}"));
+                }
+                unsafe { libc::_exit(0) }
+            }
+            pid => {
+                let mut status = 0;
+                crate::sys::cvt(unsafe { libc::waitpid(pid, &mut status, 0) })
+                    .expect("waiting for the child");
+                fs::read_to_string(out).unwrap_or_else(|e| format!("err\nno answer: {e}"))
+            }
+        }
+    }
+
+    /// theseus-3i6d1, P7. `proc_readonly`'s resolution step has exactly one
+    /// job — leave a name nothing is behind alone, and start the job anyway —
+    /// and on an ordinary procfs it has nothing to do, which is why deleting
+    /// it was invisible to every clause of the live contract: with all five
+    /// names real entries, a binding that resolves first and one that does
+    /// not do the same five mounts.
+    ///
+    /// A real procfs *can* lack all five. `-o subset=pid` hides every non-pid
+    /// entry (Linux 5.8), so this drives the production function against two
+    /// real procfs mounts in one real user, mount and pid namespace — one
+    /// ordinary, one `subset=pid` — and pins both arms.
+    ///
+    /// **Delete the `is_none()` arm from `proc_readonly` and the `lean` half
+    /// goes red**, because the bind the arm skipped is the ENOENT this test's
+    /// last assertion names. That is the live guard this line asked for, and
+    /// the arm no ordinary procfs reaches.
+    #[test]
+    fn the_read_only_names_are_bound_when_real_and_skipped_when_a_procfs_lacks_them() {
+        let tmp = tempfile::tempdir().expect("a temp dir");
+        let dir = tmp.path().to_path_buf();
+        let out = dir.join("answer");
+        let answer = in_a_namespace(&out, || {
+            let mut said = String::new();
+            // A procfs the kernel will take: the host's own atime setting,
+            // or it refuses the mount as too revealing.
+            let atime = atime_flags("/proc");
+            let procfs = |at: &Path, opts: Option<&CStr>| -> Result<(), String> {
+                fs::create_dir_all(at).map_err(|e| format!("{}: {e}", at.display()))?;
+                sys::mount(
+                    Some(c"proc"),
+                    &c(at).map_err(|e| e.to_string())?,
+                    Some(c"proc"),
+                    atime,
+                    opts,
+                )
+                .map_err(|e| format!("mounting a procfs at {}: {e}", at.display()))
+            };
+            let (full, lean) = (dir.join("full"), dir.join("lean"));
+
+            // Arm 1, the one an ordinary procfs takes: all five names are
+            // real entries, so all five are bound read-only.
+            procfs(&full, None)?;
+            let bound = proc_readonly(&full).map_err(|f| f.to_string())?;
+            said += &tally("full", &bound);
+            let mountinfo =
+                fs::read_to_string("/proc/self/mountinfo").map_err(|e| e.to_string())?;
+            for (name, _) in &bound {
+                let at = full.join(name);
+                let ro = mountinfo.lines().any(|l| {
+                    let f: Vec<&str> = l.split_whitespace().collect();
+                    f.get(4).map(Path::new) == Some(at.as_path())
+                        && f.get(5).is_some_and(|o| o.split(',').any(|x| x == "ro"))
+                });
+                if !ro {
+                    return Err(format!("{} is no read-only mount of its own", at.display()));
+                }
+            }
+
+            // Arm 2, which the row and its review both took to be
+            // unreachable: a real procfs with none of the five. Every name
+            // resolves to nothing, every one is skipped, and the call
+            // succeeds — the job would start.
+            procfs(&lean, Some(c"subset=pid"))?;
+            let skipped = proc_readonly(&lean).map_err(|f| f.to_string())?;
+            said += &tally("lean", &skipped);
+
+            // And what a binding without the resolution dies of: the bind
+            // the skip avoided, attempted. This errno is the whole
+            // difference between the two bindings, and it ends the job at
+            // "making <name> read-only" before its command exists.
+            let first = lean.join(PROC_READONLY[0]);
+            let t = c(&first).map_err(|e| e.to_string())?;
+            let e = sys::mount(Some(&t), &t, None, libc::MS_BIND | libc::MS_REC, None)
+                .expect_err("a bind of a name nothing is behind");
+            said += &format!("unguarded bind: errno {}\n", e.raw_os_error().unwrap_or(0));
+            Ok(said)
+        });
+
+        let (how, detail) = answer.split_once('\n').unwrap_or(("", answer.as_str()));
+        assert_eq!(how, "ok", "{detail}");
+        // Counts, not "none of them went the wrong way": an empty answer
+        // must not read as a pass.
+        assert!(detail.contains("full: 5 bound, 0 absent\n"), "{detail}");
+        assert!(detail.contains("lean: 0 bound, 5 absent\n"), "{detail}");
+        assert!(
+            detail.contains(&format!("unguarded bind: errno {}\n", libc::ENOENT)),
+            "{detail}"
+        );
     }
 }
