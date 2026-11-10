@@ -22,6 +22,46 @@ use crate::secrets::{Secret, SecretBoard};
 
 pub const API_VERSION: &str = "2023-06-01";
 
+/// The prefix-drift canary (theseus-ig13o). With it the response carries
+/// `input_transformations`, naming each replayed thinking block the provider
+/// would not bind to the request it arrived in; `thinking_mismatch_allowed`
+/// means the block reached the model anyway, so the entry is a report and
+/// not a refusal. `fact::turn` counts those into the `provider.call` row.
+///
+/// It lives here and not beside the compiler's betas because it is the only
+/// one of ours that asks for nothing. `BETA_FALLBACKS` comes with a
+/// `fallbacks` field and `BETA_THINKING_UPDATES` with `display: "updates"`;
+/// each describes the request, so each belongs to it. This one changes
+/// nothing the model is sent -- it only asks the provider to say what it
+/// did -- so it is a property of the call, not of the request, and keeping
+/// it out of `ProviderRequest` is what lets a fallback's request stay equal
+/// to the one it repeats and a recorded request replay byte for byte.
+///
+/// The field that WOULD change behaviour, `thinking.block_binding`, is
+/// deliberately never sent: with the header alone a drifting block is
+/// reported and still handed to the model.
+pub const BETA_THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
+
+/// Anthropic's own API, the only endpoint that answers our betas. The
+/// compiler asks the same question of a provider's `api_base` when it
+/// decides the request's own betas (`turn.rs`, `first_party`); this is the
+/// one definition of it.
+pub fn is_first_party(api_base: &str) -> bool {
+    api_base.contains("api.anthropic.com")
+}
+
+/// The `anthropic-beta` header for a call: the request's own betas, plus the
+/// canary on every first-party thinking request -- a fallback's and a
+/// retry's included, since those replay the same blocks and are exactly
+/// where a drifting prefix would show.
+fn beta_header(api_base: &str, req: &ProviderRequest) -> Option<String> {
+    let mut betas: Vec<&str> = req.betas.iter().map(String::as_str).collect();
+    if is_first_party(api_base) && req.thinking.is_some() {
+        betas.push(BETA_THINKING_BINDING);
+    }
+    (!betas.is_empty()).then(|| betas.join(","))
+}
+
 // ------------------------------------------------------------------ request
 
 /// One provider call, as the compiler rendered it. Content blocks are JSON
@@ -985,8 +1025,8 @@ impl Anthropic {
             .header("x-api-key", key.expose())
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json");
-        if !req.betas.is_empty() {
-            post = post.header("anthropic-beta", req.betas.join(","));
+        if let Some(betas) = beta_header(&self.api_base, req) {
+            post = post.header("anthropic-beta", betas);
         }
         let send = post.body(body).send();
 
@@ -1810,6 +1850,48 @@ mod tests {
             Some("{\"path\": \"/x")
         );
         assert_eq!(thinking_of(&out.content), "Plan.");
+    }
+
+    /// The canary's header (theseus-ig13o): on every first-party thinking
+    /// call, beside whatever betas the request itself asked for, and off
+    /// everywhere it could not be read. It is NOT in `ProviderRequest`, so a
+    /// fallback's request still equals the one it repeats (`tests_fallback`)
+    /// and a recorded request still replays byte for byte (`own_bench`).
+    #[test]
+    fn the_binding_beta_rides_every_first_party_thinking_call() {
+        let anthropic = "https://api.anthropic.com";
+        let thinking = || {
+            let mut r = ProviderRequest::simple("claude-sonnet-5-5", 10, "hi");
+            r.thinking = Some(serde_json::json!({"type": "adaptive", "display": "summarized"}));
+            r
+        };
+
+        // Alone on a plain thinking call.
+        assert_eq!(
+            beta_header(anthropic, &thinking()).as_deref(),
+            Some(BETA_THINKING_BINDING)
+        );
+        // Beside the request's own, and after them.
+        let mut with_own = thinking();
+        with_own.betas = vec!["server-side-fallback-2026-07-01".into()];
+        assert_eq!(
+            beta_header(anthropic, &with_own).as_deref(),
+            Some("server-side-fallback-2026-07-01,thinking-binding-controls-2026-08-01")
+        );
+        // Not where the response would never carry the field.
+        assert_eq!(
+            beta_header("https://api.z.ai/api/anthropic", &thinking()),
+            None
+        );
+        // Not on a call with no thinking to bind, which still sends its own.
+        let mut no_thinking = ProviderRequest::simple("m", 10, "hi");
+        assert_eq!(beta_header(anthropic, &no_thinking), None);
+        no_thinking.betas = vec!["b1".into()];
+        assert_eq!(beta_header(anthropic, &no_thinking).as_deref(), Some("b1"));
+
+        // The request itself is untouched: the canary is the call's, not its.
+        assert!(thinking().betas.is_empty());
+        assert!(is_first_party(anthropic) && !is_first_party("http://127.0.0.1:1"));
     }
 
     #[test]
