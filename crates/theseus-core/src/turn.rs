@@ -84,7 +84,8 @@ mod digest_step;
 pub mod effort_step;
 pub mod end_note_step;
 mod end_step;
-mod env_tail;
+// For `env_tail::HEAD`, the block's opener, which `task_graph::view::is_head` reads.
+pub(crate) mod env_tail;
 mod fallback_step;
 mod families_step;
 mod fill_step;
