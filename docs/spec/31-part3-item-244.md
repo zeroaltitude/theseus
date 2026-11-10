@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 261 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched)) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 262 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched); recall sees a kept file’s text, read from the blob the node names) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -953,3 +953,73 @@ raised do not fire.
 paths that wait for approval, and the order's step 2 read both. Part I is rewritten to the gate as built; the earlier
 Part III Items that record the lists as they were (A3b's divergence table, Items 129, 171 and 204) stay as the record of
 what was true when each closed.
+
+### Item 262. Recall sees a kept file's text: the index reads the blob the node names, once per digest, capped, chunked and guarded (theseus-lv2u; filed by Item 149's review as one of theseus-c9l6's three follow-ups; 1.0.5's B4 bucket, the cloud row `lv2u-recall-file-blob` of 2026-11-07, joined at `f52e8016`, and its reading review's seven findings landed 2026-11-09)
+
+**Why.** Item 149 gave Theseus the files people hand it — a PDF read for the model, an Office document, a
+recording — and filed what it could not do: *"recall cannot see a kept file's text. The index tender reads node
+text from the WAL, and a file's text lives in a blob."* So a document could be read inside the turn it arrived in
+and was invisible the next morning: ask about last week's PDF in a new session and recall found the file's name and
+nothing of its words.
+
+**Where the text enters.** At index time, read from the blob the node names. A file a person attaches is kept whole
+in the store's blobs (`AttachmentContent::File`, store format 17) and what was *read* of it — a PDF's pages, a
+document's sections — is a blob of its own that the node names by digest; none of it is in the WAL. The tender is
+given the store's directory (`tender::Config::store_dir`) and the blobs sit in it beside the WAL
+(`theseus-index/src/files.rs`).
+
+**The other side was refused, and that is the design.** Writing the read text into the node at attach time would
+have cost nothing at index time, and was rejected: a node is a WAL frame that every recovery and every index
+rebuild reads whole, and the blobs exist precisely so that a 20 MB document does not go through it.
+
+**The cap, the chunking, and what a hit says.** `files::MAX_BYTES` is 256 KiB of read text per file — the default
+of `[tools] max_read_bytes`, which is what the harness itself already takes of one file for the model. Sections are
+taken in order until the cap, the last cut on a character boundary. **The drop is not implicit**: it is indexed as a
+chunk of its own (`FileText::cut`) saying how much is held and how to read the rest, so a hit at the end of a long
+document says it is the end of what the index holds. Each section is then chunked on its own (`chunk::MAX_TOKENS`,
+512), so no chunk spans two pages, and every chunk is headed `[<file> · <section>]` — that head is what a recall hit
+cites, so the hit names which file and which page the passage came from. `index.status` counts the files indexed,
+already held, cut at the cap, and unread.
+
+**Once per digest, and the two limits that follow.** The digest is counted across the whole index, not per session,
+so a file's one copy belongs to the node that carried it first. *Erasure*: erasing that node takes the text out even
+where a later node still carries the same file, and a rebuild does not put it back. *Provenance*: a hit on the
+file's text cites the first node's message, and so that node's session, even for an asker who attached the same
+bytes in a session of their own. The place rule bounds that reach without removing it — recall drops a hit whose
+node sits in a place the asker may not draw on (`Place::may_draw_on`: a shared place draws only on its own place's
+sessions, a private place on any), so across shared places the dedup shows as a miss and never as a citation, while
+inside one place, or from a private place, the cited session can still be one the asker was never in. Scoping the
+dedup per session would cite the asker's own node and store each attached file once per session; that cost is
+measured in the crate that would pay it (`theseus-index/AGENTS.md`: one capped file of varied prose is 132 chunks,
+411 KB of BM25 and 234 KB of vectors, about 645 KB a session-repeat, pinned by
+`tests_files::one_capped_file_costs_the_index_under_three_megabytes`). The decision stands: what the 645 KB buys is
+only a citation naming the asker's own session, for the text recall already returns whole.
+
+**The blob read carries core's two guards, restated.** The name comes verbatim from node JSON, and `Path::join`
+with an absolute component **discards its base**, so there is no containment in the join itself — only the fact that
+core happens to write a digest today. A node whose `AttachmentContent::File.text` is not a digest (a malformed
+frame, an imported one) reaches that path, and the path ends in recall rendering bytes into a model request. So
+`files::read_blob` checks the shape before the value is ever a path (`is_digest`: 64 lower-case hex digits), bounds
+the read (`MAX_BLOB`, 64 MiB, with `read_blob_within` so a test can prove the bound without a 64 MiB file), and
+requires the bytes to hash to the name — core's reader's two checks plus the bound. This crate does not depend on
+the core, so the digest shape is restated rather than imported.
+
+**The guard changes what happens to a corrupted blob, and `files_unread` is where it shows.** Before it, a blob
+whose bytes no longer hashed to its name was read and indexed as whatever it held; now `read_blob` returns `None`
+and the file is counted in `index.status`'s `files_unread`, which `theseus index status` renders as a warning line
+(`theseus/src/render/index.rs`). That is the correct behaviour and the same as core's, and it means **a store with
+on-disk damage can now report a non-zero `files_unread` where it reported 0 before. A non-zero count is the guard
+working, not a new fault**; the fault it names is older than the count.
+
+**The install's cost was measured before it was taken.** The step bumps `engine::SCHEMA_VERSION` to 2, so the first
+start after it rebuilds the whole index. `tests_files::bench_a_backfill_from_the_wals_start` walks the same path a
+rebuild takes — a fresh index, ingest from the WAL's start — over 3,000 nodes of about 400 bytes: **3,000 nodes in
+2.61 s, about 1,150 nodes/s** on a four-core VM with vectors off, one run, so BM25 and the entity ingest alone. The
+figure is in a comment on the test because nextest hides a passing test's stdout, and the only other record of it
+was a `CLOUD_REPORT.md` dropped at the merge.
+
+**Divergence.** M6 §2.2 planned the index over the WAL's nodes, and said nothing about a store blob: the tender's
+sources were the records it reads. This step adds a second source that is not in the WAL at all, reached through the
+store directory the tender is configured with, and it is the first place the index reads a file the WAL only names.
+Item 149's own text, which filed this as a limit of the files step, stays as the record of what was true when that
+step closed.
