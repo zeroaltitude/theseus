@@ -427,6 +427,7 @@ impl Tool for Read {
                     a.limit.unwrap_or(DEFAULT_READ_LINES),
                 );
                 if let Some(out) = crate::fs_window::read(&path, from, limit, ctx.max_read_bytes)? {
+                    crate::fs_stale::noted(ctx, &path);
                     return Ok((out, None));
                 }
             }
@@ -438,6 +439,11 @@ impl Tool for Read {
         }
         let bytes = read_regular(&path, cap, true)
             .map_err(|e| ToolFailure::new(e.say(&path, "fs_read")))?;
+        // The file's bytes are read: this session has been handed it, and
+        // notes the state it was in (theseus-w2cs sub-item 2). Everything
+        // after this is how they are rendered, and a read that failed before
+        // it notes nothing, so it brings no path under the guard.
+        crate::fs_stale::noted(ctx, &path);
         // An image the models read comes back as an image (theseus-9g2),
         // capped as an attached one is.
         if let Some(info) = image::sniff(&bytes) {
@@ -636,6 +642,7 @@ impl Tool for WriteFile {
         let before = fs::metadata(&path).ok().map(|m| m.len());
         let old = crate::change::old_text(&path);
         write_atomic(&path, a.content.as_bytes(), ctx.umask)?;
+        crate::fs_stale::wrote(ctx, &path);
         let name = crate::change::shown(&path, &ctx.cwd);
         let diff = (before.is_none() || old.is_some()).then(|| {
             let d = crate::change::file_diff(&name, old.as_deref(), &a.content);
@@ -730,6 +737,7 @@ impl Tool for Edit {
     fn run(&self, input: &Value, ctx: &ToolCtx) -> Result<ToolOutput, ToolFailure> {
         let a: EditArgs = parse(input).map_err(ToolFailure::new)?;
         let path = ctx.resolve(&a.path);
+        crate::fs_stale::fresh(ctx, &path)?;
         let before = read_regular_text(&path, "fs_edit")?;
         // `fs.read` shows a line without its `\r`, so a model quotes bare
         // `\n`. When the text as given is not in a file that has CRLF endings,
@@ -765,6 +773,7 @@ impl Tool for Edit {
             None => before.replacen(a.old_string.as_str(), &a.new_string, 1),
         };
         write_atomic(&path, after.as_bytes(), ctx.umask)?;
+        crate::fs_stale::wrote(ctx, &path);
         let name = path.display().to_string();
         let diff = unified(&before, &after, &name, &name, 3);
         let shown = crate::change::shown(&path, &ctx.cwd);
@@ -908,6 +917,7 @@ impl Tool for Patch {
                 .or(f.old.as_ref())
                 .ok_or_else(|| ToolFailure::new("a section has /dev/null on both sides"))?;
             let path = ctx.resolve(target);
+            crate::fs_stale::fresh(ctx, &path)?;
             let original = match &f.old {
                 None => String::new(),
                 Some(o) => read_regular_text(&ctx.resolve(o), "fs_patch")?,
@@ -962,7 +972,10 @@ impl Tool for Patch {
         let mut summary = Vec::new();
         for (path, content, stat) in &results {
             match content {
-                Some(c) => write_atomic(path, c.as_bytes(), ctx.umask)?,
+                Some(c) => {
+                    write_atomic(path, c.as_bytes(), ctx.umask)?;
+                    crate::fs_stale::wrote(ctx, path);
+                }
                 None => fs::remove_file(path)?,
             }
             summary.push(format!(
