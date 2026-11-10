@@ -547,9 +547,12 @@ async fn a_shared_place_gets_nothing_and_a_private_one_proposes() {
         "no extraction for a shared place"
     );
 
-    r.fake.script.lock().unwrap().push_back(answer(json!([
-        {"name": "Wren Halloway", "handles": [], "role_line": "", "evidence": ["L1"]}
-    ])));
+    r.fake.when_tool(
+        super::extract::TOOL,
+        answer(json!([
+            {"name": "Wren Halloway", "handles": [], "role_line": "", "evidence": ["L1"]}
+        ])),
+    );
     let private = session(&r.core, None);
     moorings(&r.core, &private, EVERY).await;
     let x = until_rows(&r.core.store, "people.extracted", 1).await;
@@ -575,22 +578,31 @@ async fn an_extraction_cut_at_its_cap_says_so_and_thinks_off() {
     script(&jev);
     jev.script("unlisted", Jev::Noul(0.9));
     let r = rig(Some(&jev), EVERY, people_on);
-    r.fake.script.lock().unwrap().push_back(Scripted::Blocks {
-        blocks: vec![json!({"type": "tool_use", "id": "t", "name": "propose_people", "input": {}})],
-        stop_reason: "max_tokens".into(),
-    });
+    r.fake.when_tool(
+        super::extract::TOOL,
+        Scripted::Blocks {
+            blocks: vec![
+                json!({"type": "tool_use", "id": "t", "name": "propose_people", "input": {}}),
+            ],
+            stop_reason: "max_tokens".into(),
+        },
+    );
     let private = session(&r.core, None);
-    // The cut answer is the last of a queue every call pops from, so this
-    // test holds only while the extraction's call is the EVERY+1st. The
-    // extraction runs OFF the turn's path (`live.rs`: the exchange end
+    // This test used to script the cut answer onto the queue every call pops
+    // from, so it held only while the extraction's call was the EVERY+1st.
+    // The extraction runs OFF the turn's path (`live.rs`: the exchange end
     // spawns it), and on a starved host the decision spawned at the turn
-    // BEFORE the due point is not served until the due turn's message is
-    // already written: it then reads EVERY human messages, is due, and its
-    // call overtakes that turn's. It pops a plain answer, the row says "the
+    // BEFORE the due point was not served until the due turn's message was
+    // already written: it then read EVERY human messages, was due, and its
+    // call overtook that turn's. It popped a plain answer, the row said "the
     // answer held no propose_people call" -- a right answer about the wrong
-    // reply -- and this test fails. Measured 6 of 40 that way on a starved
-    // CPU. Letting the earlier decisions settle before the due turn leaves
-    // one call in flight at a time.
+    // reply -- and the test failed. Measured 6 of 40 that way on a starved
+    // CPU, and a barrier (the earlier decisions settled before the due turn,
+    // so one call is in flight at a time) closed it. The answer is now also
+    // scripted by shape (`when_tool`): whichever call carries `propose_people`
+    // gets it, so no order of calls can hand it to a turn. The barrier stays:
+    // its assertion also pins that no extraction runs before the due point,
+    // which the shape rule does not.
     moorings(&r.core, &private, EVERY - 1).await;
     until_not_deciding(&r.core).await;
     assert_eq!(
@@ -638,10 +650,15 @@ async fn on_a_sonnet_profile_the_people_extraction_is_not_forced() {
         people_on(c);
         c.people.extract_profile = Some("sonnet".into());
     });
-    r.fake.script.lock().unwrap().push_back(Scripted::Blocks {
-        blocks: vec![json!({"type": "tool_use", "id": "t", "name": "propose_people", "input": {}})],
-        stop_reason: "tool_use".into(),
-    });
+    r.fake.when_tool(
+        super::extract::TOOL,
+        Scripted::Blocks {
+            blocks: vec![
+                json!({"type": "tool_use", "id": "t", "name": "propose_people", "input": {}}),
+            ],
+            stop_reason: "tool_use".into(),
+        },
+    );
     let private = session(&r.core, None);
     moorings(&r.core, &private, EVERY).await;
     until_rows(&r.core.store, "people.extracted", 1).await;
