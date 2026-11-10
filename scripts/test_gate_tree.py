@@ -96,6 +96,8 @@ exit 0
 NODE = "#!/bin/sh\necho v1.2.3\n"
 NPM = "#!/bin/sh\n[ \"$2\" != test ] || echo 'ℹ tests 1'\nexit 0\n"
 PASSES = "#!/bin/sh\nexit 0\n"
+# The same, for a phase the gate invokes through `python3` rather than as a program of its own.
+PASSES_PY = "import sys\n\nsys.exit(0)\n"
 
 # A stand-in for `df -Pk -- PATH`: the POSIX report for a filesystem with $STUB_DF_AVAIL_KB available (any text, to
 # be unreadable), the real df's when $STUB_DF_REAL is set, a failure when $STUB_DF_FAIL is. Like the real one it fails
@@ -134,6 +136,13 @@ COMMITTED = {
     "cockpit/src/protocol.gen/types.ts": "// generated\n",
     "crates/theseus-core/src/sandbox/self_build.rs": 'pub const NODE_PIN: &str = "1.2.3";\n',
     "scripts/shape.sh": PASSES,
+    # A stand-in, like shape.sh's and for the same reason: the `context ceiling` phase is a HARD one, so a
+    # real run here would need this throwaway tree to carry context_files.rs and project_context.rs just to
+    # declare a ceiling, and would redden the gate for the tree's own shape rather than for the gate's
+    # wiring. The script's own logic is covered by scripts/tests/test_context_ceiling.py (24 cases), which
+    # is where a ceiling bug should surface. Unlike line-pressure.py below, this phase CAN fail a gate, so
+    # the "real script, interesting exit 2" argument does not transfer.
+    "scripts/context-ceiling.py": PASSES_PY,
     "scripts/build.sh": PASSES,
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
