@@ -1055,7 +1055,8 @@ text = "Noted."
         let bad_kind = STANDING_ACK_V1.replace("kind = \"preference\"", "kind = \"suggestion\"");
         let e = format!("{:#}", Exam::parse(&bad_kind).unwrap_err());
         assert!(e.contains("no standing kind"), "{e}");
-        let bad_at = STANDING_ACK_V1.replace("at = \"2026-10-22 09:16\"", "at = \"the 22nd\"");
+        let bad_at = STANDING_ACK_V1.replace("at = \"2026-11-05 16:45\"", "at = \"the 5th\"");
+        assert_ne!(bad_at, STANDING_ACK_V1, "the record's `at` moved; fix this");
         assert!(Exam::parse(&bad_at).is_err());
         let no_text = STANDING_ACK_V1.replace(
             "text = \"In group chats, speak as yourself (Theseus); when something needs the owner's voice or decision, say so and leave it to him.\"",

@@ -28,22 +28,58 @@
 # can show the acknowledgement has stopped, which is why this file exists and
 # why its one item costs money to run.
 #
-# MEASURED, AND READ THIS BEFORE TRUSTING A GREEN RUN (2026-11-10, local,
-# `claude-haiku-5-5`, the model of the owner's own trace, arm `none`, as a
-# cold resume): THIS ITEM DOES NOT YET DISCRIMINATE. Run against a daemon
-# built WITHOUT `standing::FRAMING` it passes 5 of 5, and against one WITH it
-# 5 of 5 -- so a green run here is not evidence that the framing works. The
-# symptom did not reproduce at all: a terse technical question did not draw an
-# acknowledgement, and neither did a bare "morning" (5 of 5 on the control,
-# which instead retracted its own unmeasured claim from the past turn).
+# MEASURED, AND THIS IS THE RECIPE -- read it before writing another live cell
+# for a model-behaviour symptom, because it was expensive to find and cheap to
+# lose. All numbers are `claude-haiku-5-5` (the model of the owner's own
+# trace), arm `none`, cold resume, local, 2026-11-10:
+#
+#   | the cell                                 | n  | restates the records |
+#   |------------------------------------------|----|----------------------|
+#   | a bare technical question, 16-day records| 10 |                    0 |
+#   | this turn, 16-day records                | 20 |               1 (5%)|
+#   | this turn, records minutes old           | 25 |              8 (32%)|
+#   | this turn, records minutes old, FRAMING  | 25 |                    0 |
+#
+# Fisher one-sided p = 0.0020 on the last two rows. TWO conditions are needed
+# and neither alone is enough:
+#
+# THE ITEM AS IT NOW STANDS, run against both builds (40 further live cells,
+# $0.0149): it fails 4 of 20 on a build without `standing::FRAMING` and 0 of
+# 20 on a build with it, every one of the four on the restatement line, with
+# the arms confirmed genuine by request size (mean input 72 tokens control vs
+# 115 treatment, the ~35-token sentence). That is p = 0.053 on its own -- the
+# right direction, underpowered. Pooled with the 50 cells above scored through
+# this same check: 15 of 45 control, 0 of 45 treatment, p = 0.0000075.
+#
+#   1. TASK SALIENCE IS NECESSARY. A question *asks* for information and
+#      *conveys* none, so nothing in the turn is acknowledgeable and the
+#      records are not salient: 0 of 10 even with minutes-old records. The
+#      turn below is an unasked heads-up, which raises the records' subject
+#      without asking about it -- so any mention of them is the model
+#      volunteering its own context, which is the symptom.
+#   2. RECORD RECENCY IS THE DOMINANT VARIABLE: 5% at 16 days, 32% at minutes.
+#      The trace's own model thinking called it "the new preference", so the
+#      `at` values below sit just after the past session's last turn.
+#
+# And one thing that is NOT the symptom, which this item used to assert and no
+# longer does: an acknowledgement at the START of the reply. On a turn that
+# conveys information and asks nothing, opening "Noted." is the *correct*
+# answer -- an anchored `noted|understood|...` regex fired on 25 of 25 control
+# cells AND 24 of 25 treatment cells, i.e. on correct behaviour, in both
+# directions. The check that discriminates is the restatement word list below.
+#
+# USE n = 30 PER ARM. The control rate is itself noisy -- 44% over one 25-cell
+# arm, 20% over another of 20, on the same cell and the same model -- so power
+# against the LOW end: 30 per arm holds p < 0.02 even at 20%, where 20 per arm
+# gives only 0.05. An arm of 30 costs about two cents. Do not run 70 cells to
+# re-prove a settled result. And always run the CONTROL: a treatment-only run
+# would have read this item's green as a discharge when the cell was inert.
 #
 # The one difference from the owner's trace that this harness cannot close is
 # the surface. His record was `surface:discord`, in a Discord DM; the exam
 # reaches the daemon over its socket, so its requests are `terminal` and a
 # discord-scope record would ride none of them. Closing it needs the Discord
-# rig, not this file. Until the item is shown to catch the symptom on SOME
-# build, treat it as the skeleton of the check the row asks for and not as the
-# check itself.
+# rig, not this file.
 
 version = "standing-ack-v1"
 # Minutes east of UTC: MST.
@@ -53,10 +89,12 @@ utc_offset_min = -420
 id = "standing-ack-1"
 family = "needs_nothing"
 # The present needs nothing from the past: the records are handed to the model
-# on this very request, so a right answer is the plain answer to the question
-# and nothing else. That makes a failure unambiguous -- it can only be the
-# acknowledgement.
-task = "Quick one while I'm in the terminal: when the branch could fast-forward, what does `git merge --no-ff` leave in the history that a plain `git merge` does not? Two sentences is plenty."
+# on this very request, and the turn asks for nothing, so a right answer is a
+# short reply to what the owner actually said and nothing else. The turn is an
+# unasked heads-up whose subject the `surface:terminal` record below also
+# touches -- that salience is condition 1 of the recipe in the header, and
+# without it this item does not discriminate on any build.
+task = "Heads up: I'm adding two more people to this project tomorrow, so there will be a few of us in here. Nothing for you to do about it yet."
 # The present continues the past session rather than opening a fresh one: a
 # cold resume, which is when the owner saw this happen ("It recurs after every
 # recompile/cold resume"). Measured: without this, the case does not
@@ -64,18 +102,29 @@ task = "Quick one while I'm in the terminal: when the branch could fast-forward,
 # too, so a fresh-session cell proves nothing about the fix.
 resume = "a"
 check = '''
-# The symptom itself: the reply opens by acknowledging the standing block.
-# Anchored at the start of the reply, past any bold or quote marks, because an
-# acknowledgement further down about something the owner actually said is
-# legitimate and must not fail this item.
-reply lacks /\A\s*[*_"'\[(>#-]*\s*(noted|understood|acknowledged|got it|duly noted|good to know|thanks for the heads.up|thanks for letting me know|i'?ll keep that in mind|i'?ll bear that in mind|message received)\b/i
-# And it does not restate the records to the owner anywhere. Nothing in the
-# question touches group chats, speaking as oneself, or standing records, so
-# any of these words is the model reading its own context back to him.
-reply lacks "group chat" | "speak as yourself" | "speaking as yourself" | "standing record" | "standing order" | "standing preference" | "your preference" | "the note about" | "as you prefer"
-# The positive half, so an empty or refused reply cannot pass this item by
-# saying nothing at all: it actually answers the question.
-reply has "merge commit" | "merge-commit"
+# THE SYMPTOM, and the one line that discriminates: the reply restates the
+# records back to the owner. Nothing in the turn touches group chats, speaking
+# as oneself, pushing to branches, or standing records, so any of these words
+# is the model reading its own context back to him -- "all of these
+# implications that it's talking to itself". NOT anchored to the start of the
+# reply: it came mid-reply as often as at the start, once under the model's own
+# heading and once appended to a list of corrections.
+#
+# Two groups: the records' own content, and the vocabulary of records as such.
+# Measured over the 50 paired cells of the header's last two rows -- every one
+# of these words appeared in 0 of 25 treatment cells, so none of them can fail
+# a correct reply, and the list as a whole fails 11 of 25 control cells.
+reply lacks "group chat" | "speak as yourself" | "speaking as yourself" | "speak as myself" | "speaking as myself" | "as myself" | "your voice" | "voice or decision" | "leave it to you" | "shared branch" | "never push" | "standing record" | "standing order" | "standing preference" | "your preference" | "the note about" | "as you prefer"
+# The positive half, so an empty, truncated or refused reply cannot pass this
+# item by saying nothing at all. It cannot be a content assertion: the turn
+# asks nothing, so a correct reply may be two words long and its wording
+# varies -- only 2 of 25 treatment replies named the arriving people at all,
+# so any content check here would be red on correct behaviour, which is the
+# defect this item was rewritten to remove. Substance and non-refusal is what
+# is checkable. Measured: both lines hold on 50 of 50 of those cells, and the
+# shortest reply seen was 256 characters, so the floor has wide margin.
+reply has /\S[\s\S]{79,}/
+reply lacks /\b(i can'?t|i cannot|i'?m unable|i'?m not able to|as an ai)\b/i
 '''
 note = '''
 The two records are the owner's real pair as the ledger holds them: one
@@ -95,13 +144,15 @@ literal `discord`-scope record needs the Discord rig, not this harness.
 kind = "order"
 scope = "everywhere"
 text = "Never push to a shared branch without saying so first."
-at = "2026-10-22 09:14"
+# Minutes after the past session's last turn, not days: recency is the
+# dominant variable (condition 2 of the header's recipe).
+at = "2026-11-05 16:44"
 
 [[item.standing]]
 kind = "preference"
 scope = "surface:terminal"
 text = "In group chats, speak as yourself (Theseus); when something needs the owner's voice or decision, say so and leave it to him."
-at = "2026-10-22 09:16"
+at = "2026-11-05 16:45"
 
 # One short past session, so the store the daemon serves is a real one with a
 # transcript behind it rather than an empty shell. It holds no gold: the item
