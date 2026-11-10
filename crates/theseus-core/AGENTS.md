@@ -589,7 +589,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
   asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
   never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
-  (`capture::owner_alone`: no place, or an owner's DM) and never a task's. `judge_inbound` hands its judgment to
+  (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
+  outstanding card is open (`docs/design/abandon-said-in-words.md`). `judge_inbound` hands its judgment to
   `Core::capture_directive` once the batch settles, off the turn's path. The bands are the pack's own (`act` 0.80, `confirm`
   0.50): `capture::decide` (pure) keeps at the act band, asks from the confirm band, and below it only notes a correction
   (`standing.candidate`) to propose it when its words overlap one noted in the last week (`capture::words::same`); an order
