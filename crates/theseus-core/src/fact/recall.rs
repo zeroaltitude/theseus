@@ -70,6 +70,31 @@ impl Fact for RecallRan<'_> {
     }
 }
 
+/// A recall the request did not carry (theseus-ectzg, fpm2 F1): the compile
+/// withheld the turn's `Recall` node from a model of restricted origin, so
+/// the turn recalled nothing in front of its model. Its `recall.ran` row was
+/// queued before the compile knew, and says what was admitted; this row
+/// carries the same `recall_id` and how many notes were not carried, so a
+/// reader can tell "withheld" from "nothing matched".
+pub struct RecallWithheld<'a> {
+    pub recall_id: &'a str,
+    /// The `Recall` node that was never written.
+    pub node_id: &'a str,
+    /// The notes the pack admitted that the request did not carry.
+    pub admitted: u32,
+    /// The profile the request was bound for.
+    pub profile: &'a str,
+}
+
+impl Fact for RecallWithheld<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::RecallWithheld);
+
+    fn row(&self) -> Value {
+        json!({"recall_id": self.recall_id, "node_id": self.node_id, "admitted": self.admitted,
+               "profile": self.profile})
+    }
+}
+
 /// A session's arm, assigned once (30b; §2.9's canary): sticky, from a
 /// hash of the session and the experiment, so M5's ladder can take it over.
 pub struct ArmAssigned<'a> {
