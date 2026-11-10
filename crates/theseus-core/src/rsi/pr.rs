@@ -479,6 +479,7 @@ async fn attempt(
     a.verdict = run.verdict.name();
     a.gate = Some(run.clone());
     a.report = Some(write_report(core, place, tc, a, &commits).map_err(|e| format!("{e:#}"))?);
+    told(core, tc, a, &run);
     match run.verdict {
         Verdict::Keel => return keel(core, place, tc, a),
         Verdict::Red => return Ok(said(a, "The tree stays open for another attempt.")),
@@ -551,6 +552,120 @@ fn halted(a: &mut Attempt<'_>, before: &'static str, why: &str) -> Result<(Strin
         "Stopped before the {before}: {why}. The tree stays at {}.",
         a.tree.dir.display()
     ))
+}
+
+/// The phase the gate failed in, as its own last lines name it
+/// (`gate: FAILED in <phase>`); `None` where it named none, as a green gate
+/// does.
+pub(crate) fn failed_phase(tail: &str) -> Option<String> {
+    tail.lines()
+        .rev()
+        .find_map(|l| l.trim().strip_prefix("gate: FAILED in "))
+        .map(|p| p.trim().to_string())
+}
+
+/// Every surface the owner looks at hears how the build ended (theseus-1eemp).
+/// Until this, the loop pushed and posted only on green: 126 self reports since
+/// 2026-10-20, none of them green, and the only thing ever said of them was the
+/// backlog's line that work had started. Three places, none of them new:
+///
+/// - **the item's own thread**, where its task reports, at once: the verdict,
+///   the phase it failed in and the frozen report to read;
+/// - **the item's task record**, so the forum post that stands for this build
+///   carries the gate's verdict as evidence, and not only "its build's turn
+///   ended with no green branch" hours later, when the session ends
+///   (`rsi::pipeline::pipeline_ended`);
+/// - **the night's or the morning's note**, through the fold the starts
+///   already go through (`backlog::folded`), so the owner reads the end beside
+///   the start and no note goes out on its own account.
+///
+/// A failure in any one of them is logged, never raised: the gate's verdict
+/// stands whatever the telling did.
+fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
+    let task = crate::task_graph::get(&core.store, &a.i.item)
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %format!("{e:#}"), "self-pr: the item's task was not read");
+            None
+        });
+    let e = crate::rsi::backlog::Ended {
+        item: a.i.item.clone(),
+        title: task
+            .as_ref()
+            .map_or_else(|| a.i.item.clone(), |t| t.title.clone()),
+        verdict: run.verdict.name().to_string(),
+        phase: failed_phase(&run.tail),
+        report: a.report.clone(),
+    };
+    told_in_thread(core, tc, &e, run);
+    told_on_task(core, task, &e, run);
+    core.folded_add_ended(&e);
+}
+
+/// The item's thread: where its task reports (`Outbox::target`), so the words
+/// land under the post the owner already has open for this item. With no
+/// target - a build the CLI started outside any place - there is nothing to
+/// post to, and the note still carries it.
+fn told_in_thread(core: &Core, tc: &TurnCtx<'_>, e: &crate::rsi::backlog::Ended, run: &GateRun) {
+    let Some(target) = core.outbox.target(tc.session_id) else {
+        return;
+    };
+    let text = format!(
+        "{} (exit {}, {} s). {}",
+        e.line(),
+        run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
+        run.secs,
+        match run.verdict {
+            Verdict::Green => "It is pushed from here.",
+            Verdict::Keel => "It waits for the owner's word; nothing retries around it.",
+            Verdict::Red => "The tree stays open for another attempt.",
+        }
+    );
+    let kind = match run.verdict {
+        Verdict::Green => "self_build",
+        _ => "self_build_red",
+    };
+    let staged = (|| -> anyhow::Result<()> {
+        let body = json!({"kind": kind, "item": e.item, "verdict": e.verdict, "text": text});
+        let (post, frame) = core
+            .outbox
+            .stage(tc.session_id, tc.execution_id, &target, body)?;
+        core.store.append(&frame)?;
+        core.outbox.posted(&post);
+        Ok(())
+    })();
+    if let Err(err) = staged {
+        tracing::warn!(error = %format!("{err:#}"), "self-pr: the item's thread was not told");
+    }
+}
+
+/// The item's task record: the gate's verdict as evidence, at the moment it is
+/// known. The state is left alone - a red build's item is still in progress,
+/// and the pipeline closes it when its turn ends - so this adds the record the
+/// forum shows and takes nothing away.
+fn told_on_task(
+    core: &Core,
+    task: Option<theseus_protocol::tasks::TaskRecord>,
+    e: &crate::rsi::backlog::Ended,
+    run: &GateRun,
+) {
+    let Some(mut t) = task else {
+        return;
+    };
+    let now = theseus_protocol::now_unix_ms();
+    t.version += 1;
+    t.updated_at_ms = now;
+    t.evidence.push(theseus_protocol::tasks::TaskEvidence {
+        node: None,
+        identity: format!("gate:{}", e.verdict),
+        note: Some(format!("{} (exit {}, {} s)", e.line(),
+            run.exit.map_or_else(|| "none".into(), |c| c.to_string()), run.secs)),
+        by: "self-pr".into(),
+        at_ms: now,
+    });
+    let written = crate::task_graph::record(&t).and_then(|r| core.store.append(&[r]));
+    if let Err(err) = written {
+        tracing::warn!(error = %format!("{err:#}"), "self-pr: the item's task record was not written");
+    }
 }
 
 /// The keel card's words (theseus-x8b9k).

@@ -447,6 +447,153 @@ async fn a_keel_finding_stops_at_the_owners_card_and_is_never_retried() {
     assert_eq!(r.rows().len(), 1, "no attempt around it");
 }
 
+/// A red build on the three surfaces the owner looks at (theseus-1eemp). The
+/// loop pushed and posted on green alone, so the 126 self builds since
+/// 2026-10-20, none of them green, left the forum, the item's thread and the
+/// note with nothing but the backlog's line that work had started.
+mod told {
+    use super::*;
+    use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
+
+    /// Where this item's task reports: the thread the binding bound to it.
+    const THREAD: &str = "discord:channel:4242";
+
+    /// A rig whose item has a task of its own, bound to its thread, with the
+    /// owner's DM bound as a daemon that has a Discord has it.
+    fn rig_with_task() -> (Rig, String) {
+        let r = rig(SelfMode::Act, Some("origin"));
+        let sid = r.session("self");
+        let t = TaskRecord {
+            id: "trim-the-sails".into(),
+            version: 1,
+            title: "Trim the sails".into(),
+            state: TaskState::InProgress,
+            session: Some(sid.clone()),
+            origin: TaskOrigin {
+                session: "self:backlog".into(),
+                principal: "self".into(),
+                ..Default::default()
+            },
+            ..TaskRecord::default()
+        };
+        r.core
+            .store
+            .append(&[crate::task_graph::record(&t).unwrap()])
+            .unwrap();
+        r.core.outbox.task_bound(&sid, THREAD);
+        // A self item's thread is private, as the forum it lives in is; and
+        // the owner's DM is bound, as it is on a daemon that has a Discord.
+        for (target, name) in [(THREAD, "#self"), ("discord:dm:7", "DM")] {
+            r.core.runner.place_rule.bind_one(crate::places::BoundPlace {
+                target: target.into(),
+                name: name.into(),
+                private: true,
+                ..Default::default()
+            });
+        }
+        (r, sid)
+    }
+
+    fn thread_posts(r: &Rig, kind: &str) -> Vec<Value> {
+        r.core
+            .outbox
+            .open_for(THREAD)
+            .iter()
+            .filter(|a| crate::outbox::kind_of(a) == kind)
+            .map(|a| crate::outbox::body_of(a).clone())
+            .collect()
+    }
+
+    fn task_of(r: &Rig) -> TaskRecord {
+        crate::task_graph::get(&r.core.store, "trim-the-sails")
+            .unwrap()
+            .expect("the item's task")
+    }
+
+    /// Surface one: the item's own thread hears the verdict when the gate
+    /// ends, not when the session does, and it names the phase and the report.
+    #[tokio::test]
+    async fn a_red_gate_posts_the_verdict_to_the_items_thread() {
+        let (r, sid) = rig_with_task();
+        r.open_and_edit(&sid, "broken.txt").await;
+        let said = r.turn(&sid, WIRE, propose()).await;
+        assert!(said.contains("the gate is red"), "{said}");
+        let posts = thread_posts(&r, "self_build_red");
+        assert_eq!(posts.len(), 1, "one line in the item's thread: {posts:?}");
+        let text = posts[0]["text"].as_str().unwrap();
+        assert!(text.contains("ended red"), "{text}");
+        assert!(text.contains("in suite"), "the phase it failed in: {text}");
+        assert!(text.contains("self-20261"), "the frozen report: {text}");
+        assert_eq!(posts[0]["item"], "trim-the-sails");
+    }
+
+    /// Surface two: the task record the forum post stands on carries the
+    /// gate's verdict as evidence. Its state is the pipeline's to move, so a
+    /// red build's item is still in progress after this.
+    #[tokio::test]
+    async fn a_red_gate_is_evidence_on_the_items_task() {
+        let (r, sid) = rig_with_task();
+        r.open_and_edit(&sid, "broken.txt").await;
+        r.turn(&sid, WIRE, propose()).await;
+        let t = task_of(&r);
+        let e = t
+            .evidence
+            .iter()
+            .find(|e| e.identity == "gate:red")
+            .unwrap_or_else(|| panic!("no gate verdict on the task: {:?}", t.evidence));
+        let note = e.note.as_deref().unwrap_or("");
+        assert!(note.contains("ended red") && note.contains("in suite"), "{note}");
+        assert!(note.contains("exit 1"), "{note}");
+        assert_eq!(e.by, "self-pr");
+        assert_eq!(t.state, TaskState::InProgress, "the pipeline closes it");
+        assert_eq!(t.version, 2, "one change to it");
+    }
+
+    /// Surface three: the next note the owner reads - the night's or the
+    /// morning's - says how the build ended beside the line that said it
+    /// started, through the fold the starts already go through.
+    #[tokio::test]
+    async fn a_red_gate_is_in_the_next_note() {
+        let (r, sid) = rig_with_task();
+        r.open_and_edit(&sid, "broken.txt").await;
+        r.turn(&sid, WIRE, propose()).await;
+        let folded = r.core.folded_read();
+        assert_eq!(folded.ended.len(), 1, "{folded:?}");
+        let line = folded.lines().join("\n");
+        assert!(line.contains("ended red"), "the morning note's line: {line}");
+        assert!(line.contains("in suite"), "{line}");
+        let night = crate::rsi::backlog::Night {
+            ended: folded.as_ended(),
+            ..Default::default()
+        };
+        assert!(!night.said_nothing(), "an ending is worth a note");
+        let text = crate::rsi::backlog::start::night_text(&night, |id| {
+            crate::rsi::backlog::start::Item {
+                title: id.into(),
+                count: 0,
+                since_ms: 0,
+            }
+        });
+        assert!(text.contains("ended red in suite"), "the night's note: {text}");
+        assert!(text.contains("1 ended"), "its title counts it: {text}");
+    }
+
+    /// A green build says so on the same three surfaces: the owner reads one
+    /// vocabulary, and a quiet thread means no build ran.
+    #[tokio::test]
+    async fn a_green_gate_says_so_too() {
+        let (r, sid) = rig_with_task();
+        r.open_and_edit(&sid, "sails.txt").await;
+        let said = r.turn(&sid, WIRE, propose()).await;
+        assert!(said.contains("the gate is green"), "{said}");
+        let posts = thread_posts(&r, "self_build");
+        assert_eq!(posts.len(), 1, "{posts:?}");
+        assert!(posts[0]["text"].as_str().unwrap().contains("ended green"));
+        assert!(task_of(&r).evidence.iter().any(|e| e.identity == "gate:green"));
+        assert_eq!(r.core.folded_read().ended.len(), 1);
+    }
+}
+
 /// The daemon's own notice sink (theseus-ccik8's every-30-minutes may-build
 /// inform notice goes through it), not a test's stand-in: `Board::place`
 /// builds it from the attached core's outbox, so a notice sent through the
