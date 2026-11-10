@@ -28,6 +28,29 @@
   ceiling); exits 2 only when it scanned nothing. Counts as clippy does (body without braces, blank and comment-only lines
   free; a plain `async fn` counts 2 more than its body, as clippy reads it, unless it carries a `test` attribute; only the
   attribute block directly above a `fn` is read for an `allow`/`expect`); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
+  **The gate runs it, at margin 5, as the `line pressure` phase between `shape` and `clippy`** (the owner's
+  ruling, 2026-11-10; before that it existed and nothing ran it). It prints the 20 tightest and names the command
+  for the rest, and its count and margin are repeated under the phase table, so a 30-line `ec2.sh tail` still
+  carries them. **Its exit status never decides the gate's**: shape.sh holds the file ceiling and clippy the
+  function one, and a second threshold on the same quantity is one more thing a merge has to argue with. The
+  margin came from the distribution on `5e71c15a` (37,654 functions: margin 0 lists 17, 3 lists 93, 5 lists 142,
+  10 lists 260), 5 being the narrowest window that still covers two branches each adding three lines to a
+  function at 95, and the widest whose output reads as a list. **On 2026-11-10 seventeen functions were at exactly
+  100** — the row's older figure of thirty-two predates this week's test-move lands.
+- `tests/*`: the helpers' own unit tests, which the gate runs as the `script tests` phase beside the one above and
+  **also never fatally**. The argument for making them fatal — they are deterministic unit tests of a script's
+  correctness, not a threshold on the tree — is recorded in `gate.sh`'s own comment on that function, for the owner.
+- `env-fail-set.py`, `tests/test_env_fail_set.py` (theseus-4vsrz): the **4-core cloud routine VM's**
+  environmental-failure set, derived from the tree rather than counted by hand. **It is that VM and not a fleet
+  box**: a fleet gate is a `c7i.8xlarge` whose gate runs in a delegated `systemd --user` unit, and it comes back
+  with `clause_01` to `clause_12` green and `reds:` empty — anything written about this set must name its host, or
+  the next reader waves away a real red. Three places, three parsers (a `harness = false` binary's `const CASES`
+  with `const IGNORED` excluded; the same declared inline in `fn main()`; an ordinary `#[test]`/`#[tokio::test]`
+  file with `#[ignore]` excluded), which is the third reason the hand count drifted. `--markdown` prints the cloud
+  preamble's block ready to paste, `--names` the bare names, `--expect N` exits 1 when the tree no longer totals
+  N. **The count had been wrong in four successive briefs (4, then 35, then 40, then 36), and the tree totalled 40
+  on `5e71c15a`**: regenerate the block, never edit the number. **It is deliberately NOT a gate phase** — an
+  `--expect` there would fail a branch over a host's measured number that nobody has recalibrated.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
