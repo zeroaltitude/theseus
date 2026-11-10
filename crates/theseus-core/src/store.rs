@@ -154,6 +154,9 @@ pub struct Store {
     /// Whether a ledger page read fails (`fail_ledger_pages`).
     #[cfg(test)]
     page_fault: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether a scope read fails (`fail_scope_reads`).
+    #[cfg(test)]
+    scope_fault: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// One writer at a time per session record (theseus-xeo): the ids being
@@ -550,6 +553,8 @@ impl Store {
             plain_faults: Default::default(),
             #[cfg(test)]
             page_fault: Default::default(),
+            #[cfg(test)]
+            scope_fault: Default::default(),
         })
     }
 
@@ -589,6 +594,16 @@ impl Store {
     pub fn fail_ledger_pages(&self) {
         self.page_fault
             .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Make every scope read fail while `on`, as a bad disk would: the read
+    /// a ledger scope is walked by, and the one the ladder is read on
+    /// (`judge::ladder::Ladder::load`). Switched off again, the store reads
+    /// as before.
+    #[cfg(test)]
+    pub fn fail_scope_reads(&self, on: bool) {
+        self.scope_fault
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// A turn's session write, which rides in the turn's next frame
@@ -1162,6 +1177,10 @@ impl Store {
     /// Every record of a scope after the position `after`, oldest first: a
     /// session's, or the edges into a node (`in:<node>`, 12a).
     pub fn scope_after(&self, scope: &str, after: u64) -> Result<Vec<Record>> {
+        #[cfg(test)]
+        if self.scope_fault.load(std::sync::atomic::Ordering::Relaxed) {
+            anyhow::bail!("an injected fault: the scope was not read");
+        }
         self.inner.scan_scope(scope, after, usize::MAX)
     }
 
@@ -1396,6 +1415,7 @@ pub(crate) mod tests {
             faults: Default::default(),
             plain_faults: Default::default(),
             page_fault: Default::default(),
+            scope_fault: Default::default(),
         }
         .for_turn();
         small.put_meta("a", &1).unwrap();

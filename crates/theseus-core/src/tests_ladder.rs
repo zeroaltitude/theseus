@@ -1071,3 +1071,53 @@ async fn a_promotion_names_the_learned_version_standing_in_its_place() {
         .said;
     assert!(!s.contains("stands in"), "{s}");
 }
+
+/// A re-read that cannot read leaves the ladder as it stands, and never
+/// unread. `Ladder::reload` and `rules::recheck` dropped what was loaded
+/// before reading again, so one store read that failed took every pack back
+/// to its pre-read line -- `unread`, capped at shadow -- and left it there
+/// for the rest of the process. `Reason::Shadow` has exactly one producer in
+/// the tree (`turn::route_step::read_verdict`, reached only where
+/// `RouteState::live()` is false), and a route pack reading shadow is one of
+/// the two ways it is reached: every turn from then on would record `shadow`
+/// where it should record what the verdict wait said. The pre-read line is
+/// for before the warm read (theseus-289c), never after it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_re_read_that_fails_leaves_the_ladder_as_it_stands() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = core_at(dir.path(), None, |_| {});
+    let j = &c.runner.judge;
+    let l = j.ladder();
+    j.read_ladder();
+    assert!(l.is_loaded(), "the warm read");
+    let pack = crate::judge::inbound::ROUTE_PACK;
+    let live = |what: &str| {
+        assert_eq!(j.mode_for(pack, "ses_a").mode, PackMode::Live, "{what}");
+        assert!(l.is_loaded(), "{what}: loaded");
+    };
+    live("as the build wires it");
+    // A re-read that can read does go to the store: the control for the two
+    // failed ones below, so neither can pass by reading nothing.
+    let before = l.reads();
+    l.reload();
+    assert_eq!(l.reads(), before + 1, "a re-read reads the store");
+    live("after a re-read that read");
+    // The re-read own store read fails, as a bad disk would.
+    c.store.fail_scope_reads(true);
+    assert!(
+        c.store.scope_after(&ladder::scope(pack), 0).is_err(),
+        "the injected fault is in force"
+    );
+    l.reload();
+    c.store.fail_scope_reads(false);
+    live("after a re-read that could not read");
+    // The nightly check reads again the same way, and the same holds.
+    c.store.fail_scope_reads(true);
+    assert!(
+        c.store.scope_after(&ladder::scope(pack), 0).is_err(),
+        "the injected fault is in force"
+    );
+    l.recheck();
+    c.store.fail_scope_reads(false);
+    live("after a nightly check that could not read");
+}
