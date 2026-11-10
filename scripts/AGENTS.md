@@ -1,5 +1,10 @@
 # scripts
 
+**`wc -c` this file before you add to it: it is CUT at 64 KiB and nothing fails** (theseus-4vsrz).
+`context_files::MAX_BYTES` is `64 * 1024` and this is a `Level::Project` context file, so past that its tail
+silently stops reaching a session; no gate phase or test measures it. On 2026-11-10 it stood 1,130 bytes short.
+Put depth in the design docs.
+
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.
 - `size-step.sh`, `tree-stamp.sh` (theseus-2m7jg): the binary's size check. `build.sh` runs `theseus-sim bench size --check`
@@ -28,6 +33,29 @@
   ceiling); exits 2 only when it scanned nothing. Counts as clippy does (body without braces, blank and comment-only lines
   free; a plain `async fn` counts 2 more than its body, as clippy reads it, unless it carries a `test` attribute; only the
   attribute block directly above a `fn` is read for an `allow`/`expect`); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
+  **The gate runs it, at margin 5, as the `line pressure` phase between `shape` and `clippy`** (the owner's
+  ruling, 2026-11-10; before that it existed and nothing ran it). It prints the 20 tightest and names the command
+  for the rest, and its count and margin are repeated under the phase table, so a 30-line `ec2.sh tail` still
+  carries them. **Its exit status never decides the gate's**: shape.sh holds the file ceiling and clippy the
+  function one, and a second threshold on the same quantity is one more thing a merge has to argue with. The
+  margin came from the distribution on `5e71c15a` (37,654 functions: margin 0 lists 17, 3 lists 93, 5 lists 142,
+  10 lists 260), 5 being the narrowest window that still covers two branches each adding three lines to a
+  function at 95, and the widest whose output reads as a list. **On 2026-11-10 seventeen functions were at exactly
+  100** — the row's older figure of thirty-two predates this week's test-move lands.
+- `tests/*`: the helpers' own unit tests, which the gate runs as the `script tests` phase beside the one above and
+  **also never fatally**. The argument for making them fatal — they are deterministic unit tests of a script's
+  correctness, not a threshold on the tree — is recorded in `gate.sh`'s own comment on that function, for the owner.
+- `env-fail-set.py`, `tests/test_env_fail_set.py` (theseus-4vsrz): the **4-core cloud routine VM's**
+  environmental-failure set, derived from the tree rather than counted by hand. **It is that VM and not a fleet
+  box**: a fleet gate is a `c7i.8xlarge` whose gate runs in a delegated `systemd --user` unit, and it comes back
+  with `clause_01` to `clause_12` green and `reds:` empty — anything written about this set must name its host, or
+  the next reader waves away a real red. Three places, three parsers (a `harness = false` binary's `const CASES`
+  with `const IGNORED` excluded; the same declared inline in `fn main()`; an ordinary `#[test]`/`#[tokio::test]`
+  file with `#[ignore]` excluded), which is the third reason the hand count drifted. `--markdown` prints the cloud
+  preamble's block ready to paste, `--names` the bare names, `--expect N` exits 1 when the tree no longer totals
+  N. **The count had been wrong in four successive briefs (4, then 35, then 40, then 36), and the tree totalled 40
+  on `5e71c15a`**: regenerate the block, never edit the number. **It is deliberately NOT a gate phase** — an
+  `--expect` there would fail a branch over a host's measured number that nobody has recalibrated.
 - `invariant-pressure.py`, `tests/test_invariant_pressure.py` (theseus-4vsrz): every per-file numeric invariant and
   its headroom in one second, for a cut to run on the STAGED MERGE before the gate -- each `long-files.txt` entry and
   each unlisted Rust file within `--margin` lines of its limit (`path n/limit  N left`, or `OVER by N`), the functions
@@ -38,8 +66,9 @@
   **always exits 0 on a report** (2 only when it read nothing): a second gate on these numbers would be a second
   ceiling the next merge has to argue with, and `shape.sh` and clippy are the ones that hold them. Why these numbers
   are a property of the BATCH and not of the branch, with the inventory and the two shapes that are worse, is
-  `docs/design/invariant-merge-class.md`. The gate runs nothing under `scripts/tests/`: run its test by hand,
-  `python3 -m unittest -q scripts/tests/test_invariant_pressure.py`.
+  `docs/design/invariant-merge-class.md`. Its own unit test runs in the `script tests` phase with the rest of
+  `scripts/tests/` and never fatally (`tests/*` above); alone it is `python3 -m unittest -q
+  scripts/tests/test_invariant_pressure.py`.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
@@ -266,6 +295,18 @@ there, the timing budgets get an overage allowance.
   one-sample stalls over twice a limit (one fsync waiting on a neighbour), which no allowance should cover: the rerun
   does. Strictly, 9 of those 22 runs missed a phase, against 4 of the 68 runs on a quiet machine (a load under 8),
   which the rerun covers, as before.
+- **A RUST TEST CANNOT REACH IT, so it is never the fix for a timing test in a crate** (theseus-4vsrz
+  test-hygiene F3, 2026-11-10). `THESEUS_GATE_BENCH_ALLOWANCE` is read in exactly one place — `gate.sh:67`, into a
+  shell variable the gate passes to `theseus-sim bench` as `--allowance` — and it appears in **no `.rs` file in
+  the workspace**: `grep -rn THESEUS_GATE_BENCH_ALLOWANCE --include=*.rs crates/` returns nothing. So it covers the
+  lifecycle and jobs benches and nothing else, and a `#[test]` or `#[tokio::test]` asserting on a duration has no
+  path to it at all. **Two checklist lines on `theseus-4vsrz` prescribed it as "the right fix" for exactly that,
+  and both were written around a mechanism that does not exist.** Nothing was broken by the mistake — one of those
+  lines needed no fix and the other used a retry — but a reader who believes the prescription will spend an
+  afternoon looking for a knob. The remedies that do exist for a wall-clock bound inside a crate's tests are: a
+  retry, `tokio::time::pause` where the clock is the subject, a bound wide enough to hold on a loaded machine with
+  a comment saying what it was measured at, or moving the assertion into a bench the gate already times. Never a
+  loosened bound without a reason, and never `#[ignore]`.
 - **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 2 minutes (…); measuring
   anyway, with the busy allowance: +65% over a timing budget's limit`). A phase it carries prints the bench's own
   `MISSED`, the strict verdict, and then `lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms,
@@ -291,8 +332,14 @@ and for a quiet machine, can each add minutes, so give the gate's command a time
   Never take it with `exec N>lock; flock N` in a shell that starts anything long-lived.
 - **A lane's gate runs niced**, with its own `CARGO_TARGET_DIR`, and `CARGO_BUILD_JOBS=4` and
   `NEXTEST_TEST_THREADS=4` exported (one or the other, never also nextest's `--test-threads`, which it then refuses
-  as given twice): `THESEUS_GATE_NO_BENCH=1 nice -n 19 ionice -c3 scripts/gate.sh`, with no `flock`. The bench runs `target/debug/theseus-sim` by a relative path, so a worktree needs a `target` symlink to its
-  target dir.
+  as given twice): `THESEUS_GATE_NO_BENCH=1 nice -n 19 ionice -c3 scripts/gate.sh`, with no `flock`. The gate
+  resolves where cargo builds itself (`resolve_target_dir`, on first use: `CARGO_TARGET_DIR`, else `cargo
+  metadata`'s `target_directory`, else `$PWD/target`), so the benches and the bench-binary check find the
+  binaries wherever the target dir is, and a worktree needs no `target` symlink for them. Until theseus-1eemp
+  they read `target/debug` by a relative path, which is why every self build - whose tree builds into
+  `<state>/self/target/<item>`, outside the checkout - failed `test build` before its tests ran.
+  `scripts/gate.sh --bench-bins <cargo message file>` runs that check alone over a planted layout, and is
+  what `bench/recall/test_bench_bins.py` drives; it builds nothing and takes no lock.
 - **A lane's gate skips the bench** (`THESEUS_GATE_NO_BENCH=1`). The bench's settle step waits for a quiet machine
   while holding the shared lock, so every other agent's gate queued behind it; the join's gate on `main` benches
   instead. A lane whose work touches the start path runs `target/debug/theseus-sim bench lifecycle --runs 10
@@ -367,6 +414,21 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
 - **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
   came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
   (`wait_for(`, `.until(`) keeps its check.
+- **A pairing found only by similarity, landing in another file, is a GUESS, and in a batch it misattributes
+  (theseus-4vsrz).** Measured at `12889bcf` with `scripts/keel-batch-repro.sh`: the deleted routing test and the
+  unrelated new voice test are paired because their bodies are **0.63 alike** by difflib over their words, over
+  `SIMILAR`, which is 0.5. So "the pairing crosses files whose contents share nothing" is the wrong diagnosis, and a
+  fix that refused a share-nothing pairing would not catch this one: the two bodies share their whole skeleton. What
+  goes wrong is downstream of the pairing, in what the pair is then judged to prove. The finding changes **rule**,
+  `test-removed` to `assert-removed`, and **file**, from the one that held the deleted test to the paired one, which
+  eroded nothing — so a trailer that named the real file stops covering it, and the guard's own remedy text asks for
+  a trailer against the innocent file. Writing that trailer would be a false statement that the owner authorised an
+  erosion where none exists; never write it. When a finding names a file your change never touched, `git grep` the
+  symbol at the base and at the head first: here it is in two files at the base and in none at the head, which
+  proves the erosion real and its attribution false.
+- **`scripts/keel-batch-repro.sh` takes a candidate guard as its one argument** (`scripts/keel-batch-repro.sh
+  path/to/keel-guard.py`, default the tree's). That is the seam for judging a proposed fix to the pairing without
+  editing the guard, which is `keel-file` and needs the owner's signed yes.
 - **Its suite**, `scripts/test_keel_guard.py`, builds a throwaway repository per case (signed cases with throwaway
   keys in their own `GNUPGHOME`, and the real `gate.sh` run in a throwaway repository for its range and its door); the
   gate runs it when the guard, the suite or `gate.sh` differs from the base. Run it alone

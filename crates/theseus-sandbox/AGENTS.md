@@ -17,8 +17,9 @@ server in L1, M7 43a).
   waits, and `reaped(status)` reads the init's report for a wrapper that reaps with `waitpid(-1)`.
 - `init.rs`: `init_main`, the `job-sandbox` role (`theseusd job-sandbox`): pid 1 of the job.
 - `view.rs`: the view (system binds, `ro_paths`, overlays over the workspace, HOME, `/tmp`, `/dev`, `/proc`,
-  `/sys`), and `Spec::hidden` (17b), the paths covered whatever binds them: Theseus's floor and socket, and the
-  approve list's paths.
+  `/sys`), and `Spec::hidden` (17b), the paths on the hidden list whichever bind would otherwise show them:
+  Theseus's floor and socket, and the approve list's paths. A listed path that resolves to something is covered;
+  one that resolves to nothing is skipped (see the mask's promise below).
 - `Spec::rw` (theseus-pw1q.21.1): read-write binds at the same paths (`view.rs`'s `bind_rw`), the only writes that
   persist. The kernel's `L1.rw` fills it, and only a self build sets that; the rest of the view is unchanged.
 - `seccomp.rs` (hand-built classic BPF; `seccompiler` is not in the offline registry; and `refuse_here`, a host's
@@ -54,8 +55,15 @@ server in L1, M7 43a).
   list's mask, and `/proc`'s read-only binds — and it answers None for ENOENT, ENOTDIR and ELOOP alone; any other
   error is reported and never skipped past, since those binds are the only thing making `/proc/sys` and
   `/proc/sysrq-trigger` read-only. So a link is covered at the path it names, and one that resolves to nothing
-  there (dangling, or naming what no bind shows) is skipped. A hidden entry never stops a job: the mask is a
-  promise about what a job can read, and a job that cannot start is a defect, not a safer sandbox.
+  there (dangling, or naming what no bind shows) is skipped. A hidden entry never stops a job: a job that cannot
+  start is a defect, not a safer sandbox.
+- **The mask promises what exists when the job starts, not what the job can read** (theseus-3i6d1). A cover is a
+  mount made once, at a path that resolved to something. A `ro_paths` or read-write bind, and a workspace overlay's
+  lower layer, are live windows onto the host, so content written there afterwards at a name the mask skipped is
+  readable by the running job, unmasked (a reviewer hid a dangling link and an absent path, started a job, wrote both
+  600 ms later, and the job read them in full). No mount can close it for a read-only bind: a mount needs a target
+  and the bind forbids making one. `view.rs`'s `mask` doc is the whole of it, part by part, with what bounds the
+  window and what is specified but not built; do not restate the old shorter claim anywhere.
 
 ## Tests
 

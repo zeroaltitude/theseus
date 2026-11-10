@@ -689,6 +689,15 @@ fn running(needle: &str) -> bool {
 /// task (a task starts no task: depth one, so the walk's depth is the kernel's test). The stop ends the turn and
 /// cancels all three, the jobs' processes gone, and leaves the conversation's own wake; a plain `execution.stop` of
 /// the same shape cancels none.
+///
+/// ITS ONE RED IS EXPLAINED, so nobody files it as a flake (theseus-4vsrz, 2026-11-10). A cloud gate carried
+/// this test red with no explanation: 41.7 s inside the suite against 2.6 s run alone. That host is the 4-core
+/// cloud routine VM, and the shape — slow in a full suite, fast alone — is its contention signature, not a
+/// defect here. The evidence against the test being at fault: **135 PASS and 0 FAIL** across every retained
+/// fleet and merge gate log, slowest 7.72 s in-suite; and a PASS at **2.26 s** in the 2026-11-10 03:05 nightly
+/// flakehunt run over 9,672 tests, under `[profile.flakehunt]`, where `retries = 2` with
+/// `flaky-result = "fail"` means a pass that needed a retry would have failed the run (`flaky=0 failed=0`).
+/// A red here on a host with cores to spare is therefore a finding, not this.
 #[test]
 fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
     let r = Rig::new(vec![

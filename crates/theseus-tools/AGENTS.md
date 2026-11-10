@@ -17,7 +17,7 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
   `src/fs_walk.rs` (`walk_builder`, `walker`, `not_walked`), `src/git.rs` (`git.diff`, `git.log`,
   through gitoxide, no git CLI), `src/text.rs` (`text.diff`), `src/proc.rs` (`proc.run`, the escape hatch), and
   `src/image.rs`.
-- **`fs.rs`'s walk and line endings.** `fs.glob`, `fs.grep` and `fs.list` share one `all` flag and one walk
+- **The file tools' walk and line endings.** `fs.glob`, `fs.grep` and `fs.list` share one `all` flag and one walk
   (`walk_builder`): "ignored" is `.gitignore`, `.ignore`, parents and `.git/info/exclude`, the global gitignore is
   never read, hidden files are skipped, and `.git` is never walked, with or without `all`. `fs.edit` matches a quote
   that is not found as given against a file with CRLFs with each quoted newline reading either ending

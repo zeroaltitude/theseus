@@ -331,17 +331,55 @@ fn proc(atime: libc::c_ulong) -> Result<(), Failure> {
     for name in PROC_MASKED {
         mask(&Path::new("/proc").join(name)).stage(format!("masking /proc/{name}"))?;
     }
+    // The dispositions are the skip's only witness, and nothing the init
+    // itself needs: see `proc_readonly`.
+    proc_readonly(Path::new("/proc")).map(drop)
+}
+
+/// What `proc_readonly` left at one of `PROC_READONLY`'s names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcRo {
+    /// Bound onto itself and made read-only.
+    Bound,
+    /// Nothing is behind the name in this procfs: nothing to bind, and
+    /// nothing to fail the job over.
+    Absent,
+}
+
+/// Each of `PROC_READONLY`'s names under `root`, made a read-only mount of
+/// its own, and what that left at each.
+///
+/// The resolution is the same one the bind will do, and the same three errors
+/// are skipped (theseus-txh9w): these binds are the only thing making
+/// `/proc/sys` and `/proc/sysrq-trigger` read-only, since `/proc` is not
+/// mounted `MS_RDONLY` and the root's attributes are not recursive, so an
+/// error swallowed here would quietly leave them writable.
+///
+/// **`root` is a parameter, and the dispositions come back, for one reason**
+/// (theseus-3i6d1, P7). `Absent` is the whole of what the resolution step is
+/// for, and on an ordinary procfs it is never reached: all five names are
+/// real entries there, so a binding that resolves first and a binding that
+/// does not are indistinguishable, and deleting the resolution went unnoticed
+/// by every clause of the live contract. A real procfs *can* lack all five —
+/// `mount -t proc -o subset=pid` hides every non-pid entry (Linux 5.8) — so
+/// the arm is reachable, and the test below reaches it by passing such a
+/// procfs as `root`.
+///
+/// **This is a parameter, not a hook.** The one caller passes `/proc`; no
+/// operator, config file or environment variable can reach this choice, and a
+/// `/proc` root or a name list that one could reach would be a bypass of the
+/// read-only binds rather than a test of them. Returning the dispositions is
+/// the other half: a bare `continue` leaves no trace of itself anywhere, which
+/// is exactly what "has no live guard" named.
+fn proc_readonly(root: &Path) -> Result<Vec<(&'static str, ProcRo)>, Failure> {
+    let mut done = Vec::with_capacity(PROC_READONLY.len());
     for name in PROC_READONLY {
-        // The same resolution the bind below will do, and the same three
-        // errors skipped (theseus-txh9w): these binds are the only thing
-        // making /proc/sys and /proc/sysrq-trigger read-only, since /proc is
-        // not mounted MS_RDONLY and the root's attributes are not recursive,
-        // so an error swallowed here would quietly leave them writable.
-        let p = Path::new("/proc").join(name);
+        let p = root.join(name);
         if resolved(&p)
-            .stage(format!("reading /proc/{name}"))?
+            .stage(format!("reading {}", p.display()))?
             .is_none()
         {
+            done.push((name, ProcRo::Absent));
             continue;
         }
         let t = c(&p).stage("a /proc path")?;
@@ -353,9 +391,10 @@ fn proc(atime: libc::c_ulong) -> Result<(), Failure> {
                     MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV | MOUNT_ATTR_NOEXEC,
                 )
             })
-            .stage(format!("making /proc/{name} read-only"))?;
+            .stage(format!("making {} read-only", p.display()))?;
+        done.push((name, ProcRo::Bound));
     }
-    Ok(())
+    Ok(done)
 }
 
 /// A fresh sysfs, read-only, for the job's own network namespace. False if
@@ -432,15 +471,99 @@ fn resolved(p: &Path) -> io::Result<Option<fs::Metadata>> {
 /// (`Part::ReadWrite`, `bind_rw`) could be given a target, but making it
 /// would write into the operator's real host tree; a workspace overlay
 /// (`Part::Workspace`) could be given one in its own upper layer, which never
-/// reaches the host, so a mask there is makeable and is left undone only
-/// because nothing here does it (an open question, not a property). What does
+/// reaches the host, so a mask there is makeable; the answer below says why it
+/// is still left undone, which was an open question until theseus-3i6d1 and is
+/// now a decision. What does
 /// hold is what the paragraph above says: the job's command does not exist
 /// while the view is built, the root is read-only by the time it does, and a
 /// mount point that was covered cannot be unlinked from inside. So `hidden`
 /// is a promise about what exists when the job starts, and an operator who
 /// needs more must not bind a tree that can gain the hidden name. Two binds,
 /// or a hard link, reaching one inode by a path no resolution derives are the
-/// same residue (the old theseus-quft); the test below pins the skip itself.
+/// same residue (the old theseus-quft); the tests below pin the skip itself
+/// and the window.
+///
+/// **The window's answer** (theseus-3i6d1): accept it, bound it, and say it.
+/// Three closures were weighed first, and each is rejected on evidence in this
+/// tree rather than on taste.
+///
+/// *Cover the nearest existing ancestor instead, and let the kernel resolve at
+/// open time.* It does not widen what the job reaches; it destroys the bind.
+/// `plan` mounts parents first so that a read-only path under HOME lands
+/// inside HOME's tmpfs, so under the config template's own `[sandbox]
+/// ro_paths = ["~/.cargo", "~/.rustup"]` the nearest existing ancestor of
+/// `~/.cargo/credentials` is `~/.cargo`, the bind itself: an empty read-only
+/// tmpfs there hides the registry and the toolchain the operator bound on
+/// purpose. The variant that does work is to decompose the bind — bind each
+/// entry of the parent instead of the parent recursively, leaving the skipped
+/// name with no backing at all — and it closes the window without refusing
+/// anything and without writing to the host. Its costs are a mount per entry
+/// per level, `bind_ro`'s recursive-bind reason to re-derive for each one, a
+/// view that no longer shows a file the host gains legitimately, and a changed
+/// mount table, which several §7 clauses read. Not small, and not provable on
+/// a host that cannot build a view.
+///
+/// *Refuse a hidden path that resolves to nothing, rather than skipping it.*
+/// It would refuse nearly every job. theseus-core's `sandbox::CREDENTIALS` is
+/// appended to every view's `hidden` unconditionally, HOME here is an empty
+/// tmpfs, and the floor's own paths are a daemon's state: an entry resolves to
+/// nothing whenever no bind shows its directory or the host does not hold the
+/// file, which is the common case, not the odd one. It also reverses
+/// theseus-txh9w's landed rule that a hidden entry never stops a job. The
+/// narrower form — refuse only where the skipped path falls inside a live
+/// window — fails on the same default: two of the three `CREDENTIALS` entries
+/// sit under the template's first `ro_paths` entry, so a machine where `cargo
+/// login` has never run would refuse every L1 job. (The cost is not "jobs that
+/// name a path they are about to create": no job names this list. It is every
+/// job.) What plain `origin/main` did to the dangling half before txh9w was
+/// an accident of a non-following read, not a policy, so it is no precedent.
+///
+/// *Re-check at the job's open.* There is no hook. `seccomp.rs` is classic BPF
+/// that allows by default and denies a list with `RET_ERRNO`; it has no
+/// `RET_USER_NOTIF` and there is no supervisor to hold one, and standing a
+/// userspace decision in front of every `openat` of every job is the wrong
+/// shape for §2.2's 25 ms start.
+///
+/// *So: accept it, and bound it.* What bounds it, each read off the code
+/// above. Only a live window carries it: `Part::ReadOnly`, `Part::ReadWrite`
+/// (a self build's launcher alone sets `Spec::rw`) and a workspace overlay's
+/// lower layer. The view's own root is read-only from the `mount_setattr` in
+/// `build`, and HOME, `/tmp`, `/dev/shm` and scratch hold the job's own bytes,
+/// so a name the job makes there is its own content and no leak. The job
+/// cannot open the window itself: a read-only bind refuses its writes and a
+/// workspace's go to scratch, so the writer must be a process on the host,
+/// outside the sandbox. Every live window in a view is a path the operator
+/// named. And `[sandbox] egress` is empty by default, so what a job reads has
+/// no route out that the operator did not give it.
+///
+/// *And say it — which is the one thing not built.* `mask` tells no one it
+/// skipped: it answers `Ok(())` and no reader ever learns a hidden entry was
+/// left open. The shape is NOTIFY OVER BLOCK (§2), and it is why none of the
+/// three closures is taken: `mask` should answer whether it covered or
+/// skipped; `build` should keep the skipped entries that lie inside a live
+/// window (a pure path test against `Spec::ro_paths`, `rw` and `workspace`);
+/// they should ride `report::Started` beside `sys`, which is already that
+/// channel for what the view could not do; theseus-kernel's `job_l1` should
+/// put them in `detail["sandbox"]`, as it does `granted` and `skipped`; and
+/// theseus-core should make that a row and a line of the result's head, as it
+/// does `sandbox.egress_refused`. Specified, not built: it crosses three
+/// crates and a new fact, and no behavioural test of it can run on a host that
+/// refuses every L1 job.
+///
+/// The workspace mask stays undone for a reason of its own: its target would
+/// be made in scratch's upper layer, which `View.scratch` keeps open precisely
+/// to report what the job wrote, so masking there would put the harness's own
+/// files in the job's write report (`report::Scratch`). It is makeable, and it
+/// should follow a fix to that report, not precede it.
+///
+/// None of this touches the residue above. A skipped path and a second path to
+/// a covered inode are the same defect — a cover is placed at a path, and a
+/// path is not an inode — but the notify answer reports a *skipped* entry, and
+/// in the residue's case the entry resolved and *was* covered; what leaks is a
+/// name that was never on the list. Closing that means masking by inode, which
+/// is a walk of every live bind at every job start, against the same 25 ms. So
+/// the residue stays named and unowned here, and this answer does not claim
+/// it.
 fn mask(p: &Path) -> io::Result<()> {
     let Some(m) = resolved(p)? else {
         return Ok(());
@@ -535,6 +658,8 @@ fn atime_flags(path: &str) -> libc::c_ulong {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CStr;
+
     use super::*;
 
     #[test]
@@ -624,8 +749,222 @@ mod tests {
         assert!(dangling.symlink_metadata().is_ok(), "mask removed the link");
     }
 
+    /// The window `mask`'s doc names, reduced to what runs without
+    /// privileges (theseus-3i6d1): the mask installs nothing at a path that
+    /// resolves to nothing, so the name is still a usable name, and content
+    /// that arrives at it afterwards reads in full. The temp dir stands in
+    /// for a `ro_paths` bind, whose directory is the host's own and goes on
+    /// being the host's for as long as the job runs; what this cannot drive
+    /// is the privileged half (a real job, a real bind, the content written
+    /// on the host while the job runs), which needs a host that can build
+    /// an L1 view at all — `crates/theseusd/tests/sandbox.rs`, never a root
+    /// box. If a later step closes the window, this test is what fails, and
+    /// `mask`'s doc and `Spec::hidden`'s are what must change with it.
+    #[test]
+    fn content_that_arrives_after_the_mask_is_readable_at_the_name_it_skipped() {
+        let tmp = tempfile::tempdir().expect("a temp dir");
+        let absent = tmp.path().join("credentials");
+        let dangling = tmp.path().join("linked");
+        std::os::unix::fs::symlink(tmp.path().join("gone"), &dangling).unwrap();
+        // At the moment the view is built, neither resolves, so both are
+        // skipped and no cover is made (`mask` makes no mount at all here:
+        // every other arm of it would, which is why this test uses only the
+        // two shapes that resolve to nothing).
+        for p in [&absent, &dangling] {
+            assert!(resolved(p).unwrap().is_none(), "{} resolves", p.display());
+            mask(p).expect("a path that resolves to nothing is skipped");
+        }
+        // The content arrives afterwards, as the host's writer makes it.
+        let secret = "[registry]\ntoken = \"not-a-real-token\"\n";
+        fs::write(&absent, secret).expect("the absent path's content");
+        fs::write(tmp.path().join("gone"), secret).expect("the link's target");
+        // Both names now resolve, and both read in full: the bytes, not a
+        // cover's empty file, and not a short read.
+        for p in [&absent, &dangling] {
+            let m = resolved(p)
+                .expect("a resolution")
+                .unwrap_or_else(|| panic!("{} still resolves to nothing", p.display()));
+            assert!(m.is_file(), "{}", p.display());
+            assert_eq!(m.len(), secret.len() as u64, "{}", p.display());
+            assert_eq!(
+                fs::read_to_string(p).expect("the content").as_str(),
+                secret,
+                "{}",
+                p.display()
+            );
+        }
+    }
+
     #[test]
     fn a_host_path_is_found_under_the_old_root() {
         assert_eq!(host(Path::new("/usr/bin")), Path::new("/.oldroot/usr/bin"));
+    }
+
+    /// How many of `done` ended each way, as one line: a count, so that an
+    /// empty answer cannot read as a pass.
+    fn tally(what: &str, done: &[(&str, ProcRo)]) -> String {
+        let n = |d: ProcRo| done.iter().filter(|(_, x)| *x == d).count();
+        format!(
+            "{what}: {} bound, {} absent\n",
+            n(ProcRo::Bound),
+            n(ProcRo::Absent)
+        )
+    }
+
+    /// Runs `f` as root of a fresh user, mount and pid namespace and returns
+    /// what it wrote: `"ok\n<detail>"` or `"err\n<why>"`.
+    ///
+    /// A procfs mount is refused unless the mounter is *inside* the pid
+    /// namespace it describes (measured: `unshare --user --mount` alone gets
+    /// EPERM, `--user --mount --pid --fork` mounts), so this unshares, maps
+    /// the uid as `spawn::map` does, unshares the pid namespace and forks:
+    /// the grandchild is its pid 1 and does the mounting. `MS_REC |
+    /// MS_PRIVATE` on `/` first, as `build` does, so nothing mounted here
+    /// propagates back to the host. Both children leave by `_exit`, so no
+    /// destructor of the parent's runs twice — in particular not the
+    /// `TempDir`'s.
+    fn in_a_namespace(out: &Path, f: impl FnOnce() -> Result<String, String>) -> String {
+        let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+        match unsafe { libc::fork() } {
+            -1 => panic!("fork: {}", io::Error::last_os_error()),
+            0 => {
+                let at = |w: &'static str| move |e: io::Error| format!("{w}: {e}");
+                let run = || -> Result<String, String> {
+                    crate::sys::cvt(unsafe {
+                        libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNS)
+                    })
+                    .map_err(at("unsharing the user and mount namespaces"))?;
+                    fs::write("/proc/self/setgroups", "deny").map_err(at("denying setgroups"))?;
+                    fs::write("/proc/self/uid_map", format!("0 {uid} 1\n"))
+                        .map_err(at("the uid map"))?;
+                    fs::write("/proc/self/gid_map", format!("0 {gid} 1\n"))
+                        .map_err(at("the gid map"))?;
+                    sys::mount(None, c"/", None, libc::MS_REC | libc::MS_PRIVATE, None)
+                        .map_err(at("making the mounts private"))?;
+                    crate::sys::cvt(unsafe { libc::unshare(libc::CLONE_NEWPID) })
+                        .map_err(at("unsharing the pid namespace"))?;
+                    match unsafe { libc::fork() } {
+                        -1 => Err(format!("fork: {}", io::Error::last_os_error())),
+                        0 => {
+                            let said = f();
+                            let _ = fs::write(
+                                out,
+                                match &said {
+                                    Ok(s) => format!("ok\n{s}"),
+                                    Err(s) => format!("err\n{s}"),
+                                },
+                            );
+                            unsafe { libc::_exit(i32::from(said.is_err())) }
+                        }
+                        pid => {
+                            let mut status = 0;
+                            crate::sys::cvt(unsafe { libc::waitpid(pid, &mut status, 0) })
+                                .map_err(at("waiting for the namespace's pid 1"))?;
+                            Ok(String::new())
+                        }
+                    }
+                };
+                if let Err(why) = run() {
+                    let _ = fs::write(out, format!("err\n{why}"));
+                }
+                unsafe { libc::_exit(0) }
+            }
+            pid => {
+                let mut status = 0;
+                crate::sys::cvt(unsafe { libc::waitpid(pid, &mut status, 0) })
+                    .expect("waiting for the child");
+                fs::read_to_string(out).unwrap_or_else(|e| format!("err\nno answer: {e}"))
+            }
+        }
+    }
+
+    /// theseus-3i6d1, P7. `proc_readonly`'s resolution step has exactly one
+    /// job — leave a name nothing is behind alone, and start the job anyway —
+    /// and on an ordinary procfs it has nothing to do, which is why deleting
+    /// it was invisible to every clause of the live contract: with all five
+    /// names real entries, a binding that resolves first and one that does
+    /// not do the same five mounts.
+    ///
+    /// A real procfs *can* lack all five. `-o subset=pid` hides every non-pid
+    /// entry (Linux 5.8), so this drives the production function against two
+    /// real procfs mounts in one real user, mount and pid namespace — one
+    /// ordinary, one `subset=pid` — and pins both arms.
+    ///
+    /// **Delete the `is_none()` arm from `proc_readonly` and the `lean` half
+    /// goes red**, because the bind the arm skipped is the ENOENT this test's
+    /// last assertion names. That is the live guard this line asked for, and
+    /// the arm no ordinary procfs reaches.
+    #[test]
+    fn the_read_only_names_are_bound_when_real_and_skipped_when_a_procfs_lacks_them() {
+        let tmp = tempfile::tempdir().expect("a temp dir");
+        let dir = tmp.path().to_path_buf();
+        let out = dir.join("answer");
+        let answer = in_a_namespace(&out, || {
+            let mut said = String::new();
+            // A procfs the kernel will take: the host's own atime setting,
+            // or it refuses the mount as too revealing.
+            let atime = atime_flags("/proc");
+            let procfs = |at: &Path, opts: Option<&CStr>| -> Result<(), String> {
+                fs::create_dir_all(at).map_err(|e| format!("{}: {e}", at.display()))?;
+                sys::mount(
+                    Some(c"proc"),
+                    &c(at).map_err(|e| e.to_string())?,
+                    Some(c"proc"),
+                    atime,
+                    opts,
+                )
+                .map_err(|e| format!("mounting a procfs at {}: {e}", at.display()))
+            };
+            let (full, lean) = (dir.join("full"), dir.join("lean"));
+
+            // Arm 1, the one an ordinary procfs takes: all five names are
+            // real entries, so all five are bound read-only.
+            procfs(&full, None)?;
+            let bound = proc_readonly(&full).map_err(|f| f.to_string())?;
+            said += &tally("full", &bound);
+            let mountinfo =
+                fs::read_to_string("/proc/self/mountinfo").map_err(|e| e.to_string())?;
+            for (name, _) in &bound {
+                let at = full.join(name);
+                let ro = mountinfo.lines().any(|l| {
+                    let f: Vec<&str> = l.split_whitespace().collect();
+                    f.get(4).map(Path::new) == Some(at.as_path())
+                        && f.get(5).is_some_and(|o| o.split(',').any(|x| x == "ro"))
+                });
+                if !ro {
+                    return Err(format!("{} is no read-only mount of its own", at.display()));
+                }
+            }
+
+            // Arm 2, which the row and its review both took to be
+            // unreachable: a real procfs with none of the five. Every name
+            // resolves to nothing, every one is skipped, and the call
+            // succeeds — the job would start.
+            procfs(&lean, Some(c"subset=pid"))?;
+            let skipped = proc_readonly(&lean).map_err(|f| f.to_string())?;
+            said += &tally("lean", &skipped);
+
+            // And what a binding without the resolution dies of: the bind
+            // the skip avoided, attempted. This errno is the whole
+            // difference between the two bindings, and it ends the job at
+            // "making <name> read-only" before its command exists.
+            let first = lean.join(PROC_READONLY[0]);
+            let t = c(&first).map_err(|e| e.to_string())?;
+            let e = sys::mount(Some(&t), &t, None, libc::MS_BIND | libc::MS_REC, None)
+                .expect_err("a bind of a name nothing is behind");
+            said += &format!("unguarded bind: errno {}\n", e.raw_os_error().unwrap_or(0));
+            Ok(said)
+        });
+
+        let (how, detail) = answer.split_once('\n').unwrap_or(("", answer.as_str()));
+        assert_eq!(how, "ok", "{detail}");
+        // Counts, not "none of them went the wrong way": an empty answer
+        // must not read as a pass.
+        assert!(detail.contains("full: 5 bound, 0 absent\n"), "{detail}");
+        assert!(detail.contains("lean: 0 bound, 5 absent\n"), "{detail}");
+        assert!(
+            detail.contains(&format!("unguarded bind: errno {}\n", libc::ENOENT)),
+            "{detail}"
+        );
     }
 }

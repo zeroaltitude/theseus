@@ -575,7 +575,7 @@ impl Tool for Edit {
         "fs.edit"
     }
     fn description(&self) -> &'static str {
-        "Replace an exact string in a file. old_string must match the file byte for byte, including indentation, and must be unique unless replace_all is true. Read the file first. Returns a diff of the change."
+        "Replace an exact string in a file. old_string must match the file exactly, including indentation (a quoted newline matches either line ending), and must be unique unless replace_all is true. Read the file first. Returns a diff of the change."
     }
     fn input_schema(&self) -> Value {
         json!({

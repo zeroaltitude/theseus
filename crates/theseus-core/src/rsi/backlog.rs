@@ -112,6 +112,11 @@ pub struct Night {
     /// Starts the note tells beyond those listed in `started` (the pipeline's,
     /// folded into this note, past the cap): said as a count.
     pub started_more: usize,
+    /// Builds whose gate has ended since the last note (theseus-1eemp). The
+    /// note said only that work started, so a red build left no trace in any
+    /// of the owner's places: 126 self reports since 2026-10-20, none green,
+    /// and nothing said of the 126.
+    pub ended: Vec<Ended>,
     /// Items that did not start, with why: their tree could not be opened.
     pub held: Vec<(String, String)>,
     /// Open items waiting on the owner (keel marks), filed this night.
@@ -129,6 +134,40 @@ pub struct Started {
     /// A minted tool's writer: the placeholder name its pending mint is kept
     /// under (`rsi::mint::run`); `None` for a fix.
     pub mint: Option<String>,
+}
+
+/// A build whose gate has ended, as the note and the item's thread say it
+/// (theseus-1eemp): the verdict in a word, the phase it failed in when it
+/// failed, and the frozen report to read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ended {
+    pub item: String,
+    pub title: String,
+    /// `green`, `red` or `keel`, as [`crate::rsi::tree::Verdict`] names it.
+    pub verdict: String,
+    /// The gate's own phase name (`test build`), when it failed in one.
+    pub phase: Option<String>,
+    /// The frozen report's path, when one was written.
+    pub report: Option<String>,
+}
+
+impl Ended {
+    /// The one line both the note and the item's thread carry.
+    pub fn line(&self) -> String {
+        let phase = match (&self.verdict[..], &self.phase) {
+            ("green", _) => String::new(),
+            (_, Some(p)) => format!(" in {p}"),
+            (_, None) => String::new(),
+        };
+        let report = match &self.report {
+            Some(r) => format!("; its report is {r}"),
+            None => String::new(),
+        };
+        format!(
+            "the build of {} ended {}{phase}{report}",
+            self.title, self.verdict
+        )
+    }
 }
 
 /// An item (a task) is open on the backlog while it waits its turn.

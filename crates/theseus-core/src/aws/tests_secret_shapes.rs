@@ -126,6 +126,25 @@ const MARKED: &[(&str, &str, &str)] = &[
     // nothing of what it is, and no other branch of the rule reaches it. The
     // walk holds them all at run time already (they are marked); what these
     // rows add is that their operation must stay secret-bearing.
+    //
+    // CORRECTION, so nobody re-fixes a non-bug (theseus-3i6d1):
+    // `amplifybackend:GetBackendAuth` was **never a partial hold.** A first
+    // review read it off a catalog sweep as one, and a builder repeated the
+    // finding without measuring; with theseus-37ds fully reverted the four
+    // `SocialProviderSettings` providers below are held whole by AWS's own
+    // `sensitive` marking, so the Facebook `ClientSecret` and the Apple
+    // `PrivateKey` inside them never reached the model. The mechanism is
+    // `secret::walk`'s first branch (`aws/secret.rs:288-297`): a shape the
+    // model marks sensitive is masked as `Rule::Marked` and the walk
+    // **returns** there, so it never descends into the structure's members.
+    // The partial-hold check below fires only on `secret && !hit.held`, and a
+    // marked member is held, so it cannot reach these rows. The operation is
+    // secret-bearing by `WHEN_PRESENT` (`theseus-aws-catalog`'s `tables.rs`),
+    // which is what these rows exist to keep true.
+    //
+    // Worth keeping as a process note as much as a fact: a reviewer's finding
+    // repeated by a builder without independent measurement is how a non-bug
+    // acquires a fix and a changelog entry.
     // the social provider's client id and client secret.
     ("amplifybackend", "SocialProviderSettings", "Facebook"),
     // the social provider's client id and client secret.

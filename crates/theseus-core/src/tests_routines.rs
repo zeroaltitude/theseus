@@ -485,6 +485,18 @@ fn rule_posts(r: &Rig) -> Vec<String> {
 /// asserted that branch.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_skipped_run_names_d14_for_a_routine_and_d15_for_a_review() {
+    // Both arms are driven and read first, and every assertion is made over
+    // both of them at the end. With the assertions inside the loop it stopped
+    // at the first failure, so a planted revert that flips the two arms could
+    // only ever be seen red on one of them and the second stayed unproved.
+    struct Arm {
+        title: &'static str,
+        rule: &'static str,
+        other: &'static str,
+        skipped: bool,
+        told: Vec<String>,
+    }
+    let mut seen: Vec<Arm> = Vec::new();
     for (title, rule, other) in [
         ("Tidy the scratch notes", "Rule D14 skipped", "D15"),
         ("Review: the harbour project", "Rule D15 skipped", "D14"),
@@ -500,12 +512,32 @@ async fn a_skipped_run_names_d14_for_a_routine_and_d15_for_a_review() {
         due.available_micros = 0;
         due.available_after_reset_micros = 0;
         let (p, _) = plan(&env(&r), &Arc::new(spec), &due).unwrap();
-        assert!(matches!(p, RoutinePlan::Skip { .. }), "{title}: skipped");
-        let told = rule_posts(&r);
-        assert_eq!(told.len(), 1, "{title}: one notice: {told:?}");
-        assert!(told[0].contains(rule), "{title}: {}", told[0]);
-        assert!(!told[0].contains(other), "{title}: {}", told[0]);
+        seen.push(Arm {
+            title,
+            rule,
+            other,
+            skipped: matches!(p, RoutinePlan::Skip { .. }),
+            told: rule_posts(&r),
+        });
     }
+    let shown: Vec<_> = seen
+        .iter()
+        .map(|a| (a.title, a.skipped, a.told.clone()))
+        .collect();
+    assert_eq!(seen.len(), 2, "both arms reached: {shown:?}");
+    assert!(seen.iter().all(|a| a.skipped), "each skipped: {shown:?}");
+    assert!(
+        seen.iter().all(|a| a.told.len() == 1),
+        "one notice each: {shown:?}"
+    );
+    assert!(
+        seen.iter().all(|a| a.told[0].contains(a.rule)),
+        "each names its own rule: {shown:?}"
+    );
+    assert!(
+        seen.iter().all(|a| !a.told[0].contains(a.other)),
+        "neither names the other's rule: {shown:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

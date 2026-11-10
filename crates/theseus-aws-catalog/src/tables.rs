@@ -818,6 +818,12 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "UpdateBranch",
         ],
     ),
+    // Its `SocialProviderSettings` providers are marked sensitive, so the
+    // walk holds each provider structure whole and the `ClientSecret` and
+    // `PrivateKey` inside it never reach the model. It was **never** a
+    // partial hold: see `theseus_core::aws::tests_secret_shapes`'s
+    // `MARKED` rows for the correction and why one was once claimed
+    // (theseus-3i6d1).
     ops("amplifybackend", &["GetBackendAuth"]),
     // Its model says only DescribeDirectoryConfigs never returns the
     // password; it says nothing of these two.

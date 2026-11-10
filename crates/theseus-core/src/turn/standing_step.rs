@@ -134,4 +134,85 @@ impl TurnRunner {
             b.attach_here(compiled);
         }
     }
+
+    /// The in-loop check for an answer that thanks the owner for a standing
+    /// record (`standing_ack`, theseus-ectzg): the loop's answer just came,
+    /// before its node is written. A leading "Noted:"/"Understood:" paragraph
+    /// restating a record the request showed, which the owner's last message
+    /// did not carry, is taken out of the answer; `turn.standing_ack` keeps
+    /// it. No model call, and a prefix test for every other answer.
+    pub(super) fn strip_standing_ack(
+        t: &mut Turn<'_>,
+        resp: &mut crate::provider::ModelResponse,
+        loop_index: u32,
+    ) {
+        use crate::standing_ack;
+        let Some(first) = resp.content.iter().find(|b| b["type"] == "text") else {
+            return;
+        };
+        let Some(answer) = first["text"].as_str() else {
+            return;
+        };
+        if !["Noted", "Understood"]
+            .iter()
+            .any(|m| answer.trim_start().starts_with(m))
+        {
+            return;
+        }
+        let blocks: Vec<&Block> = [&t.standing.block, &t.standing.here]
+            .into_iter()
+            .flatten()
+            .collect();
+        let shown: Vec<&str> = blocks
+            .iter()
+            .flat_map(|b| b.used.iter().filter(|u| u.shown).map(|u| u.id.as_str()))
+            .collect();
+        let texts: Vec<&str> = blocks
+            .iter()
+            .flat_map(|b| [b.text.as_str(), b.local.as_str()])
+            .collect();
+        let records = standing_ack::records_of(&texts, &shown);
+        if records.is_empty() {
+            return;
+        }
+        let owner = Self::owner_words(t);
+        let Some(found) = standing_ack::check(answer, &records, &owner) else {
+            return;
+        };
+        t.record(&crate::fact::standing::TurnStandingAck {
+            loop_index,
+            stripped: found.stripped.is_some(),
+            records: &found.ids,
+            paragraph: &found.paragraph,
+        });
+        if let Some(rest) = found.stripped {
+            let answer = answer.to_string();
+            if let Some(b) = resp.content.iter_mut().find(|b| b["type"] == "text") {
+                b["text"] = serde_json::Value::String(rest.clone());
+            }
+            // `text` is the blocks' texts joined: the first one leads it.
+            if let Some(after) = resp.text.strip_prefix(&answer) {
+                resp.text = format!("{rest}{after}");
+            }
+        }
+    }
+
+    /// The owner's last message in the session, as the node kept it.
+    fn owner_words(t: &Turn<'_>) -> String {
+        let Ok(nodes) = t.tc.store.transcript(t.tc.session_id) else {
+            return String::new();
+        };
+        nodes
+            .iter()
+            .rev()
+            .find_map(|(_, n)| match &n.body {
+                crate::node::Body::UserMessage { text, .. }
+                    if !matches!(n.origin, crate::node::Origin::Harness) =>
+                {
+                    Some(text.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
 }

@@ -151,6 +151,18 @@ pub struct RecallManifest {
     /// the notes the bar would have dropped, the replies cited (`memory.cites`)
     /// under 5%; plus proof that `effort.v1` calls real greetings `low`, which
     /// no test shows (the tests script the verdict).
+    ///
+    /// **This field's meaning did not change when the bar was built**
+    /// (theseus-fpm2): `[memory] small_talk_bar` (off by default, so that
+    /// promotion is still unmade) makes the withholding real, and this stays
+    /// the count of what a bar WOULD have dropped, written before the compile
+    /// knows, so a series counted over these rows reads the same number with
+    /// the bar on or off. What was actually withheld is the `recall.withheld`
+    /// row with the same `recall_id`, whose `why` is `small_talk` for the bar
+    /// and `restricted_origin` for a model of restricted origin. The bar's own
+    /// sample is a subset of this one: a `low` verdict that lands after the
+    /// pack but inside the route's wait is marked here and was not there when
+    /// the request was built, so its notes were carried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub would_drop: Option<u64>,

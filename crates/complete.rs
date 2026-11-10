@@ -38,8 +38,10 @@
 //
 // **Corrected, historical.** The `tests_tier_work.rs` citation above is no
 // longer a live instance: those sentences are no longer in that file, and no
-// commit is named here because the history to find it was not searched. The
-// pattern stands with no live instance known today.
+// commit is named here because the history was searched and did not reach it
+// — `git log -S` over the removed sentences returned nothing on a clone whose
+// history is shallow, so the commit that removed them is outside it rather
+// than absent. The pattern stands with no live instance known today.
 //
 // **The shape.** Whatever *enumerates* the thing being listed — the call
 // sites in a crate's source, the requirement a filter is built against, the

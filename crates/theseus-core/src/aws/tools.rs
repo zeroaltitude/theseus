@@ -476,6 +476,18 @@ impl Tool for CallTool {
                 rules.insert(h.handle.clone(), json!(h.rule.as_str()));
                 handles.push(h.handle);
             }
+            // The continuation `call_text` prints beside the body goes
+            // through the same pass (theseus-3i6d1).
+            if let Some(next) = out.next.as_mut() {
+                for h in super::presigned::hold_next(
+                    &p.account.board,
+                    &super::secret::label(&p.operation, &p.input),
+                    next,
+                ) {
+                    rules.insert(h.handle.clone(), json!(h.rule.as_str()));
+                    handles.push(h.handle);
+                }
+            }
             if !handles.is_empty() {
                 m["secrets"] = json!(handles);
                 m["secret_rules"] = Value::Object(rules);
