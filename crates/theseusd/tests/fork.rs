@@ -111,7 +111,14 @@ fn written(dir: &Path, sessions: &[&str]) -> std::collections::HashMap<String, S
     at
 }
 
-/// The text of each message of a request, in order.
+/// The text of each message of a request, in order: the conversation's, so
+/// the harness's own tail blocks are left out, as this crate's stand-in
+/// leaves them out of its `prompt` (`common/model.rs`,
+/// `task_graph::view::is_head`). A tail block is appended as the last block
+/// of the last user message and this joins a message's blocks with no
+/// separator, so without the filter one is welded onto the person's words:
+/// theseus-wadu's date and git block made `"…the other road, please"` read
+/// `"…the other road, pleaseDate: Tue 2026-11-10\nGit: unknown"`.
 fn texts(request: &Value) -> Vec<String> {
     request["messages"]
         .as_array()
@@ -123,6 +130,7 @@ fn texts(request: &Value) -> Vec<String> {
                 .map(|b| {
                     b.iter()
                         .filter_map(|b| b["text"].as_str())
+                        .filter(|t| !theseus_core::task_graph::view::is_head(t))
                         .collect::<Vec<_>>()
                         .join("")
                 })

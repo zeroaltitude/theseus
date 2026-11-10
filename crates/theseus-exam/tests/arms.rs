@@ -154,6 +154,14 @@ fn answer(mut stream: TcpStream, seen: &Mutex<Vec<Vec<String>>>) -> std::io::Res
     let mut body = vec![0; len];
     r.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    // The conversation's blocks of the last user message: the task's, then
+    // its Recall's. The harness's own tail blocks are left out, as every
+    // other stand-in leaves them out (`task_graph::view::is_head`), because
+    // `check_notes` counts these blocks — so no opener registered in that
+    // list can save a count, and a new tail block would otherwise read as a
+    // third block of the person's (theseus-wadu's date and git block did).
+    // The Recall block is no tail block and is not in the list: it stays,
+    // which is what `joined` below looks for.
     let texts: Vec<String> = req["messages"]
         .as_array()
         .and_then(|m| m.iter().rev().find(|m| m["role"] == "user"))
@@ -161,7 +169,9 @@ fn answer(mut stream: TcpStream, seen: &Mutex<Vec<Vec<String>>>) -> std::io::Res
             Value::String(s) => vec![s.clone()],
             Value::Array(b) => b
                 .iter()
-                .filter_map(|b| b["text"].as_str().map(str::to_string))
+                .filter_map(|b| b["text"].as_str())
+                .filter(|t| !theseus_core::task_graph::view::is_head(t))
+                .map(str::to_string)
                 .collect(),
             _ => Vec::new(),
         })
