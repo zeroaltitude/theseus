@@ -44,9 +44,11 @@ test-group = "timing"
 # lane (03:05 and not 03:00: a `start_paused` test reads the wall clock and fails between 00:00 and 03:00 local, so a
 # red at the window's edge would leave the hour as a suspect). It is the default profile (thread count, timeouts,
 # JUnit and the timing group are inherited) with two settings added: retries = 2 gives every failing test two more
-# tries, and flaky-result = "fail" counts a test that passed on a retry as FAILED, so the run exits 100. Every flake
-# becomes a row with its attempts recorded, and a flake that exhausts its retries is a finding, not a pass. The gate
-# never reads this profile: scripts/gate.sh runs the default one, whose retries stay named tests only.
+# tries, and flaky-result = "fail" counts a test that passed on a retry as FAILED, so the run exits 100. Which element
+# the JUnit file then shows for that test is a separate key, profile.flakehunt.junit.flaky-fail-status, which the
+# table below sets. Every flake becomes a row with its attempts recorded, and a flake that exhausts its retries is a
+# finding, not a pass. The gate never reads this profile: scripts/gate.sh runs the default one, whose retries stay
+# named tests only.
 # flaky-result is a key of nextest 0.9.146, which both hosts run; a nextest that does not know it prints
 # "ignoring unknown configuration key" and exits 0 on a flake, so check that warning when the version changes.
 [profile.flakehunt]

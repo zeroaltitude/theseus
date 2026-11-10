@@ -141,7 +141,11 @@ impl Chat {
     /// The list of turns has answered: the turn `/why` was given, or the
     /// refusal, in the dock's own voice.
     fn why_turn_named(&mut self, result: Result<Value, RpcError>) -> Vec<Effect> {
-        let given = self.why.take().and_then(|w| w.given).unwrap_or_default();
+        // Unreachable today: `why` sets `given` in the same expression that issues the `Turns` read. This
+        // returns for a second issuer of that read, rather than naming no turn to `pick_turn`.
+        let Some(given) = self.why.take().and_then(|w| w.given) else {
+            return Vec::new();
+        };
         let Some(sid) = self.session.clone() else {
             return Vec::new();
         };
