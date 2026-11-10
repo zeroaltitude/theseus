@@ -349,6 +349,22 @@ async fn a_question_answered_on_its_own_connection_lets_the_turn_run_on() {
 /// A `/stop` sent after an input applies once the input is stored, never
 /// after its whole turn: it reaches the turn while its model call runs, and
 /// cuts it. A lane that waited for the turn would wait for the model.
+///
+/// **This one has reddened twice and it is an ORDERING failure, not a wrong
+/// answer** (theseus-4vsrz, B7, line 78; first in patch 3, again in a
+/// `theseus-gm7bd` gate on 2026-11-07, where a paired alone-measurement gave
+/// 0 of 10 on the lane and 0 of 10 on a plain `main` control). What goes is
+/// `turn_running`, and a `false` there has **two different causes that the
+/// message could not tell apart**, which is why the recurrence bought
+/// nothing: either the stop was applied *before* the input was stored, and
+/// the lane broke its arrival order; or the input was stored and its turn had
+/// not reached its model call yet, and the gap is between "stored" and
+/// "running" rather than in the lane at all. The second is a hole in this
+/// contract and the first is a bug in the lane, and they want different
+/// fixes. So the assertion now reports the session's stored inputs **at the
+/// moment of the stop**: `["first"]` names the lane, `["first",
+/// "hold-model, please"]` names the handoff. Nothing here is retried or
+/// loosened — a red is a finding, and it now arrives with its cause.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_after_an_input_reaches_its_running_turn() {
     let r = rig(vec![Scripted::text("first"), Scripted::text("too late")]);
@@ -364,7 +380,16 @@ async fn a_stop_after_an_input_reaches_its_running_turn() {
     ])
     .await;
     let stop = wire.answered(4, "the stop").await;
-    assert_eq!(ok(&stop)["turn_running"], true, "{stop:?}");
+    // Read before the assertion, so a red carries the state the stop saw.
+    let stored = r.inputs(&sid);
+    assert_eq!(
+        ok(&stop)["turn_running"],
+        true,
+        "the stop found no turn running. The session's stored inputs at that moment were {stored:?}: \
+         [\"first\"] alone means the stop was applied before the input, so the lane broke its arrival \
+         order; both inputs means the input was stored and its turn had not reached its model call, so \
+         the gap is between stored and running. {stop:?}"
+    );
     let held = wire.answered(3, "the stopped turn").await;
     r.release();
     let out = held
