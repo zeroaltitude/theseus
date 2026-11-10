@@ -447,7 +447,7 @@ fn real_repo(dir: &Path) -> bool {
 async fn the_date_and_the_git_state_are_in_the_tail_and_the_prefix_does_not_move() {
     // 2026-11-10 is day 20,767 since the epoch; the second pin is a month on.
     let day_a = 20_767i64;
-    let r = rig();
+    let r = rig_with(|c| c.project.tail_facts = Some(true));
     let dir = r.root.join("tide-gauges");
     std::fs::create_dir_all(&dir).unwrap();
     if !real_repo(&dir) {
@@ -493,7 +493,7 @@ async fn the_date_and_the_git_state_are_in_the_tail_and_the_prefix_does_not_move
 
 #[tokio::test]
 async fn a_directory_that_is_no_repository_says_unknown_and_the_turn_goes_on() {
-    let r = rig();
+    let r = rig_with(|c| c.project.tail_facts = Some(true));
     let dir = r.root.join("plain");
     std::fs::create_dir_all(&dir).unwrap();
     let dir = dir.canonicalize().unwrap();

@@ -29,6 +29,9 @@ pub(super) fn date_line(ms: u64) -> String {
 impl TurnRunner {
     /// Attach the date, and the git state where the session may have one.
     pub(super) async fn env_tail(&self, t: &Turn<'_>, compiled: &mut Compiled) {
+        if !self.cfg.project.tail_facts() {
+            return;
+        }
         let mut text = date_line(theseus_protocol::now_unix_ms());
         if t.tc.place().class != crate::places::PlaceClass::Shared && self.tools.enabled() {
             let cwd = self.tools.cwd_for(t.tc.dir);

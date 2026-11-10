@@ -26,6 +26,11 @@ pub struct ProjectConfig {
     /// turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
+    /// Whether each request's tail carries the date and the git state
+    /// (`turn/env_tail.rs`, `docs/design/project-context.md` §4). Absent:
+    /// on. Off, a request is what it was before, byte for byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail_facts: Option<bool>,
 }
 
 impl ProjectConfig {
@@ -36,6 +41,11 @@ impl ProjectConfig {
     /// The level's budget, in tokens.
     pub fn max_tokens(&self) -> u64 {
         self.max_tokens.unwrap_or(MAX_TOKENS)
+    }
+
+    /// Whether the tail carries the date and the git state.
+    pub fn tail_facts(&self) -> bool {
+        self.tail_facts.unwrap_or(true)
     }
 
     /// The level's budget, in bytes of the sections it carries.
