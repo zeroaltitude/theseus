@@ -101,6 +101,8 @@ mod tests_restore;
 #[cfg(test)]
 mod tests_resumed;
 #[cfg(test)]
+mod tests_secret_rules;
+#[cfg(test)]
 mod tests_secret_shapes;
 #[cfg(test)]
 mod tests_session_mints;

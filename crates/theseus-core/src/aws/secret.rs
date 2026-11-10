@@ -121,12 +121,64 @@ pub(super) const HELD: &[(&str, &str, &str)] = &[
     ("grafana", "WorkspaceSummary", "grafanaToken"),
 ];
 
-/// One secret a result held: its handle, and where it was.
+/// Which rule held a secret (theseus-3i6d1).
+///
+/// The walk knew this at `walk`'s first line and threw it away, so an
+/// answer said *that* a value was held and never *why*. The owner's open
+/// question about over-masking turns on the distinction: `grafana
+/// DescribeWorkspace`'s `grafanaToken` is a credential by decision (a
+/// [`HELD`] row) while its workspace `name` is held only because AWS's own
+/// model marks the member and a `WHEN_PRESENT` row runs the walk over the
+/// whole answer. The two were indistinguishable from the record.
+///
+/// Reading, not policy: nothing here changes what is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rule {
+    /// The map key's own shape is marked sensitive, so every value under
+    /// it is (`walk_map`'s `sensitive_key`).
+    SensitiveKey,
+    /// AWS's own model marks the member's shape `sensitive`.
+    Marked,
+    /// The member's name, or a map entry's key, is one of [`NAMED`] or
+    /// ends in one of [`ENDS`].
+    Named,
+    /// A [`HELD`] row names the member in this service.
+    Held,
+    /// The value's characters are a credential's
+    /// ([`super::value_shape::credential_shaped`]), under a key no name
+    /// rule reaches.
+    ValueShape,
+    /// The value is a presigned URL, which carries its own authorisation
+    /// ([`super::presigned::is_presigned`]). Written by the second pass
+    /// over the body, which runs on every call and not only a
+    /// secret-bearing one, so it is a rule of the same family and is named
+    /// beside the others rather than left blank.
+    Presigned,
+}
+
+impl Rule {
+    /// The one word an answer carries. These strings are a surface: a
+    /// reader joins them to a handle, so rename one only with its readers.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Rule::SensitiveKey => "sensitive_key",
+            Rule::Marked => "marked",
+            Rule::Named => "named",
+            Rule::Held => "held",
+            Rule::ValueShape => "value_shape",
+            Rule::Presigned => "presigned",
+        }
+    }
+}
+
+/// One secret a result held: its handle, where it was, and what held it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Held {
     pub handle: String,
     /// The member's path in the output: `SecretString`, `Parameters[1].Value`.
     pub path: String,
+    /// Which rule held it (theseus-3i6d1).
+    pub rule: Rule,
 }
 
 /// A handle's name: `aws-secret:` and what names the secret (the input's
@@ -218,19 +270,27 @@ pub(super) fn named(name: &str, shape: ShapeRef<'_>) -> bool {
 /// Walk `v` along `shape`, replacing every secret with its mask, and
 /// holding its value on `board`. `held` is the service's [`HELD`] rows, as
 /// (shape, member).
+///
+/// `from_above` is the rule the caller already settled for this position —
+/// a [`HELD`] row on the structure member, a marked map key's shape, or a
+/// map value whose characters are a credential's — and it wins, because it
+/// is the more specific reading. It was a bare `bool` until theseus-3i6d1,
+/// which is why nothing could say which rule held what.
 fn walk(
     v: &mut Value,
     shape: ShapeRef<'_>,
     name: Option<&str>,
     path: &str,
-    sensitive: bool,
+    from_above: Option<Rule>,
     held: &[(&str, &str)],
-    keep: &mut dyn FnMut(&str, &Value) -> String,
+    keep: &mut dyn FnMut(&str, &Value, Rule) -> String,
 ) {
-    let secret = sensitive || shape.is_sensitive() || name.is_some_and(|n| named(n, shape));
-    if secret {
+    let secret = from_above
+        .or_else(|| shape.is_sensitive().then_some(Rule::Marked))
+        .or_else(|| name.is_some_and(|n| named(n, shape)).then_some(Rule::Named));
+    if let Some(rule) = secret {
         if let Some(_value) = value_of(v) {
-            let handle = keep(path, v);
+            let handle = keep(path, v, rule);
             *v = masked(v, &handle);
         }
         return;
@@ -246,7 +306,8 @@ fn walk(
                     };
                     let by_shape = held
                         .iter()
-                        .any(|(s, n)| *s == shape.name() && *n == m.name());
+                        .any(|(s, n)| *s == shape.name() && *n == m.name())
+                        .then_some(Rule::Held);
                     walk(x, m.shape(), Some(m.name()), &p, by_shape, held, keep);
                 }
             }
@@ -259,7 +320,7 @@ fn walk(
                         m.shape(),
                         name,
                         &format!("{path}[{i}]"),
-                        false,
+                        None,
                         held,
                         keep,
                     );
@@ -295,7 +356,7 @@ fn walk_map(
     shape: ShapeRef<'_>,
     path: &str,
     held: &[(&str, &str)],
-    keep: &mut dyn FnMut(&str, &Value) -> String,
+    keep: &mut dyn FnMut(&str, &Value, Rule) -> String,
 ) {
     let Some(m) = shape.map_value() else { return };
     let sensitive_key = shape.map_key().is_some_and(|k| k.shape().is_sensitive());
@@ -310,12 +371,19 @@ fn walk_map(
             && !named(k, m.shape())
             && x.as_str()
                 .is_some_and(super::value_shape::credential_shaped);
+        let from_above = if sensitive_key {
+            Some(Rule::SensitiveKey)
+        } else if by_value {
+            Some(Rule::ValueShape)
+        } else {
+            None
+        };
         walk(
             x,
             m.shape(),
             Some(k.as_str()),
             &format!("{path}.{k}"),
-            sensitive_key || by_value,
+            from_above,
             held,
             keep,
         );
@@ -342,7 +410,7 @@ pub fn hold(
     };
     let label = label(operation, input);
     let mut held = Vec::new();
-    let mut keep = |path: &str, v: &Value| -> String {
+    let mut keep = |path: &str, v: &Value, rule: Rule| -> String {
         let h = handle(&label, path);
         if let Some(value) = value_of(v) {
             board.hold(&h, Secret::new(value));
@@ -350,6 +418,7 @@ pub fn hold(
         held.push(Held {
             handle: h.clone(),
             path: path.to_string(),
+            rule,
         });
         h
     };
@@ -358,7 +427,7 @@ pub fn hold(
         .filter(|(s, _, _)| *s == service)
         .map(|(_, shape, member)| (*shape, *member))
         .collect();
-    walk(body, shape, None, "", false, &by_shape, &mut keep);
+    walk(body, shape, None, "", None, &by_shape, &mut keep);
     Ok(held)
 }
 
