@@ -896,7 +896,13 @@ class Overhead(unittest.TestCase):
 
 
 def bin_dir() -> Path | None:
-    d = Path(os.environ.get("THESEUS_RECALL_BIN_DIR") or REPO / "target" / "debug")
+    """Where the gate's `test build` phase just put the binaries. `REPO/target`
+    is not always it (theseus-1eemp): a self build's tree is a worktree whose
+    CARGO_TARGET_DIR is outside the checkout, and this class would then skip
+    itself on every self build, which is the silence theseus-a3woz was written
+    against."""
+    target = os.environ.get("CARGO_TARGET_DIR") or REPO / "target"
+    d = Path(os.environ.get("THESEUS_RECALL_BIN_DIR") or Path(target) / "debug")
     need = ("theseus", "theseusd", "theseus-index", "theseus-sim")
     return d if all((d / b).is_file() for b in need) else None
 

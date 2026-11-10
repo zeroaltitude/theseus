@@ -1348,15 +1348,14 @@ mod probe {
         }
     }
 
-    /// Each clone flag the filter refuses by `clone`'s flags argument, under
-    /// its own key: the next one to probe is a row here and no line in
-    /// `seccomp`.
+    /// Each namespace flag the filter refuses on `clone`, under its own key:
+    /// the next one to probe is a row here and no line in `seccomp`.
     fn clone_flags(put: &mut impl FnMut(&str, Value)) {
-        for (key, flag) in [
+        for (key, flags) in [
             ("clone_newuser", libc::CLONE_NEWUSER),
             ("clone_newnet", libc::CLONE_NEWNET),
         ] {
-            put(key, clone_with(flag));
+            put(key, clone_with(flags));
         }
     }
 
