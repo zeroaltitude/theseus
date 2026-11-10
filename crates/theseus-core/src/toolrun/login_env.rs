@@ -6,7 +6,12 @@
 //! daemon runs `$SHELL -lc env` once, under a deadline, and keeps what it
 //! prints. The names go through `resolve_proc_env`, the same allowlist and the
 //! same secret rule as the configured ones; a refused name is warned about by
-//! name and never by value. The result joins only the environment `proc.run`
+//! name and never by value. The shell is a child of the serving daemon, so it
+//! goes through `theseus_kernel::children::spawn` before anything waits for
+//! it (`run_shell`); unregistered, the daemon's SIGCHLD sweep could reap it as
+//! an orphan and the capture's own wait would fail `ECHILD`, which, because
+//! the capture runs once, would cost that daemon the toolchain for its whole
+//! life. The result joins only the environment `proc.run`
 //! builds (`ToolRuntime::job_base_env`), and the daemon's own value of a name
 //! wins over the shell's.
 
@@ -109,16 +114,29 @@ fn is_executable(path: &str) -> bool {
 }
 
 async fn run_shell(shell: &str, deadline: Duration) -> Result<String, String> {
+    use theseus_kernel::children::{self, Kind};
     let mut cmd = tokio::process::Command::new(shell);
     cmd.args(["-l", "-c", "env"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    // Dropping the timed-out future kills the child.
-    match tokio::time::timeout(deadline, cmd.output()).await {
+    // Registered before anything waits for it, as `op` is
+    // (`Secrets::start`): this runs inside the serving daemon, whose SIGCHLD
+    // sweep reaps any zombie child it does not know as an orphan
+    // (`theseus_kernel::children::sweep`), and the shell's own exit is what
+    // raises that SIGCHLD. Unregistered, the sweep and tokio's process
+    // driver race for the same exit status at every capture, and the loser's
+    // `wait()` is ECHILD. So: register, then wait.
+    let child = match children::spawn(Kind::Owned, || cmd.spawn(), tokio::process::Child::id) {
+        Ok(c) => c,
+        Err(e) => return Err(format!("the login shell did not start: {e}")),
+    };
+    // Dropping the timed-out future drops the child, and `kill_on_drop`
+    // kills it; the wait is inside the timeout, so the registration is not.
+    match tokio::time::timeout(deadline, child.wait_with_output()).await {
         Err(_) => Err(format!("the login shell took over {deadline:?}")),
-        Ok(Err(e)) => Err(format!("the login shell did not start: {e}")),
+        Ok(Err(e)) => Err(format!("the login shell could not be waited for: {e}")),
         Ok(Ok(o)) if !o.status.success() => Err(format!("the login shell exited {}", o.status)),
         Ok(Ok(o)) => Ok(String::from_utf8_lossy(&o.stdout).into_owned()),
     }

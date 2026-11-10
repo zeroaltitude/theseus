@@ -233,3 +233,68 @@ fn parse_skips_noise_and_keeps_the_last_of_a_name() {
         ]
     );
 }
+
+/// The capture's child is registered with the daemon's children registry
+/// before anything waits for it (theseus-v4cj, the rework of the capture).
+///
+/// `theseus_kernel::children`'s rule is that every child the daemon starts
+/// goes through `spawn`: one that did not, and whose spawner waits for it,
+/// can be reaped by the serve path's SIGCHLD sweep as an orphan, and the
+/// spawner's own `wait()` then fails `ECHILD`. `children::census` tells the
+/// two apart without racing anything: a live child of this process that the
+/// registry owns counts in `owned`, and one it does not counts in `orphans`.
+/// So the test holds the shell open at a gate file, reads the census while
+/// the child certainly runs, and asserts both sides — one more owned child,
+/// and no more orphans — so an empty census cannot pass the negative.
+///
+/// Nextest gives each test its own process, so these counts are this test's
+/// own; the deltas are taken regardless. No wall clock is read: the gate is a
+/// file, and the waits are durations given to tokio's timer.
+#[tokio::test]
+async fn the_captures_child_is_registered_and_is_no_orphan() {
+    use theseus_kernel::children;
+    let d = dir("registered");
+    let gate = d.join("let-it-exit");
+    let sh = stub(
+        &d,
+        &format!(
+            "echo JAVA_HOME=/opt/example/jdk\nwhile [ ! -f {} ]; do sleep 0.01; done",
+            gate.display()
+        ),
+    );
+    let before = children::census();
+    let t = runtime(&["JAVA_HOME"], &[]);
+    let capture = t.login_env.capture(Some(&sh), Duration::from_secs(30));
+    let watch = async {
+        let mut seen = None;
+        for _ in 0..1_000 {
+            let c = children::census();
+            if c.owned > before.owned || c.orphans > before.orphans {
+                seen = Some(c);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        std::fs::write(&gate, "go").expect("open the gate");
+        seen
+    };
+    let (got, seen) = tokio::join!(capture, watch);
+    let c = seen.expect("the capture's child appeared among this process's children");
+    assert_eq!(
+        c.owned,
+        before.owned + 1,
+        "the capture's child is registered as owned: {c:?} after {before:?}"
+    );
+    assert_eq!(
+        c.orphans, before.orphans,
+        "and the registry does not read it as an orphan: {c:?} after {before:?}"
+    );
+    // The registration did not cost the capture its result, and the sweep
+    // reaped nothing of it.
+    assert_eq!(got, names(&["JAVA_HOME"]));
+    assert_eq!(
+        children::census().reaped_orphans,
+        before.reaped_orphans,
+        "no sweep took the capture's child"
+    );
+}
