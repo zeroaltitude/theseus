@@ -2641,13 +2641,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   recorded once in `ImportedFrom.diverged_at`, never in `labels.topic`, which `import.topics` makes topics of. A diverged
   episode with nothing after that message is taken quietly: no node is written, the record moves to the new hash and
   takes the mark, it counts in the batch's `appended` but not in `touched`, and the next run skips it (a session that was
-  rewritten and went quiet is not rejected every night). Refused and named: an episode no stored message of which
+  rewritten and went quiet is not rejected every night). **An episode that holds exactly the stored messages and
+  differs only in its tag, place or labels is taken the same quiet way** (the owner's word, 2026-11-10): the hash
+  moves, no node and no mark, it counts in `appended` and not in `touched`. The monthly import tag is in the hash and
+  is the month of the *run* (`scripts/openclaw-export.py`), so refused, a session first imported in one month was
+  offered and refused every night of the next, forever; the append has always kept the tag the session was first
+  imported with, so the take loses nothing. Two conditions, both needed: `e.messages.len() == stored.len()`, never
+  that nothing counted as added (an episode that gained a message at a stored idx adds nothing by that count too, and
+  taking it would drop that message); and a source whose digests this build took (`episode::DIGESTED_SOURCES`), so
+  that equal digests are provably the same text and not the client's claim — for any other source an episode whose
+  text changed while its declared digest did not would be taken and its new text lost, so it is refused as before.
+  Refused and named: an episode no stored message of which
   matches (another episode under a reused id), an episode in which a stored message moved to another idx (the source
   renumbered: an insertion or a compaction; appending past it would lose the new message and write a duplicate;
   `append::moved`, keyed by idx, no message re-mapped), an episode that is only the stored session's first messages and no more
   (an older or cut view: taken, it would move the hash back and the source's current episode would then add nothing, for
-  good), an episode of the same messages with another hash that diverged nowhere and adds nothing (its tag, place or
-  labels differ), and an erased session, which is never appended to; the batch's
+  good), an episode whose prefix matched whole and which holds more messages than the store with each of them at a
+  stored idx, an episode that adds nothing and whose digests this build did not take, and an erased session, which is
+  never appended to; the batch's
   `touched` lists the sessions created or appended to with a new node. Tests: `import/tests_append.rs`,
   `import/tests_topics.rs` (the mark never becomes a topic), `tests_layouts` (an imported session from before the mark),
   the grown file in `tests_harness.rs`.
