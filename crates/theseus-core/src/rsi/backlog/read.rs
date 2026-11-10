@@ -532,7 +532,7 @@ pub fn of_row(pos: u64, row: &LedgerRow) -> Option<Obs> {
         "secrets.failed" | "mcp.failed" => {
             o.key = kind.into();
             o.title = failing_rows(kind).into();
-            o.note = format!("{kind}: {}", word(&d["error"]));
+            o.note = format!("{kind}: {}", failed_why(kind, d));
             o.work = 3;
         }
         _ => return None,
@@ -557,6 +557,39 @@ fn calls_failing(producer: &str) -> String {
 
 fn errors_from(provider: &str, class: &str) -> String {
     format!("Errors from {provider}: {class}")
+}
+
+/// The words a failed lookup's row carries, as one line. `secrets.failed`
+/// nests them as `failed[].error` (a `SecretFailed`: name and error);
+/// `mcp.failed` has no `error` at all: its words are `why`, beside the
+/// `server`. `unknown` only when the row says nothing.
+fn failed_why(kind: &str, d: &Value) -> String {
+    let said = if kind == "secrets.failed" {
+        let errors: Vec<String> = d["failed"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|f| line(f["error"].as_str().unwrap_or(""), 240))
+            .filter(|e| !e.is_empty())
+            .collect();
+        match errors.len() {
+            0 => String::new(),
+            1 => errors[0].clone(),
+            n => format!("{n} failed; first: {}", errors[0]),
+        }
+    } else {
+        let why = line(d["why"].as_str().unwrap_or(""), 240);
+        match line(d["server"].as_str().unwrap_or(""), 60) {
+            server if server.is_empty() => why,
+            server if why.is_empty() => server,
+            server => format!("{server}: {why}"),
+        }
+    };
+    if said.is_empty() {
+        "unknown".into()
+    } else {
+        said
+    }
 }
 
 fn failing_rows(kind: &str) -> &'static str {
@@ -874,6 +907,42 @@ mod tests {
             data,
         };
         of_row(7, &row).unwrap().title
+    }
+
+    /// A failed lookup's note carries the row's own words: `secrets.failed`
+    /// nests them as `failed[].error`, `mcp.failed` says `why` beside its
+    /// server; neither has a top-level `error`, so both once read `unknown`.
+    #[test]
+    fn a_failed_lookups_note_reads_the_nested_words() {
+        assert_eq!(
+            note_of(
+                "secrets.failed",
+                json!({"failed": [{"name": "a-vault-item", "error": "the vault did not answer in 5000 ms"}], "ready": []})
+            ),
+            "secrets.failed: the vault did not answer in 5000 ms"
+        );
+        assert_eq!(
+            note_of(
+                "secrets.failed",
+                json!({"failed": [
+                    {"name": "a", "error": "no such item"},
+                    {"name": "b", "error": "locked"}
+                ]})
+            ),
+            "secrets.failed: 2 failed; first: no such item"
+        );
+        assert_eq!(
+            note_of(
+                "mcp.failed",
+                json!({"server": "notes", "why": "exit status 1", "crashes": 4})
+            ),
+            "mcp.failed: notes: exit status 1"
+        );
+        assert_eq!(
+            note_of("mcp.failed", json!({})),
+            "mcp.failed: unknown",
+            "a row that says nothing still says so"
+        );
     }
 
     /// A backlog item's title is in plain words, and an item filed under the
