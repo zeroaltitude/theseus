@@ -471,15 +471,99 @@ fn resolved(p: &Path) -> io::Result<Option<fs::Metadata>> {
 /// (`Part::ReadWrite`, `bind_rw`) could be given a target, but making it
 /// would write into the operator's real host tree; a workspace overlay
 /// (`Part::Workspace`) could be given one in its own upper layer, which never
-/// reaches the host, so a mask there is makeable and is left undone only
-/// because nothing here does it (an open question, not a property). What does
+/// reaches the host, so a mask there is makeable; the answer below says why it
+/// is still left undone, which was an open question until theseus-3i6d1 and is
+/// now a decision. What does
 /// hold is what the paragraph above says: the job's command does not exist
 /// while the view is built, the root is read-only by the time it does, and a
 /// mount point that was covered cannot be unlinked from inside. So `hidden`
 /// is a promise about what exists when the job starts, and an operator who
 /// needs more must not bind a tree that can gain the hidden name. Two binds,
 /// or a hard link, reaching one inode by a path no resolution derives are the
-/// same residue (the old theseus-quft); the test below pins the skip itself.
+/// same residue (the old theseus-quft); the tests below pin the skip itself
+/// and the window.
+///
+/// **The window's answer** (theseus-3i6d1): accept it, bound it, and say it.
+/// Three closures were weighed first, and each is rejected on evidence in this
+/// tree rather than on taste.
+///
+/// *Cover the nearest existing ancestor instead, and let the kernel resolve at
+/// open time.* It does not widen what the job reaches; it destroys the bind.
+/// `plan` mounts parents first so that a read-only path under HOME lands
+/// inside HOME's tmpfs, so under the config template's own `[sandbox]
+/// ro_paths = ["~/.cargo", "~/.rustup"]` the nearest existing ancestor of
+/// `~/.cargo/credentials` is `~/.cargo`, the bind itself: an empty read-only
+/// tmpfs there hides the registry and the toolchain the operator bound on
+/// purpose. The variant that does work is to decompose the bind — bind each
+/// entry of the parent instead of the parent recursively, leaving the skipped
+/// name with no backing at all — and it closes the window without refusing
+/// anything and without writing to the host. Its costs are a mount per entry
+/// per level, `bind_ro`'s recursive-bind reason to re-derive for each one, a
+/// view that no longer shows a file the host gains legitimately, and a changed
+/// mount table, which several §7 clauses read. Not small, and not provable on
+/// a host that cannot build a view.
+///
+/// *Refuse a hidden path that resolves to nothing, rather than skipping it.*
+/// It would refuse nearly every job. theseus-core's `sandbox::CREDENTIALS` is
+/// appended to every view's `hidden` unconditionally, HOME here is an empty
+/// tmpfs, and the floor's own paths are a daemon's state: an entry resolves to
+/// nothing whenever no bind shows its directory or the host does not hold the
+/// file, which is the common case, not the odd one. It also reverses
+/// theseus-txh9w's landed rule that a hidden entry never stops a job. The
+/// narrower form — refuse only where the skipped path falls inside a live
+/// window — fails on the same default: two of the three `CREDENTIALS` entries
+/// sit under the template's first `ro_paths` entry, so a machine where `cargo
+/// login` has never run would refuse every L1 job. (The cost is not "jobs that
+/// name a path they are about to create": no job names this list. It is every
+/// job.) What plain `origin/main` did to the dangling half before txh9w was
+/// an accident of a non-following read, not a policy, so it is no precedent.
+///
+/// *Re-check at the job's open.* There is no hook. `seccomp.rs` is classic BPF
+/// that allows by default and denies a list with `RET_ERRNO`; it has no
+/// `RET_USER_NOTIF` and there is no supervisor to hold one, and standing a
+/// userspace decision in front of every `openat` of every job is the wrong
+/// shape for §2.2's 25 ms start.
+///
+/// *So: accept it, and bound it.* What bounds it, each read off the code
+/// above. Only a live window carries it: `Part::ReadOnly`, `Part::ReadWrite`
+/// (a self build's launcher alone sets `Spec::rw`) and a workspace overlay's
+/// lower layer. The view's own root is read-only from the `mount_setattr` in
+/// `build`, and HOME, `/tmp`, `/dev/shm` and scratch hold the job's own bytes,
+/// so a name the job makes there is its own content and no leak. The job
+/// cannot open the window itself: a read-only bind refuses its writes and a
+/// workspace's go to scratch, so the writer must be a process on the host,
+/// outside the sandbox. Every live window in a view is a path the operator
+/// named. And `[sandbox] egress` is empty by default, so what a job reads has
+/// no route out that the operator did not give it.
+///
+/// *And say it — which is the one thing not built.* `mask` tells no one it
+/// skipped: it answers `Ok(())` and no reader ever learns a hidden entry was
+/// left open. The shape is NOTIFY OVER BLOCK (§2), and it is why none of the
+/// three closures is taken: `mask` should answer whether it covered or
+/// skipped; `build` should keep the skipped entries that lie inside a live
+/// window (a pure path test against `Spec::ro_paths`, `rw` and `workspace`);
+/// they should ride `report::Started` beside `sys`, which is already that
+/// channel for what the view could not do; theseus-kernel's `job_l1` should
+/// put them in `detail["sandbox"]`, as it does `granted` and `skipped`; and
+/// theseus-core should make that a row and a line of the result's head, as it
+/// does `sandbox.egress_refused`. Specified, not built: it crosses three
+/// crates and a new fact, and no behavioural test of it can run on a host that
+/// refuses every L1 job.
+///
+/// The workspace mask stays undone for a reason of its own: its target would
+/// be made in scratch's upper layer, which `View.scratch` keeps open precisely
+/// to report what the job wrote, so masking there would put the harness's own
+/// files in the job's write report (`report::Scratch`). It is makeable, and it
+/// should follow a fix to that report, not precede it.
+///
+/// None of this touches the residue above. A skipped path and a second path to
+/// a covered inode are the same defect — a cover is placed at a path, and a
+/// path is not an inode — but the notify answer reports a *skipped* entry, and
+/// in the residue's case the entry resolved and *was* covered; what leaks is a
+/// name that was never on the list. Closing that means masking by inode, which
+/// is a walk of every live bind at every job start, against the same 25 ms. So
+/// the residue stays named and unowned here, and this answer does not claim
+/// it.
 fn mask(p: &Path) -> io::Result<()> {
     let Some(m) = resolved(p)? else {
         return Ok(());
@@ -663,6 +747,52 @@ mod tests {
         }
         assert!(!absent.exists(), "mask made the absent path");
         assert!(dangling.symlink_metadata().is_ok(), "mask removed the link");
+    }
+
+    /// The window `mask`'s doc names, reduced to what runs without
+    /// privileges (theseus-3i6d1): the mask installs nothing at a path that
+    /// resolves to nothing, so the name is still a usable name, and content
+    /// that arrives at it afterwards reads in full. The temp dir stands in
+    /// for a `ro_paths` bind, whose directory is the host's own and goes on
+    /// being the host's for as long as the job runs; what this cannot drive
+    /// is the privileged half (a real job, a real bind, the content written
+    /// on the host while the job runs), which needs a host that can build
+    /// an L1 view at all — `crates/theseusd/tests/sandbox.rs`, never a root
+    /// box. If a later step closes the window, this test is what fails, and
+    /// `mask`'s doc and `Spec::hidden`'s are what must change with it.
+    #[test]
+    fn content_that_arrives_after_the_mask_is_readable_at_the_name_it_skipped() {
+        let tmp = tempfile::tempdir().expect("a temp dir");
+        let absent = tmp.path().join("credentials");
+        let dangling = tmp.path().join("linked");
+        std::os::unix::fs::symlink(tmp.path().join("gone"), &dangling).unwrap();
+        // At the moment the view is built, neither resolves, so both are
+        // skipped and no cover is made (`mask` makes no mount at all here:
+        // every other arm of it would, which is why this test uses only the
+        // two shapes that resolve to nothing).
+        for p in [&absent, &dangling] {
+            assert!(resolved(p).unwrap().is_none(), "{} resolves", p.display());
+            mask(p).expect("a path that resolves to nothing is skipped");
+        }
+        // The content arrives afterwards, as the host's writer makes it.
+        let secret = "[registry]\ntoken = \"not-a-real-token\"\n";
+        fs::write(&absent, secret).expect("the absent path's content");
+        fs::write(tmp.path().join("gone"), secret).expect("the link's target");
+        // Both names now resolve, and both read in full: the bytes, not a
+        // cover's empty file, and not a short read.
+        for p in [&absent, &dangling] {
+            let m = resolved(p)
+                .expect("a resolution")
+                .unwrap_or_else(|| panic!("{} still resolves to nothing", p.display()));
+            assert!(m.is_file(), "{}", p.display());
+            assert_eq!(m.len(), secret.len() as u64, "{}", p.display());
+            assert_eq!(
+                fs::read_to_string(p).expect("the content").as_str(),
+                secret,
+                "{}",
+                p.display()
+            );
+        }
     }
 
     #[test]

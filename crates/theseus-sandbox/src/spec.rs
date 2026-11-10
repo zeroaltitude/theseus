@@ -24,12 +24,24 @@ pub struct Spec {
     pub ro_paths: Vec<PathBuf>,
     /// The operator's HOME, an empty tmpfs at the same path.
     pub home: Option<PathBuf>,
-    /// Paths covered in the view whatever binds them (17b: Theseus's floor,
-    /// its store, spool, bindings, token, and socket): a directory by an
-    /// empty read-only tmpfs, a file or socket by `/dev/null`. An entry is
-    /// covered at what it resolves to in the view, so a symlink hides the path
-    /// it names; one that resolves to nothing there is skipped, and neither a
-    /// link nor a dangling link ever stops the job (theseus-txh9w).
+    /// Paths covered in the view, whatever bound them when it was built (17b:
+    /// Theseus's floor, its store, spool, bindings, token, and socket): a
+    /// directory by an empty read-only tmpfs, a file or socket by `/dev/null`.
+    /// An entry is covered at what it resolves to in the view, so a symlink
+    /// hides the path it names; one that resolves to nothing there is skipped,
+    /// and neither a link nor a dangling link ever stops the job
+    /// (theseus-txh9w).
+    ///
+    /// **What the list promises is what exists when the job starts, not what
+    /// the job can read.** A cover is a mount, made once, at a path that
+    /// resolved to something; an entry that resolved to nothing was skipped,
+    /// and a bind of the host's tree is a live window, not a copy, so content
+    /// written on the host under that bind at a skipped name afterwards is
+    /// readable by the job, unmasked. `view::mask`'s doc is the whole of it:
+    /// which parts carry that window, why no mount can close it for a
+    /// read-only bind, and the residue (two binds, or a hard link, reaching
+    /// one inode by a path no resolution derives). An operator who needs more
+    /// must not bind a tree that can gain a hidden name (theseus-3i6d1).
     #[serde(default)]
     pub hidden: Vec<PathBuf>,
     pub hostname: String,
