@@ -13,6 +13,17 @@ Put depth in the design docs.
   says "size: skipped: no release build of <commit>". It fails on growth over 1 MB, not on §9's 60 MB.
   `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
+- `prompt-step.sh` (theseus-4vsrz, B7): the gate's `prompt` phase, which **never fails it**. It runs
+  `theseus-sim bench prompt` on the debug binaries after the test build (like `recall-tests.sh`, and for the same
+  reason: a stale daemon counts the previous head's prompt) and says `prompt: skipped: no <path>` when either
+  binary is missing. Besides the first request's total per place, the bench records the **session's own context**
+  and its share of `[routing] cold_switch_tokens` — the figure the deleted `tests_route_cliff` assertion used to
+  watch and that nothing watched after 2026-11-08 — warned of on movement off
+  `crates/theseus-sim/baselines/prompt.json` and never gated. **The first run of it found two divergences nothing
+  had been watching** (2026-11-10): `channel` +8.3 % over its baseline, and `dm` at 9,700 against a committed 14,586,
+  a third below it. Neither baseline was moved by the row that added the phase — moving one is a deliberate act. **Every failure path here prints and exits 0 on purpose:** `shape.sh` owns the hard ceilings, and
+  a second hard gate on a share nobody has calibrated would redden departures for figures legally inside their
+  limits. Tested by `crates/theseus-sim/tests/prompt_step.rs`; its stand-in for `test_gate_tree.py` is in `COMMITTED`.
 - `scrub-added.sh`, `test_scrub_added.py` (theseus-ev3ir): the gate's `scrub` phase. The name scrub (`scrub_check.py --strict`)
   over the lines a branch ADDS since the range's base (committed, uncommitted, and untracked new files, which is what a new
   `.cases.toml` is) and its commit messages (at a staged join, MERGE_HEAD's too); a hit in a blocking family (employer, the
@@ -56,6 +67,19 @@ Put depth in the design docs.
   N. **The count had been wrong in four successive briefs (4, then 35, then 40, then 36), and the tree totalled 40
   on `5e71c15a`**: regenerate the block, never edit the number. **It is deliberately NOT a gate phase** — an
   `--expect` there would fail a branch over a host's measured number that nobody has recalibrated.
+- `invariant-pressure.py`, `tests/test_invariant_pressure.py` (theseus-4vsrz): every per-file numeric invariant and
+  its headroom in one second, for a cut to run on the STAGED MERGE before the gate -- each `long-files.txt` entry and
+  each unlisted Rust file within `--margin` lines of its limit (`path n/limit  N left`, or `OVER by N`), the functions
+  at or over clippy's 100 (by calling `line-pressure.py`, never counting again), and the `MustBeComplete` censuses as a
+  ROSTER (`item`, `least`, `stale_fails`), named and not measured: a second walk of the same world here would be a
+  second copy of the rule, free to disagree with the test that holds it. `--since REV` marks `(+N in this range)`
+  against each invariant the range moved, which answers "which branch spent the room". Like `line-pressure.py` it
+  **always exits 0 on a report** (2 only when it read nothing): a second gate on these numbers would be a second
+  ceiling the next merge has to argue with, and `shape.sh` and clippy are the ones that hold them. Why these numbers
+  are a property of the BATCH and not of the branch, with the inventory and the two shapes that are worse, is
+  `docs/design/invariant-merge-class.md`. Its own unit test runs in the `script tests` phase with the rest of
+  `scripts/tests/` and never fatally (`tests/*` above); alone it is `python3 -m unittest -q
+  scripts/tests/test_invariant_pressure.py`.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
