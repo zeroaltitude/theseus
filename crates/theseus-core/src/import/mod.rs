@@ -258,7 +258,9 @@ pub struct ImportedFrom {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triage: Option<EpisodeTriage>,
     pub as_of: AsOf,
-    /// Its messages, and whether a summary node was written.
+    /// The number of message nodes the store holds for the session (a first
+    /// import writes the episode's length, an append adds the nodes it wrote),
+    /// and whether a summary node was written.
     pub messages: u32,
     pub summary: bool,
     /// The file it was read from, as the client named it, and its line.

@@ -305,18 +305,7 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
             let v = conn.request(method::ROUTINE_CREATE, p).await?;
             output(json, v, |r: RoutineEditResult| {
                 let i = &r.routine;
-                println!(
-                    "routine {} ({}) made: {}, next {}{}; up to {} a run and {} a month; \
-                     `theseus routine runs {}`",
-                    i.short,
-                    i.title,
-                    i.series,
-                    next_of(i),
-                    stop_of(i),
-                    usd(i.run_usd),
-                    usd(i.month_usd),
-                    i.short
-                );
+                println!("{}", made_line(i));
                 Ok(())
             })
         }
@@ -355,6 +344,23 @@ async fn write(conn: &mut Conn, json: bool, cmd: RoutineCmd) -> Result<()> {
         }
         _ => unreachable!("`run` sends only add and update here"),
     }
+}
+
+/// `routine a41d04 (Morning digest) made: ...`: what `routine add` prints. The
+/// two figures are the routine's own budget, as the card says, not a system cap.
+pub fn made_line(i: &RoutineInfo) -> String {
+    format!(
+        "routine {} ({}) made: {}, next {}{}; its own budget, not a system cap: \
+         up to {} a run, {} a month; `theseus routine runs {}`",
+        i.short,
+        i.title,
+        i.series,
+        next_of(i),
+        stop_of(i),
+        usd(i.run_usd),
+        usd(i.month_usd),
+        i.short
+    )
 }
 
 /// `a41d04 weekdays 08:00 Morning digest  next Fri 08:00 · $0.50/run · $1.50 of $10 this month · dm`
@@ -491,6 +497,16 @@ mod tests {
                 blocked: None,
             }),
         }
+    }
+
+    #[test]
+    fn a_made_routine_says_whose_budget_the_figures_are() {
+        let l = made_line(&info());
+        assert!(
+            l.contains("its own budget, not a system cap: up to $0.50 a run, $10.00 a month"),
+            "{l}"
+        );
+        assert!(!l.contains("a run and"), "{l}");
     }
 
     #[test]

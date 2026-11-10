@@ -10,6 +10,8 @@ use theseus_protocol::context::ContextExplainResult;
 use theseus_protocol::why::{tools_called, turn_rows, why_lines, WhyInput};
 use theseus_protocol::{method, LedgerTailResult, NodeListResult, PolicyExplainResult, RpcError};
 
+use theseus_client::resolve;
+
 use super::state::{call, Chat, Effect, Purpose};
 use super::style::Sty;
 
@@ -23,19 +25,28 @@ pub enum WhyPart {
     Policy,
     Route,
     Nodes,
+    /// The session's turns, read to name the one `/why TURN` was given.
+    Turns,
 }
 
 /// The four answers so far; `None` is not yet answered, and a side read that
 /// failed is `Some(None)`.
 #[derive(Debug, Default)]
 pub struct WhyRead {
+    /// The turn a person named, until it is resolved.
+    given: Option<String>,
     context: Option<Result<Value, String>>,
     policy: Option<Option<Value>>,
     route: Option<Option<Value>>,
     nodes: Option<Option<Value>>,
 }
 
-pub(super) fn why(chat: &mut Chat, _args: &str) -> Vec<Effect> {
+/// `/why [TURN]`: with no argument the newest turn; with one, the turn it names
+/// (a whole id or a unique start or end of one, as `theseus why TURN` takes it).
+/// A named turn is looked for among the session's `turn.started` rows first, so
+/// a refusal costs one read of the list and the four reads of the record never
+/// go out for a name that is not a turn.
+pub(super) fn why(chat: &mut Chat, args: &str) -> Vec<Effect> {
     let Some(sid) = chat.session.clone() else {
         chat.flash("the conversation is not open yet");
         return Vec::new();
@@ -44,14 +55,38 @@ pub(super) fn why(chat: &mut Chat, _args: &str) -> Vec<Effect> {
         chat.flash("still reading it");
         return Vec::new();
     }
-    chat.why = Some(WhyRead::default());
+    let given = resolve::trimmed(args);
+    if given.is_empty() {
+        chat.why = Some(WhyRead::default());
+        return reads(&sid, None);
+    }
+    // Too short to name a turn: refused before anything is read.
+    if given.chars().count() < resolve::SHORTEST {
+        if let Err(e) = resolve::pick_turn(&[], given, "") {
+            chat.flash(e.to_string());
+        }
+        return Vec::new();
+    }
+    chat.why = Some(WhyRead {
+        given: Some(given.to_string()),
+        ..WhyRead::default()
+    });
+    vec![call(
+        method::LEDGER_TAIL,
+        json!({ "n": ROWS, "kind": "turn.started", "session_id": sid }),
+        Purpose::Why(WhyPart::Turns),
+    )]
+}
+
+/// The four reads of one turn: the newest when `turn` is `None`.
+fn reads(sid: &str, turn: Option<&str>) -> Vec<Effect> {
     let ask = |m, params, p| call(m, params, Purpose::Why(p));
+    let mut explain = json!({ "session_id": sid });
+    if let Some(t) = turn {
+        explain["turn_id"] = json!(t);
+    }
     vec![
-        ask(
-            method::CONTEXT_EXPLAIN,
-            json!({ "session_id": sid }),
-            WhyPart::Context,
-        ),
+        ask(method::CONTEXT_EXPLAIN, explain, WhyPart::Context),
         ask(
             method::POLICY_EXPLAIN,
             json!({ "session_id": sid }),
@@ -77,6 +112,9 @@ impl Chat {
         part: WhyPart,
         result: Result<Value, RpcError>,
     ) -> Vec<Effect> {
+        if part == WhyPart::Turns {
+            return self.why_turn_named(result);
+        }
         let Some(read) = self.why.as_mut() else {
             return Vec::new();
         };
@@ -86,6 +124,7 @@ impl Chat {
             WhyPart::Policy => read.policy = side(result),
             WhyPart::Route => read.route = side(result),
             WhyPart::Nodes => read.nodes = side(result),
+            WhyPart::Turns => {}
         }
         if read.context.is_some()
             && read.policy.is_some()
@@ -97,6 +136,38 @@ impl Chat {
             }
         }
         Vec::new()
+    }
+
+    /// The list of turns has answered: the turn `/why` was given, or the
+    /// refusal, in the dock's own voice.
+    fn why_turn_named(&mut self, result: Result<Value, RpcError>) -> Vec<Effect> {
+        let given = self.why.take().and_then(|w| w.given).unwrap_or_default();
+        let Some(sid) = self.session.clone() else {
+            return Vec::new();
+        };
+        let mut rows = match result
+            .map_err(|e| e.message)
+            .and_then(|v| serde_json::from_value::<LedgerTailResult>(v).map_err(|e| e.to_string()))
+        {
+            Ok(l) => l.rows,
+            Err(m) => {
+                self.flash(format!("could not read the turns: {m}"));
+                return Vec::new();
+            }
+        };
+        rows.sort_by_key(|r| std::cmp::Reverse(r.position));
+        let ids: Vec<&str> = rows.iter().filter_map(|r| r.turn_id.as_deref()).collect();
+        let listed = "the newest {n} turns of the session";
+        match resolve::pick_turn(&ids, &given, listed) {
+            Ok(turn) => {
+                self.why = Some(WhyRead::default());
+                reads(&sid, Some(&turn))
+            }
+            Err(e) => {
+                self.flash(e.to_string());
+                Vec::new()
+            }
+        }
     }
 
     fn say_why(&mut self, read: WhyRead) {

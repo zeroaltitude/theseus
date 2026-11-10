@@ -589,7 +589,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
   asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
   never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
-  (`capture::owner_alone`: no place, or an owner's DM) and never a task's. `judge_inbound` hands its judgment to
+  (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
+  outstanding card is open (`docs/design/abandon-said-in-words.md`). `judge_inbound` hands its judgment to
   `Core::capture_directive` once the batch settles, off the turn's path. The bands are the pack's own (`act` 0.80, `confirm`
   0.50): `capture::decide` (pure) keeps at the act band, asks from the confirm band, and below it only notes a correction
   (`standing.candidate`) to propose it when its words overlap one noted in the last week (`capture::words::same`); an order
@@ -2620,7 +2621,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   episode with nothing after that message is taken quietly: no node is written, the record moves to the new hash and
   takes the mark, it counts in the batch's `appended` but not in `touched`, and the next run skips it (a session that was
   rewritten and went quiet is not rejected every night). Refused and named: an episode no stored message of which
-  matches (another episode under a reused id), an episode that is only the stored session's first messages and no more
+  matches (another episode under a reused id), an episode in which a stored message moved to another idx (the source
+  renumbered: an insertion or a compaction; appending past it would lose the new message and write a duplicate;
+  `append::moved`, keyed by idx, no message re-mapped), an episode that is only the stored session's first messages and no more
   (an older or cut view: taken, it would move the hash back and the source's current episode would then add nothing, for
   good), an episode of the same messages with another hash that diverged nowhere and adds nothing (its tag, place or
   labels differ), and an erased session, which is never appended to; the batch's
@@ -3445,7 +3448,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The ledger's hash chain** (theseus-bmkxk, store format 31): the store's writer chains every ledger row
   (`theseus-store`'s guide); core reads it. `ledger.verify` (`rpc/ledger_verify.rs`, a read: no frame, no lock, on the
   blocking pool; `theseus ledger verify|head`) walks it with `theseus_store::chain_walk::verify` and answers the head and
-  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short. `ledger_pin.rs`: a store
+  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short, and its `ledger_gap` is the store's index gap while one
+  stands (`ledger_gap.rs`, theseus-lu5n: the log keeps recording, the next open replays; a `ledger-gap` thread looks once
+  a second, holds the core by `Weak`, and posts one `notice` to the owner per gap, since the writer that sees it cannot
+  post a frame from where it stands). `ledger_pin.rs`: a store
   from before the chain has its old rows pinned once, after serving, on a `ledger-pin` thread that paces itself and holds
   the core by `Weak` and begins `START_AFTER` (2 s) after serving (a thread holding the store at a stop right after serving keeps its close from checkpointing: `early_signal` fails; `ledger.history_pinned` and the META key `ledger.history_pinned` in one frame; the chain's start
   row counts them, so the start path reads no history). The durability tender puts the head (`SEQ:DIGEST`) on each
@@ -3553,7 +3559,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   binding alone, a conversation that speaks in a Discord place of any class: `rpc/work_board.rs::may_watch`, theseus-2j2ka;
   it draws that place's board in that place), scrubbed, and cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
   counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
-  question's reminder (rule 2 of the policy) is not made. **The daemon's own work** (theseus-jn17m; `push/work/system.rs`):
+  question's reminder (rule 2 of the policy) is made on the driver's tick (`WorkBoard::remind`, `settle.rs`). A task's
+  view carries `WorkView.forum_url`, answered by a registry the Discord runtime sets (`Push::set_task_links`, kept
+  across the seed's carry-over in `Push::ensure`); `WorkBoard::relink` (`seed.rs`) patches the held views when the
+  registry is set and after the carry-over, so a restart keeps an ended task's link (theseus-emqbm; tests
+  `tests_retry.rs`). **The daemon's own work** (theseus-jn17m; `push/work/system.rs`):
   one root, `system` (`Theseus`, kind `System`), whose children are the system jobs of the last hour, made from rows the
   daemon already writes, in the frames it already writes: `import.batch` (a client's `batch` and `batches` ride the
   params and the row, and the tag's source; the last batch, `batch == batches`, ends the job; the sync's batches carry no

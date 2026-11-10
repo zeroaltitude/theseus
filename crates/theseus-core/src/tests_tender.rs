@@ -725,8 +725,10 @@ async fn health_waits_no_longer_than_its_deadline_on_a_tender_that_does_not_answ
     );
     assert_eq!(h.state, "ready", "its last answer");
     let why = h.why.unwrap();
+    // The stand-in never answers, so at the caller's deadline its read is
+    // still out: said so (theseus-la5oc, the review's F3).
     assert!(
-        why.starts_with("its socket did not answer (no answer within 100 ms): its status as of "),
+        why.starts_with("its status read is still out after 100 ms: its status as of "),
         "{why}"
     );
     task.abort();
@@ -865,4 +867,53 @@ fn query_threads_reaches_the_tenders_command_line() {
         crate::Config::parse(&toml).unwrap().0.index.query_threads,
         2
     );
+}
+
+/// A stand-in tender on `<state>/index/sock` that answers every request with
+/// an error (an `index.status` the tender refuses). `stand_in_with` answers
+/// `index.status` only with success, and its existing users rely on `ready`.
+fn refusing_stand_in(state: &Path) {
+    let dir = state.join("index");
+    std::fs::create_dir_all(&dir).unwrap();
+    let listener = tokio::net::UnixListener::bind(dir.join("sock")).unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((s, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let (r, mut w) = s.into_split();
+                let mut lines = BufReader::new(r).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let req: Request = serde_json::from_str(&line).unwrap();
+                    let resp = Response::err(req.id, -32001, "no vector for that node yet");
+                    let mut out = serde_json::to_vec(&resp).unwrap();
+                    out.push(b'\n');
+                    if w.write_all(&out).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// A running tender that answers `index.status` with an error is told as
+/// refused, never as a socket that "did not answer" (`down_why`).
+#[tokio::test]
+async fn a_tender_that_refuses_its_status_read_is_not_said_to_be_silent() {
+    let dir = tempfile::tempdir().unwrap();
+    let os = Arc::new(FakeOs::default());
+    let (t, _) = supervisor(IndexConfig::default(), dir.path(), os.clone());
+    let task = tokio::spawn(t.clone().run());
+    settle().await;
+    assert_eq!(t.status().unwrap().state, "running");
+    refusing_stand_in(dir.path());
+    let h = t.health(HEALTH_DEADLINE).await;
+    assert_eq!(h.state, "down");
+    assert_eq!(
+        h.why.as_deref(),
+        Some("its status read was refused: no vector for that node yet (-32001)")
+    );
+    task.abort();
 }

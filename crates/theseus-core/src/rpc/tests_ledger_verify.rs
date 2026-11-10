@@ -71,3 +71,56 @@ async fn an_anchor_that_is_not_one_is_refused() {
         assert_eq!(e.code, error_code::INVALID_PARAMS, "{bad}");
     }
 }
+
+fn report_broken(
+    position: u64,
+    fault: theseus_store::chain_walk::Fault,
+) -> theseus_store::chain_walk::Report {
+    theseus_store::chain_walk::Report {
+        rows: 3,
+        since_ms: None,
+        head: None,
+        unchained: 0,
+        history_checked: false,
+        broken: Some(theseus_store::chain_walk::Break {
+            position,
+            at_unix_ms: 1_790_000_000_000,
+            kind: Some("turn.started".into()),
+            seq: Some(5),
+            fault,
+            detail: "the walk's own words".into(),
+        }),
+    }
+}
+
+/// The note fires only for a break strictly past the gap (`b.position > at`).
+/// A break AT the gap is not pinned as reachable: `say_gap` records
+/// `wal.last_position().max(1)` when the write fails, so the unindexed frames
+/// end at `at`, and only a later indexed row can produce the break. The
+/// `position == at` tuple below holds the boundary all the same.
+#[test]
+fn a_removed_break_past_an_index_gap_names_the_gap_and_stays_broken() {
+    use theseus_store::chain_walk::Fault;
+    let removed = || Fault::Removed { missing: 1 };
+    let v = super::ledger_verify::result_of(report_broken(9, removed()), 0, Some(5));
+    let b = v.broken.expect("still broken");
+    assert!(!v.ok);
+    assert_eq!((b.fault.as_str(), b.missing), ("removed", Some(1)));
+    assert!(b.detail.starts_with("the walk's own words"), "{}", b.detail);
+    assert!(
+        b.detail.contains("index gap") && b.detail.contains("position 5"),
+        "{}",
+        b.detail
+    );
+    assert!(b.detail.contains("real break"), "{}", b.detail);
+    for (r, gap) in [
+        (report_broken(9, removed()), None),
+        (report_broken(4, removed()), Some(5)),
+        (report_broken(5, removed()), Some(5)),
+        (report_broken(9, Fault::Edited), Some(5)),
+    ] {
+        let v = super::ledger_verify::result_of(r, 0, gap);
+        assert!(!v.ok);
+        assert_eq!(v.broken.unwrap().detail, "the walk's own words");
+    }
+}

@@ -638,3 +638,109 @@ async fn a_nights_rewritten_sessions_are_all_taken_and_none_refused_the_night_af
     assert_eq!(got.rejected[0].line, 6, "{:?}", got.rejected);
     assert_eq!(c.store.stats().unwrap().frames_appended, frames);
 }
+
+/// An episode of `0..10` whose messages carry the texts `texts[i]` at idx `i`
+/// (the source renumbered: texts move between idxs, never idxs alone).
+fn with_texts(n: u64, tag: &str, texts: &[u32]) -> Value {
+    let idxs: Vec<u32> = (0..texts.len() as u32).collect();
+    let mut e = sync(n, tag, &idxs);
+    for (k, t) in texts.iter().enumerate() {
+        e["messages"][k]["text"] = json!(text(*t));
+    }
+    e["hash"] = json!(episode::hash_of(&e));
+    e
+}
+
+/// A refused renumbering writes nothing and moves nothing.
+async fn refused_and_untouched(c: &std::sync::Arc<crate::Core>, n: u64, e: Value, named: &str) {
+    let frames = c.store.stats().unwrap().frames_appended;
+    let got = import(c, lines(std::slice::from_ref(&e))).await;
+    assert_eq!(got.rejected.len(), 1, "{got:?}");
+    assert!(got.rejected[0].why.contains(named), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+    let (rec, idxs) = stored(c, n);
+    assert_eq!(idxs, (0..10).collect::<Vec<u32>>(), "the positive count");
+    let imp = rec.imported.as_deref().unwrap();
+    assert_ne!(
+        imp.hash,
+        e["hash"].as_str().unwrap(),
+        "the hash is not moved"
+    );
+    assert!(imp.diverged_at.is_empty());
+}
+
+/// A new message inserted at 3, the rest shifted by one: refused, not taken
+/// with the new message lost and the last one written twice.
+#[tokio::test]
+async fn an_insertion_that_renumbers_is_refused_and_named() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(40, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 90, 3, 4, 5, 6, 7, 8, 9];
+    refused_and_untouched(
+        c,
+        40,
+        with_texts(40, "openclaw-sync-2026-11", &t),
+        "message 4 holds what stored message 3 held",
+    )
+    .await;
+}
+
+/// A compaction that renumbers is refused, and stays refused when the
+/// session then grows.
+#[tokio::test]
+async fn a_renumbered_compaction_is_refused_even_when_it_grows() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(41, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 6, 7, 8, 9];
+    refused_and_untouched(
+        c,
+        41,
+        with_texts(41, "openclaw-sync-2026-11", &t),
+        "renumbered",
+    )
+    .await;
+    let t = [0, 1, 2, 6, 7, 8, 9, 91];
+    refused_and_untouched(
+        c,
+        41,
+        with_texts(41, "openclaw-sync-2026-12", &t),
+        "renumbered",
+    )
+    .await;
+}
+
+/// An insertion just before the last stored message: the last text moves to
+/// an idx that is not stored, and is still caught.
+#[tokio::test]
+async fn an_insertion_before_the_last_stored_message_is_refused() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(42, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 3, 4, 5, 6, 7, 8, 92, 9];
+    refused_and_untouched(
+        c,
+        42,
+        with_texts(42, "openclaw-sync-2026-11", &t),
+        "renumbered",
+    )
+    .await;
+}
+
+/// The guard: message 3 rewritten in place and a new idx 10 repeating an
+/// old text exactly is no move (no stored message left its idx): appended.
+#[tokio::test]
+async fn an_in_place_rewrite_with_a_new_message_repeating_an_old_text_is_appended() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(43, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 93, 4, 5, 6, 7, 8, 9, 4];
+    let got = import(c, lines(&[with_texts(43, "openclaw-sync-2026-11", &t)])).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 1), "{got:?}");
+    let (rec, idxs) = stored(c, 43);
+    assert_eq!(idxs, (0..11).collect::<Vec<u32>>());
+    assert_eq!(rec.imported.as_deref().unwrap().diverged_at, vec![3]);
+}

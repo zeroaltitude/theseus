@@ -305,6 +305,8 @@ impl Push {
                     let mut held = self.work.lock().unwrap();
                     let mut work = work;
                     work.task_links = held.task_links.take();
+                    // The seeded views were built with no registry: apply it.
+                    work.relink();
                     *held = work;
                 }
                 // Jobs running as the daemon started are sampled too.
@@ -483,7 +485,11 @@ impl Push {
     /// (theseus-emqbm). Set by the Discord runtime at start, which holds its
     /// own state weakly. Lives on the push, since the work board is built here.
     pub fn set_task_links(&self, f: TaskLinks) {
-        self.work.lock().unwrap().task_links = Some(f);
+        let mut work = self.work.lock().unwrap();
+        work.task_links = Some(f);
+        // Views seeded before the registry (an ended task gets no frame to
+        // rebuild it) take its answers now; an unseeded board holds none.
+        work.relink();
     }
 
     /// The thread groups the work board holds.

@@ -97,7 +97,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "why",
-        help: "what the last turn's model was shown, and why",
+        help: "what a turn's model was shown, and why: the newest, or /why TURN",
         run: super::why::why,
     },
     // Debug builds only: the test that proves the terminal comes back after a

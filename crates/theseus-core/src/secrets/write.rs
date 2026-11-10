@@ -35,6 +35,9 @@ impl Kept {
     }
 }
 
+/// What a write of a whitespace-only value is told, before any write.
+pub const BLANK_REFUSED: &str =
+    "the secret is blank (spaces or newlines only); nothing was written";
 pub const ENV_REFUSED: &str = "an env ref can't be written; point it at op:// or file:";
 
 fn digest(s: &str) -> [u8; 32] {
@@ -236,6 +239,9 @@ impl OpReader {
 pub async fn store(reader: &OpReader, reference: &str, value: &Secret) -> Result<Kept, String> {
     match Source::of(reference) {
         Source::Env => Err(ENV_REFUSED.into()),
+        // A blank value reads back empty (reads are trimmed, theseus-h66v4.5), so
+        // it would be written and then reported as a failure: refuse it first.
+        _ if value.expose().trim().is_empty() => Err(BLANK_REFUSED.into()),
         Source::File => write_file(reference, value).map(|()| Kept::File),
         Source::Vault => reader
             .write_field(reference, value)

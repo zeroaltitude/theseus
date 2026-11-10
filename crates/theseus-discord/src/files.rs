@@ -498,21 +498,39 @@ mod tests {
         (url, served)
     }
 
+    /// Ends `silent_cdn`'s thread when dropped: it sets the flag and connects
+    /// once, so the blocked `accept` returns, the thread ends and the held
+    /// connections close.
+    struct Stop(
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        std::net::SocketAddr,
+    );
+
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = std::net::TcpStream::connect(self.1);
+        }
+    }
+
     /// A CDN that accepts and never answers: counts each request and holds its
-    /// connection open.
-    fn silent_cdn() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    /// connection open until the returned `Stop` is dropped.
+    fn silent_cdn() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>, Stop) {
         use std::io::Read;
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!(
-            "http://{}/attachments/1/2/orders.pdf",
-            listener.local_addr().unwrap()
-        );
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/attachments/1/2/orders.pdf");
         let served = std::sync::Arc::new(AtomicUsize::new(0));
         let count = served.clone();
+        let done = std::sync::Arc::new(AtomicBool::new(false));
+        let stop = done.clone();
         std::thread::spawn(move || {
             let mut held = Vec::new();
             for stream in listener.incoming() {
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
                 let mut stream = stream.unwrap();
                 let mut buf = [0u8; 2048];
                 let _ = stream.read(&mut buf);
@@ -520,14 +538,16 @@ mod tests {
                 held.push(stream);
             }
         });
-        (url, served)
+        (url, served, Stop(done, addr))
     }
 
     /// A timed-out download is asked once, not `ATTEMPTS` times: a link that
     /// hangs is slow, and each ask would cost `FETCH_TIMEOUT`.
     #[tokio::test]
     async fn a_download_that_times_out_is_not_asked_again() {
-        let (url, served) = silent_cdn();
+        // Real time by construction: the server never answers, so the client's
+        // own 300 ms timeout is what ends the ask.
+        let (url, served, _stop) = silent_cdn();
         let http = reqwest::Client::builder()
             .timeout(Duration::from_millis(300))
             .build()
@@ -541,7 +561,17 @@ mod tests {
         let got = fetch_all(http, vec![f], MAX).await;
         assert!(got[0].not_read.is_some(), "{:?}", got[0]);
         assert!(got[0].data.is_none());
-        assert_eq!(served.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // The server thread counts after the client has timed out, so wait (at
+        // most 5 s) for the one ask to be counted rather than read it at once.
+        for _ in 0..500 {
+            if served.load(std::sync::atomic::Ordering::SeqCst) >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let asked = served.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(asked, 1, "asked once");
+        assert!(asked < ATTEMPTS, "not asked {ATTEMPTS} times");
     }
 
     /// theseus-uck8: the first ask of a CDN link fails (it was only just

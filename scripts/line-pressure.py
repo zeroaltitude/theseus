@@ -179,7 +179,9 @@ def clippy_extra(src, line):
     head = head[:m.start()] if m else head
     if not re.search(r"\basync\b", head):
         return 0
-    if re.search(r"#\[[^\]]*\btest\b", "\n".join(attribute_block(src, line))):
+    # The attribute's own path ends in `test`: `#[test]`, `#[tokio::test(..)]`. A `#[cfg(test)]` or
+    # `#[cfg(not(test))]` gates the item and leaves it `async`.
+    if re.search(r"#\[(?:\w+::)*test\b", "\n".join(attribute_block(src, line))):
         return 0
     return 2
 

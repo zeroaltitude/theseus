@@ -1,13 +1,14 @@
 //! Every stop, refusal and skip tells the owner (theseus-3i6d1; the owner:
 //! "for all stops: let's ALSO notify the user"). One table of the rules that
 //! stop, refuse or skip, one text, and one post: a site calls
-//! [`Outbox::notify_rule`] with the rule, what happened, the limit and the
+//! [`Outbox::notify_rule`] (or [`Outbox::stage_rule`], which stages the same
+//! post for the caller's frame) with the rule, what happened, the limit and the
 //! figure that tripped it. It adds to what each rule does; a refusal still
 //! refuses, a skip still skips.
 //!
 //! The list is kept complete by `every_rule_is_routed`: it reads the crate's
-//! source as Rust tokens (a site is a function that calls `notify_rule` and
-//! spells `Rule::<Name>`, the name whole) and fails a rule that no site
+//! source as Rust tokens (a site is a function that calls `notify_rule` or
+//! `stage_rule` and spells `Rule::<Name>`, the name whole) and fails a rule that no site
 //! names, unless the rule is in [`EXEMPT`] with its reason; a rule in
 //! [`EXEMPT`] that has a site fails too.
 
@@ -293,6 +294,25 @@ impl Outbox {
 }
 
 impl Outbox {
+    /// [`Outbox::notify_rule`]'s post staged for the caller's frame, so a
+    /// mark that says the rule was told can ride the post's own `append`
+    /// (theseus-3i6d1). `None` when this run has told the scope already;
+    /// `Outbox::posted` once the caller's frame is written.
+    pub fn stage_rule(
+        &self,
+        session: Option<&str>,
+        n: Notice<'_>,
+    ) -> anyhow::Result<Option<(theseus_kernel::Action, Vec<theseus_store::NewRecord>)>> {
+        if !self.rule_first(n.rule, n.scope) {
+            return Ok(None);
+        }
+        let body = json!({
+            "kind": "spend_ceiling",
+            "text": text(n.rule, n.outcome, n.limit_usd, n.figure_usd, n.detail),
+        });
+        self.stage_to_operator(session, body).map(Some)
+    }
+
     /// A judge replay or backfill refused on its estimate (D11): told every
     /// time, since each is an operator's own act.
     pub fn notify_estimate_refused(&self, what: &str, limit_usd: f64, estimate_usd: f64) {
@@ -405,7 +425,7 @@ mod tests {
                             _ => None,
                         });
                     let Some(body) = body else { continue };
-                    if calls(&body, "notify_rule") {
+                    if calls(&body, "notify_rule") || calls(&body, "stage_rule") {
                         spelled(&body, out);
                     }
                     if calls(&body, "notify_estimate_refused") {
@@ -424,6 +444,18 @@ mod tests {
         out
     }
 
+    /// What this census proves: for every rule not in `EXEMPT`, some function
+    /// in the crate's source calls `notify_rule` or `stage_rule` and spells the
+    /// rule whole, and no exempt rule has such a site. A source census only.
+    /// What it does not prove: that the call is reached. Removing the *call* to
+    /// a function that holds the `notify_rule` call, and keeping the function,
+    /// leaves this test green (the compiler says only `dead_code`); a planted
+    /// revert like that was caught by the behaviour test alone. Three rules
+    /// have a behaviour test that reads the staged post and asserts its text:
+    /// F1 (`aws::month_warn::tests`), D5 (`rsi::sealed::tests_relay`, the
+    /// item's line tells the owner once) and A4 (`tests_money`); D14 and D15
+    /// are read by `tests_routines::a_skipped_run_names_d14_for_a_routine_and_d15_for_a_review`.
+    /// The other rules rest on this census alone.
     #[test]
     fn every_rule_is_routed() {
         assert_eq!(
@@ -494,6 +526,8 @@ mod tests {
     fn a_site_is_a_call_that_spells_the_rule() {
         let site = "fn f(o: &Outbox) { o.notify_rule(None, Notice { rule: crate::rule_notice::Rule::D1, outcome }); }";
         assert_eq!(routed_by(site), BTreeSet::from(["D1".to_string()]));
+        let staged = "fn f(o: &Outbox) { o.stage_rule(None, Notice { rule: crate::rule_notice::Rule::F1, outcome }); }";
+        assert_eq!(routed_by(staged), BTreeSet::from(["F1".to_string()]));
         for (why, src) in [
             (
                 "a string and a comment are not code",
@@ -506,6 +540,10 @@ mod tests {
             (
                 "a longer function name is another function",
                 "fn f(o: &Outbox) { o.not_notify_rule(Rule::D1); }",
+            ),
+            (
+                "a longer name than stage_rule is another function",
+                "fn f(o: &Outbox) { o.not_stage_rule(None, Notice { rule: Rule::F1 }); }",
             ),
             (
                 "a name of another type is another name",

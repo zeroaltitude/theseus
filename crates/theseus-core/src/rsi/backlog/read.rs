@@ -106,7 +106,16 @@ impl Candidate {
 }
 
 /// Fold observations into candidates, one per key, by key.
+#[cfg(test)]
 pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
+    group_with(obs, &|_| false)
+}
+
+/// [`group`], leaving a pack whose own key `dropped` names under that key
+/// instead of folding it into the night's one item: a Drop of the folded item
+/// remembers its members' keys, so a press means "these packs", and a night
+/// with one more failing pack still files that pack (and the rest).
+pub fn group_with(obs: Vec<Obs>, dropped: &dyn Fn(&str) -> bool) -> Vec<Candidate> {
     let mut by: BTreeMap<String, Candidate> = BTreeMap::new();
     for o in obs {
         by.entry(o.key.clone())
@@ -124,24 +133,24 @@ pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
     for c in by.values_mut() {
         c.pattern = c.obs.iter().rev().find_map(|o| o.pattern.clone());
     }
-    collapse_failed(&mut by);
+    collapse_failed(&mut by, dropped);
     by.into_values().collect()
 }
 
 /// The key every pack's failed judgments share, before the pack's name.
 const FAILED_PREFIX: &str = "judge.failed:";
 /// The key of a night's failed judgments from two or more packs.
-const FAILED_MANY: &str = "judge.failed";
+pub(super) const FAILED_MANY: &str = "judge.failed";
 
 /// Two or more packs whose judgments failed in one night are one cause, not
 /// one item each (the owner, 2026-11-09: seven items from one night, each
 /// started in a session of its own). They become one candidate, `judge.failed`,
 /// whose one observation lists `pack: failed/calls` a line per pack; a night
 /// with one such pack keeps that pack's own key and words.
-fn collapse_failed(by: &mut BTreeMap<String, Candidate>) {
+fn collapse_failed(by: &mut BTreeMap<String, Candidate>, dropped: &dyn Fn(&str) -> bool) {
     let keys: Vec<String> = by
         .keys()
-        .filter(|k| k.starts_with(FAILED_PREFIX))
+        .filter(|k| k.starts_with(FAILED_PREFIX) && !dropped(k))
         .cloned()
         .collect();
     if keys.len() < 2 {
@@ -195,6 +204,27 @@ fn collapse_failed(by: &mut BTreeMap<String, Candidate>) {
     );
 }
 
+/// The own keys of the packs a collapsed item's evidence notes name, in the
+/// order first named: each note line is `pack: failed/calls`. What a Drop of
+/// the collapsed item remembers.
+pub fn members_of<'a>(notes: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in notes.into_iter().flat_map(str::lines) {
+        let Some((pack, counts)) = line.split_once(": ") else {
+            continue;
+        };
+        let pack = pack.trim();
+        let shaped = counts.split_once('/').is_some_and(|(f, c)| {
+            !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit() || b == b'?') && !c.is_empty()
+        });
+        let key = format!("{FAILED_PREFIX}{pack}");
+        if shaped && !pack.is_empty() && !pack.contains(' ') && !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    out
+}
+
 /// `failed/calls` of a failed-judgments note ([`failed_note`]'s words).
 fn counts_of(note: &str) -> Option<String> {
     let mut w = note.split_whitespace();
@@ -208,7 +238,8 @@ fn failed_note(failed: u64, calls: u64, pack: &str) -> String {
 }
 
 /// Whether a pack's failed judgments are a cause: at least three, and at least
-/// one call in a hundred, or every call it made. One failed call among
+/// one call in a hundred OF THE SAME WINDOW (`failed_recent` over
+/// `calls_recent`, else all-time over all-time), or every call it made. One failed call among
 /// thousands is noise (the owner, 2026-11-09: one of 2,910 route.v10 calls
 /// filed an item, each a session of its own).
 fn failed_is_a_cause(failed: u64, calls: u64) -> bool {
@@ -613,7 +644,14 @@ fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
     let (calls, failed_all) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
     // `failed` is all-time and never falls: key on the recent count, and on
     // the total only for a report stored before there was one.
-    let failed = r["failed_recent"].as_u64().unwrap_or(failed_all);
+    // The pair must come from ONE window: recent over recent, or (a report
+    // stored before `calls_recent`) today's failures over the lifetime calls,
+    // or (before `failed_recent` too) all-time over all-time.
+    let (failed, calls) = match (r["failed_recent"].as_u64(), r["calls_recent"].as_u64()) {
+        (Some(f), Some(c)) => (f, c),
+        (Some(f), None) => (f, calls),
+        (None, _) => (failed_all, calls),
+    };
     let (labeled, disagree) = (
         r["labeled"].as_u64().unwrap_or(0),
         r["disagreements"].as_u64().unwrap_or(0),
@@ -969,6 +1007,43 @@ mod tests {
         assert_eq!(report_obs(legacy).unwrap().key, "judge.failed:people.v1");
     }
 
+    /// The rate is one day's failures over one day's calls, not over every
+    /// call the pack ever made.
+    #[test]
+    fn the_one_percent_is_a_rate_over_one_window() {
+        let busy = json!({"pack": "alpha.v1", "calls": 10_000, "failed": 60,
+            "failed_recent": 50, "calls_recent": 50});
+        let o = report_obs(busy).expect("every call of today failed");
+        assert_eq!(o.key, "judge.failed:alpha.v1");
+        assert!(o.note.starts_with("50 of 50"), "{}", o.note);
+        let quiet = json!({"pack": "alpha.v1", "calls": 10_000, "failed": 60,
+            "failed_recent": 2, "calls_recent": 300});
+        assert!(
+            report_obs(quiet).is_none(),
+            "2 recent failures are under three"
+        );
+    }
+
+    /// Three failing packs, one of them dropped: the dropped one keeps its own
+    /// key (the night's filter keeps it out) and the other two fold.
+    #[test]
+    fn a_dropped_pack_is_left_out_of_the_fold_and_the_rest_fold() {
+        let day = |pack: &str| obs_at(pack, 5, 40, 1);
+        let all = vec![day("alpha.v1"), day("beta.v1"), day("delta.v1")];
+        let cands = group_with(all.clone(), &|k| k == "judge.failed:delta.v1");
+        let keys: Vec<&str> = cands.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys, ["judge.failed", "judge.failed:delta.v1"], "{keys:?}");
+        let folded = &cands[0].obs[0].note;
+        assert_eq!(folded.lines().count(), 2, "{folded}");
+        assert!(!folded.contains("delta"), "{folded}");
+        let lone = group_with(all, &|k| k != "judge.failed:alpha.v1");
+        assert_eq!(lone.len(), 3, "one survivor is no fold");
+        assert_eq!(
+            members_of(["alpha.v1: 5/40\nbeta.v1: 3/9", "beta.v1: 4/9"]),
+            ["judge.failed:alpha.v1", "judge.failed:beta.v1"]
+        );
+    }
+
     fn failed_of(pack: &str, failed: u64, calls: u64) -> Option<Obs> {
         report_obs(json!({"pack": pack, "calls": calls, "failed": failed, "failed_recent": failed}))
     }
@@ -983,6 +1058,7 @@ mod tests {
         }
         assert_eq!(failed_of("role.v1", 2, 100), None, "two is under three");
         assert_eq!(failed_of("role.v1", 3, 400), None, "3 of 400 is under 1 %");
+        assert_eq!(failed_of("role.v1", 3, 301), None, "3 of 301 is under 1 %");
         assert_eq!(
             failed_of("role.v1", 0, 0),
             None,

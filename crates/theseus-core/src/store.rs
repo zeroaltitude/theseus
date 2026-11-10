@@ -146,9 +146,17 @@ pub struct Store {
     /// A turn frame a test makes fail (`fail_turn_frame`).
     #[cfg(test)]
     faults: Arc<Faults>,
+    /// A write outside any turn a test makes fail (`fail_plain_frame`): the
+    /// slot `fail_turn_frame` leaves alone, since its callers match turn
+    /// frames only.
+    #[cfg(test)]
+    plain_faults: Arc<Faults>,
     /// Whether a ledger page read fails (`fail_ledger_pages`).
     #[cfg(test)]
     page_fault: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether a scope read fails (`fail_scope_reads`).
+    #[cfg(test)]
+    scope_fault: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// One writer at a time per session record (theseus-xeo): the ids being
@@ -542,7 +550,11 @@ impl Store {
             #[cfg(test)]
             faults: Default::default(),
             #[cfg(test)]
+            plain_faults: Default::default(),
+            #[cfg(test)]
             page_fault: Default::default(),
+            #[cfg(test)]
+            scope_fault: Default::default(),
         })
     }
 
@@ -569,11 +581,29 @@ impl Store {
         *self.faults.0.lock().unwrap() = Some(Box::new(check));
     }
 
+    /// Make the first write outside a turn whose records `check` matches fail,
+    /// once, as a full disk would: the non-turn arm of `commit`, which
+    /// `fail_turn_frame` never reaches.
+    #[cfg(test)]
+    pub fn fail_plain_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
+        *self.plain_faults.0.lock().unwrap() = Some(Box::new(check));
+    }
+
     /// Make every ledger page read fail from now on, as a bad disk would.
     #[cfg(test)]
     pub fn fail_ledger_pages(&self) {
         self.page_fault
             .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Make every scope read fail while `on`, as a bad disk would: the read
+    /// a ledger scope is walked by, and the one the ladder is read on
+    /// (`judge::ladder::Ladder::load`). Switched off again, the store reads
+    /// as before.
+    #[cfg(test)]
+    pub fn fail_scope_reads(&self, on: bool) {
+        self.scope_fault
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// A turn's session write, which rides in the turn's next frame
@@ -680,6 +710,10 @@ impl Store {
             Some(t) => t.commit(&self.inner, &self.cache, &self.watcher, false, records),
             None if records.is_empty() => Ok(vec![]),
             None => {
+                #[cfg(test)]
+                if self.plain_faults.hit(records) {
+                    anyhow::bail!("an injected fault: this frame was not written");
+                }
                 let positions = self.inner.append(records)?;
                 seen(&self.watcher, records, &positions);
                 Ok(positions)
@@ -1143,6 +1177,10 @@ impl Store {
     /// Every record of a scope after the position `after`, oldest first: a
     /// session's, or the edges into a node (`in:<node>`, 12a).
     pub fn scope_after(&self, scope: &str, after: u64) -> Result<Vec<Record>> {
+        #[cfg(test)]
+        if self.scope_fault.load(std::sync::atomic::Ordering::Relaxed) {
+            anyhow::bail!("an injected fault: the scope was not read");
+        }
         self.inner.scan_scope(scope, after, usize::MAX)
     }
 
@@ -1375,7 +1413,9 @@ pub(crate) mod tests {
             tasks: Arc::default(),
             reads: Default::default(),
             faults: Default::default(),
+            plain_faults: Default::default(),
             page_fault: Default::default(),
+            scope_fault: Default::default(),
         }
         .for_turn();
         small.put_meta("a", &1).unwrap();

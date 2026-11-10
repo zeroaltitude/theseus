@@ -253,8 +253,13 @@ impl Pty {
     pub fn close(&self, grace: Duration, keep_background: bool) -> Ended {
         let mut c = self.child.lock().unwrap_or_else(|p| p.into_inner());
         if let Ok(Some(status)) = c.try_wait() {
-            // The program is gone; anything it left in its group still goes.
-            signal_group(self.pid, libc::SIGKILL);
+            // The program is gone; what it left in its group still goes, but
+            // only while something in that group holds our pty: once the group
+            // empties its id may be another process's (`after_exit` says why
+            // it reads nothing of that group).
+            if self.group_still_ours() {
+                signal_group(self.pid, libc::SIGKILL);
+            }
             return self.after_exit(status, keep_background);
         }
         // Its descendants as they are now: one that left the process group
@@ -327,6 +332,7 @@ impl Pty {
     /// Returns how many distinct processes were signalled (`count_new`).
     fn kill_rounds(&self, procs: &[tree::Proc], groups: &[u32], below: Option<u32>) -> usize {
         let mut seen = std::collections::BTreeSet::new();
+        let mut killed = 0;
         for _ in 0..KILL_ROUNDS {
             let late: Vec<tree::Proc> = procs
                 .iter()
@@ -338,7 +344,7 @@ impl Pty {
             if late.is_empty() {
                 break;
             }
-            count_new(
+            killed += count_new(
                 &mut seen,
                 late.into_iter().filter(|p| tree::signal(*p, libc::SIGKILL)),
             );
@@ -347,7 +353,23 @@ impl Pty {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
-        seen.len()
+        killed
+    }
+
+    /// How many holders of this pty's slave are in the program's own group.
+    /// A program that was reaped leads no group unless a leftover of it still
+    /// holds the pty, the discriminator `after_exit` filters out.
+    pub(crate) fn holders_in_group(&self) -> usize {
+        holders(&self.slave_path)
+            .iter()
+            .filter(|p| pgid(p.pid) == Some(self.pid))
+            .count()
+    }
+
+    /// The program's group is still this terminal's: a holder of the pty is in
+    /// it. Not "any member": a recycled group id passes `group_lives`.
+    pub(crate) fn group_still_ours(&self) -> bool {
+        self.holders_in_group() > 0
     }
 
     /// A close of a program that had already exited (theseus-d1zw). Its jobs
@@ -715,7 +737,9 @@ fn holders(slave: &Path) -> Vec<tree::Proc> {
 }
 
 fn signal_group(pgid: u32, sig: libc::c_int) {
-    // SAFETY: a signal to a process group this terminal's program leads.
+    // SAFETY: a signal to a process group id; callers signal only a group this
+    // terminal's program leads or that a holder of its pty is still in
+    // (`group_still_ours`), never a bare id of a reaped program.
     unsafe {
         libc::kill(-(pgid as libc::pid_t), sig);
     }

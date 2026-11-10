@@ -348,17 +348,25 @@ pub enum CanaryEvent {
         final_before: String,
         final_after: String,
     },
-    /// A finished task's whole spend, by arm.
+    /// A finished task's whole spend, by arm. No production call site builds
+    /// one, so `spend_ratio` can never fire; `tests_rollback_census` holds the
+    /// list of such rules.
     TaskSpend { task: String, arm: Arm, micros: u64 },
-    /// The operator stopped or cancelled a task.
+    /// The operator stopped or cancelled a task. No production call site
+    /// builds one, so `operator_stop_within_nudge` can never fire;
+    /// `tests_rollback_census` holds the list.
     OperatorStop { task: String, within_nudge: bool },
-    /// A live judgment's time on the path.
+    /// A live judgment's time on the path. No production call site builds
+    /// one, so `on_path_p95` can never fire; `tests_rollback_census` holds the
+    /// list.
     OnPath { ms: u64 },
     /// A notice the pack posted.
     Notice { day: String },
     /// An operator label on one of the pack's judgments.
     Label { day: String, label: String },
-    /// A role switch.
+    /// A role switch. No production call site builds one, so
+    /// `switches_per_exchange` can never fire; `tests_rollback_census` holds
+    /// the list.
     RoleSwitch { exchange: String },
     /// The owner named another profile for a message within 10 minutes
     /// after a routed turn in its session (`route.v1`'s `pinned` choice).

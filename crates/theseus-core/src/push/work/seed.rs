@@ -350,4 +350,30 @@ impl WorkBoard {
         self.stale.insert(new.id.clone());
         self.install(new);
     }
+
+    /// Bring each held view's `forum_url` to the registry's answer, as a
+    /// patch of a clone of the held view (not a rebuild, which would drop
+    /// what `forecast_open`'s `mark_past` did). Marked stale, so the next
+    /// frame sends it. Called when the registry is set and after the seed's
+    /// carry-over: an ended task gets no frame of its own to rebuild it.
+    pub(crate) fn relink(&mut self) {
+        let Some(f) = self.task_links.clone() else {
+            return;
+        };
+        let patched: Vec<_> = self
+            .views
+            .values()
+            .filter_map(|v| {
+                let url = f(&v.id);
+                (url != v.forum_url).then(|| {
+                    let mut c = v.clone();
+                    c.forum_url = url;
+                    c
+                })
+            })
+            .collect();
+        for v in patched {
+            self.refresh_silent(v);
+        }
+    }
 }

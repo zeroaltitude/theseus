@@ -664,21 +664,7 @@ impl TurnRunner {
                 .await;
         };
         Self::hold_next(session, &d.hold);
-        if d.profile == base {
-            return self
-                .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
-                .await;
-        }
-        let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
-            Ok(tg) => tg.speaking_as(t.target),
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
-                return self
-                    .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
-                    .await;
-            }
-        };
-        let Some(p) = self.providers.get(&target.provider).cloned() else {
+        let Some((target, p)) = self.switch_target(t, &base, &d) else {
             return self
                 .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
                 .await;
@@ -688,6 +674,30 @@ impl TurnRunner {
         self.routed_to(t, session, spec, slot, target, &d).await?;
         *provider = Some(p);
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
+    }
+
+    /// Where a decision sends the turn: the target its profile resolves to,
+    /// speaking as the turn's own, and the provider that serves it. None where
+    /// the turn stays on its own: the decision names the session's own
+    /// profile (`base`), one that does not resolve, or one with no provider.
+    fn switch_target(
+        &self,
+        t: &Turn<'_>,
+        base: &str,
+        d: &Decision,
+    ) -> Option<(Target, Arc<dyn Provider>)> {
+        if d.profile == base {
+            return None;
+        }
+        let target = match self.resolve_target(base, Some(&d.profile), None, None) {
+            Ok(tg) => tg.speaking_as(t.target),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
+                return None;
+            }
+        };
+        let p = self.providers.get(&target.provider).cloned()?;
+        Some((target, p))
     }
 
     /// The decision's hold on the session's routed record, which goes once it

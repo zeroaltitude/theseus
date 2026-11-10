@@ -47,20 +47,9 @@ Three reasons it is the right block and the `project` layer is not:
 - Block 3 is static for a session and changes only on a recompile, which is exactly the
   lifetime these files have.
 
-**A stale comment to ignore.** `compiler/session_block.rs` says in its header that this
-block "takes the fourth breakpoint; no other block may". That is **wrong at the current
-tip**, and a builder who follows it will think this placement is a mistake. The code is
-`compiler/layers.rs`, in `cache_layout`:
-
-```rust
-marked: caches
-    && block != session_block::NAME
-    && bytes >= min_tokens as u64 * MIN_BYTES_PER_TOKEN,
-```
-
-The session block is excluded by name: it is never marked, so it takes **no** breakpoint
-at all. The placement argument above rests on that code, not on the comment. The comment
-should be corrected when this row is built.
+The session block is excluded from the breakpoints by name in `compiler/layers.rs`'s
+`cache_layout` (`block != session_block::NAME`), so it takes none; the placement argument
+above rests on that code, and `compiler/session_block.rs`'s header now says the same.
 
 ## 4. The date, the OS and the git state
 
@@ -109,9 +98,22 @@ and every drop is recorded in the manifest with the file's real byte count, so t
 model knows there is more and can open it with an ordinary read.
 
 The budget is not caution for its own sake. This repository's own largest instruction
-file is 433,201 bytes. The per-file cap is 65,536, so 367,665 bytes are discarded before
-the level is even assembled, and what remains would still be over twenty thousand tokens
-in every single turn.
+file, `crates/theseus-core/AGENTS.md`, is 448,113 bytes at `b93c885f` (2026-11-09). The
+per-file cap is 65,536, so 382,577 bytes are discarded before the level is even
+assembled, and what remains would still be over twenty thousand tokens in every single
+turn. (Earlier figures of 433,201 and 367,665 were stale: the file has grown.)
+
+**Measured** at `b93c885f` (2026-11-09), default budget 24,000 B (8,000 tokens at 3 B per
+token), `discover_in` then `assemble`, with the last-pass fix for the half-budget cut:
+- Session at this repository's root: root `AGENTS.md` (20,244 B) and `CLAUDE.md` (421 B)
+  both `Whole`; 20,777 B of text, 21,047 B with the 268 B `FRAME` and its 2 B join
+  (the frame is outside `max_tokens`), about 7,015 tokens. Before the fix the root file
+  was `Cut { kept: 12000 }` and the text 12,478 B (12,748 B with the frame, about 4,249
+  tokens), leaving about 11,500 B of budget idle.
+- Session in `crates/theseus-core`: root `AGENTS.md` `Cut { kept: 12000 }`, root
+  `CLAUDE.md` `Dropped`, nested `AGENTS.md` (448,113 B) `Cut { kept: 12000 }`, nested
+  `CLAUDE.md` (11 B) `Dropped`; 24,327 B of text, 24,597 B with the frame, about 8,199
+  tokens, unchanged by the fix because the nested chain wants its half.
 
 ## 7. Trust
 

@@ -131,16 +131,163 @@ mod tests {
         assert!(now_unix_ms() < at, "the clock is back on the wall clock");
     }
 
+    /// True when `text` declares `mod {stem};` under a `#[cfg(test)]`, on the
+    /// declaration's own line or on the line above it. Further attribute lines
+    /// between the two keep the gate; any other line clears it, so the
+    /// attribute of the item above is never borrowed by the one below.
+    fn declares_under_cfg_test(text: &str, stem: &str) -> bool {
+        let decl = format!("mod {stem};");
+        let mut gated = false;
+        for line in text.lines() {
+            let l = line.trim();
+            if l.is_empty() || l.starts_with("//") {
+                continue;
+            }
+            let (inline, rest) = match l.strip_prefix("#[cfg(test)]") {
+                Some(r) => (true, r.trim_start()),
+                None => (false, l),
+            };
+            gated |= inline;
+            if rest.is_empty() || rest.starts_with("#[") {
+                continue;
+            }
+            if rest
+                .strip_suffix(&decl)
+                .map(str::trim_end)
+                .is_some_and(|v| {
+                    v.is_empty() || v == "pub" || (v.starts_with("pub(") && v.ends_with(')'))
+                })
+            {
+                return gated;
+            }
+            gated = false;
+        }
+        false
+    }
+
+    /// The file is a module the compiler builds only under `cfg(test)`: one of
+    /// the parents that may declare it -- the sibling `mod.rs`, the `<dir>.rs`
+    /// beside the directory, or the crate root for a file directly under
+    /// `src/` -- says `#[cfg(test)] mod <stem>;`.
+    ///
+    /// It reads the declaration rather than the file because that is the rule
+    /// the compiler itself applies, and the tree relies on it: the
+    /// `crates/theseus-core/src/rpc/tests_*.rs` files are test-only by their
+    /// lines in `rpc/mod.rs` and carry no attribute of their own. A
+    /// name-shaped rule (admit any path holding `tests_`) would admit a
+    /// product file for its name and re-open the hole this census exists to
+    /// close, so it is not used. A file whose module is declared nowhere --
+    /// pulled in by `include!` or `#[path]` -- is not admitted here, which is
+    /// the strict direction.
+    fn declared_test_only(p: &std::path::Path) -> bool {
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
+            return false;
+        };
+        let Some(dir) = p.parent() else {
+            return false;
+        };
+        let mut parents = vec![dir.join("mod.rs")];
+        if let Some(name) = dir.file_name().and_then(|n| n.to_str()) {
+            if let Some(up) = dir.parent() {
+                parents.push(up.join(format!("{name}.rs")));
+            }
+            if name == "src" {
+                parents.push(dir.join("lib.rs"));
+                parents.push(dir.join("main.rs"));
+            }
+        }
+        parents.iter().any(|q| {
+            std::fs::read_to_string(q).is_ok_and(|text| declares_under_cfg_test(&text, stem))
+        })
+    }
+
+    /// The declaration rule is read in every shape the tree writes it, and
+    /// refuses the shapes that must not pass. Without the negatives the rule
+    /// could go constant-true and admit every file to the census below.
+    #[test]
+    fn the_rule_reads_how_a_module_is_declared() {
+        for (text, stem, want, why) in [
+            (
+                "#[cfg(test)]\nmod tests_x;\n",
+                "tests_x",
+                true,
+                "the attribute on the line above",
+            ),
+            (
+                "#[cfg(test)] mod tests_x;\n",
+                "tests_x",
+                true,
+                "the attribute inline",
+            ),
+            (
+                "#[cfg(test)]\n#[allow(clippy::pedantic)]\nmod tests_x;\n",
+                "tests_x",
+                true,
+                "another attribute between the two",
+            ),
+            (
+                "#[cfg(test)]\npub mod tests_x;\n",
+                "tests_x",
+                true,
+                "a pub declaration",
+            ),
+            (
+                "#[cfg(test)]\npub(crate) mod tests_x;\n",
+                "tests_x",
+                true,
+                "a pub(crate) declaration",
+            ),
+            ("mod tests_x;\n", "tests_x", false, "no attribute at all"),
+            (
+                "#[cfg(test)]\nmod tests_y;\nmod tests_x;\n",
+                "tests_x",
+                false,
+                "the attribute belongs to the module above",
+            ),
+            (
+                "#[cfg(test)]\nfn helper() {}\nmod tests_x;\n",
+                "tests_x",
+                false,
+                "the attribute belongs to a function",
+            ),
+            (
+                "// #[cfg(test)]\nmod tests_x;\n",
+                "tests_x",
+                false,
+                "the attribute is commented out",
+            ),
+            (
+                "#[cfg(test)]\nmod tests_xx;\n",
+                "tests_x",
+                false,
+                "a longer name is not this module",
+            ),
+            (
+                "#[cfg(test)]\nmod outer { mod tests_x; }\n",
+                "tests_x",
+                false,
+                "an inline module body is not a file declaration",
+            ),
+            ("", "tests_x", false, "an empty parent declares nothing"),
+        ] {
+            assert_eq!(declares_under_cfg_test(text, stem), want, "{why}");
+        }
+    }
+
     /// Every file under `crates/` (walked from this crate's manifest, as
     /// `crates/complete.rs` documents) that calls `move_clock_to(` or
-    /// `reset_clock(` must be this file, the core's `test_support.rs`, or a
-    /// file with a `#[cfg(test)]` in it: the two functions move the whole
-    /// process's clock, so a product path must never call them. The failure
-    /// names the file, the call and what to do.
+    /// `reset_clock(` must be this file, the core's `test_support.rs`, a file
+    /// with a `#[cfg(test)]` in it, or a file the compiler builds only under
+    /// `cfg(test)` because its module is declared that way
+    /// ([`declared_test_only`]): the two functions move the whole process's
+    /// clock, so a product path must never call them. The failure names the
+    /// file, the call and what to do.
     ///
     /// What it does not prove: a file that has a `#[cfg(test)]` module
-    /// elsewhere and a product call outside it would pass. It reads source
-    /// text and no clock, so it has no hour dependence.
+    /// elsewhere and a product call outside it would pass. The declaration arm
+    /// has no such gap -- a module declared `#[cfg(test)]` is not compiled
+    /// into the product at all -- but it admits that file whole. It reads
+    /// source text and no clock, so it has no hour dependence.
     #[test]
     fn only_test_code_moves_the_clock() {
         fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
@@ -177,7 +324,8 @@ mod tests {
             let shown = p.to_string_lossy().replace('\\', "/");
             let allowed = shown.ends_with("theseus-protocol/src/time.rs")
                 || shown.ends_with("theseus-core/src/test_support.rs")
-                || text.contains("#[cfg(test)]");
+                || text.contains("#[cfg(test)]")
+                || declared_test_only(p);
             if !allowed {
                 bad.push(shown);
             }
@@ -185,9 +333,11 @@ mod tests {
         assert!(sites >= 3, "the walk found only {sites} call sites");
         assert!(
             bad.is_empty(),
-            "{bad:?} call move_clock_to( or reset_clock( with no #[cfg(test)] in the file: \
-             these move the whole process's clock, so they are for tests alone. Move the \
-             call into a test module, or take the clock as a parameter."
+            "{bad:?} call move_clock_to( or reset_clock( and are not test code: neither this \
+             file nor the core's test_support.rs, no #[cfg(test)] in the file, and no parent \
+             declaring the module #[cfg(test)]. These move the whole process's clock, so they \
+             are for tests alone. Move the call into a test module, declare the module under \
+             #[cfg(test)], or take the clock as a parameter."
         );
     }
 }

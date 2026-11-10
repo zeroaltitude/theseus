@@ -18,10 +18,10 @@
 //!   of it that would wait on input with a wake pending parks on the wake,
 //!   and the wake's turn continues the task (`task::parks_on_wake`). It ends
 //!   and reports once a turn would wait with none left. A repeating wake there
-//!   must carry an `until` no later than the end of the owner's day, and is
-//!   refused without one (`task_repeat_refusal`): a task must end, and its
-//!   series ends with it. Its cancel, or its end, drops its wakes, as any
-//!   execution's end does.
+//!   must carry an `until` no later than 30 days from now, and is refused
+//!   without one (`task_repeat_refusal`): a task must end, and its series ends
+//!   with it. Its cancel, or its end, drops its wakes, as any execution's end
+//!   does.
 //! - **Repeating** (37a, theseus-d4pt). `every` (`30m`, `1d`, `1w`; `[kernel]
 //!   min_repeat_minutes` at the shortest), with `days` for a daily one and
 //!   `until`, makes the wake a series: one pending wake, counted once, that
@@ -75,25 +75,29 @@ const TASK_ONE_SHOT: &str = "Set a one-shot wake instead (`after` or `at`, witho
     wait on. If the work needs checking on a schedule past that, say so in your report; the \
     conversation that started you can set a longer repeating wake.";
 
+/// The longest a task's repeating wake may run: its `until` is at most this
+/// far from the time it is set (the owner, 2026-11-09 15:48: "I think a 30 day
+/// deadline is reasonable"). It replaced the end of the owner's day.
+pub(crate) const TASK_REPEAT_MAX_MS: u64 = 30 * 86_400_000;
+
 /// Why a task's repeating wake is refused, or none when it may be set
 /// (theseus-ehqo7): a task must end, so its series must carry an `until` no
-/// later than `day_end_ms`. A task has no deadline of its own (`TaskOf` and
-/// the execution record none), so the bound is the end of the owner's day:
-/// the window the daily spend ceiling counts a task's calls in
-/// (`DayCeiling::day_of`), local midnight to the next. Without an `until`, or
-/// with one past it, the series would outlive what the task may spend.
-pub(crate) fn task_repeat_refusal(until_ms: Option<u64>, day_end_ms: u64) -> Option<String> {
-    let end = local(day_end_ms).full();
+/// later than `limit_ms`, [`TASK_REPEAT_MAX_MS`] after it is set. A task has no
+/// deadline of its own (`TaskOf` and the execution record none), so this is
+/// the one it has. Without an `until`, or with one past it, the series would
+/// outlive what the task may spend.
+pub(crate) fn task_repeat_refusal(until_ms: Option<u64>, limit_ms: u64) -> Option<String> {
+    let end = local(limit_ms).full();
     match until_ms {
         None => Some(format!(
             "Refused: this session is a task, and a task must end, so a repeating wake in it must \
-             carry an `until` no later than {end}, the end of the owner's day (a task has no \
-             deadline of its own). Give one. {TASK_ONE_SHOT}"
+             carry an `until` no later than {end}, 30 days from now (a task has no deadline of \
+             its own). Give one. {TASK_ONE_SHOT}"
         )),
-        Some(u) if u > day_end_ms => Some(format!(
+        Some(u) if u > limit_ms => Some(format!(
             "Refused: this session is a task, and a task must end, so a repeating wake in it must \
-             end by {end}, the end of the owner's day, and its `until` ({}) is later. Give an \
-             `until` at or before it. {TASK_ONE_SHOT}",
+             end by {end}, 30 days from now, and its `until` ({}) is later. Give an `until` at or \
+             before it. {TASK_ONE_SHOT}",
             local(u).full()
         )),
         Some(_) => None,
@@ -105,8 +109,8 @@ pub(crate) fn task_repeat_refusal(until_ms: Option<u64>, day_end_ms: u64) -> Opt
 fn task_bound(tc: &TurnCtx<'_>, repeat: Option<&Repeat>, now_ms: u64) -> Result<(), String> {
     match (tc.task, repeat) {
         (Some(_), Some(r)) => {
-            let day_end = tc.kernel.day_ceiling().day_of(now_ms).2;
-            task_repeat_refusal(r.until_ms, day_end).map_or(Ok(()), Err)
+            let limit = now_ms.saturating_add(TASK_REPEAT_MAX_MS);
+            task_repeat_refusal(r.until_ms, limit).map_or(Ok(()), Err)
         }
         _ => Ok(()),
     }
@@ -342,13 +346,13 @@ impl Tool for WakeAt {
          of yours. Write the note as the instruction you will want then. It \
          fires once. Messages that come before it are answered as usual, and it still fires \
          later; if a turn is running at its time, it runs when that turn ends. A session holds \
-         at most 20 pending wakes. To repeat it, give `every` (`30m`, `2h`, `1d`, `1w`): it then \
+         up to 20 pending wakes. To repeat it, give `every` (`30m`, `2h`, `1d`, `1w`): it then \
          runs at each occurrence, from `at` or `after` (or one `every` from now), in the \
          daemon's time zone, so a daily wake keeps its clock time; `days` limits a daily one \
          to weekdays (`[\"mon\", \"fri\"]`), and `until` (RFC 3339) ends it. A series counts \
          as one wake, and a cancel ends it. In a task, a one-shot wake keeps the task waiting \
          for it instead of reporting, its turn continues the task, and the task reports once \
-         it has no wake left; a repeating one needs an `until` by day's end. Pending wakes are \
+         it has no wake left; a repeating one needs an `until` within 30 days. Pending wakes are \
          in the last block: to change one, move it (`wake_move`) or cancel it (`wake_cancel`), \
          never set a second."
     }
@@ -1231,6 +1235,28 @@ mod tests {
             .contains("no pending wake"));
         let two = resolve(&all, "1111").unwrap_err();
         assert!(two.contains("names 2 wakes (aa1111, bb1111)"), "{two}");
+    }
+
+    /// A task's repeating wake runs 30 days at most (the owner, 2026-11-09 15:48: "I think a 30 day
+    /// deadline is reasonable"): an `until` at or inside the bound is set, one past it or none is
+    /// refused, and the refusal names the rule and the one-shot way out.
+    #[test]
+    fn a_tasks_repeating_wake_is_bound_by_thirty_days_from_now() {
+        const DAY: u64 = 86_400_000;
+        assert_eq!(TASK_REPEAT_MAX_MS, 30 * DAY);
+        let now = parse_at("2026-11-09T22:50:00Z").unwrap();
+        let limit = now + TASK_REPEAT_MAX_MS;
+        assert_eq!(task_repeat_refusal(Some(now + 29 * DAY), limit), None);
+        assert_eq!(task_repeat_refusal(Some(limit), limit), None);
+        let late = task_repeat_refusal(Some(now + 31 * DAY), limit).unwrap();
+        assert!(late.contains("must end by"), "{late}");
+        assert!(late.contains("30 days from now"), "{late}");
+        assert!(late.contains(&local(now + 31 * DAY).full()), "{late}");
+        assert!(late.contains("Set a one-shot wake instead"), "{late}");
+        let none = task_repeat_refusal(None, limit).unwrap();
+        assert!(none.contains("must carry an `until`"), "{none}");
+        assert!(none.contains("30 days from now"), "{none}");
+        assert!(none.contains("Set a one-shot wake instead"), "{none}");
     }
 
     /// `every`, `days`, and `until` (37a): the first time is `at` or

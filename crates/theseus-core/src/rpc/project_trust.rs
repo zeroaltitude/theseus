@@ -9,18 +9,30 @@
 //! inherits nothing. A path outside every repository is refused.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use serde_json::Value;
+use theseus_protocol::projects::{
+    ProjectGrant, ProjectTrustParams, ProjectTrustedParams, ProjectTrustedResult,
+};
+use theseus_protocol::{error_code, method};
 
 use super::confirms::Act;
+use super::projects::failure;
+use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::Answerer;
 use crate::fact::project::ProjectTrust;
 use crate::flow::spec::{repo_id, repo_root};
 use crate::project_context::trust::{Grant, Grants};
 
-/// The label the judge's refusals and rows carry.
-const WHAT: &str = "project.trust";
+/// The grant's methods, routed by one dispatch arm (`rpc_project_trust`).
+pub(super) const OWN: [&str; 3] = [
+    method::PROJECT_TRUST,
+    method::PROJECT_UNTRUST,
+    method::PROJECT_TRUSTED,
+];
 
 /// One trusted repository, as listed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +41,55 @@ pub struct Trusted {
     pub grant: Grant,
 }
 
+impl Trusted {
+    fn wire(self) -> ProjectGrant {
+        ProjectGrant {
+            id: self.id,
+            root: self.grant.root,
+            by: self.grant.by,
+            via: self.grant.via,
+            at_ms: self.grant.at_ms,
+        }
+    }
+}
+
 impl Core {
+    /// The grant's methods, by name: the owner's acts, judged by the writes
+    /// themselves (`Act::Standing`), and the list, a read. A relative path is
+    /// refused first: `repo_root` would resolve it against the daemon's
+    /// directory, not the caller's.
+    pub(super) fn rpc_project_trust(
+        self: &Arc<Self>,
+        name: &str,
+        params: Value,
+        conn: Conn<'_>,
+    ) -> Result<Value, RpcFailure> {
+        if name == method::PROJECT_TRUSTED {
+            return route(params, |_: ProjectTrustedParams| {
+                let trusted = self.project_trusted().map_err(RpcFailure::invalid)?;
+                Ok(ProjectTrustedResult {
+                    trusted: trusted.into_iter().map(Trusted::wire).collect(),
+                })
+            });
+        }
+        route(params, |p: ProjectTrustParams| {
+            if !Path::new(&p.path).is_absolute() {
+                return Err(RpcFailure::new(
+                    error_code::INVALID_PARAMS,
+                    format!("{} is not an absolute path", p.path),
+                ));
+            }
+            let who = conn.answerer(p.author.clone(), p.discord.clone());
+            let path = Path::new(&p.path);
+            let done = if name == method::PROJECT_TRUST {
+                self.project_trust(path, who)
+            } else {
+                self.project_untrust(path, who)
+            };
+            done.map(Trusted::wire).map_err(failure)
+        })
+    }
+
     fn trust_root(path: &Path) -> Result<PathBuf> {
         repo_root(path).ok_or_else(|| {
             anyhow!(
@@ -46,7 +106,7 @@ impl Core {
         self.judge_act(
             &who,
             Act::Standing {
-                method: WHAT,
+                method: method::PROJECT_TRUST,
                 what: "a repository's trust",
             },
         )?;
@@ -86,7 +146,7 @@ impl Core {
         self.judge_act(
             &who,
             Act::Standing {
-                method: WHAT,
+                method: method::PROJECT_UNTRUST,
                 what: "a repository's untrust",
             },
         )?;

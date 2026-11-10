@@ -524,6 +524,7 @@ facts![
     mcp::McpPromptChanged,
     crate::aws::hands::watch::HourAlert<'static>,
     crate::aws::month_warn::MonthWarned<'static>,
+    crate::aws::month_warn::MonthStopped<'static>,
     crate::aws::hands::watch::ReaperFailed<'static>,
     extend::ExtendProposed<'static>,
     extend::ExtendTested<'static>,
