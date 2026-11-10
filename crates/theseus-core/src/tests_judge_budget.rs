@@ -18,6 +18,28 @@
 //! holds no `judge.enabled =` line) is outside the walk, though the LEFT table
 //! below lists it.
 //!
+//! **The before/after classification, measured at the `origin/main` merge of
+//! B7 (theseus-4vsrz), not inferred.** `has_a_budget` used to read
+//! `total_secs` per line under a comment skip but `judge_config` over the
+//! whole text, so a file whose only mention of `judge_config` sat in a comment
+//! counted as budgeted. Both arms now run per line under the one comment skip,
+//! which classifies strictly more files as unbudgeted and so can only find
+//! work, never hide it. Over the 1,524 source files under this crate's `src/`:
+//!
+//! | | before | after |
+//! |---|---|---|
+//! | files enabling the judge | 22 | 22 |
+//! | of those, unbudgeted | 5 | 5 |
+//! | moved into unbudgeted | — | none |
+//! | moved out of unbudgeted | — | none |
+//!
+//! No file moved class: the five unbudgeted files are exactly [`EXEMPT`]'s
+//! five, before and after, with no stale row. The asymmetry the sweep closed
+//! was therefore latent and not live on this tree — the hole was real and
+//! nothing had fallen into it yet, which is why a strengthening reds nothing.
+//! `least: 5` is met exactly, so dropping an `EXEMPT` row without a file
+//! leaving the class fails, as it should.
+//!
 //! The 13 `api_base`-without-budget sites audited at base 85697868 (paths as
 //! they are in the tree), and why each is exempt or not a problem:
 //!
