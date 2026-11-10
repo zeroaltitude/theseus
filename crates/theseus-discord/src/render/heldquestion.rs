@@ -156,24 +156,39 @@ mod tests {
 
     /// The clause that says where else it can be answered still follows the
     /// footer, and a DM route still names the place: the honest words replace
-    /// the deadline and nothing around it.
+    /// the deadline and nothing around it. Both card shapes, because the
+    /// footer is built twice: `approval::card` from the plain words, with the
+    /// task's `or` clause, and `approval::classic` for a request without them
+    /// (an older daemon), with the `you can also answer` clause.
     #[test]
     fn the_held_footer_keeps_the_place_and_the_answer_elsewhere_clauses() {
-        let req = held(json!({
-            "task": {"task_id": "tsk_000000reef", "short": "490f10", "title": "chart the reef"}
-        }));
+        let task =
+            json!({"task_id": "tsk_000000reef", "short": "490f10", "title": "chart the reef"});
         let route = Route::Dm {
             user: 271_828_182_845_904_523,
             dm: "a DM".into(),
             place: "#general".into(),
             why: "this channel is shared".into(),
         };
-        let c = card(&req, &route, "with `theseus answer`").content;
+
+        let classic = held(json!({"task": task}));
         assert!(
-            c.ends_with(
+            card(&classic, &route, "with `theseus answer`").content.ends_with(
+                "-# for #general · held since <t:1790000000:R> · still waiting · you can also answer with `theseus answer`"
+            ),
+            "{}",
+            card(&classic, &route, "with `theseus answer`").content
+        );
+
+        let plain = held(json!({"task": task, "plain": {"who": "chart the reef",
+            "what": "write `/srv/chart/reef.md`", "why": "", "held": "`fs.write` is set to ask",
+            "risk": "writes", "yes": "runs this one call.", "no": "refuses it."}}));
+        assert!(
+            card(&plain, &route, "with `theseus answer`").content.ends_with(
                 "-# for #general · held since <t:1790000000:R> · still waiting · or `theseus answer 490f10 approve`"
             ),
-            "{c}"
+            "{}",
+            card(&plain, &route, "with `theseus answer`").content
         );
     }
 
