@@ -112,11 +112,11 @@ It runs, in order:
      prints `gate: NOT RUN, no verdict, after the failure in <phase>: <phases>` naming what never
      ran, and still reports the compile note. Before it the gate says what the suite will not run
      (theseus-4vsrz): `gate: suite filters: none`, or each `default-filter` it finds in `.config/nextest.toml` (its
-     profile, line and expression, and whether HEAD has it or only the working tree), and the phase is called
-     `suite filtered` in the table. The suite passes no `-E`, so a default-filter is the only filter there is, and
-     nextest counts what it skips with the `#[ignore]`d tests, so a stale line (the ARM runner's sed leaves one when
-     its gate's unit is stopped) was invisible in the result. The gate never refuses one: the ARM runner sets its
-     known skips this way.
+     profile, line and expression, and whether HEAD has it or only the working tree). A line under this run's profile
+     (or under `[profile.default]` while the run's profile has none) is ACTIVE: the phase is called `suite filtered` in
+     the table. A line parked under another profile is named and marked `NOT this run's`, and the phase keeps its name.
+     The suite passes no `-E`, so a default-filter is the only filter there is, and nextest counts what it skips with the
+     `#[ignore]`d tests, so a stale line was invisible in the result. The gate never refuses one.
 
    The benches run the test build's `theseusd`, `theseus-sim`, and `theseus-index`: the workspace's features, which
    the `features` phase holds an install's to.
