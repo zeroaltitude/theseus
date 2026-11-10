@@ -251,6 +251,8 @@ mod tests_activation_search;
 #[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
+mod tests_answer_in_words;
+#[cfg(test)]
 mod tests_approvals;
 #[cfg(test)]
 mod tests_arrangement;
