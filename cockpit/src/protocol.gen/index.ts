@@ -290,6 +290,7 @@ export type * from './InspectPrompt';
 export type * from './InspectRedacted';
 export type * from './InspectRow';
 export type * from './InspectTotals';
+export type * from './JobKept';
 export type * from './JobStopParams';
 export type * from './JobStopResult';
 export type * from './JudgeAuditParams';
