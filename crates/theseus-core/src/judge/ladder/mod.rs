@@ -277,6 +277,20 @@ pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 /// Where a written row's sentence goes (the judge's narrator).
 pub type Said = Arc<dyn Fn(&PackModeRow) + Send + Sync>;
 
+/// Tests: where a load is, as it tells the hook of [`Ladder::on_scan`].
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Scan {
+    /// Before its first store read.
+    Begun,
+    /// After its last store read, before it hands what it read back.
+    Read,
+}
+
+/// Tests: what runs as a load passes each [`Scan`] point.
+#[cfg(test)]
+pub(crate) type ScanHook = Arc<dyn Fn(&Ladder, Scan) + Send + Sync>;
+
 pub struct Ladder {
     store: Store,
     /// The wired lines: `WIRED`, or a test's.
@@ -287,6 +301,9 @@ pub struct Ladder {
     /// Tests: the day's reads the ladder made (each load's, and any other).
     #[cfg(test)]
     reads: AtomicUsize,
+    /// Tests: what runs as a load passes each point of its scan.
+    #[cfg(test)]
+    scan_hook: Mutex<Option<ScanHook>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -308,6 +325,8 @@ impl Ladder {
             said: Mutex::new(None),
             #[cfg(test)]
             reads: AtomicUsize::new(0),
+            #[cfg(test)]
+            scan_hook: Mutex::new(None),
         }
     }
 
@@ -315,6 +334,23 @@ impl Ladder {
     #[cfg(test)]
     pub fn reads(&self) -> usize {
         self.reads.load(Ordering::SeqCst)
+    }
+
+    /// Tests: run `hook` at each point of a load's scan (`None` takes it
+    /// away), so a test can hold a load where it is and let a writer or a
+    /// reader arrive beside it. The hook runs on the loading thread, with
+    /// whatever that thread holds.
+    #[cfg(test)]
+    pub(crate) fn on_scan(&self, hook: Option<ScanHook>) {
+        *lock(&self.scan_hook) = hook;
+    }
+
+    #[cfg(test)]
+    fn scan_at(&self, at: Scan) {
+        let hook = lock(&self.scan_hook).clone();
+        if let Some(h) = hook {
+            h(self, at);
+        }
     }
 
     /// Where each row it writes is said.
@@ -452,10 +488,19 @@ impl Ladder {
     /// read never goes back to it -- a pack that silently dropped to shadow
     /// there would be recorded as a shadow pack by every point that asked
     /// afterwards. Returns whether what is loaded was replaced.
+    ///
+    /// The lock is taken first and held across the read, as [`Ladder::with`]
+    /// and [`Ladder::read`] hold it across theirs: a writer that lands while
+    /// the store is scanned waits for the swap and then writes into what the
+    /// scan read, where one let in beside the scan would be written into what
+    /// the swap then drops (its row durable in the store, and unseen by
+    /// [`Ladder::standing`] until the next read). Nothing is ever taken out
+    /// of `loaded` here, so a ladder that has been read is never unloaded
+    /// meanwhile: a thread that asks waits for the swap, and is told it is.
     pub(crate) fn reread(&self) -> bool {
+        let mut g = lock(&self.loaded);
         match self.load() {
             Ok(fresh) => {
-                let mut g = lock(&self.loaded);
                 let l = g.insert(fresh);
                 adopt::adopt_missing(self, l);
                 true
@@ -468,6 +513,8 @@ impl Ladder {
     }
 
     fn load(&self) -> Result<Loaded> {
+        #[cfg(test)]
+        self.scan_at(Scan::Begun);
         let mut l = Loaded {
             day: crate::judge::spend::local_day(self.now()),
             ..Loaded::default()
@@ -494,6 +541,8 @@ impl Ladder {
             }
         }
         self.read_day(&mut l);
+        #[cfg(test)]
+        self.scan_at(Scan::Read);
         Ok(l)
     }
 
@@ -681,3 +730,5 @@ pub fn given_of(mode: PackMode, share: Option<f64>, pack: &str, session: &str) -
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_reread;
