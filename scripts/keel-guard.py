@@ -650,6 +650,11 @@ def tests_rule(tree, paths, out):
         by_body[head_tests[k]["norm"]].append(k)
     claimed = set()
     pairs = [(k, k) for k in base_tests if k in head_tests]
+    # A pairing that only similarity found, landing in another file, is a GUESS about where the test went
+    # (theseus-4vsrz). Judging the pair then moves the erosion's rule and its file onto a file the range may
+    # never have eroded: in a batch, one branch's deleted test paired with another branch's new test and the
+    # finding read `assert-removed` against the second branch's file. Remembered here, used below.
+    guessed_elsewhere = set()
     for k in removed:
         b = base_tests[k]
         cands = [c for c in by_name.get(b["name"], []) if c not in claimed]
@@ -659,6 +664,8 @@ def tests_rule(tree, paths, out):
         if match is None:
             match = rewritten(b, k[0], [c for c in added if c not in claimed], head_tests)
             how = "renamed and rewritten"
+            if match is not None and match[0] != k[0]:
+                guessed_elsewhere.add((k, match))
         if match is not None:
             MATCHED.append(f"{k[0]}::{k[1]} -> {match[0]}::{match[1]} ({how})")
         if match is None:
@@ -668,14 +675,22 @@ def tests_rule(tree, paths, out):
             pairs.append((k, match))
     for bk, hk in pairs:
         b, h = base_tests[bk], head_tests[hk]
+        derived = []
         if h["ignored"] and not b["ignored"] or h.get("skips", 0) > b.get("skips", 0):
             new = next((a for a in h["attrs"] if is_ignore_attr(a) or PY_SKIP_DECO.match(a) or h.get("lang") == "ts"),
                        "a skip in its body")
-            out.append(Finding("test-ignored", hk[0], h["line"], b["head"], f"{new} {h['head']}"))
+            derived.append(Finding("test-ignored", hk[0], h["line"], b["head"], f"{new} {h['head']}"))
         if h["asserts"] < b["asserts"]:
-            out.append(Finding("assert-removed", hk[0], h["line"],
-                               f"{b['head']} ({b['asserts']} assertions)", f"{h['asserts']} assertions"))
-        weakened_rule(b, h, hk[0], out)
+            derived.append(Finding("assert-removed", hk[0], h["line"],
+                                   f"{b['head']} ({b['asserts']} assertions)", f"{h['asserts']} assertions"))
+        weakened_rule(b, h, hk[0], derived)
+        if derived and (bk, hk) in guessed_elsewhere:
+            # The pairing is a guess in another file, so the head test is not known to BE this test: say the one
+            # thing that is certain, that the named test is gone from the file that held it, and leave the pairing
+            # in MATCHED for the reader. Still exit 1, still an erosion, and now acked where it happened.
+            out.append(Finding("test-removed", bk[0], b["line"], b["head"], "(gone)"))
+        else:
+            out.extend(derived)
     allow_rule(base_marks, head_marks, out)
 
 
