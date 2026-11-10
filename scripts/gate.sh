@@ -63,13 +63,24 @@ fi
 # `test build`, naming a binary cargo had just built, before one test of their change ran. cargo answers
 # when the environment does not, so a `.cargo/config.toml` `build.target-dir` is right too (one call, 60 ms
 # warm); `$PWD/target` is the last word, for a tree cargo cannot read.
-target_dir="${CARGO_TARGET_DIR:-}"
-if [ -z "$target_dir" ]; then
-  cargo_meta="$(cargo metadata --no-deps --format-version 1 2>/dev/null || true)"
-  target_dir="$(printf '%s' "$cargo_meta" | grep -o '"target_directory":"[^"]*"' | cut -d'"' -f4 || true)"
-fi
-[ -n "$target_dir" ] || target_dir="$PWD/target"
-debug="$target_dir/debug"
+#
+# RESOLVED ON FIRST USE, never at the head of the flow: no cargo runs before fmt and the disk floor, which
+# is a contract scripts/test_gate_tree.py holds in nine of its cases (the floor must refuse before any
+# build, and a gate that fails at fmt must have made exactly one cargo call). So this memoises into
+# `$debug` and every reader calls it first.
+target_dir=""
+debug=""
+resolve_target_dir() {
+  [ -z "$debug" ] || return 0
+  target_dir="${CARGO_TARGET_DIR:-}"
+  if [ -z "$target_dir" ]; then
+    local meta
+    meta="$(cargo metadata --no-deps --format-version 1 2>/dev/null || true)"
+    target_dir="$(printf '%s' "$meta" | grep -o '"target_directory":"[^"]*"' | cut -d'"' -f4 || true)"
+  fi
+  [ -n "$target_dir" ] || target_dir="$PWD/target"
+  debug="$target_dir/debug"
+}
 
 # The debug binaries the benches run: `theseusd`, `theseus-sim`, and the `theseus-index` the daemon starts
 # beside itself, which cargo builds for the integration tests that run them. `test_build` (below) builds
@@ -78,6 +89,7 @@ debug="$target_dir/debug"
 bench_bins=(theseusd theseus-sim theseus-index)
 bench_bins_check() {
   local json="$1" b exe
+  resolve_target_dir
   for b in "${bench_bins[@]}"; do
     exe="$(grep -o "\"executable\":\"[^\"]*/debug/$b\"" "$json" | head -1 | cut -d'"' -f4 || true)"
     if [ -z "$exe" ] || ! [ "$debug/$b" -ef "$exe" ]; then
@@ -524,6 +536,7 @@ protocol_types() {
 # passes. A passing run warns about a phase within 10% of its limit.
 # `theseus-sim bench history` reads it (theseus-1hk).
 lifecycle() {
+  resolve_target_dir
   "$debug"/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label" "${busy_args[@]}"
 }
 # A neighbour's sustained IO (a parallel build, a package install) stalls a
@@ -625,6 +638,7 @@ jobs_bench() {
     echo "jobs: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
     return 0
   fi
+  resolve_target_dir
   "$debug"/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}" || {
     echo "jobs: an L1 start's p95 missed its target; running the bench once more"
     sync
@@ -645,6 +659,7 @@ jobs_bench() {
 # kind, and no burst (about 5 s); at the join, ten runs and a burst of 30 turns,
 # which the history records (about 11 s).
 turn_bench() {
+  resolve_target_dir
   "$debug"/theseus-sim bench turn --check "$@"
 }
 turn_step() {
