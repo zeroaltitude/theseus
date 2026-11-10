@@ -266,23 +266,41 @@ fn walk(
                 }
             }
         }
-        (Kind::Map, Value::Object(o)) => {
-            if let Some(m) = shape.map_value() {
-                let sensitive_key = shape.map_key().is_some_and(|k| k.shape().is_sensitive());
-                for (k, x) in o.iter_mut() {
-                    walk(
-                        x,
-                        m.shape(),
-                        None,
-                        &format!("{path}.{k}"),
-                        sensitive_key,
-                        held,
-                        keep,
-                    );
-                }
-            }
-        }
+        (Kind::Map, Value::Object(o)) => walk_map(o, shape, path, held, keep),
         _ => {}
+    }
+}
+
+/// The `Map` arm of [`walk`]: each entry walked under the map's value shape,
+/// with the entry's **key in the name position** (theseus-3i6d1).
+///
+/// The arm used to recurse with `None` there, so [`named`] — [`NAMED`] and
+/// the compound [`ENDS`] — was never consulted on a map value, and an entry
+/// keyed `SessionToken`, or keyed anything ending in `ApiKey` or `Password`,
+/// reached the model verbatim while the identical name on a structure
+/// member was held. The arm already read the key's *shape*
+/// (`sensitive_key`); it dropped only the key's text. A map's key is a name
+/// as a member's is, so the name rules read it as one. The change only ever
+/// holds more.
+fn walk_map(
+    o: &mut Map<String, Value>,
+    shape: ShapeRef<'_>,
+    path: &str,
+    held: &[(&str, &str)],
+    keep: &mut dyn FnMut(&str, &Value) -> String,
+) {
+    let Some(m) = shape.map_value() else { return };
+    let sensitive_key = shape.map_key().is_some_and(|k| k.shape().is_sensitive());
+    for (k, x) in o.iter_mut() {
+        walk(
+            x,
+            m.shape(),
+            Some(k.as_str()),
+            &format!("{path}.{k}"),
+            sensitive_key,
+            held,
+            keep,
+        );
     }
 }
 
@@ -542,5 +560,78 @@ mod tests {
             // What is not a credential still comes through.
             assert!(after.contains("contact-example") || after.contains("ConnectionExpiry"));
         }
+    }
+
+    /// A map's **key** is a name, and the name rules read it (theseus-3i6d1).
+    ///
+    /// Until this test the `Map` arm recursed with `None` in the walk's
+    /// `name` position, so [`named`] — `NAMED` and the compound `ENDS` — was
+    /// never consulted on a map value. An entry keyed `SessionToken`, or
+    /// keyed anything ending in `ApiKey`, reached the model verbatim, while
+    /// the identical name on a structure member was held. The arm already
+    /// read the key's *shape* (`sensitive_key`); it dropped only its text.
+    ///
+    /// `amplify:GetApp` is one of the 85 secret-bearing operations whose
+    /// output reaches an unmarked `Kind::Map` of plain strings (the count is
+    /// in this commit's message): an app's `environmentVariables`, which is
+    /// where a deployment's credentials actually live.
+    ///
+    /// **Planted revert**: put `None` back in the `Map` arm's `name`
+    /// position and this test names the keys it expected held.
+    #[test]
+    fn a_map_entry_keyed_like_a_credential_is_held_as_a_member_of_that_name_is() {
+        const SESSION: &str = "example-session-token-0021";
+        const DEPLOY: &str = "example-deploy-api-key-0022";
+        const ORDINARY: &str = "staging";
+        let board = SecretBoard::empty();
+        let mut body = json!({
+            "app": {
+                "appId": "example-app-0023",
+                "name": "example-app",
+                "environmentVariables": {
+                    "SessionToken": SESSION,
+                    "DeployApiKey": DEPLOY,
+                    "env": ORDINARY,
+                }
+            }
+        });
+        let held = hold(
+            &board,
+            "amplify",
+            "GetApp",
+            &json!({"appId": "example-app-0023"}),
+            &mut body,
+        )
+        .expect("amplify:GetApp is in the catalog");
+        let mut paths: Vec<&str> = held.iter().map(|h| h.path.as_str()).collect();
+        paths.sort_unstable();
+        // Positive bars: exactly the two credential-named keys, so an empty
+        // result cannot pass this test.
+        assert_eq!(
+            paths,
+            [
+                "app.environmentVariables.DeployApiKey",
+                "app.environmentVariables.SessionToken"
+            ],
+            "the keys held: {held:?}"
+        );
+        for h in &held {
+            assert!(
+                board.get(&h.handle).is_some(),
+                "{} is on the board",
+                h.handle
+            );
+        }
+        let after = body.to_string();
+        assert!(
+            !after.contains(SESSION),
+            "the session token is still there:\n{after}"
+        );
+        assert!(
+            !after.contains(DEPLOY),
+            "the api key is still there:\n{after}"
+        );
+        // The ordinary key's value comes through unchanged.
+        assert_eq!(body["app"]["environmentVariables"]["env"], json!(ORDINARY));
     }
 }
