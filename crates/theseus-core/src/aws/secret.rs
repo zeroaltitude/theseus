@@ -272,7 +272,8 @@ fn walk(
 }
 
 /// The `Map` arm of [`walk`]: each entry walked under the map's value shape,
-/// with the entry's **key in the name position** (theseus-3i6d1).
+/// with the entry's **key in the name position**, and its **value's
+/// characters** read when nothing else has held it (theseus-3i6d1).
 ///
 /// The arm used to recurse with `None` there, so [`named`] — [`NAMED`] and
 /// the compound [`ENDS`] — was never consulted on a map value, and an entry
@@ -280,8 +281,15 @@ fn walk(
 /// reached the model verbatim while the identical name on a structure
 /// member was held. The arm already read the key's *shape*
 /// (`sensitive_key`); it dropped only the key's text. A map's key is a name
-/// as a member's is, so the name rules read it as one. The change only ever
-/// holds more.
+/// as a member's is, so the name rules read it as one.
+///
+/// The value rule is [`super::value_shape::credential_shaped`], read last
+/// and only on a scalar `Kind::String` the key's name, the value's shape
+/// and the key's shape have all left alone: a credential pasted into a tag
+/// or an environment variable is under a key nobody names, so no name rule
+/// can ever reach it.
+///
+/// Both rules only ever hold more: nothing masked before is unmasked here.
 fn walk_map(
     o: &mut Map<String, Value>,
     shape: ShapeRef<'_>,
@@ -292,12 +300,22 @@ fn walk_map(
     let Some(m) = shape.map_value() else { return };
     let sensitive_key = shape.map_key().is_some_and(|k| k.shape().is_sensitive());
     for (k, x) in o.iter_mut() {
+        // The value rule, last: only where the key's shape, the value's
+        // shape and the key's name have all said nothing, and only on a
+        // scalar string. A value rule on every unmarked scalar of every
+        // answer is a far larger blast radius and is not what this is.
+        let by_value = !sensitive_key
+            && m.shape().kind() == Kind::String
+            && !m.shape().is_sensitive()
+            && !named(k, m.shape())
+            && x.as_str()
+                .is_some_and(super::value_shape::credential_shaped);
         walk(
             x,
             m.shape(),
             Some(k.as_str()),
             &format!("{path}.{k}"),
-            sensitive_key,
+            sensitive_key || by_value,
             held,
             keep,
         );
@@ -633,5 +651,62 @@ mod tests {
         );
         // The ordinary key's value comes through unchanged.
         assert_eq!(body["app"]["environmentVariables"]["env"], json!(ORDINARY));
+    }
+
+    /// A map's **value** is read too, when no name and no marking holds it
+    /// (theseus-3i6d1).
+    ///
+    /// Until this test nothing under `aws/` read a value's characters but
+    /// `presigned::is_presigned`, which recognises signed URLs and nothing
+    /// else. So a credential pasted into a tag or an environment variable
+    /// — an `AKIA…`, a `ghp_…`, a JWT — under a key nobody names and a
+    /// shape nobody marks went to the model whole. `super::value_shape` is
+    /// the seam that reads it; its own table pins the AWS corpus.
+    ///
+    /// Same operation as the key test, so the two rules are seen on one
+    /// answer: one entry carries an invented access-key-shaped value under
+    /// an ordinary key, the other a benign tag value.
+    ///
+    /// **Planted revert**: drop the value branch from `walk_map` and this
+    /// test names the value it expected held.
+    #[test]
+    fn a_map_value_shaped_like_a_credential_is_held_though_no_name_or_marking_says_so() {
+        const PLANTED: &str = "AKIAEXAMPLEACCESSKEY";
+        const BENIGN: &str = "us-west-2";
+        let board = SecretBoard::empty();
+        let mut body = json!({
+            "app": {
+                "appId": "example-app-0024",
+                "name": "example-app",
+                "environmentVariables": {
+                    "DEPLOY_TARGET": PLANTED,
+                    "REGION": BENIGN,
+                }
+            }
+        });
+        let held = hold(
+            &board,
+            "amplify",
+            "GetApp",
+            &json!({"appId": "example-app-0024"}),
+            &mut body,
+        )
+        .expect("amplify:GetApp is in the catalog");
+        // Positive bar: exactly the one entry, so an empty result cannot
+        // pass, and the benign tag is not swept up with it.
+        let paths: Vec<&str> = held.iter().map(|h| h.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["app.environmentVariables.DEPLOY_TARGET"],
+            "the values held: {held:?}"
+        );
+        assert_eq!(
+            board.get(&held[0].handle).map(|s| s.expose().to_string()),
+            Some(PLANTED.to_string()),
+            "the value is on the board"
+        );
+        let after = body.to_string();
+        assert!(!after.contains(PLANTED), "the key is still there:\n{after}");
+        assert_eq!(body["app"]["environmentVariables"]["REGION"], json!(BENIGN));
     }
 }

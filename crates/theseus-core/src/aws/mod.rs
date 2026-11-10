@@ -66,6 +66,7 @@ pub mod stack_tags;
 pub mod tend;
 pub mod tools;
 pub mod trail;
+mod value_shape;
 
 #[cfg(test)]
 mod tests;
