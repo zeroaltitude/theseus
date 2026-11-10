@@ -56,15 +56,37 @@ pub(super) fn is_held(req: &ConfirmRequest) -> bool {
     req.budget.is_none() && req.change.is_none() && held_tool(&req.tool)
 }
 
-/// The footer's clause in place of `expires <t:…:R>` for a held question: the
-/// time it was asked, which the client draws as "3 minutes ago", and the
-/// plain fact that it is still waiting. The same words as the TUI's and the
-/// cockpit's `waiting …`, worded for a live Discord timestamp.
-pub(super) fn held_since(req: &ConfirmRequest) -> String {
-    format!(
-        "held since <t:{}:R> · still waiting",
-        req.requested_at_ms / 1000
-    )
+/// What a card's footer says about the question's time. A held question's
+/// names the time it was **asked**, which the client draws as "3 minutes
+/// ago", and says plainly that it is still waiting: the same thing the TUI's
+/// and the cockpit's `waiting …` say, worded for a live Discord timestamp.
+/// A question with a real deadline says when it expires, exactly as before.
+pub(super) fn footer_clause(req: &ConfirmRequest) -> String {
+    if is_held(req) {
+        format!(
+            "held since <t:{}:R> · still waiting",
+            req.requested_at_ms / 1000
+        )
+    } else {
+        format!("expires <t:{}:R>", req.expires_at_ms / 1000)
+    }
+}
+
+/// The Details press's line about the question's time, its field name
+/// included: `**Held since:**` for a held question, `**Expires:**` for one
+/// with a real deadline. None when there is no time to show, as before.
+pub(super) fn details_line(req: &ConfirmRequest) -> Option<String> {
+    if is_held(req) {
+        (req.requested_at_ms > 0).then(|| {
+            format!(
+                "\n**Held since:** <t:{}:R> · still waiting",
+                req.requested_at_ms / 1000
+            )
+        })
+    } else {
+        (req.expires_at_ms > 0)
+            .then(|| format!("\n**Expires:** <t:{}:R>", req.expires_at_ms / 1000))
+    }
 }
 
 #[cfg(test)]
@@ -222,7 +244,7 @@ mod tests {
     fn a_budget_question_shows_no_time_and_is_not_this_fixs_business() {
         let req = held(json!({"tool": "budget.reset", "expires_at_ms": 0,
             "reason": "This session has spent $99.48 of its $100 limit. Reset its spend to $0 and continue?",
-            "budget": {"spent_usd": 99.48, "limit_usd": 100.0, "lifetime_usd": 99.48}}));
+            "budget": {"spent_usd": 99.48, "limit_usd": 100.0, "needed_usd": 0.6, "lifetime_usd": 99.48}}));
         let c = card(&req, &Route::Here, "").content;
         assert!(!c.contains("<t:"), "no timestamp at all: {c}");
         assert!(!c.contains("held since"), "{c}");

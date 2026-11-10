@@ -93,10 +93,10 @@ pub fn card(req: &ConfirmRequest, p: &PlainWords, route: &Route, elsewhere: &str
     };
     let content = format!(
         "{open}{line}\nrisk: {risk} · why it asks: {}{}\n**Approve** runs this one call · \
-         **Decline** refuses it; {who} is told and carries on\n-# {place}expires <t:{}:R>{or}",
+         **Decline** refuses it; {who} is told and carries on\n-# {place}{}{or}",
         why_it_asks(req, p),
         preview::hunk(req),
-        req.expires_at_ms / 1000
+        super::heldquestion::footer_clause(req)
     );
     CardText {
         content,
@@ -132,8 +132,8 @@ pub(super) fn classic(
         e => format!(" · you can also answer {e}"),
     };
     content.push_str(&format!(
-        "\n-# {asked_for}expires <t:{}:R>{also}",
-        req.expires_at_ms / 1000
+        "\n-# {asked_for}{}{also}",
+        super::heldquestion::footer_clause(req)
     ));
     CardText {
         content,
