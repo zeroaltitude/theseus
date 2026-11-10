@@ -331,7 +331,7 @@ may not set one. T1b makes `wake.at` exempt from the external-text hold.
   cancel drops its wakes. `wake_parent` fires when it finally ends.
 - `theseus wakes`, `/wakes`, and the Observatory name the task (`task a1b2c3`).
 - A repeating wake in a task is refused in v1: "a task must end". A later option adds one with `until`.
-- _Since (2026-11-09, `a55eba174`): a task's repeating wake is allowed when it carries an `until` no later than the end of the owner's day (`task_repeat_refusal`, `crates/theseus-core/src/wake.rs:85`); one without is still refused._
+- _Since (2026-11-09, `a55eba174`): a task's repeating wake is allowed when it carries an `until` (`task_repeat_refusal`, `crates/theseus-core/src/wake.rs`); one without is still refused. The bound was the end of the owner's day; the owner moved it at 15:48 the same day to 30 days from now, and one past it is refused, naming the rule and the one-shot way out._
 - _As built (2026-10-04, Part III Item 98): as above, plus the kernel's rule that a task never waits on input with nothing to wake it: an operator's cancel of a parked task's last wake queues it, and it ends and reports once. The cockpit's Wakes panel names the task, and the live check runs on `theseus-sim fake-model --rules`, a scripted stand-in model._
 
 **Seen in.**
