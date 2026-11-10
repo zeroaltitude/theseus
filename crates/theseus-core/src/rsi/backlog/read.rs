@@ -103,6 +103,15 @@ impl Candidate {
     pub fn last_ms(&self) -> u64 {
         self.obs.iter().map(|o| o.at_ms).max().unwrap_or(0)
     }
+    /// How many sightings this candidate stands for. The night's folded
+    /// `judge.failed` has one observation that lists a line per pack, so it
+    /// stands for that many packs; any other candidate, its observations.
+    pub fn seen(&self) -> usize {
+        match (self.key == FAILED_MANY, self.obs.first()) {
+            (true, Some(o)) => members_of([o.note.as_str()]).len(),
+            _ => self.obs.len(),
+        }
+    }
 }
 
 /// Fold observations into candidates, one per key, by key.
@@ -1105,6 +1114,39 @@ mod tests {
         let mut o = of_row(pos, &row).expect("a failing pack");
         o.at_ms = 1_000 * pos;
         o
+    }
+
+    /// The folded item stands for a night of packs, and its objective says
+    /// how many, not "Seen 1 times"; every other candidate keeps its words.
+    #[test]
+    fn the_folded_items_objective_counts_its_packs() {
+        let cands = group(vec![
+            obs_at("role.v1", 12, 448, 3),
+            obs_at("continue.v1", 4, 94, 1),
+            obs_at("onto.v1", 1, 1, 2),
+        ]);
+        assert_eq!(cands.len(), 1, "{cands:?}");
+        assert_eq!(cands[0].seen(), 3);
+        let tail = "Find the root cause, fix it with a test that fails without the fix, and call \
+                    self.propose_change { item: \"tsk_x\", issue: <the issue>, why: <one sentence> }.";
+        assert_eq!(
+            super::super::objective_of(&cands[0], "tsk_x"),
+            format!(
+                "Fix the cause `judge.failed`: Jev's judgments fail in 3 packs.\n\n\
+                 Seen in 3 packs in one night; the evidence is on this task. {tail}"
+            )
+        );
+        let lone = group(vec![obs_at("role.v1", 12, 448, 3)]);
+        assert_eq!(lone.len(), 1);
+        assert_eq!(lone[0].seen(), 1);
+        assert_eq!(
+            super::super::objective_of(&lone[0], "tsk_x"),
+            format!(
+                "Fix the cause `judge.failed:role.v1`: {}.\n\n\
+                 Seen 1 times; the evidence is on this task. {tail}",
+                lone[0].title
+            )
+        );
     }
 
     /// Packs failing in one night are one cause: one candidate whose note

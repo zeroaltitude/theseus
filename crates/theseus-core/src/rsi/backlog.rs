@@ -159,13 +159,15 @@ fn objective_of(c: &Candidate, item: &str) -> String {
     if let Some(p) = &c.pattern {
         return p.brief.clone();
     }
+    let seen = match c.key == read::FAILED_MANY {
+        true => format!("in {} packs in one night", c.seen()),
+        false => format!("{} times", c.seen()),
+    };
     format!(
-        "Fix the cause `{}`: {}.\n\nSeen {} times; the evidence is on this task. Find the root \
+        "Fix the cause `{}`: {}.\n\nSeen {}; the evidence is on this task. Find the root \
          cause, fix it with a test that fails without the fix, and call \
          self.propose_change {{ item: \"{item}\", issue: <the issue>, why: <one sentence> }}.",
-        c.key,
-        c.title,
-        c.obs.len()
+        c.key, c.title, seen
     )
 }
 
