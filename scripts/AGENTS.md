@@ -168,6 +168,22 @@ and at the end; a gate that fails is checked once more on its way out.
   differs from main in `gate.sh` or the test; a gate of main's own tree says so and costs a diff. A
   new phase of the gate that reads a command's output needs its stand-in there.
 
+### A disk too full to build (THESEUS_GATE_MIN_FREE_GB)
+
+Before its first compile the gate reads the free space of the filesystem that holds `target` and refuses to start below
+a floor, so a build is not begun on a disk it would fill (`disk_floor` in `gate.sh`).
+
+- **The floor is 10 GB**, from `THESEUS_GATE_MIN_FREE_GB` (default 10). It is a whole number of GB: anything else exits 2
+  with `it is a whole number of GB`. `0` turns the floor off, and the log says so.
+- **Below the floor the gate exits with status 73**, its own (nextest's is 100, the gate's 1 and 2, a moved tree's 75).
+  The log says `gate: REFUSED: only <n> GB free on <where>, below the disk floor of <floor> GB (exit status 73)`. A
+  `df` it cannot read refuses with 73 too: a gate that cannot show it has room has not shown it.
+- **It measures the filesystem holding `target`**, following a symlink; a lane that has not built yet has no `target`, so
+  the nearest directory that exists stands in for the disk it will be made on. It runs after fmt and before the first
+  phase that resolves or compiles.
+- **It deletes nothing.** Pruning is the lane tooling's, and a gate that clears caches changes the tree it judges. Free
+  space yourself and rerun, or run on purpose with a smaller whole number or `0`.
+
 ### The lock
 
 (theseus-rx91, theseus-lew7.) The suite's timing-sensitive tests and the benches need the machine to themselves, so one
