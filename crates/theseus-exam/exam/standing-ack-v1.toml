@@ -27,6 +27,23 @@
 # a fake provider answers "Hello." whatever it is handed. Only a live call
 # can show the acknowledgement has stopped, which is why this file exists and
 # why its one item costs money to run.
+#
+# MEASURED, AND READ THIS BEFORE TRUSTING A GREEN RUN (2026-11-10, local,
+# `claude-haiku-5-5`, the model of the owner's own trace, arm `none`, as a
+# cold resume): THIS ITEM DOES NOT YET DISCRIMINATE. Run against a daemon
+# built WITHOUT `standing::FRAMING` it passes 5 of 5, and against one WITH it
+# 5 of 5 -- so a green run here is not evidence that the framing works. The
+# symptom did not reproduce at all: a terse technical question did not draw an
+# acknowledgement, and neither did a bare "morning" (5 of 5 on the control,
+# which instead retracted its own unmeasured claim from the past turn).
+#
+# The one difference from the owner's trace that this harness cannot close is
+# the surface. His record was `surface:discord`, in a Discord DM; the exam
+# reaches the daemon over its socket, so its requests are `terminal` and a
+# discord-scope record would ride none of them. Closing it needs the Discord
+# rig, not this file. Until the item is shown to catch the symptom on SOME
+# build, treat it as the skeleton of the check the row asks for and not as the
+# check itself.
 
 version = "standing-ack-v1"
 # Minutes east of UTC: MST.
@@ -40,6 +57,12 @@ family = "needs_nothing"
 # and nothing else. That makes a failure unambiguous -- it can only be the
 # acknowledgement.
 task = "Quick one while I'm in the terminal: when the branch could fast-forward, what does `git merge --no-ff` leave in the history that a plain `git merge` does not? Two sentences is plenty."
+# The present continues the past session rather than opening a fresh one: a
+# cold resume, which is when the owner saw this happen ("It recurs after every
+# recompile/cold resume"). Measured: without this, the case does not
+# discriminate -- a daemon built WITHOUT `standing::FRAMING` passes it 5 of 5
+# too, so a fresh-session cell proves nothing about the fix.
+resume = "a"
 check = '''
 # The symptom itself: the reply opens by acknowledging the standing block.
 # Anchored at the start of the reply, past any bold or quote marks, because an

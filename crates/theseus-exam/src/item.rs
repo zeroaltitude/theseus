@@ -194,6 +194,14 @@ pub struct Item {
     /// myself"), and only a real model can show that it has stopped.
     #[serde(default, rename = "standing")]
     pub standing: Vec<PastStanding>,
+    /// The past session of this item's own that the present continues, by its
+    /// `key`, instead of the fresh session a cell otherwise opens. The
+    /// daemon has never compiled that session, so its first turn rebuilds the
+    /// context from the transcript -- a cold resume, which is the moment the
+    /// standing-acknowledgement recurs (theseus-ectzg: "It recurs after every
+    /// recompile/cold resume"). A fresh session cannot show it.
+    #[serde(default)]
+    pub resume: Option<String>,
 }
 
 /// One standing record of an item's past: the owner's own words, in force on
@@ -343,6 +351,12 @@ impl Exam {
             let check = Check::parse(&item.check).with_context(|| format!("item {id}"))?;
             checks.insert(id.clone(), check);
             validate_sessions(&format!("item {id}"), &item.sessions, off)?;
+            if let Some(key) = &item.resume {
+                ensure!(
+                    item.sessions.iter().any(|s| &s.key == key),
+                    "item {id}: resume names {key}, which is none of its own past sessions"
+                );
+            }
             for (k, s) in item.standing.iter().enumerate() {
                 let at = || format!("item {id}: standing record {}", k + 1);
                 ensure!(!s.text.trim().is_empty(), "{}: no text", at());
@@ -1049,5 +1063,15 @@ text = "Noted."
         );
         let e = format!("{:#}", Exam::parse(&no_text).unwrap_err());
         assert!(e.contains("no text"), "{e}");
+        // `resume` must name one of the item's own past sessions: a cell that
+        // resumes nothing would silently open a fresh session instead, and a
+        // fresh session cannot show the cold-resume symptom at all.
+        assert_eq!(item.resume.as_deref(), Some("a"));
+        let bad_resume = STANDING_ACK_V1.replace("resume = \"a\"", "resume = \"zz\"");
+        let e = format!("{:#}", Exam::parse(&bad_resume).unwrap_err());
+        assert!(
+            e.contains("resume names zz") && e.contains("none of its own past sessions"),
+            "{e}"
+        );
     }
 }
