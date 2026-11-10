@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 263 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched); recall sees a kept file’s text, read from the blob the node names; an imported session that was rewritten, its divergence mark, its quiet take and the renumbered episode refused) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 264 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched); recall sees a kept file’s text, read from the blob the node names; an imported session that was rewritten, its divergence mark, its quiet take and the renumbered episode refused; the file tools’ three gaps, a CRLF edit, a search that reaches hidden files and a stale edit refused) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -1087,3 +1087,94 @@ everywhere else. Nothing written down said where such a mark would live; `labels
 and is the wrong one, and that is recorded here because the next reader looking for the mark will look there.
 theseus-pjmj7's own append has no Part III Item, so this Item is also the first place the appending rules are
 written outside the module's header.
+
+### Item 264. The file tools' three gaps: a CRLF file edits normally, a search can reach hidden files, and a stale edit is refused (theseus-w2cs; 1.0.5's B6 bucket, landed 2026-11-09 as `cbf494e9`, `5733ddba`, `8726f490`, `79f82b45` and `490867e4`; the stale edit's product question was the owner's, decided that morning)
+
+**Why.** Three separate things a model could not do, each small, each met while using the tools for real work.
+`fs.edit` could not change a file with CRLF line endings, because `fs.read` shows a line without its `\r` and so a
+model quotes bare `\n`, and the quote then matched nothing. `fs.grep` and `fs.glob` could never reach a hidden or
+`.gitignore`'d file, while `fs.list` could, so a search for something under a dotted directory silently returned
+nothing. And an edit written against bytes that had changed since they were read overwrote whatever landed in
+between, with nothing said.
+
+**CRLF.** A file whose endings are **all** CRLF is matched and patched as the read showed it — with bare newlines —
+and written back with CRLF endings (`fs.rs:820-829`, `is_all_crlf`, `lf_regions`, `splice_lf_regions` and `to_crlf`
+in `fs_lines.rs`). A mixed file is handled region by region rather than whole: the first cut converted the whole of
+`old_string` and `new_string`, which is wrong wherever a file holds both endings, and the fix is to splice only the
+LF regions. Every other line's ending is left exactly as it was. `tests_crlf.rs` holds it.
+
+**One `all` flag, one meaning.** `fs.grep` and `fs.glob` take the flag `fs.list` already had, with the same name,
+the same default (`false`) and the same meaning: hidden and `.gitignore`'d entries too. `.git` is still never
+walked, by any of the three, and the result's scope line says which walk ran. The three tools' schemas and
+descriptions are the model-visible surface, so this is 124 tokens added to the tool table of **every request that
+loads the `files` family** — a cost the step measured rather than estimated, and which moved four pinned counts and
+one golden with it.
+
+**That cost is where the owner was asked, and the answer was a bound, not a budget.** The addition took one rig's
+cold thread resume to 22,055 tokens against a bar of 22,000. The budget turned out not to be a lever at all: the
+rig's `resume_keep_turns = 1` already has the resume at its floor — the prefix plus the newest turn — so
+`est_tokens` reads 22,055 at `working_tokens` of 22,000, 21,876, 10,000 and 1,000 alike, one recompile per value.
+Lowering the rig's budget was keel-clean and would not have helped, and 22,054 would not have passed. So the bar
+itself was the only lever, and raising a bar is an assertion weakened, which is the owner's to allow: he allowed
+it, and `tests_thread_context.rs:423` now reads `<= 22_200`. Nothing about the resume changed — it still decides
+`recompile` on `cold_resume`, still keeps one turn, still rewrites small.
+
+**The stale edit, and the shape that was not built.** The product question came first and was the owner's: *refuse
+an edit to a path this session has not read*, or *note what was read and check the note when one exists*. He chose
+the second, and the first was built once, measured and deliberately not committed, so that it is not rebuilt. The
+rule, written down at `docs/design/stale-edit.md`, is one sentence: **refuse only when a read record exists and the
+file changed since** — the refusal an ordinary tool error saying read it again, then write. **The absence of a read
+is never a refusal.** A model that learned a file's contents from `proc.run cat`, from `git.diff`, from an earlier
+turn or from an earlier session writes exactly as it did before the guard existed, and every existing test that
+edits a file without reading it first stays green by construction.
+
+**Why the other shape was unacceptable, which is the part a later reader will get wrong.** A self session's calls
+fail open where the *policy* layer would hold them for approval (`ToolPolicy::fails_open`), so self-improvement is
+never stuck waiting for an owner who is asleep. A read-record refusal is not an approval: it is a `ToolFailure`,
+and there is no fail-open path for one and no reason to invent one. Under *required*, an `rsi` self session that
+knew a file by any other route would be stopped dead with nothing to answer. Under the rule as built there is
+nothing to fail open from — a session that reads and then writes with nothing changing underneath sees no refusal
+at all, and one that genuinely lost a race should be told it lost.
+
+**What identifies the file's state: length and mtime, never a hash.** The first attempt identified a file by
+`std::hash::DefaultHasher`, whose algorithm is explicitly not guaranteed between Rust releases, so such a value
+means something only inside one running process and must never be stored or compared across processes. Observable
+state — byte length and modification time (`reads::Mark`) — avoids the question, costs one `stat` instead of a read
+of up to 16 MiB on every edit, and is sound here because Theseus's own writes go through `write_atomic`, which
+renames a fresh file over the target: a write by another tool, another session or an editor leaves a new mtime. Two
+states a change could leave indistinguishable would need the same length **and** the same mtime to nanosecond
+resolution.
+
+**Where the note lives, and what bounds it.** Off the session, dying with it. The first attempt kept one
+process-wide `HashMap` with one insert and one get — no eviction, no cap, no clear at a session's end — so a
+long-lived daemon grew it for ever. The board is keyed by session and bounded twice (`MAX_PATHS` 256 paths a
+session, `MAX_SESSIONS` 512 sessions with a board at all), and a session's board is dropped when its session ends
+(`ReadRecords::forget`, called from the turn runner). It follows two shapes already in the tree, `JobWaits` and
+`Terms`: one board on the runtime, reached by a call through an `Arc`. It reaches a tool as one more
+`Option<Arc<dyn …>>` on `ToolCtx`, beside `cores` and `secrets`, and `ToolCtx::for_tests` leaves it `None` — **a
+`None` board notes nothing and checks nothing**, which is why no tool test needed editing.
+
+**A write refreshes a note it finds, and creates none.** After a successful `fs.edit`, `fs.write` or `fs.patch`
+the file has changed by the model's own hand, so the note for each path written is set to the file's new state —
+**and only where a note for that path already exists**. Otherwise a model making two edits after one read would be
+refused by its own first edit. A write to an unnoted path still notes nothing, so "no read, no refusal" holds
+exactly: a write never brings a path under the guard.
+
+**Two choices left open, and named as choices.** At `MAX_PATHS` the oldest note is evicted and that path is then
+unguarded — the quiet choice, which puts the path back where every unread path already is; the noisy one, refuse to
+record and say so, is defensible. And only a tool that hands over a file's bytes *as a file* notes anything:
+`fs.read`, not `fs.grep`, which returns matching lines, and not `proc.run cat`, whose argv the runtime does not read
+as a file read. That is the narrow end of the range, chosen because widening it later only adds guarded paths while
+narrowing it later would silently drop a guard a model had come to rely on.
+
+**Divergence.** Part I §3.10's own rule for these three tools is *"Every listing tool follows one rule. Today
+that is `fs.glob`, `fs.grep`, and `fs.list`"* — written about saying what a listing left out, and it is the rule the
+`all` flag broke: two of the three could not reach a hidden entry at all while the third could, so what they left
+out was not a thing a caller could ask about. The step makes the three agree, which is the plan's rule applied, not
+a departure from it. The stale-edit guard is the departure: Part I's tool surface says what `fs.edit` and `fs.patch`
+do with their arguments (§3.10's *"exact match with occurrence control, returns the diff"*, A0's inventory) and says
+nothing about the state of the file between a read and a write. The guard is a new property of those two tools that
+no plan asked for, and it is recorded here and in `docs/design/stale-edit.md` rather than folded into Part I,
+because what is written down is the *rule plus the rejected alternative* — and the rejected alternative, with its 27
+reddened rig tests and its `rsi` fail-open argument, is the half a plan cannot carry. (The 27 figure is carried from
+an earlier measurement and is marked unverified in the design note itself.)
