@@ -637,47 +637,8 @@ impl Pack {
             rule,
             detail,
         };
-        if !snake_id(&pack.id) || pack.version == 0 {
-            return Err(err(
-                None,
-                Rule::Identity,
-                "the id is lowercase snake case and the version at least 1".into(),
-            ));
-        }
-        if !pinned_model(&pack.jev_model) {
-            return Err(err(
-                None,
-                Rule::PinnedModel,
-                format!(
-                    "{:?} is not a pinned model such as jev-1.13.0 (jev-latest never)",
-                    pack.jev_model
-                ),
-            ));
-        }
-        if pack.state_cap_tokens == 0 || pack.state_cap_tokens > STATE_LIMIT_TOKENS {
-            return Err(err(
-                None,
-                Rule::StateCap,
-                format!(
-                    "{} is not within 1..={STATE_LIMIT_TOKENS}",
-                    pack.state_cap_tokens
-                ),
-            ));
-        }
-        if !(0.0..=1.0).contains(&pack.sample) {
-            return Err(err(
-                None,
-                Rule::Sample,
-                format!("{} is not within 0..=1", pack.sample),
-            ));
-        }
-        if file.questions.is_empty() {
-            return Err(err(
-                None,
-                Rule::QuestionId,
-                "a pack asks at least one question".into(),
-            ));
-        }
+        check_header(&pack, file.questions.len())
+            .map_err(|(rule, detail)| err(None, rule, detail))?;
         for (id, q) in file.questions {
             let qd =
                 check_question(&id, q).map_err(|(rule, detail)| err(Some(&id), rule, detail))?;
@@ -991,6 +952,43 @@ fn check_question(id: &str, q: QuestionFile) -> Result<QuestionDef, (Rule, Strin
         max: q.max.unwrap_or(5),
         only_when: q.only_when,
     })
+}
+
+/// A pack's own fields, before any question is read: its identity, its pinned
+/// model, its state cap, its sample, and that it asks anything at all. The
+/// order is the order the rules are reported in.
+fn check_header(pack: &Pack, questions: usize) -> Result<(), (Rule, String)> {
+    if !snake_id(&pack.id) || pack.version == 0 {
+        return Err((
+            Rule::Identity,
+            "the id is lowercase snake case and the version at least 1".into(),
+        ));
+    }
+    if !pinned_model(&pack.jev_model) {
+        return Err((
+            Rule::PinnedModel,
+            format!(
+                "{:?} is not a pinned model such as jev-1.13.0 (jev-latest never)",
+                pack.jev_model
+            ),
+        ));
+    }
+    if pack.state_cap_tokens == 0 || pack.state_cap_tokens > STATE_LIMIT_TOKENS {
+        return Err((
+            Rule::StateCap,
+            format!(
+                "{} is not within 1..={STATE_LIMIT_TOKENS}",
+                pack.state_cap_tokens
+            ),
+        ));
+    }
+    if !(0.0..=1.0).contains(&pack.sample) {
+        return Err((Rule::Sample, format!("{} is not within 0..=1", pack.sample)));
+    }
+    if questions == 0 {
+        return Err((Rule::QuestionId, "a pack asks at least one question".into()));
+    }
+    Ok(())
 }
 
 /// Every embedded pack, parsed and checked once, each file's name matching

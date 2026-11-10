@@ -75,7 +75,11 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
   replays the frames, finds one chain. Past the bound the store also refuses every checkpoint until it is reopened
   (`index_gap`, `checkpoint_as`): a claim past the failed frames would hide them from the open's replay for good. The
   gap is said once, when it opens (`index_gap()` holds the log position then; `ledger.verify` names it when a
-  removed break lies past it), and the periodic checkpoint stays quiet while it stands; the close's is logged, and an
+  removed break lies past it), and the periodic checkpoint stays quiet while it stands. It is never invisible (the owner,
+  2026-11-09: "Yes, we never want invisibility."): `ledger_gap()` (`store/gap.rs`) carries it whole, the position, when it
+  opened, the batches the log has taken since (the failed ones and the good) and the first failure's reason, into
+  health's `ledger_gap` and one post to the owner (`theseus-core`'s `ledger_gap.rs`, once per gap). The log never refuses
+  a frame for it; the close's is logged, and an
   explicit `checkpoint()` (restore, the shape build, the outbox, `rpc`) gets the error. The log keeps taking frames.
   `ledger_head()` is the log's head during the gap. A walk reads the index: it ends at the last indexed row until a
   later ledger row is indexed, and then reports `removed` past the hole (seq 3 then 5) until the next open replays the

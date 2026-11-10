@@ -1135,6 +1135,20 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "UpdateBaiduChannel",
         ],
     ),
+    // An EKS Anywhere subscription's `licenses[].token`. It was left to an
+    // allowed row ("an entitlement to support, no access to the account");
+    // the owner, 2026-11-09 15:48: "a token is a token, and the field exists
+    // to authenticate" (theseus-3i6d1). The walk holds `token` by name.
+    ops(
+        "eks",
+        &[
+            "CreateEksAnywhereSubscription",
+            "DeleteEksAnywhereSubscription",
+            "DescribeEksAnywhereSubscription",
+            "ListEksAnywhereSubscriptions",
+            "UpdateEksAnywhereSubscription",
+        ],
+    ),
 ];
 
 /// Tagging is direct (§3.4), so it is never IaC-only.

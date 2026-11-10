@@ -703,6 +703,9 @@ pub struct HealthResult {
     /// (`3fa1c09e…#1204`); absent before the chain starts (theseus-bmkxk).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ledger_head: Option<String>,
+    /// The index lags the log, while it does (theseus-lu5n): absent when whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger_gap: Option<LedgerGap>,
     #[serde(default)]
     pub telemetry: TelemetryStatus,
     /// The durable kernel (M2): executions, actions, admission.

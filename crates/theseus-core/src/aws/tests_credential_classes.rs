@@ -16,8 +16,9 @@
 //! Baidu twin, grafana's workspace token (`grafanaToken`), an IoT managed
 //! integrations device's claim certificate (`GetProvisioningProfile`), and a
 //! chime user's `PersonalPIN`, and the PIN blocks of payment-cryptography's data
-//! plane (`TranslatePinData`, `GeneratePinData`, `GenerateMacEmvPinChange`). An EKS Anywhere licence's `token` also reaches
-//! the model and is left to the `ALLOWED` row that decides it.
+//! plane (`TranslatePinData`, `GeneratePinData`, `GenerateMacEmvPinChange`). An EKS Anywhere licence's `token` reached
+//! the model too, and an `ALLOWED` row left it there; the owner overturned that (2026-11-09 15:48: "a token is a token,
+//! and the field exists to authenticate"), so the five operations that answer with a subscription's licences are held.
 //!
 //! Two classes came with the shape rule (theseus-3i6d1) and are measured in
 //! `tests_presigned.rs`, not here: a presigned URL, which carries its own
@@ -51,6 +52,7 @@ const WORKSPACE_TOKEN: &str = "example-workspace-token-0011";
 const CLAIM_CERTIFICATE: &str = "example-claim-certificate-0012";
 const BAIDU_CREDENTIAL: &str = "example-baidu-credential-0013";
 const CHIME_PIN: &str = "example-chime-personal-pin-0014";
+const EKS_LICENSE_TOKEN: &str = "example-eks-license-token-0018";
 const TRANSLATED_PIN_BLOCK: &str = "example-translated-pin-block-0015";
 const GENERATED_PIN_BLOCK: &str = "example-generated-pin-block-0016";
 const EMV_PIN_BLOCK: &str = "example-emv-pin-change-block-0017";
@@ -132,6 +134,32 @@ fn more_classes(path: &str, n: usize) -> Option<Reply> {
         ));
     }
     None
+}
+
+/// An EKS Anywhere subscription, by its path and verb: Create, Describe, Update and Delete answer with
+/// `subscription`, and the listing with `subscriptions`; each carries a licence's `token`, except for the
+/// subscription named `empty`, which has none yet.
+fn eks_subscriptions(method: &str, path: &str, n: usize) -> Option<Reply> {
+    if !path.starts_with("/eks-anywhere-subscriptions") {
+        return None;
+    }
+    let licenses = if path.ends_with("/empty") {
+        json!([])
+    } else {
+        json!([{"id": "example-license-id", "token": EKS_LICENSE_TOKEN}])
+    };
+    let subscription = json!({"id": "example-subscription-id", "status": "ACTIVE",
+                              "licenseQuantity": 1, "licenseType": "Cluster", "autoRenew": false,
+                              "licenses": licenses});
+    let listing = path == "/eks-anywhere-subscriptions" && method.eq_ignore_ascii_case("GET");
+    Some(rest(
+        n,
+        if listing {
+            json!({ "subscriptions": [subscription] })
+        } else {
+            json!({ "subscription": subscription })
+        },
+    ))
 }
 
 /// The payment-cryptography data plane's PIN blocks, by their paths: marked
@@ -219,7 +247,10 @@ fn answers(s: &Seen, n: usize) -> Reply {
             json!({"keyName": "example-key", "key": GRAFANA_KEY, "workspaceId": "g-example"}),
         );
     }
-    if let Some(r) = pinpoint_and_grafana(path, n).or_else(|| more_classes(path, n)) {
+    if let Some(r) = pinpoint_and_grafana(path, n)
+        .or_else(|| eks_subscriptions(&s.method, path, n))
+        .or_else(|| more_classes(path, n))
+    {
         return r;
     }
     let stream_key = json!({
@@ -294,7 +325,52 @@ fn more_cases() -> Vec<Case> {
     )]
     .into_iter()
     .chain(measured_cases())
+    .chain(eks_cases())
     .collect()
+}
+
+/// The five operations that answer with an EKS Anywhere subscription's licences, each holding the
+/// licence's token (the owner, 2026-11-09 15:48: "a token is a token, and the field exists to
+/// authenticate"). The path of the held member is the one the answer's shape gives it.
+fn eks_cases() -> Vec<Case> {
+    let id = json!({"id": "example-subscription-id"});
+    let held = |path| vec![(path, EKS_LICENSE_TOKEN)];
+    vec![
+        case(
+            call(
+                "eks",
+                "CreateEksAnywhereSubscription",
+                json!({"name": "example-subscription", "term": {"duration": 12, "unit": "MONTHS"},
+                       "licenseQuantity": 1, "licenseType": "Cluster"}),
+            ),
+            held("subscription.licenses[0].token"),
+            "example-subscription-id",
+        ),
+        case(
+            call("eks", "DescribeEksAnywhereSubscription", id.clone()),
+            held("subscription.licenses[0].token"),
+            "example-subscription-id",
+        ),
+        case(
+            call("eks", "ListEksAnywhereSubscriptions", json!({})),
+            held("subscriptions[0].licenses[0].token"),
+            "example-subscription-id",
+        ),
+        case(
+            call(
+                "eks",
+                "UpdateEksAnywhereSubscription",
+                json!({"id": "example-subscription-id", "autoRenew": true}),
+            ),
+            held("subscription.licenses[0].token"),
+            "example-subscription-id",
+        ),
+        case(
+            call("eks", "DeleteEksAnywhereSubscription", id),
+            held("subscription.licenses[0].token"),
+            "example-subscription-id",
+        ),
+    ]
 }
 
 /// Members the second review's sweep named, held only where the catalog walk
@@ -641,4 +717,32 @@ async fn the_guard_runs_and_still_answers_whole() {
         "nothing is held: {}",
         out.meta
     );
+}
+
+/// A `WhenPresent` row, so a subscription with no licence yet answers whole: nothing is held, nothing is
+/// masked, and the call does not fail closed. A guard that withheld every EKS subscription would pass the
+/// five cases above and fail this one.
+#[tokio::test]
+async fn an_eks_subscription_with_no_licence_yet_answers_whole() {
+    let fake = Fake::start(answers);
+    let b = board();
+    let aws = layer(&fake, b.clone());
+    let t = tool(&aws, "aws.call");
+    let input = call(
+        "eks",
+        "DescribeEksAnywhereSubscription",
+        json!({"id": "empty"}),
+    );
+    let ctx = theseus_tools::ToolCtx {
+        aws: Some(aws.bind("exe_test", "act_test_1", "toolu_test_1")),
+        ..plain_ctx()
+    };
+    let (out, _) = t
+        .run_async(&input, &ctx)
+        .await
+        .unwrap_or_else(|f| panic!("DescribeEksAnywhereSubscription: {}", f.message));
+    assert!(out.text.contains("example-subscription-id"), "{}", out.text);
+    assert!(out.text.contains("\"licenses\": []"), "{}", out.text);
+    assert!(!out.text.contains("<masked"), "{}", out.text);
+    assert!(out.meta.get("secrets").is_none(), "{}", out.meta);
 }

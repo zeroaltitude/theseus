@@ -280,3 +280,82 @@ async fn a_verdict_that_misses_the_routes_wait_records_no_would_drop() {
     );
     jev.release();
 }
+
+/// A second `Late` hole, pinned on purpose (theseus-fpm2): a late verdict decides a LATER message's
+/// `would_drop`. Message one is a greeting whose `low` verdict misses the route's wait; it lands
+/// for the session's next message (`route_step.rs`'s `read_verdict`, `Got::Late` with a stashed
+/// verdict, which comes back with no `reason`). Message two's own verdict is late too, so its pack
+/// fixes a `Late` budget, and the carried `low` passes `raise_low_effort`'s filter: message two's
+/// manifest records `would_drop` from message ONE's verdict, though nothing of its own said `low`.
+/// The routing carry is deliberate (theseus-6n5j); nobody decided it should also decide this
+/// sample, so a count over `would_drop` rows mixes the two (the field's doc says so). What closes
+/// it: telling a carried verdict from the turn's own at that filter (a design change to the route
+/// step, not made; the owner decides first). What makes this fail: any edit that stops a carried
+/// verdict marking the next message, which is then the edit to make, with this test and the doc
+/// changed to match. Lateness is by order (`Held`, `release`, `until_late`), never by the hour.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_verdict_marks_the_next_messages_would_drop() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "sonnet", "low", 0.95);
+    work(&jev, "conversation", 0.95);
+    jev.set_mode(theseus_judge::fake::FakeMode::Held);
+    let r = crate::tests_injection_tiers::tiered(&jev, 1, false, |c| {
+        c.routing.max_wait_ms = 100;
+        c.judge.total_secs = 30;
+    });
+    act_open(&r);
+    let one = turn(&r.core, None, "Hello there, good morning!", None).await;
+    jev.release();
+    crate::tests_route::until_late(&r.core, &one.session_id).await;
+    let two = turn(
+        &r.core,
+        Some(&one.session_id),
+        "Hello again, good evening!",
+        None,
+    )
+    .await;
+    let rows = crate::tests_recall::recalls(&r.core, &two.session_id);
+    let m = rows.last().unwrap();
+    assert!(!m.admitted.is_empty(), "notes were admitted: {m:?}");
+    let d = decided(&r.core.store);
+    let row = &d[1];
+    assert_eq!(row["injection"]["fallback"], "verdict late", "{row}");
+    // Message two's row: its own wait was missed (`late`), and the verdict it reads is message
+    // one's, carried (`effort_reason: carried`, `reason: verdict`: no sign of lateness).
+    assert_eq!(
+        (&row["late"], &row["reason"], &row["effort_reason"]),
+        (&true.into(), &"verdict".into(), &"carried".into()),
+        "message two reads message one's verdict: {row}"
+    );
+    assert_eq!(
+        m.would_drop,
+        Some(m.admitted.len() as u64),
+        "the carried verdict of message one marks message two"
+    );
+    jev.release();
+}
+
+/// `would_drop` is absent when nothing was admitted, too (`mark_would_drop`'s third conjunct):
+/// the same `low` greeting is driven twice, once with the harbour notes admitted (`would_drop`
+/// is the count, above zero) and once with an index that answers nothing
+/// (`admitted` is empty, a recall row is still written, and `would_drop` is absent). The
+/// admitted-notes twin is what stops the absent case passing for want of a manifest. A reader
+/// counting low-effort turns from `recall.ran` rows misses the empty ones; the field's doc says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_greeting_that_admitted_nothing_records_no_would_drop() {
+    for (silent, admits) in [(false, true), (true, false)] {
+        let jev = FakeJev::start().unwrap();
+        says(&jev, "sonnet", "low", 0.95);
+        work(&jev, "conversation", 0.95);
+        let r = tiered_open(&jev, 1, |_| {});
+        if silent {
+            let none = crate::tests_recall::index_of(&r.core, vec![]);
+            r.core.runner.memory.set_ask(none);
+        }
+        let res = turn(&r.core, None, "Hello there, good morning!", None).await;
+        let m = recalled(&r, &res);
+        assert_eq!(m.admitted.is_empty(), !admits, "silent {silent}: {m:?}");
+        let want = admits.then_some(m.admitted.len() as u64);
+        assert_eq!(m.would_drop, want, "silent {silent}");
+    }
+}

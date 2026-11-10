@@ -305,12 +305,6 @@ static ALLOWED: &[Allowed] = &[
         "a user's passkeys, described: public",
     ),
     allow(
-        "eks",
-        ALL,
-        "License.token",
-        "an EKS Anywhere license's token: an entitlement to support, no access to the account",
-    ),
-    allow(
         "entityresolution",
         ALL,
         "*PolicyOutput.token",
@@ -1370,5 +1364,50 @@ fn transfers_describe_certificate_carries_no_private_key() {
     assert!(
         imported.iter().any(is_key),
         "the control must find PrivateKey in ImportCertificate's input: {imported:?}"
+    );
+}
+
+/// The EKS Anywhere licence token (the owner, 2026-11-09 15:48: "a token is a token, and the field exists to
+/// authenticate"): the catalog's operations whose answers carry `License.token` are exactly these five, each
+/// is secret-bearing (`WhenPresent`, since a subscription keeps a licence only once it has one), and the walk
+/// holds the member in each. It had been the one credential class left to an allowed row; with the row gone
+/// this names the operations and the count, so an empty set cannot pass.
+#[test]
+fn the_five_eks_operations_that_answer_with_a_license_token_hold_it() {
+    let c = Catalog::embedded().expect("the embedded catalog decodes");
+    let svc = c.service("eks").expect("the eks service decodes");
+    let mut reached: Vec<(String, SecretBearing, bool)> = Vec::new();
+    for op in svc.operations() {
+        let (hits, _) = hits(op);
+        if let Some(hit) = hits.iter().find(|h| h.member == "License.token") {
+            reached.push((op.name().to_string(), op.classify().secret, hit.held));
+        }
+    }
+    reached.sort_by(|a, b| a.0.cmp(&b.0));
+    let names: Vec<&str> = reached.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "CreateEksAnywhereSubscription",
+            "DeleteEksAnywhereSubscription",
+            "DescribeEksAnywhereSubscription",
+            "ListEksAnywhereSubscriptions",
+            "UpdateEksAnywhereSubscription",
+        ],
+        "the operations that answer with License.token: {reached:?}"
+    );
+    for (name, secret, held) in &reached {
+        assert_eq!(
+            *secret,
+            SecretBearing::WhenPresent,
+            "eks:{name} must be secret-bearing"
+        );
+        assert!(held, "eks:{name}: the walk does not hold License.token");
+    }
+    assert!(
+        !ALLOWED
+            .iter()
+            .any(|a| a.service == "eks" && a.member == "License.token"),
+        "no allowed row may excuse License.token again"
     );
 }

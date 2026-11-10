@@ -120,7 +120,7 @@ fn the_cockpits_types_are_generated_from_the_rust_ones() {
     reset(&dir);
     let cfg = Config::new().with_large_int("number").with_out_dir(&dir);
     export! { &cfg;
-        Id, Request, Notification, RpcError, Response, Message, HealthResult, Build, SpoolStatus,
+        Id, Request, Notification, RpcError, Response, Message, HealthResult, LedgerGap, Build, SpoolStatus,
         SpoolSweep, DiskStatus, BinaryStatus, StoreStatus, CrashStatus, WebStatus, SecretsStatus,
         ContextStatus, ConfigStatus, NodeCacheHealth, PromptCacheHealth, ProfileTtl,
         ConfigRestart, SecretFailed, SecretSource, StartupPhase, Tightening, PolicyTightenParams,

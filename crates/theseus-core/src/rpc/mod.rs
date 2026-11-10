@@ -11,6 +11,7 @@
 //! (`bindings`).
 
 pub(crate) mod answer;
+mod answer_in_words;
 mod ask_again;
 mod aws;
 mod bindings;
@@ -1132,6 +1133,8 @@ impl Core {
         } else {
             core.keep_day_total();
         }
+        // An index gap is told to the owner once (theseus-lu5n).
+        core.tell_ledger_gap();
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);
