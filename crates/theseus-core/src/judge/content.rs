@@ -187,6 +187,9 @@ impl ContentItem {
     /// The one thing the model is told is `project_context::FRAME`, which
     /// says whose text it is and that it grants nothing. That is the model's
     /// half; this is the classifier's, and it is an absence.
+    /// `tests_project_context::the_same_bytes_are_asked_as_a_tool_result_and_never_as_block_3`
+    /// pins both halves, so a later change cannot route block 3 to the act
+    /// band without that test going red.
     pub fn of_message(node: &Node, kind: ItemKind, source: &str) -> Option<Self> {
         if !matches!(node.body, Body::UserMessage { .. }) {
             return None;
