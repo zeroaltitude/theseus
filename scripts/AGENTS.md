@@ -28,6 +28,21 @@
   ceiling); exits 2 only when it scanned nothing. Counts as clippy does (body without braces, blank and comment-only lines
   free; a plain `async fn` counts 2 more than its body, as clippy reads it, unless it carries a `test` attribute; only the
   attribute block directly above a `fn` is read for an `allow`/`expect`); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
+- `test-code-map.py`, `tests/test_test_code_map.py` (theseus-4vsrz): the map of what the compiler reads as test code, and
+  two reports over it. **Membership comes from the declaration, never from a file's own text and never from a `tests_`-shaped
+  path** — `#[cfg(test)] mod N;` resolved against the declaring file's module directory, an inline `mod N { .. }`'s
+  brace-matched range (counted over a form of the file with comments and string, raw-string and char bodies blanked, carried
+  across lines), `#[path = "F"]` against the directory holding the declaring file, a `mod N;` inside an inline module against
+  `<module dir>/<inline mod>/` and test code when any enclosing inline module is `#[cfg(test)]`, and cargo's `tests/`
+  auto-discovery unless `autotests = false`. Each of those four rules is a bug this walk had first, and the figure each cost
+  is in its header and in a test. **`--orphans` (the default) is exact**: a file holding `#[test]` that no declaration
+  reaches, so the compiler never reads it and those tests never run (today: `crates/theseus-core/src/tests_fan_out_cue.rs`,
+  4 tests, declaration dropped at `0925819c` and the file edited twice since). **`--sweep` is heuristic**: test-code comment
+  lines carrying a tell of "a test that documents the defect as the design" (`crates/complete.rs`'s third pattern) with no
+  row, date, doc or owner quote in the same comment paragraph. Read every hit; "whatever X says" is this codebase's idiom for
+  *strengthening* an invariant, so most hits are false. `--map` prints the regions. **Both reports always exit 0** (a warning,
+  not a gate: a heuristic that reds a departure costs more than the pattern does); exits 2 only when it scanned nothing,
+  because a "zero found" bar is met by an empty set. Not wired into `gate.sh`.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.

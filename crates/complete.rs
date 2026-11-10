@@ -36,10 +36,40 @@
 // the sentence. A comment may explain a rule a test holds; it may not be the
 // only place the rule is kept.
 //
-// **Corrected, historical.** The `tests_tier_work.rs` citation above is no
-// longer a live instance: those sentences are no longer in that file, and no
-// commit is named here because the history to find it was not searched. The
-// pattern stands with no live instance known today.
+// **Corrected, historical, and the history now found.** The
+// `tests_tier_work.rs` citation above is no longer a live instance, and the
+// two commits it lived between are these: the sentences were written at
+// `b447da3e` (2026-11-02, theseus-h66v4.9, "tier tests restored through
+// work.v1") and removed at `a714497d3` (2026-11-07, theseus-a2kh6, "turn: a
+// deep turn keeps the deep tool ceiling on its own model"), so the pattern's
+// first known instance stood for five days and was retired by the fix it was
+// defending. Both are ancestors of `main`, and a `git log -S` over those
+// sentences finds them with no `--all`; one that returns nothing is reading a
+// shallow clone, which is what the cloud's is.
+//
+// **The repair is the shape to copy**, because `a714497d3` did not only
+// delete the sentence. It rewrote the module's own header to name all three
+// cases admission must follow and to say which of them the tier had been
+// missing, **with the row id beside it**: "for a switch, for a pick that
+// stays on the session's own model, and for a verdict that lands after the
+// turn's tools have settled, which is the one the tier used to miss
+// (theseus-a2kh6)". A sentence that cites its row cannot become this pattern,
+// and that is the cheapest guard there is.
+//
+// **Swept, and no live instance** (theseus-4vsrz, 2026-11-10;
+// `scripts/test-code-map.py --sweep`). 1,770 test-code regions in 1,763
+// files, taken from the declarations the compiler reads and not from any
+// file's own text or `tests_`-shaped name, were searched for the tells above.
+// 101 comment lines carried one with nothing to cite, and every one, read by
+// hand, was false. **Why the tells are weaker here than they look is the part
+// worth keeping:** "whatever X says" is this codebase's idiom for
+// *strengthening* an invariant — "the result is Y whatever X says" — which is
+// this pattern's exact opposite, and it was 36 of the 101. The two hits that
+// came closest turned out to be the prescribed correct shape, each naming its
+// gap, what closes it and which edit makes it fail: `theseus-tui`'s
+// `tests_questions.rs:105`-`:117` and `theseus-tools`' `tests_stale.rs:147`-
+// `:158`. So the sweep is a reading aid; it is not a gate, and a hit is a
+// question rather than a finding.
 //
 // **The shape.** Whatever *enumerates* the thing being listed — the call
 // sites in a crate's source, the requirement a filter is built against, the
