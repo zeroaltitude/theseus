@@ -12,11 +12,14 @@
 //!
 //! - it is the answer's *first* paragraph and opens with `Noted` or
 //!   `Understood` (the two openings the owner saw, no others);
-//! - it is short (at most [`MAX_CHARS`]) and most of its content words
-//!   ([`RESTATES`]) are words of one or more records the request showed, at
-//!   least [`MIN_SHARED`] of them: "nothing in it but a restatement" is
-//!   decided by that share, not by meaning, so a paragraph that also says
-//!   something else falls under the share and is left alone entirely;
+//! - it is short (at most [`MAX_CHARS`]) and at least [`RESTATES`] (40 %, a
+//!   minority, not "most") of its content words are words of one or more
+//!   records the request showed, at least [`MIN_SHARED`] of them: "nothing in
+//!   it but a restatement" is decided by that share, not by meaning, so a
+//!   paragraph that also says something else falls under the share and is
+//!   left alone entirely. The margin is thin: the stripping fixture lands near
+//!   46 % and the negative near 27 %, so a little more of either's wording
+//!   moves it across the line;
 //! - the owner's last message does not carry those shared words (fewer than
 //!   [`MIN_SHARED`] of them): if he just said it, "Noted" is a reply;
 //! - something follows it. An answer that is only the acknowledgement is
