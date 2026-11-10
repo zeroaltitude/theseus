@@ -517,7 +517,7 @@ pub fn launch_of(detail: &Value, at_ms: u64) -> Option<SandboxLaunch> {
     })
 }
 
-/// Credentials an `ro_paths` entry or a workspace root could bind: covered in
+/// Credentials an `ro_paths` entry or a workspace root could bind: hidden in
 /// every view, as the floor is, since an L1 job reads at notify what L0 would
 /// ask for. Since 1.0.4 retired the approve list this is the only cover they
 /// have in a view. `~/.cargo` holds crates.io's
@@ -525,6 +525,17 @@ pub fn launch_of(detail: &Value, at_ms: u64) -> Option<SandboxLaunch> {
 /// cached sessions, so the job session an `aws` grant gives an L1 job is the
 /// only AWS credential it holds (18e). Each at its real path, as the view
 /// binds what holds it.
+///
+/// **Hidden is not the same as covered, and these three are where the
+/// difference shows** (theseus-3i6d1). The view covers an entry that resolves
+/// to something and skips one that resolves to nothing, and a bind of the
+/// host's tree is a live window: a credential file that did not exist when the
+/// view was built is readable by a running job once it is written, at a path
+/// inside a bind. The template's own `[sandbox] ro_paths = ["~/.cargo",
+/// "~/.rustup"]` is that case exactly, so on a machine where `cargo login`
+/// has not run there is no cover to make and nothing to make it on: a
+/// read-only bind forbids a mount target. `theseus_sandbox::view::mask`'s doc
+/// holds the window, what bounds it, and what is not built.
 const CREDENTIALS: [&str; 3] = [
     "~/.cargo/credentials",
     "~/.cargo/credentials.toml",
@@ -556,8 +567,10 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    /// `roots` are the workspace's; no view shows the `floor`'s paths,
-    /// whatever binds them.
+    /// `roots` are the workspace's; every `floor` path goes on the hidden
+    /// list, whichever bind would otherwise show it. What the view then does
+    /// with the list, and what it cannot promise about a path that is not
+    /// there yet, is `theseus_sandbox::view::mask`'s doc.
     pub fn new(cfg: &SandboxConfig, roots: &[PathBuf], floor: &[PathBuf]) -> Self {
         let canon =
             |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
@@ -913,11 +926,15 @@ mod tests {
         }
     }
 
-    /// `~/.aws` never shows in a view (18e), whatever `ro_paths` binds: an L1
-    /// job's AWS session is the only AWS credential it holds. Since 1.0.4
-    /// retired the approve list, `CREDENTIALS` is the only thing that puts it
-    /// there, so this is the whole of the promise. Each path is hidden once,
-    /// though the floor may name it too.
+    /// `~/.aws` is on every view's hidden list (18e), whatever `ro_paths`
+    /// binds: an L1 job's AWS session is the only AWS credential it holds.
+    /// Since 1.0.4 retired the approve list, `CREDENTIALS` is the only thing
+    /// that puts it there, so this is the whole of what *this* layer promises:
+    /// it reads the list, not a built view, and what the view then does with
+    /// an entry — cover it, or skip it when it resolves to nothing, which
+    /// leaves a live bind's window open — is `theseus_sandbox::view::mask`'s
+    /// doc and the sandbox crate's own tests (theseus-3i6d1). Each path is
+    /// hidden once, though the floor may name it too.
     #[test]
     fn the_operators_aws_files_are_hidden_in_every_view_whatever_ro_paths_binds() {
         let cfg = SandboxConfig {

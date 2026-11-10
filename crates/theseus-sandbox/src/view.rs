@@ -624,6 +624,52 @@ mod tests {
         assert!(dangling.symlink_metadata().is_ok(), "mask removed the link");
     }
 
+    /// The window `mask`'s doc names, reduced to what runs without
+    /// privileges (theseus-3i6d1): the mask installs nothing at a path that
+    /// resolves to nothing, so the name is still a usable name, and content
+    /// that arrives at it afterwards reads in full. The temp dir stands in
+    /// for a `ro_paths` bind, whose directory is the host's own and goes on
+    /// being the host's for as long as the job runs; what this cannot drive
+    /// is the privileged half (a real job, a real bind, the content written
+    /// on the host while the job runs), which needs a host that can build
+    /// an L1 view at all — `crates/theseusd/tests/sandbox.rs`, never a root
+    /// box. If a later step closes the window, this test is what fails, and
+    /// `mask`'s doc and `Spec::hidden`'s are what must change with it.
+    #[test]
+    fn content_that_arrives_after_the_mask_is_readable_at_the_name_it_skipped() {
+        let tmp = tempfile::tempdir().expect("a temp dir");
+        let absent = tmp.path().join("credentials");
+        let dangling = tmp.path().join("linked");
+        std::os::unix::fs::symlink(tmp.path().join("gone"), &dangling).unwrap();
+        // At the moment the view is built, neither resolves, so both are
+        // skipped and no cover is made (`mask` makes no mount at all here:
+        // every other arm of it would, which is why this test uses only the
+        // two shapes that resolve to nothing).
+        for p in [&absent, &dangling] {
+            assert!(resolved(p).unwrap().is_none(), "{} resolves", p.display());
+            mask(p).expect("a path that resolves to nothing is skipped");
+        }
+        // The content arrives afterwards, as the host's writer makes it.
+        let secret = "[registry]\ntoken = \"not-a-real-token\"\n";
+        fs::write(&absent, secret).expect("the absent path's content");
+        fs::write(tmp.path().join("gone"), secret).expect("the link's target");
+        // Both names now resolve, and both read in full: the bytes, not a
+        // cover's empty file, and not a short read.
+        for p in [&absent, &dangling] {
+            let m = resolved(p)
+                .expect("a resolution")
+                .unwrap_or_else(|| panic!("{} still resolves to nothing", p.display()));
+            assert!(m.is_file(), "{}", p.display());
+            assert_eq!(m.len(), secret.len() as u64, "{}", p.display());
+            assert_eq!(
+                fs::read_to_string(p).expect("the content").as_str(),
+                secret,
+                "{}",
+                p.display()
+            );
+        }
+    }
+
     #[test]
     fn a_host_path_is_found_under_the_old_root() {
         assert_eq!(host(Path::new("/usr/bin")), Path::new("/.oldroot/usr/bin"));
