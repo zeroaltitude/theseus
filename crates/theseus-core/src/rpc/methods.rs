@@ -963,6 +963,10 @@ impl Core {
         // The owner's explicit "seal this thread" (theseus-f2g0).
         self.seal_by_word(&p, conn, &session.session_id);
         self.expect_capture(&p, conn, &session.session_id);
+        // The owner's yes, said in words, to a question waiting here
+        // (theseus-3i6d1): answered before the turn runs, and never guessed
+        // when more than one question could be the one he means.
+        self.answer_in_words(&p, conn, &session.session_id);
         // A person's message starts its keep-warm window again (theseus-ezeg).
         let person = p.opened_from.is_none()
             && !matches!(
