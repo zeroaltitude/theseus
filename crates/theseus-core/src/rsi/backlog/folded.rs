@@ -22,7 +22,7 @@
 use serde::{Deserialize, Serialize};
 use theseus_store::{kinds, NewRecord};
 
-use super::Started;
+use super::{Ended, Started};
 use crate::rpc::Core;
 
 /// The META key of the starts not told yet.
@@ -38,6 +38,20 @@ const KEPT: usize = 200;
 pub(crate) struct Pending {
     pub item: String,
     pub title: String,
+    pub at_ms: u64,
+}
+
+/// A gate that ended, waiting for a note (theseus-1eemp): the half of a
+/// build's story the owner was never told.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Done {
+    pub item: String,
+    pub title: String,
+    pub verdict: String,
+    #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub report: Option<String>,
     pub at_ms: u64,
 }
 
@@ -59,11 +73,15 @@ pub(crate) struct Folded {
     /// exactly them.
     #[serde(skip)]
     pub hidden: Vec<Pending>,
+    /// The gates that ended since the last note. Kept whole: a build ends
+    /// once, and there are never more of these than there were starts.
+    #[serde(default)]
+    pub ended: Vec<Done>,
 }
 
 impl Folded {
     pub(crate) fn is_empty(&self) -> bool {
-        self.started.is_empty() && self.more == 0
+        self.started.is_empty() && self.more == 0 && self.ended.is_empty()
     }
 
     /// What a note sees: the newest [`LISTED`] starts, the rest counted in
@@ -80,6 +98,20 @@ impl Folded {
     /// How many starts it holds.
     pub(crate) fn count(&self) -> usize {
         self.started.len() + self.more as usize
+    }
+
+    /// Its ended gates as a night's own.
+    pub(crate) fn as_ended(&self) -> Vec<Ended> {
+        self.ended
+            .iter()
+            .map(|d| Ended {
+                item: d.item.clone(),
+                title: d.title.clone(),
+                verdict: d.verdict.clone(),
+                phase: d.phase.clone(),
+                report: d.report.clone(),
+            })
+            .collect()
     }
 
     /// Its starts as a night's own: the night's wording says them.
@@ -109,6 +141,7 @@ impl Folded {
         if self.more > 0 {
             out.push(format!("- and {} more started", self.more));
         }
+        out.extend(self.as_ended().iter().map(|e| format!("- {}", e.line())));
         out
     }
 }
@@ -163,6 +196,33 @@ impl Core {
         self.folded_write(&f);
     }
 
+    /// A build's gate ended, recorded for the next note (theseus-1eemp). The
+    /// item's own thread hears it at once (`rsi::pr`); this is the half the
+    /// owner reads in the night's or the morning's note, so a red build is
+    /// never only a line that said work started.
+    pub(crate) fn folded_add_ended(&self, e: &Ended) {
+        if !self.runner.place_rule.owner_dm_bound() {
+            return;
+        }
+        let _one = self.rsi.folded.lock().unwrap_or_else(|e| e.into_inner());
+        let mut f = self.folded_load();
+        // An item built again (a red one's next attempt) is one line: its
+        // latest verdict.
+        f.ended.retain(|d| d.item != e.item);
+        f.ended.push(Done {
+            item: e.item.clone(),
+            title: e.title.clone(),
+            verdict: e.verdict.clone(),
+            phase: e.phase.clone(),
+            report: e.report.clone(),
+            at_ms: theseus_protocol::now_unix_ms(),
+        });
+        while f.ended.len() > KEPT {
+            f.ended.remove(0);
+        }
+        self.folded_write(&f);
+    }
+
     /// A note listed `told`: take those starts off, and only those.
     pub(crate) fn folded_told(&self, told: &Folded) {
         let _one = self.rsi.folded.lock().unwrap_or_else(|e| e.into_inner());
@@ -176,6 +236,7 @@ impl Core {
         f.more = f
             .more
             .saturating_sub(told.more.saturating_sub(told.hidden.len() as u64));
+        f.ended.retain(|d| !told.ended.contains(d));
         if f != before {
             self.folded_write(&f);
         }

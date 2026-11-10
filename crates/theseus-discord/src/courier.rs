@@ -912,6 +912,24 @@ impl Lane {
                     extra: json!({}),
                 })
             }
+            // A self build's gate ended (theseus-1eemp): one line in the item's
+            // own thread, where its task reports. The loop used to push and
+            // post on green alone, so a red build - every one of the 126 since
+            // 2026-10-20 - left the forum and the thread with nothing in them.
+            // A red one is a failure and pings as one; a green one reads as a
+            // report.
+            "self_build" | "self_build_red" => {
+                let channel = self.place_channel().await?;
+                let t = body["text"].as_str().unwrap_or("").to_string();
+                let event = match kind_of(a) {
+                    "self_build" => Event::TaskEnded,
+                    _ => Event::TaskFailed,
+                };
+                Ok(Plan {
+                    writes: vec![text(t, format!("self_build:{corr}"), channel, None, event)],
+                    extra: json!({"item": body["item"]}),
+                })
+            }
             // A glide's post (38b): another session's words, once, here.
             "glide" => {
                 let ping = self.pings(Event::Glide);

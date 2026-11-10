@@ -43,9 +43,15 @@
 // work.v1") and removed at `a714497d3` (2026-11-07, theseus-a2kh6, "turn: a
 // deep turn keeps the deep tool ceiling on its own model"), so the pattern's
 // first known instance stood for five days and was retired by the fix it was
-// defending. Both are ancestors of `main`, and a `git log -S` over those
-// sentences finds them with no `--all`; one that returns nothing is reading a
-// shallow clone, which is what the cloud's is.
+// defending. **Two earlier passes over this paragraph said the commit could
+// not be named**, and the second one's diagnosis was right: a `git log -S`
+// over those sentences returns nothing on a SHALLOW clone, which the cloud's
+// is and which is where both passes were authored. Its conclusion — that the
+// commit is outside the history rather than in it — was wrong. On the full
+// clone (`git rev-parse --is-shallow-repository` false, 6,077 commits on
+// `main`) the search finds both with no `--all`, and both are ancestors of
+// `main`. **A cloud session's "`git log -S` found nothing" is evidence of
+// nothing; re-run it on a full clone before writing "not found" into a tree.**
 //
 // **The repair is the shape to copy**, because `a714497d3` did not only
 // delete the sentence. It rewrote the module's own header to name all three
