@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 262 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched); recall sees a kept file’s text, read from the blob the node names) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 263 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched); recall sees a kept file’s text, read from the blob the node names; an imported session that was rewritten, its divergence mark, its quiet take and the renumbered episode refused) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -1023,3 +1023,53 @@ sources were the records it reads. This step adds a second source that is not in
 store directory the tender is configured with, and it is the first place the index reads a file the WAL only names.
 Item 149's own text, which filed this as a limit of the files step, stays as the record of what was true when that
 step closed.
+
+### Item 263. An imported session that was rewritten: the divergence mark, the quiet take, and the renumbered episode refused (theseus-ectzg; 1.0.5's B4 bucket, landed 2026-11-08 and 11-09 as `37854381`, `518798f5`, `37b99db8`, `5f1c7a45`, `08b394bf` and `b22e4d75`; it finishes the nightly incremental sync of theseus-pjmj7, which carries no Item of its own, over the importer of Item 201)
+
+**Why.** theseus-pjmj7 made the nightly import incremental: an episode that grew is appended to, and its prefix is
+proven by reading the stored message nodes rather than by a digest kept on the session. That left one shape
+unhandled, and it is the common one. A source conversation that was *rewritten* — a compaction, a resume, an edit
+in the exporting harness — comes back with the same episode id, a new hash, and a prefix that stops matching part
+way through. The append refused it, named the mismatch, and refused it again the next night, and every night after
+that: a session that diverged once was quarantined for good, and the import's own report said only that something
+did not match.
+
+**The divergence mark.** The append now takes what it can: it writes the messages after the last stored one whose
+digest still matches the episode's message of that `idx`, never a stored `idx` again, and records **N, the first
+stored `idx` that differs, once, in the session's `diverged_at`** (`import/mod.rs:273-279`). The mark is a field of
+its own on the stored `ImportedFrom` block, and that was a decision rather than an obvious choice: the first cut put
+it in `labels.topic`, which is the ontology's input, where `import.topics` would have made a topic of any entry in
+it. A divergence is a fact about where the session came from, not a subject it is about. Marks accumulate in the
+order seen, once for each, so a session rewritten three times carries three.
+
+**The quiet take.** A divergence with **nothing after the last match** — the source dropped or rewrote its tail and
+added nothing — is taken quietly: no node is written, the session's hash moves to the episode's, and it takes the
+mark, so the next run finds the hash held and skips it (`import/append.rs:139-142`). It counts in the batch's
+`appended`, which is a take, and **not** in `touched`, because nothing is new for the people step to look at. The
+reason is stated where the code does it: refused instead, a session that was rewritten and then went quiet would be
+rejected every night, for ever, which is the behaviour this step exists to end.
+
+**What is still refused, and why refusing is the whole rule.** A **renumbered** episode — a stored message that
+moved to another `idx`, which is what an insertion or a renumbering compaction produces — is refused, and named by
+the stored message it collides with (`append.rs:228-246`). Appending past it would write the new message as a
+duplicate and drop it along with everything the shift moved, so there is no partial take worth having: no message
+is ever re-mapped. Three more shapes stay refused and named: an episode where no stored message matches at all
+(another episode under a reused id), an episode that is only the stored session's first messages (an older or cut
+view — taken, it would move the hash backwards), and an episode that adds nothing and diverged nowhere (the same
+messages under a new hash: its tag, place or labels changed). An erased session is never appended to.
+
+**What `messages` counts.** `ImportedFrom.messages` is the number of message nodes **the store holds** for the
+session — a first import writes the episode's length, an append adds the nodes it wrote — and not the episode's
+length as the source last reported it (`import/mod.rs:261-264`). After a quiet take those two numbers differ on
+purpose, and the field's doc now says which one it is.
+
+**Divergence from plan.** The import was planned and recorded as one direction of travel: Item 201 brings the
+owner's prior assistant history in whole, idempotent and erasable by tag, and theseus-pjmj7 then made the nightly
+run incremental so that an episode which grew is appended to. Neither planned for a source that **rewrites** what
+it already handed over, and the incremental step's refusal path — name the mismatch and skip — reads as a safety
+property right up to the point where it is the nightly outcome for a session that will never match again. This step
+keeps the refusal exactly where a take would lose a message, and replaces it with a take plus a recorded mark
+everywhere else. Nothing written down said where such a mark would live; `labels.topic` was the first place tried
+and is the wrong one, and that is recorded here because the next reader looking for the mark will look there.
+theseus-pjmj7's own append has no Part III Item, so this Item is also the first place the appending rules are
+written outside the module's header.
