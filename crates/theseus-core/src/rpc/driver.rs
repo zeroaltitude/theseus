@@ -396,16 +396,22 @@ impl Core {
         self.stop_execution_with(id, by, false).await
     }
 
-    /// `stop_execution`, and with `keep_jobs` only the turn and what it waits
-    /// on: the jobs that went on in the background (the ones with a short id)
-    /// and the session's terminals run on (theseus-wy6v.1).
-    pub async fn stop_execution_with(
+    /// What a stop leaves running, read before the kernel's stop: the
+    /// dispatched calls to keep, and what the turn's jobs left running.
+    ///
+    /// With `keep_jobs` it is every job of the session that went on in the
+    /// background (the ones with a short id), and the leftovers are not read
+    /// at all: Esc keeps them along with the terminals (theseus-wy6v.1).
+    /// Otherwise it is the **approved detached tasks** among the leftovers
+    /// (theseus-7kha) -- each such job's action is kept with its process, or
+    /// the kernel would cancel the action of a job the stop leaves running,
+    /// which a background job whose completion the drain has not yet taken
+    /// would hit, its action still `Dispatched`.
+    fn keep_through_stop(
         &self,
         id: &str,
-        by: &str,
         keep_jobs: bool,
-    ) -> Result<theseus_protocol::ExecutionStopResult> {
-        self.runner.stop_landed(id, by);
+    ) -> Result<(Vec<String>, Vec<crate::jobs_left::Leftover>)> {
         let mut keep: Vec<String> = match self.kernel.execution(id)?.filter(|_| keep_jobs) {
             Some(e) => self
                 .tools
@@ -417,21 +423,25 @@ impl Core {
                 .collect(),
             None => Vec::new(),
         };
-        // What the turn's jobs left running, read before the kernel's stop
-        // so an approved detached task the stop keeps is kept whole
-        // (theseus-7kha): its action goes in `keep` with it, or the kernel
-        // would cancel the action of a job whose process this leaves alive.
-        let left_found = if keep_jobs {
-            Vec::new()
-        } else {
-            self.jobs_left(id)
-        };
-        keep.extend(
-            left_found
-                .iter()
-                .filter(|l| l.kept())
-                .map(|l| l.job.clone()),
-        );
+        if keep_jobs {
+            return Ok((keep, Vec::new()));
+        }
+        let left = self.jobs_left(id);
+        keep.extend(left.iter().filter(|l| l.kept()).map(|l| l.job.clone()));
+        Ok((keep, left))
+    }
+
+    /// `stop_execution`, and with `keep_jobs` only the turn and what it waits
+    /// on: the jobs that went on in the background (the ones with a short id)
+    /// and the session's terminals run on (theseus-wy6v.1).
+    pub async fn stop_execution_with(
+        &self,
+        id: &str,
+        by: &str,
+        keep_jobs: bool,
+    ) -> Result<theseus_protocol::ExecutionStopResult> {
+        self.runner.stop_landed(id, by);
+        let (keep, left_found) = self.keep_through_stop(id, keep_jobs)?;
         let stop = self.kernel.stop_execution_keeping(id, by, &keep)?;
         super::ordered::applied();
         let Some(stop) = stop else {
