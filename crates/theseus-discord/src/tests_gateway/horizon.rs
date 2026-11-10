@@ -11,13 +11,14 @@
 //! load-sensitive on their own, and none of them is that mechanism:
 //!
 //! 1. **The wait is bounded at 20 s**, `Rig::until` (`tests_gateway.rs`), five
-//!    times tighter than the `until` of `tests_task_threads`, which is 100 s.
-//!    (Written that way round on purpose: the family's own scan reads the
-//!    path-qualified form as a membership claim, in a doc comment as much as
-//!    in code, so naming it here with `::` would enrol this file.) Every wait in
-//!    this file is one of those, and each gets its own 20 s from when it is
-//!    called, so a slow host spends them one at a time rather than
-//!    cumulatively.
+//!    times tighter than the 100 s of the shared `until` the task-thread
+//!    tests wait with (the `until` family, recorded in that module beside its
+//!    membership list). **That module is deliberately not named here, in any
+//!    form**: the family's census asserts this file mentions it nowhere, since
+//!    its scan would read the mention as a membership claim in a doc comment
+//!    exactly as in code. Every wait in this file is one of `Rig::until`'s,
+//!    and each gets its own 20 s from when it is called, so a slow host
+//!    spends them one at a time rather than cumulatively.
 //! 2. **Three waits are not waits at all but fixed real-time sleeps**, and
 //!    only the first of the three guards a negative: `a_shared_place_…`'s
 //!    1,500 ms, `a_routines_failure_…`'s 1,500 ms before `posts == 1`, and
