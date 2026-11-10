@@ -355,7 +355,8 @@ struct Inner {
     commit_extra_ms: AtomicU64,
     /// A test's way to fail the next index writes, as a full disk does: this
     /// many `apply`s fail with an injected error before they touch the index.
-    #[cfg(test)]
+    /// Not `cfg(test)`: theseus-core's tests reach it through
+    /// `WalStore::fail_next_index_writes`; a daemon never sets it.
     index_fail: std::sync::atomic::AtomicU32,
     /// Like `index_fail`, but the `apply` runs first and the write is then
     /// reported failed: the index keeps the whole batch, as a commit that
@@ -987,6 +988,13 @@ impl WalStore {
         self
     }
 
+    /// A test aid: fail the next `n` index writes with an injected error, as a
+    /// full disk does. `n` of the retry bound (three) or more opens a standing
+    /// index gap on the next append. Nothing else changes; a daemon never calls it.
+    pub fn fail_next_index_writes(&self, n: u32) {
+        self.inner.index_fail.store(n, Ordering::SeqCst);
+    }
+
     /// Whether the index's terms are whole: readers by term use them.
     pub fn terms_whole(&self) -> bool {
         self.inner.terms_whole()
@@ -1395,7 +1403,6 @@ impl Inner {
             frame_times: FrameTimes::default(),
             #[cfg(test)]
             commit_extra_ms: AtomicU64::new(0),
-            #[cfg(test)]
             index_fail: std::sync::atomic::AtomicU32::new(0),
             #[cfg(test)]
             index_fail_after: std::sync::atomic::AtomicU32::new(0),
@@ -1623,13 +1630,10 @@ impl Inner {
         let mut tries = 0;
         loop {
             tries += 1;
-            #[cfg(test)]
             let injected = self
                 .index_fail
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok();
-            #[cfg(not(test))]
-            let injected = false;
             let wrote = if injected {
                 Err(anyhow::anyhow!("an injected index failure"))
             } else {
