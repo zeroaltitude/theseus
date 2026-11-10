@@ -1040,11 +1040,12 @@ const UNTIL_FAMILY: &[&str] = &[
 /// of the module (`::bound(`) is not a reference to `until`.
 ///
 /// **Which arm each member is found by, measured over the tree, not inferred**
-/// (B7 item 1, re-measured at the `origin/main` merge): every member but this
-/// file is found by the brace arm alone; the second arm has no live instance
-/// in the crate today. This file matches it, but only through the prose of
-/// this very doc, and it is seeded into `found` unconditionally, so the arm
-/// carries no member. That is why a planted revert of the second arm reds
+/// (B7 item 1, measured over the merge of `origin/main` `12889bcf`): of the
+/// eleven members, nine are found by the brace arm alone, `tests_task_react`
+/// is seeded (above), and this file is both seeded and matched — so **the
+/// second arm has no live instance in the crate**. The one text that reaches
+/// it is the prose of this very doc, in the one file `found` holds
+/// unconditionally. That is why a planted revert of the second arm reds
 /// `the_rule_reads_every_way_a_file_reaches_until` and leaves the scan below
 /// green: the table test is the second arm's only guard, and deleting the
 /// table's positives would leave the arm unheld. A planted revert of the

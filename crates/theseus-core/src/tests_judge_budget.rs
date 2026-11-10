@@ -18,13 +18,13 @@
 //! holds no `judge.enabled =` line) is outside the walk, though the LEFT table
 //! below lists it.
 //!
-//! **The before/after classification, measured at the `origin/main` merge of
-//! B7 (theseus-4vsrz), not inferred.** `has_a_budget` used to read
+//! **The before/after classification, measured over the merge of `origin/main`
+//! `12889bcf` (B7, theseus-4vsrz), not inferred.** `has_a_budget` used to read
 //! `total_secs` per line under a comment skip but `judge_config` over the
 //! whole text, so a file whose only mention of `judge_config` sat in a comment
 //! counted as budgeted. Both arms now run per line under the one comment skip,
 //! which classifies strictly more files as unbudgeted and so can only find
-//! work, never hide it. Over the 1,524 source files under this crate's `src/`:
+//! work, never hide it. Over the 1,529 source files under this crate's `src/`:
 //!
 //! | | before | after |
 //! |---|---|---|
