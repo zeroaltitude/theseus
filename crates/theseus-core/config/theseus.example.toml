@@ -1112,6 +1112,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # recall_floor = 0.0                      # the relevance floor: a candidate whose fused score is under this share (0 to 1) of the best its answering sources allow is not admitted, and a pack of none brings no Recall node; 0 admits all
 # recall_subject_bar = 0.0                # the share (0 to 1) of that best a candidate about another subject of the question's kind must reach (a host, path or crate the question did not name); 0: no bar
 # include_external = false                # whether fetched text may be recalled
+# small_talk_bar = false                  # the small-talk recall bar: on a turn whose verdict calls the reply "low" effort (effort.v1 at its confirm bar: a greeting), withhold the recall's admitted notes from the request instead of carrying them. The pack still runs and its rows still say what it admitted, so the shadow count is the same either way. Off: the notes are carried and only counted
 # Compaction (step 30c): where the ring would drop a session's leading turns to fit
 # the model's window, this profile summarizes them instead, and the request carries
 # the summary, then the turns kept. "session" (the default) is the turn's own

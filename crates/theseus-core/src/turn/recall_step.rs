@@ -20,11 +20,22 @@
 //! - **While routing decides** (theseus-n7nc): the row waits for the route
 //!   (`recall_routed`), and is recorded once it is known.
 //! - **Only what the request carried** (theseus-fpm2): the node rides the plan
-//!   frame only when the compile the call used rendered it (`recall_carries`,
+//!   frame only when the compile the call used rendered it (`carries`,
 //!   read by `recall_view` and recorded as `Recalled::withheld`). A request
 //!   bound for a model of restricted origin carries none (theseus-9ymz0), and
 //!   a turn that recalled nothing in front of its model writes no node and
 //!   reports a count of zero (`recall_dropped`).
+//! - **The small-talk bar** (theseus-fpm2, theseus-ectzg's B4): with `[memory]
+//!   small_talk_bar` on, a turn whose peeked verdict calls the reply `low`
+//!   effort withholds its own pending node the same way
+//!   (`TurnRunner::small_talk_bar`, read here through `carries`), so the
+//!   notes a greeting drew are not in front of the model to be narrated back.
+//!   It is a different gate from the restricted-origin one and never stands in
+//!   for it: `recall_carries` is the profile's rule and strips every `Recall`
+//!   node from the render, while the bar holds back this turn's pending node
+//!   alone and leaves the notes earlier turns already carried where they are,
+//!   so no cached prefix byte moves. The `recall.withheld` row says which
+//!   gate it was in its `why` (`RESTRICTED`, `SMALL_TALK`).
 //!   The withholding writes a `recall.withheld` row (`recall_dropped`,
 //!   scoped with the recall's other rows) carrying the `recall_id` of the
 //!   `recall.ran` row that admitted the notes and how many it admitted, so a
@@ -79,11 +90,11 @@ pub(crate) struct Recalled {
     /// route to decide, with their times: recorded once it is known
     /// (`recall_routed`, theseus-n7nc).
     pub held: Vec<(RecallManifest, u64, u64)>,
-    /// The last compile withheld the pending node from its request
-    /// (`recall_carries`, theseus-fpm2): nothing of it rides the plan frame.
-    /// False until a compile says otherwise, so a path that compiles nothing
-    /// behaves as it did.
-    pub withheld: bool,
+    /// Why the last compile withheld the pending node from its request
+    /// ([`RESTRICTED`] or [`SMALL_TALK`], theseus-fpm2): nothing of it rides
+    /// the plan frame. `None` until a compile says otherwise, so a path that
+    /// compiles nothing behaves as it did.
+    pub withheld: Option<&'static str>,
 }
 
 impl Recalled {
@@ -99,6 +110,14 @@ impl Recalled {
 /// The position a pending `Recall` node renders at: after every node, as
 /// the plan frame will write it.
 const PENDING: u64 = u64::MAX;
+
+/// A `recall.withheld` row's `why`: the request was bound for a model of
+/// restricted origin (theseus-9ymz0), so it carried no note at all.
+pub(super) const RESTRICTED: &str = "restricted_origin";
+
+/// A `recall.withheld` row's `why`: the small-talk bar fired (theseus-fpm2),
+/// so this turn's own notes were held back.
+pub(super) const SMALL_TALK: &str = "small_talk";
 
 impl TurnRunner {
     /// The first loop's recall. In front of the model, it is read now and
@@ -638,16 +657,33 @@ impl TurnRunner {
         !self.restricted_profile(profile)
     }
 
+    /// Why a request bound for `profile` on this turn does not carry the
+    /// turn's pending `Recall` node, when it does not: [`RESTRICTED`] for a
+    /// model of restricted origin (the rule above), else [`SMALL_TALK`] when
+    /// the small-talk bar fires (`TurnRunner::small_talk_bar`, theseus-fpm2).
+    /// `None` when it carries it.
+    ///
+    /// The two gates are separate and are checked in this order, so a
+    /// restricted turn that is also small talk reads as the stricter one: the
+    /// profile's rule strips every `Recall` node from what is rendered, and
+    /// the bar holds back this turn's pending node alone.
+    fn carries(&self, t: &Turn<'_>, profile: &str) -> Option<&'static str> {
+        if !self.recall_carries(profile) {
+            return Some(RESTRICTED);
+        }
+        self.small_talk_bar(t).then_some(SMALL_TALK)
+    }
+
     /// The compile withheld the pending node, so the turn recalled nothing:
     /// no record rides the plan frame, and the footer, the citations and the
     /// next turn's render have nothing to count (theseus-fpm2). The node was
     /// never written, so the notes stay where they were, for the next request
     /// that may carry them.
-    pub(super) fn recall_dropped(t: &mut Turn<'_>) -> Vec<NewRecord> {
+    pub(super) fn recall_dropped(t: &mut Turn<'_>, why: &str) -> Vec<NewRecord> {
         // A turn with no pending recall withheld nothing: no node was built.
         let record = match t.recall.recall_id.is_empty() {
             true => Vec::new(),
-            false => Self::withheld_row(t),
+            false => Self::withheld_row(t, why),
         };
         t.recall.rides.clear();
         t.recall.items.clear();
@@ -658,7 +694,7 @@ impl TurnRunner {
 
     /// The `recall.withheld` row for the recall the compile did not carry,
     /// scoped with the turn's other recall rows.
-    fn withheld_row(t: &Turn<'_>) -> Vec<NewRecord> {
+    fn withheld_row(t: &Turn<'_>, why: &str) -> Vec<NewRecord> {
         // The join key is the manifest's `recall_id`, which the node's body
         // holds; the node's own id (never written) rides beside it.
         let recall_id = match t.recall.pending.as_ref().map(|n| &n.body) {
@@ -670,6 +706,7 @@ impl TurnRunner {
             node_id: &t.recall.recall_id,
             admitted: t.recall.count,
             profile: &t.target.profile,
+            why,
         };
         match t.tc.rec().row(&row) {
             Ok(r) => vec![r.scoped(&scope(t.tc.session_id))],
@@ -691,7 +728,7 @@ impl TurnRunner {
         nodes: Transcript,
         profile: &str,
     ) -> (Transcript, Sources) {
-        t.recall.withheld = !self.recall_carries(profile);
+        t.recall.withheld = self.carries(t, profile);
         self.recall_view(t, nodes, profile)
     }
 
@@ -702,6 +739,10 @@ impl TurnRunner {
     /// one's, so what it holds is not this session's to send there
     /// (theseus-9ymz0, the review's B1). The notes stay in the transcript for
     /// the next request that may carry them.
+    ///
+    /// With the small-talk bar firing ([`Self::small_talk_bar`], theseus-fpm2)
+    /// the turn's own pending node is left out and nothing else is: see
+    /// [`Self::carries`] for why the two gates differ there.
     pub(super) fn recall_view(
         &self,
         t: &Turn<'_>,
@@ -709,11 +750,17 @@ impl TurnRunner {
         profile: &str,
     ) -> (Transcript, Sources) {
         let mut nodes = nodes;
-        if !self.recall_carries(profile) {
+        let withheld = self.carries(t, profile);
+        if withheld == Some(RESTRICTED) {
             nodes.retain(|(_, n)| n.kind != crate::stub::Kind::Recall);
             return (nodes, Sources::new());
         }
-        if let Some(n) = &t.recall.pending {
+        // The small-talk bar holds back this turn's own pending node and
+        // nothing else (theseus-fpm2): a note an earlier turn carried is
+        // already in the transcript and in the compilation that cached it, so
+        // stripping it here would move a cached prefix for a greeting. The
+        // symptom the bar is for is this turn's notes.
+        if let Some(n) = t.recall.pending.as_ref().filter(|_| withheld.is_none()) {
             // Once the plan frame wrote it, the transcript holds it.
             if !nodes.iter().any(|(_, m)| m.id == n.id) {
                 nodes.push((PENDING, n.clone().into()));
@@ -743,7 +790,7 @@ impl TurnRunner {
         // A request that withheld the node carried nothing of the pack's, so
         // it dropped nothing for budget. The drops stay held: a later compile
         // of the loop (a route's switch) may carry the node (theseus-ectzg).
-        if t.recall.withheld {
+        if t.recall.withheld.is_some() {
             return;
         }
         // While routing decides, this compile may be discarded for a switch's:
