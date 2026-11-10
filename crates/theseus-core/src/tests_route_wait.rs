@@ -236,6 +236,36 @@ async fn jevs_connections_open_after_serving_and_a_first_message_pays_no_setup()
 
 /// The keeper uses the connections again after each `every` of Jev's
 /// silence, on the ones it opened: warm-ups come, connections do not.
+///
+/// **The count below is on no flaky list and must not be put on one**
+/// (theseus-4vsrz). It reddened one gate's run of a 9,587-test suite, at
+/// `test-threads = 8` on a 16-core host, with `left: 6, right: 5` -- a
+/// sixth connection accepted where it reuses five -- in 0.656 s, so not
+/// slow, just wrong; it then passed 10 of 10 alone and in the two suites
+/// after it. A count is a wrong answer, and a wrong answer is never bought
+/// off with a retry, an `#[ignore]` or a looser bar.
+///
+/// **The cause is still unknown.** The hunt, on a 4-core VM: 216 runs of
+/// this test (alone, under eight busy loops at a higher priority, and as
+/// eight processes running this module at once) and 4,760 rounds driven
+/// straight at `JevClient::refresh` (cold and three-round, one task and
+/// crowded onto a two-worker runtime) produced no count above five.
+/// Ruled out, with how: the other caller of `refresh`
+/// (`judge::warm_on_message`) needs a message and this test drives none,
+/// and `reach.warming` makes two refreshes exclusive anyway; no `HEAD` was
+/// abandoned at its bound, which is `connect + 1 s` and the whole run was
+/// 0.656 s; no fourth round had begun, since the rounds are `every` apart
+/// and the assertion fires within 10 ms of the third; and nothing was
+/// billed. The fake cannot report too few here -- `counted` increments
+/// `warmups` after `opened` on one thread, and the wait below is on
+/// `warmups` -- so the six was a socket really accepted.
+///
+/// What would show it: `opened()` sampled per round rather than once at
+/// the end, under a load that crowds a tokio runtime harder than a 4-core
+/// box can. What is still open is whether `opened() == CONNECTIONS` is a
+/// bar the keeper guarantees at all: `JevClient::refresh` promises `n`
+/// requests, not `n` sockets (its doc says so), and the pool is uncapped.
+/// That is the owner's call, so the bar is left exactly as it was.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_keeper_uses_its_connections_again_while_jev_is_silent() {
     let jev = FakeJev::start().unwrap();
@@ -246,10 +276,17 @@ async fn the_keeper_uses_its_connections_again_while_jev_is_silent() {
         jev.warmups() >= 3 * crate::judge::warm::CONNECTIONS
     })
     .await;
+    // All three counters in the message: a reader of the next red then
+    // knows at once whether a fourth round had started (warm-ups past
+    // `3 * CONNECTIONS`) and whether the extra connection carried a call.
+    // They are sampled before the assertion because the fake takes its lock
+    // once per reader, so three reads inside the message could print a
+    // state no connection was ever in.
+    let (warmups, billed) = (jev.warmups(), jev.connections());
     assert_eq!(
         jev.opened(),
         crate::judge::warm::CONNECTIONS,
-        "the same ones"
+        "the same ones (left is opened): warm-ups={warmups}, billed={billed}"
     );
     assert_eq!(jev.connections(), 0, "nothing billed");
 }
