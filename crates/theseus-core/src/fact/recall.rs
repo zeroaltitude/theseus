@@ -71,11 +71,11 @@ impl Fact for RecallRan<'_> {
 }
 
 /// A recall the request did not carry (theseus-ectzg, fpm2 F1): the compile
-/// withheld the turn's `Recall` node from a model of restricted origin, so
-/// the turn recalled nothing in front of its model. Its `recall.ran` row was
-/// queued before the compile knew, and says what was admitted; this row
-/// carries the same `recall_id` and how many notes were not carried, so a
-/// reader can tell "withheld" from "nothing matched".
+/// withheld the turn's `Recall` node, so the turn recalled nothing in front
+/// of its model. Its `recall.ran` row was queued before the compile knew, and
+/// says what was admitted; this row carries the same `recall_id` and how many
+/// notes were not carried, so a reader can tell "withheld" from "nothing
+/// matched".
 pub struct RecallWithheld<'a> {
     pub recall_id: &'a str,
     /// The `Recall` node that was never written.
@@ -84,6 +84,12 @@ pub struct RecallWithheld<'a> {
     pub admitted: u32,
     /// The profile the request was bound for.
     pub profile: &'a str,
+    /// Which gate withheld it: `restricted_origin` (a model of restricted
+    /// origin, theseus-9ymz0) or `small_talk` (the small-talk bar,
+    /// theseus-fpm2). The two are separate rules and a count of one must not
+    /// take in the other, so the row says which rather than leaving a reader
+    /// to infer it from the profile.
+    pub why: &'a str,
 }
 
 impl Fact for RecallWithheld<'_> {
@@ -91,7 +97,7 @@ impl Fact for RecallWithheld<'_> {
 
     fn row(&self) -> Value {
         json!({"recall_id": self.recall_id, "node_id": self.node_id, "admitted": self.admitted,
-               "profile": self.profile})
+               "profile": self.profile, "why": self.why})
     }
 }
 

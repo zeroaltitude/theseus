@@ -96,7 +96,9 @@ pub struct InjectionBudget {
     pub admit_raised: bool,
     /// The verdict acts and says the reply needs `low` effort (`effort.v1` at
     /// its confirm bar): small talk. Read by the recall's shadow `would_drop`
-    /// (theseus-fpm2); it sizes nothing. Not in the row.
+    /// and, with `[memory] small_talk_bar` on, by the small-talk bar itself
+    /// ([`TurnRunner::small_talk_bar`], theseus-fpm2); it sizes nothing. Not
+    /// in the row.
     pub low_effort: bool,
 }
 
@@ -148,7 +150,10 @@ pub fn is_coding(v: &Verdict) -> bool {
 /// UNPROVEN: no test shows that `effort.v1` calls a real greeting `low`. The
 /// tests that read this (`tests_tier_manifest`) script the verdict with a
 /// `FakeJev`, so a green one proves the plumbing from a `low` verdict to the
-/// shadow `would_drop`, not that the bar would fire on real small talk.
+/// shadow `would_drop` and, with `[memory] small_talk_bar` on, to the
+/// withholding itself ([`TurnRunner::small_talk_bar`]), not that the bar
+/// would fire on real small talk. That unproven premise is why the key is
+/// off by default: see its doc in `config::memory`.
 pub fn is_low_effort(v: &Verdict) -> bool {
     v.effort
         .as_ref()
@@ -156,7 +161,7 @@ pub fn is_low_effort(v: &Verdict) -> bool {
 }
 
 impl InjectionBudget {
-    /// The shadow small-talk bar's mark for a turn whose verdict landed after
+    /// The small-talk bar's shadow mark for a turn whose verdict landed after
     /// the pack fixed a `Late` budget (theseus-fpm2): `injection_read` returns
     /// at once once a budget is fixed, so without this a `low` verdict that
     /// arrives late never sets `low_effort` and the turn is silently missing
@@ -236,6 +241,25 @@ fn peek(wait: &mut Option<RouteWait>) -> Peeked {
 }
 
 impl TurnRunner {
+    /// Whether the small-talk recall bar fires on this turn (theseus-fpm2):
+    /// `[memory] small_talk_bar` is on and the budget the turn fixed read a
+    /// verdict that called the reply `low` effort ([`is_low_effort`]).
+    ///
+    /// It reads the budget alone, so it asks for nothing: the verdict was
+    /// peeked when the budget was fixed ([`peek`], the module doc's "never a
+    /// wait"), and a turn whose peek found none is ordinary, so `low_effort`
+    /// is false and the bar does not fire — the safe direction. A `Late`
+    /// budget marked by [`InjectionBudget::raise_low_effort`] is marked after
+    /// the first compile has read this, so such a turn carries its notes and
+    /// still records its shadow count; that asymmetry is the `Late` hole's,
+    /// not the bar's.
+    ///
+    /// Its one reader is the recall step's withholding
+    /// (`recall_step::recall_carried` and `recall_view`).
+    pub(super) fn small_talk_bar(&self, t: &Turn<'_>) -> bool {
+        self.cfg.memory.small_talk_bar && t.route.injection.as_ref().is_some_and(|b| b.low_effort)
+    }
+
     /// The budget the turn reads now: the one fixed, else one fixed from the
     /// verdict if it has landed (or from routing deciding nothing), else
     /// ordinary for now, fixed only when `fix` (the pack, which never waits).
