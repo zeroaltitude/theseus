@@ -40,6 +40,9 @@ const PLACE: &str = "dm:271828182845904523";
 struct Model {
     requests: Mutex<Vec<ProviderRequest>>,
     cut: Mutex<u32>,
+    /// Run once, as the note's words are asked for: what happens in the
+    /// world while the model answers.
+    during: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 /// What the 2026-10-23 morning note said before its cap ran out.
@@ -103,6 +106,12 @@ impl Provider for Model {
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
             self.requests.lock().unwrap().push(req.clone());
+            if last_user(req).starts_with("Facts:") {
+                let hook = self.during.lock().unwrap().take();
+                if let Some(hook) = hook {
+                    hook();
+                }
+            }
             let cut = {
                 let mut left = self.cut.lock().unwrap();
                 let cut = *left > 0 && last_user(req).starts_with("Facts:");
@@ -508,6 +517,44 @@ async fn the_morning_note_obeys_the_level_and_goes_once_on_a_day_something_happe
         !busy.core.post_morning_if_due(),
         "a second ask the same day writes none"
     );
+}
+
+/// The morning note reads the folded record once (theseus-b5, F1): the start
+/// it counts is the start it lists and takes off. A start that lands while
+/// the model is voicing the note is in none of the three: not in the note's
+/// text, and still waiting for the next one. A second read after the model
+/// answers (the defect this holds off) would list the late start too, and
+/// the take-off would leave it waiting, so the owner would be told it twice.
+/// The positive halves: the early start is in the note and is gone after it.
+/// The clock is the real one, but nothing here reads the hour: the pacer is
+/// open (no earlier unprompted post) and `morning_hour` is 0.
+#[tokio::test]
+async fn the_morning_note_reads_the_folded_record_once() {
+    let r = rig(Initiative::Normal, |c| c.initiative.morning_hour = 0);
+    r.core
+        .folded_add(&[("tsk_early".into(), "Fix the early cause".into())]);
+    assert_eq!(r.core.folded_read().count(), 1, "the early start waits");
+    let core = r.core.clone();
+    *r.model.during.lock().unwrap() = Some(Box::new(move || {
+        core.folded_add(&[("tsk_late".into(), "Fix the late cause".into())]);
+    }));
+    assert!(r.core.post_morning_if_due(), "the day is claimed");
+    until("the morning note", || {
+        !rows(&r.core, "initiative.spoke").is_empty()
+    })
+    .await;
+    let asked = r.model.requests.lock().unwrap().len();
+    assert_eq!(asked, 1, "the hook ran in the note's one model call");
+    assert!(r.model.during.lock().unwrap().is_none(), "the hook ran");
+    let posts = crate::tests_day_ceiling::posts(&r.core, "initiative");
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    let text = posts[0]["text"].as_str().unwrap();
+    assert!(text.contains("tsk_early"), "the read start is listed: {text}");
+    assert!(!text.contains("tsk_late"), "one read, not two: {text}");
+    until("the take-off", || r.core.folded_read().count() == 1).await;
+    let left = r.core.folded_read();
+    assert_eq!(left.started.len(), 1, "{left:?}");
+    assert_eq!(left.started[0].item, "tsk_late", "{left:?}");
 }
 
 /// The morning note is unprompted: it waits for the pacer's window (another
