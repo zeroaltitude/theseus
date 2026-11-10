@@ -57,6 +57,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use theseus_store::{kinds, NewRecord};
 
+use super::anchor;
 use super::episode::Episode;
 use super::write::Frame;
 use super::{node_id_of, summary_id_of, tag_scope};
@@ -76,6 +77,18 @@ pub(super) struct Plan {
     pub diverged: Option<u32>,
     /// A summary to write: the episode has one the store does not.
     pub summary: bool,
+    /// A renumbered episode (`anchor`): the idx each of its messages is stored
+    /// at, by the episode's idx, the shared ones and the new; else empty.
+    pub idx_of: BTreeMap<u32, u32>,
+}
+
+/// Where the new messages start, which stored idxs are never written again,
+/// the divergence, and the idxs a renumbered episode's new messages take.
+struct Route {
+    from: usize,
+    skip: std::collections::BTreeSet<u32>,
+    diverged: Option<u32>,
+    idx_of: BTreeMap<u32, u32>,
 }
 
 /// Whether `e` extends the stored session `rec`: a plan, or why not.
@@ -92,50 +105,15 @@ pub(super) fn plan(
             stored.push((idx, sha256));
         }
     }
-    let refusal = prefix_refusal(&stored, e);
-    let (from, diverged) = match &refusal {
-        None => (stored.len(), None),
-        Some(why) => {
-            // The episode is only the stored session's own first messages:
-            // an older or cut view of it, not a rewrite. Taken, it would
-            // move the session's hash back, and the episode the source holds
-            // now would be refused for adding nothing, for good.
-            let cut = e.messages.len() < stored.len()
-                && e.messages
-                    .iter()
-                    .zip(&stored)
-                    .all(|(m, (i, s))| m.idx == *i && m.sha256 == *s);
-            if cut {
-                return Ok(Err(why.clone()));
-            }
-            if let Some(why) = moved(&stored, e) {
-                return Ok(Err(why));
-            }
-            // The prefix no longer matches (a rewrite, a compaction, a
-            // resume): the new turns are those after the last stored message
-            // whose digest still matches. No match at all is another
-            // episode under a reused id.
-            let last = e
-                .messages
-                .iter()
-                .rposition(|m| stored.iter().any(|(i, s)| *i == m.idx && *s == m.sha256));
-            let Some(last) = last else {
-                return Ok(Err(why.clone()));
-            };
-            let at = stored
-                .iter()
-                .enumerate()
-                .find(|(i, (idx, sha))| {
-                    e.messages
-                        .get(*i)
-                        .is_none_or(|m| m.idx != *idx || m.sha256 != *sha)
-                })
-                .map_or(0, |(_, (idx, _))| *idx);
-            (last + 1, Some(at))
-        }
+    let Route {
+        from,
+        skip,
+        diverged,
+        idx_of,
+    } = match route(&stored, e) {
+        Ok(r) => r,
+        Err(why) => return Ok(Err(why)),
     };
-    // A stored idx is never written again, whatever its digest.
-    let skip: std::collections::BTreeSet<u32> = stored.iter().map(|(i, _)| *i).collect();
     let added = e.messages[from..]
         .iter()
         .filter(|m| !skip.contains(&m.idx))
@@ -210,7 +188,65 @@ pub(super) fn plan(
         skip,
         summary,
         diverged,
+        idx_of,
     }))
+}
+
+/// Where the episode's new messages start, or why it is refused.
+fn route(stored: &[(u32, String)], e: &Episode) -> std::result::Result<Route, String> {
+    let route = |from, diverged, skip, idx_of| Route {
+        from,
+        skip,
+        diverged,
+        idx_of,
+    };
+    let Some(why) = prefix_refusal(stored, e) else {
+        let skip = stored.iter().map(|(i, _)| *i).collect();
+        return Ok(route(stored.len(), None, skip, BTreeMap::new()));
+    };
+    // The episode is only the stored session's own first messages: an older
+    // or cut view of it, not a rewrite. Taken, it would move the session's
+    // hash back, and the episode the source holds now would be refused for
+    // adding nothing, for good.
+    let cut = e.messages.len() < stored.len()
+        && e.messages
+            .iter()
+            .zip(stored)
+            .all(|(m, (i, s))| m.idx == *i && m.sha256 == *s);
+    if cut {
+        return Err(why);
+    }
+    let at = first_difference(stored, e);
+    if let Some(moved) = moved(stored, e) {
+        // The source renumbered: the stored end is read from content.
+        // Refused with `moved`'s words when the content does not settle it.
+        let a = anchor::find(stored, e).map_err(|_| moved)?;
+        return Ok(route(a.from, Some(at), Default::default(), a.idx_of));
+    }
+    // The prefix no longer matches in place (a rewrite): the new turns are
+    // those after the last stored message whose digest still matches at its
+    // idx. No match at all is another episode under a reused id.
+    let last = e
+        .messages
+        .iter()
+        .rposition(|m| stored.iter().any(|(i, s)| *i == m.idx && *s == m.sha256))
+        .ok_or(why)?;
+    // A stored idx is never written again, whatever its digest.
+    let skip = stored.iter().map(|(i, _)| *i).collect();
+    Ok(route(last + 1, Some(at), skip, BTreeMap::new()))
+}
+
+/// The first stored idx whose message is not the episode's at its position.
+fn first_difference(stored: &[(u32, String)], e: &Episode) -> u32 {
+    stored
+        .iter()
+        .enumerate()
+        .find(|(i, (idx, sha))| {
+            e.messages
+                .get(*i)
+                .is_none_or(|m| m.idx != *idx || m.sha256 != *sha)
+        })
+        .map_or(0, |(_, (idx, _))| *idx)
 }
 
 /// The new messages' nodes (and a new summary), then the session's record
@@ -227,14 +263,18 @@ pub(super) fn records(
     let mut written = 0u32;
     let mut ids: BTreeMap<u32, String> = BTreeMap::new();
     for m in &e.messages {
-        ids.insert(m.idx, node_id_of(&sid, m.idx));
+        ids.insert(
+            m.idx,
+            node_id_of(&sid, p.idx_of.get(&m.idx).copied().unwrap_or(m.idx)),
+        );
     }
     for m in e.messages[p.from..]
         .iter()
         .filter(|m| !p.skip.contains(&m.idx))
     {
+        let idx = p.idx_of.get(&m.idx).copied().unwrap_or(m.idx);
         let n = Node::imported(
-            node_id_of(&sid, m.idx),
+            node_id_of(&sid, idx),
             &sid,
             &m.author,
             m.at_ms,
@@ -244,7 +284,7 @@ pub(super) fn records(
                 source: e.source.clone(),
                 unit: m.unit.clone(),
                 sha256: m.sha256.clone(),
-                idx: m.idx,
+                idx,
             },
         );
         frame.push(n.record()?);

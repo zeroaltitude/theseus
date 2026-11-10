@@ -469,6 +469,49 @@ pub fn seal_answer(j: &theseus_judge::Judgment) -> Option<SealAnswer> {
 mod tests {
     use super::*;
 
+    /// The engaged persona's tail line states a fact and asks nothing, which
+    /// is why `content`'s block audit exempts `turn/persona_engage.rs` from
+    /// the sentence every other harness block carries (theseus-ectzg: the
+    /// owner read a standing block back to himself because he could take it
+    /// for a message just sent). This line cannot be taken for one -- it is
+    /// about the turn, in the third person -- and the exemption holds only
+    /// while that stays true, so it is pinned here rather than argued in
+    /// prose.
+    #[test]
+    fn the_engaged_personas_line_states_a_fact_and_asks_nothing() {
+        let engaged = Engaged {
+            key: Some("birch".into()),
+            name: "Birch".into(),
+            how: How::JevShown,
+            p: Some(0.94),
+            runner_up: None,
+            terms: vec!["CVE".into()],
+            jev: None,
+        };
+        let line = engaged.line();
+        assert_eq!(line, "Birch answers this turn");
+        // Third person about the turn: it addresses nobody, so there is no
+        // "you" or "your" in it for a model to answer, and no first person
+        // for it to answer as.
+        let lower = line.to_lowercase();
+        for address in ["you", "your", "owner", " i ", " we "] {
+            assert!(
+                !lower.contains(address),
+                "{address:?} in the persona line turns it into an address: {line}"
+            );
+        }
+        // And no instruction: nothing in it is to be done, acknowledged or
+        // restated, which is the whole of the exemption.
+        for imperative in [
+            "do ", "say ", "never", "always", "note", "remember", "please",
+        ] {
+            assert!(
+                !lower.contains(imperative),
+                "{imperative:?} makes the persona line an instruction: {line}"
+            );
+        }
+    }
+
     fn choice(key: Option<&str>, name: &str, card: &str) -> Choice {
         Choice {
             key: key.map(str::to_string),

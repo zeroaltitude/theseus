@@ -809,26 +809,109 @@ async fn an_insertion_that_renumbers_is_refused_and_named() {
     .await;
 }
 
-/// A compaction that renumbers is refused, and stays refused when the
-/// session then grows.
+/// A compaction that renumbers (messages 3 to 5 gone, the tail moved down)
+/// is taken: the stored last messages are found by content, the new turns
+/// after them are written at idxs past the stored ones (the source's own
+/// would collide), the divergence is marked once and nothing is written twice
+/// (theseus-ectzg).
 #[tokio::test]
-async fn a_renumbered_compaction_is_refused_even_when_it_grows() {
+async fn a_renumbered_compaction_that_grows_appends_the_new_turns_at_fresh_idxs() {
     let r = live();
     let c = &r.core;
     import(c, lines(&[sync(41, TAG, &(0..10).collect::<Vec<u32>>())])).await;
-    let t = [0, 1, 2, 6, 7, 8, 9];
+    let t = [0, 1, 2, 6, 7, 8, 9, 91, 92];
+    let grown = with_texts(41, "openclaw-sync-2026-12", &t);
+    let got = import(c, lines(std::slice::from_ref(&grown))).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 2), "{got:?}");
+    let (rec, idxs) = stored(c, 41);
+    assert_eq!(
+        idxs,
+        (0..12).collect::<Vec<u32>>(),
+        "two fresh idxs, none reused"
+    );
+    let imp = rec.imported.as_deref().unwrap();
+    assert_eq!((imp.messages, imp.diverged_at.clone()), (12, vec![3]));
+    assert!(imp.labels.topic.is_empty());
+    let nodes = c.store.session_nodes(&rec.session_id).unwrap();
+    let said: Vec<String> = nodes
+        .iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::Imported { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said.len(), 12, "the positive count");
+    assert_eq!(
+        said[10],
+        text(91),
+        "the new turns, in order, after the stored ones"
+    );
+    assert_eq!(said[11], text(92));
+    // The same episode again: held by its hash, nothing written.
+    let frames = c.store.stats().unwrap().frames_appended;
+    let got = import(c, lines(&[grown])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+    // The next growth: the moved tail is found again by content, one more
+    // message, one mark.
+    let t = [0, 1, 2, 6, 7, 8, 9, 91, 92, 93];
+    let got = import(c, lines(&[with_texts(41, "openclaw-sync-2027-01", &t)])).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 1), "{got:?}");
+    let (rec, idxs) = stored(c, 41);
+    assert_eq!(idxs, (0..13).collect::<Vec<u32>>());
+    assert_eq!(rec.imported.as_deref().unwrap().diverged_at, vec![3]);
+}
+
+/// A renumbering compaction that added nothing is taken once and marked, not
+/// refused every night.
+#[tokio::test]
+async fn a_renumbered_compaction_that_did_not_grow_is_taken_once() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(44, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let e = with_texts(44, "openclaw-sync-2026-11", &[0, 1, 2, 6, 7, 8, 9]);
+    let got = import(c, lines(std::slice::from_ref(&e))).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 0), "{got:?}");
+    let (rec, idxs) = stored(c, 44);
+    assert_eq!(idxs, (0..10).collect::<Vec<u32>>());
+    assert_eq!(rec.imported.as_deref().unwrap().diverged_at, vec![3]);
+    let got = import(c, lines(&[e])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+}
+
+/// What a content anchor must not do: one matching message is no anchor, a
+/// stored pair that occurs twice is ambiguous, and a new message that repeats
+/// a stored text may be a copy of a stored one. Each is refused and named,
+/// and writes nothing.
+#[tokio::test]
+async fn a_content_anchor_that_is_not_certain_is_refused() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(45, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    // One digest in common, at another idx: no run, no anchor.
     refused_and_untouched(
         c,
-        41,
-        with_texts(41, "openclaw-sync-2026-11", &t),
+        45,
+        with_texts(45, "openclaw-sync-2026-11", &[90, 91, 9, 92]),
         "renumbered",
     )
     .await;
-    let t = [0, 1, 2, 6, 7, 8, 9, 91];
+    // The stored last two, twice: which one is the stored end?
     refused_and_untouched(
         c,
-        41,
-        with_texts(41, "openclaw-sync-2026-12", &t),
+        45,
+        with_texts(45, "openclaw-sync-2026-12", &[6, 8, 9, 90, 8, 9, 91]),
+        "renumbered",
+    )
+    .await;
+    // A "new" message that is a stored text.
+    refused_and_untouched(
+        c,
+        45,
+        with_texts(45, "openclaw-sync-2027-01", &[6, 7, 8, 9, 3]),
         "renumbered",
     )
     .await;
