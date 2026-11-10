@@ -12,7 +12,11 @@
 //! assignment), build through `tests_judge::judge_config` (which gives 10 s),
 //! or be on [`EXEMPT`] with the reason nothing in it waits on a verdict. A new
 //! rig in a file that already has a budget is not seen; reviewing that is
-//! still a person's job.
+//! still a person's job. Nor is the world more than literal source text: a file
+//! that turns the judge on through a shared constructor (`rpc/tests_thread_route.rs`
+//! builds through `rig_on(.., Some(jev), ..)`, sets `total_secs = 5` 17 times and
+//! holds no `judge.enabled =` line) is outside the walk, though the LEFT table
+//! below lists it.
 //!
 //! The 13 `api_base`-without-budget sites audited at base 85697868 (paths as
 //! they are in the tree), and why each is exempt or not a problem:
@@ -107,8 +111,9 @@ fn enables_the_judge(text: &str) -> bool {
 fn has_a_budget(text: &str) -> bool {
     text.lines().any(|l| {
         let l = l.trim_start();
-        !l.starts_with("//") && l.contains("total_secs") && l.contains('=')
-    }) || text.contains("judge_config")
+        !l.starts_with("//")
+            && ((l.contains("total_secs") && l.contains('=')) || l.contains("judge_config"))
+    })
 }
 
 fn walk(dir: &Path, out: &mut Vec<(String, String)>, root: &Path) {
@@ -181,5 +186,12 @@ fn the_rule_reads_what_a_file_sets() {
     assert!(has_a_budget("c.judge.total_secs = 10;"));
     assert!(has_a_budget("let c = tests_judge::judge_config(dir, j);"));
     assert!(!has_a_budget("// c.judge.total_secs = 10;"));
+    assert!(!has_a_budget(
+        "// unlike judge_config, this rig sets its own budget"
+    ));
+    assert!(!has_a_budget("/// see judge_config for the shared rig"));
+    assert!(has_a_budget(
+        "  let c = judge_config(dir, j); // shared rig"
+    ));
     assert!(!enables_the_judge("let x = 1;"));
 }
