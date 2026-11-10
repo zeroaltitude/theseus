@@ -64,16 +64,21 @@
 //! [`KEYED_BY`] and [`SCHEMES`] are hand-kept lists: a spelling missing from
 //! them is a presigned URL the model reads. [`SIGNATURE`] and [`KEYED_BY`] are
 //! judged against a walk, not against themselves (`crates/complete.rs`);
-//! [`SCHEMES`] is private, hand-kept and compared by nothing, so a scheme
-//! missing from it is not caught by any test:
 //! `tests_presigned::the_presigned_vocabulary_holds_every_parameter_the_real_signer_writes`
 //! reads the URL the repository's own SigV4 signer writes and fails on any
 //! parameter the lists do not hold. That reaches the SigV4 spelling only. The
 //! older query signing (`Signature`, `AWSAccessKeyId`) and CloudFront's
 //! (`Key-Pair-Id`) are AWS's, no walk here enumerates them, and they stay by
-//! hand. The pass also covers `out.body` and not `out.next`: a continuation
-//! is an opaque cursor or an id in every paginator of the catalog
-//! (`tests_presigned::no_paginator_token_names_a_credential_or_a_url`).
+//! hand. [`SCHEMES`] has no walk at all: `tests_presigned::every_scheme_signature_and_key_spelling_is_wired_and_the_boundary_holds`
+//! checks that every entry of the three lists is well-formed and works in
+//! [`is_presigned`] (so `SCHEMES` is no longer compared by nothing) and that a
+//! scheme outside it is refused, but it cannot find a scheme that is absent.
+//! The pass covers `out.next` as well as `out.body` ([`hold_next`], the same
+//! walk and the same predicate): a continuation is an opaque cursor or an id in
+//! every paginator of the catalog
+//! (`tests_presigned::no_paginator_token_names_a_credential_or_a_url`), so
+//! [`is_presigned`] matches none in practice, and it is masked all the same so
+//! that the one field a signed URL could ride in is not the one left unguarded.
 
 use serde_json::{json, Value};
 
@@ -100,7 +105,7 @@ pub(super) const KEYED_BY: &[&str] = &[
 ];
 
 /// The schemes a presigned URL arrives under.
-const SCHEMES: &[&str] = &["https://", "http://", "wss://", "ws://"];
+pub(super) const SCHEMES: &[&str] = &["https://", "http://", "wss://", "ws://"];
 
 /// `s` is an absolute URL whose query carries signature material.
 ///
@@ -155,8 +160,27 @@ fn where_it_points(s: &str) -> String {
 /// Hold every presigned URL in `body` on `board`, masked in place: the
 /// handles held, in the order they were found.
 pub fn hold(board: &SecretBoard, label: &str, body: &mut Value) -> Vec<Held> {
+    hold_under(board, label, "", body)
+}
+
+/// [`hold`] over a call's continuation, `out.next`: the very same pass, its
+/// paths rooted at `next` so a handle can never meet the body's own.
+pub fn hold_next(
+    board: &SecretBoard,
+    label: &str,
+    next: &mut serde_json::Map<String, Value>,
+) -> Vec<Held> {
+    let mut whole = Value::Object(std::mem::take(next));
+    let held = hold_under(board, label, "next", &mut whole);
+    if let Value::Object(o) = whole {
+        *next = o;
+    }
+    held
+}
+
+fn hold_under(board: &SecretBoard, label: &str, root: &str, body: &mut Value) -> Vec<Held> {
     let mut held = Vec::new();
-    walk(body, "", &mut |path, s| {
+    walk(body, root, &mut |path, s| {
         let h = handle(label, path);
         board.hold(&h, Secret::new(s.to_string()));
         held.push(Held {
