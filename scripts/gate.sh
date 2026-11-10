@@ -835,8 +835,8 @@ scrub_phase() {
 
 # This script's own tests (theseus-4vsrz): scripts/test_gate_tree.py runs the real gate in a throwaway repository, its
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
-# and that its cargo runs without an incremental cache. About 10 s for 29 tests on a 4-core cloud VM (9.9 s measured;
-# an earlier 6.7 s came from another machine, and "about 2 s" was wrong): each GateTree case runs the whole gate in a
+# and that its cargo runs without an incremental cache. About 17 s for 38 tests on a 4-core cloud VM (16.8 s measured;
+# earlier figures of 9.9 s for 29 tests, 6.7 s from another machine, and "about 2 s" were all wrong): each GateTree case runs the whole gate in a
 # throwaway repository, so every case added costs about a third of a second. They run when this tree differs from main in the
 # script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
 # diff. They also hold scripts/deny-daily.sh and scripts/build.sh, which the same file tests. main is origin/main, or the
