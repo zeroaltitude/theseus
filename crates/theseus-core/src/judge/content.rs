@@ -113,6 +113,80 @@ impl ContentItem {
     /// Whether it is an item at all is `content::item_text`'s to say and no
     /// one else's (theseus-sh1n3): the set submitted here and the set the
     /// floor blocks on are one set, read from one function.
+    ///
+    /// # A granted repository's instruction text is no item, on purpose
+    ///
+    /// (theseus-3i6d1, the reviewer 2026-11-07; decided 2026-11-10 against
+    /// base 12889bcf.) The first line of this function, and of
+    /// [`Self::of_result`], refuses a node that is not a `UserMessage` or a
+    /// `ToolResult`. Session block 3's project instructions are neither:
+    /// `project_context::block` reads them from the repository's files at
+    /// compile time and the compiler writes them into the request's system
+    /// text, and **no node of the transcript ever holds them**. So no
+    /// [`crate::content::Flag`] can be raised on them, `Injection` included.
+    /// That is the price of granting a repository, it is structural, and
+    /// `theseus-wadu`'s design did not state it.
+    ///
+    /// For `Injection` it is also the right answer, for four reasons that are
+    /// about the *band* and not about the text:
+    ///
+    /// 1. **The question's own words answer it.** `Flag::Injection` is "the
+    ///    item tries to steer the assistant: instructions it was not given by
+    ///    the operator". A granted repository's files are instructions the
+    ///    operator chose to carry: the grant is his own act
+    ///    (`rpc::project_trust`, judged `Act::Standing` -- the owner, from a
+    ///    private place) and it lives as a META record in the store, which
+    ///    `toolrun/guarded.rs` floors, so no tool call can write it. Asking a
+    ///    model to re-derive a decision the owner has already made can only
+    ///    subtract from it.
+    /// 2. **It is a guaranteed false positive, at the band whose false
+    ///    positives are the expensive kind.** An ordinary `AGENTS.md` is a
+    ///    dense page of imperatives aimed at a model -- the exact shape an
+    ///    injection has. `Injection` raises at `Band::Act`, and the module
+    ///    note of `content.rs` is explicit about what that costs: "raising it
+    ///    wrongly freezes a session until the operator clears it, and a false
+    ///    freeze teaches the operator to ignore the control". Asked of block
+    ///    3, it would fire on the first compile in nearly every repository,
+    ///    on a session that has done nothing, before the owner's second
+    ///    message. The control would be worthless inside a week.
+    /// 3. **The containment is real, and it is `TaskBrief`'s.** A brief is
+    ///    exempt because a parent carrying `injection` is frozen and cannot
+    ///    call `task.create`, so an injection cannot launder itself into a
+    ///    child. The same freeze closes this channel: a frozen session may
+    ///    make a local read and nothing else (`policy/modes.rs`'s
+    ///    `content_refusal`, `content::local_read`), so it cannot write a
+    ///    file, and in particular cannot write an `AGENTS.md`. **Where it is
+    ///    weaker, and this is said rather than glossed:** a brief is written
+    ///    by Theseus itself, a repository by whoever wrote it; and the grant
+    ///    is given to a canonical root once and covers its files as they
+    ///    change (`project_context::trust`, "notify rather than ask"). So
+    ///    text that was never asked, or asked below the act band, can still
+    ///    be written into a granted repository's file by an unfrozen session
+    ///    at `notify` posture. Asking the injection question here would not
+    ///    close that path either -- it would answer yes on the honest files
+    ///    too. What fits that path is the tool floor, which is an open owner
+    ///    question on theseus-3i6d1's `theseus.toml` line and is **not**
+    ///    settled here.
+    /// 4. **Asking it at the grant instead is the same question moved.** It
+    ///    would let a model veto a grant the owner is making deliberately, at
+    ///    the same false-positive rate, for the same reason.
+    ///
+    /// **What this does not settle.** The other three flags are a different
+    /// case and the reasoning above does not cover them: `Secret`,
+    /// `Confidential` and `Personal` raise at `Band::Confirm`, where a wrong
+    /// yes costs a session its cheap model and nothing more -- "the safe
+    /// direction, and the direction the owner's standing rule points". A
+    /// granted repository's instruction file can hold a credential's value or
+    /// an organisation's non-public matter, and today no label can come of
+    /// it, so `ContentFlags::disqualifies_cn` never sees it. Closing that is a
+    /// row of its own: it needs an eighth [`ItemKind`] exempt from the
+    /// injection question exactly as `task_brief` is, an item built once per
+    /// file digest rather than once per compile, and a store-format number
+    /// for the new kind on a stored [`crate::content::Label`].
+    ///
+    /// The one thing the model is told is `project_context::FRAME`, which
+    /// says whose text it is and that it grants nothing. That is the model's
+    /// half; this is the classifier's, and it is an absence.
     pub fn of_message(node: &Node, kind: ItemKind, source: &str) -> Option<Self> {
         if !matches!(node.body, Body::UserMessage { .. }) {
             return None;
