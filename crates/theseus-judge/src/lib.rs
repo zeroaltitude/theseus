@@ -66,6 +66,8 @@ mod tests_job_sites;
 #[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
+mod tests_pack;
+#[cfg(test)]
 mod tests_pic;
 #[cfg(test)]
 mod tests_prove;
