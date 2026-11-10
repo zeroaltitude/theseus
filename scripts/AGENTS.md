@@ -279,8 +279,14 @@ and for a quiet machine, can each add minutes, so give the gate's command a time
   Never take it with `exec N>lock; flock N` in a shell that starts anything long-lived.
 - **A lane's gate runs niced**, with its own `CARGO_TARGET_DIR`, and `CARGO_BUILD_JOBS=4` and
   `NEXTEST_TEST_THREADS=4` exported (one or the other, never also nextest's `--test-threads`, which it then refuses
-  as given twice): `THESEUS_GATE_NO_BENCH=1 nice -n 19 ionice -c3 scripts/gate.sh`, with no `flock`. The bench runs `target/debug/theseus-sim` by a relative path, so a worktree needs a `target` symlink to its
-  target dir.
+  as given twice): `THESEUS_GATE_NO_BENCH=1 nice -n 19 ionice -c3 scripts/gate.sh`, with no `flock`. The gate
+  resolves where cargo builds itself (`resolve_target_dir`, on first use: `CARGO_TARGET_DIR`, else `cargo
+  metadata`'s `target_directory`, else `$PWD/target`), so the benches and the bench-binary check find the
+  binaries wherever the target dir is, and a worktree needs no `target` symlink for them. Until theseus-1eemp
+  they read `target/debug` by a relative path, which is why every self build - whose tree builds into
+  `<state>/self/target/<item>`, outside the checkout - failed `test build` before its tests ran.
+  `scripts/gate.sh --bench-bins <cargo message file>` runs that check alone over a planted layout, and is
+  what `bench/recall/test_bench_bins.py` drives; it builds nothing and takes no lock.
 - **A lane's gate skips the bench** (`THESEUS_GATE_NO_BENCH=1`). The bench's settle step waits for a quiet machine
   while holding the shared lock, so every other agent's gate queued behind it; the join's gate on `main` benches
   instead. A lane whose work touches the start path runs `target/debug/theseus-sim bench lifecycle --runs 10

@@ -1348,6 +1348,17 @@ mod probe {
         }
     }
 
+    /// Each namespace flag the filter refuses on `clone`, under its own key:
+    /// the next one to probe is a row here and no line in `seccomp`.
+    fn clone_flags(put: &mut impl FnMut(&str, Value)) {
+        for (key, flags) in [
+            ("clone_newuser", libc::CLONE_NEWUSER),
+            ("clone_newnet", libc::CLONE_NEWNET),
+        ] {
+            put(key, clone_with(flags));
+        }
+    }
+
     /// The kernel's ring buffer, read whole (SYSLOG_ACTION_READ_ALL). Only
     /// the count is reported: the host's log is never printed.
     fn syslog_read_all(put: &mut impl FnMut(&str, Value)) {
@@ -1416,8 +1427,7 @@ mod probe {
             outcome(fs::OpenOptions::new().read(true).open("/proc/kmsg")),
         );
         socket_families(&mut put);
-        put("clone_newuser", clone_with(libc::CLONE_NEWUSER));
-        put("clone_newnet", clone_with(libc::CLONE_NEWNET));
+        clone_flags(&mut put);
         put("fork", in_child(|| {}));
         put(
             "thread",

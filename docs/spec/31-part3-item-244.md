@@ -1,4 +1,4 @@
-# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 261 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched)) ([index](README.md))
+# The Ship of Theseus, chapter 31: Part III, A4's Items 244 to 264 (Discord's pings, and a loop's thinking in its tool message; memory.lookup over the CLI; recall's words in time; the joins of 2026-10-17 and 10-18: owner joins a running task, the China-origin catalog and the Discord task places, the trim rows, the sensitive-names floor, the last features, RSI loop 1, the morning lane; a reach for the owner's personal details held in a shared place; voice layers 3 and 4's switches proven; Deepgram Flux as a call's default listener; live learning (the observer, the card's live pass, live questions in the DM); the principles migration (four labels, two deterministic sources, one switch, a raw record with substitution at the exits); the old routing deleted (the class walk, the caps, the China-origin draft, the legacy profiles); the approve lists retired (approve_paths deleted, approve_argv becomes notify_argv, the floor untouched); recall sees a kept file’s text, read from the blob the node names; an imported session that was rewritten, its divergence mark, its quiet take and the renumbered episode refused; the file tools’ three gaps, a CRLF edit, a search that reaches hidden files and a stale edit refused) ([index](README.md))
 ### Item 244. Discord's pings: today's pings by default with silence per category and per place, each place showing or hiding its tool lines and its thinking, a loop's thinking at the top of its tool message folding to `💭 thought for N s`, and a thinking turn buzzing for its answer alone (theseus-l1y1; theseus-l00z's wave A, the Discord report's section 4.7 and plan step 1; the cloud row discord-silent, fired 2026-10-09 02:05Z, Opus 5.5, its first cut silent by default; overruled by the owner at 2026-10-08 20:01 and redirected as discord-silent-cont, fired 04:21Z; the first review, review-discord-silent, accepted with a join fix, per place and the window off; the owner's two calls of 2026-10-09 08:26 sent as discord-silent-fold, fired 15:53Z, and its review, review-discord-silent-fold, accepted with a join fix (F1); joined 2026-10-09 16:22 at 9b439511, the merge eed6df88 of 292bb147 onto 4882558a and the fix's two picks, by the evening joiner; installed at install #18 (d32377d5, 2026-10-09 19:47); the owner's open calls F2 and F5 and the low findings F3, F4 and F6 made up by lane L4 discord-calls on 2026-10-10, joined by its own join; the follow-up not installed yet)
 
 _The record of the joins of 2026-10-07 to 2026-10-09 before this one is not yet written as Items; this Item is
@@ -953,3 +953,228 @@ raised do not fire.
 paths that wait for approval, and the order's step 2 read both. Part I is rewritten to the gate as built; the earlier
 Part III Items that record the lists as they were (A3b's divergence table, Items 129, 171 and 204) stay as the record of
 what was true when each closed.
+
+### Item 262. Recall sees a kept file's text: the index reads the blob the node names, once per digest, capped, chunked and guarded (theseus-lv2u; filed by Item 149's review as one of theseus-c9l6's three follow-ups; 1.0.5's B4 bucket, the cloud row `lv2u-recall-file-blob` of 2026-11-07, joined at `f52e8016`, and its reading review's seven findings landed 2026-11-09)
+
+**Why.** Item 149 gave Theseus the files people hand it — a PDF read for the model, an Office document, a
+recording — and filed what it could not do: *"recall cannot see a kept file's text. The index tender reads node
+text from the WAL, and a file's text lives in a blob."* So a document could be read inside the turn it arrived in
+and was invisible the next morning: ask about last week's PDF in a new session and recall found the file's name and
+nothing of its words.
+
+**Where the text enters.** At index time, read from the blob the node names. A file a person attaches is kept whole
+in the store's blobs (`AttachmentContent::File`, store format 17) and what was *read* of it — a PDF's pages, a
+document's sections — is a blob of its own that the node names by digest; none of it is in the WAL. The tender is
+given the store's directory (`tender::Config::store_dir`) and the blobs sit in it beside the WAL
+(`theseus-index/src/files.rs`).
+
+**The other side was refused, and that is the design.** Writing the read text into the node at attach time would
+have cost nothing at index time, and was rejected: a node is a WAL frame that every recovery and every index
+rebuild reads whole, and the blobs exist precisely so that a 20 MB document does not go through it.
+
+**The cap, the chunking, and what a hit says.** `files::MAX_BYTES` is 256 KiB of read text per file — the default
+of `[tools] max_read_bytes`, which is what the harness itself already takes of one file for the model. Sections are
+taken in order until the cap, the last cut on a character boundary. **The drop is not implicit**: it is indexed as a
+chunk of its own (`FileText::cut`) saying how much is held and how to read the rest, so a hit at the end of a long
+document says it is the end of what the index holds. Each section is then chunked on its own (`chunk::MAX_TOKENS`,
+512), so no chunk spans two pages, and every chunk is headed `[<file> · <section>]` — that head is what a recall hit
+cites, so the hit names which file and which page the passage came from. `index.status` counts the files indexed,
+already held, cut at the cap, and unread.
+
+**Once per digest, and the two limits that follow.** The digest is counted across the whole index, not per session,
+so a file's one copy belongs to the node that carried it first. *Erasure*: erasing that node takes the text out even
+where a later node still carries the same file, and a rebuild does not put it back. *Provenance*: a hit on the
+file's text cites the first node's message, and so that node's session, even for an asker who attached the same
+bytes in a session of their own. The place rule bounds that reach without removing it — recall drops a hit whose
+node sits in a place the asker may not draw on (`Place::may_draw_on`: a shared place draws only on its own place's
+sessions, a private place on any), so across shared places the dedup shows as a miss and never as a citation, while
+inside one place, or from a private place, the cited session can still be one the asker was never in. Scoping the
+dedup per session would cite the asker's own node and store each attached file once per session; that cost is
+measured in the crate that would pay it (`theseus-index/AGENTS.md`: one capped file of varied prose is 132 chunks,
+411 KB of BM25 and 234 KB of vectors, about 645 KB a session-repeat, pinned by
+`tests_files::one_capped_file_costs_the_index_under_three_megabytes`). The decision stands: what the 645 KB buys is
+only a citation naming the asker's own session, for the text recall already returns whole.
+
+**The blob read carries core's two guards, restated.** The name comes verbatim from node JSON, and `Path::join`
+with an absolute component **discards its base**, so there is no containment in the join itself — only the fact that
+core happens to write a digest today. A node whose `AttachmentContent::File.text` is not a digest (a malformed
+frame, an imported one) reaches that path, and the path ends in recall rendering bytes into a model request. So
+`files::read_blob` checks the shape before the value is ever a path (`is_digest`: 64 lower-case hex digits), bounds
+the read (`MAX_BLOB`, 64 MiB, with `read_blob_within` so a test can prove the bound without a 64 MiB file), and
+requires the bytes to hash to the name — core's reader's two checks plus the bound. This crate does not depend on
+the core, so the digest shape is restated rather than imported.
+
+**The guard changes what happens to a corrupted blob, and `files_unread` is where it shows.** Before it, a blob
+whose bytes no longer hashed to its name was read and indexed as whatever it held; now `read_blob` returns `None`
+and the file is counted in `index.status`'s `files_unread`, which `theseus index status` renders as a warning line
+(`theseus/src/render/index.rs`). That is the correct behaviour and the same as core's, and it means **a store with
+on-disk damage can now report a non-zero `files_unread` where it reported 0 before. A non-zero count is the guard
+working, not a new fault**; the fault it names is older than the count.
+
+**The install's cost was measured before it was taken.** The step bumps `engine::SCHEMA_VERSION` to 2, so the first
+start after it rebuilds the whole index. `tests_files::bench_a_backfill_from_the_wals_start` walks the same path a
+rebuild takes — a fresh index, ingest from the WAL's start — over 3,000 nodes of about 400 bytes: **3,000 nodes in
+2.61 s, about 1,150 nodes/s** on a four-core VM with vectors off, one run, so BM25 and the entity ingest alone. The
+figure is in a comment on the test because nextest hides a passing test's stdout, and the only other record of it
+was a `CLOUD_REPORT.md` dropped at the merge.
+
+**Divergence.** M6 §2.2 planned the index over the WAL's nodes, and said nothing about a store blob: the tender's
+sources were the records it reads. This step adds a second source that is not in the WAL at all, reached through the
+store directory the tender is configured with, and it is the first place the index reads a file the WAL only names.
+Item 149's own text, which filed this as a limit of the files step, stays as the record of what was true when that
+step closed.
+
+### Item 263. An imported session that was rewritten: the divergence mark, the quiet take, and the renumbered episode refused (theseus-ectzg; 1.0.5's B4 bucket, landed 2026-11-08 and 11-09 as `37854381`, `518798f5`, `37b99db8`, `5f1c7a45`, `08b394bf` and `b22e4d75`; it finishes the nightly incremental sync of theseus-pjmj7, which carries no Item of its own, over the importer of Item 201)
+
+**Why.** theseus-pjmj7 made the nightly import incremental: an episode that grew is appended to, and its prefix is
+proven by reading the stored message nodes rather than by a digest kept on the session. That left one shape
+unhandled, and it is the common one. A source conversation that was *rewritten* — a compaction, a resume, an edit
+in the exporting harness — comes back with the same episode id, a new hash, and a prefix that stops matching part
+way through. The append refused it, named the mismatch, and refused it again the next night, and every night after
+that: a session that diverged once was quarantined for good, and the import's own report said only that something
+did not match.
+
+**The divergence mark.** The append now takes what it can: it writes the messages after the last stored one whose
+digest still matches the episode's message of that `idx`, never a stored `idx` again, and records **N, the first
+stored `idx` that differs, once, in the session's `diverged_at`** (`import/mod.rs:273-279`). The mark is a field of
+its own on the stored `ImportedFrom` block, and that was a decision rather than an obvious choice: the first cut put
+it in `labels.topic`, which is the ontology's input, where `import.topics` would have made a topic of any entry in
+it. A divergence is a fact about where the session came from, not a subject it is about. Marks accumulate in the
+order seen, once for each, so a session rewritten three times carries three.
+
+**The quiet take.** A divergence with **nothing after the last match** — the source dropped or rewrote its tail and
+added nothing — is taken quietly: no node is written, the session's hash moves to the episode's, and it takes the
+mark, so the next run finds the hash held and skips it (`import/append.rs:139-142`). It counts in the batch's
+`appended`, which is a take, and **not** in `touched`, because nothing is new for the people step to look at. The
+reason is stated where the code does it: refused instead, a session that was rewritten and then went quiet would be
+rejected every night, for ever, which is the behaviour this step exists to end.
+
+**What is still refused, and why refusing is the whole rule.** A **renumbered** episode — a stored message that
+moved to another `idx`, which is what an insertion or a renumbering compaction produces — is refused, and named by
+the stored message it collides with (`append.rs:228-246`). Appending past it would write the new message as a
+duplicate and drop it along with everything the shift moved, so there is no partial take worth having: no message
+is ever re-mapped. Three more shapes stay refused and named: an episode where no stored message matches at all
+(another episode under a reused id), an episode that is only the stored session's first messages (an older or cut
+view — taken, it would move the hash backwards), and an episode that adds nothing and diverged nowhere (the same
+messages under a new hash: its tag, place or labels changed). An erased session is never appended to.
+
+**What `messages` counts.** `ImportedFrom.messages` is the number of message nodes **the store holds** for the
+session — a first import writes the episode's length, an append adds the nodes it wrote — and not the episode's
+length as the source last reported it (`import/mod.rs:261-264`). After a quiet take those two numbers differ on
+purpose, and the field's doc now says which one it is.
+
+**Store format 57.** `ImportedFrom.diverged_at`: the first stored `idx` at which a later episode of an imported
+session stopped matching what the store holds — a rewrite, a compaction or a resume — recorded once for each such
+episode, in the order seen. It is **left out while empty**, so a record written before this build reads with an
+empty `diverged_at` and writes back byte for byte, and a record this build writes without a divergence is
+indistinguishable from one the old build wrote. Downgrading is not a field question at all: a build whose
+`MANIFEST_FORMAT` is below 57 refuses to open the store at its manifest (`Manifest::check`), with the install-newer
+message, so no older build ever reaches a record carrying the mark. `append` takes the messages after the last
+stored message whose digest still matches, and never a stored `idx` again; where there are no such messages the
+take is quiet (no node is written) and the mark alone records what happened. The format's sample is
+`tests_layouts::SESSION_IMPORTED_AT_56` — a record as **format 56** wrote it, with the provenance block and no
+divergence mark, typed by hand from a synthetic episode so that it is not today's encoder's own output
+(`a_format_56_imported_session_is_not_the_encoders_output` holds it apart from that encoder and asserts the
+byte-for-byte round trip, then adds a mark and asserts the encoded form carries `"diverged_at":[3]`).
+
+**Divergence from plan.** The import was planned and recorded as one direction of travel: Item 201 brings the
+owner's prior assistant history in whole, idempotent and erasable by tag, and theseus-pjmj7 then made the nightly
+run incremental so that an episode which grew is appended to. Neither planned for a source that **rewrites** what
+it already handed over, and the incremental step's refusal path — name the mismatch and skip — reads as a safety
+property right up to the point where it is the nightly outcome for a session that will never match again. This step
+keeps the refusal exactly where a take would lose a message, and replaces it with a take plus a recorded mark
+everywhere else. Nothing written down said where such a mark would live; `labels.topic` was the first place tried
+and is the wrong one, and that is recorded here because the next reader looking for the mark will look there.
+theseus-pjmj7's own append has no Part III Item, so this Item is also the first place the appending rules are
+written outside the module's header.
+
+### Item 264. The file tools' three gaps: a CRLF file edits normally, a search can reach hidden files, and a stale edit is refused (theseus-w2cs; 1.0.5's B6 bucket, landed 2026-11-09 as `cbf494e9`, `5733ddba`, `8726f490`, `79f82b45` and `490867e4`; the stale edit's product question was the owner's, decided that morning)
+
+**Why.** Three separate things a model could not do, each small, each met while using the tools for real work.
+`fs.edit` could not change a file with CRLF line endings, because `fs.read` shows a line without its `\r` and so a
+model quotes bare `\n`, and the quote then matched nothing. `fs.grep` and `fs.glob` could never reach a hidden or
+`.gitignore`'d file, while `fs.list` could, so a search for something under a dotted directory silently returned
+nothing. And an edit written against bytes that had changed since they were read overwrote whatever landed in
+between, with nothing said.
+
+**CRLF.** A file whose endings are **all** CRLF is matched and patched as the read showed it — with bare newlines —
+and written back with CRLF endings (`fs.rs:820-829`, `is_all_crlf`, `lf_regions`, `splice_lf_regions` and `to_crlf`
+in `fs_lines.rs`). A mixed file is handled region by region rather than whole: the first cut converted the whole of
+`old_string` and `new_string`, which is wrong wherever a file holds both endings, and the fix is to splice only the
+LF regions. Every other line's ending is left exactly as it was. `tests_crlf.rs` holds it.
+
+**One `all` flag, one meaning.** `fs.grep` and `fs.glob` take the flag `fs.list` already had, with the same name,
+the same default (`false`) and the same meaning: hidden and `.gitignore`'d entries too. `.git` is still never
+walked, by any of the three, and the result's scope line says which walk ran. The three tools' schemas and
+descriptions are the model-visible surface, so this is 124 tokens added to the tool table of **every request that
+loads the `files` family** — a cost the step measured rather than estimated, and which moved four pinned counts and
+one golden with it.
+
+**That cost is where the owner was asked, and the answer was a bound, not a budget.** The addition took one rig's
+cold thread resume to 22,055 tokens against a bar of 22,000. The budget turned out not to be a lever at all: the
+rig's `resume_keep_turns = 1` already has the resume at its floor — the prefix plus the newest turn — so
+`est_tokens` reads 22,055 at `working_tokens` of 22,000, 21,876, 10,000 and 1,000 alike, one recompile per value.
+Lowering the rig's budget was keel-clean and would not have helped, and 22,054 would not have passed. So the bar
+itself was the only lever, and raising a bar is an assertion weakened, which is the owner's to allow: he allowed
+it, and `tests_thread_context.rs:423` now reads `<= 22_200`. Nothing about the resume changed — it still decides
+`recompile` on `cold_resume`, still keeps one turn, still rewrites small.
+
+**The stale edit, and the shape that was not built.** The product question came first and was the owner's: *refuse
+an edit to a path this session has not read*, or *note what was read and check the note when one exists*. He chose
+the second, and the first was built once, measured and deliberately not committed, so that it is not rebuilt. The
+rule, written down at `docs/design/stale-edit.md`, is one sentence: **refuse only when a read record exists and the
+file changed since** — the refusal an ordinary tool error saying read it again, then write. **The absence of a read
+is never a refusal.** A model that learned a file's contents from `proc.run cat`, from `git.diff`, from an earlier
+turn or from an earlier session writes exactly as it did before the guard existed, and every existing test that
+edits a file without reading it first stays green by construction.
+
+**Why the other shape was unacceptable, which is the part a later reader will get wrong.** A self session's calls
+fail open where the *policy* layer would hold them for approval (`ToolPolicy::fails_open`), so self-improvement is
+never stuck waiting for an owner who is asleep. A read-record refusal is not an approval: it is a `ToolFailure`,
+and there is no fail-open path for one and no reason to invent one. Under *required*, an `rsi` self session that
+knew a file by any other route would be stopped dead with nothing to answer. Under the rule as built there is
+nothing to fail open from — a session that reads and then writes with nothing changing underneath sees no refusal
+at all, and one that genuinely lost a race should be told it lost.
+
+**What identifies the file's state: length and mtime, never a hash.** The first attempt identified a file by
+`std::hash::DefaultHasher`, whose algorithm is explicitly not guaranteed between Rust releases, so such a value
+means something only inside one running process and must never be stored or compared across processes. Observable
+state — byte length and modification time (`reads::Mark`) — avoids the question, costs one `stat` instead of a read
+of up to 16 MiB on every edit, and is sound here because Theseus's own writes go through `write_atomic`, which
+renames a fresh file over the target: a write by another tool, another session or an editor leaves a new mtime. Two
+states a change could leave indistinguishable would need the same length **and** the same mtime to nanosecond
+resolution.
+
+**Where the note lives, and what bounds it.** Off the session, dying with it. The first attempt kept one
+process-wide `HashMap` with one insert and one get — no eviction, no cap, no clear at a session's end — so a
+long-lived daemon grew it for ever. The board is keyed by session and bounded twice (`MAX_PATHS` 256 paths a
+session, `MAX_SESSIONS` 512 sessions with a board at all), and a session's board is dropped when its session ends
+(`ReadRecords::forget`, called from the turn runner). It follows two shapes already in the tree, `JobWaits` and
+`Terms`: one board on the runtime, reached by a call through an `Arc`. It reaches a tool as one more
+`Option<Arc<dyn …>>` on `ToolCtx`, beside `cores` and `secrets`, and `ToolCtx::for_tests` leaves it `None` — **a
+`None` board notes nothing and checks nothing**, which is why no tool test needed editing.
+
+**A write refreshes a note it finds, and creates none.** After a successful `fs.edit`, `fs.write` or `fs.patch`
+the file has changed by the model's own hand, so the note for each path written is set to the file's new state —
+**and only where a note for that path already exists**. Otherwise a model making two edits after one read would be
+refused by its own first edit. A write to an unnoted path still notes nothing, so "no read, no refusal" holds
+exactly: a write never brings a path under the guard.
+
+**Two choices left open, and named as choices.** At `MAX_PATHS` the oldest note is evicted and that path is then
+unguarded — the quiet choice, which puts the path back where every unread path already is; the noisy one, refuse to
+record and say so, is defensible. And only a tool that hands over a file's bytes *as a file* notes anything:
+`fs.read`, not `fs.grep`, which returns matching lines, and not `proc.run cat`, whose argv the runtime does not read
+as a file read. That is the narrow end of the range, chosen because widening it later only adds guarded paths while
+narrowing it later would silently drop a guard a model had come to rely on.
+
+**Divergence.** Part I §3.10's own rule for these three tools is *"Every listing tool follows one rule. Today
+that is `fs.glob`, `fs.grep`, and `fs.list`"* — written about saying what a listing left out, and it is the rule the
+`all` flag broke: two of the three could not reach a hidden entry at all while the third could, so what they left
+out was not a thing a caller could ask about. The step makes the three agree, which is the plan's rule applied, not
+a departure from it. The stale-edit guard is the departure: Part I's tool surface says what `fs.edit` and `fs.patch`
+do with their arguments (§3.10's *"exact match with occurrence control, returns the diff"*, A0's inventory) and says
+nothing about the state of the file between a read and a write. The guard is a new property of those two tools that
+no plan asked for, and it is recorded here and in `docs/design/stale-edit.md` rather than folded into Part I,
+because what is written down is the *rule plus the rejected alternative* — and the rejected alternative, with its 27
+reddened rig tests and its `rsi` fail-open argument, is the half a plan cannot carry. (The 27 figure is carried from
+an earlier measurement and is marked unverified in the design note itself.)
