@@ -636,6 +636,20 @@ async fn closes_leaving(
 
 /// The rate, measured: how often a close leaves a child forked in the window.
 /// Run with `--nocapture` to read it.
+///
+/// WHAT THIS RIG COSTS, measured so nobody has to wonder (theseus-4vsrz, 2026-11-10).
+/// This test and the keeping one below are the suite's two most expensive, and
+/// they are hard zeros by design: `n` closes, each racing a forker and then
+/// sleeping 300 ms for a killed process to die. On the 2026-11-10 03:05 nightly
+/// flakehunt run (head `a52a2f1b`) they took **35.75 s** and **32.44 s**, with
+/// the exited-shell sibling a further 13.50 s — about 68 s for the two and 82 s
+/// for the three, of a 398.73 s suite. They both PASSED there under
+/// `[profile.flakehunt]`, which sets `retries = 2` and `flaky-result = "fail"`,
+/// so a pass that needed a retry would have failed the run: `flaky=0 failed=0`
+/// over 9,672 tests. **So the cost is real and the tests are not flaky**, and
+/// the price buys a hard zero on a race that silently leaked processes. Do not
+/// trade it for a measured bound without a reason; if the suite's wall clock
+/// has to come down, lower `n` and say what rate the smaller `n` can still see.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_close_leaves_no_child_forked_into_a_new_session_during_it() {
     let n = 30;

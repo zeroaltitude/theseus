@@ -733,6 +733,19 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
 
 ## Recently landed
 
+- **2026-11: a card run whose model call fails retries the next night, not the next week** (theseus-kinfs;
+  the release note theseus-4vsrz owed for it). `[card] every_days` (7 by default) is a floor measured from the
+  *last run*, and until now a run that ended because its model call failed still stamped that floor — so a card
+  job broken by a bad credential or a provider outage was tried once a week. `run_mark`
+  (`crates/theseus-core/src/card/run.rs:597-603`) now leaves the mark where it was when a run stopped with a
+  failed call, so the nightly tender at `[judge] learning_hour` is eligible again the next night. **What the owner
+  will meet:** a breakage that lasts a month is about 30 partial card runs where it was 4, each spending whatever
+  the call costs before it fails. **Nothing can overrun** — `[card] day_usd` (2.0 by default) and the day ceiling
+  bound each night, and `every_days = 0` turns the nightly run off entirely — but the *signal changes shape*: one
+  failed run a night instead of one a week. **One shape worth knowing before reading a ledger:** `card_call`
+  (`run.rs:343`) already moves the mark on each **successful** call, so a run whose first call succeeds and whose
+  second fails stores the successful mark and waits the full interval. "Retries the next night" is therefore true
+  only of a run in which no call succeeded at all.
 - **2026-11: the old routing is deleted** (theseus-kn9or, row 6 of route.v10, theseus-h66v4; lands with route.v10's flip,
   in one sequence). Jev chooses the model and its effort, so what chose them before is gone: the class table
   (`[routing.classes.*]`) and the walk over it, the place cap, the dear tier's guard, the step back down, a task's

@@ -277,6 +277,18 @@ there, the timing budgets get an overage allowance.
   one-sample stalls over twice a limit (one fsync waiting on a neighbour), which no allowance should cover: the rerun
   does. Strictly, 9 of those 22 runs missed a phase, against 4 of the 68 runs on a quiet machine (a load under 8),
   which the rerun covers, as before.
+- **A RUST TEST CANNOT REACH IT, so it is never the fix for a timing test in a crate** (theseus-4vsrz
+  test-hygiene F3, 2026-11-10). `THESEUS_GATE_BENCH_ALLOWANCE` is read in exactly one place — `gate.sh:67`, into a
+  shell variable the gate passes to `theseus-sim bench` as `--allowance` — and it appears in **no `.rs` file in
+  the workspace**: `grep -rn THESEUS_GATE_BENCH_ALLOWANCE --include=*.rs crates/` returns nothing. So it covers the
+  lifecycle and jobs benches and nothing else, and a `#[test]` or `#[tokio::test]` asserting on a duration has no
+  path to it at all. **Two checklist lines on `theseus-4vsrz` prescribed it as "the right fix" for exactly that,
+  and both were written around a mechanism that does not exist.** Nothing was broken by the mistake — one of those
+  lines needed no fix and the other used a retry — but a reader who believes the prescription will spend an
+  afternoon looking for a knob. The remedies that do exist for a wall-clock bound inside a crate's tests are: a
+  retry, `tokio::time::pause` where the clock is the subject, a bound wide enough to hold on a loaded machine with
+  a comment saying what it was measured at, or moving the assertion into a bench the gate already times. Never a
+  loosened bound without a reason, and never `#[ignore]`.
 - **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 2 minutes (…); measuring
   anyway, with the busy allowance: +65% over a timing budget's limit`). A phase it carries prints the bench's own
   `MISSED`, the strict verdict, and then `lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms,
