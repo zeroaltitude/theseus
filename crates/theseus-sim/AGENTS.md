@@ -121,6 +121,22 @@ Key modules: `lifecycle.rs`, `kernel_sim.rs`, `fake_discord.rs`, `discord_proof.
     (`harness`), against the committed `baselines/prompt.json`. It **warns** (stdout and stderr) at more than +5 % over a
     place's baseline and never fails: other rows add tools every week. `--update` rewrites the baseline, for a change you
     mean (the commit says why). Nothing is sent to a model.
+    **It also carries the routing cliff's watch** (theseus-4vsrz, B7): each row's `own` is the session's own context —
+    the total less the tool definitions and the first system block, the header — which is the quantity `[routing]
+    cold_switch_tokens` bounds (`config/routing.rs` says so in those words), printed with its share of that bound and
+    warned of at `WARN_OWN_TOKENS` (100) of movement **either way** against `baselines/prompt.json`'s `own` map. It
+    exists because the assertion that used to watch that figure (`tests_route_cliff.rs`'s `context * 2 < cold`) was
+    deleted on the owner's word on 2026-11-08 and **nothing replaced it**.
+    **Measured 2026-11-10, read this before trusting the column: `own` is 0-29 tokens across all six places**, 0.1 %
+    of the bound, because a fresh request carries no message and almost nothing of its own — the prefix is the
+    request. So it is **not** the 14,977 `tests_route_cliff` measured (a rig with its own input and catalog), and it
+    is the floor of a one-message turn rather than the whole of it. What it is good for is the regression: the
+    2026-11-07 cliff was the prefix being *counted into* the bound's quantity, and that coming back takes this column
+    from 29 to about 7,600 in one step. The line is absolute and not a ratio for that reason, and because `channel`'s
+    own context is genuinely 0, where a ratio would give that place no line at all.
+    The gate runs it as the non-fatal `prompt` phase (`scripts/prompt-step.sh`, tested by `tests/prompt_step.rs`); a
+    baseline written before this row has no `own` map, and a place without one is judged on its total alone, as
+    before.
   - `bench agenda` (`src/perf/agenda.rs`, theseus-nuhsz): `work.agenda` at its 200 lines: a scratch daemon holding
     `--reminders` (90, half of them daily series) and `--routines` (3, hourly), the call timed over `--runs` (300) for a week's
     window, with `status.short` as the floor beside it. `--check` holds p90 to 5 ms: meant for a release-thin build on the

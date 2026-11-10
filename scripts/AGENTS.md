@@ -8,6 +8,17 @@
   says "size: skipped: no release build of <commit>". It fails on growth over 1 MB, not on §9's 60 MB.
   `THESEUS_SIZE_ACCEPT_GROWTH=1` accepts a growth. `size-breakdown.py` (an unstripped
   build in its own target directory) prints the top crates by bytes and the cockpit bundle's.
+- `prompt-step.sh` (theseus-4vsrz, B7): the gate's `prompt` phase, which **never fails it**. It runs
+  `theseus-sim bench prompt` on the debug binaries after the test build (like `recall-tests.sh`, and for the same
+  reason: a stale daemon counts the previous head's prompt) and says `prompt: skipped: no <path>` when either
+  binary is missing. Besides the first request's total per place, the bench records the **session's own context**
+  and its share of `[routing] cold_switch_tokens` — the figure the deleted `tests_route_cliff` assertion used to
+  watch and that nothing watched after 2026-11-08 — warned of on movement off
+  `crates/theseus-sim/baselines/prompt.json` and never gated. **The first run of it found two divergences nothing
+  had been watching** (2026-11-10): `channel` +8.3 % over its baseline, and `dm` at 9,700 against a committed 14,586,
+  a third below it. Neither baseline was moved by the row that added the phase — moving one is a deliberate act. **Every failure path here prints and exits 0 on purpose:** `shape.sh` owns the hard ceilings, and
+  a second hard gate on a share nobody has calibrated would redden departures for figures legally inside their
+  limits. Tested by `crates/theseus-sim/tests/prompt_step.rs`; its stand-in for `test_gate_tree.py` is in `COMMITTED`.
 - `scrub-added.sh`, `test_scrub_added.py` (theseus-ev3ir): the gate's `scrub` phase. The name scrub (`scrub_check.py --strict`)
   over the lines a branch ADDS since the range's base (committed, uncommitted, and untracked new files, which is what a new
   `.cases.toml` is) and its commit messages (at a staged join, MERGE_HEAD's too); a hit in a blocking family (employer, the

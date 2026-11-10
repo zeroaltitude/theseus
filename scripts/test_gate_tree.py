@@ -137,6 +137,7 @@ COMMITTED = {
     "scripts/build.sh": PASSES,
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
+    "scripts/prompt-step.sh": PASSES,
 }
 REAL = ("gate.sh", "keel-guard.py")
 
@@ -168,7 +169,8 @@ class GateTree(unittest.TestCase):
             files[f"scripts/{name}"] = (HERE / name).read_text()
         for name, text in files.items():
             self.put(self.root / name, text)
-        for sh in ("gate.sh", "keel-guard.py", "shape.sh", "build.sh", "recall-tests.sh", "size-step.sh"):
+        for sh in ("gate.sh", "keel-guard.py", "shape.sh", "build.sh", "recall-tests.sh", "size-step.sh",
+                   "prompt-step.sh"):
             (self.root / "scripts" / sh).chmod(0o755)
         self.git("init", "-q", "-b", "main")
         self.git("add", "-A")

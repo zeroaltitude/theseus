@@ -1177,6 +1177,13 @@ phase "test build" test_build
 # lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
 # TOML parse). test_gate_order.py holds this order.
 phase "recall tests" scripts/recall-tests.sh
+# The prompt census, for the record (theseus-4vsrz, B7): a fresh session's first request per place, the session's
+# own context within it, and that context's share of `[routing] cold_switch_tokens` -- the quantity the cliff
+# assertion deleted on 2026-11-08 used to watch, which nothing watched after it went. AFTER the test build, like
+# the recall tests: it runs the debug theseusd and theseus-sim and says it skipped when either is missing. It
+# NEVER fails the gate: a printed warning and a committed baseline, never a ceiling (scripts/prompt-step.sh's own
+# doc says why, and scripts/shape.sh owns the hard ones).
+phase prompt scripts/prompt-step.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi
