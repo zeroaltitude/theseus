@@ -401,7 +401,8 @@ Key modules: `main.rs`, `cmd.rs`, `render.rs`, `client.rs`. Read by: (a binary).
   when, what raised it and from where, and the command that clears it); `theseus content remove SESSION FLAG|--all` is one `content.unlabel` per label, the
   owner's act (in `client::OPERATORS`, refused inside a job). `theseus sessions` adds a `⚑ flag,flag` column only for a labelled session. Tests: `tests/content_cli.rs`.
 - `src/resolve.rs`: the one id resolver (theseus-0n1v) for `history`, `watch`, `stop`, `cancel`, `wait`
-  and `sessions explain`: a whole id, or a unique end of at least four characters; ambiguous, short and unknown names are
+  and `sessions explain`: a whole id, or a unique end of at least four characters; `pick_turn` resolves a turn for
+  `theseus why` and the terminal UI's `/why` the same way, but a turn by a unique start or end; ambiguous, short and unknown names are
   refused, and `watch` of an unknown one exits 1. One read a resolution at most.
 - `src/render/wakes.rs` (theseus-lherl): `theseus wake`' line (a wake's title, a series' weekdays and end) and health's
   `wakes:` line.
