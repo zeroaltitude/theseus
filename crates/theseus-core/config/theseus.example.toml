@@ -49,7 +49,7 @@ model = "claude-sonnet-5-5"
 # Output cap per call (the Messages API's max_tokens). NOT an input limit: input is
 # whatever the compiler assembles, bounded by the model's context window. Omitted,
 # it defaults to the model's ceiling from the catalog (Sonnet 5/5.5, Opus 5/5.5,
-# Fable 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
+# Fable 5.1 and 5.2: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
 # max_output_tokens = 128000
 # system = "You are Theseus."           # appended to the built-in persona, the assembly note, the precedence line, and the tools note
 # effort = "high"                       # low | medium | high | xhigh | max (models that take effort)
@@ -144,6 +144,15 @@ max_loops = 40
 [profiles.fable]
 provider = "anthropic"
 model = "claude-fable-5-1"
+thinking_display = "summarized"
+max_loops = 40
+
+# Fable 5.2 (2026-11-09), for a pin: Fable 5.1's window, output cap and always-on
+# thinking at 0.8 of its prices ($8 in, $40 out a million). Jev is not offered it --
+# the `fable` option above is still Fable 5.1 -- so it is reached by pin only.
+[profiles.fable52]
+provider = "anthropic"
+model = "claude-fable-5-2"
 thinking_display = "summarized"
 max_loops = 40
 
