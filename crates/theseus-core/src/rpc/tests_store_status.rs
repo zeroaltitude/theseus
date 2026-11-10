@@ -39,6 +39,10 @@ fn health_names_the_stores_standing_index_gap() {
         .index_gap()
         .expect("the store reports the gap it opened");
     let told = core.store_status();
-    assert_eq!(told.index_gap, Some(at), "health carries the store's position");
+    assert_eq!(
+        told.index_gap,
+        Some(at),
+        "health carries the store's position"
+    );
     assert_eq!(told.refused_records, 0, "a gap is no refused record");
 }

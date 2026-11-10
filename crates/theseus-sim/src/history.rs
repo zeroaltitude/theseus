@@ -844,7 +844,11 @@ mod tests {
         // 60 ms tail crosses in both eras and must read the same.
         let before = cold_marks("2026-11-06T09:00:00-07:00", 57.0, 60.0);
         let after = cold_marks("2026-11-07T09:00:00-07:00", 50.0, 60.0);
-        assert_eq!(after.trim(), "tail 60.0 over 57", "the post-cut-over row marks: {after:?}");
+        assert_eq!(
+            after.trim(),
+            "tail 60.0 over 57",
+            "the post-cut-over row marks: {after:?}"
+        );
         assert_eq!(
             before, after,
             "a pre-cut-over row marks the same crossing: before {before:?}, after {after:?}"
