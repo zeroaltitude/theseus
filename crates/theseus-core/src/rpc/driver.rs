@@ -242,6 +242,11 @@ impl Core {
             )
             .await;
         self.end_terminals_left(id, crate::term::BY_CANCEL).await;
+        // And what its jobs left running (theseus-7kha). A cancel has no
+        // `keep_jobs`: it ends the conversation's work outright, so the only
+        // leftover it spares is an approved detached task.
+        let left_found = self.jobs_left(id);
+        self.end_jobs_left(left_found, by).await;
         // The jobs' last steps and their facts' rows, and what the cancel
         // left unanswered in the transcript (theseus-0o8), in one frame
         // (theseus-dwoj): the calls it stopped are answered where they
@@ -401,7 +406,7 @@ impl Core {
         keep_jobs: bool,
     ) -> Result<theseus_protocol::ExecutionStopResult> {
         self.runner.stop_landed(id, by);
-        let keep: Vec<String> = match self.kernel.execution(id)?.filter(|_| keep_jobs) {
+        let mut keep: Vec<String> = match self.kernel.execution(id)?.filter(|_| keep_jobs) {
             Some(e) => self
                 .tools
                 .jobs
@@ -412,6 +417,21 @@ impl Core {
                 .collect(),
             None => Vec::new(),
         };
+        // What the turn's jobs left running, read before the kernel's stop
+        // so an approved detached task the stop keeps is kept whole
+        // (theseus-7kha): its action goes in `keep` with it, or the kernel
+        // would cancel the action of a job whose process this leaves alive.
+        let left_found = if keep_jobs {
+            Vec::new()
+        } else {
+            self.jobs_left(id)
+        };
+        keep.extend(
+            left_found
+                .iter()
+                .filter(|l| l.kept())
+                .map(|l| l.job.clone()),
+        );
         let stop = self.kernel.stop_execution_keeping(id, by, &keep)?;
         super::ordered::applied();
         let Some(stop) = stop else {
@@ -429,6 +449,8 @@ impl Core {
                 tasks_running: 0,
                 wakes_pending: 0,
                 cancelled: vec![],
+                left_ended: vec![],
+                left_kept: vec![],
             });
         };
         // The model call the running turn waits on is cut now, and not left to
@@ -453,7 +475,10 @@ impl Core {
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
-        // A stop halts its terminals' programs too (theseus-n88g.4).
+        // A stop halts its terminals' programs too (theseus-n88g.4), and
+        // ends what its jobs left running (theseus-7kha), which `keep_jobs`
+        // spares along with the terminals: Esc stops the turn, not the jobs.
+        let mut left = crate::jobs_left::JobsLeft::default();
         if !keep_jobs {
             self.tools
                 .terms
@@ -464,6 +489,7 @@ impl Core {
                 )
                 .await;
             self.end_terminals_left(id, crate::term::BY_STOP).await;
+            left = self.end_jobs_left(left_found, by).await;
         }
         let tasks_running = self
             .kernel
@@ -494,6 +520,8 @@ impl Core {
             wakes_pending: e.wakes.len() as u32,
             verdicts,
             cancelled: vec![],
+            left_ended: left.ended,
+            left_kept: left.kept,
         })
     }
 

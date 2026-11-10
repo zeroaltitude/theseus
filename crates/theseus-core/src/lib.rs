@@ -66,6 +66,7 @@ pub mod harness;
 pub mod import;
 pub mod initiative;
 pub(crate) mod job_model;
+pub mod jobs_left;
 pub mod judge;
 pub mod keep_warm;
 pub mod keep_warm_threads;

@@ -132,7 +132,7 @@ pub use aws::*;
 pub use budgets::*;
 pub use cancel::{
     CancelCount, CancelVerdict, ExecutionCancelParams, ExecutionCancelResult, ExecutionStopParams,
-    ExecutionStopResult,
+    ExecutionStopResult, JobKept,
 };
 pub use card::*;
 pub use check::{CheckOverlap, CheckPiece, TaskCheck};

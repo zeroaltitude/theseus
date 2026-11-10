@@ -43,18 +43,45 @@ fn stubborn(i: usize) -> Value {
 /// once, so the command completes and its result settles while the
 /// grandchild runs on. The wrapper is a child subreaper (theseus-6qy), so
 /// the orphan stays under it and the wrapper lingers for it, marked in the
-/// spool. This is what `proc.run` leaves behind. The grandchild ends by
-/// itself within 30 s, and as soon as the rig's directory goes, so a failing
-/// test leaves nothing running.
+/// spool. This is what `proc.run` leaves behind.
+///
+/// Its own bound is 120 s, far longer than any wait the tests below make
+/// (`GONE_WITHIN`, 10 s), so a leftover that goes is one the stop ended and
+/// never one that timed out while a test watched: the first draft of this
+/// test bounded it at 30 s and `a_stop_ends_what_proc_run_left_running`
+/// passed its "is it gone" wait on main, 31 s in, on the self-timeout alone.
+/// It also ends as soon as the rig's directory goes, so a failing test
+/// leaves nothing running.
 fn leftover() -> Value {
     json!({
         "argv": ["bash", "-c",
             "( setsid bash -c 'echo $$ > leftover.pid; n=0; \
-               while [ $n -lt 600 ] && [ -d \"$1\" ]; do sleep 0.05; n=$((n+1)); done' \
+               while [ $n -lt 1200 ] && [ -d \"$1\" ]; do sleep 0.1; n=$((n+1)); done' \
                bash \"$PWD\" > /dev/null 2>&1 < /dev/null & ); \
              echo left-something-running"],
         "timeout_secs": 60,
     })
+}
+
+/// How long a stop gets to end a leftover before a test calls it kept. The
+/// stop waits on its own verdicts within one `STOP_GRACE` (2 s), so this is
+/// generous; it is bounded well under `leftover`'s own 120 s so the two can
+/// never be confused.
+const GONE_WITHIN: Duration = Duration::from_secs(10);
+
+/// Whether `pid` goes within `GONE_WITHIN`. Not `Fixture::wait`, whose 40 s
+/// patience is longer than a leftover should ever need and which panics
+/// rather than answering: a test here must be able to assert that a process
+/// is still running as much as that it is gone.
+fn gone_soon(pid: u32) -> bool {
+    let t0 = Instant::now();
+    while t0.elapsed() < GONE_WITHIN {
+        if !alive(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    !alive(pid)
 }
 
 struct Rig {
@@ -70,9 +97,25 @@ impl Fixture for Rig {
 
 impl Rig {
     fn new() -> Self {
+        Self::with_floor(false)
+    }
+
+    /// `new`, with `proc.run` on the approval floor, so a call waits for the
+    /// operator and the action it dispatches carries a `confirm`
+    /// (theseus-7kha): that is the "approved" half of an approved detached
+    /// task, and the only thing a stop keeps a leftover for.
+    fn on_the_floor() -> Self {
+        Self::with_floor(true)
+    }
+
+    fn with_floor(floor: bool) -> Self {
         let model = FakeModel::start(|prompt| {
             if prompt.contains("Start the three builds") {
                 (0..3).map(|i| ("proc_run", stubborn(i))).collect()
+            } else if prompt.contains("Leave something running in the background") {
+                let mut job = leftover();
+                job["background"] = json!(true);
+                vec![("proc_run", job)]
             } else if prompt.contains("Leave something running") {
                 vec![("proc_run", leftover())]
             } else {
@@ -98,6 +141,13 @@ impl Rig {
                 .insert("api_base".into(), model.base.clone().into());
         }
         table(&mut t, "policy").insert("enforcement".into(), "notify".into());
+        if floor {
+            // The inherited posture stays `notify`; the per-tool exception
+            // is what puts `proc.run` alone on the floor (§3.9).
+            let mut tools = toml::Table::new();
+            tools.insert("proc.run".into(), "approve".into());
+            table(&mut t, "policy").insert("tools".into(), tools.into());
+        }
         table(&mut t, "tools").insert("proc_sync_secs".into(), 1.into());
         std::fs::write(path("config.toml"), toml::to_string(&t).unwrap()).unwrap();
         Self { dir, _model: model }
@@ -349,8 +399,12 @@ fn a_stop_ends_what_proc_run_left_running() {
         )
         .unwrap();
 
-    // Part 1: it is ended.
-    r.wait("the leftover to be gone", || (!alive(left)).then_some(()));
+    // Part 1: it is ended, promptly and because of the stop.
+    assert!(
+        gone_soon(left),
+        "the leftover {left} outlived the stop: {answer}\n{}",
+        r.log_tail()
+    );
     // Part 3: the stop says so.
     let ended = answer["left_ended"].as_array().cloned().unwrap_or_default();
     assert_eq!(
@@ -362,5 +416,153 @@ fn a_stop_ends_what_proc_run_left_running() {
     assert!(
         answer["left_kept"].as_array().is_none_or(|k| k.is_empty()),
         "nothing was approved, so nothing should be kept: {answer}"
+    );
+}
+
+/// theseus-7kha, the exemption: an **approved detached task** survives a
+/// stop, and the stop says it kept it and on whose word. `proc.run` is on
+/// the approval floor here, the operator approves the call, and it is a
+/// `background: true` job, so both halves of "an approved detached task"
+/// hold: a short id (`j1`, which only a job that went on in the background
+/// gets) and a `confirm` bound to this call's own digest.
+///
+/// Its action is kept whole with its process: an approved detached task goes
+/// into `stop_execution_keeping`'s `keep` list as well, or the kernel would
+/// cancel the action of a job whose process the stop leaves running.
+#[test]
+fn an_approved_detached_job_survives_a_stop_and_the_stop_says_it_kept_it() {
+    let r = Rig::on_the_floor();
+    let _daemon = r.spawn();
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"input": "Leave something running in the background",
+                   "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    let eid = res["execution_id"].as_str().unwrap().to_string();
+    // It waits for the operator, and the operator approves it.
+    let corr = res["awaiting_confirm"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the call waits for approval: {res}\n{}", r.log_tail()))
+        .to_string();
+    r.call(
+        "action.confirm",
+        json!({"correlation_id": corr, "approve": true}),
+    )
+    .unwrap();
+    let left = r.wait("the approved job's leftover and its lingering wrapper", || {
+        let pid = r.pid("leftover.pid")?;
+        let marked = std::fs::read_dir(r.path("state/spool/lingering"))
+            .ok()?
+            .flatten()
+            .count();
+        (marked > 0 && alive(pid)).then_some(pid)
+    });
+
+    let answer = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": eid, "author": "test"}),
+        )
+        .unwrap();
+
+    // Part 2: it is KEPT. `gone_soon` waits out the whole window and then
+    // asks again, so this is not a race with the stop's own grace.
+    assert!(
+        !gone_soon(left),
+        "the stop ended an approved detached job: {answer}\n{}",
+        r.log_tail()
+    );
+    // Part 3: and the stop says so, naming the operator who approved it.
+    let kept = answer["left_kept"].as_array().cloned().unwrap_or_default();
+    assert_eq!(kept.len(), 1, "the stop did not say what it kept: {answer}");
+    assert!(
+        kept[0]["approved_by"].as_str().is_some_and(|w| !w.is_empty()),
+        "the kept job does not name who approved it: {answer}"
+    );
+    assert!(
+        answer["left_ended"]
+            .as_array()
+            .is_none_or(|e| e.is_empty()),
+        "it ended the one job it should have kept: {answer}"
+    );
+    // Its action was kept with it: not told to stop, and no cancel on it.
+    let actions = r.call("action.list", json!({"execution_id": eid})).unwrap();
+    let job = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["correlation_id"] == corr.as_str())
+        .unwrap_or_else(|| panic!("the job's action: {actions}"));
+    assert_ne!(job["state"], "cancelled", "{job}");
+    assert!(
+        job["cancel"].is_null(),
+        "a cancel was put on the kept job: {job}"
+    );
+}
+
+/// theseus-7kha: the approval alone does not keep a leftover. The same
+/// operator approves a **foreground** `proc.run` on the same floor, and its
+/// leftover is still ended -- approving `cargo build` is "run that", not
+/// "keep building once I say stop", and the stop is the later word.
+///
+/// This is the discriminating half of the pair: it differs from
+/// `an_approved_detached_job_survives_a_stop...` only in `background`, so no
+/// heuristic on the command could part the two, and keying the exemption on
+/// `Action::confirm` alone would have kept both -- which would also have let
+/// one `[policy.tools] "proc.run" = "approve"` line quietly undo this row.
+#[test]
+fn an_approved_foreground_jobs_leftover_is_still_ended() {
+    let r = Rig::on_the_floor();
+    let _daemon = r.spawn();
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"input": "Leave something running", "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    let eid = res["execution_id"].as_str().unwrap().to_string();
+    let corr = res["awaiting_confirm"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the call waits for approval: {res}\n{}", r.log_tail()))
+        .to_string();
+    r.call(
+        "action.confirm",
+        json!({"correlation_id": corr, "approve": true}),
+    )
+    .unwrap();
+    let left = r.wait("the approved foreground job's leftover", || {
+        let pid = r.pid("leftover.pid")?;
+        let marked = std::fs::read_dir(r.path("state/spool/lingering"))
+            .ok()?
+            .flatten()
+            .count();
+        (marked > 0 && alive(pid)).then_some(pid)
+    });
+
+    let answer = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": eid, "author": "test"}),
+        )
+        .unwrap();
+
+    assert!(
+        gone_soon(left),
+        "an approved FOREGROUND job's leftover outlived the stop: {answer}\n{}",
+        r.log_tail()
+    );
+    assert_eq!(
+        answer["left_ended"]
+            .as_array()
+            .map(|e| e.len())
+            .unwrap_or_default(),
+        1,
+        "the stop did not say it ended it: {answer}"
+    );
+    assert!(
+        answer["left_kept"].as_array().is_none_or(|k| k.is_empty()),
+        "a foreground job was kept on its approval alone: {answer}"
     );
 }
