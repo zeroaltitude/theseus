@@ -4,6 +4,12 @@
 //! `term.close`, a cancel and a `/stop`, or with `keep_background` off,
 //! everything ends. Each marker holds this run's pid, so another run's
 //! processes are never taken for this one's (theseus-d006).
+//!
+//! A pty test that leaves a job in the shell's own group cannot use
+//! `bash -c 'sleep N & exit'` alone: the shell's exit hangs up the tty's
+//! foreground group, which is that group, and the sleep dies before it can be
+//! counted (observed: `marked=[]`, `holders=0`), so those tests run
+//! `trap '' HUP` first.
 
 use std::time::Instant;
 
@@ -760,6 +766,7 @@ async fn the_group_of_an_exited_program_is_ours_only_while_a_pty_holder_is_in_it
     let d = tempfile::tempdir().unwrap();
     let terms = terms();
     let job = mark(&run_tag(12), AMPERSAND);
+    let _cleanup = KillMarked(job.clone());
     let t = exited_bash(
         &terms,
         d.path(),
@@ -780,10 +787,6 @@ async fn the_group_of_an_exited_program_is_ours_only_while_a_pty_holder_is_in_it
         "the group is ours with {} holder in it",
         t.pty.holders_in_group()
     );
-    for p in marked(&job) {
-        // SAFETY: the test's own marked sleep.
-        unsafe { libc::kill(p as libc::pid_t, libc::SIGKILL) };
-    }
 }
 
 /// The empty case: nothing is left, so the group id is nobody's to signal,
