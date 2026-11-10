@@ -257,6 +257,18 @@ impl Pty {
             // only while something in that group holds our pty: once the group
             // empties its id may be another process's (`after_exit` says why
             // it reads nothing of that group).
+            //
+            // The accepted cost, named so it is not rediscovered as a bug
+            // (theseus-3i6d1): when nothing in that group holds the pty, a
+            // leftover still in it is spared, where the unconditional kill
+            // this guard replaced would have SIGKILLed it. Nothing else
+            // reaches it either, since `after_exit` filters the holders it
+            // reads to `pgid != self.pid`. That is the specified design and
+            // not a regression: the only cheaper predicate, `group_lives`,
+            // passes on a recycled group id, so trusting it would sometimes
+            // SIGKILL a group that is now another session's -- a stranger's
+            // processes for a leftover of ours. A guard that can kill the
+            // wrong group is worse than one that can spare the right one.
             if self.group_still_ours() {
                 signal_group(self.pid, libc::SIGKILL);
             }
