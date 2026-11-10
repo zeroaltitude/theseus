@@ -14,8 +14,11 @@
 //!
 //! The user-level file is a different thing and is carried live: it is the
 //! owner's own file, under the state directory, with exactly the standing of
-//! `[context] files`. No repository can write it without the gate, and no
-//! grant stands between it and the prompt.
+//! `[context] files`, and no grant stands between it and the prompt. It is not
+//! on the tool floor (`toolrun/guarded.rs` floors the store, the spool, the
+//! bindings and the credential paths, not this file), so a tool's `fs.write`
+//! reaches it at the `notify` posture; flooring it is an open question on the
+//! `theseus.toml` line of row theseus-3i6d1.
 //!
 //! FAST: discovery is `stat` alone, two names per directory from the
 //! repository root down to the session's directory, and the reading is the
@@ -38,7 +41,8 @@ pub const NAMES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// The owner's own user-level instruction file, under the state directory.
 /// The design names "one user-level file of the owner's own" (§1) and leaves
 /// its path open; this is Theseus's own directory, so the file needs no
-/// configuration and no repository can reach it without the gate.
+/// configuration. It is not on the tool floor: a tool's write reaches it at
+/// `notify`, and whether to floor it is the `theseus.toml` line's open question.
 pub const USER_FILE: &str = "AGENTS.md";
 
 /// A discovered instruction file: it exists, it is a regular file, and this
@@ -301,15 +305,30 @@ fn spend(plan: &mut [Plan], budget: usize) {
     let mut nested: Vec<usize> = (0..plan.len()).filter(|i| plan[*i].depth > 0).collect();
     nested.sort_by_key(|i| std::cmp::Reverse(plan[*i].depth));
     let mut used = 0usize;
-    allocate(plan, &root, budget.div_ceil(2), &mut used);
-    allocate(plan, &nested, budget, &mut used);
-    allocate(plan, &root, budget, &mut used);
+    allocate(plan, &root, budget.div_ceil(2), &mut used, false);
+    allocate(plan, &nested, budget, &mut used, false);
+    // The last pass also reopens a root file pass 1 cut at half: it grows
+    // into what the chain left (§6), never past the whole budget.
+    allocate(plan, &root, budget, &mut used, true);
 }
 
 /// Each of `order` not yet settled takes what it needs, while `used` stays
-/// under `ceiling`.
-fn allocate(plan: &mut [Plan], order: &[usize], ceiling: usize, used: &mut usize) {
+/// under `ceiling`. With `regrow`, a file an earlier pass cut is settled again
+/// against the room it and everything else leave (`used` always holds its
+/// `kept`, so the subtraction cannot underflow).
+fn allocate(plan: &mut [Plan], order: &[usize], ceiling: usize, used: &mut usize, regrow: bool) {
     for i in order.iter().copied() {
+        if let (true, Fate::Cut { kept }) = (regrow, plan[i].fate) {
+            let room = ceiling.saturating_sub(used.saturating_sub(kept));
+            if plan[i].size <= room {
+                plan[i].fate = Fate::Whole;
+                *used = used.saturating_sub(kept) + plan[i].size;
+            } else if room > kept {
+                plan[i].fate = Fate::Cut { kept: room };
+                *used = used.saturating_sub(kept) + room;
+            }
+            continue;
+        }
         if !open(&plan[i]) {
             continue;
         }

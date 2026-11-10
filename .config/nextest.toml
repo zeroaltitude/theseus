@@ -22,3 +22,33 @@ path = "junit.xml"
 # "The flaky list"). Retries are for named tests only: a blanket retry would hide
 # a real race. A test goes on this list in the commit that files its issue, with
 # the issue's id in a comment; it comes off in the commit that fixes it.
+
+# The timing group (theseus-4vsrz, B7). Four tests are 16 of the 21 rows in the flaky ledger (the gate's
+# $THESEUS_FLAKY_LOG, ~/.cache/theseus/flaky.csv, read 2026-11-09; 7 distinct tests): the three-jobs-ignore-SIGTERM
+# stop test (5 rows), the sim's seeded-faults kernel test (4), the two-nights chain test (4) and the corrupt-frame
+# history test (3). They are the ledger's load-sensitive ones, and a group of one runs them one at a time, so they
+# stop adding to each other's load. That is all it does: no retry, so no race is hidden and a failure still fails,
+# and every other test still runs beside them at test-threads. It costs the four tests' serial time. The chain
+# test's rows are from 2026-11-07, before the fix that retired its retry (3b8ad233); it stays because the plan names
+# it and it costs about a second, and it comes out in the commit that shows it unneeded.
+# `cargo nextest show-config test-groups` lists the members, and four is the count: a renamed test drops out of the
+# group silently, where a renamed package or binary is refused by nextest instead (exit 96).
+[test-groups.timing]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = '(package(theseus-core) & test(=tests_onto_names::a_chain_asked_over_two_nights_clusters)) | (binary_id(=theseus-sim::sim) & test(=the_kernel_holds_its_invariants_under_seeded_faults)) | (binary_id(=theseusd::stops) & test(=a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker)) | (binary_id(=theseusd::versions) & test(=the_history_check_after_serving_finds_a_corrupt_frame_and_says_so))'
+test-group = "timing"
+
+# The nightly flake hunt (theseus-4vsrz, B7), a run of the whole suite with `--profile flakehunt` at 03:00 on the ARM
+# reduced slot. It is the default profile (thread count, timeouts, JUnit and the timing group are inherited) with two
+# settings added: retries = 2 gives every failing test two more tries, and flaky-result = "fail" counts a test that
+# passed on a retry as FAILED, so the run exits 100 and target/nextest/flakehunt/junit.xml holds a
+# `<failure type="flaky failure">` for it with the first attempt's panic in a `flakyFailure` element. Every flake
+# becomes a row with its attempts recorded, and a flake that exhausts its retries is a finding, not a pass. The
+# gate never reads this profile: scripts/gate.sh runs the default one, whose retries stay named tests only.
+# flaky-result is a key of nextest 0.9.146, which both hosts run; a nextest that does not know it prints
+# "ignoring unknown configuration key" and exits 0 on a flake, so check that warning when the version changes.
+[profile.flakehunt]
+retries = 2
+flaky-result = "fail"

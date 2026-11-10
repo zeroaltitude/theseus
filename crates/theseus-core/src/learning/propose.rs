@@ -683,29 +683,15 @@ impl Core {
         Ok(target)
     }
 
-    /// The writer's candidate: priced inside the day's limit, its reply
-    /// through `candidate_from_reply`; none when the run ends here (a skip
-    /// or a refusal, written).
-    fn write_candidate(
-        &self,
-        rt: &tokio::runtime::Handle,
-        g: &Gathered,
-        prop: &mut JudgeProposal,
-        now: u64,
-        who: &str,
-        via: &str,
-    ) -> anyhow::Result<Option<(String, Pack)>> {
-        let lc = &self.cfg.judge.learn;
-        let (parent, parent_name, parent_text, cases) =
-            (&g.parent, &g.parent_name, &g.parent_text, &g.cases);
-        let target = self.writer_target(rt, parent_name)?;
-        prop.writer_model = Some(target.model.clone());
-        let request = ProviderRequest {
+    /// The request that asks the writer for a candidate: the parent's text
+    /// and the cases it was judged on, as one message.
+    fn writer_request(&self, target: &crate::turn::Target, g: &Gathered) -> ProviderRequest {
+        ProviderRequest {
             model: target.model.clone(),
             max_tokens: target.max_tokens.min(WRITER_MAX_TOKENS),
             system: vec![json!({"type": "text", "text": propose::WRITER_SYSTEM})],
             messages: vec![json!({"role": "user", "content": [{"type": "text",
-                "text": propose::writer_message(parent_text, cases)}]})],
+                "text": propose::writer_message(&g.parent_text, &g.cases)}]})],
             tools: Vec::new(),
             // Off where the model lets it; the writer's Opus 5.5 always
             // thinks, so there its thinking counts in the cap (theseus-1iqg0).
@@ -721,7 +707,26 @@ impl Core {
             betas: Vec::new(),
             extra: Default::default(),
             image_tokens: 0,
-        };
+        }
+    }
+
+    /// The writer's candidate: priced inside the day's limit, its reply
+    /// through `candidate_from_reply`; none when the run ends here (a skip
+    /// or a refusal, written).
+    fn write_candidate(
+        &self,
+        rt: &tokio::runtime::Handle,
+        g: &Gathered,
+        prop: &mut JudgeProposal,
+        now: u64,
+        who: &str,
+        via: &str,
+    ) -> anyhow::Result<Option<(String, Pack)>> {
+        let lc = &self.cfg.judge.learn;
+        let (parent, parent_name) = (&g.parent, &g.parent_name);
+        let target = self.writer_target(rt, parent_name)?;
+        prop.writer_model = Some(target.model.clone());
+        let request = self.writer_request(&target, g);
         let cap = request.max_tokens;
         let need = self.audit_reserve(&request).with_context(|| {
             format!(

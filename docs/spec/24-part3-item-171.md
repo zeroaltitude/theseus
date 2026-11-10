@@ -763,6 +763,17 @@ count of cut batches ("the WAL cut N failed batches since start", not filed; the
 `found_unsynced` rule. fsync off (tests and benches only) still syncs at a roll, so a failed roll's sync there cuts
 frames answered without a sync; no daemon path reaches it.
 
+**Amended 2026-11-09 (theseus-lu5n): an index write that fails is not "broken until a restart".** "Broken until a
+restart" above is the log's answer to a cut or a sync it cannot make safe, and it stays that. It is not the answer to an
+index write that fails after its frames have synced: those frames are durable, so the daemon keeps recording and refuses
+no caller. After the write's bound (`INDEX_TRIES`, 3) the store opens an index gap: no checkpoint claims a position
+past it, so the next open replays the frames from the last good checkpoint. The gap is never invisible: health carries
+`ledger_gap` (`since_ms`, `batches_since`, `reason`) and `theseus health` says it on one line; the store warns once for
+the gap, not once per batch; and the owner is told once, in one post that names the rule ("no checkpoint past a failed
+index write") and the batches since. This amends the item rather than following it, on the owner's word of 2026-11-09
+15:48, answering a recommendation to keep the daemon recording and never silently stop, with a health field for the
+gap and one owner notice instead of a warning per batch: "Yes, we never want invisibility."
+
 ### Item 177. Health words: a `web:` line, the 1-hour cache write priced and counted, the cockpit's binary card, and one row and one notice when free space crosses a line (theseus-jxau, theseus-4v1z, theseus-od13's binary half (V6) and theseus-f337 (V10); the seventh cloud batch's health-words session, fired 2026-10-05 01:35 from 80ef1dea, Sonnet 5.5, finished 02:37; de5e779f, 80affc3e, 56509918 and 7b36f314; reviewed 07:59 to 08:48 by local reviewer R13, stack H, and accepted with the stack at 09:36; its join held for the owner's account switch and the disk compaction; joined 11:47 at 319b95b0, a signed merge onto d50e6f2f, by the stack-H joiner; installed 2026-10-05 13:07 at 60b43fb6, install #4)
 
 **Why.** Four small gaps between what the daemon knew and what the operator was told:

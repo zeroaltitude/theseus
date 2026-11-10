@@ -167,7 +167,8 @@ count = 3
 [[rollback]]
 # This one is blocking and on every acting tool call, which no other pack is: the inbound packs pay
 # their latency once a message. 300 ms is a third of a second added to a call the model is waiting
-# on, and Jev's cold connect alone is about 80 ms.
+# on, and Jev's cold connect alone is about 80 ms. The rule is declared and unfed (no code builds an
+# on-path event), so it cannot fire; tests_rollback_census holds the list.
 rule = "on_path_p95"
 max_ms = 300
 min_samples = 20

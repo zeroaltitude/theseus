@@ -54,7 +54,7 @@ use futures_util::stream::{FuturesUnordered, StreamExt as _};
 use tokio::sync::mpsc;
 use tokio::time::{sleep_until, Instant};
 
-use crate::audio::{Audio, FRAME};
+use crate::audio::{Audio, FRAME, SAMPLE_RATE};
 use crate::echo::Echo;
 use crate::heard::{classify, is_fragment_echo, is_join_noise, HeardAs, Overlap};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
@@ -402,6 +402,10 @@ pub struct Engine {
     ticks: u64,
     /// When the engine was built: the call's join.
     joined: Instant,
+    /// Whether the call's first clip has been played, said once in the
+    /// journal (the clipped-intro check: how long after the join, and the
+    /// lead-in it rode).
+    first_clip_said: bool,
     // Receive, and turns.
     vads: BTreeMap<Speaker, Vad>,
     /// Each open utterance's start: what it was over.
@@ -671,6 +675,7 @@ impl Engine {
             events,
             ticks: 0,
             joined: Instant::now(),
+            first_clip_said: false,
             vads: BTreeMap::new(),
             opening: BTreeMap::new(),
             unlisted: BTreeSet::new(),
@@ -811,7 +816,17 @@ impl Engine {
             match out {
                 Out::Play(id, clip) => {
                     self.io.play(id, clip.clone()).await;
-                    self.echo.play(&clip, self.io.lead_in(), Instant::now());
+                    let (lead_in, now) = (self.io.lead_in(), Instant::now());
+                    self.echo.play(&clip, lead_in, now);
+                    if !std::mem::replace(&mut self.first_clip_said, true) {
+                        tracing::info!(
+                            utterance = id.0,
+                            lead_in_ms = (lead_in * 1000 / SAMPLE_RATE as usize) as u64,
+                            since_join_ms =
+                                now.saturating_duration_since(self.joined).as_millis() as u64,
+                            "voice: the call's first clip is playing"
+                        );
+                    }
                 }
                 Out::Stop => {
                     self.io.stop().await;

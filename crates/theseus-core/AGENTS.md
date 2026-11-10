@@ -3447,7 +3447,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 - **The ledger's hash chain** (theseus-bmkxk, store format 31): the store's writer chains every ledger row
   (`theseus-store`'s guide); core reads it. `ledger.verify` (`rpc/ledger_verify.rs`, a read: no frame, no lock, on the
   blocking pool; `theseus ledger verify|head`) walks it with `theseus_store::chain_walk::verify` and answers the head and
-  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short. `ledger_pin.rs`: a store
+  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short, and its `ledger_gap` is the store's index gap while one
+  stands (`ledger_gap.rs`, theseus-lu5n: the log keeps recording, the next open replays; a `ledger-gap` thread looks once
+  a second, holds the core by `Weak`, and posts one `notice` to the owner per gap, since the writer that sees it cannot
+  post a frame from where it stands). `ledger_pin.rs`: a store
   from before the chain has its old rows pinned once, after serving, on a `ledger-pin` thread that paces itself and holds
   the core by `Weak` and begins `START_AFTER` (2 s) after serving (a thread holding the store at a stop right after serving keeps its close from checkpointing: `early_signal` fails; `ledger.history_pinned` and the META key `ledger.history_pinned` in one frame; the chain's start
   row counts them, so the start path reads no history). The durability tender puts the head (`SEQ:DIGEST`) on each

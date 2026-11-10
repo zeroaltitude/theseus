@@ -63,25 +63,7 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
         }
         _ => {}
     }
-    let sources: Vec<String> = m.sources.iter().map(|(s, n)| format!("{s} {n}")).collect();
-    push(
-        o,
-        Tag::Dim,
-        &format!(
-            "  {} ({}) · as of {} · index through {} · {:.1} ms (index {:.1}) · query {} chars",
-            plural(m.candidates, "candidate", "candidates"),
-            if sources.is_empty() {
-                "none".to_string()
-            } else {
-                sources.join(", ")
-            },
-            m.as_of.map_or("now".into(), |p| format!("@{p}")),
-            m.indexed_through.map_or("?".into(), |p| format!("@{p}")),
-            m.timings.total_ms,
-            m.timings.index_ms,
-            m.query_chars,
-        ),
-    );
+    push(o, Tag::Dim, &candidates_line(m));
     for (source, why) in &m.skipped {
         push(o, Tag::Warn, &format!("  {source} skipped: {why}"));
     }
@@ -115,6 +97,26 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
     }
     drop_lines(o, m);
     out
+}
+
+/// What the index offered: the candidates and the sources they came from, the
+/// snapshot it read, its timings, and the query's size.
+fn candidates_line(m: &RecallManifest) -> String {
+    let sources: Vec<String> = m.sources.iter().map(|(s, n)| format!("{s} {n}")).collect();
+    format!(
+        "  {} ({}) · as of {} · index through {} · {:.1} ms (index {:.1}) · query {} chars",
+        plural(m.candidates, "candidate", "candidates"),
+        if sources.is_empty() {
+            "none".to_string()
+        } else {
+            sources.join(", ")
+        },
+        m.as_of.map_or("now".into(), |p| format!("@{p}")),
+        m.indexed_through.map_or("?".into(), |p| format!("@{p}")),
+        m.timings.total_ms,
+        m.timings.index_ms,
+        m.query_chars,
+    )
 }
 
 /// The lines between a recall's head and its items: why the rank went

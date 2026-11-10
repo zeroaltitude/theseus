@@ -480,7 +480,7 @@ impl Chat {
     /// An error is said in the dock, naming the file and why, and the line is
     /// kept; so is a line edited meanwhile (it is not the one that was read
     /// for), which the next Enter reads afresh.
-    pub fn images_read(
+    pub(super) fn images_read(
         &mut self,
         result: Result<Vec<theseus_protocol::Attachment>, String>,
     ) -> Vec<Effect> {

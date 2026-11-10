@@ -62,6 +62,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::routines::OWN.contains(&name)
         || super::watch::OWN.contains(&name)
         || super::projects::OWN.contains(&name)
+        || super::project_trust::OWN.contains(&name)
         || name.starts_with("standing.")
         || name.starts_with("card.")
         || name.starts_with("thread.")
@@ -151,6 +152,9 @@ impl Core {
         }
         if super::projects::OWN.contains(&name) {
             return self.rpc_projects(name, params, conn);
+        }
+        if super::project_trust::OWN.contains(&name) {
+            return self.rpc_project_trust(name, params, conn);
         }
         if super::wake_owner::OWN.contains(&name) {
             return self.rpc_wakes(name, params, conn);

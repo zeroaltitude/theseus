@@ -74,6 +74,8 @@ mod tests_public_names;
 #[cfg(test)]
 mod tests_replay_onto;
 #[cfg(test)]
+mod tests_rollback_census;
+#[cfg(test)]
 mod tests_route_facts;
 #[cfg(test)]
 mod tests_route_family;

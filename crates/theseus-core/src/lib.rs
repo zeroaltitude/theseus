@@ -72,6 +72,7 @@ pub mod keep_warm_threads;
 pub mod keep_warm_wait;
 pub mod learning;
 pub mod ledger;
+pub mod ledger_gap;
 pub mod ledger_pin;
 pub mod lsp;
 pub mod mcp;

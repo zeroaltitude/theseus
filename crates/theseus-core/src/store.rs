@@ -146,6 +146,11 @@ pub struct Store {
     /// A turn frame a test makes fail (`fail_turn_frame`).
     #[cfg(test)]
     faults: Arc<Faults>,
+    /// A write outside any turn a test makes fail (`fail_plain_frame`): the
+    /// slot `fail_turn_frame` leaves alone, since its callers match turn
+    /// frames only.
+    #[cfg(test)]
+    plain_faults: Arc<Faults>,
     /// Whether a ledger page read fails (`fail_ledger_pages`).
     #[cfg(test)]
     page_fault: Arc<std::sync::atomic::AtomicBool>,
@@ -542,6 +547,8 @@ impl Store {
             #[cfg(test)]
             faults: Default::default(),
             #[cfg(test)]
+            plain_faults: Default::default(),
+            #[cfg(test)]
             page_fault: Default::default(),
         })
     }
@@ -567,6 +574,14 @@ impl Store {
     #[cfg(test)]
     pub fn fail_turn_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
         *self.faults.0.lock().unwrap() = Some(Box::new(check));
+    }
+
+    /// Make the first write outside a turn whose records `check` matches fail,
+    /// once, as a full disk would: the non-turn arm of `commit`, which
+    /// `fail_turn_frame` never reaches.
+    #[cfg(test)]
+    pub fn fail_plain_frame(&self, check: impl Fn(&[NewRecord]) -> bool + Send + 'static) {
+        *self.plain_faults.0.lock().unwrap() = Some(Box::new(check));
     }
 
     /// Make every ledger page read fail from now on, as a bad disk would.
@@ -680,6 +695,10 @@ impl Store {
             Some(t) => t.commit(&self.inner, &self.cache, &self.watcher, false, records),
             None if records.is_empty() => Ok(vec![]),
             None => {
+                #[cfg(test)]
+                if self.plain_faults.hit(records) {
+                    anyhow::bail!("an injected fault: this frame was not written");
+                }
                 let positions = self.inner.append(records)?;
                 seen(&self.watcher, records, &positions);
                 Ok(positions)
@@ -1375,6 +1394,7 @@ pub(crate) mod tests {
             tasks: Arc::default(),
             reads: Default::default(),
             faults: Default::default(),
+            plain_faults: Default::default(),
             page_fault: Default::default(),
         }
         .for_turn();

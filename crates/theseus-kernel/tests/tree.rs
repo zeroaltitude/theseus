@@ -462,9 +462,22 @@ fn deaf_wrapper_uncertain() -> Result<(), String> {
         job::catches_sigterm(wrapper).then_some(())
     })?;
     let grace = Duration::from_millis(200);
+    // The positive count: the scan sees the sleeper before the stop, so an
+    // unreadable /proc (an empty list) cannot pass the scan after it.
+    check(!with_marker(marker).is_empty(), || {
+        "the marker was not seen before the stop".to_string()
+    })?;
     let t0 = Instant::now();
     let v = job::terminate(&rig.spool, wrapper, "act_deaf", grace);
     let took = t0.elapsed();
+    // `terminate` settles once the wrapper is gone, not the group (the tree
+    // arm of `Stopping::poll`): the killed sleeper may still be runnable, a
+    // starved process one SIGKILL away from gone. Wait for it, at most 500 ms
+    // (job's KILL_WAIT), and then scan as before.
+    let stop = Instant::now();
+    while !with_marker(marker).is_empty() && stop.elapsed() < Duration::from_millis(500) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
     none_left(marker)?;
     check(!v.verified(), || format!("uncertain: {v:?}"))?;
     check(

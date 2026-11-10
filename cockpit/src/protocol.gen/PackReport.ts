@@ -18,7 +18,14 @@ pack: string, calls: number, answered: number, failed: number,
  * on: what is failing now, not what failed once. None where the report
  * stored none (a report from before it: read `failed`).
  */
-failed_recent?: number, skipped: number, 
+failed_recent?: number, 
+/**
+ * Of `calls`, those made in the same window as `failed_recent` (every
+ * call, skipped included, written in the last day before the holdout's
+ * end). The pair is a rate over one window; None where the report stored
+ * none.
+ */
+calls_recent?: number, skipped: number, 
 /**
  * Judgments with at least one label that counts toward a question.
  */

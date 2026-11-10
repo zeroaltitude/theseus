@@ -454,7 +454,8 @@ fn a_presigned_url_is_held_in_every_operations_output_and_an_ordinary_one_in_non
 /// The query parameters a presigned URL carries that are **not** signature
 /// material: the time it was made, how long it lives, which headers the
 /// signature covers, and the session token of temporary credentials (a
-/// parameter the signer writes that signs nothing, `x-amz-security-token`).
+/// parameter that is part of the canonical query but is not signature
+/// material, `x-amz-security-token`).
 /// Everything else the real signer writes must be on
 /// `presigned`'s vocabulary.
 const NOT_VOCABULARY: &[&str] = &[
@@ -638,9 +639,11 @@ const MEASURED_TOKENS: &[&str] = &[
 
 /// The five operations the second review named by hand (theseus-3i6d1): the
 /// mailmanager address-list import jobs' `PreSignedUrl` and security-ir's
-/// `attachmentPresignedUrl`. The catalog-wide test above reaches them only by
-/// inference (its `synth` stops at depth 6), so this one names them: each must
-/// be planted before the hold and held after it, and the count must be 5.
+/// `attachmentPresignedUrl`. The catalog-wide test above uses the same `synth`,
+/// so it could not tell if these five were never planted: its `planted >
+/// 10_000` and zero leaks stay true without them. What this one closes is the
+/// positive count: each must be planted before the hold and held after it, and
+/// the count must be 5.
 #[test]
 fn the_five_named_operations_are_planted_and_held() {
     const NAMED_FIVE: [(&str, &str); 5] = [
