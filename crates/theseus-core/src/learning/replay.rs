@@ -332,6 +332,31 @@ pub fn candidate_of(p: &JudgeReplayParams) -> anyhow::Result<(Arc<Pack>, String)
     }
 }
 
+/// A candidate is a version this build does not dispatch (not a wired one),
+/// and not this build's embedded version under another text.
+fn not_built_in(candidate: &Pack) -> anyhow::Result<()> {
+    let wired = crate::judge::WIRED
+        .iter()
+        .any(|(n, _)| *n == candidate.name());
+    if wired {
+        bail!(
+            "{} is wired: a candidate is a version this build does not dispatch",
+            candidate.name()
+        );
+    }
+    if let Some(e) = theseus_judge::pack::by_name(&candidate.name()) {
+        if e.sha256 != candidate.sha256 {
+            bail!(
+                "{} is this build's embedded version, under another text (sha256 {}); give \
+                 the candidate a version of its own",
+                candidate.name(),
+                e.sha256
+            );
+        }
+    }
+    Ok(())
+}
+
 impl Core {
     /// `judge.replay`: the owner's run, from a private place
     /// (`judge_act(Act::JudgeRun)`), on a thread of its own at low
@@ -373,6 +398,21 @@ impl Core {
         rx.await.context("the replay's thread ended")?.1
     }
 
+    /// The learning report a replay's set names, by its ledger key.
+    fn report_named(&self, id: &str) -> anyhow::Result<(String, PackReport)> {
+        let r = self
+            .store
+            .ledger_by_key(id)?
+            .with_context(|| format!("no report is named {id}"))?;
+        let row: LedgerRow = r.decode()?;
+        if row.kind != LedgerKind::JudgeReport.as_str() {
+            bail!("{id} is not a learning report");
+        }
+        let pr: PackReport = serde_json::from_value(row.data["report"].clone())
+            .with_context(|| format!("{id}'s report does not read"))?;
+        Ok((id.to_string(), pr))
+    }
+
     /// The incumbent, its set, and the set's labels.
     fn replay_plan(
         &self,
@@ -380,40 +420,10 @@ impl Core {
         candidate: Arc<Pack>,
         text: String,
     ) -> anyhow::Result<Plan> {
-        let wired = crate::judge::WIRED
-            .iter()
-            .any(|(n, _)| *n == candidate.name());
-        if wired {
-            bail!(
-                "{} is wired: a candidate is a version this build does not dispatch",
-                candidate.name()
-            );
-        }
-        if let Some(e) = theseus_judge::pack::by_name(&candidate.name()) {
-            if e.sha256 != candidate.sha256 {
-                bail!(
-                    "{} is this build's embedded version, under another text (sha256 {}); give \
-                     the candidate a version of its own",
-                    candidate.name(),
-                    e.sha256
-                );
-            }
-        }
+        not_built_in(&candidate)?;
         // The report, when the set is its.
         let report: Option<(String, PackReport)> = match p.report.as_deref().map(str::trim) {
-            Some(id) => {
-                let r = self
-                    .store
-                    .ledger_by_key(id)?
-                    .with_context(|| format!("no report is named {id}"))?;
-                let row: LedgerRow = r.decode()?;
-                if row.kind != LedgerKind::JudgeReport.as_str() {
-                    bail!("{id} is not a learning report");
-                }
-                let pr: PackReport = serde_json::from_value(row.data["report"].clone())
-                    .with_context(|| format!("{id}'s report does not read"))?;
-                Some((id.to_string(), pr))
-            }
+            Some(id) => Some(self.report_named(id)?),
             None => None,
         };
         let mut scope = read_scope(&self.store, &candidate.id)?;

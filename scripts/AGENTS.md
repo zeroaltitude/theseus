@@ -93,7 +93,10 @@ It runs, in order:
      first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
      three quarters of the cores; when the 2 minutes pass with the machine still busy, the timing budgets get the busy
      allowance (see "The busy allowance"). A miss reruns once, and only a second miss fails. Every run goes to the
-     bench history (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With
+     bench history (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`; **read it by column
+     name, per header segment, never positionally**: the file holds many headers and `inflight` was inserted
+     mid-array at one of them, so a positional read across it is silently wrong. The reader is
+     `crates/theseus-sim/src/history.rs`, whose module doc says why). With
      `THESEUS_GATE_NO_BENCH=1` (a lane's gate, which the lane recipe sets), this step is skipped: the gate that joins
      the lane to `main` runs it.
    - Then, skipped with it, the jobs bench's L1 row (`theseus-sim bench jobs --class l1 --runs 20 --check`): an L1
@@ -143,10 +146,11 @@ and at the end; a gate that fails is checked once more on its way out.
   `gate: ABORTED`, where a failed run says `gate: FAILED`. No test result of an aborted run is a verdict: rerun it, on a tree
   nobody touches. `arm.sh result` shows it as `gate exit=75`.
 - **The identity** is the commit, a digest of the edits beyond it (tracked and untracked: `tree-stamp.sh`'s digest, minus
-  one path, computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
+  two paths (`cockpit/src/protocol.gen`, `bench/smoke/runs`), computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
   digest of HEAD's reflog. HEAD alone misses an edit, and the stamp alone misses a detach and a restore (the same commit
-  and the same files after it); the reflog writes a line for each. `cockpit/src/protocol.gen` is left out, since the
-  protocol phase rewrites it itself and fails saying `git add it`: that stays a failure, exit 1.
+  and the same files after it); the reflog writes a line for each. Both are left out: the
+  protocol phase rewrites `cockpit/src/protocol.gen` itself and fails saying `git add it` (that stays a failure, exit 1), and
+  `scripts/release-smoke.sh` writes a run's report under `bench/smoke/runs` (tracked, so not gitignored), and a smoke run beside a gate is no move.
 - **What it cannot see:** an edit made and undone inside the window (no ref moves, nothing is left), and a move in the
   seconds between two checks that is undone before the next. The guard is the rule beside it: never edit, check out,
   reset or build in a tree a gate is running in (the join's worktree is the install tree and nobody else's workspace).
@@ -421,6 +425,18 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
 - **Off the list**: in the commit that fixes the test, proven under load (the load-flake recipe: loops at a lower nice
   than the test) and against a planted revert. Delete the override with it.
 - **A test not on the list that flakes fails the gate**, as before. The flaky log shows what has been passing on luck.
+- **A forced order or a planted revert establishes a fix; a rate only corroborates.** Three times a confident rate
+  did not survive a paired control: a fix lane against a plain-main control read 2/24 against 1/24 (p = 0.50), and
+  only pooled across both control arms did it reach 5/48 against 0/48 (p = 0.03). Plan a deterministic plant first
+  (force the bad order so the recorded failure returns every run, then make the order not matter), and quote rates
+  as corroboration.
+- **Five passes alone are underpowered.** A true 10 % rate shows nothing in 5 runs 59 % of the time, and in 20 runs
+  12 % of the time. A test that "passed 5 of 5 alone" has not been cleared, and alone is where a load race passes.
+- **A wrong answer is never a flake.** A count off by one, or a state that reads the wrong value, is a bug whatever
+  the load: it goes to a fix, never onto the list. A timeout under load is a different thing. Instances, by test
+  name (commit ids change at the re-sign): `tests_security::a_press_with_a_call_labels_its_judgments_in_its_frame`
+  (a store-wide frame counter beside a live judge) and
+  `tests_m3::parallel::a_calls_time_is_its_own_run_not_its_wait_for_the_turn` (order forced, then a seam in the rig).
 
 ### A test of the hour or the local day takes a test clock
 

@@ -559,6 +559,44 @@ mod own_tree {
         assert!(said.contains("trimmed"), "{said}");
     }
 
+    /// The owner's own assumption, proved where it matters most: a
+    /// self-repair task reads a file, loses a race on it, and is REFUSED --
+    /// and recovers by reading it again and writing (theseus-w2cs sub-item 2;
+    /// `docs/design/stale-edit.md`). A read-record refusal is an ordinary
+    /// tool failure, not an approval, so it never reaches the fail-open step
+    /// (`own_tree::failing_open` takes a `policy::Decision`, which is settled
+    /// before the tool runs): nothing waits on the owner here, and nothing
+    /// needs to fail open. That is why `noted-and-checked-when-exists` is
+    /// safe for self sessions where a REQUIRED prior read would not have been.
+    #[tokio::test]
+    async fn a_self_task_that_lost_a_race_is_told_and_recovers_by_reading_again() {
+        let r = held(|_| {});
+        let (sid, tree) = task(&r, "sails");
+        let file = tree.join("a.txt");
+        std::fs::write(&file, "one\ntwo\nthree\n").unwrap();
+        r.turn(&sid, "fs_read", json!({"path": file})).await;
+        // Something outside this session writes the file: the race.
+        std::fs::write(&file, "one\ntwo\nthree\nfour\n").unwrap();
+        let edit = json!({"path": file, "old_string": "two", "new_string": "TWO"});
+        let said = r.turn(&sid, "fs_edit", edit.clone()).await;
+        assert!(said.contains("changed since you read it"), "{said}");
+        assert!(said.contains("Read the file again, then write."), "{said}");
+        assert!(!asked(&r, &sid), "a stale write asked the owner nothing");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "one\ntwo\nthree\nfour\n",
+            "nothing was written"
+        );
+        // The recovery the refusal names is enough, with no owner in the loop.
+        r.turn(&sid, "fs_read", json!({"path": file})).await;
+        let said = r.turn(&sid, "fs_edit", edit).await;
+        assert!(said.contains("Replaced 1 occurrence"), "{said}");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "one\nTWO\nthree\nfour\n"
+        );
+    }
+
     /// The floor is what a self session still asks about, by name and
     /// through a link. Planted reverts: each `asked` below. The rest of the
     /// state dir, and another task's tree, no longer ask: the approve list

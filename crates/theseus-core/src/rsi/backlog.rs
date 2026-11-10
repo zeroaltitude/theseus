@@ -409,12 +409,25 @@ impl Work {
         });
         m.rank = 0;
         if remember {
-            self.st.dropped.push(Dropped {
-                cause: m.cause.clone(),
-                item: id.into(),
-                at_ms: self.now,
-                by: by.into(),
-            });
+            // A folded item (`judge.failed`) stands for the packs its notes
+            // name: the drop means those packs, never "any night with two
+            // failing packs". With no pack named it keeps the item's own key.
+            let mut causes = if m.cause == read::FAILED_MANY {
+                read::members_of(t.evidence.iter().filter_map(|e| e.note.as_deref()))
+            } else {
+                Vec::new()
+            };
+            if causes.is_empty() {
+                causes.push(m.cause.clone());
+            }
+            for cause in causes {
+                self.st.dropped.push(Dropped {
+                    cause,
+                    item: id.into(),
+                    at_ms: self.now,
+                    by: by.into(),
+                });
+            }
         }
         self.said.push(Spoken::Dropped(BacklogDropped {
             item: id.into(),
@@ -517,7 +530,7 @@ impl Core {
         obs.extend(read::from_health(&self.health(), now_ms, &date(now_ms)));
         obs.extend(self.graduate_obs(&st, now_ms));
         obs.extend(self.mine_obs(now_ms, &date(now_ms)));
-        let cands = read::group(obs);
+        let cands = read::group_with(obs, &|k| st.is_dropped(k));
         night.candidates = cands.len();
         st.read_ms = Some(now_ms);
         let mut w = Work {

@@ -10,11 +10,11 @@ use serde_json::{json, Value};
 use super::tests::{script, Rig, SID};
 use crate::tests::{Answer, Script};
 
-fn explain() -> Value {
+fn explain(turn: &str) -> Value {
     json!({
         "session_id": SID, "kind": "conversation", "class": "private", "place": "CLI",
-        "turns": [], "turn_id": "trn_2",
-        "compiled": {"session_id": SID, "turn_id": "trn_2", "loop": 0, "decision": "append",
+        "turns": [], "turn_id": turn,
+        "compiled": {"session_id": SID, "turn_id": turn, "loop": 0, "decision": "append",
             "messages": 9},
         "profile": "f10", "model": "claude-sonnet-5-5", "window": 200000,
         "parts": [
@@ -32,8 +32,13 @@ fn why_script(fail: &'static [&'static str]) -> Script {
             return Err((-32000, "the store is busy".into()));
         }
         match m {
-            "context.explain" => Ok(explain()),
+            "context.explain" => Ok(explain(p["turn_id"].as_str().unwrap_or("trn_2"))),
             "policy.explain" => Ok(json!({"places": [], "roots": []})),
+            "ledger.tail" if p["kind"] == "turn.started" => Ok(json!({"rows": [
+                {"position": 3, "at_unix_ms": 1, "kind": "turn.started", "session_id": SID,
+                 "turn_id": "trn_1", "data": {}},
+                {"position": 7, "at_unix_ms": 2, "kind": "turn.started", "session_id": SID,
+                 "turn_id": "trn_2", "data": {}}], "total": 2})),
             "ledger.tail" => Ok(json!({"rows": [], "total": 0})),
             "node.list" => Ok(json!({"nodes": [
                 {"node_id": "n1", "kind": "tool_call", "session_id": SID, "position": 5,
@@ -45,8 +50,12 @@ fn why_script(fail: &'static [&'static str]) -> Script {
 }
 
 async fn ask_why(r: &mut Rig) {
+    ask(r, "/why").await;
+}
+
+async fn ask(r: &mut Rig, line: &str) {
     r.ready().await;
-    r.type_text("/why").await;
+    r.type_text(line).await;
     r.press(KeyCode::Enter).await;
 }
 
@@ -85,6 +94,61 @@ async fn a_failed_context_read_is_told_and_nothing_else_shows() {
     ask_why(&mut r).await;
     r.shows("could not read it: the store is busy").await;
     assert!(!r.text().contains("ran on:"), "{}", r.text());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_named_turn_is_the_one_the_four_reads_ask_for() {
+    let mut r = Rig::with(100, 40, why_script(&[])).await;
+    ask(&mut r, "/why trn_1").await;
+    r.shows("ran on: f10 (claude-sonnet-5-5)").await;
+    let t = r.text();
+    assert!(t.contains("turn trn_1"), "{t}");
+    assert_eq!(r.daemon.asked("context.explain").len(), 1);
+    assert_eq!(r.daemon.asked("context.explain")[0]["turn_id"], "trn_1");
+    assert_eq!(r.daemon.asked("policy.explain").len(), 1);
+    assert_eq!(r.daemon.asked("node.list").len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_is_named_by_a_unique_end_of_its_id() {
+    let mut r = Rig::with(100, 40, why_script(&[])).await;
+    ask(&mut r, "/why …rn_1").await;
+    r.shows("ran on: f10 (claude-sonnet-5-5)").await;
+    assert_eq!(r.daemon.asked("context.explain").len(), 1);
+    assert_eq!(r.daemon.asked("context.explain")[0]["turn_id"], "trn_1");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unknown_turn_is_refused_and_nothing_is_read() {
+    let mut r = Rig::with(100, 40, why_script(&[])).await;
+    ask(&mut r, "/why trn_9").await;
+    r.shows("no turn of this session is named `trn_9`").await;
+    assert_eq!(r.daemon.asked("context.explain").len(), 0);
+    assert_eq!(r.daemon.asked("policy.explain").len(), 0);
+    assert_eq!(r.daemon.asked("node.list").len(), 0);
+    assert_eq!(
+        r.daemon.asked("ledger.tail").len(),
+        1,
+        "only the list of turns"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_short_or_ambiguous_turn_is_refused_in_the_docks_voice() {
+    let mut r = Rig::with(100, 40, why_script(&[])).await;
+    ask(&mut r, "/why trn").await;
+    r.shows("is too short to name a turn").await;
+    assert_eq!(
+        r.daemon.asked("ledger.tail").len(),
+        0,
+        "too short: not even listed"
+    );
+    assert_eq!(r.daemon.asked("context.explain").len(), 0);
+    // A second ask works: the refusal left nothing pending.
+    r.type_text("/why trn_").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("names 2 turns: trn_2, trn_1").await;
+    assert_eq!(r.daemon.asked("context.explain").len(), 0);
 }
 
 // ------------------------------------------------ a lost connection

@@ -102,6 +102,11 @@ async fn a_short_sound_before_the_greeting_is_no_turn_and_the_greeting_plays() {
     assert_eq!(turns(&seen), 0);
     assert_eq!(heard_as(&seen), [HeardAs::Join]);
     assert_eq!(played.len(), 1, "the greeting plays");
+    assert_eq!(
+        journal.matches("the call's first clip is playing").count(),
+        1,
+        "the first clip is said once in the journal: {journal}"
+    );
     assert!(
         journal.contains("a sound at the join was not taken as speech: 6"),
         "{journal}"

@@ -1,0 +1,58 @@
+//! The stale edit's two moves: a read notes a file's state, and a write
+//! checks it (theseus-w2cs sub-item 2). The rule, and what it deliberately
+//! does not cover, is `docs/design/stale-edit.md`.
+//!
+//! Both moves do nothing at all when the call carries no read record
+//! ([`crate::ToolCtx::reads`] is `None`, which is every `for_tests` context)
+//! or when the path has no note. **Absence is never a refusal**: a model that
+//! learned a file's contents from `proc.run cat`, `git.diff`, an earlier turn
+//! or an earlier session writes exactly as it did before this guard existed.
+
+use std::path::Path;
+
+use crate::reads::Mark;
+use crate::{ToolCtx, ToolFailure};
+
+/// What a refused write says. It names the path, the re-read and the write,
+/// in that order, because the recovery it describes **is** the contract: the
+/// owner's decision rests on a model answering this message with a fresh read
+/// and then its write. If that stops being true, this sentence is where it
+/// broke.
+pub fn stale_words(path: &Path) -> String {
+    format!(
+        "{} changed since you read it, so this change was made against contents that are no longer there. Nothing was written. Read the file again, then write.",
+        path.display()
+    )
+}
+
+/// A read of `path` that returned handed its bytes over: note the state the
+/// file is in now.
+pub fn noted(ctx: &ToolCtx, path: &Path) {
+    let (Some(r), Some(m)) = (ctx.reads.as_ref(), Mark::at(path)) else {
+        return;
+    };
+    r.noted(path, m);
+}
+
+/// Refuse a write to `path` when this session was handed it and it has
+/// changed since. Ok in every other case, the unreadable file included: a
+/// path whose state cannot be read is a path this guard says nothing about.
+pub fn fresh(ctx: &ToolCtx, path: &Path) -> Result<(), ToolFailure> {
+    let Some(was) = ctx.reads.as_ref().and_then(|r| r.mark_of(path)) else {
+        return Ok(());
+    };
+    match Mark::at(path) {
+        Some(now) if now != was => Err(ToolFailure::new(stale_words(path))),
+        _ => Ok(()),
+    }
+}
+
+/// This call wrote `path`: move its note on to what the file is now, so the
+/// next write of the same file is not refused by this one. Where there is no
+/// note, there is still none: a write never brings a path under the guard.
+pub fn wrote(ctx: &ToolCtx, path: &Path) {
+    let (Some(r), Some(m)) = (ctx.reads.as_ref(), Mark::at(path)) else {
+        return;
+    };
+    r.wrote(path, m);
+}

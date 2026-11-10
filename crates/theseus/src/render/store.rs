@@ -25,14 +25,23 @@ pub fn store_reads_line(s: &theseus_protocol::StoreStatus) -> Option<String> {
     })
 }
 
-/// Health's store lines: the refused reads, then the heat cache.
+/// Health's store lines: the refused reads, a standing index gap, then the heat cache.
 pub fn store_lines(s: &theseus_protocol::StoreStatus) -> Vec<(super::Tag, String)> {
     let reads = store_reads_line(s).map(|l| (super::Tag::Bad, l));
+    let gap = s.index_gap.map(|at| {
+        (
+            super::Tag::Bad,
+            format!(
+                "store: an index write failed past its tries at position {at}; the log keeps \
+                 taking frames and the next open replays and heals them"
+            ),
+        )
+    });
     let cache = s
         .node_cache
         .as_ref()
         .map(|c| (super::Tag::Plain, node_cache_line(c)));
-    reads.into_iter().chain(cache).collect()
+    reads.into_iter().chain(gap).chain(cache).collect()
 }
 
 /// `node cache: …` (M6 step 33): the heat cache of decoded nodes, what it
@@ -96,6 +105,7 @@ mod tests {
             refused_records: 3,
             refused_positions: vec![17, 18],
             repair: Some("stop the daemon, then run `theseusd restore --repair`".into()),
+            index_gap: None,
             node_cache: None,
         })
         .unwrap();
@@ -147,5 +157,35 @@ mod tests {
         );
         c.this_start = false;
         assert!(!crash_line(&c).contains("ended the last run"));
+    }
+
+    /// A standing index gap (theseus-lu5n) is one Bad line naming the log
+    /// position and the cure; no gap, no line, and only the other lines
+    /// remain, counted.
+    #[test]
+    fn health_names_a_standing_index_gap() {
+        use theseus_protocol::{NodeCacheHealth, StoreStatus};
+        let gap = StoreStatus {
+            index_gap: Some(7),
+            ..StoreStatus::default()
+        };
+        let lines = store_lines(&gap);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(matches!(lines[0].0, crate::render::Tag::Bad), "{lines:?}");
+        assert!(lines[0].1.contains("position 7"), "{lines:?}");
+        assert!(lines[0].1.contains("next open"), "{lines:?}");
+        let with_cache = |index_gap| StoreStatus {
+            index_gap,
+            node_cache: Some(NodeCacheHealth::default()),
+            ..StoreStatus::default()
+        };
+        let none = store_lines(&with_cache(None));
+        assert_eq!(none.len(), 1, "only the cache line: {none:?}");
+        assert!(
+            none.iter().all(|(_, l)| !l.contains("index write")),
+            "{none:?}"
+        );
+        assert_eq!(store_lines(&with_cache(Some(7))).len(), 2);
+        assert!(store_lines(&StoreStatus::default()).is_empty());
     }
 }

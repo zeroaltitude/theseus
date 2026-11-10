@@ -186,31 +186,7 @@ impl Core {
                 let shown = crate::attach::display_text(text, attachments, n.author.as_deref());
                 (shown, String::new(), Value::Null, bytes)
             }
-            Body::AssistantMessage {
-                blocks,
-                model,
-                provider,
-                stop_reason,
-                usage,
-                cost_usd,
-                request_id,
-                correlation_id,
-                compilation_id,
-                ..
-            } => {
-                let calls: Vec<Value> = crate::provider::tool_uses_in(blocks)
-                    .into_iter()
-                    .map(|u| json!({"id": u.id, "name": u.name, "input": u.input}))
-                    .collect();
-                (
-                    crate::provider::text_of(blocks),
-                    crate::provider::thinking_of(blocks),
-                    json!({"model": model, "provider": provider, "stop_reason": stop_reason, "usage": usage, "cost_usd": cost_usd, "request_id": request_id, "correlation_id": correlation_id, "compilation_id": compilation_id, "tool_calls": calls, "blocks": blocks.len()}),
-                    serde_json::to_string(blocks)
-                        .map(|s| s.len() as u64)
-                        .unwrap_or(0),
-                )
-            }
+            Body::AssistantMessage { .. } => assistant_info(n),
             Body::Arrangement { .. } => arrangement_info(n),
             Body::ToolCall {
                 tool_use_id,
@@ -407,6 +383,38 @@ fn with_egress(
         d["egress"] = json!(e);
     }
     d
+}
+
+/// An assistant message, as `node_info` shows it: its text and thinking, the
+/// model call's record with the tool calls it made, and the blocks' size.
+fn assistant_info(n: &Node) -> (String, String, Value, u64) {
+    let Body::AssistantMessage {
+        blocks,
+        model,
+        provider,
+        stop_reason,
+        usage,
+        cost_usd,
+        request_id,
+        correlation_id,
+        compilation_id,
+        ..
+    } = &n.body
+    else {
+        return (String::new(), String::new(), Value::Null, 0);
+    };
+    let calls: Vec<Value> = crate::provider::tool_uses_in(blocks)
+        .into_iter()
+        .map(|u| json!({"id": u.id, "name": u.name, "input": u.input}))
+        .collect();
+    (
+        crate::provider::text_of(blocks),
+        crate::provider::thinking_of(blocks),
+        json!({"model": model, "provider": provider, "stop_reason": stop_reason, "usage": usage, "cost_usd": cost_usd, "request_id": request_id, "correlation_id": correlation_id, "compilation_id": compilation_id, "tool_calls": calls, "blocks": blocks.len()}),
+        serde_json::to_string(blocks)
+            .map(|s| s.len() as u64)
+            .unwrap_or(0),
+    )
 }
 
 /// A task's arrangement node, as `node_info` shows it (M5 27): its render,

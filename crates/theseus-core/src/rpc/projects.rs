@@ -34,7 +34,7 @@ fn invalid(e: impl std::fmt::Display) -> RpcFailure {
     RpcFailure::new(error_code::INVALID_PARAMS, e.to_string())
 }
 
-fn failure(e: anyhow::Error) -> RpcFailure {
+pub(super) fn failure(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<Refusal>() {
         Ok(r) => RpcFailure {
             code: error_code::REFUSED,

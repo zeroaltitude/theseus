@@ -580,11 +580,38 @@ async fn an_extraction_cut_at_its_cap_says_so_and_thinks_off() {
         stop_reason: "max_tokens".into(),
     });
     let private = session(&r.core, None);
-    moorings(&r.core, &private, EVERY).await;
+    // The cut answer is the last of a queue every call pops from, so this
+    // test holds only while the extraction's call is the EVERY+1st. The
+    // extraction runs OFF the turn's path (`live.rs`: the exchange end
+    // spawns it), and on a starved host the decision spawned at the turn
+    // BEFORE the due point is not served until the due turn's message is
+    // already written: it then reads EVERY human messages, is due, and its
+    // call overtakes that turn's. It pops a plain answer, the row says "the
+    // answer held no propose_people call" -- a right answer about the wrong
+    // reply -- and this test fails. Measured 6 of 40 that way on a starved
+    // CPU. Letting the earlier decisions settle before the due turn leaves
+    // one call in flight at a time.
+    moorings(&r.core, &private, EVERY - 1).await;
+    until_not_deciding(&r.core).await;
+    assert_eq!(
+        r.fake.requests().len(),
+        EVERY - 1,
+        "no extraction before the due point"
+    );
+    moorings(&r.core, &private, 1).await;
     let x = until_rows(&r.core.store, "people.extracted", 1).await;
     let why = x[0].data["failed"].as_str().unwrap();
-    assert!(why.contains("max_tokens") && why.contains("1,500"), "{why}");
-    assert!(!why.contains("held no"), "{why}");
+    let at = r
+        .fake
+        .requests()
+        .iter()
+        .position(|q| q.tools.iter().any(|t| t["name"] == "propose_people"));
+    let whr = format!(" | the extraction's call was #{at:?}, want #Some({EVERY})");
+    assert!(
+        why.contains("max_tokens") && why.contains("1,500"),
+        "{why}{whr}"
+    );
+    assert!(!why.contains("held no"), "{why}{whr}");
     let sent = r
         .fake
         .requests()

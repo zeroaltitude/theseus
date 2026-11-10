@@ -24,6 +24,12 @@ pub struct StoreStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub repair: Option<String>,
+    /// The log position an index write failed past its tries at, while that
+    /// gap stands (theseus-lu5n): the log is ahead of the index, and the next
+    /// open replays the frames and heals it. Absent when there is no gap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub index_gap: Option<u64>,
     /// The heat cache of decoded nodes (M6 step 33): absent from a daemon
     /// before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

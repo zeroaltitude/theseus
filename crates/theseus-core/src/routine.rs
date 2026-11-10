@@ -438,9 +438,9 @@ pub fn usd_ok(usd: f64) -> bool {
 }
 
 /// A routine's own run and month figures: above 0, a run within the month, and within the
-/// config's ceilings when it sets them. The `default_*` keys are what a routine that names none
-/// gets, not caps, so a figure above a ceiling is refused (never clamped), naming the key
-/// (theseus-tclcj).
+/// config's ceilings (5 and 50 until the owner sets others). The `default_*` keys are what a
+/// routine that names none gets, not caps, so a figure above a ceiling is refused (never clamped),
+/// naming the key (theseus-tclcj).
 pub fn check_budgets(cfg: &RoutinesConfig, run_usd: f64, month_usd: f64) -> Result<(), String> {
     if !(usd_ok(run_usd) && usd_ok(month_usd)) || run_usd > month_usd {
         return Err(format!(
@@ -456,9 +456,9 @@ pub fn check_budgets(cfg: &RoutinesConfig, run_usd: f64, month_usd: f64) -> Resu
             cfg.max_month_usd,
         ),
     ] {
-        if let Some(max) = ceiling.filter(|max| usd > *max) {
+        if usd > ceiling {
             return Err(format!(
-                "{what} (${usd}) is above the ${max} that `[routines] {key}` allows a routine"
+                "{what} (${usd}) is above the ${ceiling} that `[routines] {key}` allows a routine"
             ));
         }
     }
@@ -475,7 +475,7 @@ fn dollars(usd: f64) -> String {
 
 /// The routine's own budget as a card spells it: figures the routine carries
 /// (the model's, else the defaults), bounded only by `[routines] max_run_usd`
-/// and `max_month_usd` when the owner set them, so never read as a system cap.
+/// and `max_month_usd`, so never read as a system cap.
 pub(crate) fn budget_words(run_usd: f64, month_usd: f64) -> String {
     format!(
         "its own budget, not a system cap: up to {} a run, {} a month",

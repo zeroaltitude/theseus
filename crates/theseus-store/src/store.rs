@@ -75,6 +75,11 @@ pub struct StoreStats {
     /// reads scan, as before.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shape_pending: bool,
+    /// The log position an index write failed past its tries at, while that
+    /// gap stands (`WalStore::index_gap`, theseus-lu5n): the log is ahead of
+    /// the index until the next open replays it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_gap: Option<u64>,
     /// Records a list read skipped since open because their reads are
     /// refused (a corrupt frame the history check found, R4): how many, and
     /// the first `REFUSED_SHOWN` of their positions, lowest first.
@@ -336,8 +341,8 @@ struct Inner {
     /// An index write failed past its bound after a good sync: the log holds
     /// frames the index lacks, so no checkpoint may claim a position past them
     /// until the store is reopened and the open replays them. The log's last
-    /// position when the gap opened; 0 is no gap (positions start at 1).
-    index_gap: AtomicU64,
+    /// position when the gap opened (`gap`).
+    index_gap: gap::Gap,
     /// A test's count of the warnings the gap's opening and the periodic
     /// checkpoint's failure say.
     #[cfg(test)]
@@ -968,7 +973,13 @@ impl WalStore {
     /// Where the log's frames outrun the index: the position at which an index
     /// write failed past its bound, until a reopen replays them.
     pub fn index_gap(&self) -> Option<u64> {
-        Some(self.inner.index_gap.load(Ordering::Relaxed)).filter(|p| *p != 0)
+        self.inner.index_gap.position()
+    }
+
+    /// The open gap whole: where it opened, since when, the batches since, and
+    /// why. What health says and the owner is told once.
+    pub fn ledger_gap(&self) -> Option<IndexGap> {
+        self.inner.index_gap.get()
     }
 
     pub fn with_checkpoint_every(self, n: u64) -> Self {
@@ -1378,7 +1389,7 @@ impl Inner {
             verified: None,
             pending_verified: VerifiedSlot::default(),
             queued: std::sync::atomic::AtomicI64::new(0),
-            index_gap: AtomicU64::new(0),
+            index_gap: gap::Gap::default(),
             #[cfg(test)]
             warned: AtomicU64::new(0),
             frame_times: FrameTimes::default(),
@@ -1475,7 +1486,7 @@ impl Inner {
         // Unless a batch's index write failed past its bound: its frames are
         // in the log and not in the index, and a claim past them would hide
         // them from the next open's replay. Refused until a reopen.
-        if self.index_gap.load(Ordering::Relaxed) != 0 {
+        if self.index_gap.is_open() {
             anyhow::bail!(
                 "the index lacks frames an earlier write failed to index; \
                  no checkpoint until the store is reopened"
@@ -1581,7 +1592,7 @@ impl Inner {
             return;
         }
         // Said once, when the gap opened: quiet while it stands.
-        if self.index_gap.load(Ordering::Relaxed) != 0 {
+        if self.index_gap.is_open() {
             return;
         }
         let t = std::time::Instant::now();
@@ -1655,32 +1666,36 @@ impl Inner {
     fn after_index(
         &self,
         synced: bool,
-        indexed: bool,
+        indexed: &Result<()>,
         records: u64,
         chained: chain_writer::ChainState,
     ) {
         if synced {
             *self.chain.lock().unwrap() = chained;
         }
-        if indexed {
-            self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
-        } else if synced {
-            self.say_gap();
+        match indexed {
+            Ok(()) => {
+                self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
+                if records > 0 {
+                    self.index_gap.took();
+                }
+            }
+            Err(why) if synced => self.say_gap(why),
+            Err(_) => {}
         }
     }
 
-    /// Opens the gap, saying so once (the first failure's position stands).
-    fn say_gap(&self) {
+    /// Opens the gap, saying so once (the first failure's position stands); a
+    /// later batch that fails the same way is counted and quiet. Health and
+    /// the owner's notice carry the gap (`ledger_gap`).
+    fn say_gap(&self, why: &anyhow::Error) {
         let at = self.wal.last_position().max(1);
-        if self
-            .index_gap
-            .compare_exchange(0, at, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {
+        if self.index_gap.failed(at, why) {
             #[cfg(test)]
             self.warned.fetch_add(1, Ordering::Relaxed);
             tracing::warn!(
                 position = at,
+                reason = %format!("{why:#}"),
                 "store: the log holds frames the index lacks (up to this position); no checkpoint \
                  is taken until a restart, and the next open replays them"
             );
@@ -1765,7 +1780,7 @@ impl Inner {
                 self.index_batch(&entries)
             }
         });
-        self.after_index(synced_ok, indexed.is_ok(), records, chained);
+        self.after_index(synced_ok, &indexed, records, chained);
         let answered = std::time::Instant::now();
         let us = answered.duration_since(began).as_micros() as u64;
         #[cfg(test)]
@@ -2077,6 +2092,7 @@ impl Store for WalStore {
             index_moved_aside: s.moved_aside.clone(),
             terms_pending: !s.terms_whole(),
             shape_pending: !s.index.shaped(),
+            index_gap: self.index_gap(),
             refused_records,
             refused_positions,
         })
@@ -2175,6 +2191,8 @@ impl Store for WalStore {
 }
 
 mod chain_writer;
+mod gap;
+pub use gap::IndexGap;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

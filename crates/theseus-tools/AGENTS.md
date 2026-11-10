@@ -12,7 +12,9 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
 - `src/lib.rs`: the contract. A toollet parses and checks its input (`plan`), names the paths or argv it will touch
   so the gate can read intent, and runs in process (`run`), or describes a job for the wrapper (`proc.run` only). Its
   output is text for the model plus a structured `meta`. `Backend` says where a call runs.
-- `src/fs.rs` (`fs.read`, `write`, `edit`, `patch`, `glob`, `grep`, `list`), `src/git.rs` (`git.diff`, `git.log`,
+- `src/fs.rs` (`fs.read`, `write`, `edit`, `patch`, `glob`, `grep`, `list`), with its line-ending helpers in
+  `src/fs_lines.rs` (`lf_regions`, `splice_lf_regions`, `is_all_crlf`, `to_crlf`) and its shared walk in
+  `src/fs_walk.rs` (`walk_builder`, `walker`, `not_walked`), `src/git.rs` (`git.diff`, `git.log`,
   through gitoxide, no git CLI), `src/text.rs` (`text.diff`), `src/proc.rs` (`proc.run`, the escape hatch), and
   `src/image.rs`.
 - **`fs.rs`'s walk and line endings.** `fs.glob`, `fs.grep` and `fs.list` share one `all` flag and one walk
@@ -36,6 +38,10 @@ Key modules: `fs.rs`, `git.rs`, `proc.rs`, `paths.rs`. Read by: core.
   the next offset, never a hole; the runtime cuts it at the same cap the same way (`Tool::result_max_chars`). The
   window's scan bound holds at a line's end, not at the reader's buffer's edge. The runtime stores what a tool returns in the blobs (`run_with_media`, and
   `run_async_with_media` for an async tool).
+- **The stale edit** (theseus-w2cs; `src/reads.rs`, `src/fs_stale.rs`, the rule in `docs/design/stale-edit.md`): a
+  returning `fs.read` notes the state the file was in (its length and mtime, never a hash), and `fs.edit` and
+  `fs.patch` refuse a write to a file that changed since — **only where a note exists**; no note is never a refusal,
+  and a write moves a note it finds on but creates none. A `ToolCtx` with no `reads` board notes and checks nothing.
 - **`proc.run`'s `steps`** (theseus-7gir.3): a batch in place of `argv`, exactly one of the two, at most
   `MAX_STEPS` (16). `Tool::steps` gives each step as the call it would be alone (the gate judges each), and
   `Tool::jobs` each step's job, every directory checked before the first starts; the plan's `steps` holds each argv.
