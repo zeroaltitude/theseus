@@ -484,12 +484,15 @@ mod told {
         // A self item's thread is private, as the forum it lives in is; and
         // the owner's DM is bound, as it is on a daemon that has a Discord.
         for (target, name) in [(THREAD, "#self"), ("discord:dm:7", "DM")] {
-            r.core.runner.place_rule.bind_one(crate::places::BoundPlace {
-                target: target.into(),
-                name: name.into(),
-                private: true,
-                ..Default::default()
-            });
+            r.core
+                .runner
+                .place_rule
+                .bind_one(crate::places::BoundPlace {
+                    target: target.into(),
+                    name: name.into(),
+                    private: true,
+                    ..Default::default()
+                });
         }
         (r, sid)
     }
@@ -542,7 +545,10 @@ mod told {
             .find(|e| e.identity == "gate:red")
             .unwrap_or_else(|| panic!("no gate verdict on the task: {:?}", t.evidence));
         let note = e.note.as_deref().unwrap_or("");
-        assert!(note.contains("ended red") && note.contains("in suite"), "{note}");
+        assert!(
+            note.contains("ended red") && note.contains("in suite"),
+            "{note}"
+        );
         assert!(note.contains("exit 1"), "{note}");
         assert_eq!(e.by, "self-pr");
         assert_eq!(t.state, TaskState::InProgress, "the pipeline closes it");
@@ -560,21 +566,26 @@ mod told {
         let folded = r.core.folded_read();
         assert_eq!(folded.ended.len(), 1, "{folded:?}");
         let line = folded.lines().join("\n");
-        assert!(line.contains("ended red"), "the morning note's line: {line}");
+        assert!(
+            line.contains("ended red"),
+            "the morning note's line: {line}"
+        );
         assert!(line.contains("in suite"), "{line}");
         let night = crate::rsi::backlog::Night {
             ended: folded.as_ended(),
             ..Default::default()
         };
         assert!(!night.said_nothing(), "an ending is worth a note");
-        let text = crate::rsi::backlog::start::night_text(&night, |id| {
-            crate::rsi::backlog::start::Item {
+        let text =
+            crate::rsi::backlog::start::night_text(&night, |id| crate::rsi::backlog::start::Item {
                 title: id.into(),
                 count: 0,
                 since_ms: 0,
-            }
-        });
-        assert!(text.contains("ended red in suite"), "the night's note: {text}");
+            });
+        assert!(
+            text.contains("ended red in suite"),
+            "the night's note: {text}"
+        );
         assert!(text.contains("1 ended"), "its title counts it: {text}");
     }
 
@@ -589,7 +600,10 @@ mod told {
         let posts = thread_posts(&r, "self_build");
         assert_eq!(posts.len(), 1, "{posts:?}");
         assert!(posts[0]["text"].as_str().unwrap().contains("ended green"));
-        assert!(task_of(&r).evidence.iter().any(|e| e.identity == "gate:green"));
+        assert!(task_of(&r)
+            .evidence
+            .iter()
+            .any(|e| e.identity == "gate:green"));
         assert_eq!(r.core.folded_read().ended.len(), 1);
     }
 }

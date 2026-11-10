@@ -582,11 +582,10 @@ pub(crate) fn failed_phase(tail: &str) -> Option<String> {
 /// A failure in any one of them is logged, never raised: the gate's verdict
 /// stands whatever the telling did.
 fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
-    let task = crate::task_graph::get(&core.store, &a.i.item)
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %format!("{e:#}"), "self-pr: the item's task was not read");
-            None
-        });
+    let task = crate::task_graph::get(&core.store, &a.i.item).unwrap_or_else(|e| {
+        tracing::warn!(error = %format!("{e:#}"), "self-pr: the item's task was not read");
+        None
+    });
     let e = crate::rsi::backlog::Ended {
         item: a.i.item.clone(),
         title: task
@@ -657,8 +656,12 @@ fn told_on_task(
     t.evidence.push(theseus_protocol::tasks::TaskEvidence {
         node: None,
         identity: format!("gate:{}", e.verdict),
-        note: Some(format!("{} (exit {}, {} s)", e.line(),
-            run.exit.map_or_else(|| "none".into(), |c| c.to_string()), run.secs)),
+        note: Some(format!(
+            "{} (exit {}, {} s)",
+            e.line(),
+            run.exit.map_or_else(|| "none".into(), |c| c.to_string()),
+            run.secs
+        )),
         by: "self-pr".into(),
         at_ms: now,
     });
