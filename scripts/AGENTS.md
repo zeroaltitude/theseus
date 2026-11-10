@@ -1,5 +1,10 @@
 # scripts
 
+**`wc -c` this file before you add to it: it is CUT at 64 KiB and nothing fails** (theseus-4vsrz).
+`context_files::MAX_BYTES` is `64 * 1024` and this is a `Level::Project` context file, so past that its tail
+silently stops reaching a session; no gate phase or test measures it. On 2026-11-10 it stood 1,130 bytes short.
+Put depth in the design docs.
+
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.
 - `size-step.sh`, `tree-stamp.sh` (theseus-2m7jg): the binary's size check. `build.sh` runs `theseus-sim bench size --check`
