@@ -113,6 +113,11 @@ named commit of `main`.
   - the sibling rows of the same batch, and which files each one owns;
   - the shared rules every row follows: tests first, nothing lost, no new always-loaded tool text, no store format
     change, no new dependency, no person's name, and never loosening a test, budget, cap or ceiling.
+  - **both halves of the keel, named as two things** ([The keel](#the-keel)): (a) the guarded FILE list, about
+    *where* the row edits, and (b) the erosion rules, about *what its edit does, in any file anywhere in the tree*.
+    A brief that clears (a) has said nothing about (b), and a row told "that file is not keel-class, so no `Keel:`
+    trailer is needed" has been told something false. A brief's ruling that deletes or weakens an assertion carries
+    the owner's quote, or is marked in the brief as still needing one; a row may never invent it.
 - **The report is its last commit**, `CLOUD_REPORT.md`, with the subject `cloud report (not for main)`. It says what
   the row built, the commands that proved it, its planted reverts, the keel guard's output, what it could not run, and
   what it left open. The review reads the report but trusts the diff and its own runs, never the session's own words.
@@ -226,7 +231,29 @@ judges the net change of the range against `main`. It reports each erosion as `p
 | `sealed-reach` | Code outside the sealed scorer's own files that names the sealed holdout sets |
 | `locked-flow` | The owner-locked Discord DM task flow changed: a golden under `crates/theseus-discord/src/golden/` edited or removed. The trailer quotes his OK for that change |
 
-Moved and renamed tests are matched by name, then by body, then by similarity, so a refactor is not an erosion.
+**Two halves, and a brief must say which it means (theseus-4vsrz).** The table above mixes them, and the confusion
+has cost a gate twice.
+
+- **(a) Where you edit: the guarded FILE list.** `KEEL_FILES`, `KEEL_PREFIXES` and `LOCKED_FLOW_PREFIXES` in
+  `scripts/keel-guard.py` name files whose edit needs an ack whatever the edit does. Those are the `keel-file` and
+  `locked-flow` rules, and they are the only two that are about a list of files.
+- **(b) What your edit does: the EROSION rules.** `test-removed`, `test-ignored`, `assert-removed`,
+  `assert-weakened`, `allow-added`, `budget-raised`, `cap-raised`, `ceiling-raised` and `ci-loosened` judge the
+  change itself, in **any file anywhere in the tree**, guarded or not. A file nobody has ever called keel-class that
+  loses one assertion fails the gate in about a second, before a single test runs
+  (`tests_route_cliff.rs:117: assert-removed: 3 assertions -> 2` did exactly that on 2026-11-08).
+- **Clearing (a) says nothing about (b).** "The file is not in `KEEL_FILES`" therefore never means "no `Keel:`
+  trailer is needed", and a brief or a ruling that says so is wrong. A ruling that deletes or weakens an assertion
+  comes with the owner's quote, or is marked as needing one.
+
+Moved and renamed tests are matched by name, then by body, then by similarity, so a refactor is not an erosion. The
+last of those three is a guess, and across files in a batch it misattributes: a test deleted on one branch pairs with
+an unrelated new test on another, the finding changes rule, `test-removed` to `assert-removed`, and file, onto a file
+that eroded nothing, and the trailer that named the real file stops covering it. **Never ack across a batch
+boundary.** When a finding names a file the change never touched, `git grep` the symbol at the base and at the head
+first and prove where the erosion actually is; `scripts/keel-batch-repro.sh` reproduces it. Writing the trailer the
+guard's own remedy text asks for there would be a false statement that the owner authorised an erosion where none
+exists, and that is never written.
 
 - **The ack.** A finding passes only when a commit in the range carries a trailer
   `Keel: <rule> <path>[, <path>…] — <why>`, and that commit is signed with a GPG key listed in `scripts/keel-signers`.

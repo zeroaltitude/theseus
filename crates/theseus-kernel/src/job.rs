@@ -81,8 +81,13 @@ pub struct L1 {
     /// `[sandbox] ro_paths`: more read-only binds. One that does not exist is
     /// skipped, and the completion says so.
     pub ro_paths: Vec<PathBuf>,
-    /// Covered in the view whatever binds them: Theseus's floor (its store,
-    /// spool, bindings, the 1Password token and credentials) and its socket.
+    /// On the view's hidden list, whichever bind would otherwise show them:
+    /// Theseus's floor (its store, spool, bindings, the 1Password token and
+    /// credentials) and its socket. An entry that resolves to something in
+    /// the view is covered there; one that resolves to nothing is skipped,
+    /// and a bind is a live window, so the list promises what exists when the
+    /// job starts, not what the job can read — `theseus_sandbox::view::mask`'s
+    /// doc is the whole of it (theseus-3i6d1).
     pub hidden: Vec<PathBuf>,
     pub limits: theseus_sandbox::Limits,
     /// The hosts the job's egress proxy lets it reach (M4 18c): `[sandbox]

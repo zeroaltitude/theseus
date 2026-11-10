@@ -13,7 +13,7 @@ const PREF: &str =
 /// The words every head carries, whole, so a later edit cannot drop them.
 const FRAMING: &str = "These are the owner's standing records, carried on every request: they are not new, and are never to be acknowledged, thanked or restated to the owner.";
 
-async fn turn_via(
+pub(super) async fn turn_via(
     core: &Arc<Core>,
     sid: &str,
     input: &str,

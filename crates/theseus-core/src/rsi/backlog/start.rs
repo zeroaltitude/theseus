@@ -445,6 +445,7 @@ impl Core {
         let mut said = night.clone();
         said.started.extend(folded.as_started(&night.started));
         said.started_more += folded.more as usize;
+        said.ended.extend(folded.as_ended());
         if said.said_nothing() {
             return;
         }
@@ -505,6 +506,7 @@ impl Night {
         self.filed.is_empty()
             && self.started.is_empty()
             && self.started_more == 0
+            && self.ended.is_empty()
             && self.trimmed.is_empty()
             && self.retired.is_empty()
             && self.kept_out == 0
@@ -542,6 +544,11 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
     if night.started_more > 0 {
         body.push_str(&format!("- and {} more started\n", night.started_more));
     }
+    // How the builds ended, beside what started (theseus-1eemp): a note that
+    // says only that work started is the whole trace a red build leaves.
+    for e in &night.ended {
+        body.push_str(&format!("- {} (item {})\n", e.line(), e.item));
+    }
     for id in night.filed.iter().take(10) {
         let held = night.waiting.contains(id);
         body.push_str(&format!(
@@ -577,6 +584,7 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
     for (n, what) in [
         (night.filed.len(), "new"),
         (night.started.len() + night.started_more, "started"),
+        (night.ended.len(), "ended"),
         (night.trimmed.len(), "dropped"),
         (night.retired.len(), "retired"),
     ] {

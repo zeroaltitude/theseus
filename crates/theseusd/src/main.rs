@@ -414,9 +414,12 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         json!({"source": if in_vault { "vault" } else { "file" }, "from": from}),
     );
     // The floor keeps the token file, whether the flag or the environment
-    // named it, and the config's copy.
+    // named it, the config's copy, and the config file itself: an `op://`
+    // config has no file of its own, its copy is already here (theseus-3i6d1).
     cfg.op_token_file = op.token_file().map(std::path::Path::to_path_buf);
     cfg.config_copy = copy_path.clone();
+    // `~` expanded here; the floor canonicalises it, as it does the other two.
+    cfg.config_file = (!in_vault).then(|| theseus_core::config::expand(&source));
     if let Some(Cmd::Config { sparse }) = &cli.cmd {
         if *sparse {
             // A note of only what differs (theseus-vwar), cut from the text

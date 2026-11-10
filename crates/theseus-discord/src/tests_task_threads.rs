@@ -1249,7 +1249,29 @@ fn imports_from(text: &str, module: &str, item: &str) -> bool {
 }
 
 /// Whether `text` reaches this module's `until`: `imports_from` at the one
-/// pair the scan below asks about.
+/// pair the scan below asks about. The two arms the paragraphs below measure
+/// are `imports_from`'s, which theseus-a0kte generalised out of this function
+/// without changing either of them.
+///
+/// **Which arm each member is found by, measured over the tree, not inferred**
+/// (B7 item 1, measured over the merge of `origin/main` `12889bcf`): of the
+/// eleven members, nine are found by the brace arm alone, `tests_task_react`
+/// is seeded (above), and this file is both seeded and matched — so **the
+/// second arm has no live instance in the crate**. The one text that reaches
+/// it is the prose of this very doc, in the one file `found` holds
+/// unconditionally. That is why a planted revert of the second arm reds
+/// `the_rule_reads_every_way_a_file_reaches_until` and leaves the scan below
+/// green: the table test is the second arm's only guard, and deleting the
+/// table's positives would leave the arm unheld. A planted revert of the
+/// brace arm reds both. The second arm is kept because the two forms it reads
+/// are legal and a file written that way must join the family on the day it
+/// is written, not on the day someone notices.
+///
+/// **It reads text, so prose counts.** A file that merely mentions
+/// `tests_task_threads::until` in a comment joins the family and reds the
+/// scan until `UNTIL_FAMILY` is updated. Harmless here, and the right
+/// direction — it fails loudly rather than dropping a member silently — but
+/// a failure naming a file that only talks about `until` is this, not a bug.
 #[cfg(test)]
 fn reaches_until(text: &str) -> bool {
     imports_from(text, "tests_task_threads", "until")

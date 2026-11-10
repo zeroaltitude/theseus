@@ -56,7 +56,10 @@ pub(crate) fn rig(
         for (p, _) in crate::judge::WIRED {
             c.judge.packs.insert((*p).into(), off());
         }
-        c.judge.total_secs = 5;
+        // 5 s before (theseus-4vsrz): a replay and the loop tests' calls wait on no
+        // short guard, so a loaded host could spend the budget and lose the verdict.
+        // No test here stages a slow Jev; 30 s is past any run's work.
+        c.judge.total_secs = 30;
         tweak(c);
     })
 }
