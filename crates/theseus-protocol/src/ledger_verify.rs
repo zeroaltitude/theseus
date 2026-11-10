@@ -42,6 +42,22 @@ impl LedgerHead {
     }
 }
 
+/// An index gap (theseus-lu5n): the log holds frames the index lacks, because
+/// an index write failed past its bound after the frames synced. The log keeps
+/// recording through it and refuses nothing; no checkpoint claims past it, so
+/// the next open replays the frames from the last good checkpoint. Health
+/// carries it while it stands, and the owner is told once.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LedgerGap {
+    /// When the gap opened (unix ms).
+    pub since_ms: u64,
+    /// The batches the log has taken since, the one that failed included.
+    pub batches_since: u64,
+    /// Why the first index write failed.
+    pub reason: String,
+}
+
 /// The first broken link.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

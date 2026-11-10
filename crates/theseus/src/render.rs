@@ -47,6 +47,7 @@ mod judge;
 mod judge_runs;
 pub mod later;
 mod learning;
+mod ledger_gap;
 mod lsp;
 mod mcp;
 mod mcp_server;
@@ -1699,6 +1700,7 @@ pub fn health_lines(h: &theseus_protocol::HealthResult, now_ms: u64) -> Vec<Line
     judge::push_health(o, h.judge.as_ref());
     rsi::push_health(o, h.self_improve.as_ref());
     memory::push_health(o, h.memory.as_ref(), now_ms);
+    ledger_gap::push_health(o, h.ledger_gap.as_ref());
     mcp_server::push_health(o, h.mcp_server.as_ref());
     parked::push_health(o, h.tasks.as_ref());
     web::push_health(o, &h.web, &h.tools_not_offered);

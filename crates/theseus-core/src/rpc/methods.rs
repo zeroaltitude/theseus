@@ -71,6 +71,7 @@ impl Core {
             tui_notify: self.cfg.tui.notify.clone(),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
             ledger_head: self.ledger_head_short(),
+            ledger_gap: self.ledger_gap(),
             telemetry: self.telemetry_status(),
             kernel: self.kernel_status(),
             children: self.children_status(),

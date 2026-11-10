@@ -218,3 +218,63 @@ fn an_index_gap_is_said_once_and_the_periodic_checkpoint_stays_quiet() {
     assert_eq!(s.index_gap(), None);
     assert_eq!(s.count_keys(kinds::META).unwrap(), 4);
 }
+
+/// The gap is carried whole, for health and the owner's one notice (theseus-lu5n;
+/// the owner, 2026-11-09: "Yes, we never want invisibility."): where it opened,
+/// since when, why, and the batches the log took since, the failed ones and the
+/// good. Two failing batches are one warning and one gap, and the log takes
+/// frames throughout; a reopen replays them and closes it.
+#[test]
+fn two_failing_batches_are_one_warning_and_one_gap_that_counts_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = WalStore::open(dir.path(), WalConfig::default())
+        .unwrap()
+        .with_checkpoint_every(1);
+    assert_eq!(s.ledger_gap(), None);
+    let began = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    s.inner.index_fail.store(INDEX_TRIES, Ordering::SeqCst);
+    assert!(s.append(&[meta("a.1", 1)]).is_err());
+    let first = s.ledger_gap().expect("the first failure opens the gap");
+    assert_eq!(first.batches, 1);
+    assert_eq!(Some(first.position), s.index_gap());
+    assert!(first.since_ms >= began, "{} < {began}", first.since_ms);
+    assert!(
+        first.reason.contains("the index write failed 3 times"),
+        "{}",
+        first.reason
+    );
+    s.inner.index_fail.store(INDEX_TRIES, Ordering::SeqCst);
+    assert!(s.append(&[meta("b.1", 2)]).is_err());
+    let second = s.ledger_gap().expect("still open");
+    assert_eq!(second.batches, 2, "the second failed batch is counted");
+    assert_eq!(
+        (second.position, second.since_ms, &second.reason),
+        (first.position, first.since_ms, &first.reason),
+        "the gap stands at its first failure"
+    );
+    // The log still takes frames, and the index has this one.
+    s.append(&[meta("c.1", 3)]).unwrap();
+    assert_eq!(
+        s.ledger_gap().unwrap().batches,
+        3,
+        "a good batch counts too"
+    );
+    let inner = s.inner.clone();
+    drop(s);
+    assert_eq!(
+        inner.warned.load(Ordering::Relaxed),
+        1,
+        "two failing batches, one warning"
+    );
+    drop(inner);
+    let s = open(dir.path());
+    assert_eq!(
+        s.ledger_gap(),
+        None,
+        "a reopen replays the frames and closes it"
+    );
+    assert_eq!(s.count_keys(kinds::META).unwrap(), 3);
+}
