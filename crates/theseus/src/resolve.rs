@@ -168,6 +168,34 @@ pub fn long_enough(given: &str, noun: &str) -> Result<()> {
     Ok(())
 }
 
+/// `ids` hold `s` whole, else exactly one of them starts or ends with it;
+/// `listed` says, with `{n}` for the count, which turns were looked in.
+pub fn pick_turn(ids: &[&str], s: &str, listed: &str) -> Result<String> {
+    if let Some(t) = ids.iter().find(|t| **t == s) {
+        return Ok((*t).to_string());
+    }
+    if s.chars().count() < SHORTEST {
+        bail!("`{s}` is too short to name a turn: give at least four characters of its id");
+    }
+    let found: Vec<&str> = ids
+        .iter()
+        .copied()
+        .filter(|id| id.starts_with(s) || id.ends_with(s))
+        .collect();
+    match found.as_slice() {
+        [] => Err(anyhow!(
+            "no turn of this session is named `{s}` ({})",
+            listed.replace("{n}", &ids.len().to_string())
+        )),
+        [one] => Ok((*one).to_string()),
+        many => bail!(
+            "`{s}` names {} turns: {}",
+            many.len(),
+            many.iter().take(5).copied().collect::<Vec<_>>().join(", ")
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,5 +275,29 @@ mod tests {
         assert_eq!(q("9e7f").unwrap(), "act_aa11b0c3");
         assert_eq!(q("exe_7e7e9f").unwrap(), "act_77b0c3");
         assert!(q("e9f").unwrap_err().to_string().contains("too short"));
+    }
+
+    #[test]
+    fn a_turn_named_by_three_characters_is_too_short_and_two_matches_are_both_named() {
+        let ids = ["trn_aa11", "trn_bb11", "trn_cc22"];
+        let listed = "the newest {n} turns";
+        let short = pick_turn(&ids, "a11", listed).unwrap_err().to_string();
+        assert_eq!(
+            short,
+            "`a11` is too short to name a turn: give at least four characters of its id"
+        );
+        let two = pick_turn(&ids, "trn_", listed).unwrap_err().to_string();
+        assert_eq!(two, "`trn_` names 3 turns: trn_aa11, trn_bb11, trn_cc22");
+        let both = pick_turn(&["trn_x_aa11", "trn_y_aa11"], "aa11", listed)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(both, "`aa11` names 2 turns: trn_x_aa11, trn_y_aa11");
+        // Unique, whole, and unknown keep their words.
+        assert_eq!(pick_turn(&ids, "cc22", listed).unwrap(), "trn_cc22");
+        assert_eq!(pick_turn(&ids, "trn_bb11", listed).unwrap(), "trn_bb11");
+        assert_eq!(
+            pick_turn(&ids, "zzzz", listed).unwrap_err().to_string(),
+            "no turn of this session is named `zzzz` (the newest 3 turns)"
+        );
     }
 }
