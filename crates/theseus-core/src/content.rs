@@ -1437,7 +1437,7 @@ mod tests {
             (
                 "card/noted.rs",
                 "neither",
-                "UNAUDITED: names the owner's own words today; not decided",
+                "its own head says whose it is: notes, not records, \"say nothing of them\", never thank the owner (11-10 audit)",
             ),
         ]
     }
