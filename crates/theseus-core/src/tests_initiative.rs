@@ -549,7 +549,10 @@ async fn the_morning_note_reads_the_folded_record_once() {
     let posts = crate::tests_day_ceiling::posts(&r.core, "initiative");
     assert_eq!(posts.len(), 1, "{posts:?}");
     let text = posts[0]["text"].as_str().unwrap();
-    assert!(text.contains("tsk_early"), "the read start is listed: {text}");
+    assert!(
+        text.contains("tsk_early"),
+        "the read start is listed: {text}"
+    );
     assert!(!text.contains("tsk_late"), "one read, not two: {text}");
     until("the take-off", || r.core.folded_read().count() == 1).await;
     let left = r.core.folded_read();
