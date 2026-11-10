@@ -57,7 +57,7 @@ pub use peak::price_period_at;
 mod switch;
 pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
 
-pub const BUILTIN_VERSION: &str = "2026-10-29.1";
+pub const BUILTIN_VERSION: &str = "2026-11-09.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -948,6 +948,43 @@ fn kimi(input: f64, output: f64, served: &str) -> CatalogEntry {
     }
 }
 
+/// The Fable rows, newest first. Fable 5.2 (published 2026-11-09) is Fable
+/// 5.1's shape at 0.8 × its prices: its window, output cap, always-on
+/// thinking, effort levels, vision, PDF and `us` origin are 5.1's, so it takes
+/// every rule 5.1 takes — no forced `tool_choice`, no `thinking` that turns
+/// thinking off, the family's tokenizer, and the server's own refusal
+/// fallback. Its `per_message_effort` is carried by family rather than by a
+/// live probe of this id: 5.1 was seen to take it (theseus-posww) and 5.2
+/// publishes the same effort levels.
+fn fable_rows(e: &mut BTreeMap<String, CatalogEntry>) {
+    use ThinkingMode::Always;
+    let m = 1_000_000;
+    e.insert(
+        "claude-fable-5-2".into(),
+        CatalogEntry {
+            source: "Anthropic Models API and pricing page, 2026-11-09 (release day): \
+                     1M in, 128k out, $8 in and $40 out a million, a 5-minute write at \
+                     1.25 × input and an hour at 2 ×, and cache reads at 0.025 × input \
+                     as Fable 5.1's are"
+                .into(),
+            per_message_effort: true,
+            ..claude(m, 128_000, 8.0, 40.0, 0.20, 10.00, Always, true, 512)
+        },
+    );
+    e.insert(
+        "claude-fable-5-1".into(),
+        CatalogEntry {
+            // Seen to take it live (theseus-posww).
+            per_message_effort: true,
+            ..claude(m, 128_000, 10.0, 50.0, 0.25, 12.50, Always, true, 512)
+        },
+    );
+    e.insert(
+        "claude-fable-5".into(),
+        claude(m, 128_000, 10.0, 50.0, 1.00, 12.50, Always, false, 512),
+    );
+}
+
 /// Kimi's two rows, the model and its faster variant at double the price.
 fn kimi_rows(e: &mut BTreeMap<String, CatalogEntry>) {
     e.insert(
@@ -986,9 +1023,10 @@ fn deepseek_rows(e: &mut BTreeMap<String, CatalogEntry>) {
 
 /// Each option model's own default effort (theseus-9f72b, design §1.4 step 5):
 /// what the vendor runs the model at when a request carries no effort at all.
-/// The four Claude figures are each vendor's own model notes (the claude-api
-/// reference, cached 2026-10-06): Haiku 5.5 medium, Sonnet 5.5 high, Opus 5.5
-/// medium, Fable 5.1 high. Flash's low is an inference, `[I]` in the design:
+/// The five Claude figures are each vendor's own model notes (the claude-api
+/// reference, cached 2026-10-06; Fable 5.2's from the models overview of
+/// 2026-11-09): Haiku 5.5 medium, Sonnet 5.5 high, Opus 5.5 medium, Fable 5.1
+/// and Fable 5.2 high. Flash's low is an inference, `[I]` in the design:
 /// the cheapest forced think, as DeepSeek names no default. The older rows
 /// name none: no choice reaches them but a pin, and a pin sets its own effort.
 ///
@@ -1004,6 +1042,7 @@ fn default_efforts(e: &mut BTreeMap<String, CatalogEntry>) {
         ("claude-sonnet-5-5", Effort::High),
         ("claude-opus-5-5", Effort::Medium),
         ("claude-fable-5-1", Effort::High),
+        ("claude-fable-5-2", Effort::High),
         ("deepseek-flash", Effort::Low),
     ] {
         if let Some(row) = e.get_mut(id) {
@@ -1053,18 +1092,7 @@ impl Catalog {
         use ThinkingMode::*;
         let mut e = BTreeMap::new();
         let m = 1_000_000;
-        e.insert(
-            "claude-fable-5-1".into(),
-            CatalogEntry {
-                // Seen to take it live (theseus-posww).
-                per_message_effort: true,
-                ..claude(m, 128_000, 10.0, 50.0, 0.25, 12.50, Always, true, 512)
-            },
-        );
-        e.insert(
-            "claude-fable-5".into(),
-            claude(m, 128_000, 10.0, 50.0, 1.00, 12.50, Always, false, 512),
-        );
+        fable_rows(&mut e);
         e.insert(
             "claude-opus-5-5".into(),
             claude(m, 128_000, 4.0, 20.0, 0.20, 5.00, Always, false, 512),
@@ -1413,6 +1441,7 @@ mod tests {
         // The caching minimums, from the claude-api skill's reference.
         let min = |id: &str| c.get(id).unwrap().cache_min_tokens;
         for id in [
+            "claude-fable-5-2",
             "claude-fable-5-1",
             "claude-fable-5",
             "claude-opus-5-5",
@@ -1454,7 +1483,7 @@ mod tests {
 
     /// The client-side refusal fallback (theseus-7gir.18): the owner approved
     /// Sonnet 5.5's, Sonnet 5, kept apart from the provider's own
-    /// (`refusal_fallbacks`), which Fable 5.1 and Opus 5 take; Haiku 5.5's,
+    /// (`refusal_fallbacks`), which Fable 5.1, Fable 5.2 and Opus 5 take; Haiku 5.5's,
     /// Sonnet 5 too (theseus-3okf); a config table can name one for another
     /// model.
     #[test]
@@ -1479,7 +1508,10 @@ mod tests {
             .filter(|(_, e)| e.refusal_fallbacks)
             .map(|(id, _)| id.as_str())
             .collect();
-        assert_eq!(server, ["claude-fable-5-1", "claude-opus-5"]);
+        assert_eq!(
+            server,
+            ["claude-fable-5-1", "claude-fable-5-2", "claude-opus-5"]
+        );
         let row = CatalogRow {
             refusal_fallback_model: Some("claude-opus-5".into()),
             ..Default::default()
@@ -1841,12 +1873,81 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-10-29.1");
+        assert_eq!(c.version, "2026-11-09.1");
         // Sonnet 5.5's cache read is $0.20, as Sonnet 5's is.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
             0.20
         );
+    }
+
+    /// Fable 5.2 is selectable by its id, priced as published, and carries
+    /// Fable 5.1's rules (the owner, 2026-11-09: "Fable 5.2 is out -- please
+    /// add it to Theseus ... as a selectable model"). The prices are the
+    /// pricing page of 2026-11-09, the window, cap and default effort the
+    /// models overview of the same day. The id is also its own published
+    /// alias: a dateless id is its own pinned snapshot, so a profile naming
+    /// `claude-fable-5-2` and a request carrying the alias reach one row.
+    /// Selectable, not chosen: it is deliberately NOT a `routing::model`
+    /// option, so Jev never picks it and no default moves.
+    #[test]
+    fn fable_5_2_is_selectable_by_its_id_and_priced_as_published() {
+        let c = Catalog::builtin();
+        let f = c
+            .get("claude-fable-5-2")
+            .expect("Fable 5.2 is in the catalog");
+        assert_eq!(
+            (f.context_window, f.max_output_tokens),
+            (1_000_000, 128_000)
+        );
+        assert_eq!(
+            (
+                f.input_per_mtok,
+                f.output_per_mtok,
+                f.cache_read_per_mtok,
+                f.cache_write_per_mtok,
+                f.cache_write_1h_per_mtok
+            ),
+            (8.0, 40.0, 0.20, 10.0, 16.0)
+        );
+        // 0.025 × input, the footnote's multiplier for the Fable 5.x rows.
+        assert_eq!(f.cache_read_per_mtok, 0.025 * f.input_per_mtok);
+        assert_eq!(f.provider, "anthropic");
+        assert_eq!(f.origin, ModelOrigin::Us);
+        assert!(cleared_for_sensitive(
+            "https://api.anthropic.com",
+            None,
+            "claude-fable-5-2",
+            Some(f)
+        ));
+        assert_eq!(f.thinking, ThinkingMode::Always);
+        assert_eq!(f.default_effort, Some(Effort::High));
+        assert!(f.effort && f.per_message_effort && f.caches);
+        assert!(f.vision && f.pdf && f.tool_search && f.refusal_fallbacks);
+        assert_eq!(f.cache_min_tokens, 512);
+        assert_eq!(f.long_prompt, None);
+        assert_eq!(f.bytes_per_token, TokenRates::CLAUDE);
+        assert_eq!(TokenRates::of("claude-fable-5-2"), TokenRates::CLAUDE);
+        // Always-on thinking: nothing to send to turn it off, so no forced tool.
+        assert!(c.thinks_unasked("claude-fable-5-2"));
+        assert_eq!(c.thinking_off("claude-fable-5-2"), None);
+        assert!(!c.may_force("claude-fable-5-2"));
+        // A million of each class: 8 + 40 + 0.20 + 10.
+        let u = Usage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_read_input_tokens: 1_000_000,
+            cache_creation_input_tokens: 1_000_000,
+            ..Default::default()
+        };
+        let usd = c.cost_usd("claude-fable-5-2", &u).unwrap();
+        assert!((usd - 58.20).abs() < 1e-9, "{usd}");
+        // 0.8 × Fable 5.1 on every class, which is how the page prices it.
+        let older = c.cost_usd("claude-fable-5-1", &u).unwrap();
+        assert!((usd - 0.8 * older).abs() < 1e-9, "{usd} vs {older}");
+        // The reservation a call takes: the output cap at the output price
+        // ($5.12) plus the input estimate at the input price ($1.60).
+        assert_eq!(f.reserve_micros(128_000, 200_000), 6_720_000);
     }
 
     /// Thinking off for a short answer (theseus-050g2): Sonnet 5.5's is
@@ -1872,6 +1973,7 @@ mod tests {
         for m in [
             "claude-opus-5-5",
             "claude-fable-5-1",
+            "claude-fable-5-2",
             "glm-5.3-flash",
             "no-such-model",
         ] {
@@ -1888,6 +1990,7 @@ mod tests {
         for m in [
             "claude-opus-5-5",
             "claude-fable-5-1",
+            "claude-fable-5-2",
             "glm-5.3-flash",
             "deepseek-v4-pro",
         ] {
@@ -1921,6 +2024,7 @@ mod tests {
             "claude-sonnet-5-5",
             "claude-opus-5-5",
             "claude-fable-5-1",
+            "claude-fable-5-2",
             "glm-5.3-flash",
             "deepseek-v4-pro",
         ] {

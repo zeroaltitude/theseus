@@ -43,12 +43,39 @@ impl Fact for MonthWarned<'_> {
     }
 }
 
+/// `aws.month_stopped`: the month's actual AWS spend reached the budget line,
+/// where the account's stop action applies. Once a month an account; written
+/// in the frame of the owner's notice and the mark that says it was told.
+pub struct MonthStopped<'a> {
+    pub account: &'a str,
+    pub month: &'a str,
+    pub actual_cents: u64,
+    pub limit_cents: u64,
+}
+
+impl Fact for MonthStopped<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::AwsMonthStopped);
+
+    fn row(&self) -> Value {
+        json!({"account": self.account, "month": self.month,
+               "actual_usd": self.actual_cents as f64 / 100.0,
+               "limit_usd": self.limit_cents as f64 / 100.0})
+    }
+}
+
 /// The META key that holds the month an account was last warned in.
 fn meta_key(account: &str) -> String {
     format!("aws.month_warned.{account}")
 }
 
-/// `2026-10`, on the daemon's clock.
+/// The META key that holds the month an account's stop was last told.
+fn stopped_key(account: &str) -> String {
+    format!("aws.month_stopped.{account}")
+}
+
+/// `2026-10`, of an instant, in the daemon's zone. Callers pass the budget
+/// read's own instant (`AwsBudgetStatus::read_at_unix_ms`, set by
+/// `tend::read_budget`), never a second clock read.
 fn month_of(now_ms: u64) -> String {
     let l = crate::wake::local(now_ms);
     format!("{:04}-{:02}", l.year, l.month)
@@ -80,8 +107,7 @@ impl crate::Core {
         if warn == 0 || b.actual_cents < warn {
             return;
         }
-        let now = theseus_protocol::now_unix_ms();
-        let month = month_of(now);
+        let month = month_of(b.read_at_unix_ms);
         let key = meta_key(&account.id);
         if self
             .store
@@ -126,5 +152,267 @@ impl crate::Core {
         if let Err(e) = written {
             tracing::warn!(account = %account.id, error = %format!("{e:#}"), "aws: the month's warning was not written");
         }
+    }
+
+    /// After a read of the account's budget: when it shows the month's actual
+    /// spend at the line, tell the owner once a month. The tender reads every
+    /// six hours, so this is seen at the next read, never before the stop.
+    pub(crate) fn aws_month_stopped(&self, account: &Account, b: &AwsBudgetStatus) {
+        if b.limit_cents == 0 || b.actual_cents < b.limit_cents {
+            return;
+        }
+        let month = month_of(b.read_at_unix_ms);
+        let key = stopped_key(&account.id);
+        let told = self.store.get_meta::<String>(&key).ok().flatten();
+        if told.as_deref() == Some(month.as_str()) {
+            return;
+        }
+        let written = (|| -> anyhow::Result<()> {
+            let Some((a, frame)) = self.stopped_frame(account, b, &month)? else {
+                return Ok(());
+            };
+            self.store.append(&frame)?;
+            self.outbox.posted(&a);
+            Ok(())
+        })();
+        if let Err(e) = written {
+            tracing::warn!(account = %account.id, error = %format!("{e:#}"), "aws: the month's stop was not told");
+        }
+    }
+
+    /// The month's stop as one frame: the staged post to the owner and the
+    /// META mark that says it was told, so a failed write leaves neither and
+    /// a restart cannot post twice. `None` when this run has told it.
+    fn stopped_frame(
+        &self,
+        account: &Account,
+        b: &AwsBudgetStatus,
+        month: &str,
+    ) -> anyhow::Result<Option<(theseus_kernel::Action, Vec<NewRecord>)>> {
+        let detail = format!(
+            "A month's actual spend in account {} reached the budget line. Where this account \
+             runs the foundation stack's stop action, AWS has now applied its deny-spend \
+             policy; Theseus does not read whether it ran. The limit above is the budget line AWS holds, \
+             which the reconcile sets from `monthly_budget_usd` at a start, so the two can \
+             differ. This was seen at the next budget \
+             read (every six hours), so it cannot be earlier than the stop itself.",
+            account.id
+        );
+        let staged = self.outbox.stage_rule(
+            None,
+            crate::rule_notice::Notice {
+                rule: crate::rule_notice::Rule::F1,
+                outcome: crate::rule_notice::Outcome::Stopped,
+                limit_usd: b.limit_cents as f64 / 100.0,
+                figure_usd: b.actual_cents as f64 / 100.0,
+                scope: &format!("{}:{month}", account.id),
+                detail: &detail,
+            },
+        )?;
+        let Some((a, mut frame)) = staged else {
+            return Ok(None);
+        };
+        let f = MonthStopped {
+            account: &account.id,
+            month,
+            actual_cents: b.actual_cents,
+            limit_cents: b.limit_cents,
+        };
+        frame.push(crate::fact::row(&f, None, None)?);
+        frame.push(NewRecord::json(
+            kinds::META,
+            Some(&stopped_key(&account.id)),
+            &month,
+        )?);
+        Ok(Some((a, frame)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::aws::tests::{core, Fake};
+
+    fn stopped_posts(c: &crate::Core) -> Vec<String> {
+        c.outbox
+            .open_for(crate::outbox::OPERATOR_TARGET)
+            .iter()
+            .filter(|a| crate::outbox::kind_of(a) == "spend_ceiling")
+            .map(|a| {
+                crate::outbox::body_of(a)["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .filter(|t| t.contains("Rule F1"))
+            .collect()
+    }
+
+    /// The instant every read in these tests is taken at: noon on 2026-01-01
+    /// UTC, so no test reads the clock.
+    fn pinned() -> u64 {
+        theseus_protocol::time::days_from_civil(2026, 1, 1) as u64 * 86_400_000 + 12 * 3_600_000
+    }
+
+    fn at(actual_cents: u64) -> AwsBudgetStatus {
+        at_ms(actual_cents, pinned())
+    }
+
+    fn at_ms(actual_cents: u64, read_at_unix_ms: u64) -> AwsBudgetStatus {
+        AwsBudgetStatus {
+            limit_cents: 10_000,
+            actual_cents,
+            forecast_cents: None,
+            read_at_unix_ms,
+        }
+    }
+
+    fn this_month() -> String {
+        month_of(pinned())
+    }
+
+    /// A core, its only account, and the stop's META key.
+    fn rig(dir: &std::path::Path) -> (Arc<crate::Core>, Arc<Account>, String) {
+        let fake = Fake::start(|_, _| (200, vec![], String::new()));
+        let c = core(&fake, dir, vec![]);
+        let a = c.tools.aws.clone().unwrap().account(None).unwrap().clone();
+        let key = stopped_key(&a.id);
+        (c, a, key)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_months_stop_tells_the_owner_once_a_month() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, key) = rig(dir.path());
+        // a. one cent under the line: no post, no mark.
+        c.aws_month_stopped(&a, &at(9_999));
+        assert!(stopped_posts(&c).is_empty());
+        assert_eq!(c.store.get_meta::<String>(&key).unwrap(), None);
+        // b. at the line: exactly one notice, naming the rule and the figures.
+        c.aws_month_stopped(&a, &at(10_000));
+        let told = stopped_posts(&c);
+        assert_eq!(told.len(), 1, "one notice: {told:?}");
+        for w in [
+            "Rule F1 stopped",
+            "$100.00",
+            "monthly_budget_usd",
+            "does not read whether it ran",
+            "budget line AWS holds",
+        ] {
+            assert!(told[0].contains(w), "{w}: {}", told[0]);
+        }
+        assert!(
+            !told[0].contains("applies its stop action when"),
+            "{}",
+            told[0]
+        );
+        assert_eq!(
+            c.store.get_meta::<String>(&key).unwrap().as_deref(),
+            Some(this_month().as_str())
+        );
+        // c. a later read, same month: still one.
+        c.aws_month_stopped(&a, &at(10_500));
+        assert_eq!(stopped_posts(&c).len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_stops_post_and_mark_are_one_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, key) = rig(dir.path());
+        let month = this_month();
+        let (_, frame) = c.stopped_frame(&a, &at(10_000), &month).unwrap().unwrap();
+        let marks: Vec<_> = frame
+            .iter()
+            .filter(|r| r.kind == kinds::META && r.key.as_deref() == Some(key.as_str()))
+            .collect();
+        assert_eq!(marks.len(), 1, "one mark in the frame");
+        assert_eq!(
+            serde_json::from_slice::<String>(&marks[0].payload).unwrap(),
+            month
+        );
+        assert!(
+            frame.len() >= 2,
+            "the staged post is in it too: {}",
+            frame.len()
+        );
+        // the audit row rides the same frame: exactly one ledger record, of
+        // the stop's own kind, naming the account, the month and the figures.
+        let rows: Vec<crate::ledger::LedgerRow> = frame
+            .iter()
+            .filter(|r| r.kind == kinds::LEDGER)
+            .map(|r| serde_json::from_slice(&r.payload).unwrap())
+            .collect();
+        let stopped: Vec<_> = rows
+            .iter()
+            .filter(|r| r.kind == "aws.month_stopped")
+            .collect();
+        assert_eq!(
+            stopped.len(),
+            1,
+            "one aws.month_stopped row in the frame: {rows:?}"
+        );
+        let d = &stopped[0].data;
+        assert_eq!(d["account"].as_str(), Some(a.id.as_str()));
+        assert_eq!(d["month"].as_str(), Some(month.as_str()));
+        assert_eq!(d["limit_usd"].as_f64(), Some(100.0));
+        assert_eq!(d["actual_usd"].as_f64(), Some(100.0));
+        // nothing is written until the caller appends the frame.
+        assert_eq!(c.store.get_meta::<String>(&key).unwrap(), None);
+        assert!(stopped_posts(&c).is_empty());
+    }
+
+    /// The month is the read's own instant, not a second clock read: a read
+    /// a second before the local month turned marks the old month, one at the
+    /// turn the new one, whatever the clock says now and in any zone.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_month_is_the_reads_own_instant() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, key) = rig(dir.path());
+        let noon = pinned();
+        let turn = crate::learning::local_midnight(noon);
+        assert_ne!(
+            month_of(turn - 1_000),
+            month_of(turn),
+            "the straddle exists here"
+        );
+        c.aws_month_stopped(&a, &at_ms(10_000, turn - 1_000));
+        assert_eq!(stopped_posts(&c).len(), 1);
+        assert_eq!(
+            c.store.get_meta::<String>(&key).unwrap().as_deref(),
+            Some(month_of(turn - 1_000).as_str())
+        );
+        c.aws_month_stopped(&a, &at_ms(10_000, turn));
+        assert_eq!(stopped_posts(&c).len(), 2, "the new month is told again");
+        assert_eq!(
+            c.store.get_meta::<String>(&key).unwrap().as_deref(),
+            Some(month_of(turn).as_str())
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_marked_month_stays_quiet_across_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, key) = rig(dir.path());
+        // d. the mark says this month: the in-memory set is empty, only the
+        // mark suppresses.
+        c.store
+            .append(&[NewRecord::json(kinds::META, Some(&key), &this_month()).unwrap()])
+            .unwrap();
+        c.aws_month_stopped(&a, &at(12_000));
+        assert!(stopped_posts(&c).is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_months_mark_does_not_silence_this_month() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, key) = rig(dir.path());
+        // e. a mark from another month.
+        c.store
+            .append(&[NewRecord::json(kinds::META, Some(&key), &"1999-01").unwrap()])
+            .unwrap();
+        c.aws_month_stopped(&a, &at(10_000));
+        assert_eq!(stopped_posts(&c).len(), 1);
     }
 }

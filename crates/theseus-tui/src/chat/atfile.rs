@@ -10,6 +10,9 @@
 //! no file's content and so has no second, uncapped way for bytes to enter a
 //! request (the other choice, a file's text in the message, was rejected for
 //! that reason, and because a client's read would skip the gate's labels).
+//! The one exception is an image (png, jpg, jpeg, gif, webp): it goes as an
+//! `Attachment`, read by the CLI's builder (`read_images`) off the loop's
+//! thread (`Effect::ReadImages`), its answer `Chat::images_read`.
 //!
 //! Like the session picker (`picker.rs`) the list is read once and a keystroke
 //! filters it in memory: no request, no stat. The read is two steps and both
@@ -168,6 +171,12 @@ pub struct AtFiles {
     closed: bool,
     /// The word the selection was made for.
     word: String,
+    /// The missing names the list was already read again for at Enter: a
+    /// name is re-read for once, never again while it stays missing.
+    reread: Vec<String>,
+    /// An image read is out: the line it was for (as typed) and what goes
+    /// with it. One at a time.
+    reading: Option<(String, Resolved)>,
 }
 
 /// The `@word` that ends at the cursor, without its `@`; None when the word
@@ -175,6 +184,44 @@ pub struct AtFiles {
 fn query_of(word: &str) -> Option<&str> {
     let q = word.strip_prefix('@')?;
     (!q.starts_with('@')).then_some(q)
+}
+
+/// What goes with a message that names files: the footer of paths, and the
+/// images as attachments.
+#[derive(Debug, Default)]
+pub(super) struct Resolved {
+    pub footer: String,
+    pub attachments: Vec<theseus_protocol::Attachment>,
+    /// Images still to read, `(name, absolute path)`: `at_resolve` reads none.
+    pub images: Vec<(String, String)>,
+    /// What the transcript says went by reference, so the person sees it.
+    pub note: String,
+}
+
+/// The dim line under the echo: what went by reference and what went as an
+/// image; empty when nothing did.
+fn attached_note(by_path: &[&str], images: &[&str]) -> String {
+    let mut parts = Vec::new();
+    if !by_path.is_empty() {
+        parts.push(format!("paths sent: {}", by_path.join(", ")));
+    }
+    if !images.is_empty() {
+        parts.push(format!("images attached: {}", images.join(", ")));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("  ↪ {}", parts.join(" · "))
+    }
+}
+
+/// Is a listed path an image the daemon renders for a vision model?
+fn is_image(name: &str) -> bool {
+    let ext = Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp")
 }
 
 /// Every `@path` the text names, as typed: words that begin with one `@`.
@@ -236,7 +283,10 @@ impl Chat {
             self.at.sel = 0;
             self.at.closed = false;
         }
-        if self.at_query().is_some() && matches!(self.at.load, Load::Unasked) {
+        // The list is also wanted when an `@path` sits elsewhere in the line (a
+        // recalled message): Enter would refuse it for good otherwise.
+        let wanted = self.at_query().is_some() || !mentions(&self.editor.typed_text()).is_empty();
+        if wanted && matches!(self.at.load, Load::Unasked) {
             self.at.load = Load::Roots;
             return vec![call(method::TOOL_LIST, Value::Null, Purpose::AtRoots)];
         }
@@ -332,13 +382,42 @@ impl Chat {
         };
     }
 
+    /// A miss at Enter, the first time for that name: read the list again
+    /// once (a file made since the listing), and say so. The names it was for
+    /// are remembered, so while each stays missing the next Enter is refused by
+    /// `at_resolve` and walks nothing, however many Enters follow. None when
+    /// nothing is missing, or every missing name has had its re-read.
+    pub(super) fn at_reread(&mut self) -> Option<Vec<Effect>> {
+        let Load::Ready(ix) = &self.at.load else {
+            return None;
+        };
+        let missing: Vec<String> = mentions(&self.editor.typed_text())
+            .into_iter()
+            .filter(|n| !ix.has(n))
+            .collect();
+        if missing.is_empty() {
+            self.at.reread.clear();
+            return None;
+        }
+        if missing.iter().all(|n| self.at.reread.contains(n)) {
+            return None;
+        }
+        self.at.reread = missing;
+        self.at.load = Load::Roots;
+        self.flash("not in the list; reading it again · enter again");
+        Some(vec![call(method::TOOL_LIST, Value::Null, Purpose::AtRoots)])
+    }
+
     /// Before a message goes: every `@path` it names must be a listed file.
-    /// Ok carries the footer to add (empty when the message names none); Err
-    /// is what to tell the person, and nothing is sent.
-    pub(super) fn at_resolve(&self) -> Result<String, String> {
+    /// Ok carries what goes with the message (a footer of paths for the files,
+    /// the images still to read in `images`); Err is what to tell the person,
+    /// and nothing is sent. Nothing is read here: an image (png, jpg, jpeg,
+    /// gif, webp) is named in `images` and read off the loop by `read_images`
+    /// (`Effect::ReadImages`), then goes as an `Attachment` instead of a path.
+    pub(super) fn at_resolve(&self) -> Result<Resolved, String> {
         let names = mentions(&self.editor.typed_text());
         if names.is_empty() {
-            return Ok(String::new());
+            return Ok(Resolved::default());
         }
         let ix = match &self.at.load {
             Load::Ready(ix) => ix,
@@ -352,7 +431,9 @@ impl Chat {
                 ))
             }
         };
+        let mut out = Resolved::default();
         let mut lines = Vec::new();
+        let (mut by_path, mut images) = (Vec::new(), Vec::new());
         for n in &names {
             if !ix.has(n) {
                 return Err(format!(
@@ -360,12 +441,66 @@ impl Chat {
                     self.cfg.shown_dir
                 ));
             }
-            lines.push(format!("{}/{n}", self.cfg.dir.trim_end_matches('/')));
+            let abs = format!("{}/{n}", self.cfg.dir.trim_end_matches('/'));
+            if is_image(n) {
+                out.images.push((n.clone(), abs));
+                images.push(n.as_str());
+            } else {
+                lines.push(abs);
+                by_path.push(n.as_str());
+            }
         }
-        Ok(format!(
-            "\n\nFiles named with @ (paths, not contents; read them with fs.read):\n{}",
-            lines.join("\n")
-        ))
+        if !lines.is_empty() {
+            // `fs_read` is `theseus_tools::wire_name("fs.read")`, the name the model
+            // is offered; this crate does not link theseus-tools.
+            out.footer = format!(
+                "\n\nFiles named with @ (paths, not contents; read them with fs_read):\n{}",
+                lines.join("\n")
+            );
+        }
+        out.note = attached_note(&by_path, &images);
+        Ok(out)
+    }
+
+    /// An image read is out: a second Enter starts no second read.
+    pub(super) fn image_reading(&self) -> bool {
+        self.at.reading.is_some()
+    }
+
+    /// The read for `resolved`'s images goes out; the line, as typed, is
+    /// remembered so the answer can tell an edited line from the one it was for.
+    pub(super) fn image_read_started(&mut self, mut resolved: Resolved) -> Vec<Effect> {
+        self.flash("reading the image…");
+        let names = std::mem::take(&mut resolved.images);
+        self.at.reading = Some((self.editor.typed_text(), resolved));
+        vec![Effect::ReadImages(names)]
+    }
+
+    /// The image read finished (the runner hands `read_images`' result here).
+    /// An error is said in the dock, naming the file and why, and the line is
+    /// kept; so is a line edited meanwhile (it is not the one that was read
+    /// for), which the next Enter reads afresh.
+    pub(super) fn images_read(
+        &mut self,
+        result: Result<Vec<theseus_protocol::Attachment>, String>,
+    ) -> Vec<Effect> {
+        let Some((line, mut resolved)) = self.at.reading.take() else {
+            return Vec::new();
+        };
+        match result {
+            Err(why) => {
+                self.flash(why);
+                Vec::new()
+            }
+            Ok(_) if self.editor.typed_text() != line => {
+                self.flash("the line changed while the image was read · enter again");
+                Vec::new()
+            }
+            Ok(attachments) => {
+                resolved.attachments = attachments;
+                self.send_resolved(resolved)
+            }
+        }
     }
 
     /// The rows under the input while the word at the cursor is an `@word`.
@@ -415,4 +550,23 @@ impl Chat {
             }
         }
     }
+}
+
+/// Reads the named images, `(name, absolute path)`, as the CLI's `--attach`
+/// does (`attachment_labeled`, its 32 MiB cap); the first refusal is the
+/// answer, in words that name the file. Blocking: the runner calls it on a
+/// blocking thread.
+pub fn read_images(
+    list: Vec<(String, String)>,
+) -> Result<Vec<theseus_protocol::Attachment>, String> {
+    list.into_iter()
+        .map(|(name, abs)| {
+            let a = theseus_client::attach::attachment_labeled(Path::new(&abs), "@image")
+                .map_err(|e| format!("@{name}: {e:#}"))?;
+            match &a.not_read {
+                Some(why) => Err(format!("@{name}: {why}")),
+                None => Ok(a),
+            }
+        })
+        .collect()
 }

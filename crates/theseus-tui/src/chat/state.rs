@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use theseus_protocol::modes::{PlanItem, SessionMode};
 use theseus_protocol::{method, warm::Typist, ConfirmRequest};
 
+use super::atfile::Resolved;
 use super::banner;
 use super::commands;
 use super::editor::Editor;
@@ -86,6 +87,8 @@ pub enum Purpose {
     Stop,
     /// `/context`: the session's last compile, by part.
     Context,
+    /// One of `/why`'s four reads.
+    Why(super::why::WhyPart),
     /// `/cost`: the day, from health.
     Cost,
     /// Rewind (theseus-23rk): the picker's messages, a restore of the files,
@@ -155,6 +158,9 @@ pub enum Effect {
     },
     /// A ping for an Interrupt: the terminal's bell.
     Bell,
+    /// Read these images, `(name, absolute path)`, off the loop's thread; the
+    /// answer is `atfile::read_images`' result, given to `Chat::images_read`.
+    ReadImages(Vec<(String, String)>),
     /// The operator looked at the board at this position and time: the seen file.
     Look(PathBuf, u64, u64),
     Quit,
@@ -191,6 +197,8 @@ pub struct Chat {
     pub fill: Option<(u64, u64)>,
     /// What each turn this chat saw end cost.
     pub(super) turn_costs: Vec<Option<f64>>,
+    /// `/why`'s reads, while they are out.
+    pub(super) why: Option<super::why::WhyRead>,
     /// The last turn's link in the cockpit (theseus-x9swu), which `/inspect` says again.
     pub last_inspect: Option<String>,
     /// The conversation's mode and approved plan (theseus-lyxy).
@@ -223,7 +231,7 @@ pub struct Chat {
     pub(super) ended: HashSet<String>,
     pub(super) answered_text: HashSet<String>,
     pub(super) proposed: std::collections::HashMap<String, (String, Value)>,
-    pub(super) unsent: Vec<String>,
+    pub(super) unsent: Vec<(String, Vec<theseus_protocol::Attachment>)>,
     /// The owner's last message in this conversation (never a task's), for
     /// `make that a task`.
     pub(super) last_said: Option<String>,
@@ -290,6 +298,7 @@ impl Chat {
             cost: 0.0,
             fill: None,
             turn_costs: Vec::new(),
+            why: None,
             last_inspect: None,
             mode: SessionMode::default(),
             plan: Vec::new(),
@@ -436,6 +445,8 @@ impl Chat {
 
     pub fn disconnected(&mut self) {
         self.at_lost();
+        // The four /why answers die with the connection's pending calls.
+        self.why = None;
         if !self.offline {
             self.offline = true;
             self.offline_at = Some(self.now_ms);
@@ -590,8 +601,7 @@ impl Chat {
             }
             Action::Insert(c) => {
                 self.editor.insert(c);
-                self.menu = 0;
-                self.menu_closed = false;
+                self.edited();
                 return self.typing();
             }
             Action::Submit => {
@@ -608,10 +618,12 @@ impl Chat {
             Action::Newline => self.editor.newline(),
             Action::Backspace => {
                 self.editor.backspace();
-                self.menu = 0;
-                self.menu_closed = false;
+                self.edited();
             }
-            Action::Delete => self.editor.delete(),
+            Action::Delete => {
+                self.editor.delete();
+                self.edited();
+            }
             Action::Left => self.editor.left(),
             Action::Right => self.editor.right(),
             Action::Home => self.editor.home(),
@@ -656,17 +668,7 @@ impl Chat {
             }
             Action::Escape => return self.escape(),
             Action::SendNow => return self.send_now(),
-            Action::ShowPaste => {
-                if let Some(text) = self.editor.paste_at_cursor().map(str::to_string) {
-                    self.say_plain(Sty::Dim, "pasted text:");
-                    for l in text.lines() {
-                        let row = format!("  {l}");
-                        self.say_plain(Sty::Dim, &row);
-                    }
-                } else {
-                    self.flash("nothing pasted here");
-                }
-            }
+            Action::ShowPaste => self.show_paste(),
             Action::Tasks => return self.open_task_picker(),
             Action::Interrupt => return self.interrupt(),
             Action::EndOfInput => {
@@ -677,6 +679,25 @@ impl Chat {
             }
         }
         Vec::new()
+    }
+
+    /// The folded paste under the cursor, shown whole.
+    fn show_paste(&mut self) {
+        if let Some(text) = self.editor.paste_at_cursor().map(str::to_string) {
+            self.say_plain(Sty::Dim, "pasted text:");
+            for l in text.lines() {
+                let row = format!("  {l}");
+                self.say_plain(Sty::Dim, &row);
+            }
+        } else {
+            self.flash("nothing pasted here");
+        }
+    }
+
+    /// The line was edited: the command list opens again, at its first row.
+    fn edited(&mut self) {
+        self.menu = 0;
+        self.menu_closed = false;
     }
 
     /// Ctrl-C: clear the line; on an empty one, the second leaves.
@@ -760,20 +781,43 @@ impl Chat {
         if self.ask.note {
             return self.send_note();
         }
-        // A message that names @files must name listed ones, or it is not sent.
-        let footer = if self.editor.text().trim_start().starts_with('/') {
-            String::new()
+        // A message that names @files must name listed ones, or it is not sent;
+        // a command line skips the `@` rule, its re-read too.
+        let resolved = if self.editor.text().trim_start().starts_with('/') {
+            Resolved::default()
         } else {
+            if let Some(effects) = self.at_reread() {
+                return effects;
+            }
             match self.at_resolve() {
-                Ok(f) => f,
+                Ok(r) => r,
                 Err(why) => {
                     self.flash(why);
                     return Vec::new();
                 }
             }
         };
+        if !resolved.images.is_empty() {
+            if self.view.is_some() {
+                self.flash("an image is not carried to a task · /back to the conversation");
+                return Vec::new();
+            }
+            if self.image_reading() {
+                self.flash("still reading the image · one moment");
+                return Vec::new();
+            }
+            return self.image_read_started(resolved);
+        }
+        self.send_resolved(resolved)
+    }
+
+    /// The send half of Enter, for a line whose `@` names are resolved (and
+    /// whose images, if any, are read).
+    pub(super) fn send_resolved(&mut self, resolved: Resolved) -> Vec<Effect> {
         let mut taken = self.editor.take();
-        taken.text.push_str(&footer);
+        taken.text.push_str(&resolved.footer);
+        taken.attachments = resolved.attachments;
+        taken.note = resolved.note;
         let (text, trimmed) = (taken.text.clone(), taken.text.trim());
         if trimmed.is_empty() {
             return Vec::new();
@@ -810,12 +854,20 @@ impl Chat {
             self.enqueue(taken);
             return effects;
         }
-        self.echo(&taken.shown);
+        self.echo_taken(&taken);
         match self.session.clone() {
-            Some(sid) => effects.push(self.submit_call(&sid, text)),
-            None => self.unsent.push(text),
+            Some(sid) => effects.push(self.submit_call(&sid, text, &taken.attachments)),
+            None => self.unsent.push((text, taken.attachments)),
         }
         effects
+    }
+
+    /// The message in the transcript, and under it what went by reference.
+    pub(super) fn echo_taken(&mut self, taken: &super::editor::Taken) {
+        self.echo(&taken.shown);
+        if !taken.note.is_empty() {
+            self.say_plain(Sty::Dim, &taken.note);
+        }
     }
 
     /// The message in the transcript: `›` and its lines.
@@ -843,8 +895,18 @@ impl Chat {
         }
     }
 
-    pub(super) fn submit_call(&self, sid: &str, text: String) -> Effect {
+    /// The one place a `turn.submit` of the conversation is built; `attachments`
+    /// (images named by `@path`) ride as the protocol's `attachments`.
+    pub(super) fn submit_call(
+        &self,
+        sid: &str,
+        text: String,
+        attachments: &[theseus_protocol::Attachment],
+    ) -> Effect {
         let mut params = json!({ "session_id": sid, "input": text, "author": AUTHOR });
+        if !attachments.is_empty() {
+            params["attachments"] = json!(attachments);
+        }
         if let Some(p) = &self.profile {
             params["profile"] = json!(p);
             params["carried"] = json!(true);

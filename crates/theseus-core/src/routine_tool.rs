@@ -5,7 +5,8 @@
 //! every posture as a floor call does, and its card reads
 //!
 //! `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00,
-//! Mon 08:00, Tue 08:00) · up to $0.50 a run, $10 a month · posts to your DM`
+//! Mon 08:00, Tue 08:00) · its own budget, not a system cap: up to $0.50 a run, $10 a month ·
+//! posts to your DM`
 //!
 //! Approved, the harness makes the routine (`routine::create`, the same
 //! function the owner's `routine.create` verb calls) in the conversation's

@@ -357,6 +357,27 @@ async fn a_synthesis_cut_off_mid_word_is_asked_for_again() {
     assert_eq!(s.audio.duration(), Duration::from_millis(400));
 }
 
+/// The first ask gets the retry every later one has: one transient failure
+/// on request one does not drop the sentence, and only the ask that answered
+/// is billed.
+#[tokio::test]
+async fn a_first_ask_that_fails_is_asked_for_again() {
+    let whole = clip(4000, Duration::from_millis(140));
+    let answers = vec![
+        Answer::Status(503, "Service Unavailable", r#"{"err_msg":"busy"}"#.into()),
+        raw(whole, 9),
+    ];
+    let fake = Fake::start(Answer::Seq(Arc::new(Mutex::new(answers)))).await;
+    let s = fake
+        .speech()
+        .synthesize("Go ahead.")
+        .await
+        .expect("audio after one failure");
+    assert_eq!(fake.seen().len(), 2, "asked again after the first failed");
+    assert_eq!(s.usage.chars, 9, "only the ask that answered is billed");
+    assert!(!s.audio.cut_off());
+}
+
 /// A clip still cut off after every ask loses only its last 10 ms to the fade:
 /// those samples ramp down to silence and the ones before them are as
 /// Deepgram sent them (theseus-bp0lp).
@@ -483,7 +504,11 @@ async fn a_call_with_no_answer_ends_at_its_timeout() {
     assert!(took < Duration::from_secs(5), "bounded: {took:?}");
     let e = speech.transcribe(Speaker(1), &spoken()).await.unwrap_err();
     assert!(e.to_string().contains("no answer"), "{e}");
-    assert_eq!(fake.seen().len(), 2, "both reached the stand-in");
+    assert_eq!(
+        fake.seen().len(),
+        1 + theseus_voice::deepgram::SYNTHESES,
+        "the transcribe, and the synthesis asked for SYNTHESES times (its first ask is retried too)"
+    );
 }
 
 #[tokio::test]

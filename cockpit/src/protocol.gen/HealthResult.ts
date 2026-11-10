@@ -20,6 +20,7 @@ import type { HealthImported } from "./HealthImported";
 import type { IndexHealth } from "./IndexHealth";
 import type { JudgeHealth } from "./JudgeHealth";
 import type { KernelStatus } from "./KernelStatus";
+import type { LedgerGap } from "./LedgerGap";
 import type { LspServerStatus } from "./LspServerStatus";
 import type { McpServerHealth } from "./McpServerHealth";
 import type { McpServerStatus } from "./McpServerStatus";
@@ -98,7 +99,11 @@ tui_notify: string, ledger_rows: number,
  * The ledger chain's head as the writer last committed it, short
  * (`3fa1c09e…#1204`); absent before the chain starts (theseus-bmkxk).
  */
-ledger_head?: string | null, telemetry: TelemetryStatus, 
+ledger_head?: string | null, 
+/**
+ * The index lags the log, while it does (theseus-lu5n): absent when whole.
+ */
+ledger_gap?: LedgerGap | null, telemetry: TelemetryStatus, 
 /**
  * The durable kernel (M2): executions, actions, admission.
  */

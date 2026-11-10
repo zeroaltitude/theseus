@@ -33,6 +33,16 @@ pub(super) fn cost(_chat: &mut Chat, _args: &str) -> Vec<Effect> {
 }
 
 impl Chat {
+    /// The answer to `/context` or `/cost`.
+    pub(super) fn said_usage(&mut self, purpose: &Purpose, v: Value) -> Vec<Effect> {
+        if matches!(purpose, Purpose::Context) {
+            self.say_context(v);
+        } else {
+            self.say_cost(v);
+        }
+        Vec::new()
+    }
+
     /// A turn ended: how full the context was at its last request, and what
     /// it cost.
     pub(super) fn note_usage(&mut self, r: &TurnSubmitResult) {

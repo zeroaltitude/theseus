@@ -71,6 +71,7 @@ impl Core {
             tui_notify: self.cfg.tui.notify.clone(),
             ledger_rows: self.store.ledger_len().unwrap_or(0),
             ledger_head: self.ledger_head_short(),
+            ledger_gap: self.ledger_gap(),
             telemetry: self.telemetry_status(),
             kernel: self.kernel_status(),
             children: self.children_status(),
@@ -355,6 +356,39 @@ impl Core {
     /// `session.list`: every session, or only those `ids` names
     /// (theseus-in3), read by id: a client that meets a new session in
     /// `execution.changed` asks for its title.
+    /// `session.list` for a surface: one that reads no private text
+    /// (`Surface::reads_private`) is given an imported session's row with
+    /// its own words withheld (theseus-a7pr) — its `title`, and the
+    /// `with_text` fields `first_text`, `last_text` and `prompts`, which
+    /// `words_of` reads straight out of its messages. The withhold is here,
+    /// after every path the list can take (the `ids` read, a directory's
+    /// scan, a page, and the whole list), so it is one door rather than
+    /// four. `docs/design/imported-surface.md` is the rule.
+    pub(super) fn session_list_on(
+        &self,
+        p: theseus_protocol::SessionListParams,
+        surface: crate::approval::Surface,
+    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
+        self.session_list_for(p, surface.reads_private())
+    }
+
+    /// `session_list_on`, by whether the asker reads private text.
+    pub(crate) fn session_list_for(
+        &self,
+        p: theseus_protocol::SessionListParams,
+        private: bool,
+    ) -> Result<theseus_protocol::SessionListResult, RpcFailure> {
+        let mut r = self.session_list_of(p)?;
+        if !private {
+            for s in &mut r.sessions {
+                if crate::import::is_imported(&s.session_id) {
+                    withhold_session_words(s);
+                }
+            }
+        }
+        Ok(r)
+    }
+
     pub(super) fn session_list_of(
         &self,
         p: theseus_protocol::SessionListParams,
@@ -929,6 +963,10 @@ impl Core {
         // The owner's explicit "seal this thread" (theseus-f2g0).
         self.seal_by_word(&p, conn, &session.session_id);
         self.expect_capture(&p, conn, &session.session_id);
+        // The owner's yes, said in words, to a question waiting here
+        // (theseus-3i6d1): answered before the turn runs, and never guessed
+        // when more than one question could be the one he means.
+        self.answer_in_words(&p, conn, &session.session_id);
         // A person's message starts its keep-warm window again (theseus-ezeg).
         let person = p.opened_from.is_none()
             && !matches!(
@@ -1307,15 +1345,15 @@ impl Core {
         let known = cards.as_deref().unwrap_or(&page.nodes);
         let asks = self.pending_by_execution(&mine, Some((&p.session_id, known)));
         let cites = self.page_cites(&p.session_id, &page.nodes)?;
-        let mut session = self.session_info(&rec, &asks);
+        let mut info = self.session_info(&rec, &asks);
         if withhold {
-            // The record's own text: the title is the first message's first
-            // 60 characters, and the earlier title is the same (theseus-a7pr).
-            session.title = None;
-            session.title_was = None;
+            withhold_session_words(&mut info);
         }
         Ok(theseus_protocol::SessionHistoryResult {
-            session,
+            // The session block is withheld with its nodes (theseus-a7pr):
+            // its `title` is up to sixty characters of the imported
+            // session's first message, so it is the same words one door up.
+            session: info,
             pending_confirms: self.confirms_of(&pending, &rec, known),
             nodes: page
                 .nodes
@@ -2033,9 +2071,27 @@ pub(crate) fn ledger_tags(kind: Option<&str>, session: Option<&str>) -> Vec<Stri
         .collect()
 }
 
+/// An imported session as a surface that reads no private text sees it:
+/// its id, its counts, its state and its labels, never its own words
+/// (theseus-a7pr). The five fields here are every one of `SessionInfo`'s
+/// that is drawn from the session's messages, checked against the type
+/// rather than assumed: `title` and `title_was` are `session::title_from`
+/// of its summary or its first message (`import::write` fills them, so up
+/// to sixty characters of it), and `first_text`, `last_text` and `prompts`
+/// are what `session.list { with_text }` reads from its nodes
+/// (`rpc::session_find::words_of`). `withheld_node` is its twin a level
+/// down; `docs/design/imported-surface.md` is the rule both serve.
+pub(crate) fn withhold_session_words(i: &mut theseus_protocol::SessionInfo) {
+    i.title = None;
+    i.title_was = None;
+    i.first_text = None;
+    i.last_text = None;
+    i.prompts = None;
+}
+
 /// An imported node as a surface that reads no private text sees it: who,
 /// when and how big, never what it said (theseus-a7pr).
-fn withheld_node(mut i: theseus_protocol::NodeInfo) -> theseus_protocol::NodeInfo {
+pub(crate) fn withheld_node(mut i: theseus_protocol::NodeInfo) -> theseus_protocol::NodeInfo {
     i.text = crate::books::WITHHELD.into();
     i.thinking = String::new();
     i.detail = Value::Null;

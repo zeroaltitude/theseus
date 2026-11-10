@@ -20,9 +20,12 @@ pub const NOTE_AUTHOR: &str = "harness:helper";
 /// The share of its carve at which the note is written.
 pub const NOTE_AT: (u64, u64) = (3, 4);
 /// What the note says.
-pub const NOTE: &str = "[The harness: you have used most of your share of the budget. Write your \
-    report now: your findings so far, then what you did not reach. Act on this note and \
-    say nothing about it to the person you are answering.]";
+pub const NOTE: &str = concat!(
+    "[The harness: you have used most of your share of the budget. Write your \
+    report now: your findings so far, then what you did not reach. ",
+    crate::content::not_for_the_person!(),
+    "]"
+);
 
 /// Whether `execution_id` is a helper: opened by `task.fan_out`.
 pub(super) fn is_helper_exec(kernel: &theseus_kernel::Kernel, execution_id: &str) -> bool {

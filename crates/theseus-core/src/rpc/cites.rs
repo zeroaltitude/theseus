@@ -8,7 +8,7 @@
 use theseus_protocol::cite::{handles_in, Citation, MemoryCitesParams, MemoryCitesResult};
 use theseus_protocol::error_code;
 
-use super::server::RpcFailure;
+use super::server::{Conn, RpcFailure};
 use super::Core;
 use crate::node::Body;
 use crate::places::PlaceClass;
@@ -20,16 +20,19 @@ const MAX_HANDLES: usize = 64;
 
 impl Core {
     /// `memory.recalls` and `memory.cites`: a session's recalls, and the sources its replies cite.
-    pub(super) fn memory_reads(
+    pub(super) fn mem_reads(
         &self,
         name: &str,
         params: serde_json::Value,
+        conn: Conn<'_>,
     ) -> Result<serde_json::Value, RpcFailure> {
         match name {
             theseus_protocol::method::MEMORY_CITES => {
                 super::server::route(params, |p| self.memory_cites(p))
             }
-            _ => super::server::route(params, |p| self.memory_recalls(p)),
+            _ => super::server::route(params, |p| {
+                self.memory_recalls_for(p, conn.surface.reads_private())
+            }),
         }
     }
 

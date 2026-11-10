@@ -72,6 +72,17 @@ ignore = [
     { id = "RUSTSEC-2026-0367", reason = "zip 8.6 SUID bits on extract: candle-core reads and writes .npz/.pth in memory and never extracts (n402p)" },
     { id = "RUSTSEC-2026-0368", reason = "zip 8.6 symlink targets on extract: unreachable, as RUSTSEC-2026-0367 (n402p)" },
     { id = "RUSTSEC-2026-0369", reason = "zip 8.6 permissions through symlinks on extract: unreachable, as RUSTSEC-2026-0367 (n402p)" },
+    # theseus-4vsrz (the owner, 2026-11-09): the two that held the daily deny job red with no branch in flight.
+    # zip 8.6.0 is pulled only by candle-core 0.11.0 (the latest, which pins ^8.6); theseus-files uses zip 9.0.5, the
+    # patched one. The defect is `ZipArchive::extract()` sizing a symlink target's buffer from the declared size, so a
+    # symlink entry declaring a huge size aborts the process. candle-core only opens an archive (`ZipArchive::new` and
+    # `by_name`, in pickle.rs) and never extracts one, and the models it loads come from sources we trust. Drop with
+    # candle's bump to zip 9.
+    { id = "RUSTSEC-2026-0429", reason = "zip 8.6.0 extract() aborts on a symlink entry with a huge declared size: candle-core 0.11.0 is its only user, never extracts, and loads models from trusted sources; theseus-files has zip 9.0.5 (4vsrz)" },
+    # pin-utils 0.1.1 is unmaintained, with no patched release. aws-smithy-http and aws-smithy-types pull it, so it is
+    # the AWS SDK's dependency to replace, not ours; fluvio-wasm-timer pulls it too, under openmls under songbird, the
+    # voice stack's. Drop when they stop using it.
+    { id = "RUSTSEC-2026-0441", reason = "pin-utils 0.1.1 unmaintained, no patch: pulled by aws-smithy-http and aws-smithy-types (the SDK's dependency to replace) and fluvio-wasm-timer (songbird's openmls), not ours (4vsrz)" },
 ]
 
 [sources]

@@ -1374,3 +1374,38 @@ async fn the_turns_last_words_go_out_whatever_prompted_them() {
     );
     assert_eq!(out[2].1, "I checked the loader after all: it passes.");
 }
+
+/// The floor's limit, pinned (theseus-emqbm; the harness-nudge review's F2).
+/// A nudged last loop whose answer names the harness is posted all the same:
+/// the checklist line itself says "only the turn's final answer to the owner
+/// is posted", so the turn's last words always go out, and suppressing them
+/// would be the other half of the complaint. The bar inside the floor, that
+/// those words do not read as a reply to the harness, rests on the nudge's own
+/// last sentence (`content::NOT_FOR_THE_PERSON`) and the model honouring it,
+/// not on a property of the code. This is deliberate: nobody may "fix" it into
+/// silence. The rig sets its deadlines from an `Instant`; no hour of day.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_nudged_last_loop_that_names_the_harness_is_still_posted() {
+    const LAST: &str = "The harness is right: I checked the loader, and it passes.";
+    let r = dm_rig(|root| {
+        vec![
+            works(root, "Running the loader check.", "c1"),
+            Scripted::text("The tide tables are built, but I haven't tested the loader."),
+            Scripted::text(LAST),
+        ]
+    });
+    let dm = format!("dm:{OWNER}");
+    let (sid, res) = r.turn_in(Some(&dm)).await;
+    assert_eq!(res.loops, 3, "the doubt bought loop 2");
+    let rows = r.rows(&sid);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["decision"], "doubt", "the nudge fired");
+    let out = posted(&r, &dm);
+    assert_eq!(
+        out.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+        vec![0, 1, 2],
+        "the last loop is the turn's answer, whatever it says: {out:?}"
+    );
+    assert_eq!(out[2].1, LAST);
+    assert!(out[2].1.to_lowercase().contains("the harness"), "{out:?}");
+}

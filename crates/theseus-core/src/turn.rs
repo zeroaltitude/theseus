@@ -119,6 +119,8 @@ pub(crate) mod tier;
 mod title_step;
 
 pub use request::TurnRequest;
+#[cfg(test)]
+pub(crate) use route_step::first_compile_hook;
 pub use route_step::{LiveSwitched, SWITCHED};
 
 /// The built-in persona at the front of the system prompt of a session whose
@@ -1392,6 +1394,7 @@ impl TurnRunner {
             };
         let rec = self.session_rec(&failure_sink.session_id, To::Sink(&failure_sink));
         if session_ended {
+            self.tools.reads.forget(&failure_sink.session_id);
             self.tools.job_waits.task_settled();
             self.tools.job_waits.steers.unjoin(&failure_sink.session_id);
             let by = crate::term::BY_SESSION_END;

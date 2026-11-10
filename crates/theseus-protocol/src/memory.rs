@@ -122,7 +122,34 @@ pub struct RecallManifest {
     /// In shadow (theseus-fpm2): the turn's verdict said its reply needs `low`
     /// effort, small talk, and this many admitted notes are what a small-talk
     /// bar would have left out. Nothing was dropped: the notes were attached
-    /// as before. Absent when the verdict did not say so.
+    /// as before. Absent when the verdict did not say so, and for a manifest
+    /// that paused at the session's recall cap: its notes were admitted but
+    /// never attached, so no bar had anything to drop, and for one that
+    /// admitted no notes at all. Absent, too, for a turn
+    /// whose verdict missed the route's own wait (`routing.max_wait_ms`): the
+    /// verdict lands for the session's next message, and nothing marks this
+    /// turn afterwards, so that greeting is missing from the sample. A count
+    /// over these rows is of the low-effort turns whose verdict arrived in
+    /// time, not of every one; a verdict that arrives inside the wait, after
+    /// the pack fixed its budget without it, is counted. A turn whose own
+    /// verdict is late can still be marked from the PREVIOUS message's late
+    /// verdict, which the route carries to it, so a count over these rows
+    /// mixes the two. The count is of
+    /// ADMITTED notes: a restricted-origin model's withholding is decided
+    /// after the compile and is not visible where this is written.
+    ///
+    /// Read it: `theseus memory recalled SESSION` prints a line per recall and
+    /// a total; across sessions, `theseus ledger -k recall.ran -n <N> --json`
+    /// (`theseus ledger` is hidden from `theseus help`; `--json` is needed, the
+    /// plain form cuts each row's data at 160 characters) returns the newest
+    /// N recall rows of every session, and the rows with `data.would_drop` are
+    /// the count.
+    ///
+    /// The bar for promoting the drop from shadow to live is the owner's to
+    /// set; a candidate: at least 200 low-effort turns read this way, and for
+    /// the notes the bar would have dropped, the replies cited (`memory.cites`)
+    /// under 5%; plus proof that `effort.v1` calls real greetings `low`, which
+    /// no test shows (the tests script the verdict).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub would_drop: Option<u64>,

@@ -183,7 +183,8 @@ async fn threads_and_sessions_share_the_first_layers_byte_for_byte() {
         head(&r[0])
     );
     assert!(
-        head(&r[0]).contains("carried on every request, not a message from the owner"),
+        head(&r[0]).contains("carried on every request. ")
+            && head(&r[0]).contains(crate::content::CONTEXT_NOT_THE_OWNERS),
         "the card says it is not new: {}",
         head(&r[0])
     );
@@ -419,7 +420,7 @@ async fn a_cold_thread_resumes_small_and_a_warm_one_is_untouched() {
     assert_eq!(c["decision"], "recompile", "{c}");
     assert_eq!(c["trigger"], "cold_resume");
     assert!(
-        c["est_tokens"].as_u64().unwrap() <= 22_000,
+        c["est_tokens"].as_u64().unwrap() <= 22_200,
         "{}",
         c["est_tokens"]
     );

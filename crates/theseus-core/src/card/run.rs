@@ -226,18 +226,7 @@ impl Core {
             .card_model(fresh.len() as u32)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
-        let mut texts: Vec<String> = {
-            let board = self.runner.standing.all(&self.store)?;
-            standing::live(&board, None, now)
-                .iter()
-                .map(|r| r.text.clone())
-                .collect()
-        };
-        texts.extend(all.iter().flat_map(|p| {
-            let mut v = vec![p.text.clone()];
-            v.extend(p.kept_text.clone());
-            v
-        }));
+        let texts = self.known_texts(&all, now)?;
         let mut job = Job {
             run: if dry_run {
                 String::new()
@@ -276,9 +265,33 @@ impl Core {
                 break;
             }
         }
-        job.st.last_run_ms = Some(now);
+        // A failed call is not a run the interval counts from, as far as the run
+        // got: the mark is what the run's own calls left it (`card_call` moves it
+        // on each one that succeeds). A run in which none did keeps the stored
+        // mark, so its next attempt is the next night's, not the interval's; one
+        // that succeeded first counts from its start and waits the interval. A
+        // stop of any other kind that gets here (no price, a budget refusal, a
+        // full board) is a run, and counts (theseus-kinfs; the tender's own mark
+        // keeps a failed run from being due again before then).
+        job.st.last_run_ms = run_mark(&out, job.st.last_run_ms, now);
         self.people_write(&[job.st.record()?]).await?;
         Ok(out)
+    }
+
+    /// What a new statement must not repeat: the standing board's live texts,
+    /// then every proposal's text and its kept text.
+    fn known_texts(&self, all: &[CardProposal], now: u64) -> anyhow::Result<Vec<String>> {
+        let board = self.runner.standing.all(&self.store)?;
+        let mut texts: Vec<String> = standing::live(&board, None, now)
+            .iter()
+            .map(|r| r.text.clone())
+            .collect();
+        texts.extend(all.iter().flat_map(|p| {
+            let mut v = vec![p.text.clone()];
+            v.extend(p.kept_text.clone());
+            v
+        }));
+        Ok(texts)
     }
 
     /// The most the batches could cost: each call also lists, at most, a
@@ -325,9 +338,6 @@ impl Core {
         hold.settle(cost);
         let cost_usd = micros_to_usd(cost);
         job.st.spend(&job.today, cost_usd);
-        if job.live.is_none() {
-            job.st.last_run_ms = Some(job.now);
-        }
         out.calls += 1;
         out.spent_usd += cost_usd;
         out.spent_today_usd = job.st.spent_on(&job.today);
@@ -338,6 +348,9 @@ impl Core {
         out.dropped += dropped;
         out.one_task += u64::from(parsed.one_task);
         let ids: Vec<String> = made.iter().map(|p| p.id.clone()).collect();
+        if job.live.is_none() && failed.is_none() {
+            job.st.last_run_ms = Some(job.now);
+        }
         let f = CardProposed {
             run: &job.run,
             profile: &job.target.profile,
@@ -382,7 +395,7 @@ impl Core {
         self.rec(None).announce(&f);
         out.proposed.extend(made);
         if let Some(why) = failed {
-            out.stopped = Some(format!("a call failed: {why}"));
+            out.stopped = Some(format!("{FAILED_CALL}{why}"));
             return Ok(false);
         }
         Ok(true)
@@ -567,5 +580,24 @@ pub(super) fn proposal(
         record: None,
         observations: Vec::new(),
         posted_ms: None,
+    }
+}
+
+/// What `stopped` begins with when a model call failed.
+const FAILED_CALL: &str = "a call failed: ";
+
+/// Whether a run's `stopped` words say a model call failed.
+fn is_failed_call(stopped: &str) -> bool {
+    stopped.starts_with(FAILED_CALL)
+}
+
+/// The stored last run after a run: `now`, unless a call failed, which leaves
+/// `was`, the mark as the run's own calls left it: the stored one where none
+/// succeeded (theseus-kinfs). Any other stop that gets here counts as a run.
+fn run_mark(out: &CardProposeResult, was: Option<u64>, now: u64) -> Option<u64> {
+    if out.stopped.as_deref().is_some_and(is_failed_call) {
+        was
+    } else {
+        Some(now)
     }
 }

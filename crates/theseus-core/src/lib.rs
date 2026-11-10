@@ -72,6 +72,7 @@ pub mod keep_warm_threads;
 pub mod keep_warm_wait;
 pub mod learning;
 pub mod ledger;
+pub mod ledger_gap;
 pub mod ledger_pin;
 pub mod lsp;
 pub mod mcp;
@@ -250,6 +251,8 @@ mod tests_activation_search;
 #[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
+mod tests_answer_in_words;
+#[cfg(test)]
 mod tests_approvals;
 #[cfg(test)]
 mod tests_arrangement;
@@ -287,6 +290,8 @@ mod tests_check_view;
 mod tests_checkpoint_effort;
 #[cfg(test)]
 mod tests_checkpoint_open;
+#[cfg(test)]
+mod tests_children_complete;
 #[cfg(test)]
 mod tests_cite;
 #[cfg(test)]
@@ -405,6 +410,8 @@ mod tests_job_sites;
 mod tests_jobs;
 #[cfg(test)]
 mod tests_judge;
+#[cfg(test)]
+mod tests_judge_budget;
 #[cfg(test)]
 mod tests_judge_reads;
 #[cfg(test)]

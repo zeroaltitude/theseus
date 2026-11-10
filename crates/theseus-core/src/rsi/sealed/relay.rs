@@ -321,7 +321,7 @@ impl Relay {
             u32::try_from(max_tokens).unwrap_or(u32::MAX),
             req.body.len().div_ceil(BYTES_PER_TOKEN) as u64,
         );
-        let hold = self.hold_on_item(worst)?;
+        let hold = self.hold_on_item(&core, worst)?;
         let reservation =
             match core
                 .runner
@@ -364,20 +364,51 @@ impl Relay {
         Ok(())
     }
 
-    /// Hold `worst` on the item's line, or refuse.
-    fn hold_on_item(&self, worst: u64) -> Result<Hold, Refusal> {
-        let mut st = self.state();
-        let Some(item) = st.item.as_mut() else {
-            return Err(NO_ITEM);
+    /// Hold `worst` on the item's line, or refuse. A refusal at the line is
+    /// rule D5 of the spending table, so the owner is told of it as he is of
+    /// every other (theseus-3i6d1): once for the item, outside the lock the
+    /// hold is taken under.
+    fn hold_on_item(&self, core: &Core, worst: u64) -> Result<Hold, Refusal> {
+        let over = {
+            let mut st = self.state();
+            let Some(item) = st.item.as_mut() else {
+                return Err(NO_ITEM);
+            };
+            let wanted = item.spent_micros + item.open_micros + worst;
+            if wanted <= item.cap_micros {
+                item.open_micros += worst;
+                return Ok(Hold {
+                    item: item.id,
+                    micros: worst,
+                });
+            }
+            (item.id, item.cap_micros, wanted)
         };
-        if item.spent_micros + item.open_micros + worst > item.cap_micros {
-            return Err(ITEM_LINE);
-        }
-        item.open_micros += worst;
-        Ok(Hold {
-            item: item.id,
-            micros: worst,
-        })
+        self.told_stopped(core, over.0, over.1, over.2);
+        Err(ITEM_LINE)
+    }
+
+    /// The owner is told of a call the item's line refused (rule D5), once for
+    /// the item: a run whose every call is refused speaks once, as a rule that
+    /// trips on every call does everywhere else.
+    fn told_stopped(&self, core: &Core, item: u64, cap_micros: u64, wanted_micros: u64) {
+        let scope = format!("{}:{item}", self.branch);
+        let detail = format!(
+            "A call of item {item} was refused before it was forwarded, so the item's run \
+             counts as a failure. The item is named by its number in the run and nothing of \
+             what it holds."
+        );
+        core.outbox.notify_rule(
+            None,
+            crate::rule_notice::Notice {
+                rule: crate::rule_notice::Rule::D5,
+                outcome: crate::rule_notice::Outcome::Refused,
+                limit_usd: micros_usd(cap_micros),
+                figure_usd: micros_usd(wanted_micros),
+                scope: &scope,
+                detail: &detail,
+            },
+        );
     }
 
     /// A call is over: its hold goes, and what it paid (when it counted) is

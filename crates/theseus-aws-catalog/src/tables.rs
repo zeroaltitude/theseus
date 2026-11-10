@@ -767,6 +767,12 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("payment-cryptography", "ExportKey"),
     secret("payment-cryptography-data", "GenerateAs2805KekValidation"),
     secret("payment-cryptography-data", "TranslateKeyMaterial"),
+    // A PIN block: marked sensitive, required, and named for what it is
+    // rather than for a credential word, so no name rule reached it
+    // (theseus-3i6d1). The member's plain reading, not a sourced fact.
+    secret("payment-cryptography-data", "TranslatePinData"),
+    secret("payment-cryptography-data", "GeneratePinData"),
+    secret("payment-cryptography-data", "GenerateMacEmvPinChange"),
     // A credential kept, read back whole.
     secret("ivs", "GetStreamKey"),
     secret("route53globalresolver", "GetAccessToken"),
@@ -819,7 +825,17 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
         "appstream",
         &["CreateDirectoryConfig", "UpdateDirectoryConfig"],
     ),
-    ops("chime", &["ListBots"]),
+    ops(
+        "chime",
+        &[
+            "CreateUser",
+            "GetUser",
+            "ListBots",
+            "ListUsers",
+            "ResetPersonalPIN",
+            "UpdateUser",
+        ],
+    ),
     ops("chime-sdk-identity", &["DescribeAppInstanceUserEndpoint"]),
     ops(
         "chime-sdk-meetings",
@@ -1087,6 +1103,9 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "ModifyCluster",
         ],
     ),
+    // The claim certificate a profile's Get answers with when it has one:
+    // the Create twin is a `SECRET` row. Optional here, so `WHEN_PRESENT`.
+    ops("iot-managed-integrations", &["GetProvisioningProfile"]),
     // The shared secret of a procurement portal, where one is configured.
     ops("invoicing", &["GetProcurementPortalPreference"]),
     // A workspace's `grafanaToken`, which the model does not mark and which
@@ -1103,10 +1122,32 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "UpdateWorkspace",
         ],
     ),
-    // The Firebase server key of a GCM channel, `Credential`, unmarked.
+    // The Firebase server key of a GCM channel, `Credential`, unmarked; and
+    // the Baidu channel's `Credential`, measured the same way (theseus-3i6d1).
     ops(
         "pinpoint",
-        &["DeleteGcmChannel", "GetGcmChannel", "UpdateGcmChannel"],
+        &[
+            "DeleteGcmChannel",
+            "GetGcmChannel",
+            "UpdateGcmChannel",
+            "DeleteBaiduChannel",
+            "GetBaiduChannel",
+            "UpdateBaiduChannel",
+        ],
+    ),
+    // An EKS Anywhere subscription's `licenses[].token`. It was left to an
+    // allowed row ("an entitlement to support, no access to the account");
+    // the owner, 2026-11-09 15:48: "a token is a token, and the field exists
+    // to authenticate" (theseus-3i6d1). The walk holds `token` by name.
+    ops(
+        "eks",
+        &[
+            "CreateEksAnywhereSubscription",
+            "DeleteEksAnywhereSubscription",
+            "DescribeEksAnywhereSubscription",
+            "ListEksAnywhereSubscriptions",
+            "UpdateEksAnywhereSubscription",
+        ],
     ),
 ];
 

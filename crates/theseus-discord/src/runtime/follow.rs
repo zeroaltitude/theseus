@@ -395,6 +395,58 @@ pub(super) fn absorb(m: &mut Mirror, e: &Event) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::tests::core_with;
+    use crate::runtime::{shared_for_tests, task_channels::work_view};
+
+    /// The refusal of Follow in a shared place (theseus-yg5ll), held where
+    /// the `tb:follow:` button reaches it. A shared place's tool lines and
+    /// words would go to its guests, so `Shared::follow` refuses it before it
+    /// takes a slot or reads the session; the owner's DM is let through to the
+    /// next check (here, "no session": a task with none), which says the
+    /// refusal is the place's and not everything's.
+    #[tokio::test]
+    async fn follow_is_refused_in_a_shared_place_and_let_through_in_the_owners_dm() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_with(
+            dir.path(),
+            theseus_core::secrets::SecretBoard::empty(),
+            |c| c.places.owner = Some(vec!["discord:7".into()]),
+        );
+        let shared = shared_for_tests(&core);
+        let with_session = work_view("exe_reef", "running");
+        let mut without = work_view("exe_kelp", "running");
+        without.session_id = None;
+
+        for target in ["discord:channel:42", "discord:dm:8"] {
+            let why = shared.follow(target, 1, &with_session).unwrap_err();
+            assert!(why.contains("which are private"), "{target}: {why}");
+            assert_eq!(shared.cmds.follows.count(target), 0, "{target}: no slot");
+        }
+        let why = shared.follow("discord:dm:7", 1, &without).unwrap_err();
+        assert_eq!(why, "That task has no session to follow.");
+
+        // The refusal's other promised place: a channel the bindings name
+        // private is let through to the same next check.
+        shared
+            .core
+            .bind_places(vec![theseus_core::places::BoundPlace {
+                target: "discord:channel:77".into(),
+                name: "#lab".into(),
+                private: true,
+                ..Default::default()
+            }]);
+        let why = shared
+            .follow("discord:channel:77", 1, &without)
+            .unwrap_err();
+        assert_eq!(why, "That task has no session to follow.");
+
+        // The positive beside the absences above: a follow that is let
+        // through takes a slot. Read before any await (this test runs on the
+        // current-thread runtime), so the spawned follow has not ended yet.
+        shared.follow("discord:dm:7", 1, &with_session).unwrap();
+        assert_eq!(shared.cmds.follows.count("discord:dm:7"), 1, "a slot taken");
+        assert_eq!(shared.cmds.follows.count("discord:channel:42"), 0);
+    }
 
     #[test]
     fn a_place_follows_three_and_no_more_and_none_twice() {

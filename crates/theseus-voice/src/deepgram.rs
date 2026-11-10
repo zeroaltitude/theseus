@@ -267,33 +267,53 @@ impl DeepgramSpeech {
 
     /// `text` in `voice`, whole: a synthesis cut off mid-word is asked for
     /// again, up to [`SYNTHESES`] in all, and the one that ends quietest is
-    /// kept, faded out if it still ends mid-word. Every ask is in the usage.
-    /// An ask that fails after one that was cut keeps the cut one.
+    /// kept, faded out if it still ends mid-word. Every ask that answered is
+    /// in the usage. An ask that fails is asked for again on the same budget,
+    /// the first included; one that fails after a clip was had keeps that
+    /// clip, and when every ask failed the last error is the answer.
+    ///
+    /// This is a latent defect, not the one seen at the owner's clipped intro:
+    /// the ledger ruled it out (`voice.failed` holds 3 rows, all `connection`,
+    /// none `synthesize`; the one `voice.cut` row is 50 s after the join, on
+    /// reply 1). The clipped greeting is not fixed by this; its live check is
+    /// still owed.
     async fn speak(&self, voice: &str, text: &str) -> Result<Synthesis, SpeechError> {
-        let mut best = self.speak_once(voice, text).await?;
-        let mut chars = best.usage.chars;
-        for _ in 1..SYNTHESES {
-            if !best.audio.cut_off() {
-                break;
+        let mut best: Option<Synthesis> = None;
+        let mut chars = 0;
+        let mut failed = None;
+        for ask in 0..SYNTHESES {
+            if let Some(b) = &best {
+                if !b.audio.cut_off() {
+                    break;
+                }
+                tracing::info!(
+                    chars = text.chars().count(),
+                    tail_rms = b.audio.tail_rms(),
+                    "voice: a synthesis ended mid-word; it is asked for again"
+                );
             }
-            tracing::info!(
-                chars = text.chars().count(),
-                tail_rms = best.audio.tail_rms(),
-                "voice: a synthesis ended mid-word; it is asked for again"
-            );
             match self.speak_once(voice, text).await {
                 Ok(s) => {
                     chars += s.usage.chars;
-                    if s.audio.tail_rms() < best.audio.tail_rms() {
-                        best = s;
+                    if best
+                        .as_ref()
+                        .is_none_or(|b| s.audio.tail_rms() < b.audio.tail_rms())
+                    {
+                        best = Some(s);
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "voice: a synthesis asked for again failed");
-                    break;
+                    tracing::warn!(error = %e, ask, "voice: a synthesis ask failed");
+                    failed = Some(e);
+                    if best.is_some() {
+                        break;
+                    }
                 }
             }
         }
+        let Some(mut best) = best else {
+            return Err(failed.expect("every ask failed, so one error was kept"));
+        };
         if best.audio.cut_off() {
             best.audio = best.audio.faded_out(FADE);
         }

@@ -322,6 +322,10 @@ fn seccomp_profile() -> Result<(), String> {
         "setns",
         "clone_newuser",
         "clone_newnet",
+        // The kernel crypto API and a hypervisor transport: sockets of
+        // these families are refused by family.
+        "socket_alg",
+        "socket_vsock",
         // The host's kernel log (theseus-8f50c): `syslog(SYSLOG_ACTION_READ_ALL)`
         // needs no capability where `kernel.dmesg_restrict` is 0, and a user
         // namespace does not virtualize the ring buffer, so the filter is the
@@ -411,6 +415,30 @@ fn proc_and_sys_masked() -> Result<(), String> {
         v["proc_sys_ro"] == true,
         "/proc/sys is not a read-only mount",
     )?;
+    // The line above reads `sys` alone. Each of Docker's five names that the
+    // host's procfs has must be a read-only mount of its own in the job, and
+    // one it lacks has no mount and does not stop the job. The names are
+    // written out here, not taken from the view's list: a name dropped from
+    // that list must not drop from this check with it.
+    let names = ["bus", "fs", "irq", "sys", "sysrq-trigger"];
+    let present: Vec<&str> = names
+        .into_iter()
+        .filter(|n| Path::new("/proc").join(n).exists())
+        .collect();
+    check(
+        !present.is_empty(),
+        "the host's /proc has none of the five read-only names: nothing to check",
+    )?;
+    for n in names {
+        let want = if present.contains(&n) { "ro" } else { "none" };
+        check(
+            v["proc_ro"][n] == want,
+            format!(
+                "/proc/{n}: {} (wanted {want})\nall: {}",
+                v["proc_ro"][n], v["proc_ro"]
+            ),
+        )?;
+    }
     check(
         v["pid1"]
             .as_str()
@@ -815,6 +843,18 @@ fn cannot_start() -> Result<(), String> {
     check(
         e.stage.starts_with("mounting the workspace") && e.error.contains("No such file"),
         format!("a missing root: {e}"),
+    )?;
+    no_children()?;
+    // A hidden entry that fails to resolve for any reason but "nothing is
+    // there" is the init's to report, never to skip: a skipped one leaves a
+    // cover undone and says nothing (theseus-txh9w). A name past NAME_MAX is
+    // that case on every filesystem, whatever the view holds.
+    let mut spec = job(vec!["/bin/true".into()], ws.path());
+    spec.hidden = vec![ws.path().join("x".repeat(300))];
+    let e = start(&spec)?;
+    check(
+        e.stage.starts_with("hiding ") && e.error.contains("File name too long"),
+        format!("a hidden entry that fails to resolve: {e}"),
     )?;
     no_children()
 }
@@ -1274,6 +1314,43 @@ mod probe {
         raw(r)
     }
 
+    /// `socket(family, ty, 0)`, closing any descriptor it returns.
+    fn socket_of(family: libc::c_int, ty: libc::c_int) -> Value {
+        let r = unsafe { libc::socket(family, ty, 0) };
+        if r >= 0 {
+            unsafe { libc::close(r) };
+        }
+        raw(r as i64)
+    }
+
+    /// Each family the filter refuses by family, under its own key: the next
+    /// one to probe is a row here and no line in `seccomp`.
+    fn socket_families(put: &mut impl FnMut(&str, Value)) {
+        for (key, family, ty) in [
+            ("socket_alg", libc::AF_ALG, libc::SOCK_SEQPACKET),
+            ("socket_vsock", libc::AF_VSOCK, libc::SOCK_STREAM),
+        ] {
+            put(key, socket_of(family, ty));
+        }
+    }
+
+    /// The kernel's ring buffer, read whole (SYSLOG_ACTION_READ_ALL). Only
+    /// the count is reported: the host's log is never printed.
+    fn syslog_read_all(put: &mut impl FnMut(&str, Value)) {
+        const SYSLOG_ACTION_READ_ALL: libc::c_long = 3;
+        let mut buf = [0u8; 4096];
+        let r = unsafe {
+            libc::syscall(
+                libc::SYS_syslog,
+                SYSLOG_ACTION_READ_ALL,
+                buf.as_mut_ptr(),
+                buf.len(),
+            )
+        };
+        put("syslog", raw(r));
+        put("syslog_bytes", json!(r.max(-1)));
+    }
+
     fn seccomp() -> Value {
         let mut m = Map::new();
         let mut put = |k: &str, v: Value| {
@@ -1317,24 +1394,14 @@ mod probe {
                 libc::waitpid(r as i32, std::ptr::null_mut(), 0);
             }
             put("clone3", raw(r));
-            // The kernel's ring buffer, read whole (SYSLOG_ACTION_READ_ALL).
-            // Only the count is reported: the host's log is never printed.
-            const SYSLOG_ACTION_READ_ALL: libc::c_long = 3;
-            let mut buf = [0u8; 4096];
-            let r = libc::syscall(
-                libc::SYS_syslog,
-                SYSLOG_ACTION_READ_ALL,
-                buf.as_mut_ptr(),
-                buf.len(),
-            );
-            put("syslog", raw(r));
-            put("syslog_bytes", json!(r.max(-1)));
         }
+        syslog_read_all(&mut put);
         // The ring buffer's other door, a file rather than a call.
         put(
             "kmsg",
             outcome(fs::OpenOptions::new().read(true).open("/proc/kmsg")),
         );
+        socket_families(&mut put);
         put("clone_newuser", clone_with(libc::CLONE_NEWUSER));
         put("clone_newnet", clone_with(libc::CLONE_NEWNET));
         put("fork", in_child(|| {}));
@@ -1459,6 +1526,24 @@ mod probe {
             f.get(4) == Some(&"/proc/sys")
                 && f.get(5).is_some_and(|o| o.split(',').any(|x| x == "ro"))
         });
+        // Docker's read-only names under /proc, each by the mount of its own
+        // that makes it so: "ro", "rw", or "none" for no mount at its path.
+        let proc_ro: Map<String, Value> = ["bus", "fs", "irq", "sys", "sysrq-trigger"]
+            .into_iter()
+            .map(|n| {
+                let at = format!("/proc/{n}");
+                let mut opts = mountinfo.lines().filter_map(|l| {
+                    let f: Vec<&str> = l.split_whitespace().collect();
+                    (f.get(4) == Some(&at.as_str())).then(|| f.get(5).copied().unwrap_or_default())
+                });
+                let how = match opts.next_back() {
+                    Some(o) if o.split(',').any(|x| x == "ro") => "ro",
+                    Some(_) => "rw",
+                    None => "none",
+                };
+                (n.to_string(), json!(how))
+            })
+            .collect();
         let pid1 = fs::read("/proc/1/cmdline")
             .map(|b| String::from_utf8_lossy(&b).replace('\0', " "))
             .unwrap_or_default();
@@ -1480,6 +1565,7 @@ mod probe {
             "proc_sys_write": write("/proc/sys/kernel/hostname"),
             "sysrq_write": write("/proc/sysrq-trigger"),
             "proc_sys_ro": proc_sys_ro,
+            "proc_ro": proc_ro,
             "pid1": pid1,
             "pids": pids,
             "self": std::process::id(),

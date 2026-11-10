@@ -57,7 +57,7 @@ Key modules: `tender.rs`, `engine.rs`, `vectors.rs`, `server.rs`, `extract.rs`. 
   `file_read`. **The chunking** is per section, so no chunk spans two pages, and every chunk is headed
   `[<file> · <section>]`, which is what a hit cites. A text blob that is gone or in no known shape leaves its node
   indexed without it. `index.status` counts all four (`files_indexed`, `files_repeated`, `files_cut`,
-  `files_unread`), and `theseus index status` prints them. On disk one capped file of varied prose measured 132
+  `files_unread`; a blob whose bytes do not hash to its name, or that is past `MAX_BLOB`, counts there: on a store with on-disk damage a non-zero `files_unread` is the guard working, not a new fault), and `theseus index status` prints them. On disk one capped file of varied prose measured 132
   chunks, 411 KB of BM25 and 234 KB of vectors (1,816 bytes a chunk), about 2.5x the text taken. Known limit: a
   digest's one copy belongs to the node that carried it first, so erasing that node takes the text out even where a
   later node still carries the file; a rebuild does not put it back. The same reach crosses sessions: a hit cites the first node's session (see `files.rs`'s header). Tests: `tests_files.rs`, `files::tests`.

@@ -34,7 +34,8 @@
 //! the pipeline's free build slots, `[self] pipeline_builds` less the builds in
 //! flight, theseus-awycv) move to running: a session whose execution's principal is the reserved
 //! `"self"` (so the budget counts it, and it holds no owner handle), a
-//! `self.backlog.started` row, and one line to the owner's DM. The first turn
+//! `self.backlog.started` row, and a line in the night's note to the owner's DM
+//! (a start the pipeline makes later is listed in the next note: `folded`). The first turn
 //! tells the model to call `self.propose_change { item, issue, why }`, the
 //! branch builder's tool; the turn runs from [`tender`], after the night has
 //! written.
@@ -47,6 +48,7 @@
 //!
 //! What it keeps beside the tasks is one META record ([`state`]).
 
+mod folded;
 mod graduate;
 mod keel;
 mod rank;
@@ -101,6 +103,9 @@ pub struct Night {
     pub too_low: usize,
     pub ranked: usize,
     pub started: Vec<Started>,
+    /// Starts the note tells beyond those listed in `started` (the pipeline's,
+    /// folded into this note, past the cap): said as a count.
+    pub started_more: usize,
     /// Items that did not start, with why: their tree could not be opened.
     pub held: Vec<(String, String)>,
     /// Open items waiting on the owner (keel marks), filed this night.
@@ -404,12 +409,25 @@ impl Work {
         });
         m.rank = 0;
         if remember {
-            self.st.dropped.push(Dropped {
-                cause: m.cause.clone(),
-                item: id.into(),
-                at_ms: self.now,
-                by: by.into(),
-            });
+            // A folded item (`judge.failed`) stands for the packs its notes
+            // name: the drop means those packs, never "any night with two
+            // failing packs". With no pack named it keeps the item's own key.
+            let mut causes = if m.cause == read::FAILED_MANY {
+                read::members_of(t.evidence.iter().filter_map(|e| e.note.as_deref()))
+            } else {
+                Vec::new()
+            };
+            if causes.is_empty() {
+                causes.push(m.cause.clone());
+            }
+            for cause in causes {
+                self.st.dropped.push(Dropped {
+                    cause,
+                    item: id.into(),
+                    at_ms: self.now,
+                    by: by.into(),
+                });
+            }
         }
         self.said.push(Spoken::Dropped(BacklogDropped {
             item: id.into(),
@@ -512,7 +530,7 @@ impl Core {
         obs.extend(read::from_health(&self.health(), now_ms, &date(now_ms)));
         obs.extend(self.graduate_obs(&st, now_ms));
         obs.extend(self.mine_obs(now_ms, &date(now_ms)));
-        let cands = read::group(obs);
+        let cands = read::group_with(obs, &|k| st.is_dropped(k));
         night.candidates = cands.len();
         st.read_ms = Some(now_ms);
         let mut w = Work {

@@ -20,7 +20,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   the session's total beside the reply's own cost (`TurnSubmitResult::cost_words`, theseus-c0bb).
 - `src/bindings.rs` (the bindings file; `bindings.example.toml` is its format), `src/files.rs` (attachments: a
   text file as its text, any other file as its bytes up to `[tools] max_attachment_bytes`, 32 MiB, which the core
-  keeps and reads, an image as an image and a PDF page by page; a file over its cap is listed; theseus-c9l6),
+  keeps and reads, an image as an image and a PDF page by page; a file over its cap is listed; a download is asked up to three times, a timeout once; theseus-c9l6),
   `src/viewers.rs` (who can view a channel), and `src/rpc_client.rs` (the in-process protocol connection).
 - **Places** (the place rule, theseus-nbsh): a `[[channel]]` with `private = true` is a private place (its session
   gets everything); any other guild channel is shared (the public tools alone). The binding tells the core its places
@@ -451,7 +451,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   `LaneMsg::BoardMoved`, which drops that lane's board message (`Lane::board_moved`, `drop_stale_board`) and any state of it waiting. A place that
   drew to the DM in the instant between the state and this message may leave one more there (not handled). A lane that has no board of its own (a restart: its id went with the process) looks once among the DM's pins for the bot's board, V2 or text, and removes it (theseus-bs8dl; `Lane::earlier_board`); the rig reaches the binding's own state through `task_home::daemon_for_tests`.
 - **The DM task flow is locked** (the owner, 2026-10-22; theseus-hd8l2): `tests_dm_flow_golden.rs` drives one DM task end to end and compares
-  every message with `src/golden/dm_flow.txt`. Change the golden only with the owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
+  every message with `src/golden/dm_flow.txt`. Times, durations, costs and the temp path are normalized there (the footer reads `$<cost> total ($<cost> this reply)`), so the cost is masked and that golden is no longer a canary for request growth. Change the golden only with the owner's OK (`THESEUS_GOLDEN=write cargo nextest run -p theseus-discord dm_flow`).
 - **The one message a content label adds** (theseus-9ymz0, the only approved addition to that flow): when the core raises a label it calls `Core::tell_label`, a
   `content_label` post in the session's place; the courier renders it with one **Remove** button, `content:remove:<session>:<flag>` (`runtime/content.rs`:
   `parse`, `buttons`, `content_press`). A press is `content.unlabel` as the presser, judged by `judge_act`, which `/trust` also goes through (it is this press for `injection`, typed); a counted press settles the

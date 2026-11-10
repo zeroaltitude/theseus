@@ -21,6 +21,7 @@ fn day() -> LocalDay {
 fn view(kind: WorkKind, state: WorkState) -> WorkView {
     WorkView {
         moved_to: None,
+        forum_url: None,
         id: "wak_00a1b2c3".into(),
         kind,
         position: 1,

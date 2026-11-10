@@ -468,3 +468,68 @@ async fn a_profile_of_restricted_origin_gets_no_relay() {
     assert!(untouched(&r), "the provider was never asked");
     assert_eq!(new_relay(&r).model(), r.model);
 }
+
+/// The rule notices the owner was sent; D5's alone.
+fn rule_posts(c: &Core) -> Vec<String> {
+    c.outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "spend_ceiling")
+        .map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        })
+        .filter(|t| t.contains("Rule D5"))
+        .collect()
+}
+
+/// Rule D5 (theseus-3i6d1, "for all stops: let's ALSO notify the user"): a
+/// call the item's line refuses tells the owner, once for the item, naming
+/// the rule, the figure, the line and the config key -- and the refusal still
+/// refuses and still marks the run a failure.
+#[tokio::test(flavor = "current_thread")]
+async fn the_items_line_tells_the_owner_once_for_the_item() {
+    let r = rig(
+        Answers::Whole {
+            input: 1,
+            output: 1,
+        },
+        |_| {},
+    )
+    .await;
+    let relay = new_relay(&r);
+    // A line a cent wide, against a call whose output cap alone is worth
+    // dollars at any price the catalog has carried.
+    let big = json!({"model": r.model, "max_tokens": 100_000, "stream": true,
+                     "messages": [{"role": "user", "content": "x"}]});
+    relay.begin(0.01);
+    assert_eq!(ask_async(&relay, big.clone()).await.0, 403);
+    let told = rule_posts(&r.core);
+    assert_eq!(told.len(), 1, "one notice: {told:?}");
+    for w in [
+        "Rule D5 refused sealing an item",
+        "a limit of $0.01",
+        "[self.sealed] item_usd",
+    ] {
+        assert!(told[0].contains(w), "{w}: {}", told[0]);
+    }
+    // The figure it names is the call's worst case, above the line.
+    let figure = told[0]
+        .split('$')
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    assert!(figure > 0.01, "the figure is above the line: {}", told[0]);
+    // A second refusal under the same item is the same notice: still one.
+    assert_eq!(ask_async(&relay, big.clone()).await.0, 403);
+    assert_eq!(rule_posts(&r.core).len(), 1, "once for the item");
+    assert!(relay.finish().refused, "the run is a failure");
+    // The next item speaks for itself.
+    relay.begin(0.01);
+    assert_eq!(ask_async(&relay, big).await.0, 403);
+    assert_eq!(rule_posts(&r.core).len(), 2, "once for each item");
+    assert!(untouched(&r), "nothing was forwarded");
+}

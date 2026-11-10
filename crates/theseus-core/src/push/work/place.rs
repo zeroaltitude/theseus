@@ -62,6 +62,8 @@ impl Scope {
             return v.clone();
         }
         let mut v = scrubbed(v, scrubber);
+        // The address names the owner's guild and post: private places alone.
+        v.forum_url = None;
         // A job's last output line is for private places alone (theseus-e1hu4).
         if let Some(d) = v.doing.as_mut() {
             d.last_line = None;
@@ -113,6 +115,7 @@ fn blank(v: &WorkView) -> WorkView {
         routine: None,
         watch: None,
         project: None,
+        forum_url: None,
         attention: theseus_protocol::Attention {
             label: String::new(),
             ..v.attention.clone()
@@ -131,5 +134,35 @@ fn scrub_value(v: Value, scrubber: &Scrubber) -> Value {
                 .collect(),
         ),
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::push::work::views::blank as view;
+    use theseus_protocol::work::WorkKind;
+
+    /// A shared place (a guarded scope) is given no forum address: it names
+    /// the owner's guild and post, and the session's words are withheld there
+    /// already. A scope that reads private text is given it, so the bar is not
+    /// met by a view that never had one.
+    #[test]
+    fn a_shared_place_is_not_given_the_forum_address_and_a_private_one_is() {
+        let mut v = view("exe_reef", WorkKind::Task, 5);
+        v.forum_url = Some("https://discord.com/channels/4242/777".into());
+        let scrubber = Scrubber::default();
+        let guarded = Scope {
+            roots: None,
+            guarded: true,
+        };
+        assert_eq!(guarded.show(&v, &scrubber).forum_url, None);
+        assert_eq!(
+            Scope::default().show(&v, &scrubber).forum_url,
+            v.forum_url,
+            "a scope that reads private text is given it"
+        );
+        // The blanked form a view that cannot be scrubbed falls back to too.
+        assert_eq!(blank(&v).forum_url, None);
     }
 }

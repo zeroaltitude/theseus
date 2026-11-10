@@ -205,3 +205,57 @@ async fn a_pages_total_is_counted_in_the_same_snapshot_as_its_rows() {
     writer.join().unwrap();
     assert!(reads > 10, "{reads} reads raced the writer");
 }
+
+/// The way `RecallManifest::would_drop`'s doc says to read the shadow bar across sessions,
+/// `theseus ledger -k recall.ran -n <N> --json`, is `ledger.tail { kind: "recall.ran" }` with no
+/// session. It returns every session's recall row (those rows are scoped `recall:<session>` for
+/// `memory.recalls`, and the tail by kind does not care) with `data.would_drop` whole. Two
+/// sessions, a greeting each that `effort.v1` calls `low`: each row's `would_drop` is the count of
+/// notes its own manifest admitted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_ledger_tail_by_recall_kind_reads_every_sessions_would_drop() {
+    use crate::tests_recall::recalls;
+    use crate::tests_route::turn;
+    use theseus_judge::fake::{FakeJev, Scripted};
+    let jev = FakeJev::start().unwrap();
+    crate::tests_route_open::says(&jev, "sonnet", "low", 0.95);
+    jev.script(
+        "work",
+        Scripted::Choice {
+            option: "conversation".into(),
+            confidence: 0.95,
+        },
+    );
+    let r = crate::tests_injection_tiers::tiered(&jev, 1, true, |_| {});
+    crate::tests_act_open::act_open(&r);
+    let mut want = Vec::new();
+    for hello in ["Hello there, good morning!", "Hello again, good evening!"] {
+        let res = turn(&r.core, None, hello, None).await;
+        let m = recalls(&r.core, &res.session_id)
+            .pop()
+            .expect("a recall row");
+        assert!(!m.admitted.is_empty(), "{hello}: notes were admitted");
+        want.push((res.session_id, m.admitted.len() as u64));
+    }
+    assert_ne!(want[0].0, want[1].0, "two sessions");
+    let got = r
+        .core
+        .ledger_tail(LedgerTailParams {
+            n: Some(50),
+            kind: Some("recall.ran".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(got.rows.iter().all(|row| row.kind == "recall.ran"));
+    let counted: Vec<(String, u64)> = got
+        .rows
+        .iter()
+        .filter_map(|row| Some((row.session_id.clone()?, row.data["would_drop"].as_u64()?)))
+        .collect();
+    for w in &want {
+        assert!(
+            counted.contains(w),
+            "{w:?} is not among the tail's would_drop rows {counted:?}"
+        );
+    }
+}

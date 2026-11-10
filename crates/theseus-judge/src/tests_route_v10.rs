@@ -72,8 +72,23 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
     assert!(p.question("effort").is_none(), "the effort is effort.v1's");
     let model = p.question("model").unwrap();
     let ids: Vec<&str> = model.options.iter().map(|o| o.id.as_str()).collect();
-    assert_eq!(ids, ["haiku", "sonnet", "opus", "fable", "deepseek_flash"]);
-    assert_eq!(model.no_match.as_deref(), Some("sonnet"));
+    assert_eq!(
+        ids,
+        [
+            "haiku",
+            "sonnet",
+            "opus",
+            "fable",
+            "deepseek_flash",
+            "parent"
+        ],
+        "the five models, then the one option that names none"
+    );
+    // The declared default is `parent`, and the daemon runs it: an answer under the bar leaves
+    // the turn on the model it is already on (theseus-ig13o; the owner, 2026-11-07 16:46, one
+    // word: "Parent"). It declared `sonnet` until then while `routing::model::decide` stayed, so
+    // this grade and the act it describes were two different rules.
+    assert_eq!(model.no_match.as_deref(), Some("parent"));
     assert_eq!(
         effort_pack()
             .question("effort")
@@ -105,6 +120,8 @@ fn route_v10_is_embedded_not_wired_and_has_the_designs_questions() {
                 .to_string()
         })
         .collect();
+    // `on_path_p95` is unfed (see `tests_rollback_census`): this pins the rule's presence in the
+    // pack, not that it can fire.
     assert_eq!(rules, ["labels_per_day", "on_path_p95", "pins_per_day"]);
 }
 
@@ -581,7 +598,7 @@ fn a_judgment_is_graded_on_model_and_effort_apart() {
     assert!(!g.model.agrees && g.model.raw_agrees && g.under_confirm);
     assert_eq!(
         (g.model.raw.as_str(), g.model.got.as_str()),
-        ("opus", "sonnet")
+        ("opus", "parent")
     );
     // No judgment, no answer: every question a miss.
     let g = grade(&p, case("W18"), None);
@@ -744,9 +761,20 @@ fn graded_q(g: &Graded, q: &str) -> (String, bool, String, bool) {
 /// theseus-mir9c: the daemon applies each question's `confirm` bar and, under
 /// it, takes the question's `no_match` (`inbound::verdict`'s `sure`,
 /// `Verdict::short`). `--cases` graded the raw pick; it now grades what
-/// routing would decide. `model`: a correct pick under the bar is the
-/// `no_match` (`sonnet`), a wrong one under the bar is right when the label
-/// is the `no_match`; at or above the bar nothing changes.
+/// routing would decide. `model`: any pick under the bar is the `no_match`,
+/// and since 2026-11-07 that is `parent` — the model the turn is already on
+/// (theseus-ig13o). At or above the bar nothing changes.
+///
+/// **What that costs the grade, said here rather than discovered later.** No
+/// case in `route.v10.cases.toml` is labelled `parent`, so **every under-bar
+/// answer is now a miss**, where a `no_match` of `sonnet` made it a hit for
+/// each of the many cases that want sonnet. Neither grade is exact: the
+/// daemon stays on the case's own `current_model` (the set's default
+/// `last_reply_model` is `claude-sonnet-5-5`), so the old one was right by
+/// coincidence for those cases and this one is pessimistic for them. Grading
+/// `parent` as the case's current model needs an option id for a catalog
+/// model name, which this crate cannot resolve by design (`route_cases`'s
+/// head), so it is a decision of its own and not this row's.
 #[test]
 fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
     let (p, e, s) = (pack(), effort_pack(), set());
@@ -756,12 +784,12 @@ fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
         both(&p, &e, c, &j)
     };
     // W18 wants opus. Opus at 0.35 is a right pick the daemon would not act
-    // on: it runs `sonnet`, a miss.
+    // on: it stays where it is (`parent`), a miss.
     assert_eq!(by_id(&s, "W18").want.model, "opus");
     let g = ask("W18", "opus", 0.35);
     assert_eq!(
         graded_q(&g, "model"),
-        ("sonnet".into(), true, "opus".into(), false)
+        ("parent".into(), true, "opus".into(), false)
     );
     assert!(g.model.raw_agrees && g.under_confirm);
     // At the bar (0.40) the band is confirm, which routing acts on; below it
@@ -779,16 +807,20 @@ fn a_model_pick_under_the_bar_is_graded_as_the_no_match() {
         graded_q(&g, "model"),
         ("sonnet".into(), false, "sonnet".into(), false)
     );
-    // L3 wants sonnet: a pick of haiku under the bar runs `sonnet`, a hit that
-    // the raw grade called a miss; sonnet itself under the bar is still a hit.
+    // L3 wants sonnet. Under the bar the daemon stays, so the grade is
+    // `parent` whatever Jev picked and whatever the label is: a miss for a
+    // haiku pick and for a sonnet one alike. With `sonnet` declared, the
+    // first was a hit the raw grade called a miss and the second a hit; both
+    // were the coincidence this comment's test doc describes.
     assert_eq!(by_id(&s, "L3").want.model, "sonnet");
     let g = ask("L3", "haiku", 0.35);
     assert_eq!(
         graded_q(&g, "model"),
-        ("sonnet".into(), true, "haiku".into(), true)
+        ("parent".into(), true, "haiku".into(), false)
     );
     assert!(!g.model.raw_agrees);
-    assert!(ask("L3", "sonnet", 0.35).model.agrees);
+    assert!(!ask("L3", "sonnet", 0.35).model.agrees);
+    assert!(ask("L3", "sonnet", 0.40).model.agrees, "at the bar it acts");
     // The grade is the bar's: a case whose model fell, effort at 0.9, grades
     // the effort as asked.
     let g = ask("W18", "opus", 0.35);
@@ -841,11 +873,10 @@ fn an_effort_pick_under_the_bar_is_graded_as_high() {
 /// code: a pack with other bars and other `no_match`s grades by its own.
 #[test]
 fn the_bar_and_the_no_match_are_the_replayed_packs_own() {
-    let text = include_str!("../packs/route.v10.toml").replacen(
-        "confirm = 0.40\nno_match = \"sonnet\"",
-        "confirm = 0.80\nno_match = \"opus\"",
-        1,
-    );
+    // Separately, because the pack now says why its default is what it is between the two lines.
+    let text = include_str!("../packs/route.v10.toml")
+        .replacen("confirm = 0.40", "confirm = 0.80", 1)
+        .replacen("no_match = \"parent\"", "no_match = \"opus\"", 1);
     let p = Pack::parse(&text).unwrap();
     let etext = include_str!("../packs/effort.v1.toml").replacen(
         "confirm = 0.60\nno_match = \"high\"",

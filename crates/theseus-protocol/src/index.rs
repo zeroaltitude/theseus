@@ -513,6 +513,13 @@ pub struct IndexWarmResult {
 pub struct IndexBackfill {
     pub done_bytes: u64,
     pub total_bytes: u64,
+    /// Why an index that existed is being built again (a build that changed
+    /// the cursor's format, the schema or the extractor, or a WAL rewound):
+    /// the window is expected, and recall reads partly until it ends. None
+    /// for a first build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
 }
 
 /// The tender's own status, as it answers `index.status` on its socket.
@@ -571,7 +578,9 @@ pub struct IndexStatus {
     #[serde(default)]
     pub files_cut: u64,
     /// Kept files whose read text could not be read (its blob gone, or in
-    /// no shape this build knows): their node is indexed without it.
+    /// no shape this build knows, or whose bytes no longer hash to their
+    /// name): their node is indexed without it. A non-zero count on a store
+    /// with on-disk damage is the digest guard working, not a new fault.
     #[serde(default)]
     pub files_unread: u64,
     pub rebuilds: u64,

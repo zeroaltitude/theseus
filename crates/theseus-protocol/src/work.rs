@@ -249,6 +249,14 @@ pub struct WorkView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub thread: Option<String>,
+    /// Where the task's forum post (else its Discord thread) is, as an address
+    /// the owner can open (`https://discord.com/channels/<guild>/<post>`).
+    /// Absent when no post or thread is known: a daemon with no Discord binding,
+    /// a task in a place with no forum, or a row dropped after its day. A shared
+    /// place is never given it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub forum_url: Option<String>,
     /// Why a wake exists: `remind`, `check`, `routine`, `watch`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
@@ -856,6 +864,7 @@ impl WorkView {
             dismissed: x.dismissed,
             retry_of: x.retry_of.clone(),
             thread: None,
+            forum_url: None,
             purpose: None,
             next_at_ms: None,
             series: None,

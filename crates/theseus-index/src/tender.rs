@@ -329,6 +329,8 @@ pub struct Tender {
     saved_at: Instant,
     /// Where the current backfill began, and the bytes it had to read.
     backfill: Option<(Cursor, u64)>,
+    /// Why that backfill is a rebuild of an index that existed, if it is one.
+    rebuild_why: Option<String>,
     /// Test hook: fail right after a commit, before the cursor is written.
     #[cfg(test)]
     pub(crate) crash_after_commit: bool,
@@ -345,6 +347,53 @@ pub struct Step {
     pub committed: bool,
 }
 
+/// Why the index is rebuilt and not resumed, in words that name what is missing
+/// or what changed, and never call missing what is there: the cursor holds the
+/// format, schema and extractor numbers the index was built under, never a
+/// binary's identity, so an install that bumps none of them resumes
+/// (theseus-la5oc). The words ride `IndexBackfill.why` to the health line.
+/// `None`: the cursor and the index are kept, or there is neither (a first
+/// start, which rebuilds nothing).
+pub(crate) fn rebuild_reason(
+    found: Option<&Saved>,
+    had_index: bool,
+    cursor_exists: bool,
+) -> Option<String> {
+    let Some(s) = found else {
+        return match (had_index, cursor_exists) {
+            (true, true) => Some("its cursor file is unreadable".to_string()),
+            (true, false) => Some("its cursor is missing".to_string()),
+            (false, true) => {
+                Some("its index is missing and its cursor file is unreadable".to_string())
+            }
+            (false, false) => None,
+        };
+    };
+    let moved = [
+        ("cursor format", s.format, CURSOR_FORMAT),
+        ("index schema", s.schema, SCHEMA_VERSION),
+        ("extractor", s.extractor, EXTRACTOR_VERSION),
+    ];
+    let named: Vec<String> = moved
+        .iter()
+        .filter(|(_, was, now)| was != now)
+        .map(|(what, was, now)| format!("{what} {was} -> {now}"))
+        .collect();
+    if named.is_empty() {
+        // A cursor this build can keep, over an index that is gone: the
+        // cursor is intact, and has nothing to resume.
+        (!had_index).then(|| {
+            "its index is missing (its cursor is intact, but there is nothing to resume)"
+                .to_string()
+        })
+    } else {
+        Some(format!(
+            "this build's {} (a rebuild window of a minute or so, recall read-degraded meanwhile)",
+            named.join(", ")
+        ))
+    }
+}
+
 impl Tender {
     /// Take the index directory's lock, open (or rebuild) the index, and
     /// open the follower at its cursor. Nothing is read from the WAL yet.
@@ -359,16 +408,9 @@ impl Tender {
 
         // The saved cursor holds only for an index this build would write.
         let had_index = paths.bm25().join("meta.json").exists();
-        let saved: Option<Saved> = state::load(&paths.cursor()).filter(|s: &Saved| {
-            s.format == CURSOR_FORMAT
-                && s.schema == SCHEMA_VERSION
-                && s.extractor == EXTRACTOR_VERSION
-                && had_index
-        });
-        let mut why_rebuild = None;
-        if saved.is_none() && (had_index || paths.cursor().exists()) {
-            why_rebuild = Some("its cursor is missing or from another build".to_string());
-        }
+        let found: Option<Saved> = state::load(&paths.cursor());
+        let mut why_rebuild = rebuild_reason(found.as_ref(), had_index, paths.cursor().exists());
+        let saved = found.filter(|_| why_rebuild.is_none());
         if saved.is_none() {
             let _ = fs::remove_dir_all(paths.bm25());
             let _ = fs::remove_file(paths.places());
@@ -446,6 +488,11 @@ impl Tender {
                 schema: SCHEMA_VERSION,
                 started_at_ms: now_unix_ms(),
                 rebuilds: u64::from(why_rebuild.is_some()),
+                backfill: why_rebuild.as_ref().map(|why| Backfill {
+                    done_bytes: 0,
+                    total_bytes: total,
+                    why: Some(why.clone()),
+                }),
                 ..IndexStatus::default()
             }),
             caught_up_ms: Mutex::new(now_unix_ms()),
@@ -465,6 +512,7 @@ impl Tender {
         }
         Ok(Self {
             backfill: Some((cursor.clone(), total)),
+            rebuild_why: why_rebuild,
             saved: cursor,
             saved_at: Instant::now(),
             cfg,
@@ -749,6 +797,7 @@ impl Tender {
         if !behind {
             *self.shared.caught_up_ms.lock().unwrap() = now_unix_ms();
             if self.backfill.take().is_some() {
+                self.rebuild_why = None;
                 tracing::info!(position = c.position, "index: caught up with the WAL");
                 // The rows are every chunk now: dead vectors can be counted.
                 self.shared.vectors.on_caught_up();
@@ -757,6 +806,7 @@ impl Tender {
         let backfill = self.backfill.as_ref().map(|(from, total)| Backfill {
             done_bytes: bytes_between(&self.cfg.wal_dir(), from, &c),
             total_bytes: *total,
+            why: self.rebuild_why.clone(),
         });
         let waiting = match stop {
             Stop::Partial {
@@ -791,6 +841,7 @@ impl Tender {
         self.save()?;
         let total = wal_bytes_after(&self.cfg.wal_dir(), 0, 0);
         self.backfill = Some((Cursor::start(), total));
+        self.rebuild_why = Some(why.to_string());
         self.shared.set(|s| {
             s.rebuilds += 1;
             s.state = "backfilling".into();

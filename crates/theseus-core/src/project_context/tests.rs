@@ -172,6 +172,48 @@ fn the_root_takes_half_and_the_nested_chain_takes_the_rest_deepest_first() {
     assert!(at('r') < at('c'), "the root reads before the deepest");
 }
 
+/// §6 ("whatever either side leaves unused is available to the other"): a
+/// root file the first pass cut to half the budget grows again in the last
+/// pass up to what the nested chain left, so a one-root repository carries
+/// the whole budget and not half of it (theseus-wadu, finding F2).
+#[test]
+fn a_root_file_cut_at_half_grows_into_what_the_chain_left() {
+    let budget = 2_000;
+    // (a) A one-root repository: a 1,500-byte body is over half the budget
+    // (1,000) and under all of it, so it is carried whole.
+    let repo = Repo::new();
+    let body = "r".repeat(1_500);
+    repo.write("AGENTS.md", &body);
+    let d = found_of(&repo, &repo.root());
+    let a = assemble(&ContextFiles::default(), &d.project, budget);
+    assert_eq!(a.records.len(), 1);
+    assert_eq!(a.records[0].fate, Fate::Whole, "{:?}", a.records[0]);
+    assert!(a.text.contains(&body), "the whole body is carried");
+    // (b) With a nested file of 200 bytes, both are whole.
+    let repo = Repo::new();
+    repo.write("AGENTS.md", &body);
+    repo.write("n/AGENTS.md", &"n".repeat(200));
+    let d = found_of(&repo, &repo.root().join("n"));
+    let a = assemble(&ContextFiles::default(), &d.project, budget);
+    let fates: Vec<Fate> = a.records.iter().map(|r| r.fate).collect();
+    assert_eq!(fates, [Fate::Whole, Fate::Whole], "{fates:?}");
+    // (c) The carried sections never sum to more than the budget.
+    assert!(a.text.len() <= budget, "{} bytes", a.text.len());
+    // A nested file that needs most of the room still takes it: the root is
+    // held to half while the chain wants the rest.
+    let repo = Repo::new();
+    repo.write("AGENTS.md", &"r".repeat(1_900));
+    repo.write("n/AGENTS.md", &"n".repeat(900));
+    let d = found_of(&repo, &repo.root().join("n"));
+    let a = assemble(&ContextFiles::default(), &d.project, budget);
+    assert!(
+        matches!(a.records[0].fate, Fate::Cut { .. }),
+        "{:?}",
+        a.records[0]
+    );
+    assert_eq!(a.records[1].fate, Fate::Whole, "{:?}", a.records[1]);
+}
+
 /// §6: a file that does not fit whole is cut at a character boundary with
 /// the note naming how much is here; one that does not fit at all is named
 /// but not carried, and its record keeps the file's real byte count.
@@ -230,16 +272,51 @@ fn a_budget_under_the_floor_carries_nothing_and_names_everything() {
     assert!(!a.text.contains("qqqq") && !a.text.contains("wwww"));
 }
 
-/// The test-only seam, and what it stands in for: with no grant, `block`
-/// says only the naming line; with one, it carries the text.
+/// A scratch store, held with its directory.
+fn scratch_store() -> (tempfile::TempDir, crate::store::Store) {
+    let d = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::open(&d.path().join("store")).unwrap();
+    (d, store)
+}
+
+/// (The name is the phase-1 seam test's, kept: the seam is gone, and the one
+/// way text is carried is now the store's record.) The grant is the store's record, keyed by the canonical root's id: the
+/// default is closed, a record for this root opens it, and a record for
+/// another root opens nothing here.
 #[test]
 fn the_grant_seam_is_the_only_way_text_is_carried() {
     let repo = Repo::new();
     repo.write("AGENTS.md", "run the gate before every commit\n");
     let root = repo.root();
-    assert!(!trust::granted(&root), "the default is closed");
-    let _g = trust::grant_for_test(&root);
-    assert!(trust::granted(&root));
+    let other = Repo::new();
+    let (_d, store) = scratch_store();
+    assert!(!trust::granted(&store, &root), "the default is closed");
+    let mut g = trust::Grants::default();
+    g.repos.insert(
+        crate::flow::spec::repo_id(&other.root()),
+        trust::Grant {
+            root: "x".into(),
+            by: "t".into(),
+            via: "t".into(),
+            at_ms: 1,
+        },
+    );
+    store.append(&[g.record().unwrap()]).unwrap();
+    assert!(
+        !trust::granted(&store, &root),
+        "another root's record opens nothing"
+    );
+    g.repos.insert(
+        crate::flow::spec::repo_id(&root),
+        trust::Grant {
+            root: "x".into(),
+            by: "t".into(),
+            via: "t".into(),
+            at_ms: 2,
+        },
+    );
+    store.append(&[g.record().unwrap()]).unwrap();
+    assert!(trust::granted(&store, &root));
 }
 
 /// A config whose state directory is `state`, so the user-level file is a
@@ -258,15 +335,16 @@ fn block_3_names_zero_one_and_many_files() {
     let state = tempfile::tempdir().unwrap();
     let cfg = cfg_with_state(state.path());
     let files = ContextFiles::default();
+    let (_d, store) = scratch_store();
 
     // 0: a repository with no instruction file at all says nothing.
     let none = Repo::new();
-    assert_eq!(block(&cfg, &files, &none.root()), None);
+    assert_eq!(block(&cfg, &store, &files, &none.root()), None);
 
     // 1: the singular.
     let one = Repo::new();
     one.write("AGENTS.md", "x".repeat(123).as_str());
-    let text = block(&cfg, &files, &one.root()).expect("one file is named");
+    let text = block(&cfg, &store, &files, &one.root()).expect("one file is named");
     assert_eq!(
         text,
         "Project instructions: 1 file, 123 B, not trusted and not read. \
@@ -280,7 +358,7 @@ fn block_3_names_zero_one_and_many_files() {
     many.write("CLAUDE.md", "z".repeat(2_500).as_str());
     many.write("deep/AGENTS.md", "w".repeat(500).as_str());
     let here = many.root().join("deep");
-    let text = block(&cfg, &files, &here).expect("three files are named");
+    let text = block(&cfg, &store, &files, &here).expect("three files are named");
     assert!(
         text.starts_with("Project instructions: 3 files, 4,000 B, not trusted and not read."),
         "{text}"
@@ -297,9 +375,11 @@ fn the_user_level_file_is_read_and_the_repositorys_is_only_named() {
     let state = tempfile::tempdir().unwrap();
     std::fs::write(state.path().join(USER_FILE), "Always say what you ran.\n").unwrap();
     let cfg = cfg_with_state(state.path());
+    let (_d, store) = scratch_store();
     let repo = Repo::new();
     repo.write("AGENTS.md", "the repository's own rules\n");
-    let text = block(&cfg, &ContextFiles::default(), &repo.root()).expect("both have something");
+    let text =
+        block(&cfg, &store, &ContextFiles::default(), &repo.root()).expect("both have something");
     assert!(text.contains("Always say what you ran."), "{text}");
     assert!(text.contains("# Context file (user): "), "{text}");
     assert!(!text.contains("the repository's own rules"), "{text}");

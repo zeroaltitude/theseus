@@ -47,7 +47,7 @@ if [ "${1:-}" = --locked-part ]; then
   asked=$3
   label=$4
 elif [ "$#" -ne 0 ]; then
-  echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_NO_BENCH=1, THESEUS_GATE_BENCH_ALLOWANCE=PERCENT)" >&2
+  echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_NO_BENCH=1, THESEUS_GATE_BENCH_ALLOWANCE=PERCENT, THESEUS_GATE_MIN_FREE_GB=GB)" >&2
   exit 2
 fi
 case "${THESEUS_GATE_LOCK:-inner}" in
@@ -71,6 +71,17 @@ case "$allowance" in
     exit 2
     ;;
 esac
+# The disk floor (theseus-4vsrz; see disk_floor): the free GB the target's filesystem must have for the gate to start.
+# The default is a backstop and not a capacity plan: a cloud VM has about 39 GB in all, so it cannot be higher for them,
+# and a host that builds 40-75 GB targets and wants more room sets a higher one itself. 0 is no floor.
+min_free_gb="${THESEUS_GATE_MIN_FREE_GB:-10}"
+case "$min_free_gb" in
+  *[!0-9]*)
+    echo "gate: THESEUS_GATE_MIN_FREE_GB is '$min_free_gb'; it is a whole number of GB (0: no floor)" >&2
+    exit 2
+    ;;
+esac
+min_free_gb=$((10#$min_free_gb))
 lock="${THESEUS_GATE_LOCK_FILE:-$HOME/.cache/theseus-gate.lock}"
 
 # Is the lock file open in process $1? /proc answers for this user's processes only.
@@ -205,14 +216,15 @@ save_locked_record() {
 # be hours), before the suite, and at the end. A tree that moved ABORTS the gate with exit status 75 and a message of
 # its own, never a test failure; and a gate that failed is checked too, since a failure on a moved tree is no verdict.
 # The identity is the commit, a digest of the edits beyond it (tracked and untracked: the digest scripts/tree-stamp.sh
-# prints, minus one path), and the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree
+# prints, minus two paths, cockpit/src/protocol.gen and bench/smoke/runs), and the length and digest of HEAD's reflog, which a checkout away and back writes twice: a tree
 # detached and restored in the window is the same commit and the same files, and not the tree the compile and the tests
 # between them ran on. It is computed here and not by that script, because the gate must not depend on a file of the tree
 # it judges: a branch cut before the script, and the throwaway repositories the guard's own tests run the gate in, lack it.
 # Blind spots, deliberately: an edit made and undone in the window moves no ref and leaves no mark, and
-# cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself.
+# cockpit/src/protocol.gen is left out because the protocol phase rewrites it itself and judges it itself, and
+# bench/smoke/runs because scripts/release-smoke.sh writes a run's report there (tracked, so not gitignored) and a smoke run beside a gate is no move.
 tree_moved_status=75
-tree_unseen=(':(exclude)cockpit/src/protocol.gen')
+tree_unseen=(':(exclude)cockpit/src/protocol.gen' ':(exclude)bench/smoke/runs')
 tree_identity() {
   local head digest log
   head="$(git rev-parse HEAD 2>/dev/null || echo none)"
@@ -259,7 +271,19 @@ tree_moved_report() {
     { [ -f "$logfile" ] && tail -n "+$((${b_len//[!0-9]/0} + 1))" "$logfile" | cut -f2- | head -10 | sed 's/^/gate:     /'; } || true
   fi
   echo "gate: what was compiled and what was tested were not all of one tree, so nothing above is a pass or a failure of it."
-  echo "gate: do not check out, reset or edit a tree while a gate runs in it; rerun the gate (exit status $tree_moved_status)"
+  # The gate's cargo runs without --locked, so its first call rewrites a stale tracked Cargo.lock: that is a move (correct),
+  # but "rerun the gate" aborts the same way. When HEAD and the reflog are unchanged and Cargo.lock is the only path whose
+  # state changed, say what to do instead.
+  if [ "$b_head" = "$n_head" ] && [ "$b_log" = "$n_log" ] && [ "$(tree_paths_changed | grep -c .)" -gt 0 ] \
+    && [ "$(tree_paths_changed | grep -vc '^Cargo\.lock$')" -eq 0 ]; then
+    echo "gate: the first cargo rewrote a stale Cargo.lock: commit the regenerated Cargo.lock, then rerun the gate (exit status $tree_moved_status)"
+  else
+    echo "gate: do not check out, reset or edit a tree while a gate runs in it; rerun the gate (exit status $tree_moved_status)"
+  fi
+}
+# The paths whose state changed since the start, one per line (the porcelain's two status columns removed).
+tree_paths_changed() {
+  { diff "$gate_tmp/tree.paths" <(tree_paths) | grep '^[<>]' | sed -E 's/^[<>] .{2} //' | sort -u; } || true
 }
 # Is the tree not the one the gate began with? Prints the report and says yes (status 0) when it is not. A tree whose
 # identity cannot be read now counts as moved: what cannot be seen has not been shown to hold.
@@ -271,7 +295,9 @@ tree_moved() {
   tree_moved_report "$1" "$now"
 }
 tree_check() {
-  if tree_moved "$1"; then exit "$tree_moved_status"; fi
+  # The marker is how on_exit knows this 75 is ours: a phase's own command can exit 75 too (EX_TEMPFAIL). A file, since
+  # the locked part shares this directory with the gate but not its variables.
+  if tree_moved "$1"; then : >"$gate_tmp/tree.moved"; exit "$tree_moved_status"; fi
 }
 
 # A gate that a signal ends reads `$?` as 0 in this trap, so `gate_done` says it did not finish.
@@ -283,15 +309,24 @@ on_exit() {
     save_locked_record
     return
   fi
-  # A gate that failed is checked once more: on a tree that moved, the red is not a verdict.
-  if [ "$status" -ne 0 ] && [ "$status" -ne "$tree_moved_status" ] && tree_moved "the gate failed, and its tree had moved"; then
-    status=$tree_moved_status
+  # A gate that failed is checked once more: on a tree that moved, the red is not a verdict. A 75 counts as a move only
+  # when tree_check wrote its marker or the re-check finds one: a phase that exits 75 on an unmoved tree is a failure.
+  local moved=""
+  [ ! -e "$gate_tmp/tree.moved" ] || moved=1
+  if [ -z "$moved" ] && [ "$status" -ne 0 ] && tree_moved "the gate failed, and its tree had moved"; then
+    moved=1
   fi
   rm -rf "$gate_tmp"
-  if [ "$status" -eq "$tree_moved_status" ]; then
+  if [ -n "$moved" ]; then
     summary aborted
     echo "gate: ABORTED${phase_now:+ in $phase_now}: the tree moved, so this run is no verdict, pass or fail"
-    exit "$status"
+    exit "$tree_moved_status"
+  fi
+  if [ "$status" -eq "$tree_moved_status" ]; then
+    echo "gate: the phase exited $tree_moved_status (EX_TEMPFAIL) on a tree that had not moved: a failure, not the gate's abort"
+    summary failed
+    echo "gate: FAILED${phase_now:+ in $phase_now}"
+    exit 1
   fi
   if [ "$status" -ne 0 ] || [ -z "$gate_done" ]; then
     [ "$status" -ne 0 ] || echo "gate: stopped by a signal"
@@ -313,25 +348,64 @@ trap on_exit EXIT
 # skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one, since
 # the ARM runner sets its known skips this way; it names each line, with its profile and place, and whether HEAD has it
 # or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
+filters_found=no
 suite_filters() {
-  local cfg=.config/nextest.toml found profile lineno text where
-  found="$(awk '
+  local cfg=.config/nextest.toml found profile lineno text where mine run="${NEXTEST_PROFILE:-default}" any=no
+  # Each found line carries whether it is this run's: it sits under [profile.<run>], or under [profile.default] while
+  # [profile.<run>] has none (nextest's profiles inherit from default). A line elsewhere is named and is no filter here.
+  found="$(awk -v run="$run" '
     /^[[:space:]]*\[profile\.[A-Za-z0-9_-]+\]/ { p = $0; sub(/^[[:space:]]*\[profile\./, "", p); sub(/\].*$/, "", p); next }
     /^[[:space:]]*\[/ { p = ""; next }
-    p != "" && /^[[:space:]]*default-filter[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); printf "%s\t%d\t%s\n", p, FNR, v }
+    p != "" && /^[[:space:]]*default-filter[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); n++; P[n] = p; L[n] = FNR; V[n] = v; if (p == run) own = 1 }
+    END { for (i = 1; i <= n; i++) printf "%s\t%d\t%s\t%s\n", P[i], L[i], (P[i] == run || (P[i] == "default" && !own)) ? "yes" : "no", V[i] }
   ' "$cfg" 2>/dev/null || true)"
   if [ -z "$found" ]; then
     echo "gate: suite filters: none (no default-filter in $cfg, and the gate passes no -E): every test the workspace builds runs, but the #[ignore]d ones"
     return 0
   fi
-  echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
-  while IFS=$'\t' read -r profile lineno text; do
+  while IFS=$'\t' read -r profile lineno mine text; do
+    [ "$mine" != yes ] || any=yes
+  done <<<"$found"
+  if [ "$any" = yes ]; then
+    filters_found=yes
+    echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
+    phase_label="suite filtered"
+  else
+    echo "gate: suite filters: none for this run (profile $run); a default-filter sits in another profile, named below and not applied:"
+  fi
+  while IFS=$'\t' read -r profile lineno mine text; do
     where="only in the working tree, not in HEAD"
     if git show "HEAD:$cfg" 2>/dev/null | grep -qxF -- "$(sed -n "${lineno}p" "$cfg")"; then where="committed in HEAD"; fi
-    echo "gate:   profile $profile, $cfg:$lineno, $where: $text"
+    if [ "$mine" = yes ]; then
+      echo "gate:   profile $profile, $cfg:$lineno, $where: $text"
+    else
+      echo "gate:   profile $profile, $cfg:$lineno, $where, NOT this run's: $text"
+    fi
   done <<<"$found"
-  echo "gate:   this run's profile: ${NEXTEST_PROFILE:-default}; a stale line goes with: git checkout -- $cfg"
-  phase_label="suite filtered"
+  [ "$any" != yes ] || echo "gate:   this run's profile: $run; a stale line goes with: git checkout -- $cfg"
+}
+# What nextest says it applied, read back from its own line, e.g. `Starting 9304 tests across 205 binaries (60 tests
+# skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and
+# misses one set through NEXTEST_PROFILE, a config file passed in, or an overrides table. Nothing here changes the exit
+# status; a red suite never gets here (`set -e` stops the gate at the pipeline), and a filtered one is labelled, never cleared.
+# Observed: a sweep of recorded green gate logs found 51 occurrences in 48 files in exactly four forms, `including 18 tests`,
+# `including 2 tests`, `including 4 tests` and `including 7 tests via profile.default.default-filter`, every one matched by
+# the pattern below and every one naming profile.default. The singular `including 1 test via profile` was never seen, so
+# the `tests?` in the pattern stays deliberately: that branch is still unverified against a real one-test run.
+suite_applied() {
+  local applied
+  applied="$(grep -oE 'including [0-9]+ tests? via profile\.[A-Za-z0-9_-]+\.default-filter' "$1" | head -1 || true)"
+  local n
+  n="$(sed -E 's/^including ([0-9]+) .*/\1/' <<<"$applied")"
+  if [ -n "$applied" ]; then
+    echo "gate: nextest applied a default-filter: $n test(s) excluded ($applied)"
+    phase_label="suite filtered"
+    if [ "$n" -gt 0 ] && [ "$filters_found" != yes ]; then
+      echo "gate: MISMATCH: the banner said no default-filter, and nextest excluded $n test(s) by one: read the line above"
+    fi
+  elif [ "$filters_found" = yes ]; then
+    echo "gate: MISMATCH: the banner said a default-filter is ACTIVE, and nextest's summary names none applied"
+  fi
 }
 suite() {
   local log="$gate_tmp/suite.log"
@@ -340,6 +414,7 @@ suite() {
   if [ "$phase_label" = "suite filtered" ]; then
     echo "gate: the suite above ran under a default-filter (suite filters, above): its \"skipped\" count includes the tests the filter excluded"
   fi
+  suite_applied "$log"
   local flaky
   flaky="$(grep -E '^ *FLAKY ' "$log" || true)"
   if [ -n "$flaky" ]; then
@@ -549,28 +624,33 @@ size_step() {
 # sources need no network, and advisories are read from the database as its last fetch
 # left it, so an outage of GitHub or crates.io can no longer fail a commit: 27e1237
 # met a crate yanked between two gates and had to bump Cargo.lock mid-step.
-# `scripts/deny-daily.sh` keeps the database fresh and files an issue for a finding
-# (and is the only thing that fetches); the gate says when the database is old. A
+# The gate's database is a pin (theseus-4vsrz): only the owner's `cargo deny fetch db`
+# moves it, so the result depends on the tree and not on the day. `scripts/deny-daily.sh`
+# fetches into a database of its own, files an issue for a finding, and never touches
+# this one; the gate says when its database is old. A
 # machine that has never fetched has no database: the gate then checks the rest and
 # says that advisories were not, since a gate that fetched here would fail on an outage.
 deny_check() {
-  local db age
+  local db age deny_age_said
   db="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/advisory-dbs/advisory-db-*/ 2>/dev/null | head -1 || true)"
   if [ -z "$db" ]; then
-    echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (scripts/deny-daily.sh fetches one)"
+    echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (\`cargo deny fetch db\` makes the gate's pin)"
     cargo deny --offline --log-level error check bans licenses sources
     return
   fi
-  if [ -f "${db}.git/FETCH_HEAD" ]; then
-    age=$((($(date +%s) - $(stat -c %Y "${db}.git/FETCH_HEAD")) / 86400))
-    [ "$age" -le 7 ] || echo "deny: the advisory database is $age days old; scripts/deny-daily.sh refreshes it"
+  age="$(deny_db_age "$db")"
+  deny_age_said="The advisory database's age is unknown (no FETCH_HEAD);"
+  [ "$age" = unknown ] || deny_age_said="The advisory database is $age days old;"
+  if [ "$age" != unknown ] && [ "$age" -gt 7 ]; then
+    echo "deny: the advisory database is $age days old; it is the gate's pin, and \`cargo deny fetch db\` moves it (scripts/deny-daily.sh checks a fresh one apart from it)"
   fi
-  # A red here can come from the database moving while nobody touched the tree (deny-daily.sh is the only thing that
-  # refreshes it). Say so, and say whose call it is: the gate itself never fetches, never ignores an advisory.
+  # A red here can come from the database moving while nobody touched the tree (it is the gate's pin: only a fetch
+  # into it moves it, and deny-daily.sh keeps a database of its own). Say so, and say whose call it is: the gate
+  # itself never fetches, never ignores an advisory.
   cargo deny --offline --log-level error check || {
     local rc=$?
     if cargo deny --offline --log-level error check bans licenses sources >/dev/null 2>&1; then
-      echo "deny: ONLY advisories failed; bans, licences and sources are clean. The advisory database is $(deny_db_age "$db") days old and moves when scripts/deny-daily.sh fetches, not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
+      echo "deny: ONLY advisories failed; bans, licences and sources are clean. $deny_age_said it is the gate's pin and moves only when something fetches into it (the owner's \`cargo deny fetch db\`), not with a branch: read the advisory ids above before blaming this change. Owner action: ignore each id in deny.toml with its reason, or bump the crate."
     fi
     return "$rc"
   }
@@ -755,11 +835,14 @@ scrub_phase() {
 
 # This script's own tests (theseus-4vsrz): scripts/test_gate_tree.py runs the real gate in a throwaway repository, its
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
-# and that its cargo runs without an incremental cache. About 2 s. They run when this tree differs from main in the
+# and that its cargo runs without an incremental cache. About 10 s for 29 tests on a 4-core cloud VM (9.9 s measured;
+# an earlier 6.7 s came from another machine, and "about 2 s" was wrong): each GateTree case runs the whole gate in a
+# throwaway repository, so every case added costs about a third of a second. They run when this tree differs from main in the
 # script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
-# diff. main is origin/main, or the local main without one.
+# diff. They also hold scripts/deny-daily.sh and scripts/build.sh, which the same file tests. main is origin/main, or the
+# local main without one.
 gate_tests() {
-  local own=(scripts/gate.sh scripts/test_gate_tree.py) main
+  local own=(scripts/gate.sh scripts/test_gate_tree.py scripts/deny-daily.sh scripts/build.sh) main
   main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
   if [ -n "$main" ] && git diff --quiet "$main" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
     echo "gate tests: gate.sh and its tests are main's; its gate ran them"
@@ -1013,6 +1096,44 @@ if [ "$part" = locked ]; then
   exit 0
 fi
 
+# THE DISK FLOOR (theseus-4vsrz). A gate begun on a nearly full disk dies part way through its build and leaves a target
+# nobody can read: on 2026-11-07 `/` was 631 GB of 639 GB used, 2.1 GB free, and a 40-minute build began on it. So before the
+# first compile the gate reads the free space of the filesystem that holds `target` (df follows a symlink, and a lane's target
+# may be on another disk; a lane that has not built has no target yet, and the nearest directory that exists is on the disk
+# it will be made on) and refuses, with a status of its own (73) and the number it read, below THESEUS_GATE_MIN_FREE_GB.
+# It deletes nothing: pruning is the lane tooling's, and a gate that clears caches changes the tree it judges. The GB shown
+# are truncated to a tenth, so a disk a block under the floor is never printed as at it. A df it cannot read refuses too,
+# since a gate that cannot show it has room has not shown it; 0 skips the read. Its place is after fmt and before the first
+# phase that resolves or compiles, never ahead of fmt: the guard's own tests run this gate in throwaway repositories under
+# the temp directory and expect it to fail at fmt there, and that directory can be a small tmpfs (9.5 GB free on the ARM
+# host, 2026-11-09: eight of those tests were refused by the first version, which stood at the head of the flow).
+disk_floor_status=73
+disk_floor() {
+  local dir=target kb where tenths free
+  if [ "$min_free_gb" -eq 0 ]; then
+    echo "gate: disk floor: off (THESEUS_GATE_MIN_FREE_GB=0)"
+    return 0
+  fi
+  while [ ! -e "$dir" ] && [ "$dir" != . ]; do dir="$(dirname "$dir")"; done
+  where="$(readlink -f -- "$dir")"
+  kb="$(df -Pk -- "$dir" 2>/dev/null | awk 'NR == 2 { print $4 }' || true)"
+  case "$kb" in
+    '' | *[!0-9]*)
+      echo "gate: REFUSED: could not read the free space on $where, so the gate cannot show it has room to build (exit status $disk_floor_status)" >&2
+      echo "gate: fix df, or run on purpose with THESEUS_GATE_MIN_FREE_GB=0 (no floor)" >&2
+      exit "$disk_floor_status"
+      ;;
+  esac
+  tenths=$((kb * 10 / 1048576))
+  free="$((tenths / 10)).$((tenths % 10))"
+  if [ "$kb" -lt $((min_free_gb * 1048576)) ]; then
+    echo "gate: REFUSED: only $free GB free on $where, below the disk floor of $min_free_gb GB (exit status $disk_floor_status)" >&2
+    echo "gate: a build begun here can die part way and leave a half-written target; free space (a merged lane's target is regenerable) and rerun, or run on purpose with THESEUS_GATE_MIN_FREE_GB=<a smaller whole number of GB> (0: no floor). The gate deletes nothing itself" >&2
+    exit "$disk_floor_status"
+  fi
+  echo "gate: disk floor: $free GB free on $where (floor $min_free_gb GB)"
+}
+
 # The tree's identity, before anything runs: every check below is a check of this tree (THE TREE THE GATE JUDGES).
 tree_begin
 # The door, then the keel: neither needs a build, so a branch that removed what would fail it stops in seconds.
@@ -1034,6 +1155,8 @@ phase "gate tests" gate_tests
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The last cheap phase: from the next one on, the gate resolves and compiles, and a disk that cannot hold it refuses here.
+phase "disk floor" disk_floor
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).
 phase features features
 phase clippy cargo clippy --workspace --all-targets -q -- -D warnings

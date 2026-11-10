@@ -75,6 +75,11 @@ pub struct StoreStats {
     /// reads scan, as before.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shape_pending: bool,
+    /// The log position an index write failed past its tries at, while that
+    /// gap stands (`WalStore::index_gap`, theseus-lu5n): the log is ahead of
+    /// the index until the next open replays it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_gap: Option<u64>,
     /// Records a list read skipped since open because their reads are
     /// refused (a corrupt frame the history check found, R4): how many, and
     /// the first `REFUSED_SHOWN` of their positions, lowest first.
@@ -333,12 +338,30 @@ struct Inner {
     queued: std::sync::atomic::AtomicI64,
     /// The time the writer took over each recent frame (theseus-w7dk).
     frame_times: FrameTimes,
+    /// An index write failed past its bound after a good sync: the log holds
+    /// frames the index lacks, so no checkpoint may claim a position past them
+    /// until the store is reopened and the open replays them. The log's last
+    /// position when the gap opened (`gap`).
+    index_gap: gap::Gap,
+    /// A test's count of the warnings the gap's opening and the periodic
+    /// checkpoint's failure say.
+    #[cfg(test)]
+    warned: AtomicU64,
     /// A test's way to make the next batch slow, as a disk that stalls does:
     /// the writer counts this many milliseconds once into the frames' time, as
     /// if the commit had taken them, and sleeps none, so no fsync of the
     /// disk's own can outrun the plant (theseus-1b2zm).
     #[cfg(test)]
     commit_extra_ms: AtomicU64,
+    /// A test's way to fail the next index writes, as a full disk does: this
+    /// many `apply`s fail with an injected error before they touch the index.
+    #[cfg(test)]
+    index_fail: std::sync::atomic::AtomicU32,
+    /// Like `index_fail`, but the `apply` runs first and the write is then
+    /// reported failed: the index keeps the whole batch, as a commit that
+    /// landed and whose answer was lost does.
+    #[cfg(test)]
+    index_fail_after: std::sync::atomic::AtomicU32,
     /// A test's way to hold a checkpoint, as a disk under writeback holds
     /// one: the next checkpoint waits until this channel's sender sends or
     /// drops.
@@ -476,6 +499,9 @@ fn run_blocking(f: &mut dyn FnMut()) {
         _ => f(),
     }
 }
+
+/// How many times a batch's index write is tried before its frames fail.
+const INDEX_TRIES: u32 = 3;
 
 /// tokio's budget for one poll of a task (`Budget::initial`, tokio 1.53).
 /// `tests_blocking` fails if a section leaves any of it.
@@ -709,7 +735,8 @@ const BULK: usize = 4096;
 /// 57 = an imported session's divergence mark (theseus-ectzg): a SESSION record's `imported`
 /// block gains `diverged_at`, the first stored `idx` that differs each time a later episode
 /// stopped matching what was stored, once for each, in the order seen; it is left out while
-/// empty. A record from before reads it empty and writes back without it.
+/// empty. A record from before reads it empty and writes back without it; the sample is
+/// `tests_layouts::SESSION_IMPORTED_AT_56`, written by hand from an invented episode.
 const MANIFEST_FORMAT: u32 = 57;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
@@ -941,6 +968,18 @@ impl WalStore {
     pub(crate) fn without_chain(self) -> Self {
         self.inner.chain_off.store(true, Ordering::Relaxed);
         self
+    }
+
+    /// Where the log's frames outrun the index: the position at which an index
+    /// write failed past its bound, until a reopen replays them.
+    pub fn index_gap(&self) -> Option<u64> {
+        self.inner.index_gap.position()
+    }
+
+    /// The open gap whole: where it opened, since when, the batches since, and
+    /// why. What health says and the owner is told once.
+    pub fn ledger_gap(&self) -> Option<IndexGap> {
+        self.inner.index_gap.get()
     }
 
     pub fn with_checkpoint_every(self, n: u64) -> Self {
@@ -1350,9 +1389,16 @@ impl Inner {
             verified: None,
             pending_verified: VerifiedSlot::default(),
             queued: std::sync::atomic::AtomicI64::new(0),
+            index_gap: gap::Gap::default(),
+            #[cfg(test)]
+            warned: AtomicU64::new(0),
             frame_times: FrameTimes::default(),
             #[cfg(test)]
             commit_extra_ms: AtomicU64::new(0),
+            #[cfg(test)]
+            index_fail: std::sync::atomic::AtomicU32::new(0),
+            #[cfg(test)]
+            index_fail_after: std::sync::atomic::AtomicU32::new(0),
             #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
             refused: Mutex::new((BTreeSet::new(), 0)),
@@ -1437,6 +1483,15 @@ impl Inner {
         // No batch between its WAL write and its index write: every frame up
         // to `last` is synced and indexed.
         let _alone = self.appending.write().unwrap();
+        // Unless a batch's index write failed past its bound: its frames are
+        // in the log and not in the index, and a claim past them would hide
+        // them from the next open's replay. Refused until a reopen.
+        if self.index_gap.is_open() {
+            anyhow::bail!(
+                "the index lacks frames an earlier write failed to index; \
+                 no checkpoint until the store is reopened"
+            );
+        }
         #[cfg(test)]
         {
             let hold = self.checkpoint_hold.lock().unwrap().take();
@@ -1536,6 +1591,10 @@ impl Inner {
         if every == 0 || self.since_checkpoint.load(Ordering::Relaxed) < every {
             return;
         }
+        // Said once, when the gap opened: quiet while it stands.
+        if self.index_gap.is_open() {
+            return;
+        }
         let t = std::time::Instant::now();
         match self.checkpoint_as(true) {
             Ok(at) => tracing::debug!(
@@ -1543,10 +1602,103 @@ impl Inner {
                 ms = t.elapsed().as_secs_f64() * 1000.0,
                 "store: periodic checkpoint"
             ),
-            Err(e) => tracing::warn!(
-                error = %format!("{e:#}"),
-                "store: the periodic checkpoint failed; the next open replays from the one before"
-            ),
+            Err(e) => {
+                #[cfg(test)]
+                self.warned.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    error = %format!("{e:#}"),
+                    "store: the periodic checkpoint failed; the next open replays from the one before"
+                );
+            }
+        }
+    }
+
+    /// The batch's index write, tried up to `INDEX_TRIES` times: its frames are
+    /// durable already, and `apply` over what a failed one left equals one
+    /// whole `apply` (`tests/index_reapply.rs`), so a retry is safe. The tries
+    /// follow each other at once: a full disk is met three times, and what
+    /// they buy is transient contention on redb's write lock. A failure past
+    /// the bound is the caller's, as it was before the retry.
+    fn index_batch(&self, entries: &[IndexEntry]) -> Result<()> {
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            #[cfg(test)]
+            let injected = self
+                .index_fail
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok();
+            #[cfg(not(test))]
+            let injected = false;
+            let wrote = if injected {
+                Err(anyhow::anyhow!("an injected index failure"))
+            } else {
+                let applied = self.index.apply(entries, false);
+                #[cfg(test)]
+                let applied = applied.and_then(|()| {
+                    match self.index_fail_after.fetch_update(
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                        |n| n.checked_sub(1),
+                    ) {
+                        Ok(_) => Err(anyhow::anyhow!("an injected failure after the write")),
+                        Err(_) => Ok(()),
+                    }
+                });
+                applied
+            };
+            match wrote {
+                Ok(()) => return Ok(()),
+                Err(e) if tries >= INDEX_TRIES => {
+                    return Err(e.context(format!("the index write failed {tries} times")))
+                }
+                Err(e) => tracing::warn!(tries, "the index write failed, trying again: {e:#}"),
+            }
+        }
+    }
+
+    /// The batch's bookkeeping once its index write is over. The ledger's head
+    /// follows the log: it moves once the frames are synced, whatever the
+    /// index did, since a failed index write leaves them durable and the next
+    /// open indexes them, and a head left behind would chain two rows on one
+    /// link. A failed sync cut its frames, so the head stays. An index write
+    /// that failed past its bound opens the gap checkpoints refuse across.
+    fn after_index(
+        &self,
+        synced: bool,
+        indexed: &Result<()>,
+        records: u64,
+        chained: chain_writer::ChainState,
+    ) {
+        if synced {
+            *self.chain.lock().unwrap() = chained;
+        }
+        match indexed {
+            Ok(()) => {
+                self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
+                if records > 0 {
+                    self.index_gap.took();
+                }
+            }
+            Err(why) if synced => self.say_gap(why),
+            Err(_) => {}
+        }
+    }
+
+    /// Opens the gap, saying so once (the first failure's position stands); a
+    /// later batch that fails the same way is counted and quiet. Health and
+    /// the owner's notice carry the gap (`ledger_gap`).
+    fn say_gap(&self, why: &anyhow::Error) {
+        let at = self.wal.last_position().max(1);
+        if self.index_gap.failed(at, why) {
+            #[cfg(test)]
+            self.warned.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                position = at,
+                reason = %format!("{why:#}"),
+                "store: the log holds frames the index lacks (up to this position); no checkpoint \
+                 is taken until a restart, and the next open replays them"
+            );
         }
     }
 
@@ -1597,6 +1749,7 @@ impl Inner {
         // Then the index, in one transaction: a reader never sees a frame
         // the disk may yet lose.
         let mut records = 0u64;
+        let synced_ok = synced.is_ok();
         let indexed = synced.and_then(|()| {
             let mut entries = Vec::new();
             for (job, placed) in batch.iter().zip(&written) {
@@ -1624,13 +1777,10 @@ impl Inner {
             if entries.is_empty() {
                 Ok(())
             } else {
-                self.index.apply(&entries, false)
+                self.index_batch(&entries)
             }
         });
-        if indexed.is_ok() {
-            self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
-            *self.chain.lock().unwrap() = chained;
-        }
+        self.after_index(synced_ok, &indexed, records, chained);
         let answered = std::time::Instant::now();
         let us = answered.duration_since(began).as_micros() as u64;
         #[cfg(test)]
@@ -1942,6 +2092,7 @@ impl Store for WalStore {
             index_moved_aside: s.moved_aside.clone(),
             terms_pending: !s.terms_whole(),
             shape_pending: !s.index.shaped(),
+            index_gap: self.index_gap(),
             refused_records,
             refused_positions,
         })
@@ -2040,6 +2191,8 @@ impl Store for WalStore {
 }
 
 mod chain_writer;
+mod gap;
+pub use gap::IndexGap;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -2048,6 +2201,8 @@ mod tests_blocking;
 mod tests_chain;
 #[cfg(test)]
 mod tests_frame_times;
+#[cfg(test)]
+mod tests_index_retry;
 #[cfg(test)]
 mod tests_keyed;
 #[cfg(test)]

@@ -24,10 +24,10 @@ impl Chat {
 
     /// An answer to one of the chat's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
-        let mut effects = if matches!(purpose, Purpose::AtRoots) {
-            self.at_roots(result)
-        } else {
-            self.answered_one(purpose, result)
+        let mut effects = match purpose {
+            Purpose::AtRoots => self.at_roots(result),
+            Purpose::Why(part) => self.why_got(part, result),
+            p => self.answered_one(p, result),
         };
         effects.extend(self.release_queue());
         effects
@@ -100,14 +100,7 @@ impl Chat {
                     Err(_) => Vec::new(),
                 }
             }
-            Purpose::Context => {
-                self.say_context(v);
-                Vec::new()
-            }
-            Purpose::Cost => {
-                self.say_cost(v);
-                Vec::new()
-            }
+            Purpose::Context | Purpose::Cost => self.said_usage(&purpose, v),
             Purpose::Mode => {
                 if let Ok(r) =
                     serde_json::from_value::<theseus_protocol::modes::SessionModeResult>(v)
@@ -118,11 +111,14 @@ impl Chat {
                 Vec::new()
             }
             Purpose::Welcome => self.welcome_said(v),
-            // `AtRoots` is taken before this match (`at_roots`).
+            // `AtRoots` is taken before this match (`at_roots`), and so is `Why`
+            // (`why_got`): these two arms never run. A re-route of either through
+            // here must call its handler, not do nothing.
             Purpose::Watch
             | Purpose::Answer
             | Purpose::Route
             | Purpose::Typing
+            | Purpose::Why(_)
             | Purpose::AtRoots => Vec::new(),
             p @ (Purpose::ListTask { .. }
             | Purpose::TaskAnswer { .. }
@@ -142,7 +138,9 @@ impl Chat {
     fn failed(&mut self, purpose: Purpose, e: &RpcError) -> Vec<Effect> {
         match purpose {
             // An older daemon has no digest, and the chat says nothing of it.
-            Purpose::Typing | Purpose::Welcome | Purpose::AtRoots => Vec::new(),
+            // `AtRoots` and `Why` never arrive here (`answered` takes them first);
+            // if one is re-routed, `why_got`'s Err path must run instead.
+            Purpose::Typing | Purpose::Welcome | Purpose::AtRoots | Purpose::Why(_) => Vec::new(),
             Purpose::Route => {
                 self.thread_answer_refused(&e.message);
                 Vec::new()
@@ -265,8 +263,8 @@ impl Chat {
                 Purpose::Mode,
             ),
         ];
-        for text in std::mem::take(&mut self.unsent) {
-            out.push(self.submit_call(sid, text));
+        for (text, attachments) in std::mem::take(&mut self.unsent) {
+            out.push(self.submit_call(sid, text, &attachments));
         }
         out
     }

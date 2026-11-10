@@ -11,6 +11,7 @@
 //! (`bindings`).
 
 pub(crate) mod answer;
+mod answer_in_words;
 mod ask_again;
 mod aws;
 mod bindings;
@@ -77,6 +78,7 @@ mod persona_write;
 mod policy;
 mod prefix;
 mod profile_pins;
+mod project_trust;
 mod projects;
 mod proposal_groups;
 mod proposals;
@@ -87,6 +89,7 @@ mod route_correct;
 mod routines;
 pub(crate) mod routines_watch;
 mod rsi;
+mod search_text;
 mod server;
 mod session_dir;
 mod session_find;
@@ -135,6 +138,8 @@ mod tests_home_claim;
 #[cfg(test)]
 mod tests_imported;
 #[cfg(test)]
+mod tests_imported_fields;
+#[cfg(test)]
 mod tests_inspect;
 #[cfg(test)]
 mod tests_ledger;
@@ -170,6 +175,8 @@ mod tests_prefix;
 mod tests_rewind;
 #[cfg(test)]
 mod tests_scratch;
+#[cfg(test)]
+mod tests_search_text;
 #[cfg(test)]
 mod tests_self;
 #[cfg(test)]
@@ -1126,6 +1133,8 @@ impl Core {
         } else {
             core.keep_day_total();
         }
+        // An index gap is told to the owner once (theseus-lu5n).
+        core.tell_ledger_gap();
         // `server.started` waits for `announce_serving`: nothing on the start
         // path needs it durable, and its frame is an fsync (theseus-qa0).
         core.startup_log.record("core", false, c0, Value::Null);
@@ -1435,8 +1444,10 @@ impl Core {
     pub fn store_status(&self) -> theseus_protocol::StoreStatus {
         let st = self.store.stats().ok();
         let refused_records = st.as_ref().map_or(0, |s| s.refused_records);
+        let index_gap = st.as_ref().and_then(|s| s.index_gap);
         theseus_protocol::StoreStatus {
             refused_records,
+            index_gap,
             refused_positions: st.map(|s| s.refused_positions).unwrap_or_default(),
             repair: (refused_records > 0).then(|| crate::restore::REPAIR.into()),
             node_cache: Some(self.store.node_cache().health()),

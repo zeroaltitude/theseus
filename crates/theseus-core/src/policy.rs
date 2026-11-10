@@ -146,6 +146,10 @@ pub struct Decision {
     /// What the secret broker gives the call, by name: `gh got GH_TOKEN`
     /// (theseus-dcy). Its tool line and its notice say so.
     pub granted: Option<String>,
+    /// What the call reaches outside the roots, worded (theseus-m9fdg): the
+    /// labels `decide_with` folded into `reason`, carried so a layer that
+    /// loosens the decision keeps them without reading the plan again.
+    pub outside: Vec<String>,
 }
 
 impl Decision {
@@ -170,6 +174,7 @@ impl Decision {
             notify: None,
             floor: false,
             granted: None,
+            outside: vec![],
         }
     }
 
@@ -506,13 +511,14 @@ impl ToolPolicy {
             },
             _ => now,
         };
+        let labels = outside.clone();
         let why = std::iter::once(now.why())
             .chain(notify_listed)
             .chain(outside)
             .collect::<Vec<_>>()
             .join("; ");
         let reason = format!("{name} — {} ({why})", now.posture.as_str());
-        match now.posture {
+        let d = match now.posture {
             Posture::Approve => Decision::new(now.posture, format!("{}: {reason}", plan.summary)),
             Posture::Notify => Decision {
                 notify: Some(Notice {
@@ -523,6 +529,10 @@ impl ToolPolicy {
                 ..Decision::new(now.posture, reason)
             },
             Posture::Open => Decision::new(now.posture, reason),
+        };
+        Decision {
+            outside: labels,
+            ..d
         }
     }
 
@@ -640,14 +650,6 @@ impl ToolPolicy {
     pub(crate) fn args_within_roots(&self, plan: &Plan) -> bool {
         let (_, _, args) = self.view(plan);
         args.iter().all(|(_, p)| self.within_roots(p))
-    }
-
-    /// The labels of what the call reaches outside the roots, for a layer
-    /// that loosens a decision and must keep them in its reason: the ledger
-    /// has no other record of the access (theseus-m9fdg.4).
-    pub(crate) fn outside_labels(&self, plan: &Plan) -> Vec<String> {
-        let (resources, _, args) = self.view(plan);
-        self.outside_roots(plan, &resources, &args)
     }
 
     fn within_roots(&self, p: &Path) -> bool {
@@ -1048,6 +1050,29 @@ mod tests {
             &plan(root.join("secret/key"), Access::Read, None),
         );
         assert_eq!(out.posture, Posture::Open, "{}", out.reason);
+    }
+
+    /// `decide_with` hands the labels on in `Decision::outside`.
+    #[test]
+    fn a_decision_carries_the_labels_of_what_it_reaches_outside_the_roots() {
+        let (_d, root) = workspace();
+        let (_o, outside) = workspace();
+        let p = policy(&root, Posture::Approve);
+        let out = p.decide(
+            &T("fs.write"),
+            &plan(outside.join("scratch/config.toml"), Access::Write, None),
+        );
+        assert_eq!(out.outside.len(), 1, "{:?}", out.outside);
+        assert!(
+            out.outside[0].contains("outside your project folder"),
+            "{:?}",
+            out.outside
+        );
+        let inside = p.decide(
+            &T("fs.write"),
+            &plan(root.join("notes.txt"), Access::Write, None),
+        );
+        assert!(inside.outside.is_empty(), "{:?}", inside.outside);
     }
 
     /// What a call reaches outside the roots is named in its decision, as the

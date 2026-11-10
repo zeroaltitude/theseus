@@ -53,6 +53,51 @@ pub struct Pass {
     pub asked: Vec<String>,
 }
 
+/// What the extractor's answer held: the model that served it, its usage,
+/// the candidates it found (each with its node ids), and why the pass failed,
+/// if it did.
+struct Heard {
+    model: String,
+    usage: Option<theseus_protocol::Usage>,
+    found: Vec<(PersonCandidate, Vec<String>)>,
+    failed: Option<String>,
+}
+
+/// Read the extractor's answer to the request made of `asked`: a cut answer,
+/// one without a `propose_people` call, and a request that failed are each a
+/// failed pass with nothing found.
+fn heard(
+    answered: &anyhow::Result<crate::provider::ModelResponse>,
+    asked: &str,
+    lines: &[Line],
+) -> Heard {
+    let (model, usage, found, failed) = match answered {
+        // A cut answer's tool input is empty or partial: never a whole one.
+        Ok(r) if crate::provider::hit_cap(r.stop_reason.as_deref()) => (
+            r.model.clone(),
+            Some(r.usage.clone()),
+            Vec::new(),
+            Some(crate::provider::cap_phrase(extract::MAX_TOKENS)),
+        ),
+        Ok(r) => match extract::parse(&r.content, lines) {
+            Some(found) => (r.model.clone(), Some(r.usage.clone()), found, None),
+            None => (
+                r.model.clone(),
+                Some(r.usage.clone()),
+                Vec::new(),
+                Some("the answer held no propose_people call".to_string()),
+            ),
+        },
+        Err(e) => (asked.to_string(), None, Vec::new(), Some(format!("{e:#}"))),
+    };
+    Heard {
+        model,
+        usage,
+        found,
+        failed,
+    }
+}
+
 impl Core {
     /// The extractor for a pass over `lines` lines: `[people] extract_profile`
     /// when it is set (a pin), else Jev's choice for the job (route.v10,
@@ -182,30 +227,12 @@ impl Core {
             ..Pass::default()
         };
         let id = crate::new_id("ppl");
-        let (model, usage, found, failed) = match &answered {
-            // A cut answer's tool input is empty or partial: never a whole one.
-            Ok(r) if crate::provider::hit_cap(r.stop_reason.as_deref()) => (
-                r.model.clone(),
-                Some(r.usage.clone()),
-                Vec::new(),
-                Some(crate::provider::cap_phrase(extract::MAX_TOKENS)),
-            ),
-            Ok(r) => match extract::parse(&r.content, &s.lines) {
-                Some(found) => (r.model.clone(), Some(r.usage.clone()), found, None),
-                None => (
-                    r.model.clone(),
-                    Some(r.usage.clone()),
-                    Vec::new(),
-                    Some("the answer held no propose_people call".to_string()),
-                ),
-            },
-            Err(e) => (
-                target.model.clone(),
-                None,
-                Vec::new(),
-                Some(format!("{e:#}")),
-            ),
-        };
+        let Heard {
+            model,
+            usage,
+            found,
+            failed,
+        } = heard(&answered, &target.model, &s.lines);
         pass.failed = failed.is_some();
         pass.candidates = found.len() as u64;
         let o = match self.runner.ontology.held() {
@@ -405,6 +432,11 @@ impl JudgeService {
             .await;
         let (_, spent) = self.settle_round(today, need, &retried);
         spent_all += spent;
+        // `Judge::judge` gives one judgment per ask, in the asks' order
+        // (theseus-judge's `judge.rs`): `again` was built from `failed`, so the
+        // zip pairs each retry with the ask it repeats. A change there would
+        // silently mis-attribute these ids as well as the costs.
+        debug_assert_eq!(retried.len(), failed.len());
         for ((i, _, _), j) in failed.iter().zip(&retried) {
             ids[*i] = j.id.clone();
         }

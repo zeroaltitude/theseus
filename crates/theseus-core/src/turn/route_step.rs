@@ -60,6 +60,14 @@ pub(super) struct RouteState {
     pub(super) wait: Option<RouteWait>,
     /// `route.v1`'s mode for the turn (live, or shadow for a pin).
     pub(super) mode: Option<PackMode>,
+    /// Jev's breaker was open as the turn's asks were begun, read before any of
+    /// them went out (`Early::breaker_open`). A message makes five calls to Jev
+    /// or more (route, effort, work, split, the batch), and five transient
+    /// failures in a row open the breaker, so a turn's own failures can open it
+    /// within a millisecond or two of its first compile: read there, the same
+    /// turn was `no_verdict` or `shadow` by which side of the fifth failure the
+    /// read fell on. A turn that asked live is live to its end ([`Self::live`]).
+    pub(super) breaker_open: bool,
     /// The mode `route_base` read at the turn's start, which the inbound
     /// point takes rather than reading it again.
     pub(super) read: Option<PackMode>,
@@ -119,6 +127,15 @@ pub(super) struct RouteState {
     pub(super) families: super::families_step::Judged,
     /// The static fan-out cue fired for this turn (theseus-z9mze.4), so its tail line rides.
     pub(super) fan_out: bool,
+}
+
+impl RouteState {
+    /// `route.v1` acts live for the turn: its pack is canary or live, and Jev's
+    /// breaker was closed when the turn asked. The turn's own failed calls do
+    /// not change it; a turn that began with the breaker open is `shadow`.
+    pub(super) fn live(&self) -> bool {
+        self.mode.unwrap_or(PackMode::Shadow) >= PackMode::Canary && !self.breaker_open
+    }
 }
 
 /// Where an effort is decided: whether the verdict acts, and whether it is a
@@ -193,6 +210,42 @@ impl Timed {
             late,
             answered_ms: answered.map(|d| d.as_millis() as u64),
         }
+    }
+}
+
+/// What a test runs on the turn's thread just before the turn's first compile
+/// (`compile_routed`), once the turn's route calls are out.
+#[cfg(test)]
+type Hook = Box<dyn FnOnce() + Send>;
+
+/// A test's seam, as [`super::admit_hook`] is at the input's frame: what runs
+/// just before the first compile of the next turn of a session, once. It holds
+/// the turn where it reads Jev's breaker, so a test can settle what its own
+/// calls did to the breaker first.
+#[cfg(test)]
+static BEFORE_FIRST_COMPILE: std::sync::Mutex<Vec<(String, Hook)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Run `f` just before the first compile of the next turn of `session_id`.
+#[cfg(test)]
+pub(crate) fn first_compile_hook(session_id: &str, f: Hook) {
+    BEFORE_FIRST_COMPILE
+        .lock()
+        .unwrap()
+        .push((session_id.to_string(), f));
+}
+
+#[cfg(test)]
+fn before_first_compile(session_id: &str) {
+    let hook = {
+        let mut hooks = BEFORE_FIRST_COMPILE.lock().unwrap();
+        hooks
+            .iter()
+            .position(|(s, _)| s == session_id)
+            .map(|i| hooks.remove(i).1)
+    };
+    if let Some(f) = hook {
+        f();
     }
 }
 
@@ -329,16 +382,18 @@ impl TurnRunner {
     }
 
     /// The inbound point's answer: the verdict's channel, kept for the first
-    /// compile.
+    /// compile, and whether Jev's breaker was open as the asks were begun.
     pub(super) fn route_asked(
         t: &mut Turn<'_>,
         wait: Option<RouteWait>,
         mode: PackMode,
         images: bool,
+        breaker_open: bool,
     ) {
         t.route.wait = wait;
         t.route.mode = Some(mode);
         t.route.images = images;
+        t.route.breaker_open = breaker_open;
     }
 
     /// Every configured profile, as routing weighs it: usable when its
@@ -431,6 +486,8 @@ impl TurnRunner {
             }
             return compiled;
         };
+        #[cfg(test)]
+        before_first_compile(t.tc.session_id);
         let mut compiled = self
             .compile_first(
                 t, session, spec, provider, slot, force, strip, overflow, i, rx,
@@ -512,8 +569,7 @@ impl TurnRunner {
         i: u32,
         mut rx: RouteWait,
     ) -> Result<Result<Compiled, Failure>> {
-        let mode = t.route.mode.unwrap_or(PackMode::Shadow);
-        let live = mode >= PackMode::Canary && !self.judge.breaker_open();
+        let live = t.route.live();
         // Jev known unreachable (its last try failed to connect, and nothing
         // has answered since): no verdict will come in time, so the turn
         // does not wait for one (theseus-otny).
@@ -575,6 +631,9 @@ impl TurnRunner {
         // (theseus-a2kh6).
         self.injection_read(t, verdict.as_ref(), reason);
         self.raise_tools(t, verdict.as_ref().filter(|_| reason.is_none()));
+        if let Some(b) = t.route.injection.as_mut() {
+            b.raise_low_effort(verdict.as_ref().filter(|_| reason.is_none()));
+        }
         self.verdict_asides(t, verdict.as_ref());
         self.record_route(
             t,
@@ -605,21 +664,7 @@ impl TurnRunner {
                 .await;
         };
         Self::hold_next(session, &d.hold);
-        if d.profile == base {
-            return self
-                .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
-                .await;
-        }
-        let target = match self.resolve_target(&base, Some(&d.profile), None, None) {
-            Ok(tg) => tg.speaking_as(t.target),
-            Err(e) => {
-                tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
-                return self
-                    .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
-                    .await;
-            }
-        };
-        let Some(p) = self.providers.get(&target.provider).cloned() else {
+        let Some((target, p)) = self.switch_target(t, &base, &d) else {
             return self
                 .stays_on_its_own(t, session, spec, compiled, (force, strip, overflow), i)
                 .await;
@@ -629,6 +674,30 @@ impl TurnRunner {
         self.routed_to(t, session, spec, slot, target, &d).await?;
         *provider = Some(p);
         Box::pin(self.compile_step(t, session, spec, force, strip, overflow, i)).await
+    }
+
+    /// Where a decision sends the turn: the target its profile resolves to,
+    /// speaking as the turn's own, and the provider that serves it. None where
+    /// the turn stays on its own: the decision names the session's own
+    /// profile (`base`), one that does not resolve, or one with no provider.
+    fn switch_target(
+        &self,
+        t: &Turn<'_>,
+        base: &str,
+        d: &Decision,
+    ) -> Option<(Target, Arc<dyn Provider>)> {
+        if d.profile == base {
+            return None;
+        }
+        let target = match self.resolve_target(base, Some(&d.profile), None, None) {
+            Ok(tg) => tg.speaking_as(t.target),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), profile = %d.profile, "routing: the profile did not resolve; the session's own runs");
+                return None;
+            }
+        };
+        let p = self.providers.get(&target.provider).cloned()?;
+        Some((target, p))
     }
 
     /// The decision's hold on the session's routed record, which goes once it

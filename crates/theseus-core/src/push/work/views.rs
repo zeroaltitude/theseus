@@ -72,6 +72,7 @@ pub(super) fn blank(id: &str, kind: WorkKind, at_ms: u64) -> WorkView {
         dismissed: false,
         retry_of: None,
         thread: None,
+        forum_url: None,
         purpose: None,
         next_at_ms: None,
         series: None,
@@ -133,6 +134,7 @@ impl WorkBoard {
         v.moved_to = ei.on.clone();
         v.report = self.report_of(ei, &v);
         v.flagged = ei.flagged;
+        v.forum_url = self.task_links.as_ref().and_then(|f| f(id));
         v.expect = ei.expect;
         v.paused = ei.paused;
         v.ended_at_ms = v.state.ended().then_some(ei.x.at_ms);

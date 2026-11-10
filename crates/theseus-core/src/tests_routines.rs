@@ -88,8 +88,14 @@ impl Drop for Rig {
 }
 
 pub(crate) fn rig() -> Rig {
+    rig_with(|_| {})
+}
+
+/// The rig over the template, with `tune` applied to its config before the daemon is built.
+fn rig_with(tune: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
+    tune(&mut cfg);
     cfg.server.state_dir = dir.path().to_string_lossy().into_owned();
     cfg.tools.roots = vec![];
     cfg.policy.enforcement = crate::policy::Posture::Notify;
@@ -456,6 +462,52 @@ async fn a_spent_month_skips_and_says_so_once_and_the_first_starts_it_again() {
     );
 }
 
+/// The rule notices the owner was sent for a skipped run, as `rule_posts`
+/// reads D5's in the relay's tests: the operator outbox's `spend_ceiling` posts.
+fn rule_posts(r: &Rig) -> Vec<String> {
+    r.core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "spend_ceiling")
+        .map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect()
+}
+
+/// Rules D14 and D15 (theseus-3i6d1): a spent month tells the owner which rule
+/// skipped the run. `held_back` picks D15 for a title beginning `Review: ` (a
+/// project's weekly review) and D14 for any other routine; nothing else
+/// asserted that branch.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skipped_run_names_d14_for_a_routine_and_d15_for_a_review() {
+    for (title, rule, other) in [
+        ("Tidy the scratch notes", "Rule D14 skipped", "D15"),
+        ("Review: the harbour project", "Rule D15 skipped", "D14"),
+    ] {
+        let r = rig();
+        made(&r.core, json!({"month_usd": 1.0})).await;
+        let now = r.core.kernel.now_ms();
+        let this_month = theseus_kernel::cron::month_key(&r.core.kernel.config().zone, now);
+        let (spec, mut due) = routine_and_due(&r, &this_month);
+        let mut spec = spec.as_ref().clone();
+        spec.title = title.into();
+        due.spent_micros = spec.month_micros;
+        due.available_micros = 0;
+        due.available_after_reset_micros = 0;
+        let (p, _) = plan(&env(&r), &Arc::new(spec), &due).unwrap();
+        assert!(matches!(p, RoutinePlan::Skip { .. }), "{title}: skipped");
+        let told = rule_posts(&r);
+        assert_eq!(told.len(), 1, "{title}: one notice: {told:?}");
+        assert!(told[0].contains(rule), "{title}: {}", told[0]);
+        assert!(!told[0].contains(other), "{title}: {}", told[0]);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn after_downtime_one_catch_up_says_how_many_were_missed_or_none_runs() {
     let r = rig();
@@ -542,6 +594,8 @@ async fn a_routine_the_model_sets_up_waits_on_one_card_and_is_listed_in_its_comm
         "{}",
         card.reason
     );
+    assert!(card.reason.contains("not a system cap"), "{}", card.reason);
+    assert!(card.reason.contains("$0.50 a run"), "{}", card.reason);
     let listed = rpc(&r.core, "routine.list", json!({})).await.unwrap();
     assert!(
         listed["routines"].as_array().unwrap().is_empty(),
@@ -754,19 +808,23 @@ async fn a_skip_spends_no_run_and_moves_the_next_time_one_period() {
 }
 
 /// The two `default_*` figures are what a routine that names none gets, not caps (theseus-tclcj): a
-/// routine's own figure is taken as named unless a ceiling is set, and above one it is refused,
+/// routine's own figure is taken as named unless it is above a ceiling, and above one it is refused,
 /// naming the key, never clamped.
 #[test]
 fn a_routines_own_dollars_are_bounded_only_by_a_ceiling_and_a_refusal_names_the_key() {
     use crate::config::RoutinesConfig;
     use crate::routine::check_budgets;
-    let open = RoutinesConfig::default();
-    // No ceiling: a figure well above the defaults is the routine's own, as before.
+    // A ceiling the owner raised: a figure well above the defaults is the routine's own, as before.
+    let open = RoutinesConfig {
+        max_run_usd: 5000.0,
+        max_month_usd: 5000.0,
+        ..RoutinesConfig::default()
+    };
     assert_eq!(check_budgets(&open, 5.0, 500.0), Ok(()));
     // The positive control: an ordinary figure passes under ceilings.
     let capped = RoutinesConfig {
-        max_run_usd: Some(2.0),
-        max_month_usd: Some(50.0),
+        max_run_usd: 2.0,
+        max_month_usd: 50.0,
         ..RoutinesConfig::default()
     };
     assert_eq!(check_budgets(&capped, 0.25, 4.0), Ok(()));
@@ -787,11 +845,144 @@ fn a_routines_own_dollars_are_bounded_only_by_a_ceiling_and_a_refusal_names_the_
     assert!(check_budgets(&capped, 5.0, 4.0).is_err());
     // A ceiling below a default would refuse a routine that names nothing, so the config says so.
     let bad = RoutinesConfig {
-        max_month_usd: Some(1.0),
+        max_month_usd: 1.0,
         ..RoutinesConfig::default()
     };
     assert!(bad.validate().is_err());
+    let bad_run = RoutinesConfig {
+        max_run_usd: 0.25,
+        ..RoutinesConfig::default()
+    };
+    assert!(bad_run.validate().is_err());
     assert!(capped.validate().is_ok());
+}
+
+/// The ceilings ship with defaults (the owner, 2026-11-09 15:48): $5 a run and $50 a month, so an
+/// unconfigured daemon refuses a routine a model proposes at $500 a month, naming the key, and an
+/// owner who sets a higher ceiling in config is taken at it (theseus-3i6d1).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unconfigured_daemon_refuses_a_routine_naming_500_dollars_a_month_and_a_raised_ceiling_takes_it(
+) {
+    let defaults = crate::config::RoutinesConfig::default();
+    assert_eq!((defaults.max_run_usd, defaults.max_month_usd), (5.0, 50.0));
+    assert!(defaults.validate().is_ok());
+    let r = rig();
+    assert_eq!(r.core.cfg.routines, defaults);
+    let refused = rpc(
+        &r.core,
+        "routine.create",
+        json!({"title": "Tide check", "schedule": "every 1m", "brief": BRIEF,
+               "budget_usd": 1.0, "month_usd": 500.0}),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        refused.contains("max_month_usd") && refused.contains("$500") && refused.contains("$50"),
+        "{refused}"
+    );
+    assert!(!refused.contains("max_run_usd"), "{refused}");
+    let run = rpc(
+        &r.core,
+        "routine.create",
+        json!({"title": "Tide check", "schedule": "every 1m", "brief": BRIEF,
+               "budget_usd": 6.0, "month_usd": 40.0}),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        run.contains("max_run_usd") && !run.contains("max_month_usd"),
+        "{run}"
+    );
+    let listed = rpc(&r.core, "routine.list", json!({})).await.unwrap();
+    assert!(
+        listed["routines"].as_array().unwrap().is_empty(),
+        "a refusal makes nothing, and nothing is clamped"
+    );
+    // The ceilings are inclusive: $5 a run and $50 a month are the most a routine may name.
+    let edge = made(&r.core, json!({"budget_usd": 5.0, "month_usd": 50.0})).await;
+    assert_eq!(
+        (edge["run_usd"].as_f64(), edge["month_usd"].as_f64()),
+        (Some(5.0), Some(50.0))
+    );
+    // A config that raises the ceiling to 5,000 takes the same $500 month as named.
+    let high = rig_with(|c| {
+        c.routines.max_run_usd = 5000.0;
+        c.routines.max_month_usd = 5000.0;
+    });
+    assert!(high.core.cfg.routines.validate().is_ok());
+    let big = made(&high.core, json!({"budget_usd": 1.0, "month_usd": 500.0})).await;
+    assert_eq!(big["month_usd"].as_f64(), Some(500.0), "{big}");
+}
+
+/// The same refusal on the model's own path: a `routine_create` naming $500 a month is turned back
+/// before any card, with the key named in the tool's result, and a figure within the ceilings still
+/// reaches its one card (theseus-3i6d1).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_routine_the_model_proposes_at_500_dollars_a_month_is_refused_before_a_card() {
+    let r = rig();
+    let s = crate::tests_task_graph::session(&r.core);
+    *r.model.call.lock().unwrap() = Some(json!({
+        "title": "Morning digest", "schedule": "weekdays 08:00", "brief": BRIEF,
+        "budget_usd": 1.0, "month_usd": 500.0,
+    }));
+    let _ = crate::tests_task_graph::turn(&r.core, &s, "set up a morning digest for me").await;
+    assert!(r.core.confirm_list().unwrap().is_empty(), "no card for it");
+    let told = r
+        .model
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|q| q.messages.last().map(|m| m.to_string()).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(told.contains("max_month_usd"), "{told}");
+    *r.model.call.lock().unwrap() = Some(json!({
+        "title": "Morning digest", "schedule": "weekdays 08:00", "brief": BRIEF,
+        "budget_usd": 1.0, "month_usd": 40.0,
+    }));
+    let _ = crate::tests_task_graph::turn(&r.core, &s, "set up a morning digest for me").await;
+    assert_eq!(
+        r.core.confirm_list().unwrap().len(),
+        1,
+        "a figure within the ceilings is carded"
+    );
+}
+
+/// The template documents both ceilings with the figures they default to, and the keys it names are
+/// the defaults the daemon ships (theseus-3i6d1).
+#[test]
+fn the_example_config_documents_both_routine_ceilings_with_their_defaults() {
+    let text = Config::EXAMPLE_TOML;
+    let line = |key: &str| {
+        text.lines()
+            .find(|l| l.starts_with(&format!("# {key} = ")))
+            .unwrap_or_else(|| panic!("the template documents {key}"))
+            .to_string()
+    };
+    let run = line("max_run_usd");
+    let month = line("max_month_usd");
+    assert!(run.starts_with("# max_run_usd = 5 "), "{run}");
+    assert!(month.starts_with("# max_month_usd = 50 "), "{month}");
+    assert!(
+        run.contains("default") && month.contains("default"),
+        "{run} / {month}"
+    );
+    let d = crate::config::RoutinesConfig::default();
+    assert_eq!((d.max_run_usd, d.max_month_usd), (5.0, 50.0));
+    // Uncommented, the lines parse to the same figures: the documented values are the shipped ones.
+    let on = text
+        .replace(&run, "max_run_usd = 5")
+        .replace(&month, "max_month_usd = 50")
+        .replace("# [routines]\n", "[routines]\n");
+    let c = Config::parse(&on).unwrap().0;
+    assert_eq!(c.routines, d);
+    // And a higher figure is a config edit away.
+    let high = on.replace("max_month_usd = 50", "max_month_usd = 5000");
+    assert_eq!(
+        Config::parse(&high).unwrap().0.routines.max_month_usd,
+        5000.0
+    );
 }
 
 /// The words a spent month says: whose figure it is, not "the" limit (theseus-tclcj).
@@ -806,4 +997,24 @@ fn a_spent_month_says_the_figure_is_the_routines_own() {
     let rule = crate::rule_notice::Rule::D14.spec();
     assert!(!rule.key.contains("default_"), "{}", rule.key);
     assert!(rule.key.contains("routine update"), "{}", rule.key);
+}
+
+/// The creation card says the dollars are the routine's own, once, in both
+/// builders (theseus-tclcj). `Prepared::card` has no caller outside tests.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_card_spells_the_budget_once() {
+    let r = rig();
+    let words = crate::routine::budget_words(0.5, 10.0);
+    assert!(words.contains("not a system cap"), "{words}");
+    let new = crate::routine::NewRoutine {
+        title: "Tide check".into(),
+        schedule: "weekdays 08:00".into(),
+        brief: BRIEF.into(),
+        ..Default::default()
+    };
+    let cfg = crate::config::RoutinesConfig::default();
+    let prepared = crate::routine::prepare(&r.core.kernel, &cfg, &new, "owner", None).unwrap();
+    let card = prepared.card(&r.core.kernel.config().zone);
+    assert_eq!(card.matches(&words).count(), 1, "{card}");
+    assert_eq!(card.matches("a run").count(), 1, "{card}");
 }

@@ -49,7 +49,7 @@ model = "claude-sonnet-5-5"
 # Output cap per call (the Messages API's max_tokens). NOT an input limit: input is
 # whatever the compiler assembles, bounded by the model's context window. Omitted,
 # it defaults to the model's ceiling from the catalog (Sonnet 5/5.5, Opus 5/5.5,
-# Fable 5.1: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
+# Fable 5.1 and 5.2: 128k; Haiku 4.5: 64k; GLM-5.x: 128k). You pay only for tokens generated.
 # max_output_tokens = 128000
 # system = "You are Theseus."           # appended to the built-in persona, the assembly note, the precedence line, and the tools note
 # effort = "high"                       # low | medium | high | xhigh | max (models that take effort)
@@ -144,6 +144,15 @@ max_loops = 40
 [profiles.fable]
 provider = "anthropic"
 model = "claude-fable-5-1"
+thinking_display = "summarized"
+max_loops = 40
+
+# Fable 5.2 (2026-11-09), for a pin: Fable 5.1's window, output cap and always-on
+# thinking at 0.8 of its prices ($8 in, $40 out a million). Jev is not offered it --
+# the `fable` option above is still Fable 5.1 -- so it is reached by pin only.
+[profiles.fable52]
+provider = "anthropic"
+model = "claude-fable-5-2"
 thinking_display = "summarized"
 max_loops = 40
 
@@ -1290,8 +1299,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # [routines]
 # default_run_usd = 0.50                  # the most one run may spend, when a routine names none
 # default_month_usd = 10                  # a routine's month, reset on the 1st (local), when it names none
-# max_run_usd = 2                         # a ceiling on the run figure a routine names for itself (unset: none); a higher one is refused, naming this key
-# max_month_usd = 50                      # the same for the month figure
+# max_run_usd = 5                         # a ceiling on the run figure a routine names for itself (default 5); a higher one is refused, naming this key
+# max_month_usd = 50                      # the same for the month figure (default 50); raise either here for routines that may spend more
 # max_routines = 50                       # live routines at once
 # run_deadline_secs = 900                 # how long a run's question outside its grant waits before the call is dropped and the run goes on without it
 

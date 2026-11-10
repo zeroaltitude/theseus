@@ -95,6 +95,11 @@ pub const COMMANDS: &[Command] = &[
         help: "in an ended task's view: a linked follow-up task (task.retry)",
         run: |chat, _| chat.follow_up(),
     },
+    Command {
+        name: "why",
+        help: "what a turn's model was shown, and why: the newest, or /why TURN",
+        run: super::why::why,
+    },
     // Debug builds only: the test that proves the terminal comes back after a
     // panic needs one to happen.
     #[cfg(debug_assertions)]

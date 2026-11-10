@@ -18,11 +18,26 @@ use crate::pack::{by_name, Pack};
 use crate::price;
 use crate::state::NoScrub;
 
+/// Whether `UPDATE_GOLDEN`'s value asks for a write: exactly `1`, so `0`, an
+/// empty value and an unset one all compare.
+fn writes_golden(v: Option<&std::ffi::OsStr>) -> bool {
+    v == Some(std::ffi::OsStr::new("1"))
+}
+
+#[test]
+fn update_golden_writes_only_for_1() {
+    use std::ffi::OsStr;
+    assert!(!writes_golden(None), "unset compares");
+    assert!(!writes_golden(Some(OsStr::new("0"))), "0 compares");
+    assert!(!writes_golden(Some(OsStr::new(""))), "empty compares");
+    assert!(writes_golden(Some(OsStr::new("1"))), "1 writes");
+}
+
 /// Compares `actual` with a golden file under the crate; `UPDATE_GOLDEN=1`
 /// writes it instead (then read it, and commit it).
 pub(crate) fn golden(path: &str, actual: &str) {
     let full = format!("{}/{path}", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+    if writes_golden(std::env::var_os("UPDATE_GOLDEN").as_deref()) {
         std::fs::write(&full, format!("{actual}\n")).unwrap();
         return;
     }

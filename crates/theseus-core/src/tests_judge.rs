@@ -64,6 +64,15 @@ pub(crate) fn config(state: &Path, jev: Option<&FakeJev>) -> Config {
 }
 
 /// The config with every wired pack as the build gives it.
+///
+/// `judge.total_secs` is 10 here, below `until_judged`'s 20 s guard and well
+/// inside nextest's 120 s kill. It was 1 s, which is less than the build's 5 s:
+/// a rig that inherited it lost its verdict to a loaded host, the call was
+/// abandoned and booked as a timeout, and the test failed about a missing
+/// verdict (theseus-2yh04, theseus-4vsrz). Measured at the flip: 85 files
+/// reference `tests_judge::`; the whole `theseus-core --lib` suite (5149 tests)
+/// passed before and after, and no test needed a pin of its own. A test that
+/// stages a slow judge on purpose sets its own short budget in its rig closure.
 pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
     let mut cfg = Config::example();
     cfg.server.state_dir = state.to_string_lossy().into_owned();
@@ -75,7 +84,7 @@ pub(crate) fn judge_config(state: &Path, jev: Option<&FakeJev>) -> Config {
         cfg.judge.enabled = true;
         cfg.judge.api_base = j.base();
         cfg.judge.connect_secs = 1;
-        cfg.judge.total_secs = 1;
+        cfg.judge.total_secs = 10;
     }
     // loop.v1 in shadow, judged after the turn: the judge's own machinery
     // (the sink, the budget, the ladder, the learning loop) is tested on it
@@ -287,7 +296,7 @@ async fn a_turn_that_ends_with_no_tool_calls_is_judged_once_in_shadow() {
             "heard.v1: live",
             "people.v1: live",
             "people_seen.v1: live",
-            "content.v3: off",
+            "content.v4: off",
             "delay.v1: live"
         ]
     );
@@ -304,11 +313,17 @@ async fn a_judged_turn_keeps_its_frame_budget() {
     let r = rig_with(texts(2), Some(&jev), |_| {});
     let first = turn(&r.core, None, "warm up").await;
     until_judged(&r.core.store, 1).await;
+    // The counter is the store's, so any writer beside the turn moves it: the
+    // sink's frame for this turn's judgment, if Jev answered before the
+    // test's task woke, would read as the turn's own. Jev holds this turn's
+    // answer until the window is closed: its rows land after, by order.
+    jev.set_mode(FakeMode::Held);
     let before = r.core.store.stats().unwrap().frames_appended;
     let res = turn(&r.core, Some(&first.session_id), "hi").await;
     let frames = r.core.store.stats().unwrap().frames_appended - before;
     assert_eq!(res.loops, 1);
     assert!(frames <= 4, "a judged plain turn wrote {frames} frames");
+    jev.release();
     until_judged(&r.core.store, 2).await;
 }
 
@@ -490,7 +505,7 @@ async fn an_off_judge_or_pack_calls_nothing() {
             "heard.v1: live",
             "people.v1: live",
             "people_seen.v1: live",
-            "content.v3: off",
+            "content.v4: off",
             "delay.v1: live"
         ]
     );

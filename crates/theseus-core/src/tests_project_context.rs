@@ -1,6 +1,6 @@
 //! The repository's own instruction files on the live path (theseus-wadu,
-//! phase 1): what block 3 says about a repository the owner has not granted,
-//! and what it says about one granted through the test-only seam.
+//! phases 1 and 2): what block 3 says about a repository the owner has not
+//! granted, and what it says about one granted through `Core::project_trust`.
 //!
 //! The rig is `tests_session_dir`'s in miniature: a session works in a
 //! directory, and the model's request is the fake provider's.
@@ -209,7 +209,9 @@ async fn the_configured_budget_reaches_the_assembly() {
     let (repo, here) = hostile_repo(&r.root);
     // A file far past 500 tokens (1,500 bytes) of budget.
     std::fs::write(repo.join("AGENTS.md"), "w".repeat(40_000)).unwrap();
-    let _grant = crate::project_context::trust::grant_for_test(&repo);
+    r.core
+        .project_trust(&repo, "cli")
+        .expect("the owner trusts it");
     submit(&r.core, &here).await;
     let req = r.fake.requests().pop().expect("a request was sent");
     let block = session_block(&req);
@@ -231,7 +233,9 @@ async fn the_configured_budget_reaches_the_assembly() {
 async fn a_granted_repositorys_text_lands_in_block_3_deepest_last() {
     let r = rig();
     let (repo, here) = hostile_repo(&r.root);
-    let _grant = crate::project_context::trust::grant_for_test(&repo);
+    r.core
+        .project_trust(&repo, "cli")
+        .expect("the owner trusts it");
     submit(&r.core, &here).await;
     let req = r.fake.requests().pop().expect("a request was sent");
     let block = session_block(&req);
@@ -253,4 +257,136 @@ async fn a_granted_repositorys_text_lands_in_block_3_deepest_last() {
         !block.contains("not trusted and not read"),
         "a granted repository is read, not named"
     );
+}
+
+/// Phase 2: the grant is the owner's act, in the store. It is read back as a
+/// list, ledgered, takes effect for a turn after it, is taken back by an
+/// untrust, and a repository that is no repository is refused.
+#[tokio::test]
+async fn a_trust_is_a_record_a_row_and_is_revoked_by_an_untrust() {
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    assert!(r.core.project_trusted().unwrap().is_empty());
+
+    // A path inside the repository names it; the id is the root's.
+    let t = r.core.project_trust(&here, "cli").expect("trusted");
+    assert_eq!(t.id, crate::flow::spec::repo_id(&repo));
+    assert_eq!(t.grant.root, repo.display().to_string());
+    assert_eq!(r.core.project_trusted().unwrap(), vec![t.clone()]);
+    // Idempotent: a second trust writes nothing new and returns the first.
+    assert_eq!(r.core.project_trust(&repo, "cli").unwrap(), t);
+
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains(crate::project_context::FRAME), "{block}");
+    assert!(block.contains(IN_TEXT), "carried once trusted:\n{block}");
+
+    let rows = crate::test_support::ledger_rows_2k(&r.core, "project.trust");
+    assert_eq!(rows.len(), 1, "one row, for the one grant: {rows:?}");
+
+    r.core.project_untrust(&here, "cli").expect("revoked");
+    assert!(r.core.project_trusted().unwrap().is_empty());
+    assert!(
+        r.core.project_untrust(&here, "cli").is_err(),
+        "not trusted any more"
+    );
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(!block.contains(IN_TEXT), "named, not read again:\n{block}");
+    assert!(block.contains("not trusted and not read"), "{block}");
+
+    // No repository: refused, and nothing is written.
+    let bare = r.root.join("not-a-repo");
+    std::fs::create_dir_all(&bare).unwrap();
+    assert!(r.core.project_trust(&bare, "cli").is_err());
+    assert!(r.core.project_trusted().unwrap().is_empty());
+}
+
+/// A trust follows the canonical root and nothing else: a copy of the same
+/// repository elsewhere, with the same files, is not trusted.
+#[tokio::test]
+async fn a_copy_of_a_trusted_repository_elsewhere_inherits_nothing() {
+    let r = rig();
+    let (repo, _) = hostile_repo(&r.root);
+    r.core.project_trust(&repo, "cli").unwrap();
+    let other = r.root.join("copy");
+    std::fs::create_dir_all(other.join(".git")).unwrap();
+    std::fs::write(other.join("AGENTS.md"), format!("copy {IN_TEXT}\n")).unwrap();
+    submit(&r.core, &other.canonicalize().unwrap()).await;
+    let all = whole(&r.fake.requests().pop().unwrap());
+    assert!(!all.contains(IN_TEXT), "the copy is untrusted: not read");
+}
+
+/// Phase 3: the grant through the protocol's dispatch, judged as `standing.add`
+/// is. A surface that is no private place is refused and writes nothing (the
+/// zeros), and the CLI's grant writes exactly one row, lists, carries the
+/// text and is taken back (the positive count behind them).
+#[tokio::test]
+async fn the_grant_is_reachable_through_the_dispatch_and_judged_as_standing_is() {
+    use crate::approval::Surface;
+    use crate::tests_mcp_memory::rpc;
+    let r = rig();
+    let (repo, here) = hostile_repo(&r.root);
+    let path = repo.to_string_lossy().into_owned();
+    for surface in [Surface::Unnamed, Surface::Mcp] {
+        let e = rpc(&r.core, surface, "project.trust", json!({"path": path}))
+            .await
+            .expect_err("not an approval surface");
+        assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{e:?}");
+    }
+    assert!(r.core.project_trusted().unwrap().is_empty());
+    assert!(crate::test_support::ledger_rows_2k(&r.core, "project.trust").is_empty());
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains("not trusted and not read"), "{block}");
+
+    let e = rpc(
+        &r.core,
+        Surface::Cli,
+        "project.trust",
+        json!({"path": "tide-gauges"}),
+    )
+    .await
+    .expect_err("a relative path");
+    assert_eq!(
+        e.code,
+        theseus_protocol::error_code::INVALID_PARAMS,
+        "{e:?}"
+    );
+
+    let got = rpc(
+        &r.core,
+        Surface::Cli,
+        "project.trust",
+        json!({"path": path}),
+    )
+    .await
+    .expect("the CLI may grant");
+    assert_eq!(got["root"], json!(repo.display().to_string()), "{got}");
+    assert_eq!(
+        crate::test_support::ledger_rows_2k(&r.core, "project.trust").len(),
+        1
+    );
+    let list = rpc(&r.core, Surface::Cli, "project.trusted", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(list["trusted"].as_array().map(Vec::len), Some(1), "{list}");
+    assert_eq!(list["trusted"][0]["root"], got["root"]);
+    submit(&r.core, &here).await;
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(block.contains(crate::project_context::FRAME), "{block}");
+    assert!(block.contains(IN_TEXT), "{block}");
+
+    rpc(
+        &r.core,
+        Surface::Cli,
+        "project.untrust",
+        json!({"path": path}),
+    )
+    .await
+    .expect("untrust");
+    let list = rpc(&r.core, Surface::Cli, "project.trusted", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(list["trusted"].as_array().map(Vec::len), Some(0), "{list}");
 }

@@ -1,5 +1,5 @@
 //! The session's system block (theseus-aab7): block 3, after the header and
-//! the context block, with the fourth of the provider's cache breakpoints.
+//! the context block, with no cache breakpoint of its own.
 //!
 //! The header is one cache entry for every session of a profile, so nothing
 //! of one session's goes there (`crates/theseus-core/AGENTS.md`). What is
@@ -15,14 +15,21 @@
 //!
 //! Last comes the project's own instruction files (`project_context`,
 //! theseus-wadu; `docs/design/project-context.md` §3): the owner's own
-//! user-level file, and, for a repository the owner has not granted, the one
+//! user-level file, then for a repository the owner has trusted
+//! (`project.trust`, a record in the store) its files under a frame, and for
+//! one the owner has not granted, the one
 //! line naming how many files there are and how large they are, and nothing
 //! else of them. A nested directory's files join the block the first time a
 //! tool touches that directory, which is the `system_changed` recompile a
 //! session moving directory already is (§2).
 //!
-//! This block takes the fourth breakpoint; no other block may: the header,
-//! the context, this one, and the conversation's are the provider's four.
+//! This block takes **no** breakpoint (`layers::cache_layout` leaves it
+//! unmarked, whatever its size). The provider's four are the header, the
+//! persona, the project layer, and the conversation's automatic one, which
+//! sits after this block and so covers it: what changes here changes only
+//! the conversation's entry and leaves the three layers above it cached.
+//! `tests_layers::the_request_is_three_layers_a_session_block_and_the_messages`
+//! holds it (`[true, true, true, false]`).
 
 use crate::ceiling::PlaceView;
 use crate::places::PlaceClass;
@@ -47,7 +54,9 @@ impl TurnRunner {
             crate::cpu::commands::Cpus::of_commands().fact(),
             crate::cpu::os::Os::of_machine().fact(),
         );
-        if let Some(part) = crate::project_context::block(&self.cfg, &self.context_files, &cwd) {
+        if let Some(part) =
+            crate::project_context::block(&self.cfg, &self.store, &self.context_files, &cwd)
+        {
             text.push_str("\n\n");
             text.push_str(&part);
         }

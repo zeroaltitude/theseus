@@ -6,8 +6,8 @@
 //! notice on the owner's surfaces as the judge's other notices are: its
 //! sentence in the narrative's session part.
 
-use serde_json::Value;
-use theseus_judge::learn::CanaryEvent;
+use serde_json::{json, Value};
+use theseus_judge::learn::{CanaryEvent, SpendSuppressed as Held};
 use theseus_protocol::packs::PackModeRow;
 use theseus_protocol::{LedgerKind, NarrativePart};
 
@@ -101,5 +101,31 @@ impl Fact for PackEventLanded<'_> {
 
     fn row(&self) -> Value {
         serde_json::json!({"pack": self.pack, "event": self.event})
+    }
+}
+
+/// A spend rule declined to decide (theseus-ig13o): its pack version, why,
+/// and the numbers it read. A row and nothing louder, so a quiet rule is
+/// told from a working one by the record.
+pub struct SpendSuppressed<'a> {
+    pub pack: &'a str,
+    pub rule: &'a str,
+    pub held: &'a Held,
+}
+
+impl Fact for SpendSuppressed<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::JudgeSpendSuppressed);
+
+    fn row(&self) -> Value {
+        json!({
+            "pack": self.pack,
+            "rule": self.rule,
+            "reason": self.held.reason.as_str(),
+            "canary_tasks": self.held.canary_tasks,
+            "control_tasks": self.held.control_tasks,
+            "min_tasks": self.held.min_tasks,
+            "canary_median_micros": self.held.canary_median_micros,
+            "floor_micros": self.held.floor_micros,
+        })
     }
 }

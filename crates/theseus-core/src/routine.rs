@@ -438,9 +438,9 @@ pub fn usd_ok(usd: f64) -> bool {
 }
 
 /// A routine's own run and month figures: above 0, a run within the month, and within the
-/// config's ceilings when it sets them. The `default_*` keys are what a routine that names none
-/// gets, not caps, so a figure above a ceiling is refused (never clamped), naming the key
-/// (theseus-tclcj).
+/// config's ceilings (5 and 50 until the owner sets others). The `default_*` keys are what a
+/// routine that names none gets, not caps, so a figure above a ceiling is refused (never clamped),
+/// naming the key (theseus-tclcj).
 pub fn check_budgets(cfg: &RoutinesConfig, run_usd: f64, month_usd: f64) -> Result<(), String> {
     if !(usd_ok(run_usd) && usd_ok(month_usd)) || run_usd > month_usd {
         return Err(format!(
@@ -456,9 +456,9 @@ pub fn check_budgets(cfg: &RoutinesConfig, run_usd: f64, month_usd: f64) -> Resu
             cfg.max_month_usd,
         ),
     ] {
-        if let Some(max) = ceiling.filter(|max| usd > *max) {
+        if usd > ceiling {
             return Err(format!(
-                "{what} (${usd}) is above the ${max} that `[routines] {key}` allows a routine"
+                "{what} (${usd}) is above the ${ceiling} that `[routines] {key}` allows a routine"
             ));
         }
     }
@@ -471,6 +471,17 @@ fn dollars(usd: f64) -> String {
     } else {
         format!("${usd:.2}")
     }
+}
+
+/// The routine's own budget as a card spells it: figures the routine carries
+/// (the model's, else the defaults), bounded only by `[routines] max_run_usd`
+/// and `max_month_usd`, so never read as a system cap.
+pub(crate) fn budget_words(run_usd: f64, month_usd: f64) -> String {
+    format!(
+        "its own budget, not a system cap: up to {} a run, {} a month",
+        dollars(run_usd),
+        dollars(month_usd)
+    )
 }
 
 impl Prepared {
@@ -486,42 +497,70 @@ impl Prepared {
     ) -> String {
         let speak = Speak::parse(n.speak.as_deref().unwrap_or("")).unwrap_or_default();
         let to = n.deliver_to.as_deref().unwrap_or("dm");
-        let next: Vec<String> = next.iter().map(|m| when(zone, *m)).collect();
-        format!(
-            "Create routine \"{}\": {}{} (next: {}) · {} · up to {} a run, {} a month · {} · {}",
-            n.title.trim(),
-            at_words(&describe(repeat, zone)),
-            bounds
-                .start_ms
-                .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
-            next.join(", "),
-            stop_words(bounds.stop.as_ref()),
-            dollars(run_usd),
-            dollars(month_usd),
-            deliver_words(to, speak),
-            trust_words(&n.grant),
+        card_text(
+            &CardParts {
+                title: n.title.trim(),
+                described: &describe(repeat, zone),
+                start_ms: bounds.start_ms,
+                next,
+                stop: bounds.stop.as_ref(),
+                usd: (run_usd, month_usd),
+                delivery: &deliver_words(to, speak),
+                trust: &trust_words(&n.grant),
+            },
+            zone,
         )
     }
 
     /// `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00,
-    /// Mon 08:00, Tue 08:00) · up to $0.50 a run, $10 a month · posts to your DM`
+    /// Mon 08:00, Tue 08:00) · its own budget, not a system cap: up to $0.50 a run, $10 a month ·
+    /// posts to your DM`
     pub fn card(&self, zone: &TimeZone) -> String {
         let s = &self.spec;
-        let next: Vec<String> = self.next.iter().map(|m| when(zone, *m)).collect();
-        format!(
-            "Create routine \"{}\": {}{} (next: {}) · {} · up to {} a run, {} a month · {} · {}",
-            s.title,
-            at_words(&describe(&self.repeat, zone)),
-            s.start_ms
-                .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
-            next.join(", "),
-            stop_words(s.stop.as_ref()),
-            dollars(micros_to_usd(s.run_micros)),
-            dollars(micros_to_usd(s.month_micros)),
-            deliver_words(&s.deliver_to, s.speak),
-            trust_words(&self.grant),
+        card_text(
+            &CardParts {
+                title: &s.title,
+                described: &describe(&self.repeat, zone),
+                start_ms: s.start_ms,
+                next: &self.next,
+                stop: s.stop.as_ref(),
+                usd: (micros_to_usd(s.run_micros), micros_to_usd(s.month_micros)),
+                delivery: &deliver_words(&s.deliver_to, s.speak),
+                trust: &trust_words(&self.grant),
+            },
+            zone,
         )
     }
+}
+
+/// The creation card's one sentence. `Prepared::words` (what the owner sees,
+/// from the tool's plan) and `Prepared::card` (the prepared routine's) both
+/// build it here, so they cannot drift.
+struct CardParts<'a> {
+    title: &'a str,
+    described: &'a str,
+    start_ms: Option<u64>,
+    next: &'a [u64],
+    stop: Option<&'a RoutineStop>,
+    usd: (f64, f64),
+    delivery: &'a str,
+    trust: &'a str,
+}
+
+fn card_text(c: &CardParts<'_>, zone: &TimeZone) -> String {
+    let next: Vec<String> = c.next.iter().map(|m| when(zone, *m)).collect();
+    format!(
+        "Create routine \"{}\": {}{} (next: {}) · {} · {} · {} · {}",
+        c.title,
+        at_words(c.described),
+        c.start_ms
+            .map_or(String::new(), |m| format!(" from {}", when(zone, m))),
+        next.join(", "),
+        stop_words(c.stop),
+        budget_words(c.usd.0, c.usd.1),
+        c.delivery,
+        c.trust,
+    )
 }
 
 /// What a run may do unasked, for the creation card: the grant, or the

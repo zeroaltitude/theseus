@@ -9,6 +9,15 @@
 //! (the onto sweep, the people backfill and sweep), [`quiet`] for one that adds up
 //! how long it yielded (the index's terms and shape stretches).
 //!
+//! So does a blocking one that a test of this crate reaches: [`quiet_blocking`] and
+//! [`quiet_blocking_unless`] are the store's own two waits, with the bound the caller
+//! gives, and in a test build they answer zero at once, unless the test faked the
+//! machine's pressure itself (below). Four threads keep the store's wait, on purpose:
+//! the nightly consolidation's plan, the learning tender's packs, the ledger pin and
+//! the WAL's history check, which only `theseusd`'s start runs to a wait (the one test
+//! that runs the check has a log under its 4 MiB stretch, which never waits). A daemon's
+//! own tests link this crate without `cfg(test)`, so nothing here could skip theirs.
+//!
 //! Three tests hold the three halves. The **sites** go through here, by
 //! `no_async_caller_in_core_waits_on_the_raw_pressure`, which reads this crate's
 //! sources. The **skip** is held by `a_test_never_waits_out_a_busy_machine`, which fakes
@@ -43,6 +52,32 @@ pub(crate) async fn quiet() -> Duration {
 #[cfg(test)]
 pub(crate) fn quiet() -> std::future::Ready<Duration> {
     std::future::ready(Duration::ZERO)
+}
+
+/// The store's blocking waits, as they are: a production build calls them, with the
+/// bound it names (`theseus_store::pressure::BOUND` at every caller).
+#[cfg(not(test))]
+pub(crate) use theseus_store::pressure::{quiet_blocking, quiet_blocking_unless};
+
+/// A test's blocking wait: none, unless the test has made the machine's pressure
+/// an input of its own. The host's pressure is no input of a test (a test under
+/// load waited its whole `bound` at every call); a `/proc/pressure` the test faked
+/// is, and `tests_activation_pace::namespaced` says so by setting `INNER`, as the
+/// tests that hold a stop ending the warm build's waits need: they wait as in
+/// production there. Only whether the wait happens differs from production: the
+/// bound and the stop are the caller's, as ever.
+#[cfg(test)]
+pub(crate) fn quiet_blocking_unless(bound: Duration, stopped: impl Fn() -> bool) -> Duration {
+    if std::env::var_os(crate::tests_activation_pace::INNER).is_none() {
+        return Duration::ZERO;
+    }
+    theseus_store::pressure::quiet_blocking_unless(bound, stopped)
+}
+
+/// [`quiet_blocking_unless`] with no stop to end it.
+#[cfg(test)]
+pub(crate) fn quiet_blocking(bound: Duration) -> Duration {
+    quiet_blocking_unless(bound, || false)
 }
 
 #[cfg(test)]
@@ -89,17 +124,17 @@ mod tests {
     }
 
     /// Every `.rs` file under `dir` but `pace.rs` itself, as the lines of it that
-    /// call the store's wait directly.
-    fn raw_waits(dir: &Path, hits: &mut Vec<String>) {
+    /// `calls` says call the store's wait directly.
+    fn raw_waits(dir: &Path, calls: fn(&str) -> bool, hits: &mut Vec<String>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
-                raw_waits(&path, hits);
+                raw_waits(&path, calls, hits);
             } else if path.extension().is_some_and(|e| e == "rs")
                 && path != Path::new(env!("CARGO_MANIFEST_DIR")).join("src/pace.rs")
             {
                 for (i, line) in std::fs::read_to_string(&path).unwrap().lines().enumerate() {
-                    if line.contains("pressure::quiet(") {
+                    if calls(line) {
                         hits.push(format!("{}:{}: {}", path.display(), i + 1, line.trim()));
                     }
                 }
@@ -111,17 +146,63 @@ mod tests {
     /// skip: it goes through `pace::pace` or `pace::quiet`, the one place a test
     /// build leaves the wait out (theseus-qc5r6: the people backfill and sweep and the
     /// index's terms and shape stretches each had their own). `quiet_blocking`, for a
-    /// thread that may sleep, is another name and is not matched.
+    /// thread that may sleep, is another name, held by the next test.
     #[test]
     fn no_async_caller_in_core_waits_on_the_raw_pressure() {
         let mut hits = Vec::new();
         raw_waits(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            |line| line.contains("pressure::quiet("),
             &mut hits,
         );
         assert!(
             hits.is_empty(),
             "call `crate::pace::pace` or `crate::pace::quiet`, not the store's wait:\n{}",
+            hits.join("\n")
+        );
+    }
+
+    /// The files whose threads keep the store's blocking wait (the module's docs say
+    /// why): the nightly consolidation's plan, the learning tender's packs, the ledger
+    /// pin and the WAL's history check.
+    const DAEMON_THREADS: [&str; 4] = [
+        "consolidate/run.rs",
+        "learning/tender.rs",
+        "ledger_pin.rs",
+        "rpc/mod.rs",
+    ];
+
+    /// A blocking caller in this crate waits through `pace::quiet_blocking` or
+    /// `pace::quiet_blocking_unless`, which a test build skips (theseus-la5oc: six of
+    /// them, in the import's frame boundaries, the sampler, the warm build's pages and
+    /// the night's mining, each ran its whole bound under load in a test), except the
+    /// four daemon threads. The four are asserted too, so the exception is no list kept
+    /// by hand and checked by nothing: a thread that stops waiting on the store leaves
+    /// it, and the scan that finds none of them has found nothing.
+    #[test]
+    fn no_blocking_caller_in_core_waits_on_the_raw_pressure_but_the_daemons_four() {
+        let mut hits = Vec::new();
+        raw_waits(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            |line| {
+                line.contains("pressure")
+                    && line.contains("quiet_blocking")
+                    && !line.contains("pace::quiet_blocking")
+            },
+            &mut hits,
+        );
+        let kept = |h: &String, f: &str| h.contains(&format!("/src/{f}:"));
+        for f in DAEMON_THREADS {
+            assert!(
+                hits.iter().any(|h| kept(h, f)),
+                "{f} no longer calls the store's blocking wait: take it off DAEMON_THREADS\n{}",
+                hits.join("\n")
+            );
+        }
+        hits.retain(|h| !DAEMON_THREADS.iter().any(|f| kept(h, f)));
+        assert!(
+            hits.is_empty(),
+            "call `crate::pace::quiet_blocking` or `crate::pace::quiet_blocking_unless`, not the store's wait:\n{}",
             hits.join("\n")
         );
     }

@@ -147,71 +147,104 @@ async fn an_append_writes_only_the_new_nodes_and_the_counts_add_up() {
     assert_eq!(c.store.stats().unwrap().frames_appended, frames);
 }
 
-/// A rewritten message, a removed one, a reordered pair and a different
-/// first message that add nothing after the last matching message are each
-/// refused, naming the first differing idx, and nothing is written; with a
-/// new message after it, each appends and is labelled (theseus-ectzg).
+/// A rewritten message, a removed one, a reordered pair and a different first
+/// message that add nothing after the last matching message are each taken
+/// quietly (theseus-ectzg): nothing is written but the session's record,
+/// which takes the new hash and the mark at the first differing idx, and the
+/// next run skips it. Refused and named, moving nothing: the same messages
+/// under another hash that diverged nowhere, and a cut tail, which is the
+/// stored session's own first messages and no more (an older view of it:
+/// taken, it would move the hash back). With a new message after the last
+/// match, a removal and a reorder append it and are marked.
 #[tokio::test]
-async fn a_rewrite_a_removal_and_a_reorder_are_refused_and_named() {
+async fn a_rewrite_a_removal_and_a_reorder_are_taken_marked_and_not_offered_again() {
     let r = live();
     let c = &r.core;
-    let first = sync(2, TAG, &[0, 1, 2, 3]);
-    import(c, lines(std::slice::from_ref(&first))).await;
-    let sid = session_id_of(first["episode_id"].as_str().unwrap());
-    let frames = c.store.stats().unwrap().frames_appended;
 
-    let mut rewritten = sync(2, TAG, &[0, 1, 2, 3]);
-    rewritten["messages"][2]["text"] = json!("Message 2: the tide log moved to the quay.");
-    rewritten["hash"] = json!(episode::hash_of(&rewritten));
-    let mut removed = sync(2, TAG, &[0, 2, 3]);
-    removed["hash"] = json!(episode::hash_of(&removed));
-    let reordered = sync(2, TAG, &[0, 2, 1, 3]);
-    let mut other_first = sync(2, TAG, &[1, 2, 3]);
-    other_first["hash"] = json!(episode::hash_of(&other_first));
-    let got = import(c, lines(&[rewritten, removed, reordered, other_first])).await;
-    assert_eq!(
-        (got.imported, got.appended, got.nodes),
-        (0, 0, 0),
-        "{got:?}"
-    );
-    let why: Vec<&str> = got.rejected.iter().map(|x| x.why.as_str()).collect();
-    assert_eq!(why.len(), 4, "{why:?}");
-    assert!(why[0].contains("message 2 changed"), "{why:?}");
-    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
-    assert_eq!(c.store.session_nodes(&sid).unwrap().len(), 4);
-    let Body::Imported { text, .. } = &c.store.session_nodes(&sid).unwrap()[2].1.body else {
-        panic!()
-    };
-    assert!(text.contains("boathouse"), "never overwritten");
-
-    // Each alone, so each is judged against the stored session.
-    let cases = [
-        (
-            vec![0, 2, 3],
-            "message 2 is not where the stored episode has it",
-        ),
-        (
-            vec![0, 2, 1, 3],
-            "message 2 is not where the stored episode has it",
-        ),
-        (
-            vec![1, 2, 3],
-            "message 1 is not where the stored episode has it",
-        ),
-        (vec![0, 1, 2], "message 3 is not in this episode"),
-        (vec![0, 1, 2, 3], "adds nothing"),
+    // Each on a session of its own, judged against that session as stored:
+    // the messages it is sent, whether message 2 is rewritten, and the idx
+    // the mark names.
+    let cases: [(u64, Vec<u32>, bool, u32); 4] = [
+        (2, vec![0, 1, 2, 3], true, 2),
+        (12, vec![0, 2, 3], false, 1),
+        (13, vec![0, 2, 1, 3], false, 1),
+        (14, vec![1, 2, 3], false, 0),
     ];
-    for (idxs, want) in cases {
-        let mut e = sync(2, "openclaw-sync-2026-12", &idxs);
+    for (n, idxs, rewrite, at) in cases {
+        import(c, lines(&[sync(n, TAG, &[0, 1, 2, 3])])).await;
+        let frames = c.store.stats().unwrap().frames_appended;
+        let mut e = sync(n, "openclaw-sync-2026-12", &idxs);
+        if rewrite {
+            e["messages"][2]["text"] = json!("Message 2: the tide log moved to the quay.");
+        }
         e["hash"] = json!(episode::hash_of(&e));
-        let got = import(c, lines(&[e])).await;
-        assert_eq!((got.appended, got.nodes), (0, 0), "{idxs:?}: {got:?}");
-        assert!(
-            got.rejected[0].why.contains(want),
-            "{idxs:?}: {:?} lacks {want:?}",
-            got.rejected
+        let got = import(c, lines(std::slice::from_ref(&e))).await;
+        assert!(got.rejected.is_empty(), "{idxs:?}: {:?}", got.rejected);
+        assert_eq!(
+            (got.imported, got.appended, got.skipped, got.nodes),
+            (0, 1, 0, 0),
+            "{idxs:?}: {got:?}"
         );
+        assert_eq!(c.store.stats().unwrap().frames_appended, frames + 1);
+        let (rec, stored_idxs) = stored(c, n);
+        assert_eq!(stored_idxs, vec![0, 1, 2, 3], "{idxs:?}: nothing written");
+        let imp = rec.imported.as_deref().unwrap();
+        assert_eq!(imp.diverged_at, vec![at], "{idxs:?}");
+        assert_eq!(imp.hash, e["hash"].as_str().unwrap(), "{idxs:?}");
+        assert!(imp.labels.topic.is_empty(), "{idxs:?}");
+        let nodes = c.store.session_nodes(&rec.session_id).unwrap();
+        let Body::Imported { text, .. } = &nodes[2].1.body else {
+            panic!()
+        };
+        assert!(text.contains("boathouse"), "{idxs:?}: never overwritten");
+
+        // The next run holds it: skipped, not rejected, nothing written.
+        let frames = c.store.stats().unwrap().frames_appended;
+        let got = import(c, lines(&[e])).await;
+        assert!(got.rejected.is_empty(), "{idxs:?}: {:?}", got.rejected);
+        assert_eq!(
+            (got.skipped, got.appended, got.nodes),
+            (1, 0, 0),
+            "{idxs:?}: {got:?}"
+        );
+        assert_eq!(c.store.stats().unwrap().frames_appended, frames);
     }
+
+    // The same messages under another hash, diverged nowhere: refused.
+    import(c, lines(&[sync(16, TAG, &[0, 1, 2, 3])])).await;
+    let frames = c.store.stats().unwrap().frames_appended;
+    let mut e = sync(16, "openclaw-sync-2026-12", &[0, 1, 2, 3]);
+    e["hash"] = json!(episode::hash_of(&e));
+    let got = import(c, lines(&[e])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert!(
+        got.rejected[0].why.contains("adds nothing"),
+        "{:?}",
+        got.rejected
+    );
+    assert!(stored(c, 16).0.imported.unwrap().diverged_at.is_empty());
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+
+    // A cut tail, the stored messages' own first ones and no more: refused,
+    // and the session keeps the hash it has, so what the source holds now is
+    // still judged against it.
+    let first = sync(15, TAG, &[0, 1, 2, 3]);
+    import(c, lines(std::slice::from_ref(&first))).await;
+    let frames = c.store.stats().unwrap().frames_appended;
+    let mut cut = sync(15, "openclaw-sync-2026-12", &[0, 1, 2]);
+    cut["hash"] = json!(episode::hash_of(&cut));
+    let got = import(c, lines(&[cut])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert!(
+        got.rejected[0]
+            .why
+            .contains("message 3 is not in this episode"),
+        "{:?}",
+        got.rejected
+    );
+    let imp = stored(c, 15).0.imported.unwrap();
+    assert!(imp.diverged_at.is_empty());
+    assert_eq!(imp.hash, first["hash"].as_str().unwrap(), "not moved back");
     assert_eq!(c.store.stats().unwrap().frames_appended, frames);
 
     // With a message after the last match, a removal and a reorder append it
@@ -436,4 +469,278 @@ async fn the_mark_is_a_stored_field_that_a_record_from_before_reads_without() {
         after["imported"]["labels"], before["imported"]["labels"],
         "the labels are the pipeline's, untouched"
     );
+}
+
+/// A stored 10-message episode whose message 3 was rewritten and which did
+/// not grow is taken once, not refused: its record moves to the new hash
+/// with the mark in its field, no node is written, and it is not offered
+/// again the next run, so the nightly refusal count for it stays at zero
+/// (theseus-ectzg: "the 49 refusals go to zero"). A later growth still
+/// appends past the rewrite and keeps the one mark.
+#[tokio::test]
+async fn a_session_rewritten_at_3_that_did_not_grow_is_taken_once_and_never_offered_again() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(11, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let (before, idxs) = stored(c, 11);
+    assert_eq!(idxs, (0..10).collect::<Vec<u32>>(), "the stored messages");
+    let sid = before.session_id.clone();
+    let nodes_before = c.store.session_nodes(&sid).unwrap();
+    let frames = c.store.stats().unwrap().frames_appended;
+
+    let quiet = rewritten_at_3(11, "openclaw-sync-2026-11", 10);
+    let got = import(c, lines(std::slice::from_ref(&quiet))).await;
+    assert!(got.rejected.is_empty(), "taken, not refused: {got:?}");
+    assert_eq!(
+        (got.imported, got.appended, got.skipped, got.nodes),
+        (0, 1, 0, 0),
+        "one take that wrote no message: {got:?}"
+    );
+    assert!(
+        got.touched.is_empty(),
+        "no new message for the people step: {got:?}"
+    );
+    assert_eq!(
+        c.store.stats().unwrap().frames_appended,
+        frames + 1,
+        "the record, the counts and the batch's row ride one frame"
+    );
+    let (rec, idxs) = stored(c, 11);
+    assert_eq!(idxs, (0..10).collect::<Vec<u32>>(), "no message written");
+    let imp = rec.imported.as_deref().unwrap();
+    assert_eq!(imp.hash, quiet["hash"].as_str().unwrap(), "the new hash");
+    assert_eq!(imp.messages, 10);
+    assert_eq!(imp.diverged_at, vec![3], "the mark, in its field");
+    assert!(imp.labels.topic.is_empty(), "no topic is made of it");
+    assert_eq!(imp.tag, TAG, "the session keeps the tag it began under");
+    let nodes = c.store.session_nodes(&sid).unwrap();
+    assert_eq!(
+        nodes.iter().map(|n| n.0).collect::<Vec<_>>(),
+        nodes_before.iter().map(|n| n.0).collect::<Vec<_>>(),
+        "the stored nodes are untouched"
+    );
+    let Body::Imported { text, .. } = &nodes[3].1.body else {
+        panic!()
+    };
+    assert!(
+        text.contains("boathouse"),
+        "the stored message 3 is not overwritten"
+    );
+    assert_eq!(counts(&list(c).await, TAG), (1, 10), "the tag's counts");
+
+    // The next run, the same line: skipped, never refused, nothing written.
+    let frames = c.store.stats().unwrap().frames_appended;
+    let got = import(c, lines(&[quiet])).await;
+    assert!(got.rejected.is_empty(), "never refused again: {got:?}");
+    assert_eq!(
+        (got.imported, got.appended, got.skipped, got.nodes),
+        (0, 0, 1, 0),
+        "{got:?}"
+    );
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+
+    // A later growth appends past the rewrite and keeps the one mark.
+    let got = import(c, lines(&[rewritten_at_3(11, "openclaw-sync-2026-12", 12)])).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 2), "{got:?}");
+    let (rec, idxs) = stored(c, 11);
+    assert_eq!(idxs, (0..12).collect::<Vec<u32>>());
+    let imp = rec.imported.as_deref().unwrap();
+    assert_eq!((imp.messages, imp.diverged_at.clone()), (12, vec![3]));
+}
+
+/// The row's own bar in the shape of a sync: a night's file of sessions
+/// stored before, one grown past a rewrite, one rewritten that did not grow,
+/// one compacted (messages dropped from the middle), one reordered, one
+/// unchanged and one cut to its first messages. Four are taken, one skipped,
+/// and the only refusal is the cut one (an older view of the session, which
+/// must not move its hash back); the night after takes none, skips the five
+/// and refuses that one again (theseus-ectzg). An episode no stored message
+/// of which matches stays refused too
+/// (`an_episode_matching_no_stored_message_...`).
+#[tokio::test]
+async fn a_nights_rewritten_sessions_are_all_taken_and_none_refused_the_night_after() {
+    let r = live();
+    let c = &r.core;
+    let ten: Vec<u32> = (0..10).collect();
+    let before: Vec<Value> = (30..36).map(|n| sync(n, TAG, &ten)).collect();
+    let got = import(c, lines(&before)).await;
+    assert_eq!((got.imported, got.nodes), (6, 60), "{got:?}");
+
+    let mut compacted = sync(32, "openclaw-sync-2026-11", &[0, 1, 2, 3, 8, 9]);
+    compacted["hash"] = json!(episode::hash_of(&compacted));
+    let mut reordered = sync(33, "openclaw-sync-2026-11", &[0, 1, 3, 2, 4, 5, 6, 7, 8, 9]);
+    reordered["hash"] = json!(episode::hash_of(&reordered));
+    let mut cut = sync(35, "openclaw-sync-2026-11", &[0, 1, 2, 3, 4]);
+    cut["hash"] = json!(episode::hash_of(&cut));
+    let night = vec![
+        rewritten_at_3(30, "openclaw-sync-2026-11", 12),
+        rewritten_at_3(31, "openclaw-sync-2026-11", 10),
+        compacted,
+        reordered,
+        before[4].clone(),
+        cut,
+    ];
+    let got = import(c, lines(&night)).await;
+    assert_eq!(
+        (got.imported, got.appended, got.skipped, got.nodes),
+        (0, 4, 1, 2),
+        "four taken, one skipped, two messages written: {got:?}"
+    );
+    assert_eq!(
+        got.rejected.len(),
+        1,
+        "only the cut one: {:?}",
+        got.rejected
+    );
+    assert_eq!(got.rejected[0].line, 6, "{:?}", got.rejected);
+    assert!(
+        got.rejected[0]
+            .why
+            .contains("message 5 is not in this episode"),
+        "{:?}",
+        got.rejected
+    );
+    assert_eq!(
+        got.touched.len(),
+        1,
+        "only the grown one has anything new: {got:?}"
+    );
+    for (n, mark, messages) in [(30, vec![3], 12), (31, vec![3], 10), (32, vec![4], 10)] {
+        let (rec, _) = stored(c, n);
+        let imp = rec.imported.as_deref().unwrap();
+        assert_eq!(
+            (imp.diverged_at.clone(), imp.messages),
+            (mark, messages),
+            "session {n}"
+        );
+        assert!(imp.labels.topic.is_empty(), "session {n}");
+    }
+    let (rec, _) = stored(c, 33);
+    assert_eq!(rec.imported.as_deref().unwrap().diverged_at, vec![2]);
+    let (rec, _) = stored(c, 34);
+    assert!(rec.imported.as_deref().unwrap().diverged_at.is_empty());
+    let (rec, _) = stored(c, 35);
+    let imp = rec.imported.as_deref().unwrap();
+    assert!(imp.diverged_at.is_empty(), "the cut one is not a rewrite");
+    assert_eq!(imp.hash, before[5]["hash"].as_str().unwrap(), "not moved");
+
+    // The night after: the same file. The five held with their hashes are
+    // skipped, nothing is written, and the one refusal is the cut session's.
+    let frames = c.store.stats().unwrap().frames_appended;
+    let got = import(c, lines(&night)).await;
+    assert_eq!(
+        (got.imported, got.appended, got.skipped, got.nodes),
+        (0, 0, 5, 0),
+        "{got:?}"
+    );
+    assert_eq!(got.rejected.len(), 1, "{:?}", got.rejected);
+    assert_eq!(got.rejected[0].line, 6, "{:?}", got.rejected);
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+}
+
+/// An episode of `0..10` whose messages carry the texts `texts[i]` at idx `i`
+/// (the source renumbered: texts move between idxs, never idxs alone).
+fn with_texts(n: u64, tag: &str, texts: &[u32]) -> Value {
+    let idxs: Vec<u32> = (0..texts.len() as u32).collect();
+    let mut e = sync(n, tag, &idxs);
+    for (k, t) in texts.iter().enumerate() {
+        e["messages"][k]["text"] = json!(text(*t));
+    }
+    e["hash"] = json!(episode::hash_of(&e));
+    e
+}
+
+/// A refused renumbering writes nothing and moves nothing.
+async fn refused_and_untouched(c: &std::sync::Arc<crate::Core>, n: u64, e: Value, named: &str) {
+    let frames = c.store.stats().unwrap().frames_appended;
+    let got = import(c, lines(std::slice::from_ref(&e))).await;
+    assert_eq!(got.rejected.len(), 1, "{got:?}");
+    assert!(got.rejected[0].why.contains(named), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+    let (rec, idxs) = stored(c, n);
+    assert_eq!(idxs, (0..10).collect::<Vec<u32>>(), "the positive count");
+    let imp = rec.imported.as_deref().unwrap();
+    assert_ne!(
+        imp.hash,
+        e["hash"].as_str().unwrap(),
+        "the hash is not moved"
+    );
+    assert!(imp.diverged_at.is_empty());
+}
+
+/// A new message inserted at 3, the rest shifted by one: refused, not taken
+/// with the new message lost and the last one written twice.
+#[tokio::test]
+async fn an_insertion_that_renumbers_is_refused_and_named() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(40, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 90, 3, 4, 5, 6, 7, 8, 9];
+    refused_and_untouched(
+        c,
+        40,
+        with_texts(40, "openclaw-sync-2026-11", &t),
+        "message 4 holds what stored message 3 held",
+    )
+    .await;
+}
+
+/// A compaction that renumbers is refused, and stays refused when the
+/// session then grows.
+#[tokio::test]
+async fn a_renumbered_compaction_is_refused_even_when_it_grows() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(41, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 6, 7, 8, 9];
+    refused_and_untouched(
+        c,
+        41,
+        with_texts(41, "openclaw-sync-2026-11", &t),
+        "renumbered",
+    )
+    .await;
+    let t = [0, 1, 2, 6, 7, 8, 9, 91];
+    refused_and_untouched(
+        c,
+        41,
+        with_texts(41, "openclaw-sync-2026-12", &t),
+        "renumbered",
+    )
+    .await;
+}
+
+/// An insertion just before the last stored message: the last text moves to
+/// an idx that is not stored, and is still caught.
+#[tokio::test]
+async fn an_insertion_before_the_last_stored_message_is_refused() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(42, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 3, 4, 5, 6, 7, 8, 92, 9];
+    refused_and_untouched(
+        c,
+        42,
+        with_texts(42, "openclaw-sync-2026-11", &t),
+        "renumbered",
+    )
+    .await;
+}
+
+/// The guard: message 3 rewritten in place and a new idx 10 repeating an
+/// old text exactly is no move (no stored message left its idx): appended.
+#[tokio::test]
+async fn an_in_place_rewrite_with_a_new_message_repeating_an_old_text_is_appended() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(43, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let t = [0, 1, 2, 93, 4, 5, 6, 7, 8, 9, 4];
+    let got = import(c, lines(&[with_texts(43, "openclaw-sync-2026-11", &t)])).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 1), "{got:?}");
+    let (rec, idxs) = stored(c, 43);
+    assert_eq!(idxs, (0..11).collect::<Vec<u32>>());
+    assert_eq!(rec.imported.as_deref().unwrap().diverged_at, vec![3]);
 }

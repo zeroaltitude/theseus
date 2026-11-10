@@ -657,9 +657,9 @@ pub fn above_every_root<'b>(
     }
     (!above.is_empty()).then(|| {
         format!(
-            "This turn ran in {}, above the roots of {}, so its directory placed nothing. \
-             To place a message by directory, cd into a root, name a file by its absolute \
-             path, or /move it.",
+            "This turn ran in {}, which lies above the roots of {} and inside none of them, so the directory \
+             placed the message in none of those; a thread whose roots lie elsewhere is still set apart. \
+             To place a message by directory, cd into a root, name a file by its absolute path, or /move it.",
             here.display(),
             above.join(", ")
         )

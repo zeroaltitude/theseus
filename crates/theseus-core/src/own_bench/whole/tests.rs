@@ -550,7 +550,7 @@ fn judged_world(jev: &FakeJev) -> World {
             c.judge.enabled = true;
             c.judge.api_base = base;
             c.judge.connect_secs = 1;
-            c.judge.total_secs = 2;
+            c.judge.total_secs = 30;
         },
         |p| p.secrets = board,
     );

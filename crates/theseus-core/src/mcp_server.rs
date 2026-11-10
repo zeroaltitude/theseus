@@ -182,6 +182,342 @@ impl Board {
 mod tests {
     use super::*;
 
+    /// **The requirement**: every method of the protocol, classified for
+    /// `Surface::Mcp` (theseus-a7pr, in the shape of `crates/complete.rs`).
+    ///
+    /// `allowed` is an allowlist already, so a method nobody thought about
+    /// is refused — which is safe, and is also why nobody thought about
+    /// four of them. `session.history` handed an imported session's text to
+    /// every surface for months; `node.list` and `session.list` do the same
+    /// today and are out of an MCP client's reach only because they are
+    /// absent from `ALLOWED`. Safety by accident is not a guard, and this
+    /// list is what turns it into one: the three lists below must *partition*
+    /// `theseus_protocol::method::ALL`, so a method added to the protocol
+    /// cannot land until someone has written down which of the three it is.
+    /// The act of adding a name to `ALLOWED` is the act at which "does this
+    /// return a session's content, and does it take a surface?" gets asked.
+    ///
+    /// This is the other document, kept here rather than beside `ALLOWED`
+    /// because nothing in the daemon reads it: the binary is unchanged.
+    /// `the_three_lists_classify_every_method` walks `method::ALL` — it never
+    /// reads `ALLOWED` to decide what to ask — and holds the lists to that
+    /// walk in both directions, so a method left unclassified fails, and a
+    /// name left behind by a removed or renamed method fails too.
+    ///
+    /// A method belongs here when the MCP server's tools have no use for it.
+    /// To move one out, put it in `ALLOWED` (a tool needs it) or in `JUDGED`
+    /// (it is one of the owner's acts, refused at its own judgment) and read
+    /// `docs/design/imported-surface.md` first.
+    const NOT_FOR_MCP: &[&str] = &[
+        method::SESSION_LIST,
+        method::SESSION_RETIRE,
+        method::SESSION_REOPEN,
+        method::SESSION_TYPING,
+        method::LEDGER_TAIL,
+        method::LEDGER_WINDOW,
+        method::LEDGER_VERIFY,
+        method::PROFILE_LIST,
+        method::PROFILE_USE,
+        method::PROFILE_RELEASE,
+        method::PROFILE_PINS,
+        method::PROFILE_UNPIN,
+        method::EXECUTION_LIST,
+        method::EXECUTION_CANCEL,
+        method::EXECUTION_STOP,
+        method::EXECUTION_DISMISS,
+        method::TASK_RETRY,
+        method::ACTION_LIST,
+        method::CONFIRM_LIST,
+        method::SESSION_WATCH,
+        method::SESSION_UNWATCH,
+        method::SESSION_RECOMPILE,
+        method::SESSION_NUDGE,
+        method::SESSION_MODE,
+        method::SESSION_PROFILE,
+        method::FILES_CHANGES,
+        method::FILES_RESTORE,
+        method::CATALOG_LIST,
+        method::COMPILATION_LIST,
+        method::NODE_LIST,
+        method::NODE_REACH,
+        method::TOOL_LIST,
+        method::TOOL_DEFER,
+        method::SHUTDOWN,
+        method::NARRATIVE_WATCH,
+        method::NARRATIVE_UNWATCH,
+        method::ONTOLOGY_LIST,
+        method::HANDS_LIST,
+        method::BUDGET_LIST,
+        method::POLICY_EXPLAIN,
+        method::ONTOLOGY_CATEGORY_ADD,
+        method::ONTOLOGY_GUIDANCE_SET,
+        method::ONTOLOGY_MEMBERSHIP_SET,
+        method::ONTOLOGY_PROPOSALS,
+        method::ONTOLOGY_PROPOSAL_ACCEPT,
+        method::THREAD_NEW,
+        method::THREAD_LIST,
+        method::THREAD_SHOW,
+        method::THREAD_EDIT,
+        method::THREAD_PAUSE,
+        method::THREAD_RESUME,
+        method::THREAD_DONE,
+        method::THREAD_REOPEN,
+        method::THREAD_IMPORT,
+        method::CARD_PROPOSE,
+        method::CARD_LIST,
+        method::CARD_ANSWER,
+        method::CARD_DONE,
+        method::CARD_OBSERVED,
+        method::THREAD_SEAL,
+        method::THREAD_UNSEAL,
+        method::THREAD_SEAL_DISMISS,
+        method::THREAD_ANSWER,
+        method::THREAD_MOVE,
+        method::THREAD_MERGE,
+        method::THREAD_UNMERGE,
+        method::THREAD_SPLIT,
+        method::THREAD_SPLIT_PLAN,
+        method::THREAD_UNSPLIT,
+        method::THREAD_LINK,
+        method::THREAD_UNLINK,
+        method::THREAD_UNCLAIM,
+        method::PREFIX_REPORT,
+        method::PERSONA_LIST,
+        method::PERSONA_IMPORT,
+        method::PERSONA_CARD_CONFIRM,
+        method::PERSONA_ADD,
+        method::PERSONA_SOUL,
+        method::PERSONA_SOUL_READ,
+        method::PERSONA_SET,
+        method::PERSONA_RETIRE,
+        method::PERSONA_DEFAULT,
+        method::INITIATIVE_RATE,
+        method::INITIATIVE_WEEK,
+        method::VOICE_SHOW,
+        method::VOICE_AUDITION,
+        method::STANDING_LIST,
+        method::STANDING_ADD,
+        method::STANDING_REVOKE,
+        method::STANDING_PROPOSALS,
+        method::STANDING_KEEP,
+        method::STANDING_DISMISS,
+        method::STANDING_ANSWER,
+        method::ONTOLOGY_UNDO,
+        method::ONTOLOGY_KIND_ADD,
+        method::ONTOLOGY_KIND_RETIRE,
+        method::JUDGE_LATENCY,
+        method::ONTOLOGY_PROPOSAL_REJECT,
+        method::ONTOLOGY_PROPOSAL_ACCEPT_ALL,
+        method::ONTOLOGY_PERSON_MERGE,
+        method::ONTOLOGY_PROPOSAL_REJECT_ALL,
+        method::ONTOLOGY_PROPOSAL_NEVER,
+        method::ONTOLOGY_NEVER_LIST,
+        method::ONTOLOGY_NEVER_UNDO,
+        method::ONTOLOGY_PERSON_NOT_SAME,
+        method::ONTOLOGY_PERSON_NOT_SAME_LIST,
+        method::ONTOLOGY_PERSON_CANDIDATES,
+        method::FORECAST_CALIBRATION,
+        method::TASK_CANCEL,
+        method::TASK_PAUSE,
+        method::TASK_RESUME,
+        method::TASK_REHOME,
+        method::TASK_NOT_THIS,
+        method::TASK_RESCHEDULE,
+        method::WAKE_CANCEL,
+        method::WAKE_CREATE,
+        method::WAKE_SNOOZE,
+        method::WAKE_PAUSE,
+        method::WAKE_RESUME,
+        method::WAKE_DONE,
+        method::ROUTINE_CREATE,
+        method::ROUTINE_LIST,
+        method::ROUTINE_RUNS,
+        method::ROUTINE_PAUSE,
+        method::ROUTINE_RESUME,
+        method::ROUTINE_RUN_NOW,
+        method::ROUTINE_SKIP,
+        method::ROUTINE_TRY,
+        method::ROUTINE_UPDATE,
+        method::ROUTINE_DELETE,
+        method::WATCH_CREATE,
+        method::WATCH_LIST,
+        method::PROJECT_CREATE,
+        method::PROJECT_LIST,
+        method::PROJECT_SHOW,
+        method::PROJECT_ATTACH,
+        method::PROJECT_TRUST,
+        method::PROJECT_UNTRUST,
+        method::PROJECT_TRUSTED,
+        method::EXECUTIONS_WATCH,
+        method::EXECUTIONS_UNWATCH,
+        method::WORK_WATCH,
+        method::WORK_UNWATCH,
+        method::WORK_AGENDA,
+        method::WORK_DIGEST,
+        method::WORK_PEEK,
+        method::JOB_STOP,
+        method::ACTION_OUTPUT,
+        method::ACTION_UNFOLLOW,
+        method::STATUS_SHORT,
+        method::INDEX_STATUS,
+        method::INDEX_QUERY,
+        method::INDEX_REBUILD,
+        method::MEMORY_SEARCH,
+        method::MEMORY_RECALLS,
+        method::MEMORY_CITES,
+        method::MEMORY_LABEL,
+        method::MEMORY_CONSOLIDATE,
+        method::FACT_RETRACT,
+        method::TURN_REPLAY,
+        method::ROUTE_REPORT,
+        method::JUDGE_LIST,
+        method::JUDGE_GET,
+        method::JUDGE_LABEL,
+        method::LEARNING_REPORT,
+        method::ROUTE_CORRECT,
+        method::ROUTE_CORRECTIONS,
+        method::JUDGE_REPLAY,
+        method::JUDGE_AUDIT,
+        method::JUDGE_BACKFILL,
+        method::JUDGE_LEARN,
+        method::JUDGE_PROVE,
+        method::PACK_LIST,
+        method::PACK_PROMOTE,
+        method::PACK_ROLLBACK,
+        method::IMPORT_EPISODES,
+        method::IMPORT_ERASE,
+        method::IMPORT_LIST,
+        method::IMPORT_SESSIONS,
+        method::CONTEXT_EXPLAIN,
+        method::CONTEXT_CENSUS,
+        method::TURN_INSPECT,
+        method::BOOKS_LIST,
+        method::BOOKS_PAGE,
+        method::IMPORT_TOPICS,
+        method::IMPORT_PEOPLE,
+        method::IMPORT_SYNC_PLAN,
+        method::IMPORT_SYNC_RECORD,
+        method::BENCH_HISTORY,
+        method::SANDBOX_USAGE,
+        method::AWS_BOOTSTRAP,
+        method::AWS_CONFIRM_ALERTS,
+        method::MCP_LIST,
+        method::MCP_RESTART,
+        method::MCP_PROMPT_LIST,
+        method::EXTEND_LIST,
+        method::EXTENSION_REVOKE,
+        method::SELF_HALT,
+        method::SELF_RESUME,
+        method::SELF_LOG,
+        method::SELF_DIGEST,
+        method::SELF_BACKLOG,
+        method::SELF_DROP,
+        method::SELF_MOVE,
+        method::SELF_RETRY,
+        method::SELF_BRANCHES,
+        method::SELF_EXAMS,
+        method::SELF_REVERT,
+        method::SELF_PIPELINE,
+        method::SELF_PATTERNS,
+        method::SELF_NARROW,
+        method::GOOGLE_AUTH_BEGIN,
+        method::GOOGLE_AUTH_FINISH,
+        method::GOOGLE_REVOKE,
+        method::GOOGLE_STATUS,
+        method::CALENDAR_WINDOW,
+    ];
+
+    /// The one method `allowed` admits without naming it on a list: a fork
+    /// of a conversation the client itself opened, which
+    /// `Core::fork_allowed` holds the rest of.
+    const FORK: &[&str] = &[method::SESSION_FORK];
+
+    /// Each list, with what it says about its entries, for the failure.
+    fn classified() -> Vec<(String, String)> {
+        let say = |names: &[&str], what: &'static str| {
+            names
+                .iter()
+                .map(|m| ((*m).to_string(), what.to_string()))
+                .collect::<Vec<_>>()
+        };
+        [
+            say(&ALLOWED, "ALLOWED: the MCP server's tools call it"),
+            say(&JUDGED, "JUDGED: an owner's act, refused at its judgment"),
+            say(
+                FORK,
+                "allowed() admits it by name: a fork of its own session",
+            ),
+            say(NOT_FOR_MCP, "NOT_FOR_MCP: refused, deliberately"),
+        ]
+        .concat()
+    }
+
+    /// The three lists and `method::ALL` are the same set, so no method is
+    /// unclassified and no list names one that is gone (theseus-a7pr).
+    #[test]
+    fn the_three_lists_classify_every_method() {
+        // The positive bar: `ALL` is built from the same table as the
+        // constants, so a walk that found a handful read the wrong thing.
+        let spec = crate::complete::MustBeComplete {
+            item: "a protocol method, classified for the MCP surface",
+            list: "mcp_server's ALLOWED, JUDGED and tests::NOT_FOR_MCP",
+            world: "theseus_protocol::method::ALL",
+            add: "a method was added to the protocol and nobody said what the \
+                  MCP server may do with it. Put it in ALLOWED (a tool calls \
+                  it), in JUDGED (it is an owner's act), or in NOT_FOR_MCP \
+                  (everything else). A method that returns a session's \
+                  content and goes in ALLOWED must take the asking surface \
+                  first: docs/design/imported-surface.md says what that means",
+            drop: "this method is gone from theseus_protocol::method, or was \
+                   renamed: delete its row from the list that still names it",
+            least: 200,
+            stale_fails: true,
+        };
+        let walked = crate::complete::check(
+            &spec,
+            classified(),
+            method::ALL
+                .iter()
+                .map(|m| ((*m).to_string(), "the method table".to_string())),
+        );
+        assert!(walked >= 200, "{walked} methods walked");
+    }
+
+    /// They partition it: no method is on two lists, so a name moved out of
+    /// NOT_FOR_MCP and left behind cannot read as classified twice.
+    #[test]
+    fn no_method_is_classified_twice() {
+        let mut seen = std::collections::BTreeMap::new();
+        let mut twice = Vec::new();
+        for (m, what) in classified() {
+            if let Some(first) = seen.insert(m.clone(), what.clone()) {
+                twice.push(format!("  {m}\n    {first}\n    {what}"));
+            }
+        }
+        assert!(
+            twice.is_empty(),
+            "{} of a protocol method classified twice; each belongs to exactly \
+             one of ALLOWED, JUDGED and NOT_FOR_MCP:\n{}",
+            twice.len(),
+            twice.join("\n"),
+        );
+        assert!(seen.len() >= 200, "{} classified", seen.len());
+    }
+
+    /// `allowed` answers from the lists and nothing else: every ALLOWED and
+    /// JUDGED entry passes, and every NOT_FOR_MCP one is refused.
+    #[test]
+    fn allowed_says_yes_to_each_list_and_no_to_the_rest() {
+        let yes: Vec<&str> = [ALLOWED.as_slice(), JUDGED.as_slice(), FORK].concat();
+        assert_eq!(yes.len(), 16, "the methods an MCP connection may call");
+        for m in &yes {
+            assert!(allowed(m), "{m} is listed and allowed() refuses it");
+        }
+        for m in NOT_FOR_MCP {
+            assert!(!allowed(m), "{m} is NOT_FOR_MCP and allowed() admits it");
+        }
+    }
+
     /// The floor raises a call that acts and leaves a read alone; the
     /// operator's own sessions have none; a floor that does not read is the
     /// strictest.
@@ -206,6 +542,7 @@ mod tests {
             notify: None,
             floor: false,
             granted: None,
+            outside: vec![],
         };
         let d = floor(
             open(),

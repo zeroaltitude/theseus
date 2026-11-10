@@ -18,7 +18,10 @@
 //!   `userfaultfd`, the file-handle calls, `kcmp`, `pidfd_getfd`, and (x86)
 //!   `iopl` and `ioperm`;
 //! - keys: `keyctl`, `add_key`, and `request_key`;
-//! - `io_uring_*`, whose operations would bypass the filter.
+//! - `io_uring_*`, whose operations would bypass the filter;
+//! - `socket` with `AF_ALG` (the kernel's crypto API, reached from inside the
+//!   sandbox) or `AF_VSOCK` (a hypervisor transport): refused by family, an
+//!   argument rule like `clone`'s, so every other family is still allowed.
 //!
 //! A foreign ABI (i386 or x32 on x86_64, 32-bit Arm on aarch64) kills the
 //! process. The numbers are each architecture's own (`libc::SYS_*`), and the
@@ -92,6 +95,23 @@ pub const CLONE_NEW_MASK: u32 = (libc::CLONE_NEWNS
 /// reading this list: a call taken out of `denied()` is then a filter that
 /// allows it, and the test says so by name. Adding a call here means adding
 /// it there, with its reason, and the failure names both places.
+///
+/// **The comparison with Docker, on record, and none of it applied**
+/// (theseus-3i6d1; measured for `e702aaa7`, which refused `AF_ALG` and
+/// `AF_VSOCK`, against Docker's `moby/profiles` `seccomp/default.json`, read
+/// 2026-11-09; the figures below are as measured in that commit, not
+/// re-derived). Docker allows `socket` only for the families
+/// `0,1,2,7-10,13-18,21,22,24,26-33,35,36,39,41-45`, so beyond those two it
+/// refuses twelve families this filter allows: AX25, IPX, APPLETALK, NETROM,
+/// ROSE, DECnet, ECONET, ATMSVC, IRDA, WANPIPE, ISDN and CAIF. Fifteen x86_64
+/// calls that Docker never allows run here: `_sysctl`, `afs_syscall`,
+/// `create_module`, `get_kernel_syms`, `getpmsg`, `migrate_pages`,
+/// `move_pages`, `nfsservctl`, `putpmsg`, `query_module`, `security`, `sysfs`,
+/// `tuxcall`, `ustat` and `vserver`. And `socketpair`, which Docker allows
+/// unconditionally, has no rule here. Applying any of this is the owner's
+/// question (apply the measured diff now, or vendor Docker's profile or a
+/// syscall table as data first, so that a call on neither list is enumerated
+/// by someone); until it is answered the filter allows all of the above.
 pub fn denied() -> Vec<(&'static str, libc::c_long)> {
     let v = vec![
         ("unshare", libc::SYS_unshare),
@@ -154,11 +174,15 @@ pub fn denied() -> Vec<(&'static str, libc::c_long)> {
     v
 }
 
+/// The socket families `socket` may not create, whatever else it asks for.
+const REFUSED_SOCKET_FAMILIES: [libc::c_int; 2] = [libc::AF_ALG, libc::AF_VSOCK];
+
 /// Where a jump goes, resolved to an offset once the program is laid out.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum To {
     Next,
     CloneFlags,
+    SocketFamily,
     Enosys,
     Eperm,
     Kill,
@@ -218,6 +242,12 @@ pub fn program() -> Vec<sock_filter> {
     p.push(jmp(JGE, X32_SYSCALL_BIT, To::Kill, To::Next));
     p.push(jmp(JEQ, libc::SYS_clone as u32, To::CloneFlags, To::Next));
     p.push(jmp(JEQ, libc::SYS_clone3 as u32, To::Enosys, To::Next));
+    p.push(jmp(
+        JEQ,
+        libc::SYS_socket as u32,
+        To::SocketFamily,
+        To::Next,
+    ));
     for (_, nr) in denied() {
         p.push(jmp(JEQ, nr as u32, To::Eperm, To::Next));
     }
@@ -227,6 +257,13 @@ pub fn program() -> Vec<sock_filter> {
     let clone_flags = push(&mut p, ld(OFF_ARG0_LO));
     p.push(jmp(JSET, CLONE_NEW_MASK, To::Eperm, To::Next));
     p.push(ret(RET_ALLOW));
+    // `socket` is judged by its family, argument 0: the kernel crypto API
+    // (`AF_ALG`) and a hypervisor transport (`AF_VSOCK`) are refused.
+    let socket_family = push(&mut p, ld(OFF_ARG0_LO));
+    for family in REFUSED_SOCKET_FAMILIES {
+        p.push(jmp(JEQ, family as u32, To::Eperm, To::Next));
+    }
+    p.push(ret(RET_ALLOW));
     let enosys = push(&mut p, ret(RET_ERRNO | libc::ENOSYS as u32));
     let eperm = push(&mut p, ret(RET_ERRNO | libc::EPERM as u32));
     let kill = push(&mut p, ret(RET_KILL_PROCESS));
@@ -234,6 +271,7 @@ pub fn program() -> Vec<sock_filter> {
         let target = match to {
             To::Next => i + 1,
             To::CloneFlags => clone_flags,
+            To::SocketFamily => socket_family,
             To::Enosys => enosys,
             To::Eperm => eperm,
             To::Kill => kill,
@@ -431,6 +469,26 @@ mod tests {
         );
     }
 
+    /// `socket` is judged by its family (argument 0), as `clone` is by its
+    /// flags: `AF_ALG` and `AF_VSOCK` are refused, the usual families are not.
+    #[test]
+    fn socket_is_judged_by_its_family() {
+        let p = program();
+        let socket = libc::SYS_socket as u32;
+        let cases = [
+            (libc::AF_ALG, eperm()),
+            (libc::AF_VSOCK, eperm()),
+            (libc::AF_UNIX, RET_ALLOW),
+            (libc::AF_INET, RET_ALLOW),
+            (libc::AF_INET6, RET_ALLOW),
+            (libc::AF_NETLINK, RET_ALLOW),
+        ];
+        assert_eq!(cases.len(), 6);
+        for (family, want) in cases {
+            assert_eq!(run(&p, AUDIT_ARCH, socket, family as u64), want, "{family}");
+        }
+    }
+
     #[test]
     fn a_foreign_abi_is_killed() {
         let p = program();
@@ -465,12 +523,15 @@ mod tests {
     /// list it is judging and says nothing at all about a call the list
     /// leaves out. The reviewer proved it: deleting `perf_event_open` from
     /// `denied()` left the whole sandbox suite 40/40 green, and the live
-    /// contract names 10 of the list's 45 entries, so 35 denied calls were
+    /// contract's clause 6 loop names keys of which eight are entries
+    /// of the list (`unshare`, `mount`, `ptrace`, `bpf`, `keyctl`,
+    /// `io_uring_setup`, `setns`, `syslog`; `clone_newuser` and `clone_newnet`
+    /// are the clone-flag rule, not entries), so 37 of the 45 denied calls were
     /// asserted by nothing and any one of them could be dropped in silence.
     ///
     /// This is the other document. Each row is `(why it is refused, its
     /// name, its number)`, grouped by the reason rather than by the order
-    /// `denied()` happens to build its vector in. **The two hold the same 44
+    /// `denied()` happens to build its vector in. **The two hold the same 45
     /// entries in the same order, with the reasons added (and x86_64's three
     /// more, `iopl`, `ioperm` and `uselib`, are in `MUST_DENY_X86` beside
     /// their own rows in `denied()`): they are one text copied twice.** `the_filter_denies_every_call_the_parity_rule_requires`
@@ -596,6 +657,20 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         let v = [v, MUST_DENY_X86.to_vec()].concat();
         v
+    }
+
+    /// The doc sentence at the top of `MUST_DENY` states how many entries the
+    /// portable table holds; this holds the prose and the count together so
+    /// they cannot drift again (the sentence once said 44: counting `libc::SYS_`
+    /// tokens misses `kexec_file_load`, whose number is a local constant).
+    #[test]
+    fn the_portable_table_holds_the_45_entries_its_doc_says() {
+        assert_eq!(
+            MUST_DENY.len(),
+            45,
+            "the doc sentence on MUST_DENY says 45 entries: change the sentence \
+             and this count together"
+        );
     }
 
     /// The completeness test (theseus-3i6d1), in the shape of

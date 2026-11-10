@@ -219,10 +219,14 @@ fn import_batch_cut(
                 continue;
             }
             Took::Wrote { tag, nodes, grew } => {
-                out.touched.push(ImportTouched {
-                    session_id: sid,
-                    tag: tag.clone(),
-                });
+                // A take that wrote no node (a rewrite that added no message,
+                // `append`) has nothing new for the people step.
+                if nodes > 0 || !grew {
+                    out.touched.push(ImportTouched {
+                        session_id: sid,
+                        tag: tag.clone(),
+                    });
+                }
                 let t = frame.imported.entry(tag).or_default();
                 t.1 += nodes;
                 out.nodes += nodes;
@@ -238,10 +242,7 @@ fn import_batch_cut(
         if frame.full() {
             write_frame(store, &mut frame, &mut counts, &sent)?;
             out.frames += 1;
-            theseus_store::pressure::quiet_blocking_unless(
-                theseus_store::pressure::BOUND,
-                &stopping,
-            );
+            crate::pace::quiet_blocking_unless(theseus_store::pressure::BOUND, &stopping);
             // The rest waits for the batch sent again.
             if stopping() {
                 stopped = true;
@@ -272,13 +273,15 @@ enum Took {
     Skipped,
     /// Not written, and why (named in the result).
     Refused(String),
-    /// New, or appended to: the tag that holds its session, and its nodes.
+    /// New, or appended to: the tag that holds its session, and its nodes
+    /// (none, for a diverged session taken quietly).
     Wrote { tag: String, nodes: u64, grew: bool },
 }
 
 /// One episode of a batch: skipped when held with the same hash, refused when
-/// erased or when its stored messages are not a prefix of its own (`append`),
-/// else its records added to `frame` and its tag's counts moved. `seen` is
+/// erased, when none of its stored messages is in it or when it adds nothing
+/// and diverged nowhere (`append`), else its records added to `frame` and its
+/// tag's counts moved. `seen` is
 /// the batch's episodes by id and hash: their records are not written yet.
 fn take(
     store: &Store,
@@ -569,6 +572,21 @@ pub fn erase_unless(
     erase_in(store, tag, why, by, stopping, FRAME_RECORDS)
 }
 
+/// An erase stopped before its first frame: nothing written, nothing to
+/// forget (split out of `erase_in` to keep it under clippy's line ceiling).
+fn stopped_before_writing(tag: &str, t0: Instant) -> Erasure {
+    let result = ImportEraseResult {
+        tag: tag.to_string(),
+        ms: t0.elapsed().as_secs_f64() * 1e3,
+        ..ImportEraseResult::default()
+    };
+    Erasure {
+        result,
+        nodes: Vec::new(),
+        stopped: true,
+    }
+}
+
 /// [`erase_unless`], its frames cut past `cap` records, as
 /// [`import_batch_in`]'s.
 pub(super) fn erase_in(
@@ -586,17 +604,7 @@ pub(super) fn erase_in(
     let now = theseus_protocol::now_unix_ms();
     // Stopped before its first frame, an erase has written nothing.
     let Some(sessions) = sessions_of_tag(store, tag, &stopping)? else {
-        let result = ImportEraseResult {
-            tag: tag.to_string(),
-            ms: t0.elapsed().as_secs_f64() * 1e3,
-            ..ImportEraseResult::default()
-        };
-        let (nodes, stopped) = (Vec::new(), true);
-        return Ok(Erasure {
-            result,
-            nodes,
-            stopped,
-        });
+        return Ok(stopped_before_writing(tag, t0));
     };
     // The tag's sessions erased before this run, a cut run's among them:
     // each frame's count starts from them, never from the stored count,
@@ -650,10 +658,7 @@ pub(super) fn erase_in(
             store.append(&std::mem::take(&mut frame.records))?;
             frame.bytes = 0;
             frames += 1;
-            theseus_store::pressure::quiet_blocking_unless(
-                theseus_store::pressure::BOUND,
-                &stopping,
-            );
+            crate::pace::quiet_blocking_unless(theseus_store::pressure::BOUND, &stopping);
             // The rest waits for a rerun: this much is counted, and its row
             // is written below.
             if stopping() {

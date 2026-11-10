@@ -769,6 +769,76 @@ fn a_rebuild_equals_incremental_ingest() {
     h.join().unwrap().unwrap();
 }
 
+/// A cursor written under another schema is rebuilt, and the status says
+/// why (the install's window is expected); one written by the same numbers
+/// resumes, whatever binary wrote it (the cursor holds no binary identity).
+#[test]
+fn a_rebuild_says_why_and_a_resume_says_nothing() {
+    let rig = Rig::new();
+    many(&rig, 0, 12);
+    let mut t = rig.open();
+    settle(&mut t);
+    drop(t);
+    let path = rig.index.join("cursor.json");
+    let saved: crate::state::Saved = crate::state::load(&path).unwrap();
+    let same = rig.open();
+    let s = same.shared().status();
+    assert_eq!((s.rebuilds, s.backfill), (0, None), "same numbers: resumed");
+    drop(same);
+    let other = crate::state::Saved {
+        schema: saved.schema + 1,
+        ..saved
+    };
+    crate::state::save(&path, &other).unwrap();
+    let rebuilt = rig.open();
+    let s = rebuilt.shared().status();
+    assert_eq!(s.rebuilds, 1);
+    let why = s.backfill.and_then(|b| b.why).expect("a rebuild names why");
+    assert!(why.contains("index schema"), "{why}");
+}
+
+/// The same words through the tender's own open, as the health line gets
+/// them (theseus-la5oc F1): an intact cursor over an index that is gone says
+/// the index is missing, where it said "its cursor is missing" of a cursor
+/// that was fine; a cursor file that does not read, with no index either,
+/// says both.
+#[test]
+fn an_index_that_is_gone_says_so_and_does_not_blame_a_cursor_that_is_there() {
+    let rig = Rig::new();
+    many(&rig, 0, 12);
+    let mut t = rig.open();
+    settle(&mut t);
+    drop(t);
+    let cursor = rig.index.join("cursor.json");
+    std::fs::remove_dir_all(rig.index.join("bm25")).unwrap();
+    assert!(cursor.exists(), "the cursor stays when the index goes");
+    let rebuilt = rig.open();
+    let s = rebuilt.shared().status();
+    assert_eq!(s.rebuilds, 1, "an index that is gone is rebuilt");
+    let why = s.backfill.and_then(|b| b.why).expect("a rebuild names why");
+    assert!(
+        why.starts_with("its index is missing") && !why.contains("cursor is missing"),
+        "{why}"
+    );
+    drop(rebuilt);
+
+    std::fs::remove_dir_all(rig.index.join("bm25")).unwrap();
+    std::fs::write(&cursor, b"not a cursor").unwrap();
+    let again = rig.open();
+    let why = again
+        .shared()
+        .status()
+        .backfill
+        .and_then(|b| b.why)
+        .expect("a rebuild names why");
+    assert!(
+        why.starts_with("its index is missing")
+            && why.contains("cursor file is unreadable")
+            && !why.contains("cursor is missing"),
+        "{why}"
+    );
+}
+
 #[test]
 fn a_kill_between_commit_and_cursor_reindexes_idempotently() {
     let rig = Rig::new();

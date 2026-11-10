@@ -454,6 +454,49 @@ async fn a_failing_jev_or_the_judge_off_leaves_the_request_unrouted() {
     }
 }
 
+/// A turn asked Jev with its breaker closed, so its failed calls are
+/// `no_verdict` however many of them there were: five transient failures in a
+/// row open the breaker, and this rig's message makes exactly five calls
+/// (route, effort, work, split and the batch). The turn once read the breaker
+/// at its first compile, so which side of the fifth failure that read fell on,
+/// a millisecond's width, decided `no_verdict` against `shadow` (a turn that
+/// began with the breaker open is `shadow`). Here the turn is held at its first
+/// compile until its own calls have opened the breaker, the order the test
+/// above met only by chance: the answer is the same either way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_whose_own_failed_calls_open_the_breaker_still_reads_no_verdict() {
+    let jev = FakeJev::start().unwrap();
+    jev.set_mode(FakeMode::Down);
+    let r = rig(Some(&jev), 1, |_| {});
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    r.core.store.put_session(&rec.session_id, &rec).unwrap();
+    assert!(
+        !r.core.runner.judge.breaker_open(),
+        "closed as the turn asks"
+    );
+    let core = r.core.clone();
+    crate::turn::first_compile_hook(
+        &rec.session_id,
+        Box::new(move || {
+            let t0 = Instant::now();
+            while !core.runner.judge.breaker_open() {
+                assert!(
+                    t0.elapsed() < Duration::from_secs(10),
+                    "its own calls never opened it"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }),
+    );
+    let res = turn(&r.core, Some(&rec.session_id), "Say done.", None).await;
+    assert!(
+        r.core.runner.judge.breaker_open(),
+        "open by the time it read"
+    );
+    assert_eq!(res.profile, "sonnet");
+    assert_eq!(res.route.as_ref().unwrap().reason, "no_verdict");
+}
+
 /// A verdict past the wait applies from the next message: the first turn
 /// says `late` and stays; the next, whose own verdict is late too, moves on
 /// the first's.
@@ -897,9 +940,10 @@ async fn a_routed_turn_still_writes_and_sends_its_recall() {
 /// still does.
 ///
 /// The switch is the whole of it, so the turn must have its verdict, and two
-/// bounds stand between it and one. The build's `judge.total_secs` is 1 s
-/// (`tests_judge::judge_config`), and that second bounds the `route.v1` call
-/// itself (`Urgency::Live`), so on a loaded host the call was abandoned
+/// bounds stand between it and one. The build's `judge.total_secs` was 1 s
+/// (`tests_judge::judge_config` now gives 10 s, and this rig 30 s), and a
+/// second would bound the `route.v1` call itself (`Urgency::Live`), so on a
+/// loaded host the call was abandoned
 /// before it answered, the turn read `no_verdict` and ran on the session's
 /// own profile, and this test failed on the profile -- the only red of an
 /// otherwise green gate, about 1 run in 12 (theseus-2yh04). It is raised here

@@ -412,3 +412,87 @@ async fn only_a_failure_is_dismissed_and_only_a_failed_task_retried() {
     assert_eq!((b.at_ms, b.written), (a.at_ms, false));
     assert_eq!(theseus_store::frames_written_here(), before);
 }
+
+/// A task's view carries the address the Discord runtime registered for it
+/// (`WorkView.forum_url`), and no other view does. The registry is a fake
+/// that knows one id once the task exists; both halves assert, so a registry
+/// that always answers `None`, or always `Some`, fails. Timing: a view is
+/// rebuilt on the board's events, not when the address is made, so the task's
+/// already-built view stays bare until its next event (here, the dismissal).
+#[tokio::test]
+async fn a_tasks_view_carries_the_registered_forum_url_and_only_its_own() {
+    let r = rig_with_a_failing_task();
+    let known: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+    let k = known.clone();
+    r.core.push.set_task_links(Arc::new(move |id| {
+        (k.lock().unwrap().as_deref() == Some(id))
+            .then(|| "https://discord.com/channels/4242/777".to_string())
+    }));
+    let (parent, failed) = failed_task(&r).await;
+    r.core.push.ensure(&r.core).await.unwrap();
+    let id = failed.id.clone();
+    assert_eq!(work_view(&r.core, &id).forum_url, None, "nothing known yet");
+
+    *known.lock().unwrap() = Some(id.clone());
+    assert_eq!(
+        work_view(&r.core, &id).forum_url,
+        None,
+        "a view is rebuilt on an event, not when the address is made"
+    );
+    r.core.dismiss_failure(&id, &cli()).unwrap();
+    until("the board rebuilds the task's view", || {
+        work_view(&r.core, &id).forum_url.is_some()
+    })
+    .await;
+    assert_eq!(
+        work_view(&r.core, &id).forum_url.as_deref(),
+        Some("https://discord.com/channels/4242/777")
+    );
+    let root = crate::tests_tasks::parent_exec(&r.core, &parent).id;
+    assert_eq!(
+        work_view(&r.core, &root).forum_url,
+        None,
+        "not its parent's"
+    );
+}
+
+/// A registry answering only the failed task's id, with an opaque address.
+fn only(id: &str) -> crate::push::TaskLinks {
+    let id = id.to_string();
+    Arc::new(move |t| (t == id).then(|| "post:4242/777".to_string()))
+}
+
+/// After a restart an ended task's view is seeded from the store with no
+/// registry, and it gets no frame to rebuild it: the registry, set before
+/// the seed, must still reach it (theseus-emqbm).
+#[tokio::test]
+async fn the_forum_link_survives_a_restart_registry_first() {
+    let r = rig_with_a_failing_task();
+    let (parent, failed) = failed_task(&r).await;
+    let conv = crate::tests_tasks::parent_exec(&r.core, &parent);
+    let again = restarted(&r.core);
+    again.push.set_task_links(only(&failed.id));
+    again.push.ensure(&again).await.unwrap();
+    assert_eq!(
+        work_view(&again, &failed.id).forum_url.as_deref(),
+        Some("post:4242/777")
+    );
+    assert_eq!(work_view(&again, &conv.id).forum_url, None);
+}
+
+/// The same, the registry set after the seed, with no event between.
+#[tokio::test]
+async fn the_forum_link_survives_a_restart_seed_first() {
+    let r = rig_with_a_failing_task();
+    let (parent, failed) = failed_task(&r).await;
+    let conv = crate::tests_tasks::parent_exec(&r.core, &parent);
+    let again = restarted(&r.core);
+    again.push.ensure(&again).await.unwrap();
+    assert_eq!(work_view(&again, &failed.id).forum_url, None);
+    again.push.set_task_links(only(&failed.id));
+    assert_eq!(
+        work_view(&again, &failed.id).forum_url.as_deref(),
+        Some("post:4242/777")
+    );
+    assert_eq!(work_view(&again, &conv.id).forum_url, None);
+}

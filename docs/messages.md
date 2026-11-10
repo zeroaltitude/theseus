@@ -44,7 +44,7 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 
 | Message | Built in | Trigger | Channel, kind | Head |
 |---|---|---|---|---|
-| Self backlog, last night | `rsi/backlog/start.rs` `night_text` | the nightly backlog read filed, started or dropped items | DM, `self_digest` | FYI, or Action when an item waits for the owner's word |
+| Self backlog, last night | `rsi/backlog/start.rs` `night_text` | the nightly backlog read filed, started or dropped items, and the builds the pipeline started since the last note (`rsi/backlog/folded.rs`) | DM, `self_digest` | FYI, or Action when an item waits for the owner's word |
 | Weekly self digest | `rsi/digest.rs` `week_post` | a week since the last digest, `[self]` posting | DM, `self_digest` | FYI |
 | Self notice (the night's) | `rsi/digest/notice.rs` `notice_text` | the first tick after `[initiative] morning_hour` with something landed or waiting | DM, `self_digest` | FYI, or Action when something waits |
 | Self change installed | `rsi/join/install.rs` `notice` | a joined self branch installed | DM, `self_join` | FYI |
@@ -97,6 +97,7 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Bind notice | Discord `runtime/succession.rs` `bind_notice` | its words are pinned in `runtime.rs` (at its ceiling) and theseusd's tests; a follow-up |
 | Backlog's single lines | `fact/rsi_backlog.rs` | narrative lines of a session's history, one line each, not posts |
 | Ontology's night lines | `judge/onto/digest.rs` | lines inside the morning note, which has the head |
+| Self builds started | `rsi/backlog/folded.rs` | a pipeline start posts nothing of its own (the owner, 2026-11-09: five "1 started" lines in two and a half hours): its line is in the next night note or morning note, which has the head |
 | Late filing line | `judge/onto/mod.rs` `filed_late` | a reply's own footer, arriving late |
 | Hands group line | `aws/hands/grid.rs` | the owner's own call's live status, edited in place |
 | Job status at a beat | `toolrun/jobs_tools/wait_status.rs` | the owner's own job's live progress |

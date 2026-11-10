@@ -1,86 +1,58 @@
 //! Whether a repository's instruction text may enter the prompt
-//! (`docs/design/project-context.md` §7, §8). **Phase 1 builds no grant**, so
-//! [`granted`] answers no on every live path: §8's "the default is closed",
-//! and the feature therefore ships with no injection surface at all.
+//! (`docs/design/project-context.md` §7, §8). The default is closed: a
+//! repository is trusted only by a record in the store, written by the
+//! owner's own act.
 //!
-//! **What the real grant must replace.** §7 is explicit that the list may not
-//! live in the configuration file: `toolrun/guarded.rs`'s floor does not floor
-//! the live config, an `fs.write` reaches it, and at notify posture the gate
-//! cannot refuse, so a grant list in `theseus.toml` would be writable by a
-//! tool call and "a repository can never grant itself" would be false of it.
-//! The list is a META record in the store, written with its ledger row, in the
-//! shape `flow::Scope.repos` already has: a `Vec<String>` of `r:<hex>` ids
-//! from [`crate::flow::spec::repo_id`], keyed on the canonical root so a
-//! re-pointed remote inherits nothing. The store **is** on the floor.
+//! **Where the grant lives.** One META record, [`RECORD`], a map from
+//! `flow::spec::repo_id(root)` (`r:<hex>` of the canonical root) to who
+//! granted it, how, and when. It is the store, not the configuration file:
+//! the tool floor floors the store, and does not floor the live config, so a
+//! grant in `theseus.toml` would be writable by a tool call. Keyed on the
+//! canonical root, so a re-pointed remote or a clone elsewhere inherits
+//! nothing. A grant and its `project.trust` row are one frame.
 //!
-//! So phase 2 replaces [`granted`]'s body with a read of that record, keyed by
-//! `repo_id(root)` rather than by the root path, and the test seam below goes
-//! with it. Nothing else in this module changes.
-//!
-//! The seam is a process-wide set under `#[cfg(test)]`, in the shape
-//! `toolrun::session_dir::read_window` already uses for per-process test and
-//! turn state: a thread-local would not do, because a compile runs on a
-//! runtime worker and not on the test's own thread.
+//! **What a grant is not.** It names no file and no digest: it trusts the
+//! repository's instruction files as they change, the design's "notify
+//! rather than ask" (§8). The block's header records each file's digest.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Has the owner granted this repository's instruction text the authority of
-/// the system block? Always no in this build: there is no grant to read.
-#[cfg(not(test))]
-pub fn granted(root: &Path) -> bool {
-    let _ = root;
-    false
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use theseus_store::{kinds, NewRecord};
+
+/// The META key of the grants.
+pub const RECORD: &str = "project.trust";
+
+/// One grant, as stored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Grant {
+    /// The canonical root it was given for, for the owner reading the list.
+    pub root: String,
+    pub by: String,
+    pub via: String,
+    pub at_ms: u64,
 }
 
-/// Under test, the seam below answers it.
-#[cfg(test)]
-pub fn granted(root: &Path) -> bool {
-    seam::granted(root)
+/// The META record: every trusted repository, by `repo_id`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Grants {
+    pub repos: BTreeMap<String, Grant>,
 }
 
-/// A test's grant of `root`, held for as long as the guard lives. **This is
-/// the only way a repository's instruction text reaches a prompt in this
-/// build**: a test that wants the assembly exercised takes one.
-#[cfg(test)]
-#[must_use = "the grant is revoked when the guard is dropped"]
-pub struct Granted(std::path::PathBuf);
+impl Grants {
+    pub fn read(store: &crate::store::Store) -> Result<Self> {
+        Ok(store.get_meta::<Self>(RECORD)?.unwrap_or_default())
+    }
 
-#[cfg(test)]
-pub fn grant_for_test(root: &Path) -> Granted {
-    seam::grant(root);
-    Granted(root.to_path_buf())
-}
-
-#[cfg(test)]
-impl Drop for Granted {
-    fn drop(&mut self) {
-        seam::revoke(&self.0);
+    pub fn record(&self) -> Result<NewRecord> {
+        NewRecord::json(kinds::META, Some(RECORD), self)
     }
 }
 
-#[cfg(test)]
-mod seam {
-    use std::collections::HashSet;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, PoisonError};
-
-    static GRANTED: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
-
-    pub fn granted(root: &Path) -> bool {
-        let g = GRANTED.lock().unwrap_or_else(PoisonError::into_inner);
-        g.as_ref().is_some_and(|s| s.contains(root))
-    }
-
-    pub fn grant(root: &Path) {
-        let mut g = GRANTED.lock().unwrap_or_else(PoisonError::into_inner);
-        g.get_or_insert_with(HashSet::new)
-            .insert(root.to_path_buf());
-    }
-
-    pub fn revoke(root: &Path) {
-        let mut g = GRANTED.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(s) = g.as_mut() {
-            s.remove(root);
-        }
-    }
+/// Has the owner granted this repository's instruction text the authority
+/// of the system block? One keyed read; a store that fails to answer is no.
+pub fn granted(store: &crate::store::Store, root: &Path) -> bool {
+    Grants::read(store).is_ok_and(|g| g.repos.contains_key(&crate::flow::spec::repo_id(root)))
 }

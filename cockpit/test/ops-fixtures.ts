@@ -38,6 +38,14 @@ export function confirm(id: string, over: Partial<ConfirmRequest> = {}): Confirm
   } as ConfirmRequest
 }
 
+/** A question that really expires: `extend.ack` is on the daemon's `EXPIRING_TOOLS` (`src/lib/heldquestion.ts`). It is asked
+ *  twenty minutes ago with ten of its thirty left, as `confirm`'s defaults say. The board's `act_c1` is a held `fs.write`
+ *  with the same raw `expires_at_ms`, which is what the live push still sends for a held call and is no deadline
+ *  (theseus-lrc3m): so a countdown is asserted on this question and its absence on that one. */
+export function expiring(id = 'act_e1'): ConfirmRequest {
+  return confirm(id, { tool: 'extend.ack', input: {}, reason: 'create notes/glossary.md (38 bytes): extend.ack' })
+}
+
 export function group(slug: string, over: Partial<ThreadGroup> = {}): ThreadGroup {
   return { slug, title: slug.replace('-', ' '), state: 'active', session_id: `ses_${slug}`, last_active_ms: NOW - 2 * MIN, context_tokens: 41_000, today_usd: 1.2, ...over }
 }

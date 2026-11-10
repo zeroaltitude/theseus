@@ -456,3 +456,59 @@ fn an_edit_that_broke_the_rows_json_still_says_its_kind() {
     assert_eq!((b.fault.clone(), b.position), (Fault::Edited, 5));
     assert_eq!(b.kind.as_deref(), Some("turn.started"));
 }
+
+#[test]
+fn a_ledger_row_after_a_failed_index_write_chains_on_the_failed_one() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let s = open(dir.path());
+        for n in 1..=3 {
+            put(&s, n);
+        }
+        // The next batch's index write fails past its bound: its frame is
+        // synced, in the log, and the caller is told it failed.
+        s.inner.index_fail.store(3, Ordering::SeqCst);
+        let failed = s
+            .append(&[NewRecord::bytes(kinds::LEDGER, None, row(4))])
+            .map(|_| ());
+        assert!(failed.is_err(), "the third failure is the caller's");
+        // The next batch must chain on the failed row, not beside it.
+        put(&s, 5);
+    }
+    // No checkpoint between: the open replays the failed frame.
+    let s = open(dir.path());
+    let r = walk(&s);
+    assert!(r.broken.is_none(), "{r:?}");
+    assert_eq!(r.rows, 6, "the start row and five rows: {r:?}");
+    assert_eq!(r.head.unwrap().link.seq, 5);
+}
+
+#[test]
+fn a_walk_during_an_index_gap_finds_the_hole_and_a_reopen_heals_it() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let s = open(dir.path());
+        for n in 1..=3 {
+            put(&s, n);
+        }
+        s.inner.index_fail.store(3, Ordering::SeqCst);
+        let failed = s
+            .append(&[NewRecord::bytes(kinds::LEDGER, None, row(4))])
+            .map(|_| ());
+        assert!(failed.is_err(), "the third failure is the caller's");
+        put(&s, 5);
+        // The index has seq 3 then 5: the chain's word for a hole.
+        let r = walk(&s);
+        let b = broken(&r);
+        assert_eq!(
+            (b.fault.clone(), b.seq),
+            (Fault::Removed { missing: 1 }, Some(5)),
+            "{r:?}"
+        );
+    }
+    let s = open(dir.path());
+    let r = walk(&s);
+    assert!(r.broken.is_none(), "{r:?}");
+    assert_eq!(r.rows, 6, "the start row and five rows: {r:?}");
+    assert_eq!(r.head.unwrap().link.seq, 5);
+}

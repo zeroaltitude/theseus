@@ -23,6 +23,12 @@ refused_positions: Array<number>,
  */
 repair?: string, 
 /**
+ * The log position an index write failed past its tries at, while that
+ * gap stands (theseus-lu5n): the log is ahead of the index, and the next
+ * open replays the frames and heals it. Absent when there is no gap.
+ */
+index_gap?: number, 
+/**
  * The heat cache of decoded nodes (M6 step 33): absent from a daemon
  * before it.
  */

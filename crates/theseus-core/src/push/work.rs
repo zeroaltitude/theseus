@@ -218,8 +218,15 @@ pub struct Out {
     pub threads: Vec<theseus_protocol::ThreadGroup>,
 }
 
+/// Where a task's forum post or thread is, by its view's id: set once by the
+/// Discord runtime (`Push::set_task_links`), so core never reads a Discord
+/// layout. Unset, every view carries no link.
+pub type TaskLinks = std::sync::Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 #[derive(Default)]
 pub(super) struct WorkBoard {
+    /// See [`TaskLinks`].
+    pub(super) task_links: Option<TaskLinks>,
     execs: HashMap<String, ExecIn>,
     by_session: HashMap<String, String>,
     acts: HashMap<String, ActIn>,

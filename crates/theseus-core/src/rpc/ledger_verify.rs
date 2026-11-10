@@ -39,7 +39,20 @@ pub fn parse_anchor(text: &str) -> Result<Anchor, String> {
     Ok(Anchor { seq, digest })
 }
 
-fn result_of(r: Report, took_ms: u64) -> LedgerVerifyResult {
+/// What a removed row past the index's gap may be: the walk reads the index,
+/// and to it a hole and a removed row look the same.
+fn gap_note(b: &chain_walk::Break, gap: Option<u64>) -> String {
+    match (&b.fault, gap) {
+        (chain_walk::Fault::Removed { .. }, Some(at)) if b.position > at => format!(
+            "; an index gap has stood since position {at}: the rows are in the log and the next \
+             open replays them, and a walk that still breaks here after a restart is a real break"
+        ),
+        _ => String::new(),
+    }
+}
+
+/// The walk's report as the wire's; `gap` is the store's index gap, when open.
+pub(super) fn result_of(r: Report, took_ms: u64, gap: Option<u64>) -> LedgerVerifyResult {
     let broken = r.broken.as_ref().map(|b| LedgerBreak {
         position: b.position,
         at_unix_ms: b.at_unix_ms,
@@ -50,7 +63,7 @@ fn result_of(r: Report, took_ms: u64) -> LedgerVerifyResult {
             chain_walk::Fault::Removed { missing } => Some(missing),
             _ => None,
         },
-        detail: b.detail.clone(),
+        detail: format!("{}{}", b.detail, gap_note(b, gap)),
     });
     LedgerVerifyResult {
         ok: broken.is_none(),
@@ -94,6 +107,7 @@ impl Core {
             });
         }
         let core = self.clone();
+        let gap = self.store.inner().index_gap();
         let began = Instant::now();
         let report = tokio::task::spawn_blocking(move || {
             chain_walk::verify(core.store.inner().as_ref(), p.since, anchor)
@@ -101,7 +115,7 @@ impl Core {
         .await
         .map_err(|e| RpcFailure::new(error_code::INTERNAL, e.to_string()))?
         .map_err(RpcFailure::invalid)?;
-        Ok(result_of(report, began.elapsed().as_millis() as u64))
+        Ok(result_of(report, began.elapsed().as_millis() as u64, gap))
     }
 
     /// The chain's head, short, for health: a claim read from the writer's

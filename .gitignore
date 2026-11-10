@@ -32,3 +32,8 @@ theseus.toml
 
 # The spec's PDF is rendered from the markdown and sent, never committed (docs/README.md)
 docs/*.pdf
+
+# Python bytecode: running a script's tests writes it beside the script. Two files under scripts/__pycache__ were
+# tracked, and the keel suite rewrote them on every run, so a `git add -A scripts` committed binary churn.
+__pycache__/
+*.pyc

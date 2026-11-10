@@ -23,6 +23,11 @@
   plants a FAKE name (through `SCRUB_EXTRA_NAMES`) in a scratch repo, runs gate.sh's own `scrub_added` under `set -e`,
   and runs the cloud reviewers' `scrub-branch.sh` (`THESEUS_SCRUB_BRANCH`; its tests are skipped where it is absent). Its
   git calls ignore the developer's global config (a signing agent that is locked hung it). Never put a real name in a test.
+- `line-pressure.py`, `tests/test_line_pressure.py` (theseus-4vsrz): functions within 5 lines of clippy's `too_many_lines`
+  ceiling (100), closest first, as `path:line fn N/100`. Always exits 0 on a report (a warning, not a gate: clippy holds the
+  ceiling); exits 2 only when it scanned nothing. Counts as clippy does (body without braces, blank and comment-only lines
+  free; a plain `async fn` counts 2 more than its body, as clippy reads it, unless it carries a `test` attribute; only the
+  attribute block directly above a `fn` is read for an `allow`/`expect`); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
   `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
@@ -88,7 +93,10 @@ It runs, in order:
      first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
      three quarters of the cores; when the 2 minutes pass with the machine still busy, the timing budgets get the busy
      allowance (see "The busy allowance"). A miss reruns once, and only a second miss fails. Every run goes to the
-     bench history (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`). With
+     bench history (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`; **read it by column
+     name, per header segment, never positionally**: the file holds many headers and `inflight` was inserted
+     mid-array at one of them, so a positional read across it is silently wrong. The reader is
+     `crates/theseus-sim/src/history.rs`, whose module doc says why). With
      `THESEUS_GATE_NO_BENCH=1` (a lane's gate, which the lane recipe sets), this step is skipped: the gate that joins
      the lane to `main` runs it.
    - Then, skipped with it, the jobs bench's L1 row (`theseus-sim bench jobs --class l1 --runs 20 --check`): an L1
@@ -115,8 +123,9 @@ It runs, in order:
 3. *Without it again*:
    - `cargo deny --offline check`: licences, advisories, bans, and sources. Offline: advisories come from the database
      as its last fetch left it (a gate that fetched failed when GitHub or crates.io did, and once when a crate was
-     yanked between two gates), and the gate says when that database is more than 7 days old. `deny-daily.sh`
-     refreshes it.
+     yanked between two gates), and the gate says when that database is more than 7 days old. The database is the
+     gate's pin (theseus-4vsrz): only the owner's `cargo deny fetch db` moves it, and `deny-daily.sh` keeps a database
+     of its own, so a fetch never reddens a gate.
 
 It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
 ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`; a signal's
@@ -137,10 +146,11 @@ and at the end; a gate that fails is checked once more on its way out.
   `gate: ABORTED`, where a failed run says `gate: FAILED`. No test result of an aborted run is a verdict: rerun it, on a tree
   nobody touches. `arm.sh result` shows it as `gate exit=75`.
 - **The identity** is the commit, a digest of the edits beyond it (tracked and untracked: `tree-stamp.sh`'s digest, minus
-  one path, computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
+  two paths (`cockpit/src/protocol.gen`, `bench/smoke/runs`), computed inside `gate.sh` because the gate must not depend on a file of the tree it judges) and the length and
   digest of HEAD's reflog. HEAD alone misses an edit, and the stamp alone misses a detach and a restore (the same commit
-  and the same files after it); the reflog writes a line for each. `cockpit/src/protocol.gen` is left out, since the
-  protocol phase rewrites it itself and fails saying `git add it`: that stays a failure, exit 1.
+  and the same files after it); the reflog writes a line for each. Both are left out: the
+  protocol phase rewrites `cockpit/src/protocol.gen` itself and fails saying `git add it` (that stays a failure, exit 1), and
+  `scripts/release-smoke.sh` writes a run's report under `bench/smoke/runs` (tracked, so not gitignored), and a smoke run beside a gate is no move.
 - **What it cannot see:** an edit made and undone inside the window (no ref moves, nothing is left), and a move in the
   seconds between two checks that is undone before the next. The guard is the rule beside it: never edit, check out,
   reset or build in a tree a gate is running in (the join's worktree is the install tree and nobody else's workspace).
@@ -282,6 +292,17 @@ false) and `keel-file` (the guard itself, its door, a gate phase gone). The test
 cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.only` and `{ skip: }` options, and
 `assert.*` calls).
 
+- **Two halves, and a non-keel file is not exempt (theseus-4vsrz).** A brief or a builder must say which it means.
+  (a) *Where*: `KEEL_FILES`, `KEEL_PREFIXES` and `LOCKED_FLOW_PREFIXES` in the guard name files whose edit needs an ack
+  whatever it does (`keel-file`, `locked-flow`). (b) *What*: the erosion rules (`test-removed`, `test-ignored`,
+  `assert-removed`, `assert-weakened`, `allow-added`, `budget-raised`, `cap-raised`, `ceiling-raised`, `ci-loosened`)
+  judge what the change does, in ANY file: a file outside `KEEL_FILES` that loses one assertion fails the gate in
+  about a second, before a test runs. Clearing (a) says nothing about (b), so "the file is not keel-class" never means
+  "no `Keel:` trailer is needed". A ruling that deletes or weakens an assertion comes with the owner's quote, or is
+  marked as needing one. Never ack across a batch boundary: when a finding names a file the change never touched,
+  `git grep` the symbol at the base and at the head first, and judge at the branch's own base (`--base $(git
+  merge-base <base> HEAD)`): a base that is not an ancestor of HEAD reads what the base's side added as removed.
+  `scripts/keel-batch-repro.sh` shows a real `test-removed` re-attributed to an unrelated file in a batch.
 - **The range.** Main is `origin/main` (the local `main` only where there is no `origin/main`): a join's local main is
   ahead of it by exactly what the join's gate judges. On a branch, merge-base(HEAD, main)..the working tree, so the gate
   before a commit judges what it will hold, and a join whose fix is a commit after its merge is judged whole (until
@@ -346,15 +367,21 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
 
 ### The daily deny job
 
-`deny-daily.sh` is what keeps the commit gate's offline `cargo deny` honest (theseus-goa8; review 2's SC2). It fetches the
-advisory database and the registry index, runs the whole `cargo deny check` against them, and, when that fails, files one
+`deny-daily.sh` is the fresh half of two contracts (theseus-goa8; theseus-4vsrz). The gate's `cargo deny --offline` judges
+the tree against the database in `~/.cargo/advisory-dbs`, which only the owner's `cargo deny fetch db` moves, so main is
+never red tomorrow with no commit in between. This job fetches into its own database (`THESEUS_DENY_DB`, default
+`~/.cache/theseus/deny-daily-db`, reached through a generated config that sets `db-path`), so its fetch never changes the
+gate's. It fetches that database and the registry index, runs the whole `cargo deny check` against them, and, when that fails, files one
 Beads issue (owner `main`, waiting for an available agent, labels `security` and `deny-daily`) unless one is already open.
 A failed fetch is an outage, not a finding: it checks what is cached and files nothing. Exit status: 0 all clear; 1 the check
-failed; 2 the fetch failed and the check was clean on what is cached. It reads the repository and never builds or changes it
+failed; 2 the fetch failed and the check was clean on what is cached; 3 the `deny.toml` in use (the tree's, or
+`THESEUS_DENY_CONFIG`) has no `[advisories]` table to point at the job's database, so nothing was fetched or checked (the
+unit shows as failed). It reads the repository and never builds or changes it
 (`--locked`), so it runs in the chain's tree. Its log is `~/.cache/theseus/deny-daily.log`.
 
-The gate's offline check is where a refresh shows up: the database moves when this job fetches, never with a branch, so a
-red `cargo deny` on an untouched tree is the database. When bans, licences and sources are clean and only advisories fail,
+The gate's offline check is where a move of its pin shows up: that database moves only when something fetches into it (the
+owner's `cargo deny fetch db`; never a branch, never this job), so a red `cargo deny` on an untouched tree means the pin
+moved. When bans, licences and sources are clean and only advisories fail,
 the gate says so (`deny: ONLY advisories failed ...`) and names the owner's action: ignore each id in `deny.toml` with its
 reason, or bump the crate. The gate never fetches and never writes an ignore.
 
@@ -398,6 +425,18 @@ to `~/.cache/theseus/flaky.csv` (time, label, test, attempt; `$THESEUS_FLAKY_LOG
 - **Off the list**: in the commit that fixes the test, proven under load (the load-flake recipe: loops at a lower nice
   than the test) and against a planted revert. Delete the override with it.
 - **A test not on the list that flakes fails the gate**, as before. The flaky log shows what has been passing on luck.
+- **A forced order or a planted revert establishes a fix; a rate only corroborates.** Three times a confident rate
+  did not survive a paired control: a fix lane against a plain-main control read 2/24 against 1/24 (p = 0.50), and
+  only pooled across both control arms did it reach 5/48 against 0/48 (p = 0.03). Plan a deterministic plant first
+  (force the bad order so the recorded failure returns every run, then make the order not matter), and quote rates
+  as corroboration.
+- **Five passes alone are underpowered.** A true 10 % rate shows nothing in 5 runs 59 % of the time, and in 20 runs
+  12 % of the time. A test that "passed 5 of 5 alone" has not been cleared, and alone is where a load race passes.
+- **A wrong answer is never a flake.** A count off by one, or a state that reads the wrong value, is a bug whatever
+  the load: it goes to a fix, never onto the list. A timeout under load is a different thing. Instances, by test
+  name (commit ids change at the re-sign): `tests_security::a_press_with_a_call_labels_its_judgments_in_its_frame`
+  (a store-wide frame counter beside a live judge) and
+  `tests_m3::parallel::a_calls_time_is_its_own_run_not_its_wait_for_the_turn` (order forced, then a seam in the rig).
 
 ### A test of the hour or the local day takes a test clock
 

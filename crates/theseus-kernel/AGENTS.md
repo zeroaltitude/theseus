@@ -185,8 +185,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - **A task never waits on input with nothing to wake it** (37b, theseus-7kg). No one gives a task input: it waits on
   input only beside a wake of its own (the core parks it so, `task::parks_on_wake`), and a frame that would leave it
   waiting with none queues it instead (`wakes::task_unparked`, in `cancel_wake` and `end_turn`), so its next turn
-  finds nothing new, ends it, and it reports. A `/stop` still leaves a task waiting on input, as it leaves a
-  conversation.
+  finds nothing new, ends it, and it reports. A `/stop` cannot leave a task waiting on input: the kernel refuses to
+  stop a task (`KernelError::StopTask`, `stops.rs`, pinned in `tests_stops.rs`) because no one would send it its next
+  input, so a task ends by `task.cancel`, and a `/stop` of its conversation leaves its tasks and wakes going.
 - **A question answered while its turn runs is read at the turn's end** (theseus-q5af): `end_turn` queues the
   execution (`Kernel::queued_at_end`, why `answered`) instead of parking it on a question already bound, so an
   answer is never lost to a running turn, and one continuation follows. Tests: `tests_answered.rs`.

@@ -106,7 +106,16 @@ impl Candidate {
 }
 
 /// Fold observations into candidates, one per key, by key.
+#[cfg(test)]
 pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
+    group_with(obs, &|_| false)
+}
+
+/// [`group`], leaving a pack whose own key `dropped` names under that key
+/// instead of folding it into the night's one item: a Drop of the folded item
+/// remembers its members' keys, so a press means "these packs", and a night
+/// with one more failing pack still files that pack (and the rest).
+pub fn group_with(obs: Vec<Obs>, dropped: &dyn Fn(&str) -> bool) -> Vec<Candidate> {
     let mut by: BTreeMap<String, Candidate> = BTreeMap::new();
     for o in obs {
         by.entry(o.key.clone())
@@ -124,7 +133,117 @@ pub fn group(obs: Vec<Obs>) -> Vec<Candidate> {
     for c in by.values_mut() {
         c.pattern = c.obs.iter().rev().find_map(|o| o.pattern.clone());
     }
+    collapse_failed(&mut by, dropped);
     by.into_values().collect()
+}
+
+/// The key every pack's failed judgments share, before the pack's name.
+const FAILED_PREFIX: &str = "judge.failed:";
+/// The key of a night's failed judgments from two or more packs.
+pub(super) const FAILED_MANY: &str = "judge.failed";
+
+/// Two or more packs whose judgments failed in one night are one cause, not
+/// one item each (the owner, 2026-11-09: seven items from one night, each
+/// started in a session of its own). They become one candidate, `judge.failed`,
+/// whose one observation lists `pack: failed/calls` a line per pack; a night
+/// with one such pack keeps that pack's own key and words.
+fn collapse_failed(by: &mut BTreeMap<String, Candidate>, dropped: &dyn Fn(&str) -> bool) {
+    let keys: Vec<String> = by
+        .keys()
+        .filter(|k| k.starts_with(FAILED_PREFIX) && !dropped(k))
+        .cloned()
+        .collect();
+    if keys.len() < 2 {
+        return;
+    }
+    let packs: Vec<Candidate> = keys.iter().filter_map(|k| by.remove(k)).collect();
+    let obs: Vec<&Obs> = packs.iter().flat_map(|c| &c.obs).collect();
+    let newest = obs
+        .iter()
+        .max_by(|a, b| a.at_ms.cmp(&b.at_ms).then_with(|| a.id.cmp(&b.id)))
+        .map(|o| (o.id.clone(), o.at_ms))
+        .unwrap_or_default();
+    let note = packs
+        .iter()
+        .map(|c| {
+            let pack = c.key.strip_prefix(FAILED_PREFIX).unwrap_or(&c.key);
+            let counts = c
+                .obs
+                .last()
+                .and_then(|o| counts_of(&o.note))
+                .unwrap_or_else(|| "?/?".into());
+            format!("{pack}: {counts}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let title = format!("Jev's judgments fail in {} packs", packs.len());
+    let one = Obs {
+        key: FAILED_MANY.into(),
+        title: title.clone(),
+        source: "learning".into(),
+        id: newest.0,
+        note,
+        at_ms: newest.1,
+        usd: obs.iter().map(|o| o.usd).sum(),
+        person: obs.iter().any(|o| o.person),
+        task_failed: obs.iter().any(|o| o.task_failed),
+        work: obs.iter().map(|o| o.work).max().unwrap_or(3),
+        graduate: None,
+        pattern: None,
+    };
+    by.insert(
+        FAILED_MANY.into(),
+        Candidate {
+            key: FAILED_MANY.into(),
+            title,
+            source: "learning".into(),
+            obs: vec![one],
+            graduate: None,
+            pattern: None,
+        },
+    );
+}
+
+/// The own keys of the packs a collapsed item's evidence notes name, in the
+/// order first named: each note line is `pack: failed/calls`. What a Drop of
+/// the collapsed item remembers.
+pub fn members_of<'a>(notes: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in notes.into_iter().flat_map(str::lines) {
+        let Some((pack, counts)) = line.split_once(": ") else {
+            continue;
+        };
+        let pack = pack.trim();
+        let shaped = counts.split_once('/').is_some_and(|(f, c)| {
+            !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit() || b == b'?') && !c.is_empty()
+        });
+        let key = format!("{FAILED_PREFIX}{pack}");
+        if shaped && !pack.is_empty() && !pack.contains(' ') && !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    out
+}
+
+/// `failed/calls` of a failed-judgments note ([`failed_note`]'s words).
+fn counts_of(note: &str) -> Option<String> {
+    let mut w = note.split_whitespace();
+    let failed = w.next()?.parse::<u64>().ok()?;
+    let calls = (w.next()? == "of").then(|| w.next()?.parse::<u64>().ok())??;
+    Some(format!("{failed}/{calls}"))
+}
+
+fn failed_note(failed: u64, calls: u64, pack: &str) -> String {
+    format!("{failed} of {calls} {pack} calls failed in the learning report")
+}
+
+/// Whether a pack's failed judgments are a cause: at least three, and at least
+/// one call in a hundred OF THE SAME WINDOW (`failed_recent` over
+/// `calls_recent`, else all-time over all-time), or every call it made. One failed call among
+/// thousands is noise (the owner, 2026-11-09: one of 2,910 route.v10 calls
+/// filed an item, each a session of its own).
+fn failed_is_a_cause(failed: u64, calls: u64) -> bool {
+    failed > 0 && (failed == calls || (failed >= 3 && failed.saturating_mul(100) >= calls))
 }
 
 /// A word of a row's text, for a key: lowercase letters, digits and `_`,
@@ -148,24 +267,45 @@ fn word(v: &Value) -> String {
 }
 
 /// What a failed action's producer names, for a key: `backend:name` (as
-/// `harness:fs.read` or `provider:anthropic`) when the backend is one whose
-/// second part is a tool, a provider or a hand's backend, else the backend
-/// alone. The first word alone put every in-process tool's failure in one
-/// cause (`harness`), which no one fix can close; `wrapper:<pid>` and
-/// `reconciler:<why>` stay a word, since their second part is not a stable
-/// name.
+/// `harness:fs.read`, `async:aws.s3.get`, `inproc:fs.read` or
+/// `provider:anthropic`) when the backend is one whose second part is a tool,
+/// a provider or a hand's backend, else the backend alone. The first word
+/// alone put every tool's failure of a backend in one cause (`harness`,
+/// `async`: all of AWS and Google), which no one fix can close;
+/// `wrapper:<pid>` and `reconciler:<why>` stay a word, since their second part
+/// is not a stable name. `hands:launch`, `hands:group` and `hands:reaper` have
+/// stable second parts and still key as one cause, `hands`: the key does not
+/// split them (theseus-cia5b). An MCP tool is `mcp:ext-<server>/<tool>`:
+/// it is named by its server (`async:mcp.ext_server`), not its tool, since
+/// the server is what one fix closes. Items filed under the old key (`async`,
+/// `inproc`) keep it: there is no migration.
 fn producer(v: &Value) -> String {
-    const NAMED: &[&str] = &["harness", "hand", "provider"];
+    const NAMED: &[&str] = &["harness", "hand", "provider", "async", "inproc"];
     let s = v.as_str().unwrap_or("").trim();
     let head = word(v);
     let name = s
         .split_once(':')
         .filter(|_| NAMED.contains(&head.as_str()))
-        .map(|(_, rest)| word(&Value::from(rest)))
+        .map(|(_, rest)| tool_word(rest))
         .filter(|n| n != "unknown");
     match name {
         Some(n) => format!("{head}:{n}"),
         None => head,
+    }
+}
+
+/// A tool's word: its name, or for an MCP tool `mcp.<server>` (cut at `/`,
+/// `-` kept as `_`).
+fn tool_word(rest: &str) -> String {
+    match rest.strip_prefix("mcp:") {
+        Some(m) => {
+            let server = m.split('/').next().unwrap_or("").replace('-', "_");
+            match word(&Value::from(server)) {
+                w if w == "unknown" => "mcp".into(),
+                w => format!("mcp.{w}"),
+            }
+        }
+        None => word(&Value::from(rest)),
     }
 }
 
@@ -494,23 +634,33 @@ fn of_slow(mut o: Obs, d: &Value) -> Option<Obs> {
     Some(o)
 }
 
-/// A learning report with failed judgments or many disagreements.
+/// A learning report with failed judgments or many disagreements. Failed
+/// judgments file only when they are a cause ([`failed_is_a_cause`]): the
+/// report holds counts and no failure times, so a failure just after a daemon
+/// start (a restart's collateral) cannot be told from the rest here.
 fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
     let r = &d["report"];
     let pack = word(&r["pack"]);
     let (calls, failed_all) = (r["calls"].as_u64()?, r["failed"].as_u64().unwrap_or(0));
     // `failed` is all-time and never falls: key on the recent count, and on
     // the total only for a report stored before there was one.
-    let failed = r["failed_recent"].as_u64().unwrap_or(failed_all);
+    // The pair must come from ONE window: recent over recent, or (a report
+    // stored before `calls_recent`) today's failures over the lifetime calls,
+    // or (before `failed_recent` too) all-time over all-time.
+    let (failed, calls) = match (r["failed_recent"].as_u64(), r["calls_recent"].as_u64()) {
+        (Some(f), Some(c)) => (f, c),
+        (Some(f), None) => (f, calls),
+        (None, _) => (failed_all, calls),
+    };
     let (labeled, disagree) = (
         r["labeled"].as_u64().unwrap_or(0),
         r["disagreements"].as_u64().unwrap_or(0),
     );
     o.source = "learning".into();
-    if failed > 0 {
-        o.key = format!("judge.failed:{pack}");
+    if failed_is_a_cause(failed, calls) {
+        o.key = format!("{FAILED_PREFIX}{pack}");
         o.title = format!("Jev's {pack} judgments fail");
-        o.note = format!("{failed} of {calls} {pack} calls failed in the learning report");
+        o.note = failed_note(failed, calls, &pack);
     } else if labeled >= 10 && disagree * 4 > labeled {
         o.key = format!("judge.disagree:{pack}");
         o.title = format!("Jev's {pack} disagrees with the owner's labels");
@@ -526,6 +676,7 @@ fn of_report(mut o: Obs, d: &Value) -> Option<Obs> {
 pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Obs>> {
     let tags: Vec<String> = KINDS.iter().map(|k| ledger_kind(k)).collect();
     let mut out = Vec::new();
+    let mut twins = Twins::default();
     let (mut before, mut seen) = (None, 0usize);
     loop {
         let page = Page {
@@ -548,6 +699,7 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
             if row.at_unix_ms <= since_ms || row.at_unix_ms > until_ms {
                 continue;
             }
+            twins.note(r.position, &row);
             if let Some(o) = of_row(r.position, &row) {
                 out.push(o);
             }
@@ -557,8 +709,55 @@ pub fn from_ledger(store: &Store, since_ms: u64, until_ms: u64) -> Result<Vec<Ob
             _ => break,
         }
     }
+    let doubled = twins.doubled();
+    out.retain(|o| !doubled.contains(&o.id));
     out.sort_by(|a, b| a.at_ms.cmp(&b.at_ms).then_with(|| a.id.cmp(&b.id)));
     Ok(out)
+}
+
+/// A failed model call writes two rows: the kernel's `action.failed` (producer
+/// `provider:<name>`) and `provider.error`, both with the call's correlation
+/// id. They are one failure, so the action row is left out when its twin is in
+/// the window. Pairing is across pages, after the loop. A call with no twin (a
+/// compaction's summary writes none) or whose twin lies outside the window
+/// stays filed. Pairing is forward-only: a `provider.error` row written before
+/// it carried the call's id (theseus-cia5b) has none to pair by, so its action
+/// row stays filed beside it for as long as that row is in the window.
+#[derive(Default)]
+struct Twins {
+    errors: std::collections::HashSet<String>,
+    actions: Vec<(String, String)>,
+}
+
+impl Twins {
+    fn note(&mut self, pos: u64, row: &LedgerRow) {
+        let Some(id) = row.data["correlation_id"].as_str() else {
+            return;
+        };
+        match row.kind.as_str() {
+            "provider.error" => {
+                self.errors.insert(id.to_string());
+            }
+            "action.failed"
+                if row.data["producer"]
+                    .as_str()
+                    .is_some_and(|p| p.starts_with("provider:")) =>
+            {
+                self.actions.push((format!("ledger:{pos}"), id.to_string()));
+            }
+            _ => {}
+        }
+    }
+
+    /// The observation ids of the action rows that have a twin.
+    fn doubled(self) -> std::collections::HashSet<String> {
+        let errors = self.errors;
+        self.actions
+            .into_iter()
+            .filter(|(_, id)| errors.contains(id))
+            .map(|(o, _)| o)
+            .collect()
+    }
 }
 
 /// Health's warnings, as observations dated `date`: a disk under its
@@ -800,12 +999,167 @@ mod tests {
     fn an_old_burst_of_failed_judgments_is_not_filed_again() {
         let stopped = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 0});
         assert!(report_obs(stopped).is_none());
-        let going = json!({"pack": "people.v1", "calls": 9000, "failed": 12, "failed_recent": 3});
+        let going = json!({"pack": "people.v1", "calls": 9000, "failed": 120, "failed_recent": 90});
         let o = report_obs(going).unwrap();
         assert_eq!(o.key, "judge.failed:people.v1");
-        assert!(o.note.starts_with("3 of 9000"), "{}", o.note);
-        let legacy = json!({"pack": "people.v1", "calls": 9000, "failed": 12});
+        assert!(o.note.starts_with("90 of 9000"), "{}", o.note);
+        let legacy = json!({"pack": "people.v1", "calls": 9000, "failed": 90});
         assert_eq!(report_obs(legacy).unwrap().key, "judge.failed:people.v1");
+    }
+
+    /// The rate is one day's failures over one day's calls, not over every
+    /// call the pack ever made.
+    #[test]
+    fn the_one_percent_is_a_rate_over_one_window() {
+        let busy = json!({"pack": "alpha.v1", "calls": 10_000, "failed": 60,
+            "failed_recent": 50, "calls_recent": 50});
+        let o = report_obs(busy).expect("every call of today failed");
+        assert_eq!(o.key, "judge.failed:alpha.v1");
+        assert!(o.note.starts_with("50 of 50"), "{}", o.note);
+        let quiet = json!({"pack": "alpha.v1", "calls": 10_000, "failed": 60,
+            "failed_recent": 2, "calls_recent": 300});
+        assert!(
+            report_obs(quiet).is_none(),
+            "2 recent failures are under three"
+        );
+    }
+
+    /// Three failing packs, one of them dropped: the dropped one keeps its own
+    /// key (the night's filter keeps it out) and the other two fold.
+    #[test]
+    fn a_dropped_pack_is_left_out_of_the_fold_and_the_rest_fold() {
+        let day = |pack: &str| obs_at(pack, 5, 40, 1);
+        let all = vec![day("alpha.v1"), day("beta.v1"), day("delta.v1")];
+        let cands = group_with(all.clone(), &|k| k == "judge.failed:delta.v1");
+        let keys: Vec<&str> = cands.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(keys, ["judge.failed", "judge.failed:delta.v1"], "{keys:?}");
+        let folded = &cands[0].obs[0].note;
+        assert_eq!(folded.lines().count(), 2, "{folded}");
+        assert!(!folded.contains("delta"), "{folded}");
+        let lone = group_with(all, &|k| k != "judge.failed:alpha.v1");
+        assert_eq!(lone.len(), 3, "one survivor is no fold");
+        assert_eq!(
+            members_of(["alpha.v1: 5/40\nbeta.v1: 3/9", "beta.v1: 4/9"]),
+            ["judge.failed:alpha.v1", "judge.failed:beta.v1"]
+        );
+    }
+
+    fn failed_of(pack: &str, failed: u64, calls: u64) -> Option<Obs> {
+        report_obs(json!({"pack": pack, "calls": calls, "failed": failed, "failed_recent": failed}))
+    }
+
+    /// One failed call among thousands is noise (the owner, 2026-11-09: one of
+    /// 2,910 route.v10 calls, one of 94 split.v1 and one of 448 role.v1 each
+    /// filed an item and each cost a session): it files nothing.
+    #[test]
+    fn one_failed_call_among_many_files_nothing() {
+        for (pack, calls) in [("route.v10", 2_910), ("split.v1", 94), ("role.v1", 448)] {
+            assert_eq!(failed_of(pack, 1, calls), None, "{pack}");
+        }
+        assert_eq!(failed_of("role.v1", 2, 100), None, "two is under three");
+        assert_eq!(failed_of("role.v1", 3, 400), None, "3 of 400 is under 1 %");
+        assert_eq!(failed_of("role.v1", 3, 301), None, "3 of 301 is under 1 %");
+        assert_eq!(
+            failed_of("role.v1", 0, 0),
+            None,
+            "nothing called, nothing failed"
+        );
+    }
+
+    /// Three failures and one call in a hundred are a cause; so is a pack
+    /// every one of whose calls failed, even one call.
+    #[test]
+    fn a_failing_pack_files_at_three_and_one_percent_or_when_every_call_failed() {
+        let three = failed_of("effort.v1", 3, 100).expect("3 of 100");
+        assert_eq!(three.key, "judge.failed:effort.v1");
+        assert_eq!(
+            three.note,
+            "3 of 100 effort.v1 calls failed in the learning report"
+        );
+        assert!(failed_of("effort.v1", 3, 300).is_some(), "exactly 1 %");
+        assert!(failed_of("effort.v1", 5, 100).is_some());
+        assert_eq!(
+            failed_of("onto.v1", 1, 1).expect("1 of 1").key,
+            "judge.failed:onto.v1"
+        );
+        assert!(failed_of("onto.v1", 2, 2).is_some(), "every call failed");
+    }
+
+    /// A pack under the failure bar still files its disagreement, as it did.
+    #[test]
+    fn a_pack_with_one_failure_still_files_its_disagreement() {
+        let r = json!({
+            "pack": "role.v1", "calls": 448, "failed": 1, "failed_recent": 1,
+            "labeled": 20, "disagreements": 10,
+        });
+        assert_eq!(report_obs(r).unwrap().key, "judge.disagree:role.v1");
+    }
+
+    fn obs_at(pack: &str, failed: u64, calls: u64, pos: u64) -> Obs {
+        let row = LedgerRow::named(
+            "judge.report",
+            None,
+            None,
+            json!({"report": {"pack": pack, "calls": calls, "failed": failed, "failed_recent": failed}}),
+        );
+        let mut o = of_row(pos, &row).expect("a failing pack");
+        o.at_ms = 1_000 * pos;
+        o
+    }
+
+    /// Packs failing in one night are one cause: one candidate whose note
+    /// lists `pack: failed/calls` a line per pack, in the pack's order.
+    #[test]
+    fn three_failing_packs_in_a_night_are_one_candidate_with_a_line_each() {
+        let cands = group(vec![
+            obs_at("role.v1", 12, 448, 3),
+            obs_at("continue.v1", 4, 94, 1),
+            obs_at("onto.v1", 1, 1, 2),
+        ]);
+        assert_eq!(cands.len(), 1, "{cands:?}");
+        let c = &cands[0];
+        assert_eq!(c.key, "judge.failed");
+        assert_eq!(c.title, "Jev's judgments fail in 3 packs");
+        assert_eq!(c.source, "learning");
+        assert_eq!(c.obs.len(), 1);
+        assert_eq!(c.obs[0].key, "judge.failed");
+        assert_eq!(
+            c.obs[0].note,
+            "continue.v1: 4/94\nonto.v1: 1/1\nrole.v1: 12/448"
+        );
+        assert_eq!(c.obs[0].id, "ledger:3", "the newest row's id");
+        assert_eq!(
+            (c.person(), c.work()),
+            (false, 3),
+            "the members' own, as before"
+        );
+        assert_eq!(c.last_ms(), 3_000);
+    }
+
+    /// One failing pack keeps its own key and words; the other causes of the
+    /// night and a disagreement are left as they were.
+    #[test]
+    fn one_failing_pack_keeps_its_own_key_and_the_others_are_untouched() {
+        let disagree = report_obs(json!({
+            "pack": "split.v1", "calls": 94, "failed": 0, "labeled": 20, "disagreements": 10,
+        }))
+        .expect("a disagreement");
+        let other = turn_failed("timeout");
+        let cands = group(vec![obs_at("role.v1", 5, 448, 1), disagree, other]);
+        let keys: Vec<&str> = cands.iter().map(|c| c.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "judge.disagree:split.v1",
+                "judge.failed:role.v1",
+                "turn.failed:timeout"
+            ]
+        );
+        assert_eq!(cands[1].title, "Jev's role.v1 judgments fail");
+        assert_eq!(
+            cands[1].obs[0].note,
+            "5 of 448 role.v1 calls failed in the learning report"
+        );
     }
 
     fn failed_job(pid: u32, failure: Option<&str>) -> LedgerRow {
@@ -894,6 +1248,26 @@ mod tests {
         assert_eq!(failed_action_key("hands:reaper"), "action.failed:hands");
         assert_eq!(failed_action_key("proc"), "action.failed:proc");
         assert_eq!(failed_action_key("harness"), "action.failed:harness");
+    }
+
+    /// An async or in-process tool is named, as a harness one is: every AWS
+    /// and Google tool filed under one `async` cause.
+    #[test]
+    fn an_async_or_inproc_tool_failure_names_its_tool() {
+        let s3 = failed_action_key("async:aws.s3.get");
+        let mail = failed_action_key("async:google.mail.send");
+        assert_eq!(s3, "action.failed:async:aws.s3.get");
+        assert_eq!(mail, "action.failed:async:google.mail.send");
+        assert_ne!(s3, mail);
+        assert_eq!(
+            failed_action_key("inproc:fs.read"),
+            "action.failed:inproc:fs.read"
+        );
+        assert_eq!(
+            failed_action_key("async:mcp:ext-wordcount/count"),
+            "action.failed:async:mcp.ext_wordcount"
+        );
+        assert_eq!(failed_action_key("async"), "action.failed:async");
     }
 
     fn note_of(kind: &str, data: Value) -> String {

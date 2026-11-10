@@ -158,6 +158,31 @@ mod tests {
         assert_eq!(run(&["no-such"]), 2);
     }
 
+    /// The ledger command `RecallManifest::would_drop`'s doc quotes (`theseus ledger -k recall.ran
+    /// -n <N> --json`) parses to the read it names: the newest N rows of one kind, no session, and
+    /// `--json` (a global flag, so after the subcommand) for the whole row, where the plain form
+    /// cuts its data at 160 characters. What the daemon answers to that read is
+    /// `rpc::tests_ledger::the_ledger_tail_by_recall_kind_reads_every_sessions_would_drop`.
+    #[test]
+    fn the_ledger_command_the_recall_doc_quotes_parses_to_a_tail_by_kind() {
+        use clap::Parser;
+        let line = "theseus ledger -k recall.ran -n 50 --json";
+        let cli = Cli::try_parse_from(line.split_whitespace()).unwrap();
+        assert!(cli.json, "`{line}` asks for the whole row");
+        match cli.cmd {
+            crate::Cmd::Ledger {
+                n,
+                kind,
+                session,
+                cmd,
+            } => assert_eq!(
+                (n, kind.as_deref(), session, cmd.is_none()),
+                (50, Some("recall.ran"), None, true)
+            ),
+            other => panic!("`{line}` is not a ledger tail: {other:?}"),
+        }
+    }
+
     /// Earned autonomy and scoped grants are gone: `policy` has no `earned`,
     /// `revoke` or `grants`, and its help says nothing of either.
     #[test]

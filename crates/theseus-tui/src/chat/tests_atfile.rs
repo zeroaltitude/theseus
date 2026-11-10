@@ -13,8 +13,11 @@ use super::tests::{script, Rig};
 fn touch(root: &Path, rel: &str) {
     let p = root.join(rel);
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-    std::fs::write(p, "x").unwrap();
+    std::fs::write(p, SENTINEL).unwrap();
 }
+
+/// What every fixture file holds: a word that must never reach a turn.
+const SENTINEL: &str = "pelican-ledger-9137";
 
 /// A project: a few sources, and things the listing must leave out.
 fn project() -> tempfile::TempDir {
@@ -171,11 +174,22 @@ async fn the_submitted_turn_carries_the_path_for_the_gated_read() {
         input.contains(&abs),
         "the absolute path is in the turn:\n{input}"
     );
-    assert!(input.contains("fs.read"), "{input}");
-    assert!(!input.contains("\nx"), "never the file's bytes:\n{input}");
+    assert!(input.contains("fs_read"), "{input}");
     assert!(
-        sent[0].get("attachments").is_none(),
-        "no attachment carries bytes"
+        !input.contains(SENTINEL),
+        "never the file's bytes:\n{input}"
+    );
+    let mut keys: Vec<&str> = sent[0]
+        .as_object()
+        .expect("params")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["author", "input", "session_id"],
+        "exactly these keys: a path that adds attachments must trip this"
     );
 }
 
@@ -186,6 +200,10 @@ async fn a_file_that_is_not_listed_is_refused_visibly_and_nothing_is_sent() {
     r.type_text("open @nope.rs").await;
     r.shows("no file matches @nope.rs").await;
     r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    // The first miss re-reads the list once; the second Enter refuses.
+    r.shows("reading it again").await;
+    r.settle().await;
     r.press(KeyCode::Enter).await;
     r.shows("@nope.rs: no such file under").await;
     assert!(r.daemon.asked("turn.submit").is_empty());
@@ -199,6 +217,9 @@ async fn a_file_that_is_not_listed_is_refused_visibly_and_nothing_is_sent() {
     r.ctrl('c').await;
     r.type_text("open @/etc/hostname").await;
     r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.settle().await;
     r.press(KeyCode::Enter).await;
     r.shows("@/etc/hostname: no such file under").await;
     assert!(r.daemon.asked("turn.submit").is_empty());
@@ -219,7 +240,7 @@ async fn nothing_is_offered_or_sent_when_the_directory_is_outside_the_roots() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_double_at_sends_a_literal_and_a_paste_is_never_checked() {
+async fn a_double_at_sends_a_literal_and_a_folded_paste_is_never_checked() {
     let p = project();
     let mut r = rig_in(&p, &p.path().display().to_string()).await;
     r.type_text("ask @@bob about it").await;
@@ -235,4 +256,328 @@ async fn a_double_at_sends_a_literal_and_a_paste_is_never_checked() {
     r.paste("a\nb\nc\nd\ne\nf\ng @nobody_here\n").await;
     r.press(KeyCode::Enter).await;
     r.asked("turn.submit", 2).await;
+}
+
+/// A recalled line whose `@path` is not the word at the cursor still starts
+/// the listing, so the first Enter after it is not refused for good.
+#[tokio::test(start_paused = true)]
+async fn a_recalled_line_naming_a_path_mid_sentence_lists_the_files_and_sends() {
+    let p = project();
+    let dir = p.path().display().to_string();
+    let mut r = Rig::with_cfg(100, 40, tools_script(dir.clone()), {
+        let dir = dir.clone();
+        move |c| {
+            c.dir = dir.clone();
+            c.shown_dir = dir;
+            c.history = vec!["explain @src/lib.rs please".into()];
+        }
+    })
+    .await;
+    r.ready().await;
+    r.press(KeyCode::Up).await;
+    assert!(
+        r.text().contains("explain @src/lib.rs please"),
+        "{}",
+        r.text()
+    );
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 1).await;
+    assert_eq!(r.daemon.asked("turn.submit").len(), 1);
+}
+
+/// A paste of five lines or fewer is not folded: it is typed text, so `@word`
+/// in it is checked like any other (today's behaviour; an owner question).
+#[tokio::test(start_paused = true)]
+async fn a_short_paste_is_typed_text_so_a_pasted_at_word_is_checked() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.paste("# cron\n@reboot /usr/bin/foo\n").await;
+    r.settle().await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@reboot: no such file under").await;
+    assert!(
+        r.daemon.asked("turn.submit").is_empty(),
+        "nothing is sent while a pasted @word names no file"
+    );
+}
+
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+/// A project whose `shot.png` holds the PNG signature, and a `notes.md`.
+fn project_with_shot() -> tempfile::TempDir {
+    let p = project();
+    std::fs::write(p.path().join("shot.png"), PNG).unwrap();
+    touch(p.path(), "notes.md");
+    p
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_image_named_by_path_goes_as_an_attachment_and_a_text_file_keeps_its_path() {
+    let p = project_with_shot();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 1).await;
+    let sent = r.daemon.asked("turn.submit");
+    let atts = sent[0]["attachments"].as_array().expect("attachments");
+    assert_eq!(atts.len(), 1, "{:?}", sent[0]);
+    assert_eq!(atts[0]["name"], "shot.png");
+    assert_eq!(atts[0]["size"], 8);
+    assert_eq!(atts[0]["data"], "iVBORw0KGgo=");
+    let input = sent[0]["input"].as_str().unwrap();
+    assert_eq!(input, "look at @shot.png", "no path footer for an image");
+
+    // Beside a text file: the file keeps its path footer, the image its attachment.
+    r.type_text("both @shot.png and @notes.md").await;
+    r.shows("@notes.md").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 2).await;
+    let sent = r.daemon.asked("turn.submit");
+    let input = sent[1]["input"].as_str().unwrap();
+    let notes = format!("{}/notes.md", p.path().display());
+    assert!(input.contains(&notes), "{input}");
+    assert!(
+        !input.contains("shot.png\n") && !input.ends_with("/shot.png"),
+        "the image is not in the footer:\n{input}"
+    );
+    assert_eq!(sent[1]["attachments"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_image_over_the_cap_is_refused_visibly_and_nothing_is_sent() {
+    let p = project_with_shot();
+    // Sparse: no 32 MiB is ever allocated.
+    let big = std::fs::File::create(p.path().join("big.png")).unwrap();
+    big.set_len(32 * 1024 * 1024 + 1).unwrap();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("see @big.png").await;
+    r.shows("@big.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("over the 32 MiB limit").await;
+    assert!(r.daemon.asked("turn.submit").is_empty());
+    assert!(r.text().contains("› see @big.png"), "{}", r.text());
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_image_typed_while_a_turn_runs_carries_its_attachment_when_released() {
+    let p = project_with_shot();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.starts_turn("trn_1");
+    r.type_text("see @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("queued › see @shot.png").await;
+    assert!(r.daemon.asked("turn.submit").is_empty(), "it waits");
+    r.ends_turn("trn_1", "");
+    r.asked("turn.submit", 1).await;
+    let sent = r.daemon.asked("turn.submit");
+    let atts = sent[0]["attachments"].as_array().expect("attachments");
+    assert_eq!(atts.len(), 1, "{:?}", sent[0]);
+    assert_eq!(atts[0]["data"], "iVBORw0KGgo=");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_transcript_names_the_files_and_images_that_went_by_reference() {
+    let p = project_with_shot();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("see @notes.md and @shot.png").await;
+    r.shows("@shot.png").await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Enter).await;
+    r.shows("paths sent: notes.md").await;
+    assert!(
+        r.text().contains("images attached: shot.png"),
+        "{}",
+        r.text()
+    );
+}
+
+/// A file made after the listing is found by one re-read at Enter (phase 1's
+/// F4); a name that is still missing after it is refused, with no loop.
+#[tokio::test(start_paused = true)]
+async fn a_name_missing_from_the_list_is_read_for_once_at_enter() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @R").await;
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Esc).await;
+    r.press(KeyCode::Backspace).await;
+    r.press(KeyCode::Backspace).await;
+    touch(p.path(), "new.md");
+    r.type_text("@new.md").await;
+    r.press(KeyCode::Enter).await;
+    r.shows("not in the list; reading it again").await;
+    r.asked("tool.list", 2).await;
+    assert!(r.daemon.asked("turn.submit").is_empty());
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.asked("turn.submit", 1).await;
+    let sent = r.daemon.asked("turn.submit");
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].to_string().contains("new.md"), "{}", sent[0]);
+}
+
+/// Enter 1 re-reads, Enter 2 refuses, and Enter 3 must refuse again without
+/// walking the tree (the re-arm used to make every other Enter a re-read).
+#[tokio::test(start_paused = true)]
+async fn a_still_missing_name_is_re_read_once_however_many_enters_follow() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @nope.md").await;
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.asked("tool.list", 2).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@nope.md: no such file under").await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@nope.md: no such file under").await;
+    r.settle().await;
+    assert!(r.daemon.asked("turn.submit").is_empty());
+    assert_eq!(
+        r.daemon.asked("tool.list").len(),
+        2,
+        "one re-read, not one per two Enters"
+    );
+}
+
+/// A command line skips the `@` rule, so it loses no Enter to the re-read.
+#[tokio::test(start_paused = true)]
+async fn a_command_line_with_an_unlisted_at_word_runs_at_the_first_enter() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("/help @nope").await;
+    r.shows("no file matches @nope").await;
+    r.press(KeyCode::Esc).await;
+    let mark = r.bytes();
+    r.press(KeyCode::Enter).await;
+    r.settle().await;
+    let said = r.written_since(mark);
+    assert!(said.contains("what you can do here"), "{said}");
+    assert!(!said.contains("reading it again"), "{said}");
+    assert_eq!(
+        r.daemon.asked("tool.list").len(),
+        1,
+        "no re-read for a command"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_name_that_never_exists_is_refused_after_its_one_re_read() {
+    let p = project();
+    let mut r = rig_in(&p, &p.path().display().to_string()).await;
+    r.type_text("look at @nope.md").await;
+    r.asked("tool.list", 1).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("reading it again").await;
+    r.asked("tool.list", 2).await;
+    r.settle().await;
+    r.press(KeyCode::Enter).await;
+    r.shows("@nope.md: no such file under").await;
+    r.settle().await;
+    assert_eq!(r.daemon.asked("tool.list").len(), 2, "one re-read, no loop");
+    assert!(r.daemon.asked("turn.submit").is_empty());
+}
+
+fn calls_of(fx: &[super::state::Effect], method: &str) -> usize {
+    use super::state::Effect;
+    fx.iter()
+        .filter(|e| matches!(e, Effect::Call(c) if c.method == method))
+        .count()
+}
+
+fn reads_of(fx: &[super::state::Effect]) -> Vec<Vec<(String, String)>> {
+    use super::state::Effect;
+    fx.iter()
+        .filter_map(|e| match e {
+            Effect::ReadImages(l) => Some(l.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The chat over a directory holding `shot.png`, its list ready, and a line
+/// naming it typed.
+fn chat_with_shot_line(dir: &Path) -> super::state::Chat {
+    use super::atfile::Walked;
+    use super::tests::{cfg, SID, T0};
+    let mut c = super::state::Chat::new(cfg(std::path::PathBuf::from("/nonexistent/history")), T0);
+    c.session = Some(SID.to_string());
+    c.cfg.dir = dir.display().to_string();
+    c.at_walked(Ok(Walked {
+        files: vec!["shot.png".into()],
+        truncated: false,
+    }));
+    c.editor.insert_str("look at @shot.png");
+    c
+}
+
+/// The image is read by an effect, off the loop: Enter returns the read and no
+/// `turn.submit`; the answer sends the one turn with its attachment.
+#[test]
+fn an_image_is_read_by_an_effect_and_sent_when_the_read_answers() {
+    let p = project_with_shot();
+    let mut c = chat_with_shot_line(p.path());
+    let fx = c.submit();
+    let reads = reads_of(&fx);
+    assert_eq!(reads.len(), 1, "one read effect");
+    assert_eq!(reads[0].len(), 1);
+    assert_eq!(reads[0][0].0, "shot.png");
+    assert_eq!(
+        calls_of(&fx, "turn.submit"),
+        0,
+        "nothing sent before the read"
+    );
+    // A second Enter while the read is out starts no second read, sends nothing.
+    let again = c.submit();
+    assert!(reads_of(&again).is_empty() && calls_of(&again, "turn.submit") == 0);
+    // The runner reads it and hands the result back.
+    let sent = c.images_read(super::atfile::read_images(reads[0].clone()));
+    assert_eq!(calls_of(&sent, "turn.submit"), 1);
+    let params = sent
+        .iter()
+        .find_map(|e| match e {
+            super::state::Effect::Call(c) if c.method == "turn.submit" => Some(c.params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let atts = params["attachments"].as_array().unwrap();
+    assert_eq!(atts.len(), 1);
+    assert_eq!(atts[0]["name"], "shot.png");
+    assert_eq!(atts[0]["data"], "iVBORw0KGgo=");
+}
+
+/// A failed read is said in the dock, the line stays, nothing goes; a line
+/// edited while the read was out is not sent either.
+#[test]
+fn a_failed_read_or_an_edited_line_sends_nothing_and_keeps_the_line() {
+    let p = project_with_shot();
+    let mut c = chat_with_shot_line(p.path());
+    let fx = c.submit();
+    let fail = c.images_read(Err("@shot.png: it vanished".into()));
+    assert!(fail.is_empty(), "{fail:?}");
+    assert_eq!(c.editor.typed_text(), "look at @shot.png");
+    // The read is over, so a new Enter reads again; then the line is edited.
+    let again = c.submit();
+    assert_eq!(reads_of(&again).len(), 1);
+    c.editor.insert_str(" please");
+    let late = c.images_read(super::atfile::read_images(reads_of(&fx)[0].clone()));
+    assert!(late.is_empty(), "an edited line is not sent: {late:?}");
+    assert_eq!(c.editor.typed_text(), "look at @shot.png please");
 }

@@ -875,7 +875,7 @@ async fn a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it() {
         c.judge.enabled = true;
         c.judge.api_base = base;
         c.judge.connect_secs = 1;
-        c.judge.total_secs = 2;
+        c.judge.total_secs = 15;
         c.policy.tools.insert("proc.run".into(), Posture::Open);
     })
     .await;

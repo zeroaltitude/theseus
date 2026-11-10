@@ -40,8 +40,12 @@ impl Core {
         conn: Conn<'_>,
     ) -> Result<Value, RpcFailure> {
         match m {
-            // Its filter is optional: no params lists every session.
-            method::SESSION_LIST => route(or_empty(params), |p| self.session_list_of(p)),
+            // Its filter is optional: no params lists every session. It
+            // takes the asking surface: an imported session's own words go
+            // only to one that reads private text (theseus-a7pr).
+            method::SESSION_LIST => {
+                route(or_empty(params), |p| self.session_list_on(p, conn.surface))
+            }
             method::SESSION_RETIRE => route(params, |p| self.rpc_session_retire(p, conn)),
             method::SESSION_TYPING => route(params, |p| Ok(self.session_typing(p, conn))),
             method::SESSION_NUDGE => route(params, |p| self.session_nudge(p)),

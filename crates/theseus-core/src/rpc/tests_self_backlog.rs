@@ -154,6 +154,58 @@ fn seed_day(c: &Core, t0: u64) {
     }
 }
 
+/// One failed model call writes two rows, the kernel's `action.failed` and
+/// `provider.error`; they are one cause, filed once. A call with no twin (a
+/// compaction's summary) still files as an action failure.
+#[test]
+fn a_failed_model_call_is_filed_once_not_once_per_row() {
+    let c = acting(0, 20);
+    let t0 = theseus_protocol::now_unix_ms();
+    for i in 0..3u64 {
+        let id = format!("act_{i}");
+        seed(
+            &c,
+            "provider.error",
+            json!({"class": "overloaded", "provider": "anthropic", "correlation_id": id}),
+            t0 - (i + 1) * HOUR,
+        );
+        seed(
+            &c,
+            "action.failed",
+            json!({"producer": "provider:anthropic", "duration_ms": 5, "correlation_id": id,
+                   "failure": null}),
+            t0 - (i + 1) * HOUR + 3,
+        );
+    }
+    c.backlog_night(tick()).unwrap();
+    let causes: Vec<String> = listed(&c).into_iter().map(|i| i.cause).collect();
+    assert!(
+        causes.contains(&"provider.error:overloaded:anthropic".to_string()),
+        "{causes:?}"
+    );
+    assert!(
+        !causes.contains(&"action.failed:provider:anthropic".to_string()),
+        "the twin is filed once: {causes:?}"
+    );
+    // The positive half, on a ledger of its own (a night reads only new rows).
+    let c = acting(0, 20);
+    for i in 0..3u64 {
+        seed(
+            &c,
+            "action.failed",
+            json!({"producer": "provider:anthropic", "duration_ms": 5,
+                   "correlation_id": format!("act_c{i}"), "purpose": "compaction"}),
+            t0 - (i + 1) * HOUR,
+        );
+    }
+    c.backlog_night(tick()).unwrap();
+    let causes: Vec<String> = listed(&c).into_iter().map(|i| i.cause).collect();
+    assert!(
+        causes.contains(&"action.failed:provider:anthropic".to_string()),
+        "a call with no twin still files: {causes:?}"
+    );
+}
+
 #[test]
 fn a_seeded_days_ledger_files_the_right_items_with_their_evidence() {
     let c = acting(0, 20);
@@ -782,3 +834,84 @@ fn a_green_build_frees_its_slot_for_the_night() {
 }
 
 mod infra;
+
+/// A `judge.report` row for `pack`: `failed` of `calls` in the last day.
+fn failing_pack(c: &Core, pack: &str, failed: u64, calls: u64, at: u64) {
+    seed(
+        c,
+        "judge.report",
+        json!({"report": {"pack": pack, "calls": calls, "failed": failed,
+            "failed_recent": failed, "calls_recent": calls}}),
+        at,
+    );
+}
+
+/// A Drop of the folded `judge.failed` item means the packs it listed (their
+/// own keys), not "any night with two failing packs": a night where a third
+/// pack fails files that pack alone, and two new packs fold again.
+#[test]
+fn a_drop_of_the_folded_failed_item_means_its_packs() {
+    let _clock = crate::test_support::pin_mid_period();
+    let c = acting(0, 20);
+    let base = tick();
+    for pack in ["alpha.v1", "beta.v1"] {
+        failing_pack(&c, pack, 5, 100, base + HOUR);
+    }
+    let night = c.backlog_night(base + 2 * HOUR).unwrap();
+    assert_eq!(night.filed.len(), 1, "{night:?}");
+    let item = listed(&c)
+        .into_iter()
+        .find(|i| i.cause == "judge.failed")
+        .expect("the two packs fold into one item");
+    let r = c
+        .self_drop(
+            &SelfDropParams {
+                item: item.id,
+                ..Default::default()
+            },
+            &cli(),
+        )
+        .unwrap();
+    assert!(r.changed);
+    let mut dropped = c
+        .self_backlog(&SelfBacklogParams { all: true })
+        .unwrap()
+        .dropped;
+    dropped.sort();
+    assert_eq!(
+        dropped,
+        ["judge.failed:alpha.v1", "judge.failed:beta.v1"],
+        "the members' keys, and not the folded one"
+    );
+    // Night two: all three packs fail. Two are dropped, one is not. The index
+    // dates a row by its write time, so the clock steps a day first.
+    theseus_protocol::time::move_clock_to(base + DAY);
+    for pack in ["alpha.v1", "beta.v1", "delta.v1"] {
+        failing_pack(&c, pack, 5, 100, base + DAY + HOUR);
+    }
+    let night = c.backlog_night(base + DAY + 2 * HOUR).unwrap();
+    assert_eq!(night.kept_out, 2, "{night:?}");
+    assert_eq!(night.filed.len(), 1, "{night:?}");
+    assert!(
+        listed(&c)
+            .iter()
+            .any(|i| i.cause == "judge.failed:delta.v1"),
+        "the pack not dropped is filed under its own key"
+    );
+    // Night three: two new packs fold again.
+    theseus_protocol::time::move_clock_to(base + 2 * DAY);
+    for pack in ["gamma.v1", "kappa.v1"] {
+        failing_pack(&c, pack, 5, 100, base + 2 * DAY + HOUR);
+    }
+    let night = c.backlog_night(base + 2 * DAY + 2 * HOUR).unwrap();
+    assert_eq!(night.filed.len(), 1, "{night:?}");
+    let folded: Vec<_> = listed(&c)
+        .into_iter()
+        .filter(|i| i.cause == "judge.failed" && i.state != "abandoned")
+        .collect();
+    assert_eq!(
+        folded.len(),
+        1,
+        "two new failing packs file judge.failed again"
+    );
+}

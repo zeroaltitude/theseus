@@ -537,6 +537,16 @@ async fn a_reranked_turn_keeps_its_frame_budget() {
         if judged {
             // The first rerank reserved the day's first block, and is written.
             until_reranked(&c.store, 1).await;
+            // The warm-up's memory rows ride a second sink frame, behind the
+            // rerank's: the window opens after them, or it counts that frame.
+            let t0 = std::time::Instant::now();
+            while crate::tests_judge::kinds(&c.store, "memory.gated").len() < 2 {
+                assert!(
+                    t0.elapsed() < Duration::from_secs(20),
+                    "the warm-up's memory rows"
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
             // The next waits on Jev past the turn and the sink's window.
             jev.set_mode(FakeMode::Slow(Duration::from_secs(10)));
             c.runner.judge.set_rerank_deadline(Duration::from_secs(5));

@@ -11,6 +11,36 @@
 // reviewer deleted `perf_event_open` from `denied()` and the whole sandbox
 // suite stayed 40/40 green.
 //
+// **A third pattern, beside this one and "a rule that lives only in a
+// comment": a test that documents the defect as the design** (theseus-4vsrz,
+// B7; found by the theseus-a2kh6 builder). `tests_tier_work.rs` said, in
+// the one admission test, that "the pick has to be a switch" and that a pick
+// staying on the session's model "has no second settle, and its tools keep
+// the ordinary ceiling whatever the route row says": the precise description
+// of the bug a2kh6 was sent to fix, written as settled behaviour. A stale
+// comment misleads and a list with no completeness test fails silently, but a
+// test that encodes the defect *defends* it: whoever fixes the bug sees that
+// test fail, reads a confident sentence saying the behaviour is intended, and
+// backs out. **The tell** is a test or its comment explaining why the narrower
+// behaviour is correct with no decision, row or owner quote beside it ("has
+// to be", "whatever X says", "never re-"). A real constraint has a source; an
+// accidental one only has prose. A test that pins a known gap on purpose must
+// say so, name what closes it and say which edit makes it fail, as
+// `theseus-tui`'s `a_routine_runs_question_says_waiting_while_the_run_deadline_drops_it`
+// does.
+//
+// **The other pattern, "a rule that lives only in a comment".** The tell: a
+// comment or doc sentence states a rule ("never X", "always Y before Z") that
+// no test and no code executes, so the sentence can go false and nothing
+// fails. The fix is one of two: write the test that holds the rule, or delete
+// the sentence. A comment may explain a rule a test holds; it may not be the
+// only place the rule is kept.
+//
+// **Corrected, historical.** The `tests_tier_work.rs` citation above is no
+// longer a live instance: those sentences are no longer in that file, and no
+// commit is named here because the history to find it was not searched. The
+// pattern stands with no live instance known today.
+//
 // **The shape.** Whatever *enumerates* the thing being listed — the call
 // sites in a crate's source, the requirement a filter is built against, the
 // members of a catalog — is walked by the test, and the list is judged

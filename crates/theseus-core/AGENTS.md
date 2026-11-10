@@ -259,8 +259,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   memory: an unnamed guild place is shared), and reads each private channel's viewers once (`private_place_viewed`,
   `place.viewed`), for health's `places:` line. In a trusted guild it reads none, and health names each private
   channel there `(in a trusted guild)` (`Core::trust_guilds`, `PlaceInfo.trusted_guild`). M6's recall draws in a
-  shared place only on that place's own sessions (and the books, when built, will too). Tests: `tests_places.rs`,
-  `places::tests`.
+  shared place only on that place's own sessions (and the books, when built, will too). `session.history`, `session.list`
+  and `node.list` take the asking surface and withhold an imported session's words from one that reads no private text
+  (`Surface::reads_private`; `docs/design/imported-surface.md` is the rule). A new protocol method is classified into
+  `ALLOWED`, `JUDGED` or `NOT_FOR_MCP` (`mcp_server.rs`) before it lands, and the census in `mcp_server::tests` fails
+  otherwise. The correction layer steers only a turn whose place class is `PlaceClass::Private`
+  (`turn/route_step/correct.rs`, theseus-c2rv); how far "private" reaches there is for the owner to confirm. Tests:
+  `tests_places.rs`, `places::tests`.
   - **Ceilings** (step 38a, theseus-ext.3; `ceiling.rs`): the bindings file may give a place a ceiling, which
     narrows what its class allows and never widens it. It is read with the class (`TurnRunner::view_of`, so a task
     has its parent's), and rides in `TurnCtx.ceiling`: its `tools` filter the catalog (`PlaceView::offered`) and the
@@ -343,7 +348,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
   held by 5 private sessions or more (3 a night, most held first) on `synth_profile`'s rule (`Core::session_profile`),
   under `[memory] synth_limit_usd_per_day` counting consolidation's spend (META `onto.dream.last`, written after each
-  call, so a stop keeps what was spent), an answer over 400 characters refused, never cut, a session whose first or last
+  call, so a stop keeps what was spent; a pinned `synth_profile` sends the dream's high effort too, `guidance.rs:337`, so a pinned dream costs more per call than it once did and can reach that daily limit), an answer over 400 characters refused, never cut, a session whose first or last
   message cannot be read left out (the category waits only below 5 left), a category that waits says why in `Dreamed.waits` (`Wait`: different profiles, a profile or provider that is missing, a model that thinks unasked, too few readable sessions, no price), which the tender logs, and `[ontology] dream_guidance` off (default
   on) reading, calling and writing nothing; (5) `judge/onto/digest.rs`: `morning_note` appends one line a sweep or dream
   write of the last day with its `theseus ontology undo <id>`, built from the writes' own rows (`undo.write`), verbatim
@@ -364,6 +369,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the owner in a private place alone. The compile's manifest lists each record (`Manifest.standing`: id, shown), and
   `standing::missing`, run by the situation step after `situation::check`, fails a compile whose system lacks one it
   should show as `context_unadmitted` (`standing <id> missing`, why `standing_missing`).
+  **Every head ends with `standing::FRAMING`** (theseus-ectzg): the records are the owner's, carried on every request, never
+  to be acknowledged, thanked or restated, so a model that reads the block as a message just received does not answer it.
+  The thread card, the task arrangement, the fan-out cue and the place digest (`compiler/place_digest.rs`) compose
+  `content::CONTEXT_NOT_THE_OWNERS` (`context_not_the_owners!()` inside a `concat!`), and each nudge text ends with
+  `content::NOT_FOR_THE_PERSON`: never retype either. A new block the harness writes into a request says it too, and
+  `content::tests::every_block_the_harness_writes_says_whose_it_is` fails until the file is classed. The engaged persona's tail
+  line (`engage::Engaged::line`) states a fact, not an instruction, and was judged not to need it.
   **A surface scope** (theseus-slvl.4, store format 34; `StandingScope::Surface(name)`, `terminal` for the CLI and the TUI,
   `cockpit`, `discord`, `voice`, `mcp`): the record is in no system block, so the system and tools stay byte-identical
   across surfaces. `Block::here` renders the turn's surface's records as a "Standing here:" block with the same kinds
@@ -577,7 +589,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
   asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
   never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
-  (`capture::owner_alone`: no place, or an owner's DM) and never a task's. `judge_inbound` hands its judgment to
+  (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
+  outstanding card is open (`docs/design/abandon-said-in-words.md`). `judge_inbound` hands its judgment to
   `Core::capture_directive` once the batch settles, off the turn's path. The bands are the pack's own (`act` 0.80, `confirm`
   0.50): `capture::decide` (pure) keeps at the act band, asks from the confirm band, and below it only notes a correction
   (`standing.candidate`) to propose it when its words overlap one noted in the last week (`capture::words::same`); an order
@@ -1209,7 +1222,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   block in its brief's header paragraph (`Lineage::note`: depth, the root goal = the brief of the tree's first task cut at 600
   characters, and the chain of short ids and titles; about 560 characters at depth 10 with short titles), and a proposed brief
   equal after trimming to an ancestor task's brief is refused as a cycle (`cycle_refusal`, exact comparison, no model). The owner's
-  `task.start` still refuses a task as `home`. A routine cannot be set up by a task at any depth (`routine_tool.rs`). Tests:
+  `task.start` still refuses a task as `home`. A task at any depth may propose a routine, and a project's weekly review: the
+  owner's yes on its card makes it (`routine_tool.rs`, `project/create.rs`; `tests_routine_task.rs`). Tests:
   `tests_task_lineage.rs`, the kernel's `tests_tasks.rs`. A carve is a quarter of what is left by default, so a deep tree's
   tasks need a `budget_usd`: the fourth level of a $100 session holds under $2.
 - **Surfaces of the record**: `push.rs` (the board), `outbox.rs`, `narrative.rs`, `ledger.rs`, `trace.rs`, and
@@ -1805,12 +1819,19 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     fixed first profile. **The one site that is not Jev's** is the dream's guidance (`consolidate/guidance.rs`), a
     **named exception, not a gap** (theseus-xdi65; the owner, 2026-11-06: "given that dreaming is coding, this is
     probably sonnet high"): a set `[memory] synth_profile` pins it as everywhere, and an unset one **never asks Jev** but
-    runs `guidance::DREAM_MODEL` (Sonnet 5.5) at `DREAM_EFFORT` (high, `output_config.effort`, thinking still off for the
-    250-token cap). The why is on those constants: no turn to read, the text lands in every later compile of every
-    session holding the category, three calls a night under `synth_limit_usd_per_day`. The data rule stays: the call
+    runs `guidance::DREAM_MODEL` (Sonnet 5.5) at `DREAM_EFFORT` (high, `output_config.effort`) **with thinking on, under a
+    2048-token cap sized for it** (`guidance::MAX_TOKENS`; the owner, 2026-11-07 17:33: "I think it's ok to turn thinking on and
+    gently raise the budget"). It asked with thinking off under a 250-token cap until then, after Haiku 5.5's thinking had spent
+    that cap whole (theseus-050g2). The cap is the answer's ceiling plus a thinking allowance, with the numbers on the constant:
+    `DREAM_GUIDANCE_MAX` is 400 characters and nothing longer is ever kept, which is 134 tokens at the three-characters-a-token
+    estimate this tree uses, and the rest is for thinking. A model that thinks whether asked or not still waits (theseus-ohiu8),
+    because that allowance is sized for Sonnet's thinking on a small prompt and not for an always-thinking model's; such a model
+    is reachable only as the operator's pin. The why of the exception is on those constants: no turn to read, the text lands in
+    every later compile of every session holding the category, three calls a night under `synth_limit_usd_per_day`. The data rule stays: the call
     goes through the provider chokepoint, and `tests_guidance::the_dreams_model_is_cleared_for_private_material` fails if
     the constant ever names a model not cleared for private material. Tests: `tests_guidance.rs`
-    (`an_unset_synth_profile_dreams_on_sonnet_at_high_effort`, `a_set_synth_profile_still_pins_the_dream`),
+    (`an_unset_synth_profile_dreams_on_sonnet_at_high_effort`, `a_set_synth_profile_still_pins_the_dream`,
+    `the_cap_leaves_the_answer_room_behind_the_thinking`),
     `tests_job_ask.rs` (the rule),
     `tests_job_sites.rs` (each site), `tests_compaction.rs`, `rsi/join/tests.rs`, `tests_task_checkpoint.rs`.
     **A background call settles at the rate in force when it started** (theseus-058cl): `TurnRunner::priced(resp,
@@ -1875,7 +1896,15 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     `max_wait_ms` after it (`turn/route_step.rs`, `beside`; a late verdict applies to the next message alone, and a
     late `short` one's to none: `routing::carries`, theseus-6n5j), and not at all while Jev is known unreachable
     (`JudgeService::jev_unreachable`, reason `unreachable`, theseus-otny); `routing.rs` decides, purely (`routing::decide` is
-    `routing::model::decide`: Jev's `model` pick at the pack's own confirm bar, under the data rule's floor and the cache hold; row 6
+    `routing::model::decide`: Jev's `model` pick at the pack's own confirm bar, under the data rule's floor and the cache hold;
+    **an answer under that bar runs the question's own declared `no_match`**, read off the answer (`Pick::ran`, theseus-ig13o) and
+    not from a constant — route.v10 declares `parent`, a sixth option that names no model and means "the model this turn is
+    already on", so the under-bar act is `unsure` on the turn's own profile and the pack's reviewable table and the daemon are one
+    rule (the owner, 2026-11-07 16:46: "Parent"; it declared `sonnet` until then while the daemon stayed, and the replay graded
+    under-bar answers as Sonnet hits for a daemon that never routed that way). `model::PARENT` is deliberately outside
+    `model::OPTIONS`, the option-to-catalog-model table `catalog::tests_switch` holds equal to the price rule's candidates;
+    `routing::tests_model::the_declared_default_is_what_the_live_path_runs` holds the two sides together and plants a default
+    naming a real model, to prove the value is read and not merely agreed with. Row 6
     deleted the class table, the place cap, the dear tier's guard and the step down): a `short` context (that turn alone, compiled
     outside the session's compilation, which it never writes), or a switch of the session's
     `routed` profile (stored: format 15), held above `cold_switch_tokens` until a second turn agrees. **What the hold
@@ -2577,15 +2606,30 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   as it came (the record is raw), after the episode's hash was checked over what the CLI sent, so the hash stays the
   idempotency key; the daemon computes each message's `sha256` over the stored text (`write::digested`,
   `episode::DIGESTED_SOURCES`). Tests: `import/tests_harness.rs`.
-  **A session that grew** (theseus-pjmj7; `import/append.rs`, no store format change): the same episode id with another
+  **A session that grew** (theseus-pjmj7, theseus-ectzg; `import/append.rs`; the one field it adds to a stored record,
+  `ImportedFrom.diverged_at`, is a store format bump): the same episode id with another
   hash whose messages begin with the stored ones appends only the new nodes (`node_id_of(session, idx)`, each at its own
   time), with the session's record (hash, message count, `as_of.end_ms`, `last_active_ms`; tag, place, labels and `file`
   stay as first imported) and the tag's counts in the one frame; a summary is written again only when its text differs.
   The prefix is proven by reading the stored message nodes in the order they were written (`Store::session_nodes`: the
   same idx and sha256, position by position), not by a digest kept on the session, and after the scrub (a scrubbed
-  source's stored digest is the scrubbed text's). A changed, removed or reordered message is refused naming its idx, an
-  episode that adds nothing is refused as such, an erased session is never appended to; the batch's `touched` lists the
-  sessions created or appended to. Tests: `import/tests_append.rs`, the grown file in `tests_harness.rs`.
+  source's stored digest is the scrubbed text's). **A prefix that diverged** (a rewrite, a compaction, a resume: a
+  message whose idx or digest is not the stored one at its position, or a stored message the episode no longer has) is
+  not refused while some stored message still matches: the messages after the last episode message that matches a stored
+  one (same idx and sha256) are appended, a stored idx is never written again, and the first stored idx that differs is
+  recorded once in `ImportedFrom.diverged_at`, never in `labels.topic`, which `import.topics` makes topics of. A diverged
+  episode with nothing after that message is taken quietly: no node is written, the record moves to the new hash and
+  takes the mark, it counts in the batch's `appended` but not in `touched`, and the next run skips it (a session that was
+  rewritten and went quiet is not rejected every night). Refused and named: an episode no stored message of which
+  matches (another episode under a reused id), an episode in which a stored message moved to another idx (the source
+  renumbered: an insertion or a compaction; appending past it would lose the new message and write a duplicate;
+  `append::moved`, keyed by idx, no message re-mapped), an episode that is only the stored session's first messages and no more
+  (an older or cut view: taken, it would move the hash back and the source's current episode would then add nothing, for
+  good), an episode of the same messages with another hash that diverged nowhere and adds nothing (its tag, place or
+  labels differ), and an erased session, which is never appended to; the batch's
+  `touched` lists the sessions created or appended to with a new node. Tests: `import/tests_append.rs`,
+  `import/tests_topics.rs` (the mark never becomes a topic), `tests_layouts` (an imported session from before the mark),
+  the grown file in `tests_harness.rs`.
   **The OpenClaw sync** (theseus-pjmj7; `import/sync.rs`, `rpc/import_sync.rs`, `judge/people/sync.rs`;
   `[import.openclaw]` in `config/import.rs`: `state_dir`, `owner_ids`, `agents`, off while `state_dir` is unset):
   `theseus import sync` runs `scripts/openclaw-export.py` on OpenClaw's own stores and sends the episodes (source
@@ -2803,8 +2847,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `NOTHING NEW` when there is nothing to say, and such a run only logs (`TaskOf::target_for`, `routine::quiet`, the run's mark
   `routine.run:<task session>`). A run of a routine notifies at its limit instead of asking (`Kernel::overdraws`); A routine's **grant** (theseus-52tut, below) is its wake's `TaskRun.tools`. The model's `routine.create` (`routine_tool.rs`) is private-place only
   and always waits for the owner's yes: its plan names an authority, which `task_graph::tools::authority_for` keeps for it, and
-  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · up to $0.50 a
-  run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
+  its card reads `Create routine "Morning digest": weekdays at 08:00 (next: Fri 08:00, Mon 08:00, Tue 08:00) · its own budget, not a
+  system cap: up to $0.50 a run, $10 a month · posts to your DM`. A conversation's commitments block lists the routines it made (`🔁 a41d04 weekdays 08:00
   Morning digest (next Fri)`, from `Book::made_in`, memory only). `[kernel] max_routines` moved to `[routines] max_routines`.
   **A start, an optional stop, and what a run carries** (theseus-97b8c; the owner 2026-10-28, "start, optional stop, interval,
   etc ... a super smart cron but internally treats it as a long term task", and "further bringing task stuff under deterministic
@@ -3385,10 +3429,29 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   writes no frame and takes no session or execution lock. The index counts a row at the time it was written, so the
   window's own times then decide by each row's `at_unix_ms`. Tests: `rpc/tests_window.rs` (a busy day's window, 6,000
   report rows in 13 pages, read in 0.14 s in a debug build).
+- **A search's words on a surface that reads none** (theseus-snb3, w9qv's lanes E and F; `rpc/search_text.rs`):
+  `index.query`, `memory.search` and `memory.recalls` take the connection's surface (`Surface::reads_private`) as
+  `import.sessions` and `session.history` do. A surface that reads no private text (Discord's binding, the MCP server, a
+  connection no listener named) is given every hit's ids, position, kind, origin, author, place, date, sources and scores,
+  and for a hit of a session in a private place (an imported one always: `TurnRunner::place_of`), or in a place that
+  cannot be read, no text (`WITHHELD` stands in) and no entities. A session in a shared place keeps its words: these
+  methods are told no place to speak for, so which shared place the caller is in is the pack's `may_draw_on`, not this.
+  It is defence in depth: the MCP server's allowlist leaves both searches out and the Discord binding calls neither.
+  What it does not do is hide that a private session holds the query's words, since the hit and its score stay (the
+  `import.sessions` rule drops the words instead). **A job reads what the CLI reads** (lane F): a job's own
+  `theseus memory index search` or `theseus memory search` asks the same socket as `Surface::Cli`, and the CLI refuses a
+  job only an owner's act (`OPERATORS`), so an L0 job reads outside-integrity text too (`IndexHit.external` says
+  which). That is the speed bump the root `AGENTS.md` names, said here for reads; the `external` marker does not
+  survive the copy into a program's result, which is an item the content classifier judges like any other
+  (`content.rs`), and under L1 the socket is out of the job's view. Tests: `rpc/tests_search_text.rs` (each method
+  over the CLI, the web UI, Discord's binding and an unnamed connection, positive counts on both sides).
 - **The ledger's hash chain** (theseus-bmkxk, store format 31): the store's writer chains every ledger row
   (`theseus-store`'s guide); core reads it. `ledger.verify` (`rpc/ledger_verify.rs`, a read: no frame, no lock, on the
   blocking pool; `theseus ledger verify|head`) walks it with `theseus_store::chain_walk::verify` and answers the head and
-  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short. `ledger_pin.rs`: a store
+  the first broken link, no row data. Health's `ledger_head` is the writer's own head, short, and its `ledger_gap` is the store's index gap while one
+  stands (`ledger_gap.rs`, theseus-lu5n: the log keeps recording, the next open replays; a `ledger-gap` thread looks once
+  a second, holds the core by `Weak`, and posts one `notice` to the owner per gap, since the writer that sees it cannot
+  post a frame from where it stands). `ledger_pin.rs`: a store
   from before the chain has its old rows pinned once, after serving, on a `ledger-pin` thread that paces itself and holds
   the core by `Weak` and begins `START_AFTER` (2 s) after serving (a thread holding the store at a stop right after serving keeps its close from checkpointing: `early_signal` fails; `ledger.history_pinned` and the META key `ledger.history_pinned` in one frame; the chain's start
   row counts them, so the start path reads no history). The durability tender puts the head (`SEQ:DIGEST`) on each
@@ -3496,7 +3559,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   binding alone, a conversation that speaks in a Discord place of any class: `rpc/work_board.rs::may_watch`, theseus-2j2ka;
   it draws that place's board in that place), scrubbed, and cannot answer. The methods are `rpc/work_board.rs` (`work.watch`, `work.unwatch`, routed through `rpc_prefixed`), the bus
   counts the watchers (`work_watchers`, `interactive_watchers`), and `theseus work` reads them. There is no timer: a
-  question's reminder (rule 2 of the policy) is not made. **The daemon's own work** (theseus-jn17m; `push/work/system.rs`):
+  question's reminder (rule 2 of the policy) is made on the driver's tick (`WorkBoard::remind`, `settle.rs`). A task's
+  view carries `WorkView.forum_url`, answered by a registry the Discord runtime sets (`Push::set_task_links`, kept
+  across the seed's carry-over in `Push::ensure`); `WorkBoard::relink` (`seed.rs`) patches the held views when the
+  registry is set and after the carry-over, so a restart keeps an ended task's link (theseus-emqbm; tests
+  `tests_retry.rs`). **The daemon's own work** (theseus-jn17m; `push/work/system.rs`):
   one root, `system` (`Theseus`, kind `System`), whose children are the system jobs of the last hour, made from rows the
   daemon already writes, in the frames it already writes: `import.batch` (a client's `batch` and `batches` ride the
   params and the row, and the tag's source; the last batch, `batch == batches`, ends the job; the sync's batches carry no

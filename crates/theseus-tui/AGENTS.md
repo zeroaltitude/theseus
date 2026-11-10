@@ -227,10 +227,27 @@ new lines, the dock again, in synchronized-output mode 2026).
   line opens a picker over the files under the conversation's directory: the first `@` asks `tool.list` for the workspace roots
   (`Purpose::AtRoots`), then `Effect::ListFiles` runs `atfile::walk` off the loop (nothing is listed unless the directory is inside a
   root; no symlink is followed; `.git`, `node_modules` and `target` are skipped; at most 20,000 files, 12 deep), and a keystroke
-  only filters that list in memory. Tab or Enter writes `@path`; **a message that names `@path` carries the path, never the bytes**
-  (a footer line with the absolute path and "read them with fs.read"), so the read is the ordinary gated `fs.read`. A name not in the
-  list is refused at Enter, said in the dock, the line kept; `@@x` sends a literal `@x`; a paste is never checked. Tests:
+  only filters that list in memory. Tab or Enter writes `@path`; **a message that names `@path` carries the path, never the bytes (an image is the exception, below)**
+  (a footer line with the absolute path and "read them with fs_read", the name the model is offered), so the read is the ordinary gated `fs.read`. Tab goes to the picker first, ahead of the question's focus: harmless, since `focus_question` acts only on an empty line and the picker is open only for a half-typed `@word`. A name not in the
+  list makes Enter read the list once more (`at_reread`, "not in the list; reading it again"), once per missing name (`AtFiles::reread` remembers them; every later Enter on the same still-missing names is refused and walks nothing), then is refused, said in the dock, the line kept; `@@x` sends a literal `@x`; a FOLDED paste (more than 5 lines) is never checked, but a shorter one is typed text, so a pasted `@reboot` or `@scope/pkg` in it is refused like a typed one (an owner question: should a short pasted `@word` block a message?). Tests:
   `chat/tests_commands.rs`, `chat/tests_atfile.rs`.
+
+- **Images by path** (theseus-vjzt, phase 2): an `@path` the picker lists with the extension png, jpg, jpeg, gif or webp goes as a
+  protocol `Attachment` (name, media type, size, base64 `data`, built by `theseus_client::attach::attachment_labeled`, the CLI's
+  `--attach` builder and its 32 MiB cap) in `turn.submit`'s `attachments`, and not in the path footer; any other `@path` is unchanged. The extension picks the route (`is_image`) but the content picks text or bytes (`attachment_labeled`): a text file named `.webp` goes inline as `text/plain`, with no footer, no `fs.read` and no client-side `[tools] max_read_bytes` cap (the daemon re-caps it).
+  Chosen over a `/image PATH` command because `@` already finds the file and refuses a missing one. The file is read off the loop: `submit`
+  returns `Effect::ReadImages` (no `turn.submit`), the runner reads on a blocking thread (`atfile::read_images`, at most 32 MiB)
+  and hands the result to `Chat::images_read`, which sends through `send_resolved` (the send half of `submit`, `submit_call` still
+  the one place the params are built). A second Enter while it is out says "still reading the image" and starts nothing; a line
+  edited meanwhile is kept and not sent (the next Enter reads afresh); a task view refuses before any read. A missing,
+  unreadable or over-cap image is refused in the dock naming the file and why, the line kept and nothing sent. `Taken.attachments`
+  carries them through the queue (`release_queue`) and `Chat::unsent`; `submit_call` is the one place that builds the params.
+  The transcript says what went by reference under the echo (`↪ paths sent: … · images attached: …`, `Taken.note`), since the footer's absolute paths are not echoed. `unqueue` restores the text only, so the next Enter reads the file again. In a task's view an image is refused (a task takes text).
+- **`/why`** (theseus-vjzt, phase 2; `chat/why.rs`): the lines `theseus why` prints for the last compiled turn, dim for the backtick lines.
+  Four reads go at once (`context.explain`, `policy.explain`, `ledger.tail` `route.decided`, `node.list` `tool_call`; each a
+  `Purpose::Why(WhyPart)`) and the words come when all four have answered; a second `/why` meanwhile says "still reading it". A side
+  read that fails or does not decode leaves its section out; only `context.explain` failing is told (`could not read it: …`).
+  `why` is the last entry of `COMMANDS` before the debug-only `panic`: the menu's first six rows are asserted by tests. Tests: `chat/tests_why.rs`.
 
 - **Modes** (theseus-lyxy): Shift+Tab asks the daemon for the conversation's next mode (`session.mode`, ask → edits →
   plan → auto); in the chat it is the key map's `CycleMode`, in the board it works at the input line only (`i`), since in

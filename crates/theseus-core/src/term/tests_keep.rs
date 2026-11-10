@@ -546,6 +546,21 @@ async fn closes_leaving_a_child(
     keep: bool,
     by: &'static str,
 ) -> (u32, Vec<String>) {
+    closes_leaving(n, tag, keep, by, false).await
+}
+
+/// `closes_leaving_a_child`, with the forker either in the foreground or, with
+/// `shell_exits`, left as a background job of a shell that has exited by the
+/// time of the close (the close then takes the exited-shell path). In that
+/// mode each close also holds, hard, what is deterministic: the forker
+/// forked, one `Closed`, nothing left, and something killed.
+async fn closes_leaving(
+    n: u32,
+    tag: &str,
+    keep: bool,
+    by: &'static str,
+    shell_exits: bool,
+) -> (u32, Vec<String>) {
     let mut left_by = 0;
     let mut why = Vec::new();
     for i in 0..n {
@@ -562,8 +577,9 @@ async fn closes_leaving_a_child(
         )
         .await;
         let sh = id_of(&o);
+        let tail = if shell_exits { " & exit" } else { "" };
         let text = format!(
-            "PS1='k''eep# '; sh -c \"trap '' TERM HUP; while :; do setsid sleep {m} & sleep 0.002; done\"\n"
+            "PS1='k''eep# '; sh -c \"trap '' TERM HUP; while :; do setsid sleep {m} & sleep 0.002; done\"{tail}\n"
         );
         call(
             &terms,
@@ -573,13 +589,26 @@ async fn closes_leaving_a_child(
             d.path(),
         )
         .await;
-        until("the forker forked", || marked(&m).len() > 3).await;
+        until("the forker forked", || {
+            marked(&m).len() > 3
+                && (!shell_exits
+                    || terms
+                        .all()
+                        .iter()
+                        .any(|t| t.id == sh && t.pty.exited().is_some()))
+        })
+        .await;
         let closed = tokio::task::spawn_blocking({
             let terms = terms.clone();
             move || terms.close_where(by, |t| t.session == "s1")
         })
         .await
         .unwrap();
+        if shell_exits {
+            assert_eq!(closed.len(), 1, "close {i}: one Closed");
+            assert!(closed[0].left.is_empty(), "close {i}: {:?}", closed[0]);
+            assert!(closed[0].killed >= 1, "close {i}: killed {:?}", closed[0]);
+        }
         // A killed process takes a moment to die.
         tokio::time::sleep(Duration::from_millis(300)).await;
         let alive = marked(&m);
@@ -619,4 +648,159 @@ async fn a_keeping_close_names_a_child_forked_into_a_new_session_during_it() {
     let (bad, why) = closes_leaving_a_child(n, "18", true, BY_SESSION_END).await;
     println!("z0kk keep: {bad} of {n} closes left an unnamed child: {why:?}");
     assert_eq!(bad, 0, "{bad} of {n} closes left an unnamed child: {why:?}");
+}
+
+/// The same race on the exited-shell path: the forker is a background job of a
+/// shell that has already exited, so the close finds it by the pty it holds
+/// (`after_exit`). The close repeats its scan and kill as the live path does.
+/// A measured rate over a few closes with a bound of one, not a hard zero: the
+/// residual of the race is unmeasured, and the two tests above are the hard
+/// ones.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_of_an_exited_shell_leaves_no_child_forked_into_a_new_session() {
+    let n = 20;
+    let (bad, why) = closes_leaving(n, "19", false, BY_TOOL, true).await;
+    println!("exited shell: {bad} of {n} closes left a child: {why:?}");
+    assert!(bad <= 1, "{bad} of {n} closes left a child: {why:?}");
+}
+
+/// The deterministic half of `after_exit`'s kill branch: a close that keeps
+/// nothing ends the job of a shell that had exited, counts it once, and names
+/// nothing as left.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_that_keeps_nothing_kills_the_job_of_an_exited_shell() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let run = run_tag(11);
+    let job = mark(&run, AMPERSAND);
+    let (o, _) = call(
+        &terms,
+        "s1",
+        OPEN,
+        json!({"argv": ["bash", "--norc", "--noprofile", "-i"], "cols": 200}),
+        d.path(),
+    )
+    .await;
+    let sh = id_of(&o);
+    let text = format!("PS1='k''eep# '; sleep {job} & exit\n");
+    call(
+        &terms,
+        "s1",
+        SEND,
+        json!({"terminal": sh, "text": text}),
+        d.path(),
+    )
+    .await;
+    until("the job started and the shell exited", || {
+        !marked(&job).is_empty()
+            && terms
+                .all()
+                .iter()
+                .any(|t| t.id == sh && t.pty.exited().is_some())
+    })
+    .await;
+    let closed = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.close_where(BY_TOOL, |t| t.session == "s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(closed.len(), 1);
+    assert!(closed[0].left.is_empty(), "{:?}", closed[0]);
+    assert_eq!(
+        closed[0].killed, 1,
+        "the one job is counted: {:?}",
+        closed[0]
+    );
+    until("the job is gone", || marked(&job).is_empty()).await;
+}
+
+/// The kill's count is of distinct processes: one signalled again in a later
+/// round is not counted again. (The double count cannot be forced with real
+/// processes: it needs one still running after its SIGKILL.)
+#[test]
+fn killed_counts_distinct_processes() {
+    let p = |pid| theseus_kernel::tree::Proc { pid, start: 7 };
+    let (a, b, c) = (p(10), p(11), p(12));
+    let mut seen = std::collections::BTreeSet::new();
+    assert_eq!(pty::count_new(&mut seen, [a, b]), 2);
+    assert_eq!(pty::count_new(&mut seen, [b, c]), 1);
+    assert_eq!(pty::count_new(&mut seen, []), 0);
+    assert_eq!(seen.len(), 3);
+}
+
+/// Open a terminal running `bash -c <script>` and wait until its program has
+/// been reaped; the terminal, for the predicate's tests below.
+async fn exited_bash(terms: &Arc<Terms>, dir: &std::path::Path, script: &str) -> Arc<Terminal> {
+    let (o, _) = call(
+        terms,
+        "s1",
+        OPEN,
+        json!({"argv": ["bash", "--norc", "--noprofile", "-c", script], "cols": 200}),
+        dir,
+    )
+    .await;
+    let id = id_of(&o);
+    let t = terms.map.lock().unwrap().get(&id).unwrap().clone();
+    until("the shell exited", || t.pty.exited().is_some()).await;
+    t
+}
+
+/// `close` signals the group of a program it found already reaped only while
+/// a holder of the pty is still in that group (theseus-3i6d1, finding F5 of
+/// the file-tools review). A race cannot be forced (the kernel will not hand
+/// out a chosen pgid), so this asserts the predicate, not the race. Without
+/// `-i` there is no job control, so the background sleep stays in the shell's
+/// own group and keeps the pty. The shell ignores SIGHUP first: its exit hangs
+/// up the tty's foreground group, which is that group, and would kill the
+/// sleep before it is counted. Real processes and `until`'s real 10 s bound;
+/// no paused clock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_group_of_an_exited_program_is_ours_only_while_a_pty_holder_is_in_it() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let job = mark(&run_tag(12), AMPERSAND);
+    let t = exited_bash(
+        &terms,
+        d.path(),
+        &format!("trap '' HUP; sleep {job} & exit"),
+    )
+    .await;
+    until("the sleep holds the pty in the shell's group", || {
+        !marked(&job).is_empty() && t.pty.holders_in_group() == 1
+    })
+    .await;
+    assert_eq!(
+        t.pty.holders_in_group(),
+        1,
+        "holders in the program's group"
+    );
+    assert!(
+        t.pty.group_still_ours(),
+        "the group is ours with {} holder in it",
+        t.pty.holders_in_group()
+    );
+    for p in marked(&job) {
+        // SAFETY: the test's own marked sleep.
+        unsafe { libc::kill(p as libc::pid_t, libc::SIGKILL) };
+    }
+}
+
+/// The empty case: nothing is left, so the group id is nobody's to signal,
+/// the branch where the unguarded kill signalled a group it did not own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_group_of_an_exited_program_with_nothing_left_is_not_ours() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let t = exited_bash(&terms, d.path(), "exit 0").await;
+    assert_eq!(
+        t.pty.holders_in_group(),
+        0,
+        "holders in the program's group"
+    );
+    assert!(
+        !t.pty.group_still_ours(),
+        "the group is not ours with {} holders in it",
+        t.pty.holders_in_group()
+    );
 }

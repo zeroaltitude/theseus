@@ -2,7 +2,8 @@
 //! a one-shot wake, parks on it instead of reporting, and the wake's turn
 //! continues it; it reports once, when a turn would wait with no wake left,
 //! and its report's wake (`wake_parent`) fires then, once. A cancel drops its
-//! wakes, and none fires; a repeating wake is refused in a task; a restart
+//! wakes, and none fires; a repeating wake in a task is set only with an
+//! `until` within 30 days (theseus-ehqo7; the owner, 2026-11-09 15:48); a restart
 //! while it is parked still fires the wake once and reports once; and
 //! `wake.list` names the task.
 
@@ -113,7 +114,11 @@ fn calls(text: &str, calls: &[(String, &'static str, Value)]) -> Scripted {
 ///   parks; the wake's turn checks again and reports;
 /// - `CHILD SIX`: asks for six wakes at once (the cap);
 /// - `CHILD REPEAT`: asks for a repeating wake and a one-shot one;
+/// - `CHILD SERIES <json>`: asks for the one wake the JSON is the input of;
 /// - `CHILD PLAIN`: reports at once, with no wake.
+///
+/// A conversation's `REPEAT <json>` asks for the one wake the JSON is the
+/// input of.
 fn script(req: &ProviderRequest) -> Scripted {
     let (first, last) = (first_user(req), last_user(req));
     if first.contains("CHILD") && !first.starts_with("START ") {
@@ -164,6 +169,9 @@ fn script(req: &ProviderRequest) -> Scripted {
                 ],
             );
         }
+        if let Some(rest) = first.split("CHILD SERIES ").nth(1) {
+            return calls("Setting a series.", &[wake_call("t_one", json_of(rest))]);
+        }
         return Scripted::text("Nothing to wait on. Done at once.");
     }
     if answers_a_call(req) {
@@ -180,7 +188,19 @@ fn script(req: &ProviderRequest) -> Scripted {
             )],
         );
     }
+    if let Some(rest) = last.strip_prefix("REPEAT ") {
+        return calls("Setting a series.", &[wake_call("c_one", json_of(rest))]);
+    }
     Scripted::text("The task reported; noted.")
+}
+
+/// The first JSON value of `text`: the input of a wake a script asks for.
+fn json_of(text: &str) -> Value {
+    serde_json::Deserializer::from_str(text)
+        .into_iter::<Value>()
+        .next()
+        .expect("a JSON input")
+        .expect("valid JSON")
 }
 
 fn config(root: &Path, state: &Path) -> Config {
@@ -564,6 +584,171 @@ async fn a_repeating_wake_in_a_task_is_refused_and_a_one_shot_one_is_not() {
         .task_cancel_by(&task.session_id, "discord:operator")
         .await
         .unwrap();
+    l.stop().await;
+}
+
+/// The end of the owner's day, with room left in it for a series to start: a test run in
+/// the day's last minute waits the day out rather than fail by the hour. A task's series
+/// was bound by it (theseus-ehqo7) until the owner ruled for 30 days; it is still inside
+/// that, and is the far edge of what a conversation's wake is not held to.
+async fn day_end(core: &Core) -> u64 {
+    loop {
+        let now = core.kernel.now_ms();
+        let end = core.kernel.day_ceiling().day_of(now).2;
+        if end - now > 60_000 {
+            return end;
+        }
+        tokio::time::sleep(Duration::from_millis(end - now + 1_000)).await;
+    }
+}
+
+/// A time `days` from now, in whole seconds, as the series' `until` the model writes it.
+fn days_out(core: &Core, days: u64) -> u64 {
+    (core.kernel.now_ms() + days * 86_400_000) / 1_000 * 1_000
+}
+
+/// Starts a task with `brief` from a fresh parent, and waits until it has ended.
+async fn ended(core: &Arc<Core>, brief: &str) -> Execution {
+    let parent = parent_session(core);
+    turn(core, &parent, &format!("START {brief}")).await;
+    let task = only_task(core, &parent);
+    until("the task's report", 10, || {
+        exec(core, &task.id).state == ExecState::Complete
+    })
+    .await;
+    exec(core, &task.id)
+}
+
+/// A repeating wake in a task that carries an `until` at the end of the
+/// owner's day is set, as a one-shot one is: the task parks on the series, and
+/// the series ends it.
+#[tokio::test]
+async fn a_repeating_wake_in_a_task_is_set_when_it_ends_by_the_end_of_the_day() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path());
+    let end = day_end(&l.core).await;
+    let until = crate::aws::hands::start::utc(end);
+    let input = json!({"every": "5m", "after": "3s", "until": until, "note": "check the build"});
+    let (_, task) = parked(&l.core, &format!("CHILD SERIES {input}")).await;
+    let rs = results(&l.core, &task);
+    assert_eq!(rs.len(), 1, "{rs:?}");
+    assert!(rs[0].starts_with("Set wake "), "{rs:?}");
+    assert_eq!(task.wakes.len(), 1);
+    let series = task.wakes[0].repeat.as_ref().expect("it repeats");
+    assert_eq!(series.until_ms, Some(end), "no later than the day's end");
+    assert_eq!(rows(&l.core, "wake.set").len(), 1);
+    assert!(reports(&l.core).is_empty(), "parked on the series");
+    l.core
+        .task_cancel_by(&task.session_id, "discord:operator")
+        .await
+        .unwrap();
+    l.stop().await;
+}
+
+/// A repeating wake in a task whose `until` is 29 days out is set (the owner,
+/// 2026-11-09 15:48: "I think a 30 day deadline is reasonable"): the task parks
+/// on the series, and the series ends it.
+#[tokio::test]
+async fn a_repeating_wake_in_a_task_is_set_when_it_ends_in_29_days() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path());
+    let until_ms = days_out(&l.core, 29);
+    let until = crate::aws::hands::start::utc(until_ms);
+    let input = json!({"every": "1d", "after": "3s", "until": until, "note": "check the build"});
+    let (_, task) = parked(&l.core, &format!("CHILD SERIES {input}")).await;
+    let rs = results(&l.core, &task);
+    assert_eq!(rs.len(), 1, "{rs:?}");
+    assert!(rs[0].starts_with("Set wake "), "{rs:?}");
+    assert_eq!(task.wakes.len(), 1);
+    let series = task.wakes[0].repeat.as_ref().expect("it repeats");
+    assert_eq!(series.until_ms, Some(until_ms), "the `until` as given");
+    assert_eq!(rows(&l.core, "wake.set").len(), 1);
+    assert!(reports(&l.core).is_empty(), "parked on the series");
+    l.core
+        .task_cancel_by(&task.session_id, "discord:operator")
+        .await
+        .unwrap();
+    l.stop().await;
+}
+
+/// A repeating wake in a task with no `until` is refused, naming the rule and
+/// the 30 days, and nothing is set: the task has no wake, and reports.
+#[tokio::test]
+async fn a_repeating_wake_in_a_task_with_no_until_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path());
+    let input = json!({"every": "5m", "after": "3s", "note": "check the build"});
+    let task = ended(&l.core, &format!("CHILD SERIES {input}")).await;
+    let rs = results(&l.core, &task);
+    assert_eq!(rs.len(), 1, "{rs:?}");
+    assert!(rs[0].starts_with("Refused: "), "{rs:?}");
+    assert!(
+        rs[0].contains("must carry an `until` no later than"),
+        "{rs:?}"
+    );
+    assert!(rs[0].contains("30 days from now"), "{rs:?}");
+    assert!(rs[0].contains("Set a one-shot wake instead"), "{rs:?}");
+    assert!(task.wakes.is_empty());
+    assert!(rows(&l.core, "wake.set").is_empty(), "nothing was set");
+    assert_eq!(
+        reports(&l.core).len(),
+        1,
+        "it reported, with nothing to wait on"
+    );
+    l.stop().await;
+}
+
+/// A repeating wake in a task whose `until` is 31 days out is refused, naming the
+/// 30 days, the `until` it passed and the one-shot way out.
+#[tokio::test]
+async fn a_repeating_wake_in_a_task_that_outlasts_thirty_days_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path());
+    let until_ms = days_out(&l.core, 31);
+    let until = crate::aws::hands::start::utc(until_ms);
+    let input = json!({"every": "1d", "after": "3s", "until": until, "note": "check the build"});
+    let task = ended(&l.core, &format!("CHILD SERIES {input}")).await;
+    let rs = results(&l.core, &task);
+    assert_eq!(rs.len(), 1, "{rs:?}");
+    assert!(rs[0].starts_with("Refused: "), "{rs:?}");
+    assert!(rs[0].contains("must end by"), "{rs:?}");
+    assert!(rs[0].contains("30 days from now"), "{rs:?}");
+    assert!(
+        rs[0].contains(&crate::wake::local(until_ms).full()),
+        "{rs:?}"
+    );
+    assert!(rs[0].contains("Set a one-shot wake instead"), "{rs:?}");
+    assert!(task.wakes.is_empty());
+    assert!(rows(&l.core, "wake.set").is_empty(), "nothing was set");
+    assert_eq!(reports(&l.core).len(), 1);
+    l.stop().await;
+}
+
+/// A conversation's repeating wake is as it was: it needs no `until`, and one
+/// far past a task's 30 days is set.
+#[tokio::test]
+async fn a_conversations_repeating_wake_is_not_held_to_the_day() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = life(dir.path());
+    let end = day_end(&l.core).await;
+    let parent = parent_session(&l.core);
+    let open = json!({"every": "1d", "note": "daily check"});
+    turn(&l.core, &parent, &format!("REPEAT {open}")).await;
+    let far = end + 30 * 86_400_000;
+    let month = json!({"every": "1d", "until": crate::aws::hands::start::utc(far),
+                       "note": "monthly check"});
+    turn(&l.core, &parent, &format!("REPEAT {month}")).await;
+    let rec: SessionRecord = l.core.store.get_session(&parent).unwrap().unwrap();
+    let e = exec(&l.core, rec.execution_id.as_deref().unwrap());
+    let untils: Vec<_> = e
+        .wakes
+        .iter()
+        .map(|w| w.repeat.as_ref().expect("it repeats").until_ms)
+        .collect();
+    assert_eq!(e.wakes.len(), 2, "{untils:?}");
+    assert!(untils.contains(&None), "{untils:?}");
+    assert!(untils.contains(&Some(far)), "{untils:?}");
+    assert_eq!(rows(&l.core, "wake.set").len(), 2);
     l.stop().await;
 }
 

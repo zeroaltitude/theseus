@@ -79,6 +79,7 @@ pub mod place;
 pub mod prefix;
 pub mod privacy;
 pub mod progress;
+pub mod project;
 pub mod recall;
 pub mod retract;
 pub mod retry;
@@ -508,6 +509,7 @@ facts![
     onto::OntoNamed<'static>,
     ladder::PackModeSet<'static>,
     ladder::PackEventLanded<'static>,
+    ladder::SpendSuppressed<'static>,
     mcp::McpStarted,
     mcp::McpReady,
     mcp::McpExited,
@@ -522,6 +524,7 @@ facts![
     mcp::McpPromptChanged,
     crate::aws::hands::watch::HourAlert<'static>,
     crate::aws::month_warn::MonthWarned<'static>,
+    crate::aws::month_warn::MonthStopped<'static>,
     crate::aws::hands::watch::ReaperFailed<'static>,
     extend::ExtendProposed<'static>,
     extend::ExtendTested<'static>,
@@ -532,6 +535,7 @@ facts![
     flow::FlowLoaded<'static>,
     flow::FlowRetired<'static>,
     flow::FlowRan<'static>,
+    project::ProjectTrust<'static>,
     retry::FailureDismissed<'static>,
     retry::TaskRetried<'static>,
     ops::SessionProfileSet<'static>,

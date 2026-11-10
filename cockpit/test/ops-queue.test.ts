@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { answerOf, arrived, choiceOption, comingUp, grantKey, itemFor, keepCursor, queueOf, step } from '../src/ops/queue.ts'
 import { itemFacts } from '../src/ops/facts.ts'
-import { board, confirm, execution, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
+import { board, confirm, execution, expiring, HOUR, MIN, NOW, record, view } from './ops-fixtures.ts'
 
 const titleOf = (s: string) => `«${s}»`
 
@@ -127,9 +127,23 @@ test('the compact card: glyph and word, verb, owner, age, and the expiry bar', (
   assert.equal(c.glyph, '◆')
   assert.equal(c.kind, 'approval')
   assert.equal(c.age, '20m ago')
-  assert.ok(Math.abs((c.left ?? 0) - 1 / 3) < 1e-9, 'ten of its thirty minutes left')
   assert.ok(c.confirm, 'the full card is ConfirmCard’s')
   assert.equal(itemFacts(q.find((i) => i.kind === 'budget')!, NOW).left, undefined, 'a budget question does not expire')
+  // The bar is a question that expires's: `act_c1` is a held call, so the countdown this test used to read off it is read
+  // off a question that really expires (`expiring`, an `extend.ack`), with the value it had.
+  const e = itemFacts(queueOf({ confirms: [expiring()], views: [] })[0], NOW)
+  assert.ok(Math.abs((e.left ?? 0) - 1 / 3) < 1e-9, 'ten of its thirty minutes left')
+})
+
+test('a held call draws no countdown, though its push carries a time (theseus-lrc3m)', () => {
+  const [held] = queueOf({ confirms: [confirm('act_h')], views: [] })
+  assert.equal(held.confirm?.tool, 'fs.write')
+  assert.equal(held.confirm?.expires_at_ms, NOW + 10 * MIN, 'the push says a time, its first notice’s')
+  assert.equal(held.expiresAt, undefined, 'a held question has no deadline')
+  assert.equal(itemFacts(held, NOW).left, undefined, 'so no bar: live, and in playback where the time is a past row’s')
+  // The same fields on a question that expires keep their deadline.
+  const [asked] = queueOf({ confirms: [expiring()], views: [] })
+  assert.equal(asked.expiresAt, NOW + 10 * MIN)
 })
 
 test('coming up: the next three hours, soonest first, paused ones left out', () => {
@@ -145,6 +159,7 @@ test('each answer is one protocol call, the one every surface makes; an item tha
   assert.deepEqual(answerOf(approval, { verb: 'approve' }), { method: 'work.answer', params: { question_id: 'act_c1', option: 'approve' } })
   assert.deepEqual(answerOf(approval, { verb: 'decline', note: ' not the north wall ' }), { method: 'work.answer', params: { question_id: 'act_c1', option: 'decline', note: 'not the north wall' } })
   assert.equal(answerOf(approval, { verb: 'grant' }), null, 'it offers no grant')
+  assert.equal(answerOf(queueOf({ confirms: [expiring()], views: [] })[0], { verb: 'approve' })?.params.option, 'ack', 'an extension’s notice is acknowledged, not approved')
   const offered = queueOf({ confirms: [confirm('act_g', { grant_offer: { scope: 'session', kind: 'edits', pattern: '/srv/harbour', words: 'edits in the project' } })], views: [] })[0]
   assert.deepEqual(answerOf(offered, { verb: 'grant' })?.params, { question_id: 'act_g', option: 'approve_grant' })
   assert.equal(grantKey(offered.confirm!), 'e', 'edits take e, as the TUI reads it')

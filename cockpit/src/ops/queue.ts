@@ -13,6 +13,7 @@
 // The cursor is an item's key, never an index: a new item slides in where its age puts it and the cursor stays on the
 // item it was on (`keepCursor`).
 import type { ConfirmRequest, ExecutionInfo, TaskRecord, ThreadAsk, ThreadGroup, WorkView } from '@protocol'
+import { deadlineOf } from '../lib/heldquestion.ts'
 
 export type ItemKind = 'approval' | 'budget' | 'change' | 'question' | 'failure' | 'seal' | 'ask'
 
@@ -26,6 +27,7 @@ export interface QueueItem {
   /** Whose it is: the session, task or thread it belongs to. */
   owner: string
   sessionId?: string
+  /** When a question that expires does (epoch ms). None for a held call: its `expires_at_ms` is its first notice's time, not a deadline (`deadlineOf`, theseus-lrc3m). */
   expiresAt?: number
   confirm?: ConfirmRequest
   view?: WorkView
@@ -71,7 +73,7 @@ export function queueOf(q: QueueInput): QueueItem[] {
     out.push({
       key: `q:${c.correlation_id}`, kind, since: c.requested_at_ms, owner: c.task ? `task ${c.task.title ?? c.task.short}` : title(c.session_id),
       title: ask?.question?.prompt ?? c.plain?.what ?? (kind === 'budget' ? 'Reset its spend to $0 and go on' : kind === 'change' ? 'Accept the task change' : `Approve ${c.tool}`),
-      sessionId: c.session_id, expiresAt: c.expires_at_ms || undefined, confirm: c, view: ask,
+      sessionId: c.session_id, expiresAt: deadlineOf(c) || undefined, confirm: c, view: ask,
     })
   }
   for (const t of q.records ?? []) {

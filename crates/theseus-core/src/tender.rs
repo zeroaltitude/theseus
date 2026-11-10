@@ -79,8 +79,10 @@ pub const HEALTHY_RUN: Duration = Duration::from_secs(60);
 /// started at once, each stop, kill, and swap met one starting.
 pub const START_AFTER: Duration = Duration::from_secs(2);
 /// How long `health` waits for the tender's `index.status`. A tender answers
-/// in well under a millisecond, but its status reads the model's state, which
-/// an embedding batch may hold: then health says what it last heard.
+/// in well under a millisecond. Its status reads the model's state, which the
+/// pump holds only to pick its next step, never across a model load or an
+/// embedding batch (`vectors.rs`, `work_once`): a tender that is slower is
+/// slow for another reason, and health says what it last heard.
 pub const HEALTH_DEADLINE: Duration = Duration::from_millis(100);
 /// How long `index.status`, an explicit question, waits.
 pub const STATUS_DEADLINE: Duration = Duration::from_secs(2);
@@ -247,10 +249,10 @@ pub struct IndexTender {
     board: Mutex<Board>,
     /// The tender's status as last read, shared by every caller
     /// (`status_cache`, theseus-id8d).
-    cache: Mutex<status_cache::Cache>,
+    cache: Arc<Mutex<status_cache::Cache>>,
     /// Held by the one caller reading the status now: the others wait for
     /// its answer instead of asking again.
-    asking: tokio::sync::Mutex<()>,
+    asking: Arc<tokio::sync::Mutex<()>>,
     /// How long one read serves every caller: [`STATUS_EVERY`].
     status_every: Duration,
     events: mpsc::UnboundedSender<Event>,
@@ -292,8 +294,8 @@ impl IndexTender {
                 why: None,
                 stopping: false,
             }),
-            cache: Mutex::default(),
-            asking: tokio::sync::Mutex::new(()),
+            cache: Arc::default(),
+            asking: Arc::new(tokio::sync::Mutex::new(())),
             status_every: STATUS_EVERY,
             events,
             inbox: Mutex::new(Some(inbox)),
@@ -776,13 +778,22 @@ pub enum TenderMiss {
 pub(crate) fn down_why(t: &TenderStatus, call: Option<&CallError>) -> String {
     let met = || call.map_or_else(|| "no tender runs".to_string(), |c| c.to_string());
     match t.state.as_str() {
-        "running" => format!("its socket did not answer ({})", met()),
+        "running" => match call {
+            Some(CallError::Answered { code, message }) => refused_words(*code, message),
+            _ => format!("its socket did not answer ({})", met()),
+        },
         "pending" => t
             .why
             .clone()
             .unwrap_or_else(|| "it starts once the daemon serves".into()),
         _ => t.why.clone().unwrap_or_else(met),
     }
+}
+
+/// A tender that answered with an error: its socket answered, so no "did not
+/// answer" (`down_why` and the status cache's `old_words` share it).
+pub(crate) fn refused_words(code: i64, message: &str) -> String {
+    format!("its status read was refused: {message} ({code})")
 }
 
 /// Why a call to the tender failed.

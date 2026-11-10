@@ -19,6 +19,7 @@ const HOUR: u64 = 3_600_000;
 fn view(id: &str, kind: WorkKind, title: &str, state: WorkState, level: Level) -> WorkView {
     WorkView {
         moved_to: None,
+        forum_url: None,
         id: id.into(),
         kind,
         position: 10,
