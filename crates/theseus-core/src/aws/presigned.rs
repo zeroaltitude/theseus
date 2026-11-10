@@ -64,14 +64,16 @@
 //! [`KEYED_BY`] and [`SCHEMES`] are hand-kept lists: a spelling missing from
 //! them is a presigned URL the model reads. [`SIGNATURE`] and [`KEYED_BY`] are
 //! judged against a walk, not against themselves (`crates/complete.rs`);
-//! [`SCHEMES`] is private, hand-kept and compared by nothing, so a scheme
-//! missing from it is not caught by any test:
 //! `tests_presigned::the_presigned_vocabulary_holds_every_parameter_the_real_signer_writes`
 //! reads the URL the repository's own SigV4 signer writes and fails on any
 //! parameter the lists do not hold. That reaches the SigV4 spelling only. The
 //! older query signing (`Signature`, `AWSAccessKeyId`) and CloudFront's
 //! (`Key-Pair-Id`) are AWS's, no walk here enumerates them, and they stay by
-//! hand. The pass covers `out.next` as well as `out.body` ([`hold_next`], the same
+//! hand. [`SCHEMES`] has no walk at all: `tests_presigned::every_scheme_signature_and_key_spelling_is_wired_and_the_boundary_holds`
+//! checks that every entry of the three lists is well-formed and works in
+//! [`is_presigned`] (so `SCHEMES` is no longer compared by nothing) and that a
+//! scheme outside it is refused, but it cannot find a scheme that is absent.
+//! The pass covers `out.next` as well as `out.body` ([`hold_next`], the same
 //! walk and the same predicate): a continuation is an opaque cursor or an id in
 //! every paginator of the catalog
 //! (`tests_presigned::no_paginator_token_names_a_credential_or_a_url`), so
@@ -103,7 +105,7 @@ pub(super) const KEYED_BY: &[&str] = &[
 ];
 
 /// The schemes a presigned URL arrives under.
-const SCHEMES: &[&str] = &["https://", "http://", "wss://", "ws://"];
+pub(super) const SCHEMES: &[&str] = &["https://", "http://", "wss://", "ws://"];
 
 /// `s` is an absolute URL whose query carries signature material.
 ///

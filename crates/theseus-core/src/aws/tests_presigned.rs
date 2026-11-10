@@ -620,6 +620,85 @@ fn the_presigned_vocabulary_holds_every_parameter_the_real_signer_writes() {
     crate::complete::check(&spec, listed, found);
 }
 
+/// The three hand-kept lists have only one walk between them (the signer's
+/// SigV4 parameters, above), so this is the strongest check the rest allows:
+/// each list is well-formed, and every spelling in every list is wired into
+/// `is_presigned`, so a constant added to one list and not read is caught.
+/// The cross-product also gives `SCHEMES`, which no walk reaches, its only
+/// guard; it cannot find a scheme that is absent, only one that is broken.
+/// The boundary is pinned both ways: a scheme outside the list is not
+/// matched, and a signature or a key without the other is not matched.
+#[test]
+fn every_scheme_signature_and_key_spelling_is_wired_and_the_boundary_holds() {
+    use super::presigned::{is_presigned, KEYED_BY, SCHEMES, SIGNATURE};
+    for (what, list) in [
+        ("SIGNATURE", SIGNATURE),
+        ("KEYED_BY", KEYED_BY),
+        ("SCHEMES", SCHEMES),
+    ] {
+        let mut seen = HashSet::new();
+        for e in list {
+            assert!(
+                !e.is_empty() && *e == e.to_ascii_lowercase() && !e.contains(char::is_whitespace),
+                "{what} holds {e:?}: is_presigned lower-cases the name it reads and compares \
+                 against the entry, so an entry must be non-empty, lower-case, with no blank"
+            );
+            assert!(seen.insert(*e), "{what} holds {e:?} twice");
+        }
+    }
+    for e in SIGNATURE {
+        assert!(
+            !KEYED_BY.contains(e),
+            "{e:?} is in both SIGNATURE and KEYED_BY"
+        );
+    }
+    for s in SCHEMES {
+        assert!(
+            s.ends_with("://"),
+            "SCHEMES holds {s:?}: it must end in ://"
+        );
+    }
+    let mut matched = 0;
+    for scheme in SCHEMES {
+        for sig in SIGNATURE {
+            for key in KEYED_BY {
+                for case in [scheme.to_string(), scheme.to_ascii_uppercase()] {
+                    let url = format!("{case}host.example.test/p?a=1&{key}=k0001&{sig}=s0002");
+                    assert!(is_presigned(&url), "not matched: {url}");
+                    matched += 1;
+                }
+                // One without the other signs nothing, or names no key.
+                let alone = format!("{scheme}host.example.test/p?{sig}=s0002");
+                let keyless = format!("{scheme}host.example.test/p?{key}=k0001");
+                assert!(
+                    !is_presigned(&alone),
+                    "matched on a signature alone: {alone}"
+                );
+                assert!(!is_presigned(&keyless), "matched on a key alone: {keyless}");
+            }
+        }
+    }
+    // The positive count: 4 schemes x 2 signatures x 4 keys x 2 cases at the
+    // time of writing, so an emptied list cannot pass as "nothing unmatched".
+    assert_eq!(
+        matched,
+        SCHEMES.len() * SIGNATURE.len() * KEYED_BY.len() * 2,
+        "the cross-product ran short"
+    );
+    assert!(
+        matched >= 64,
+        "the vocabulary shrank: {matched} combinations"
+    );
+    let (sig, key) = (SIGNATURE[0], KEYED_BY[0]);
+    for outside in ["ftp://", "file://", "s3://", "gopher://", "//", ""] {
+        let url = format!("{outside}host.example.test/p?{key}=k0001&{sig}=s0002");
+        assert!(
+            !is_presigned(&url),
+            "a scheme outside SCHEMES is matched: {url}; if it should be, add it to SCHEMES"
+        );
+    }
+}
+
 /// **What can reach `out.next`** (theseus-3i6d1): the continuation `call_text`
 /// prints beside the body. Measured over the embedded catalog:
 /// every paginator's output token. None is a signature, a key, or a URL: they
