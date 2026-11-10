@@ -102,3 +102,24 @@ async fn a_noted_in_the_middle_and_a_plain_answer_are_untouched() {
     assert_eq!(answer(&r, &sid), "The disk is at 41%.");
     assert!(rows_of(&r.core, "turn.standing_ack").is_empty());
 }
+
+/// The step's pre-filter and `check` read one list (review F2): a literal in
+/// the step would reject a marker added to `MARKERS` before `check` ran, with
+/// every test of `check` still green.
+#[test]
+fn the_step_reads_the_marker_list_and_not_a_copy_of_it() {
+    use crate::standing_ack::{opens_with_marker, MARKERS};
+    assert!(MARKERS.len() >= 2);
+    for m in MARKERS {
+        assert!(opens_with_marker(&format!("  {m}: x")), "{m}");
+    }
+    assert!(!opens_with_marker("The disk is at 41%."));
+    let step = include_str!("../turn/standing_step.rs");
+    for m in MARKERS {
+        assert!(
+            !step.contains(&format!("\"{m}\"")),
+            "turn/standing_step.rs hard-codes the marker {m}: iterate MARKERS"
+        );
+    }
+    assert!(step.contains("opens_with_marker"));
+}

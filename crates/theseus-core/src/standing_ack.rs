@@ -36,7 +36,14 @@ pub const MIN_SHARED: usize = 3;
 pub const RESTATES: usize = 400;
 
 /// The openings the check knows: the two the owner saw, and no others.
-const MARKERS: [&str; 2] = ["Noted", "Understood"];
+pub(crate) const MARKERS: [&str; 2] = ["Noted", "Understood"];
+
+/// The cheap pre-filter in front of [`check`]: the answer opens with one of
+/// [`MARKERS`]. The step iterates the one list through this, so a marker added
+/// to it is never rejected before `check` runs.
+pub(crate) fn opens_with_marker(answer: &str) -> bool {
+    MARKERS.iter().any(|m| answer.trim_start().starts_with(m))
+}
 
 /// Words too common to show a restatement.
 const STOP: &[&str] = &[
