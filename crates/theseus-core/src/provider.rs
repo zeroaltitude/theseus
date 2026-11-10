@@ -1438,6 +1438,13 @@ fn unparsed_inputs(blocks: Vec<Value>) -> (Vec<Value>, BTreeMap<String, String>)
 
 /// A provider for tests: scripted responses consumed in order, then `reply`
 /// forever; or `fail_with` on every call. Every request is recorded.
+///
+/// The queue is positional and shared by every call on one instance, and so by
+/// every session a rig drives: the request is never consulted, so whichever
+/// call comes first takes the next answer, whoever it was scripted for. A rig
+/// that drives more than one call, or more than one session, scripts by shape
+/// (`when_tool`: the call that carries the tool gets the answer) and not by
+/// order. An empty queue answers a plain text reply built from `reply`.
 pub struct FakeProvider {
     pub reply: String,
     pub chunk: usize,
