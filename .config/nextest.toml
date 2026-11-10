@@ -43,9 +43,10 @@ test-group = "timing"
 # The nightly flake hunt (theseus-4vsrz, B7), a run of the whole suite with `--profile flakehunt` at 03:00 on the ARM
 # reduced slot. It is the default profile (thread count, timeouts, JUnit and the timing group are inherited) with two
 # settings added: retries = 2 gives every failing test two more tries, and flaky-result = "fail" counts a test that
-# passed on a retry as FAILED, so the run exits 100 and target/nextest/flakehunt/junit.xml holds a
-# `<failure type="flaky failure">` for it with the first attempt's panic in a `flakyFailure` element. Every flake
-# becomes a row with its attempts recorded, and a flake that exhausts its retries is a finding, not a pass. The
+# passed on a retry as FAILED, so the run exits 100 and every attempt is recorded. How the JUnit file shows such a test
+# is decided by a separate key, profile.flakehunt.junit.flaky-fail-status, which this profile does not set, so this
+# file does not say which element it gets. Every flake becomes a row with its attempts recorded, and a flake that
+# exhausts its retries is a finding, not a pass. The
 # gate never reads this profile: scripts/gate.sh runs the default one, whose retries stay named tests only.
 # flaky-result is a key of nextest 0.9.146, which both hosts run; a nextest that does not know it prints
 # "ignoring unknown configuration key" and exits 0 on a flake, so check that warning when the version changes.
