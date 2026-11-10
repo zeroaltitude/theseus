@@ -482,6 +482,23 @@ class Erosions(Case):
         code, out = self.findings("--head", "HEAD")
         self.assertEqual(code, 0, "a named head is judged as committed: " + out)
 
+    GONE = sub(LIB,
+        "    #[test]\n    fn adding_two_numbers_sums_them() {\n"
+        "        let n = add(2, 3);\n"
+        "        assert_eq!(n, 5);\n"
+        '        assert!(n > 4, "a sum is no smaller than a part");\n'
+        "    }\n\n", "")
+    ELSEWHERE = ("#[test]\nfn a_mute_reads_the_pack() {\n"
+                 "    let n = add(2, 3);\n"
+                 "    assert_eq!(n, 5);\n}\n")
+
+    def test_a_cross_file_similarity_pairing_is_not_reattributed(self):
+        # theseus-4vsrz: the deleted test and the unrelated new one are paired by similarity only, so the
+        # finding must stay test-removed in the file that HELD the test. Otherwise a batch moves the rule to
+        # assert-removed and the file to the paired one, and a trailer naming the real file stops covering it.
+        self.assertCaught("test-removed", "crates/demo/src/lib.rs",
+                          {"crates/demo/src/lib.rs": self.GONE, "crates/demo/tests/mute.rs": self.ELSEWHERE})
+
 
 class NonFindings(Case):
     def test_a_test_moved_to_another_file(self):
