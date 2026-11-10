@@ -38,6 +38,25 @@ fn stubborn(i: usize) -> Value {
     })
 }
 
+/// A job that reports and leaves something running (theseus-7kha): its
+/// command double-forks a `setsid` grandchild, writes its pid, and exits at
+/// once, so the command completes and its result settles while the
+/// grandchild runs on. The wrapper is a child subreaper (theseus-6qy), so
+/// the orphan stays under it and the wrapper lingers for it, marked in the
+/// spool. This is what `proc.run` leaves behind. The grandchild ends by
+/// itself within 30 s, and as soon as the rig's directory goes, so a failing
+/// test leaves nothing running.
+fn leftover() -> Value {
+    json!({
+        "argv": ["bash", "-c",
+            "( setsid bash -c 'echo $$ > leftover.pid; n=0; \
+               while [ $n -lt 600 ] && [ -d \"$1\" ]; do sleep 0.05; n=$((n+1)); done' \
+               bash \"$PWD\" > /dev/null 2>&1 < /dev/null & ); \
+             echo left-something-running"],
+        "timeout_secs": 60,
+    })
+}
+
 struct Rig {
     dir: tempfile::TempDir,
     _model: FakeModel,
@@ -54,6 +73,8 @@ impl Rig {
         let model = FakeModel::start(|prompt| {
             if prompt.contains("Start the three builds") {
                 (0..3).map(|i| ("proc_run", stubborn(i))).collect()
+            } else if prompt.contains("Leave something running") {
+                vec![("proc_run", leftover())]
             } else {
                 vec![]
             }
@@ -288,4 +309,58 @@ fn a_stop_of_three_jobs_that_ignore_sigterm_takes_one_grace_and_holds_no_worker(
         assert_eq!(a["state"], "cancelled", "{a}");
         assert_eq!(a["cancel"], "termination_verified", "{a}");
     }
+}
+
+/// theseus-7kha: a `/stop` ends what `proc.run` left running, not only what a
+/// terminal left. The job's command reports and settles; the grandchild it
+/// double-forked runs on under the wrapper, which lingers for it and marks
+/// itself in the spool. Before this row a stop reached neither: the job is
+/// not in `to_kill` (its action settled), and `stop_backends` looks for a
+/// wrapper with `spool.read_pid`, which a lingering wrapper has removed at
+/// its report (`Spool::wrapper_lives`), so the loop fell through every arm
+/// and did nothing. After it the stop asks the lingering wrapper to stop its
+/// whole tree, and says what it ended.
+#[test]
+fn a_stop_ends_what_proc_run_left_running() {
+    let r = Rig::new();
+    let _daemon = r.spawn();
+    let res = r
+        .call(
+            "turn.submit",
+            json!({"input": "Leave something running", "author": "test", "attachments": []}),
+        )
+        .unwrap();
+    let eid = res["execution_id"].as_str().unwrap().to_string();
+    // The command has reported and its wrapper lingers for the grandchild.
+    let left = r.wait("the leftover and its lingering wrapper", || {
+        let pid = r.pid("leftover.pid")?;
+        let marked = std::fs::read_dir(r.path("state/spool/lingering"))
+            .ok()?
+            .flatten()
+            .count();
+        (marked > 0 && alive(pid)).then_some(pid)
+    });
+    assert!(alive(left), "the leftover was not running before the stop");
+
+    let answer = r
+        .call(
+            "execution.stop",
+            json!({"execution_id": eid, "author": "test"}),
+        )
+        .unwrap();
+
+    // Part 1: it is ended.
+    r.wait("the leftover to be gone", || (!alive(left)).then_some(()));
+    // Part 3: the stop says so.
+    let ended = answer["left_ended"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        ended.len(),
+        1,
+        "the stop did not say what it ended: {answer}\n{}",
+        r.log_tail()
+    );
+    assert!(
+        answer["left_kept"].as_array().is_none_or(|k| k.is_empty()),
+        "nothing was approved, so nothing should be kept: {answer}"
+    );
 }
