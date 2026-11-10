@@ -451,14 +451,17 @@ fn an_approved_detached_job_survives_a_stop_and_the_stop_says_it_kept_it() {
         json!({"correlation_id": corr, "approve": true}),
     )
     .unwrap();
-    let left = r.wait("the approved job's leftover and its lingering wrapper", || {
-        let pid = r.pid("leftover.pid")?;
-        let marked = std::fs::read_dir(r.path("state/spool/lingering"))
-            .ok()?
-            .flatten()
-            .count();
-        (marked > 0 && alive(pid)).then_some(pid)
-    });
+    let left = r.wait(
+        "the approved job's leftover and its lingering wrapper",
+        || {
+            let pid = r.pid("leftover.pid")?;
+            let marked = std::fs::read_dir(r.path("state/spool/lingering"))
+                .ok()?
+                .flatten()
+                .count();
+            (marked > 0 && alive(pid)).then_some(pid)
+        },
+    );
 
     let answer = r
         .call(
@@ -478,13 +481,13 @@ fn an_approved_detached_job_survives_a_stop_and_the_stop_says_it_kept_it() {
     let kept = answer["left_kept"].as_array().cloned().unwrap_or_default();
     assert_eq!(kept.len(), 1, "the stop did not say what it kept: {answer}");
     assert!(
-        kept[0]["approved_by"].as_str().is_some_and(|w| !w.is_empty()),
+        kept[0]["approved_by"]
+            .as_str()
+            .is_some_and(|w| !w.is_empty()),
         "the kept job does not name who approved it: {answer}"
     );
     assert!(
-        answer["left_ended"]
-            .as_array()
-            .is_none_or(|e| e.is_empty()),
+        answer["left_ended"].as_array().is_none_or(|e| e.is_empty()),
         "it ended the one job it should have kept: {answer}"
     );
     // Its action was kept with it: not told to stop, and no cancel on it.
