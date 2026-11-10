@@ -6,8 +6,14 @@
 //! `OnPath`, `RoleSwitch`) have no production constructor, so the four rules
 //! they feed (`spend_ratio`, `operator_stop_within_nudge`, `on_path_p95`,
 //! `switches_per_exchange`) are declared and can never fire. This test holds
-//! that list, positively: a pack that gains or loses such a declaration, or a
-//! producer that gets wired, moves it and is seen rather than silent.
+//! that list, positively: a pack that gains or loses a `[[rollback]]`
+//! declaration moves it and is seen rather than silent.
+//!
+//! What it does NOT see is production code. It reads only `embedded()` and the
+//! hand-written `FEEDABLE` below, so `FEEDABLE` is hand-maintained: wiring a
+//! producer for one of the four kinds requires a hand edit here (`FEEDABLE` and
+//! `EXPECTED_DEAD`), and nothing enforces it. Until that edit, a rule that now
+//! fires is still held as dead.
 //! No clock is read.
 
 use crate::pack::embedded;
