@@ -351,6 +351,19 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   ```
 
   `THESEUS_GATE_DOOR` is the door's word to the copies it starts (`judge`, `own`), not an option.
+  **A caller that names the keel's base owes the door both halves itself.** "Does this branch change `gate.sh`?"
+  is asked through the keel's base (`keel_gate_changed` diffs `scripts/gate.sh` against `keel_range_base`), so a
+  caller that sets `THESEUS_KEEL_BASE=HEAD` leaves that question answered "no" in every clean checkout: main's copy
+  judges the tree, the branch's own copy never runs a phase, and the gate ends `gate: ok (main's gate judged this
+  tree)` for a branch that rewrote the script under test. A fleet box does name that base -- it holds no keyring, so
+  it cannot verify an owner's `Keel:` ack and would refuse a legitimate one (`~/reports/theseus-fleet/host/run.sh`,
+  the gate kind) -- and so its runner asks the door's question where no keel base can reach it, comparing
+  `git hash-object scripts/gate.sh` with `origin/main:scripts/gate.sh` exactly as `gate_tests` does, then running
+  `THESEUS_GATE_DOOR=judge` (main's copy, from `/tmp`, `THESEUS_GATE_ROOT` naming the lane) and
+  `THESEUS_GATE_DOOR=own` (the tree's own copy) in turn, and naming the blob of the script that ran in the one-line
+  summary of every gate. A caller that names a base and leaves the door to the predicate proves nothing about a
+  change to `gate.sh` (found on a fleet box, 2026-11-10;
+  `~/reports/theseus-105-kickoff/logistics/fleet-gate-door-fix.md`).
 - **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
   at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
   lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. Only a
