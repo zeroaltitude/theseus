@@ -29,12 +29,10 @@
 //!   scoped with the recall's other rows) carrying the `recall_id` of the
 //!   `recall.ran` row that admitted the notes and how many it admitted, so a
 //!   reader can tell "withheld" from "nothing matched" (theseus-ectzg).
-//!   Known limits of the withholding:
-//!   (i) the pack's budget drops are still folded into the compile's report
-//!   when the node is then withheld: `recall_dropped` clears the rides, the
-//!   items and the count but not `Recalled::pending` or `drops`, which
-//!   `recall_compiled` extends `compiled.budget.dropped` with;
-//!   (ii) an assembled section (`Recalled::assembled`) can name a `recall_id`
+//!   A compile that withheld the node reports no budget drops of its pack
+//!   (`recall_compiled`), since nothing of the pack was in front of the model.
+//!   Known limit of the withholding:
+//!   (iii) an assembled section (`Recalled::assembled`) can name a `recall_id`
 //!   whose node is now never written; the render and the situation check
 //!   leave it out (theseus-783a, `compiler/situation.rs`).
 
@@ -742,6 +740,12 @@ impl TurnRunner {
             return;
         };
         compiled.compilation.includes.retain(|id| *id != n.id);
+        // A request that withheld the node carried nothing of the pack's, so
+        // it dropped nothing for budget. The drops stay held: a later compile
+        // of the loop (a route's switch) may carry the node (theseus-ectzg).
+        if t.recall.withheld {
+            return;
+        }
         // While routing decides, this compile may be discarded for a switch's:
         // the drops stay for the compile the call uses (theseus-3urn), and
         // `keep_first` lets them go once it is this one.

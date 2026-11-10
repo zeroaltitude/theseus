@@ -487,14 +487,90 @@ async fn a_withheld_recall_writes_a_row_that_joins_the_admission_it_dropped() {
         c.runner.memory.set_ask(index_of(c, vec![a.clone()]));
         turn(c, &b, "Where does the grey heron nest?").await;
         let m = recalls(c, &b).pop().expect("a recall.ran row");
-        assert_eq!(admitted(&m).len(), 1, "recall admitted the note ({restricted})");
+        assert_eq!(
+            admitted(&m).len(),
+            1,
+            "recall admitted the note ({restricted})"
+        );
         let withheld = rows(c, &b, "recall.withheld");
         if restricted {
-            assert_eq!(withheld.len(), 1, "one withholding row, joined to the admission");
+            assert_eq!(
+                withheld.len(),
+                1,
+                "one withholding row, joined to the admission"
+            );
             assert_eq!(withheld[0].data["recall_id"], m.recall_id.as_str());
-            assert_eq!(withheld[0].data["admitted"], 1, "the notes the request did not carry");
+            assert_eq!(
+                withheld[0].data["admitted"], 1,
+                "the notes the request did not carry"
+            );
         } else {
-            assert!(withheld.is_empty(), "a request that carried it withheld nothing");
+            assert!(
+                withheld.is_empty(),
+                "a request that carried it withheld nothing"
+            );
+        }
+    }
+}
+
+/// A compile that withheld the recall node reports none of the pack's budget
+/// drops (theseus-ectzg, fpm2 F1 limit (i)).
+///
+/// Recall's pack has room for one of two notes, so it drops the other for its
+/// budget and its manifest says so. A request that carries the node folds
+/// that drop into the compile's report; one bound for a model of restricted
+/// origin carries nothing of the pack's, so its report must not name a drop
+/// it did not make. Both halves assert the pack's own drop, so an empty pack
+/// cannot pass; the unrestricted half asserts the report names it.
+#[tokio::test]
+async fn a_withheld_nodes_compile_reports_none_of_the_packs_budget_drops() {
+    for restricted in [false, true] {
+        let r = canary_with(|c| {
+            c.memory.recall_budget_tokens = 30;
+            if restricted {
+                c.serve_default_from_cn();
+            }
+        });
+        let c = &r.core;
+        let a = session(
+            c,
+            None,
+            &[
+                "the heron nests by the weir in spring, and the reeds there are cut back each autumn",
+                "the heron fishes at dawn by the mill, where the race runs shallow over the stones",
+            ],
+        );
+        let b = session(c, None, &[]);
+        c.runner.memory.set_ask(index_of(c, vec![a]));
+        turn(c, &b, "Where does the heron nest and fish?").await;
+        let m = recalls(c, &b).pop().expect("a recall.ran row");
+        assert_eq!(
+            admitted(&m).len(),
+            1,
+            "the pack admitted one note ({restricted})"
+        );
+        let packs = m.budget.as_ref().map_or(0, |b| b.dropped.len());
+        assert_eq!(
+            packs, 1,
+            "and dropped the other for its budget ({restricted})"
+        );
+        let all: Vec<(u64, crate::ledger::LedgerRow)> = c.store.ledger_tail(500).unwrap();
+        let reported: Vec<String> = all
+            .into_iter()
+            .filter(|(_, row)| row.kind == "context.compiled")
+            .filter_map(|(_, row)| {
+                let id = row.data["compilation_id"].as_str()?.to_string();
+                c.store.get_compilation(&id).ok().flatten()
+            })
+            .flat_map(|k| k.budget.map(|b| b.dropped).unwrap_or_default())
+            .map(|d| d.tier)
+            .collect();
+        match restricted {
+            true => assert!(
+                reported.is_empty(),
+                "no drop the request never carried: {reported:?}"
+            ),
+            false => assert_eq!(reported, ["recall"], "the carried node's drop is reported"),
         }
     }
 }
