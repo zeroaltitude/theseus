@@ -37,6 +37,8 @@ mod tests_binary;
 #[cfg(test)]
 mod tests_crlf;
 #[cfg(test)]
+mod tests_fs;
+#[cfg(test)]
 mod tests_hidden;
 #[cfg(test)]
 mod tests_narrow_read;
