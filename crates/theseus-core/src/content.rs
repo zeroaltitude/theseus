@@ -1426,7 +1426,10 @@ mod tests {
             (
                 "turn/persona_engage.rs",
                 "neither",
-                "states a fact (AGENTS.md)",
+                "states a fact: `engage::Engaged::line`, \"<name> answers this turn\", in the \
+                 third person, with no instruction and nothing to acknowledge \
+                 (`engage::tests::the_engaged_personas_line_states_a_fact_and_asks_nothing`; \
+                 AGENTS.md's Standing paragraph records the judgement)",
             ),
             (
                 "project/slice.rs",

@@ -489,15 +489,33 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
         rec.input_chars = input.chars().count();
         let mut c = Client::connect(plan.socket(arm)?)?;
         let label = format!("exam {} {} r{run}", item.id, arm.as_str());
-        let info = c.call(
-            "session.open",
-            json!({"kind": "conversation", "label": label}),
-            RPC,
-        )?;
-        let s = info["session_id"]
-            .as_str()
-            .context("session.open gave no id")?
-            .to_string();
+        // A cell opens a fresh session, unless the item names a past session
+        // of its own to continue (`Item::resume`): this daemon has never
+        // compiled that one, so its first turn rebuilds the context from the
+        // transcript, which is the cold resume the standing-acknowledgement
+        // needs in order to show itself at all (theseus-ectzg).
+        let s = match item.resume.as_deref() {
+            None => {
+                let info = c.call(
+                    "session.open",
+                    json!({"kind": "conversation", "label": label}),
+                    RPC,
+                )?;
+                info["session_id"]
+                    .as_str()
+                    .context("session.open gave no id")?
+                    .to_string()
+            }
+            Some(key) => m
+                .sessions
+                .iter()
+                .find(|e| e.item == item.id && e.key == key)
+                .with_context(|| {
+                    format!("item {}: the manifest has no past session {key}", item.id)
+                })?
+                .session_id
+                .clone(),
+        };
         sid = Some(s.clone());
         let deadline = t0 + plan.timeout;
         let left = || deadline.saturating_duration_since(Instant::now());
@@ -580,7 +598,21 @@ pub fn run_cell(plan: &Plan, exam: &Exam, m: &Manifest, item: &Item, arm: Arm, r
             let mut texts = Vec::new();
             let mut models = BTreeSet::new();
             let mut calls = Vec::new();
-            for n in &nodes {
+            // A resumed cell's answer is the turns IT ran, not the session's
+            // whole history: the past's own assistant nodes are already
+            // there, and a check anchored at the start of the reply would
+            // read the first of those instead of this cell's answer. The
+            // manifest knows how many nodes the session was written with.
+            let written = item
+                .resume
+                .as_deref()
+                .and_then(|key| {
+                    m.sessions
+                        .iter()
+                        .find(|e| e.item == item.id && e.key == key)
+                })
+                .map_or(0, |e| e.nodes);
+            for n in nodes.iter().skip(written) {
                 match n["kind"].as_str() {
                     Some("assistant_message") => {
                         if let Some(t) = n["text"].as_str().filter(|t| !t.trim().is_empty()) {
