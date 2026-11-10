@@ -947,7 +947,15 @@ line_pressure() {
     echo "gate: $line_pressure_said"
     return 0
   fi
-  printf '%s\n' "$out" | head -n "$line_pressure_show"
+  # `sed -n 1,Np`, never `head -n N`: this output is longer than the cap BY DESIGN, and `head` closes the pipe the
+  # moment it has its N lines, so `printf` takes EPIPE, the pipeline fails under `pipefail`, and `set -e` aborts this
+  # function before its own `return 0` below — failing a gate that this phase is never meant to decide (the 13:30
+  # departure of 2026-11-10: `printf: write error: Broken pipe`, then `gate: FAILED in line pressure`). Whether
+  # `printf` is signalled at all depends on whether it finishes writing before `head` exits, so it is host- and
+  # size-dependent: 11 KB fits a Linux pipe's 64 KiB buffer and so never failed on the x86 fleet, and it did fail on
+  # the ARM host. `sed` reads its input to EOF, so the writer is never signalled and there is nothing to suppress.
+  # Same hazard as the `git cat-file … | grep -q` note above.
+  printf '%s\n' "$out" | sed -n "1,${line_pressure_show}p"
   local listed
   listed=$(printf '%s\n' "$out" | grep -c '/[0-9]* *\(OVER\)\?$' || true)
   if [ "$listed" -gt "$line_pressure_show" ]; then
