@@ -604,6 +604,27 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`not`); an undo is `standing.revoke`, which labels the judgment `wrong capture` (`capture_undone`; three in a day roll
   the pack back, and a label finds its pack in the `standing.captured` row while the sink has not written the judgment).
   `[standing] capture = false` stops all of it. Tests: `tests_capture.rs`, `capture::tests`.
+- **A yes said in words** (theseus-3i6d1; `rpc/answer_in_words.rs`; no store or pack change): a question waiting for
+  the owner is answered by its card's button, by `work.answer`, or by the owner saying yes in the conversation it was
+  asked in. Read at `turn.submit` **before the turn runs** (`rpc/methods.rs`, beside `expect_correction`,
+  `seal_by_word` and `expect_capture`) and taken through `Core::confirm_action`, the one place an answer becomes a
+  decision, so the place rule, the peer rule and `approval.refused` judge a yes in words exactly as a typed one and
+  `said_yes` comes out true with no change to `toolrun.rs`: nothing about what an answer *means* is widened, only
+  which inputs reach that call. The scope is the **place, not the session** — a yes reads every question waiting in
+  this session or in one that answers at this one's place, never another conversation's — and the surfaces are
+  `capture::owner_alone`'s (the CLI, the web UI, an owner's DM) and **not** a guild channel bound private, which the
+  typed path counts: a typed answer names its question and loose words do not, so in a room others write in a
+  stranger's yes must not become the owner's. **Ambiguity is never guessed**, the guard the owner asked for after
+  Theseus abandoned the wrong task on a bare *"Yes, you may abandon it"*: a yes resolves a question only when there
+  is exactly one it can mean; with more than one it resolves **nothing** and a notice where approvals go names each
+  and asks which. A bare yes with nothing waiting says nothing at all (the owner says yes in conversation often); one
+  naming a question that has gone is told it has gone; a question with answers to choose from is never taken by a
+  bare yes. **The residue, open on B6:** the turn the yes started still runs, with the word in its input and nothing
+  *in that turn* telling the model not to act on it — the mechanism cannot guess, but the model is not told. The
+  carrier would be a harness fact in the **turn about to start**, and a note written into a session mid-turn is
+  refused (`rpc/thread_seal.rs`'s `write_harness_note`, "a turn is running in {sid}"), which is why the notice goes
+  to the operator's own surface instead; closing it is a change to the turn's inbound path and its own piece of work.
+  Tests: `tests_answer_in_words.rs`, `rpc::answer_in_words::tests`.
 - **The task offer** (theseus-bh3t.5; no store change: a field on the reply's outbox post): `classify.v3` is `classify.v2` word for
   word and one question, `offer_task` ("work to be done later, in more than one step, that the person has not asked to start
   now"), which decides nothing and rides the one inbound request. When it answers yes at the act bar in a judgment that acts

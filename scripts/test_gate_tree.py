@@ -138,7 +138,10 @@ COMMITTED = {
     "scripts/recall-tests.sh": PASSES,
     "scripts/size-step.sh": PASSES,
 }
-REAL = ("gate.sh", "keel-guard.py")
+# The real scripts the gate runs here. line-pressure.py is real rather than a stand-in because the whole point of
+# its phase is that it cannot fail a gate, and the interesting case is the one this repository IS: a tree with
+# almost no Rust in it, where the script finds no function and exits 2. A stand-in that passes would prove nothing.
+REAL = ("gate.sh", "keel-guard.py", "line-pressure.py")
 
 
 def run(cmd, cwd, env=None, timeout=300):
@@ -585,6 +588,31 @@ class GateTree(unittest.TestCase):
         self.assertLess(order.index("fmt"), floor, "after fmt, where the guard's own tests stop a throwaway repository")
         for compiles in ("features", "clippy", "test build"):
             self.assertLess(floor, order.index(compiles), f"before `{compiles}`: {order}")
+
+    # ---- the warning phases (theseus-4vsrz): they report, and they never decide
+
+    def test_the_line_pressure_phase_reports_and_cannot_fail_the_gate(self):
+        """The owner's ruling, 2026-11-10: line-pressure.py is wired as a warning, so its exit status never
+        decides the gate's. This tree has one .rs file holding a `const`, so the real script finds NO function
+        and exits 2 — the exact case the ruling has to survive, and the gate still goes green."""
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(self.ran_the_suite(calls), f"the gate ran on past the phase: {calls}")
+        self.assertIn("line pressure", out, "the phase said something")
+        self.assertNotIn("FAILED in line pressure", out)
+        # The script really did run and really did exit 2 here; the phase turned that into a line, not a verdict.
+        p = run(["python3", "scripts/line-pressure.py"], self.root, self.git_env)
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+
+    def test_the_warning_phases_run_between_the_file_ceiling_and_clippys_function_ceiling(self):
+        """`shape` holds the file ceiling and `clippy` the function one; the warning about approaching the
+        latter is only useful above the failure it predicts, so it runs before clippy and after shape."""
+        names = re.findall(r'\nphase\s+(?:"([^"]+)"|(\S+))', (HERE / "gate.sh").read_text())
+        order = [a or b for a, b in names]
+        for warn in ("line pressure", "script tests"):
+            self.assertEqual(order.count(warn), 1, order)
+            self.assertLess(order.index("shape"), order.index(warn), f"`{warn}` after `shape`: {order}")
+            self.assertLess(order.index(warn), order.index("clippy"), f"`{warn}` before `clippy`: {order}")
 
     def test_a_df_that_cannot_be_read_refuses_the_gate_and_says_so(self):
         # A gate that cannot show it has room is not told it has; the override is named, and df is not asked under it.

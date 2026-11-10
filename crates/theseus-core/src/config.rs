@@ -287,6 +287,16 @@ pub struct Config {
     /// config is `op://`, never read from the TOML. The floor keeps it, as it keeps the token file.
     #[serde(skip)]
     pub config_copy: Option<PathBuf>,
+    /// The config file this daemon is serving from (`--config`, `THESEUS_CONFIG`, or the lookup's
+    /// own default): set at startup, never read from the TOML, and canonical. None when the config
+    /// is `op://`, whose file on disk is `config_copy` instead. The floor keeps it, as it
+    /// keeps the token file and the copy: everything this file governs -- every posture in
+    /// `[policy]`, the roots, `[sandbox] egress`, where the secrets come from -- is otherwise
+    /// defended only by the file's ownership, so a tool call that could write it would be writing
+    /// the rules the next start judges it by (theseus-3i6d1; the floor's reader is
+    /// `toolrun::guarded::guarded_paths`).
+    #[serde(skip)]
+    pub config_file: Option<PathBuf>,
     /// Every profile and provider, the implicit `default` and `anthropic`
     /// that `[model]` names included: resolved once, when the document is read.
     #[serde(skip)]

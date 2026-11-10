@@ -135,6 +135,20 @@ impl Flag {
 /// What an item was, for the label that came of it and for the pack's state.
 /// A `const`, not a free string, so every hook site names one of these and a
 /// reader of a row knows the whole set.
+///
+/// **Every kind is a node, and the text the compiler assembles is of no
+/// kind.** An item is built from a node of the transcript
+/// ([`crate::judge::content::ContentItem::of_message`], `of_result`), so the
+/// request's system blocks -- the header, the persona layer, the context
+/// files, the standing block, and session block 3 -- are classified by
+/// nothing at all: there is no node to hang a [`Label`] on, and no variant
+/// here for assembled text. For block 3 that is a **decision** and not an
+/// oversight, because block 3 is the one place in those blocks that can carry
+/// text the owner did not write: a granted repository's `AGENTS.md` and
+/// `CLAUDE.md` (`project_context::assemble`, under `project_context::FRAME`).
+/// The decision, and why the injection question in particular is the wrong
+/// instrument there, is argued where the constructor refuses the node:
+/// [`crate::judge::content::ContentItem::of_message`] (theseus-3i6d1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemKind {
@@ -1442,7 +1456,7 @@ mod tests {
             (
                 "card/noted.rs",
                 "neither",
-                "UNAUDITED: names the owner's own words today; not decided",
+                "its own head says whose it is: notes, not records, \"say nothing of them\", never thank the owner (11-10 audit)",
             ),
         ]
     }

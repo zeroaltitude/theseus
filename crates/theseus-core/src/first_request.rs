@@ -32,6 +32,10 @@ pub const DM_TOKENS: u64 = 15_000;
 /// `check_of` and `profile` descriptions restored in full (8_010 in the owner's
 /// shape, 7_563 in the defaults), which the 7_900 squeeze had cut.
 pub const CHANNEL_TOKENS: u64 = 8_900;
+/// A headless run's. Measured on 2026-11-10 at 12889bcf by the `tests_first_request` rig (the default config,
+/// then the owner's shape): 8_156 and 8_268 tokens, so 444 and 332 of room (5.2% and 3.9%). The review that
+/// opened this row read 8_005; the 151 since are not attributed (the clone's history is shallow). Left at 8_600:
+/// the rule above would make it 9_100, and no tool's reason has lapsed. Raise it only with a new measured figure.
 pub const HEADLESS_TOKENS: u64 = 8_600;
 
 /// The budget of a kind of place: its census name (`cli`, `dm`, `channel`,

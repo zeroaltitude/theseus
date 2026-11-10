@@ -2425,8 +2425,8 @@ impl TurnRunner {
         // withheld the pending node leaves the turn with no recall at all,
         // so no node is written and the reply counts none.
         let rides = match t.recall.withheld {
-            false => std::mem::take(&mut t.recall.rides),
-            true => Self::recall_dropped(t),
+            None => std::mem::take(&mut t.recall.rides),
+            Some(why) => Self::recall_dropped(t, why),
         };
         t.recall.pending = None;
         let action = match t.tc.kernel.plan_and_dispatch(
@@ -2598,7 +2598,8 @@ impl TurnRunner {
                 call_started,
                 i,
             )),
-            Ok(Ok(resp)) => {
+            Ok(Ok(mut resp)) => {
+                Self::strip_standing_ack(t, &mut resp, i);
                 t.record(&fact::turn::ModelAnswered {
                     resp: &resp,
                     call_t0,

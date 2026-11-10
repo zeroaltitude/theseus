@@ -46,9 +46,65 @@ if [ "${1:-}" = --locked-part ]; then
   locked_dir=$2
   asked=$3
   label=$4
+elif [ "${1:-}" = --bench-bins ]; then
+  [ "$#" -eq 2 ] || { echo "gate: --bench-bins takes one cargo message file" >&2; exit 2; }
+  part=bench-bins
+  bins_json=$2
 elif [ "$#" -ne 0 ]; then
   echo "usage: scripts/gate.sh   (no arguments; THESEUS_GATE_NO_BENCH=1, THESEUS_GATE_BENCH_ALLOWANCE=PERCENT, THESEUS_GATE_MIN_FREE_GB=GB)" >&2
   exit 2
+fi
+
+# Where cargo builds this tree (theseus-1eemp), which is not always `./target`. A self build's tree is a
+# worktree whose CARGO_TARGET_DIR is `<state>/self/target/<item>`, outside the checkout (rsi/tree.rs), and
+# a lane's gate is given one of its own. The debug binaries the benches run live there, so the check that
+# the test build made them and the benches that run them both read this, never `target/` on faith. Taking
+# it on faith is what failed every self build from theseus-7ykr's check to this row: 22 in a row died in
+# `test build`, naming a binary cargo had just built, before one test of their change ran. cargo answers
+# when the environment does not, so a `.cargo/config.toml` `build.target-dir` is right too (one call, 60 ms
+# warm); `$PWD/target` is the last word, for a tree cargo cannot read.
+#
+# RESOLVED ON FIRST USE, never at the head of the flow: no cargo runs before fmt and the disk floor, which
+# is a contract scripts/test_gate_tree.py holds in nine of its cases (the floor must refuse before any
+# build, and a gate that fails at fmt must have made exactly one cargo call). So this memoises into
+# `$debug` and every reader calls it first.
+target_dir=""
+debug=""
+resolve_target_dir() {
+  [ -z "$debug" ] || return 0
+  target_dir="${CARGO_TARGET_DIR:-}"
+  if [ -z "$target_dir" ]; then
+    local meta
+    meta="$(cargo metadata --no-deps --format-version 1 2>/dev/null || true)"
+    target_dir="$(printf '%s' "$meta" | grep -o '"target_directory":"[^"]*"' | cut -d'"' -f4 || true)"
+  fi
+  [ -n "$target_dir" ] || target_dir="$PWD/target"
+  debug="$target_dir/debug"
+}
+
+# The debug binaries the benches run: `theseusd`, `theseus-sim`, and the `theseus-index` the daemon starts
+# beside itself, which cargo builds for the integration tests that run them. `test_build` (below) builds
+# them, and this checks that it did: cargo's messages name every binary the build produced, fresh or
+# relinked, and one it does not name is one the benches would run stale. `json` is a cargo message file.
+bench_bins=(theseusd theseus-sim theseus-index)
+bench_bins_check() {
+  local json="$1" b exe
+  resolve_target_dir
+  for b in "${bench_bins[@]}"; do
+    exe="$(grep -o "\"executable\":\"[^\"]*/debug/$b\"" "$json" | head -1 | cut -d'"' -f4 || true)"
+    if [ -z "$exe" ] || ! [ "$debug/$b" -ef "$exe" ]; then
+      echo "gate: the test build did not build $debug/$b${exe:+ (it built $exe)}, which the benches run,"
+      echo "gate: so they would run a stale one. Cargo builds a package's binaries for its integration tests, and"
+      echo "gate: none needs $b now: build it in test_build, after the tests' build"
+      return 1
+    fi
+  done
+}
+# `--bench-bins JSON` is that check alone over a planted message file: it builds nothing, takes no lock and
+# reads no git, so bench/recall/test_bench_bins.py can drive it over a self-shaped tree and a lane-shaped
+# one. The gate's own flow starts below.
+if [ "$part" = bench-bins ]; then
+  if bench_bins_check "$bins_json"; then exit 0; else exit 1; fi
 fi
 case "${THESEUS_GATE_LOCK:-inner}" in
   inner) ;;
@@ -159,6 +215,10 @@ phase_began=0
 summary_printed=""
 # A phase that passed may name how, in the table: `scrub ok` and `scrub skipped` read differently at a glance.
 phase_label=""
+# What the `line pressure` phase found, repeated under the table so it reaches a reader who sees only the tail
+# (`ec2.sh tail LANE gate` is 30 lines by default, and that phase runs minutes of compiling before the end).
+# Empty when the phase did not run: every locked part, and any gate that stopped before it.
+line_pressure_said=""
 phase() {
   phase_now="$1"
   phase_began=$SECONDS
@@ -183,6 +243,7 @@ summary() {
     printf '  %-16s %5d  <- failed here\n' "$phase_now" "$((SECONDS - phase_began))"
   fi
   printf '  %-16s %5d\n' total "$total"
+  [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
   mkdir -p "$(dirname "$times")" 2>/dev/null || true
   {
     [ -s "$times" ] || echo "time,label,phase,seconds,status"
@@ -345,9 +406,11 @@ trap on_exit EXIT
 # What the suite does not run is said first (theseus-4vsrz). The suite passes no `-E`, so a `default-filter` in
 # `.config/nextest.toml` is the only filter there is, and it skips its tests in every run: nextest counts them as
 # "skipped" with the #[ignore]d ones, so a stale line (uncommitted, kept in a lane from an earlier run: four tests
-# skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one, since
-# the ARM runner sets its known skips this way; it names each line, with its profile and place, and whether HEAD has it
-# or the working tree alone does, says so again beside the suite's summary, and calls the phase `suite filtered`.
+# skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one. It names
+# each line, with its profile and place, and whether HEAD has it or the working tree alone does. A line under this run's
+# profile (or under [profile.default] while the run's profile has none) is ACTIVE: the gate says so again beside the
+# suite's summary and calls the phase `suite filtered`. A line parked under another profile is named, marked NOT this
+# run's, and changes nothing: the phase keeps its name.
 filters_found=no
 suite_filters() {
   local cfg=.config/nextest.toml found profile lineno text where mine run="${NEXTEST_PROFILE:-default}" any=no
@@ -388,9 +451,11 @@ suite_filters() {
 # skipped, including 4 tests via profile.default.default-filter)`: the banner above re-derives the filter with awk and
 # misses one set through NEXTEST_PROFILE, a config file passed in, or an overrides table. Nothing here changes the exit
 # status; a red suite never gets here (`set -e` stops the gate at the pipeline), and a filtered one is labelled, never cleared.
-# Observed: a sweep of recorded green gate logs found 51 occurrences in 48 files in exactly four forms, `including 18 tests`,
-# `including 2 tests`, `including 4 tests` and `including 7 tests via profile.default.default-filter`, every one matched by
-# the pattern below and every one naming profile.default. The singular `including 1 test via profile` was never seen, so
+# Observed on 2026-11-09, in one sweep of one host's recorded green gate logs (carried from an earlier row's report, not
+# re-run since: those logs are not in this repository), 51 occurrences in 48 files in exactly four forms, `including 18
+# tests`, `including 2 tests`, `including 4 tests` and `including 7 tests via profile.default.default-filter`, every one
+# matched by the pattern below and every one naming profile.default. That is a dated sample, not a property of the
+# gate's output. The singular `including 1 test via profile` was never seen, so
 # the `tests?` in the pattern stays deliberately: that branch is still unverified against a real one-test run.
 suite_applied() {
   local applied
@@ -480,7 +545,8 @@ protocol_types() {
 # passes. A passing run warns about a phase within 10% of its limit.
 # `theseus-sim bench history` reads it (theseus-1hk).
 lifecycle() {
-  target/debug/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label" "${busy_args[@]}"
+  resolve_target_dir
+  "$debug"/theseus-sim bench lifecycle --runs 10 --check --record "$history" --label "$label" "${busy_args[@]}"
 }
 # A neighbour's sustained IO (a parallel build, a package install) stalls a
 # start's fsyncs for seconds, and then the bench measures the neighbour, not
@@ -581,11 +647,12 @@ jobs_bench() {
     echo "jobs: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
     return 0
   fi
-  target/debug/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}" || {
+  resolve_target_dir
+  "$debug"/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}" || {
     echo "jobs: an L1 start's p95 missed its target; running the bench once more"
     sync
     settle
-    target/debug/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}"
+    "$debug"/theseus-sim bench jobs --class l1 --runs 20 --check "${busy_args[@]}"
   }
 }
 
@@ -601,7 +668,8 @@ jobs_bench() {
 # kind, and no burst (about 5 s); at the join, ten runs and a burst of 30 turns,
 # which the history records (about 11 s).
 turn_bench() {
-  target/debug/theseus-sim bench turn --check "$@"
+  resolve_target_dir
+  "$debug"/theseus-sim bench turn --check "$@"
 }
 turn_step() {
   local args=(--runs 5 --burst 0)
@@ -835,8 +903,8 @@ scrub_phase() {
 
 # This script's own tests (theseus-4vsrz): scripts/test_gate_tree.py runs the real gate in a throwaway repository, its
 # cargo, node and npm stand-ins, and moves the tree under it, to prove that a gate whose tree moved aborts (exit 75)
-# and that its cargo runs without an incremental cache. About 10 s for 29 tests on a 4-core cloud VM (9.9 s measured;
-# an earlier 6.7 s came from another machine, and "about 2 s" was wrong): each GateTree case runs the whole gate in a
+# and that its cargo runs without an incremental cache. About 17 s for 38 tests on a 4-core cloud VM (16.8 s measured;
+# earlier figures of 9.9 s for 29 tests, 6.7 s from another machine, and "about 2 s" were all wrong): each GateTree case runs the whole gate in a
 # throwaway repository, so every case added costs about a third of a second. They run when this tree differs from main in the
 # script or the tests, which is when they can have changed; otherwise main's gate ran them and the phase costs a
 # diff. They also hold scripts/deny-daily.sh and scripts/build.sh, which the same file tests. main is origin/main, or the
@@ -849,6 +917,77 @@ gate_tests() {
     return 0
   fi
   PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_gate_tree.py
+}
+
+# The approach to clippy's function ceiling, as a WARNING and never a verdict (theseus-4vsrz; the owner's ruling,
+# 2026-11-10). `shape.sh` above holds the FILE ceiling and clippy below holds the FUNCTION one, at 100 lines; what
+# neither says is which functions sit at 99. Two branches that each add three lines to a function at 95 pass alone
+# and fail merged, and on 2026-11-10 seventeen functions on main were at exactly 100 with no headroom at all. So
+# scripts/line-pressure.py names them, and the count goes under the phase table where a reader of the tail gets it.
+#
+# IT NEVER DECIDES THE GATE'S STATUS, and that is the ruling, not an oversight. A second threshold on the same
+# quantity would redden departures for files that are inside their limits, and this build has already been bitten
+# by a trend rule that blocked on its own output (the may-build trend rule, memory may-build-trend-rule-self-blocks).
+# The instrument agrees: it exits 0 on a report by construction and 2 only when it read nothing. The `|| true`
+# covers the exit-2 case and a missing or broken script, neither of which is a verdict on a branch's code.
+#
+# MARGIN 5, the script's own default, chosen from this tree's distribution on 2026-11-10 (5e71c15a, 37,654
+# functions scanned): margin 0 lists 17, 3 lists 93, 5 lists 142, 8 lists 201, 10 lists 260, 15 lists 388. 5 is the
+# narrowest window that still covers the two-siblings-at-95 case above, and the widest whose output reads as a list
+# rather than a dump — a warning nobody reads is worth nothing. THE FULL LIST IS CAPPED at the 20 tightest (the
+# script sorts closest-first), which on this tree is every function at exactly 100 plus the next three; the whole
+# list is one command away and the phase says so, so nothing is hidden.
+line_pressure_margin=5
+line_pressure_show=20
+line_pressure() {
+  local out
+  out="$(PYTHONDONTWRITEBYTECODE=1 python3 scripts/line-pressure.py --margin "$line_pressure_margin" 2>&1 || true)"
+  if [ -z "$out" ]; then
+    line_pressure_said="line pressure: scripts/line-pressure.py said nothing (it is a warning, so the gate goes on)"
+    echo "gate: $line_pressure_said"
+    return 0
+  fi
+  printf '%s\n' "$out" | head -n "$line_pressure_show"
+  local listed
+  listed=$(printf '%s\n' "$out" | grep -c '/[0-9]* *\(OVER\)\?$' || true)
+  if [ "$listed" -gt "$line_pressure_show" ]; then
+    echo "line pressure: $((listed - line_pressure_show)) more, closest first; all of them:" \
+      "python3 scripts/line-pressure.py --margin $line_pressure_margin"
+  fi
+  line_pressure_said="$(printf '%s\n' "$out" | sed -n 's/^line-pressure: /line pressure: /p' | tail -1)"
+  [ -n "$line_pressure_said" ] || line_pressure_said="line pressure: margin $line_pressure_margin, no count line (a warning only)"
+  return 0
+}
+
+# scripts/tests/*: the unit tests of the Python helpers that are not gate.sh's own — the three `scripts/test_*.py`
+# suites beside this script each have a fatal phase of their own, above. Run and REPORTED, never fatal: the same
+# ruling as the phase above, applied for consistency rather than because the risk is the same.
+#
+# THE ARGUMENT FOR MAKING THESE FATAL, recorded for the owner rather than acted on (theseus-4vsrz R3): these are
+# not a threshold on the tree at all. They are deterministic unit tests of a script's own correctness, they read no
+# host state, and a failure means a helper lies rather than that a branch is over a limit — which is exactly the
+# class of the guard's own test suite, already fatal three phases above. Both suites are cheap (9 tests in 0.4 s
+# and 15 in 10.3 s, measured on 5e71c15a), so cost is not the reason either. A non-fatal test suite is read only
+# when something else has already gone wrong, so this wiring buys less than the fatal version would. It is left
+# non-fatal because the ruling said to leave it non-fatal and say so; the decision is the owner's.
+script_tests() {
+  local t rc=0 bad=()
+  for t in scripts/tests/test_*.py; do
+    [ -e "$t" ] || continue
+    if PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q "$t"; then
+      echo "script tests: $t ok"
+    else
+      rc=$?
+      bad+=("$t")
+    fi
+  done
+  if [ "${#bad[@]}" -gt 0 ]; then
+    echo "script tests: FAILED (${bad[*]}), rc $rc — REPORTED AND NOT FATAL (theseus-4vsrz): these are the"
+    echo "script tests: helpers' own unit tests, so a failure here means a helper lies, not that this branch is"
+    echo "script tests: over a limit. Fix it in its own change; the owner decides whether this phase becomes fatal."
+    phase_label="script tests warned"
+  fi
+  return 0
 }
 
 # One npm script of the cockpit, its output kept in `$gate_tmp/<app>-<script>.log` (theseus-o8nk). A failure prints
@@ -960,28 +1099,19 @@ features() {
 }
 
 # The test build, the last compile before the lock: every test binary the suite runs, and the debug binaries the
-# benches run, `target/debug/theseusd`, `theseus-sim`, and the `theseus-index` the daemon starts beside itself,
+# benches run (`$debug`'s `theseusd`, `theseus-sim` and the `theseus-index` the daemon starts beside itself),
 # which cargo builds for the integration tests that run them. Until theseus-7ykr a `bench build` (`cargo build -p`
 # of the five shipped binaries) ran before it, a second feature set of the shared crates (6 minutes cold here,
-# seconds to a minute warm), and cargo links `target/debug/<bin>` from the build it ran last, so this one replaced
+# seconds to a minute warm), and cargo links `$debug/<bin>` from the build it ran last, so this one replaced
 # them before any bench ran: the benches only ever ran this build's binaries. They have the workspace's features,
-# and the features phase holds the five's to the same. Cargo's messages name every binary the build produced,
-# fresh or relinked, and this fails naming a bench binary it did not, where the benches would run a stale one.
-bench_bins=(theseusd theseus-sim theseus-index)
+# and the features phase holds the five's to the same. `bench_bins_check`, up at the top beside the target
+# directory it reads, holds that: a bench binary this build did not name is one the benches would run stale.
 test_build() {
-  local json="$gate_tmp/test-build.json" b exe
+  local json="$gate_tmp/test-build.json"
   # (`env -u`: nextest warns that --no-run ignores the lane's NEXTEST_TEST_THREADS.)
   env -u NEXTEST_TEST_THREADS cargo nextest run --workspace --no-run \
     --cargo-message-format json-render-diagnostics >"$json"
-  for b in "${bench_bins[@]}"; do
-    exe="$(grep -o "\"executable\":\"[^\"]*/debug/$b\"" "$json" | head -1 | cut -d'"' -f4 || true)"
-    if [ -z "$exe" ] || ! [ "target/debug/$b" -ef "$exe" ]; then
-      echo "gate: the test build did not build target/debug/$b${exe:+ (it built $exe)}, which the benches run,"
-      echo "gate: so they would run a stale one. Cargo builds a package's binaries for its integration tests, and"
-      echo "gate: none needs $b now: build it in test_build, after the tests' build"
-      return 1
-    fi
-  done
+  bench_bins_check "$json"
 }
 
 # Nothing compiles under the lock: the compile phases built what the locked part runs. When
@@ -1155,6 +1285,11 @@ phase "gate tests" gate_tests
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The two warning phases, between the file ceiling above and clippy's function ceiling below, and before the
+# compiles so that a branch which reddens clippy's `too_many_lines` already has the near-ceiling list above the
+# failure. Neither can fail the gate (their own comments say why).
+phase "line pressure" line_pressure
+phase "script tests" script_tests
 # The last cheap phase: from the next one on, the gate resolves and compiles, and a disk that cannot hold it refuses here.
 phase "disk floor" disk_floor
 # The five shipped binaries get every feature the tests' build gives them (theseus-dr2x).

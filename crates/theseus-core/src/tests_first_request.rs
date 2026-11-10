@@ -97,6 +97,18 @@ fn each_kind_of_place_is_counted_with_its_own_families() {
     );
 }
 
+/// Headroom said beside a figure, and a warning within a twentieth of the ceiling (as `line-pressure.py` does for
+/// clippy's): the test holds the ceiling, this line lets a branch see it coming.
+fn pressure(tokens: u64, max: u64) -> String {
+    let room = max.saturating_sub(tokens);
+    let warn = if room * 20 <= max {
+        "  WARNING: within 5% of its budget"
+    } else {
+        ""
+    };
+    format!(", {room} tokens of room{warn}")
+}
+
 /// Every kind of place is within its budget (cli and task 8,000, the DM 15,000), and the DM's is the larger.
 #[test]
 fn every_kind_of_place_is_within_its_budget() {
@@ -107,7 +119,10 @@ fn every_kind_of_place_is_within_its_budget() {
             continue;
         };
         let tokens = core.first_request(place).unwrap().tokens;
-        eprintln!("first request, {place}: {tokens} tokens (budget {max})");
+        eprintln!(
+            "first request, {place}: {tokens} tokens (budget {max}){}",
+            pressure(tokens, max)
+        );
         assert!(
             tokens <= max,
             "{place}: {tokens} tokens over its budget of {max}"
@@ -119,7 +134,10 @@ fn every_kind_of_place_is_within_its_budget() {
     for place in PLACES {
         let Some(max) = budget(place) else { continue };
         let tokens = owner.first_request(place).unwrap().tokens;
-        eprintln!("first request, the owner's shape, {place}: {tokens} tokens (budget {max})");
+        eprintln!(
+            "first request, the owner's shape, {place}: {tokens} tokens (budget {max}){}",
+            pressure(tokens, max)
+        );
         assert!(
             tokens <= max,
             "the owner's shape, {place}: {tokens} tokens over its budget of {max}"
