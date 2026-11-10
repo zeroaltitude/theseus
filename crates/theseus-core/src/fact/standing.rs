@@ -85,3 +85,47 @@ impl Fact for StandingRepeated<'_> {
         json!({"record": self.record, "node": self.node})
     }
 }
+
+/// The loop's answer opened by acknowledging a standing record the owner did
+/// not just send (`turn.standing_ack`, theseus-ectzg; `standing_ack`): the
+/// paragraph was `stripped` from the answer, or only `flagged` and left. The
+/// row keeps the paragraph, so nothing the model said is lost.
+pub struct TurnStandingAck<'a> {
+    pub loop_index: u32,
+    pub stripped: bool,
+    pub records: &'a [String],
+    pub paragraph: &'a str,
+}
+
+impl Fact for TurnStandingAck<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::TurnStandingAck);
+
+    fn row(&self) -> Value {
+        json!({"loop": self.loop_index,
+               "action": if self.stripped { "stripped" } else { "flagged" },
+               "records": self.records, "paragraph": self.paragraph})
+    }
+
+    fn span(&self, trace: &mut crate::trace::Trace) {
+        trace.mark(
+            "standing_ack",
+            "mark",
+            json!({"loop": self.loop_index, "stripped": self.stripped, "records": self.records}),
+        );
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            theseus_protocol::NarrativePart::Model,
+            format!(
+                "The answer opened by acknowledging the owner's standing record {} and {}.",
+                self.records.join(", "),
+                if self.stripped {
+                    "that paragraph was taken out"
+                } else {
+                    "was left as it is"
+                }
+            ),
+        );
+    }
+}

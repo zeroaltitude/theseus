@@ -63,9 +63,12 @@
 // and that is the cheapest guard there is.
 //
 // **Swept, and no live instance** (theseus-4vsrz, 2026-11-10;
-// `scripts/test-code-map.py --sweep`). 1,770 test-code regions in 1,763
-// files, taken from the declarations the compiler reads and not from any
-// file's own text or `tests_`-shaped name, were searched for the tells above.
+// `scripts/test-code-map.py --sweep`). **1,772 test-code regions in 1,765
+// files, measured on `7c4b3e15`** — a figure every merge of main moves, so it
+// names its head, and `--sweep` prints today's; it was 1,770 in 1,763 one
+// departure earlier. The regions are taken from the declarations the compiler
+// reads and not from any file's own text or `tests_`-shaped name, and were
+// searched for the tells above.
 // 101 comment lines carried one with nothing to cite, and every one, read by
 // hand, was false. **Why the tells are weaker here than they look is the part
 // worth keeping:** "whatever X says" is this codebase's idiom for

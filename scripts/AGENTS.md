@@ -1,5 +1,10 @@
 # scripts
 
+**`wc -c` this file before you add to it: it is CUT at 64 KiB and nothing fails** (theseus-4vsrz).
+`context_files::MAX_BYTES` is `64 * 1024` and this is a `Level::Project` context file, so past that its tail
+silently stops reaching a session; no gate phase or test measures it. On 2026-11-10 it stood 1,130 bytes short.
+Put depth in the design docs.
+
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.
 - `size-step.sh`, `tree-stamp.sh` (theseus-2m7jg): the binary's size check. `build.sh` runs `theseus-sim bench size --check`
@@ -28,6 +33,29 @@
   ceiling); exits 2 only when it scanned nothing. Counts as clippy does (body without braces, blank and comment-only lines
   free; a plain `async fn` counts 2 more than its body, as clippy reads it, unless it carries a `test` attribute; only the
   attribute block directly above a `fn` is read for an `allow`/`expect`); its header says where it can differ. Run it before growing a function; extract a helper, never an `allow`.
+  **The gate runs it, at margin 5, as the `line pressure` phase between `shape` and `clippy`** (the owner's
+  ruling, 2026-11-10; before that it existed and nothing ran it). It prints the 20 tightest and names the command
+  for the rest, and its count and margin are repeated under the phase table, so a 30-line `ec2.sh tail` still
+  carries them. **Its exit status never decides the gate's**: shape.sh holds the file ceiling and clippy the
+  function one, and a second threshold on the same quantity is one more thing a merge has to argue with. The
+  margin came from the distribution on `5e71c15a` (37,654 functions: margin 0 lists 17, 3 lists 93, 5 lists 142,
+  10 lists 260), 5 being the narrowest window that still covers two branches each adding three lines to a
+  function at 95, and the widest whose output reads as a list. **On 2026-11-10 seventeen functions were at exactly
+  100** — the row's older figure of thirty-two predates this week's test-move lands.
+- `tests/*`: the helpers' own unit tests, which the gate runs as the `script tests` phase beside the one above and
+  **also never fatally**. The argument for making them fatal — they are deterministic unit tests of a script's
+  correctness, not a threshold on the tree — is recorded in `gate.sh`'s own comment on that function, for the owner.
+- `env-fail-set.py`, `tests/test_env_fail_set.py` (theseus-4vsrz): the **4-core cloud routine VM's**
+  environmental-failure set, derived from the tree rather than counted by hand. **It is that VM and not a fleet
+  box**: a fleet gate is a `c7i.8xlarge` whose gate runs in a delegated `systemd --user` unit, and it comes back
+  with `clause_01` to `clause_12` green and `reds:` empty — anything written about this set must name its host, or
+  the next reader waves away a real red. Three places, three parsers (a `harness = false` binary's `const CASES`
+  with `const IGNORED` excluded; the same declared inline in `fn main()`; an ordinary `#[test]`/`#[tokio::test]`
+  file with `#[ignore]` excluded), which is the third reason the hand count drifted. `--markdown` prints the cloud
+  preamble's block ready to paste, `--names` the bare names, `--expect N` exits 1 when the tree no longer totals
+  N. **The count had been wrong in four successive briefs (4, then 35, then 40, then 36), and the tree totalled 40
+  on `5e71c15a`**: regenerate the block, never edit the number. **It is deliberately NOT a gate phase** — an
+  `--expect` there would fail a branch over a host's measured number that nobody has recalibrated.
 - `test-code-map.py`, `tests/test_test_code_map.py` (theseus-4vsrz): the map of what the compiler reads as test code, and
   two reports over it. **Membership comes from the declaration, never from a file's own text and never from a `tests_`-shaped
   path** — `#[cfg(test)] mod N;` resolved against the declaring file's module directory, an inline `mod N { .. }`'s
@@ -37,10 +65,10 @@
   auto-discovery unless `autotests = false`. Each of those four rules is a bug this walk had first, and the figure each cost
   is in its header and in a test. **`--orphans` (the default) is exact**: a file holding `#[test]` that no declaration
   reaches, so the compiler never reads it and those tests never run (today: `crates/theseus-core/src/tests_fan_out_cue.rs`,
-  4 tests, declaration dropped at `0925819c` and the file edited twice since). **`--sweep` is heuristic**: test-code comment
+  4 tests, declaration dropped at `0925819c` and the file edited twice since, while `tests_route_family.rs:9` still indexes it as the proof of reader 4's coverage). **`--sweep` is heuristic**: test-code comment
   lines carrying a tell of "a test that documents the defect as the design" (`crates/complete.rs`'s third pattern) with no
   row, date, doc or owner quote in the same comment paragraph. Read every hit; "whatever X says" is this codebase's idiom for
-  *strengthening* an invariant, so most hits are false. `--map` prints the regions. **Both reports always exit 0** (a warning,
+  *strengthening* an invariant, so most hits are false. `--map` prints the regions. Its own unit tests run in the gate's `script tests` phase with the others, and each pins one resolution rule the walk got wrong first. **Both reports always exit 0** (a warning,
   not a gate: a heuristic that reds a departure costs more than the pattern does); exits 2 only when it scanned nothing,
   because a "zero found" bar is met by an empty set. Not wired into `gate.sh`.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
@@ -269,6 +297,18 @@ there, the timing budgets get an overage allowance.
   one-sample stalls over twice a limit (one fsync waiting on a neighbour), which no allowance should cover: the rerun
   does. Strictly, 9 of those 22 runs missed a phase, against 4 of the 68 runs on a quiet machine (a load under 8),
   which the rerun covers, as before.
+- **A RUST TEST CANNOT REACH IT, so it is never the fix for a timing test in a crate** (theseus-4vsrz
+  test-hygiene F3, 2026-11-10). `THESEUS_GATE_BENCH_ALLOWANCE` is read in exactly one place — `gate.sh:67`, into a
+  shell variable the gate passes to `theseus-sim bench` as `--allowance` — and it appears in **no `.rs` file in
+  the workspace**: `grep -rn THESEUS_GATE_BENCH_ALLOWANCE --include=*.rs crates/` returns nothing. So it covers the
+  lifecycle and jobs benches and nothing else, and a `#[test]` or `#[tokio::test]` asserting on a duration has no
+  path to it at all. **Two checklist lines on `theseus-4vsrz` prescribed it as "the right fix" for exactly that,
+  and both were written around a mechanism that does not exist.** Nothing was broken by the mistake — one of those
+  lines needed no fix and the other used a retry — but a reader who believes the prescription will spend an
+  afternoon looking for a knob. The remedies that do exist for a wall-clock bound inside a crate's tests are: a
+  retry, `tokio::time::pause` where the clock is the subject, a bound wide enough to hold on a loaded machine with
+  a comment saying what it was measured at, or moving the assertion into a bench the gate already times. Never a
+  loosened bound without a reason, and never `#[ignore]`.
 - **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 2 minutes (…); measuring
   anyway, with the busy allowance: +65% over a timing budget's limit`). A phase it carries prints the bench's own
   `MISSED`, the strict verdict, and then `lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms,
@@ -376,6 +416,21 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
 - **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
   came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
   (`wait_for(`, `.until(`) keeps its check.
+- **A pairing found only by similarity, landing in another file, is a GUESS, and in a batch it misattributes
+  (theseus-4vsrz).** Measured at `12889bcf` with `scripts/keel-batch-repro.sh`: the deleted routing test and the
+  unrelated new voice test are paired because their bodies are **0.63 alike** by difflib over their words, over
+  `SIMILAR`, which is 0.5. So "the pairing crosses files whose contents share nothing" is the wrong diagnosis, and a
+  fix that refused a share-nothing pairing would not catch this one: the two bodies share their whole skeleton. What
+  goes wrong is downstream of the pairing, in what the pair is then judged to prove. The finding changes **rule**,
+  `test-removed` to `assert-removed`, and **file**, from the one that held the deleted test to the paired one, which
+  eroded nothing — so a trailer that named the real file stops covering it, and the guard's own remedy text asks for
+  a trailer against the innocent file. Writing that trailer would be a false statement that the owner authorised an
+  erosion where none exists; never write it. When a finding names a file your change never touched, `git grep` the
+  symbol at the base and at the head first: here it is in two files at the base and in none at the head, which
+  proves the erosion real and its attribution false.
+- **`scripts/keel-batch-repro.sh` takes a candidate guard as its one argument** (`scripts/keel-batch-repro.sh
+  path/to/keel-guard.py`, default the tree's). That is the seam for judging a proposed fix to the pairing without
+  editing the guard, which is `keel-file` and needs the owner's signed yes.
 - **Its suite**, `scripts/test_keel_guard.py`, builds a throwaway repository per case (signed cases with throwaway
   keys in their own `GNUPGHOME`, and the real `gate.sh` run in a throwaway repository for its range and its door); the
   gate runs it when the guard, the suite or `gate.sh` differs from the base. Run it alone

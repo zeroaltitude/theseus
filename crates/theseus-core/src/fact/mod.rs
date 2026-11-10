@@ -603,6 +603,7 @@ facts![
     modes::PlanMoved<'static>,
     standing::StandingRevoked<'static>,
     standing::StandingRepeated<'static>,
+    standing::TurnStandingAck<'static>,
     capture::StandingCaptured<'static>,
     capture::StandingAsked<'static>,
     capture::StandingAnswered<'static>,
