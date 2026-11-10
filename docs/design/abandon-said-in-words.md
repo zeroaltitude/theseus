@@ -10,6 +10,23 @@ under `crates/theseus-core/src/` unless given whole._
 
 ## What landed, and what did not
 
+> **CORRECTION, 2026-11-10 (theseus-3i6d1): sub-items (2) and (3) are BUILT, and everything below this line
+> describes the base before they were.** This note landed at `ea656f0d` (2026-11-09 17:16) and
+> `rpc/answer_in_words.rs` landed at `e4283567` (2026-11-09 17:29) off a sibling branch — thirteen minutes later and
+> not a descendant of this one — so the table and the searches below went stale the same evening. **Do not build (2)
+> or (3) again.** What landed: (3) first, because it is what makes (2) safe — a yes resolves a question only when
+> there is exactly one it can mean, and with more than one it resolves nothing while a notice where approvals go
+> names each and asks which; then (2) — a bare yes in a place only the owner writes in answers the one question
+> waiting there, through `Core::confirm_action`, read at `turn.submit` before the turn runs. The four questions
+> below were answered by that build rather than by a ruling: Q1 any question waiting at the place, Q2
+> `capture::owner_alone`'s surfaces and not a guild channel bound private, Q3 a notice rather than a card, and **Q4
+> needed no authority widening at all** — a words-yes goes through the same `confirm_action` as a typed one, so
+> `ran_at == Posture::Approve` and `said_yes` comes out true with no change to `toolrun.rs`. The `Heard` gap below
+> was not in the way either: the words are read at the inbound point and never by `directive.v1`. **What is still
+> open is the residue only** — the turn the yes started still runs, with the word in its input and nothing in that
+> turn telling the model not to act on it. See `crates/theseus-core/AGENTS.md`'s "A yes said in words" entry for the
+> mechanism as built.
+
 The checklist line is bucket row `theseus-3i6d1` (1.0.5 B6), three sub-items under one heading. It stays open.
 
 | Sub-item | State on this base |
