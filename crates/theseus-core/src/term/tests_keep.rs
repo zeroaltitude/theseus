@@ -4,6 +4,12 @@
 //! `term.close`, a cancel and a `/stop`, or with `keep_background` off,
 //! everything ends. Each marker holds this run's pid, so another run's
 //! processes are never taken for this one's (theseus-d006).
+//!
+//! A pty test that leaves a job in the shell's own group cannot use
+//! `bash -c 'sleep N & exit'` alone: the shell's exit hangs up the tty's
+//! foreground group, which is that group, and the sleep dies before it can be
+//! counted (observed: `marked=[]`, `holders=0`), so those tests run
+//! `trap '' HUP` first.
 
 use std::time::Instant;
 
@@ -760,6 +766,7 @@ async fn the_group_of_an_exited_program_is_ours_only_while_a_pty_holder_is_in_it
     let d = tempfile::tempdir().unwrap();
     let terms = terms();
     let job = mark(&run_tag(12), AMPERSAND);
+    let _cleanup = KillMarked(job.clone());
     let t = exited_bash(
         &terms,
         d.path(),
@@ -780,10 +787,6 @@ async fn the_group_of_an_exited_program_is_ours_only_while_a_pty_holder_is_in_it
         "the group is ours with {} holder in it",
         t.pty.holders_in_group()
     );
-    for p in marked(&job) {
-        // SAFETY: the test's own marked sleep.
-        unsafe { libc::kill(p as libc::pid_t, libc::SIGKILL) };
-    }
 }
 
 /// The empty case: nothing is left, so the group id is nobody's to signal,
@@ -803,4 +806,77 @@ async fn the_group_of_an_exited_program_with_nothing_left_is_not_ours() {
         "the group is not ours with {} holders in it",
         t.pty.holders_in_group()
     );
+}
+
+/// The wiring of that guard, which the two tests above cannot see: they call
+/// the predicate, and neither reaches `close`. Here a real `close` finds the
+/// program already reaped with a job left in its own group that holds no pty,
+/// so `group_still_ours()` is false and the group must NOT be signalled; the
+/// job survives, and nothing is counted or named. Delete the `if` at the
+/// guard in `Pty::close` and the unconditional kill ends the job, and this
+/// fails. A race cannot be forced (the kernel will not hand out a chosen
+/// pgid), so this asserts the branch, not the race. No `-i` (no job control,
+/// the opposite of `a_close_that_keeps_nothing_kills_the_job_of_an_exited_shell`,
+/// whose sleep is in its own group and meets `after_exit`), the sleep's stdio
+/// is off the pty (so no holder is in the group), and `trap '' HUP` first (the
+/// shell's exit hangs up the group, which is that one). Real processes and
+/// `until`'s real 10 s bound; no paused clock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_of_an_exited_program_leaves_a_group_member_that_holds_no_pty() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let job = mark(&run_tag(13), AMPERSAND);
+    let _cleanup = KillMarked(job.clone());
+    let t = exited_bash(
+        &terms,
+        d.path(),
+        &format!("trap '' HUP; sleep {job} >/dev/null 2>&1 </dev/null & exit"),
+    )
+    .await;
+    until("the job started and the shell exited", || {
+        marked(&job).len() == 1 && t.pty.exited().is_some()
+    })
+    .await;
+    assert_eq!(
+        t.pty.holders_in_group(),
+        0,
+        "the job holds no pty, so the guard's false branch is the one driven"
+    );
+    let closed = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.close_where(BY_TOOL, |t| t.session == "s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(closed.len(), 1);
+    assert_eq!(
+        closed[0].killed, 0,
+        "nothing was signalled: {:?}",
+        closed[0]
+    );
+    assert!(closed[0].left.is_empty(), "{:?}", closed[0]);
+    // Settle: a kill that did fire is seen, not raced past.
+    let t0 = Instant::now();
+    while marked(&job).len() == 1 && t0.elapsed() < Duration::from_secs(1) {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        marked(&job).len(),
+        1,
+        "the job in the exited program's group, holding no pty, survives the close: {:?}",
+        marked(&job)
+    );
+}
+
+/// Kills the processes of a marker when dropped, so a test that fails first
+/// does not leave its sleep running.
+struct KillMarked(String);
+
+impl Drop for KillMarked {
+    fn drop(&mut self) {
+        for p in marked(&self.0) {
+            // SAFETY: the test's own marked sleep.
+            unsafe { libc::kill(p as libc::pid_t, libc::SIGKILL) };
+        }
+    }
 }

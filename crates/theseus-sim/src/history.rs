@@ -602,6 +602,55 @@ struct Marks {
     run: &'static str,
 }
 
+/// When theseus-ao9eq changed what a row's recorded limit means: commit
+/// `dce35d19` (authored 2026-11-07T00:19:57-07:00), 2026-11-07 07:19:57 UTC.
+/// A row written before it recorded the budget plus the old margin, which is
+/// the line the old gate failed the p95 at; a row after it records the budget
+/// plus the judged (median) margin. Rows from a lane's gate run between that
+/// authoring and the commit's landing (2026-11-07 06:29 -07:00 departure)
+/// count as after: they ran the new code.
+const AO9EQ_CUTOVER_UNIX: i64 = 1_794_035_997;
+
+/// Seconds since the epoch of `2026-10-01T10:20:11-07:00`, or `None` when the
+/// text is not that shape.
+fn unix_of(time: &str) -> Option<i64> {
+    let b = time.as_bytes();
+    if b.len() < 25 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
+        return None;
+    }
+    let n = |a: usize, z: usize| time.get(a..z)?.parse::<i64>().ok();
+    let (y, m, d) = (n(0, 4)?, n(5, 7)?, n(8, 10)?);
+    let (hh, mm, ss) = (n(11, 13)?, n(14, 16)?, n(17, 19)?);
+    let sign = match b[19] {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let off = sign * (n(20, 22)? * 3600 + n(23, 25)? * 60);
+    // Days from civil (Hinnant): months counted from March.
+    let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + hh * 3600 + mm * 60 + ss - off)
+}
+
+/// The p95 line a row's tail is watched against (theseus-ao9eq): the one in
+/// force when the row was written. The tail is watched but never failed on.
+/// After the cut-over the recorded limit `l` is the budget plus the judged
+/// margin, so the line the old gate failed at is `l` with the margins
+/// swapped; before it `l` already is that line. A time that will not parse
+/// takes the **current** relation, never the old one: that errs toward the
+/// exact forward rows rather than a silent quiet.
+fn tail_line(time: &str, phase: &str, l: f64) -> f64 {
+    match unix_of(time) {
+        Some(t) if t < AO9EQ_CUTOVER_UNIX => l,
+        _ => l - crate::lifecycle::margin_ms(phase) + crate::lifecycle::tail_margin_ms(phase),
+    }
+}
+
 /// A phase over its limit is `MISSED`, or carried by the run's busy
 /// allowance; one within 10% of it says so when `warn`; and a phase of a run
 /// that missed, or passed only on the allowance, says that.
@@ -620,11 +669,7 @@ fn marks(r: &Row, p: &PhaseRow, warn: bool) -> Marks {
             run,
         };
     };
-    // The tail is watched but never failed on (theseus-ao9eq). The recorded
-    // limit is the budget plus the judged margin, so the line the old gate
-    // failed at is that limit with the margins swapped.
-    let tail_line =
-        l - crate::lifecycle::margin_ms(&p.phase) + crate::lifecycle::tail_margin_ms(&p.phase);
+    let tail_line = tail_line(&r.time, &p.phase, l);
     let tail = if unit(&p.phase) == "ms" && p.p95 > tail_line {
         format!("  tail {:.1} over {tail_line:.0}", p.p95)
     } else {
@@ -774,8 +819,58 @@ mod tests {
             passed,
             label,
             Some(3.25),
-            "2026-10-01T10:20:11-07:00".to_string(),
+            "2026-11-08T10:20:11-07:00".to_string(),
         )
+    }
+
+    /// The cold start's marks for a row written at `time`, whose recorded
+    /// limit is `limit` and whose p95 is `p95`.
+    fn cold_marks(time: &str, limit: f64, p95: f64) -> String {
+        let mut r = row("era", 25.0);
+        r.time = time.to_string();
+        let p = r.phases.iter_mut().find(|p| p.phase == "cold").unwrap();
+        p.limit = Some(limit);
+        p.p95 = p95;
+        let p = r.phases.iter().find(|p| p.phase == "cold").unwrap().clone();
+        marks(&r, &p, false).mark
+    }
+
+    #[test]
+    fn the_tail_line_is_the_one_in_force_when_the_row_was_written() {
+        // The cold start's budget is 50 ms. Before theseus-ao9eq a row
+        // recorded 57 (budget plus the old 7 ms margin), which was already the
+        // line the old gate failed the p95 at; after it a row records 50
+        // (margin 0) and the line is 50 - 0 + 7. Both are 57, so the same
+        // 60 ms tail crosses in both eras and must read the same.
+        let before = cold_marks("2026-11-06T09:00:00-07:00", 57.0, 60.0);
+        let after = cold_marks("2026-11-07T09:00:00-07:00", 50.0, 60.0);
+        assert_eq!(
+            after.trim(),
+            "tail 60.0 over 57",
+            "the post-cut-over row marks: {after:?}"
+        );
+        assert_eq!(
+            before, after,
+            "a pre-cut-over row marks the same crossing: before {before:?}, after {after:?}"
+        );
+        // A tail inside the line marks nothing in either era (so a mark is not
+        // handed out to everything).
+        assert_eq!(cold_marks("2026-11-06T09:00:00-07:00", 57.0, 56.0), "");
+        assert_eq!(cold_marks("2026-11-07T09:00:00-07:00", 50.0, 56.0), "");
+        // A time that will not parse takes the current relation, not the old.
+        let odd = cold_marks("yesterday", 50.0, 60.0);
+        assert_eq!(odd.trim(), "tail 60.0 over 57", "{odd:?}");
+    }
+
+    #[test]
+    fn the_cut_over_is_the_commit_it_names() {
+        // dce35d19, authored 2026-11-07T00:19:57-07:00.
+        assert_eq!(
+            unix_of("2026-11-07T00:19:57-07:00"),
+            Some(AO9EQ_CUTOVER_UNIX)
+        );
+        assert_eq!(unix_of("1970-01-01T00:00:00+00:00"), Some(0));
+        assert_eq!(unix_of("2026-02-30"), None);
     }
 
     #[test]
@@ -800,7 +895,7 @@ mod tests {
         assert_eq!(
             line,
             format!(
-                "2026-10-01T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
+                "2026-11-08T10:20:11-07:00,lane/fastgate ecfc574-dirty,3.25,\
              33.5,35.5,50,23.8,35.3,51,41.6,51.9,100,,,,42.4,49.9,168,58.2,71,200,115.9,125.2,,1.2,1.9,2.5,,,,\
              41.1,43.2,100,,,,0.01,0.02,0.8{},true,",
                 // The surfaces phase's three cells, empty: a gate run has none

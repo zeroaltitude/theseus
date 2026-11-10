@@ -92,7 +92,8 @@ arm?: string,
  * verdict, which the route carries to it, so a count over these rows
  * mixes the two. The count is of
  * ADMITTED notes: a restricted-origin model's withholding is decided
- * after the compile and is not visible where this is written.
+ * after the compile and is not visible where this is written; a
+ * `recall.withheld` row with the same `recall_id` says it.
  *
  * Read it: `theseus memory recalled SESSION` prints a line per recall and
  * a total; across sessions, `theseus ledger -k recall.ran -n <N> --json`

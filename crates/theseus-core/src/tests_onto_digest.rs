@@ -166,7 +166,7 @@ fn a_day_with_no_ontology_write_adds_no_line() {
         .unwrap();
     assert!(r.core.onto_night_lines(now + 1_000).is_empty());
     // And nothing happened at all: no facts, so no note.
-    assert!(r.core.morning_facts(now + 1_000, None, 0).is_none());
+    assert!(r.core.morning_facts(now + 1_000, None, 0, 0).is_none());
     // A day a week later reads none of the night before's.
     let (_, _) = plant_night(&r.core, now);
     assert!(r.core.onto_night_lines(now + 3 * DAY).is_empty());
@@ -193,7 +193,7 @@ async fn the_note_carries_the_lines_after_its_words_voiced_or_not() {
         assert_eq!(lines.len(), 3);
         let (brief, n) = r
             .core
-            .morning_facts(now_unix_ms(), None, lines.len() as u64)
+            .morning_facts(now_unix_ms(), None, lines.len() as u64, 0)
             .unwrap();
         assert!(
             brief.contains("3 ontology changes by the night's sweep and dream"),

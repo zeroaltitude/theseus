@@ -22,6 +22,46 @@ use crate::secrets::{Secret, SecretBoard};
 
 pub const API_VERSION: &str = "2023-06-01";
 
+/// The prefix-drift canary (theseus-ig13o). With it the response carries
+/// `input_transformations`, naming each replayed thinking block the provider
+/// would not bind to the request it arrived in; `thinking_mismatch_allowed`
+/// means the block reached the model anyway, so the entry is a report and
+/// not a refusal. `fact::turn` counts those into the `provider.call` row.
+///
+/// It lives here and not beside the compiler's betas because it is the only
+/// one of ours that asks for nothing. `BETA_FALLBACKS` comes with a
+/// `fallbacks` field and `BETA_THINKING_UPDATES` with `display: "updates"`;
+/// each describes the request, so each belongs to it. This one changes
+/// nothing the model is sent -- it only asks the provider to say what it
+/// did -- so it is a property of the call, not of the request, and keeping
+/// it out of `ProviderRequest` is what lets a fallback's request stay equal
+/// to the one it repeats and a recorded request replay byte for byte.
+///
+/// The field that WOULD change behaviour, `thinking.block_binding`, is
+/// deliberately never sent: with the header alone a drifting block is
+/// reported and still handed to the model.
+pub const BETA_THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
+
+/// Anthropic's own API, the only endpoint that answers our betas. The
+/// compiler asks the same question of a provider's `api_base` when it
+/// decides the request's own betas (`turn.rs`, `first_party`); this is the
+/// one definition of it.
+pub fn is_first_party(api_base: &str) -> bool {
+    api_base.contains("api.anthropic.com")
+}
+
+/// The `anthropic-beta` header for a call: the request's own betas, plus the
+/// canary on every first-party thinking request -- a fallback's and a
+/// retry's included, since those replay the same blocks and are exactly
+/// where a drifting prefix would show.
+fn beta_header(api_base: &str, req: &ProviderRequest) -> Option<String> {
+    let mut betas: Vec<&str> = req.betas.iter().map(String::as_str).collect();
+    if is_first_party(api_base) && req.thinking.is_some() {
+        betas.push(BETA_THINKING_BINDING);
+    }
+    (!betas.is_empty()).then(|| betas.join(","))
+}
+
 // ------------------------------------------------------------------ request
 
 /// One provider call, as the compiler rendered it. Content blocks are JSON
@@ -985,8 +1025,8 @@ impl Anthropic {
             .header("x-api-key", key.expose())
             .header("anthropic-version", API_VERSION)
             .header("content-type", "application/json");
-        if !req.betas.is_empty() {
-            post = post.header("anthropic-beta", req.betas.join(","));
+        if let Some(betas) = beta_header(&self.api_base, req) {
+            post = post.header("anthropic-beta", betas);
         }
         let send = post.body(body).send();
 
@@ -1438,12 +1478,22 @@ fn unparsed_inputs(blocks: Vec<Value>) -> (Vec<Value>, BTreeMap<String, String>)
 
 /// A provider for tests: scripted responses consumed in order, then `reply`
 /// forever; or `fail_with` on every call. Every request is recorded.
+///
+/// The queue is positional and shared by every call on one instance, and so by
+/// every session a rig drives: the request is never consulted, so whichever
+/// call comes first takes the next answer, whoever it was scripted for. A rig
+/// that drives more than one call, or more than one session, scripts by shape
+/// (`when_tool`: the call that carries the tool gets the answer) and not by
+/// order. An empty queue answers a plain text reply built from `reply`.
 pub struct FakeProvider {
     pub reply: String,
     pub chunk: usize,
     pub stop_reason: String,
     pub fail_with: Option<ProviderError>,
     pub script: std::sync::Mutex<std::collections::VecDeque<Scripted>>,
+    /// Answers chosen by the request's shape, tried before `script`'s queue
+    /// (`FakeProvider::when_tool`).
+    pub shaped: std::sync::Mutex<Vec<(String, Scripted)>>,
     pub requests: std::sync::Mutex<Vec<ProviderRequest>>,
     /// Artificial latency before the response, for concurrency tests.
     pub delay_ms: u64,
@@ -1491,6 +1541,7 @@ impl Default for FakeProvider {
             stop_reason: "end_turn".into(),
             fail_with: None,
             script: Default::default(),
+            shaped: Default::default(),
             requests: Default::default(),
             delay_ms: 0,
             warms: Default::default(),
@@ -1508,6 +1559,25 @@ impl FakeProvider {
     }
     pub fn requests(&self) -> Vec<ProviderRequest> {
         self.requests.lock().unwrap().clone()
+    }
+    /// Script `answer` for the request that carries the tool `tool`, whatever
+    /// its position among the rig's calls. The answer is used once (as a
+    /// queued one is) and the first rule that matches wins; a request no
+    /// rule matches takes the next queued answer, as ever.
+    pub fn when_tool(&self, tool: &str, answer: Scripted) {
+        self.shaped.lock().unwrap().push((tool.to_string(), answer));
+    }
+    /// The answer for `req`: a shaped one when a rule matches, else the queue's next.
+    fn next_answer(&self, req: &ProviderRequest) -> Option<Scripted> {
+        let mut shaped = self.shaped.lock().unwrap();
+        let hit = shaped
+            .iter()
+            .position(|(tool, _)| req.tools.iter().any(|t| t["name"] == tool.as_str()));
+        if let Some(i) = hit {
+            return Some(shaped.remove(i).1);
+        }
+        drop(shaped);
+        self.script.lock().unwrap().pop_front()
     }
 }
 
@@ -1557,7 +1627,7 @@ impl Provider for FakeProvider {
             if let Some(e) = &self.fail_with {
                 return Err(e.clone().into());
             }
-            let mut next = self.script.lock().unwrap().pop_front();
+            let mut next = self.next_answer(req);
             let mut billed = None;
             match next {
                 Some(Scripted::Billed { usage, then }) => {
@@ -1647,6 +1717,71 @@ impl Provider for FakeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One call on the fake, with the tools named: its answer's text.
+    async fn ask(fake: &FakeProvider, tools: &[&str]) -> String {
+        let req = ProviderRequest {
+            model: "m".into(),
+            messages: vec![serde_json::json!({"role": "user", "content": []})],
+            tools: tools
+                .iter()
+                .map(|t| serde_json::json!({"name": t}))
+                .collect(),
+            ..Default::default()
+        };
+        let mut sink = |_: Delta<'_>| {};
+        let got = fake.stream_message(&req, &mut sink).await.unwrap();
+        // Every block, as a name for a tool call or the text itself.
+        got.content
+            .iter()
+            .map(|b| match b["type"].as_str() {
+                Some("tool_use") => format!("call:{}", b["name"].as_str().unwrap_or_default()),
+                _ => b["text"].as_str().unwrap_or_default().to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    /// The class fix (theseus-core's people rigs): the answer scripted for
+    /// the request that carries a tool reaches that request, though another
+    /// call came first and was scripted second. Positional, the turn's own
+    /// call would take the extraction's answer. Measured at the extraction
+    /// cut at its cap, 6 of 40 runs on a starved CPU, and never yet seen at
+    /// its siblings (`tests.rs`' unforced-tool test, which an earlier note
+    /// put at :705 though the file ends before it, now at :646 of its base).
+    #[tokio::test]
+    async fn an_answer_scripted_for_a_tool_reaches_the_request_that_carries_it() {
+        let fake = FakeProvider::default();
+        fake.when_tool("propose_people", Scripted::text("the extraction's answer"));
+        fake.script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::text("the turn's answer"));
+        // The turn's call comes second to the script and first to the fake.
+        let turn = ask(&fake, &["fs.read"]).await;
+        let extraction = ask(&fake, &["propose_people"]).await;
+        let at = fake
+            .requests()
+            .iter()
+            .position(|q| q.tools.iter().any(|t| t["name"] == "propose_people"));
+        assert_eq!(
+            at,
+            Some(1),
+            "the extraction's call was #{at:?}, want #Some(1)"
+        );
+        assert_eq!(extraction, "the extraction's answer", "turn got {turn:?}");
+        assert_eq!(turn, "the turn's answer");
+        // A rule answers once: the next call takes the plain reply.
+        assert_eq!(ask(&fake, &["propose_people"]).await, "fake reply");
+    }
+
+    #[tokio::test]
+    async fn without_a_shaped_rule_answers_still_arrive_in_queue_order() {
+        let fake = FakeProvider::scripted(vec![Scripted::text("first"), Scripted::text("second")]);
+        assert_eq!(ask(&fake, &["propose_people"]).await, "first");
+        assert_eq!(ask(&fake, &["fs.read"]).await, "second");
+        assert_eq!(ask(&fake, &["fs.read"]).await, "fake reply");
+    }
 
     #[test]
     fn a_cut_answer_is_named_by_one_test_and_one_phrase() {
@@ -1810,6 +1945,48 @@ mod tests {
             Some("{\"path\": \"/x")
         );
         assert_eq!(thinking_of(&out.content), "Plan.");
+    }
+
+    /// The canary's header (theseus-ig13o): on every first-party thinking
+    /// call, beside whatever betas the request itself asked for, and off
+    /// everywhere it could not be read. It is NOT in `ProviderRequest`, so a
+    /// fallback's request still equals the one it repeats (`tests_fallback`)
+    /// and a recorded request still replays byte for byte (`own_bench`).
+    #[test]
+    fn the_binding_beta_rides_every_first_party_thinking_call() {
+        let anthropic = "https://api.anthropic.com";
+        let thinking = || {
+            let mut r = ProviderRequest::simple("claude-sonnet-5-5", 10, "hi");
+            r.thinking = Some(serde_json::json!({"type": "adaptive", "display": "summarized"}));
+            r
+        };
+
+        // Alone on a plain thinking call.
+        assert_eq!(
+            beta_header(anthropic, &thinking()).as_deref(),
+            Some(BETA_THINKING_BINDING)
+        );
+        // Beside the request's own, and after them.
+        let mut with_own = thinking();
+        with_own.betas = vec!["server-side-fallback-2026-07-01".into()];
+        assert_eq!(
+            beta_header(anthropic, &with_own).as_deref(),
+            Some("server-side-fallback-2026-07-01,thinking-binding-controls-2026-08-01")
+        );
+        // Not where the response would never carry the field.
+        assert_eq!(
+            beta_header("https://api.z.ai/api/anthropic", &thinking()),
+            None
+        );
+        // Not on a call with no thinking to bind, which still sends its own.
+        let mut no_thinking = ProviderRequest::simple("m", 10, "hi");
+        assert_eq!(beta_header(anthropic, &no_thinking), None);
+        no_thinking.betas = vec!["b1".into()];
+        assert_eq!(beta_header(anthropic, &no_thinking).as_deref(), Some("b1"));
+
+        // The request itself is untouched: the canary is the call's, not its.
+        assert!(thinking().betas.is_empty());
+        assert!(is_first_party(anthropic) && !is_first_party("http://127.0.0.1:1"));
     }
 
     #[test]
