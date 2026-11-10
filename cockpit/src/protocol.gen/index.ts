@@ -128,6 +128,7 @@ export type * from './ContextDetoured';
 export type * from './ContextExplainParams';
 export type * from './ContextExplainResult';
 export type * from './ContextFileRef';
+export type * from './ContextLevel';
 export type * from './ContextPart';
 export type * from './ContextSource';
 export type * from './ContextStatus';

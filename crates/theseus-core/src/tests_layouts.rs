@@ -785,7 +785,7 @@ fn a_format_28_store_opens_with_no_standing_records_and_takes_them() {
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     // This build's format: the move is made by the first write of any build.
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(
@@ -837,7 +837,7 @@ fn a_format_29_store_starts_its_chain_over_the_rows_it_holds() {
         ))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     let after = theseus_store::chain_walk::verify(store.inner().as_ref(), None, None).unwrap();
     assert!(after.broken.is_none(), "{after:?}");
     assert_eq!((after.rows, after.unchained), (2, 1));
@@ -892,7 +892,7 @@ fn a_format_29_store_opens_with_no_forks_and_takes_one() {
     }));
     store.put_session(&fork.session_id, &fork).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let origin = crate::fork::origin_of(&again, &fork.session_id)
@@ -965,7 +965,7 @@ fn a_format_32_store_opens_with_no_threads_and_takes_them() {
         .write(&store, |_| Ok(vec![t.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let board = crate::threads::Threads::default().all(&again).unwrap();
@@ -1051,7 +1051,7 @@ fn a_format_33_store_opens_with_its_failure_undismissed_and_takes_the_dismissal(
     assert_eq!(kernel.execution(id).unwrap().unwrap().dismissal(), None);
     kernel.dismiss_execution(id).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(kernel);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
@@ -1116,7 +1116,7 @@ fn a_format_33_store_opens_and_takes_a_stamped_compilation() {
         .scoped(&c.session_id)])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     assert_eq!(again.get_compilation(&c.id).unwrap().unwrap(), c);
@@ -1163,7 +1163,7 @@ fn a_format_46_store_opens_with_its_nodes_and_takes_a_moved_range() {
     );
     store.append(&[note.record().unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let nodes = again.transcript(&sid).unwrap();
@@ -1241,7 +1241,7 @@ fn a_format_33_store_with_standing_records_takes_a_surface_scope() {
         .write(&store, |_| Ok(vec![next.clone()]), |_, _| Ok(vec![]))
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let all = crate::standing::Board::default().all(&again).unwrap();
@@ -1307,7 +1307,7 @@ fn a_format_39_store_opens_and_takes_a_pre_image() {
     let p: crate::rewind::PreImage = serde_json::from_str(PRE_IMAGE_AT_40).unwrap();
     store.append(&[p.record(0).unwrap()]).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let rows = crate::rewind::rows(&again, "ses_harbour").unwrap();
@@ -1384,7 +1384,7 @@ fn a_format_33_store_opens_with_no_headers_and_takes_one() {
         ])
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let lib = crate::prefix::Library::default();
@@ -1458,7 +1458,7 @@ fn a_format_33_store_opens_with_no_hands_and_takes_them() {
         .put_meta(&crate::extend::broker::book_key("tidewc"), &book)
         .unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
 }
 
 /// A task from before projects reads as a plain item, with no date and no
@@ -1555,7 +1555,7 @@ fn a_format_51_session_reads_its_open_view_data_as_empty_content_flags() {
     // The first write moves the manifest.
     store.put_session(&read.session_id, &read).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
 }
 
 /// Test of theseus-gyjyo.3: a store of format 52 holds a session whose labels
@@ -1599,7 +1599,7 @@ fn a_format_52_session_reads_its_labels_with_no_judgment() {
     );
     store.put_session(&read.session_id, &read).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
 }
 
 /// Test of theseus-gyjyo.7: a store of format 53 holds a session whose `data`
@@ -1649,7 +1649,7 @@ fn a_format_53_session_with_a_mark_reads_it_ignored_and_drops_it() {
     );
     store.put_session(&read.session_id, &read).unwrap();
     let moved: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-    assert_eq!(moved["format"], 57);
+    assert_eq!(moved["format"], 58);
     drop(store);
     let again = crate::store::Store::open(&path).unwrap();
     let back: SessionRecord = again.get_session(&old.session_id).unwrap().unwrap();
