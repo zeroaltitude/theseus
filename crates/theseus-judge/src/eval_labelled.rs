@@ -261,15 +261,23 @@ mod tests {
     }
 
     /// `content.v4`'s set is v3's, case for case and in order, **verbatim**, plus
-    /// the ten pairs its wording exists for (theseus-3i6d1): the bar moved from
+    /// the eleven pairs its wording exists for (theseus-3i6d1): the bar moved from
     /// "is it personal" to "is this specifically sensitive information that would
     /// not be appropriate to be publicly shared", and the only way to measure that
     /// is a clean member and a flagged one that differ by one clause. A favourite
     /// animal against a prescription; an amateur orchestra against a recovery
     /// group; a dog's name against a seizure disorder. **Every clean member is
     /// matched by a flagged one**, so a classifier that simply stopped answering
-    /// `personal` would fail ten cases here rather than pass twenty: that pairing
-    /// is the point, not a convention.
+    /// `personal` would fail eleven cases here rather than pass twenty-two: that
+    /// pairing is the point, not a convention.
+    ///
+    /// The eleventh pair came after the other ten and from a different source: the
+    /// first ten are the owner's own words, and `pair_personal_16` is the owner's
+    /// ledger. The item that actually raised the card carried no conversational
+    /// line at all, so none of the ten was the shape that failed, and the set
+    /// needed a pair whose only person-shaped content is a path under a home
+    /// directory. `content_v4s_host_output_pair_is_the_shape_the_ledger_measured`
+    /// holds what that pair has to keep being.
     #[test]
     fn content_v4s_set_keeps_every_v3_case_verbatim_and_adds_the_sensitivity_pairs() {
         let (v3, v4) = (set("content.v3").unwrap(), set("content.v4").unwrap());
@@ -279,11 +287,11 @@ mod tests {
             assert_eq!(a.input, b.input, "{}: v3's input changed", a.name);
             assert_eq!(a.expect, b.expect, "{}: v3's expectation changed", a.name);
         }
-        assert_eq!(v4.len(), v3.len() + 20);
-        // The ten new pairs, each with both members, and the new cases are only
+        assert_eq!(v4.len(), v3.len() + 22);
+        // The eleven new pairs, each with both members, and the new cases are only
         // those pairs.
         let new: Vec<&LabelledCase> = v4.iter().skip(v3.len()).collect();
-        for n in 6..=15 {
+        for n in 6..=16 {
             for member in ["flagged", "clean"] {
                 let name = format!("pair_personal_{n}_{member}");
                 assert!(new.iter().any(|c| c.name == name), "{name}");
@@ -291,10 +299,10 @@ mod tests {
         }
         assert_eq!(
             new.len(),
-            20,
-            "the new cases are the ten pairs and nothing else"
+            22,
+            "the new cases are the eleven pairs and nothing else"
         );
-        // The halves balance: ten that must fire, ten that must not. A set whose
+        // The halves balance: as many that must fire as must not. A set whose
         // clean members outnumbered its flagged ones would reward an always-off
         // classifier.
         let fired = new
@@ -305,7 +313,7 @@ mod tests {
             .iter()
             .filter(|c| c.expect.get("personal").map(String::as_str) == Some("no"))
             .count();
-        assert_eq!((fired, quiet), (10, 10), "ten must fire, ten must not");
+        assert_eq!((fired, quiet), (11, 11), "as many must fire as must not");
         // Each new case states the fields the daemon sends, as v3's do.
         for c in &new {
             for field in ["author", "place", "project", "context"] {
@@ -342,6 +350,150 @@ mod tests {
         assert!(planted.expect.values().all(|v| v == "no"));
         let names: std::collections::BTreeSet<&str> = v4.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names.len(), v4.len(), "names are unique");
+    }
+
+    /// `pair_personal_16` is the one pair in the set that comes from a
+    /// measurement rather than from a sentence, and this test holds the three
+    /// things that make it that pair.
+    ///
+    /// **Why it exists.** The row the line was opened about is `kind:
+    /// tool_result`, `source: proc.run`, and its result is 414 characters of
+    /// clock, mount-table, inode, cache-size and pressure output. The sentence the
+    /// owner had planted in the conversation **is not in it**. So the classifier
+    /// did not over-read a person's chatter echoed into a program's output -- which
+    /// is what `pair_personal_15` supposes and what every other pair here is
+    /// about -- it over-read **an account name inside a filesystem path**, which
+    /// the old question's `yes` list swallowed as an identity attribute and a
+    /// location. Nothing else in the set is that shape: strip the conversational
+    /// line out of `pair_personal_15` and no case remains.
+    ///
+    /// **What it must keep being**, because each clause is a way the pair could
+    /// quietly stop measuring anything:
+    ///
+    /// 1. **One differing line.** If an edit changed any line but the `du` target,
+    ///    the pair would be measuring two things and attributing the result to
+    ///    one.
+    /// 2. **No conversational line in either member.** A `cat` of someone's notes
+    ///    put back into the clean member would make it `pair_personal_15` again and
+    ///    the measured shape would be gone from the set.
+    /// 3. **The input reaches the wording that changed.** The pair is worth nothing
+    ///    if the question it draws is not the narrowed one, so it is prepared and
+    ///    asked here, against v4 and against v3, and the two questions must differ.
+    ///    This is the only assertion in the crate that ties a case to the wording
+    ///    it was written to measure; `tests_content_v4` holds the wording itself,
+    ///    which is a different claim.
+    ///
+    /// **What this test does NOT do, stated so nobody reads it as more than it
+    /// is.** It does not judge. Whether v4 actually answers the clean member `no`
+    /// where v3 answered `yes` is one live call per case against the probe, and no
+    /// deterministic test can stand in for it. This test proves the instrument is
+    /// pointed at the right thing; the reading is still owed.
+    #[test]
+    fn content_v4s_host_output_pair_is_the_shape_the_ledger_measured() {
+        let v4 = set("content.v4").unwrap();
+        let case = |n: &str| {
+            v4.iter()
+                .find(|c| c.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+        };
+        let (flagged, clean) = (
+            case("pair_personal_16_flagged"),
+            case("pair_personal_16_clean"),
+        );
+        let text = |c: &LabelledCase| c.input["text"].as_str().unwrap().to_owned();
+
+        // Both members are a program's output, not anybody's words.
+        for c in [flagged, clean] {
+            assert_eq!(c.input["kind"], "tool_result", "{}", c.name);
+            let source = c.input["source"].as_str().unwrap();
+            assert!(source.starts_with("proc.run"), "{}: {source}", c.name);
+            assert!(
+                source.contains("df"),
+                "{}: not a disk report: {source}",
+                c.name
+            );
+        }
+
+        // 1. The members differ in exactly one line, and it is the `du` target.
+        let (f, c) = (text(flagged), text(clean));
+        let (fl, cl): (Vec<&str>, Vec<&str>) = (f.lines().collect(), c.lines().collect());
+        assert_eq!(fl.len(), cl.len(), "the members are not the same report");
+        let differing: Vec<usize> = (0..fl.len()).filter(|&i| fl[i] != cl[i]).collect();
+        assert_eq!(
+            differing.len(),
+            1,
+            "the members differ in {} lines, not one: {:?}",
+            differing.len(),
+            differing
+                .iter()
+                .map(|&i| (fl[i], cl[i]))
+                .collect::<Vec<_>>()
+        );
+        let d = differing[0];
+        for line in [fl[d], cl[d]] {
+            assert!(
+                line.contains("/Users/owner/"),
+                "the one differing line is not the du target: {line:?}"
+            );
+        }
+        // And the difference is a real one: the flagged target names a health
+        // matter and the clean one does not. Two innocuous targets would pass
+        // every assertion above and measure nothing.
+        assert!(
+            fl[d].contains("neurology"),
+            "the flagged du target names nothing sensitive: {:?}",
+            fl[d]
+        );
+        assert!(
+            !cl[d].contains("neurology"),
+            "the clean du target is the flagged one: {:?}",
+            cl[d]
+        );
+
+        // 2. Neither member carries a conversational line: that is the whole
+        // difference between this pair and the ten that came from the owner's
+        // words, and it is what the ledger measured.
+        for (name, body) in [(&flagged.name, &f), (&clean.name, &c)] {
+            for cue in ["cat ", "reminders", "praying mantis", "cinema"] {
+                assert!(
+                    !body.contains(cue),
+                    "{name}: a conversational line is back in the measured pair ({cue:?})"
+                );
+            }
+        }
+        // Its only person-shaped content is a path under the stand-in's home.
+        assert!(c.contains("/Users/owner/.cache"), "{c}");
+
+        // 3. The input reaches the question v4 changed, and v3 asks it something
+        // else. Asked through `prepare`/`ask`, as the daemon asks it.
+        let asked_personal = |pack: &str| -> String {
+            let p = by_name(pack).unwrap();
+            let input = Input::parse(p.builder, &clean.input.to_string())
+                .unwrap_or_else(|e| panic!("{pack}: {e}"));
+            let prepared = prepare(&p, &input, &NoScrub).unwrap();
+            let a = p
+                .ask(&prepared.dynamic)
+                .into_iter()
+                .find(|a| a.def == "personal" || a.id == "personal")
+                .unwrap_or_else(|| panic!("{pack}: personal is not asked of a tool result"));
+            match a.question {
+                crate::client::Question::Choice { instructions, .. } => instructions,
+                other => panic!("{pack}: personal is not a choice: {other:?}"),
+            }
+        };
+        let (v4q, v3q) = (asked_personal("content.v4"), asked_personal("content.v3"));
+        assert!(
+            v4q.contains(
+                "specifically sensitive information about a person that would not be \
+                 appropriate to be publicly shared"
+            ),
+            "the measured pair is not asked v4's question: {v4q}"
+        );
+        assert!(
+            v3q.contains("does it reveal a person's private information"),
+            "v3 no longer asks the question this pair exists to move away from: {v3q}"
+        );
+        assert_ne!(v4q, v3q, "v4 and v3 ask this pair the same question");
     }
 
     /// v4's new cases carry no real home directory either, for the same reason
