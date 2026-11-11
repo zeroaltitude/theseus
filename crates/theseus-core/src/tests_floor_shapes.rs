@@ -186,6 +186,163 @@ async fn the_floor_holds_what_a_terminal_is_told_to_type() {
     assert!(!floor, "an ordinary line is not held: {reason}");
 }
 
+/// **The PROGRAMS a terminal is told to type, which is the half this row
+/// closes.** Everything above was already in place and
+/// `term.send {text:"op item get x --reveal\n"}` into a `term.open
+/// {argv:["bash"]}` was still `floor=false fails_open=true` — a live path to
+/// the 1Password CLI with the floor open, measured by the round-3 reviewer at
+/// 02:25 on 2026-11-11 (R3-E) and by round 2 at 23:28 before it. The floor
+/// saw the paths the typed text NAMES and never the programs it RUNS, because
+/// `floor_view` tagged every `plan.lines` entry `runs_it = false` and
+/// `argvs.extend(inner)` sat behind that one `bool`.
+///
+/// **It is closed with no shell-name list**, which is the thing the previous
+/// builder thought impossible: `shell_argvs` already derived
+/// `[["op","item","get","x","--reveal"]]` from the typed text with no program
+/// name consulted anywhere, including the leading-assignment case. The
+/// terminal's own argv is never read for this — keying on it IS the list.
+///
+/// **The cost, and it is the point of the second half of this test.** Handed
+/// text is read at a command's FIRST word only (`prefix_match`), not at every
+/// program position as a line the call runs is (`runs_program`), because
+/// prose is the common case of text typed at a prompt and the uncommon case
+/// of a command we chose to run. So `op item get …` typed waits for a yes and
+/// `we should op out of that plan` does not. Both halves are asserted: a
+/// floor that fires on prose is a floor the owner turns off.
+#[tokio::test]
+async fn the_floor_holds_the_programs_a_terminal_is_told_to_type() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    let typed = |text: &str, program: &str| Plan {
+        summary: format!("type into terminal t1, which runs `{program}`"),
+        resources: vec![Resource {
+            path: r.root.clone(),
+            access: Access::Exec,
+        }],
+        argv: Some(vec![program.to_string()]),
+        lines: vec![text.to_string()],
+        ..Default::default()
+    };
+    for (what, text, program) in [
+        // The round-3 reviewer's own reproduction, verbatim.
+        ("the 1Password CLI typed", "op item get x --reveal\n", "bash"),
+        ("Theseus's own binary typed", "theseusd --config /tmp/x.toml\n", "bash"),
+        // The terminal need not be a shell: the gate does not know what the
+        // program on the far end will do with the text, and that is the
+        // over-hold this row accepts rather than the list it refuses.
+        ("the 1Password CLI typed into a REPL", "op item get x\n", "python3"),
+        ("a leading assignment before it", "OP_ACCOUNT=y op item get x\n", "bash"),
+        ("the second command of a typed chain", "cd /tmp; op item get x\n", "bash"),
+    ] {
+        let (floor, fails_open, reason) = decide_plan(&r, &typed(text, program));
+        assert!(floor, "{what} is not held: {reason}");
+        assert!(!fails_open, "a self session types {what} anyway: {reason}");
+    }
+    // The other side, and the reason the width differs from a run line's.
+    for (what, text) in [
+        ("an ordinary line", "cargo test\n"),
+        ("prose that mentions the vault's CLI", "we should op out of that plan\n"),
+        ("prose that mentions the daemon", "the theseusd unit is up again\n"),
+        ("a health check for the daemon", "grep -c theseusd depart.log\n"),
+    ] {
+        let (floor, _, reason) = decide_plan(&r, &typed(text, "bash"));
+        assert!(!floor, "{what} typed is held and should not be: {reason}");
+    }
+}
+
+/// **A wrapper no longer hides a floored program, and `find -exec` does not
+/// either.** `floor_argv` matched an argv's FIRST word and nothing else since
+/// the floor existed, so eight wrappers that the path floor is proof against
+/// (`WRAPPERS`, this file's own first generator axis) walked the program floor
+/// straight through — on this branch's parent and on main alike, which is why
+/// it is a line of its own and not a regression of the floor-shapes row.
+///
+/// Every case here reaches the real 1Password CLI or Theseus's own binary,
+/// and every one was `floor=false fails_open=true` when the round-3 reviewer
+/// measured it (R3-B, `b6-floorshapes-recut-2-review.md` §6.3).
+#[tokio::test]
+async fn a_wrapper_does_not_hide_a_floored_program() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    let root = r.root.to_string_lossy().into_owned();
+    for (what, input) in [
+        // A wrapper in front of the program, as a line and as the call's own
+        // argv. Nothing says list-free that `nohup` execs its tail, so the
+        // floor reads every position a program can stand in instead.
+        ("nohup, as a line", json!({"command": "nohup op item get x --reveal"})),
+        ("env, as a line", json!({"command": "env op item get x --reveal"})),
+        ("env -i, which puts it at argv[2]", json!({"command": "env -i op item get x"})),
+        ("timeout, which puts it after a number", json!({"command": "timeout 5 op item get x"})),
+        ("setsid", json!({"command": "setsid theseusd --config /tmp/x.toml"})),
+        ("xargs on the far side of a pipe", json!({"command": format!("find {root} -maxdepth 0 | xargs op item get x")})),
+        ("a wrapper in the call's own argv", json!({"argv": ["nohup", "op", "item", "get", "x", "--reveal"]})),
+        ("a wrapper in a step's argv", json!({"steps": [{"argv": ["timeout", "5", "op", "item", "get", "x"]}]})),
+        // `find -exec` and `-execdir`: a flag introduces the PROGRAM and its
+        // arguments are find's own argv words, so the line the flag key reads
+        // is one word and a one-word line is deliberately not a program. The
+        // floor's MATCH is what answers this, not the line rule.
+        ("find -exec, as a line", json!({"command": format!("find {root} -maxdepth 0 -exec op item get x --reveal {{}} ;")})),
+        ("find -exec, as the call's own argv", json!({"argv": ["find", &root, "-maxdepth", "0", "-exec", "op", "item", "get", "x", "--reveal", ";"]})),
+        ("find -execdir", json!({"command": format!("find {root} -maxdepth 0 -execdir op item get x ;")})),
+        ("find -exec Theseus's own binary", json!({"command": format!("find {root} -maxdepth 0 -exec theseusd --config /tmp/x.toml {{}} ;")})),
+    ] {
+        let (floor, fails_open, reason) = decide(&r, "proc.run", input);
+        assert!(floor, "{what} reaches a floored program unheld: {reason}");
+        assert!(!fails_open, "a self session runs {what} anyway: {reason}");
+    }
+    // The control that says the match did not simply become "the word appears
+    // anywhere": an ordinary `find -exec` sweep, and the pattern cases round
+    // 2 filed as false positives, are all still clear.
+    for (what, input) in [
+        ("an ordinary find -exec sweep", json!({"command": format!("find {root} -name '*.rs' -exec grep -l fn {{}} +")})),
+        ("a log grep for the daemon", json!({"command": format!("grep -c theseusd {root}/depart.log")})),
+        ("a health check through a pipe", json!({"command": "ps -ef | grep -c theseusd"})),
+    ] {
+        let (floor, _, reason) = decide(&r, "proc.run", input);
+        assert!(!floor, "{what} is held and should not be: {reason}");
+    }
+}
+
+/// **The over-hold reading every program position buys, sized rather than
+/// asserted away.** A bare `op` or `theseusd` WORD standing anywhere in a
+/// command the call RUNS holds it, because nothing distinguishes `nohup op`
+/// from a list of words without knowing that `nohup` execs its tail — and
+/// knowing that is the list this floor refuses to keep.
+///
+/// Both lines below are this repository's own (`scripts/repro.sh`,
+/// `scripts/build.sh`), so the cost is real and not hypothetical: an operator
+/// who types one of them at `proc.run` gets one approval. `floor_argv` holds
+/// two entries, so that is the whole blast radius, and it is the same trade,
+/// in the same direction, as `the_over_hold_this_row_accepts_is_pinned`.
+///
+/// A sharper rule is possible and is NOT taken here: a command whose first
+/// word is a shell KEYWORD (`for`, `in`, `case`) puts its later words in no
+/// program position at all. That is a list of POSIX reserved words rather
+/// than of shell implementations, so it is a real candidate — it is left as a
+/// line because nothing here measures which keywords matter, and a list
+/// added without measurement is how this floor got its first hole.
+#[tokio::test]
+async fn a_word_list_naming_a_floored_program_is_held() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    for (what, input) in [
+        (
+            "a for-loop over the shipped binaries (scripts/repro.sh)",
+            json!({"command": "for b in theseus theseusd theseus-index; do echo $b; done"}),
+        ),
+        (
+            "an echo that names both floored programs",
+            json!({"command": "echo theseusd op"}),
+        ),
+    ] {
+        let (floor, fails_open, reason) = decide(&r, "proc.run", input);
+        assert!(
+            floor && !fails_open,
+            "{what} is no longer held. That is an IMPROVEMENT if the floor can now tell a word \
+             list from a wrapper's command without a list of program names -- say how in the row \
+             and delete this case. It is a REGRESSION if the match stopped reading anything but \
+             an argv's first word, which is `nohup op item get x --reveal`: {reason}"
+        );
+    }
+}
+
 /// Deliverable 2, the `mcp:` half: an MCP call's arguments are the only part
 /// of it we can read at all, so a string of them that names a floored path
 /// holds the call.
@@ -938,7 +1095,19 @@ const INTERPRETERS: &[(&[&str], &[&str], &str)] = &[
     // on the flag.
     (&["env"], &["-S"], r#"bash -c "printf x >> PATH""#),
     // The residue below: code in an argument NO FLAG introduces.
+    //
+    // `awk` is THREE executables and a multicall binary, not one program, and
+    // `RESIDUE` named only the spelling `awk` until B6c's
+    // floor-reads-programs row: `gawk`, `mawk` and `busybox awk` all execute
+    // an awk program and all three are real on this project's hosts, so each
+    // ran unheld AND outside the declared residue set — the instrument said
+    // nothing about them either way, which is the part that mattered. On a
+    // host that has only one of them the others simply do not execute and the
+    // oracle asks nothing of the floor for them.
     (&["awk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
+    (&["gawk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
+    (&["mawk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
+    (&["busybox", "awk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
     (
         &["php"],
         &["-r"],
@@ -976,7 +1145,15 @@ const INTERPRETERS: &[(&[&str], &[&str], &str)] = &[
 /// generator could not see any of them because the attached form was outside
 /// its axes by construction. **Adding a row or an axis here is how the next
 /// one gets asked about, and that is a procedure rather than a proof.**
-const RESIDUE: [&str; 3] = ["awk", "php -r", "node -p"];
+/// **`awk` is three binaries and `is_residue` matched one spelling.** It
+/// tests `label == res || label.ends_with(" {res}")`, so `busybox awk` and
+/// `nohup busybox awk` were already covered by the trailing-space form while
+/// `gawk` and `mawk` matched neither — and since neither was in
+/// `INTERPRETERS` either, the generator never ran them and the gap was
+/// invisible rather than declared. Both spellings are named now; the suffix
+/// form still cannot confuse them, because `nohup gawk` does not end with
+/// `" awk"`.
+const RESIDUE: [&str; 5] = ["awk", "gawk", "mawk", "php -r", "node -p"];
 
 /// Did this argv really run its line? The floored file's length answers it,
 /// which is why the oracle needs no opinion about what a shell is: the

@@ -247,6 +247,17 @@ impl Tool for Send {
             // 2026-11-10, proven as `b6floor-probe.sh`). Until this line,
             // `term.open {argv:["bash"]}` and then a typed command reached
             // Theseus's own state with nothing asked and nothing said.
+            //
+            // Since B6c's floor-reads-programs row it gives the floor the
+            // PROGRAMS of the commands in the text too, at a command's first
+            // word: with everything above already in place,
+            // `term.send {text:"op item get x --reveal\n"}` was still
+            // `floor=false fails_open=true`, because the floor saw the paths
+            // the text NAMES and not the programs it RUNS (the round-3
+            // reviewer's R3-E; `policy::floor_view` is where the width of
+            // each is decided). The terminal's own `argv` is NOT what answers
+            // that — keying on it is the list of shell names the floor-shapes
+            // row deleted — so nothing here reads it for that purpose.
             lines: a.text.iter().cloned().collect(),
             ..Default::default()
         })
