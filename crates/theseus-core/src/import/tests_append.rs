@@ -799,12 +799,15 @@ async fn an_insertion_that_renumbers_is_refused_and_named() {
     let r = live();
     let c = &r.core;
     import(c, lines(&[sync(40, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    // Every stored message is still here (the insertion is the only new
+    // one): anchor::find's own "insertion" reason, not moved()'s generic
+    // renumbering sentence it used to be reported as.
     let t = [0, 1, 2, 90, 3, 4, 5, 6, 7, 8, 9];
     refused_and_untouched(
         c,
         40,
         with_texts(40, "openclaw-sync-2026-11", &t),
-        "message 4 holds what stored message 3 held",
+        "an insertion",
     )
     .await;
 }
@@ -891,12 +894,13 @@ async fn a_content_anchor_that_is_not_certain_is_refused() {
     let r = live();
     let c = &r.core;
     import(c, lines(&[sync(45, TAG, &(0..10).collect::<Vec<u32>>())])).await;
-    // One digest in common, at another idx: no run, no anchor.
+    // One digest in common, at another idx: the stored pair never runs
+    // together in this episode at all.
     refused_and_untouched(
         c,
         45,
         with_texts(45, "openclaw-sync-2026-11", &[90, 91, 9, 92]),
-        "renumbered",
+        "not together",
     )
     .await;
     // The stored last two, twice: which one is the stored end?
@@ -904,15 +908,16 @@ async fn a_content_anchor_that_is_not_certain_is_refused() {
         c,
         45,
         with_texts(45, "openclaw-sync-2026-12", &[6, 8, 9, 90, 8, 9, 91]),
-        "renumbered",
+        "occur more than once",
     )
     .await;
-    // A "new" message that is a stored text.
+    // A "new" message after the anchor that is itself a stored text: it
+    // could be the stored message's own copy.
     refused_and_untouched(
         c,
         45,
         with_texts(45, "openclaw-sync-2027-01", &[6, 7, 8, 9, 3]),
-        "renumbered",
+        "a copy cannot be told from it",
     )
     .await;
 }

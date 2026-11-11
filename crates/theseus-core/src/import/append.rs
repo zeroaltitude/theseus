@@ -221,10 +221,10 @@ fn route(stored: &[(u32, String)], e: &Episode) -> std::result::Result<Route, St
         return Err(why);
     }
     let at = first_difference(stored, e);
-    if let Some(moved) = moved(stored, e) {
+    if moved(stored, e).is_some() {
         // The source renumbered: the stored end is read from content.
-        // Refused with `moved`'s words when the content does not settle it.
-        let a = anchor::find(stored, e).map_err(|_| moved)?;
+        // Refused with anchor::find's own words when the content does not settle it.
+        let a = anchor::find(stored, e)?;
         return Ok(route(a.from, Some(at), Default::default(), a.idx_of));
     }
     // The prefix no longer matches in place (a rewrite): the new turns are
