@@ -56,10 +56,14 @@ pub(crate) fn rig(
         for (p, _) in crate::judge::WIRED {
             c.judge.packs.insert((*p).into(), off());
         }
-        // 5 s before (theseus-4vsrz): a replay and the loop tests' calls wait on no
-        // short guard, so a loaded host could spend the budget and lose the verdict.
-        // No test here stages a slow Jev; 30 s is past any run's work.
-        c.judge.total_secs = 30;
+        // 5 s before (theseus-4vsrz): a loaded host could spend the budget and lose
+        // the verdict. The four users of this rig (learning/tests_replay_cases,
+        // learning/tests_replay_onto, tests_audit, tests_backfill; tests_learn_loop
+        // builds via rig_on and is not one) stage no slow Jev. tests_backfill waits on
+        // tests_judge::until_judged, whose guard is 20 s, so the budget must sit
+        // BELOW that guard or the wait ends before the judge's own deadline
+        // (tests_categorize::until_judged's doc). 15 s, as tests_gateway.rs does.
+        c.judge.total_secs = 15;
         tweak(c);
     })
 }
