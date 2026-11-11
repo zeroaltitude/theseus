@@ -63,9 +63,13 @@ Put depth in the design docs.
   across lines), `#[path = "F"]` against the directory holding the declaring file, a `mod N;` inside an inline module against
   `<module dir>/<inline mod>/` and test code when any enclosing inline module is `#[cfg(test)]`, and cargo's `tests/`
   auto-discovery unless `autotests = false`. Each of those four rules is a bug this walk had first, and the figure each cost
-  is in its header and in a test. **`--orphans` (the default) is exact**: a file holding `#[test]` that no declaration
+  is in its header and in a test. **The orphan report is exact, and it has no flag of its own**: the script takes `--sweep`,
+  `--map` and `root` and nothing else, and the orphan report is printed by default and again after `--sweep`'s hits (only
+  `--map` returns before it). It names a file holding `#[test]` that no declaration
   reaches, so the compiler never reads it and those tests never run (today: `crates/theseus-core/src/tests_fan_out_cue.rs`,
-  4 tests, declaration dropped at `0925819c` and the file edited twice since, while `tests_route_family.rs:9` still indexes it as the proof of reader 4's coverage). **`--sweep` is heuristic**: test-code comment
+  4 tests, declaration dropped at `0925819c` and the file edited **once** since without it — `fcfa0b67` re-tuned a bar inside
+  a test the compiler never read, while the earlier `dfefe594` was made on a line that still declared the module — and
+  `tests_route_family.rs:9` still indexes it as the proof of reader 4's coverage). **`--sweep` is heuristic**: test-code comment
   lines carrying a tell of "a test that documents the defect as the design" (`crates/complete.rs`'s third pattern) with no
   row, date, doc or owner quote in the same comment paragraph. Read every hit; "whatever X says" is this codebase's idiom for
   *strengthening* an invariant, so most hits are false. `--map` prints the regions. Its own unit tests run in the gate's `script tests` phase with the others, and each pins one resolution rule the walk got wrong first. **Both reports always exit 0** (a warning,
