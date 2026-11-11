@@ -10,7 +10,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{json, Value};
 use theseus_protocol::{
     CancelVerdict, ConfirmPreview, ConfirmRequest, Event, ExecutionInfo, ExecutionStopResult,
-    ToolDiff, ToolEnded, ToolProposed, ToolStarted,
+    JobKept, ToolDiff, ToolEnded, ToolProposed, ToolStarted,
 };
 
 use super::tests::{Rig, SID, T0};
@@ -63,7 +63,12 @@ fn stop_result(killed: Option<u32>) -> Value {
 /// The quiet daemon of `tests.rs`, whose session has an execution and whose
 /// stop answers with two processes ended.
 fn script() -> Script {
-    Arc::new(|m, _p| -> Answer {
+    script_stopping(stop_result(Some(2)))
+}
+
+/// The same daemon, its stop answering `stop`.
+fn script_stopping(stop: Value) -> Script {
+    Arc::new(move |m, _p| -> Answer {
         Ok(match m {
             "health" => json!({"name": "theseusd", "model": "claude-sonnet-5-5", "profile": "f10"}),
             "session.open" => json!({
@@ -72,7 +77,7 @@ fn script() -> Script {
             }),
             "session.list" => json!({"sessions": []}),
             "session.watch" => json!({"watching": SID, "watchers": 1}),
-            "execution.stop" => stop_result(Some(2)),
+            "execution.stop" => stop.clone(),
             _ => json!({}),
         })
     })
@@ -370,6 +375,117 @@ async fn esc_during_a_turn_stops_it_and_asks_what_to_do_instead() {
     r.ends_turn("trn_1", "");
     r.press(KeyCode::Up).await;
     assert!(r.text().contains("› explain how tides"), "{}", r.text());
+}
+
+/// A stop that reached past the turn: two tasks cancelled, two jobs ended, and
+/// two jobs kept, each on its own approver's word.
+fn stop_that_reached() -> ExecutionStopResult {
+    let mut r: ExecutionStopResult = serde_json::from_value(stop_result(Some(2))).unwrap();
+    r.cancelled = vec!["exe_ses_aaa111".into(), "exe_ses_bbb222".into()];
+    r.left_ended = vec!["j1".into(), "j2".into()];
+    r.left_kept = vec![
+        JobKept {
+            job: "j3".into(),
+            approved_by: "discord:operator".into(),
+        },
+        JobKept {
+            job: "job_9f".into(),
+            approved_by: "the TUI".into(),
+        },
+    ];
+    r
+}
+
+/// Esc under `script_stopping(r)`, then the transcript as one run of words:
+/// a long answer wraps, and a wrap is not a difference.
+async fn esc_answered(r: &ExecutionStopResult) -> String {
+    let mut rig = Rig::with(100, 24, script_stopping(serde_json::to_value(r).unwrap())).await;
+    rig.ready().await;
+    rig.type_text("explain how tides are predicted").await;
+    rig.press(KeyCode::Enter).await;
+    rig.starts_turn("trn_1");
+    rig.shows("◐ thinking").await;
+    rig.press(KeyCode::Esc).await;
+    rig.asked("execution.stop", 1).await;
+    rig.shows("What should it do instead?").await;
+    rig.text().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_says_the_jobs_it_ended_and_how_many() {
+    let mut r = stop_that_reached();
+    (r.cancelled, r.left_kept) = (vec![], vec![]);
+    let said = esc_answered(&r).await;
+    assert!(
+        said.contains(
+            "stopped by you (esc) · verified: 2 processes ended · ended 2 job(s) that had left \
+             something running: j1 j2"
+        ),
+        "{said}"
+    );
+    assert!(
+        !said.contains("kept job") && !said.contains("cancelled 2"),
+        "{said}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_names_who_approved_each_job_it_kept() {
+    let mut r = stop_that_reached();
+    (r.cancelled, r.left_ended) = (vec![], vec![]);
+    let said = esc_answered(&r).await;
+    assert!(
+        said.contains(
+            "verified: 2 processes ended · kept job j3 running, approved by discord:operator \
+             · kept job job_9f running, approved by the TUI"
+        ),
+        "{said}"
+    );
+    assert!(
+        !said.contains("ended 2 job(s)") && !said.contains("cancelled 2"),
+        "{said}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_that_reached_nothing_past_the_turn_says_what_it_always_did() {
+    let mut r = stop_that_reached();
+    (r.cancelled, r.left_ended, r.left_kept) = (vec![], vec![], vec![]);
+    let said = esc_answered(&r).await;
+    assert!(
+        said.contains(
+            "stopped by you (esc) · verified: 2 processes ended What should it do instead?"
+        ),
+        "{said}"
+    );
+    for word in ["cancelled", "job(s)", "kept job"] {
+        assert!(!said.contains(word), "{word}: {said}");
+    }
+}
+
+/// The three surfaces that word a stop must not drift: the chat pane says the
+/// reach of a stop (tasks cancelled, jobs ended, jobs kept and on whose word)
+/// exactly as `theseus stop` prints it, in the same order.
+#[tokio::test(start_paused = true)]
+async fn the_chat_pane_and_theseus_stop_say_the_same_reach() {
+    let r = stop_that_reached();
+    let said = esc_answered(&r).await;
+    let line = theseus_client::render::stop_line(&r);
+    let (_, reach) = line
+        .split_once(" · cancelled ")
+        .expect("the CLI says the cancelled tasks");
+    assert!(
+        said.contains(&format!("cancelled {reach}")),
+        "{said}\n{line}"
+    );
+    // The order is the CLI's: tasks, then ended, then each kept.
+    let at = |w: &str| said.find(w).unwrap_or_else(|| panic!("{w}: {said}"));
+    assert!(
+        at("cancelled 2 task(s): aaa111 bbb222") < at("ended 2 job(s)"),
+        "{said}"
+    );
+    assert!(at("ended 2 job(s)") < at("kept job j3"), "{said}");
+    assert!(at("kept job j3") < at("kept job job_9f"), "{said}");
 }
 
 #[tokio::test(start_paused = true)]

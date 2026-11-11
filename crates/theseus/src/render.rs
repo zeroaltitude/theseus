@@ -1311,27 +1311,38 @@ pub fn stop_line(r: &theseus_protocol::ExecutionStopResult) -> String {
             r.tasks_running, r.wakes_pending
         ));
     }
+    for clause in stop_reach(r) {
+        out.push_str(" · ");
+        out.push_str(&clause);
+    }
+    out
+}
+
+/// What a stop reached past the turn, one clause each, in the order every
+/// surface says it: the tasks it cancelled, the jobs that had left something
+/// running and were ended (theseus-7kha), and each job it kept, on whose
+/// word. The CLI's `stop_line` and the chat pane's answer both take it from
+/// here, so a stop is never silent about it on one and spoken on the other.
+pub fn stop_reach(r: &theseus_protocol::ExecutionStopResult) -> Vec<String> {
+    let mut out = Vec::new();
     if !r.cancelled.is_empty() {
         let shorts: Vec<&str> = r.cancelled.iter().map(|id| id_tail(id)).collect();
-        out.push_str(&format!(
-            " · cancelled {} task(s): {}",
+        out.push(format!(
+            "cancelled {} task(s): {}",
             r.cancelled.len(),
             shorts.join(" ")
         ));
     }
-    // What the turn left running (theseus-7kha): a stop ends it, and says
-    // so, and says what it kept and on whose word. A stop is never silent
-    // about reaching past the turn.
     if !r.left_ended.is_empty() {
-        out.push_str(&format!(
-            " · ended {} job(s) that had left something running: {}",
+        out.push(format!(
+            "ended {} job(s) that had left something running: {}",
             r.left_ended.len(),
             r.left_ended.join(" ")
         ));
     }
     for k in &r.left_kept {
-        out.push_str(&format!(
-            " · kept job {} running, approved by {}",
+        out.push(format!(
+            "kept job {} running, approved by {}",
             k.job, k.approved_by
         ));
     }
