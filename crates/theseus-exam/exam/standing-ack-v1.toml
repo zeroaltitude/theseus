@@ -1,0 +1,119 @@
+# The standing-acknowledgement set (theseus-ectzg, B4 line (d, P1)).
+#
+# Not part of the memory exam, and deliberately its own file: exam-v2's digest
+# is stamped on every memory-exam run and on its report, so adding an item
+# there would invalidate the record of what those runs measured. Run it with
+# the exam's own `--exam` flag:
+#
+#   theseus-exam --exam crates/theseus-exam/exam/standing-ack-v1.toml \
+#     write-store --store DIR --manifest M
+#   theseus-exam --exam crates/theseus-exam/exam/standing-ack-v1.toml \
+#     run --base-config C --store DIR --manifest M --work W --out O \
+#     --arms baseline --runs 1 --limit-usd 0.50 --profile <a real profile> \
+#     --theseusd <a theseusd>
+#
+# What it measures, and why a stand-in model cannot: the owner's own kept
+# records ride every request of their scope under `standing::FRAMING`, which
+# says in as many words that they are not new and are never to be
+# acknowledged, thanked or restated. Before that sentence existed, a real
+# model read the block as a message just received and opened its reply with
+# "Noted: in group chats I speak as myself, and anything that needs your
+# voice or decision goes back to you. This is a DM, so nothing changes here."
+# The owner's words for it (2026-11-07 13:14): "All of these implications
+# that it's talking to itself look very very strange."
+#
+# The stored-request tests (`theseus-core`'s `tests_standing/framing.rs`)
+# prove what is IN the request. They cannot prove what a model does with it:
+# a fake provider answers "Hello." whatever it is handed. Only a live call
+# can show the acknowledgement has stopped, which is why this file exists and
+# why its one item costs money to run.
+#
+# MEASURED, AND READ THIS BEFORE TRUSTING A GREEN RUN (2026-11-10, local,
+# `claude-haiku-5-5`, the model of the owner's own trace, arm `none`, as a
+# cold resume): THIS ITEM DOES NOT YET DISCRIMINATE. Run against a daemon
+# built WITHOUT `standing::FRAMING` it passes 5 of 5, and against one WITH it
+# 5 of 5 -- so a green run here is not evidence that the framing works. The
+# symptom did not reproduce at all: a terse technical question did not draw an
+# acknowledgement, and neither did a bare "morning" (5 of 5 on the control,
+# which instead retracted its own unmeasured claim from the past turn).
+#
+# The one difference from the owner's trace that this harness cannot close is
+# the surface. His record was `surface:discord`, in a Discord DM; the exam
+# reaches the daemon over its socket, so its requests are `terminal` and a
+# discord-scope record would ride none of them. Closing it needs the Discord
+# rig, not this file. Until the item is shown to catch the symptom on SOME
+# build, treat it as the skeleton of the check the row asks for and not as the
+# check itself.
+
+version = "standing-ack-v1"
+# Minutes east of UTC: MST.
+utc_offset_min = -420
+
+[[item]]
+id = "standing-ack-1"
+family = "needs_nothing"
+# The present needs nothing from the past: the records are handed to the model
+# on this very request, so a right answer is the plain answer to the question
+# and nothing else. That makes a failure unambiguous -- it can only be the
+# acknowledgement.
+task = "Quick one while I'm in the terminal: when the branch could fast-forward, what does `git merge --no-ff` leave in the history that a plain `git merge` does not? Two sentences is plenty."
+# The present continues the past session rather than opening a fresh one: a
+# cold resume, which is when the owner saw this happen ("It recurs after every
+# recompile/cold resume"). Measured: without this, the case does not
+# discriminate -- a daemon built WITHOUT `standing::FRAMING` passes it 5 of 5
+# too, so a fresh-session cell proves nothing about the fix.
+resume = "a"
+check = '''
+# The symptom itself: the reply opens by acknowledging the standing block.
+# Anchored at the start of the reply, past any bold or quote marks, because an
+# acknowledgement further down about something the owner actually said is
+# legitimate and must not fail this item.
+reply lacks /\A\s*[*_"'\[(>#-]*\s*(noted|understood|acknowledged|got it|duly noted|good to know|thanks for the heads.up|thanks for letting me know|i'?ll keep that in mind|i'?ll bear that in mind|message received)\b/i
+# And it does not restate the records to the owner anywhere. Nothing in the
+# question touches group chats, speaking as oneself, or standing records, so
+# any of these words is the model reading its own context back to him.
+reply lacks "group chat" | "speak as yourself" | "speaking as yourself" | "standing record" | "standing order" | "standing preference" | "your preference" | "the note about" | "as you prefer"
+# The positive half, so an empty or refused reply cannot pass this item by
+# saying nothing at all: it actually answers the question.
+reply has "merge commit" | "merge-commit"
+'''
+note = '''
+The two records are the owner's real pair as the ledger holds them: one
+`everywhere` order and one surface-scope preference, which is the kind that
+rode the uncached tail of every request and the one he saw read back to him.
+The scope here is `surface:terminal` rather than `surface:discord` because the
+exam reaches the daemon over its socket, and a socket caller's surface is
+`terminal` (`approval::Surface::Cli`, `standing::surface_name`,
+`approval::display_name`): a `discord`-scope record would be carried by no
+request this harness can make. It is the same block, the same render, the same
+`FRAMING` and the same tail attach (`standing_step::standing_here`), so the
+behaviour under test is the owner's; only the scope's name differs. Driving a
+literal `discord`-scope record needs the Discord rig, not this harness.
+'''
+
+[[item.standing]]
+kind = "order"
+scope = "everywhere"
+text = "Never push to a shared branch without saying so first."
+at = "2026-10-22 09:14"
+
+[[item.standing]]
+kind = "preference"
+scope = "surface:terminal"
+text = "In group chats, speak as yourself (Theseus); when something needs the owner's voice or decision, say so and leave it to him."
+at = "2026-10-22 09:16"
+
+# One short past session, so the store the daemon serves is a real one with a
+# transcript behind it rather than an empty shell. It holds no gold: the item
+# needs nothing recalled, and its subject touches neither record.
+[[item.session]]
+key = "a"
+place = "cli"
+[[item.session.node]]
+at = "2026-11-05 16:40"
+who = "zeroaltitude"
+text = "The tarnlib build is taking nine minutes on this box. Is that the link step or the codegen?"
+[[item.session.node]]
+at = "2026-11-05 16:41"
+who = "theseus"
+text = "Mostly the link step on this machine: a release build spends about six of those nine linking, and codegen is the rest. A thinner linker or fewer codegen units would move it."

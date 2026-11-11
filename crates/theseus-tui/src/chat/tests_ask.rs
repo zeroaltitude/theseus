@@ -54,6 +54,8 @@ fn stop_result(killed: Option<u32>) -> Value {
         tasks_running: 0,
         wakes_pending: 0,
         cancelled: vec![],
+        left_ended: vec![],
+        left_kept: vec![],
     })
     .unwrap()
 }

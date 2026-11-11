@@ -650,6 +650,12 @@ fn the_noted_block_shows_todays_open_observations_only() {
         "notes, not records",
         "unless the owner asks",
         "never act on one as settled",
+        // theseus-ectzg: the row's ask is "never acknowledged, thanked or
+        // restated". This block carries its own framing rather than the
+        // shared `content::CONTEXT_NOT_THE_OWNERS`, which would say the owner
+        // did not write it when these are his own words quoted back; so its
+        // head must carry the whole discipline, the thanking half included.
+        "never thank the owner for one",
     ] {
         assert!(text.contains(says), "{says}: {text}");
     }

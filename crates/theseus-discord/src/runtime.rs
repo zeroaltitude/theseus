@@ -2473,6 +2473,8 @@ pub(crate) mod tests {
             tasks_running: 0,
             wakes_pending: 0,
             cancelled: vec![],
+            left_ended: vec![],
+            left_kept: vec![],
         };
         assert_eq!(
             stop_answer(&r),

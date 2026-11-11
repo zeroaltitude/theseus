@@ -239,6 +239,8 @@ mod tests {
             tasks_running: 0,
             wakes_pending: 0,
             cancelled: vec![],
+            left_ended: vec![],
+            left_kept: vec![],
         };
         let plain = stop_words(&r);
         assert_eq!(plain, crate::runtime::stop_answer(&r));

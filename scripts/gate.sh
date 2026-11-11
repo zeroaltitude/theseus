@@ -1293,6 +1293,14 @@ phase "gate tests" gate_tests
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The context-file BYTE ceiling (theseus-4vsrz, B7), beside the line ceiling above and for the same reason: a
+# ceiling nothing measures is a ceiling that is already breached. `context_files::MAX_BYTES` is 64 KiB and the
+# loader silently cuts a context file's tail past it; on 2026-11-10 scripts/AGENTS.md stood 6,374 bytes over
+# and two crate AGENTS.md files far further, with no phase, test or list measuring any of it. HARD, like
+# shape.sh, with the same listed-exceptions discipline (scripts/context-files.txt). A warning phase was
+# considered and rejected: a printed warning is exactly what that file's own "wc -c this file before you add
+# to it" header already was, and it went stale two commits after it was written.
+phase "context ceiling" python3 scripts/context-ceiling.py --quiet
 # The two warning phases, between the file ceiling above and clippy's function ceiling below, and before the
 # compiles so that a branch which reddens clippy's `too_many_lines` already has the near-ceiling list above the
 # failure. Neither can fail the gate (their own comments say why).

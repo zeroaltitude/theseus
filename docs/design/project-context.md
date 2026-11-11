@@ -62,6 +62,18 @@ names the date. So the split follows the fact's lifetime, not its subject:
   tail, through the same attachment every other live block uses, which moves the
   conversation's breakpoint ahead of them: fresh input tokens, no cache invalidated.
 
+That last clause has one consequence worth stating outright, because it is the first
+thing in the harness's tail that is **unconditional**. The task view needs a task in
+scope and the commitments block needs a pending wake, so before this a plain turn
+attached nothing and kept its breakpoint as the request's top-level one. The tail facts
+attach on every turn, so the breakpoint is now **always** moved out of the top level and
+onto the last block the conversation owns. Three things hold, and a test pins each
+(`theseusd/tests/cache_header.rs`): it is still **one** breakpoint, so the provider's
+four are not exceeded; it still covers the same bytes, so nothing that was cached
+stopped being cached; and the blocks that change every turn are still outside it. What
+changed is where the fourth breakpoint is written, not what it buys. A request with
+`[project] tail_facts = false` keeps the top-level one, as every turn did before.
+
 Git state is read through the library the git tools already use, never by shelling out,
 and it is bounded: a failure or a slow read degrades to "unknown" rather than holding
 the turn.

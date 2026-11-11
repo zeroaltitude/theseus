@@ -288,7 +288,9 @@ pub struct Config {
     #[serde(skip)]
     pub config_copy: Option<PathBuf>,
     /// The config file this daemon is serving from (`--config`, `THESEUS_CONFIG`, or the lookup's
-    /// own default): set at startup, never read from the TOML, and canonical. None when the config
+    /// own default): set at startup, never read from the TOML, expanded but not canonicalised --
+    /// `config::expand` is `~` and `$VAR` and the floor canonicalises what it is given, as it does
+    /// the token file and the copy. None when the config
     /// is `op://`, whose file on disk is `config_copy` instead. The floor keeps it, as it
     /// keeps the token file and the copy: everything this file governs -- every posture in
     /// `[policy]`, the roots, `[sandbox] egress`, where the secrets come from -- is otherwise

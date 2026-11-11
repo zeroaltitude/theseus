@@ -14,11 +14,14 @@
 //!
 //! The user-level file is a different thing and is carried live: it is the
 //! owner's own file, under the state directory, with exactly the standing of
-//! `[context] files`, and no grant stands between it and the prompt. It is not
-//! on the tool floor (`toolrun/guarded.rs` floors the store, the spool, the
-//! bindings and the credential paths, not this file), so a tool's `fs.write`
-//! reaches it at the `notify` posture; flooring it is an open question on the
-//! `theseus.toml` line of row theseus-3i6d1.
+//! `[context] files`, and no grant stands between it and the prompt. What
+//! stands between a *tool call* and it is the floor: `toolrun/guarded.rs`
+//! floors `<state_dir>/`[`USER_FILE`] beside the store, the spool, the
+//! bindings and the credential paths (theseus-3i6d1; the owner, 2026-11-10),
+//! so a call naming it waits for his approval at every posture, and a self
+//! session's does not fail open. That is a hold, not a grant: it does not
+//! make the file's text trusted -- it is the owner's own and carried as he
+//! left it -- it makes a *change* to it his.
 //!
 //! FAST: discovery is `stat` alone, two names per directory from the
 //! repository root down to the session's directory, and the reading is the
@@ -41,8 +44,9 @@ pub const NAMES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// The owner's own user-level instruction file, under the state directory.
 /// The design names "one user-level file of the owner's own" (§1) and leaves
 /// its path open; this is Theseus's own directory, so the file needs no
-/// configuration. It is not on the tool floor: a tool's write reaches it at
-/// `notify`, and whether to floor it is the `theseus.toml` line's open question.
+/// configuration. `<state_dir>/AGENTS.md` is on the tool floor
+/// (`toolrun::guarded::guarded_paths`, theseus-3i6d1), so a tool call naming
+/// it waits for the owner's approval whatever the posture says.
 pub const USER_FILE: &str = "AGENTS.md";
 
 /// A discovered instruction file: it exists, it is a regular file, and this

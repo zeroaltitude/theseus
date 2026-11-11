@@ -242,6 +242,11 @@ impl Core {
             )
             .await;
         self.end_terminals_left(id, crate::term::BY_CANCEL).await;
+        // And what its jobs left running (theseus-7kha). A cancel has no
+        // `keep_jobs`: it ends the conversation's work outright, so the only
+        // leftover it spares is an approved detached task.
+        let left_found = self.jobs_left(id);
+        self.end_jobs_left(left_found, by).await;
         // The jobs' last steps and their facts' rows, and what the cancel
         // left unanswered in the transcript (theseus-0o8), in one frame
         // (theseus-dwoj): the calls it stopped are answered where they
@@ -391,17 +396,23 @@ impl Core {
         self.stop_execution_with(id, by, false).await
     }
 
-    /// `stop_execution`, and with `keep_jobs` only the turn and what it waits
-    /// on: the jobs that went on in the background (the ones with a short id)
-    /// and the session's terminals run on (theseus-wy6v.1).
-    pub async fn stop_execution_with(
+    /// What a stop leaves running, read before the kernel's stop: the
+    /// dispatched calls to keep, and what the turn's jobs left running.
+    ///
+    /// With `keep_jobs` it is every job of the session that went on in the
+    /// background (the ones with a short id), and the leftovers are not read
+    /// at all: Esc keeps them along with the terminals (theseus-wy6v.1).
+    /// Otherwise it is the **approved detached tasks** among the leftovers
+    /// (theseus-7kha) -- each such job's action is kept with its process, or
+    /// the kernel would cancel the action of a job the stop leaves running,
+    /// which a background job whose completion the drain has not yet taken
+    /// would hit, its action still `Dispatched`.
+    fn keep_through_stop(
         &self,
         id: &str,
-        by: &str,
         keep_jobs: bool,
-    ) -> Result<theseus_protocol::ExecutionStopResult> {
-        self.runner.stop_landed(id, by);
-        let keep: Vec<String> = match self.kernel.execution(id)?.filter(|_| keep_jobs) {
+    ) -> Result<(Vec<String>, Vec<crate::jobs_left::Leftover>)> {
+        let mut keep: Vec<String> = match self.kernel.execution(id)?.filter(|_| keep_jobs) {
             Some(e) => self
                 .tools
                 .jobs
@@ -412,6 +423,25 @@ impl Core {
                 .collect(),
             None => Vec::new(),
         };
+        if keep_jobs {
+            return Ok((keep, Vec::new()));
+        }
+        let left = self.jobs_left(id);
+        keep.extend(left.iter().filter(|l| l.kept()).map(|l| l.job.clone()));
+        Ok((keep, left))
+    }
+
+    /// `stop_execution`, and with `keep_jobs` only the turn and what it waits
+    /// on: the jobs that went on in the background (the ones with a short id)
+    /// and the session's terminals run on (theseus-wy6v.1).
+    pub async fn stop_execution_with(
+        &self,
+        id: &str,
+        by: &str,
+        keep_jobs: bool,
+    ) -> Result<theseus_protocol::ExecutionStopResult> {
+        self.runner.stop_landed(id, by);
+        let (keep, left_found) = self.keep_through_stop(id, keep_jobs)?;
         let stop = self.kernel.stop_execution_keeping(id, by, &keep)?;
         super::ordered::applied();
         let Some(stop) = stop else {
@@ -429,6 +459,8 @@ impl Core {
                 tasks_running: 0,
                 wakes_pending: 0,
                 cancelled: vec![],
+                left_ended: vec![],
+                left_kept: vec![],
             });
         };
         // The model call the running turn waits on is cut now, and not left to
@@ -453,7 +485,10 @@ impl Core {
             .kernel
             .execution(id)?
             .ok_or_else(|| anyhow::anyhow!("execution {id} vanished"))?;
-        // A stop halts its terminals' programs too (theseus-n88g.4).
+        // A stop halts its terminals' programs too (theseus-n88g.4), and
+        // ends what its jobs left running (theseus-7kha), which `keep_jobs`
+        // spares along with the terminals: Esc stops the turn, not the jobs.
+        let mut left = crate::jobs_left::JobsLeft::default();
         if !keep_jobs {
             self.tools
                 .terms
@@ -464,6 +499,7 @@ impl Core {
                 )
                 .await;
             self.end_terminals_left(id, crate::term::BY_STOP).await;
+            left = self.end_jobs_left(left_found, by).await;
         }
         let tasks_running = self
             .kernel
@@ -494,6 +530,8 @@ impl Core {
             wakes_pending: e.wakes.len() as u32,
             verdicts,
             cancelled: vec![],
+            left_ended: left.ended,
+            left_kept: left.kept,
         })
     }
 

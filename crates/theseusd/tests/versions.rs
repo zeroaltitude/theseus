@@ -256,10 +256,15 @@ fn an_older_binarys_store_serves_at_once_and_moves_to_this_builds_format_at_its_
     // The start's first write, its kernel's startup frame, moved the
     // manifest to this build's format first: an older build now refuses the
     // store (theseus-ptx1). It moves once: a new session moves nothing.
+    //
+    // This number stays a literal on purpose, where the plant below is read
+    // from `MANIFEST_FORMAT` itself: a pin that must EQUAL the build's format
+    // fails loudly at a bump, and the gate says which line to move; a plant
+    // that must stay AHEAD of it goes silently inert instead (theseus-wadu).
     let m = rig.manifest();
     assert_eq!(
         m,
-        json!({"format": 57, "engine": "redb"}),
+        json!({"format": 58, "engine": "redb"}),
         "the start wrote {:?}",
         rig.written_after(LAST)
     );
@@ -274,9 +279,18 @@ fn an_older_binarys_store_serves_at_once_and_moves_to_this_builds_format_at_its_
 #[test]
 fn a_store_of_a_newer_format_is_refused_with_the_message_and_left_as_it_was() {
     let rig = Rig::new();
+    // One format PAST this build's, taken from the build's own number and
+    // never pinned here: a literal stops being newer than the build the
+    // moment the format is bumped to it, and then this test refuses nothing
+    // and still passes. That happened — the plant read 58 while the build
+    // wrote 57, theseus-wadu moved the build to 58, and the daemon served
+    // the "newer" store through a healthy startup while the test sat out its
+    // 40 s waiting for a refusal it was no longer asking for. Written this
+    // way, the guard cannot go inert again at a bump.
+    let newer = theseus_store::store::MANIFEST_FORMAT + 1;
     std::fs::write(
         rig.path("state/store/MANIFEST.json"),
-        r#"{"format": 58, "engine": "redb"}"#,
+        format!(r#"{{"format": {newer}, "engine": "redb"}}"#),
     )
     .unwrap();
     let before = snapshot(&rig.path("state/store"));
@@ -285,12 +299,15 @@ fn a_store_of_a_newer_format_is_refused_with_the_message_and_left_as_it_was() {
     assert!(!status.success(), "it served");
     let log = rig.log();
     for says in [
-        "is format 58",
-        "this build reads formats 2 to 57",
-        "install the newer theseusd",
+        format!("is format {newer}"),
+        format!(
+            "this build reads formats 2 to {}",
+            theseus_store::store::MANIFEST_FORMAT
+        ),
+        "install the newer theseusd".to_string(),
     ] {
         assert!(
-            log.contains(says),
+            log.contains(says.as_str()),
             "{says:?} missing from:\n{}",
             tail(&log, 10)
         );

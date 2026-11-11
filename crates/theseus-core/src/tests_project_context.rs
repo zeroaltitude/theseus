@@ -404,6 +404,123 @@ async fn the_grant_is_reachable_through_the_dispatch_and_judged_as_standing_is()
     assert_eq!(list["trusted"].as_array().map(Vec::len), Some(0), "{list}");
 }
 
+// ---- §4: the date and the git state ride the messages' tail ----
+
+/// Noon UTC on a pinned day, so the owner's local day is that day in every
+/// zone within eleven hours of UTC. The clock is the seam
+/// `theseus_protocol::time`, moved here and put back by the guard.
+struct Pinned;
+impl Drop for Pinned {
+    fn drop(&mut self) {
+        theseus_protocol::time::reset_clock();
+    }
+}
+fn pin_day(days: i64) -> Pinned {
+    theseus_protocol::time::move_clock_to((days as u64) * 86_400_000 + 12 * 3_600_000);
+    Pinned
+}
+
+/// The text blocks of the request's last message, in order, and the index of
+/// the one carrying the cache marker.
+fn tail_of(req: &ProviderRequest) -> (Vec<String>, Option<usize>) {
+    let blocks = req.messages.last().unwrap()["content"]
+        .as_array()
+        .expect("the last message is blocks")
+        .clone();
+    let marked = blocks.iter().position(|b| b.get("cache_control").is_some());
+    let texts = blocks
+        .iter()
+        .map(|b| b["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    (texts, marked)
+}
+
+fn real_repo(dir: &Path) -> bool {
+    use std::process::Command;
+    let run = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Tester")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "Tester")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+    run(&["init", "-q", "-b", "harbour"])
+        && run(&["add", "."])
+        && run(&["commit", "-q", "-m", "first"])
+}
+
+#[tokio::test]
+async fn the_date_and_the_git_state_are_in_the_tail_and_the_prefix_does_not_move() {
+    // 2026-11-10 is day 20,767 since the epoch; the second pin is a month on.
+    let day_a = 20_767i64;
+    let r = rig_with(|c| c.project.tail_facts = Some(true));
+    let dir = r.root.join("tide-gauges");
+    std::fs::create_dir_all(&dir).unwrap();
+    if !real_repo(&dir) {
+        return; // the fixture needs git to build a repository; the read does not
+    }
+    let dir = dir.canonicalize().unwrap();
+
+    let _a = pin_day(day_a);
+    submit(&r.core, &dir).await;
+    drop(_a);
+    let _b = pin_day(day_a + 30);
+    submit(&r.core, &dir).await;
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 2, "one request a submit");
+
+    let (tail, marked) = tail_of(&reqs[0]);
+    let date = tail
+        .iter()
+        .position(|t| t.starts_with("Date: ") && t.contains("2026-11-10"))
+        .unwrap_or_else(|| panic!("no date in the tail: {tail:?}"));
+    assert!(
+        tail[date].contains("Git: branch harbour, tracked files clean"),
+        "{tail:?}"
+    );
+    assert!(
+        marked.is_some_and(|m| m < date),
+        "the breakpoint sits ahead of the facts: marked {marked:?}, facts at {date}"
+    );
+    let (tail_b, _) = tail_of(&reqs[1]);
+    assert!(
+        tail_b.iter().any(|t| t.contains("2026-12-10")),
+        "{tail_b:?}"
+    );
+
+    // Nothing of either fact is in the system, and the system is byte for
+    // byte the same across the two days.
+    for r in &reqs {
+        let sys = serde_json::to_string(&r.system).unwrap();
+        assert!(!sys.contains("Date: ") && !sys.contains("Git: "), "{sys}");
+    }
+    assert_eq!(reqs[0].system, reqs[1].system, "the cached prefix moved");
+}
+
+#[tokio::test]
+async fn a_directory_that_is_no_repository_says_unknown_and_the_turn_goes_on() {
+    let r = rig_with(|c| c.project.tail_facts = Some(true));
+    let dir = r.root.join("plain");
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    // Walls discovery in, so a repository above the temp dir cannot answer.
+    std::env::set_var("GIT_CEILING_DIRECTORIES", r.root.parent().unwrap());
+    submit(&r.core, &dir).await;
+    let (tail, _) = tail_of(&r.fake.requests().pop().unwrap());
+    assert!(
+        tail.iter()
+            .any(|t| t.starts_with("Date: ") && t.ends_with("\nGit: unknown")),
+        "{tail:?}"
+    );
+}
+
 /// **One file, two channels, one classification** (theseus-3i6d1, the
 /// reviewer 2026-11-07; pinned here 2026-11-10 against base 12889bcf).
 ///

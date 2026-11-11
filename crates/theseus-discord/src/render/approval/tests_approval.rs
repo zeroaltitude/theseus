@@ -52,7 +52,7 @@ b/out/harbour.md:1
 +Calm water.
 ```
 **Approve** runs this one call · **Decline** refuses it; the task is told and carries on
--# expires <t:1790000000:R> · or `theseus answer 490f10 approve`";
+-# held since <t:0:R> · still waiting · or `theseus answer 490f10 approve`";
     assert_eq!(c.content, expected);
     assert_eq!(
         c.line,
@@ -68,7 +68,7 @@ fn a_posture_ask_has_no_trust_button_clause() {
 ✋ **Approve?** task `490f10` · *[walkthrough] harbour summary* wants to **write** `~/projects/walkthrough/out/harbour.md` (new file, 227 bytes)
 risk: writes a file · why it asks: you set this kind of call to ask first
 **Approve** runs this one call · **Decline** refuses it; the task is told and carries on
--# expires <t:1790000000:R>";
+-# held since <t:0:R> · still waiting";
     assert_eq!(c.content, expected);
 }
 

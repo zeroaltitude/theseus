@@ -102,3 +102,73 @@ async fn a_noted_in_the_middle_and_a_plain_answer_are_untouched() {
     assert_eq!(answer(&r, &sid), "The disk is at 41%.");
     assert!(rows_of(&r.core, "turn.standing_ack").is_empty());
 }
+
+const UNDERSTOOD: &str = "Understood: in group chats I speak as myself, and anything that needs \
+                          your voice or decision goes back to you. This is a DM, so nothing \
+                          changes here.";
+
+/// `Understood`, the other opening the owner saw (his second sample), strips as
+/// `Noted` does: no test began with it before (theseus-ectzg, review F1).
+#[tokio::test]
+async fn a_leading_understood_that_restates_a_record_is_stripped_and_recorded() {
+    let (r, sid) = said(
+        "How full is the disk?",
+        &format!("{UNDERSTOOD}\n\nThe disk is at 41%."),
+    )
+    .await;
+    assert_eq!(answer(&r, &sid), "The disk is at 41%.");
+    let rows = rows_of(&r.core, "turn.standing_ack");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["action"], "stripped");
+    assert_eq!(rows[0]["records"].as_array().unwrap().len(), 1);
+    assert!(rows[0]["paragraph"]
+        .as_str()
+        .unwrap()
+        .starts_with("Understood: in group chats"));
+}
+
+/// The conservative half: an `Understood` about what the owner just said, and
+/// one he restated himself, and one in the middle, are kept byte for byte with
+/// an empty ledger (they pass with the hook off as well as on).
+#[tokio::test]
+async fn an_understood_that_answers_the_owner_is_untouched() {
+    let reply = "Understood: 8082.\n\nI will use it.";
+    let (r, sid) = said("The staging port is 8082.", reply).await;
+    assert_eq!(answer(&r, &sid), reply);
+    assert!(rows_of(&r.core, "turn.standing_ack").is_empty());
+    // He restated the record himself: "Understood" is his answer.
+    let reply = format!("{UNDERSTOOD}\n\nDone.");
+    let (r, sid) = said(
+        "In group chats, speak as yourself; if it needs my voice or decision, say so.",
+        &reply,
+    )
+    .await;
+    assert_eq!(answer(&r, &sid), reply);
+    assert!(rows_of(&r.core, "turn.standing_ack").is_empty());
+    // Not leading.
+    let mid = format!("The disk is at 41%.\n\n{UNDERSTOOD}");
+    let (r, sid) = said("How full is the disk?", &mid).await;
+    assert_eq!(answer(&r, &sid), mid);
+    assert!(rows_of(&r.core, "turn.standing_ack").is_empty());
+}
+
+/// The step's pre-filter and `check` read one list (review F2): a literal in
+/// the step would reject a marker added to `MARKERS` before `check` ran, with
+/// every test of `check` still green.
+#[test]
+fn the_step_reads_the_marker_list_and_not_a_copy_of_it() {
+    use crate::standing_ack::{opens_with_marker, MARKERS};
+    assert!(MARKERS.len() >= 2);
+    for m in MARKERS {
+        assert!(opens_with_marker(&format!("  {m}: x")), "{m}");
+    }
+    assert!(!opens_with_marker("The disk is at 41%."));
+    let step = include_str!("../turn/standing_step.rs");
+    for m in MARKERS {
+        assert!(
+            !step.contains(&format!("\"{m}\"")),
+            "turn/standing_step.rs hard-codes the marker {m}: iterate MARKERS"
+        );
+    }
+    assert!(step.contains("opens_with_marker"));
+}

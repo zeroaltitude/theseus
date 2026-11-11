@@ -222,4 +222,27 @@ pub struct ExecutionStopResult {
     /// With `tasks`: the tasks cancelled, depth first (theseus-cdcwr).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cancelled: Vec<String>,
+    /// What the turn left running that this stop ended (theseus-7kha): a job
+    /// whose command had reported while a process it started ran on, each
+    /// asked to stop its whole tree. Named by its short id where it has one
+    /// (`j1`), else its correlation id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_ended: Vec<String>,
+    /// What the turn left running that this stop KEPT, and on whose word
+    /// (theseus-7kha). A stop is never silent about what it did: a job the
+    /// operator approved at the floor is the one thing a stop spares, so it
+    /// is reported rather than left unsaid.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_kept: Vec<JobKept>,
+}
+
+/// A job a stop left running, and why (theseus-7kha).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct JobKept {
+    /// Its short id where it has one (`j1`), else its correlation id.
+    pub job: String,
+    /// The operator who approved the call at the floor: the one thing that
+    /// keeps a leftover through a stop.
+    pub approved_by: String,
 }

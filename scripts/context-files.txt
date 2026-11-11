@@ -1,0 +1,21 @@
+# Context files over context_files::MAX_BYTES (64 KiB), each with an allowance it may not pass and why it
+# is still over (theseus-4vsrz, 1.0.5 B7). scripts/context-ceiling.py reads this; the gate runs it.
+# Format: <path> <allowance> <reason>. Raising an allowance needs a reason in the commit; a file that falls
+# to the ceiling or below has its entry deleted (context-ceiling.py says so).
+#
+# READ THIS BEFORE YOU ADD A LINE. An entry here is NOT a blessing and NOT a file that is fine. Every
+# entry is a file whose tail IS NOT REACHING ANY SESSION RIGHT NOW: the loader truncates it at 64 KiB and
+# tells the session only that a cut happened, never what was in the tail. These two were found on
+# 2026-11-10 while fixing a third (scripts/AGENTS.md, 6,374 over, fixed by moving its release half to
+# scripts/RELEASES.md). They are listed instead of fixed because relocating 386 KB of the core crate's
+# notes is a content decision for the owner, not a merge or a builder's call -- NOT because the breach is
+# acceptable. An allowance is the file's measured size on the day it was written, so neither can grow by
+# one byte without a commit that says why -- which is the point, and which means a row that appends to a
+# listed file raises its allowance in its own commit, as context-ceiling.py's message instructs.
+#
+# The fix for an entry here is always to move depth into a sibling document that is not an AGENTS.md or a
+# CLAUDE.md (scripts/RELEASES.md is the worked example, docs/design/ is the usual home). The fix is never
+# to raise MAX_BYTES: that constant is the model's own request budget and moving it spends context on
+# every session for every file.
+crates/theseus-core/AGENTS.md 452743 the core crate's notes: 452,743 bytes, 387,207 OVER -- 85% of this file has never reached a session. Found 2026-11-10 by the first run of context-ceiling.py; it is the largest breach in the tree by two orders of magnitude and the one most worth splitting. Owner's call on how it divides. Raised from 451,578 the same day, before this row landed: p5/b4-import-tag-only-take added 1,165 bytes to it inside the 17:00 departure, so the first allowance was already 1,165 short of the main this row meets. The raise records growth that happened, not room to grow.
+crates/theseus-discord/AGENTS.md 93334 the Discord binding's notes: 93,334 bytes, 27,798 OVER. Found 2026-11-10 by the first run of context-ceiling.py. Smaller than the core crate's and the same shape of fix; the golden/locked-flow sections are the obvious candidates to move.

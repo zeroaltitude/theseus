@@ -1,9 +1,30 @@
 # scripts
 
-**`wc -c` this file before you add to it: it is CUT at 64 KiB and nothing fails** (theseus-4vsrz).
+**This file would be CUT at 64 KiB. Something fails first now** (theseus-4vsrz).
 `context_files::MAX_BYTES` is `64 * 1024` and this is a `Level::Project` context file, so past that its tail
-silently stops reaching a session; no gate phase or test measures it. On 2026-11-10 it stood 1,130 bytes short.
-Put depth in the design docs.
+silently stops reaching a session. **The gate's `context ceiling` phase holds it**
+(`scripts/context-ceiling.py`, which reads the ceiling out of `context_files.rs` rather than copying the
+number): a file over it that `scripts/context-files.txt` does not list fails the gate, and a listed file
+past its own allowance fails too. Run `python3 scripts/context-ceiling.py` to see every file's headroom
+before you add to one.
+
+The warning that used to stand here said "nothing fails" and gave a figure from one branch, and it was
+right about both: on 2026-11-10 this file reached **71,910 bytes — 6,374 over** — and the loader had been
+cutting everything from `## setup.sh` to the end out of every session that read it, for an unknown number
+of days, with no gate phase, no test and no `long-files.txt` entry measuring it. Most of the release half of
+the file was moved to `scripts/RELEASES.md` verbatim to get back under — `## setup.sh` below stayed, for the
+reason that file's header gives — and the phase above exists so the next breach is loud. **Put depth in the
+design docs, or in `scripts/RELEASES.md` or `scripts/GATE.md`, neither of which has a ceiling.**
+
+**STANDING INSTRUCTION, and it is why this file has siblings: a new paragraph goes in a sibling document,
+not here.** This file carries the script list and the gate's phases; anything longer than a few lines about
+*one* script, one environment variable or one incident belongs in `scripts/RELEASES.md` (releases, the
+service, the smokes, the host), `scripts/GATE.md` (running the gate on a busy machine) or `docs/design/`,
+with one line here pointing at it. The headroom this file has is the measured difference between its size
+and 65,536 bytes and nothing else: it was spent twice on 2026-11-10 alone, **+6,695 bytes across two
+departures in about 34 minutes**, so a trim buys days only if the pace stops. `python3
+scripts/context-ceiling.py` prints the number before you add; do not quote a headroom figure anywhere,
+including in a commit message, because it is stale by the next departure.
 
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.
@@ -80,9 +101,26 @@ Put depth in the design docs.
   `docs/design/invariant-merge-class.md`. Its own unit test runs in the `script tests` phase with the rest of
   `scripts/tests/` and never fatally (`tests/*` above); alone it is `python3 -m unittest -q
   scripts/tests/test_invariant_pressure.py`.
+- `context-ceiling.py`, `context-files.txt`, `tests/test_context_ceiling.py` (theseus-4vsrz, B7): the gate's
+  **`context ceiling`** phase, and the one numeric invariant on this list that is **HARD**. No instruction file the
+  loader reads may pass `context_files::MAX_BYTES` (64 KiB) unless `context-files.txt` lists it with an allowance and
+  a reason, held with `shape.sh`'s exact discipline: unlisted and over fails, listed and past its allowance fails,
+  listed and back under fails as a stale entry. **The ceiling and the file names are READ OUT OF THE RUST SOURCE**
+  (`MAX_BYTES` from `context_files.rs`, `NAMES` from `project_context.rs`), never copied, so the two cannot drift; it
+  exits **2** rather than 0 if it cannot find either, because a scan that read nothing must not look like a clean
+  scan. Coverage is every git-tracked `AGENTS.md` and `CLAUDE.md` anywhere in the tree, because
+  `project_context::chain()` reads both names in every directory from the repository root down to the session's own
+  working directory. **Not covered**: files outside the repository (the owner's user-level file, anything
+  `[context] files` names), and `project_context::MAX_TOKENS`, the PROJECT level's separate 8,000-token budget, which
+  can still cut or drop a file that is comfortably inside `MAX_BYTES`. Why it is hard where `line-pressure.py` and
+  `invariant-pressure.py` only warn: **this file was 6,374 bytes over on 2026-11-10 with its own "`wc -c` this file"
+  warning at the top**, so a printed warning is the control that had already been tried and had already failed. The
+  answer to a file over the ceiling is to move depth out of it (`RELEASES.md` is the worked example); **raising
+  `MAX_BYTES` is not a fix** -- it spends context on every session for every file. Run it by hand as
+  `python3 scripts/context-ceiling.py` for the full headroom table.
 - `build.sh`: the one way to build a release or an install. `repro.sh`: two builds of one commit, compared byte for byte.
 - `user-service.sh`: the daemon as a systemd user service (`check`, `install`, `status`, `logs`, `restart`, `stop`, `start`,
-  `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" below.
+  `uninstall`, and `--dry-run`). The how-to is `docs/user-service.md`; see "user-service.sh" in `RELEASES.md`.
 - `openclaw-export.py` (theseus-pjmj7): OpenClaw's own session stores (`<state>/agents/<agent>/agent/openclaw-agent.sqlite`,
   opened read only) as episodes of the import's format 1, one per session, for `theseus import sync` (which embeds it) or
   `theseus import openclaw -`. Python's standard library only; a zstd event is decoded by Python's own codec, the `zstd`
@@ -98,7 +136,8 @@ Put depth in the design docs.
 ## The gate
 
 Run it before every commit, in the tree you will commit, and chain the commit with `&&` (a `;` once let an unformatted
-commit through). Its tests and benches take the shared machine-wide lock, and the gate takes it itself (see "The lock"):
+commit through). Its tests and benches take the shared machine-wide lock, and the gate takes it itself (see "The lock"
+in `scripts/GATE.md`):
 
 ```bash
 # a lane's gate: no timing bench. NO `flock` around it.
@@ -116,7 +155,7 @@ It runs, in order:
    that deletes or loosens a test, a budget or a ceiling fails in about a second, unless the owner's signed ack passes it.
 1. *Without the lock*, every compile: `cargo fmt --all -- --check`, then `scripts/shape.sh` (no Rust file over 2,500
    lines unless listed), then `features` (the five shipped binaries get no fewer features built alone than in the
-   workspace; see "Releases", "Features"), then `cargo clippy --workspace --all-targets -- -D warnings`, which also
+   workspace; see "Releases" in `RELEASES.md`, and "Features"), then `cargo clippy --workspace --all-targets -- -D warnings`, which also
    holds the shape budget's functions (see "The shape budget"); then the cockpit's `npm run lint`, `npm test`, and
    `npm run build`, before the suite, whose tests of `/` read that build. When `cockpit/node_modules` is missing, the
    gate installs it first (`npm ci --offline` from npm's cache, then `npm ci` over the network), and fails, saying
@@ -144,7 +183,7 @@ It runs, in order:
    - The lifecycle bench, on debug builds of `theseusd` and `theseus-sim`, ten runs a phase against §9's budgets. It
      first flushes dirty pages and waits, up to 2 minutes, until IO and CPU pressure are low and the load is under
      three quarters of the cores; when the 2 minutes pass with the machine still busy, the timing budgets get the busy
-     allowance (see "The busy allowance"). A miss reruns once, and only a second miss fails. Every run goes to the
+     allowance (see "The busy allowance" in `scripts/GATE.md`). A miss reruns once, and only a second miss fails. Every run goes to the
      bench history (`$THESEUS_BENCH_HISTORY`, by default `~/.cache/theseus/bench-history.csv`; **read it by column
      name, per header segment, never positionally**: the file holds many headers and `inflight` was inserted
      mid-array at one of them, so a positional read across it is silently wrong. The reader is
@@ -220,147 +259,15 @@ and at the end; a gate that fails is checked once more on its way out.
   differs from main in `gate.sh` or the test; a gate of main's own tree says so and costs a diff. A
   new phase of the gate that reads a command's output needs its stand-in there.
 
-### A disk too full to build (THESEUS_GATE_MIN_FREE_GB)
+### Running the gate on a busy machine: in `scripts/GATE.md`
 
-Before its first compile the gate reads the free space of the filesystem that holds `target` and refuses to start below
-a floor, so a build is not begun on a disk it would fill (`disk_floor` in `gate.sh`).
-
-- **The floor is 10 GB**, from `THESEUS_GATE_MIN_FREE_GB` (default 10). It is a whole number of GB: anything else exits 2
-  with `it is a whole number of GB`. `0` turns the floor off, and the log says so.
-- **Below the floor the gate exits with status 73**, its own (nextest's is 100, the gate's 1 and 2, a moved tree's 75).
-  The log says `gate: REFUSED: only <n> GB free on <where>, below the disk floor of <floor> GB (exit status 73)`. A
-  `df` it cannot read refuses with 73 too: a gate that cannot show it has room has not shown it.
-- **It measures the filesystem holding `target`**, following a symlink; a lane that has not built yet has no `target`, so
-  the nearest directory that exists stands in for the disk it will be made on. It runs after fmt and before the first
-  phase that resolves or compiles.
-- **It deletes nothing.** Pruning is the lane tooling's, and a gate that clears caches changes the tree it judges. Free
-  space yourself and rerun, or run on purpose with a smaller whole number or `0`.
-
-### The lock
-
-(theseus-rx91, theseus-lew7.) The suite's timing-sensitive tests and the benches need the machine to themselves, so one
-gate's tests never land in another's bench: they run under a machine-wide lock, `~/.cache/theseus-gate.lock`
-(`$THESEUS_GATE_LOCK_FILE`). The gate takes it itself, only around the locked part (step 2 above), and every gate runs
-this way, the chain's join gate on `main` included.
-
-- **Why.** Until 2026-10-02 the caller held the lock for the whole gate, so every gate's `fmt`, `clippy`, and test
-  build (minutes) kept every other gate waiting too: that morning six lanes' gates and the chain's join gates queued
-  behind each other's compiles, and three join gates lost about 25 minutes. The gate then took the lock itself in an
-  inner mode, and the old way stayed as the default outer mode, which the chain's join gate used under
-  `theseus-quiet.sh` (it paused the lanes' compilers while the gate ran, and its paused processes wedged gates more than
-  once: theseus-xfr1, theseus-e6xj). On 2026-10-03 the outer mode went (cut-list Tier 5.3): one mode, everywhere.
-- **`THESEUS_GATE_LOCK`.** `inner` is accepted and changes nothing; `outer` is refused (exit 2), as is any other
-  value. A worktree cut before theseus-lew7 still has the two-mode gate, whose default, outer, takes no lock unless its
-  caller does: give that gate `THESEUS_GATE_LOCK=inner` until the worktree rebases.
-- **Never wrap the gate in `flock`, or in `theseus-quiet.sh`.** The wrapper would hold the lock that the gate then waits
-  for, and the gate would wait for itself forever. The gate checks: it refuses to start (exit 2, in a second) when a
-  process above it holds the lock.
-
-How the gate takes the lock: after its compile phases the gate runs itself again, as `flock -o LOCK scripts/gate.sh
---locked-part …` (an internal option, never a caller's). `-o` closes the lock's fd before that part starts, so nothing
-its tests start (a daemon that outlives its test) can keep the lock past the part (theseus-e6xj), and no function of the
-gate ever holds a lock fd. While the part runs, the one process with the lock open is its `flock`; once the gate ends,
-none is (the proof: scan `/proc/*/fd`). The part hands its phase times back in a file, so one table covers both halves,
-and its exit status is the gate's.
-
-The log says what queued behind what, and for how long, and the table has a `lock wait` row after `test build`:
-
-```text
-gate: the compiles are done; taking the shared gate lock (~/.cache/theseus-gate.lock) for the tests and benches
-gate: waiting, the lock is held by:
-  pid 2943171, in ~/projects/theseus-wt/<another lane>
-gate: queued for it ahead of this gate, in order:
-  pid 2951376, in ~/projects/theseus-wt/<a third lane>
-gate: lock taken after waiting 19 s
-…the locked part's output…
-gate: lock released after holding it 128 s
-```
-
-The wait is the one cost the gate cannot shorten, so read it first when a gate is slow. To stop a gate, stop its
-process group (`timeout` and the harness do): a signal to the gate's own pid ends it at once, but its locked part runs
-on to the end under the lock, and a signal to its `flock` alone frees the lock under a running part.
-
-### The busy allowance
-
-(theseus-lew7; the owner's "business wiggle room", 2026-10-03.) The chain's join gate no longer pauses the lanes' compilers,
-so its benches can measure a busy machine, and a busy machine slows the daemon's starts and stops. There, and only
-there, the timing budgets get an overage allowance.
-
-- **When.** Only when the settle step before the bench waited its whole 2 minutes without a quiet window (IO pressure
-  under 10 %, CPU pressure under 20 %, and the load under three quarters of the cores, 12 of 16, all at once). A quiet
-  window, a machine without PSI, or `THESEUS_GATE_BENCH_ALLOWANCE=0` keeps every budget strict, as before. Each settle
-  decides for the run after it, so a rerun after a miss decides again.
-- **The bar and the wait** (the owner, 2026-10-03 14:20; theseus-lf1n). Until then the load bar was the core count and the
-  wait 5 minutes. With the lanes no longer paused, the strict misses cluster at loads of 12 to 16 (at normal priority,
-  a phase missed in 41 % of the runs at 12 or more, 10 % from 8 to 12, 6 % under 8), a band the old bar called quiet,
-  so a second miss there failed a join. Now a gate there waits, then benches with the allowance, which was calibrated
-  on that band; and the shorter wait keeps a busy machine from holding the shared lock for 5 minutes.
-- **What.** The timing budgets only: the lifecycle bench's phases, and the jobs bench's L1 start. A phase over its
-  limit by no more than the allowance, a percentage of the limit, passes. A count never gets one: the turn bench's 5
-  frames are held exactly. The run's other checks (the socket served before the secrets, the swap's job adopted, and
-  the rest) are never excused.
-- **How much.** `THESEUS_GATE_BENCH_ALLOWANCE`, a whole percentage, by default 65, from the bench history on
-  2026-10-03. It had 22 runs at a load of 12 or more at normal priority (the join gates' benches, and the lanes'
-  benches run alone), the code otherwise healthy. In 21 of them every phase was within 63 % over its limit, and in all
-  22 within 75 %. Left out: an IO storm's two runs (several phases at once over twice their limits), and four
-  one-sample stalls over twice a limit (one fsync waiting on a neighbour), which no allowance should cover: the rerun
-  does. Strictly, 9 of those 22 runs missed a phase, against 4 of the 68 runs on a quiet machine (a load under 8),
-  which the rerun covers, as before.
-- **A RUST TEST CANNOT REACH IT, so it is never the fix for a timing test in a crate** (theseus-4vsrz
-  test-hygiene F3, 2026-11-10). `THESEUS_GATE_BENCH_ALLOWANCE` is read in exactly one place — `gate.sh:67`, into a
-  shell variable the gate passes to `theseus-sim bench` as `--allowance` — and it appears in **no `.rs` file in
-  the workspace**: `grep -rn THESEUS_GATE_BENCH_ALLOWANCE --include=*.rs crates/` returns nothing. So it covers the
-  lifecycle and jobs benches and nothing else, and a `#[test]` or `#[tokio::test]` asserting on a duration has no
-  path to it at all. **Two checklist lines on `theseus-4vsrz` prescribed it as "the right fix" for exactly that,
-  and both were written around a mechanism that does not exist.** Nothing was broken by the mistake — one of those
-  lines needed no fix and the other used a retry — but a reader who believes the prescription will spend an
-  afternoon looking for a knob. The remedies that do exist for a wall-clock bound inside a crate's tests are: a
-  retry, `tokio::time::pause` where the clock is the subject, a bound wide enough to hold on a loaded machine with
-  a comment saying what it was measured at, or moving the assertion into a bench the gate already times. Never a
-  loosened bound without a reason, and never `#[ignore]`.
-- **Seen.** The settle line says the allowance is in force (`lifecycle: still busy after 2 minutes (…); measuring
-  anyway, with the busy allowance: +65% over a timing budget's limit`). A phase it carries prints the bench's own
-  `MISSED`, the strict verdict, and then `lifecycle: busy: allowance +65% applied to clean shutdown (measured 112.0 ms,
-  limit 104 ms)`. Its history row keeps `passed` as the strict verdict (`false`), and the allowance in its last column,
-  `allowance`; `bench history` counts those runs ("N of them passed on the busy allowance") and marks each phase the
-  allowance carried. A run of them is either a regression the busy machine hid, or a machine that stays busy: read
-  them before raising the allowance.
-
-### How long it takes
-
-On a warm target, a few minutes: the suite is about 90 s and the bench about 7 s of it, plus any wait for a quiet
-machine. A lane's niced gate on a warm target took 135 s once it had the lock (2026-10-01: the suite 105 s at 4
-threads, a 15 s wait to settle, the bench 7 s). A fresh worktree's first gate also compiles the whole workspace,
-dependencies at opt-level 2 included, which takes far longer: about 22 minutes at nice 19 beside busy neighbours.
-That build runs without the lock, so it holds nobody up. Waiting for the lock behind another gate's tests,
-and for a quiet machine, can each add minutes, so give the gate's command a timeout of 30 minutes or more (a
-`proc.run` call can ask for up to its `proc_timeout_max_secs`).
-
-### Running it beside other work
-
-- **The lock** keeps one gate's tests out of another's timing bench (see "The lock"). Whoever takes
-  it takes it with `flock -o`, which closes the lock's fd in the gate, so nothing it starts can keep the lock after it.
-  Never take it with `exec N>lock; flock N` in a shell that starts anything long-lived.
-- **A lane's gate runs niced**, with its own `CARGO_TARGET_DIR`, and `CARGO_BUILD_JOBS=4` and
-  `NEXTEST_TEST_THREADS=4` exported (one or the other, never also nextest's `--test-threads`, which it then refuses
-  as given twice): `THESEUS_GATE_NO_BENCH=1 nice -n 19 ionice -c3 scripts/gate.sh`, with no `flock`. The gate
-  resolves where cargo builds itself (`resolve_target_dir`, on first use: `CARGO_TARGET_DIR`, else `cargo
-  metadata`'s `target_directory`, else `$PWD/target`), so the benches and the bench-binary check find the
-  binaries wherever the target dir is, and a worktree needs no `target` symlink for them. Until theseus-1eemp
-  they read `target/debug` by a relative path, which is why every self build - whose tree builds into
-  `<state>/self/target/<item>`, outside the checkout - failed `test build` before its tests ran.
-  `scripts/gate.sh --bench-bins <cargo message file>` runs that check alone over a planted layout, and is
-  what `bench/recall/test_bench_bins.py` drives; it builds nothing and takes no lock.
-- **A lane's gate skips the bench** (`THESEUS_GATE_NO_BENCH=1`). The bench's settle step waits for a quiet machine
-  while holding the shared lock, so every other agent's gate queued behind it; the join's gate on `main` benches
-  instead. A lane whose work touches the start path runs `target/debug/theseus-sim bench lifecycle --runs 10
-  --check` alone, at normal priority, once before its join, and quotes it.
-- **A niced gate whose only miss is the bench**, beside busier neighbours, counts as green when the bench rerun alone
-  at normal priority passes. Quote both runs.
-- **A gate that sits at 0% CPU** is waiting on a lock: this one (held by another gate, or by an orphan that
-  inherited it: scan `/proc/*/fd` for it, since `/proc/locks` hides a dead owner), or cargo's package cache. The gate
-  names the holders in its log (`gate: waiting, the lock is held by:`, with each one's worktree). Find the holder
-  before waiting longer, and never kill another agent's process.
+**Five sections stood here and were moved verbatim to `scripts/GATE.md` on 2026-11-10** (theseus-4vsrz, B7),
+to get this file back under the context loader's 64 KiB ceiling with room to grow. They are, by name:
+**A disk too full to build** (`THESEUS_GATE_MIN_FREE_GB`, and why the gate deletes nothing itself), **The
+lock** (the shared machine-wide lock, who holds it, and never wrapping the gate in `flock` or
+`theseus-quiet.sh`), **The busy allowance** (`THESEUS_GATE_BENCH_ALLOWANCE`, and a bench that misses under
+a neighbour's load), **How long it takes**, and **Running it beside other work**. Nothing was cut: if you
+are looking for a paragraph that used to be here, it is there, byte for byte.
 
 ### The keel guard
 
@@ -415,6 +322,19 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   ```
 
   `THESEUS_GATE_DOOR` is the door's word to the copies it starts (`judge`, `own`), not an option.
+  **A caller that names the keel's base owes the door both halves itself.** "Does this branch change `gate.sh`?"
+  is asked through the keel's base (`keel_gate_changed` diffs `scripts/gate.sh` against `keel_range_base`), so a
+  caller that sets `THESEUS_KEEL_BASE=HEAD` leaves that question answered "no" in every clean checkout: main's copy
+  judges the tree, the branch's own copy never runs a phase, and the gate ends `gate: ok (main's gate judged this
+  tree)` for a branch that rewrote the script under test. A fleet box does name that base -- it holds no keyring, so
+  it cannot verify an owner's `Keel:` ack and would refuse a legitimate one (`~/reports/theseus-fleet/host/run.sh`,
+  the gate kind) -- and so its runner asks the door's question where no keel base can reach it, comparing
+  `git hash-object scripts/gate.sh` with `origin/main:scripts/gate.sh` exactly as `gate_tests` does, then running
+  `THESEUS_GATE_DOOR=judge` (main's copy, from `/tmp`, `THESEUS_GATE_ROOT` naming the lane) and
+  `THESEUS_GATE_DOOR=own` (the tree's own copy) in turn, and naming the blob of the script that ran in the one-line
+  summary of every gate. A caller that names a base and leaves the door to the predicate proves nothing about a
+  change to `gate.sh` (found on a fleet box, 2026-11-10;
+  `~/reports/theseus-105-kickoff/logistics/fleet-gate-door-fix.md`).
 - **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
   at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
   lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. Only a
@@ -465,6 +385,72 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   instead of resolving the attributes by hand. A merge with main needs exactly this: the spine's C2 (4eb6db2) merged
   with no conflict, shortened two marked functions in `turn.rs`, and added one test function over 100 lines, and one run
   of the script marked the one and removed the two.
+
+### A file that fell under 2,500 and needs its ceiling entry back (theseus-4vsrz)
+
+A row that grows a Rust file with **no** `long-files.txt` entry past 2,500 lines — whether its entry was deleted
+when it shrank, or it never had one — does exactly what a row raising an existing ceiling does: **one commit that
+grows the file and writes the entry together, with the `ceiling-raised` trailer.** There is no two-step land, and
+the claim in circulation that such a file "cannot get its entry back in one step" is **false**. Measured at
+`42b9212e` by growing `crates/theseus-protocol/src/lib.rs` from 2,497 to 2,617 lines with filler comments and
+reverting it, three scenarios over the same tree:
+
+| the tree as it stands | `bash scripts/shape.sh` says | exit |
+|---|---|---|
+| grown to 2,617 **and** `crates/theseus-protocol/src/lib.rs 2700 <reason>` added, **together** | `shape: ok (no file over 2500 lines but the 6 listed)` | **0** |
+| grown to 2,617 only, no entry | `shape: crates/theseus-protocol/src/lib.rs has 2617 lines, over 2500, and no entry in scripts/long-files.txt: split it, or list it with a ceiling and the reason` | 1 |
+| the entry added only, file still 2,497 | `shape: crates/theseus-protocol/src/lib.rs has 2497 lines, at or under 2500: delete its entry in scripts/long-files.txt` | 1 |
+
+The cause is `shape.sh`'s own control flow: it measures the tree **as it stands after the change** (`wc -l` over
+`git ls-files --cached --others`), so the "at or under 2,500: delete its entry" refusal at `shape.sh:38` is reached
+only while the file is **still small**. Grow it in the same change and that branch is never taken; the `n > c` test
+at `:41` then compares the new length against the new ceiling and passes. **The two separate orders are the only
+ones that red**, so a two-step land means a deliberately red intermediate commit — which "one commit per green
+sub-step" forbids and which a later bisect walks into. One commit, or nothing.
+
+What does bite is the keel guard, once:
+
+```
+scripts/long-files.txt:12: ceiling-raised: (no entry) -> crates/theseus-protocol/src/lib.rs 2700
+```
+
+`(no entry) -> <path> <ceiling>` is the guard's own rendering of a **re-founded** entry; an existing entry raised
+renders as `<path> <old> -> <path> <new>` (measured on `thread_route.rs` 2600 -> 2700). **Same rule, same trailer,
+same exit 1** — which is the whole argument that the two cases are one case and must not be given two procedures.
+The finding is a property of the **list alone**, not of the file: it is byte-identical whether or not the commit
+grows the file (scenarios 1 and 3 above print the same line, which is why the entry-only step of a two-step land
+buys nothing — it reds twice). The trailer that clears it is the one `turn.rs` has been raised under four times:
+
+```
+Keel: ceiling-raised scripts/long-files.txt — <the owner's authorising words>
+```
+
+For our own development limits those words are the owner's standing ones of 2026-10-25, quoted in `long-files.txt`
+beside the `turn.rs` and `thread_route.rs` reasons. The commit body names the file's length before and after, the
+ceiling and why, and why the lines could not go in a sibling module — the same body `turn.rs`'s four raisings carry.
+
+**Deleting an entry is the opposite act and needs no trailer.** A listed file whose test module moves out and falls
+to 2,500 lines or fewer MUST lose its entry in the same commit — `shape.sh:39` requires it — and the guard says
+`keel: ok` on the deletion (measured: `thread_route.rs`'s entry removed, `keel: ok ... 0 findings`, exit 0). A
+ceiling going away is not erosion. This direction is also the one `docs/design/invariant-merge-class.md` puts out
+of the merge class: no sibling branch can shrink a file the shrinking branch did not shrink.
+
+**A row that cannot sign** — every cloud row, and any agent without a key in `scripts/keel-signers` — does not
+apply the grow-and-list change at all, because the guard fails the gate in a second and the trailer cannot be made
+true. It puts the new lines in a sibling module instead (`crates/theseus-protocol/src/work.rs` and its siblings are
+where protocol types go; three lines is one struct field), or, where that is genuinely impossible, writes the hunk
+and the draft trailer into its report with the owner's words left blank, and lands everything else.
+
+**The two files in this position at `42b9212e`**, so the rule has a referent: `crates/theseus-discord/src/render.rs`
+at **1,327 lines**, whose explicit 3,009 ceiling was deleted when its 1,643-line test module moved out to
+`render/tests.rs` at `5e71c15a` (it was 2,970 of 3,009 before), so its effective ceiling is now the default 2,500;
+and `crates/theseus-protocol/src/lib.rs` at **2,497 lines**, three under the default and never listed.
+
+**Rejected, with the reason.** A `shape.sh` flag for an entry being re-founded: it buys nothing, because `shape.sh`
+already passes the case at exit 0, and both `shape.sh`'s keel lines and `keel-guard.py` itself are keel-class, so the
+complexity would cost an ack as well as a reader. A deliberate refusal: there is nothing to refuse — the act is
+legal at both guards, has a four-times precedent in `turn.rs`, and already has its trailer. A rule that made these
+two near-identical acts behave differently is a rule the next row would get wrong.
 
 ### The daily deny job
 
@@ -562,143 +548,6 @@ guard gives the wall clock back. The move is the process's: nextest, which the g
 its own. A new test that takes `local_day(now)` or an hour's start from the clock, and then reads rows stamped after
 it, takes the pin; the gate no longer relies on a start window to keep it from the boundary.
 
-## Releases: the pinned toolchain, one build script, and a reproducibility check
-
-(theseus-goa8; review 2's SC1, SC3, and S7.)
-
-- **The toolchain is one release**, pinned in `rust-toolchain.toml`, never `stable`, so a new clippy cannot fail a commit
-  that changed nothing and two machines build with one compiler. The file says how to bump it: install the release,
-  change `channel`, run the gate, fix what the new clippy finds in the same commit, run `repro.sh`, and commit it alone as
-  `toolchain: bump to <version>`. A machine without the pinned release downloads it on its first `cargo` call (rustup's
-  auto-install): run `rustup toolchain install` in the tree once, before the gate. CI does.
-- **`build.sh [--profile release|release-thin] [cargo args]`** (`release` by default) is the one way to build for an install or a
-  release. It builds with `--locked`, rewrites every path rustc would embed (the tree, the cargo home, the rustup home, the
-  target directory) to a fixed one, and sets `SOURCE_DATE_EPOCH` to the commit's time. It builds **the five binaries an
-  install ships**, `theseusd`, `theseus`, `theseus-tui`, `theseus-sim`, and `theseus-index`, and what they link, and not
-  the crates still waiting for their rows (theseus-o8nk; the gate's `features` phase reads the list). A `-p`, `--package`,
-  `--workspace`, or `--all` of your own replaces the five. An install copies four (`--installed` prints them): `theseus-sim`
-  is built for the size check and the benches, which run the copy in `target/`. It adds `-C force-unwind-tables=no` (no
-  `.eh_frame`; the profiles abort on panic and are stripped; theseus-rwpbg.5). Measured on 2026-10-03 (cold, no compile cache, `-j 4`,
-  `release-thin`): 1,139 CPU-seconds, about 4 min 50 s, against 1,395 and 5 min 55 s for the whole workspace with the
-  voice crate, the install's build until then (18 % less; the voice crate's exit alone was 10 %). Built alone or with the
-  whole workspace, from one tree, the five binaries are the same bytes.
-  - **Features.** Cargo unifies a dependency's features over the packages it builds, so building some of the workspace
-    can give a crate they share fewer features than the whole workspace, which the gate tests, gives it. For the five it
-    gives none fewer: on 2026-10-03 cargo's unit graph (`RUSTC_BOOTSTRAP=1 cargo build --unit-graph -Z unstable-options`,
-    which prints and builds nothing) held the same units, features included, for everything the five link, whether the
-    five were built alone or the workspace whole. The gate's `features` phase holds it on every run (theseus-dr2x):
-    it compares `cargo tree -e normal,build -f '{p} {f}'` of the five (`build.sh --shipped` prints the list) with the
-    whole workspace's, which compiles nothing and takes about a second, and fails naming each package the five link
-    that the workspace builds with more features, and the features it adds:
-
-    ```text
-    gate: the whole workspace widens the features of a package the five shipped binaries link, …
-      serde_json v1.0.151: the workspace builds it with indexmap, preserve_order
-    ```
-
-    Name the feature it finds in the shipped crate that links the dependency, as theseus-discord's manifest names
-    twilight-gateway's `rustls-native-roots`, which only the voice crate had turned on until it left the workspace; or
-    drop it from the crate outside the five. `cargo tree` resolves the normal and build edges only, as an install
-    builds: a feature a dev-dependency adds reaches the tests alone, and the check does not see it.
-  - rust-embed's `deterministic-timestamps` (theseusd's manifest) gives the embedded web files no modification time. A
-    plain `cargo build --release` still works, and embeds the directory it was built in.
-- **The profiles.** `release` is fat LTO with one codegen unit: **the install profile** and a tagged release's (since
-  theseus-o2myi; the owner's yes, 2026-10-19). `release-thin` (cargo reserves the name `install`) is thin LTO with 16
-  codegen units: the quick build, for the benches, the AWS hand, or a try-out, never an install. Outputs are
-  `target/release/` and `target/release-thin/`. `release` also builds the cold crates (Cargo.toml's
-  `[profile.release.package.*]`: AWS, Google, file conversion, MCP, LSP) at `opt-level = "s"`, and `release-thin`
-  inherits that. The measurements below are the 2026-10-02 pair that made `release-thin` the install; the size and
-  speed of the choice now made are in the last bullet. Measured on 2026-10-02 (commit 364b82e, the four binaries, uncached,
-  one 16-core machine under a load of 10 to 30, the two builds interleaved):
-  - **Build time.** A cold build costs the same: 10 min 47 s against 10 min 44 s for the first of each pair, and thin
-    used about 10 % more CPU (1,600 against 1,460 CPU-seconds: 16 codegen units repeat work). An incremental rebuild after
-    a change to `theseus-core` is where it pays: 4 min 30 s and 2 min 11 s, against 7 min 37 s and 12 min 27 s.
-  - **Size.** `theseusd` 28.8 MB against 23.4 MB (+23 %); `theseus` 3.5 against 2.7, `theseus-tui` 2.5 against 2.2,
-    `theseus-sim` 4.6 against 3.7. Every one is under §9's 60 MB.
-  - **Speed.** CPU-bound work is slower. `theseus-sim kernel-sim --seeds 10 --p-race 0`, ten runs of each, interleaved:
-    3.13 s of CPU at its best against 2.84 s (+10 %; the medians, +8 %; a noisier earlier pass read +18 %). The daemon's
-    own benches cannot resolve it. A cold start is 24 to 38 ms on either. A plain turn is 40 to 80 ms on either, 5 frames
-    each, and its five `fdatasync`s (6 to 15 ms apiece, swinging with the neighbours' load) outweigh the CPU: thin's turn
-    read slower in three of four interleaved passes (by 3 to 27 ms) and faster in the fourth (by 8 ms), far more than 10 %
-    of a turn's 15 ms of harness CPU could make, so it is noise. An idle daemon's CPU is 7.2 ms against 7.5 ms in 30 s.
-    Resident memory is higher: 17.5 MB against 14.1 MB at idle (+24 %), and 23.2 against 21.3 MB after a burst of 30
-    turns.
-  - **The call.** Review 2's S7 expected an install "a little slower" and asked for a measurement. Ten percent of
-    CPU-bound work is more than a few percent, but a daemon that waits on its disk and its model does not show it, and the
-    install is rebuilt after every reviewed step: so the chain installed `release-thin`, and a tagged release kept
-    `release`; theseus-o2myi moved the install to `release` for its size (below). If a bench ever blames the profile, tell by interleaving the two builds' `kernel-sim` runs and comparing
-    the least user time.
-  - **The install moved to `release` (theseus-o2myi, measured 2026-10-20).** `theseusd` alone, cold, no compile cache,
-    `CARGO_INCREMENTAL=0`, at nice 15 on a loaded 16-core host (so the times are upper bounds): `release-thin` at the
-    old base 90.2 MB in 500 s; `release-thin` with one cockpit copy and the cold crates at `opt-level = "s"` 86.3 MB in
-    424 s; `release` with both 70.5 MB in 1,145 s. So the fat link takes the install from 90.2 to 70.5 MB (-21.8 %) and
-    costs about two and a half times the cold build; the cockpit copy and the cold crates together are 4 MB of it
-    (4.4 %). The 60 MB target is still 10.5 MB away. Resident memory follows the size: read it with `ps -o rss` on the
-    installed `theseusd` after two idle minutes.
-- **glibc or static musl.** An install is the host's glibc build. Static musl is the portable build, which
-  `build.sh --target x86_64-unknown-linux-musl` builds anywhere (CI built it on every push until theseus-o8nk, and nothing
-  used its artifact; §3.18 says "static musl"; the recipe had always built
-  glibc, and nothing had measured the difference). Measured on 2026-10-02: one commit, `release-thin`, the whole workspace, one
-  driver for both daemons, interleaved on a busy machine.
-  - musl is **lighter and quicker to start and stop**: 14.4 against 17.2 MB resident after the start and 17.5 against 23.3 MB
-    after a burst (steady over three rounds), 20.8 against 47.9 MB with 10,000 parked sessions; a clean shutdown in 44 ms against
-    63, a SIGKILL restart in 38 against 64, a binary swap in 58 against 72 (medians; a static binary has no dynamic loader to run).
-  - musl is **slower on allocation-heavy work**, its allocator taking one global lock: `kernel-sim` takes 36 to 38 % more user time
-    and 3 to 5 times the system time (eight interleaved runs), a burst of turns 85 ms a turn against 75, and a daemon with 10,000
-    parked sessions, which never goes quiet (review 2's S1), spends 7.5 % of a core against 4.5 %.
-  - Sizes are equal (musl is 0.5 to 4.6 % bigger). The glibc binaries need glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9);
-    musl's are static-pie. musl's libc and start files come with the toolchain and glibc's from the host's libc6-dev, so the musl
-    build is the more hermetic across machines (both still compile ring's C with the host's gcc).
-  - **So the install is glibc.** The gate, the review's live check, and the benches all run glibc builds, so what is installed is
-    what was tested, and musl's CPU cost would land on the paths that grow (candle and tantivy, once the index tender is wired in).
-    **What would flip it:** a musl build with a better global allocator that closes the CPU gap in this comparison (build both with
-    `build.sh`, run `theseus-sim bench turn` and `idle` against each `theseusd` with one driver, interleaved, and compare
-    `kernel-sim` user and system time), and a musl run in the gate or a nightly job, so that what ships is tested.
-- **`repro.sh [--rev REV] [--profile P] [--keep] [--bench]`** extracts the commit twice with `git archive`, into two
-  directories whose names differ in length, builds each with `build.sh` into a fresh target and with no compile cache (a
-  cached object would copy, and prove nothing), and `cmp`s the five shipped binaries. Two full builds of the five from
-  scratch: about 1,140 CPU-seconds a build for `release-thin` (2026-10-03; about 5 minutes each at `-j 4`), a little more
-  for `release` (`THESEUS_REPRO_BUILD_ARGS=--workspace` builds the whole workspace instead), so run it niced and
-  detached. It exits 1 when a binary differs, and keeps the trees. With `--bench`, a reproducible
-  result is followed by `bench size`, `turn`, and `idle` on the first build's binaries, recorded in the bench history
-  under the profile and the commit: the numbers that mean something only on an optimized build, which the gate never
-  makes. Run it after a toolchain bump, a dependency change that adds a build script, and before a release; a nightly
-  job is not installed.
-- **The cockpit** (`cockpit/dist`) is not committed, so a binary built with it depends on an npm build. `repro.sh` builds
-  from the committed tree, with the page that says the cockpit is missing. Whether `npm run build` is itself reproducible is
-  not checked.
-
-## user-service.sh
-
-(theseus-w1nf.) The operator's script for running `theseusd` under systemd: it checks the machine, runs `theseusd install
---user` (which writes the unit), and wraps `systemctl --user` and `journalctl --user`. What to keep true when you change it:
-
-- **It never opens the token file.** The file is checked with `stat` and nothing else; the same rules as the install plan's
-  (`crates/theseusd/src/install/token.rs`): a regular file, the operator's, mode 0600 or stricter, not empty.
-- **`--dry-run` prints every command and runs none.** Every command goes through `run` (changes something) or `probe` (reads),
-  which print it in a dry run; a command outside them breaks that.
-- **A daemon is found by its socket answering `theseus health`**, within a bound, never by matching process names. Every wait
-  is bounded.
-- **The token flag goes before the subcommand** (`theseusd --op-token-file F install --user`): the order every installed
-  build reads, including those from before it became a global flag.
-- **`check` reads the config from the plan's `config:` line**, never from `THESEUS_CONFIG` alone: the unit gets what the plan
-  prints (the variable, else the build's built-in default, made absolute), and a build's default can be a file the machine
-  does not have. A file must be readable and a vault reference well formed, or `check` fails and `install` stops before its
-  first question. That holds on a build before theseus-8d1b (a vault reference as the default) and after it (a file).
-- **Its tests** are `crates/theseusd/tests/user_service_script.rs`. They run the real script and the real `theseusd install
-  --user` in a scratch `HOME`, with `systemctl`, `loginctl`, `journalctl`, `theseus`, and `op` replaced by one stand-in that
-  logs each call and keeps its state in files. A command the script starts to run needs a case in that stand-in, and a line
-  in the dry-run test. The config tests swap `theseusd` for a stand-in plan (`PLAN_STANDIN`) that names a file as its default,
-  so they hold before and after theseus-8d1b changes the real default.
-- **`sync-timer install|uninstall|status`** (theseus-pjmj7) is the nightly OpenClaw sync's timer: a oneshot
-  `<unit>-sync.service` running `theseus import sync` and `<unit>-sync.timer` at `--hour`:40 (`Persistent`, so a missed
-  night runs at the next start), both marked as this script's, so an uninstall keeps one someone else wrote. It checks
-  nothing of the machine (no root refusal); its tests are in `user_service_script.rs`.
-- **`--unit NAME`** is a second daemon's unit, `NAME.service` (passed on as `theseusd install --user --unit NAME`, and only
-  when it is not `theseusd`, so an older build still installs the default). `install` refuses it unless `THESEUS_SOCKET`
-  and `THESEUS_STATE_DIR` are set: on the operator's socket, `--yes` would take the operator's daemon for one started by
-  hand and stop it.
-
 ## setup.sh
 
 (theseus-00me.) One command, from a checkout to a running daemon; `docs/setup.md` is its how-to. What to keep true:
@@ -733,56 +582,12 @@ it, takes the pin; the gate no longer relies on a start window to keep it from t
   `user-service.sh --unit <name> uninstall --yes` and delete the directory. Never with the defaults on this machine,
   except `--dry-run`.
 
-## smoke.sh
+## Releases, the service, the smokes, and this machine
 
-It needs the vault's service-account token (`OP_SERVICE_ACCOUNT_TOKEN`, or `THESEUS_OP_TOKEN_FILE`) and a config
-(`THESEUS_CONFIG`), and spends a little on real model calls. It starts its own daemon on a temporary socket and
-state dir, and kills it at the end.
-
-- **Its web check probes `WEB_PORT`, by default 7433: the operator's daemon.** Run it only with a scratch config
-  whose `[web]` is off or on a port of its own, and `WEB_PORT` set to match.
-
-## release-smoke.sh
-
-The release smoke (theseus-yf6pj; `bench/smoke/README.md`): five parts, each PASS or FAIL against
-`bench/smoke/floor.json`, the verdict the first heading of `bench/smoke/runs/<date>-<sha8>/report.md`. Run it on the
-candidate before a release is called, and with `--write-floor` at the tag.
-
-- **It spends real dollars** (about $1, under $8): the TB2 slice needs `ANTHROPIC_API_KEY` and `TYPESAFE_API_KEY` in
-  the environment and Docker, and stops once its finished trials pass `SMOKE_TB_STOP_USD` (6). `route` and `dm` talk
-  to the live daemon (`SMOKE_SOCKET`, else the CLI's own); `recall` and `resume` cost nothing.
-- **It waits for a quiet host** (`bench/harbor/run.py`'s refusal: the gate's lock, CPU pressure) up to
-  `SMOKE_QUIET_WAIT_S`, then fails the part. Do not run it beside a gate.
-
-## This machine
-
-Theseus is built on one WSL2 machine, beside the operator's own running daemon and other agents' work.
-
-- **The operator's daemon** runs as a bare `theseusd` on `~/.theseus`, its default socket, and web port 7433. Never
-  touch it: no signal, no connection to its socket or port, and never a copy of its bindings file (two daemons would
-  answer on Discord). Kill only the pids you started, never by name with `pkill` or `killall`.
-- **Your own scratch daemon** has its own `--config`, `--socket`, and `--state-dir`: a fresh state dir, or a copy of
-  the operator's store alone. Turn `[discord]` and `[web]` off in its config unless the check needs them. A
-  Discord-enabled scratch daemon runs only on a fresh state dir (theseus-c3e). Stop it with
-  `theseus --socket <its socket> shutdown`, and wait for its pid to exit.
-
-  | Port | Whose |
-  |---|---|
-  | 7433 | the operator's daemon (its web UI, the cockpit) |
-  | 7434 to 7439 | scratch daemons' web UIs, one each (7434 is the cockpit's dev default) |
-  | 5174 | the cockpit's dev server |
-- **The disk.** WSL's disk is a file on the Windows drive (C:), and it only grows. When C: fills, the whole VM
-  pauses, while Linux's `df` still shows hundreds of GB free. Check C: with the operator's disk guard before a heavy
-  build, and don't build under 30 GB. Keep one target dir per worktree. Delete build caches outright, never to the
-  Trash, which keeps every byte on C:.
-- **sccache.** No server survives a restart, and by default it exits after 10 idle minutes. Its client then hangs.
-  If `pgrep -x sccache` finds none, run `SCCACHE_IDLE_TIMEOUT=0 sccache --start-server`, or unset `RUSTC_WRAPPER`.
-- **A connect to a loopback port with no listener hangs**: the packet is dropped, not refused. Bound every connect,
-  and test a service that is down with a fake, never with a closed port.
-- **`pgrep -f`, `pkill -f`, and `ps | grep` match your own shell**, whose command line holds the pattern. Find a
-  process by pid (`$!`, `pgrep -P`) or by `/proc/<pid>/comm`.
-- **`git stash` is shared by every worktree.** Set work aside as a patch file instead.
-- **The gate lock.** The gate takes it itself; any other holder uses `flock -o`. A gate at 0% CPU is waiting
-  on a lock (cargo's package cache, or this one): find the holder before waiting longer.
-- **`/tmp` is wiped by a WSL restart.** Keep harnesses, logs, and reports where they survive, and commit and push at
-  every green point: a restart, or an account's usage limit, can end a run at any moment.
+`scripts/RELEASES.md` -- moved out of this file on 2026-11-10 (theseus-4vsrz, B7) to get this one back
+under `context_files::MAX_BYTES`, verbatim and byte for byte. It holds: **Releases** (the pinned toolchain,
+`build.sh`, the reproducibility check), **`user-service.sh`**, **`smoke.sh`**, **`release-smoke.sh`**, and
+**This machine** (the WSL host's traps: the disk, sccache, the gate lock, `pgrep -f`, `/tmp`). **`setup.sh`
+above stayed here** on purpose -- `RELEASES.md`'s own header says why. Nothing was cut: if you are looking
+for a paragraph that used to be here, it is there. `scripts/RELEASES.md` is not a context file, so it has
+no 64 KiB ceiling and is the right place for depth that would otherwise push this file over.

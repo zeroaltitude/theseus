@@ -663,11 +663,15 @@ async fn a_card_for_a_shared_channel_goes_to_the_dm_and_its_settle_edits_both() 
         .into_iter()
         .find(|m| m.content.starts_with("✋ **Approve?** "))
         .expect("the card in the DM");
+    // A `wake.at` call's question is held until it is answered, so the footer
+    // says how long it has waited and not a deadline (theseus-lrc3m, surface 3).
     assert!(
-        card.content.contains("-# for #general · expires"),
+        card.content.contains("-# for #general · held since <t:")
+            && card.content.contains(":R> · still waiting"),
         "{}",
         card.content
     );
+    assert!(!card.content.contains("expires"), "{}", card.content);
     assert_eq!(card.components, 1, "its buttons");
     let note = fake
         .messages(CHANNEL)

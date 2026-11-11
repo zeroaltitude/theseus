@@ -39,9 +39,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use theseus_protocol::{StandingKind, StandingScope};
 
 use crate::check::{has_word, normalize, Check};
 use crate::generate::{Generate, Vars};
@@ -49,6 +50,12 @@ use crate::generate::{Generate, Vars};
 /// The exam (theseus-zaz.11): ten families at scale, and four that make
 /// retrieval hard. It is the only one: the first (34a) is gone.
 pub const EXAM_V2: &str = include_str!("../exam/exam-v2.toml");
+
+/// The standing-acknowledgement set (theseus-ectzg): its own file, not an
+/// item of exam-v2, whose digest is the record of what every memory-exam run
+/// measured. It is built in so a test can hold its checks to the owner's own
+/// trace without a path; `--exam` runs it.
+pub const STANDING_ACK_V1: &str = include_str!("../exam/standing-ack-v1.toml");
 
 /// The owner of the sessions no item owns (`[[background]]`).
 pub const BACKGROUND: &str = "background";
@@ -179,6 +186,53 @@ pub struct Item {
     pub generate: Vec<Generate>,
     #[serde(default, rename = "session")]
     pub sessions: Vec<PastSession>,
+    /// Standing records kept before the present, written into the store as
+    /// `standing.add` writes one (theseus-ectzg). An item uses them to test
+    /// what a model does with a block it is handed on every request, rather
+    /// than with something it recalled: the owner read his own kept
+    /// preference back to himself ("Noted: in group chats I speak as
+    /// myself"), and only a real model can show that it has stopped.
+    #[serde(default, rename = "standing")]
+    pub standing: Vec<PastStanding>,
+    /// The past session of this item's own that the present continues, by its
+    /// `key`, instead of the fresh session a cell otherwise opens. The
+    /// daemon has never compiled that session, so its first turn rebuilds the
+    /// context from the transcript -- a cold resume, which is the moment the
+    /// standing-acknowledgement recurs (theseus-ectzg: "It recurs after every
+    /// recompile/cold resume"). A fresh session cannot show it.
+    #[serde(default)]
+    pub resume: Option<String>,
+}
+
+/// One standing record of an item's past: the owner's own words, in force on
+/// every request of their scope, never a message just sent.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PastStanding {
+    /// `order`, `preference`, or `fact`.
+    pub kind: String,
+    /// The scope as `StandingScope::words` writes it: `everywhere`,
+    /// `surface:terminal`, `surface:discord`, `place:<target>`.
+    pub scope: String,
+    /// What it says, in the owner's words.
+    pub text: String,
+    /// When it was kept: local wall-clock, `YYYY-MM-DD HH:MM`.
+    pub at: String,
+}
+
+impl PastStanding {
+    /// Its kind and scope, read by the protocol's own parsers, so a typo in
+    /// an exam file fails the exam's validation and never a run.
+    pub fn parsed(&self) -> Result<(StandingKind, StandingScope)> {
+        let kind = StandingKind::parse(&self.kind).with_context(|| {
+            format!(
+                "`{}` is no standing kind: write order, preference, or fact",
+                self.kind
+            )
+        })?;
+        let scope = StandingScope::from_words(&self.scope).map_err(|e| anyhow!(e))?;
+        Ok((kind, scope))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -297,6 +351,18 @@ impl Exam {
             let check = Check::parse(&item.check).with_context(|| format!("item {id}"))?;
             checks.insert(id.clone(), check);
             validate_sessions(&format!("item {id}"), &item.sessions, off)?;
+            if let Some(key) = &item.resume {
+                ensure!(
+                    item.sessions.iter().any(|s| &s.key == key),
+                    "item {id}: resume names {key}, which is none of its own past sessions"
+                );
+            }
+            for (k, s) in item.standing.iter().enumerate() {
+                let at = || format!("item {id}: standing record {}", k + 1);
+                ensure!(!s.text.trim().is_empty(), "{}: no text", at());
+                s.parsed().with_context(at)?;
+                crate::time::parse_local(&s.at, off).with_context(at)?;
+            }
             for g in &item.gold {
                 ensure!(item.node(g).is_some(), "item {id}: gold {g} names no node");
             }
@@ -965,5 +1031,47 @@ text = "Noted."
         Exam::parse(&one(&time)).unwrap();
         let once = time.replace("Noted: heron.", "Noted.");
         assert!(format!("{:#}", Exam::parse(&one(&once)).unwrap_err()).contains("stated 1 times"));
+    }
+
+    /// A standing record's kind, scope and time are read by the protocol's
+    /// own parsers when the exam loads, so a typo in an exam file is a load
+    /// error that names it and never a surprise inside a paid run.
+    #[test]
+    fn a_standing_record_is_validated_when_the_exam_loads() {
+        let good = Exam::parse(STANDING_ACK_V1).expect("the standing set loads");
+        let item = &good.file.items[0];
+        assert_eq!(item.standing.len(), 2);
+        assert_eq!(
+            item.standing[1].parsed().unwrap().1,
+            theseus_protocol::StandingScope::Surface("terminal".into())
+        );
+        let bad_scope =
+            STANDING_ACK_V1.replace("scope = \"surface:terminal\"", "scope = \"surface:slack\"");
+        let e = format!("{:#}", Exam::parse(&bad_scope).unwrap_err());
+        assert!(
+            e.contains("no surface") && e.contains("standing record 2"),
+            "{e}"
+        );
+        let bad_kind = STANDING_ACK_V1.replace("kind = \"preference\"", "kind = \"suggestion\"");
+        let e = format!("{:#}", Exam::parse(&bad_kind).unwrap_err());
+        assert!(e.contains("no standing kind"), "{e}");
+        let bad_at = STANDING_ACK_V1.replace("at = \"2026-10-22 09:16\"", "at = \"the 22nd\"");
+        assert!(Exam::parse(&bad_at).is_err());
+        let no_text = STANDING_ACK_V1.replace(
+            "text = \"In group chats, speak as yourself (Theseus); when something needs the owner's voice or decision, say so and leave it to him.\"",
+            "text = \"   \"",
+        );
+        let e = format!("{:#}", Exam::parse(&no_text).unwrap_err());
+        assert!(e.contains("no text"), "{e}");
+        // `resume` must name one of the item's own past sessions: a cell that
+        // resumes nothing would silently open a fresh session instead, and a
+        // fresh session cannot show the cold-resume symptom at all.
+        assert_eq!(item.resume.as_deref(), Some("a"));
+        let bad_resume = STANDING_ACK_V1.replace("resume = \"a\"", "resume = \"zz\"");
+        let e = format!("{:#}", Exam::parse(&bad_resume).unwrap_err());
+        assert!(
+            e.contains("resume names zz") && e.contains("none of its own past sessions"),
+            "{e}"
+        );
     }
 }

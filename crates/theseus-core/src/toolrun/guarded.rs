@@ -34,16 +34,38 @@ pub(super) fn guarded_paths(
         .collect();
     // The floor: Theseus's own state (its store, spool, and bindings file, in
     // the state dir actually in use) and the 1Password CLI's credentials.
+    // Since theseus-3i6d1 the owner's own instruction file in that same state
+    // dir is there too, and so is the config file the daemon serves from.
     let canon_path = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
     let mut floor_paths = vec![
         canon_path(state.join("store")),
         canon_path(state.join("spool")),
         canon_path(cfg.discord.bindings_path(state)),
+        // The user-level instruction file (theseus-wadu §1, theseus-3i6d1):
+        // read live into the system block on every request, with the standing
+        // of `[context] files` and no grant between it and the prompt. A
+        // tool's `fs.write` to this one fixed, auto-discovered path would put
+        // chosen text into every prompt, permanently, and block 3 is not a
+        // `ContentItem`, so no injection label can ever be raised on it.
+        canon_path(state.join(crate::project_context::USER_FILE)),
         canon("~/.config/op"),
     ];
-    // The token file the daemon was given, by flag or by environment, and
-    // the config note's last-known-good copy (theseus-2fo).
-    for f in cfg.op_token_file.iter().chain(&cfg.config_copy) {
+    // The token file the daemon was given, by flag or by environment, the
+    // config note's last-known-good copy (theseus-2fo), and the config file
+    // itself when the config is a file (theseus-3i6d1). The copy was floored
+    // and its original was not, so `fs.write` reached `theseus.toml` at the
+    // tool's own posture: everything the file governs -- every posture in
+    // `[policy]`, the roots, `[sandbox] egress`, where each secret is read
+    // from -- was defended only by the file's ownership, and a turn that can
+    // be induced to write a value into it is governed by the value it wrote
+    // at the next start. All three are named by the daemon, never by the
+    // TOML, so a config cannot move itself off the floor.
+    for f in cfg
+        .op_token_file
+        .iter()
+        .chain(&cfg.config_copy)
+        .chain(&cfg.config_file)
+    {
         floor_paths.push(canon_path(f.clone()));
     }
     // The sealed holdout sets (theseus-pw1q.5): no L1 view shows them
