@@ -551,6 +551,29 @@ async fn the_pattern_flags_still_hide_their_argument() {
             "an ordinary find -exec sweep",
             json!({"command": format!("find {root} -name '*.rs' -exec grep -l fn {{}} +")}),
         ),
+        // The LONG code flags, which `hides_the_next_program`'s second arm
+        // answers and nothing asserted until a plant of this row's own found
+        // that deleting that arm passes 63/63. The arm's removal makes the
+        // floor WIDER, so the gap was an unmeasured cost rather than a hole --
+        // but an unpinned arm of a predicate this row introduced is this row's
+        // to pin, in the direction that a plant can see.
+        //
+        // `sh --command op` runs the vault's CLI with no arguments, which is
+        // the one-word-line rule's whole reason: it can name no path and ask
+        // nothing. `--exec`/`--execute` are deliberately NOT here, because
+        // `introduces_a_program` reads them whatever this arm says.
+        (
+            "sh --command, whose argument is a one-word line",
+            json!({"command": "sh --command op"}),
+        ),
+        (
+            "python3 --eval the same way",
+            json!({"command": "python3 --eval theseusd"}),
+        ),
+        (
+            "env --split-string, as the call's own argv",
+            json!({"argv": ["env", "--split-string", "op"]}),
+        ),
     ] {
         let (floor, _, reason) = decide(&r, "proc.run", input);
         assert!(!floor, "{what} is held and should not be: {reason}");
