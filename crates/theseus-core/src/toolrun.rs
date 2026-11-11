@@ -1947,10 +1947,19 @@ pub fn build_runtime(
 ) -> Result<ToolRuntime> {
     let t = &cfg.tools;
     let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
-    let state = spool
-        .as_ref()
-        .and_then(|s| s.dir().parent().map(std::path::Path::to_path_buf))
-        .unwrap_or_else(|| cfg.state_dir());
+    // The state dir in use, from the one place it is resolved: the config.
+    // `theseusd` folds `--state-dir`/`THESEUS_STATE_DIR` into
+    // `[server].state_dir` before it opens the store (`state_dir_in_use`), so
+    // `Config::state_dir()` is the directory the store, the spool and the
+    // bindings file are in -- and it is the same expression
+    // `project_context::block` reads the owner's own `AGENTS.md` from. This
+    // was derived from the spool's parent instead, which agreed with
+    // `cfg.state_dir()` only when nothing had passed the flag: under it the
+    // floor held one `AGENTS.md` and every prompt carried another, so the
+    // hold the owner accepted a cost for held a file nobody read
+    // (theseus-3i6d1, the floor review's F2). One value with one reader, or
+    // the next flag diverges them again.
+    let state = theseus_tools::paths::canonical_best_effort(&cfg.state_dir());
     let (roots, floor_paths) = guarded_paths(cfg, &state);
     // Proposed extensions are frozen beside the store (M7 43a).
     let extend = Arc::new(crate::extend::Extensions::new(
