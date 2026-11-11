@@ -419,7 +419,7 @@ async fn an_ordinary_command_still_runs_with_nothing_asked() {
         ),
         (
             "a curl with -sS",
-            json!({"command": "curl -sS https://example.invalid/x"}),
+            json!({"command": "curl -sS theseus.invalid/healthz"}),
         ),
     ];
     for (what, input) in ordinary {
