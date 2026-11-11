@@ -51,7 +51,7 @@ use songbird::tracks::{Track, TrackHandle};
 use songbird::{Call, Songbird};
 use tokio::sync::{mpsc, watch};
 
-use crate::audio::{Audio, FRAME_SAMPLES, SAMPLE_RATE};
+use crate::audio::{Audio, FRAME, FRAME_SAMPLES, SAMPLE_RATE};
 use crate::io::{ClipId, Frame, Heard, Speaker, VoiceIo};
 use crate::warm::{led_in, warm_silence, AfterClip, LeadIn, Silence, Spell, Warm, Warmth};
 
@@ -290,6 +290,11 @@ pub struct SongbirdIo {
     warm: Warm<TrackHandle>,
     /// The silence sent before the clip last played (`VoiceIo::lead_in`).
     lead_in: usize,
+    /// When the call joined (attached, until the join returns), for the
+    /// first clip's line.
+    joined: Instant,
+    /// A clip has played: the first one says how it began.
+    played: bool,
     ssrcs: Arc<Mutex<Ssrcs>>,
     /// A rejoin is leaving the call: its requested disconnect is no drop.
     rejoining: Arc<AtomicBool>,
@@ -390,11 +395,12 @@ impl SongbirdIo {
         channel: NonZeroU64,
         lead_in: LeadIn,
     ) -> songbird::error::JoinResult<Self> {
-        let io = Self::attach(Arc::clone(&call), lead_in).await;
+        let mut io = Self::attach(Arc::clone(&call), lead_in).await;
         // songbird hands the gateway's voice updates to the call under its
         // lock while the join's connection waits for them: drop it first.
         let join = call.lock().await.join(channel).await?;
         join.await?;
+        io.joined = Instant::now();
         Ok(io)
     }
 
@@ -443,6 +449,8 @@ impl SongbirdIo {
             spell: Spell::new(lead_in),
             warm: Warm::new(),
             lead_in: 0,
+            joined: Instant::now(),
+            played: false,
             ssrcs,
             rejoining,
             gone: None,
@@ -456,6 +464,24 @@ impl SongbirdIo {
     /// waiter bounds its wait.
     pub fn flowing(&self) -> watch::Receiver<bool> {
         self.flowing.clone()
+    }
+
+    /// The first clip of the call begins with `frames` of silence before it:
+    /// said once, beside "the call's audio flows", so a clip heard to start
+    /// mid-sentence reads against the lead-in it had and how long after the
+    /// join it played. The greeting is that clip.
+    fn first_clip(&mut self, frames: u32) {
+        if std::mem::replace(&mut self.played, true) {
+            return;
+        }
+        let lead_in_ms = FRAME.as_millis() as u64 * u64::from(frames);
+        let since_join_ms = self.joined.elapsed().as_millis() as u64;
+        tracing::info!(
+            lead_in_ms,
+            since_join_ms,
+            flowed = *self.flowing.borrow(),
+            "voice: the first clip plays ({lead_in_ms} ms of silence before it, {since_join_ms} ms after the join)"
+        );
     }
 
     /// The call's counts and its rejoin, for the binding's deaf check.
@@ -544,6 +570,7 @@ impl VoiceIo for SongbirdIo {
         Box::pin(async move {
             let frames = self.spell.begin(id, Instant::now(), self.warm.warmth.on());
             self.lead_in = frames as usize * FRAME_SAMPLES;
+            self.first_clip(frames);
             let input = clip_input(&led_in(&clip, frames));
             // The clip's warm silence waits beside it, paused, so its end
             // starts it at once (`crate::warm`).
@@ -810,11 +837,9 @@ mod tests {
         assert_eq!(led_in(&chime, off.lead_in).len(), chime.len());
     }
 
-    /// `VoiceIo::lead_in` is the silence that led the clip played last, which
-    /// the echo canceller aligns by: the spell's after quiet, the gap's when
-    /// nothing was warm, none under the warm silence (theseus-9d9aq).
-    #[tokio::test]
-    async fn lead_in_reports_the_silence_that_led_the_clip() {
+    /// An io on a call that never connected: its clips are queued and never
+    /// heard, which is all the lead-in and the journal need.
+    async fn unconnected(lead: LeadIn) -> SongbirdIo {
         let id = |n| std::num::NonZeroU64::new(n).unwrap();
         let shard = songbird::shards::Shard::Generic(Arc::new(Sent::default()));
         let call = Call::new(
@@ -822,11 +847,86 @@ mod tests {
             shard,
             UserId::from(id(2)),
         );
-        let lead = LeadIn {
+        SongbirdIo::attach(Arc::new(tokio::sync::Mutex::new(call)), lead).await
+    }
+
+    /// What the journal was told: each event's fields, by name, as text.
+    #[derive(Clone, Default)]
+    struct Told(Arc<Mutex<Vec<BTreeMap<&'static str, String>>>>);
+
+    struct Fields(BTreeMap<&'static str, String>);
+
+    impl tracing::field::Visit for Fields {
+        fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+            self.0.insert(f.name(), format!("{v:?}"));
+        }
+    }
+
+    impl tracing::Subscriber for Told {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, e: &tracing::Event<'_>) {
+            let mut fields = Fields(BTreeMap::new());
+            e.record(&mut fields);
+            self.0.lock().unwrap().push(fields.0);
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    /// The first clip of a call says, once, the silence before it and how
+    /// long after the join it played (theseus-emqbm: a greeting heard to start
+    /// mid-sentence on a cold daemon could not be read against either). The
+    /// test reads the recorded event's fields, not its words.
+    #[tokio::test]
+    async fn the_first_clip_tells_its_lead_in_and_the_time_since_the_join() {
+        let told = Told::default();
+        let _journal = tracing::subscriber::set_default(told.clone());
+        let mut io = unconnected(spell_of(600)).await;
+        io.joined = Instant::now()
+            .checked_sub(Duration::from_secs(3))
+            .expect("an instant three seconds back");
+        let first = |told: &Told| {
+            told.0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.contains_key("lead_in_ms") && e.contains_key("since_join_ms"))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert!(first(&told).is_empty(), "nothing before a clip plays");
+        io.play(ClipId(0), Audio::chime()).await;
+        let said = first(&told);
+        assert_eq!(said.len(), 1, "the first clip says it: {said:?}");
+        assert_eq!(said[0]["lead_in_ms"], "600", "30 frames of 20 ms");
+        let since: u64 = said[0]["since_join_ms"].parse().expect("milliseconds");
+        assert!(since >= 3_000, "the join was three seconds back: {since}");
+        assert_eq!(said[0]["flowed"], "false", "nobody has talked in this call");
+        // Once: the next clip, and a stop, say nothing more.
+        io.tx.send(Signal::Heard(Heard::Ended(ClipId(0)))).unwrap();
+        assert_eq!(io.next().await, Some(Heard::Ended(ClipId(0))));
+        io.play(ClipId(1), Audio::chime()).await;
+        io.stop().await;
+        assert_eq!(first(&told).len(), 1, "only the first clip says it");
+    }
+
+    /// `VoiceIo::lead_in` is the silence that led the clip played last, which
+    /// the echo canceller aligns by: the spell's after quiet, the gap's when
+    /// nothing was warm, none under the warm silence (theseus-9d9aq).
+    #[tokio::test]
+    async fn lead_in_reports_the_silence_that_led_the_clip() {
+        let mut io = unconnected(LeadIn {
             spell: Duration::from_millis(600),
             gap: Duration::from_millis(200),
-        };
-        let mut io = SongbirdIo::attach(Arc::new(tokio::sync::Mutex::new(call)), lead).await;
+        })
+        .await;
         let end = async |io: &mut SongbirdIo, n| {
             io.tx.send(Signal::Heard(Heard::Ended(ClipId(n)))).unwrap();
             assert_eq!(io.next().await, Some(Heard::Ended(ClipId(n))));
