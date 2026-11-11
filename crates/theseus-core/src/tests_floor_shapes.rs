@@ -516,12 +516,19 @@ async fn a_code_cluster_wrapper_does_not_hide_a_floored_program() {
         );
         assert!(!fails_open, "a self session runs {what} anyway: {reason}");
     }
-    // The controls, and the first two are round 2's own false positives: a
-    // code letter that IS its cluster's last character still hides the next
-    // word, because `grep -c theseusd <log>` is a pattern and holding it was
-    // four of round 2's seven. These are what make the fix a narrowing rather
-    // than a removal -- deleting `hides_the_next_program` reds these, not the
-    // block above.
+}
+
+/// **The controls that make the wrapper fix a NARROWING and not a removal**,
+/// and the first three are round 2's own false positives: a code letter that
+/// IS its cluster's last character still hides the next word, because
+/// `grep -c theseusd <log>` is a pattern and holding it was four of round 2's
+/// seven. Deleting [`hides_the_next_program`] reds these, not
+/// `a_code_cluster_wrapper_does_not_hide_a_floored_program` — which is the
+/// direction that matters, since a floor made wider by deleting a row's code
+/// is a floor whose cost nothing measures.
+#[tokio::test]
+async fn the_pattern_flags_still_hide_their_argument() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
     let root = r.root.to_string_lossy().into_owned();
     for (what, input) in [
         (
@@ -548,21 +555,29 @@ async fn a_code_cluster_wrapper_does_not_hide_a_floored_program() {
         let (floor, _, reason) = decide(&r, "proc.run", input);
         assert!(!floor, "{what} is held and should not be: {reason}");
     }
-    // The accepted cost of narrowing the letters, in full and in one place.
-    // The FIRST case was a must-not-hold in
-    // `an_ordinary_command_still_runs_with_nothing_asked` until this row and
-    // is the ONLY case in this tree that the narrowing flips: every other
-    // `-E`/`-S` line in the repository hands its flag a word that is not a
-    // floored program name (`sed -E 's#…#'`, `curl -sS <url>`,
-    // `ssh -S <sock>`, `sort -S 1M`, `ruby -E utf-8`,
-    // `cargo nextest -E 'test(…)'`), so not one of them moves.
-    //
-    // `grep -E theseusd <file>` and `sudo -E op item get --reveal` are the
-    // SAME argv shape -- a program, a single-dash cluster whose last character
-    // is a code letter, a bare word, more words -- and nothing list-free tells
-    // them apart. This block is therefore the record of a choice, not of a
-    // defect, and reverting it is one character: put `'E'` back in
-    // `PROGRAM_HIDING_LETTERS`.
+}
+
+/// **The accepted cost of narrowing the letters, in full and in one place.**
+/// The first case was a must-not-hold in
+/// `an_ordinary_command_still_runs_with_nothing_asked` until this row and is
+/// the ONLY case in this tree that [`PROGRAM_HIDING_LETTERS`] flips: every
+/// other `-E`/`-S` line in the repository hands its flag a word that is not a
+/// floored program name (`sed -E 's#…#'`, `curl -sS <url>`, `ssh -S <sock>`,
+/// `sort -S 1M`, `ruby -E utf-8`, `cargo nextest -E 'test(…)'`), so not one of
+/// them moves — grepped, not assumed.
+///
+/// `grep -E theseusd <file>` and `sudo -E op item get --reveal` are the SAME
+/// argv shape — a program, a single-dash cluster whose last character is a
+/// code letter, a bare word, more words — and nothing list-free tells them
+/// apart. **So this is the record of a choice, not of a defect**: one approval
+/// on a read-only one-word pattern search against four unheld paths to the
+/// vault, in the direction the owner priced on 2026-11-10 at 14:53. Reverting
+/// it is one character — put `'E'` back — and the message below says what else
+/// has to be true first.
+#[tokio::test]
+async fn the_letters_the_program_key_drops_cost_one_shape() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    let root = r.root.to_string_lossy().into_owned();
     for (what, input) in [
         (
             "a one-word ERE whose pattern IS a floored program name (MOVED from \
