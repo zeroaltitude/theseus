@@ -1407,10 +1407,10 @@ impl Lane {
     }
 
     /// A self build's gate ended (theseus-1eemp): one line where the item
-    /// reports. The loop used to push and post on green alone, so a red build
-    /// - every one of the 126 since 2026-10-20 - left the forum and the thread
-    /// with nothing in them. A red one is a failure and pings as one; a green
-    /// one reads as a report.
+    /// reports. The loop used to push and post on green alone, so every one of
+    /// the 126 red builds since 2026-10-20 left the forum and the thread with
+    /// nothing in them. A red one is a failure and pings as one; a green one
+    /// reads as a report.
     ///
     /// **The item's own thread when its task has one, the operator's DM when
     /// it has none** - which on the live daemon is every self item, since its
