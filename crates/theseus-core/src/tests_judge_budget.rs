@@ -95,6 +95,25 @@
 //! not by running a starve against each; the stop nudge's two sites are the
 //! ones most worth a later look.
 
+//! **The effective budget is not necessarily `total_secs`** (theseus-4vsrz).
+//! The judge client caps live/awaited HTTP time at
+//! `min(config.total, deadline.saturating_sub(queued))`. Raising the first
+//! number above the second buys nothing. The source census below pins every
+//! non-total dispatch expression, with a reason; adding a fourth or removing
+//! one without updating its row fails. This is a syntax census, not data-flow
+//! analysis: the six `total`/`total_secs` bindings were read back to `svc.cfg`.
+//! A verdict's record and a verdict observed by a turn have different bounds:
+//!
+//! | bound | value / knob | observable it bounds |
+//! |---|---|---|
+//! | `[threads] route_wait_ms` | 400 ms default; configurable | the thread choice and cross/families verdict the turn can use (`rpc/thread_flow.rs`, `turn/cross_step.rs`, `turn/digest_step.rs`) |
+//! | `judge::stop::WAIT` | 1,000 ms; constant, no knob | whether `loop.v1`'s nudge reaches the stopping turn |
+//! | `rerank::DEADLINE` | 600 ms; `set_rerank_deadline` in tests | the rerank call and its waiting turn |
+//! | cross/families call deadline | 5 s; literal, no knob | the call and its eventual record, even after the turn stopped waiting |
+//!
+//! A future budget sweep must identify the observable and its shortest bound
+//! before raising a rig: the file-level census alone cannot establish it.
+
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -216,4 +235,145 @@ fn the_rule_reads_what_a_file_sets() {
         "  let c = judge_config(dir, j); // shared rig"
     ));
     assert!(!enables_the_judge("let x = 1;"));
+}
+
+/// Exceptions keyed by source and exact expression, never by a drifting line
+/// number or just a file (a second short dispatch in that file must fail too).
+const SHORT_DISPATCH: &[(&str, &str)] = &[
+    (
+        "rerank.rs:live(deadline)",
+        "600 ms on-path rerank budget (about 350 ms expected); tests can use set_rerank_deadline",
+    ),
+    (
+        "cross.rs:live(Duration::from_secs(5))",
+        "five-second detached recall-call window; the turn separately waits route_wait_ms",
+    ),
+    (
+        "families.rs:live(Duration::from_secs(5))",
+        "five-second detached recall-call window; the turn separately waits route_wait_ms",
+    ),
+];
+
+/// Rust tokens keep comments and quoted examples out; groups handle multiline
+/// calls and nested Duration constructors without a line-based regular expression.
+fn dispatch_arguments(stream: proc_macro2::TokenStream, out: &mut Vec<(String, String)>) {
+    use proc_macro2::{Delimiter, TokenTree};
+    let tokens: Vec<_> = stream.into_iter().collect();
+    for call in tokens.windows(5) {
+        if let [TokenTree::Ident(ty), TokenTree::Punct(a), TokenTree::Punct(b), TokenTree::Ident(mode), TokenTree::Group(arg)] =
+            call
+        {
+            let mode = mode.to_string();
+            if ty == "Urgency"
+                && a.as_char() == ':'
+                && b.as_char() == ':'
+                && matches!(mode.as_str(), "live" | "awaited")
+                && arg.delimiter() == Delimiter::Parenthesis
+            {
+                let argument: String = arg
+                    .stream()
+                    .to_string()
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                out.push((mode, argument.trim_end_matches(',').to_owned()));
+            }
+        }
+    }
+    for token in tokens {
+        if let TokenTree::Group(group) = token {
+            dispatch_arguments(group.stream(), out);
+        }
+    }
+}
+
+fn uses_total(argument: &str) -> bool {
+    matches!(
+        argument,
+        "total" | "Duration::from_secs(total)" | "Duration::from_secs(total_secs)"
+    )
+}
+
+#[test]
+fn every_short_judge_dispatch_has_a_reason_and_no_reason_is_stale() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/judge");
+    let mut files = Vec::new();
+    walk(&root, &mut files, &root);
+    let mut found = BTreeMap::new();
+    let mut calls = 0;
+    for (path, text) in files {
+        if Path::new(&path).components().any(|c| {
+            let name = c.as_os_str().to_string_lossy();
+            name == "tests" || name == "tests.rs" || name.starts_with("tests_")
+        }) {
+            continue;
+        }
+        let mut arguments = Vec::new();
+        dispatch_arguments(
+            text.parse().expect("judge source is Rust tokens"),
+            &mut arguments,
+        );
+        calls += arguments.len();
+        for (mode, argument) in arguments {
+            if uses_total(&argument) {
+                continue;
+            }
+            let site = format!("{path}:{mode}({argument})");
+            assert!(
+                found
+                    .insert(site.clone(), "non-total dispatch budget".to_owned())
+                    .is_none(),
+                "duplicate short dispatch {site}: one allowlist row cannot excuse two calls"
+            );
+        }
+    }
+    assert!(
+        calls >= 9,
+        "found only {calls} live/awaited calls: check the source walk"
+    );
+    crate::complete::check(
+        &crate::complete::MustBeComplete {
+            item: "judge dispatch whose deadline is not the configured total",
+            list: "tests_judge_budget::SHORT_DISPATCH",
+            world: "non-test Rust files under theseus-core/src/judge",
+            add: "use the config-derived total, or document the shorter bound and its reason in SHORT_DISPATCH; raising total_secs alone cannot extend this call",
+            drop: "the dispatch was removed or now uses total: remove its stale SHORT_DISPATCH row",
+            least: 0,
+            stale_fails: true,
+        },
+        SHORT_DISPATCH.iter().map(|(site, why)| (site.to_string(), why.to_string())),
+        found,
+    );
+}
+
+#[test]
+fn dispatch_scan_sees_literals_constants_and_multiline_calls_not_prose() {
+    let mut got = Vec::new();
+    dispatch_arguments(
+        r#"
+        // Urgency::live(Duration::from_secs(99))
+        const DOC: &str = "Urgency::awaited(Duration::from_millis(99))";
+        fn send() {
+            Urgency :: live (
+                Duration::from_secs(5),
+            );
+            Urgency::awaited(Duration::from_millis(50));
+            Urgency::live(DEADLINE);
+            Urgency::live(total);
+            Urgency::live(Duration::from_secs(total));
+            Urgency::live(Duration::from_secs(total_secs));
+        }
+        "#
+        .parse()
+        .unwrap(),
+        &mut got,
+    );
+    assert_eq!(got.len(), 6);
+    assert_eq!(got[0], ("live".into(), "Duration::from_secs(5)".into()));
+    assert_eq!(
+        got[1],
+        ("awaited".into(), "Duration::from_millis(50)".into())
+    );
+    assert_eq!(got[2], ("live".into(), "DEADLINE".into()));
+    assert_eq!(got.iter().filter(|(_, arg)| !uses_total(arg)).count(), 3);
 }

@@ -143,6 +143,11 @@ async fn judge_families(
         return;
     };
     let wrote = beside.spawn(&me);
+    // Five seconds bounds this detached recall call and its eventual record,
+    // not the turn: it stops waiting at route_wait_ms (400 ms by default).
+    // This retains the pack's existing late-result window; raising total_secs
+    // above five cannot extend it (the client takes the minimum after queueing).
+    // tests_judge_budget pins this exception; verdict tests must size both waits.
     let urgency = Urgency::live(Duration::from_secs(5));
     let mut judgments = built
         .judge
