@@ -409,6 +409,16 @@ pub const STORE_DIR_STDIO: &str = "store-stdio";
 /// `toolrun::guarded::guarded_paths` — or a fifth mode diverges them again,
 /// which is the ruling this project already made one level up for the state
 /// dir itself (theseus-3i6d1, the floor review's F2).
+///
+/// ⚠ **This file is not a keel file** (`scripts/keel-guard.py`'s
+/// `KEEL_FILES`), so narrowing this list needs no ack from anybody — while the
+/// tool floor it feeds is built in `toolrun::guarded`, which IS one. What
+/// stops a narrowing here from quietly unflooring a store is test coverage,
+/// not the keel: measured 2026-11-11 (theseus-rq78r), dropping
+/// `STORE_DIR_STDIO` from this list goes **5 red** in two crates —
+/// `toolrun::guarded`'s three floor tests, `tests_floor_stdio`, and
+/// `theseusd`'s `stdio_floor` over a really-spawned `--stdio` daemon. If you
+/// shorten this list, that is what you will see, and it is not a flake.
 pub const STORE_DIR_NAMES: [&str; 2] = [STORE_DIR, STORE_DIR_STDIO];
 
 /// The store directory a mode serves, under the state dir in use. The

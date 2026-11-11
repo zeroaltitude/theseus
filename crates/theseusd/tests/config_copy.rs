@@ -177,13 +177,16 @@ impl Rig {
     /// The copy as the daemon keeps one, its digest in the store
     /// (theseus-zmgb), so the next start serves from it.
     fn keep_copy(&self, text: &str) {
-        self.keep_copy_in("store", text);
+        self.keep_copy_in(false, text);
     }
 
-    /// `keep_copy`, its digest in the store named `store` (a `--stdio`
-    /// daemon's is `store-stdio`).
-    fn keep_copy_in(&self, store: &str, text: &str) {
-        let store = theseus_core::store::Store::open(&self.path("state").join(store)).unwrap();
+    /// `keep_copy`, its digest in the store the given mode serves — resolved
+    /// through `rpc::store_dir`, the one list the daemon and the tool floor
+    /// both read, so this rig does not become a third place mapping a mode to
+    /// a directory name (theseus-rq78r, the floor review's F4).
+    fn keep_copy_in(&self, stdio: bool, text: &str) {
+        let dir = theseus_core::rpc::store_dir(&self.path("state"), stdio);
+        let store = theseus_core::store::Store::open(&dir).unwrap();
         config_copy::keep(
             &store,
             &config_copy::path(Some(&self.path("state"))),
@@ -484,8 +487,7 @@ impl Rig {
     /// the copy's digest in the `--stdio` daemon's store.
     fn restart_ahead(&self, stdio: bool) {
         std::fs::write(self.path("note.toml"), test_note(self, 42.5)).unwrap();
-        let store = if stdio { "store-stdio" } else { "store" };
-        self.keep_copy_in(store, &test_note(self, 100.0));
+        self.keep_copy_in(stdio, &test_note(self, 100.0));
     }
 
     /// A `--stdio` daemon, `env` set, and its client; not yet asked

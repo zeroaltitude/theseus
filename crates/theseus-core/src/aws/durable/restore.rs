@@ -124,7 +124,28 @@ pub async fn from_s3(
         );
     }
     let account = account_for(aws, &bucket_name)?.clone();
-    let target = state_dir.join("store");
+    // `STORE_DIR`, and deliberately never `rpc::store_dir(state_dir, stdio)`:
+    // a restore target is the floor's opposite. The floor names EVERY store a
+    // mode can serve, because it cannot know the mode (theseus-0h9f3 L21);
+    // this names exactly ONE -- the store a stopped socket daemon serves,
+    // which is the directory `crate::restore::restore` writes below (its own
+    // `state_dir.join("store")`, `restore.rs`). `from_s3` takes no `stdio` and
+    // refuses above while anything answers on `socket`, so there is no mode
+    // here to follow, and an edit that "fixed" this to track one would move
+    // this off the store the local restore is about to replace.
+    //
+    // ⚠ `target` is NOT only the occupancy check below: `Paths::for_store`
+    // reads it at the cursor step, so it must name the directory the local
+    // restore WRITES, not merely one to look in. It agrees with
+    // `restore.rs:103` today because both are `store`. **They are bound by
+    // nothing but that**, and it is measured (theseus-rq78r): rename
+    // `STORE_DIR` and this site follows while `restore.rs`'s own three
+    // literals do not, which reds 4 of `aws::tests_restore`. With the bare
+    // literal here instead, the same rename is 71/71 GREEN while the restore
+    // writes a store the daemon will not serve -- silently. The constant is
+    // the loud half of that choice, and the close of it is for the restore
+    // family's four sites to share one target (a 1.0.6 move, filed).
+    let target = state_dir.join(crate::rpc::STORE_DIR);
     let occupied = std::fs::read_dir(&target).is_ok_and(|mut d| d.next().is_some());
     if occupied && !force {
         bail!(
