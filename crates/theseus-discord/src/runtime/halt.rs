@@ -80,13 +80,33 @@ pub(super) fn stop_params(
     }
 }
 
-/// What `/stop` answers: the plain answer, then the count of tasks a `/stop all:true` cancelled.
+/// What `/stop` answers: the plain answer, the count of tasks a `/stop all:true` cancelled, then what the
+/// turn left running (theseus-7kha): the jobs this stop ended, and the ones it kept, naming who approved
+/// each. `keep_jobs` is false here, so this is the path that reaches those leftovers; a stop is never
+/// silent about them, as the CLI's `stop_line` is not.
 pub(super) fn stop_words(r: &theseus_protocol::ExecutionStopResult) -> String {
-    let plain = super::stop_answer(r);
-    if r.cancelled.is_empty() {
-        return plain;
+    let mut out = super::stop_answer(r);
+    if !r.cancelled.is_empty() {
+        out.push_str(&format!(
+            " {} task(s) cancelled with it.",
+            r.cancelled.len()
+        ));
     }
-    format!("{plain} {} task(s) cancelled with it.", r.cancelled.len())
+    if !r.left_ended.is_empty() {
+        let ended: Vec<String> = r.left_ended.iter().map(|j| format!("`{j}`")).collect();
+        out.push_str(&format!(
+            " {} job(s) that had left something running were ended: {}.",
+            r.left_ended.len(),
+            ended.join(" ")
+        ));
+    }
+    for k in &r.left_kept {
+        out.push_str(&format!(
+            " Job `{}` was kept running: `{}` approved it.",
+            k.job, k.approved_by
+        ));
+    }
+    out
 }
 
 /// The words a halt is: `Some(why)` when `text` begins `halt self`.
@@ -218,10 +238,8 @@ mod tests {
         assert_eq!(more.discord, here);
     }
 
-    /// The answer says how many tasks went with the stop; a plain stop's answer is unchanged.
-    #[test]
-    fn the_stops_answer_counts_the_cancelled_tasks() {
-        let mut r = theseus_protocol::ExecutionStopResult {
+    fn bare_result() -> theseus_protocol::ExecutionStopResult {
+        theseus_protocol::ExecutionStopResult {
             execution: serde_json::from_value(serde_json::json!({
                 "execution_id": "exe_1", "session_id": "ses_1", "kind": "conversation",
                 "state": "waiting", "turns": 1, "interrupted": 0, "outstanding": 0,
@@ -241,13 +259,86 @@ mod tests {
             cancelled: vec![],
             left_ended: vec![],
             left_kept: vec![],
-        };
+        }
+    }
+
+    /// The answer says how many tasks went with the stop; a plain stop's answer is unchanged.
+    #[test]
+    fn the_stops_answer_counts_the_cancelled_tasks() {
+        let mut r = bare_result();
         let plain = stop_words(&r);
         assert_eq!(plain, crate::runtime::stop_answer(&r));
         r.cancelled = vec!["exe_a".into(), "exe_b".into(), "exe_c".into()];
         assert_eq!(
             stop_words(&r),
             format!("{plain} 3 task(s) cancelled with it.")
+        );
+    }
+
+    fn stopped() -> theseus_protocol::ExecutionStopResult {
+        let mut r = bare_result();
+        r.stopped_actions = vec!["j1".into()];
+        r
+    }
+
+    /// A stop that ended a job the turn had left running says so, with the count and each job's id
+    /// (theseus-7kha); before this the `/stop` answer was byte-identical to the one without the row.
+    #[test]
+    fn the_stops_answer_lists_the_leftovers_it_ended() {
+        let mut r = stopped();
+        let plain = stop_words(&r);
+        r.left_ended = vec!["j1".into(), "j2".into()];
+        let said = stop_words(&r);
+        assert_ne!(said, plain);
+        assert_eq!(
+            said,
+            format!("{plain} 2 job(s) that had left something running were ended: `j1` `j2`.")
+        );
+        assert!(!said.contains("kept"));
+    }
+
+    /// A job the stop spared is named with the operator who approved it at the floor, one sentence each.
+    #[test]
+    fn the_stops_answer_names_who_approved_each_job_it_kept() {
+        let mut r = stopped();
+        let plain = stop_words(&r);
+        r.left_kept = vec![
+            theseus_protocol::JobKept {
+                job: "j3".into(),
+                approved_by: "discord:operator".into(),
+            },
+            theseus_protocol::JobKept {
+                job: "job_9f".into(),
+                approved_by: "cli:ops".into(),
+            },
+        ];
+        assert_eq!(
+            stop_words(&r),
+            format!(
+                "{plain} Job `j3` was kept running: `discord:operator` approved it. \
+                 Job `job_9f` was kept running: `cli:ops` approved it."
+            )
+        );
+        assert!(!stop_words(&r).contains("were ended"));
+    }
+
+    /// Cancelled tasks, ended leftovers and kept leftovers keep that order, each clause once.
+    #[test]
+    fn the_stops_answer_orders_tasks_then_ended_then_kept() {
+        let mut r = stopped();
+        let plain = stop_words(&r);
+        r.cancelled = vec!["exe_a".into()];
+        r.left_ended = vec!["j1".into()];
+        r.left_kept = vec![theseus_protocol::JobKept {
+            job: "j2".into(),
+            approved_by: "discord:operator".into(),
+        }];
+        assert_eq!(
+            stop_words(&r),
+            format!(
+                "{plain} 1 task(s) cancelled with it. 1 job(s) that had left something running \
+                 were ended: `j1`. Job `j2` was kept running: `discord:operator` approved it."
+            )
         );
     }
 
