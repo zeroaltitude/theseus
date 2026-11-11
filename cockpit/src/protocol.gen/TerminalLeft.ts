@@ -12,7 +12,8 @@ export type TerminalLeft = { pid: number,
 program: string, 
 /**
  * Why the close left it: "a background job" (a group of its own in the
- * terminal's session) or "its own session (setsid, or a daemon)".
+ * terminal's session), "its own session (setsid, or a daemon)", or,
+ * only on the already-exited path, "the exited program's own group".
  */
 why: string, 
 /**
