@@ -50,6 +50,7 @@ pub(crate) mod job;
 pub mod jobs_tools;
 mod kept;
 mod late;
+pub mod login_env;
 mod mcp_floor;
 pub mod misroute;
 mod not_started;
@@ -242,6 +243,9 @@ pub struct ToolRuntime {
     pub parallel_writes: usize,
     /// The environment every job gets, resolved from the daemon's at startup.
     pub proc_env: Vec<(String, String)>,
+    /// The owner's login shell's toolchain, captured once after serving
+    /// (theseus-v4cj); `job_base_env` adds it to `proc_env` for a job.
+    pub login_env: login_env::LoginEnv,
     /// Calls per tool since the daemon started. Counting the store's history
     /// instead would put a scan of every node on the start path (§9).
     pub calls: Mutex<BTreeMap<String, u64>>,
@@ -480,6 +484,7 @@ impl ToolRuntime {
             parallel_reads: crate::config::default_parallel_reads(),
             parallel_writes: crate::config::default_parallel_writes(),
             proc_env: vec![],
+            login_env: Default::default(),
             calls: Mutex::new(BTreeMap::new()),
             fit_notes: Default::default(),
             tightened: Default::default(),
@@ -546,6 +551,18 @@ impl ToolRuntime {
             }
             None => None,
         }
+    }
+
+    /// What a job starts with: the daemon's own `proc_env`, then the login
+    /// shell's names the daemon's lacks (the daemon's value of a name wins).
+    pub(crate) fn job_base_env(&self) -> Vec<(String, String)> {
+        let mut env = self.proc_env.clone();
+        for (k, v) in self.login_env.kept() {
+            if !env.iter().any(|(ek, _)| ek == k) {
+                env.push((k.clone(), v.clone()));
+            }
+        }
+        env
     }
 
     /// The daemon's PATH, as every job gets it unless the call sets its own.
@@ -2149,6 +2166,7 @@ pub fn build_runtime(
         parallel_reads: t.parallel_reads.max(1),
         parallel_writes: t.parallel_writes.max(1),
         proc_env,
+        login_env: login_env::LoginEnv::new(t.proc_env.clone()),
         calls: Mutex::new(BTreeMap::new()),
         fit_notes: Default::default(),
         // Read from the store when the core starts (`Core::build`).
@@ -2223,3 +2241,6 @@ fn map_retry(r: Retry) -> RetryClass {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_login;

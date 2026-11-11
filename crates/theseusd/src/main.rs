@@ -1108,6 +1108,9 @@ fn warm_after_serving(core: &Arc<Core>) {
     // Google Workspace's account check, the `google.check` phase (the Google
     // design §2.2), when `[google]` names an account.
     core.google_after_serving();
+    // The owner's login shell's toolchain (theseus-v4cj), once, under a
+    // 2 s deadline.
+    core.login_env_after_serving();
 }
 
 /// What runs once the socket answers: the kernel's startup report and the
