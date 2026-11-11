@@ -711,7 +711,12 @@ mod told {
     /// A headless daemon - no thread and no DM bound - says nothing on this
     /// surface, exactly as before. An operator post with no DM behind it would
     /// wait for ever rather than be refused, because `refuse_unbound` exempts
-    /// `OPERATOR_TARGET` by name; the note and the task record still carry it.
+    /// `OPERATOR_TARGET` by name.
+    ///
+    /// **The task record is the only surface a headless daemon keeps**, and
+    /// that is worth knowing: `folded_add_ended` is gated on the same
+    /// `owner_dm_bound` (`backlog/folded.rs:204`), so the note is empty here
+    /// too. The note is not a fallback for the post; both want a DM.
     #[tokio::test]
     async fn with_no_dm_bound_a_red_gate_posts_nowhere() {
         let (r, sid) = rig_in_no_place(false);
@@ -727,9 +732,13 @@ mod told {
                 .evidence
                 .iter()
                 .any(|e| e.identity == "gate:red"),
-            "the task record still carries it"
+            "the task record is the surface that is left"
         );
-        assert_eq!(r.core.folded_read().ended.len(), 1, "and so does the note");
+        assert_eq!(
+            r.core.folded_read().ended.len(),
+            0,
+            "the fold wants the same DM: it is not a fallback for the post"
+        );
     }
 }
 

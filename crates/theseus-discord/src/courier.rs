@@ -918,8 +918,20 @@ impl Lane {
             // 2026-10-20 - left the forum and the thread with nothing in them.
             // A red one is a failure and pings as one; a green one reads as a
             // report.
+            // An item with no thread of its own - which on the live daemon is
+            // every self item, since its task hangs off the self backlog's
+            // root and no place syncs it - is staged to the operator instead,
+            // and the operator lane has no place of its own: its posts go
+            // where approvals go, as `notice`'s do (theseus-haw2b).
             "self_build" | "self_build_red" => {
-                let channel = self.place_channel().await?;
+                let (channel, mut extra) = match self.kind {
+                    "operator" => {
+                        let (channel, place) = self.operator_channel(&body).await?;
+                        (channel, json!({"place": place}))
+                    }
+                    _ => (self.place_channel().await?, json!({})),
+                };
+                extra["item"] = body["item"].clone();
                 let t = body["text"].as_str().unwrap_or("").to_string();
                 let event = match kind_of(a) {
                     "self_build" => Event::TaskEnded,
@@ -927,7 +939,7 @@ impl Lane {
                 };
                 Ok(Plan {
                     writes: vec![text(t, format!("self_build:{corr}"), channel, None, event)],
-                    extra: json!({"item": body["item"]}),
+                    extra,
                 })
             }
             // A glide's post (38b): another session's words, once, here.
