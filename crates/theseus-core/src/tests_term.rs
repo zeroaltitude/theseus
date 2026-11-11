@@ -343,14 +343,21 @@ async fn the_daemons_stop_closes_every_terminal() {
 async fn a_tasks_terminal_closes_at_its_sessions_end() {
     // The ask the task's arrangement quotes (M5 27: a task needs one).
     const START: &str = "START a task that opens a terminal, please";
-    let r = rig(true, |req| {
+    // The seconds carry this run's pid, so another run's sleep (this test in
+    // another tree at once, or one a killed run left) is never taken for this
+    // one's: a bare `sleep 4747` was found by a scan of all of `/proc`. The
+    // number is a new one, so a tree that still scans for `4747` finds none of
+    // these. Seven digits, so no pid's marker holds another's.
+    let marker = format!("4746.{:07}", std::process::id());
+    let argv_marker = marker.clone();
+    let r = rig(true, move |req| {
         let (first, last, n) = asked(req);
         if first.contains("CHILD") {
             return match n {
                 0 => call(
                     "o1",
                     term::OPEN,
-                    json!({"argv": ["sleep", "4747"], "quiet_ms": 0}),
+                    json!({"argv": ["sleep", argv_marker], "quiet_ms": 0}),
                 ),
                 _ => Scripted::text("Opened it, and done."),
             };
@@ -388,10 +395,13 @@ async fn a_tasks_terminal_closes_at_its_sessions_end() {
     let task = closed[0].0.clone().unwrap();
     assert_ne!(task, sid, "the task's own session");
     assert_eq!(closed[0].1["by"], term::BY_SESSION_END);
-    assert_eq!(closed[0].1["argv"], json!(["sleep", "4747"]));
+    assert_eq!(closed[0].1["argv"], json!(["sleep", marker]));
     assert!(r.core.tools.terms.all().is_empty());
+    // Waited on, not sampled: a scan of `/proc` answers for one moment, so
+    // the program's end is waited for (20 s) and the claim is read after it.
+    until("the task's program's end", || !lives_marked(&marker)).await;
     assert!(
-        !lives_marked("4747"),
+        !lives_marked(&marker),
         "the task's program outlived its session"
     );
 }
