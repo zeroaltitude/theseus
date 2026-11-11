@@ -660,6 +660,23 @@ async fn a_shell_keyword_hides_no_program() {
             "`then` handed in as the call's own argv[0]",
             json!({"argv": ["then", "op", "item", "get", "x"]}),
         ),
+        // These two went held -> UNHELD when the rule read `argv[0]` alone,
+        // and they are why it reads the `in` as well: both reserved words are
+        // reserved only in a compound their own `in` clause follows, so a
+        // `for` with no `in` is not that compound and its words stay program
+        // positions. Caught by W-4 of this row's own probe, not by review.
+        (
+            "`for` with no `in`, so no word list at all",
+            json!({"argv": ["for", "op", "item", "get", "x"]}),
+        ),
+        (
+            "`case` with no `in`",
+            json!({"argv": ["case", "op", "item", "get", "x"]}),
+        ),
+        (
+            "a `for` head whose word list is where the program would be",
+            json!({"command": "for op item get x --reveal"}),
+        ),
     ] {
         let (floor, fails_open, reason) = decide(&r, "proc.run", input);
         assert!(
