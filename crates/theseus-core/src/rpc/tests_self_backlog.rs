@@ -971,3 +971,76 @@ fn a_one_sighting_item_over_14_days_old_retires_without_being_remembered() {
     let back = c.self_backlog(&SelfBacklogParams { all: true }).unwrap();
     assert!(back.dropped.is_empty(), "{:?}", back.dropped);
 }
+
+/// A self build's session is bound to no place, deliberately (theseus-1eemp).
+/// The item's own surface is told by `rsi::pr::told_where_it_reports`, which
+/// falls back to the operator's lane - the one the rest of the self loop
+/// already speaks on - rather than by giving the session a place of its own.
+///
+/// This is a negative guard, and it is the one the first cut of this row
+/// needed: binding the session with `Outbox::task_record` would make
+/// `outbox.target(session)` resolve for about twenty-five readers at once, and
+/// three of them re-define what a self build is - every turn reply would post
+/// to the owner's DM, `PlaceKind::of` would read the `:dm:` target and
+/// re-classify the build from `Cli` to `Dm`, which moves its first request's
+/// tool budget from `CLI_TASK_TOKENS` to `DM_TOKENS` and files its tool use in
+/// the bucket that decides what loads in the owner's real direct messages.
+/// A row about telling a thread must not move a budget.
+mod bound {
+    use super::*;
+    use crate::outbox::TASK_META_PREFIX;
+    use crate::places::BoundPlace;
+
+    /// The owner's DM, as the outbox names the place `[[dm]]` binds.
+    fn dm() -> String {
+        format!("discord:dm:{OWNER}")
+    }
+
+    /// The session of the one item a night started.
+    fn started_session(c: &Core) -> String {
+        let t0 = theseus_protocol::now_unix_ms();
+        seed_day(c, t0);
+        let night = c.backlog_night(tick()).unwrap();
+        assert_eq!(night.started.len(), 1, "one start: {night:?}");
+        let item = &night.started[0].item;
+        crate::task_graph::get(&c.store, item)
+            .unwrap()
+            .expect("the item's task")
+            .session
+            .expect("the item's session")
+    }
+
+    /// The owner's DM, as the binding's start binds it.
+    fn bind_dm(c: &Core) {
+        c.runner.place_rule.bind_one(BoundPlace {
+            target: dm(),
+            name: "DM".into(),
+            private: true,
+            ..Default::default()
+        });
+    }
+
+    /// With the owner's DM bound - the live daemon's own shape - a night's
+    /// start writes no `task.place` record and its session resolves to no
+    /// target. A build whose session resolved to the DM would be a `Dm`-kind
+    /// turn with a `Dm`-kind budget; it stays the `Cli` one it is.
+    #[test]
+    fn a_started_items_session_is_bound_to_no_place() {
+        let c = acting(1, 20);
+        bind_dm(&c);
+        let session = started_session(&c);
+        assert!(
+            c.store
+                .get_meta::<String>(&format!("{TASK_META_PREFIX}{session}"))
+                .unwrap()
+                .is_none(),
+            "a self item's session was given a place: every reader of \
+             `outbox.target` now sees one, and the build re-classifies"
+        );
+        assert_eq!(
+            c.outbox.target(&session),
+            None,
+            "a self build's session resolves to a target"
+        );
+    }
+}

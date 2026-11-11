@@ -606,6 +606,140 @@ mod told {
             .any(|e| e.identity == "gate:green"));
         assert_eq!(r.core.folded_read().ended.len(), 1);
     }
+
+    /// The same rig with **nothing bound to the item's session** - the live
+    /// daemon's own shape, where a self item's session is in none of the three
+    /// ways `Outbox::try_target` resolves one. `dm_bound` is whether the
+    /// daemon has a Discord at all.
+    ///
+    /// The four tests above bind a thread by hand (`Outbox::task_bound`), and
+    /// that is exactly why they were green through 126 silent builds: the
+    /// binding they make is the one thing the pipeline never makes.
+    fn rig_in_no_place(dm_bound: bool) -> (Rig, String) {
+        let r = rig(SelfMode::Act, Some("origin"));
+        let sid = r.session("self");
+        let t = TaskRecord {
+            id: "trim-the-sails".into(),
+            version: 1,
+            title: "Trim the sails".into(),
+            state: TaskState::InProgress,
+            session: Some(sid.clone()),
+            origin: TaskOrigin {
+                session: "self:backlog".into(),
+                principal: "self".into(),
+                ..Default::default()
+            },
+            ..TaskRecord::default()
+        };
+        r.core
+            .store
+            .append(&[crate::task_graph::record(&t).unwrap()])
+            .unwrap();
+        if dm_bound {
+            r.core
+                .runner
+                .place_rule
+                .bind_one(crate::places::BoundPlace {
+                    target: "discord:dm:7".into(),
+                    name: "DM".into(),
+                    private: true,
+                    ..Default::default()
+                });
+        }
+        (r, sid)
+    }
+
+    /// What the operator's lane holds of `kind`: where approvals go, whichever
+    /// DM that is, and where the night's own note already goes.
+    fn operator_posts(r: &Rig, kind: &str) -> Vec<Value> {
+        r.core
+            .outbox
+            .open_for(crate::outbox::OPERATOR_TARGET)
+            .iter()
+            .filter(|a| crate::outbox::kind_of(a) == kind)
+            .map(|a| crate::outbox::body_of(a).clone())
+            .collect()
+    }
+
+    /// Surface one as the live daemon has it (theseus-1eemp): the item's
+    /// session resolves to nothing, so the verdict goes to the operator's
+    /// lane - the same DM the night's note arrives in - with the phase and the
+    /// report it carries in a thread. **Nothing is bound by hand in this
+    /// test**, which is what makes it the end-to-end assertion the four above
+    /// cannot be: they pass on a tree where `told_where_it_reports` never
+    /// fires at all.
+    #[tokio::test]
+    async fn with_no_thread_a_red_gate_posts_the_verdict_to_the_operator() {
+        let (r, sid) = rig_in_no_place(true);
+        assert_eq!(
+            r.core.outbox.target(&sid),
+            None,
+            "the pipeline's own shape: the item's session is in no place"
+        );
+        r.open_and_edit(&sid, "broken.txt").await;
+        let said = r.turn(&sid, WIRE, propose()).await;
+        assert!(said.contains("the gate is red"), "{said}");
+        assert!(
+            thread_posts(&r, "self_build_red").is_empty(),
+            "there is no thread to post to"
+        );
+        let posts = operator_posts(&r, "self_build_red");
+        assert_eq!(posts.len(), 1, "one line to the operator: {posts:?}");
+        let text = posts[0]["text"].as_str().unwrap();
+        assert!(text.contains("ended red"), "{text}");
+        assert!(text.contains("in suite"), "the phase it failed in: {text}");
+        assert!(text.contains("self-20261"), "the frozen report: {text}");
+        assert_eq!(posts[0]["item"], "trim-the-sails");
+        assert_eq!(r.core.folded_read().ended.len(), 1, "and in the note");
+    }
+
+    /// A green build reaches the operator by the same route and under its own
+    /// kind, so both kinds are driven through `hold_operator_kind` and through
+    /// the binding's `every_operator_kind_plans_a_write_on_the_operator_lane`.
+    #[tokio::test]
+    async fn with_no_thread_a_green_gate_says_so_to_the_operator() {
+        let (r, sid) = rig_in_no_place(true);
+        r.open_and_edit(&sid, "sails.txt").await;
+        let said = r.turn(&sid, WIRE, propose()).await;
+        assert!(said.contains("the gate is green"), "{said}");
+        let posts = operator_posts(&r, "self_build");
+        assert_eq!(posts.len(), 1, "{posts:?}");
+        assert!(posts[0]["text"].as_str().unwrap().contains("ended green"));
+        assert_eq!(posts[0]["item"], "trim-the-sails");
+    }
+
+    /// A headless daemon - no thread and no DM bound - says nothing on this
+    /// surface, exactly as before. An operator post with no DM behind it would
+    /// wait for ever rather than be refused, because `refuse_unbound` exempts
+    /// `OPERATOR_TARGET` by name.
+    ///
+    /// **The task record is the only surface a headless daemon keeps**, and
+    /// that is worth knowing: `folded_add_ended` is gated on the same
+    /// `owner_dm_bound` (`backlog/folded.rs:204`), so the note is empty here
+    /// too. The note is not a fallback for the post; both want a DM.
+    #[tokio::test]
+    async fn with_no_dm_bound_a_red_gate_posts_nowhere() {
+        let (r, sid) = rig_in_no_place(false);
+        r.open_and_edit(&sid, "broken.txt").await;
+        r.turn(&sid, WIRE, propose()).await;
+        assert!(
+            operator_posts(&r, "self_build_red").is_empty(),
+            "a post was staged with no DM to deliver it"
+        );
+        assert!(thread_posts(&r, "self_build_red").is_empty());
+        assert!(
+            task_of(&r)
+                .evidence
+                .iter()
+                .any(|e| e.identity == "gate:red"),
+            "the task record is the surface that is left"
+        );
+        assert_eq!(
+            r.core.folded_read().ended.len(),
+            0,
+            "the fold wants the same DM: it is not a fallback for the post"
+        );
+    }
 }
 
 /// The daemon's own notice sink (theseus-ccik8's every-30-minutes may-build

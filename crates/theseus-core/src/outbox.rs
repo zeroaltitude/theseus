@@ -82,6 +82,8 @@ pub const OPERATOR_KINDS: &[&str] = &[
     "jev_paused",
     "jev_labeled",
     "spend_ceiling",
+    "self_build",
+    "self_build_red",
     "self_digest",
     "self_halt",
     "self_keel",

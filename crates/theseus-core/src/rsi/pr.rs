@@ -569,8 +569,9 @@ pub(crate) fn failed_phase(tail: &str) -> Option<String> {
 /// 2026-10-20, none of them green, and the only thing ever said of them was the
 /// backlog's line that work had started. Three places, none of them new:
 ///
-/// - **the item's own thread**, where its task reports, at once: the verdict,
-///   the phase it failed in and the frozen report to read;
+/// - **where the item reports** - its own thread when its task has one, the
+///   operator's DM when it has none - at once: the verdict, the phase it
+///   failed in and the frozen report to read;
 /// - **the item's task record**, so the forum post that stands for this build
 ///   carries the gate's verdict as evidence, and not only "its build's turn
 ///   ended with no green branch" hours later, when the session ends
@@ -595,19 +596,45 @@ fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
         phase: failed_phase(&run.tail),
         report: a.report.clone(),
     };
-    told_in_thread(core, tc, &e, run);
+    told_where_it_reports(core, tc, &e, run);
     told_on_task(core, task, &e, run);
     core.folded_add_ended(&e);
 }
 
-/// The item's thread: where its task reports (`Outbox::target`), so the words
-/// land under the post the owner already has open for this item. With no
-/// target - a build the CLI started outside any place - there is nothing to
-/// post to, and the note still carries it.
-fn told_in_thread(core: &Core, tc: &TurnCtx<'_>, e: &crate::rsi::backlog::Ended, run: &GateRun) {
-    let Some(target) = core.outbox.target(tc.session_id) else {
+/// Where the item reports, the moment its gate ends: **its own thread** when
+/// its task has one (`Outbox::target`), so the words land under the post the
+/// owner already has open for it, and **the operator's DM** when it has none -
+/// which on the live daemon is every self build.
+///
+/// A self item's session is in none of the three ways `Outbox::try_target`
+/// resolves one - no place runs on it, no task record names it, no thread
+/// shows at it - so the early return this opened with was taken every time:
+/// **`self_build_red` appears 0 times in the owner's store**, index and WAL
+/// both, across 126 self builds since 2026-10-20. The owner, 2026-11-10 08:35:
+/// *"theseus said it started work on something, but there were no new task
+/// records in the forum or in the task thread"*. The note and the task record
+/// were the other two surfaces and both reached him; this is the third.
+///
+/// The operator's lane is where the rest of the self loop already speaks
+/// (`backlog::start::stage_self_digest`, and `keel`'s card below), and this
+/// takes it on the same terms: guarded by the same `owner_dm_bound`, so a
+/// headless daemon says nothing, as before. **It binds no session to a
+/// place**, so the build stays the `Cli`-kind turn it is, with its own tool
+/// budget and its own ledger bucket, and nothing else that reads
+/// `Outbox::target` changes meaning. `Outbox::refuse_unbound` exempts
+/// `OPERATOR_TARGET` by name, so the post is never refused out from under the
+/// loop. When a self item does get a post of its own, this `match` is the one
+/// thing that changes.
+fn told_where_it_reports(
+    core: &Core,
+    tc: &TurnCtx<'_>,
+    e: &crate::rsi::backlog::Ended,
+    run: &GateRun,
+) {
+    let target = core.outbox.target(tc.session_id);
+    if target.is_none() && !core.runner.place_rule.owner_dm_bound() {
         return;
-    };
+    }
     let text = format!(
         "{} (exit {}, {} s). {}",
         e.line(),
@@ -625,15 +652,16 @@ fn told_in_thread(core: &Core, tc: &TurnCtx<'_>, e: &crate::rsi::backlog::Ended,
     };
     let staged = (|| -> anyhow::Result<()> {
         let body = json!({"kind": kind, "item": e.item, "verdict": e.verdict, "text": text});
-        let (post, frame) = core
-            .outbox
-            .stage(tc.session_id, tc.execution_id, &target, body)?;
+        let (post, frame) = match &target {
+            Some(t) => core.outbox.stage(tc.session_id, tc.execution_id, t, body)?,
+            None => core.outbox.stage_to_operator(Some(tc.session_id), body)?,
+        };
         core.store.append(&frame)?;
         core.outbox.posted(&post);
         Ok(())
     })();
     if let Err(err) = staged {
-        tracing::warn!(error = %format!("{err:#}"), "self-pr: the item's thread was not told");
+        tracing::warn!(error = %format!("{err:#}"), "self-pr: where the item reports was not told");
     }
 }
 

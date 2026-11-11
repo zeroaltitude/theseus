@@ -912,24 +912,7 @@ impl Lane {
                     extra: json!({}),
                 })
             }
-            // A self build's gate ended (theseus-1eemp): one line in the item's
-            // own thread, where its task reports. The loop used to push and
-            // post on green alone, so a red build - every one of the 126 since
-            // 2026-10-20 - left the forum and the thread with nothing in them.
-            // A red one is a failure and pings as one; a green one reads as a
-            // report.
-            "self_build" | "self_build_red" => {
-                let channel = self.place_channel().await?;
-                let t = body["text"].as_str().unwrap_or("").to_string();
-                let event = match kind_of(a) {
-                    "self_build" => Event::TaskEnded,
-                    _ => Event::TaskFailed,
-                };
-                Ok(Plan {
-                    writes: vec![text(t, format!("self_build:{corr}"), channel, None, event)],
-                    extra: json!({"item": body["item"]}),
-                })
-            }
+            "self_build" | "self_build_red" => self.self_build_post(a, &body, corr).await,
             // A glide's post (38b): another session's words, once, here.
             "glide" => {
                 let ping = self.pings(Event::Glide);
@@ -1420,6 +1403,47 @@ impl Lane {
         Ok(Plan {
             writes: vec![lone(key, channel, content, self.pings(Event::TurnFailed))],
             extra: json!({}),
+        })
+    }
+
+    /// A self build's gate ended (theseus-1eemp): one line where the item
+    /// reports. The loop used to push and post on green alone, so every one of
+    /// the 126 red builds since 2026-10-20 left the forum and the thread with
+    /// nothing in them. A red one is a failure and pings as one; a green one
+    /// reads as a report.
+    ///
+    /// **The item's own thread when its task has one, the operator's DM when
+    /// it has none** - which on the live daemon is every self item, since its
+    /// task hangs off the self backlog's root and no place syncs it. The
+    /// operator lane has no place of its own, so its posts go where approvals
+    /// go, exactly as `notice`'s do since theseus-haw2b; asking that lane for
+    /// a place of its own is how every operator notice once settled Failed.
+    async fn self_build_post(
+        &mut self,
+        a: &Action,
+        body: &Value,
+        corr: &str,
+    ) -> Result<Plan, SendErr> {
+        let (channel, mut extra) = match self.kind {
+            "operator" => {
+                let (channel, place) = self.operator_channel(body).await?;
+                (channel, json!({"place": place}))
+            }
+            _ => (self.place_channel().await?, json!({})),
+        };
+        extra["item"] = body["item"].clone();
+        let event = match kind_of(a) {
+            "self_build" => Event::TaskEnded,
+            _ => Event::TaskFailed,
+        };
+        Ok(Plan {
+            writes: vec![lone(
+                format!("self_build:{corr}"),
+                channel,
+                body["text"].as_str().unwrap_or("").to_string(),
+                self.pings(event),
+            )],
+            extra,
         })
     }
 
