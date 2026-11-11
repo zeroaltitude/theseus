@@ -3,7 +3,20 @@
 /**
  * What the capacity guard read, and why the next start waits, if it does.
  */
-export type SelfPipelineRoom = { slots: number, building: number, trees: number, free_gb?: number, min_free_gb: number, memory_psi?: number, cpu_psi?: number, 
+export type SelfPipelineRoom = { slots: number, building: number, trees: number, free_gb?: number, min_free_gb: number, memory_psi?: number, 
+/**
+ * CPU pressure, `some avg10` in %. A reading only: no start waits on it.
+ */
+cpu_psi?: number, 
+/**
+ * The five-minute load average a core: the quantity the CPU hold reads.
+ */
+cpu_load?: number, 
+/**
+ * The load a core at or over which a start waits (`cpu`), as the guard
+ * that read `cpu_load` had it; none before the guard has read.
+ */
+cpu_load_busy?: number, 
 /**
  * `slots`, `disk`, `memory`, `cpu`, `budget`, or none: a start may go.
  */

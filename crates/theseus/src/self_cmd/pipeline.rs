@@ -7,7 +7,9 @@
 use anyhow::Result;
 use theseus_client::{render, Conn};
 use theseus_protocol::method;
-use theseus_protocol::rsi::{SelfPipelineItem, SelfPipelineParams, SelfPipelineResult};
+use theseus_protocol::rsi::{
+    SelfPipelineItem, SelfPipelineParams, SelfPipelineResult, SelfPipelineRoom,
+};
 
 use crate::cmd::output;
 
@@ -35,6 +37,19 @@ fn item_line(i: &SelfPipelineItem) -> String {
         l.push_str(&format!("  rejected {}x", i.rejections));
     }
     l
+}
+
+/// The CPU the next start is judged on: the five-minute load average a core
+/// beside the line a start waits at, both as the guard had them. Not CPU
+/// pressure, which the guard no longer reads (theseus-1eemp).
+fn cpu_load_text(room: &SelfPipelineRoom) -> String {
+    let Some(load) = room.cpu_load else {
+        return "load -".into();
+    };
+    match room.cpu_load_busy {
+        Some(line) => format!("load {load:.2} a core over 5 minutes (a start waits at {line})"),
+        None => format!("load {load:.2} a core over 5 minutes"),
+    }
 }
 
 fn usd(v: f64) -> String {
@@ -66,9 +81,9 @@ pub fn lines(r: &SelfPipelineResult) -> Vec<String> {
     }
     let psi = |v: Option<f64>| v.map_or_else(|| "-".to_string(), |v| format!("{v:.1}%"));
     host.push_str(&format!(
-        " Pressure: memory {}, CPU {}.",
+        " Pressure: memory {}. CPU: {}.",
         psi(room.memory_psi),
-        psi(room.cpu_psi)
+        cpu_load_text(room)
     ));
     out.push(host);
     match (&room.hold, &room.why) {
@@ -141,7 +156,41 @@ pub fn lines(r: &SelfPipelineResult) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use theseus_protocol::rsi::{SelfPipelineDay, SelfPipelineRoom, SelfPipelineWeek, SelfState};
+    use theseus_protocol::rsi::{SelfPipelineDay, SelfPipelineWeek, SelfState};
+
+    /// The CPU the line prints is the room's load and the room's line: never
+    /// CPU pressure, which the guard stopped reading. The figures are the
+    /// room's own (a line of 2.5 is not the shipped one), so a constant
+    /// printed in their place, or pressure, fails here.
+    #[test]
+    fn the_cpu_the_line_prints_is_the_load_the_start_waits_on() {
+        let mut r = SelfPipelineResult {
+            builder: "local".into(),
+            room: SelfPipelineRoom {
+                slots: 1,
+                min_free_gb: 40,
+                cpu_psi: Some(94.03),
+                cpu_load: Some(1.41),
+                cpu_load_busy: Some(2.5),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let l = lines(&r)[1].clone();
+        for want in [format!("{:.2}", 1.41), format!("{}", 2.5)] {
+            assert!(l.contains(&want), "{want:?} not in {l:?}");
+        }
+        assert!(
+            !l.contains("94"),
+            "the pressure is not the CPU's figure: {l}"
+        );
+        r.room.cpu_load = None;
+        let l = lines(&r)[1].clone();
+        assert!(
+            !l.contains("1.41") && !l.contains("94"),
+            "no load, no figure: {l}"
+        );
+    }
 
     #[test]
     fn the_pipeline_says_its_queues_its_hold_and_its_week() {
@@ -177,7 +226,7 @@ mod tests {
         assert_eq!(
             l[1],
             "Builder: local. Slots: 2 building, 2 trees open, of 2. Disk: 120.0 GB free (keeps 40). \
-             Pressure: memory -, CPU -."
+             Pressure: memory -. CPU: load -."
         );
         assert_eq!(l[2], "Next start waits (slots): every slot is taken.");
         assert_eq!(l[3], "Ready:");

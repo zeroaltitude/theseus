@@ -25,6 +25,7 @@ use crate::fact::rsi_pr::SelfBranchBuilt;
 use crate::ledger::LedgerRow;
 use crate::provider::FakeProvider;
 use crate::rsi::capacity::tests::Stand;
+use crate::rsi::capacity::CPU_LOAD_BUSY;
 use crate::rsi::tests_tree::{fixture, hermetic, Fixture};
 use crate::store::Store;
 use crate::{Config, Core};
@@ -220,7 +221,7 @@ impl Rig {
 
     pub(super) fn view(&self) -> theseus_protocol::rsi::SelfPipelineResult {
         self.core
-            .self_pipeline(&SelfPipelineParams { week: true })
+            .self_pipeline_with(&SelfPipelineParams { week: true }, &self.seams())
             .unwrap()
     }
 }
@@ -309,6 +310,53 @@ async fn the_guard_holds_on_low_disk_pressure_and_trees_with_the_slots_free() {
             .contains("39.0 GB free, under [self] min_free_gb = 40"),
         "{disk}"
     );
+}
+
+/// What `theseus self pipeline` is given is what the guard read: the load a
+/// core the CPU hold keys on, and the line it holds at, whatever CPU pressure
+/// says. The room once carried only pressure, which the guard had stopped
+/// reading, so the surface printed a number no start waited on
+/// (theseus-1eemp, 2026-11-11). These assert on the room's fields, not on
+/// the words around them.
+#[tokio::test]
+async fn the_room_carries_the_load_the_guard_holds_on_and_its_line() {
+    let r = rig_with(2, 30.0);
+    // Pressure says saturated, the load says room: a start may go, and the
+    // room shows the load it went on.
+    *r.host.cpu.lock().unwrap() = Some(94.03);
+    *r.host.load.lock().unwrap() = Some(0.5);
+    let v = r.view();
+    assert_eq!(v.room.hold, None, "{:?}", v.room);
+    assert_eq!(v.room.cpu_load, Some(0.5));
+    assert_eq!(v.room.cpu_load_busy, Some(CPU_LOAD_BUSY));
+    // Pressure says idle, the load says saturated: the start waits on the
+    // room's own load, which is at or over the room's own line, and the
+    // sentence names that figure.
+    *r.host.cpu.lock().unwrap() = Some(3.2);
+    *r.host.load.lock().unwrap() = Some(2.07);
+    let v = r.view();
+    assert_eq!(v.room.hold.as_deref(), Some("cpu"), "{:?}", v.room);
+    let (load, line) = (v.room.cpu_load.unwrap(), v.room.cpu_load_busy.unwrap());
+    assert_eq!(load, 2.07);
+    assert!(load >= line, "held at {load} under {line}");
+    assert!(
+        v.room
+            .why
+            .as_deref()
+            .unwrap()
+            .contains(&format!("{load:.2}")),
+        "{:?}",
+        v.room
+    );
+    // The line is the one the guard holds at: just under it starts.
+    *r.host.load.lock().unwrap() = Some(CPU_LOAD_BUSY - 0.01);
+    let v = r.view();
+    assert_eq!(v.room.hold, None, "{:?}", v.room);
+    assert!(v.room.cpu_load.unwrap() < v.room.cpu_load_busy.unwrap());
+    // A load that cannot be read is no figure, not a made-up one.
+    *r.host.load.lock().unwrap() = None;
+    let v = r.view();
+    assert_eq!((v.room.hold, v.room.cpu_load), (None, None));
 }
 
 /// At the self budget's day line no build starts, and the row says why.

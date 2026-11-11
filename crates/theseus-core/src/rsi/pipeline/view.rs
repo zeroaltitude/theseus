@@ -13,6 +13,7 @@ use super::queues::Entry;
 use super::{Builder, Local, Seams};
 use crate::judge::spend::local_day;
 use crate::rpc::Core;
+use crate::rsi::capacity::CPU_LOAD_BUSY;
 use crate::rsi::join::rows_of;
 use crate::rsi::{gate, Gate};
 
@@ -46,6 +47,15 @@ fn item(e: &Entry, queue: &str) -> SelfPipelineItem {
 impl Core {
     /// The answer: the module's doc.
     pub fn self_pipeline(&self, p: &SelfPipelineParams) -> Result<SelfPipelineResult> {
+        self.self_pipeline_with(p, &Seams::default())
+    }
+
+    /// [`Self::self_pipeline`] over `seams`: the host the guard reads is theirs.
+    pub(crate) fn self_pipeline_with(
+        &self,
+        p: &SelfPipelineParams,
+        seams: &Seams,
+    ) -> Result<SelfPipelineResult> {
         let state = crate::rsi::state(&self.self_ctx());
         let mut out = SelfPipelineResult {
             builder: Local.name().into(),
@@ -61,12 +71,11 @@ impl Core {
             return Ok(out);
         };
         let place = self.tools.self_pr.place(&repo);
-        let seams = Seams::default();
         let Some(q) = self.pipeline_queues(&place, seams.grace)? else {
             out.building_index = true;
             return Ok(out);
         };
-        let (room, hold) = self.pipeline_hold(&seams, &place, q.building.len(), &q.ready);
+        let (room, hold) = self.pipeline_hold(seams, &place, q.building.len(), &q.ready);
         out.room = SelfPipelineRoom {
             slots: room.slots as u32,
             building: room.building as u32,
@@ -75,6 +84,8 @@ impl Core {
             min_free_gb: room.min_free_gb,
             memory_psi: room.memory,
             cpu_psi: room.cpu,
+            cpu_load: room.cpu_load,
+            cpu_load_busy: Some(CPU_LOAD_BUSY),
             hold: hold.as_ref().map(|h| h.0.clone()),
             why: hold.map(|h| h.1),
         };

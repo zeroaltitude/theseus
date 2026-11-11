@@ -45,19 +45,25 @@ pub const MEMORY_BUSY: f64 = 10.0;
 ///
 /// Two a core, from what the host does. The factory's own compiles (three
 /// cargo units, the owner's allocation for this host) held the five-minute
-/// load at 0.98 to 1.46 a core for the 12 minutes after 08:58 on 2026-11-11,
-/// 47 samples, with the old pressure bar never reached (`some avg10` under
-/// 54): that is ordinary busy, and the owner's order is to keep every unit
+/// load at 0.98 to 1.46 a core from 08:58:04 to 09:12:52 on 2026-11-11, 60
+/// samples a quarter-minute apart with none of the measurer's own load in
+/// them, and the old pressure bar was never reached (`some avg10` at most
+/// 53.6): that is ordinary busy, and the owner's order is to keep every unit
 /// busy, so it starts a build. A load of 40 loops held for six minutes read
 /// 2.07 a core by the third and 2.9 by the sixth. At one a core the guard
-/// would have refused 45 of those 47 ordinary samples. The 5-minute average
+/// would have refused 58 of those 60 ordinary samples. The 5-minute average
 /// is the kernel's own smoothing: a cargo build's first ten seconds do not
-/// shut the guard, and a load that has held for about three minutes does.
-/// Linux counts tasks in uninterruptible sleep too, so a host stalled on
-/// disk reads busy; and a pinned overload (24 loops on 4 cores) reads its
-/// number, not four cores' share. The line is argued from what a queue behind
-/// every core is, not calibrated against the self gate's flake rate: that
-/// measurement is owed (theseus-1eemp).
+/// shut the guard, and a load that has held for about three minutes does; one
+/// that ends takes about four minutes to fall back under the line (it read
+/// 2.02 at 4 minutes 14 seconds after those 40 loops stopped, and 1.99 at 4
+/// minutes 29 seconds). The room above ordinary busy is small: 1.46 and the 0.50 that
+/// eight more runnable loops add make 1.96, and the 5-minute average reaches
+/// only 63 % of a step in `scripts/load-rig.py`'s 300 s cap, so that rig adds
+/// about 0.32, 1.78 at most. Linux counts tasks in uninterruptible sleep too,
+/// so a host stalled on disk reads busy; and a pinned overload (24 loops on 4
+/// cores) reads its number, not four cores' share. The line is argued from
+/// what a queue behind every core is, not calibrated against the self gate's
+/// flake rate: that measurement is owed (theseus-1eemp).
 pub const CPU_LOAD_BUSY: f64 = 2.0;
 const GB: u64 = 1024 * 1024 * 1024;
 
@@ -311,8 +317,8 @@ pub(crate) mod tests {
     /// - **The factory's ordinary busy,** 09:09, three cargo units compiling:
     ///   `some avg10` 21.90, `/proc/loadavg` 23.04 22.52 21.20, 1.41 a core.
     ///   Both bars start it, as the owner's order to keep every unit busy asks
-    ///   (47 samples over 12 minutes: load5 a core 0.98 to 1.46, `some` under
-    ///   54).
+    ///   (60 samples, 08:58:04 to 09:12:52: load5 a core 0.98 to 1.46, `some`
+    ///   at most 53.6).
     /// - **Forty busy loops across all sixteen cores for 2.5 minutes:** `some
     ///   avg10` 63.19 and `/proc/loadavg` 51.43 33.15 17.51, 2.07 a core. No
     ///   core is spare; both bars hold it.
