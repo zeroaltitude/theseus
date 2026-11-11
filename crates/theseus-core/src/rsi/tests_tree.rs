@@ -869,3 +869,69 @@ async fn the_frozen_script_is_executable_and_execs_directly() {
         "a half-written script was left beside the frozen one"
     );
 }
+
+/// The mode is repaired on a copy frozen **before** that line held, not only
+/// on a fresh freeze.
+///
+/// `main_script` never rewrites a blob it has already frozen, so the copy a
+/// build from before the fix left behind keeps the daemon's umask (`0600`) for
+/// as long as main's `scripts/gate.sh` blob is unchanged — and nothing prunes
+/// the gates directory, so it keeps it indefinitely. That was the live
+/// condition on the owner's host: the frozen copy of main's then-current blob
+/// sat at `0600`, so landing the first-write fix alone would have left the
+/// next self build reding at `lock wait` exactly as before, with the fix in
+/// the binary (theseus-1eemp; the reviewer's B5-4).
+///
+/// The test above cannot cover this: its `fixture()` is a fresh place, so the
+/// copy never exists and only the first-write branch is ever taken.
+#[tokio::test]
+async fn the_frozen_script_mode_is_repaired_on_a_copy_frozen_before_the_fix() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let f = fixture();
+
+    // Plant exactly what such a build left behind: main's own bytes, under
+    // main's own blob name, at the daemon's umask. Byte-identical to the blob,
+    // so nothing here stands in for a weakened gate — only the mode is wrong.
+    let blob = git(&f.place.repo, &["rev-parse", "origin/main:scripts/gate.sh"]);
+    let script = f.place.gates().join(format!("gate-{blob}.sh"));
+    std::fs::create_dir_all(f.place.gates()).unwrap();
+    std::fs::write(&script, GATE).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let before = std::fs::metadata(&script).unwrap().ino();
+
+    let t = tree::open(&f.place, "stale exec bit", NOW).unwrap();
+    let run = tree::gate(&f.place, &t).await.unwrap().ran().unwrap();
+    assert_eq!(run.verdict, Verdict::Green, "{}", run.tail);
+    assert_eq!(run.blob, blob, "the door froze some other blob");
+
+    // Repaired, though nothing was written: the mode is set outside the
+    // first-write branch. Note the gate itself is green either way — the door
+    // starts the script as `bash <script>`, which needs only read — so this
+    // assertion, not the verdict, is what holds the property.
+    let m = std::fs::metadata(&script).unwrap();
+    let mode = m.permissions().mode() & 0o7777;
+    assert_eq!(mode, 0o700, "{script:?} is still mode {mode:o}, not 0700");
+
+    // And repaired in place, which is what pins this test to the branch the
+    // live host takes: a re-freeze would move the inode, and then this would
+    // be a second copy of the test above rather than a test of the stale copy.
+    assert_eq!(
+        m.ino(),
+        before,
+        "the frozen copy was rewritten, not repaired"
+    );
+
+    // The property the mode is for, on the repaired copy: `flock` execs this
+    // path itself, with no interpreter in front of it.
+    let out = std::process::Command::new(&script)
+        .current_dir(&t.dir)
+        .envs(hermetic())
+        .output()
+        .unwrap_or_else(|e| panic!("exec {script:?} directly, as flock does: {e}"));
+    assert!(
+        out.status.success(),
+        "{script:?} exec'd directly after the repair: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
