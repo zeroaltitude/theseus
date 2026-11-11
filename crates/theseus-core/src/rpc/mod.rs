@@ -389,6 +389,36 @@ fn index_ledger(core: &Arc<Core>) -> crate::tender::Ledger {
     })
 }
 
+/// The socket daemon's store, in the state dir: `<state>/store`.
+pub const STORE_DIR: &str = "store";
+
+/// A `--stdio` daemon's own store: `<state>/store-stdio`. The store is
+/// single-process, so a spawned stdio server must not fight a running daemon
+/// for the same directory (`theseusd`'s `store_dir`), and the name is
+/// deliberate design, not an accident.
+pub const STORE_DIR_STDIO: &str = "store-stdio";
+
+/// Every store directory a daemon can serve, by name, in one list — because
+/// the tool floor reads it too, and it has to name the pair actually in use.
+/// The floor held the bare literals `store` and `spool` while a `--stdio`
+/// daemon served `store-stdio` and `spool-stdio`, so under that mode **the
+/// pair in use was not floored and a pair not in use was**: a tool call
+/// naming the owner's own `--stdio` session history ran at the tool's own
+/// posture instead of waiting for him, and an L1 job's view showed it
+/// (theseus-0h9f3 L21). One list with two readers — `store_dir` here and
+/// `toolrun::guarded::guarded_paths` — or a fifth mode diverges them again,
+/// which is the ruling this project already made one level up for the state
+/// dir itself (theseus-3i6d1, the floor review's F2).
+pub const STORE_DIR_NAMES: [&str; 2] = [STORE_DIR, STORE_DIR_STDIO];
+
+/// The store directory a mode serves, under the state dir in use. The
+/// daemon resolves its own store through this (`theseusd`, before it opens
+/// the store), and the floor floors every name of `STORE_DIR_NAMES`, so the
+/// two cannot name different directories.
+pub fn store_dir(state_dir: &std::path::Path, stdio: bool) -> std::path::PathBuf {
+    state_dir.join(if stdio { STORE_DIR_STDIO } else { STORE_DIR })
+}
+
 /// A store's completion spool, the directory beside it: `store` → `spool`,
 /// `store-stdio` → `spool-stdio`.
 pub fn spool_dir(store_dir: &std::path::Path) -> std::path::PathBuf {

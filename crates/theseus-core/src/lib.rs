@@ -381,6 +381,8 @@ mod tests_fit;
 #[cfg(test)]
 mod tests_floor_shapes;
 #[cfg(test)]
+mod tests_floor_stdio;
+#[cfg(test)]
 mod tests_fork;
 #[cfg(test)]
 mod tests_fresh_recall;

@@ -480,8 +480,12 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     theseus_core::crash::install(&state_dir, mode);
     // The store is single-process. A spawned stdio server must not fight a
     // running daemon for the same directory, so stdio mode uses its own.
-    let store_name = if cli.stdio { "store-stdio" } else { "store" };
-    let store_dir = state_dir.join(store_name);
+    // The name comes from `rpc::STORE_DIR_NAMES`, which is also what the
+    // tool floor floors every name of: this resolution was an `if` here and
+    // the floor held the literals `store` and `spool`, so under `--stdio`
+    // the floor named a pair that was not in use and missed the pair that
+    // was (theseus-0h9f3 L21). One list with two readers.
+    let store_dir = theseus_core::rpc::store_dir(&state_dir, cli.stdio);
     private_dir(&store_dir)?;
     private_dir(&theseus_core::rpc::spool_dir(&store_dir))?;
     let t = Instant::now();
