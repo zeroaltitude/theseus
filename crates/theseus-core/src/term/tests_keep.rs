@@ -904,7 +904,12 @@ async fn a_keeping_close_of_an_exited_program_leaves_its_own_group_named() {
     assert!(terms.keep_background, "the default keeps");
     let job = mark(&run_tag(14), AMPERSAND);
     let _cleanup = KillMarked(job.clone());
-    let t = exited_bash(&terms, d.path(), &format!("trap '' HUP; sleep {job} & exit")).await;
+    let t = exited_bash(
+        &terms,
+        d.path(),
+        &format!("trap '' HUP; sleep {job} & exit"),
+    )
+    .await;
     until("the sleep holds the pty in the shell's group", || {
         !marked(&job).is_empty() && t.pty.holders_in_group() == 1
     })
@@ -959,7 +964,12 @@ async fn a_close_that_keeps_nothing_still_ends_its_own_exited_group() {
     let terms = terms();
     let job = mark(&run_tag(15), AMPERSAND);
     let _cleanup = KillMarked(job.clone());
-    let t = exited_bash(&terms, d.path(), &format!("trap '' HUP; sleep {job} & exit")).await;
+    let t = exited_bash(
+        &terms,
+        d.path(),
+        &format!("trap '' HUP; sleep {job} & exit"),
+    )
+    .await;
     until("the sleep holds the pty in the shell's group", || {
         !marked(&job).is_empty() && t.pty.holders_in_group() == 1
     })
