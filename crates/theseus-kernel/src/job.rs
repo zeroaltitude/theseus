@@ -943,6 +943,14 @@ pub fn holder(pid: u32, job: &str) -> Holder {
 fn decide(cmdline: Option<&[u8]>, stat: Option<(char, u64)>, job: &str) -> Holder {
     match (cmdline, stat) {
         (None, _) => Holder::Gone,
+        // A complete `/proc/<pid>/cmdline` ends on the NUL that terminates its
+        // last argument. One that does not is a read that raced a page
+        // boundary while the mm was being torn down: it is cut mid-argument,
+        // not mid-process. A cut buffer can still name `job-wrapper` at
+        // argv[1] with its `--correlation-id` pair sheared off, which must
+        // not be read as another process's pid (theseus-3i6d1 L208) — whose
+        // it is shows at the next look, same as an exec in flight.
+        (Some(c), _) if !c.is_empty() && c.last() != Some(&0) => Holder::Starting,
         (Some(c), _) if !c.is_empty() => {
             if job_in_cmdline(c).as_deref() == Some(job) {
                 Holder::Wrapper
@@ -1889,6 +1897,53 @@ mod tests {
         // No such process, or none left by the time its state was read.
         assert_eq!(decide(None, None, job), Holder::Gone);
         assert_eq!(decide(Some(&[]), None, job), Holder::Gone);
+    }
+
+    /// A `/proc/<pid>/cmdline` read that races a page boundary while the
+    /// wrapper's mm is being torn down cuts the buffer mid-argument, with no
+    /// terminating NUL (theseus-3i6d1 L208, measured 2/1200 under 8-way
+    /// load). This one is cut right after `--correlation-id`, before its
+    /// value: `job_in_cmdline` sees a single-element `own` with no pair to
+    /// find and falls to its `"?"` sentinel, exactly as the production
+    /// capture did. The pid is still starting, not another process's — a
+    /// reverted guard would see `Some("?") != Some(job)` and call it
+    /// `Holder::Other`, which is the bug this test pins.
+    #[test]
+    fn a_page_torn_cmdline_is_starting_not_another_process() {
+        let job = "act_steps";
+        let torn = format!("theseusd\0{WRAPPER_MODE}\0--correlation-id").into_bytes();
+        assert_ne!(
+            torn.last(),
+            Some(&0),
+            "must not end on a NUL: that is the complete case"
+        );
+        assert_eq!(
+            job_in_cmdline(&torn),
+            Some("?".to_string()),
+            "the sentinel this torn read falls to"
+        );
+        assert_eq!(decide(Some(&torn), None, job), Holder::Starting);
+
+        // Plant: a COMPLETE (NUL-terminated) command line for a genuinely
+        // different job must still read `Other`. If the guard above were
+        // written to treat every `job_in_cmdline` mismatch as `Starting`
+        // instead of checking the trailing NUL, this assertion is what would
+        // catch it — a torn-only guard must not swallow a real "someone
+        // else" verdict.
+        let whole = cmdline(&[
+            "theseusd",
+            WRAPPER_MODE,
+            "--correlation-id",
+            "act_someone_else",
+            "--",
+            "sh",
+        ]);
+        assert_eq!(
+            whole.last(),
+            Some(&0),
+            "the complete case this plant relies on"
+        );
+        assert_eq!(decide(Some(&whole), None, job), Holder::Other);
     }
 
     /// `holder` over live processes: this one is another process, and a
