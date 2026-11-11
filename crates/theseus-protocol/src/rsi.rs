@@ -958,9 +958,19 @@ pub struct SelfPipelineRoom {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub memory_psi: Option<f64>,
+    /// CPU pressure, `some avg10` in %. A reading only: no start waits on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub cpu_psi: Option<f64>,
+    /// The five-minute load average a core: the quantity the CPU hold reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cpu_load: Option<f64>,
+    /// The load a core at or over which a start waits (`cpu`), as the guard
+    /// that read `cpu_load` had it; none before the guard has read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub cpu_load_busy: Option<f64>,
     /// `slots`, `disk`, `memory`, `cpu`, `budget`, or none: a start may go.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
