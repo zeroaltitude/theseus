@@ -728,6 +728,34 @@ class GateTree(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("some of the suite (a default-filter)", self.verdict(out))
 
+    def test_a_gate_that_could_not_take_the_lock_says_the_suite_did_not_run(self):
+        # NOT A SKIP FLAG, AND THE WORST CASE OF THE CLASS (2026-11-10 15:44, the furthest any self build has
+        # reached). `flock` execs this script again as the locked part, and the frozen copy it was given had no
+        # execute bit, so flock exited 126 ("failed to execute ...: Permission denied") and the part never began.
+        # What the gate said then: prose that the tests and benches did not run, a table reading
+        # `lock wait 0  <- failed here` for a run that never waited for a lock, and `gate: FAILED in lock wait`.
+        # A reader of the tail was sent to the lock, and the lock was fine.
+        #
+        # WHY A STAND-IN FLOCK AND NOT A CHMOD. Reproducing the cause literally -- `chmod 644` on the gate's own
+        # copy, which bash still runs by name and flock still cannot exec -- also makes scripts/gate.sh read as
+        # CHANGED, and a changed gate.sh turns on the `keel tests` phase, which runs a suite this harness has no
+        # tree for: the gate then dies 1000 lines earlier, on an unrelated phase. So flock's failure is what is
+        # stood in for, with its real message and its real status. The gate's input is identical either way, and
+        # it is the whole input this test is about: a nonzero flock and a record with no `began` line in it.
+        self.put(self.home / ".cargo" / "bin" / "flock",
+                 # `flock -o LOCK SELF --locked-part …`, so $3 is the copy it could not exec. Only this one call
+                 # exists; the gate refuses outright to be run with a flock around itself.
+                 '#!/bin/sh\necho "flock: failed to execute $3: Permission denied" >&2\nexit 126\n')
+        rc, out, _ = self.gate()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("the shared lock was not taken, so the tests and benches did not run", out)
+        self.assertIn("gate: FAILED in lock wait", out,
+                      "the phase's own name is the other half of this defect, and another row's line")
+        # The half this row owns: on a FAILED run the summary names the stand-down too, so the misnamed phase
+        # is no longer the only thing a reader of the tail has to go on.
+        self.assertIn("gate: what this run did NOT do:", out)
+        self.assertIn("the tests and benches (the shared lock was not taken)", out)
+
 
 class SkipRegistry(unittest.TestCase):
     """Every place the gate stands a check down registers itself, or this reddens (theseus-4vsrz, B7).
@@ -773,6 +801,16 @@ class SkipRegistry(unittest.TestCase):
         ' includes the tests the filter excluded"',
     }
 
+    # Lines that say a check did not happen AND RED THE GATE on the next statement. These need no registration:
+    # the list exists so a GREEN cannot read as more complete than it was, and a run that ends `gate: FAILED`
+    # claims no completeness at all. Kept separate from REPORTERS because the reason is different -- a reporter
+    # prints the list, these end the run -- and a future line that lands here by mistake should have to argue for
+    # itself. Add one only if the `exit` is unconditional and in the same block.
+    REDS_THE_GATE = {
+        'echo "gate: the generator test did not run once and pass (theseus-5epuo): the files below were not'
+        ' regenerated from the Rust types"',
+    }
+
     def functions(self):
         """{name: body} for gate.sh's top-level functions, which all open and close at column 0."""
         out, name, body = {}, None, []
@@ -804,14 +842,22 @@ class SkipRegistry(unittest.TestCase):
         # The rule: a line that TELLS a reader a check did not run must also tell the verdict line. Both halves
         # matter -- a phase that printed its stand-down and registered nothing is exactly what lifecycle and
         # jobs did, in the table, on every lane gate, for as long as the benches have been skippable.
-        says = re.compile(r"\bskipped\b|\bSKIPPED\b|NOT scrubbed|NOT checked|floor: off")
+        #
+        # `did not run` IS IN THE VOCABULARY BECAUSE A SITE ESCAPED WITHOUT IT. The first version of this
+        # pattern held only the word "skipped" and its neighbours, and on 2026-11-10 at 15:44 a self build
+        # failed on a site that says "the shared lock was not taken, so the tests and benches did not run"
+        # and registered nothing. A rule that reads as a rule about every stand-down, while matching only
+        # the ones that use one word for it, is this row's own defect one level up: a guard that names SOME
+        # of what it guards. There are exactly two lines in the vocabulary that this word adds; both are
+        # accounted for, one by registering and one in REDS_THE_GATE.
+        says = re.compile(r"\bskipped\b|\bSKIPPED\b|NOT scrubbed|NOT checked|floor: off|did not run")
         funcs = self.functions()
         unregistered = []
         for line in self.GATE.split("\n"):
             s = line.strip()
             if not s.startswith(("echo ", "printf ")) or not says.search(s):
                 continue
-            if s in self.REPORTERS:
+            if s in self.REPORTERS or s in self.REDS_THE_GATE:
                 continue
             owner = next((n for n, b in funcs.items() if line in b.split("\n")), None)
             if owner is None or not self.registers(funcs[owner]):
@@ -822,6 +868,22 @@ class SkipRegistry(unittest.TestCase):
             "a completeness the run did not have. Call `skip` at the site (no argument registers the running "
             "phase; a phrase for a partial one), or add the line to REPORTERS above with its reason:\n  "
             + "\n  ".join(unregistered))
+
+    # WHERE THIS RULE'S REACH STOPS, written down rather than overstated. It asks whether the FUNCTION holding a
+    # saying-line registers anything, not whether THAT LINE does. For eleven of the twelve sites the two are the
+    # same question, because the function exists to run one check. `locked_checks` is the exception and holds two
+    # unlike sites: it replays the locked part's `skipped` records (`skip "$name"`), and it has its own stand-down
+    # when the lock was never taken. So the second passes this rule on the strength of the first, and would pass
+    # it even if it registered nothing -- which is exactly the state the 15:44 build caught it in.
+    #
+    # The obvious tightening -- demand a `skip` call within N lines of the saying-line, or at the same indent in
+    # the same block -- buys that one function at the price of a textual rule over bash layout that can red on a
+    # legitimate site (one that registers at the top of its phase and prints later, which two of the twelve do).
+    # So the site is held BEHAVIOURALLY instead, by GateTree's
+    # test_a_gate_that_could_not_take_the_lock_says_the_suite_did_not_run, which fails the real gate.sh the real
+    # way: a copy flock cannot exec. A behavioural test is the better instrument here anyway -- it holds the
+    # verdict a reader actually sees, not the shape of the line that produces it.
+
 
     def test_a_helper_script_that_says_it_skipped_is_run_through_the_wrapper(self):
         # Three phases are scripts that decide for themselves whether they can run and say so on stdout,
@@ -889,7 +951,10 @@ class SkipRegistry(unittest.TestCase):
             "suite_applied": 1,       # nextest says it applied a default-filter
             "suite_filters": 1,       # the banner says one is active
             "turn_step": 1,           # the burst and the history entry, not the bench
-            "locked_checks": 1,       # not a site: the locked part's sites, read back across the lock
+            # One of these two is not a site: the replay of the locked part's own registrations, read back across
+            # the lock. The other is a real site and the only one that is not a check standing itself down -- the
+            # lock was never taken, so the suite and the benches never ran and no site inside them was reached.
+            "locked_checks": 2,
         }
         found = {n: len(self.CALL.findall(b)) for n, b in self.functions().items() if self.registers(b)}
         self.assertEqual(found, expected,

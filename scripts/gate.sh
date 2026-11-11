@@ -1305,8 +1305,21 @@ locked_checks() {
       esac
     done <"$rec"
   fi
+  # A STAND-DOWN THAT IS NOT A SKIP FLAG (2026-11-10 15:44). The furthest any self build has reached failed here:
+  # the frozen copy of this script was not executable, `flock` could not exec it ("Permission denied", status 126),
+  # so the locked part never began and the suite and the benches never ran. The prose above said so. The summary did
+  # not -- the table read `lock wait 0  <- failed here`, naming a wait that never happened, and the verdict was the
+  # bare `gate: FAILED in lock wait`, which sends the next reader to the wrong half of the system. This registration
+  # is why it cannot read that way again: `summary` prints the list on a FAILED run too, so the table now carries
+  # `what this run did NOT do: ... the tests and benches (the shared lock was not taken)` beside the misnamed phase.
+  # NOTE WHAT THIS MEANS FOR THE REST OF THE LIST: a stand-down is not only a THESEUS_GATE_NO_* flag honoured at a
+  # check's own site. Here nothing was asked to stand down and no site was reached at all -- the whole locked part
+  # was lost to a failure before it, and only the caller can say so. The five registrations inside machine_checks
+  # could not have: that process did not start, so locked.rec holds neither `began` nor a `skipped` record, and the
+  # array this run hands to the verdict line is whatever the unlocked phases put in it.
   if [ -z "$began" ]; then
     echo "gate: the shared lock was not taken, so the tests and benches did not run"
+    skip "the tests and benches (the shared lock was not taken)"
     phase_now="lock wait"
     phase_began=$((SECONDS - ($(date +%s) - asked)))
     exit "$((status == 0 ? 1 : status))"
