@@ -23,6 +23,13 @@
 //! make the file's text trusted -- it is the owner's own and carried as he
 //! left it -- it makes a *change* to it his.
 //!
+//! "The state directory" is one directory for both of them: `theseusd` folds
+//! `--state-dir`/`THESEUS_STATE_DIR` into `[server].state_dir` before it
+//! opens the store (`state_dir_in_use`), and the floor and [`block`] below
+//! both read it as `Config::state_dir()`. They were two expressions once --
+//! the floor took the spool's parent -- and under the flag the floor held
+//! one `AGENTS.md` while block 3 carried another (the floor review's F2).
+//!
 //! FAST: discovery is `stat` alone, two names per directory from the
 //! repository root down to the session's directory, and the reading is the
 //! context-file reader's, with its stat-based cache. A session at the root

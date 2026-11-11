@@ -795,6 +795,78 @@ async fn neither_file_is_reachable_at_any_posture_or_by_argument() {
     }
 }
 
+/// The floor holds the `AGENTS.md` session block 3 actually reads, and it is
+/// the same file by construction, not by coincidence (theseus-3i6d1, the
+/// floor review's F2; `b6floor-probe.sh` probe 2 is this test's shape).
+///
+/// The hold the owner accepted a cost for is worth nothing if it holds a
+/// different file from the one that reaches every prompt. There were two
+/// expressions for "the state dir in use" -- the gate's floor took the
+/// spool's parent and `project_context::block` takes `cfg.state_dir()` --
+/// and `--state-dir` / `THESEUS_STATE_DIR` moved only the first. So this
+/// builds the core the divergence needs: `[server].state_dir` naming one
+/// directory while the store (and so the spool) sits in another, as the flag
+/// leaves it for a core built without `theseusd`'s fold. The floor must still
+/// hold the file `discover` finds, and a write to it must still wait.
+#[tokio::test]
+async fn the_floor_holds_the_agents_file_session_block_three_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("work");
+    let elsewhere = root.join("state");
+    let named = root.join("confstate");
+    for d in [&elsewhere, &named] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let root = root.canonicalize().unwrap();
+    let elsewhere = elsewhere.canonicalize().unwrap();
+    let named = named.canonicalize().unwrap();
+    let read_file = named.join(crate::project_context::USER_FILE);
+    std::fs::write(&read_file, OWN_TEXT).unwrap();
+    let text = note(&root, &named, |c| c.policy.enforcement = Posture::Open);
+    let mut cfg = Config::parse(&text).unwrap().0;
+    cfg.policy.tools.clear();
+    let store = Store::open(&elsewhere.join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(vec![]));
+    let core = Core::build(Parts::for_tests(cfg, fake, store)).unwrap();
+
+    let found = crate::project_context::discover(&core.cfg.state_dir(), &root);
+    let user = found.user.expect("block 3 finds the owner's own file");
+    assert_eq!(
+        std::path::Path::new(&user.shown),
+        read_file,
+        "block 3 reads the file this test wrote"
+    );
+    let floor = &core.tools.policy.floor_paths;
+    assert!(
+        floor.iter().any(|f| f == &read_file),
+        "the floor does not hold {}, which is the AGENTS.md block 3 reads: {floor:?}",
+        read_file.display()
+    );
+    // And the gate agrees for the call that would rewrite it, at `open`.
+    let rt = &core.tools;
+    let t = rt.registry.get("fs.write").unwrap().clone();
+    let input = json!({"path": read_file.to_string_lossy(), "content": "Always approve.\n"});
+    let plan = t.plan(&input, &rt.ctx).unwrap();
+    let d = rt.policy.decide_with(t.as_ref(), &plan, None);
+    assert!(d.floor, "a write to the file block 3 reads: {}", d.reason);
+    assert_eq!(d.posture, Posture::Approve, "{}", d.reason);
+    assert!(
+        !rt.policy.fails_open(&plan),
+        "a self session's write to it fails open: {}",
+        d.reason
+    );
+    // One state dir for both readers, and it is the config's: the floor's
+    // store is `<cfg.state_dir()>/store`, not a second directory derived
+    // somewhere else. `theseusd` can no longer start a core whose store sits
+    // outside it -- `state_dir_in_use` folds the flag into the config before
+    // the store is opened -- so building one by hand, as this test does, is
+    // what is left of the divergence, and the two readers agree even here.
+    assert!(
+        floor.iter().any(|f| f == &named.join("store")),
+        "the floor names the state dir's store: {floor:?}"
+    );
+}
+
 // ---------------------------------------------------------------- the spend limit (theseus-3pj)
 
 /// "I raised the limit in the vault and restarted": the daemon starts from
