@@ -35,11 +35,14 @@ pub const MEMORY_BUSY: f64 = 10.0;
 /// cores, and the gate's timing tests flake.
 ///
 /// It was CPU pressure, `some avg10` at 60 %, and that asks the wrong
-/// question (theseus-1eemp, 2026-11-11). `some` is the share of time at least
-/// one task waited, averaged over the CPUs that were busy at all, so eight
-/// loops pinned to four cores read 94 % on a 16-core host with twelve cores
-/// idle (the guard shut for 11 h 48 m). It is a statement about the busy
-/// CPUs, and a build is placed on an idle one. `full`, the obvious repair, is
+/// question (theseus-1eemp, 2026-11-11). `some` records time in which at
+/// least one task waited. Our reading of `collect_percpu_times` (it divides
+/// per-state deltas by `nonidle_total`), unverified against kernel `psi.c`,
+/// is that system-wide `some` is averaged over CPUs that were busy at all:
+/// eight loops pinned to four cores read 94 % on a 16-core host with twelve
+/// cores idle (the guard shut for 11 h 48 m). On that unverified reading it
+/// describes the busy CPUs, while a build is placed on an idle one. `full`,
+/// the obvious repair, is
 /// a constant zero: the kernel reports no system-wide `full` for the CPU
 /// (`total=0` and `avg10=0.00` in every sample, at a load1 of 62, kernel 6.18).
 ///
@@ -56,7 +59,10 @@ pub const MEMORY_BUSY: f64 = 10.0;
 /// shut the guard, and a load that has held for about three minutes does; one
 /// that ends takes about four minutes to fall back under the line (it read
 /// 2.02 at 4 minutes 14 seconds after those 40 loops stopped, and 1.99 at 4
-/// minutes 29 seconds). The room above ordinary busy is small: 1.46 and the 0.50 that
+/// minutes 29 seconds). This is the transient-memory trade: a rig that shuts
+/// the old `some avg10` gate for about 20 seconds keeps this `load5` gate shut
+/// for about five minutes. The room above ordinary busy is small: 1.46 and
+/// the 0.50 that
 /// eight more runnable loops add make 1.96, and the 5-minute average reaches
 /// only 63 % of a step in `scripts/load-rig.py`'s 300 s cap, so that rig adds
 /// about 0.32, 1.78 at most. Linux counts tasks in uninterruptible sleep too,
