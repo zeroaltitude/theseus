@@ -10,8 +10,8 @@
 //! 3. **Memory**: memory pressure (`some avg10` of `/proc/pressure/memory`)
 //!    under [`MEMORY_BUSY`].
 //! 4. **CPU**: the five-minute load average a core (`/proc/loadavg`) under
-//!    [`CPU_LOAD_BUSY`]: the host has a spare core on average, so a build can
-//!    get cores. Not CPU pressure: see [`CPU_LOAD_BUSY`]. Memory pressure is
+//!    [`CPU_LOAD_BUSY`]: the host is not saturated, so a build can get cores.
+//!    Not CPU pressure: see [`CPU_LOAD_BUSY`]. Memory pressure is
 //!    read the way the daemon's background passes read pressure
 //!    (`theseus_store::pressure`); without PSI it does not hold, and a load
 //!    that cannot be read does not hold either.
@@ -30,33 +30,35 @@ use serde::Serialize;
 /// tasks stalled on memory a tenth of the time already.
 pub const MEMORY_BUSY: f64 = 10.0;
 /// Runnable tasks a core (the five-minute load average over the cores this
-/// process may use) at or over which no build starts: on average no core was
-/// spare, so a build would not get cores, and the gate's timing tests flake.
+/// process may use) at or over which no build starts: on average every core
+/// had another task queued behind the one running, so a build would not get
+/// cores, and the gate's timing tests flake.
 ///
 /// It was CPU pressure, `some avg10` at 60 %, and that asks the wrong
 /// question (theseus-1eemp, 2026-11-11). `some` is the share of time at least
 /// one task waited, averaged over the CPUs that were busy at all, so eight
 /// loops pinned to four cores read 94 % on a 16-core host with twelve cores
-/// idle (the guard shut for 11 h 48 m), while 32 loops across all sixteen read
-/// 56 % at a load of 37 (the guard open). It is a statement about the busy
+/// idle (the guard shut for 11 h 48 m). It is a statement about the busy
 /// CPUs, and a build is placed on an idle one. `full`, the obvious repair, is
 /// a constant zero: the kernel reports no system-wide `full` for the CPU
-/// (`total=0` at a load of 37 and 99.8 % busy, kernel 6.18).
+/// (`total=0` and `avg10=0.00` in every sample, at a load1 of 62, kernel 6.18).
 ///
-/// One a core: the 5-minute average is the kernel's own smoothing, so a
-/// cargo build's first ten seconds do not shut the guard, and a load that has
-/// held at the cores for about three minutes does. The host's own load while
-/// the factory worked on 2026-11-11 ran from 0.3 a core (08:30) to 1.1 (09:00,
-/// three cargo units compiling): the owner's allocation for this host is three
-/// units, so a start waits for a fourth's room and takes it when the compiles
-/// ease, which they do within minutes. Linux counts tasks in uninterruptible
-/// sleep too, so a host stalled on disk reads busy: the guard errs towards
-/// waiting. It errs the other way on pinning: loops pinned to four cores read
-/// the load of their number, not four cores' share, and a pinned overload
-/// (24 loops on 4 cores) holds a start with twelve cores idle. The line is
-/// argued from what a spare core is, not calibrated against the self gate's
-/// flake rate: that measurement is owed (theseus-1eemp).
-pub const CPU_LOAD_BUSY: f64 = 1.0;
+/// Two a core, from what the host does. The factory's own compiles (three
+/// cargo units, the owner's allocation for this host) held the five-minute
+/// load at 0.98 to 1.46 a core for the 12 minutes after 08:58 on 2026-11-11,
+/// 47 samples, with the old pressure bar never reached (`some avg10` under
+/// 54): that is ordinary busy, and the owner's order is to keep every unit
+/// busy, so it starts a build. A load of 40 loops held for six minutes read
+/// 2.07 a core by the third and 2.9 by the sixth. At one a core the guard
+/// would have refused 45 of those 47 ordinary samples. The 5-minute average
+/// is the kernel's own smoothing: a cargo build's first ten seconds do not
+/// shut the guard, and a load that has held for about three minutes does.
+/// Linux counts tasks in uninterruptible sleep too, so a host stalled on
+/// disk reads busy; and a pinned overload (24 loops on 4 cores) reads its
+/// number, not four cores' share. The line is argued from what a queue behind
+/// every core is, not calibrated against the self gate's flake rate: that
+/// measurement is owed (theseus-1eemp).
+pub const CPU_LOAD_BUSY: f64 = 2.0;
 const GB: u64 = 1024 * 1024 * 1024;
 
 /// Where the host is read: the real one, or a test's stand-in.
@@ -149,7 +151,7 @@ impl Hold {
                 r.memory.unwrap_or_default()
             ),
             Hold::Cpu => format!(
-                "the host has no spare core: {:.2} runnable tasks a core over five minutes \
+                "the host is saturated: {:.2} runnable tasks a core over five minutes \
                  (load average), at or over {CPU_LOAD_BUSY}",
                 r.cpu_load.unwrap_or_default()
             ),
@@ -277,7 +279,7 @@ pub(crate) mod tests {
         *s.memory.lock().unwrap() = Some(12.5);
         assert_eq!(held(&s, 0, 0), Some("memory"));
         *s.memory.lock().unwrap() = None;
-        *s.load.lock().unwrap() = Some(1.0);
+        *s.load.lock().unwrap() = Some(2.0);
         assert_eq!(held(&s, 0, 0), Some("cpu"));
         *s.load.lock().unwrap() = None;
         assert_eq!(held(&s, 0, 0), None, "no PSI, no load: nothing holds");
@@ -294,37 +296,44 @@ pub(crate) mod tests {
         );
     }
 
-    /// The two load shapes of 2026-11-11 on the 16-core WSL host (theseus-1eemp;
-    /// `b5-psi/` beside the report has the rigs and the logs). What the old
-    /// bar, `some avg10` at 60 %, said of each is the second column; the guard
-    /// now reads the load, the third.
+    /// Three load shapes of 2026-11-11 on the 16-core WSL host (theseus-1eemp;
+    /// `b5-psi/` beside the report has the rigs and the logs). Each is what
+    /// `/proc` said, with what the old bar, `some avg10` at 60 %, did with it;
+    /// the guard now reads the load. A `/proc/loadavg` line's last two fields
+    /// are not read.
     ///
     /// - **Eight busy loops pinned to CPUs 0-3, left running 11 h 48 m** by a
     ///   test rig that never killed them: `some avg10` 94.03 and load1 8.48,
     ///   read by the conductor at 05:0x. The old bar shut the guard with
     ///   twelve cores idle. Eight runnable loops pull the load average to 8
-    ///   (the five-minute figure below is that, not a reading): 0.5 a core.
+    ///   (the five-minute figure here is that, not a reading): 0.5 a core.
     ///   **It starts.**
-    /// - **Forty busy loops across all sixteen cores:** `some avg10` 54 to 63
-    ///   over six minutes, on both sides of the old bar at a load1 of 33 to
-    ///   62, and 55.34 at the minute whose `/proc/loadavg` the line below is
-    ///   (the host was already loaded: load5 25.82, 1.61 a core, and 46.51 by
-    ///   the sixth minute). No core is spare; **it holds.**
-    ///   `full avg10` was 0.00 in every sample of both.
+    /// - **The factory's ordinary busy,** 09:09, three cargo units compiling:
+    ///   `some avg10` 21.90, `/proc/loadavg` 23.04 22.52 21.20, 1.41 a core.
+    ///   Both bars start it, as the owner's order to keep every unit busy asks
+    ///   (47 samples over 12 minutes: load5 a core 0.98 to 1.46, `some` under
+    ///   54).
+    /// - **Forty busy loops across all sixteen cores for 2.5 minutes:** `some
+    ///   avg10` 63.19 and `/proc/loadavg` 51.43 33.15 17.51, 2.07 a core. No
+    ///   core is spare; both bars hold it.
+    ///   `full avg10` was 0.00 in every sample of all three.
     #[test]
     fn a_pinned_burst_starts_and_a_saturated_host_holds_whatever_some_says() {
         let s = Stand::default();
         *s.cpu.lock().unwrap() = Some(94.03);
         *s.load.lock().unwrap() = load_per_core("8.48 8.00 8.00 9/1446 707318\n", 16);
         assert_eq!(held(&s, 0, 0), None, "12 of 16 cores idle: start");
-        *s.cpu.lock().unwrap() = Some(55.34);
-        *s.load.lock().unwrap() = load_per_core("41.96 25.82 13.79 43/1480 2723045\n", 16);
-        assert_eq!(held(&s, 0, 0), Some("cpu"), "load5 1.61 a core: hold");
+        *s.cpu.lock().unwrap() = Some(21.90);
+        *s.load.lock().unwrap() = load_per_core("23.04 22.52 21.20 14/1866 2868047\n", 16);
+        assert_eq!(held(&s, 0, 0), None, "the factory's ordinary busy: start");
+        *s.cpu.lock().unwrap() = Some(63.19);
+        *s.load.lock().unwrap() = load_per_core("51.43 33.15 17.51 1/1 1\n", 16);
+        assert_eq!(held(&s, 0, 0), Some("cpu"), "2.07 a core: hold");
         let (room, hold) = check(&s, Path::new("/"), 0, 0, 2, 40);
         assert_eq!(
             hold.unwrap().why(&room),
-            "the host has no spare core: 1.61 runnable tasks a core over five minutes \
-             (load average), at or over 1"
+            "the host is saturated: 2.07 runnable tasks a core over five minutes \
+             (load average), at or over 2"
         );
         // Pressure alone never holds: it is shown, not read.
         *s.cpu.lock().unwrap() = Some(100.0);
@@ -332,12 +341,12 @@ pub(crate) mod tests {
         assert_eq!(held(&s, 0, 0), None);
     }
 
-    /// The line itself: a load that averages a task a core holds, one under
-    /// does not. Four cores, so the figures are whole.
+    /// The line itself: a load that averages two tasks a core holds, one
+    /// under does not. Four cores, so the figures are whole.
     #[test]
-    fn the_line_is_one_runnable_task_a_core() {
+    fn the_line_is_two_runnable_tasks_a_core() {
         let s = Stand::default();
-        for (five, want) in [(3.99, None), (4.0, Some("cpu")), (4.01, Some("cpu"))] {
+        for (five, want) in [(7.99, None), (8.0, Some("cpu")), (8.01, Some("cpu"))] {
             *s.load.lock().unwrap() = load_per_core(&format!("0.1 {five} 0.1 1/2 3\n"), 4);
             assert_eq!(held(&s, 0, 0), want, "load5 {five} on 4 cores");
         }

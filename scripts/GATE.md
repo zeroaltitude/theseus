@@ -177,6 +177,6 @@ nowhere else.
 - **What it cannot do.** It does not stop a COMMAND's own grandchildren: a COMMAND that forks must clean up after
   itself, or run under the rig's own `--max-secs`.
 - **Reading the load.** System-wide, PSI's `some` is the share of time at least one task waited, averaged over the CPUs
-  that were busy at all; it reads 94 % for loops pinned to four of sixteen cores and about 56 % at a load of 40 across
-  all sixteen. `full` is a constant zero for the CPU system-wide. The self pipeline's CPU hold reads the five-minute load
-  average a core instead (`crates/theseus-core/src/rsi/capacity.rs`, `CPU_LOAD_BUSY`).
+  that were busy at all; it reads 94 % for loops pinned to four of sixteen cores, and 54 to 63 % for forty loops across
+  all sixteen (a load1 of 33 to 62). `full` is a constant zero for the CPU system-wide. The self pipeline's CPU hold reads the five-minute load
+  average a core instead, held at two (`crates/theseus-core/src/rsi/capacity.rs`, `CPU_LOAD_BUSY`: why two).
