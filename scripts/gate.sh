@@ -947,7 +947,15 @@ line_pressure() {
     echo "gate: $line_pressure_said"
     return 0
   fi
-  printf '%s\n' "$out" | head -n "$line_pressure_show"
+  # `sed -n 1,Np`, never `head -n N`: this output is longer than the cap BY DESIGN, and `head` closes the pipe the
+  # moment it has its N lines, so `printf` takes EPIPE, the pipeline fails under `pipefail`, and `set -e` aborts this
+  # function before its own `return 0` below — failing a gate that this phase is never meant to decide (the 13:30
+  # departure of 2026-11-10: `printf: write error: Broken pipe`, then `gate: FAILED in line pressure`). Whether
+  # `printf` is signalled at all depends on whether it finishes writing before `head` exits, so it is host- and
+  # size-dependent: 11 KB fits a Linux pipe's 64 KiB buffer and so never failed on the x86 fleet, and it did fail on
+  # the ARM host. `sed` reads its input to EOF, so the writer is never signalled and there is nothing to suppress.
+  # Same hazard as the `git cat-file … | grep -q` note above.
+  printf '%s\n' "$out" | sed -n "1,${line_pressure_show}p"
   local listed
   listed=$(printf '%s\n' "$out" | grep -c '/[0-9]* *\(OVER\)\?$' || true)
   if [ "$listed" -gt "$line_pressure_show" ]; then
@@ -1285,6 +1293,14 @@ phase "gate tests" gate_tests
 # The shape budget (theseus-goa8; review 2's C1): the file ceiling is scripts/shape.sh, here; function length
 # and complexity are clippy's lints, held by the next phase.
 phase shape scripts/shape.sh
+# The context-file BYTE ceiling (theseus-4vsrz, B7), beside the line ceiling above and for the same reason: a
+# ceiling nothing measures is a ceiling that is already breached. `context_files::MAX_BYTES` is 64 KiB and the
+# loader silently cuts a context file's tail past it; on 2026-11-10 scripts/AGENTS.md stood 6,374 bytes over
+# and two crate AGENTS.md files far further, with no phase, test or list measuring any of it. HARD, like
+# shape.sh, with the same listed-exceptions discipline (scripts/context-files.txt). A warning phase was
+# considered and rejected: a printed warning is exactly what that file's own "wc -c this file before you add
+# to it" header already was, and it went stale two commits after it was written.
+phase "context ceiling" python3 scripts/context-ceiling.py --quiet
 # The two warning phases, between the file ceiling above and clippy's function ceiling below, and before the
 # compiles so that a branch which reddens clippy's `too_many_lines` already has the near-ceiling list above the
 # failure. Neither can fail the gate (their own comments say why).
@@ -1308,6 +1324,13 @@ phase "test build" test_build
 # lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
 # TOML parse). test_gate_order.py holds this order.
 phase "recall tests" scripts/recall-tests.sh
+# The prompt census, for the record (theseus-4vsrz, B7): a fresh session's first request per place, the session's
+# own context within it, and that context's share of `[routing] cold_switch_tokens` -- the quantity the cliff
+# assertion deleted on 2026-11-08 used to watch, which nothing watched after it went. AFTER the test build, like
+# the recall tests: it runs the debug theseusd and theseus-sim and says it skipped when either is missing. It
+# NEVER fails the gate: a printed warning and a committed baseline, never a ceiling (scripts/prompt-step.sh's own
+# doc says why, and scripts/shape.sh owns the hard ones).
+phase prompt scripts/prompt-step.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi

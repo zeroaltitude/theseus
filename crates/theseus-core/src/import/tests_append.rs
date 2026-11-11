@@ -5,6 +5,7 @@
 //! idx; an erased session is never appended to.
 
 use serde_json::{json, Value};
+use sha2::Digest;
 use theseus_protocol::import::ImportListResult;
 use theseus_protocol::method;
 
@@ -151,9 +152,12 @@ async fn an_append_writes_only_the_new_nodes_and_the_counts_add_up() {
 /// message that add nothing after the last matching message are each taken
 /// quietly (theseus-ectzg): nothing is written but the session's record,
 /// which takes the new hash and the mark at the first differing idx, and the
-/// next run skips it. Refused and named, moving nothing: the same messages
-/// under another hash that diverged nowhere, and a cut tail, which is the
-/// stored session's own first messages and no more (an older view of it:
+/// next run skips it. **The same messages under another hash, diverged
+/// nowhere, are taken the same quiet way but with no mark** (the owner's
+/// word, 2026-11-10: the monthly import tag is in the hash and is the month
+/// of the run, so refused it was offered and refused every night of the next
+/// month, forever). Refused and named, moving nothing: a cut tail, which is
+/// the stored session's own first messages and no more (an older view of it:
 /// taken, it would move the hash back). With a new message after the last
 /// match, a removal and a reorder append it and are marked.
 #[tokio::test]
@@ -210,19 +214,32 @@ async fn a_rewrite_a_removal_and_a_reorder_are_taken_marked_and_not_offered_agai
         assert_eq!(c.store.stats().unwrap().frames_appended, frames);
     }
 
-    // The same messages under another hash, diverged nowhere: refused.
+    // The same messages under another hash, diverged nowhere: TAKEN the same
+    // quiet way, and with no mark, because nothing diverged. The hash moves,
+    // no node is written, the tag it was first imported with stays, and the
+    // next run holds it.
     import(c, lines(&[sync(16, TAG, &[0, 1, 2, 3])])).await;
     let frames = c.store.stats().unwrap().frames_appended;
-    let mut e = sync(16, "openclaw-sync-2026-12", &[0, 1, 2, 3]);
-    e["hash"] = json!(episode::hash_of(&e));
+    let e = sync(16, "openclaw-sync-2026-12", &[0, 1, 2, 3]);
+    let got = import(c, lines(std::slice::from_ref(&e))).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    let counted = (got.imported, got.appended, got.skipped, got.nodes);
+    assert_eq!(counted, (0, 1, 0, 0), "{got:?}");
+    assert!(got.touched.is_empty(), "nothing new to the people step");
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames + 1);
+    let (rec, stored_idxs) = stored(c, 16);
+    assert_eq!(stored_idxs, vec![0, 1, 2, 3], "nothing written");
+    let imp = rec.imported.as_deref().unwrap();
+    assert_eq!(imp.hash, e["hash"].as_str().unwrap(), "the hash moved");
+    assert!(imp.diverged_at.is_empty(), "nothing diverged: no mark");
+    assert_eq!(imp.tag, TAG, "the tag it was first imported with");
+    assert_eq!(imp.messages, 4, "the count did not move");
+
+    // The next run holds it: skipped, not rejected, nothing written.
+    let frames = c.store.stats().unwrap().frames_appended;
     let got = import(c, lines(&[e])).await;
-    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
-    assert!(
-        got.rejected[0].why.contains("adds nothing"),
-        "{:?}",
-        got.rejected
-    );
-    assert!(stored(c, 16).0.imported.unwrap().diverged_at.is_empty());
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.skipped, got.appended, got.nodes), (1, 0, 0), "{got:?}");
     assert_eq!(c.store.stats().unwrap().frames_appended, frames);
 
     // A cut tail, the stored messages' own first ones and no more: refused,
@@ -263,6 +280,111 @@ async fn a_rewrite_a_removal_and_a_reorder_are_taken_marked_and_not_offered_agai
         assert_eq!(imp.diverged_at, vec![at], "{idxs:?}");
         assert!(imp.labels.topic.is_empty(), "{idxs:?}");
     }
+}
+
+/// **The quiet take of a tag-only episode is gated on the LENGTH, never on
+/// nothing counting as added.** An episode whose stored prefix matches whole
+/// and which carries one more message AT a stored idx adds nothing by that
+/// count — `plan`'s `added` skips a stored idx — so a gate written
+/// `added == 0` would take it, move the hash, and drop that message for good:
+/// the next run would find the hash held and skip it. `plan` refuses it, by
+/// `e.messages.len() == stored.len()`.
+///
+/// `plan` is called directly because this episode cannot be put on the wire:
+/// `episode::parse` refuses an idx twice (`episode::messages_of`, "its idx
+/// twice"), asserted below. That is a second guard, not this one — the length
+/// test holds whatever a caller hands `plan`.
+#[tokio::test]
+async fn an_episode_that_gained_a_message_at_a_stored_idx_is_refused_not_taken() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(30, TAG, &[0, 1, 2, 3])])).await;
+    let (rec, idxs) = stored(c, 30);
+    assert_eq!(idxs, vec![0, 1, 2, 3]);
+
+    // The same four messages under November's tag: taken (the plan is Ok and
+    // writes no message node).
+    let mut e = parsed(&sync(30, "openclaw-sync-2026-11", &[0, 1, 2, 3]));
+    let p = super::append::plan(&c.store, &rec, &e)
+        .unwrap()
+        .expect("the tag-only episode is taken");
+    assert_eq!((p.from, p.diverged, p.summary), (4, None, false));
+
+    // The same episode plus one more message at stored idx 2, holding text
+    // the store has not: refused. `added` is 0 for it either way.
+    let mut extra = e.messages[2].clone();
+    extra.text = "Message 2: the tide log moved to the quay.".into();
+    extra.sha256 = hex::encode(sha2::Sha256::digest(extra.text.as_bytes()));
+    e.messages.push(extra);
+    let Err(why) = super::append::plan(&c.store, &rec, &e).unwrap() else {
+        panic!("refused, never taken");
+    };
+    assert!(why.contains("at a stored idx"), "{why}");
+
+    // And the same shape on the wire does not read at all.
+    let mut v = sync(30, "openclaw-sync-2026-11", &[0, 1, 2, 3, 2]);
+    v["messages"][4]["text"] = json!("Message 2: the tide log moved to the quay.");
+    v["hash"] = json!(episode::hash_of(&v));
+    let frames = c.store.stats().unwrap().frames_appended;
+    let got = import(c, lines(&[v])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert!(got.rejected[0].why.contains("its idx twice"), "{got:?}");
+
+    // Nothing moved: the stored hash, the four nodes and message 2's text.
+    let (after, idxs) = stored(c, 30);
+    assert_eq!(idxs, vec![0, 1, 2, 3], "nothing written");
+    assert_eq!(
+        after.imported.as_deref().unwrap().hash,
+        rec.imported.as_deref().unwrap().hash,
+        "the stored hash did not move"
+    );
+    let nodes = c.store.session_nodes(&after.session_id).unwrap();
+    let Body::Imported { text, .. } = &nodes[2].1.body else {
+        panic!()
+    };
+    assert!(text.contains("boathouse"), "never overwritten");
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+}
+
+/// The quiet take of a tag-only episode needs a source whose digests THIS
+/// build took (`episode::DIGESTED_SOURCES`). For any other source the digests
+/// are the client's claim and the import never checks them, so an episode
+/// whose text changed while its declared digest did not would be taken and
+/// its new text lost for good. It stays refused, as on main.
+#[tokio::test]
+async fn a_tag_only_episode_whose_digests_this_build_did_not_take_is_refused() {
+    let r = live();
+    let c = &r.core;
+    // `openclaw-store` is not in DIGESTED_SOURCES: the episode's own sha256s
+    // are stored as the client gave them.
+    let mut first = sync(31, TAG, &[0, 1, 2, 3]);
+    first["source"] = json!("openclaw-store");
+    first["hash"] = json!(episode::hash_of(&first));
+    import(c, lines(std::slice::from_ref(&first))).await;
+    assert_eq!(stored(c, 31).1, vec![0, 1, 2, 3]);
+
+    // Only the month's tag differs, and every digest matches: still refused.
+    let frames = c.store.stats().unwrap().frames_appended;
+    let mut next = first.clone();
+    next["import_tag"] = json!("openclaw-sync-2026-11");
+    next["hash"] = json!(episode::hash_of(&next));
+    let got = import(c, lines(&[next])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert!(got.rejected[0].why.contains("adds nothing"), "{got:?}");
+    let imp = stored(c, 31).0.imported.unwrap();
+    assert_eq!(imp.hash, first["hash"].as_str().unwrap(), "the hash held");
+    assert!(imp.diverged_at.is_empty());
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+}
+
+/// `episode::parse` of `v` with each message's digest taken over its text, as
+/// the import computes it for a harness source (`write::digested`).
+fn parsed(v: &Value) -> episode::Episode {
+    let mut e = episode::parse(&serde_json::to_string(v).unwrap()).expect("the episode reads");
+    for m in &mut e.messages {
+        m.sha256 = hex::encode(sha2::Sha256::digest(m.text.as_bytes()));
+    }
+    e
 }
 
 /// An erased session is never appended to.
@@ -687,26 +809,109 @@ async fn an_insertion_that_renumbers_is_refused_and_named() {
     .await;
 }
 
-/// A compaction that renumbers is refused, and stays refused when the
-/// session then grows.
+/// A compaction that renumbers (messages 3 to 5 gone, the tail moved down)
+/// is taken: the stored last messages are found by content, the new turns
+/// after them are written at idxs past the stored ones (the source's own
+/// would collide), the divergence is marked once and nothing is written twice
+/// (theseus-ectzg).
 #[tokio::test]
-async fn a_renumbered_compaction_is_refused_even_when_it_grows() {
+async fn a_renumbered_compaction_that_grows_appends_the_new_turns_at_fresh_idxs() {
     let r = live();
     let c = &r.core;
     import(c, lines(&[sync(41, TAG, &(0..10).collect::<Vec<u32>>())])).await;
-    let t = [0, 1, 2, 6, 7, 8, 9];
+    let t = [0, 1, 2, 6, 7, 8, 9, 91, 92];
+    let grown = with_texts(41, "openclaw-sync-2026-12", &t);
+    let got = import(c, lines(std::slice::from_ref(&grown))).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 2), "{got:?}");
+    let (rec, idxs) = stored(c, 41);
+    assert_eq!(
+        idxs,
+        (0..12).collect::<Vec<u32>>(),
+        "two fresh idxs, none reused"
+    );
+    let imp = rec.imported.as_deref().unwrap();
+    assert_eq!((imp.messages, imp.diverged_at.clone()), (12, vec![3]));
+    assert!(imp.labels.topic.is_empty());
+    let nodes = c.store.session_nodes(&rec.session_id).unwrap();
+    let said: Vec<String> = nodes
+        .iter()
+        .filter_map(|(_, n)| match &n.body {
+            Body::Imported { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said.len(), 12, "the positive count");
+    assert_eq!(
+        said[10],
+        text(91),
+        "the new turns, in order, after the stored ones"
+    );
+    assert_eq!(said[11], text(92));
+    // The same episode again: held by its hash, nothing written.
+    let frames = c.store.stats().unwrap().frames_appended;
+    let got = import(c, lines(&[grown])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+    assert_eq!(c.store.stats().unwrap().frames_appended, frames);
+    // The next growth: the moved tail is found again by content, one more
+    // message, one mark.
+    let t = [0, 1, 2, 6, 7, 8, 9, 91, 92, 93];
+    let got = import(c, lines(&[with_texts(41, "openclaw-sync-2027-01", &t)])).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 1), "{got:?}");
+    let (rec, idxs) = stored(c, 41);
+    assert_eq!(idxs, (0..13).collect::<Vec<u32>>());
+    assert_eq!(rec.imported.as_deref().unwrap().diverged_at, vec![3]);
+}
+
+/// A renumbering compaction that added nothing is taken once and marked, not
+/// refused every night.
+#[tokio::test]
+async fn a_renumbered_compaction_that_did_not_grow_is_taken_once() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(44, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    let e = with_texts(44, "openclaw-sync-2026-11", &[0, 1, 2, 6, 7, 8, 9]);
+    let got = import(c, lines(std::slice::from_ref(&e))).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 0), "{got:?}");
+    let (rec, idxs) = stored(c, 44);
+    assert_eq!(idxs, (0..10).collect::<Vec<u32>>());
+    assert_eq!(rec.imported.as_deref().unwrap().diverged_at, vec![3]);
+    let got = import(c, lines(&[e])).await;
+    assert_eq!((got.appended, got.nodes), (0, 0), "{got:?}");
+}
+
+/// What a content anchor must not do: one matching message is no anchor, a
+/// stored pair that occurs twice is ambiguous, and a new message that repeats
+/// a stored text may be a copy of a stored one. Each is refused and named,
+/// and writes nothing.
+#[tokio::test]
+async fn a_content_anchor_that_is_not_certain_is_refused() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(45, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    // One digest in common, at another idx: no run, no anchor.
     refused_and_untouched(
         c,
-        41,
-        with_texts(41, "openclaw-sync-2026-11", &t),
+        45,
+        with_texts(45, "openclaw-sync-2026-11", &[90, 91, 9, 92]),
         "renumbered",
     )
     .await;
-    let t = [0, 1, 2, 6, 7, 8, 9, 91];
+    // The stored last two, twice: which one is the stored end?
     refused_and_untouched(
         c,
-        41,
-        with_texts(41, "openclaw-sync-2026-12", &t),
+        45,
+        with_texts(45, "openclaw-sync-2026-12", &[6, 8, 9, 90, 8, 9, 91]),
+        "renumbered",
+    )
+    .await;
+    // A "new" message that is a stored text.
+    refused_and_untouched(
+        c,
+        45,
+        with_texts(45, "openclaw-sync-2027-01", &[6, 7, 8, 9, 3]),
         "renumbered",
     )
     .await;

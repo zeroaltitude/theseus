@@ -1319,6 +1319,22 @@ pub fn stop_line(r: &theseus_protocol::ExecutionStopResult) -> String {
             shorts.join(" ")
         ));
     }
+    // What the turn left running (theseus-7kha): a stop ends it, and says
+    // so, and says what it kept and on whose word. A stop is never silent
+    // about reaching past the turn.
+    if !r.left_ended.is_empty() {
+        out.push_str(&format!(
+            " · ended {} job(s) that had left something running: {}",
+            r.left_ended.len(),
+            r.left_ended.join(" ")
+        ));
+    }
+    for k in &r.left_kept {
+        out.push_str(&format!(
+            " · kept job {} running, approved by {}",
+            k.job, k.approved_by
+        ));
+    }
     out
 }
 

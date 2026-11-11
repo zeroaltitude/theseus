@@ -20,7 +20,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use theseus_protocol::LedgerKind;
+use theseus_protocol::{LedgerKind, StandingRecord};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -407,9 +407,48 @@ impl Frame<'_> {
     }
 }
 
+/// The source a written standing record names: the exam kept it, over a
+/// socket, as the CLI does.
+pub const STANDING_SOURCE: &str = "cli";
+
+/// Every item's standing records, as META records under `standing::PREFIX`,
+/// which is where `standing::Board::all` looks for them: the one way a kept
+/// record enters a store, so a daemon serving this store carries them in
+/// every request of their scope exactly as it carries the owner's own
+/// (theseus-ectzg).
+///
+/// The ids are the item's and the record's index, not a UUIDv7, so writing
+/// one exam twice gives one store the same keys: a fixture is data, and a
+/// re-write must not leave a second copy of the same record behind.
+pub fn standing_records(exam: &Exam) -> Result<Vec<NewRecord>> {
+    let off = exam.file.utc_offset_min;
+    let mut out = Vec::new();
+    for item in &exam.file.items {
+        for (k, s) in item.standing.iter().enumerate() {
+            let (kind, scope) = s.parsed()?;
+            let record = StandingRecord {
+                id: format!("std_exam_{}_{}", item.id, k + 1),
+                kind,
+                text: s.text.clone(),
+                scope,
+                since_ms: parse_local(&s.at, off)?,
+                until_ms: None,
+                source: STANDING_SOURCE.into(),
+                ends: None,
+            };
+            out.push(NewRecord::json(
+                kinds::META,
+                Some(&theseus_core::standing::key(&record.id)),
+                &record,
+            )?);
+        }
+    }
+    Ok(out)
+}
+
 /// Write every item's past into the store at `dir` (created, or opened if it
-/// exists), each session whole in one frame, then checkpoint, so the store
-/// opens with no tail to replay.
+/// exists), each session whole in one frame, then its standing records, then
+/// checkpoint, so the store opens with no tail to replay.
 pub fn write(exam: &Exam, dir: &Path) -> Result<Manifest> {
     let store =
         Store::open(dir).with_context(|| format!("opening the store at {}", dir.display()))?;
@@ -429,6 +468,10 @@ pub fn write(exam: &Exam, dir: &Path) -> Result<Manifest> {
         frame.sessions.push((owner, start, b));
     }
     frame.flush(&store, &mut nodes, &mut sessions)?;
+    let standing = standing_records(exam)?;
+    if !standing.is_empty() {
+        store.append(&standing)?;
+    }
     store.checkpoint()?;
     Ok(Manifest {
         exam: exam.file.version.clone(),
@@ -443,8 +486,106 @@ pub fn write(exam: &Exam, dir: &Path) -> Result<Manifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::{BACKGROUND, EXAM_V2};
+    use crate::item::{BACKGROUND, EXAM_V2, STANDING_ACK_V1};
     use theseus_core::rpc::Core;
+
+    /// The standing set's records land where the daemon looks for them
+    /// (theseus-ectzg): `standing::Board::all`, the one scan the product makes
+    /// after serving, is what reads them here, so a store this writer wrote
+    /// carries the owner's records in every request of their scope exactly as
+    /// his own store does. Before this, the exam's past was sessions only and
+    /// no item could put a standing record in front of a model at all.
+    #[test]
+    fn the_standing_set_is_written_where_the_board_reads_it() {
+        let exam = Exam::parse(STANDING_ACK_V1).unwrap();
+        let d = tempfile::tempdir().unwrap();
+        write(&exam, d.path()).unwrap();
+        // Each reader opens and closes in turn: the store takes a lock, as a
+        // serving daemon does.
+        let all = {
+            let store = Store::open(d.path()).unwrap();
+            theseus_core::standing::Board::default()
+                .all(&store)
+                .unwrap()
+        };
+        assert_eq!(all.len(), 2, "{all:?}");
+        let pref = all
+            .iter()
+            .find(|r| r.kind == theseus_protocol::StandingKind::Preference)
+            .expect("the surface-scope preference");
+        assert_eq!(
+            pref.scope,
+            theseus_protocol::StandingScope::Surface("terminal".into()),
+            "the scope a socket caller's requests carry"
+        );
+        assert!(pref.text.contains("speak as yourself"), "{}", pref.text);
+        assert_eq!(pref.source, STANDING_SOURCE);
+        let order = all
+            .iter()
+            .find(|r| r.kind == theseus_protocol::StandingKind::Order)
+            .expect("the everywhere order");
+        assert_eq!(order.scope, theseus_protocol::StandingScope::Everywhere);
+        // Written twice, one store: a fixture is data, so a re-write leaves no
+        // second copy of the same record behind.
+        write(&exam, d.path()).unwrap();
+        let again = {
+            let store = Store::open(d.path()).unwrap();
+            theseus_core::standing::Board::default()
+                .all(&store)
+                .unwrap()
+        };
+        assert_eq!(again.len(), 2, "a re-write duplicated them: {again:?}");
+    }
+
+    /// The set's own check catches the reply the owner actually got and lets a
+    /// right answer through. A live run costs money and answers differently
+    /// every time; this holds the scoring itself to the trace, with no model,
+    /// so a run that scores green is green for the right reason.
+    #[test]
+    fn the_standing_check_catches_the_owners_reply_and_passes_a_right_one() {
+        let exam = Exam::parse(STANDING_ACK_V1).unwrap();
+        let check = exam.checks.get("standing-ack-1").expect("the item's check");
+        let answer = |reply: &str| crate::check::Answer {
+            reply: reply.into(),
+            ..Default::default()
+        };
+        // The owner's own trace, 2026-11-07 12:27:00 (turn b0e56217), with the
+        // answer to the question appended, so it is the ACKNOWLEDGEMENT that
+        // fails it and not a missing answer.
+        let acked = "Noted: in group chats I speak as myself, and anything that needs your \
+                     voice or decision goes back to you. This is a DM, so nothing changes \
+                     here.\n\nOn the question: --no-ff always writes a merge commit, so the \
+                     branch stays visible in the history.";
+        assert!(
+            !check.passes(&answer(acked)),
+            "the reply the owner got must fail this item"
+        );
+        // Its second form, 12:27:34, which opens "Understood." instead.
+        let acked2 = "Understood. This is a DM, so I'll keep answering as myself. A plain \
+                      merge fast-forwards and leaves no merge commit.";
+        assert!(!check.passes(&answer(acked2)), "the second trace must fail");
+        // A right answer: it answers, and says nothing of the records.
+        let right = "`--no-ff` always records a merge commit, even when the branch could \
+                     fast-forward, so the join itself stays in the history with both parents. \
+                     A plain `git merge` just moves the branch pointer forward and leaves no \
+                     trace that there was a branch.";
+        assert!(
+            check.passes(&answer(right)),
+            "{:?}",
+            check.run(&answer(right))
+        );
+        // And an acknowledgement of something the owner really said, further
+        // down a reply that answers, is legitimate and is not caught: the
+        // anchor is the start of the reply, not the word anywhere in it.
+        let innocent = "`--no-ff` always records a merge commit, so the join stays in the \
+                        history. Noted on the nine-minute build you mentioned earlier -- I \
+                        have not forgotten it.";
+        assert!(
+            check.passes(&answer(innocent)),
+            "{:?}",
+            check.run(&answer(innocent))
+        );
+    }
 
     /// The store reads back, through the product's own readers, exactly as
     /// the manifest says it was written: every session with its place, turns,

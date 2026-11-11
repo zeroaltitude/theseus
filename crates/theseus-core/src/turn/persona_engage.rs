@@ -214,6 +214,15 @@ impl TurnRunner {
     /// prefix, counted in the estimate. Once per request: a request that
     /// carries it already is left alone. Like the tail's other blocks it is
     /// outside the request digest the compile took.
+    ///
+    /// **Audited for the standing-record failure mode** (theseus-ectzg's
+    /// "persona line and place digest unaudited" ask; the ask named
+    /// `persona_engage.rs` without its `turn/`): the line is `engage::Engaged::line`,
+    /// "<name> answers this turn", a fact about who speaks, with no content a
+    /// model could restate or thank the owner for, and it changes only when the
+    /// engaged persona does. Judged not to need `FRAMING`; `content.rs` classes
+    /// this file "neither" with that reason. The place digest, audited with it,
+    /// already composes `CONTEXT_NOT_THE_OWNERS`.
     pub(super) fn persona_line(t: &Turn<'_>, compiled: &mut Compiled) {
         let Some(p) = &t.route.persona else { return };
         let line = p.line();

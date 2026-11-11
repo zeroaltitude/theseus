@@ -10,7 +10,11 @@
 //! - the system is three blocks (13c; theseus-aab7): the header (the
 //!   persona, the tools note, the profile's `system`), the context files,
 //!   and the session's directory, each with its breakpoint, and the
-//!   conversation's is the top-level one (a task's, before its view);
+//!   conversation's is in the messages, on the block before the harness's
+//!   tail blocks: the date and the git state ride the tail of every request
+//!   (theseus-wadu), and a task's view already did (theseus-aab7), so the
+//!   top-level breakpoint is moved onto the last block the conversation owns
+//!   and the provider's four still hold;
 //! - after an edit to a context file, a new session's header block is the
 //!   same bytes, and only its context block changed.
 //!
@@ -212,7 +216,10 @@ fn header_fields(req: &Value) -> Value {
 
 /// Everything but the messages and the conversation's breakpoint, which a
 /// task's request carries in its messages, on the block before its task
-/// view (moved, so the four breakpoints hold: theseus-aab7).
+/// view (moved, so the four breakpoints hold: theseus-aab7). Every request
+/// carries it that way since theseus-wadu's tail block, so this now differs
+/// from [`header_fields`] only for a request with no tail block at all
+/// (`[project] tail_facts = false`).
 fn header_fields_of_a_task(req: &Value) -> Value {
     let mut m = header_fields(req);
     m.as_object_mut().unwrap().remove("cache_control");
@@ -308,7 +315,7 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
     // Four blocks (theseus-h4a7): the header, the persona's files, the
     // project layer (the system level's files), then the session's
     // directory; the first three carry a breakpoint, the directory none, and
-    // the conversation's is the top-level one.
+    // the conversation's is in the messages (below).
     let blocks = a["system"].as_array().unwrap();
     assert_eq!(blocks.len(), 4, "{profile}: {}", bytes(&a["system"]));
     let (header, persona, context) = (&blocks[0], &blocks[1], &blocks[2]);
@@ -351,9 +358,55 @@ fn the_first_requests_share_one_header(profile: &str, provider: &str) {
         blocks[3].get("cache_control").is_none(),
         "{profile}: the directory block carries no breakpoint"
     );
+    // The conversation's breakpoint is in the messages, not at the top
+    // level. theseus-wadu attaches a tail block (the date and the git state)
+    // to every request, and `attach_text` moves the top-level breakpoint onto
+    // the block before it — moved, not copied, so the provider's four still
+    // hold (theseus-aab7) and the block that changes every turn stays outside
+    // the cached prefix. A task's request has carried it this way since
+    // theseus-aab7 (`header_fields_of_a_task`); what the row changed is that
+    // a plain turn's does too, because the tail block is unconditional where
+    // the view and the commitments were not. The cached bytes are the same
+    // bytes either way: this moves the breakpoint, it does not shrink what
+    // the breakpoint covers.
     assert_eq!(
-        a["cache_control"], five,
-        "{profile}: the top-level breakpoint"
+        a["cache_control"],
+        Value::Null,
+        "{profile}: the top-level breakpoint moved into the messages"
+    );
+    let said = a["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|m| m["role"] == "user")
+        .and_then(|m| m["content"].as_array())
+        .unwrap();
+    let marked: Vec<usize> = said
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.get("cache_control").is_some())
+        .map(|(i, _)| i)
+        .collect();
+    let tail_at = said
+        .iter()
+        .position(|b| theseus_core::task_graph::view::is_head(text(b)))
+        .unwrap_or(said.len());
+    assert!(
+        tail_at < said.len() && tail_at > 0,
+        "{profile}: no tail block after the conversation's: {}",
+        bytes(&json!(said))
+    );
+    assert_eq!(
+        marked,
+        vec![tail_at - 1],
+        "{profile}: one breakpoint, on the block before the harness's tail: {}",
+        bytes(&json!(said))
+    );
+    assert_eq!(
+        said[tail_at - 1]["cache_control"],
+        five,
+        "{profile}: the conversation's breakpoint"
     );
     // The header block alone, byte for byte, in the second session and the task.
     for (what, other) in [("the second session", &b), ("the task", &t)] {

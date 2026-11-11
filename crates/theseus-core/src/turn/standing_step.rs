@@ -153,10 +153,7 @@ impl TurnRunner {
         let Some(answer) = first["text"].as_str() else {
             return;
         };
-        if !["Noted", "Understood"]
-            .iter()
-            .any(|m| answer.trim_start().starts_with(m))
-        {
+        if !standing_ack::opens_with_marker(answer) {
             return;
         }
         let blocks: Vec<&Block> = [&t.standing.block, &t.standing.here]

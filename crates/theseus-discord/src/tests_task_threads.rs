@@ -1033,11 +1033,225 @@ const UNTIL_FAMILY: &[&str] = &[
     "tests_war_room.rs",
 ];
 
-/// Whether `text` reaches this module's `until` by any written form: the brace
-/// import (`tests_task_threads::{bound, until}`), the plain `use`
-/// (`use crate::tests_task_threads::until;`) or a path-qualified call
-/// (`crate::tests_task_threads::until(..)`). A path that names another item
-/// of the module (`::bound(`) is not a reference to `until`.
+/// **What the fake-Discord forum fix can reach, which is a different
+/// partition** (theseus-a0kte, re-derived at 12889bcf). `UNTIL_FAMILY` above
+/// answers one question: which files share the 100 s `until` guard. A recipe
+/// built on the fake-Discord forum fix answers another: which tests that fix's
+/// code could have broken. **The two sets are not the same**, and reading one
+/// as the other is how a test that cannot share the mechanism got into the
+/// recipe and stayed there.
+///
+/// The mechanism is two conditions, and **both** are required: `[discord]
+/// forum` on (`DiscordConfig::default`, true) **and exactly one trusted
+/// guild**. `runtime/default_forum.rs`'s `start_default_forum` reads
+/// `Bindings::trusted()`, keeps it only when `len() == 1`, and then filters on
+/// `cfg.forum`; with none or several the stand is set `Stand::Off` and no
+/// forum is ever looked for or made, so none of that fix's code runs.
+/// `Bindings::trusted()` counts the guilds the file marks `private`, which in
+/// format 1 is `private` beside the top-level `guild_id` — **not** a `private`
+/// inside a `[[channel]]`, which is the channel's own class and trusts no
+/// guild.
+///
+/// So the family splits in two by the `bindings` builder its rig uses, seven
+/// reachable and four not:
+///
+/// - **Reachable (7)**: `tests_default_forum.rs` and `tests_task_channels.rs`,
+///   whose own builders write `private = true` beside `guild_id`; and
+///   `tests_dm_flow_golden.rs`, `tests_forum_archive.rs`,
+///   `tests_task_home.rs`, `tests_task_owed.rs` and `tests_walk1b.rs`, which
+///   borrow the first of those and call it with `trusted = true`.
+/// - **Unreachable (4)**, `MECHANISM_UNREACHABLE` below: `tests_task_threads.rs`
+///   (this module's own `bindings`, whose only `private` is inside
+///   `[[channel]]`), `tests_task_react.rs` (its child, which takes it through
+///   `super::*`), and `tests_task_watch.rs` and `tests_war_room.rs`, which
+///   borrow this module's. Every rig of these four trusts **zero** guilds.
+///
+/// The two accounted apart are unreachable too, for two different reasons.
+/// `tests_gateway::horizon`'s rig is `tests_gateway`'s own builder, which
+/// writes no `private` beside `guild_id` either, so it trusts zero guilds and
+/// has no forum to break; what makes that pair load-sensitive is its own
+/// `Rig::until`, bounded at 20 s against this module's 100 s. And theseusd's
+/// `an_acting_call_waits_and_the_cli_approves_it` runs a daemon with
+/// `[discord] enabled = false` (its fixture's `safe_note`, which that test's
+/// own config never overrides), so it has no Discord runtime at all: **it has
+/// never been able to share this mechanism**, and every red of it that was
+/// attributed to the mechanism was misattributed.
+#[cfg(test)]
+const MECHANISM_UNREACHABLE: &[&str] = &[
+    "tests_task_react.rs",
+    "tests_task_threads.rs",
+    "tests_task_watch.rs",
+    "tests_war_room.rs",
+];
+
+/// The family files that write a `bindings` of their own, and so are classed
+/// by running it (`only_a_rig_that_trusts_one_guild_can_reach_the_forum`) and
+/// not by whose they borrow.
+#[cfg(test)]
+const OWN_BINDINGS: &[&str] = &[
+    "tests_default_forum.rs",
+    "tests_task_channels.rs",
+    "tests_task_threads.rs",
+];
+
+/// The mechanism's own gate, run on every `bindings` builder the family's
+/// rigs use: the trusted-guild count each file's rig gives `Bindings`.
+#[test]
+fn only_a_rig_that_trusts_one_guild_can_reach_the_forum() {
+    let trusted = |text: &str| {
+        crate::bindings::Bindings::parse(text)
+            .expect("a rig's bindings file parses")
+            .trusted()
+            .len()
+    };
+    // `[discord] forum` is on by default, so the guild count is the whole gate.
+    assert!(
+        theseus_core::config::DiscordConfig::default().forum,
+        "the default changed: the guild count is no longer the whole gate"
+    );
+    // This module's rig, which `tests_task_watch` and `tests_war_room` borrow:
+    // its `private` is inside `[[channel]]`, so no guild is trusted, whichever
+    // way the channel is bound.
+    assert_eq!(
+        trusted(&bindings(true, "")),
+        0,
+        "this module's rig, private"
+    );
+    assert_eq!(
+        trusted(&bindings(false, "")),
+        0,
+        "this module's rig, shared"
+    );
+    // The trusted rig, which five more family files borrow. Both arms, so the
+    // builder's own `trusted` argument is what decides it.
+    let forum_rig = crate::tests_default_forum::bindings;
+    assert_eq!(trusted(&forum_rig(true, "")), 1, "the trusted rig");
+    assert_eq!(trusted(&forum_rig(false, "")), 0, "the same rig, untrusted");
+    // `tests_task_channels` writes its own, always trusted.
+    assert_eq!(trusted(&crate::tests_task_channels::bindings(true)), 1);
+    assert_eq!(trusted(&crate::tests_task_channels::bindings(false)), 1);
+    // The horizon pair's rig, accounted apart: no trusted guild either.
+    assert_eq!(
+        trusted(&crate::tests_gateway::bindings(true)),
+        0,
+        "horizon's"
+    );
+    assert_eq!(
+        trusted(&crate::tests_gateway::bindings(false)),
+        0,
+        "horizon's"
+    );
+}
+
+/// `MECHANISM_UNREACHABLE` is exactly the family files whose rig is this
+/// module's, held to the source: a file that changes which `bindings` it
+/// borrows moves between the two halves, and this fails with the edit to make.
+#[test]
+fn the_unreachable_four_are_the_family_files_that_borrow_this_modules_rig() {
+    for f in MECHANISM_UNREACHABLE {
+        assert!(UNTIL_FAMILY.contains(f), "{f} is not in the until family");
+    }
+    let reachable: Vec<&&str> = UNTIL_FAMILY
+        .iter()
+        .filter(|f| !MECHANISM_UNREACHABLE.contains(f))
+        .collect();
+    // Both halves counted, so an empty family cannot satisfy the bar.
+    assert_eq!(MECHANISM_UNREACHABLE.len(), 4, "{MECHANISM_UNREACHABLE:?}");
+    assert_eq!(reachable.len(), 7, "{reachable:?}");
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let read = |f: &str| std::fs::read_to_string(src.join(f)).expect("a family file");
+    let mut borrowed = 0;
+    for f in UNTIL_FAMILY {
+        let text = read(f);
+        if OWN_BINDINGS.contains(f) {
+            assert!(
+                text.contains("fn bindings("),
+                "{f} is listed in OWN_BINDINGS and writes no `bindings`"
+            );
+            continue;
+        }
+        assert!(
+            !text.contains("fn bindings("),
+            "{f} now writes its own `bindings`: add it to OWN_BINDINGS and run it above"
+        );
+        if *f == "tests_task_react.rs" {
+            // The child module: it takes this module's rig through `super::*`.
+            assert!(!imports_from(&text, "tests_task_threads", "bindings"));
+            assert!(MECHANISM_UNREACHABLE.contains(f));
+            continue;
+        }
+        let from_forum = imports_from(&text, "tests_default_forum", "bindings");
+        let from_here = imports_from(&text, "tests_task_threads", "bindings");
+        assert!(
+            from_forum ^ from_here,
+            "{f} borrows neither `bindings` or both: forum {from_forum}, here {from_here}"
+        );
+        borrowed += 1;
+        assert_eq!(
+            from_here,
+            MECHANISM_UNREACHABLE.contains(f),
+            "{f} borrows {}'s rig: move it {} MECHANISM_UNREACHABLE",
+            if from_here {
+                "this module"
+            } else {
+                "the trusted"
+            },
+            if from_here { "into" } else { "out of" }
+        );
+    }
+    assert_eq!(
+        borrowed, 7,
+        "the scan classed {borrowed} files by their import"
+    );
+}
+
+/// `an_acting_call_waits_and_the_cli_approves_it` runs with Discord disabled:
+/// the fixture every theseusd test shares turns it off, and that test's own
+/// config never puts it back. Read from the source, since no Discord code of
+/// ours can be asked about a daemon that never starts the binding.
+#[test]
+fn theseusds_acting_call_test_runs_with_discord_disabled() {
+    let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("../theseusd/tests");
+    let fixture = std::fs::read_to_string(d.join("common/mod.rs")).expect("theseusd's fixture");
+    assert!(
+        fixture.contains(r#"table(&mut t, "discord").insert("enabled".into(), false.into());"#),
+        "theseusd's shared fixture no longer disables Discord: re-derive the recipe"
+    );
+    let acting = std::fs::read_to_string(d.join("mcp_server.rs")).expect("theseusd's mcp_server");
+    // The positive, so a file that lost the test cannot pass on the negative.
+    assert!(acting.contains("fn an_acting_call_waits_and_the_cli_approves_it"));
+    assert!(
+        !acting.contains(r#""discord""#) && !acting.contains("theseus_discord"),
+        "mcp_server.rs now names Discord: it may no longer be outside the family"
+    );
+}
+
+/// Whether `text` reaches `item` of `module` by any written form: the brace
+/// import (`tests_task_threads::{bound, until}`), including its multi-line
+/// form, the plain `use` (`use crate::tests_task_threads::until;`) or a
+/// path-qualified call (`crate::tests_task_threads::until(..)`). A path that
+/// names another item of the module (`::bound(`) is not a reference to it.
+#[cfg(test)]
+fn imports_from(text: &str, module: &str, item: &str) -> bool {
+    let at = format!("{module}::");
+    text.split(at.as_str()).skip(1).any(|rest| {
+        if let Some(list) = rest.strip_prefix('{') {
+            let list = list.split('}').next().unwrap_or("");
+            list.split(',').any(|w| w.trim() == item)
+        } else {
+            let word: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            word == item
+        }
+    })
+}
+
+/// Whether `text` reaches this module's `until`: `imports_from` at the one
+/// pair the scan below asks about. The two arms the paragraphs below measure
+/// are `imports_from`'s, which theseus-a0kte generalised out of this function
+/// without changing either of them.
 ///
 /// **Which arm each member is found by, measured over the tree, not inferred**
 /// (B7 item 1, measured over the merge of `origin/main` `12889bcf`): of the
@@ -1060,18 +1274,7 @@ const UNTIL_FAMILY: &[&str] = &[
 /// a failure naming a file that only talks about `until` is this, not a bug.
 #[cfg(test)]
 fn reaches_until(text: &str) -> bool {
-    text.split("tests_task_threads::").skip(1).any(|rest| {
-        if let Some(list) = rest.strip_prefix('{') {
-            let list = list.split('}').next().unwrap_or("");
-            list.split(',').any(|w| w.trim() == "until")
-        } else {
-            let word: String = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-            word == "until"
-        }
-    })
+    imports_from(text, "tests_task_threads", "until")
 }
 
 /// Every `.rs` file under `dir`, recursively, as its path relative to `root`

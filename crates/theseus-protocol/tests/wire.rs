@@ -840,6 +840,59 @@ fn typed_tool_proposed() {
     );
 }
 
+/// The context files a recompile's summary carries (an append has none).
+fn summary_files(recompile: bool) -> Vec<ContextFileRef> {
+    if !recompile {
+        return vec![];
+    }
+    vec![
+        ContextFileRef {
+            path: "/w/AGENTS.md".into(),
+            digest: Some("a1b2c3d4e5f60718".into()),
+            bytes: 2048,
+            cut: false,
+            missing: None,
+            persona: None,
+            level: Default::default(),
+            public: true,
+            withheld: None,
+        },
+        ContextFileRef {
+            path: "/w/persona/clerk.md".into(),
+            digest: Some("0f1e2d3c4b5a6978".into()),
+            bytes: 65536,
+            cut: true,
+            missing: None,
+            persona: Some("clerk".into()),
+            level: Default::default(),
+            public: false,
+            withheld: None,
+        },
+        ContextFileRef {
+            path: "/w/missing.md".into(),
+            digest: None,
+            bytes: 0,
+            cut: false,
+            missing: Some("not found".into()),
+            persona: None,
+            level: Default::default(),
+            public: false,
+            withheld: None,
+        },
+        ContextFileRef {
+            path: "/w/notes.md".into(),
+            digest: None,
+            bytes: 0,
+            cut: false,
+            missing: None,
+            persona: None,
+            level: Default::default(),
+            public: false,
+            withheld: Some("not public, in a shared place".into()),
+        },
+    ]
+}
+
 /// A `context.compiled` for a recompile, or an append (the shapes' sample).
 fn summary(recompile: bool) -> ContextCompiled {
     ContextCompiled {
@@ -865,52 +918,7 @@ fn summary(recompile: bool) -> ContextCompiled {
         nodes_scanned: 11,
         decoded: 0,
         stubs: 0,
-        context_files: if recompile {
-            vec![
-                ContextFileRef {
-                    path: "/w/AGENTS.md".into(),
-                    digest: Some("a1b2c3d4e5f60718".into()),
-                    bytes: 2048,
-                    cut: false,
-                    missing: None,
-                    persona: None,
-                    public: true,
-                    withheld: None,
-                },
-                ContextFileRef {
-                    path: "/w/persona/clerk.md".into(),
-                    digest: Some("0f1e2d3c4b5a6978".into()),
-                    bytes: 65536,
-                    cut: true,
-                    missing: None,
-                    persona: Some("clerk".into()),
-                    public: false,
-                    withheld: None,
-                },
-                ContextFileRef {
-                    path: "/w/missing.md".into(),
-                    digest: None,
-                    bytes: 0,
-                    cut: false,
-                    missing: Some("not found".into()),
-                    persona: None,
-                    public: false,
-                    withheld: None,
-                },
-                ContextFileRef {
-                    path: "/w/notes.md".into(),
-                    digest: None,
-                    bytes: 0,
-                    cut: false,
-                    missing: None,
-                    persona: None,
-                    public: false,
-                    withheld: Some("not public, in a shared place".into()),
-                },
-            ]
-        } else {
-            vec![]
-        },
+        context_files: summary_files(recompile),
         persona: recompile.then(|| "clerk".into()),
         cache: CacheSummary {
             breakpoints: if recompile {

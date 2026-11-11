@@ -686,10 +686,13 @@ fn no_ambient_credentials() -> Result<(), String> {
 
 /// 17b's hidden list, theseus-txh9w. An entry may be a symlink, and a
 /// symlink may dangle or name something the view does not show. None of the
-/// three may end the job: the mask is a promise about what a job can read,
-/// and a job that never starts is a defect, not a safer sandbox. What a link
-/// does name inside the view must end up covered at the place it names, so
-/// the content is gone through the link and at its own path alike.
+/// three may end the job: a job that never starts is a defect, not a safer
+/// sandbox. The mask promises what exists when the job starts, not what the
+/// job can read — a skipped entry inside a live bind is readable once the
+/// host gains the name (`view::mask`'s doc, theseus-3i6d1) — and that is not
+/// what this clause measures. What a link does name inside the view must end
+/// up covered at the place it names, so the content is gone through the link
+/// and at its own path alike.
 fn hidden_links() -> Result<(), String> {
     let ws = tempfile::tempdir().map_err(|e| e.to_string())?;
     let elsewhere = tempfile::tempdir().map_err(|e| e.to_string())?;

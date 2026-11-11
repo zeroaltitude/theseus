@@ -36,6 +36,7 @@
 //!   person authors and DM parties as the ontology's people, with their
 //!   handles, and their memberships, by the owner's `import.people`.
 
+mod anchor;
 pub(crate) mod append;
 pub mod catalog;
 pub mod episode;
