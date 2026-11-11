@@ -343,6 +343,59 @@ impl Provider for TextAfterTheHeldCreate {
     }
 }
 
+/// A provider that gives its response's thinking and text in one go, then
+/// holds the turn open until the stand-in Discord has taken (and is holding)
+/// a create, so the reply's post can only come after that create began. The
+/// inner `FakeProvider` yields between its deltas, and whether the place's
+/// lane runs in one of those gaps is the host's scheduling: the process
+/// message's first create is the thinking or the fold, and an end that comes
+/// first has the post written before any create. Given at once and held open,
+/// neither can happen. If no create is held within 10 s it goes on, and the
+/// test's scenario check says so.
+struct AllAtOnceThenHeld {
+    inner: FakeProvider,
+    fake: Arc<FakeDiscord>,
+}
+
+impl Provider for AllAtOnceThenHeld {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn stream_message<'a>(
+        &'a self,
+        req: &'a ProviderRequest,
+        on_delta: DeltaSink<'a>,
+    ) -> ProviderFuture<'a> {
+        Box::pin(async move {
+            // (is thinking, its text), in the order the inner stream gave them.
+            let mut deltas: Vec<(bool, String)> = Vec::new();
+            let response = self
+                .inner
+                .stream_message(req, &mut |d| match d {
+                    Delta::Thinking(t) => deltas.push((true, t.to_string())),
+                    Delta::Text(t) => deltas.push((false, t.to_string())),
+                    other => on_delta(other),
+                })
+                .await?;
+            for (thinking, t) in &deltas {
+                on_delta(if *thinking {
+                    Delta::Thinking(t)
+                } else {
+                    Delta::Text(t)
+                });
+            }
+            let t0 = std::time::Instant::now();
+            while t0.elapsed() < std::time::Duration::from_secs(10)
+                && !self.fake.seen().iter().any(|q| q.outcome == "held")
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            Ok(response)
+        })
+    }
+}
+
 /// A thinking answer whose text the stream had not written when the reply's
 /// post came (its process message's create answered late) is still the
 /// answer: the post's first part takes the answer's category, not a later
@@ -365,10 +418,15 @@ async fn an_answer_the_post_writes_after_the_thinking_is_still_the_answer() {
     assert_eq!(r.core.outbox.status("discord").pending, 0);
 }
 
-/// The same, in the order a fast host reaches (theseus-wpv2g): the turn ends
-/// before the lane writes the process message at all, so its first and only
-/// write is already the fold (`-# 💭 thought for …`). Every write is held until
-/// the reply's post is queued behind the fold's create.
+/// The same, with the thinking and the text given at once (theseus-wpv2g): a
+/// fast host's turn ends before the lane writes the process message at all, so
+/// its first and only write is already the fold (`-# 💭 thought for …`). Every
+/// write is held until the reply's post is queued behind the process message's
+/// create. Which text that create has, the thinking's or the fold's, is the
+/// lane's to say and not this test's: whether the lane ran between the
+/// thinking and the text is the host's scheduling, and the lane's own order
+/// for the fold is held apart from any host
+/// (`courier::tests_order::an_answer_the_post_writes_behind_a_held_fold_create_is_still_the_answer`).
 #[tokio::test]
 async fn an_answer_the_post_writes_after_the_fold_is_still_the_answer() {
     let (r, got) = a_thinking_answer_posted_behind_a_held_process_create(true).await;
@@ -385,10 +443,10 @@ async fn an_answer_the_post_writes_after_the_fold_is_still_the_answer() {
 
 /// Hold the process message's create, whatever its text (every one starts
 /// `-# 💭`, streaming or folded), until the reply's post is queued behind
-/// it, then let everything through. `turn_ends_first` holds every write until
-/// the turn is over, so the create is the fold's.
+/// it, then let everything through. `all_at_once` gives the thinking and the
+/// text together (`AllAtOnceThenHeld`) and holds every write.
 async fn a_thinking_answer_posted_behind_a_held_process_create(
-    turn_ends_first: bool,
+    all_at_once: bool,
 ) -> (Rig, Vec<Msg>) {
     const PROCESS: &str = "-# 💭";
     let r = Rig::start_on(
@@ -400,8 +458,8 @@ async fn a_thinking_answer_posted_behind_a_held_process_create(
                 ],
                 stop_reason: "end_turn".into(),
             }]);
-            if turn_ends_first {
-                Arc::new(inner)
+            if all_at_once {
+                Arc::new(AllAtOnceThenHeld { inner, fake })
             } else {
                 Arc::new(TextAfterTheHeldCreate { inner, fake })
             }
@@ -412,7 +470,7 @@ async fn a_thinking_answer_posted_behind_a_held_process_create(
     )
     .await;
     r.fake
-        .hold_writes_containing(Some(if turn_ends_first { "" } else { PROCESS }));
+        .hold_writes_containing(Some(if all_at_once { "" } else { PROCESS }));
     r.say(
         (ANA, "ana"),
         Some(LAB),
@@ -439,8 +497,8 @@ async fn a_thinking_answer_posted_behind_a_held_process_create(
         "the process message's create was not held: {:#?}",
         r.fake.seen()
     );
-    let first = if turn_ends_first {
-        "-# 💭 thought for"
+    let first = if all_at_once {
+        PROCESS
     } else {
         "-# 💭 thinking"
     };

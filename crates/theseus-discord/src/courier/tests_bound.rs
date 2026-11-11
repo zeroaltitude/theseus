@@ -15,9 +15,19 @@ use super::*;
 pub(super) const CHANNEL: u64 = 900_000_000_000_000_077;
 
 pub(super) fn lane(dir: &std::path::Path, fake: &FakeDiscord) -> Lane {
+    lane_with(dir, fake, |_| {})
+}
+
+/// The same, with the config changed by `tweak` before the core builds.
+pub(super) fn lane_with(
+    dir: &std::path::Path,
+    fake: &FakeDiscord,
+    tweak: impl FnOnce(&mut theseus_core::Config),
+) -> Lane {
     let secrets = SecretBoard::new([], Instant::now());
     let core = crate::runtime::tests::core_with(dir, secrets, |c| {
         c.discord.rest_proxy = Some(fake.addr.clone());
+        tweak(c);
     });
     let shared = crate::runtime::shared_for_tests(&core);
     let target = format!("discord:channel:{CHANNEL}");

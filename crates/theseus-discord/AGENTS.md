@@ -754,8 +754,10 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   (`a_place_that_silences_tool_lines_silences_its_process_messages_alone`), and an answer the reply's post writes
   while the process message's create is held at the fake, whatever its text (`hold_writes_containing("-# 💭")`):
   `an_answer_the_post_writes_after_the_thinking_is_still_the_answer` (a provider that holds the text back until the
-  create is held, so the post, not the stream, writes the answer) and `..._after_the_fold_...` (every write held until
-  the reply is queued: the order of a fast host, theseus-wpv2g). Each asserts its scenario happened. `render/process.rs`'s unit tests: the stream and the fold, a tool loop folding at
+  create is held, so the post, not the stream, writes the answer) and `..._after_the_fold_...` (the thinking and the
+  text given at once, every write held until the reply is queued: the order of a fast host, theseus-wpv2g; its create
+  is the thinking's or the fold's by the host's scheduling, so the lane's own order for the fold is
+  `courier/tests_order.rs`'s `..._behind_a_held_fold_create_...`, everything queued before the lane runs). Each asserts its scenario happened. `render/process.rs`'s unit tests: the stream and the fold, a tool loop folding at
   `model.answered` and not at its end after the tool ran, a fence in the thinking escaped, the cut.
   `src/courier/tests_order.rs`: a loop's thinking queued as a new message goes before the lane's waiting post, and a
   tool line alone after it, and a turn whose post goes before its stream replies to the owner's message once
