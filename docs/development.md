@@ -5,14 +5,18 @@ session on the owner's machine, a cloud coding session, or, since v1, Theseus it
 what proves it, how it reaches `main`, how it is installed and released, how it is measured, and what Theseus may
 change about itself without asking.
 
-Four other documents go deeper, and this page links to them rather than repeating them:
+Five other documents go deeper, and this page links to them rather than repeating them:
 
 - the root [`AGENTS.md`](../AGENTS.md): the principles that bind code, the crate map, and the generated files;
-- [`scripts/AGENTS.md`](../scripts/AGENTS.md): the scripts, and the gate's mechanics;
+- [`scripts/AGENTS.md`](../scripts/AGENTS.md): the scripts, and the gate's phases in order;
 - [`scripts/RELEASES.md`](../scripts/RELEASES.md): the pinned toolchain, the build script and the release profiles,
-  the reproducibility check, the installed service, the smokes, and the build host (moved out of
-  `scripts/AGENTS.md` on 2026-11-10, theseus-4vsrz, to get that file back under the context loader's ceiling);
+  the reproducibility check, the installed service, the smokes, and the build host;
+- [`scripts/GATE.md`](../scripts/GATE.md): running the gate on a busy machine — the disk floor, the shared lock,
+  the bench busy allowance, and how long it takes;
 - [`design/rsi-plan.md`](design/rsi-plan.md): the self-improvement design.
+
+(The last two were moved out of `scripts/AGENTS.md` on 2026-11-10, theseus-4vsrz, to get that file back under the
+context loader's 64 KiB ceiling; nothing was cut in either move.)
 
 ## Contents
 
