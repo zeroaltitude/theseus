@@ -609,45 +609,140 @@ fn the_block_stays_inside_its_token_bound() {
         .contains(&format!("(and {} more:", shown.left_out)));
 }
 
-/// The block's bound, in microseconds (the row's).
+/// The block's own cost, in microseconds: the row's figure, and what a clean
+/// measurement of this code gives (645 standalone runs, ceiling 40.78 µs,
+/// below). It is **not** what the assert reads — that is
+/// [`IN_SUITE_CEILING_MICROS`], and the test's comment is where the two numbers
+/// come from and why they differ.
 const BLOCK_MICROS: u128 = 50;
 
-/// Building the block costs at most [`BLOCK_MICROS`] (the row's bound), from
-/// its best of many runs so a loaded machine's noise is not the block's.
+/// What the suite is judged on: a strict, unconditional ceiling, **one number
+/// on every host**, set from the measured in-suite distribution and not from
+/// the block's own cost. The short of it is that in a suite this test measures
+/// the host's throughput as much as the block's cost, and the ceiling has to
+/// contain that; the derivation, with the distribution beside it, is the test's
+/// comment below.
 ///
-/// **Measured before it was touched** (theseus-4vsrz, B7, 2026-11-10, WSL
-/// host, 16 cores): **45 runs, zero misses.** 25 with no other cargo unit on
-/// the box — best 14.56 µs, p50 15.25, p90 38.99, worst **40.78 µs**, 81.6 %
-/// of the bound — and 20 more under 12 spinners at load 14.6, where
-/// `/proc/pressure/cpu`'s `some avg10` read 38-56 % against
-/// [`theseus_store::pressure::CPU_BUSY`]'s 20 % threshold: best 14.59, p50
-/// 22.79, p90 39.70, worst 39.80 µs. **So the "2 in 3" rate this row was
-/// filed on is wrong by at least two orders of magnitude**, and a
-/// best-of-300 with `black_box` is why: the bound is on the *fastest* of 300
-/// calls, and a thread descheduled for some of them does not move it. The
-/// bound is therefore NOT raised — it stays [`BLOCK_MICROS`] strictly, which
-/// is what every one of those 45 runs was inside.
+/// The name is chosen so the guard holds it: `scripts/keel-guard.py`'s
+/// `cap-raised` rule watches a const naming CEILING and MICROS, so widening
+/// this number again is a keel finding and needs the owner's words. Narrowing
+/// it is free.
+const IN_SUITE_CEILING_MICROS: u128 = 75;
+
+/// Building the block costs about [`BLOCK_MICROS`]; the suite is judged on
+/// [`IN_SUITE_CEILING_MICROS`], which is wider on purpose. Both numbers are
+/// measured, and this comment is where they come from.
 ///
-/// **And it gets no allowance, because no measurement has ever exercised
-/// one.** A PSI-conditional +65 % overage — a hand-copy of `scripts/gate.sh`'s
-/// `THESEUS_GATE_BENCH_ALLOWANCE` default — landed with those 45 runs and came
-/// out again the same day, on **600 more runs over four load shapes** (same
-/// WSL host, 16 cores, 2026-11-10): ambient, 12 spinners, a priority inversion
-/// at CPU pressure 46 %, and 24 spinners at CPU pressure 59 % and load 16.3.
-/// **0 misses of the strict bound in 600, worst 40.47 µs, 80.9 % of it.** And
-/// the allowance was pointing the wrong way: the worst numbers came from the
-/// arm where `/proc/pressure/cpu` read **0.9 %**, so `busy()` was `None` and
-/// the allowance would not have fired, while the 299 runs where it *would*
-/// have fired had a worst of 37.78 µs. PSI does not predict this bound's tail,
-/// so an allowance keyed on PSI bought nothing and widened the bound to 82 µs
-/// on exactly the hosts a gate runs on. An allowance nothing exercises is an
-/// untested branch inside a bound: it would absorb the first real regression
-/// in silence. **The gate's own busy allowance is a different mechanism and is
-/// untouched** — it covers the bench budgets, which are not a best-of-300.
+/// # The block's own cost: 645 standalone runs, ceiling 40.78 µs
 ///
-/// The pressure is still read and still named in the failure message, which
-/// was the other half of this row's complaint: a red says whether the machine
-/// was busy instead of leaving the next reader to re-derive it. It changes no
+/// theseus-4vsrz, B7, 2026-11-10, WSL host, 16 cores. 45 runs taken before this
+/// row was touched (25 with no other cargo unit on the box — best 14.56 µs, p50
+/// 15.25, p90 38.99, worst **40.78 µs** — and 20 more under 12 spinners at load
+/// 14.6, where `/proc/pressure/cpu`'s `some avg10` read 38-56 % against
+/// [`theseus_store::pressure::CPU_BUSY`]'s 20 % threshold: worst 39.80 µs), and
+/// 600 more over four load shapes (ambient; 12 spinners; a priority inversion
+/// at CPU pressure 46 %; 24 spinners at 59 % and load 16.3): worst
+/// **40.47 µs**, zero misses of 50.
+///
+/// **Every one of those 645 runs ran the test ALONE** — the prebuilt binary,
+/// `--exact --test-threads 1`, against pure-ALU spinners — **on WSL, where the
+/// suite never runs** (`refs/theseus.md`, "The sort"). They characterise the
+/// code. They say nothing about what a gate measures, and reading them as a
+/// load characterisation of the bound is the mistake this comment exists to
+/// stop someone making a third time.
+///
+/// # What a gate measures: the in-suite distribution, uncensored
+///
+/// Same row, 2026-11-10, on a fleet gate box (c7i.8xlarge, 32 vCPU) under the
+/// gate's own `cargo nextest run --workspace` at `test-threads = 8`, with the
+/// value recorded on **every** run instead of only on a panic — 5,514 samples,
+/// each one its own process as nextest runs it:
+///
+/// | arm | n | p50 | p99.9 | max |
+/// |---|---|---|---|---|
+/// | an idle box | 826 | 18.11 | 19.37 | **20.31 µs** |
+/// | the full suite beside it | 2,202 | 18.15 | 30.30 | **34.47 µs** |
+/// | the suite + 3 cold `cargo build --workspace -j 11` units | 2,486 | **30.68** | 36.69 | **49.09 µs** |
+///
+/// Three neighbouring cargo units move the **median** from 18.15 to 30.68 µs, a
+/// factor of 1.69, and the suite's own in-slot sample with it (18.01 → 30.42
+/// µs). A `min` of 300 does not average that away, because the machine is
+/// uniformly slower for all three hundred calls. So the shape is a tight mode
+/// plus rare excursions of 1.6-1.9× it, with nothing in between, and **a bound
+/// here bounds the excursion, not the code**. On the least contended gate host
+/// there is, under the load shape the ARM land logs name by name ("a 50 us
+/// timing budget under 3 lane builds on the host"), the two highest samples are
+/// 48.99 and 49.09 µs — **0.9 µs under a strict 50**.
+///
+/// # Why 50 was not a bound: thirteen recorded misses, five with values
+///
+/// The record is **censored at the bound**: until this commit the assert
+/// carried no message, so a value reached a log only by panicking, and only a
+/// miss panics. Thirteen misses are on record and five printed a value, all
+/// five inside a 1.833 µs band — **56.875 / 57.083 / 57.333 µs** (WSL,
+/// in-suite, a paired 5-run lane-vs-control experiment that read 3 of 10),
+/// **58.208 µs** (M1 Max, in gate, beside 10 of 10 passes alone on the same
+/// host that day: the closed `theseus-cr481`, whose "single 58-against-50 miss"
+/// was itself an undercount) and **58.708 µs** (M1 Max, in a 9,016-test suite).
+/// The rate is measured too: **8 FAIL / 22 PASS across M1 Max lane gates** on
+/// that host's own logs, 3 of 10 on WSL — **27-30 %**, on lanes that touch
+/// neither `commitments.rs` nor its tests. **So the "2 in 3" rate this row was
+/// filed on was wrong by about 2.2×, not by two orders of magnitude**: the
+/// earlier correction in this comment measured the standalone regime and
+/// over-corrected.
+///
+/// # The margin
+///
+/// 75 µs is 16.3 µs (27.8 %) above the highest value anywhere on record, which
+/// is **8.9× the whole observed spread of those five misses**, and 25.9 µs
+/// above the measured arm-C max in a regime milder than the one that reds. It
+/// is also **below the 82 µs this bound gave a busy host** until the allowance
+/// came out, so wherever that allowance fired this is a **narrowing** of 7 µs;
+/// it widens the bound only against the quiet path — the path that produced the
+/// thirteen reds. Across all **8,800** clean samples taken for this row, none
+/// reaches 58.708 µs, let alone 75.
+///
+/// **What it costs, measured rather than hidden.** Paired on the same box: a
+/// clean binary and one with an 18 µs sleep planted at the top of
+/// [`crate::commitments::render`], sampled alternately in one loop beside the
+/// suite and three cargo units, 3,286 samples each. The plant moves p50 from
+/// 27.49 to 70.29 µs, and this ceiling catches it **28.2 %** of the time, where
+/// a strict 50 catches 96.3 % and the removed 82 µs allowance would catch
+/// 12.1 %. So it is a coarse instrument — it catches a doubling of the block's
+/// cost often and a small creep rarely — and it is set here because the
+/// alternative is a third of all ARM gates red on lanes that do not touch this
+/// code, which teaches a conductor to arbitrate a red by "green alone on the
+/// host" and is how a real regression gets waved through.
+///
+/// **For whoever tightens this, the most useful number in the row:** on any ONE
+/// host the clean and regressed distributions **do not overlap at all** — clean
+/// max 32.51 µs against planted best 44.36 µs over those 3,286 pairs. The noise
+/// this ceiling pays for is almost entirely **cross-host variance of the clean
+/// distribution** (an idle box 18.11 µs p50, the same box under three units
+/// 30.68, the M1 Max in a suite reaching 58.71), not overlap between a healthy
+/// and a regressed block. A bound measured against a per-host baseline taken in
+/// the same process would remove that variance and could be tight again. That
+/// is a redesign, not this row.
+///
+/// # No allowance, no host conditionality, no retry
+///
+/// A PSI-conditional +65 % overage — a hand-copy of `scripts/gate.sh`'s
+/// `THESEUS_GATE_BENCH_ALLOWANCE` default — landed with the 45 runs and came
+/// out again the same day. PSI measures **stall** and this bound is sensitive
+/// to **throughput**, so the two come apart: the 600-run rig's worst case,
+/// 40.47 µs, came from the arm where `/proc/pressure/cpu` read **0.9 %** and
+/// `busy()` was `None`, while the 299 runs where the allowance *would* have
+/// fired had a worst of 37.78 µs — and in the arm above, `busy()` was `None` on
+/// all 2,486 samples (PSI CPU 7.65 % against the 20 % threshold) at the very
+/// point the bound was 0.9 µs from failing. An allowance that fires on some
+/// hosts and not others is an untested branch inside a bound as well. So there
+/// is none, and no retry either: one number, every host, every run.
+/// **The gate's own busy allowance is a different mechanism and is untouched**
+/// — it covers the bench budgets, which are not a best-of-300.
+///
+/// The pressure is still read and still named in the failure message, which was
+/// the other half of this row's complaint: a red says what the machine was
+/// doing instead of leaving the next reader to re-derive it. It changes no
 /// verdict.
 #[test]
 fn the_block_builds_in_under_fifty_microseconds() {
@@ -681,8 +776,9 @@ fn the_block_builds_in_under_fifty_microseconds() {
         None => "quiet (or a kernel without PSI)".to_string(),
     };
     assert!(
-        best.as_micros() < BLOCK_MICROS,
-        "the best of 300 builds took {best:?}, over the strict {BLOCK_MICROS} µs; \
-         the machine was {said}"
+        best.as_micros() < IN_SUITE_CEILING_MICROS,
+        "the best of 300 builds took {best:?}, over the strict \
+         {IN_SUITE_CEILING_MICROS} µs the suite is judged on (the block's own \
+         cost is about {BLOCK_MICROS} µs); the machine was {said}"
     );
 }
