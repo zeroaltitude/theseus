@@ -85,14 +85,28 @@ impl PersonaScene {
 }
 
 impl TurnRunner {
-    /// The state dir this daemon runs on: the store's parent, which a
-    /// `--state-dir` start moves and `[server].state_dir` does not know. A
-    /// persona's folder is under it (`personas/<name>`).
+    /// The state dir this daemon runs on, as `Config::state_dir()` reads it:
+    /// a persona's folder is under it (`personas/<name>`), beside the store,
+    /// the spool, the bindings file and `AGENTS.md`.
+    ///
+    /// `theseusd` moves `--state-dir` (or `THESEUS_STATE_DIR`) into
+    /// `[server].state_dir` before it builds a `Core` (`state_dir_in_use`, in
+    /// `theseusd/src/main.rs`), with `~` and `$NAME` expanded, so the config
+    /// *does* know the flag and this is the directory the store was opened in.
+    /// It was read back from `store.dir().parent()` on the belief that the
+    /// config did not, which is the shape the tool floor's `build_runtime`
+    /// had before it moved to `state_dir()` (theseus-3i6d1). That held only
+    /// while the store sat directly under the state dir, which is how the
+    /// start path lays things out and not a promise: a store anywhere else
+    /// put `personas/` somewhere the floor and `project_context` were not
+    /// looking.
+    ///
+    /// A `Core` built by hand (a test, the simulator) must set
+    /// `server.state_dir` to where its store lives: a default config points
+    /// at `~/.theseus`. `rpc::tests_persona_import` goes red if the store is
+    /// made the source again.
     pub fn state_root(&self) -> std::path::PathBuf {
-        let store = self.store.dir();
-        store
-            .parent()
-            .map_or_else(|| self.cfg.state_dir(), std::path::Path::to_path_buf)
+        self.cfg.state_dir()
     }
 
     /// The persona's part of a recall for a turn that speaks as `persona`

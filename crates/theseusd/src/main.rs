@@ -439,6 +439,10 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         out(&text)?;
         return Ok(Exit::Done);
     }
+    // Resolved once, here, for every command below that touches the state dir:
+    // `restore` writes the directory a start would read, so it must be the
+    // directory a start would name, `~` and `$NAME` expanded.
+    let state_dir = state_dir_in_use(cli.state_dir.as_deref(), &mut cfg);
     if let Some(Cmd::Restore {
         from,
         force,
@@ -446,7 +450,16 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     }) = &cli.cmd
     {
         let fetch: Arc<dyn theseus_core::secrets::Fetch> = op.clone();
-        restore(&cli, &cfg, from, *force, *repair, (fetch, origin)).await?;
+        restore(
+            &cli,
+            &cfg,
+            &state_dir,
+            from,
+            *force,
+            *repair,
+            (fetch, origin),
+        )
+        .await?;
         return Ok(Exit::Done);
     }
     tracing::info!(source = %source, from, model = %cfg.model.model, "config loaded");
@@ -460,7 +473,6 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         op.clone(),
     ));
 
-    let state_dir = state_dir_in_use(cli.state_dir.as_deref(), &mut cfg);
     if let Some(Cmd::Check) = cli.cmd {
         check(
             &format!("{source}{}", lookup.how()),
@@ -718,19 +730,35 @@ fn exit(core: &Core) -> Exit {
 }
 
 /// The state dir in use, **folded into the config** so that
-/// `Config::state_dir()` is the one source of truth for it (theseus-3i6d1,
-/// the floor review's F2): `--state-dir`, or `THESEUS_STATE_DIR` through the
-/// same field, else `[server].state_dir` as the TOML left it.
+/// `Config::state_dir()` reads the flag too (theseus-3i6d1, the floor
+/// review's F2): `--state-dir`, or `THESEUS_STATE_DIR` through the same field,
+/// else `[server].state_dir` as the TOML left it.
 ///
 /// It is written back because the daemon is the only place that knows the
-/// flag, and the config is what every other reader already has: the gate's
+/// flag, and the config is what the other readers already have: the gate's
 /// floor (`toolrun::build_runtime`, which keeps the store, the spool, the
-/// bindings file and `<state_dir>/AGENTS.md` behind the owner's approval) and
+/// bindings file and `<state_dir>/AGENTS.md` behind the owner's approval),
 /// `project_context::block`, which reads that same `AGENTS.md` live into
-/// session block 3. They read it through two different expressions before
-/// this, and under the flag they named two different directories: the floor
-/// held one file and every prompt carried another. Nothing here copies the
-/// value anywhere; it moves the flag into the field the readers already use.
+/// session block 3, and `TurnRunner::state_root`, which puts `personas/<name>`
+/// under it. Nothing here copies the value anywhere; it moves the flag into
+/// the field those readers use.
+///
+/// The value is `Config::state_dir()`, i.e. **expanded**: a leading `~` (alone
+/// or before `/`) is `$HOME`, and each `$NAME` or `${NAME}` is that variable's
+/// value (`config::expand_with`). What does not resolve stays as written (an
+/// unset variable, `~user`, `${NAME:-x}`, an unclosed `${`), and the result is
+/// not expanded again. Not done, on purpose: a `~` or `$` anywhere but where
+/// that says, command substitution, globbing, and `.` or `..` collapsing.
+/// The flag reaches the daemon unexpanded when a shell did not do it (a quoted
+/// argument, `THESEUS_STATE_DIR` in a unit's environment).
+///
+/// Call it **once, before the first command that touches the state dir**:
+/// `restore`, `check` and a start all take the directory from here, so none of
+/// them can name a different one. Two places read the flag without going
+/// through it, and both are named here: `config_copy::path`
+/// (needed before any config is read, so it expands the flag the same way
+/// itself) and `install`, which writes a unit for another process and
+/// resolves a relative path against its own cwd.
 fn state_dir_in_use(flag: Option<&Path>, cfg: &mut Config) -> PathBuf {
     if let Some(d) = flag {
         cfg.server.state_dir = d.to_string_lossy().into_owned();
@@ -1462,12 +1490,12 @@ async fn serve_socket(
 async fn restore(
     cli: &Cli,
     cfg: &Config,
+    state_dir: &std::path::Path,
     from: &std::path::Path,
     force: bool,
     repair: bool,
     vault: (Arc<dyn theseus_core::secrets::Fetch>, Instant),
 ) -> Result<()> {
-    let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
     let socket = cli.socket.clone().unwrap_or_else(|| cfg.socket_path());
     if tokio::net::UnixStream::connect(&socket).await.is_ok() {
         anyhow::bail!(
@@ -1475,15 +1503,15 @@ async fn restore(
             socket.display()
         );
     }
-    private_dir(&state_dir)?;
+    private_dir(state_dir)?;
     if let Some(url) = from.to_str().filter(|f| f.starts_with("s3://")) {
         if repair {
             anyhow::bail!("--repair takes a local copy of the store, not an s3:// URL");
         }
-        return restore_s3(cfg, url, &state_dir, &socket, force, vault).await;
+        return restore_s3(cfg, url, state_dir, &socket, force, vault).await;
     }
     if repair {
-        let r = theseus_core::restore::repair(from, &state_dir)?;
+        let r = theseus_core::restore::repair(from, state_dir)?;
         let mut text = format!("repaired {} frame(s) from {}:\n", r.patched.len(), r.from);
         for p in &r.patched {
             text.push_str(&format!(
@@ -1498,7 +1526,7 @@ async fn restore(
         ));
         return out(&text);
     }
-    let r = theseus_core::restore::restore(from, &state_dir, force)?;
+    let r = theseus_core::restore::restore(from, state_dir, force)?;
     let mut text = restore_lines(&r);
     text.push_str("start theseusd to serve it; the ledger's last row is store.restored\n");
     out(&text)
@@ -1684,6 +1712,30 @@ mod tests {
             PathBuf::from("/x/toml")
         );
         assert_eq!(cfg.server.state_dir, "/x/toml");
+    }
+
+    /// The state dir in use is the expanded one, so `restore`, `check` and a
+    /// start (all of which take it from `state_dir_in_use`) agree on a flag
+    /// that reached the daemon as typed (`~`, `$NAME`, `${NAME}`); what does
+    /// not resolve stays as written, as on a start.
+    #[test]
+    fn the_state_dir_in_use_is_expanded() {
+        let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+        for flag in ["$CARGO_MANIFEST_DIR/s", "${CARGO_MANIFEST_DIR}/s"] {
+            let mut cfg = Config::example();
+            assert_eq!(
+                state_dir_in_use(Some(Path::new(flag)), &mut cfg),
+                manifest.join("s"),
+                "{flag}"
+            );
+            assert_eq!(cfg.state_dir(), manifest.join("s"), "{flag}");
+        }
+        let mut cfg = Config::example();
+        assert_eq!(
+            state_dir_in_use(Some(Path::new("$UNSET_FOR_THIS_TEST/s")), &mut cfg),
+            PathBuf::from("$UNSET_FOR_THIS_TEST/s"),
+            "what does not resolve stays as written"
+        );
     }
 
     /// `install --user`'s plan names the flag for a re-run: it must parse after the

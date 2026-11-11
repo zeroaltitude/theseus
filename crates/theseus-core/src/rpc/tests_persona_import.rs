@@ -53,9 +53,10 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
         .unwrap()
     };
     let owners = "Reads tide tables for the owner and keeps species logs.";
-    // The config names a state dir the daemon does not run on (a `--state-dir`
-    // start moves the store, not the config): the persona's folder must go
-    // beside the store.
+    // The config names a state dir that is not beside the rig's store, as
+    // `theseusd` leaves it once `--state-dir` is folded into it: the rig opens
+    // its store in a directory of its own, so the store's parent and the state
+    // dir are two places, and the persona's folder must go to the state dir.
     let elsewhere = tempfile::tempdir().unwrap();
     let r = rig_with(MemoryMode::Off, |c| {
         c.server.state_dir = elsewhere.path().display().to_string();
@@ -97,10 +98,16 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
         .unwrap();
     assert_eq!(done.card.as_deref(), Some(draft.as_str()));
     let dir = run::dir_of(&c.runner.state_root(), "wren");
-    // Beside the store this daemon runs on (a `--state-dir` start moves both).
-    assert_eq!(dir, c.store.dir().parent().unwrap().join("personas/wren"));
-    assert!(!dir.starts_with(elsewhere.path()), "{dir:?}");
-    assert!(!elsewhere.path().join("personas").exists());
+    // Under the state dir the config names, which is where the floor and
+    // session block 3 look; never beside the store.
+    assert_eq!(dir, elsewhere.path().join("personas/wren"));
+    let store_parent = c.store.dir().parent().unwrap();
+    assert_ne!(
+        store_parent,
+        elsewhere.path(),
+        "the rig must keep them apart"
+    );
+    assert!(!store_parent.join("personas").exists(), "{store_parent:?}");
     assert_eq!(Manifest::read(&dir).unwrap().agent, "wren");
     let w = info(c, "wren");
     assert!(w.card_draft && !w.offered, "{w:?}");
@@ -124,4 +131,44 @@ fn the_drafted_card_is_offered_to_jev_only_once_kept() {
         })
         .unwrap_err();
     assert!(format!("{e:#}").contains("wren"), "{e:#}");
+}
+
+/// `state_root` is `Config::state_dir()` and nothing derived from the store:
+/// with the store somewhere else, the root, the soul's home and a persona's
+/// folder all follow the config. Red if `state_root` reads
+/// `store.dir().parent()` again (the shape the tool floor had before
+/// theseus-3i6d1), which `--stdio`'s `store-stdio` hides, since it too sits
+/// directly under the state dir.
+#[test]
+fn the_state_root_is_the_configs_state_dir_and_not_the_stores_parent() {
+    let flagged = tempfile::tempdir().unwrap();
+    let r = rig_with(MemoryMode::Off, |c| {
+        c.server.state_dir = flagged.path().display().to_string();
+    });
+    let c = &r.core;
+    assert_ne!(c.store.dir().parent().unwrap(), flagged.path());
+    assert_eq!(c.runner.state_root(), flagged.path());
+    assert_eq!(
+        c.soul_home("wren"),
+        flagged.path().join("personas/wren/PERSONA.md")
+    );
+    assert_eq!(c.runner.state_root(), c.cfg.state_dir());
+}
+
+/// The layout a `--stdio` daemon builds: the store is `<state>/store-stdio`
+/// and the config's state dir is `<state>`, so the root is `<state>`. This
+/// passes under either derivation, since `store-stdio` sits directly under the
+/// state dir as `store` does; it is here so the pairing is stated, and breaks
+/// if the root ever becomes anything but the state dir.
+#[test]
+fn a_stdio_layout_has_the_same_root() {
+    let state = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::open(&state.path().join("store-stdio")).unwrap();
+    let mut cfg = crate::config::Config::example();
+    cfg.server.state_dir = state.path().display().to_string();
+    cfg.tools.roots = vec![];
+    let model = std::sync::Arc::new(crate::provider::FakeProvider::default());
+    let p = crate::rpc::Parts::for_tests(cfg, model, store);
+    let core = crate::Core::build(p).unwrap();
+    assert_eq!(core.runner.state_root(), state.path());
 }

@@ -32,12 +32,17 @@ pub const DIGEST: &str = "config.copy_sha256";
 const HEADER: &str = "# theseusd: the last-known-good copy of ";
 
 /// Where the copy lives: `--state-dir` when given, else `~/.theseus`, since it
-/// must be found before any config is read.
+/// must be found before any config is read. The flag is expanded as
+/// `Config::state_dir()` expands the same flag once it is folded into the
+/// config (`~`, `$NAME`, `${NAME}`), so the copy is read in the directory the
+/// store is opened in.
 pub fn path(state_dir: Option<&Path>) -> PathBuf {
-    state_dir
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| crate::config::expand(crate::config::DEFAULT_STATE_DIR))
-        .join(FILE)
+    crate::config::expand(
+        &state_dir.map_or(crate::config::DEFAULT_STATE_DIR.into(), |d| {
+            d.to_string_lossy().into_owned()
+        }),
+    )
+    .join(FILE)
 }
 
 /// A copy that can serve a start.
@@ -192,6 +197,32 @@ mod tests {
 
     const REF: &str = "op://V/theseus-config/notesPlain";
     const NOTE: &str = "[secrets]\nanthropic_api_key = \"op://V/i/f\"\n";
+
+    /// The copy is found in the directory the store is opened in, so the flag
+    /// is expanded the way `Config::state_dir()` expands it: a start that
+    /// expanded `--state-dir '$VAR/s'` for the store and not for the copy read
+    /// the copy from a directory literally named `$VAR`. `CARGO_MANIFEST_DIR`
+    /// is set for every test run, so the variable needs no mutation here.
+    #[test]
+    fn the_flag_is_expanded_as_the_state_dir_is() {
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        for flag in ["$CARGO_MANIFEST_DIR/s", "${CARGO_MANIFEST_DIR}/s"] {
+            assert_eq!(
+                path(Some(Path::new(flag))),
+                Path::new(&manifest).join("s").join(FILE),
+                "{flag}"
+            );
+        }
+        assert_eq!(
+            path(Some(Path::new("$UNSET_FOR_THIS_TEST/s"))),
+            Path::new("$UNSET_FOR_THIS_TEST/s").join(FILE),
+            "what does not resolve stays as written"
+        );
+        assert_eq!(
+            path(Some(Path::new("/plain"))),
+            Path::new("/plain").join(FILE)
+        );
+    }
 
     /// A copy is the note's exact text under a line naming its reference,
     /// mode 0600, read back as it was written.
