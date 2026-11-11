@@ -323,6 +323,7 @@ async fn an_ordinary_command_still_runs_with_nothing_asked() {
     let r = own_files(Posture::Open, |_, _, _| vec![]);
     let inside = r.root.join("src/lib.rs");
     let i = inside.to_string_lossy().into_owned();
+    let i_root = r.root.to_string_lossy().into_owned();
     let floored = r.config.to_string_lossy().into_owned();
     let state = r.agents.parent().unwrap().to_string_lossy().into_owned();
     let ordinary: Vec<(&str, Value)> = vec![
@@ -364,10 +365,169 @@ async fn an_ordinary_command_still_runs_with_nothing_asked() {
             "a batch",
             json!({"steps": [{"argv": ["cargo", "fmt"]}, {"argv": ["cargo", "clippy"]}]}),
         ),
+        // ---- the round-2 reviewer's seven, six of which this re-cut
+        // removes. Every one of them is a line this project's own operators
+        // and its own self-improvement loop write, every one was held at
+        // `3b67ddee` and at NEITHER main nor the head round 1 reviewed, and
+        // the row's own discipline is that over-holding costs the owner's
+        // protection as surely as a hole does.
+        //
+        // Mechanism 1: a code flag's argument that is one WORD was read as a
+        // command, so a grep PATTERN became a program the floor holds
+        // (`policy::shell_argvs`).
+        (
+            "a log grep for Theseus's own daemon",
+            json!({"command": format!("grep -c theseusd {}/depart.log", i_root)}),
+        ),
+        (
+            "a health check for the daemon",
+            json!({"command": "ps -ef | grep -c theseusd"}),
+        ),
+        (
+            "the same grep as an argv",
+            json!({"argv": ["grep", "-c", "theseusd", format!("{i_root}/depart.log")]}),
+        ),
+        (
+            "the same grep as a batch step",
+            json!({"steps": [{"argv": ["grep", "-c", "theseusd", format!("{i_root}/depart.log")]}]}),
+        ),
+        // Mechanism 2: a substitution expression's `|` delimiter was read as
+        // a pipe, so the floored path fell out of the middle of one word
+        // that `path_word` had correctly read as no path at all
+        // (`policy::shell_commands`). This is exactly the false positive the
+        // row's own report said it declined the metacharacter key to avoid,
+        // and it had arrived anyway, one `-e` away and with no such key.
+        (
+            "a sed that rewrites a MENTION of the floored path in another file",
+            json!({"command": format!("sed -i -e 's|{floored}|/tmp/other.toml|' {i_root}/notes.md")}),
+        ),
+        (
+            "the same substitution in perl",
+            json!({"command": format!("perl -pe 's|{floored}|X|' {i_root}/notes.md")}),
+        ),
+        // The two letters re-cut 2 added to the key, on the ordinary lines
+        // that carry them: `-E` is a regex dialect far more often than it is
+        // perl's `-e`, and `-S` is curl's "show errors" and ssh's control
+        // socket far more often than it is `env`'s split.
+        (
+            "an extended-regex grep for the daemon",
+            json!({"command": format!("grep -E 'theseusd' {i_root}/notes.md")}),
+        ),
+        (
+            "an extended-regex sed naming the floored path",
+            json!({"command": format!("sed -E 's|{floored}|x|' {i_root}/notes.md")}),
+        ),
+        (
+            "a curl with -sS",
+            json!({"command": "curl -sS https://example.invalid/x"}),
+        ),
     ];
     for (what, input) in ordinary {
         let (floor, _, reason) = decide(&r, "proc.run", input);
         assert!(!floor, "{what} is held and should not be: {reason}");
+    }
+}
+
+/// The seventh of the round-2 reviewer's false positives, which this row
+/// does **not** remove, pinned so the cost is a decision on the record
+/// rather than a surprise on the owner's morning.
+///
+/// **Why it is irreducible.** `grep -e 'op item get' <file>` and
+/// `bash -c 'op item get x --reveal'` are the same text introduced by the
+/// same flag. The first greps for a string and the second reaches the vault.
+/// Telling them apart means knowing that `grep`'s `-e` is a pattern and
+/// `bash`'s `-c` is a command — the list of program names this row deleted,
+/// and the thing that bought the owner the cost of the floor and three
+/// quarters of its protection. Of the two costs, this one is a call that
+/// waits for a yes; the other is `op item get` running with nothing asked.
+///
+/// So the trade is made deliberately and in this direction, and it is narrow:
+/// the line's first word must be `op` or `theseusd` (`floor_argv` holds two
+/// entries), or the line must BE a floored path.
+#[tokio::test]
+async fn the_over_hold_this_row_accepts_is_pinned() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    let i_root = r.root.to_string_lossy().into_owned();
+    let floored = r.config.to_string_lossy().into_owned();
+    let accepted: Vec<(&str, Value)> = vec![
+        (
+            "a grep whose PATTERN begins with a floored program's name",
+            json!({"command": format!("grep -e 'op item get' {i_root}/x.sh")}),
+        ),
+        (
+            "a grep whose PATTERN is a floored path",
+            json!({"command": format!("grep -e '{floored}' {i_root}/x.sh")}),
+        ),
+    ];
+    for (what, input) in accepted {
+        let (floor, fails_open, reason) = decide(&r, "proc.run", input);
+        assert!(
+            floor && !fails_open,
+            "{what} is no longer held. That is an IMPROVEMENT if the floor can now tell a \
+             pattern from a command without a list of program names -- say how in the row and \
+             delete this case. It is a REGRESSION if the key stopped reading a line's \
+             programs at all, which is `bash -c 'op item get x --reveal'`: {reason}"
+        );
+    }
+}
+
+/// **The ceiling on nested lines fails CLOSED, at the boundary and not near
+/// it.** `floor_view` reads at most `policy::LINES_READ` nested lines of one
+/// call. It used to stop pushing them and say nothing, so a line that nested
+/// 63 decoy calls and then the payload reached the owner's config at
+/// `posture=Open` with `fails_open=true` — the round-2 reviewer measured the
+/// first hiding count as exactly 63, and this test pins 62 and 63 rather
+/// than a number nearby, because a ceiling is only ever wrong at its edge.
+///
+/// A bound that turns the protection off instead of erring is worse than no
+/// bound: the floor is the one layer in this gate that is meant to have no
+/// bypass, so running out of reading must hold the call and say which it is.
+/// The reason is checked too — a hold for the right count with the wrong
+/// story is how the next reader concludes the payload was seen.
+#[tokio::test]
+async fn a_call_that_nests_past_the_bound_is_held() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    let floored = r.config.to_string_lossy().into_owned();
+    // Decoys first, payload last, which is the order that hides it.
+    let crafted = |decoys: usize| {
+        let mut parts: Vec<String> = (0..decoys)
+            .map(|n| format!("bash -c 'echo decoy{n}'"))
+            .collect();
+        parts.push(format!("bash -c 'echo pwned >> {floored}'"));
+        json!({ "command": parts.join("; ") })
+    };
+    // The reason the FLOOR gave, not the decision's text, which quotes the
+    // whole command line and so contains the floored path either way.
+    let found_the_path = |reason: &str| reason.contains("is Theseus's own state");
+    let ran_out_of_reading = |reason: &str| reason.contains("nest past the");
+    // Just under the ceiling the payload is read, and the floor's reason is
+    // the path — which is also what says the rig itself works.
+    let (floor, fails_open, reason) = decide(&r, "proc.run", crafted(62));
+    assert!(floor && !fails_open, "62 decoys hid the payload: {reason}");
+    assert!(
+        found_the_path(&reason) && !ran_out_of_reading(&reason),
+        "the payload is inside the ceiling at 62, so the floor must hold it for the PATH it \
+         names and not for running out of reading: {reason}"
+    );
+    // At the ceiling the payload is NOT read, and the call is held anyway.
+    let (floor, fails_open, reason) = decide(&r, "proc.run", crafted(63));
+    assert!(
+        floor && !fails_open,
+        "63 decoy nested calls hid the payload and the call went ahead. A ceiling that drops \
+         work must HOLD, not pass: {reason}"
+    );
+    assert!(
+        ran_out_of_reading(&reason) && !found_the_path(&reason),
+        "at the ceiling the floor did not read the payload, so it must say it ran out of \
+         reading rather than name a path it never saw: {reason}"
+    );
+    // And far past it, where nothing of the line's nesting is read.
+    for decoys in [64, 200] {
+        let (floor, fails_open, reason) = decide(&r, "proc.run", crafted(decoys));
+        assert!(
+            floor && !fails_open,
+            "{decoys} decoy nested calls hid the payload: {reason}"
+        );
     }
 }
 
@@ -563,12 +723,24 @@ async fn a_path_a_variable_holds_is_not_held_and_that_is_on_the_record() {
 ///   fixture's own config file in its temp dir, and the spellings that
 ///   actually appended are the ones the floor is then required to hold.
 ///
-/// The assertion is therefore `executed ⟹ held`, and neither side of it is a
-/// list anyone maintains. A spelling nobody here imagined goes red by
-/// executing, whatever we believe about shells. A spelling that is nonsense
-/// costs nothing: the oracle finds it never ran and asks nothing of the
-/// floor. An interpreter this host does not have is excluded the same way,
-/// and required again on a host that has it.
+/// The assertion is therefore `executed ⟹ held`, and the ORACLE side of it is
+/// no list at all. A spelling that is nonsense costs nothing: the oracle
+/// finds it never ran and asks nothing of the floor. An interpreter this host
+/// does not have is excluded the same way, and required again on a host that
+/// has it.
+///
+/// **What the generator side is, said plainly, because re-cut 1's report
+/// over-claimed it and the round-2 review proved the over-claim by finding
+/// six spellings that executed unheld.** The product reaches a hole in a
+/// COMBINATION nobody assembled by hand, which is a real property and is
+/// where all eight live holes were. It does not reach a hole outside its own
+/// axes: the flag column of `INTERPRETERS` is written by hand, and until
+/// re-cut 2 the code was always pushed as a SEPARATE word, so
+/// `python3 -c<line>` — one space from a spelling already in the key — could
+/// not be generated at all. Attachment is now an axis and five of the six are
+/// keyed; the sixth is named in `RESIDUE`. **So this instrument is better
+/// than a table and is not a proof: it is the place the next spelling gets
+/// asked about, and asking is a thing someone still has to do.**
 ///
 /// It earned its keep immediately. With `CODE_LETTERS` holding only `c` —
 /// which is every spelling the review named — this test went red on
@@ -594,41 +766,53 @@ async fn every_spelling_that_really_runs_a_line_is_held() {
             other => other.replace("PATH", &floored),
         };
         for flag in *flags {
-            for wrapper in WRAPPERS {
-                let mut argv: Vec<String> = wrapper
-                    .iter()
-                    .chain(program.iter())
-                    .map(|s| s.to_string())
-                    .collect();
-                // A flag spelling may be more than one word (`-l -c`), and
-                // the empty one is an interpreter that takes code with no
-                // flag at all.
-                argv.extend(flag.split_whitespace().map(String::from));
-                argv.push(code.clone());
-                if !really_ran(&argv, &r.config, scratch.path()) {
+            // The fourth axis, added in re-cut 2 because its absence was a
+            // blind spot and not a judgement: the code as the next WORD, and
+            // the code ATTACHED to the flag's own cluster. The generator
+            // always pushed a separate word, so `python3 -c<line>` — one
+            // space from a spelling already in the key — was outside the
+            // product space by construction and executed unheld.
+            for attached in [false, true] {
+                let Some(tail) = spell(flag, &code, attached) else {
                     continue;
-                }
-                let label = format!("{} {} {flag}", wrapper.join(" "), program.join(" "))
-                    .trim()
-                    .to_string();
-                if !executed.contains(&label) {
-                    executed.push(label.clone());
-                }
-                // The same spelling in each shape that can carry an argv,
-                // and nested inside another line — a hole in one carrier is
-                // a hole, whichever `Plan` field brought it.
-                let quoted = format!("{} '{code}'", argv[..argv.len() - 1].join(" "));
-                let carriers = [
-                    ("{argv}", json!({"argv": &argv})),
-                    ("{steps}", json!({"steps": [{"argv": &argv}]})),
-                    ("nested in a line", json!({"argv": ["bash", "-c", &quoted]})),
-                ];
-                for (carrier, input) in carriers {
-                    let (floor, fails_open, _) = decide(&r, "proc.run", input);
-                    if !floor || fails_open {
-                        let miss = format!("{label} as {carrier}");
-                        if !unheld.contains(&miss) {
-                            unheld.push(miss);
+                };
+                for wrapper in WRAPPERS {
+                    let mut argv: Vec<String> = wrapper
+                        .iter()
+                        .chain(program.iter())
+                        .map(|s| s.to_string())
+                        .collect();
+                    argv.extend(tail.iter().cloned());
+                    if !really_ran(&argv, &r.config, scratch.path()) {
+                        continue;
+                    }
+                    let how = match attached {
+                        true => " [attached]",
+                        false => "",
+                    };
+                    let label = format!("{} {} {flag}{how}", wrapper.join(" "), program.join(" "))
+                        .trim()
+                        .to_string();
+                    if !executed.contains(&label) {
+                        executed.push(label.clone());
+                    }
+                    // The same spelling in each shape that can carry an
+                    // argv, and nested inside another line — a hole in one
+                    // carrier is a hole, whichever `Plan` field brought it.
+                    let last = argv.len() - 1;
+                    let quoted = format!("{} '{}'", argv[..last].join(" "), argv[last]);
+                    let carriers = [
+                        ("{argv}", json!({"argv": &argv})),
+                        ("{steps}", json!({"steps": [{"argv": &argv}]})),
+                        ("nested in a line", json!({"argv": ["bash", "-c", &quoted]})),
+                    ];
+                    for (carrier, input) in carriers {
+                        let (floor, fails_open, _) = decide(&r, "proc.run", input);
+                        if !floor || fails_open {
+                            let miss = format!("{label} as {carrier}");
+                            if !unheld.contains(&miss) {
+                                unheld.push(miss);
+                            }
                         }
                     }
                 }
@@ -673,6 +857,27 @@ async fn every_spelling_that_really_runs_a_line_is_held() {
     );
 }
 
+/// The words after the program for one spelling: the code as the next WORD,
+/// or ATTACHED to the flag's own cluster (`python3 -c<line>`, `--eval=<line>`).
+///
+/// A flag spelled as more than one word (`-l -c`) and the empty flag — an
+/// interpreter that takes code with no flag at all — have no attached form,
+/// and `None` says so rather than inventing one.
+fn spell(flag: &str, code: &str, attached: bool) -> Option<Vec<String>> {
+    let mut words: Vec<String> = flag.split_whitespace().map(String::from).collect();
+    if !attached {
+        words.push(code.to_string());
+        return Some(words);
+    }
+    let [one] = words.as_slice() else {
+        return None;
+    };
+    Some(vec![match one.starts_with("--") {
+        true => format!("{one}={code}"),
+        false => format!("{one}{code}"),
+    }])
+}
+
 /// The generator's first axis: what stands in FRONT of the interpreter. Every
 /// one of these puts the interpreter at `argv[1]` or later, which is what
 /// left five of the review's eleven spellings unheld — the old rule read
@@ -711,13 +916,27 @@ const INTERPRETERS: &[(&[&str], &[&str], &str)] = &[
     (&["/bin/sh"], &["-c", "-lc"], ""),
     (&["busybox", "sh"], &["-c"], ""),
     (&["python3"], &["-c"], r#"open("PATH", "a").write("x")"#),
-    (&["perl"], &["-e"], r#"open(F, ">>", "PATH"); print F "x""#),
+    // `-E` is `-e` with the language's later features on and runs the same;
+    // it executed unheld until re-cut 2 because `CODE_LETTERS` was
+    // lower-case, which is round 1's over-claim one level down.
+    (
+        &["perl"],
+        &["-e", "-E"],
+        r#"open(F, ">>", "PATH"); print F "x""#,
+    ),
     (&["ruby"], &["-e"], r#"File.write("PATH", "x", mode: "a")"#),
+    // `--print` evaluates and prints, so it is `--eval` with an echo; `-p`
+    // is the same thing in one letter and is RESIDUE, because `-p` in the
+    // key would make `mkdir -p <dir>` a line.
     (
         &["node"],
-        &["-e", "--eval"],
+        &["-e", "--eval", "--print", "-p"],
         r#"require("fs").appendFileSync("PATH","x")"#,
     ),
+    // `env`'s own "split this string into a command line": a code flag on a
+    // program nobody would call an interpreter, which is the point of keying
+    // on the flag.
+    (&["env"], &["-S"], r#"bash -c "printf x >> PATH""#),
     // The residue below: code in an argument NO FLAG introduces.
     (&["awk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
     (
@@ -727,18 +946,37 @@ const INTERPRETERS: &[(&[&str], &[&str], &str)] = &[
     ),
 ];
 
-/// What is knowingly NOT held, and why it cannot be: each is code in an
-/// argument that no flag introduces, so there is nothing for a flag key to
-/// see. `awk '<program>'` takes its program as a bare operand; `php -r`
-/// spells "run this" with a letter that `rm -r`, `grep -r` and `cp -r` all
-/// use for something else, so keying on it would read a path argument as
-/// code on half the lines anyone writes. Holding either would mean knowing
-/// one program's own grammar, which is the list this row removed.
+/// What is knowingly NOT held, and why it cannot be: each is code an
+/// ordinary letter introduces, so keying on it would read a path argument as
+/// code on half the lines anyone writes. `awk '<program>'` takes its program
+/// as a bare operand with no flag at all; `php -r` and `node -p` spell "run
+/// this" with the letters `cp -r` and `mkdir -p` use for something else.
+/// Holding any of them would mean knowing one program's own grammar, which
+/// is the list this row removed.
 ///
 /// This is the row's residual risk, stated as an assertion rather than a
 /// sentence: a member of it that becomes held is a red here too, so the gap
 /// cannot quietly close or quietly grow.
-const RESIDUE: [&str; 2] = ["awk", "php -r"];
+///
+/// **A residue member's ATTACHED spelling is judged on its own**, and is
+/// usually held, because the cluster's own remainder then carries a code
+/// letter in front of something that is not a flag letter
+/// (`node -prequire(…)` reads `quire(…)` as the line). That is incidental
+/// rather than a property, and it is asserted as MEASURED: a change to one of
+/// the code strings above can flip it, and the red is the instrument saying
+/// so rather than a defect.
+///
+/// **What this set does not and cannot claim.** `every_spelling_…` measures
+/// the product of `WRAPPERS` × `INTERPRETERS` × carriers × attachment, and
+/// the flag axis of `INTERPRETERS` is written by hand. So the honest
+/// statement is the narrow one: within that product, `executed ⟹ held`
+/// except these three, and a member that changes side is a red. It is NOT
+/// that no spelling exists outside the product — re-cut 2 was sent back
+/// because six did, five of them keyable and `node -p` not, and the
+/// generator could not see any of them because the attached form was outside
+/// its axes by construction. **Adding a row or an axis here is how the next
+/// one gets asked about, and that is a procedure rather than a proof.**
+const RESIDUE: [&str; 3] = ["awk", "php -r", "node -p"];
 
 /// Did this argv really run its line? The floored file's length answers it,
 /// which is why the oracle needs no opinion about what a shell is: the

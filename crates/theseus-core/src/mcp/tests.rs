@@ -278,6 +278,57 @@ async fn a_servers_hints_never_loosen_a_tool_and_read_makes_it_read() {
     board.stop();
 }
 
+/// **The TOOL side of the floor's `mcp:` half** (`theseus-3i6d1`): an MCP
+/// call's plan carries the strings of its arguments, at any depth, so the
+/// floor has something of the call to read at all. Before it did, an MCP
+/// call's plan held no resource, no argv and no line.
+///
+/// This test exists because the round-2 reviewer deleted
+/// `strings(input, &mut lines)` from `McpTool::plan` and **nothing in the
+/// whole `theseus-core` package went red** — 5,345 of 5,345 passed with the
+/// row's own deliverable removed. `tests_floor_shapes.rs` asserts the GATE
+/// side (that `ToolPolicy` reads `Plan::lines`) against a plan built by hand,
+/// and its header said the tool side *"is asserted where the tool lives
+/// (`mcp::tool::strings`)"*, which was not true. A test that passes on main
+/// and on the reverted tree is worth nothing; this one is the red.
+#[tokio::test]
+async fn an_mcp_calls_plan_carries_the_strings_of_its_arguments() {
+    let connect = InProcess::with(&[("fake", Mode::Ok)]);
+    let (board, catalog) = board(&[("fake", server_cfg(&[]))], connect, |_| None);
+    board.start();
+    let s = board.server("fake").unwrap().clone();
+    assert!(s.client(Duration::from_secs(10)).await.is_ok());
+    let all = catalog.all();
+    let echo = all.iter().find(|t| t.listed.name == "echo").unwrap();
+    let ctx = ToolCtx::for_tests(Path::new("/tmp"));
+    // Nested, because depth is where the floor was blind: a server's schema
+    // is its own, so an argument's strings are read wherever they sit.
+    let pl = echo
+        .plan(
+            &json!({
+                "text": "/invented/state/theseus.toml",
+                "opts": {"into": ["/invented/state/AGENTS.md", 3]},
+            }),
+            &ctx,
+        )
+        .unwrap();
+    let mut got = pl.lines;
+    got.sort();
+    assert_eq!(
+        got,
+        [
+            "/invented/state/AGENTS.md".to_string(),
+            "/invented/state/theseus.toml".to_string(),
+        ],
+        "every string of an MCP call's arguments is in its plan, at any depth, \
+         and the keys of its objects are not (they are the server's schema, not its data)"
+    );
+    // An MCP call with no arguments at all plans no lines and is not an error.
+    assert!(echo.plan(&json!({}), &ctx).unwrap().lines.is_empty());
+    assert!(echo.plan(&Value::Null, &ctx).unwrap().lines.is_empty());
+    board.stop();
+}
+
 /// A description is capped at 2,000 characters, saying so.
 #[test]
 fn a_description_is_capped() {
