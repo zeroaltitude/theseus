@@ -274,13 +274,15 @@ enum Took {
     /// Not written, and why (named in the result).
     Refused(String),
     /// New, or appended to: the tag that holds its session, and its nodes
-    /// (none, for a diverged session taken quietly).
+    /// (none, for a diverged or a tag-only session taken quietly).
     Wrote { tag: String, nodes: u64, grew: bool },
 }
 
 /// One episode of a batch: skipped when held with the same hash, refused when
-/// erased, when none of its stored messages is in it or when it adds nothing
-/// and diverged nowhere (`append`), else its records added to `frame` and its
+/// erased, when none of its stored messages is in it, or when it adds nothing
+/// and either holds more messages than the store with each of them at a
+/// stored idx or came from a source whose digests this build did not take
+/// (`append`), else its records added to `frame` and its
 /// tag's counts moved. `seen` is
 /// the batch's episodes by id and hash: their records are not written yet.
 fn take(
