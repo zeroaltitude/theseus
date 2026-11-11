@@ -600,7 +600,12 @@ const BULK: usize = 4096;
 
 /// The store's one format number (theseus-ptx1): a step that changes the
 /// frame or record encoding, or adds a field to a stored record, bumps it, so
-/// an older build refuses the newer store. 2 = scope field (M2). 3 = the
+/// an older build refuses the newer store. It is public so a test outside
+/// this crate can plant a store one format **past** this build's from the
+/// number itself, rather than from a literal of its own: such a literal goes
+/// silently inert at the next bump, when the planted store stops being newer
+/// than the build and the refusal it asserts stops being asked for
+/// (theseus-wadu). 2 = scope field (M2). 3 = the
 /// newest schema written for each kind (F4a). 4 = one number for the whole
 /// store: the per-kind marks are gone (theseus-ptx1). 5 = a wake's repeat
 /// and occurrence in an execution's wakes (37a, theseus-d4pt). 6 = every
@@ -738,7 +743,11 @@ const BULK: usize = 4096;
 /// stopped matching what was stored, once for each, in the order seen; it is left out while
 /// empty. A record from before reads it empty and writes back without it; the sample is
 /// `tests_layouts::SESSION_IMPORTED_AT_56`, written by hand from an invented episode.
-const MANIFEST_FORMAT: u32 = 57;
+/// 58 = a context file's level in the manifest (theseus-wadu): a COMPILATION record's
+/// `manifest.context_files` entry gains `level` (`system`, `persona`, `user`, `project`), left
+/// out for the system level. A record from before reads every file as `system` and writes back
+/// byte for byte; the sample is `tests_layouts::COMPILATION_AT_57`, written by hand.
+pub const MANIFEST_FORMAT: u32 = 58;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

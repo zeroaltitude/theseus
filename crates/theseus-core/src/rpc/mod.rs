@@ -1603,6 +1603,9 @@ impl Parts {
         cfg.tools.defer.enabled = false;
         // No posted digest in a test unless it asks (theseus-ss36w).
         cfg.discord.digest_at = vec![];
+        // No date or git block in a test's request unless it asks: the tests
+        // that read a request's tail exactly would each carry it.
+        cfg.project.tail_facts.get_or_insert(false);
         let mut providers = BTreeMap::new();
         providers.insert(cfg.model.provider.clone(), provider);
         Self {
