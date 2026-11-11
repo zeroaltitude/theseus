@@ -1061,8 +1061,9 @@ const STOP_POLL_MAX: Duration = Duration::from_millis(50);
 /// live process at all: while any process of the group lives, its id is not
 /// handed out again, but once the wrapper has been reaped and the group is
 /// empty, `pid` may be another process's, which is left alone. A live process
-/// whose command line is still empty is in its exec (theseus-mi6a), and may
-/// be either: it is asked once it reads as the wrapper, at a later look, and
+/// that cannot be told yet, `Holder::Starting` (its command line empty, in its
+/// exec, theseus-mi6a; or cut short by a read that raced its exit), may be
+/// either: it is asked once it reads as the wrapper, at a later look, and
 /// never if it reads as another process.
 pub struct Stopping {
     spool: Spool,
@@ -1135,8 +1136,8 @@ impl Stopping {
 
     /// Ask each job not yet asked whose pid now reads as its wrapper or as
     /// no live process. A pid another process holds means the job's wrapper
-    /// is long gone: its verdict is whatever it left. One still in its exec
-    /// waits for the next look.
+    /// is long gone: its verdict is whatever it left. One not told yet
+    /// (`Holder::Starting`) waits for the next look.
     fn ask_known(&mut self) {
         let late = self.started.elapsed() >= self.grace;
         for i in 0..self.jobs.len() {
