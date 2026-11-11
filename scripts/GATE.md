@@ -4,7 +4,9 @@ How to run `scripts/gate.sh` on a machine that is doing other work, and what it 
 cannot give it what it needs. **Every section below was moved here verbatim from `scripts/AGENTS.md` on
 2026-11-10** (theseus-4vsrz, B7), in the same relocation that made `scripts/RELEASES.md`: that file is a
 `Level::Project` context file with a 64 KiB ceiling (`context_files::MAX_BYTES`), it had passed the ceiling
-once already, and the gate's own `context ceiling` phase said it had 12 bytes of headroom left. **Not one
+once already, and merged onto the main of the moment it was **12 bytes OVER** it -- 65,548 against 65,536,
+the gate's own `context ceiling` phase at EXIT=1 -- so this is the answer that phase's message asks for:
+move depth into a sibling document that no session loads. **Not one
 byte was changed, dropped or reworded in the move** -- the five sections are byte-identical to the ones
 `scripts/AGENTS.md` carried, and `scripts/context-ceiling.py` holds the ceiling so a breach cannot recur
 unseen.
