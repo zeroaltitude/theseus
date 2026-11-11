@@ -5,10 +5,13 @@ session on the owner's machine, a cloud coding session, or, since v1, Theseus it
 what proves it, how it reaches `main`, how it is installed and released, how it is measured, and what Theseus may
 change about itself without asking.
 
-Three other documents go deeper, and this page links to them rather than repeating them:
+Four other documents go deeper, and this page links to them rather than repeating them:
 
 - the root [`AGENTS.md`](../AGENTS.md): the principles that bind code, the crate map, and the generated files;
-- [`scripts/AGENTS.md`](../scripts/AGENTS.md): the gate's mechanics, the build script, and the release profiles;
+- [`scripts/AGENTS.md`](../scripts/AGENTS.md): the scripts, and the gate's mechanics;
+- [`scripts/RELEASES.md`](../scripts/RELEASES.md): the pinned toolchain, the build script and the release profiles,
+  the reproducibility check, the installed service, the smokes, and the build host (moved out of
+  `scripts/AGENTS.md` on 2026-11-10, theseus-4vsrz, to get that file back under the context loader's ceiling);
 - [`design/rsi-plan.md`](design/rsi-plan.md): the self-improvement design.
 
 ## Contents
@@ -407,7 +410,8 @@ yes for installs.
 the least resident, and 8 to 10 % quicker at CPU-bound work. The cost is one slow link per install; a quick build for a
 bench or a try-out keeps `release-thin` ([below](#version-cuts-and-releases)). The install is the host's glibc
 build, not static musl: the gate, the review's live check and the benches all run glibc builds, so what is installed
-is what was tested. The measurements behind both choices are in `scripts/AGENTS.md`.
+is what was tested. The measurements behind both choices are in `scripts/RELEASES.md` ("Releases": the profile pair
+under `build.sh`, and "glibc or static musl").
 
 ## Version cuts and releases
 

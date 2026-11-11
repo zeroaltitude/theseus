@@ -1,6 +1,6 @@
 # scripts
 
-**This file is CUT at 64 KiB. Something fails now** (theseus-4vsrz).
+**This file would be CUT at 64 KiB. Something fails first now** (theseus-4vsrz).
 `context_files::MAX_BYTES` is `64 * 1024` and this is a `Level::Project` context file, so past that its tail
 silently stops reaching a session. **The gate's `context ceiling` phase holds it**
 (`scripts/context-ceiling.py`, which reads the ceiling out of `context_files.rs` rather than copying the
@@ -14,7 +14,17 @@ cutting everything from `## setup.sh` to the end out of every session that read 
 of days, with no gate phase, no test and no `long-files.txt` entry measuring it. Most of the release half of
 the file was moved to `scripts/RELEASES.md` verbatim to get back under — `## setup.sh` below stayed, for the
 reason that file's header gives — and the phase above exists so the next breach is loud. **Put depth in the
-design docs, or in `scripts/RELEASES.md`, which has no ceiling.**
+design docs, or in `scripts/RELEASES.md` or `scripts/GATE.md`, neither of which has a ceiling.**
+
+**STANDING INSTRUCTION, and it is why this file has siblings: a new paragraph goes in a sibling document,
+not here.** This file carries the script list and the gate's phases; anything longer than a few lines about
+*one* script, one environment variable or one incident belongs in `scripts/RELEASES.md` (releases, the
+service, the smokes, the host), `scripts/GATE.md` (running the gate on a busy machine) or `docs/design/`,
+with one line here pointing at it. The headroom this file has is the measured difference between its size
+and 65,536 bytes and nothing else: it was spent twice on 2026-11-10 alone, **+6,695 bytes across two
+departures in about 34 minutes**, so a trim buys days only if the pace stops. `python3
+scripts/context-ceiling.py` prints the number before you add; do not quote a headroom figure anywhere,
+including in a commit message, because it is stale by the next departure.
 
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.

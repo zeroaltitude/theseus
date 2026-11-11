@@ -625,6 +625,17 @@ class GateTree(unittest.TestCase):
             self.assertLess(order.index("shape"), order.index(warn), f"`{warn}` after `shape`: {order}")
             self.assertLess(order.index(warn), order.index("clippy"), f"`{warn}` before `clippy`: {order}")
 
+    def test_the_context_ceiling_phase_is_wired_beside_the_other_file_ceiling(self):
+        """Deleting `phase "context ceiling"` from gate.sh left every other test in this file green
+        (theseus-4vsrz, the ceiling review's §5.2), because the phase's own 24 cases test the script and
+        nothing tested the wiring. A hard ceiling that nothing runs is the exact shape of defect that row
+        exists to close, so the wiring is asserted here rather than left to the next reader to notice."""
+        names = re.findall(r'\nphase\s+(?:"([^"]+)"|(\S+))', (HERE / "gate.sh").read_text())
+        order = [a or b for a, b in names]
+        self.assertEqual(order.count("context ceiling"), 1, order)
+        self.assertLess(order.index("shape"), order.index("context ceiling"), order)
+        self.assertLess(order.index("context ceiling"), order.index("clippy"), order)
+
     def test_a_df_that_cannot_be_read_refuses_the_gate_and_says_so(self):
         # A gate that cannot show it has room is not told it has; the override is named, and df is not asked under it.
         for what, env in (("garbage", {"STUB_DF_AVAIL_KB": "n/a"}), ("a failing df", {"STUB_DF_FAIL": "1"})):
