@@ -29,6 +29,30 @@ pub struct ToolProposed {
     pub gate: GateRecord,
 }
 
+/// Where a context file came from: the words of `context_files::Level`, so a
+/// reader of a manifest can tell a repository's file from the owner's own
+/// user-level file from a `[context] files` entry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ContextLevel {
+    /// `[context] files`.
+    #[default]
+    System,
+    /// `[personas.<name>] files` (the name is `ContextFileRef.persona`).
+    Persona,
+    /// The owner's own user-level instruction file.
+    User,
+    /// A repository's own `AGENTS.md` or `CLAUDE.md`.
+    Project,
+}
+
+impl ContextLevel {
+    pub fn is_system(&self) -> bool {
+        *self == Self::System
+    }
+}
+
 /// A context file as the system block carried it (theseus-58a).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -55,6 +79,11 @@ pub struct ContextFileRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub persona: Option<String>,
+    /// The level the file was read at (theseus-wadu; store format 58). Absent:
+    /// the system level, `[context] files`, which is also what a manifest
+    /// from before the field reads as.
+    #[serde(default, skip_serializing_if = "ContextLevel::is_system")]
+    pub level: ContextLevel,
     /// Its entry says `readers = "public"`: a shared place may carry it (the
     /// place rule). Absent: the owner's alone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

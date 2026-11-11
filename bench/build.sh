@@ -3,7 +3,7 @@
 # and `theseusd`, static, for x86_64-unknown-linux-musl, so they run in any image
 # whatever its libc (two of Terminal-Bench 2.0's 89 images have a glibc older than
 # the host build needs). An install stays the host's glibc build (scripts/build.sh,
-# scripts/AGENTS.md "glibc or static musl"); this is for benchmark containers only.
+# scripts/RELEASES.md "glibc or static musl"); this is for benchmark containers only.
 #
 #   bench/build.sh [OUT_DIR]
 #

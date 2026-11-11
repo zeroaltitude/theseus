@@ -108,6 +108,17 @@ impl Level {
         }
     }
 
+    /// The manifest's word for the level (`ContextFileRef.level`).
+    pub fn words(&self) -> theseus_protocol::ContextLevel {
+        use theseus_protocol::ContextLevel as L;
+        match self {
+            Level::System => L::System,
+            Level::Persona(_) => L::Persona,
+            Level::User => L::User,
+            Level::Project => L::Project,
+        }
+    }
+
     /// The level a stored record's `persona` names, for a reader that has
     /// only the record (`withhold_shared`).
     pub fn of_persona(persona: Option<&str>) -> Self {
@@ -243,6 +254,7 @@ impl ContextFiles {
             files.push(ContextFile {
                 file: ContextFileRef {
                     persona: p.persona(),
+                    level: p.level.words(),
                     public: p.public,
                     ..held.file.clone()
                 },
@@ -361,6 +373,7 @@ fn section(shown: &str, mut buf: Vec<u8>) -> Held {
             cut,
             missing: None,
             persona: None,
+            level: Default::default(),
             public: false,
             withheld: None,
         },
@@ -377,6 +390,7 @@ fn missing(shown: &str, error: &str) -> Held {
             cut: false,
             missing: Some(error.to_string()),
             persona: None,
+            level: Default::default(),
             public: false,
             withheld: None,
         },

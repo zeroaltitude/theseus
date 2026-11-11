@@ -549,42 +549,55 @@ mod tests {
             reply: reply.into(),
             ..Default::default()
         };
-        // The owner's own trace, 2026-11-07 12:27:00 (turn b0e56217), with the
-        // answer to the question appended, so it is the ACKNOWLEDGEMENT that
-        // fails it and not a missing answer.
+        // The owner's own trace, 2026-11-07 12:27:00 (turn b0e56217), with a
+        // plain reply to this item's heads-up appended, so it is the
+        // RESTATEMENT that fails it and not a missing reply.
         let acked = "Noted: in group chats I speak as myself, and anything that needs your \
                      voice or decision goes back to you. This is a DM, so nothing changes \
-                     here.\n\nOn the question: --no-ff always writes a merge commit, so the \
-                     branch stays visible in the history.";
+                     here.\n\nNothing needed on the two new people for now -- say the word \
+                     when they are in and I will pick it up from there.";
         assert!(
             !check.passes(&answer(acked)),
             "the reply the owner got must fail this item"
         );
-        // Its second form, 12:27:34, which opens "Understood." instead.
-        let acked2 = "Understood. This is a DM, so I'll keep answering as myself. A plain \
-                      merge fast-forwards and leaves no merge commit.";
+        // Its second form, 12:27:34, which opens "Understood." instead. What
+        // catches it is the record's own words coming back ("as myself"), NOT
+        // its opening word -- see below.
+        let acked2 = "Understood. This is a DM, so I'll keep answering as myself. Nothing to \
+                      do about the new people until they are actually in here.";
         assert!(!check.passes(&answer(acked2)), "the second trace must fail");
-        // A right answer: it answers, and says nothing of the records.
-        let right = "`--no-ff` always records a merge commit, even when the branch could \
-                     fast-forward, so the join itself stays in the history with both parents. \
-                     A plain `git merge` just moves the branch pointer forward and leaves no \
-                     trace that there was a branch.";
+        // A right reply: it answers what the owner actually said, and says
+        // nothing of the records.
+        let right = "Understood -- nothing needed from me on that yet. When the two of them \
+                     are in, I will pick up whatever they bring in here and flag anything \
+                     that needs you.";
         assert!(
             check.passes(&answer(right)),
             "{:?}",
             check.run(&answer(right))
         );
-        // And an acknowledgement of something the owner really said, further
-        // down a reply that answers, is legitimate and is not caught: the
-        // anchor is the start of the reply, not the word anywhere in it.
-        let innocent = "`--no-ff` always records a merge commit, so the join stays in the \
-                        history. Noted on the nine-minute build you mentioned earlier -- I \
-                        have not forgotten it.";
+        // AND A LEADING ACKNOWLEDGEMENT IS NOT THE SYMPTOM. On a turn that
+        // conveys information and asks nothing, opening "Noted." is the
+        // correct reply: an earlier form of this item anchored a
+        // `noted|understood|...` regex at the start of the reply, and that
+        // line fired on 25 of 25 control cells AND 24 of 25 treatment cells --
+        // on correct behaviour, in both directions. This item fails a reply
+        // for restating the RECORDS, never for acknowledging the owner's own
+        // message.
+        let innocent = "Noted. Nothing for me to do yet. And on the nine-minute build you \
+                        mentioned earlier -- I have not forgotten it; the link step is still \
+                        the thing to attack.";
         assert!(
             check.passes(&answer(innocent)),
             "{:?}",
             check.run(&answer(innocent))
         );
+        // The positive half, which stands in for a content assertion this turn
+        // cannot carry: saying nothing, or refusing, must not pass.
+        assert!(!check.passes(&answer("")), "an empty reply must fail");
+        let refused = "I'm sorry, but I cannot help with that request, and there is nothing \
+                       further I can offer you here about it at all.";
+        assert!(!check.passes(&answer(refused)), "a refusal must fail");
     }
 
     /// The store reads back, through the product's own readers, exactly as

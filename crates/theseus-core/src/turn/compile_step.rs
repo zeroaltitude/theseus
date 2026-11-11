@@ -194,6 +194,7 @@ impl TurnRunner {
         Self::cleared_recorded(t, &compiled, i);
         Self::standing_listed(t, &mut compiled);
         self.defer_noted(t, spec, &compiled);
+        self.env_tail(t, &mut compiled).await;
         let (tasks, project) = self.tail_blocks(t, session, &mut compiled);
         if let Some(f) = Self::overage(t, &compiled, i) {
             return Ok(Err(f));

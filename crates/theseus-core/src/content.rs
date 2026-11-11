@@ -1432,6 +1432,11 @@ mod tests {
                  AGENTS.md's Standing paragraph records the judgement)",
             ),
             (
+                "turn/env_tail.rs",
+                "neither",
+                "states two facts, the date and the git state, as the persona line states its own",
+            ),
+            (
                 "project/slice.rs",
                 "neither",
                 "bracketed state with token bounds (11-08 audit)",

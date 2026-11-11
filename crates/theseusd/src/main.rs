@@ -460,7 +460,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         op.clone(),
     ));
 
-    let state_dir = cli.state_dir.clone().unwrap_or_else(|| cfg.state_dir());
+    let state_dir = state_dir_in_use(cli.state_dir.as_deref(), &mut cfg);
     if let Some(Cmd::Check) = cli.cmd {
         check(
             &format!("{source}{}", lookup.how()),
@@ -715,6 +715,27 @@ fn exit(core: &Core) -> Exit {
         ),
         None => Exit::Done,
     }
+}
+
+/// The state dir in use, **folded into the config** so that
+/// `Config::state_dir()` is the one source of truth for it (theseus-3i6d1,
+/// the floor review's F2): `--state-dir`, or `THESEUS_STATE_DIR` through the
+/// same field, else `[server].state_dir` as the TOML left it.
+///
+/// It is written back because the daemon is the only place that knows the
+/// flag, and the config is what every other reader already has: the gate's
+/// floor (`toolrun::build_runtime`, which keeps the store, the spool, the
+/// bindings file and `<state_dir>/AGENTS.md` behind the owner's approval) and
+/// `project_context::block`, which reads that same `AGENTS.md` live into
+/// session block 3. They read it through two different expressions before
+/// this, and under the flag they named two different directories: the floor
+/// held one file and every prompt carried another. Nothing here copies the
+/// value anywhere; it moves the flag into the field the readers already use.
+fn state_dir_in_use(flag: Option<&Path>, cfg: &mut Config) -> PathBuf {
+    if let Some(d) = flag {
+        cfg.server.state_dir = d.to_string_lossy().into_owned();
+    }
+    cfg.state_dir()
 }
 
 /// Become the same binary image with the same arguments, and `var` set
@@ -1087,6 +1108,9 @@ fn warm_after_serving(core: &Arc<Core>) {
     // Google Workspace's account check, the `google.check` phase (the Google
     // design §2.2), when `[google]` names an account.
     core.google_after_serving();
+    // The owner's login shell's toolchain (theseus-v4cj), once, under a
+    // 2 s deadline.
+    core.login_env_after_serving();
 }
 
 /// What runs once the socket answers: the kernel's startup report and the
@@ -1615,6 +1639,51 @@ mod tests {
         let env = Cli::try_parse_from(["theseusd"]).unwrap();
         std::env::remove_var("THESEUS_OP_TOKEN_FILE");
         assert_eq!(env.op_token_file.as_deref(), Some("/x/env"));
+    }
+
+    /// The flag and the environment name the state dir through one field too,
+    /// and the daemon folds it into the config, so `Config::state_dir()` is
+    /// what the gate's floor and `project_context` both read (theseus-3i6d1,
+    /// the floor review's F2). Without the fold the floor took the store's
+    /// directory and block 3 took the TOML's: two directories, one hold over
+    /// the wrong file. This test is the one that goes red if the fold is
+    /// deleted -- the core-side test can set the field by hand.
+    #[test]
+    fn the_state_dir_flag_is_folded_into_the_config() {
+        let cli = Cli::try_parse_from(["theseusd", "--state-dir", "/x/flag"]).unwrap();
+        assert_eq!(cli.state_dir.as_deref(), Some(Path::new("/x/flag")));
+        let mut cfg = Config::example();
+        cfg.server.state_dir = "/x/toml".into();
+        assert_eq!(
+            state_dir_in_use(cli.state_dir.as_deref(), &mut cfg),
+            PathBuf::from("/x/flag")
+        );
+        assert_eq!(
+            cfg.state_dir(),
+            PathBuf::from("/x/flag"),
+            "every reader of the config sees the dir in use"
+        );
+
+        std::env::set_var("THESEUS_STATE_DIR", "/x/env");
+        let env = Cli::try_parse_from(["theseusd"]).unwrap();
+        std::env::remove_var("THESEUS_STATE_DIR");
+        let mut cfg = Config::example();
+        cfg.server.state_dir = "/x/toml".into();
+        assert_eq!(
+            state_dir_in_use(env.state_dir.as_deref(), &mut cfg),
+            PathBuf::from("/x/env")
+        );
+        assert_eq!(cfg.state_dir(), PathBuf::from("/x/env"));
+
+        // No flag: the TOML's value, untouched, and still the same one value.
+        let bare = Cli::try_parse_from(["theseusd"]).unwrap();
+        let mut cfg = Config::example();
+        cfg.server.state_dir = "/x/toml".into();
+        assert_eq!(
+            state_dir_in_use(bare.state_dir.as_deref(), &mut cfg),
+            PathBuf::from("/x/toml")
+        );
+        assert_eq!(cfg.server.state_dir, "/x/toml");
     }
 
     /// `install --user`'s plan names the flag for a re-run: it must parse after the

@@ -137,27 +137,40 @@ pub async fn run_fixtures<S: Steps>(
 /// The git catalog.
 pub struct GitFixtures;
 
+/// A command this process starts and waits for, registered with the daemon's
+/// children registry first (theseus-v4cj, found by the children census once
+/// it read `output()` as well as `spawn()`). This module runs inside the
+/// serving daemon (`rsi::mint::run`, "the mint's run, in the daemon"), whose
+/// SIGCHLD sweep reaps any zombie child the registry does not know as an
+/// orphan — and a child's own exit is what raises that SIGCHLD. Unregistered,
+/// the sweep and this wait race for the same exit status, and the loser gets
+/// `ECHILD`, which here reads as a fixture that would not build.
+fn waited(c: &mut Command) -> std::io::Result<std::process::Output> {
+    use theseus_kernel::children::{self, Kind};
+    children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
+        .and_then(std::process::Child::wait_with_output)
+}
+
 fn git(dir: &Path, args: &[&str]) -> bool {
-    Command::new("git")
-        .args([
-            "-c",
-            "user.name=fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-        ])
-        .args([
-            "-c",
-            "commit.gpgsign=false",
-            "-c",
-            "init.defaultBranch=main",
-        ])
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    let mut c = Command::new("git");
+    c.args([
+        "-c",
+        "user.name=fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+    ])
+    .args([
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "init.defaultBranch=main",
+    ])
+    .args(args)
+    .current_dir(dir)
+    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+    .env("GIT_CONFIG_SYSTEM", "/dev/null")
+    .env("GIT_TERMINAL_PROMPT", "0");
+    waited(&mut c).is_ok_and(|o| o.status.success())
 }
 
 fn write(dir: &Path, name: &str, text: &str) {
@@ -179,11 +192,9 @@ impl GitFixtures {
         let up = dir.join("upstream.git");
         let work = dir.join("work");
         let _ = std::fs::create_dir_all(&work);
-        let ok = Command::new("git")
-            .args(["init", "-q", "--bare", "-b", "main"])
-            .arg(&up)
-            .output()
-            .is_ok_and(|o| o.status.success())
+        let mut bare = Command::new("git");
+        bare.args(["init", "-q", "--bare", "-b", "main"]).arg(&up);
+        let ok = waited(&mut bare).is_ok_and(|o| o.status.success())
             && git(&work, &["init", "-q", "-b", "main"])
             && git(&work, &["config", "rerere.enabled", "true"])
             && git(&work, &["config", "rerere.autoupdate", "true"])

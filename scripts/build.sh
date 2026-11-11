@@ -12,7 +12,7 @@
 #                 default; theseus-o2myi).
 #   release-thin  thin LTO and 16 codegen units: the quick build, for a bench, the AWS hand,
 #                 or a try-out, never an install (Cargo.toml says why it is not `install`,
-#                 and scripts/AGENTS.md has the measurements).
+#                 and scripts/RELEASES.md, "Releases", has the measurements).
 #
 # What it builds: the five binaries an install ships, theseusd, theseus, theseus-tui,
 # theseus-sim, and theseus-index, and what they link (theseus-o8nk). The crates still

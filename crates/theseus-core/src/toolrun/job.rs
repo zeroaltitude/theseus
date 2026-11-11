@@ -407,7 +407,7 @@ impl ToolRuntime {
                 .settle_job_failure(tc, correlation_id, tool.name(), call, &r.to_string())
                 .map(Err);
         }
-        let mut env = self.proc_env.clone();
+        let mut env = self.job_base_env();
         for (k, v) in &spec.env {
             if forbidden_env(k) {
                 return self

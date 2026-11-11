@@ -1,7 +1,8 @@
 # Static musl target, the portable build (`scripts/build.sh --target
 # x86_64-unknown-linux-musl`). ring (via rustls) compiles a little C; musl-gcc from
 # musl-tools is the right compiler for it. An install is the host's glibc build
-# (scripts/AGENTS.md, "glibc or static musl").
+# (scripts/RELEASES.md, "glibc or static musl"; moved there from scripts/AGENTS.md
+# on 2026-11-10, theseus-4vsrz).
 [target.x86_64-unknown-linux-musl]
 linker = "rust-lld"
 

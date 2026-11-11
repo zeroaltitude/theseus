@@ -99,7 +99,7 @@ opt-level = 2
 
 # The install profile, and a tagged release's (theseus-o2myi): fat LTO and one codegen unit, the smallest and the
 # quickest binary, for the cost of one slow link. `scripts/build.sh --profile release` builds it, and an install copies
-# it (scripts/AGENTS.md has the measurements).
+# it (scripts/RELEASES.md, "Releases", has the measurements).
 [profile.release]
 lto = "fat"
 codegen-units = 1

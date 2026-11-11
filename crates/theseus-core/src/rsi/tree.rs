@@ -351,7 +351,23 @@ impl Place {
 
     /// Main's copy of `path` written out of every tree, under
     /// `<state>/self/gates/<name>-<blob>.sh`; none when main has none.
+    ///
+    /// The copy is written **executable** (`0o700`), because the gate it
+    /// freezes re-execs itself for its locked part — `scripts/gate.sh`'s
+    /// `flock -o "$lock" "$self" --locked-part …` execs `$self` with no
+    /// `bash` in front of it. Without the mode the frozen copy carries the
+    /// daemon's umask (`0600` on the owner's), `flock` fails `EACCES`, and
+    /// the gate reds in `lock wait` with its tests never run while the lock
+    /// itself is free. `run_niced` runs this script as `bash <script>`, so
+    /// nothing outside the locked part ever needed the bit and no self build
+    /// reached it until the bench-binary check was fixed (theseus-1eemp).
+    ///
+    /// The mode is set on **every** call, not only when the copy is first
+    /// frozen, so a copy left behind by a build from before this holds is
+    /// repaired rather than returned as it is: a frozen blob is never
+    /// rewritten, and nothing prunes this directory.
     fn main_script(&self, path: &str, name: &str) -> Result<Option<PathBuf>> {
+        use std::os::unix::fs::PermissionsExt;
         let Some(blob) = self.main_blob(path) else {
             return Ok(None);
         };
@@ -364,8 +380,16 @@ impl Place {
             }
             let tmp = out.with_extension("tmp");
             std::fs::write(&tmp, &o.stdout)?;
+            // Before the rename, so the script is never visible unexecutable.
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))?;
             std::fs::rename(&tmp, &out)?;
         }
+        // On every call, not only a fresh freeze. The write above is skipped
+        // for a blob that is already frozen, so a copy written by a build from
+        // before that line still carries the daemon's umask — and nothing
+        // prunes this directory, so it would be handed to `flock` as it is for
+        // as long as main's blob is unchanged.
+        std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o700))?;
         Ok(Some(out))
     }
 }
