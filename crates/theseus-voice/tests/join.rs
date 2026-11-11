@@ -167,3 +167,120 @@ async fn the_greetings_head_heard_back_in_the_tail_is_an_echo_and_a_yes_is_not()
     let (seen, _, _) = call(false, 6000, 600, "seus here", 5000).await;
     assert_eq!(heard_as(&seen), [HeardAs::Words]);
 }
+
+/// What the journal was told, by name: each event's fields as text, read from
+/// the recorded event so a reworded message cannot red the test.
+#[derive(Clone, Default)]
+struct Told(Arc<Mutex<Vec<std::collections::BTreeMap<&'static str, String>>>>);
+
+struct Fields(std::collections::BTreeMap<&'static str, String>);
+
+impl tracing::field::Visit for Fields {
+    fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+        self.0.insert(f.name(), format!("{v:?}"));
+    }
+}
+
+impl tracing::Subscriber for Told {
+    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+    fn event(&self, e: &tracing::Event<'_>) {
+        let mut fields = Fields(Default::default());
+        e.record(&mut fields);
+        self.0.lock().unwrap().push(fields.0);
+    }
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+/// A [`WavIo`] on a call whose clips ride a lead-in and whose audio has (or
+/// has not) flowed, as a songbird call's do.
+struct Flows {
+    inner: WavIo,
+    flowed: bool,
+}
+
+impl theseus_voice::VoiceIo for Flows {
+    fn next(&mut self) -> futures_util::future::BoxFuture<'_, Option<theseus_voice::Heard>> {
+        self.inner.next()
+    }
+    fn play(
+        &mut self,
+        id: theseus_voice::ClipId,
+        clip: Audio,
+    ) -> futures_util::future::BoxFuture<'_, ()> {
+        self.inner.play(id, clip)
+    }
+    fn stop(&mut self) -> futures_util::future::BoxFuture<'_, ()> {
+        self.inner.stop()
+    }
+    fn lead_in(&self) -> usize {
+        30 * theseus_voice::FRAME_SAMPLES
+    }
+    fn flowed(&self) -> bool {
+        self.flowed
+    }
+}
+
+/// A call that says two reports (at 1 s and 4 s) over an io whose audio has
+/// `flowed` or not, and every event the journal was told with a `since_join_ms`.
+async fn first_clip_events(flowed: bool) -> Vec<std::collections::BTreeMap<&'static str, String>> {
+    let told = Told::default();
+    let _guard = tracing::subscriber::set_default(told.clone());
+    let mut config = Config::new([OWNER]);
+    config.acknowledge_after = Duration::from_secs(60);
+    let io = Flows {
+        inner: WavIo::new(Duration::from_secs(10)),
+        flowed,
+    };
+    let speech = Arc::new(StandInSpeech::new());
+    let origin = Instant::now();
+    let (engine, handle) = Engine::new(config, Box::new(io), speech);
+    let engine = tokio::spawn(engine.run());
+    let commands = handle.commands.clone();
+    tokio::spawn(async move {
+        for (at, text) in [(1000, "Theseus here."), (4000, "And a second thing.")] {
+            sleep_until(origin + ms(at)).await;
+            let _ = commands.send(Command::Report { text: text.into() });
+        }
+    });
+    let mut events = handle.events;
+    while events.recv().await.is_some() {}
+    engine.await.unwrap();
+    let told = told.0.lock().unwrap();
+    told.iter()
+        .filter(|e| e.contains_key("since_join_ms"))
+        .cloned()
+        .collect()
+}
+
+/// The call's first clip says, once, the silence before it, how long after
+/// the join it played, and whether the call's audio had flowed (theseus-emqbm:
+/// the clipped-intro check, and the greeting sent on the flow against the one
+/// sent when `GREETING_WAIT` ran out).
+#[tokio::test(start_paused = true)]
+async fn the_first_clip_says_its_lead_in_the_time_since_the_join_and_whether_the_audio_flowed() {
+    for flowed in [false, true] {
+        let said = first_clip_events(flowed).await;
+        assert_eq!(said.len(), 1, "the first clip says it once: {said:?}");
+        assert_eq!(said[0]["lead_in_ms"], "600", "30 frames of 20 ms");
+        let since: u64 = said[0]["since_join_ms"].parse().expect("milliseconds");
+        assert!(since >= 1_000, "the greeting was queued at 1 s: {since}");
+        assert_eq!(said[0]["flowed"], flowed.to_string(), "{said:?}");
+    }
+}
+
+/// A call over a WAV file has no join to wait for: its audio has flowed from
+/// the start, so a test rig's first-clip line never reads as a wait that ran
+/// out.
+#[test]
+fn a_wav_call_has_flowed_from_the_start() {
+    use theseus_voice::VoiceIo;
+    assert!(WavIo::new(Duration::from_secs(1)).flowed());
+}

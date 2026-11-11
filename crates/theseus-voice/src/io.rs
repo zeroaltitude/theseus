@@ -67,6 +67,12 @@ pub trait VoiceIo: Send {
     fn lead_in(&self) -> usize {
         0
     }
+    /// Whether the call's audio has flowed: a join that has been heard to
+    /// carry sound, so what is played now is heard. An io with no join to
+    /// wait for (a WAV file's) has flowed from the start.
+    fn flowed(&self) -> bool {
+        true
+    }
 }
 
 /// A clip played through a [`WavIo`], with its times from the call's start.
