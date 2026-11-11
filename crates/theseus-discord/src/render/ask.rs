@@ -115,7 +115,8 @@ fn risk_mark(risk: &str) -> &'static str {
 
 /// What the Details press shows its presser alone: the whole request, as the
 /// core lists it: what, the target, its preview, the rule that held it, who
-/// asked, when it expires and the question's id.
+/// asked, when it expires — or, for a held question, how long it has been
+/// waiting (`heldquestion`) — and the question's id.
 pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
     let mut t = format!(
         "**Details**\n**What:** {}",
@@ -141,11 +142,8 @@ pub fn details(req: &theseus_protocol::ConfirmRequest) -> String {
         t.push_str(&format!("\n**Risk:** {}", p.risk));
     }
     t.push_str(&format!("\n**Asked by:** {asker}"));
-    if req.expires_at_ms > 0 {
-        t.push_str(&format!(
-            "\n**Expires:** <t:{}:R>",
-            req.expires_at_ms / 1000
-        ));
+    if let Some(when) = super::heldquestion::details_line(req) {
+        t.push_str(&when);
     }
     t.push_str(&format!("\n**Id:** `{}`", req.correlation_id));
     let hunk = super::preview::hunk(req);
@@ -343,6 +341,7 @@ mod tests {
             input: json!({"path": "a/b.rs"}),
             resource: Some("/work/a/b.rs".into()),
             reason: "fs.edit — approve (enforcement = approve)".into(),
+            requested_at_ms: 1_699_999_700_000,
             expires_at_ms: 1_700_000_000_000,
             ..Default::default()
         };
@@ -353,7 +352,9 @@ mod tests {
             "`fs.edit`",
             "enforcement = approve",
             "act_0000feed",
-            "<t:1700000000:R>",
+            // An `fs.edit` is a held question, so the Details say how long it
+            // has waited, not a deadline it does not have (theseus-lrc3m).
+            "**Held since:** <t:1699999700:R> · still waiting",
             "conversation …0harbour",
         ] {
             assert!(t.contains(part), "{part}: {t}");

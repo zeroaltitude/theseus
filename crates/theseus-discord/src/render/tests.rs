@@ -809,7 +809,7 @@ fn a_card_for_a_shared_place_goes_to_the_dm_with_a_note_here() {
     );
     assert!(
         c.content.ends_with(
-            "-# for #general · expires <t:1790000000:R> · you can also answer with `theseus answer`"
+            "-# for #general · held since <t:0:R> · still waiting · you can also answer with `theseus answer`"
         ),
         "{}",
         c.content
@@ -1064,13 +1064,13 @@ fn a_card_names_where_else_it_can_be_answered() {
     };
     assert_eq!(
         text(ELSEWHERE),
-        "-# expires <t:1790000000:R> · you can also answer in the web UI or with `theseus answer`"
+        "-# held since <t:0:R> · still waiting · you can also answer in the web UI or with `theseus answer`"
     );
     assert_eq!(
         text("in the web UI"),
-        "-# expires <t:1790000000:R> · you can also answer in the web UI"
+        "-# held since <t:0:R> · still waiting · you can also answer in the web UI"
     );
-    assert_eq!(text(""), "-# expires <t:1790000000:R>");
+    assert_eq!(text(""), "-# held since <t:0:R> · still waiting");
 }
 
 #[test]

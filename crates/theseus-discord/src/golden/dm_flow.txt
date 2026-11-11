@@ -49,7 +49,7 @@ risk: writes a file · why it asks: you set this kind of call to ask first
 \ No newline at end of file
 ```
 **Approve** runs this one call · **Decline** refuses it; the task is told and carries on
--# expires <time> · or `theseus answer task-1 approve`
+-# held since <time> · still waiting · or `theseus answer task-1 approve`
 [Approve (3) wa:<question>:approve]
 [Decline (2) wa:<question>:decline]
 === the task home
