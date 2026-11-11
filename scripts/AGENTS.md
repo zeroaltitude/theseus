@@ -53,8 +53,10 @@ including in a commit message, because it is stale by the next departure.
   (a message: its commit and line), never the match. The scrubber is outside the repo, because its patterns are the names:
   `THESEUS_SCRUB_CHECK` (default `~/reports/theseus-docs-v076/scrub_check.py`), and only the WSL host has it. **Present: the
   phase runs and must pass; absent (L1 self-build view, ARM, cloud): it SKIPS LOUDLY, `gate: scrub SKIPPED`, and the
-  table reads `scrub skipped` where a pass reads `scrub ok`. A join gate showing `scrub skipped` is not evidence for a push:
-  the guard is the scrub run on the WSL host at the join** (`scripts/scrub-branch.sh` over the staged merge).
+  table reads `scrub skipped` where a pass reads `scrub ok`. **Before a branch's FIRST push, run the private range
+  scrubber named in the shift brief and read its output: HEAD ref FIRST, base second. Reversing that order scans
+  nothing and exits 3, which is not a pass. This gate phase and a join scrub are later defences, not permission to
+  publish first: deleting a branch makes a published object unreachable, not unpublished.**
   `THESEUS_GATE_NO_SCRUB=1` skips it by choice (the ARM runner sets it). The driver's exit codes: 0 clean, 1 a hit, 2 no
   base or unreadable names, 3 nothing added (main's own tip: accepted, `scrub empty`), 4 no scrubber. A branch is judged by
   MAIN's copy of the driver when main has one, and both files are in the keel guard's `KEEL_FILES`. `test_scrub_added.py`
