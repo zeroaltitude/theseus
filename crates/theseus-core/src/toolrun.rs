@@ -34,8 +34,8 @@ use crate::sandbox::{self, Sandbox};
 use crate::scrub::Scrubber;
 
 mod guarded;
-use guarded::guarded_paths;
 pub use guarded::sandbox_for;
+use guarded::{guarded_paths, state_dir_in_use};
 pub(crate) mod batch;
 mod calls;
 mod flow_step;
@@ -1964,20 +1964,24 @@ pub fn build_runtime(
 ) -> Result<ToolRuntime> {
     let t = &cfg.tools;
     let canon = |p: &str| theseus_tools::paths::canonical_best_effort(&crate::config::expand(p));
-    // The state dir in use, from the one place it is resolved: the config.
+    // The state dir in use, from the one place it is resolved: the floor's
+    // own `guarded::state_dir_in_use`, which reads the config.
     // `theseusd` folds `--state-dir`/`THESEUS_STATE_DIR` into
-    // `[server].state_dir` before it opens the store (`state_dir_in_use`), so
-    // `Config::state_dir()` is the directory the store, the spool and the
-    // bindings file are in -- and it is the same expression
-    // `project_context::block` reads the owner's own `AGENTS.md` from. This
-    // was derived from the spool's parent instead, which agreed with
-    // `cfg.state_dir()` only when nothing had passed the flag: under it the
-    // floor held one `AGENTS.md` and every prompt carried another, so the
+    // `[server].state_dir` before it opens the store (its own
+    // `state_dir_in_use`), so `Config::state_dir()` is the directory the
+    // store, the spool and the bindings file are in -- and it is the same
+    // expression `project_context::block` reads the owner's own `AGENTS.md`
+    // from. This was derived from the spool's parent instead, which agreed
+    // with `cfg.state_dir()` only when nothing had passed the flag: under it
+    // the floor held one `AGENTS.md` and every prompt carried another, so the
     // hold the owner accepted a cost for held a file nobody read
     // (theseus-3i6d1, the floor review's F2). One value with one reader, or
-    // the next flag diverges them again.
-    let state = theseus_tools::paths::canonical_best_effort(&cfg.state_dir());
-    let (roots, floor_paths) = guarded_paths(cfg, &state);
+    // the next flag diverges them again. This line was that expression
+    // written out here; it is now the floor's own, and the floor takes no
+    // directory from anyone (theseus-0h9f3, the owner's word of
+    // 2026-11-11 11:34).
+    let state = state_dir_in_use(cfg);
+    let (roots, floor_paths) = guarded_paths(cfg);
     // Proposed extensions are frozen beside the store (M7 43a).
     let extend = Arc::new(crate::extend::Extensions::new(
         state.join("extensions"),

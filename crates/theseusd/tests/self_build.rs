@@ -75,6 +75,14 @@ impl Rig {
             std::fs::create_dir_all(p(d)).unwrap();
         }
         let mut cfg = theseus_core::Config::example();
+        // The rig's state dir, on the config, which is now the only way to
+        // say it: `sandbox_for` takes no directory (theseus-0h9f3, the
+        // owner's word of 2026-11-11 11:34). This was a second argument to
+        // that call, and `[server].state_dir` stayed at its default, so the
+        // floor this rig built was over the rig's `repo/state` and the
+        // config's state dir at once -- exactly the drift the parameter made
+        // possible.
+        cfg.server.state_dir = repo.join("state").to_string_lossy().into_owned();
         cfg.self_improve.sealed.dir = Some(p("repo/sealed").to_string_lossy().into_owned());
         // Made before the sandbox, so the floor's canonical path and the bind
         // the test passes are the same path under a temp directory.
@@ -84,7 +92,7 @@ impl Rig {
         }
         cfg.op_token_file = hidden.first().map(|a| p(a));
         cfg.config_copy = hidden.get(1).map(|a| p(a));
-        let sandbox = theseus_core::toolrun::sandbox_for(&cfg, &repo.join("state"));
+        let sandbox = theseus_core::toolrun::sandbox_for(&cfg);
         let tree = Tree {
             slug: "t".into(),
             branch: "self/t".into(),

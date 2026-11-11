@@ -107,11 +107,18 @@ fn served_once(dir: &Path) -> PathBuf {
 /// Every path no L1 view shows, for a state dir: the floor the runtime
 /// builds, through the one function `theseusd check` and the tool runtime
 /// both read (`toolrun::sandbox_for`).
+///
+/// The state dir goes on the **config**, because `sandbox_for` takes no
+/// directory any more (theseus-0h9f3, the owner's word of 2026-11-11 11:34).
+/// It was a second argument here, with `[server].state_dir` left at its
+/// default: this test measured a floor over `state` that no daemon on this
+/// config would ever have built, and it was only right because the floor was
+/// a pure function of the argument. Now it is the floor a daemon serving out
+/// of `state` really gets.
 fn floor_of(state: &Path) -> Vec<PathBuf> {
-    let cfg = theseus_core::Config::example();
-    theseus_core::toolrun::sandbox_for(&cfg, state)
-        .job_view()
-        .hidden
+    let mut cfg = theseus_core::Config::example();
+    cfg.server.state_dir = state.to_string_lossy().into_owned();
+    theseus_core::toolrun::sandbox_for(&cfg).job_view().hidden
 }
 
 /// The pair a `--stdio` daemon makes is the pair the floor floors. The
