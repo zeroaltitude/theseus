@@ -818,3 +818,54 @@ async fn a_stop_through_a_real_gate_is_a_stopped_outcome_not_an_error() {
     let e = g.ran().expect_err("a caller with no halt gets an error");
     assert!(format!("{e:#}").contains("the owner's stop"), "{e:#}");
 }
+
+/// The frozen script the door writes out is **executable**, and runs when it
+/// is exec'd directly with no interpreter — which is what the gate does to
+/// itself for its locked part: `scripts/gate.sh`'s
+/// `flock -o "$lock" "$self" --locked-part …` execs `$self`, no `bash` in
+/// front of it (`gate.sh:1197`, and the file's own header at line 22).
+///
+/// Without the mode, `main_script` left the copy at the daemon's umask
+/// (`0600`), `flock` failed `EACCES`, and every self build red in `lock wait`
+/// with its tests never run and the lock file free (theseus-1eemp, the
+/// 2026-11-10 05:14 and 15:08 runs). Nothing in the tree caught it because
+/// `run_niced` starts the script as `bash <script>`, where the bit does not
+/// matter: only the gate's re-exec of itself needs it.
+#[tokio::test]
+async fn the_frozen_script_is_executable_and_execs_directly() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    let t = tree::open(&f.place, "exec bit", NOW).unwrap();
+    let run = tree::gate(&f.place, &t).await.unwrap().ran().unwrap();
+    assert_eq!(run.verdict, Verdict::Green, "{}", run.tail);
+    let script = f.place.gates().join(format!("gate-{}.sh", run.blob));
+    assert!(script.is_file(), "{script:?} is not the frozen script");
+
+    // The mode is set outright, not left to the umask, so this holds however
+    // permissive or strict the host running the daemon is.
+    let mode = std::fs::metadata(&script).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode, 0o700, "{script:?} is mode {mode:o}, not 0700");
+
+    // And the property the mode is for: `flock` execs this path itself.
+    let out = std::process::Command::new(&script)
+        .current_dir(&t.dir)
+        .envs(hermetic())
+        .output()
+        .unwrap_or_else(|e| panic!("exec {script:?} directly, as flock does: {e}"));
+    assert!(
+        out.status.success(),
+        "{script:?} exec'd directly: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // No leftover `.tmp` beside it: the mode is set before the rename, so the
+    // script is never visible to a racing `flock` without the bit.
+    assert!(
+        !f.place
+            .gates()
+            .join(format!("gate-{}.tmp", run.blob))
+            .exists(),
+        "a half-written script was left beside the frozen one"
+    );
+}

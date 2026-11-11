@@ -351,7 +351,18 @@ impl Place {
 
     /// Main's copy of `path` written out of every tree, under
     /// `<state>/self/gates/<name>-<blob>.sh`; none when main has none.
+    ///
+    /// The copy is written **executable** (`0o700`), because the gate it
+    /// freezes re-execs itself for its locked part — `scripts/gate.sh`'s
+    /// `flock -o "$lock" "$self" --locked-part …` execs `$self` with no
+    /// `bash` in front of it. Without the mode the frozen copy carries the
+    /// daemon's umask (`0600` on the owner's), `flock` fails `EACCES`, and
+    /// the gate reds in `lock wait` with its tests never run while the lock
+    /// itself is free. `run_niced` runs this script as `bash <script>`, so
+    /// nothing outside the locked part ever needed the bit and no self build
+    /// reached it until the bench-binary check was fixed (theseus-1eemp).
     fn main_script(&self, path: &str, name: &str) -> Result<Option<PathBuf>> {
+        use std::os::unix::fs::PermissionsExt;
         let Some(blob) = self.main_blob(path) else {
             return Ok(None);
         };
@@ -364,6 +375,8 @@ impl Place {
             }
             let tmp = out.with_extension("tmp");
             std::fs::write(&tmp, &o.stdout)?;
+            // Before the rename, so the script is never visible unexecutable.
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))?;
             std::fs::rename(&tmp, &out)?;
         }
         Ok(Some(out))
