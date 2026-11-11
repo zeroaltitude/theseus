@@ -875,8 +875,9 @@ pub enum WrapperIdentity {
     /// arguments at all (a zombie's; a process in its exec, which `holder`
     /// tells from a zombie by its state).
     NotWrapper,
-    /// A wrapper's, whole, whose `--correlation-id`, before the `--` that
-    /// starts the job's own argv, names its job.
+    /// A wrapper's whose `--correlation-id`, before the `--` that starts the
+    /// job's own argv, names its job: read whole through the id, though a cut
+    /// on an argument's boundary may have taken the `--` and what follows.
     Job(String),
     /// A wrapper's, whole, with no `--correlation-id`: a wrapper of no job.
     Unnamed,
@@ -897,10 +898,13 @@ pub fn wrapper_job(pid: u32) -> WrapperIdentity {
 
 /// `wrapper_job` over a NUL-separated command line, as `/proc` gives it. A
 /// complete one ends on the NUL that ends its last argument; one that does
-/// not is cut (`Unreadable`), whatever it names so far. So is a wrapper's
-/// that names no job and has no `--` yet: `spawn_detached` always passes the
-/// `--` that starts the job's argv, so such a line was cut, on an argument's
-/// boundary, before it got there. A job named before the cut is named.
+/// not was cut mid-argument and is `Unreadable`, whatever it names so far:
+/// even a whole `--correlation-id` and id may be the front of a longer id.
+/// A line that ends on a NUL but is a wrapper's with no job named and no `--`
+/// yet is `Unreadable` too: `spawn_detached` always passes the `--` that
+/// starts the job's argv, so it was cut on an argument's boundary before it
+/// got there. Only that boundary cut can still name the job: one that came
+/// after the `--correlation-id` and its id is `Job`.
 pub fn job_in_cmdline(cmdline: &[u8]) -> WrapperIdentity {
     if cmdline.last().is_some_and(|&b| b != 0) {
         return WrapperIdentity::Unreadable;

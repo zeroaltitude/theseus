@@ -402,16 +402,32 @@ impl Spool {
     }
 
     /// The wrappers lingering now, as (job, wrapper pid): each marker whose
-    /// pid is still that job's wrapper. A marker a killed wrapper left
-    /// behind, whose pid is no longer that job's wrapper, is removed once it
-    /// is `MARKER_SETTLE` old. One that names no pid is left alone: its
-    /// wrapper is writing it, and a read between the file and its pid finds
-    /// it empty. Taken for a dead wrapper's, it was gone for good, and the
-    /// wrapper lingered on unmarked (theseus-sdgl). A read inside the pid's
-    /// write can find a part of it, a prefix of its digits, which names no
-    /// wrapper: so a marker younger than `MARKER_SETTLE` is never taken for a
-    /// dead one's, whoever wrote it (theseus-v18k).
+    /// pid is still that job's wrapper. A marker ends one of four ways, by
+    /// what its pid's command line reads as (`marker_holder`):
+    /// - that job's wrapper: listed;
+    /// - another job's wrapper, a wrapper of no job, or no wrapper at all,
+    ///   and the marker is `MARKER_SETTLE` old: a killed wrapper's leftover,
+    ///   removed;
+    /// - the same, and the marker younger: left, unlisted. A read inside the
+    ///   pid's write can find a prefix of its digits, which names no wrapper,
+    ///   so a marker this young is never taken for a dead one's, whoever
+    ///   wrote it (theseus-v18k);
+    /// - cut short (`WrapperIdentity::Unreadable`): left, unlisted, at any
+    ///   age. A cut read says nothing of whose pid it is, and a removal is
+    ///   for good.
+    ///
+    /// A marker that holds no number, empty or otherwise, is left too, and
+    /// its pid is not looked up: its wrapper is writing it, and a read
+    /// between the file and its pid finds it empty. Taken for a dead
+    /// wrapper's, it was gone for good, and the wrapper lingered on unmarked
+    /// (theseus-sdgl).
     pub fn lingering(&self) -> Vec<(String, u32)> {
+        self.lingering_by(crate::job::wrapper_job)
+    }
+
+    /// `lingering` over `who`, which says what a marker's pid reads as: a
+    /// real `/proc` read cannot be made to come back cut short on demand.
+    fn lingering_by(&self, who: impl Fn(u32) -> WrapperIdentity) -> Vec<(String, u32)> {
         let Ok(dir) = fs::read_dir(self.dir.join("lingering")) else {
             return vec![];
         };
@@ -422,7 +438,7 @@ impl Spool {
                 .ok()
                 .and_then(|s| s.trim().parse::<u32>().ok());
             let Some(pid) = pid else { continue };
-            match marker_holder(&id, &crate::job::wrapper_job(pid)) {
+            match marker_holder(&id, &who(pid)) {
                 Marker::Wrapper => out.push((id, pid)),
                 Marker::Unknown => {}
                 Marker::Stale if young(&e) => {}
@@ -751,6 +767,39 @@ mod tests {
         assert_eq!(marker_holder("act_1", &Unreadable), Marker::Unknown);
         for gone in [Job("act_2".into()), Unnamed, NotWrapper] {
             assert_eq!(marker_holder("act_1", &gone), Marker::Stale, "{gone:?}");
+        }
+    }
+
+    /// theseus-3i6d1 (h), the other half of the one above: `marker_holder`'s
+    /// table says a cut read is `Unknown`, and this says what `lingering`
+    /// does with each answer, which the table does not. A real `/proc` read
+    /// cannot be made to come back cut short on demand, so `lingering_by` is
+    /// handed the answer. Every marker here is `settled`, past the second
+    /// that spares a young one whatever it names, so the cut read is the only
+    /// reason `Unreadable`'s marker is still there.
+    #[test]
+    fn lingering_leaves_a_marker_whose_read_was_cut_short_at_any_age() {
+        use WrapperIdentity::*;
+        let d = tempfile::tempdir().unwrap();
+        let sp = Spool::open(&d.path().join("spool")).unwrap();
+        let marker = sp.lingering_path("act_1");
+        let pid = 4_194_000;
+        let listed = vec![("act_1".to_string(), pid)];
+        for (read, want, kept) in [
+            (Job("act_1".into()), listed, true),
+            (Unreadable, vec![], true),
+            (Job("act_2".into()), vec![], false),
+            (Unnamed, vec![], false),
+            (NotWrapper, vec![], false),
+        ] {
+            sp.write_lingering("act_1", pid).unwrap();
+            settled(&marker);
+            let got = sp.lingering_by(|p| {
+                assert_eq!(p, pid, "looked up a pid its marker does not name");
+                read.clone()
+            });
+            assert_eq!(got, want, "listed, for {read:?}");
+            assert_eq!(marker.exists(), kept, "kept, for {read:?}");
         }
     }
 }
