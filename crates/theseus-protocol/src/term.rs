@@ -36,7 +36,8 @@ pub struct TerminalLeft {
     /// Its program, by its process name.
     pub program: String,
     /// Why the close left it: "a background job" (a group of its own in the
-    /// terminal's session) or "its own session (setsid, or a daemon)".
+    /// terminal's session), "its own session (setsid, or a daemon)", or,
+    /// only on the already-exited path, "the exited program's own group".
     pub why: String,
     /// The terminal that started it, its program, and its session.
     pub terminal: String,

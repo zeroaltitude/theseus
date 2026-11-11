@@ -269,7 +269,13 @@ impl Pty {
             // SIGKILL a group that is now another session's -- a stranger's
             // processes for a leftover of ours. A guard that can kill the
             // wrong group is worse than one that can spare the right one.
-            if self.group_still_ours() {
+            //
+            // `keep_background` carries that same hazard into the program's
+            // own group: a keeping close never SIGKILLs it either, and
+            // `after_exit` names what is found there instead of signalling
+            // it (B6 L186 part (a), the owner's decision, OWNER-ANSWERS-
+            // 20261110-1406.md S2-2, 2026-11-10 22:31:37 MST).
+            if self.group_still_ours() && !keep_background {
                 signal_group(self.pid, libc::SIGKILL);
             }
             return self.after_exit(status, keep_background);
@@ -390,19 +396,22 @@ impl Pty {
     /// that left the tree. Kept, they are named as a live shell's are; else
     /// they end, as every close that keeps nothing ends them.
     fn after_exit(&self, status: std::process::ExitStatus, keep_background: bool) -> Ended {
-        let held: Vec<tree::Proc> = holders(&self.slave_path)
-            .into_iter()
-            .filter(|p| pgid(p.pid).is_some_and(|g| g != self.pid))
-            .collect();
         if keep_background {
-            let left = held
+            // A keeping close names every holder it finds, the program's own
+            // (former) group included: no SIGKILL of a group whose id may
+            // already be a stranger's (B6 L186 part (a), the owner's
+            // decision above `close`'s guard).
+            let left = holders(&self.slave_path)
                 .into_iter()
                 .map(|p| Kept {
                     proc: p,
                     program: comm(p.pid),
-                    why: match sid_of(p.pid) == Some(self.pid) {
-                        true => WHY_BACKGROUND,
-                        false => WHY_SESSION,
+                    why: match pgid(p.pid) == Some(self.pid) {
+                        true => WHY_OWN_GROUP,
+                        false => match sid_of(p.pid) == Some(self.pid) {
+                            true => WHY_BACKGROUND,
+                            false => WHY_SESSION,
+                        },
                     },
                 })
                 .collect();
@@ -416,6 +425,13 @@ impl Pty {
         // and its descendants are not read, only what holds the pty, by
         // processes (`tree::signal` checks the start time) and by the groups
         // those were in, repeated as a live close's kill is (theseus-z0kk).
+        // The program's own former group is excluded here: a close that
+        // keeps nothing already SIGKILLed it above, while it still owned it
+        // (`group_still_ours`), before the pid could be recycled.
+        let held: Vec<tree::Proc> = holders(&self.slave_path)
+            .into_iter()
+            .filter(|p| pgid(p.pid).is_some_and(|g| g != self.pid))
+            .collect();
         // SAFETY: reads this process's own group id.
         let mine = unsafe { libc::getpgrp() } as u32;
         let mut groups: Vec<u32> = held.iter().filter_map(|p| pgid(p.pid)).collect();
@@ -552,11 +568,12 @@ pub(super) fn count_new(
 }
 
 /// Why a keeping close left a process: a process group of its own in the
-/// terminal's session (a shell's `&` job, `nohup … &`), or a session of its
-/// own (`setsid`, a server's double fork), found below the program or
-/// holding its pty.
+/// terminal's session (a shell's `&` job, `nohup … &`), a session of its own
+/// (`setsid`, a server's double fork), or, only on the already-exited path,
+/// a leftover still in the program's own former group (B6 L186 part (a)).
 pub const WHY_BACKGROUND: &str = "a background job";
 pub const WHY_SESSION: &str = "its own session (setsid, or a daemon)";
+pub const WHY_OWN_GROUP: &str = "the exited program's own group";
 
 /// A process a close left running.
 #[derive(Debug, Clone, PartialEq, Eq)]
