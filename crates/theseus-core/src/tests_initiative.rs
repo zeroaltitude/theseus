@@ -560,6 +560,53 @@ async fn the_morning_note_reads_the_folded_record_once() {
     assert_eq!(left.started[0].item, "tsk_late", "{left:?}");
 }
 
+/// The morning note reads the folded record exactly once, counted at the
+/// store, not inferred from an interleaving seam (theseus-1eemp, B5 L28
+/// residue). `the_morning_note_reads_the_folded_record_once` above reds a
+/// double read only at the listing position (where it joins the note's
+/// text), via a one-shot model hook: a double read taken earlier — as the
+/// note's own fact count, before the model is ever asked anything — leaves
+/// that test's hook unfired and both reads seeing the same state, so it
+/// passes with the defect in place. `Core::rsi.folded_reads` counts every
+/// call to `folded_read` against this `Core`, wherever in `morning_note`
+/// it is taken, so a second read anywhere inside the note reds this test.
+/// The positive half: the one read that does happen is counted (not zero),
+/// and its content reaches the note, so a fixture that reads nothing or a
+/// note that is skipped cannot pass this by accident.
+#[tokio::test]
+async fn the_morning_note_reads_the_folded_record_exactly_once_by_count() {
+    let r = rig(Initiative::Normal, |c| c.initiative.morning_hour = 0);
+    r.core
+        .folded_add(&[("tsk_early".into(), "Fix the early cause".into())]);
+    let before = r
+        .core
+        .rsi
+        .folded_reads
+        .load(std::sync::atomic::Ordering::SeqCst);
+    assert!(r.core.post_morning_if_due(), "the day is claimed");
+    until("the morning note", || {
+        !rows(&r.core, "initiative.spoke").is_empty()
+    })
+    .await;
+    let after = r
+        .core
+        .rsi
+        .folded_reads
+        .load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        after - before,
+        1,
+        "exactly one read against the store, counted at the source"
+    );
+    let posts = crate::tests_day_ceiling::posts(&r.core, "initiative");
+    assert_eq!(posts.len(), 1, "{posts:?}");
+    let text = posts[0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("tsk_early"),
+        "the one read's content reached the note: {text}"
+    );
+}
+
 /// The morning note is unprompted: it waits for the pacer's window (another
 /// unprompted post was just written) and claims the day only once it opens.
 #[tokio::test]
