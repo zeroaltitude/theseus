@@ -403,8 +403,8 @@ pub struct Engine {
     /// When the engine was built: the call's join.
     joined: Instant,
     /// Whether the call's first clip has been played, said once in the
-    /// journal (the clipped-intro check: how long after the join, and the
-    /// lead-in it rode).
+    /// journal (the clipped-intro check: how long after the join, the
+    /// lead-in it rode, and whether the call's audio had flowed by then).
     first_clip_said: bool,
     // Receive, and turns.
     vads: BTreeMap<Speaker, Vad>,
@@ -824,6 +824,7 @@ impl Engine {
                             lead_in_ms = (lead_in * 1000 / SAMPLE_RATE as usize) as u64,
                             since_join_ms =
                                 now.saturating_duration_since(self.joined).as_millis() as u64,
+                            flowed = self.io.flowed(),
                             "voice: the call's first clip is playing"
                         );
                     }

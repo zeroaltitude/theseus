@@ -540,6 +540,10 @@ impl VoiceIo for SongbirdIo {
         self.lead_in
     }
 
+    fn flowed(&self) -> bool {
+        *self.flowing.borrow()
+    }
+
     fn play(&mut self, id: ClipId, clip: Audio) -> BoxFuture<'_, ()> {
         Box::pin(async move {
             let frames = self.spell.begin(id, Instant::now(), self.warm.warmth.on());
@@ -844,6 +848,28 @@ mod tests {
         assert_eq!(io.lead_in(), 0, "under the warm silence");
         io.stop().await;
         assert!(!io.warm.warmth.on(), "a stop ends the warmth");
+    }
+
+    /// `VoiceIo::flowed` is the state `SongbirdIo::flowing` watches: false in
+    /// a call where nobody has talked, true once the receive handler says the
+    /// audio flows (theseus-emqbm: the first clip's journal line reads it).
+    #[tokio::test]
+    async fn flowed_follows_the_calls_flowing_state() {
+        let id = |n| std::num::NonZeroU64::new(n).unwrap();
+        let shard = songbird::shards::Shard::Generic(Arc::new(Sent::default()));
+        let call = Call::new(
+            songbird::id::GuildId::from(id(1)),
+            shard,
+            UserId::from(id(2)),
+        );
+        let mut io =
+            SongbirdIo::attach(Arc::new(tokio::sync::Mutex::new(call)), LeadIn::default()).await;
+        assert!(!io.flowed(), "nobody has talked yet");
+        let (flows, flowing) = watch::channel(false);
+        io.flowing = flowing;
+        assert!(!io.flowed());
+        flows.send(true).unwrap();
+        assert!(io.flowed(), "the audio flows");
     }
 
     #[tokio::test]

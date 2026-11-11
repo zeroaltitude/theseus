@@ -40,7 +40,9 @@ or tail of a sentence in the echo tail (`is_fragment_echo`: "seus here" for "The
 the head of the greeting isn't eaten. Inside a spell the stream stays warm (theseus-9d9aq, `src/warm.rs`): each clip plays beside a
 paused silent track that its end starts (`WARM`, 700 ms, past `SPELL_GAP`), whose own end the engine never hears, and a stop ends it; a
 later sentence that starts under it gets no lead-in, and one that starts with nothing warm gets `[voice] gap_lead_in_ms` (200 ms).
-`VoiceIo::lead_in` says whichever silence led the clip. A quiet listener closes an utterance after
+`VoiceIo::lead_in` says whichever silence led the clip. The call's first clip says itself once in the journal
+(`voice: the call's first clip is playing`: `lead_in_ms`, `since_join_ms`, and `flowed`, from `VoiceIo::flowed`, which tells a greeting
+sent because the audio flowed from one sent because `GREETING_WAIT` ran out). A quiet listener closes an utterance after
 `[voice] pause_ms` (1200 ms; `Config::end_of_utterance`, which the engine's own default leaves at 700, set only by the binding's
 `engine_config`), since a natural pause inside a sentence runs 0.7 to 1.2 s (theseus-bp0lp).
 An utterance whose transcript has no `.`, `?` or `!` at its end waits `Config::merge` (`[voice] merge_ms`, 1500 ms; zero, the engine's
