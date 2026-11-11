@@ -782,8 +782,12 @@ impl Chat {
             return self.send_note();
         }
         // A message that names @files must name listed ones, or it is not sent;
-        // a command line skips the `@` rule, its re-read too.
-        let resolved = if self.editor.text().trim_start().starts_with('/') {
+        // a command line skips the `@` rule, its re-read too -- `!` is a command
+        // line too (its whole rest is a shell command, never an @ file name).
+        let resolved = if matches!(
+            self.editor.text().trim_start().chars().next(),
+            Some('/') | Some('!')
+        ) {
             Resolved::default()
         } else {
             if let Some(effects) = self.at_reread() {
@@ -824,7 +828,7 @@ impl Chat {
         }
         self.menu = 0;
         self.menu_closed = false;
-        if !trimmed.starts_with('/') {
+        if !trimmed.starts_with('/') && !trimmed.starts_with('!') {
             if let Some(effects) = self.thread_answered_by(trimmed) {
                 return effects;
             }
@@ -840,6 +844,13 @@ impl Chat {
             if !rest.contains('/') && !rest.contains(char::is_whitespace) && rest.len() <= 24 {
                 self.flash(format!("no command /{name} · / lists them"));
                 return Vec::new();
+            }
+        }
+        // `!`'s whole rest is the shell command, never a name to look up: unlike `/`, there is
+        // no "not ours" fallback to the model -- a bang line is always the shell command.
+        if let Some(rest) = trimmed.strip_prefix('!') {
+            if let Some(effects) = commands::run(self, "shell", rest.trim_start()) {
+                return effects;
             }
         }
         if Self::is_make_that(trimmed) {
