@@ -279,33 +279,315 @@ pub fn floor_argv() -> Vec<Vec<String>> {
 /// What the floor's paths hold, in the operator's words.
 const FLOOR_STATE: &str = "Theseus's own state or the 1Password token";
 
-/// The command's arguments that name paths, resolved against `cwd`: absolute,
-/// `~`, `.`-relative, or containing a separator; `--opt=value` is judged by
-/// its value. Plain words (`status`, `-la`) are not paths.
+/// One word of a command, as the path it names, resolved against `cwd`:
+/// absolute, `~`, `.`-relative, or containing a separator; `--opt=value` is
+/// judged by its value. Plain words (`status`, `-la`) are not paths.
+fn path_word(a: &str, cwd: &Path) -> Option<PathBuf> {
+    let v = match a.split_once('=') {
+        Some((k, v)) if k.starts_with('-') => v,
+        _ if a.starts_with('-') => return None,
+        _ => a,
+    };
+    let looks = v.starts_with('/') || v.starts_with('~') || v.starts_with('.') || v.contains('/');
+    if v.is_empty() || !looks {
+        return None;
+    }
+    let expanded = crate::config::expand_home(v);
+    let full = if expanded.is_absolute() {
+        expanded
+    } else {
+        cwd.join(expanded)
+    };
+    Some(paths::canonical_best_effort(&full))
+}
+
+/// The command's arguments that name paths, resolved against `cwd`.
 fn path_args(argv: &[String], cwd: &Path) -> Vec<(String, PathBuf)> {
     argv.iter()
         .skip(1)
-        .filter_map(|a| {
-            let v = match a.split_once('=') {
-                Some((k, v)) if k.starts_with('-') => v,
-                _ if a.starts_with('-') => return None,
-                _ => a.as_str(),
-            };
-            let looks =
-                v.starts_with('/') || v.starts_with('~') || v.starts_with('.') || v.contains('/');
-            if v.is_empty() || !looks {
-                return None;
-            }
-            let expanded = crate::config::expand_home(v);
-            let full = if expanded.is_absolute() {
-                expanded
-            } else {
-                cwd.join(expanded)
-            };
-            Some((a.clone(), paths::canonical_best_effort(&full)))
-        })
+        .filter_map(|a| path_word(a, cwd).map(|p| (a.clone(), p)))
         .collect()
 }
+
+/// The letters a short flag carries to mean "what follows is code": `-c`, a
+/// command, as POSIX `sh` spells it; `-e`, an expression to evaluate, as the
+/// interpreters after it do; `-E`, which is `-e` with the language's later
+/// features switched on (`perl -E`) and runs exactly as `-e` does; and `-S`,
+/// `env`'s own "split this string into a command line".
+///
+/// The letters that are deliberately NOT here, because the line between them
+/// is the whole of the key's cost: `-p` would make `mkdir -p <dir>` a line
+/// and `-r` would make `cp -r <dir>` one, so `node -p` and `php -r` are
+/// NAMED in `tests_floor_shapes::RESIDUE` rather than paid for on every
+/// ordinary line. `-E` and `-S` earned their upper case by executing under
+/// that file's own oracle; neither is a letter an ordinary line passes a
+/// path to.
+const CODE_LETTERS: [char; 4] = ['c', 'e', 'E', 'S'];
+
+/// The long spellings of the same thing. A long flag means only what it says
+/// and nothing by its letters, which is why `--print` can be here while `-p`
+/// cannot.
+const CODE_FLAGS: [&str; 6] = [
+    "--command",
+    "--eval",
+    "--exec",
+    "--execute",
+    "--print",
+    "--split-string",
+];
+
+/// Whether a word is a flag whose ARGUMENT is code: a single-dash cluster
+/// holding a code letter (`-c`, `-lc`, `-ec`, `-ic`, `-norc`), or a long
+/// code flag. A double dash that is not one of those is not one.
+fn introduces_code(w: &str) -> bool {
+    match w.starts_with("--") {
+        true => CODE_FLAGS.contains(&w),
+        false => w
+            .strip_prefix('-')
+            .is_some_and(|f| f.chars().any(|c| CODE_LETTERS.contains(&c))),
+    }
+}
+
+/// The code a long flag carries itself, `--command=<line>`.
+fn code_in_flag(w: &str) -> Option<&str> {
+    let (name, line) = w.split_once('=')?;
+    CODE_FLAGS.contains(&name).then_some(line)
+}
+
+/// The code a short cluster carries ATTACHED to its own flag,
+/// `python3 -c<line>`. `getopt` gives an option its argument from the rest of
+/// its cluster, so the line is one argv word together with the flag and there
+/// is no next word to read — one SPACE apart from `python3 -c <line>`, and
+/// unheld until this was written (the round-2 reviewer's F-2).
+///
+/// A remainder that is only more flag letters is read as more flags, which is
+/// what `getopt` does when those letters take no argument: `bash -ec <line>`
+/// sets errexit and the line is still `-c`'s. So the remainder is a line only
+/// when it carries something no flag cluster carries — a quote, a bracket, a
+/// space, a slash, a dot. The cost of that test is a line that is one bare
+/// word (`bash -cls`), and a one-word line can only run a program with no
+/// arguments, which is the cost `shell_argvs` already names and pins.
+fn code_attached(w: &str) -> Option<&str> {
+    let cluster = w.strip_prefix('-').filter(|c| !c.starts_with('-'))?;
+    let at = cluster.find(|c| CODE_LETTERS.contains(&c))?;
+    let rest = &cluster[at + 1..];
+    (!rest.is_empty() && !rest.chars().all(char::is_alphanumeric)).then_some(rest)
+}
+
+/// The words of this argv that a program will INTERPRET, each a line of text
+/// to read for the paths its words name rather than a path itself.
+///
+/// The property, and it is the whole of the rule: **a word is code because
+/// the flag in front of it says so**, not because the program in front of
+/// that flag is on a list of shells. `sh -c <line>` is POSIX and every
+/// interpreter since has spelled it `-c` or `-e`; a single-dash cluster
+/// carries the letter alongside other flags (`-lc`, `-ec`, `-ic`), and the
+/// long spelling is `--command`/`--eval`, with or without its own `=<line>`.
+///
+/// Keying on the flag holds one CLASS where keying on the program held a set
+/// of spellings. `sh -lc`, `env bash -c`, `timeout 5 /bin/bash -c`,
+/// `/usr/bin/env zsh -ic`, `python3 -c`, `perl -e`, a wrapper in front of any
+/// of them, and an interpreter this project has never heard of are all the
+/// same case now, and not one of them is a name anyone has to maintain. That
+/// matters because the list was the defect: a floor keyed on five shell names
+/// held `bash -c` and missed `bash -lc`, which bought the owner the cost of
+/// the floor and three quarters of its protection.
+///
+/// Over-recognising is cheap and safe on purpose. A word that is not a line —
+/// `tar -czf <archive>`, `grep -c <pattern>` — is still only split and each
+/// piece judged by `path_word`, the rule an `argv` word has always taken, so
+/// the cost is a few canonicalisations and never a new notion of what a path
+/// is. Nothing is expanded and nothing is run.
+///
+/// What is OUTSIDE the class is code in a position no flag introduces at all:
+/// `awk '<program>'`, `ssh <host> '<line>'`, `find … -exec … ;`. That gap is
+/// measured rather than described — `tests_floor_shapes`'s
+/// `every_spelling_that_really_runs_a_line_is_held` runs each generated
+/// spelling for real and asserts the floor holds every one that executed, so
+/// a member of the residue nobody here thought of is a red, not a surprise.
+fn code_lines(argv: &[String]) -> Vec<&str> {
+    let mut out: Vec<&str> = vec![];
+    for (i, w) in argv.iter().enumerate().skip(1) {
+        let line = match code_in_flag(w).or_else(|| code_attached(w)) {
+            Some(line) => Some(line),
+            // The next word, unless it is itself a flag: `sh -e -c <line>`
+            // sets errexit, and the line is still the `-c` argument.
+            None if introduces_code(w) => argv
+                .get(i + 1)
+                .filter(|n| !n.starts_with('-'))
+                .map(String::as_str),
+            None => None,
+        };
+        if let Some(line) = line.filter(|l| !l.is_empty() && !out.contains(l)) {
+            out.push(line);
+        }
+    }
+    out
+}
+
+/// A line of text split into the commands a shell would run it as, each as
+/// its argv: quoting (`'`, `"`, `\`) groups a word; whitespace and a
+/// redirect end a word; and `;`, `|`, `&`, a newline, a subshell's
+/// parentheses and a substitution (`$(…)`, backticks) start a new command,
+/// whose own words are read in their turn.
+///
+/// It expands nothing and runs nothing: `$D/AGENTS.md` stays one word whose
+/// value only the shell knows. Every word it yields is judged by `path_word`,
+/// the same rule an `argv` word takes, and every command's first word by
+/// `floor_argv`, the same rule a program takes — so reading a line adds no
+/// new notion of what a path or a program is. It only stops the spelling of
+/// a call deciding whether the gate sees one.
+fn shell_commands(line: &str) -> Vec<Vec<String>> {
+    const WORD_ENDS: [char; 2] = ['<', '>'];
+    /// What chains one command to the next.
+    const CHAIN_ENDS: [char; 3] = [';', '|', '&'];
+    /// What groups a command inside another: a subshell, a substitution.
+    const GROUP_ENDS: [char; 3] = ['(', ')', '`'];
+    // A chain character chains commands only in text that has whitespace
+    // somewhere, because passing an argument to anything needs a space: in
+    // text with NO whitespace at all, `|` is a substitution expression's own
+    // delimiter and not a pipe. Reading it as a pipe held
+    // `sed -i -e 's|<floored config>|/tmp/other.toml|' notes.md` and
+    // `perl -pe` likewise — ordinary lines that touch nothing floored, two of
+    // the round-2 reviewer's seven false positives (F-1, mechanism 2). What a
+    // whitespace-free chain can still spell is a chain of programs with no
+    // arguments, which can ask nothing of the vault; grouping is NOT exempted,
+    // because an interpreter's own one-liner really does use it
+    // (`python3 -c 'open("/x","a").write("y")'` names its path inside
+    // parentheses and no space appears in it).
+    let chains = line.chars().any(char::is_whitespace);
+    let mut out: Vec<Vec<String>> = vec![];
+    let mut argv: Vec<String> = vec![];
+    let mut word = String::new();
+    let mut quote: Option<char> = None;
+    let mut chars = line.chars().peekable();
+    macro_rules! end_word {
+        () => {
+            if !word.is_empty() {
+                argv.push(std::mem::take(&mut word));
+            }
+        };
+    }
+    macro_rules! end_command {
+        () => {{
+            end_word!();
+            if !argv.is_empty() {
+                out.push(std::mem::take(&mut argv));
+            }
+        }};
+    }
+    while let Some(c) = chars.next() {
+        match (c, quote) {
+            ('\\', Some('\'')) => word.push('\\'),
+            ('\\', _) => {
+                if let Some(next) = chars.next() {
+                    word.push(next);
+                }
+            }
+            ('\'' | '"', None) => quote = Some(c),
+            (c, Some(q)) if c == q => quote = None,
+            ('$', q) if q != Some('\'') && matches!(chars.peek(), Some('(' | '{')) => {
+                chars.next();
+                end_command!();
+            }
+            (c, None)
+                if GROUP_ENDS.contains(&c) || c == '\n' || (chains && CHAIN_ENDS.contains(&c)) =>
+            {
+                end_command!()
+            }
+            (c, None) if c.is_whitespace() || WORD_ENDS.contains(&c) => end_word!(),
+            (c, _) => word.push(c),
+        }
+    }
+    end_command!();
+    out
+}
+
+/// Every word of a line, for the paths they name. Each word is also offered
+/// by its comma-separated pieces, with the whole word kept, for the text
+/// that is not a shell line at all — a REPL line `term.send` types, an MCP
+/// call's arguments — where a comma separates values and a path that holds
+/// one must still be offered unbroken.
+fn shell_words(line: &str) -> Vec<String> {
+    let mut words = vec![];
+    for word in shell_commands(line).into_iter().flatten() {
+        if word.contains(',') {
+            words.extend(word.split(',').filter(|p| !p.is_empty()).map(String::from));
+        }
+        words.push(word);
+    }
+    words
+}
+
+/// The argv of each command a line runs, for the programs the floor never
+/// runs unasked (`floor_argv`: Theseus's own binary, the 1Password CLI). The
+/// leading `VAR=value` words a shell sets for one command are dropped, so
+/// `op` is still the program of `OP_ACCOUNT=x op item get …`.
+///
+/// **A LINE gives up its programs; a single WORD a flag happened to introduce
+/// does not.** `grep -c theseusd <log>` makes `theseusd` the argument of a
+/// code flag, and reading that one word as a command held an ordinary health
+/// check — four of the round-2 reviewer's seven false positives (F-1,
+/// mechanism 1), none of them held by main or by the head round 1 reviewed.
+///
+/// The cost is named rather than hidden: the one-word spelling `bash -c op`
+/// no longer reaches the program floor. A one-word line can only run a
+/// program with NO arguments, so it can ask nothing of the vault and name no
+/// path — which is why this is the cheap side of the trade and not a hole
+/// with a nice sentence attached. `a_one_word_line_is_a_word_not_a_program`
+/// pins both halves.
+fn shell_argvs(line: &str) -> Vec<Vec<String>> {
+    let commands = shell_commands(line);
+    if commands.iter().map(Vec::len).sum::<usize>() < 2 {
+        return vec![];
+    }
+    commands
+        .into_iter()
+        .map(|argv| {
+            let assignments = argv
+                .iter()
+                .position(|w| {
+                    !w.split_once('=')
+                        .is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
+                })
+                .unwrap_or(argv.len());
+            normalized_argv(&argv[assignments..])
+        })
+        .filter(|argv| !argv.is_empty())
+        .collect()
+}
+
+/// What the gate reads of a call's plan (`ToolPolicy::view`).
+struct View {
+    /// Its resources made canonical.
+    resources: Vec<PathBuf>,
+    /// Its own argv, the program by base name: the notify and allow lists.
+    nargv: Vec<String>,
+    /// The path words its own argv names: the roots label and the allow list.
+    args: Vec<(String, PathBuf)>,
+    /// Every argv it runs, its own and each step's: the floor's programs.
+    argvs: Vec<Vec<String>>,
+    /// Every path word any shape of the call names: the floor's paths. A
+    /// superset of `args` (`ToolPolicy::floor_view`).
+    floor_args: Vec<(String, PathBuf)>,
+    /// How many lines nested inside this call's lines the floor did NOT read,
+    /// because reading them would pass [`LINES_READ`]. Nonzero holds the call:
+    /// a ceiling that drops work must fail CLOSED (`ToolPolicy::floor`).
+    unread_lines: usize,
+}
+
+/// How many nested lines the floor reads of one call, so that a line which
+/// nests lines cannot cost the gate unbounded work.
+///
+/// Crossing it HOLDS the call. It used to truncate in silence, and 63 decoy
+/// nested calls in one `proc.run {command}` then hid a payload that reached
+/// the owner's config at `posture=Open` with `fails_open=true` — a measured
+/// bypass of the one layer that is meant to have none (the round-2 reviewer's
+/// F-3). A bound that turns the protection off instead of erring is worse
+/// than no bound, so the floor now says it ran out of reading rather than
+/// passing what it did not read. `a_call_that_nests_past_the_bound_is_held`
+/// is the test, at the boundary and not near it.
+const LINES_READ: usize = 64;
 
 pub(crate) fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && argv.len() >= prefix.len() && argv.iter().zip(prefix).all(|(a, p)| a == p)
@@ -439,21 +721,27 @@ impl ToolPolicy {
         tightened: Option<Tightened<'_>>,
     ) -> Decision {
         let name = tool.name();
-        let (resources, nargv, args) = self.view(plan);
+        let v = self.view(plan);
+        let View {
+            ref resources,
+            ref nargv,
+            ref args,
+            ..
+        } = v;
         let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
-        if let Some(d) = self.preempted(tool, plan, &resources, &nargv, &args) {
+        if let Some(d) = self.preempted(tool, plan, &v) {
             return d;
         }
         // Nothing outside the roots waits for that alone: the posture below
         // decides, and the decision names the path (theseus-m9fdg).
-        let outside = self.outside_roots(plan, &resources, &args);
+        let outside = self.outside_roots(plan, resources, args);
         // The notify list: the program runs, and is never silent about it.
         // Read before the allow list, so an argv on both is still heard
         // (the stricter of the two wins, as a tightening does).
         let notify_listed = self
             .notify_argv
             .iter()
-            .find(|p| prefix_match(&nargv, p))
+            .find(|p| prefix_match(nargv, p))
             .map(|p| {
                 format!(
                     "`{}` matches the notify list entry `{}`",
@@ -464,7 +752,7 @@ impl ToolPolicy {
         // The allow list runs a command outright when it and its path
         // arguments stay inside the roots; otherwise the tool's posture
         // decides.
-        if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(&nargv, p)) {
+        if let Some(p) = self.allow_argv.iter().find(|p| prefix_match(nargv, p)) {
             if outside.is_empty() && notify_listed.is_none() {
                 return Decision::new(
                     Posture::Open,
@@ -536,52 +824,180 @@ impl ToolPolicy {
         }
     }
 
-    /// What the gate reads of a call's plan: its resources made canonical, its
-    /// argv with the program by base name, and the path arguments a command's
-    /// words name (judged as its resources are).
-    fn view(&self, plan: &Plan) -> (Vec<PathBuf>, Vec<String>, Vec<(String, PathBuf)>) {
+    /// What the gate reads of a call's plan.
+    ///
+    /// `resources`, `nargv` and `args` are what the roots label, the notify
+    /// list and the allow list have always read: the plan's resources made
+    /// canonical, its own argv with the program by base name, and the path
+    /// arguments that argv's words name. `argvs` and `floor_args` are the
+    /// floor's, and they are wider on purpose — see `floor_view`.
+    fn view(&self, plan: &Plan) -> View {
         let resources: Vec<PathBuf> = plan
             .resources
             .iter()
             .map(|r| paths::canonical_best_effort(&r.path))
             .collect();
-        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
-        let nargv = normalized_argv(argv);
         // A command's resources are only its working directory; its arguments
         // can name any path, so they are judged too.
+        let cwds: Vec<PathBuf> = plan
+            .resources
+            .iter()
+            .zip(&resources)
+            .filter(|(r, _)| r.access == Access::Exec)
+            .map(|(_, p)| p.clone())
+            .collect();
+        let cwd = cwds
+            .first()
+            .cloned()
+            .or_else(|| self.roots.first().cloned())
+            .unwrap_or_default();
+        let argv: &[String] = plan.argv.as_deref().unwrap_or(&[]);
+        let nargv = normalized_argv(argv);
         let args = if argv.is_empty() {
             vec![]
         } else {
-            let cwd = plan
-                .resources
-                .iter()
-                .zip(&resources)
-                .find(|(r, _)| r.access == Access::Exec)
-                .map(|(_, p)| p.clone())
-                .or_else(|| self.roots.first().cloned())
-                .unwrap_or_default();
             path_args(argv, &cwd)
         };
+        let (argvs, floor_args, unread_lines) = Self::floor_view(plan, &cwds, &cwd, args.clone());
+        View {
+            resources,
+            nargv,
+            args,
+            argvs,
+            floor_args,
+            unread_lines,
+        }
+    }
 
-        (resources, nargv, args)
+    /// What the FLOOR reads of a call beyond the argv's own words, so that a
+    /// floored path is held whichever shape of a call names it (the floor
+    /// reviewer's F1, 2026-11-10, proven as `b6floor-probe.sh` probe 1): a
+    /// `proc.run {command}` line, a `proc.run {steps}` batch, the text
+    /// `term.send` types, and an MCP call's arguments all reached a floored
+    /// path with nothing asked, while the same path as an `argv` word was
+    /// held.
+    ///
+    /// The four shapes, and where each was blind:
+    ///
+    /// - **`argv`** — read since the floor existed, by `path_args`.
+    /// - **`command`** — `bash -c <line>`, where `path_args` skipped `-c` as a
+    ///   flag and took the whole line as one candidate path. The line's own
+    ///   words are read now (`shell_line`, `shell_words`).
+    /// - **`steps`** — each step's argv, which `view` never read at all,
+    ///   because a batch sets `Plan::steps` and leaves `Plan::argv` `None`.
+    ///   So neither a step's path words nor a step's PROGRAM (`op`,
+    ///   `theseusd`: `floor_argv`) reached the floor. Both do now.
+    /// - **`lines`** — text a call hands to another program to read: what
+    ///   `term.send` types, an MCP call's arguments.
+    ///
+    /// It widens the floor and nothing else. The roots label and the allow
+    /// list still read the argv's own words (`View::args`), because they
+    /// label and loosen rather than hold, and widening them would change
+    /// what the owner sees of every shell line he already lives with.
+    fn floor_view(
+        plan: &Plan,
+        cwds: &[PathBuf],
+        cwd: &Path,
+        mut args: Vec<(String, PathBuf)>,
+    ) -> (Vec<Vec<String>>, Vec<(String, PathBuf)>, usize) {
+        let own = plan.argv.as_deref().unwrap_or(&[]);
+        let steps = plan.steps.as_deref().unwrap_or(&[]);
+        let runs = || std::iter::once(own).chain(steps.iter().map(|s| s.as_slice()));
+        // A relative word is resolved against every directory the call runs
+        // in, since a batch's steps need not share one.
+        let roots: Vec<&Path> = match cwds.is_empty() {
+            true => vec![cwd],
+            false => cwds.iter().map(PathBuf::as_path).collect(),
+        };
+        // One word is judged once, however many times a line names it: a
+        // loop or a long argument list repeats paths, and canonicalising a
+        // path costs syscalls.
+        let mut seen: Vec<String> = vec![];
+        let mut word = |w: &str, args: &mut Vec<(String, PathBuf)>| {
+            if seen.iter().any(|s| s == w) {
+                return;
+            }
+            seen.push(w.to_string());
+            for root in &roots {
+                if let Some(p) = path_word(w, root) {
+                    args.push((w.to_string(), p));
+                }
+            }
+        };
+        // Every argv the call runs, its own and each step's, and the program
+        // of every command inside a line it runs: `proc.run {steps}` left
+        // `Plan::argv` `None`, so a batch bypassed the program floor
+        // outright, and `bash -c "op item get …"` named no program at all.
+        let mut argvs: Vec<Vec<String>> = runs()
+            .filter(|a| !a.is_empty())
+            .map(normalized_argv)
+            .collect();
+        // Every word of every argv the call runs, judged as a path. Two of
+        // those the gate never judged: the PROGRAM, because `path_args`
+        // skips argv's first word, and a program inside Theseus's own state
+        // is the floor's business as much as a file it writes; and every
+        // word of every step, because the gate read `Plan::argv` alone.
+        for a in runs().flatten() {
+            word(a, &mut args);
+        }
+        // Every line of text the call runs or hands on, read for the paths
+        // its words name, and then every line THOSE lines interpret in their
+        // turn: `bash -c "bash -lc '<line>'"` keeps its inner line inside one
+        // quoted word, which is no path, so one pass reads the outer line and
+        // stops exactly where the spelling put a shell. A step's line counts
+        // too: a batch may hold a `bash -c` step of its own.
+        //
+        // A line the call RUNS also gives the program floor the programs of
+        // the commands inside it (`shell_argvs`): `proc.run {steps}` left
+        // `Plan::argv` `None`, so a batch bypassed the program floor
+        // outright, and `bash -c "op item get …"` named no program at all.
+        // Text the call only HANDS to another program to read -- what
+        // `term.send` types, an MCP call's arguments -- gives paths alone, as
+        // it did before this row: the gate is not the thing deciding what a
+        // REPL will do with a word.
+        //
+        // The ceiling (`LINES_READ`) is there so a line that nests lines
+        // cannot cost the gate unbounded work; nothing anyone writes comes
+        // near it, and a call that does come near it is HELD rather than read
+        // in part.
+        let mut unread_lines = 0usize;
+        let mut lines: Vec<(String, bool)> = runs()
+            .flat_map(code_lines)
+            .map(|l| (l.to_string(), true))
+            .chain(plan.lines.iter().map(|l| (l.clone(), false)))
+            .collect();
+        let mut next = 0;
+        while let Some((line, runs_it)) = lines.get(next).cloned() {
+            next += 1;
+            for w in shell_words(&line) {
+                word(&w, &mut args);
+            }
+            let inner = shell_argvs(&line);
+            for nested in inner.iter().flat_map(|a| code_lines(a)) {
+                if lines.iter().any(|(l, _)| l == nested) {
+                    continue;
+                }
+                match lines.len() < LINES_READ {
+                    true => lines.push((nested.to_string(), runs_it)),
+                    false => unread_lines += 1,
+                }
+            }
+            if runs_it {
+                argvs.extend(inner);
+            }
+        }
+        (argvs, args, unread_lines)
     }
 
     /// The answers that come before the allow list and the posture: the floor,
     /// a layer-1 change, a private address, and an AWS call's own asks. Each
     /// waits for approval whatever the tool's posture says.
-    fn preempted(
-        &self,
-        tool: &dyn Tool,
-        plan: &Plan,
-        resources: &[PathBuf],
-        nargv: &[String],
-        args: &[(String, PathBuf)],
-    ) -> Option<Decision> {
+    fn preempted(&self, tool: &dyn Tool, plan: &Plan, v: &View) -> Option<Decision> {
         let name = tool.name();
         // The floor: Theseus's own state and the vault, and an AWS
         // guardrail (AWS design §3.6), which asks at every posture.
         let guardrail = plan.aws.as_ref().and_then(|a| a.guardrail.clone());
-        if let Some(what) = self.floor(resources, nargv, args).or(guardrail) {
+        if let Some(what) = self.floor(v).or(guardrail) {
             return Some(Decision {
                 floor: true,
                 ..Decision::new(
@@ -632,24 +1048,23 @@ impl ToolPolicy {
         if self.private_address(plan).is_some() {
             return false;
         }
-        let (resources, nargv, args) = self.view(plan);
-        self.floor(&resources, &nargv, &args).is_none()
+        self.floor(&self.view(plan)).is_none()
     }
 
     /// Whether only the tool's posture would decide this call: nothing the
     /// floor, a layer-1 change, the approve lists or an AWS rule asks for
     /// comes first. An edits mode (`modes`) loosens that alone.
     pub(crate) fn posture_only(&self, tool: &dyn Tool, plan: &Plan) -> bool {
-        let (resources, nargv, args) = self.view(plan);
-        self.preempted(tool, plan, &resources, &nargv, &args)
-            .is_none()
+        self.preempted(tool, plan, &self.view(plan)).is_none()
     }
 
     /// Every path argument of a command is inside the roots, as an allow
     /// entry requires.
     pub(crate) fn args_within_roots(&self, plan: &Plan) -> bool {
-        let (_, _, args) = self.view(plan);
-        args.iter().all(|(_, p)| self.within_roots(p))
+        self.view(plan)
+            .args
+            .iter()
+            .all(|(_, p)| self.within_roots(p))
     }
 
     fn within_roots(&self, p: &Path) -> bool {
@@ -713,25 +1128,35 @@ impl ToolPolicy {
 
     /// What of the call is on the floor: a resource, the program, or a path
     /// argument.
-    fn floor(
-        &self,
-        resources: &[PathBuf],
-        nargv: &[String],
-        args: &[(String, PathBuf)],
-    ) -> Option<String> {
+    fn floor(&self, v: &View) -> Option<String> {
         let on = |p: &Path| self.floor_paths.iter().any(|f| paths::within(p, f));
-        if let Some(p) = resources.iter().find(|p| on(p)) {
+        if let Some(p) = v.resources.iter().find(|p| on(p)) {
             return Some(format!("{} is {FLOOR_STATE}", p.display()));
         }
-        if let Some(f) = self.floor_argv.iter().find(|f| prefix_match(nargv, f)) {
+        if let Some(f) = self
+            .floor_argv
+            .iter()
+            .find(|f| v.argvs.iter().any(|a| prefix_match(a, f)))
+        {
             return Some(format!(
                 "`{}` is Theseus's own binary or the 1Password CLI",
                 f.join(" ")
             ));
         }
-        args.iter()
-            .find(|(_, p)| on(p))
-            .map(|(a, _)| format!("argument `{a}` is {FLOOR_STATE}"))
+        if let Some((a, _)) = v.floor_args.iter().find(|(_, p)| on(p)) {
+            return Some(format!("argument `{a}` is {FLOOR_STATE}"));
+        }
+        // Last, because a call whose floored path WAS found should be told
+        // which one: the floor ran out of reading, so it holds rather than
+        // passes the part it did not read. 63 decoy nested calls used to hide
+        // a payload behind this ceiling in silence.
+        (v.unread_lines > 0).then(|| {
+            format!(
+                "{} line(s) of this call nest past the {LINES_READ} the floor reads, so it is \
+                 held rather than read in part",
+                v.unread_lines
+            )
+        })
     }
 
     /// A URL whose host is a private address (DD5), unless
@@ -790,6 +1215,184 @@ mod tests {
                 paths::canonical_best_effort(&cwd.join("$HOME/y.txt")).as_path(),
             ]
         );
+    }
+
+    /// A line is read because a CODE FLAG introduces it, whatever program is
+    /// in front of the flag and however the flag is spelled. The rule used to
+    /// ask whether the program was one of five shell names and whether a word
+    /// was exactly `-c`, and so held `bash -c` while missing `bash -lc`;
+    /// these are the spellings that one character apart used to decide.
+    #[test]
+    fn a_line_is_read_because_its_flag_says_it_is_code() {
+        let argv = |w: &[&str]| -> Vec<String> { w.iter().map(|s| s.to_string()).collect() };
+        for spelling in [
+            vec!["bash", "-c", "cat /x"],
+            vec!["bash", "-lc", "cat /x"],
+            vec!["bash", "-ec", "cat /x"],
+            vec!["bash", "-ic", "cat /x"],
+            vec!["sh", "-lc", "cat /x"],
+            vec!["/bin/sh", "-c", "cat /x"],
+            vec!["zsh", "-l", "-c", "cat /x"],
+            // `-e` takes the NEXT word, and `-c`'s line is still the line:
+            // a flag is not an argument.
+            vec!["bash", "-e", "-c", "cat /x"],
+            vec!["bash", "--command", "cat /x"],
+            // A wrapper in front of the interpreter, which put the shell at
+            // `argv[1]` or later and so was unheld at all eleven spellings.
+            vec!["env", "bash", "-c", "cat /x"],
+            vec!["timeout", "5", "bash", "-c", "cat /x"],
+            vec!["nice", "bash", "-c", "cat /x"],
+            vec!["/usr/bin/env", "sh", "-c", "cat /x"],
+            // An interpreter that is not a shell at all, and one this
+            // project has never named.
+            vec!["python3", "-c", "print(open('/x').read())"],
+            vec!["theseus-unknown-interpreter", "-c", "cat /x"],
+        ] {
+            let words = argv(&spelling);
+            let got = code_lines(&words);
+            assert!(
+                got.contains(&spelling[spelling.len() - 1]),
+                "{spelling:?} carries a line and it was not read: {got:?}"
+            );
+        }
+        // `--command=<line>` carries its own line.
+        assert_eq!(
+            code_lines(&argv(&["bash", "--command=cat /x"])),
+            ["cat /x"],
+            "a long flag's own argument"
+        );
+        // No code flag: the argument is a script to run, and `path_args`
+        // already judges it as the path it is.
+        assert_eq!(code_lines(&argv(&["bash", "/x/run.sh"])), [] as [&str; 0]);
+        assert_eq!(code_lines(&argv(&["bash", "-c"])), [] as [&str; 0]);
+        assert_eq!(code_lines(&[]), [] as [&str; 0]);
+        // A long flag means what it says and nothing by its letters, so the
+        // message of a commit is not code. This is the must-not-hold the
+        // whole change is weighed against.
+        assert_eq!(
+            code_lines(&argv(&["git", "commit", "--message=floor /x properly"])),
+            [] as [&str; 0]
+        );
+        assert_eq!(
+            code_lines(&argv(&["git", "commit", "-m", "floor /x properly"])),
+            [] as [&str; 0]
+        );
+        // A program whose `-c` means something else is read anyway, and that
+        // costs nothing: the word is split and every piece is judged by the
+        // same `path_word` an `argv` word takes, so `<archive>` is the path
+        // it already was and no new notion of a path exists.
+        assert_eq!(
+            code_lines(&argv(&["tar", "-czf", "/x/a.tgz", "/x/src"])),
+            ["/x/a.tgz"]
+        );
+        // The code ATTACHED to its own cluster, one SPACE from a spelling
+        // already in the key and unheld until re-cut 2 (`code_attached`).
+        // `getopt` gives an option its argument from the rest of the cluster,
+        // so there is no next word for the rule above to find.
+        for (spelling, line) in [
+            (vec!["python3", "-copen('/x','a')"], "open('/x','a')"),
+            (vec!["perl", "-eprint '/x'"], "print '/x'"),
+            (vec!["bash", "-lcecho /x"], "echo /x"),
+            (vec!["env", "-Sbash -c 'cat /x'"], "bash -c 'cat /x'"),
+            (vec!["node", "--eval=cat('/x')"], "cat('/x')"),
+        ] {
+            assert_eq!(code_lines(&argv(&spelling)), [line], "{spelling:?}");
+        }
+        // A remainder that is only more flag letters is more flags, as
+        // `getopt` reads it when they take no argument: `-ec` sets errexit
+        // and the line is still `-c`'s next word, and `tar -czf` names an
+        // archive rather than running `zf`.
+        assert_eq!(code_lines(&argv(&["bash", "-ec", "cat /x"])), ["cat /x"]);
+        assert_eq!(code_lines(&argv(&["head", "-c100"])), [] as [&str; 0]);
+        assert_eq!(code_lines(&argv(&["ps", "-ef"])), [] as [&str; 0]);
+    }
+
+    /// A LINE gives its programs to the floor; a single WORD a code flag
+    /// happened to introduce does not. `grep -c theseusd <log>` makes
+    /// `theseusd` the argument of a code flag, and reading that one word as a
+    /// command held an ordinary health check — four of the round-2 reviewer's
+    /// seven false positives, none of them held by main.
+    ///
+    /// The cost is the one-word spelling `bash -c op`, and it is the cheap
+    /// side of the trade rather than a hole with a nice sentence attached: a
+    /// one-word line can only run a program with NO arguments, so it can
+    /// name no path and ask nothing of the vault. The moment the line has a
+    /// second word — which is every line that does anything — the programs
+    /// are read again, and that is the half that matters and is asserted
+    /// here too.
+    #[test]
+    fn a_one_word_line_is_a_word_not_a_program() {
+        let got = |l: &str| shell_argvs(l);
+        let none: Vec<Vec<String>> = vec![];
+        assert_eq!(got("theseusd"), none, "a grep pattern is not a program");
+        assert_eq!(got("op"), none);
+        // A substitution expression is one word too, because a chain
+        // character chains nothing in text with no whitespace in it.
+        assert_eq!(got("s|/x/y.toml|/tmp/other.toml|"), none);
+        // The half that matters: a line that runs something still gives up
+        // every program it runs, at any position in a chain.
+        assert_eq!(
+            got("op item get x --reveal"),
+            [["op", "item", "get", "x", "--reveal"]]
+        );
+        assert_eq!(
+            got("echo x | op item get y"),
+            [
+                vec!["echo".to_string(), "x".into()],
+                vec!["op".into(), "item".into(), "get".into(), "y".into()],
+            ]
+        );
+        // And the leading assignments a shell sets for one command are still
+        // dropped, so `op` is the program of `OP_ACCOUNT=x op item get`.
+        assert_eq!(
+            got("OP_ACCOUNT=x op item get y"),
+            [["op", "item", "get", "y"]]
+        );
+    }
+
+    /// The words a line is read as. It splits as a shell does and expands
+    /// nothing, which is the whole of where the floor's reach now sits: a
+    /// path the line OPERATES on is a word of its own and is seen; a path
+    /// inside a quoted string is part of one word and is not; a path a
+    /// variable holds is unknowable without running the line.
+    #[test]
+    fn a_line_is_read_as_the_words_a_shell_would_run_it_as() {
+        let words = |l: &str| shell_words(l);
+        assert_eq!(
+            words("echo pwned >> /x/AGENTS.md"),
+            ["echo", "pwned", "/x/AGENTS.md"]
+        );
+        assert_eq!(
+            words("cat /a | tee /b; rm /c"),
+            ["cat", "/a", "tee", "/b", "rm", "/c"]
+        );
+        assert_eq!(
+            words("sed -i s/a/b/ \"/x/y.toml\""),
+            ["sed", "-i", "s/a/b/", "/x/y.toml"]
+        );
+        // A substitution's own text is words too.
+        assert_eq!(
+            words("D=$(cat /x/y) echo $D"),
+            ["D=", "cat", "/x/y", "echo", "$D"]
+        );
+        // One quoted word, NOT the path inside it: a message that names a
+        // file is not an access to it.
+        assert_eq!(
+            words("git commit -m \"fix the /x/y.toml read\""),
+            ["git", "commit", "-m", "fix the /x/y.toml read"]
+        );
+        // Nothing is expanded: only the shell knows what `$D` holds.
+        assert_eq!(
+            words("echo pwned >> $D/AGENTS.md"),
+            ["echo", "pwned", "$D/AGENTS.md"]
+        );
+        // A word is offered by its comma-separated pieces AND whole, so the
+        // text that is not a shell line at all (a REPL line `term.send`
+        // types, an MCP argument) gives up its paths, and a path that holds
+        // a comma is still offered unbroken.
+        assert_eq!(words("f('/x/y',1)"), ["f", "/x/y", "1", "/x/y,1"]);
+        assert_eq!(words("/a,b/c"), ["/a", "b/c", "/a,b/c"]);
+        assert_eq!(words(""), [] as [&str; 0]);
     }
 
     /// A tool by name only: the gate looks at nothing else about it.

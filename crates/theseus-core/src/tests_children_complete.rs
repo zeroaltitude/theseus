@@ -137,6 +137,13 @@ const BARE: &[(&str, &str)] = &[
     ("theseus-core/src/rsi/tests_tree.rs", "test-only"),
     ("theseus-core/src/telemetry/tests_cancel.rs", "test-only"),
     ("theseus-core/src/tests_activation_pace.rs", "test-only"),
+    (
+        "theseus-core/src/tests_floor_shapes.rs",
+        "test-only: `really_ran` is the floor's spelling ORACLE -- it runs each \
+         generated spelling of a shell line, so that \"is this really code?\" is \
+         answered by the operating system instead of by a list of shell names. It \
+         reaps every child itself and runs in a test process, which has no sweep",
+    ),
     ("theseus-core/src/tests_m3.rs", "test-only"),
     (
         "theseus-core/src/tests_project_context.rs",

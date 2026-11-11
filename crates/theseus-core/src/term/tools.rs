@@ -240,6 +240,14 @@ impl Tool for Send {
                 access: Access::Exec,
             }],
             argv: Some(t.argv.clone()),
+            // The text itself, which the terminal's program reads and the
+            // argv above does not name: the gate reads the paths its words
+            // name, so a floored path typed into a shell is held as the same
+            // path in a `proc.run` argv is (the floor reviewer's F1,
+            // 2026-11-10, proven as `b6floor-probe.sh`). Until this line,
+            // `term.open {argv:["bash"]}` and then a typed command reached
+            // Theseus's own state with nothing asked and nothing said.
+            lines: a.text.iter().cloned().collect(),
             ..Default::default()
         })
     }
