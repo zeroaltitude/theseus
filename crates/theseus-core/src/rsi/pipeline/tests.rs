@@ -267,8 +267,8 @@ fn t_first(r: &Rig) -> String {
     r.fake.starts.lock().unwrap()[0].0.clone()
 }
 
-/// The guard reads the host with the slots free: low disk, memory and CPU
-/// pressure each hold the start with its own row, as do open trees; with
+/// The guard reads the host with the slots free: low disk, memory pressure
+/// and CPU load each hold the start with its own row, as do open trees; with
 /// room again it starts.
 #[tokio::test]
 async fn the_guard_holds_on_low_disk_pressure_and_trees_with_the_slots_free() {
@@ -281,9 +281,10 @@ async fn the_guard_holds_on_low_disk_pressure_and_trees_with_the_slots_free() {
     *r.host.memory.lock().unwrap() = Some(25.0);
     assert_eq!(r.tick().await.hold.as_deref(), Some("memory"));
     *r.host.memory.lock().unwrap() = Some(1.0);
-    *r.host.cpu.lock().unwrap() = Some(90.0);
+    // The CPU hold reads the load a core, not pressure (theseus-1eemp).
+    *r.host.load.lock().unwrap() = Some(2.0);
     assert_eq!(r.tick().await.hold.as_deref(), Some("cpu"));
-    *r.host.cpu.lock().unwrap() = None;
+    *r.host.load.lock().unwrap() = None;
     let place = r.core.tools.self_pr.place("/nowhere");
     for slug in ["tsk-left-a", "tsk-left-b"] {
         std::fs::create_dir_all(place.trees().join(slug)).unwrap();

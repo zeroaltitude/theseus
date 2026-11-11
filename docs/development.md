@@ -561,7 +561,9 @@ queue goes on.
 - `theseus self halt` stops everything at once and may come from anyone. Only the owner's `theseus self resume`
   releases it, and a store that has never seen a resume is halted.
 - `[self.budget]` sets a spend line per branch and per day, for all self-improvement together. Raising either is keel.
-- A capacity guard: a build starts only when there is a free slot, free disk, and low memory and CPU pressure.
+- A capacity guard: a build starts only when there is a free slot, free disk, low memory pressure, and a spare core (the
+  five-minute load average under one runnable task a core; CPU *pressure* is shown, not held on: its `some` line
+  reads busy on a host with idle cores, and the system-wide `full` line is always zero).
 - `theseus self revert` undoes a self-join (the gate runs on the revert) and drops its item for good.
 - Everything is visible: `theseus self log`, `self pipeline`, `self backlog` and `self branches`, a morning notice,
   and a weekly digest.
