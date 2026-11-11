@@ -864,30 +864,67 @@ fn linger(spool: &Spool, correlation_id: &str, marked: bool) {
     }
 }
 
-/// The job a live wrapper runs, from its command line (theseus-6qy): a
-/// process whose first argument is the mode word is a wrapper, and its
-/// `--correlation-id`, before the `--` that starts the job's own argv, names
-/// the job ("?" if it has none). A zombie's command line is empty, so a
-/// wrapper that has exited is none, and so is one still in its exec, whose
-/// job cannot be read yet (see `holder`).
-pub fn wrapper_job(pid: u32) -> Option<String> {
-    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-    job_in_cmdline(&cmdline)
+/// What a command line says of the job wrapper it may be (theseus-6qy). The
+/// states are kept apart on purpose: a reader that was handed "I could not
+/// tell" in the shape of a job id (the old `"?"`) answered *which job holds
+/// this pid* with a job that is none, and could not tell it from a wrapper
+/// whose id it read (theseus-3i6d1). Only `Job` is an identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WrapperIdentity {
+    /// Not a wrapper's: its first argument is not the mode word, or it has no
+    /// arguments at all (a zombie's; a process in its exec, which `holder`
+    /// tells from a zombie by its state).
+    NotWrapper,
+    /// A wrapper's, whole, whose `--correlation-id`, before the `--` that
+    /// starts the job's own argv, names its job.
+    Job(String),
+    /// A wrapper's, whole, with no `--correlation-id`: a wrapper of no job.
+    Unnamed,
+    /// Cut short: a read that raced the process's exit and came back
+    /// mid-argument, with no NUL ending its last argument. It says nothing of
+    /// who the process is; a caller must look again, or leave what it holds.
+    Unreadable,
 }
 
-/// `wrapper_job` over a NUL-separated command line, as `/proc` gives it.
-pub fn job_in_cmdline(cmdline: &[u8]) -> Option<String> {
-    let mut args = cmdline.split(|&b| b == 0);
-    args.next()?;
-    if args.next()? != WRAPPER_MODE.as_bytes() {
-        return None;
+/// The job a live wrapper runs, from its command line: see `WrapperIdentity`.
+/// A process that is gone is `NotWrapper`.
+pub fn wrapper_job(pid: u32) -> WrapperIdentity {
+    match std::fs::read(format!("/proc/{pid}/cmdline")) {
+        Ok(cmdline) => job_in_cmdline(&cmdline),
+        Err(_) => WrapperIdentity::NotWrapper,
     }
-    let own: Vec<&[u8]> = args.take_while(|a| *a != b"--").collect();
-    let id = own
-        .windows(2)
-        .find(|w| w[0] == b"--correlation-id")
-        .map(|w| String::from_utf8_lossy(w[1]).into_owned());
-    Some(id.unwrap_or_else(|| "?".into()))
+}
+
+/// `wrapper_job` over a NUL-separated command line, as `/proc` gives it. A
+/// complete one ends on the NUL that ends its last argument; one that does
+/// not is cut (`Unreadable`), whatever it names so far. So is a wrapper's
+/// that names no job and has no `--` yet: `spawn_detached` always passes the
+/// `--` that starts the job's argv, so such a line was cut, on an argument's
+/// boundary, before it got there. A job named before the cut is named.
+pub fn job_in_cmdline(cmdline: &[u8]) -> WrapperIdentity {
+    if cmdline.last().is_some_and(|&b| b != 0) {
+        return WrapperIdentity::Unreadable;
+    }
+    let whole = cmdline.strip_suffix(&[0]).unwrap_or(cmdline);
+    let mut args = whole.split(|&b| b == 0);
+    args.next();
+    if args.next() != Some(WRAPPER_MODE.as_bytes()) {
+        return WrapperIdentity::NotWrapper;
+    }
+    let mut own: Vec<&[u8]> = Vec::new();
+    let mut ended = false;
+    for a in args {
+        if a == b"--" {
+            ended = true;
+            break;
+        }
+        own.push(a);
+    }
+    match own.windows(2).find(|w| w[0] == b"--correlation-id") {
+        Some(w) => WrapperIdentity::Job(String::from_utf8_lossy(w[1]).into_owned()),
+        None if ended => WrapperIdentity::Unnamed,
+        None => WrapperIdentity::Unreadable,
+    }
 }
 
 /// Best-effort poke: one line on a Unix stream socket. Failure is fine; the
@@ -908,8 +945,10 @@ pub fn notify(_: &Path, _: &str) {}
 pub enum Holder {
     /// The job's wrapper: its command line names the job.
     Wrapper,
-    /// A live process whose command line is still empty: in its exec, or
-    /// ending. Whose it is shows at the next look.
+    /// A live process that cannot be told yet, by what `/proc` gave: its
+    /// command line is still empty (in its exec, or ending), or it came back
+    /// cut short, torn by a read that raced its exit
+    /// (`WrapperIdentity::Unreadable`). Whose it is shows at the next look.
     Starting,
     /// Another process, which took the pid once the wrapper was reaped, or a
     /// kernel thread.
@@ -922,13 +961,16 @@ pub enum Holder {
 /// command line is empty for good.
 const PF_KTHREAD: u64 = 0x0020_0000;
 
-/// What holds `pid` now, for `job` (theseus-mi6a). A process in its exec has
-/// an empty command line, as a zombie has: the exec has switched to the new
-/// image, and has not set its arguments yet. A spawn returns inside that
-/// window, so a wrapper spawned a moment ago may read so. Measured
-/// 2026-10-01: a quarter of reads made at once came back empty at load 12,
-/// for about 0.1 ms, and the window lasted up to 84 ms for a child starved
-/// at nice 19, in state R, S, or D. Its state tells it from a zombie.
+/// What holds `pid` now, for `job` (theseus-mi6a). Told by content, in this
+/// order: a command line that is whole names the process (`Wrapper` if it
+/// is `job`'s, else `Other`); one cut short is `Starting`; one that is empty
+/// is told by the state. A process in its exec has an empty command line, as
+/// a zombie has: the exec has switched to the new image, and has not set its
+/// arguments yet. A spawn returns inside that window, so a wrapper spawned a
+/// moment ago may read so. Measured 2026-10-01: a quarter of reads made at
+/// once came back empty at load 12, for about 0.1 ms, and the window lasted
+/// up to 84 ms for a child starved at nice 19, in state R, S, or D. Its
+/// state tells it from a zombie.
 pub fn holder(pid: u32, job: &str) -> Holder {
     let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok();
     let stat = match &cmdline {
@@ -943,21 +985,18 @@ pub fn holder(pid: u32, job: &str) -> Holder {
 fn decide(cmdline: Option<&[u8]>, stat: Option<(char, u64)>, job: &str) -> Holder {
     match (cmdline, stat) {
         (None, _) => Holder::Gone,
-        // A complete `/proc/<pid>/cmdline` ends on the NUL that terminates its
-        // last argument. One that does not is a read that raced a page
-        // boundary while the mm was being torn down: it is cut mid-argument,
-        // not mid-process. A cut buffer can still name `job-wrapper` at
-        // argv[1] with its `--correlation-id` pair sheared off, which must
-        // not be read as another process's pid (theseus-3i6d1 L208) — whose
-        // it is shows at the next look, same as an exec in flight.
-        (Some(c), _) if !c.is_empty() && c.last() != Some(&0) => Holder::Starting,
-        (Some(c), _) if !c.is_empty() => {
-            if job_in_cmdline(c).as_deref() == Some(job) {
-                Holder::Wrapper
-            } else {
+        // A cut buffer (`Unreadable`) can still name `job-wrapper` at argv[1]
+        // with its `--correlation-id` pair sheared off: a read that raced a
+        // page boundary while the mm was being torn down. It must not be read
+        // as another process's pid (theseus-3i6d1 L208); whose it is shows at
+        // the next look, same as an exec in flight.
+        (Some(c), _) if !c.is_empty() => match job_in_cmdline(c) {
+            WrapperIdentity::Job(j) if j == job => Holder::Wrapper,
+            WrapperIdentity::Unreadable => Holder::Starting,
+            WrapperIdentity::Job(_) | WrapperIdentity::Unnamed | WrapperIdentity::NotWrapper => {
                 Holder::Other
             }
-        }
+        },
         (Some(_), None | Some(('Z' | 'X', _))) => Holder::Gone,
         (Some(_), Some((_, flags))) if flags & PF_KTHREAD != 0 => Holder::Other,
         (Some(_), Some(_)) => Holder::Starting,
@@ -1805,14 +1844,14 @@ mod tests {
             job_in_cmdline(&cmdline(&a))
         };
         assert_eq!(
-            wrapper(&["--correlation-id", "act_1"], &["sh", "-c", "true"]).as_deref(),
-            Some("act_1")
+            wrapper(&["--correlation-id", "act_1"], &["sh", "-c", "true"]),
+            WrapperIdentity::Job("act_1".into())
         );
         // The job's argv cannot name another job, and a wrapper with no id is
-        // still a wrapper.
+        // still a wrapper: of no job, not of a job called "?".
         assert_eq!(
-            wrapper(&[], &["x", "--correlation-id", "act_2"]).as_deref(),
-            Some("?")
+            wrapper(&[], &["x", "--correlation-id", "act_2"]),
+            WrapperIdentity::Unnamed
         );
         for other in [
             cmdline(&["theseusd", "--config", "x"]),
@@ -1820,8 +1859,62 @@ mod tests {
             cmdline(&["theseusd"]),
             vec![],
         ] {
-            assert_eq!(job_in_cmdline(&other), None, "{other:?}");
+            assert_eq!(
+                job_in_cmdline(&other),
+                WrapperIdentity::NotWrapper,
+                "{other:?}"
+            );
         }
+    }
+
+    /// "I could not tell" is not an identity: a wrapper's command line cut at
+    /// any byte reads `Unreadable` until its job is named, and names the job
+    /// from the cut that completes the id, and never as a wrapper of no job
+    /// (the old `"?"`) or of another. That holds at the cuts a NUL-only guard
+    /// misses, the ones that land on an argument's boundary. The one cut that
+    /// cannot be told by content is right after argv[0]: `theseusd\0` is a
+    /// whole line of a process with one argument.
+    #[test]
+    fn a_cut_command_line_is_unreadable_at_every_cut_never_a_job() {
+        let whole = cmdline(&[
+            "theseusd",
+            WRAPPER_MODE,
+            "--spool",
+            "/s",
+            "--correlation-id",
+            "act_1",
+            "--deadline-ms",
+            "9",
+            "--",
+            "sh",
+        ]);
+        let upto = |s: &str| {
+            whole
+                .windows(s.len())
+                .position(|w| w == s.as_bytes())
+                .unwrap()
+                + s.len()
+        };
+        let (arg0, id) = (upto("theseusd\0"), upto("act_1\0"));
+        for n in 1..=whole.len() {
+            let want = if n == arg0 {
+                WrapperIdentity::NotWrapper
+            } else if whole[n - 1] != 0 || n < id {
+                WrapperIdentity::Unreadable
+            } else {
+                WrapperIdentity::Job("act_1".into())
+            };
+            let got = job_in_cmdline(&whole[..n]);
+            assert_eq!(
+                got,
+                want,
+                "cut at {n}: {:?}",
+                String::from_utf8_lossy(&whole[..n])
+            );
+        }
+        // A wrapper's line with its `--` and no id is a wrapper of no job.
+        let unnamed = cmdline(&["theseusd", WRAPPER_MODE, "--spool", "/s", "--", "sh"]);
+        assert_eq!(job_in_cmdline(&unnamed), WrapperIdentity::Unnamed);
     }
 
     /// A zombie is not alive: it has exited, and waits only to be reaped.
@@ -1903,10 +1996,9 @@ mod tests {
     /// wrapper's mm is being torn down cuts the buffer mid-argument, with no
     /// terminating NUL (theseus-3i6d1 L208, measured 2/1200 under 8-way
     /// load). This one is cut right after `--correlation-id`, before its
-    /// value: `job_in_cmdline` sees a single-element `own` with no pair to
-    /// find and falls to its `"?"` sentinel, exactly as the production
-    /// capture did. The pid is still starting, not another process's — a
-    /// reverted guard would see `Some("?") != Some(job)` and call it
+    /// value, as the production capture was. It reads `Unreadable`, which is
+    /// no job id, so the pid is still starting, not another process's. The
+    /// old reader returned `Some("?")` for it, and `decide` called that
     /// `Holder::Other`, which is the bug this test pins.
     #[test]
     fn a_page_torn_cmdline_is_starting_not_another_process() {
@@ -1919,17 +2011,14 @@ mod tests {
         );
         assert_eq!(
             job_in_cmdline(&torn),
-            Some("?".to_string()),
-            "the sentinel this torn read falls to"
+            WrapperIdentity::Unreadable,
+            "a torn read is no identity"
         );
         assert_eq!(decide(Some(&torn), None, job), Holder::Starting);
 
         // Plant: a COMPLETE (NUL-terminated) command line for a genuinely
-        // different job must still read `Other`. If the guard above were
-        // written to treat every `job_in_cmdline` mismatch as `Starting`
-        // instead of checking the trailing NUL, this assertion is what would
-        // catch it — a torn-only guard must not swallow a real "someone
-        // else" verdict.
+        // different job must still read `Other`. A torn-only verdict must not
+        // swallow a real "someone else" answer.
         let whole = cmdline(&[
             "theseusd",
             WRAPPER_MODE,
@@ -1944,6 +2033,9 @@ mod tests {
             "the complete case this plant relies on"
         );
         assert_eq!(decide(Some(&whole), None, job), Holder::Other);
+        // A whole wrapper line that names no job is another's too, not torn.
+        let unnamed = cmdline(&["theseusd", WRAPPER_MODE, "--", "sh"]);
+        assert_eq!(decide(Some(&unnamed), None, job), Holder::Other);
     }
 
     /// `holder` over live processes: this one is another process, and a
