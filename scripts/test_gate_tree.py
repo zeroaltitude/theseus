@@ -663,6 +663,238 @@ class GateTree(unittest.TestCase):
         self.assertLessEqual(read, max(before, after) + 0.2, (before, read, after))
         self.assertTrue(self.ran_the_suite(calls), f"the suite did run: {calls}")
 
+    # ---- what the verdict line says a green did NOT run (theseus-4vsrz, B7)
+
+    def verdict(self, out):
+        """The `gate: ok…`/`gate: FAILED…` line, which is the last thing the gate prints."""
+        lines = [l for l in out.split("\n") if l.startswith(("gate: ok", "gate: FAILED"))]
+        self.assertEqual(len(lines), 1, f"one verdict line, got {lines}")
+        return lines[0]
+
+    def test_a_lane_gates_verdict_names_the_benches_it_did_not_run(self):
+        # THE CASE THAT MOTIVATED THE ROW. THESEUS_GATE_NO_BENCH=1 is the NORMAL lane gate, and before this the
+        # verdict read `gate: ok (skipped: scrub)` under it -- identical to a run with the benches -- with
+        # `lifecycle` and `jobs` sitting in the phase table as though they had run. Both benches live in the
+        # locked part, which is ANOTHER PROCESS, so this also holds the record channel that carries a
+        # stand-down across the lock: a list kept only in the locked part's own memory would name neither.
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        v = self.verdict(out)
+        self.assertIn("lifecycle", v, v)
+        self.assertIn("jobs", v, v)
+        self.assertIn("the turn bench's burst and its record", v, v)
+        # And the table says it too, for a reader who sees only the tail.
+        self.assertIn("gate: what this run did NOT do: ", out)
+
+    def test_the_verdict_names_the_scrub_the_fleet_asks_it_to_skip(self):
+        # The fleet and ARM runners both set THESEUS_GATE_NO_SCRUB=1, and on 2026-11-10 a real blocking name hit
+        # was caught by a by-hand range scrub that a fleet green had said nothing about.
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("scrub", self.verdict(out))
+
+    def test_the_verdict_never_names_a_phase_that_ran(self):
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        v = self.verdict(out)
+        for ran in ("fmt", "clippy", "cockpit", "shape", "features", "protocol types", "reader rule"):
+            self.assertNotIn(ran, v, f"{ran} ran, so the verdict must not name it: {v}")
+
+    def test_a_phase_whose_own_script_says_it_skipped_is_named_in_the_verdict(self):
+        # size-step.sh, recall-tests.sh and prompt-step.sh each decide for themselves whether they can run and
+        # say so on stdout, exiting 0 either way: the gate cannot tell from the status, so it reads what they
+        # said. `size` is the common one -- a lane that has not made a release build skips it on every gate.
+        self.put(self.root / "scripts" / "size-step.sh",
+                 '#!/bin/sh\necho "size: skipped: no release build of deadbeef"\nexit 0\n')
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("size", self.verdict(out))
+
+    def test_a_phase_whose_own_script_ran_is_not_named(self):
+        # The same wrapper, with a script that did its work: its output still reaches the log, and nothing is
+        # registered. A wrapper that registered on the strength of being wrapped would report every run.
+        self.put(self.root / "scripts" / "size-step.sh",
+                 '#!/bin/sh\necho "size: 61.2 MB, 0.3 MB over the last recorded"\nexit 0\n')
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("size: 61.2 MB", out, "the script's own output still reaches the log")
+        self.assertNotIn("size", self.verdict(out))
+
+    def test_a_filtered_suite_is_a_partial_run_and_the_verdict_says_so(self):
+        # A default-filter skips tests in every run, which `suite filtered` has long said in the table. The
+        # verdict line said nothing, and the table is 20 lines above the line a reader greps for.
+        self.stale_filter()
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("some of the suite (a default-filter)", self.verdict(out))
+
+
+class SkipRegistry(unittest.TestCase):
+    """Every place the gate stands a check down registers itself, or this reddens (theseus-4vsrz, B7).
+
+    `gate: ok` read identically for a run that made every check and one that made most of them. The fix is a
+    list the sites write into, and the hazard it brings is that the list is only as honest as its coverage: the
+    first draft inferred the list from phase labels, exactly one site sets such a label, and so a lane gate
+    under THESEUS_GATE_NO_BENCH=1 -- the normal lane gate -- reported one stand-down out of five and read as
+    though that were all of them. A reporting fix that under-reports is a new instance of the defect it fixes.
+
+    So the rule is checked, not trusted. These are static reads of scripts/gate.sh: they cost no gate run and
+    they catch the case no passing run can, which is a stand-down nobody wired up.
+
+    THE ONE PHASE DELIBERATELY NOT REGISTERED, and the reason is worth keeping. The gate's first phase -- the
+    one that decides which copy of this script judges the tree -- returns early in four places, and NONE of
+    them registers. Two are not stand-downs at all: under the `judge` word this copy IS the judge, and under
+    the `own` word the first pass already ran it, so its work happened in the process above. The other two (no
+    main to compare against; main's copy has no such phase yet) are real weakenings, and the runner that meets
+    them says so itself, loudly, in its own log. And registering them is not free: scripts/keel-guard.py holds
+    every line of gate.sh matching `keel|door` case-insensitively, each of those four conditions names the
+    environment variable, and so every edit that would add a registration to them MODIFIES a held line and
+    turns a free change into one needing the owner's signed acknowledgement. That is a real cost against a
+    thin benefit, so it is written down here rather than paid. Anyone who wants to pay it should know what the
+    bill is before they start.
+    """
+
+    GATE = (REPO / "scripts" / "gate.sh").read_text()
+
+    # Lines that print this language but are the REPORTER, or prose about someone else's count, rather than a
+    # place that stood a check down. Keyed by their text and not their line number: on 2026-11-10 a review of
+    # this very patch cited six reader line numbers and five of the six had already moved.
+    REPORTERS = {
+        # The two verdict lines and the line under the phase table: where the list is printed.
+        'echo "gate: ok (main\'s gate judged this tree)$(skipped_clause)"',
+        'echo "gate: ok$(skipped_clause)"',
+        'echo "gate: what this run did NOT do: $(skipped_list)"',
+        "printf ' (skipped: %s)' \"$(skipped_list)\"",
+        # The record that carries a locked-part stand-down across the lock.
+        "printf 'skipped 0 %s\\n' \"$s\"",
+        # nextest's own "skipped" count, which includes the #[ignore]d tests: prose about the suite's summary,
+        # beside a filter whose stand-down is registered where it is detected (suite_filters, suite_applied).
+        'echo "gate: the suite above ran under a default-filter (suite filters, above): its \\"skipped\\" count'
+        ' includes the tests the filter excluded"',
+    }
+
+    def functions(self):
+        """{name: body} for gate.sh's top-level functions, which all open and close at column 0."""
+        out, name, body = {}, None, []
+        for line in self.GATE.split("\n"):
+            m = re.match(r"^([A-Za-z_][A-Za-z_0-9]*)\(\) \{", line)
+            if m:
+                name, body = m[1], []
+            elif line == "}" and name:
+                out[name] = "\n".join(body)
+                name = None
+            elif name is not None:
+                body.append(line)
+        return out
+
+    # `skip` as a command word: at the head of a line, or after a separator, a group opener, or a
+    # `then`/`else`/`do`. The lookahead keeps the function's own definition (`skip() {`) and the
+    # skipped_list/skipped_clause helpers out of it.
+    #
+    # THE GROUP OPENERS ARE NOT DECORATION. Without them this missed `… && { skip; return 0; }`, which is how
+    # a one-line site is most naturally written, and the miss ran in both directions: the inventory below
+    # stopped counting that site, and the rule above would have called it unregistered. Found by planting the
+    # five defects these tests exist to catch and noticing that the fifth did not red.
+    CALL = re.compile(r"(?:^|[;|&({]|\bthen|\belse|\bdo)[ \t]*skip(?=[ \t;]|$)", re.M)
+
+    def registers(self, body):
+        return self.CALL.search(body) is not None
+
+    def test_every_place_that_says_it_skipped_registers_itself(self):
+        # The rule: a line that TELLS a reader a check did not run must also tell the verdict line. Both halves
+        # matter -- a phase that printed its stand-down and registered nothing is exactly what lifecycle and
+        # jobs did, in the table, on every lane gate, for as long as the benches have been skippable.
+        says = re.compile(r"\bskipped\b|\bSKIPPED\b|NOT scrubbed|NOT checked|floor: off")
+        funcs = self.functions()
+        unregistered = []
+        for line in self.GATE.split("\n"):
+            s = line.strip()
+            if not s.startswith(("echo ", "printf ")) or not says.search(s):
+                continue
+            if s in self.REPORTERS:
+                continue
+            owner = next((n for n, b in funcs.items() if line in b.split("\n")), None)
+            if owner is None or not self.registers(funcs[owner]):
+                unregistered.append(f"{owner or '(top level)'}: {s[:90]}")
+        self.assertEqual(
+            unregistered, [],
+            "each of these says a check did not run, and nothing registers it, so the verdict line will claim "
+            "a completeness the run did not have. Call `skip` at the site (no argument registers the running "
+            "phase; a phrase for a partial one), or add the line to REPORTERS above with its reason:\n  "
+            + "\n  ".join(unregistered))
+
+    def test_a_helper_script_that_says_it_skipped_is_run_through_the_wrapper(self):
+        # Three phases are scripts that decide for themselves whether they can run and say so on stdout,
+        # exiting 0 either way: size-step.sh, recall-tests.sh, prompt-step.sh. The gate cannot tell from the
+        # status, so it runs them through ran_or_skipped, which reads what they said. A fourth such script
+        # wired in as a bare command would skip silently and this names it.
+        funcs = self.functions()
+        phases = re.findall(r"^ *(?:if .*; then +)?phase +(\"[^\"]+\"|'[^']+'|\S+) +(.*)$", self.GATE, re.M)
+        missing = []
+        for raw, command in phases:
+            name = raw.strip("\"'")
+            # One level of indirection: `phase size size_step` runs a function that runs the script.
+            text = command + "\n" + funcs.get(command.split()[0], "")
+            for script in re.findall(r"scripts/[A-Za-z0-9_.-]+\.(?:sh|py)", text):
+                path = REPO / script
+                if not path.exists():
+                    continue
+                if not re.search(rf"^ *echo \"{re.escape(name)}: skipped", path.read_text(), re.M):
+                    continue
+                invocation = next(l for l in text.split("\n") if script in l)
+                if "ran_or_skipped" not in invocation:
+                    missing.append(f"phase {name}: {script} says `{name}: skipped` and is run bare")
+        self.assertEqual(
+            missing, [],
+            "a phase whose own script decides it cannot run must be invoked through ran_or_skipped, or its "
+            "stand-down reaches the log and never the verdict:\n  " + "\n  ".join(missing))
+
+    def test_a_stand_down_under_the_lock_is_carried_back_to_the_gate_above_it(self):
+        # Five of the sites run in the locked part, which is another process: the two benches, the turn
+        # bench's record, the size check and the suite's filter. They are most of what a lane gate stands
+        # down, so a list that did not cross the lock would miss nearly everything this exists to report, and
+        # it would do it silently -- the parent's array would simply be shorter. The channel is locked.rec.
+        funcs = self.functions()
+        self.assertRegex(funcs["save_locked_record"], r"printf 'skipped 0 %s\\n'",
+                         "the locked part must write its stand-downs into the record it hands back")
+        self.assertRegex(funcs["locked_checks"], r"skipped\)\s*\n\s*skip \"\$name\"",
+                         "the gate above must read them back into its own list")
+        for site in ("lifecycle_bench", "jobs_bench", "turn_step", "size_step", "suite_filters"):
+            self.assertTrue(self.registers(funcs[site]) or "ran_or_skipped" in funcs[site],
+                            f"{site} runs under the lock and must register its stand-down")
+
+    def test_the_clause_is_appended_to_both_verdict_lines_and_replaces_neither(self):
+        # The patch this grew from gave one ready-to-paste line for "two call sites", and the two sites are not
+        # the same string: one carries a parenthetical that a test asserts verbatim and that the fleet runner
+        # greps the log for, as its check that a tree which changed this script was not judged by main's copy
+        # alone. Pasting the line at both reddened that test and switched that check off; it would have passed
+        # every gate. So both sites keep every word they had, and the clause goes after it.
+        self.assertIn('echo "gate: ok (main\'s gate judged this tree)$(skipped_clause)"', self.GATE)
+        self.assertIn('echo "gate: ok$(skipped_clause)"', self.GATE)
+        self.assertEqual(self.GATE.count("skipped_clause)"), 2, "two verdict lines carry the clause")
+
+    def test_the_registered_sites_are_the_ones_this_test_knows_about(self):
+        # The inventory, so that a reader of this file has the whole list in one place and an author who adds a
+        # site is made to write it down here. It fails in both directions on purpose.
+        expected = {
+            "deny_check": 1,          # no advisory database: bans, licences and sources only
+            "disk_floor": 1,          # THESEUS_GATE_MIN_FREE_GB=0
+            "gate_tests": 1,          # this tree's gate.sh and tests are main's
+            "jobs_bench": 1,          # THESEUS_GATE_NO_BENCH=1
+            "keel_tests": 1,          # the guard and its suite are the base's
+            "lifecycle_bench": 1,     # THESEUS_GATE_NO_BENCH=1
+            "ran_or_skipped": 1,      # whatever the wrapped script said of itself
+            "script_tests": 1,        # scripts/tests matched no test at all
+            "scrub_added": 3,         # the flag; no scrubber on the host; nothing added to scan
+            "suite_applied": 1,       # nextest says it applied a default-filter
+            "suite_filters": 1,       # the banner says one is active
+            "turn_step": 1,           # the burst and the history entry, not the bench
+            "locked_checks": 1,       # not a site: the locked part's sites, read back across the lock
+        }
+        found = {n: len(self.CALL.findall(b)) for n, b in self.functions().items() if self.registers(b)}
+        self.assertEqual(found, expected,
+                         "a site was added, removed or moved: update this inventory and say what the site is")
+
 
 # A stand-in cargo for deny-daily.sh: logs its argv and keeps a copy of the --config file it is given (the script deletes it).
 DENY_CARGO = r"""#!/usr/bin/env bash

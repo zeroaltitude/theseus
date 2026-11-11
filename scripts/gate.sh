@@ -219,6 +219,58 @@ phase_label=""
 # (`ec2.sh tail LANE gate` is 30 lines by default, and that phase runs minutes of compiling before the end).
 # Empty when the phase did not run: every locked part, and any gate that stopped before it.
 line_pressure_said=""
+# WHAT THIS RUN DID NOT DO (theseus-4vsrz, B7). `gate: ok` read identically for a run that made every check and
+# one that made most of them, so a reader could not tell them apart. That cost 2026-11-10 three separate times,
+# the sharpest being a real blocking name hit a fleet gate would have shipped, because the fleet asks for
+# THESEUS_GATE_NO_SCRUB=1. So every place that returns early, filters, or stands a check down registers itself
+# here, by name, and both the verdict line and the table say so. The residual risk this closes is narrow and
+# worth stating exactly: a lane operator reading a green cannot otherwise tell which phases it did not run --
+# an information defect for a human mid-flight, not a hole in the push path (the join runs its own scrub over
+# the staged merge, unconditionally, and refuses a cut that produced no artefact).
+#
+# AN EXPLICIT LIST, NEVER A PATTERN OVER THE LABELS. The first draft of this inferred the list from phase_names
+# entries ending in " skipped", and exactly one place sets such a label (the name scrub), so a lane gate under
+# THESEUS_GATE_NO_BENCH=1 -- which is the normal lane gate -- printed `(skipped: scrub)` with the lifecycle and
+# jobs benches sitting in the table as though they had run. A list that names SOME of what a run missed, while
+# reading as though it were exhaustive, is the same defect in a new place. A site registers itself or it is not
+# reported, and scripts/test_gate_tree.py holds that: a new stand-down that does not register reddens there.
+#
+# ACROSS THE LOCK, TOO. Five of these sites run in the locked part, which is another process (machine_checks),
+# so a registration there reaches the verdict line only because save_locked_record writes it into locked.rec and
+# the gate above reads it back. Those five -- the two benches, the turn bench's record, the size check and the
+# suite's filter -- are most of what a lane gate stands down, so a list that did not cross the lock would have
+# missed nearly everything it exists to report.
+#
+# `skip` with no argument registers the phase it is running in, which is what nearly every site wants and keeps
+# the phrase in one place; a site that stood down only PART of its phase passes its own words.
+skipped=()
+skip() {
+  local what="${1:-$phase_now}" s
+  [ -n "$what" ] || return 0
+  for s in ${skipped[@]+"${skipped[@]}"}; do [ "$s" != "$what" ] || return 0; done
+  skipped+=("$what")
+}
+skipped_list() {
+  local out="" s
+  for s in ${skipped[@]+"${skipped[@]}"}; do out="${out:+$out, }$s"; done
+  printf '%s' "$out"
+}
+# The clause the verdict lines carry, and empty when the run made every check it has. APPENDED by its callers,
+# never substituted for what they already said.
+skipped_clause() {
+  [ "${#skipped[@]}" -gt 0 ] || return 0
+  printf ' (skipped: %s)' "$(skipped_list)"
+}
+# A phase whose own script decides whether it can run and says so on stdout (`size: skipped: no release build
+# of …`, `recall tests: skipped (no Python >= 3.11 …)`, `prompt: skipped: no …`), each exiting 0. The gate cannot
+# tell from the status, so it reads what the script said, under the phase's own name, and registers the
+# stand-down. The script's output still reaches the log, in order.
+ran_or_skipped() {
+  local out="$gate_tmp/stood-down.log" rc=0
+  "$@" 2>&1 | tee "$out" || rc=$?
+  if grep -q "^$phase_now: skipped" "$out"; then skip; fi
+  return "$rc"
+}
 phase() {
   phase_now="$1"
   phase_began=$SECONDS
@@ -244,6 +296,9 @@ summary() {
   fi
   printf '  %-16s %5d\n' total "$total"
   [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
+  # Beside the table, where a reader of the tail gets it, and on a FAILED run too: what a run did not do is as
+  # much a part of reading its result as the phases it timed.
+  [ "${#skipped[@]}" -eq 0 ] || echo "gate: what this run did NOT do: $(skipped_list)"
   mkdir -p "$(dirname "$times")" 2>/dev/null || true
   {
     [ -s "$times" ] || echo "time,label,phase,seconds,status"
@@ -260,7 +315,7 @@ summary() {
 # and `failed SECONDS NAME` for the one that stopped it. (Its first line, `began EPOCH`, is
 # written when it takes the lock.) Written however the part ends, a failure's too.
 save_locked_record() {
-  local i
+  local i s
   {
     for i in "${!phase_names[@]}"; do
       printf 'phase %s %s\n' "${phase_secs[$i]}" "${phase_names[$i]}"
@@ -268,6 +323,13 @@ save_locked_record() {
     if [ -n "$phase_now" ]; then
       printf 'failed %s %s\n' "$((SECONDS - phase_began))" "$phase_now"
     fi
+    # What the part stood down, for the gate above it: that is where the verdict line is printed, in another
+    # process, so a stand-down registered in here reaches a reader only by being written down. The seconds
+    # field is 0 and means nothing -- a check that did not run took no time -- and is there so every record in
+    # this file has one shape. The name is the rest of the line, so a phrase with spaces survives.
+    for s in ${skipped[@]+"${skipped[@]}"}; do
+      printf 'skipped 0 %s\n' "$s"
+    done
   } >>"$gate_tmp/locked.rec" 2>/dev/null || true
 }
 # THE TREE THE GATE JUDGES (theseus-4vsrz). The gate compiles one tree and then runs the tests of whatever tree is there,
@@ -433,6 +495,7 @@ suite_filters() {
     filters_found=yes
     echo "gate: suite filters: ACTIVE, a default-filter skips tests in every run below (nextest counts them as \"skipped\", with the #[ignore]d ones):"
     phase_label="suite filtered"
+    skip "some of the suite (a default-filter)"
   else
     echo "gate: suite filters: none for this run (profile $run); a default-filter sits in another profile, named below and not applied:"
   fi
@@ -465,6 +528,7 @@ suite_applied() {
   if [ -n "$applied" ]; then
     echo "gate: nextest applied a default-filter: $n test(s) excluded ($applied)"
     phase_label="suite filtered"
+    skip "some of the suite (a default-filter)"
     if [ "$n" -gt 0 ] && [ "$filters_found" != yes ]; then
       echo "gate: MISMATCH: the banner said no default-filter, and nextest excluded $n test(s) by one: read the line above"
     fi
@@ -623,6 +687,7 @@ settle() {
 lifecycle_bench() {
   if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
     echo "lifecycle: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
+    skip
     return 0
   fi
   sync
@@ -645,6 +710,7 @@ lifecycle_bench() {
 jobs_bench() {
   if [ -n "${THESEUS_GATE_NO_BENCH:-}" ]; then
     echo "jobs: skipped (THESEUS_GATE_NO_BENCH: a lane's gate; the join's gate runs it)"
+    skip
     return 0
   fi
   resolve_target_dir
@@ -674,6 +740,9 @@ turn_bench() {
 turn_step() {
   local args=(--runs 5 --burst 0)
   [ -n "${THESEUS_GATE_NO_BENCH:-}" ] || args=(--record "$history" --label "$label")
+  # The bench itself runs either way; the burst of 30 turns and the entry in the history do not, so a reader of
+  # a green is told which of the two runs it got.
+  [ -z "${THESEUS_GATE_NO_BENCH:-}" ] || skip "the turn bench's burst and its record"
   turn_bench "${args[@]}" || {
     echo "turn: the frames budget was missed; running the bench once more"
     turn_bench "${args[@]}"
@@ -685,7 +754,7 @@ turn_step() {
 # growth of more than 1 MB over the last recorded size of that profile, and prints §9's 60 MB miss without failing on
 # it. A count, not a time: it runs in a lane's gate too.
 size_step() {
-  scripts/size-step.sh "$history" "$label"
+  ran_or_skipped scripts/size-step.sh "$history" "$label"
 }
 
 # The supply-chain check, offline (theseus-goa8; review 2's SC2). Licences, bans, and
@@ -703,6 +772,7 @@ deny_check() {
   db="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/advisory-dbs/advisory-db-*/ 2>/dev/null | head -1 || true)"
   if [ -z "$db" ]; then
     echo "deny: no advisory database in ${CARGO_HOME:-~/.cargo}/advisory-dbs: advisories NOT checked (\`cargo deny fetch db\` makes the gate's pin)"
+    skip "deny's advisories"
     cargo deny --offline --log-level error check bans licenses sources
     return
   fi
@@ -849,6 +919,7 @@ keel_tests() {
   local own=(scripts/keel-guard.py scripts/test_keel_guard.py scripts/gate.sh)
   if git diff --quiet "$keel_base" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
     echo "keel tests: the guard is the base's; its suite ran there"
+    skip
     return 0
   fi
   PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_keel_guard.py
@@ -867,9 +938,16 @@ keel_tests() {
 # The exit code is read with `|| code=$?`, because under errexit a bare call stops the gate before `$?` is read.
 scrub_added() {
   local code=0 driver=scripts/scrub-added.sh main
+  # WHY THE FLAG, WHEN ABSENCE ALREADY DOES THIS: on the ARM and cloud hosts there is no scrubber, so the driver
+  # would exit 4 and this phase would stand down at the branch below with the same effect and the same words.
+  # What the flag buys is that the stand-down is the RUNNER'S stated intent rather than a consequence of what
+  # happens to be installed: a box that acquired a scrubber would otherwise quietly start running a phase whose
+  # patterns are not meant to leave the WSL host, and the change would show up as a host difference nobody asked
+  # for. It also saves running the driver to be told what the runner already knew.
   if [ -n "${THESEUS_GATE_NO_SCRUB:-}" ]; then
     echo "gate: scrub SKIPPED (THESEUS_GATE_NO_SCRUB) — the added lines were NOT scrubbed for names; a join must be gated on the WSL host"
     phase_label="scrub skipped"
+    skip
     return 0
   fi
   main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
@@ -883,11 +961,15 @@ scrub_added() {
     3)
       echo "gate: scrub: nothing added since the merge base of origin/main: nothing to scan"
       phase_label="scrub empty"
+      # A pass over an empty set, which is not the same thing as a pass: the one bar this phase exists to hold
+      # was met by there being nothing to hold it against, and a reader of the verdict should be told which.
+      skip "scrub (nothing added to scan)"
       code=0
       ;;
     4)
       echo "gate: scrub SKIPPED — no scrubber on this host: the added lines were NOT scrubbed for names; a join must be gated on the WSL host, where it is"
       phase_label="scrub skipped"
+      skip
       code=0
       ;;
   esac
@@ -914,6 +996,7 @@ gate_tests() {
   main="$(git rev-parse --verify -q 'origin/main^{commit}' || git rev-parse --verify -q 'main^{commit}' || true)"
   if [ -n "$main" ] && git diff --quiet "$main" -- "${own[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${own[@]}")" ]; then
     echo "gate tests: gate.sh and its tests are main's; its gate ran them"
+    skip
     return 0
   fi
   PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q scripts/test_gate_tree.py
@@ -979,9 +1062,12 @@ line_pressure() {
 # when something else has already gone wrong, so this wiring buys less than the fatal version would. It is left
 # non-fatal because the ruling said to leave it non-fatal and say so; the decision is the owner's.
 script_tests() {
-  local t rc=0 bad=()
+  local t rc=0 bad=() ran=0
   for t in scripts/tests/test_*.py; do
+    # A glob that matched nothing leaves the pattern itself here, so a tree with no scripts/tests ran no test
+    # and said nothing at all: the one shape of this phase that is indistinguishable from a clean pass.
     [ -e "$t" ] || continue
+    ran=$((ran + 1))
     if PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -q "$t"; then
       echo "script tests: $t ok"
     else
@@ -995,6 +1081,7 @@ script_tests() {
     echo "script tests: over a limit. Fix it in its own change; the owner decides whether this phase becomes fatal."
     phase_label="script tests warned"
   fi
+  [ "$ran" -gt 0 ] || skip
   return 0
 }
 
@@ -1212,6 +1299,9 @@ locked_checks() {
           phase_now=$name
           phase_began=$((SECONDS - secs))
           ;;
+        skipped)
+          skip "$name"
+          ;;
       esac
     done <"$rec"
   fi
@@ -1250,6 +1340,7 @@ disk_floor() {
   local dir=target kb where tenths free
   if [ "$min_free_gb" -eq 0 ]; then
     echo "gate: disk floor: off (THESEUS_GATE_MIN_FREE_GB=0)"
+    skip
     return 0
   fi
   while [ ! -e "$dir" ] && [ "$dir" != . ]; do dir="$(dirname "$dir")"; done
@@ -1279,7 +1370,17 @@ phase door keel_door
 if [ -n "$door_done" ]; then
   gate_done=1
   summary ok
-  echo "gate: ok (main's gate judged this tree)"
+  # APPENDED, never substituted for the parenthetical above: that exact text is asserted verbatim by this
+  # script's own suite, and the fleet runner greps the log for it as its belt-and-braces check that a tree
+  # which changed this script was not judged by main's copy alone. A line that replaced it would have passed
+  # every gate and silently switched that check off.
+  #
+  # The clause is empty here by construction -- one phase ran and it stood nothing down -- and it is appended
+  # all the same, so that a stand-down added to that phase later is reported at this exit too. It is NOT
+  # padded out with the phases this copy did not reach: they were not skipped, they ran, in main's copy, on
+  # this same tree, and that copy printed its own verdict line with its own clause into this same log a moment
+  # ago. The parenthetical already says whose judgement this is, which is the honest account of the run.
+  echo "gate: ok (main's gate judged this tree)$(skipped_clause)"
   exit 0
 fi
 phase keel keel_guard
@@ -1323,18 +1424,18 @@ phase "test build" test_build
 # theseusd, theseus-index and theseus-sim and skips itself when one is missing, so from ahead of the build a warm
 # lane tested the previous head's binaries (on 2026-11-03 a renamed config key left the stale daemon failing its
 # TOML parse). test_gate_order.py holds this order.
-phase "recall tests" scripts/recall-tests.sh
+phase "recall tests" ran_or_skipped scripts/recall-tests.sh
 # The prompt census, for the record (theseus-4vsrz, B7): a fresh session's first request per place, the session's
 # own context within it, and that context's share of `[routing] cold_switch_tokens` -- the quantity the cliff
 # assertion deleted on 2026-11-08 used to watch, which nothing watched after it went. AFTER the test build, like
 # the recall tests: it runs the debug theseusd and theseus-sim and says it skipped when either is missing. It
 # NEVER fails the gate: a printed warning and a committed baseline, never a ceiling (scripts/prompt-step.sh's own
 # doc says why, and scripts/shape.sh owns the hard ones).
-phase prompt scripts/prompt-step.sh
+phase prompt ran_or_skipped scripts/prompt-step.sh
 locked_checks
 phase deny deny_check
 if [ -n "$door_after" ]; then phase "own gate.sh" door_own; fi
 tree_check "at the end"
 gate_done=1
 summary ok
-echo "gate: ok"
+echo "gate: ok$(skipped_clause)"

@@ -237,7 +237,14 @@ It runs, in order:
      gate's pin (theseus-4vsrz): only the owner's `cargo deny fetch db` moves it, and `deny-daily.sh` keeps a database
      of its own, so a fetch never reddens a gate.
 
-It ends with `gate: ok`. Each step runs under `phase`, which times it: the gate prints a table of seconds before it
+It ends with `gate: ok`, and with `gate: ok (skipped: …)` where the run stood a check down — the name scrub on a host
+that has none or was told not to run it, the benches under `THESEUS_GATE_NO_BENCH=1`, a suite under a default-filter,
+a check whose own script said it could not run, and so on. **Read the clause: a green that names five things it did
+not do is not the same green as one that names none**, and before 2026-11-10 the two printed identically. Every place
+that stands a check down registers itself in that list, the table repeats it as `gate: what this run did NOT do:` for
+a reader who sees only the tail, and `scripts/test_gate_tree.py` reddens on a stand-down that does not register — a
+list that names some of what a run missed, while reading as though it were exhaustive, is worse than no list at all.
+Each step runs under `phase`, which times it: the gate prints a table of seconds before it
 ends, a failed run's too (with `<- failed here` on the phase that stopped it, and `gate: FAILED in <phase>`; a signal's
 too, after `gate: stopped by a signal`), and appends it to `~/.cache/theseus/gate-times.csv` (time, label, phase,
 seconds, status; `$THESEUS_GATE_TIMES`). The gate's own cost has a history now: read it before calling a gate slow.
