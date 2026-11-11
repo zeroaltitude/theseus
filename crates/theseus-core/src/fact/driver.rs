@@ -171,6 +171,37 @@ impl Fact for ExecutionStopped<'_> {
     }
 }
 
+/// What a stop or a cancel did about a job the turn left running
+/// (theseus-7kha): a job whose command had reported while a process it
+/// started ran on. `approved_by`: the operator who approved the call at the
+/// floor, which is the one thing that keeps a leftover through a stop; with
+/// none, the stop ended it. A stop is never silent about either.
+pub struct JobsLeft<'a> {
+    pub job: &'a str,
+    pub by: &'a str,
+    pub approved_by: Option<&'a str>,
+}
+
+impl Fact for JobsLeft<'_> {
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Job,
+            match self.approved_by {
+                Some(who) => format!(
+                    "Stopped by {}: job {} went on running, left by its command and kept on {}'s \
+                     approval of the call.",
+                    self.by, self.job, who
+                ),
+                None => format!(
+                    "Stopped by {}: job {} had left a process running, and it was ended with the \
+                     rest of the job.",
+                    self.by, self.job
+                ),
+            },
+        );
+    }
+}
+
 /// A stop that also cancelled the conversation's tasks (theseus-cdcwr, `execution.stop { tasks }`): the tasks it
 /// cancelled, deepest first. The conversation's wakes stay.
 pub struct ExecutionStoppedAll<'a> {

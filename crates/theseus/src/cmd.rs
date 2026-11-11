@@ -2073,6 +2073,8 @@ mod tests {
             wakes_pending: 0,
             verdicts: vec![],
             cancelled: vec![],
+            left_ended: vec![],
+            left_kept: vec![],
         };
         assert_eq!(
             stop_line(&r),
