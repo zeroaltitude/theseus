@@ -7,7 +7,7 @@
 use serde_json::json;
 use theseus_sim::fake_discord::FakeDiscord;
 
-use super::tests_bound::{lane, upsert, CHANNEL};
+use super::tests_bound::{lane, lane_with, upsert, CHANNEL};
 
 /// The channel's messages, in the order they were made, once `n` are there.
 async fn made(fake: &FakeDiscord, n: usize) -> Vec<String> {
@@ -170,4 +170,84 @@ async fn a_newer_anchor_survives_an_older_turns_post() {
         .filter(|m| m.content.starts_with("Starting."))
         .collect();
     assert_eq!(first[0].reply_to, Some(ASKED.to_string()), "{got:#?}");
+}
+
+/// An invented owner, whose message `ASKED` is.
+const OWNER: u64 = 900_000_000_000_000_201;
+
+/// theseus-wpv2g's fast host, made here and not left to a host: a thinking
+/// turn that ended before its lane woke. The loop's thinking, its fold, and
+/// the reply's post all wait when the lane runs, so the stream's two states of
+/// the process message are one (the fold, the latest) and the lane writes it
+/// before the post: its first create, which the fake holds, the post queued
+/// behind it. Released, the post's first part is still the answer: it pings,
+/// though `silent` names the later parts. Through the gateway whether the
+/// lane runs between the thinking and the text is the host's scheduling, so
+/// `tests_process.rs` cannot hold this order itself.
+#[tokio::test]
+async fn an_answer_the_post_writes_behind_a_held_fold_create_is_still_the_answer() {
+    use theseus_core::config::discord::Category;
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let lane = lane_with(d.path(), &fake, |c| {
+        c.places.owner = Some(vec![format!("discord:{OWNER}")]);
+        c.discord.silent = vec![Category::LaterParts];
+    });
+    reply_post(
+        &lane,
+        "turn_reef",
+        "Low tide by the held chart is at 06:12.",
+        ASKED,
+    );
+    let outbox = lane.shared.core.outbox.clone();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tx.send(super::LaneMsg::Author(OWNER)).unwrap();
+    tx.send(super::LaneMsg::Anchor(ASKED)).unwrap();
+    let key = "turn_reef:L0:tools";
+    tx.send(upsert(key, "-# 💭 thinking\n-# The chart says 06:12."))
+        .unwrap();
+    tx.send(upsert(key, "-# 💭 thought for 1 s")).unwrap();
+    fake.hold_writes_containing(Some("-# 💭"));
+    let run = tokio::spawn(lane.run(rx));
+    // The scenario: the process message's create is held, the post queued.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let created = loop {
+        let got = fake.messages(CHANNEL);
+        if fake.seen().iter().any(|q| q.outcome == "held") && outbox.status("discord").pending > 0 {
+            break got;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no create held with the post queued: {got:#?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    };
+    assert_eq!(created.len(), 1, "only the process message: {created:#?}");
+    assert_eq!(
+        created[0].content, "-# 💭 thought for 1 s",
+        "the fold is the first create: {created:#?}"
+    );
+    assert!(
+        fake.seen()
+            .iter()
+            .any(|q| q.outcome == "held" && q.message_id.as_deref() == Some(created[0].id.as_str())),
+        "the fold's create was not held: {:#?}",
+        fake.seen()
+    );
+    fake.hold_writes_containing(None);
+    let got = settled(&fake, &outbox, |m| {
+        m.iter()
+            .any(|m| m.content.contains("held chart is at 06:12."))
+    })
+    .await;
+    drop(tx);
+    run.await.unwrap();
+    let answer = got
+        .iter()
+        .find(|m| m.content.contains("held chart is at 06:12."))
+        .unwrap();
+    assert!(!answer.silent(), "the answer pings: {got:#?}");
+    assert!(got
+        .iter()
+        .any(|m| m.content.starts_with("-# 💭 thought for")));
 }
