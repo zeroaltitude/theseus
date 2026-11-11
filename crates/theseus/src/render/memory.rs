@@ -82,11 +82,15 @@ pub fn recall_lines(m: &RecallManifest) -> Vec<Line> {
         ),
     );
     if let Some(n) = m.would_drop {
+        let carried = match m.would_drop_carried {
+            Some(true) => " (carried from the previous message's verdict)",
+            _ => "",
+        };
         push(
             o,
             Tag::Dim,
             &format!(
-                "  small-talk bar (shadow): would have left out {n} of {} admitted notes",
+                "  small-talk bar (shadow): would have left out {n} of {} admitted notes{carried}",
                 m.admitted.len()
             ),
         );
@@ -433,15 +437,40 @@ pub fn recalls_lines(r: &MemoryRecallsResult) -> Vec<Line> {
             "none yet: recall runs on a turn's first loop with `[memory] mode = \"shadow\"`",
         );
     }
-    let low: Vec<u64> = r.recalls.iter().filter_map(|m| m.would_drop).collect();
-    if !low.is_empty() {
+    // theseus-ectzg, B4 L79: SEPARATE — the total is of turns whose OWN
+    // verdict said `low`, never a turn that only inherited the previous
+    // message's; a carried one is counted on its own line, not folded in.
+    let own: Vec<u64> = r
+        .recalls
+        .iter()
+        .filter(|m| m.would_drop_carried != Some(true))
+        .filter_map(|m| m.would_drop)
+        .collect();
+    if !own.is_empty() {
         push(
             &mut out,
             Tag::Dim,
             &format!(
                 "small-talk bar (shadow): {} of these would have left out {} admitted notes in all",
-                plural(low.len() as u64, "recall", "recalls"),
-                low.iter().sum::<u64>()
+                plural(own.len() as u64, "recall", "recalls"),
+                own.iter().sum::<u64>()
+            ),
+        );
+    }
+    let carried: Vec<u64> = r
+        .recalls
+        .iter()
+        .filter(|m| m.would_drop_carried == Some(true))
+        .filter_map(|m| m.would_drop)
+        .collect();
+    if !carried.is_empty() {
+        push(
+            &mut out,
+            Tag::Dim,
+            &format!(
+                "small-talk bar (shadow), carried from an earlier message: {} more, {} admitted notes in all",
+                plural(carried.len() as u64, "recall", "recalls"),
+                carried.iter().sum::<u64>()
             ),
         );
     }
@@ -599,6 +628,77 @@ mod tests {
             all.contains("1 recall of these would have left out 3 admitted notes in all"),
             "{all}"
         );
+    }
+
+    /// theseus-ectzg, B4 L79, decided SEPARATE: a carried verdict's `would_drop` must never be
+    /// counted into the turn's-own total, in either direction (`recall_lines`' per-recall line and
+    /// `recalls_lines`' session total). **This is the test that matters**: it reds if the carried
+    /// filter in `recalls_lines` is ever removed and a carried entry is folded back into the "in
+    /// all" total, because the two counts (3 vs 3+5=8, 1 recall vs 2) are chosen to differ loudly.
+    #[test]
+    fn a_carried_would_drop_is_told_apart_from_the_turns_own() {
+        let item = |n: usize| RecallItem {
+            node_id: format!("msg_{n}"),
+            session_id: "ses_b".into(),
+            kind: "user_message".into(),
+            rank: n as u64,
+            tokens: 9,
+            ..RecallItem::default()
+        };
+        let own = RecallManifest {
+            mode: "shadow".into(),
+            outcome: "ran".into(),
+            admitted: (1..=5).map(item).collect(),
+            would_drop: Some(3),
+            would_drop_carried: Some(false),
+            ..RecallManifest::default()
+        };
+        let carried = RecallManifest {
+            would_drop: Some(5),
+            would_drop_carried: Some(true),
+            ..own.clone()
+        };
+        let own_text = recall_lines(&own)
+            .into_iter()
+            .map(|l| l.text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            own_text.contains("would have left out 3 of 5 admitted notes")
+                && !own_text.contains("carried"),
+            "an own mark carries no annotation: {own_text}"
+        );
+        let carried_text = recall_lines(&carried)
+            .into_iter()
+            .map(|l| l.text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            carried_text.contains("would have left out 5 of 5 admitted notes (carried from the previous message's verdict)"),
+            "a carried mark says so on its own line: {carried_text}"
+        );
+        let all = recalls_lines(&MemoryRecallsResult {
+            session_id: "ses_a".into(),
+            total: 2,
+            recalls: vec![own, carried],
+        })
+        .into_iter()
+        .map(|l| l.text)
+        .collect::<Vec<_>>()
+        .join("\n");
+        assert!(
+            all.contains("1 recall of these would have left out 3 admitted notes in all"),
+            "the turn's-own total excludes the carried recall's 5: {all}"
+        );
+        assert!(
+            all.contains(
+                "small-talk bar (shadow), carried from an earlier message: 1 recall more, 5 admitted notes in all"
+            ),
+            "the carried recall is reported, never silently dropped from the page: {all}"
+        );
+        // Not "1 recall ... 8 admitted notes in all": that is the regression this test exists to
+        // catch — a carried verdict counted as the turn's own.
+        assert!(!all.contains("8 admitted notes in all"), "{all}");
     }
 
     #[test]

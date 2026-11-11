@@ -133,8 +133,10 @@ pub struct RecallManifest {
     /// time, not of every one; a verdict that arrives inside the wait, after
     /// the pack fixed its budget without it, is counted. A turn whose own
     /// verdict is late can still be marked from the PREVIOUS message's late
-    /// verdict, which the route carries to it, so a count over these rows
-    /// mixes the two. The count is of
+    /// verdict, which the route carries to it (theseus-ectzg, B4 L79: the
+    /// owner's decision is SEPARATE, not drop — a count over these rows
+    /// tells the two apart by [`Self::would_drop_carried`], which is set
+    /// whenever this field is). The count is of
     /// ADMITTED notes: a restricted-origin model's withholding is decided
     /// after the compile and is not visible where this is written; a
     /// `recall.withheld` row with the same `recall_id` says it.
@@ -166,6 +168,18 @@ pub struct RecallManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub would_drop: Option<u64>,
+    /// Set whenever [`Self::would_drop`] is: `true` when the `low` verdict
+    /// that marked it is the PREVIOUS message's, carried to this turn by the
+    /// route (`injection_read`/`raise_low_effort` read a verdict whose
+    /// `Verdict::turn` differs from this turn's own id); `false` when it is
+    /// this turn's own, in-time or late-but-own, verdict (theseus-ectzg, B4
+    /// L79, decided SEPARATE: "the would-drop shadow sample tells a carried
+    /// verdict from the turn's own \[a flag on the sample\]"). A count over
+    /// `would_drop` that does not filter this flag mixes a turn's own
+    /// small-talk shadow with the turn before it's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub would_drop_carried: Option<bool>,
     /// The pack's budget: its limit, what it used, and each item it dropped
     /// for the budget (§2.11: never silently thinner).
     #[serde(default, skip_serializing_if = "Option::is_none")]

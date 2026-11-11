@@ -632,7 +632,9 @@ impl TurnRunner {
         self.injection_read(t, verdict.as_ref(), reason);
         self.raise_tools(t, verdict.as_ref().filter(|_| reason.is_none()));
         if let Some(b) = t.route.injection.as_mut() {
-            b.raise_low_effort(verdict.as_ref().filter(|_| reason.is_none()));
+            let v = verdict.as_ref().filter(|_| reason.is_none());
+            let carried = v.is_some_and(|v| v.turn != t.tc.turn_id);
+            b.raise_low_effort(v, carried);
         }
         self.verdict_asides(t, verdict.as_ref());
         self.record_route(
