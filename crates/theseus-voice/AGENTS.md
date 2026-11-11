@@ -41,8 +41,10 @@ the head of the greeting isn't eaten. Inside a spell the stream stays warm (thes
 paused silent track that its end starts (`WARM`, 700 ms, past `SPELL_GAP`), whose own end the engine never hears, and a stop ends it; a
 later sentence that starts under it gets no lead-in, and one that starts with nothing warm gets `[voice] gap_lead_in_ms` (200 ms).
 `VoiceIo::lead_in` says whichever silence led the clip. The call's first clip says itself once in the journal
-(`voice: the call's first clip is playing`: `lead_in_ms`, `since_join_ms`, and `flowed`, from `VoiceIo::flowed`, which tells a greeting
-sent because the audio flowed from one sent because `GREETING_WAIT` ran out). A quiet listener closes an utterance after
+(`voice: the call's first clip is playing`: `lead_in_ms`, `since_join_ms`, and `flowed`, from `VoiceIo::flowed`, which distinguishes a greeting
+sent because the audio flowed from one sent because `GREETING_WAIT` ran out: `false` is decisive; read `true` beside
+`since_join_ms`, because the snapshot is taken after `play` returns. At or beyond the three-second bound plus synthesis indicates timeout;
+well below it corroborates release on flow). A quiet listener closes an utterance after
 `[voice] pause_ms` (1200 ms; `Config::end_of_utterance`, which the engine's own default leaves at 700, set only by the binding's
 `engine_config`), since a natural pause inside a sentence runs 0.7 to 1.2 s (theseus-bp0lp).
 An utterance whose transcript has no `.`, `?` or `!` at its end waits `Config::merge` (`[voice] merge_ms`, 1500 ms; zero, the engine's
