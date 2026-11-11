@@ -972,13 +972,20 @@ fn a_one_sighting_item_over_14_days_old_retires_without_being_remembered() {
     assert!(back.dropped.is_empty(), "{:?}", back.dropped);
 }
 
-/// Surface one of a self build (theseus-1eemp): the item's own surface is told
-/// the moment its gate ends, which `rsi::pr::told_in_thread` can only do if the
-/// item's session resolves to a target. The pipeline opens that session itself,
-/// so nothing bound it and the early return was taken every time on the owner's
-/// daemon - `self_build_red` appears 0 times in his store. These two tests assert
-/// the binding the live pipeline now makes, through a real night rather than a
-/// rig's hand, and the silence it keeps where there is nowhere to post.
+/// A self build's session is bound to no place, deliberately (theseus-1eemp).
+/// The item's own surface is told by `rsi::pr::told_where_it_reports`, which
+/// falls back to the operator's lane - the one the rest of the self loop
+/// already speaks on - rather than by giving the session a place of its own.
+///
+/// This is a negative guard, and it is the one the first cut of this row
+/// needed: binding the session with `Outbox::task_record` would make
+/// `outbox.target(session)` resolve for about twenty-five readers at once, and
+/// three of them re-define what a self build is - every turn reply would post
+/// to the owner's DM, `PlaceKind::of` would read the `:dm:` target and
+/// re-classify the build from `Cli` to `Dm`, which moves its first request's
+/// tool budget from `CLI_TASK_TOKENS` to `DM_TOKENS` and files its tool use in
+/// the bucket that decides what loads in the owner's real direct messages.
+/// A row about telling a thread must not move a budget.
 mod bound {
     use super::*;
     use crate::outbox::TASK_META_PREFIX;
@@ -1013,44 +1020,27 @@ mod bound {
         });
     }
 
-    /// A started item's session resolves to the place the loop speaks at, by a
-    /// record that survives a restart, so `told_in_thread` has a target.
+    /// With the owner's DM bound - the live daemon's own shape - a night's
+    /// start writes no `task.place` record and its session resolves to no
+    /// target. A build whose session resolved to the DM would be a `Dm`-kind
+    /// turn with a `Dm`-kind budget; it stays the `Cli` one it is.
     #[test]
-    fn a_started_items_session_is_bound_to_the_place_the_loop_speaks_at() {
+    fn a_started_items_session_is_bound_to_no_place() {
         let c = acting(1, 20);
         bind_dm(&c);
-        let session = started_session(&c);
-        // The record, which is the thing a restart reads (`read_meta_into`).
-        assert_eq!(
-            c.store
-                .get_meta::<String>(&format!("{TASK_META_PREFIX}{session}"))
-                .unwrap()
-                .as_deref(),
-            Some(dm().as_str()),
-            "the item's session has no `task.place` record"
-        );
-        // And the resolution `told_in_thread` makes, which is the surface.
-        assert_eq!(
-            c.outbox.target(&session).as_deref(),
-            Some(dm().as_str()),
-            "the item's session resolves to no target: surface one cannot fire"
-        );
-    }
-
-    /// With no DM bound - a headless daemon - nothing is bound and nothing is
-    /// written, exactly as before: a post would have nowhere to go, and one
-    /// staged for a place no binding binds would wait for ever.
-    #[test]
-    fn with_no_dm_bound_a_started_item_is_bound_to_nothing() {
-        let c = acting(1, 20);
         let session = started_session(&c);
         assert!(
             c.store
                 .get_meta::<String>(&format!("{TASK_META_PREFIX}{session}"))
                 .unwrap()
                 .is_none(),
-            "a record was written with nowhere to post to"
+            "a self item's session was given a place: every reader of \
+             `outbox.target` now sees one, and the build re-classifies"
         );
-        assert_eq!(c.outbox.target(&session), None);
+        assert_eq!(
+            c.outbox.target(&session),
+            None,
+            "a self build's session resolves to a target"
+        );
     }
 }
