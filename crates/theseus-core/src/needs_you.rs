@@ -34,6 +34,7 @@
 use serde_json::json;
 use theseus_kernel::Action;
 use theseus_protocol::term::words::cut_marked;
+use theseus_protocol::work::ask::held_tool;
 use theseus_protocol::work::QuestionKind;
 use theseus_protocol::ConfirmRequest;
 
@@ -319,6 +320,13 @@ pub fn card_body(
         "prompt": w.what,
         "choices": choices,
         "expires_at_ms": (req.expires_at_ms > 0).then_some(req.expires_at_ms),
+        // Held, not expired, past its first life (theseus-v2dnc): the same
+        // exclusion `render::heldquestion::is_held` makes (a budget question
+        // holds in its own words with no time at all, and a task change
+        // really does expire), duplicated here because this JSON body is
+        // where the discord crate's footer renderer learns it (theseus-la5oc).
+        "held": req.budget.is_none() && req.change.is_none() && held_tool(&req.tool),
+        "requested_at_ms": req.requested_at_ms,
         "card": words::card_of(kind, &w, nth),
     })
 }
