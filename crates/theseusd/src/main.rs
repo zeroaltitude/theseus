@@ -439,7 +439,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         out(&text)?;
         return Ok(Exit::Done);
     }
-    // Resolved once, here, for every command below that touches the state dir:
+    // Resolved once, here, for the commands below that take the state dir:
     // `restore` writes the directory a start would read, so it must be the
     // directory a start would name, `~` and `$NAME` expanded.
     let state_dir = state_dir_in_use(cli.state_dir.as_deref(), &mut cfg);
@@ -752,13 +752,13 @@ fn exit(core: &Core) -> Exit {
 /// The flag reaches the daemon unexpanded when a shell did not do it (a quoted
 /// argument, `THESEUS_STATE_DIR` in a unit's environment).
 ///
-/// Call it **once, before the first command that touches the state dir**:
-/// `restore`, `check` and a start all take the directory from here, so none of
-/// them can name a different one. Two places read the flag without going
-/// through it, and both are named here: `config_copy::path`
-/// (needed before any config is read, so it expands the flag the same way
-/// itself) and `install`, which writes a unit for another process and
-/// resolves a relative path against its own cwd.
+/// Call it **once, before the first command that takes the directory**:
+/// `restore`, `check` and a start read it from here. Two other places read the
+/// flag without going through it, and neither is the same expression:
+/// `config_copy::path`, which is needed before any config is read and so
+/// expands the flag itself, the same way; and `install`, which writes a unit
+/// for another process and resolves the flag against its own cwd, `~` only.
+/// A new reader of `--state-dir` belongs here, or on that list with its reason.
 fn state_dir_in_use(flag: Option<&Path>, cfg: &mut Config) -> PathBuf {
     if let Some(d) = flag {
         cfg.server.state_dir = d.to_string_lossy().into_owned();
