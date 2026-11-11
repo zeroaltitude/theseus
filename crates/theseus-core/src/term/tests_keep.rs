@@ -882,6 +882,107 @@ async fn a_close_of_an_exited_program_leaves_a_group_member_that_holds_no_pty() 
     );
 }
 
+/// B6 L186 part (a), the owner's decision (OWNER-ANSWERS-20261110-1406.md,
+/// S2-2, 2026-11-10 22:31:37 MST, "2: your recommendation", given to the
+/// recommendation "leave them running and name them"): a KEEPING close of a
+/// program found already reaped, with a holder still in its own group
+/// (`group_still_ours()` true), does not SIGKILL that group — it names what
+/// is found there, as it names everything else `after_exit` leaves. No `-i`
+/// (no job control), so the background sleep never left the shell's own
+/// group and keeps the pty; `trap '' HUP` first, as
+/// `the_group_of_an_exited_program_is_ours_only_while_a_pty_holder_is_in_it`
+/// above explains. Revert the `&& !keep_background` this adds to the guard
+/// in `Pty::close`, or the `WHY_OWN_GROUP` arm this adds to `after_exit`,
+/// and the job dies before it can be named, and this fails. A race cannot be
+/// forced (the kernel will not hand out a chosen pgid), so this asserts the
+/// branch, not the race. Real processes and `until`'s real 10 s bound; no
+/// paused clock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_keeping_close_of_an_exited_program_leaves_its_own_group_named() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    assert!(terms.keep_background, "the default keeps");
+    let job = mark(&run_tag(14), AMPERSAND);
+    let _cleanup = KillMarked(job.clone());
+    let t = exited_bash(&terms, d.path(), &format!("trap '' HUP; sleep {job} & exit")).await;
+    until("the sleep holds the pty in the shell's group", || {
+        !marked(&job).is_empty() && t.pty.holders_in_group() == 1
+    })
+    .await;
+    assert!(
+        t.pty.group_still_ours(),
+        "the group is ours with {} holder in it",
+        t.pty.holders_in_group()
+    );
+    let pid = marked(&job)[0];
+    let closed = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.close_where(BY_SESSION_END, |t| t.session == "s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(closed.len(), 1);
+    let c = &closed[0];
+    assert_eq!(c.killed, 0, "nothing in the group was signalled: {c:?}");
+    assert_eq!(
+        c.left
+            .iter()
+            .map(|k| (k.proc.pid, k.program.as_str(), k.why))
+            .collect::<Vec<_>>(),
+        vec![(pid, "sleep", pty::WHY_OWN_GROUP)],
+        "the leftover in the program's own exited group is named: {:?}",
+        c.left
+    );
+    // Still running, a moment after.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(marked(&job).len(), 1, "it was left running, not killed");
+    assert_eq!(terms.left_info().len(), 1);
+    let ended = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.end_left("s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(ended.len(), 1);
+    until("the left job ended", || marked(&job).is_empty()).await;
+}
+
+/// The same leftover, but under a close that keeps nothing (`BY_TOOL`): the
+/// program's own exited group is still SIGKILLed, exactly as before this
+/// line's fix — only a KEEPING close spares it, which is what the test above
+/// asserts. Guards the regression the other way: deleting the
+/// `keep_background` check and always sparing the group would leave this
+/// job alive too, and this fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_that_keeps_nothing_still_ends_its_own_exited_group() {
+    let d = tempfile::tempdir().unwrap();
+    let terms = terms();
+    let job = mark(&run_tag(15), AMPERSAND);
+    let _cleanup = KillMarked(job.clone());
+    let t = exited_bash(&terms, d.path(), &format!("trap '' HUP; sleep {job} & exit")).await;
+    until("the sleep holds the pty in the shell's group", || {
+        !marked(&job).is_empty() && t.pty.holders_in_group() == 1
+    })
+    .await;
+    assert!(
+        t.pty.group_still_ours(),
+        "the group is ours with {} holder in it",
+        t.pty.holders_in_group()
+    );
+    let closed = tokio::task::spawn_blocking({
+        let terms = terms.clone();
+        move || terms.close_where(BY_TOOL, |t| t.session == "s1")
+    })
+    .await
+    .unwrap();
+    assert_eq!(closed.len(), 1);
+    assert!(closed[0].left.is_empty(), "{:?}", closed[0]);
+    until("the job in its own exited group is gone", || {
+        marked(&job).is_empty()
+    })
+    .await;
+}
+
 /// Kills the processes of a marker when dropped, so a test that fails first
 /// does not leave its sleep running.
 struct KillMarked(String);
