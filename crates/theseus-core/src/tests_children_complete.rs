@@ -43,6 +43,16 @@
 //! have found 241 sites and 89 bare files, nearly all of them an HTTP
 //! response's status. Twenty-one files joined [`BARE`] and none left it.
 //!
+//! **The table moves with the tree, so a red here is attributed by walking the
+//! merged tree** (theseus-v4cj, the 18:14 departure of 2026-11-10). The 35th
+//! row, `tests_project_context.rs`, is the `git` its fixture repository is
+//! built with. It arrived from a different row in the same departure, after
+//! this branch's base: each branch passes this test alone, neither touches a
+//! file the other touches, and the first tree in which both exist is the
+//! departure's merge — which is where this census is meant to catch it. So
+//! `git log -- tests_children_complete.rs` names nothing on such a red; walk
+//! the merged tree instead.
+//!
 //! Two of the newly visible sites were not safe and were fixed rather than
 //! tabled, since the only reasons this table accepts are "no sweep runs in
 //! that process" and "test-only": the capture's own (above), and
@@ -128,6 +138,11 @@ const BARE: &[(&str, &str)] = &[
     ("theseus-core/src/telemetry/tests_cancel.rs", "test-only"),
     ("theseus-core/src/tests_activation_pace.rs", "test-only"),
     ("theseus-core/src/tests_m3.rs", "test-only"),
+    (
+        "theseus-core/src/tests_project_context.rs",
+        "test-only: a hermetic git builds the fixture repository the project \
+         context reads",
+    ),
     ("theseus-core/src/tests_retry.rs", "test-only"),
     ("theseus-kernel/src/job_wait.rs", "test-only: a pidfd wait"),
     ("theseus-kernel/src/spool.rs", "test-only"),
