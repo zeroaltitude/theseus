@@ -170,8 +170,78 @@ jobs:
           command: check licenses sources bans
 """
 
+# A test file whose tests share a wait guard that is NOT itself a test (theseus-4vsrz): the `until_*`/`wait_for*`
+# shape, six copies of which live under crates/ as `until_judged`. The helper's bound IS the timeout of both tests
+# below, so raising it is the same erosion as raising one inside a test.
+WAITS = """\
+use std::time::{Duration, Instant};
+
+/// Wait until `n` rows are recorded.
+async fn until_rows(n: usize) -> usize {
+    let t0 = Instant::now();
+    loop {
+        let rows = rows_now();
+        if rows >= n {
+            return rows;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(20), "{rows} of {n} rows");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn rows_now() -> usize {
+    2
+}
+
+#[tokio::test]
+async fn two_rows_are_recorded() {
+    assert_eq!(until_rows(2).await, 2);
+}
+
+#[tokio::test]
+async fn a_row_count_never_falls() {
+    assert!(until_rows(1).await >= 1);
+}
+"""
+
+# The same shape in ordinary daemon code: no test attribute, no test module, not a test path. Raising this is a
+# behaviour change for the daemon, which is a different question from eroding a test, so the guard stays silent.
+RETRY = """\
+use std::time::{Duration, Instant};
+
+pub fn wait_for_ready(mut f: impl FnMut() -> bool) {
+    let t0 = Instant::now();
+    while !f() {
+        assert!(t0.elapsed() < Duration::from_secs(20), "never ready");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+"""
+
+# A wait guard under a NESTED test directory (theseus-4vsrz, C2 of the review): TEST_FILE's `tests/[^/]+\.rs$`
+# alternative cannot match a path with a `/` inside that slot, so a file like `crates/theseusd/tests/common/
+# fixture.rs` was invisible to `wait_helper_here` even though it sits under a `tests/` directory just as plainly
+# as `crates/demo/src/tests_waits.rs` above. This is that real file's shape: a generic `wait` with no test
+# attribute and no test-module ancestor, whose only test-ness is its path.
+NESTED_WAIT = """\
+use std::time::{Duration, Instant};
+
+pub fn wait<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> T {
+    let t0 = Instant::now();
+    loop {
+        if let Some(v) = f() {
+            return v;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(40), "no {what} in 40 s");
+    }
+}
+"""
+
 BASE = {
     "crates/demo/src/lib.rs": LIB,
+    "crates/demo/src/tests_waits.rs": WAITS,
+    "crates/demo/src/retry.rs": RETRY,
+    "crates/demo/tests/common/fixture.rs": NESTED_WAIT,
     "crates/theseus-core/src/config/limits.rs": LIMITS,
     "cockpit/test/ring.test.ts": COCKPIT,
     ".github/workflows/ci.yml": CI,
@@ -396,6 +466,58 @@ class Erosions(Case):
 
     def test_a_timing_bound_raised_in_a_test(self):
         self.weaken("Duration::from_millis(50)", "Duration::from_millis(500)", "(an upper bound)")
+
+    # ------------------------------------------------------------ a shared wait guard (theseus-4vsrz)
+    #
+    # `parse_rust` kept a fn only if it carried a test attribute, so the deadline of a SHARED helper — the six
+    # `until_judged`s, `fn wait_for`, `fn inside` — could be raised with nothing said, while the identical edit
+    # inside a `#[test]` fired `assert-weakened`. The helper's bound is the timeout of every test that calls it.
+    # The rule is kept narrow on purpose: only a fn whose body asserts on `elapsed()` with a comparison, only in
+    # a test file or a test module, and only the weakened-assertion rule. The four `assertClean` cases below are
+    # the boundary, and they are the point: a guard that fires on ordinary helper edits is acked blind.
+
+    def test_a_shared_wait_guard_raised(self):
+        self.assertCaught("assert-weakened", "crates/demo/src/tests_waits.rs", {
+            "crates/demo/src/tests_waits.rs": sub(WAITS, "from_secs(20)", "from_secs(60)")})
+
+    # Commented out, not raised: the head's helper no longer asserts on `elapsed()` at all, so this also holds
+    # that the rule's "is this a wait guard" question is asked of the BASE. (A long assertion REPLACED by
+    # `assert!(true)` is caught in neither place — `align`'s half-alike floor pairs it with nothing — and that is
+    # the pre-existing shape of `assert-weakened`, measured on a real `#[tokio::test]`, not something this rule
+    # loses. It is a 1.0.6 note, not a claim made here.)
+    def test_a_shared_wait_guard_commented_out(self):
+        self.assertCaught("assert-weakened", "crates/demo/src/tests_waits.rs", {
+            "crates/demo/src/tests_waits.rs": sub(
+                WAITS, '        assert!(t0.elapsed() < Duration::from_secs(20), "{rows} of {n} rows");\n',
+                '        // assert!(t0.elapsed() < Duration::from_secs(20), "{rows} of {n} rows");\n')})
+
+    def test_a_shared_wait_guard_tightened(self):
+        self.assertClean({"crates/demo/src/tests_waits.rs": sub(WAITS, "from_secs(20)", "from_secs(5)")})
+
+    def test_an_ordinary_edit_to_a_shared_helper(self):
+        self.assertClean({"crates/demo/src/tests_waits.rs": sub(
+            WAITS, "        let rows = rows_now();\n",
+            "        let rows = rows_now();\n        std::hint::black_box(rows);\n")})
+
+    def test_a_shared_helper_renamed_is_not_a_removed_test(self):
+        self.assertClean({"crates/demo/src/tests_waits.rs": WAITS.replace("until_rows", "until_row_count")})
+
+    def test_a_production_wait_loop_raised(self):
+        self.assertClean({"crates/demo/src/retry.rs": sub(RETRY, "from_secs(20)", "from_secs(60)")})
+
+    # ------------------------------------------------------------ a wait guard under a nested test dir (C2)
+    #
+    # `crates/theseusd/tests/common/fixture.rs` is real: a generic `wait` with ~180 call sites across 33 files,
+    # whose only test-ness is sitting under a `tests/` directory two levels deep. TEST_FILE's second alternative
+    # (`tests/[^/]+\.rs$`) cannot match a `/` inside that slot, so before this fix the identical plant below was
+    # silent — the same hole the line above this one closed for `until_judged`, just one path shape deeper.
+
+    def test_a_nested_test_dir_wait_guard_raised(self):
+        self.assertCaught("assert-weakened", "crates/demo/tests/common/fixture.rs", {
+            "crates/demo/tests/common/fixture.rs": sub(NESTED_WAIT, "from_secs(40)", "from_secs(120)")})
+
+    def test_a_nested_test_dir_wait_guard_tightened(self):
+        self.assertClean({"crates/demo/tests/common/fixture.rs": sub(NESTED_WAIT, "from_secs(40)", "from_secs(10)")})
 
     def test_an_assertion_made_vacuous(self):
         self.weaken("assert_eq!(took.as_secs(), 0);", "assert!(true);", "(made vacuous)")
