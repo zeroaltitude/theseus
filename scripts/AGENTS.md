@@ -27,6 +27,7 @@ scripts/context-ceiling.py` prints the number before you add; do not quote a hea
 including in a commit message, because it is stale by the next departure.
 
 - `gate.sh`: the commit gate. Every check must pass, and the first failure stops it.
+- `load-rig.py` (theseus-1eemp): CPU load for a measurement, that cannot outlive its caller (`PR_SET_PDEATHSIG`); every busy-loop shape starts here, never inline. Depth: `GATE.md`.
 - `smoke.sh`: an end-to-end check of a built daemon, with real secrets and real model calls.
 - `size-step.sh`, `tree-stamp.sh` (theseus-2m7jg): the binary's size check. `build.sh` runs `theseus-sim bench size --check`
   on what it built and writes `target/<profile>/.theseus-build-stamp` (`tree-stamp.sh`'s "commit digest" and theseusd's

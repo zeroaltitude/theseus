@@ -160,3 +160,23 @@ and for a quiet machine, can each add minutes, so give the gate's command a time
   names the holders in its log (`gate: waiting, the lock is held by:`, with each one's worktree). Find the holder
   before waiting longer, and never kill another agent's process.
 
+## Making load for a measurement: `load-rig.py`
+
+(theseus-1eemp, B5, 2026-11-11.) A builder's inline `for i in 1 2 3 4 5 6 7 8; do (while :; do :; done) & done; sleep 11;
+...; exit 0` ended with its shell and left eight immortal busy loops, which held `/proc/pressure/cpu`'s `some avg10`
+at 94 % for 11 h 48 m and so shut the self loop's start guard with nothing saying so. Load for a measurement or a test
+starts with `python3 -I scripts/load-rig.py [--spinners N] [--cpus 0-3] [--nice N] [--settle S] -- COMMAND...`, and
+nowhere else.
+
+- **How it cannot orphan.** Each loop, and COMMAND, is a child that asked the kernel to kill it when the rig dies
+  (`PR_SET_PDEATHSIG`, SIGKILL): that holds for a normal end, a crash and `kill -9`, which a `trap` and a process group
+  do not survive. SIGTERM, SIGINT and SIGHUP run the same cleanup and reap every child. Each loop also stops itself at
+  `--max-secs` (300), so a bug in the first two costs minutes. `scripts/tests/test_load_rig.py` holds each path: it finds
+  survivors by a tag in the rig's environment (`/proc/<pid>/environ`), because `pgrep -f` and `ps | grep` also match the
+  shell that asks.
+- **What it cannot do.** It does not stop a COMMAND's own grandchildren: a COMMAND that forks must clean up after
+  itself, or run under the rig's own `--max-secs`.
+- **Reading the load.** System-wide, PSI's `some` is the share of time at least one task waited, averaged over the CPUs
+  that were busy at all; it reads 94 % for loops pinned to four of sixteen cores, and 54 to 63 % for forty loops across
+  all sixteen (a load1 of 33 to 62). `full` is a constant zero for the CPU system-wide. The self pipeline's CPU hold reads the five-minute load
+  average a core instead, held at two (`crates/theseus-core/src/rsi/capacity.rs`, `CPU_LOAD_BUSY`: why two).
