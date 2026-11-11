@@ -55,8 +55,11 @@ fn a_stopped_jailed_job_names_its_phase() -> Result<(), String> {
         std::fs::create_dir_all(p(d)).map_err(|e| format!("{d}: {e}"))?;
     }
     let mut cfg = theseus_core::Config::example();
+    // The rig's state dir on the config: `sandbox_for` takes no directory
+    // (theseus-0h9f3, the owner's word of 2026-11-11 11:34).
+    cfg.server.state_dir = p("repo/state").to_string_lossy().into_owned();
     cfg.self_improve.sealed.dir = Some(p("repo/sealed").to_string_lossy().into_owned());
-    let sandbox = theseus_core::toolrun::sandbox_for(&cfg, &p("repo/state"));
+    let sandbox = theseus_core::toolrun::sandbox_for(&cfg);
     let tree = Tree {
         slug: "t".into(),
         branch: "self/t".into(),

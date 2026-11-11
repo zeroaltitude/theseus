@@ -1049,9 +1049,15 @@ async fn check(source: &str, cfg: &Config, secrets: &Arc<SecretBoard>, state: &P
     // (theseus-gh7): read from the config alone.
     let broker = theseus_core::broker::Broker::new(&cfg.broker, secrets.clone(), None);
     let kept = theseus_core::broker::harness_only(cfg, &broker);
-    let l1 = theseus_core::toolrun::sandbox_for(cfg, state)
-        .self_test()
-        .await;
+    // Over the view a job of a daemon on this config gets, resolved by the
+    // floor itself: `sandbox_for` takes no directory, so the self-test cannot
+    // run over a state dir the runtime is not using. This call passed
+    // `state` -- `state_dir_in_use`'s value **before** canonicalization,
+    // where `build_runtime` canonicalized -- so a symlinked or `..`-bearing
+    // `--state-dir` made `theseusd check` report a view no job had
+    // (theseus-0h9f3; the owner's word of 2026-11-11 11:34 took the
+    // parameter away). `state` is still what the pressure line reads below.
+    let l1 = theseus_core::toolrun::sandbox_for(cfg).self_test().await;
     // The secrets from outside the vault, by name and source; the vault
     // stays the recommended source (theseus-n88g.1).
     let outside = st
