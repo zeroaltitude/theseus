@@ -36,6 +36,7 @@ mod reopen;
 mod rewind;
 mod run;
 mod screen;
+mod shell;
 mod state;
 mod stop;
 mod style;
@@ -64,6 +65,8 @@ mod tests_pin;
 mod tests_reopen;
 #[cfg(test)]
 mod tests_rewind;
+#[cfg(test)]
+mod tests_shell;
 #[cfg(test)]
 mod tests_task_new;
 #[cfg(test)]

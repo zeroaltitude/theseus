@@ -457,6 +457,22 @@ pub fn refuse_stop_all_in_a_job(session: Option<&str>) -> Result<()> {
     )
 }
 
+/// Refuse `! shell` (the chat's bang escape, `theseus-vjzt`) inside a Theseus job: the same speed
+/// bump as `refuse_stop_all_in_a_job`, for the same reason. No model turn stands between the typed
+/// line and `proc.run` -- the bang escape *is* the operator's own fast path from their own
+/// terminal -- so a job using it would run arbitrary shell as if the operator had typed it.
+/// `/shell` by name is the same call and is refused the same way.
+pub fn refuse_bang_shell_in_a_job(session: Option<&str>) -> Result<()> {
+    let Some(session) = session else {
+        return Ok(());
+    };
+    bail!(
+        "! refused: it is the operator's to run, and this shell is a Theseus job's \
+         (THESEUS_SESSION={session} is set), so it would run a shell command for the operator. \
+         Run it from your own shell."
+    )
+}
+
 /// `job_session` of the variable's value: an empty one names none.
 fn job_session_in(value: Option<String>) -> Option<String> {
     value
@@ -509,6 +525,25 @@ mod tests {
         assert!(e.ends_with("Run it from your own shell."), "{e}");
         assert!(refuse_stop_all_in_a_job(None).is_ok());
         assert!(refuse_in_a_job(method::EXECUTION_STOP, Some("ses_0000aa1b2c3")).is_ok());
+    }
+
+    /// `! shell` is refused inside a job and goes outside one (theseus-vjzt): the same shape as
+    /// `stop --all`, because nothing but the gate stands between the line and `proc.run`.
+    #[test]
+    fn bang_shell_is_refused_inside_a_job() {
+        let e = refuse_bang_shell_in_a_job(Some("ses_0000aa1b2c3"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.starts_with("! refused:"), "{e}");
+        assert!(
+            e.contains("(THESEUS_SESSION=ses_0000aa1b2c3 is set)"),
+            "{e}"
+        );
+        assert!(e.ends_with("Run it from your own shell."), "{e}");
+        assert!(refuse_bang_shell_in_a_job(None).is_ok());
+        // `turn.submit` itself stays allowed inside a job (above): only the chat's own bang
+        // shortcut is refused, not the method a job's own turns legitimately submit.
+        assert!(refuse_in_a_job(method::TURN_SUBMIT, Some("ses_0000aa1b2c3")).is_ok());
     }
 
     /// A job's process cannot write guidance (theseus-8kk.1): guidance

@@ -100,6 +100,11 @@ pub const COMMANDS: &[Command] = &[
         help: "what a turn's model was shown, and why: the newest, or /why TURN",
         run: super::why::why,
     },
+    Command {
+        name: "shell",
+        help: "! CMD or /shell CMD: run a shell command through the gate, never a direct spawn",
+        run: super::shell::shell,
+    },
     // Debug builds only: the test that proves the terminal comes back after a
     // panic needs one to happen.
     #[cfg(debug_assertions)]
