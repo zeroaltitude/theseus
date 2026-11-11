@@ -27,8 +27,9 @@
 #                       theseus theseus-tui theseus-sim theseus-index)
 #   THESEUS_REPRO_BUILD_ARGS  more arguments for scripts/build.sh (such as --workspace)
 #
-# A nightly job is not installed: scripts/AGENTS.md, "Reproducible builds", says
-# how to schedule one.
+# A nightly job is not installed: scripts/RELEASES.md, "Releases", says so and says
+# when to run this by hand. (There has never been a "Reproducible builds" section;
+# the pointer named one until 2026-11-10, theseus-4vsrz.)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"

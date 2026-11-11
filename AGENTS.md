@@ -220,7 +220,9 @@ Each traces to the Part III item that taught it.
 ## This machine
 
 Theseus is built on one WSL2 machine, beside the operator's own running daemon and other agents' work. The rest of this
-section, the scratch daemon's rules and ports, the disk, sccache, and shell traps, is in "This machine" in `scripts/AGENTS.md`.
+section, the scratch daemon's rules and ports, the disk, sccache, and shell traps, is in "This machine" in
+`scripts/RELEASES.md` (it was in `scripts/AGENTS.md` until 2026-11-10, theseus-4vsrz, which moved that file's release
+half out to get back under the context loader's 64 KiB ceiling).
 
 - **The operator's daemon** runs as a bare `theseusd` on `~/.theseus`, its default socket, and web port 7433. Never
   touch it: no signal, no connection to its socket or port, and never a copy of its bindings file (two daemons would
