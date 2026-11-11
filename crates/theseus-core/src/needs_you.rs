@@ -320,15 +320,21 @@ pub fn card_body(
         "prompt": w.what,
         "choices": choices,
         "expires_at_ms": (req.expires_at_ms > 0).then_some(req.expires_at_ms),
-        // Held, not expired, past its first life (theseus-v2dnc): the same
-        // exclusion `render::heldquestion::is_held` makes (a budget question
-        // holds in its own words with no time at all, and a task change
-        // really does expire), duplicated here because this JSON body is
-        // where the discord crate's footer renderer learns it (theseus-la5oc).
-        "held": req.budget.is_none() && req.change.is_none() && held_tool(&req.tool),
+        "held": is_held(req),
         "requested_at_ms": req.requested_at_ms,
         "card": words::card_of(kind, &w, nth),
     })
+}
+
+/// Held, not expired, past its first life (theseus-v2dnc): the same
+/// exclusion `render::heldquestion::is_held` makes (a budget question holds
+/// in its own words with no time at all, and a task change really does
+/// expire), duplicated here because this JSON body is where the discord
+/// crate's footer renderer learns it (theseus-la5oc). Both the card's body and
+/// the plain one (`[notify] dm_cards = false`) carry it, so neither post says
+/// `expires` for a question that never does.
+fn is_held(req: &ConfirmRequest) -> bool {
+    req.budget.is_none() && req.change.is_none() && held_tool(&req.tool)
 }
 
 /// The header of several cards due together: it pings, and names every
@@ -382,6 +388,8 @@ pub fn body_of(a: &Action, req: &ConfirmRequest, who: &str) -> serde_json::Value
         "prompt": prompt,
         "choices": choices,
         "expires_at_ms": (req.expires_at_ms > 0).then_some(req.expires_at_ms),
+        "held": is_held(req),
+        "requested_at_ms": req.requested_at_ms,
     })
 }
 

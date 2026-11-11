@@ -125,6 +125,33 @@ async fn dm_cards_off_is_todays_post() {
     );
 }
 
+/// The one-line post carries what the footer renderer needs to tell a held
+/// question from a deadline (theseus-la5oc): `held` and `requested_at_ms`,
+/// the same two the card's body carries, so the discord crate's plain
+/// `needs_you` never has to say `expires` for a question that never does.
+#[tokio::test]
+async fn the_plain_post_says_whether_it_is_held_and_since_when() {
+    let r = owned_tweaked(write_script(), |c| c.notify.dm_cards = false);
+    let res = turn(&r.core, None, "write out.txt").await;
+    let corr = res.awaiting_confirm.unwrap();
+    let a = r.core.kernel.action(&corr).unwrap().unwrap();
+    assert_eq!(r.core.escalate_questions(a.planned_at_ms + 61_000), 1);
+    let req = r.core.pending_confirms(&res.session_id).unwrap().remove(0);
+    let who = r.core.asker_name(&req);
+    let posted = crate::outbox::body_of(&needs_you_posts(&r)[0]).clone();
+    assert!(posted["card"].is_null(), "{posted}");
+    assert_eq!(
+        posted["held"], true,
+        "a write waits for an answer: {posted}"
+    );
+    assert_eq!(posted["requested_at_ms"], req.requested_at_ms, "{posted}");
+    assert!(req.requested_at_ms > 0, "{req:?}");
+    // The card form says the same about the same request.
+    let card = crate::needs_you::card_body(&a, &req, &who, None);
+    assert_eq!(posted["held"], card["held"]);
+    assert_eq!(posted["requested_at_ms"], card["requested_at_ms"]);
+}
+
 /// A thread's session is asked by the thread's title, not by the first
 /// message it was given; a task's title still wins where a task asks
 /// (theseus-zcn80).

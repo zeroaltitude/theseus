@@ -24,7 +24,8 @@ pub fn settled(closed: &Closed, line: &str) -> String {
 }
 
 /// The needs-you post's text: who needs you, what, the options numbered, and
-/// when it expires (a Discord timestamp the client draws).
+/// when it expires, or since when it has been held (a Discord timestamp the
+/// client draws).
 pub fn needs_you(body: &serde_json::Value) -> String {
     if body["card"].is_object() {
         return card_text(body);
@@ -35,7 +36,16 @@ pub fn needs_you(body: &serde_json::Value) -> String {
     for (i, c) in body["choices"].as_array().into_iter().flatten().enumerate() {
         t.push_str(&format!("\n{}. {}", i + 1, c.as_str().unwrap_or("")));
     }
-    if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
+    // Held, not expired, past its first life (theseus-la5oc): the same two
+    // clauses `card_text` says below, for the one-line post (`dm_cards` off).
+    if body["held"] == true {
+        if let Some(r) = body["requested_at_ms"].as_u64().filter(|r| *r > 0) {
+            t.push_str(&format!(
+                "\n-# held since <t:{}:R> · still waiting",
+                r / 1000
+            ));
+        }
+    } else if let Some(e) = body["expires_at_ms"].as_u64().filter(|e| *e > 0) {
         t.push_str(&format!("\n-# expires <t:{}:R>", e / 1000));
     }
     t

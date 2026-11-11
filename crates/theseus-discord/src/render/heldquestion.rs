@@ -302,6 +302,51 @@ mod tests {
         );
     }
 
+    /// The one-line needs-you post (`[notify] dm_cards = false`,
+    /// `render::ask::needs_you` with no `card`) is the same sentence in the
+    /// same two states, with the live `<t:…:R>` the client redraws and not a
+    /// baked "5 minutes" (theseus-la5oc: the line names both sites).
+    #[test]
+    fn the_plain_needs_you_post_is_fixed_the_same_way() {
+        let plain = |held: serde_json::Value, asked: u64, expires: u64| {
+            crate::render::needs_you(&json!({"kind": "needs_you", "asked_by": "a task",
+                "prompt": "Ship it?", "choices": ["Yes", "No"], "held": held,
+                "requested_at_ms": asked, "expires_at_ms": expires}))
+        };
+        let held = plain(json!(true), 1_790_000_000_000, 1_790_000_300_000);
+        assert_eq!(
+            held.lines().last().unwrap(),
+            "-# held since <t:1790000000:R> · still waiting",
+            "{held}"
+        );
+        assert!(!held.contains("expires"), "no promise of an expiry: {held}");
+        // Live, not baked: the stamp follows the asked-at time and nothing in
+        // the sentence is a duration this renderer worked out.
+        let later = plain(json!(true), 1_790_007_200_000, 1_790_000_300_000);
+        assert!(
+            later.ends_with("held since <t:1790007200:R> · still waiting"),
+            "{later}"
+        );
+
+        let real = plain(json!(false), 1_790_000_000_000, 1_790_000_300_000);
+        assert_eq!(
+            real.lines().last().unwrap(),
+            "-# expires <t:1790000300:R>",
+            "{real}"
+        );
+        assert!(!real.contains("held since"), "{real}");
+
+        // A body from before the fields existed is the fallback, as before.
+        let old = crate::render::needs_you(&json!({"kind": "needs_you", "prompt": "x",
+            "expires_at_ms": 1_790_000_300_000_u64}));
+        assert!(old.ends_with("\n-# expires <t:1790000300:R>"), "{old}");
+        // Same as the card form: held with no asked-at time says no time at all.
+        let none = plain(json!(true), 0, 1_790_000_300_000);
+        assert!(!none.contains("<t:") && !none.contains("expires"), "{none}");
+        // The options stay numbered above the footer, untouched.
+        assert!(held.contains("\n1. Yes\n2. No\n-# held since"), "{held}");
+    }
+
     /// A budget question holds too, and says so in its own words with no time
     /// at all: `is_held` is not its business, and its card does not move.
     #[test]
