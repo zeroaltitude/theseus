@@ -612,14 +612,6 @@ fn the_block_stays_inside_its_token_bound() {
 /// The block's bound, in microseconds (the row's).
 const BLOCK_MICROS: u128 = 50;
 
-/// The overage the bound takes when the kernel says the machine is busy: the
-/// gate's own busy allowance, `scripts/gate.sh`'s
-/// `THESEUS_GATE_BENCH_ALLOWANCE` default (theseus-lew7), which it calibrated
-/// from the bench history to cover 95 % of the runs measured on a busy
-/// machine at normal priority. The strict bound is what a quiet machine is
-/// judged on.
-const BUSY_OVERAGE_PERCENT: u128 = 65;
-
 /// Building the block costs at most [`BLOCK_MICROS`] (the row's bound), from
 /// its best of many runs so a loaded machine's noise is not the block's.
 ///
@@ -636,13 +628,27 @@ const BUSY_OVERAGE_PERCENT: u128 = 65;
 /// bound is therefore NOT raised — it stays [`BLOCK_MICROS`] strictly, which
 /// is what every one of those 45 runs was inside.
 ///
-/// What it does get is the allowance the other timing checks already get, and
-/// only when the kernel says the machine is busy. The one miss on record,
-/// 58 µs against 50 (inside the closed `theseus-cr481`), is inside it; the
-/// 40.78 µs worst case above is nowhere near it. And the message now names
-/// the pressure it was measured at, so the next red says whether the machine
-/// was busy instead of leaving the reader to guess — which was the other half
-/// of this row's complaint.
+/// **And it gets no allowance, because no measurement has ever exercised
+/// one.** A PSI-conditional +65 % overage — a hand-copy of `scripts/gate.sh`'s
+/// `THESEUS_GATE_BENCH_ALLOWANCE` default — landed with those 45 runs and came
+/// out again the same day, on **600 more runs over four load shapes** (same
+/// WSL host, 16 cores, 2026-11-10): ambient, 12 spinners, a priority inversion
+/// at CPU pressure 46 %, and 24 spinners at CPU pressure 59 % and load 16.3.
+/// **0 misses of the strict bound in 600, worst 40.47 µs, 80.9 % of it.** And
+/// the allowance was pointing the wrong way: the worst numbers came from the
+/// arm where `/proc/pressure/cpu` read **0.9 %**, so `busy()` was `None` and
+/// the allowance would not have fired, while the 299 runs where it *would*
+/// have fired had a worst of 37.78 µs. PSI does not predict this bound's tail,
+/// so an allowance keyed on PSI bought nothing and widened the bound to 82 µs
+/// on exactly the hosts a gate runs on. An allowance nothing exercises is an
+/// untested branch inside a bound: it would absorb the first real regression
+/// in silence. **The gate's own busy allowance is a different mechanism and is
+/// untouched** — it covers the bench budgets, which are not a best-of-300.
+///
+/// The pressure is still read and still named in the failure message, which
+/// was the other half of this row's complaint: a red says whether the machine
+/// was busy instead of leaving the next reader to re-derive it. It changes no
+/// verdict.
 #[test]
 fn the_block_builds_in_under_fifty_microseconds() {
     let long: Vec<_> = (0..10)
@@ -667,20 +673,16 @@ fn the_block_builds_in_under_fifty_microseconds() {
         })
         .min()
         .unwrap();
-    // Read once, after the measurement: the pressure the run was taken at.
-    let busy = theseus_store::pressure::busy();
-    let bound = match busy {
-        Some(_) => BLOCK_MICROS * (100 + BUSY_OVERAGE_PERCENT) / 100,
-        None => BLOCK_MICROS,
-    };
-    let said = match busy {
-        Some(b) => format!(
-            "{b:?}, so the bound took the gate's busy allowance of +{BUSY_OVERAGE_PERCENT}%"
-        ),
-        None => "quiet (or a kernel without PSI), so the bound is strict".to_string(),
+    // Read once, after the measurement: the pressure the run was taken at. It
+    // is reported and never allowed for — the bound is strict whatever the
+    // kernel says.
+    let said = match theseus_store::pressure::busy() {
+        Some(b) => format!("{b:?}"),
+        None => "quiet (or a kernel without PSI)".to_string(),
     };
     assert!(
-        best.as_micros() < bound,
-        "the best of 300 builds took {best:?}, over {bound} µs; the machine was {said}"
+        best.as_micros() < BLOCK_MICROS,
+        "the best of 300 builds took {best:?}, over the strict {BLOCK_MICROS} µs; \
+         the machine was {said}"
     );
 }
