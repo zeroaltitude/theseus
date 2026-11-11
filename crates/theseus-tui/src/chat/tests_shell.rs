@@ -23,12 +23,14 @@ async fn the_bang_and_the_name_both_reach_the_one_shell_command() {
     r.asked("turn.submit", 2).await;
     let sent = r.daemon.asked("turn.submit");
     assert_eq!(sent.len(), 2, "{sent:?}");
+    // Bounded, never left on the message's tail: `shell::directive` puts the command on a line
+    // of its own inside the bracket, so the turn's `Date:`/`Git:` block cannot join it.
     assert!(
-        sent[0]["input"].as_str().unwrap().ends_with("echo one"),
+        sent[0]["input"].as_str().unwrap().contains("\necho one\n"),
         "{sent:?}"
     );
     assert!(
-        sent[1]["input"].as_str().unwrap().ends_with("echo two"),
+        sent[1]["input"].as_str().unwrap().contains("\necho two\n"),
         "{sent:?}"
     );
 }
@@ -43,7 +45,11 @@ async fn the_submitted_turn_names_proc_run_with_the_command_verbatim() {
     let sent = r.daemon.asked("turn.submit");
     let input = sent[0]["input"].as_str().unwrap();
     assert!(input.contains("proc.run"), "{input}");
-    assert!(input.ends_with("ls -la /tmp"), "{input}");
+    // Delimited and bounded, so a future edit cannot put the command back on the message's tail
+    // where `turn/env_tail.rs`'s appended block would abut it (`shell::directive`'s own test
+    // pins the glued case).
+    assert!(input.contains("\nls -la /tmp\n"), "{input}");
+    assert!(input.ends_with(']'), "{input}");
     assert_eq!(sent[0]["session_id"], SID);
 }
 
