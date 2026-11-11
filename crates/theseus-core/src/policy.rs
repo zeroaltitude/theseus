@@ -309,20 +309,82 @@ fn path_args(argv: &[String], cwd: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// The shells whose `-c` argument is a command line and not a path
-/// (`proc.run {command}` becomes `bash -c <line>`: `proc::shell_argv`).
-const SHELLS: [&str; 5] = ["bash", "sh", "zsh", "dash", "ksh"];
+/// The letters a short flag carries to mean "what follows is code": `-c`, a
+/// command, as POSIX `sh` spells it; `-e`, an expression to evaluate, as the
+/// interpreters after it do.
+const CODE_LETTERS: [char; 2] = ['c', 'e'];
 
-/// A shell's `-c` line, if this argv runs one: the program is a shell by its
-/// base name and a later word is `-c`, so its line is text to read for the
-/// paths its words name, not a path itself.
-fn shell_line(argv: &[String]) -> Option<&str> {
-    let program = Path::new(argv.first()?.as_str()).file_name()?.to_str()?;
-    if !SHELLS.contains(&program) {
-        return None;
+/// The long spellings of the same thing. A long flag means only what it
+/// says, so these are matched whole rather than by a letter.
+const CODE_FLAGS: [&str; 4] = ["--command", "--eval", "--exec", "--execute"];
+
+/// Whether a word is a flag whose ARGUMENT is code: a single-dash cluster
+/// holding a code letter (`-c`, `-lc`, `-ec`, `-ic`, `-norc`), or a long
+/// code flag. A double dash that is not one of those is not one.
+fn introduces_code(w: &str) -> bool {
+    match w.starts_with("--") {
+        true => CODE_FLAGS.contains(&w),
+        false => w
+            .strip_prefix('-')
+            .is_some_and(|f| f.chars().any(|c| CODE_LETTERS.contains(&c))),
     }
-    let c = argv.iter().skip(1).position(|a| a == "-c")?;
-    argv.get(c + 2).map(String::as_str)
+}
+
+/// The code a long flag carries itself, `--command=<line>`.
+fn code_in_flag(w: &str) -> Option<&str> {
+    let (name, line) = w.split_once('=')?;
+    CODE_FLAGS.contains(&name).then_some(line)
+}
+
+/// The words of this argv that a program will INTERPRET, each a line of text
+/// to read for the paths its words name rather than a path itself.
+///
+/// The property, and it is the whole of the rule: **a word is code because
+/// the flag in front of it says so**, not because the program in front of
+/// that flag is on a list of shells. `sh -c <line>` is POSIX and every
+/// interpreter since has spelled it `-c` or `-e`; a single-dash cluster
+/// carries the letter alongside other flags (`-lc`, `-ec`, `-ic`), and the
+/// long spelling is `--command`/`--eval`, with or without its own `=<line>`.
+///
+/// Keying on the flag holds one CLASS where keying on the program held a set
+/// of spellings. `sh -lc`, `env bash -c`, `timeout 5 /bin/bash -c`,
+/// `/usr/bin/env zsh -ic`, `python3 -c`, `perl -e`, a wrapper in front of any
+/// of them, and an interpreter this project has never heard of are all the
+/// same case now, and not one of them is a name anyone has to maintain. That
+/// matters because the list was the defect: a floor keyed on five shell names
+/// held `bash -c` and missed `bash -lc`, which bought the owner the cost of
+/// the floor and three quarters of its protection.
+///
+/// Over-recognising is cheap and safe on purpose. A word that is not a line —
+/// `tar -czf <archive>`, `grep -c <pattern>` — is still only split and each
+/// piece judged by `path_word`, the rule an `argv` word has always taken, so
+/// the cost is a few canonicalisations and never a new notion of what a path
+/// is. Nothing is expanded and nothing is run.
+///
+/// What is OUTSIDE the class is code in a position no flag introduces at all:
+/// `awk '<program>'`, `ssh <host> '<line>'`, `find … -exec … ;`. That gap is
+/// measured rather than described — `tests_floor_shapes`'s
+/// `every_spelling_that_really_runs_a_line_is_held` runs each generated
+/// spelling for real and asserts the floor holds every one that executed, so
+/// a member of the residue nobody here thought of is a red, not a surprise.
+fn code_lines(argv: &[String]) -> Vec<&str> {
+    let mut out: Vec<&str> = vec![];
+    for (i, w) in argv.iter().enumerate().skip(1) {
+        let line = match code_in_flag(w) {
+            Some(line) => Some(line),
+            // The next word, unless it is itself a flag: `sh -e -c <line>`
+            // sets errexit, and the line is still the `-c` argument.
+            None if introduces_code(w) => argv
+                .get(i + 1)
+                .filter(|n| !n.starts_with('-'))
+                .map(String::as_str),
+            None => None,
+        };
+        if let Some(line) = line.filter(|l| !l.is_empty() && !out.contains(l)) {
+            out.push(line);
+        }
+    }
+    out
 }
 
 /// A line of text split into the commands a shell would run it as, each as
@@ -777,9 +839,6 @@ impl ToolPolicy {
             .filter(|a| !a.is_empty())
             .map(normalized_argv)
             .collect();
-        for line in runs().filter_map(shell_line) {
-            argvs.extend(shell_argvs(line));
-        }
         // Every word of every argv the call runs, judged as a path. Two of
         // those the gate never judged: the PROGRAM, because `path_args`
         // skips argv's first word, and a program inside Theseus's own state
@@ -789,14 +848,43 @@ impl ToolPolicy {
             word(a, &mut args);
         }
         // Every line of text the call runs or hands on, read for the paths
-        // its words name. A step's line counts: a batch may hold a `bash -c`
-        // step of its own.
-        let lines = runs()
-            .filter_map(shell_line)
-            .chain(plan.lines.iter().map(String::as_str));
-        for line in lines {
-            for w in shell_words(line) {
+        // its words name, and then every line THOSE lines interpret in their
+        // turn: `bash -c "bash -lc '<line>'"` keeps its inner line inside one
+        // quoted word, which is no path, so one pass reads the outer line and
+        // stops exactly where the spelling put a shell. A step's line counts
+        // too: a batch may hold a `bash -c` step of its own.
+        //
+        // A line the call RUNS also gives the program floor the programs of
+        // the commands inside it (`shell_argvs`): `proc.run {steps}` left
+        // `Plan::argv` `None`, so a batch bypassed the program floor
+        // outright, and `bash -c "op item get …"` named no program at all.
+        // Text the call only HANDS to another program to read -- what
+        // `term.send` types, an MCP call's arguments -- gives paths alone, as
+        // it did before this row: the gate is not the thing deciding what a
+        // REPL will do with a word.
+        //
+        // The ceiling is there so a line that nests lines cannot cost the
+        // gate unbounded work; nothing anyone writes comes near it.
+        const LINES_READ: usize = 64;
+        let mut lines: Vec<(String, bool)> = runs()
+            .flat_map(code_lines)
+            .map(|l| (l.to_string(), true))
+            .chain(plan.lines.iter().map(|l| (l.clone(), false)))
+            .collect();
+        let mut next = 0;
+        while let Some((line, runs_it)) = lines.get(next).cloned() {
+            next += 1;
+            for w in shell_words(&line) {
                 word(&w, &mut args);
+            }
+            let inner = shell_argvs(&line);
+            for nested in inner.iter().flat_map(|a| code_lines(a)) {
+                if lines.len() < LINES_READ && !lines.iter().any(|(l, _)| l == nested) {
+                    lines.push((nested.to_string(), runs_it));
+                }
+            }
+            if runs_it {
+                argvs.extend(inner);
             }
         }
         (argvs, args)
@@ -1020,33 +1108,74 @@ mod tests {
         );
     }
 
-    /// A shell's `-c` line is found whichever shell runs it and wherever `-c`
-    /// sits, and nothing else is mistaken for one: a shell with no `-c` runs
-    /// a script FILE, which is a path argument and judged as one, and a
-    /// program merely CALLED `-c` something is not a shell.
+    /// A line is read because a CODE FLAG introduces it, whatever program is
+    /// in front of the flag and however the flag is spelled. The rule used to
+    /// ask whether the program was one of five shell names and whether a word
+    /// was exactly `-c`, and so held `bash -c` while missing `bash -lc`;
+    /// these are the spellings that one character apart used to decide.
     #[test]
-    fn a_shells_c_line_is_the_only_thing_read_as_a_line() {
+    fn a_line_is_read_because_its_flag_says_it_is_code() {
         let argv = |w: &[&str]| -> Vec<String> { w.iter().map(|s| s.to_string()).collect() };
+        for spelling in [
+            vec!["bash", "-c", "cat /x"],
+            vec!["bash", "-lc", "cat /x"],
+            vec!["bash", "-ec", "cat /x"],
+            vec!["bash", "-ic", "cat /x"],
+            vec!["sh", "-lc", "cat /x"],
+            vec!["/bin/sh", "-c", "cat /x"],
+            vec!["zsh", "-l", "-c", "cat /x"],
+            // `-e` takes the NEXT word, and `-c`'s line is still the line:
+            // a flag is not an argument.
+            vec!["bash", "-e", "-c", "cat /x"],
+            vec!["bash", "--command", "cat /x"],
+            // A wrapper in front of the interpreter, which put the shell at
+            // `argv[1]` or later and so was unheld at all eleven spellings.
+            vec!["env", "bash", "-c", "cat /x"],
+            vec!["timeout", "5", "bash", "-c", "cat /x"],
+            vec!["nice", "bash", "-c", "cat /x"],
+            vec!["/usr/bin/env", "sh", "-c", "cat /x"],
+            // An interpreter that is not a shell at all, and one this
+            // project has never named.
+            vec!["python3", "-c", "print(open('/x').read())"],
+            vec!["theseus-unknown-interpreter", "-c", "cat /x"],
+        ] {
+            let words = argv(&spelling);
+            let got = code_lines(&words);
+            assert!(
+                got.contains(&spelling[spelling.len() - 1]),
+                "{spelling:?} carries a line and it was not read: {got:?}"
+            );
+        }
+        // `--command=<line>` carries its own line.
         assert_eq!(
-            shell_line(&argv(&["bash", "-c", "cat /x"])),
-            Some("cat /x"),
-            "the shape `proc.run {{command}}` takes"
+            code_lines(&argv(&["bash", "--command=cat /x"])),
+            ["cat /x"],
+            "a long flag's own argument"
+        );
+        // No code flag: the argument is a script to run, and `path_args`
+        // already judges it as the path it is.
+        assert_eq!(code_lines(&argv(&["bash", "/x/run.sh"])), [] as [&str; 0]);
+        assert_eq!(code_lines(&argv(&["bash", "-c"])), [] as [&str; 0]);
+        assert_eq!(code_lines(&[]), [] as [&str; 0]);
+        // A long flag means what it says and nothing by its letters, so the
+        // message of a commit is not code. This is the must-not-hold the
+        // whole change is weighed against.
+        assert_eq!(
+            code_lines(&argv(&["git", "commit", "--message=floor /x properly"])),
+            [] as [&str; 0]
         );
         assert_eq!(
-            shell_line(&argv(&["/bin/sh", "-c", "cat /x"])),
-            Some("cat /x")
+            code_lines(&argv(&["git", "commit", "-m", "floor /x properly"])),
+            [] as [&str; 0]
         );
+        // A program whose `-c` means something else is read anyway, and that
+        // costs nothing: the word is split and every piece is judged by the
+        // same `path_word` an `argv` word takes, so `<archive>` is the path
+        // it already was and no new notion of a path exists.
         assert_eq!(
-            shell_line(&argv(&["zsh", "-l", "-c", "cat /x"])),
-            Some("cat /x")
+            code_lines(&argv(&["tar", "-czf", "/x/a.tgz", "/x/src"])),
+            ["/x/a.tgz"]
         );
-        // No `-c`: the argument is a script to run, and `path_args` already
-        // judges it as the path it is.
-        assert_eq!(shell_line(&argv(&["bash", "/x/run.sh"])), None);
-        assert_eq!(shell_line(&argv(&["bash", "-c"])), None);
-        // Not a shell, so its `-c` is its own business.
-        assert_eq!(shell_line(&argv(&["cmake", "-c", "cat /x"])), None);
-        assert_eq!(shell_line(&[]), None);
     }
 
     /// The words a line is read as. It splits as a shell does and expands

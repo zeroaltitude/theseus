@@ -16,18 +16,36 @@
 //! 1. **Each shape, held.** `the_floor_holds_a_path_whichever_shape_names_it`
 //!    walks the shapes a call can name a path in and asserts the floor sees
 //!    every one.
-//! 2. **The SET of shapes, asserted.** This repository's second named
-//!    pattern is *a hand-maintained list with no completeness test*, and a
-//!    floor enumerated by hand is exactly that: fixing three shapes without
-//!    asserting the set leaves the fourth to be rediscovered, which is
-//!    precisely what `{steps}` was. Two tests close it:
-//!    `every_field_a_plan_can_name_a_path_in_is_classified` is a compile-time
-//!    exhaustive destructure of `Plan` — the gate reads a call ONLY through
-//!    its plan, so a new way to name a path is a new `Plan` field, and adding
-//!    one cannot compile until someone classifies it here — and
-//!    `every_live_tool_whose_plan_runs_something_is_held` sweeps the LIVE
-//!    registry, so a tool that starts carrying an argv, a batch or a line is
-//!    a red rather than a gap.
+//! 2. **Three SETS, each asserted by its own instrument**, because this
+//!    repository's second named pattern is *a hand-maintained list with no
+//!    completeness test* and a floor enumerated by hand is exactly that:
+//!    fixing three shapes without asserting the set leaves the fourth to be
+//!    rediscovered, which is precisely what `{steps}` was.
+//!    - the set of **`Plan` fields**, by
+//!      `every_field_a_plan_can_name_a_path_in_is_classified`: a compile-time
+//!      exhaustive destructure. The gate reads a call ONLY through its plan,
+//!      so a new way to name a path is a new field, and adding one cannot
+//!      compile until someone classifies it here. Closed by the type system.
+//!    - the set of **tools that run something**, by
+//!      `every_live_tool_whose_plan_runs_something_is_held`: a sweep of the
+//!      LIVE registry, so a tool that starts carrying an argv, a batch or a
+//!      line is a red rather than a gap. Closed by measurement.
+//!    - the set of **spellings of one field**, by
+//!      `every_spelling_that_really_runs_a_line_is_held`: a generator over
+//!      independent axes, judged against an oracle that RUNS each spelling,
+//!      so the question "is this really code?" is answered by the operating
+//!      system rather than by our list of what a shell is.
+//!
+//! The third of those was added in the re-cut, and the reason is the lesson
+//! of this row: the first two were real, and they were *not enough*. Keyed on
+//! five shell names and a word equal to `-c`, the floor held `bash -c` and
+//! let eight of eleven spellings of the same line — `bash -lc` among them —
+//! reach the floored config file at `posture=Open` with `fails_open=true`,
+//! and neither of the first two instruments could see that class at all,
+//! because a spelling is neither a new `Plan` field nor a new tool. **The
+//! hole did not go away when the list was asserted; it moved one level down,
+//! into the set of spellings of one entry.** What is still outside all three
+//! is named in `RESIDUE` and asserted there.
 //!
 //! What is deliberately NOT here is in `b6-floor-blind-call-shapes.md`: the
 //! floor reads a line's words as a shell splits them and expands nothing, so
@@ -517,6 +535,248 @@ async fn a_path_a_variable_holds_is_not_held_and_that_is_on_the_record() {
              and this test together, do not just flip the assertion ({reason})"
         );
     }
+}
+
+/// **Deliverable 3, the half that can go red for a spelling nobody here
+/// thought of.** The two tests above close the set of `Plan` FIELDS (a
+/// compile-time destructure) and the set of TOOLS that run something (a live
+/// registry sweep). Neither could see the set of **spellings of one field**,
+/// and that is where the hole actually was: keyed on five shell names and a
+/// word that was exactly `-c`, the floor held `bash -c` and let eight of
+/// eleven spellings of the same line — `bash -lc` among them, the idiom this
+/// project's own fixtures are written in — reach the floored config file at
+/// `posture=Open` with `fails_open=true`.
+///
+/// A table of eleven spellings would just be a longer list, and *a
+/// hand-maintained list with no completeness test* is the pattern this row
+/// exists to remove. So the set here is not a list. It is a **generator** and
+/// an **oracle**:
+///
+/// - the **generator** is the cartesian product of independent axes — what
+///   wrapper stands in front, how the interpreter is named, how the code flag
+///   is spelled — so a hole in a COMBINATION nobody assembled by hand is
+///   still reached. That is where every one of the eight live holes was:
+///   `env` + `bash` + `-c` was three separately handled things whose
+///   combination was unhandled.
+/// - the **oracle** for *"is this spelling really code?"* is the operating
+///   system, not our opinion of it. Every spelling is RUN, appending to the
+///   fixture's own config file in its temp dir, and the spellings that
+///   actually appended are the ones the floor is then required to hold.
+///
+/// The assertion is therefore `executed ⟹ held`, and neither side of it is a
+/// list anyone maintains. A spelling nobody here imagined goes red by
+/// executing, whatever we believe about shells. A spelling that is nonsense
+/// costs nothing: the oracle finds it never ran and asks nothing of the
+/// floor. An interpreter this host does not have is excluded the same way,
+/// and required again on a host that has it.
+///
+/// It earned its keep immediately. With `CODE_LETTERS` holding only `c` —
+/// which is every spelling the review named — this test went red on
+/// `perl -e` and `node -e`, a flag nobody in the loop had mentioned, and
+/// `-e` is in the key because the generator found it and not because anyone
+/// remembered it.
+///
+/// `RESIDUE` is what is left: code in a position **no flag introduces**, so
+/// there is nothing to key on. It is measured and asserted, not described,
+/// so a new member of it is a red as well.
+#[tokio::test]
+async fn every_spelling_that_really_runs_a_line_is_held() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    let floored = r.config.to_string_lossy().into_owned();
+    let scratch = tempfile::tempdir().unwrap();
+    let shell = format!("printf x >> {floored}");
+
+    let mut executed: Vec<String> = vec![];
+    let mut unheld: Vec<String> = vec![];
+    for (program, flags, code) in INTERPRETERS {
+        let code = match *code {
+            "" => shell.clone(),
+            other => other.replace("PATH", &floored),
+        };
+        for flag in *flags {
+            for wrapper in WRAPPERS {
+                let mut argv: Vec<String> = wrapper
+                    .iter()
+                    .chain(program.iter())
+                    .map(|s| s.to_string())
+                    .collect();
+                // A flag spelling may be more than one word (`-l -c`), and
+                // the empty one is an interpreter that takes code with no
+                // flag at all.
+                argv.extend(flag.split_whitespace().map(String::from));
+                argv.push(code.clone());
+                if !really_ran(&argv, &r.config, scratch.path()) {
+                    continue;
+                }
+                let label = format!("{} {} {flag}", wrapper.join(" "), program.join(" "))
+                    .trim()
+                    .to_string();
+                if !executed.contains(&label) {
+                    executed.push(label.clone());
+                }
+                // The same spelling in each shape that can carry an argv,
+                // and nested inside another line — a hole in one carrier is
+                // a hole, whichever `Plan` field brought it.
+                let quoted = format!("{} '{code}'", argv[..argv.len() - 1].join(" "));
+                let carriers = [
+                    ("{argv}", json!({"argv": &argv})),
+                    ("{steps}", json!({"steps": [{"argv": &argv}]})),
+                    ("nested in a line", json!({"argv": ["bash", "-c", &quoted]})),
+                ];
+                for (carrier, input) in carriers {
+                    let (floor, fails_open, _) = decide(&r, "proc.run", input);
+                    if !floor || fails_open {
+                        let miss = format!("{label} as {carrier}");
+                        if !unheld.contains(&miss) {
+                            unheld.push(miss);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // The oracle must have found real code to judge, or `executed ⟹ held` is
+    // satisfied by an empty set and this test asserts nothing at all.
+    eprintln!("FLOOR spellings: {} executed on this host", executed.len());
+    assert!(
+        executed.len() >= 20 && executed.contains(&"bash -c".to_string()),
+        "the oracle ran almost nothing, so it proved almost nothing — is a shell missing from \
+         this host? executed: {executed:#?}"
+    );
+
+    // Every spelling that really ran, held — except the residue, and only
+    // the members of it this host could run. A wrapper in front of a residue
+    // interpreter is still the residue.
+    let is_residue = |label: &String| {
+        RESIDUE
+            .iter()
+            .any(|res| label == res || label.ends_with(&format!(" {res}")))
+    };
+    let mut expected: Vec<String> = executed
+        .iter()
+        .filter(|label| is_residue(label))
+        .flat_map(|label| {
+            ["{argv}", "{steps}", "nested in a line"]
+                .iter()
+                .map(move |c| format!("{label} as {c}"))
+        })
+        .collect();
+    expected.sort();
+    unheld.sort();
+    assert_eq!(
+        unheld, expected,
+        "a spelling that really appended to the floored config file is not held by the floor. \
+         The flag key is in `policy::code_lines`; if the new spelling's code is introduced by a \
+         flag, widen the key rather than naming the spelling. If no flag introduces it, it \
+         belongs in RESIDUE with a sentence saying why, and the row's report must say so too"
+    );
+}
+
+/// The generator's first axis: what stands in FRONT of the interpreter. Every
+/// one of these puts the interpreter at `argv[1]` or later, which is what
+/// left five of the review's eleven spellings unheld — the old rule read
+/// `argv[0]` and nothing else.
+const WRAPPERS: &[&[&str]] = &[
+    &[],
+    &["env"],
+    &["env", "-i"],
+    &["nice"],
+    &["timeout", "10"],
+    &["stdbuf", "-oL"],
+    &["nohup"],
+    &["setsid"],
+];
+
+/// The generator's second and third axes: how the interpreter is named, which
+/// code flags to spell it with, and the one line of that language which
+/// appends to the floored file (`PATH` is the file; an empty line means the
+/// shell one). A bare name, an absolute path, `env` finding it, a shell
+/// inside a multicall binary — and interpreters that are not shells at all,
+/// because the floor must not care which language the code is in, only that
+/// a flag said it was code.
+///
+/// An entry this host does not have simply does not execute, and the oracle
+/// then asks nothing of the floor for it; on a host that has it, it is
+/// required again. Adding a row here is how the next spelling gets asked
+/// about, and it costs nothing if it turns out to be nonsense.
+const INTERPRETERS: &[(&[&str], &[&str], &str)] = &[
+    (&["bash"], &["-c", "-lc", "-ec", "-ic", "-xc"], ""),
+    (&["bash"], &["--command"], ""),
+    (&["sh"], &["-c", "-lc", "-ec"], ""),
+    (&["zsh"], &["-c", "-lc", "-ic"], ""),
+    (&["dash"], &["-c", "-ec"], ""),
+    (&["ksh"], &["-c", "-lc"], ""),
+    (&["/bin/bash"], &["-c", "-lc"], ""),
+    (&["/bin/sh"], &["-c", "-lc"], ""),
+    (&["busybox", "sh"], &["-c"], ""),
+    (&["python3"], &["-c"], r#"open("PATH", "a").write("x")"#),
+    (&["perl"], &["-e"], r#"open(F, ">>", "PATH"); print F "x""#),
+    (&["ruby"], &["-e"], r#"File.write("PATH", "x", mode: "a")"#),
+    (
+        &["node"],
+        &["-e", "--eval"],
+        r#"require("fs").appendFileSync("PATH","x")"#,
+    ),
+    // The residue below: code in an argument NO FLAG introduces.
+    (&["awk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
+    (
+        &["php"],
+        &["-r"],
+        r#"file_put_contents("PATH","x",FILE_APPEND);"#,
+    ),
+];
+
+/// What is knowingly NOT held, and why it cannot be: each is code in an
+/// argument that no flag introduces, so there is nothing for a flag key to
+/// see. `awk '<program>'` takes its program as a bare operand; `php -r`
+/// spells "run this" with a letter that `rm -r`, `grep -r` and `cp -r` all
+/// use for something else, so keying on it would read a path argument as
+/// code on half the lines anyone writes. Holding either would mean knowing
+/// one program's own grammar, which is the list this row removed.
+///
+/// This is the row's residual risk, stated as an assertion rather than a
+/// sentence: a member of it that becomes held is a red here too, so the gap
+/// cannot quietly close or quietly grow.
+const RESIDUE: [&str; 2] = ["awk", "php -r"];
+
+/// Did this argv really run its line? The floored file's length answers it,
+/// which is why the oracle needs no opinion about what a shell is: the
+/// operating system decides, and a spelling nobody here thought of is
+/// measured the same way as `bash -c`.
+///
+/// `setsid` and `nohup` can outlive the direct child, so a file that has not
+/// grown by the time the child is reaped is re-read briefly before the answer
+/// is "no". A program this host does not have fails to spawn, and that is a
+/// "no" with nothing asked of the floor.
+fn really_ran(argv: &[String], floored: &Path, cwd: &Path) -> bool {
+    let len = || std::fs::metadata(floored).map(|m| m.len()).unwrap_or(0);
+    let before = len();
+    let spawned = std::process::Command::new(&argv[0])
+        .args(&argv[1..])
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let Ok(mut child) = spawned else {
+        return false;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            _ if std::time::Instant::now() > deadline => {
+                let _ = child.kill();
+                break;
+            }
+            _ => std::thread::sleep(std::time::Duration::from_millis(5)),
+        }
+    }
+    (0..10).any(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        len() > before
+    })
 }
 
 /// The floor is also the list L1 hides from a sandboxed job
