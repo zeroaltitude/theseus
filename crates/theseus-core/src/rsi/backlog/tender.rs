@@ -70,6 +70,18 @@ impl Core {
                                 updated = n.updated.len(), trimmed = n.trimmed.len(), retired = n.retired.len(),
                                 started = n.started.len(), "self backlog: the night ran"
                             );
+                            // A shut start guard is said here too (theseus-1eemp): with
+                            // nothing ready the pipeline refuses nothing and writes no
+                            // row, so a guard held for hours showed only to whoever asked.
+                            let looked = theseus_store::blocking({
+                                let c = c.clone();
+                                move || c.self_pipeline(&Default::default())
+                            });
+                            if let Some((hold, why)) =
+                                looked.ok().and_then(|r| r.room.hold.zip(r.room.why))
+                            {
+                                tracing::info!(%hold, %why, "self backlog: the next start waits");
+                            }
                             c.rsi.pipeline.kick();
                             for s in n.started {
                                 let c = c.clone();
