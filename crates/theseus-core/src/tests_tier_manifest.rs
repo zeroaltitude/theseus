@@ -281,18 +281,20 @@ async fn a_verdict_that_misses_the_routes_wait_records_no_would_drop() {
     jev.release();
 }
 
-/// A second `Late` hole, pinned on purpose (theseus-fpm2): a late verdict decides a LATER message's
-/// `would_drop`. Message one is a greeting whose `low` verdict misses the route's wait; it lands
-/// for the session's next message (`route_step.rs`'s `read_verdict`, `Got::Late` with a stashed
-/// verdict, which comes back with no `reason`). Message two's own verdict is late too, so its pack
-/// fixes a `Late` budget, and the carried `low` passes `raise_low_effort`'s filter: message two's
-/// manifest records `would_drop` from message ONE's verdict, though nothing of its own said `low`.
-/// The routing carry is deliberate (theseus-6n5j); nobody decided it should also decide this
-/// sample, so a count over `would_drop` rows mixes the two (the field's doc says so). What closes
-/// it: telling a carried verdict from the turn's own at that filter (a design change to the route
-/// step, not made; the owner decides first). What makes this fail: any edit that stops a carried
-/// verdict marking the next message, which is then the edit to make, with this test and the doc
-/// changed to match. Lateness is by order (`Held`, `release`, `until_late`), never by the hour.
+/// A second `Late` hole, closed SEPARATE (theseus-ectzg, B4 L79; was pinned open as theseus-fpm2):
+/// a late verdict decides a LATER message's `would_drop` too. Message one is a greeting whose
+/// `low` verdict misses the route's wait; it lands for the session's next message
+/// (`route_step.rs`'s `read_verdict`, `Got::Late` with a stashed verdict, which comes back with no
+/// `reason`). Message two's own verdict is late too, so its pack fixes a `Late` budget, and the
+/// carried `low` passes `raise_low_effort`'s filter: message two's manifest still records
+/// `would_drop` from message ONE's verdict, though nothing of its own said `low`. The routing
+/// carry is deliberate (theseus-6n5j); the owner's answer (2026-11-10 22:31:37 MST, "your
+/// recommendation" to the recommendation SEPARATE) is that this sample tells a carried verdict
+/// from the turn's own rather than drop it: `would_drop` stays, and `would_drop_carried` says
+/// which. What makes this fail: any edit that stops `raise_low_effort`/`injection_read` computing
+/// `v.turn != t.tc.turn_id` and stamping it through to the manifest, which is the edit to undo,
+/// with this test and the doc changed to match. Lateness is by order (`Held`, `release`,
+/// `until_late`), never by the hour.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_late_verdict_marks_the_next_messages_would_drop() {
     let jev = FakeJev::start().unwrap();
@@ -331,6 +333,32 @@ async fn a_late_verdict_marks_the_next_messages_would_drop() {
         m.would_drop,
         Some(m.admitted.len() as u64),
         "the carried verdict of message one marks message two"
+    );
+    assert_eq!(
+        m.would_drop_carried,
+        Some(true),
+        "message two's mark is flagged as message one's carried verdict, not its own: {m:?}"
+    );
+    jev.release();
+}
+
+/// The sibling of the carried case above, same rig: message one's OWN turn (never anybody
+/// else's) records `would_drop_carried: Some(false)`, so a reader can tell a false negative (never
+/// flagged) from an absent field (no `would_drop` at all, [`a_greeting_records_what_a_bar_would_drop_and_a_question_drops_nothing`]).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turns_own_would_drop_is_not_marked_carried() {
+    let jev = FakeJev::start().unwrap();
+    says(&jev, "sonnet", "low", 0.95);
+    work(&jev, "conversation", 0.95);
+    let r = tiered_open(&jev, 1, |_| {});
+    let res = turn(&r.core, None, "Hello there, good morning!", None).await;
+    let m = recalled(&r, &res);
+    assert!(!m.admitted.is_empty(), "notes were admitted: {m:?}");
+    assert_eq!(m.would_drop, Some(m.admitted.len() as u64), "{m:?}");
+    assert_eq!(
+        m.would_drop_carried,
+        Some(false),
+        "this turn's own in-time verdict said `low`; nothing was carried: {m:?}"
     );
     jev.release();
 }

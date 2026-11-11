@@ -452,9 +452,14 @@ impl TurnRunner {
     /// fixed, so this never waits. A paused manifest (the session's cap) holds
     /// notes that were never attached, so it records none.
     fn mark_would_drop(t: &Turn<'_>, m: &mut RecallManifest) {
-        let low = t.route.injection.as_ref().is_some_and(|b| b.low_effort);
-        if low && m.outcome != "paused" && !m.admitted.is_empty() {
+        let Some(b) = t.route.injection.as_ref().filter(|b| b.low_effort) else {
+            return;
+        };
+        if m.outcome != "paused" && !m.admitted.is_empty() {
             m.would_drop = Some(m.admitted.len() as u64);
+            // theseus-ectzg, B4 L79: SEPARATE — a carried verdict (the
+            // previous message's) is told apart from this turn's own.
+            m.would_drop_carried = Some(b.low_effort_carried);
         }
     }
 

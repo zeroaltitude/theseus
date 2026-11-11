@@ -100,6 +100,14 @@ pub struct InjectionBudget {
     /// ([`TurnRunner::small_talk_bar`], theseus-fpm2); it sizes nothing. Not
     /// in the row.
     pub low_effort: bool,
+    /// Set alongside [`Self::low_effort`] (meaningless when that is false):
+    /// `true` when the verdict that said `low` is the PREVIOUS message's,
+    /// carried to this turn by the route (`v.turn != t.tc.turn_id`, the same
+    /// test `route_effort` uses for `effort_reason: "carried"`); `false` for
+    /// this turn's own verdict, in time or late (theseus-ectzg, B4 L79).
+    /// Carried here into `RecallManifest::would_drop_carried`. Not in the
+    /// row.
+    pub low_effort_carried: bool,
 }
 
 /// The fallback of a budget fixed ordinary because no verdict had landed yet.
@@ -180,9 +188,10 @@ impl InjectionBudget {
     /// arrives late never sets `low_effort` and the turn is silently missing
     /// from the shadow's sample. It sizes nothing: only the mark moves, and
     /// only for a budget that fell back for want of a verdict.
-    pub(super) fn raise_low_effort(&mut self, verdict: Option<&Verdict>) {
+    pub(super) fn raise_low_effort(&mut self, verdict: Option<&Verdict>, carried: bool) {
         if self.fallback == Some(LATE) && verdict.is_some_and(is_low_effort) {
             self.low_effort = true;
+            self.low_effort_carried = carried;
         }
     }
 
@@ -205,16 +214,22 @@ impl InjectionBudget {
             coding: false,
             admit_raised: false,
             low_effort: false,
+            low_effort_carried: false,
         }
     }
 
     /// The budget a verdict (or its absence) gives: `of` its tier, and the
-    /// coding flag when an acting verdict's mode is `deep_coding`.
-    pub fn read(seen: Seen<'_>, cfg: &Config) -> Self {
+    /// coding flag when an acting verdict's mode is `deep_coding`. `carried`
+    /// is whether `seen`'s verdict (when it has one) is the PREVIOUS
+    /// message's, carried to this turn by the route — meaningless, and
+    /// ignored, unless the verdict also says `low` effort (theseus-ectzg, B4
+    /// L79).
+    pub fn read(seen: Seen<'_>, carried: bool, cfg: &Config) -> Self {
         let coding = matches!(seen, Seen::Verdict(v) if is_coding(v));
         let mut b = Self::of(tier_of(seen), cfg);
         b.coding = coding && b.fallback.is_none();
         b.low_effort = matches!(seen, Seen::Verdict(v) if is_low_effort(v));
+        b.low_effort_carried = b.low_effort && carried;
         b
     }
 
@@ -292,7 +307,10 @@ impl TurnRunner {
             Peeked::Landed(None) if deciding => Seen::Missing,
             Peeked::Landed(None) => Seen::Off,
         };
-        let b = InjectionBudget::read(seen, &self.cfg);
+        // This turn's own wait channel, never the judge's stashed late
+        // verdict of a previous message: never carried.
+        let carried = matches!(seen, Seen::Verdict(v) if v.turn != t.tc.turn_id);
+        let b = InjectionBudget::read(seen, carried, &self.cfg);
         if fix || !matches!(peeked, Peeked::Pending) {
             t.route.injection = Some(b.clone());
             Self::narrow_reads(t);
@@ -359,7 +377,12 @@ impl TurnRunner {
             (_, Some(Reason::NoVerdict | Reason::Unreachable)) => Seen::Missing,
             _ => Seen::Off,
         };
-        t.route.injection = Some(InjectionBudget::read(seen, &self.cfg));
+        // `read_verdict`'s `(Some(v), None)` also covers the session's
+        // PREVIOUS message's late verdict, carried to this turn: the same
+        // `v.turn != t.tc.turn_id` test `route_effort` uses for
+        // `effort_reason: "carried"` (theseus-ectzg, B4 L79).
+        let carried = matches!(seen, Seen::Verdict(v) if v.turn != t.tc.turn_id);
+        t.route.injection = Some(InjectionBudget::read(seen, carried, &self.cfg));
         Self::narrow_reads(t);
     }
 
@@ -475,7 +498,7 @@ mod tests {
         ] {
             let x = open(Some((work, true)));
             assert_eq!(tier_of(Seen::Verdict(&x)), (tier, None), "{work}");
-            let b = InjectionBudget::read(Seen::Verdict(&x), &cfg);
+            let b = InjectionBudget::read(Seen::Verdict(&x), false, &cfg);
             assert_eq!(
                 b.coding,
                 work == "coding",
@@ -489,20 +512,20 @@ mod tests {
             x.mode = pick.into();
             assert_eq!(tier_of(Seen::Verdict(&x)).0, Tier::Ordinary, "{pick}");
             assert!(
-                !InjectionBudget::read(Seen::Verdict(&x), &cfg).coding,
+                !InjectionBudget::read(Seen::Verdict(&x), false, &cfg).coding,
                 "{pick}"
             );
         }
         // Under the bar, or unanswered: ordinary, with the reason said, and no hint.
         let x = open(Some(("coding", false)));
         assert_eq!(tier_of(Seen::Verdict(&x)), (Tier::Ordinary, Some("unsure")));
-        assert!(!InjectionBudget::read(Seen::Verdict(&x), &cfg).coding);
+        assert!(!InjectionBudget::read(Seen::Verdict(&x), false, &cfg).coding);
         let x = open(None);
         assert_eq!(
             tier_of(Seen::Verdict(&x)),
             (Tier::Ordinary, Some("no work answer"))
         );
-        assert!(!InjectionBudget::read(Seen::Verdict(&x), &cfg).coding);
+        assert!(!InjectionBudget::read(Seen::Verdict(&x), false, &cfg).coding);
     }
 
     #[tokio::test]

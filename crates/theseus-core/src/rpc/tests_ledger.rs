@@ -211,7 +211,11 @@ async fn a_pages_total_is_counted_in_the_same_snapshot_as_its_rows() {
 /// session. It returns every session's recall row (those rows are scoped `recall:<session>` for
 /// `memory.recalls`, and the tail by kind does not care) with `data.would_drop` whole. Two
 /// sessions, a greeting each that `effort.v1` calls `low`: each row's `would_drop` is the count of
-/// notes its own manifest admitted.
+/// notes its own manifest admitted, and `data.would_drop_carried` is `false` on both (theseus-ectzg,
+/// B4 L79): each greeting is a session's first message, so its `low` is its own, never the
+/// previous message's carried to it. A reader of raw ledger rows, which is what this test
+/// exercises, needs the flag in the row and not only on `RecallManifest` in memory, or it has no
+/// way to tell the two apart across sessions.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_ledger_tail_by_recall_kind_reads_every_sessions_would_drop() {
     use crate::tests_recall::recalls;
@@ -258,4 +262,15 @@ async fn the_ledger_tail_by_recall_kind_reads_every_sessions_would_drop() {
             "{w:?} is not among the tail's would_drop rows {counted:?}"
         );
     }
+    let carried: Vec<&serde_json::Value> = got
+        .rows
+        .iter()
+        .filter(|row| row.data["would_drop"].as_u64().is_some())
+        .map(|row| &row.data["would_drop_carried"])
+        .collect();
+    assert_eq!(carried.len(), 2, "both sessions' rows: {carried:?}");
+    assert!(
+        carried.iter().all(|v| **v == serde_json::json!(false)),
+        "each session's own first greeting, never carried: {carried:?}"
+    );
 }
