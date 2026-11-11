@@ -633,6 +633,67 @@ fn introduces_a_program(w: &str) -> bool {
     w.starts_with('-') && w.trim_start_matches('-').starts_with("exec")
 }
 
+/// The code letters whose next-word exclusion a MEASURED false positive needs,
+/// which is a SMALLER set than [`CODE_LETTERS`] and deliberately so. `-c` and
+/// `-e` are the pattern flags of the commonest text tools (`grep -c`,
+/// `grep -e`, `sed -e`) and holding their argument was four of round 2's seven
+/// false positives. `E` and `S` joined [`CODE_LETTERS`] for `perl -E` and
+/// `env -S`, whose arguments are still READ as lines by [`code_lines`]
+/// whatever this says; what they cost on the PROGRAM side is `sudo -E`,
+/// `sudo -S`, `sudo -EH` and `env -S op`, every one a live path to the
+/// 1Password CLI with `fails_open=true` on `d6aa56e1`.
+///
+/// **The whole price of narrowing them, measured and not estimated, is ONE
+/// case in this tree**: `grep -E 'theseusd' <file>`, a one-word ERE whose
+/// pattern IS a floored program name, moved from
+/// `an_ordinary_command_still_runs_with_nothing_asked`'s must-not-hold list to
+/// `a_code_cluster_wrapper_does_not_hide_a_floored_program`'s accepted cost,
+/// pinned both ways. Every other `-E`/`-S` line here hands its flag a word
+/// that is not a floored name (`sed -E 's#…#'`, `curl -sS <url>`,
+/// `ssh -S <sock>`, `sort -S 1M`, `ruby -E utf-8`, `nextest -E 'test(…)'`), so
+/// none of them moves. **Putting `'E'` back reverts that half and nothing
+/// else**; the trade runs the way the owner priced it on 2026-11-10 at 14:53
+/// (`logistics/OWNER-ANSWERS-20261110-1406.md`).
+const PROGRAM_HIDING_LETTERS: [char; 2] = ['c', 'e'];
+
+/// The reserved words no COMMAND can follow, so a derived argv beginning with
+/// one puts its later words in no program position: what follows `for NAME in
+/// WORDS` and `case WORD in` is a name or a word list, never a program.
+///
+/// **The reserved words left out are the point of the list, not a gap in it.**
+/// `do`, `then` and `else` are each followed by a command and the walker
+/// splits at the `;` before them, so
+/// `shell_argvs("for i in 1; do op item get --reveal; done")` really is
+/// `[["for","i","in","1"], ["do","op",…], ["done"]]` — measured, not supposed.
+/// A list holding `do` would hand the vault to the commonest loop anyone
+/// writes. `in` is out because no derived argv begins with it (`case x in *`
+/// keeps it mid-argv) and a word that buys nothing can only cost.
+/// `a_shell_keyword_hides_no_program` pins both halves.
+const WORDS_NO_COMMAND_FOLLOWS: [&str; 2] = ["for", "case"];
+
+/// Whether a flag hides the NEXT WORD from the program match — narrower than
+/// whether it introduces code ([`introduces_code`]), and the question
+/// `runs_program` has to ask. **`getopt` gives an option its argument from the
+/// remainder of its own cluster**, so the next word is the flag's only when
+/// the code letter is the cluster's LAST character: `-c3` is `-c` carrying
+/// `3`, `-En` is `-E` then `-n`, `-e0` is `-e` carrying `0`, and in none of
+/// them is the next word anybody's argument. Every spelling this floor pins
+/// reads the other way — `-c`, `-lc`, `-ec`, `-ic`, `-norc` all END in their
+/// own code letter, which is getopt's rule and not a coincidence of the
+/// examples. Reading the cluster whole left `ionice -c3 op item get`,
+/// `sudo -En op` and `stdbuf -e0 op` reaching the 1Password CLI with
+/// `fails_open=true` while `sudo -n op` was held — one letter apart. The
+/// letters are [`PROGRAM_HIDING_LETTERS`] for the reason written there.
+fn hides_the_next_program(w: &str) -> bool {
+    match w.strip_prefix('-').filter(|c| !c.starts_with('-')) {
+        Some(cluster) => cluster
+            .chars()
+            .next_back()
+            .is_some_and(|c| PROGRAM_HIDING_LETTERS.contains(&c)),
+        None => CODE_FLAGS.contains(&w),
+    }
+}
+
 /// Whether this command RUNS the floored program `f`, read at every position
 /// a program can stand in with no program name consulted: the argv's first
 /// word, and every later word that is not itself a flag and that no code flag
@@ -652,13 +713,28 @@ fn introduces_a_program(w: &str) -> bool {
 /// seven false positives; telling a pattern from a command needs the list, so
 /// the pattern side stays with the flag key and the program side with the
 /// position. The cost is measured, not described: a bare `op` or `theseusd`
-/// WORD in a command the call runs holds it, so this repo's own
-/// `for b in theseus theseusd theseus-index; do` waits for a yes — two names,
-/// pinned by `a_word_list_naming_a_floored_program_is_held`.
+/// WORD in a command the call runs holds it, and this repository's own
+/// `scripts/` pay **18 of 24** lines for it — `cargo build -p theseusd`,
+/// `command -v op`, `journalctl -u theseusd`, `grep theseusd <log>` among them
+/// — pinned by `a_word_list_naming_a_floored_program_is_held`.
+///
+/// **Which flag hides the next word is [`hides_the_next_program`]'s question,
+/// not [`introduces_code`]'s**, and reading them as one question was itself a
+/// hole. **A reserved word hides nothing** at all
+/// ([`WORDS_NO_COMMAND_FOLLOWS`]): that is the one over-hold of the 24 a rule
+/// rather than an exception retires.
 fn runs_program(argv: &[String], f: &[String]) -> bool {
+    if argv
+        .first()
+        .is_some_and(|w| WORDS_NO_COMMAND_FOLLOWS.contains(&w.as_str()))
+    {
+        return false;
+    }
     (0..argv.len()).any(|i| {
         !argv[i].starts_with('-')
-            && (i == 0 || !introduces_code(&argv[i - 1]) || introduces_a_program(&argv[i - 1]))
+            && (i == 0
+                || !hides_the_next_program(&argv[i - 1])
+                || introduces_a_program(&argv[i - 1]))
             && prefix_match(&argv[i..], f)
     })
 }

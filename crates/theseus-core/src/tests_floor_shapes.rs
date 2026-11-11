@@ -387,23 +387,35 @@ async fn a_wrapper_does_not_hide_a_floored_program() {
 /// two entries, so that is the whole blast radius, and it is the same trade,
 /// in the same direction, as `the_over_hold_this_row_accepts_is_pinned`.
 ///
-/// A sharper rule is possible and is NOT taken here: a command whose first
-/// word is a shell KEYWORD (`for`, `in`, `case`) puts its later words in no
-/// program position at all. That is a list of POSIX reserved words rather
-/// than of shell implementations, so it is a real candidate — it is left as a
-/// line because nothing here measures which keywords matter, and a list
-/// added without measurement is how this floor got its first hole.
+/// The sharper rule the previous row left as a line IS taken now, and it is
+/// worth exactly one of these: a derived argv whose FIRST word is a reserved
+/// word no command can follow (`for`, `case`) puts its later words in no
+/// program position, so `for b in theseus theseusd theseus-index` is no longer
+/// held and has moved to the not-held block below with its measurement.
+/// `a_shell_keyword_hides_no_program` owns that case and both directions of
+/// it. **The other seventeen of this repository's own 24 `scripts/` lines are
+/// not reachable that way** — they are `<cmd> [flag…] theseusd` operands
+/// (`cargo build -p theseusd`, `journalctl -u theseusd`, `command -v op`) and
+/// bare words at position 1 of an ordinary program (`grep theseusd <log>`,
+/// `pkill theseusd`) — and nothing tells those from `nohup op item get`
+/// without knowing what `nohup` is, which is the list this floor refuses to
+/// keep. The honest size of the trade is **18 of 24** and it is written where
+/// the cost is, in `runs_program`.
 #[tokio::test]
 async fn a_word_list_naming_a_floored_program_is_held() {
     let r = own_files(Posture::Open, |_, _, _| vec![]);
     for (what, input) in [
         (
-            "a for-loop over the shipped binaries (scripts/repro.sh)",
-            json!({"command": "for b in theseus theseusd theseus-index; do echo $b; done"}),
-        ),
-        (
             "an echo that names both floored programs",
             json!({"command": "echo theseusd op"}),
+        ),
+        (
+            "a bare word at position 1 of an ordinary program (scripts/, and depart.log reading)",
+            json!({"command": "pkill theseusd"}),
+        ),
+        (
+            "a flag's OPERAND that happens to be the package name (scripts/acceptance/journey.sh:44)",
+            json!({"command": "cargo build --profile test -p theseus -p theseus-sim -p theseusd"}),
         ),
     ] {
         let (floor, fails_open, reason) = decide(&r, "proc.run", input);
@@ -414,6 +426,248 @@ async fn a_word_list_naming_a_floored_program_is_held() {
              and delete this case. It is a REGRESSION if the match stopped reading anything but \
              an argv's first word, which is `nohup op item get x --reveal`: {reason}"
         );
+    }
+}
+
+/// **The code-cluster wrapper class: the hole that survived teaching the floor
+/// to read programs at every argv position.** `runs_program` excluded the word
+/// after a code flag to spare `grep -c <pattern>`, and asked
+/// `introduces_code` to say which flags those were. `introduces_code` is true
+/// of ANY single-dash cluster carrying `c`, `e`, `E` or `S`, so a wrapper
+/// whose last ATTACHED cluster before the program carried one hid the program
+/// again — **`sudo -E op item get --reveal` reached the 1Password CLI with
+/// `fails_open=true` while `sudo -n op` was held, one letter apart.** The
+/// shift-5 floor-programs review measured eight such spellings (§2.2, RV-6);
+/// probing the class rather than the list found **twelve** on `d6aa56e1`, and
+/// `sudo -S op`, `sudo -EH op`, `env -S op` and `stdbuf -e0 theseusd` are the
+/// four it did not name.
+///
+/// Two readings close them and neither is a list of programs:
+/// [`hides_the_next_program`] asks getopt's question (the code letter must be
+/// the cluster's LAST character for the next word to be the flag's) and keys
+/// on [`PROGRAM_HIDING_LETTERS`] rather than every code letter.
+///
+/// **The accepted cost is the last block and it is one shape**, stated here
+/// rather than discovered later: a one-word ERE whose pattern IS a floored
+/// program name now waits for a yes.
+#[tokio::test]
+async fn a_code_cluster_wrapper_does_not_hide_a_floored_program() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    for (what, input) in [
+        // getopt's half: the code letter is not the cluster's last character,
+        // so the next word was never the flag's argument.
+        (
+            "ionice -c3, the cluster carrying its own operand",
+            json!({"command": "ionice -c3 op item get x --reveal"}),
+        ),
+        (
+            "sudo -En, a code letter then another flag",
+            json!({"command": "sudo -En op item get x --reveal"}),
+        ),
+        (
+            "stdbuf -e0",
+            json!({"command": "stdbuf -e0 op item get x --reveal"}),
+        ),
+        (
+            "stdbuf -e0 in front of Theseus's own binary",
+            json!({"command": "stdbuf -e0 theseusd --config /tmp/x.toml"}),
+        ),
+        (
+            "ionice -c3 in the call's own argv",
+            json!({"argv": ["ionice", "-c3", "op", "item", "get", "x", "--reveal"]}),
+        ),
+        // The letters' half: `-E` and `-S` are a line's flags on `perl` and
+        // `env` and a wrapper's flags on `sudo`, and the vault is on the
+        // wrapper side.
+        (
+            "sudo -E, the commonest wrapper spelling there is",
+            json!({"command": "sudo -E op item get x --reveal"}),
+        ),
+        (
+            "sudo -S",
+            json!({"command": "sudo -S op item get x --reveal"}),
+        ),
+        (
+            "sudo -EH, a code letter clustered with a non-code one",
+            json!({"command": "sudo -EH op item get x --reveal"}),
+        ),
+        (
+            "env -S, which the wrapper axis of this file's own generator spells",
+            json!({"command": "env -S op item get x"}),
+        ),
+        (
+            "a wrapper in front of the wrapper",
+            json!({"command": "nohup sudo -E op item get x --reveal"}),
+        ),
+        (
+            "sudo -E in the call's own argv",
+            json!({"argv": ["sudo", "-E", "op", "item", "get", "x", "--reveal"]}),
+        ),
+        (
+            "sudo -E in a step's argv",
+            json!({"steps": [{"argv": ["sudo", "-E", "op", "item", "get", "x"]}]}),
+        ),
+    ] {
+        let (floor, fails_open, reason) = decide(&r, "proc.run", input);
+        assert!(
+            floor,
+            "{what} reaches a floored program unheld: {reason}. This test exists because \
+             `sudo -E op` did exactly that while `sudo -n op` was held."
+        );
+        assert!(!fails_open, "a self session runs {what} anyway: {reason}");
+    }
+    // The controls, and the first two are round 2's own false positives: a
+    // code letter that IS its cluster's last character still hides the next
+    // word, because `grep -c theseusd <log>` is a pattern and holding it was
+    // four of round 2's seven. These are what make the fix a narrowing rather
+    // than a removal -- deleting `hides_the_next_program` reds these, not the
+    // block above.
+    let root = r.root.to_string_lossy().into_owned();
+    for (what, input) in [
+        (
+            "grep -c, round 2's F-1",
+            json!({"command": format!("grep -c theseusd {root}/depart.log")}),
+        ),
+        (
+            "grep -c as an argv, round 2's F-1",
+            json!({"argv": ["grep", "-c", "theseusd", &format!("{root}/x.log")]}),
+        ),
+        (
+            "a health check through a pipe",
+            json!({"command": "ps -ef | grep -c theseusd"}),
+        ),
+        (
+            "grep -e, the other pattern flag",
+            json!({"command": format!("grep -e theseusd {root}/depart.log")}),
+        ),
+        (
+            "an ordinary find -exec sweep",
+            json!({"command": format!("find {root} -name '*.rs' -exec grep -l fn {{}} +")}),
+        ),
+    ] {
+        let (floor, _, reason) = decide(&r, "proc.run", input);
+        assert!(!floor, "{what} is held and should not be: {reason}");
+    }
+    // The accepted cost of narrowing the letters, in full and in one place.
+    // The FIRST case was a must-not-hold in
+    // `an_ordinary_command_still_runs_with_nothing_asked` until this row and
+    // is the ONLY case in this tree that the narrowing flips: every other
+    // `-E`/`-S` line in the repository hands its flag a word that is not a
+    // floored program name (`sed -E 's#…#'`, `curl -sS <url>`,
+    // `ssh -S <sock>`, `sort -S 1M`, `ruby -E utf-8`,
+    // `cargo nextest -E 'test(…)'`), so not one of them moves.
+    //
+    // `grep -E theseusd <file>` and `sudo -E op item get --reveal` are the
+    // SAME argv shape -- a program, a single-dash cluster whose last character
+    // is a code letter, a bare word, more words -- and nothing list-free tells
+    // them apart. This block is therefore the record of a choice, not of a
+    // defect, and reverting it is one character: put `'E'` back in
+    // `PROGRAM_HIDING_LETTERS`.
+    for (what, input) in [
+        (
+            "a one-word ERE whose pattern IS a floored program name (MOVED from \
+             an_ordinary_command_still_runs_with_nothing_asked)",
+            json!({"command": format!("grep -E theseusd {root}/notes.md")}),
+        ),
+        (
+            "the same with the quotes a shell strips",
+            json!({"command": format!("grep -E 'theseusd' {root}/notes.md")}),
+        ),
+        (
+            "round 3's declared false positive, held before this row too and by \
+             the LINE key rather than this one",
+            json!({"command": format!("grep -E 'theseusd started' {root}/depart.log")}),
+        ),
+    ] {
+        let (floor, fails_open, reason) = decide(&r, "proc.run", input);
+        assert!(
+            floor && !fails_open,
+            "{what} is no longer held. That is an IMPROVEMENT if the floor can now tell a \
+             one-word ERE from `sudo -E op item get --reveal` without a list of program names -- \
+             say how in the row and delete this case. It is a REGRESSION if `'E'` went back into \
+             `PROGRAM_HIDING_LETTERS` without the four `sudo -E`/`-S` vault paths above being \
+             closed another way: {reason}"
+        );
+    }
+}
+
+/// **A reserved word hides no program, and the half nobody priced is the
+/// hole.** The previous row proposed `for`/`in`/`case` as a sharper rule and
+/// left it as a line for want of a measurement. The measurement is: it retires
+/// **one** of the eighteen `scripts/` lines the position match holds, and a
+/// list that reached one word further would hand the vault away.
+///
+/// `shell_argvs("for i in 1; do op item get --reveal; done")` really derives
+/// `[["for","i","in","1"], ["do","op","item","get","--reveal"], ["done"]]`, so
+/// **`do` begins an argv that runs the 1Password CLI.** The same is true of
+/// `then` after an `if`. [`WORDS_NO_COMMAND_FOLLOWS`] therefore holds only the
+/// two reserved words a WORD follows, and the second block here is the test
+/// that reds if anyone widens it.
+#[tokio::test]
+async fn a_shell_keyword_hides_no_program() {
+    let r = own_files(Posture::Open, |_, _, _| vec![]);
+    // What the rule buys: one real line of this repository's own, and the
+    // `case` head of the same shape.
+    for (what, input) in [
+        (
+            "a for-loop over the shipped binaries (scripts/release-smoke.sh:198)",
+            json!({"command": "for b in theseus theseusd theseus-index; do echo $b; done"}),
+        ),
+        (
+            "the same loop with no body",
+            json!({"command": "for b in theseus theseusd theseus-index"}),
+        ),
+        (
+            "a case head naming the daemon",
+            json!({"command": "case theseusd in *) echo x ;; esac"}),
+        ),
+    ] {
+        let (floor, _, reason) = decide(&r, "proc.run", input);
+        assert!(
+            !floor,
+            "{what} is still held, so the keyword reading bought nothing: {reason}"
+        );
+    }
+    // What the rule must never cost, and every case here was measured held on
+    // `d6aa56e1` before this row. A `do`/`then`/`else` entry in the list reds
+    // this block, which is the whole reason the list is two words long.
+    for (what, input) in [
+        (
+            "a loop body that really runs the vault CLI",
+            json!({"command": "for i in 1; do op item get x --reveal; done"}),
+        ),
+        (
+            "a loop body that really runs the daemon",
+            json!({"command": "for i in 1; do theseusd --config /tmp/x.toml; done"}),
+        ),
+        (
+            "an if body that really runs the vault CLI",
+            json!({"command": "if true; then op item get x --reveal; fi"}),
+        ),
+        (
+            "a while body that really runs the vault CLI",
+            json!({"command": "while true; do op item get x; done"}),
+        ),
+        (
+            "a case arm that really runs the vault CLI",
+            json!({"command": "case x in *) op item get x --reveal ;; esac"}),
+        ),
+        (
+            "a reserved word handed in as the call's own argv[0]",
+            json!({"argv": ["do", "op", "item", "get", "x"]}),
+        ),
+        (
+            "`then` handed in as the call's own argv[0]",
+            json!({"argv": ["then", "op", "item", "get", "x"]}),
+        ),
+    ] {
+        let (floor, fails_open, reason) = decide(&r, "proc.run", input);
+        assert!(
+            floor,
+            "{what} reaches a floored program unheld: {reason}. A reserved word that a COMMAND \
+             follows must never be in `WORDS_NO_COMMAND_FOLLOWS`."
+        );
+        assert!(!fails_open, "a self session runs {what} anyway: {reason}");
     }
 }
 
@@ -640,10 +894,22 @@ async fn an_ordinary_command_still_runs_with_nothing_asked() {
         // that carry them: `-E` is a regex dialect far more often than it is
         // perl's `-e`, and `-S` is curl's "show errors" and ssh's control
         // socket far more often than it is `env`'s split.
-        (
-            "an extended-regex grep for the daemon",
-            json!({"command": format!("grep -E 'theseusd' {i_root}/notes.md")}),
-        ),
+        //
+        // ⚠ MOVED, NOT DELETED — `grep -E 'theseusd' <file>` lived here and
+        // now lives in `a_code_cluster_wrapper_does_not_hide_a_floored_program`'s
+        // last block, asserted HELD and pinned both ways. It is the one case
+        // in this tree that the program-position key's narrowing to
+        // `PROGRAM_HIDING_LETTERS` flips, and it was flipped on purpose and
+        // against measurement: it is the whole price of holding `sudo -E op
+        // item get --reveal`, `sudo -S op` and `env -S op`, which reached the
+        // 1Password CLI with `fails_open=true` on `d6aa56e1`. The sentence
+        // above stays true of `code_lines` — a `-E` line is still READ as a
+        // line, which is why the two cases below are unchanged — and is no
+        // longer true of the program match. One over-hold on a read-only
+        // one-word pattern search for eight live vault paths is the trade, in
+        // the direction the owner priced on 2026-11-10 at 14:53
+        // (`logistics/OWNER-ANSWERS-20261110-1406.md`); keeping `'E'` in
+        // `PROGRAM_HIDING_LETTERS` reverts exactly this half and nothing else.
         (
             "an extended-regex sed naming the floored path",
             json!({"command": format!("sed -E 's|{floored}|x|' {i_root}/notes.md")}),
