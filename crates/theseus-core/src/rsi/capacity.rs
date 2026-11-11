@@ -45,13 +45,17 @@ pub const MEMORY_BUSY: f64 = 10.0;
 ///
 /// One a core: the 5-minute average is the kernel's own smoothing, so a
 /// cargo build's first ten seconds do not shut the guard, and a load that has
-/// held at the cores for about three minutes does. The owner's order to keep
-/// every unit busy is met: the factory's own load on this host runs at 0.3 to
-/// 0.5 a core, and a host with a spare core on average starts the build.
-/// Linux counts tasks in uninterruptible sleep too, so a host stalled on disk
-/// reads busy: the guard errs towards waiting. It also errs the other way on
-/// pinning: loops pinned to four cores read the load of their number, not
-/// four cores' share.
+/// held at the cores for about three minutes does. The host's own load while
+/// the factory worked on 2026-11-11 ran from 0.3 a core (08:30) to 1.1 (09:00,
+/// three cargo units compiling): the owner's allocation for this host is three
+/// units, so a start waits for a fourth's room and takes it when the compiles
+/// ease, which they do within minutes. Linux counts tasks in uninterruptible
+/// sleep too, so a host stalled on disk reads busy: the guard errs towards
+/// waiting. It errs the other way on pinning: loops pinned to four cores read
+/// the load of their number, not four cores' share, and a pinned overload
+/// (24 loops on 4 cores) holds a start with twelve cores idle. The line is
+/// argued from what a spare core is, not calibrated against the self gate's
+/// flake rate: that measurement is owed (theseus-1eemp).
 pub const CPU_LOAD_BUSY: f64 = 1.0;
 const GB: u64 = 1024 * 1024 * 1024;
 
@@ -290,24 +294,30 @@ pub(crate) mod tests {
         );
     }
 
-    /// The two load shapes of 2026-11-11 on the 16-core WSL host, with the
-    /// readings taken from `/proc` (theseus-1eemp; `b5-psi/` has the rigs and
-    /// the logs). What the old bar, `some avg10` at 60 %, said of each is the
-    /// second column; the guard now reads the load, the third.
+    /// The two load shapes of 2026-11-11 on the 16-core WSL host (theseus-1eemp;
+    /// `b5-psi/` beside the report has the rigs and the logs). What the old
+    /// bar, `some avg10` at 60 %, said of each is the second column; the guard
+    /// now reads the load, the third.
     ///
     /// - **Eight busy loops pinned to CPUs 0-3, left running 11 h 48 m** by a
-    ///   test rig that never killed them: `some avg10` 94.03 (the old bar shut
-    ///   the guard), load 8 on 16 cores. Twelve cores were idle; **it starts**.
-    /// - **Forty busy loops across all sixteen cores for six minutes:** `some
-    ///   avg10` 55 to 57 (the old bar let it start, at a load of 42), load5 a
-    ///   core over 1 from the fourth minute. No core is spare; **it holds**.
+    ///   test rig that never killed them: `some avg10` 94.03 and load1 8.48,
+    ///   read by the conductor at 05:0x. The old bar shut the guard with
+    ///   twelve cores idle. Eight runnable loops pull the load average to 8
+    ///   (the five-minute figure below is that, not a reading): 0.5 a core.
+    ///   **It starts.**
+    /// - **Forty busy loops across all sixteen cores:** `some avg10` 54 to 63
+    ///   over six minutes, on both sides of the old bar at a load1 of 33 to
+    ///   62, and 55.34 at the minute whose `/proc/loadavg` the line below is
+    ///   (the host was already loaded: load5 25.82, 1.61 a core, and 46.51 by
+    ///   the sixth minute). No core is spare; **it holds.**
+    ///   `full avg10` was 0.00 in every sample of both.
     #[test]
     fn a_pinned_burst_starts_and_a_saturated_host_holds_whatever_some_says() {
         let s = Stand::default();
         *s.cpu.lock().unwrap() = Some(94.03);
-        *s.load.lock().unwrap() = load_per_core("8.48 8.31 8.05 9/1446 707318\n", 16);
+        *s.load.lock().unwrap() = load_per_core("8.48 8.00 8.00 9/1446 707318\n", 16);
         assert_eq!(held(&s, 0, 0), None, "12 of 16 cores idle: start");
-        *s.cpu.lock().unwrap() = Some(56.51);
+        *s.cpu.lock().unwrap() = Some(55.34);
         *s.load.lock().unwrap() = load_per_core("41.96 25.82 13.79 43/1480 2723045\n", 16);
         assert_eq!(held(&s, 0, 0), Some("cpu"), "load5 1.61 a core: hold");
         let (room, hold) = check(&s, Path::new("/"), 0, 0, 2, 40);
@@ -336,11 +346,18 @@ pub(crate) mod tests {
     /// `/proc/loadavg`'s own text, and what is not it.
     #[test]
     fn the_load_is_the_second_field_over_the_cores() {
-        assert_eq!(load_per_core("5.25 7.63 4.71 3/1446 2715813\n", 16), Some(7.63 / 16.0));
+        assert_eq!(
+            load_per_core("5.25 7.63 4.71 3/1446 2715813\n", 16),
+            Some(7.63 / 16.0)
+        );
         assert_eq!(load_per_core("5.25\n", 16), None, "one field");
         assert_eq!(load_per_core("5.25 nan 4.71 3/1446 1\n", 16), None);
         assert_eq!(load_per_core("5.25 -1 4.71 3/1446 1\n", 16), None);
-        assert_eq!(load_per_core("5.25 7.63 4.71 3/1446 1\n", 0), None, "no cores");
+        assert_eq!(
+            load_per_core("5.25 7.63 4.71 3/1446 1\n", 0),
+            None,
+            "no cores"
+        );
         assert_eq!(load_per_core("", 16), None);
     }
 
