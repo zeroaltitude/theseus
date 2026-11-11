@@ -54,6 +54,138 @@ pub struct Spec {
     /// it (`L1.rw`'s doc says why); a directory only.
     #[serde(default)]
     pub rw: Vec<PathBuf>,
+    /// The host facilities this view grants beyond the contract's floor.
+    /// Nothing by default; **only a self build's launcher turns one on**
+    /// ([`Facilities`]).
+    #[serde(default, skip_serializing_if = "Facilities::is_none")]
+    pub facilities: Facilities,
+}
+
+/// Host facilities a view may be granted beyond what every L1 job gets
+/// (theseus-1eemp). Each is off by default, and **the only caller that turns
+/// one on is `theseus_core::sandbox::self_build_view`**: the model's
+/// `proc.run` builds its view in `for_job`, which cannot reach this field,
+/// so a view that is not a self build's is as it was.
+///
+/// **Why they exist.** A self build runs the suite on the code it wrote, and
+/// 108 of that suite's tests have the sandbox, the terminal and the device
+/// nodes as their *subject*. Without these grants those tests fail on the
+/// environment rather than on the branch, so the loop cannot tell a change
+/// that broke the sandbox from one that did not — and a loop that cannot
+/// test the sandbox, the pty and the daemon can never improve them.
+///
+/// **What they are not.** None of them reaches the floor, a credential, a
+/// sealed set, the store or the spool: those are `hidden`, `rw` and the
+/// environment, and nothing here touches any of the three. [`Facilities::nesting`]
+/// documents why granting the mount calls does not lift a `hidden` cover.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Facilities {
+    /// A `devpts` instance of the job's own at `/dev/pts`, and the
+    /// `/dev/ptmx` that allocates in it. Without it `posix_openpt` and
+    /// `openpty` answer `ENOENT`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pty: bool,
+    /// The device nodes in [`crate::MORE_DEVICES`] as well as the four
+    /// every job gets.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub devices: bool,
+    /// The calls a job needs to build a sandbox of its own: `clone` with the
+    /// `CLONE_NEW*` flags, `unshare`, `mount`, `umount2`, `pivot_root` and
+    /// `mount_setattr`. `setns` and the new mount API (`open_tree`,
+    /// `move_mount`, `fsopen`, `fsconfig`, `fsmount`, `fspick`) stay denied:
+    /// the init uses none of them, so granting them would buy nothing.
+    ///
+    /// **This does not lift a `hidden` cover, and the reason is the kernel's,
+    /// not ours.** A cover is a mount laid over a live bind, so a job that
+    /// could `umount2` it would read the operator's real path. It cannot:
+    ///
+    /// - the job's own mount namespace is owned by user namespace 1, which
+    ///   the wrapper made; the command runs in user namespace 2 (`init`'s
+    ///   `Command::setup` unshares into it), and `may_mount` asks for
+    ///   `CAP_SYS_ADMIN` **in the namespace that owns the mount namespace**.
+    ///   A capability held in a child user namespace is not held in its
+    ///   parent, so `umount2` of a cover answers `EPERM` whatever seccomp
+    ///   says — and that is true today, before this grant;
+    /// - the only way to hold mount privileges is a **new** user namespace
+    ///   with a **new** mount namespace, and `copy_mnt_ns` marks every mount
+    ///   inherited across a user-namespace boundary `MNT_LOCKED`.
+    ///   `do_umount` refuses a locked mount, and `do_loopback` refuses a
+    ///   non-recursive bind of a directory with locked children — which is
+    ///   the other way one would try to walk around a cover.
+    ///
+    /// `tests_facilities` plants both attempts inside a granted view and
+    /// asserts the sealed bytes stay unreadable.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nesting: bool,
+    /// A `/proc` and a `/sys` **without Docker's masks** and without the
+    /// read-only remounts under `/proc`.
+    ///
+    /// **This is the kernel's precondition for [`nesting`](Self::nesting) to
+    /// be of any use, and it was found by measurement, not by reading.** With
+    /// `nesting` alone the nested `clone` succeeds and the nested init then
+    /// dies at `mounting /proc: Operation not permitted`:
+    /// `mount_too_revealing` refuses a fresh procfs in a less-privileged
+    /// mount namespace unless the namespace already holds a *fully visible*
+    /// mount of that filesystem, and `mnt_already_visible` does not count a
+    /// mount that has locked child mounts covering anything but a
+    /// permanently-empty directory. Our masks are exactly such children, so
+    /// a masked `/proc` makes a nested procfs impossible — and there is no
+    /// third option: a second, hidden, fully-visible procfs would itself be
+    /// skipped by the same rule, and binding the outer `/proc` would take
+    /// the nested job out of its own pid namespace, which is the thing under
+    /// test.
+    ///
+    /// **Its price, measured and not minimised.** It reaches no credential,
+    /// no store, no spool, no sealed set and no floor path — but an
+    /// unmasked `/proc` and `/sys` disclose host facts: `/proc/sched_debug`
+    /// and `/proc/timer_list` name tasks beyond the job's pid namespace,
+    /// `/sys/fs/cgroup` names the operator's units, `/sys/firmware` carries
+    /// DMI and ACPI identifiers, and `/sys/devices/virtual/powercap` is an
+    /// energy side-channel. The writes those paths would need are refused
+    /// by capability (`sysrq-trigger` and a non-namespaced sysctl each want
+    /// `CAP_SYS_ADMIN` in the initial user namespace, which no nested one
+    /// confers) and `/proc/kcore` wants `CAP_SYS_RAWIO` there, so the cost
+    /// is **disclosure, not control**.
+    ///
+    /// **It is off, and it is an owner question** (asked 2026-11-11 by the
+    /// shift-5 self-view builder). The owner's 11:34 grant covers the
+    /// facilities the suite's subjects need; it was given without this fact,
+    /// because nobody had it yet. Turning it on also means a self build's
+    /// own view no longer satisfies `clause_08_proc_and_sys_masked` — the
+    /// clause it is running in order to test. Until he answers, `nesting` is
+    /// granted, this is not, and the gate names the 48 tests that stay
+    /// withheld (`self_build::WITHHELD`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub visible_proc: bool,
+}
+
+impl Facilities {
+    /// Nothing granted: every L1 job but a self build's.
+    pub const NONE: Self = Self {
+        pty: false,
+        devices: false,
+        nesting: false,
+        visible_proc: false,
+    };
+
+    /// Whether nothing is granted (`serde`'s skip, and the contract's
+    /// default).
+    pub fn is_none(&self) -> bool {
+        *self == Self::NONE
+    }
+
+    /// The names granted, for a report and for the gate's honesty line.
+    pub fn named(&self) -> Vec<&'static str> {
+        [
+            (self.pty, "pty"),
+            (self.devices, "devices"),
+            (self.nesting, "nesting"),
+            (self.visible_proc, "visible_proc"),
+        ]
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .collect()
+    }
 }
 
 /// What one job may use. Its memory has no limit of its own, as an L0
@@ -105,6 +237,7 @@ impl Spec {
             limits: Limits::default(),
             egress_port: None,
             rw: Vec::new(),
+            facilities: Facilities::NONE,
         }
     }
 

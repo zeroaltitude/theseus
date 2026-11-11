@@ -292,13 +292,45 @@ fn a_self_builds_environment_is_its_own_and_offline() {
     assert_eq!(get("RUSTC_WRAPPER"), Some(""));
     assert_eq!(get("HOME"), Some("/home/op"));
     assert!(get("PATH").unwrap().contains("/home/op/.cargo/bin:"));
+    // What this bar was built for, and still is: nothing of the daemon's own
+    // state and no secret. Two `THESEUS_` names are allowed BY NAME, and only
+    // these two — they carry the gate's honesty line about the view the run
+    // was judged in (theseus-1eemp), hold no path of the daemon's and no
+    // credential, and a reader of a self run's tail is owed both. An
+    // allowlist, so a third appearing fails here rather than riding in behind
+    // them.
+    const TOLD: [&str; 2] = ["THESEUS_VIEW_GRANTS", "THESEUS_VIEW_WITHHELD"];
     let names: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
     assert!(
         names
             .iter()
-            .all(|n| !n.starts_with("THESEUS_") && !n.contains("TOKEN")),
+            .all(|n| (!n.starts_with("THESEUS_") || TOLD.contains(n)) && !n.contains("TOKEN")),
         "{names:?}"
     );
+    // And what the two say, so they are a contract rather than two strings.
+    assert_eq!(
+        get("THESEUS_VIEW_GRANTS"),
+        Some("a self build's, granting pty, devices, nesting, visible_proc")
+    );
+    // Not empty, and that is the point: four tests no grant reaches stay
+    // withheld, and the gate says so (`self_build::WITHHELD`).
+    let withheld = get("THESEUS_VIEW_WITHHELD").unwrap();
+    assert!(
+        withheld.contains("4 tests no grant reaches"),
+        "{withheld:?}"
+    );
+    // Neither may ever carry a path OF THE OPERATOR'S: the gate echoes both
+    // into a log a self run pushes. `/proc` is a kernel name and is fine; a
+    // home, a state dir or a tree is not.
+    for n in TOLD {
+        let v = get(n).unwrap();
+        for bad in ["/home/", "/root", ".theseus", "/tmp/", "$"] {
+            assert!(
+                !v.contains(bad),
+                "{n} must name facilities, never one of the operator's paths: {v:?}"
+            );
+        }
+    }
 }
 
 /// `Jail::prepare` is what the gate runs in: the place's own variables (a

@@ -37,6 +37,15 @@ const SYSTEM: [&str; 8] = [
 /// The device nodes a job gets, bound from the host's.
 pub const DEVICES: [&str; 4] = ["null", "zero", "random", "urandom"];
 
+/// The device nodes a view granted [`crate::Facilities::devices`] gets as
+/// well, bound from the host's, each because a test in the suite opens it by
+/// name and cannot be written any other way: `full`, which the only test of
+/// a write that must meet `ENOSPC` opens (`theseus-kernel`'s
+/// `redact::a_full_disk_never_blocks_the_writer`), and `tty`, which a program
+/// drawing on the terminal it was given opens to find it. One the host does
+/// not have is skipped, as a system directory is.
+pub const MORE_DEVICES: [&str; 2] = ["full", "tty"];
+
 /// Docker's masks of `/proc`: covered (a file by `/dev/null`, a directory by
 /// an empty read-only tmpfs), and read-only.
 const PROC_MASKED: [&str; 10] = [
@@ -103,7 +112,7 @@ pub(crate) fn build(spec: &Spec) -> Result<View, Failure> {
     dev(spec).stage("building /dev")?;
     // Before the old root goes: the kernel mounts a new proc or sysfs only
     // while the host's is still in this mount namespace.
-    proc(proc_atime)?;
+    proc(proc_atime, spec.facilities.visible_proc)?;
     let sys = sysfs(sys_atime)?;
     mkdir("/tmp", 0o755).stage("making /tmp")?;
     tmpfs("/tmp", 0o1777, Some(spec.limits.tmp_mb), 0).stage("mounting /tmp")?;
@@ -296,11 +305,24 @@ fn system(p: &str) -> io::Result<()> {
 fn dev(spec: &Spec) -> io::Result<()> {
     mkdir("/dev", 0o755)?;
     tmpfs("/dev", 0o755, Some(1), 0)?;
-    for name in DEVICES {
+    // The four every job gets, and the granted view's extra nodes. A granted
+    // node the host lacks is skipped rather than failing every job: the four
+    // are on every Linux, `MORE_DEVICES` is not quite (`/dev/tty` is absent
+    // from some minimal images).
+    let more: &[&str] = if spec.facilities.devices {
+        &MORE_DEVICES
+    } else {
+        &[]
+    };
+    for name in DEVICES.iter().chain(more) {
         let target = PathBuf::from("/dev").join(name);
+        let source = host(&target);
+        if !source.exists() {
+            continue;
+        }
         touch(&target)?;
         let t = c(&target)?;
-        sys::mount(Some(&c(host(&target))?), &t, None, libc::MS_BIND, None)?;
+        sys::mount(Some(&c(&source)?), &t, None, libc::MS_BIND, None)?;
         // Never nodev: these are the devices.
         sys::mount_setattr(&t, false, MOUNT_ATTR_NOSUID | MOUNT_ATTR_NOEXEC)?;
     }
@@ -314,11 +336,62 @@ fn dev(spec: &Spec) -> io::Result<()> {
     }
     mkdir("/dev/shm", 0o755)?;
     tmpfs("/dev/shm", 0o1777, Some(spec.limits.tmp_mb), 0)?;
+    if spec.facilities.pty {
+        pty()?;
+    }
     // Nothing more is made in /dev.
     sys::mount_setattr(&c("/dev")?, false, MOUNT_ATTR_RDONLY)
 }
 
-fn proc(atime: libc::c_ulong) -> Result<(), Failure> {
+/// A pseudo-terminal of the job's own, for a view granted
+/// [`crate::Facilities::pty`]: a `devpts` instance at `/dev/pts` and the
+/// `/dev/ptmx` that allocates in it.
+///
+/// `newinstance` is the whole of the isolation: the instance's terminals are
+/// numbered from 0 in this namespace alone and `/dev/ptmx` bound from it
+/// cannot reach a terminal on the host's instance, so a job holding a master
+/// holds one it made. `gid=` is deliberately not passed — the job's user
+/// namespace maps one gid, so naming the host's `tty` group would fail the
+/// mount; the slave takes the mounter's gid instead, which is the same uid
+/// the command runs as.
+///
+/// `/dev` is made read-only non-recursively by `dev`, so `/dev/pts` stays
+/// writable, which devpts needs to make a slave at each `posix_openpt`.
+fn pty() -> io::Result<()> {
+    mkdir("/dev/pts", 0o755)?;
+    sys::mount(
+        Some(c"devpts"),
+        c"/dev/pts",
+        Some(c"devpts"),
+        libc::MS_NOSUID | libc::MS_NOEXEC,
+        Some(c"newinstance,ptmxmode=0666,mode=0620"),
+    )?;
+    touch(Path::new("/dev/ptmx"))?;
+    sys::mount(
+        Some(c"/dev/pts/ptmx"),
+        c"/dev/ptmx",
+        None,
+        libc::MS_BIND,
+        None,
+    )
+}
+
+/// `/proc` for the job's pid namespace, masked as Docker masks it.
+///
+/// **`visible` leaves BOTH of its mask groups off — the covers and the
+/// read-only remounts — and only a view granted
+/// [`crate::Facilities::visible_proc`] gets that.** A nested L1 job cannot
+/// start below a masked `/proc`; the grant's own doc carries the measurement,
+/// what it discloses, and that **both** groups are needed (either alone
+/// leaves the job unable to start, measured on 2026-11-11: 67 of 123 with
+/// one group off, 119 with both).
+///
+/// `/sys`'s masks are NOT part of the grant and never come off: taking them
+/// off as well changed nothing — the same 119 — so `/sys/firmware`'s DMI and
+/// ACPI identifiers, `/sys/fs/cgroup`'s unit names and
+/// `/sys/devices/virtual/powercap`'s energy side-channel stay covered for a
+/// self build exactly as for every other job.
+fn proc(atime: libc::c_ulong, visible: bool) -> Result<(), Failure> {
     mkdir("/proc", 0o555).stage("making /proc")?;
     sys::mount(
         Some(c"proc"),
@@ -328,6 +401,9 @@ fn proc(atime: libc::c_ulong) -> Result<(), Failure> {
         None,
     )
     .stage("mounting /proc")?;
+    if visible {
+        return Ok(());
+    }
     for name in PROC_MASKED {
         mask(&Path::new("/proc").join(name)).stage(format!("masking /proc/{name}"))?;
     }

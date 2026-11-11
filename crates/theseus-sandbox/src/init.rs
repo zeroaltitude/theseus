@@ -86,7 +86,16 @@ fn run(report: &mut File, t0: Instant) -> Result<i32, Failure> {
         egress_listener(port).stage(format!("opening the egress listener on 127.0.0.1:{port}"))?;
     }
 
-    let filter = seccomp::program();
+    // TWO filters, and the difference is load-bearing (theseus-1eemp). The
+    // command's carries whatever the view grants; **the init's own is always
+    // the contract's**, because the init is root in user namespace 1 — the
+    // namespace that owns the job's mount namespace — so a relaxed filter on
+    // the init would make it the one process in the job that could lift a
+    // `hidden` cover. The command cannot make the init call anything (it
+    // waits in `supervise` and only forwards signals), but the invariant is
+    // cheaper to keep than to reason about, and `drop_own_privileges`'s own
+    // doc is the promise it keeps.
+    let filter = seccomp::program_for(spec.facilities);
     let command = Command::prepare(&spec, uid, gid, last_cap, &filter)?;
     let (err_r, err_w) = sys::pipe().stage("making the command's pipe")?;
     let pid = match unsafe { libc::fork() } {
@@ -98,7 +107,7 @@ fn run(report: &mut File, t0: Instant) -> Result<i32, Failure> {
         pid => pid,
     };
     drop(err_w);
-    drop_own_privileges(last_cap, &filter).stage("dropping the init's privileges")?;
+    drop_own_privileges(last_cap, &seccomp::program()).stage("dropping the init's privileges")?;
     // The pipe closes at the command's exec, or carries the step that failed.
     if let Some((step, errno)) = read_step(err_r) {
         let mut status = 0;
@@ -450,9 +459,13 @@ fn clear_ambient() -> io::Result<()> {
     .map(drop)
 }
 
-/// The init, once the command is forked: no capabilities left, and the
-/// command's filter, so pid 1's capabilities in user namespace 1 cannot be
-/// used through any call the filter denies.
+/// The init, once the command is forked: no capabilities left, and **the
+/// contract's filter, never the view's**, so pid 1's capabilities in user
+/// namespace 1 cannot be used through any call the contract denies — not
+/// even in a view that grants the command the mount calls
+/// ([`crate::Facilities::nesting`]). `run` passes `seccomp::program()` here
+/// and the granted program only to `Command::prepare`; that asymmetry is the
+/// whole of it.
 fn drop_own_privileges(last_cap: u32, filter: &[libc::sock_filter]) -> io::Result<()> {
     #[repr(C)]
     struct Header {

@@ -594,8 +594,9 @@ impl Sandbox {
             // Each job's own, from its proposal (`for_job`).
             egress: Vec::new(),
             egress_dns: crate::egress::test_dns(),
-            // Only a self build's launcher sets it (`self_build_view`).
+            // Only a self build's launcher sets either (`self_build_view`).
             rw: Vec::new(),
+            facilities: theseus_sandbox::Facilities::NONE,
         };
         Self {
             cfg: cfg.clone(),

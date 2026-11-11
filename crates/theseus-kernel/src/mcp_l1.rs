@@ -114,6 +114,9 @@ pub fn spec(s: &Server) -> Spec {
             .collect();
     spec.hidden = s.l1.hidden.clone();
     spec.limits = s.l1.limits;
+    // An MCP server's L1 comes from the operator's config, which has no way
+    // to set this: it is `Facilities::NONE` here and the copy keeps it so.
+    spec.facilities = s.l1.facilities;
     spec
 }
 
