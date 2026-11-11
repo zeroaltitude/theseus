@@ -189,6 +189,11 @@ pub struct Switch {
     /// never the reverse (the night holds `backlog` while it reads and takes
     /// the record).
     pub(crate) folded: Mutex<()>,
+    /// Test-only: how many times `folded_read` has read the store on this
+    /// `Core`, so a test can assert a count instead of inferring one from an
+    /// interleaving seam (theseus-1eemp, B5 L28 residue).
+    #[cfg(test)]
+    pub(crate) folded_reads: std::sync::atomic::AtomicU64,
     /// The self pipeline's one tick at a time, its one self-join pass at a
     /// time, and its kick (`pipeline.rs`, theseus-pw1q.16).
     pub(crate) pipeline: pipeline::Shared,

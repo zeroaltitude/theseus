@@ -149,6 +149,10 @@ impl Folded {
 impl Core {
     /// What is waiting for a note, read under the lock.
     pub(crate) fn folded_read(&self) -> Folded {
+        #[cfg(test)]
+        self.rsi
+            .folded_reads
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let _one = self.rsi.folded.lock().unwrap_or_else(|e| e.into_inner());
         self.folded_load().view()
     }
