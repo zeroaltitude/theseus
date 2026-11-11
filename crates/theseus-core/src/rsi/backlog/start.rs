@@ -202,6 +202,7 @@ impl Core {
             }));
             w.touch(&id);
             self.backlog_write(w)?;
+            self.bind_item_session(&session);
             night.started.push(Started {
                 item: id,
                 title,
@@ -211,6 +212,60 @@ impl Core {
             });
         }
         Ok(())
+    }
+
+    /// Where a started item's build reports (theseus-1eemp): the place the
+    /// self loop already speaks at - the first DM the bindings bind - bound to
+    /// the item's session with the record every other task's target is written
+    /// with (`Outbox::task_record`, `task.place.<session>`), so
+    /// `rsi::pr::told_in_thread` resolves a target and the item's own surface
+    /// is told the moment the gate ends.
+    ///
+    /// Until this, it was told nothing on the live daemon. A self item's
+    /// session is opened here, not by `task_start`, so none of the three ways
+    /// `Outbox::try_target` resolves a session held it - no place runs on it,
+    /// no task record named it, no thread showed at it - and
+    /// `told_in_thread`'s `let Some(target) = … else { return }` was taken
+    /// every time: **`self_build_red` appears 0 times in the owner's store,
+    /// index and WAL both**, across 126 self builds since 2026-10-20. The
+    /// owner, 2026-11-10 08:35: *"theseus said it started work on something,
+    /// but there were no new task records in the forum or in the task
+    /// thread"*. The note and the task record were the other two surfaces and
+    /// both reached him; this is the third.
+    ///
+    /// **Why the DM and not a thread of its own.** A self item hangs off the
+    /// self backlog's root, whose origin session (`self:backlog`) is no
+    /// place, so no place's sync sees it: it gets no forum post and no
+    /// per-task channel, and those are the two things a "thread of its own"
+    /// would be. The DM is the one place the loop is already known to speak
+    /// at (`stage_self_digest`), it is bound on the owner's daemon, and a
+    /// post to a place the binding no longer binds is refused rather than
+    /// left pending for ever (`Outbox::refuse_unbound`) - which a virtual
+    /// thread place, bound by no binding, would not be. When a self item does
+    /// get a post of its own, this is the one line that changes: the record
+    /// points at it and nothing in `pr.rs` moves.
+    ///
+    /// With no DM bound - a headless daemon - nothing is written and nothing
+    /// is said, exactly as before. A failure to write is logged, never
+    /// raised: the build's verdict stands whatever the telling did.
+    fn bind_item_session(&self, session: &str) {
+        let Some(place) = self.runner.place_rule.owner_dm_places().into_iter().next() else {
+            return;
+        };
+        let target = format!("discord:{place}");
+        let written = (|| -> Result<()> {
+            let record = self.outbox.task_record(session, &target)?;
+            self.store.append(&[record])?;
+            Ok(())
+        })();
+        match written {
+            Ok(()) => self.outbox.task_bound(session, &target),
+            Err(e) => tracing::warn!(
+                error = %format!("{e:#}"),
+                %session,
+                "self backlog: the item's session was not bound to a place"
+            ),
+        }
     }
 
     /// The mint start, beside the fix start with a cap of its own
@@ -388,6 +443,7 @@ impl Core {
         }));
         w.touch(id);
         self.backlog_write(w)?;
+        self.bind_item_session(&session);
         Ok(Some(Started {
             item: id.into(),
             title,
