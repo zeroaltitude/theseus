@@ -39,6 +39,8 @@ use std::process::ExitStatus;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use crate::job::WrapperIdentity;
+
 /// Who reaps a child that `spawn` starts.
 #[derive(Debug, Clone, Copy)]
 pub enum Kind<'a> {
@@ -312,10 +314,12 @@ enum Learned {
 
 /// A child's class, from its command line as `read` gives it (`None`: no
 /// such process). An empty one is a process in its exec (theseus-mi6a), or
-/// one ending: read again while `wait` says to look again. A tender or a
+/// one ending, or a line cut short by a read that raced its exit
+/// (`WrapperIdentity::Unreadable`): read again while `wait` says to look
+/// again. A tender or a
 /// wrapper read in its exec was an orphan for its image's whole life, and
 /// the supervisor started a second tender, which exited on the first's lock.
-/// `None` when the line was still empty as the wait ended.
+/// `None` when the line was still empty, or cut, as the wait ended.
 fn learn(
     read: &mut dyn FnMut() -> Option<Vec<u8>>,
     wait: &mut dyn FnMut() -> bool,
@@ -324,14 +328,20 @@ fn learn(
         let Some(cmdline) = read() else {
             return Some(Learned::Other);
         };
+        // A line cut short (a read that raced the child's exit) is no more
+        // told than an empty one: read again, never taken for a wrapper of a
+        // job it does not name, nor for the daemon's no-one.
         if !cmdline.is_empty() {
-            return Some(if let Some(job) = crate::job::job_in_cmdline(&cmdline) {
-                Learned::Wrapper(job)
-            } else if let Some(name) = tender_in(&cmdline) {
-                Learned::Tender(name)
-            } else {
-                Learned::Other
-            });
+            match crate::job::job_in_cmdline(&cmdline) {
+                WrapperIdentity::Job(job) => return Some(Learned::Wrapper(job)),
+                WrapperIdentity::Unreadable => {}
+                WrapperIdentity::Unnamed | WrapperIdentity::NotWrapper => {
+                    return Some(match tender_in(&cmdline) {
+                        Some(name) => Learned::Tender(name),
+                        None => Learned::Other,
+                    });
+                }
+            }
         }
         if !wait() {
             return None;
@@ -607,6 +617,48 @@ mod tests {
         assert_eq!(learn(&mut || None, &mut || true), Some(Learned::Other));
         let mut read = reads(vec![b"sleep\x0030\0".to_vec()]);
         assert_eq!(learn(&mut read, &mut || true), Some(Learned::Other));
+    }
+
+    /// theseus-3i6d1 (h): a line cut short by a read that raced the child's
+    /// exit is read again, as an empty one is, and is never a wrapper of a job
+    /// it does not name. The old reader gave a cut `job-wrapper` line the job
+    /// `"?"`, and a whole one with no id the same.
+    #[test]
+    fn a_line_cut_short_is_read_again_never_a_wrapper_of_no_job() {
+        let whole = [
+            b"/x/theseusd\0".as_slice(),
+            crate::job::WRAPPER_MODE.as_bytes(),
+            b"\0--correlation-id\0act_1\0--\0sh\0",
+        ]
+        .concat();
+        let torn = whole[..whole.len() - 24].to_vec();
+        assert_ne!(torn.last(), Some(&0), "cut mid-argument");
+        let at_a_boundary = b"/x/theseusd\0job-wrapper\0--spool\0".to_vec();
+        let mut lines = vec![torn.clone(), at_a_boundary, whole].into_iter();
+        let mut read = move || lines.next();
+        let mut waits = 0;
+        let got = learn(&mut read, &mut || {
+            waits += 1;
+            true
+        });
+        assert_eq!(
+            (got, waits),
+            (Some(Learned::Wrapper("act_1".into())), 2),
+            "each cut look waited, then the whole line was read"
+        );
+        let mut read = || Some(torn.clone());
+        assert_eq!(
+            learn(&mut read, &mut || false),
+            None,
+            "still cut as the wait ended"
+        );
+        let unnamed = b"/x/theseusd\0job-wrapper\0--spool\0/s\0--\0sh\0".to_vec();
+        let mut read = || Some(unnamed.clone());
+        assert_eq!(
+            learn(&mut read, &mut || panic!("a whole line waits for nothing")),
+            Some(Learned::Other),
+            "a wrapper of no job is not a wrapper of the job \"?\""
+        );
     }
 
     /// A tender is known by its binary's file name and its first argument

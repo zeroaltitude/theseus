@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use crate::job::WrapperIdentity;
 use crate::types::{Completion, CorrelationId, Verdict};
 
 #[derive(Debug, Clone)]
@@ -420,19 +421,41 @@ impl Spool {
             let pid = fs::read_to_string(e.path())
                 .ok()
                 .and_then(|s| s.trim().parse::<u32>().ok());
-            match pid {
-                Some(pid) if crate::job::wrapper_job(pid).as_deref() == Some(id.as_str()) => {
-                    out.push((id, pid));
-                }
-                Some(_) if young(&e) => {}
-                Some(_) => {
+            let Some(pid) = pid else { continue };
+            match marker_holder(&id, &crate::job::wrapper_job(pid)) {
+                Marker::Wrapper => out.push((id, pid)),
+                Marker::Unknown => {}
+                Marker::Stale if young(&e) => {}
+                Marker::Stale => {
                     let _ = fs::remove_file(e.path());
                 }
-                None => {}
             }
         }
         out.sort();
         out
+    }
+}
+
+/// What a lingering marker's pid reads as, for the marker's job.
+#[derive(Debug, PartialEq, Eq)]
+enum Marker {
+    /// Still the job's wrapper.
+    Wrapper,
+    /// Read cut short (`WrapperIdentity::Unreadable`): it says nothing of
+    /// whose pid it is, and removing a marker is for good. Left, unlisted,
+    /// for the next look.
+    Unknown,
+    /// Another process's, or none: the wrapper is gone.
+    Stale,
+}
+
+fn marker_holder(id: &str, identity: &WrapperIdentity) -> Marker {
+    match identity {
+        WrapperIdentity::Job(job) if job == id => Marker::Wrapper,
+        WrapperIdentity::Unreadable => Marker::Unknown,
+        WrapperIdentity::Job(_) | WrapperIdentity::Unnamed | WrapperIdentity::NotWrapper => {
+            Marker::Stale
+        }
     }
 }
 
@@ -655,7 +678,7 @@ mod tests {
             .expect("flock, from util-linux, runs the stand-in wrapper");
         let pid = wrapper.id();
         let t0 = std::time::Instant::now();
-        while crate::job::wrapper_job(pid).as_deref() != Some("act_1") {
+        while crate::job::wrapper_job(pid) != crate::job::WrapperIdentity::Job("act_1".into()) {
             assert!(t0.elapsed().as_secs() < 10, "the stand-in never started");
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
@@ -713,5 +736,21 @@ mod tests {
             !marker.exists(),
             "an old marker that names no wrapper stays"
         );
+    }
+
+    /// theseus-3i6d1 (h): a marker whose pid read cut short is neither listed
+    /// nor removed. Only a whole read that names another job, no job, or no
+    /// wrapper is a dead one's; the old `"?"` made the torn read one of those.
+    #[test]
+    fn a_marker_read_cut_short_is_left_not_removed() {
+        use WrapperIdentity::*;
+        assert_eq!(
+            marker_holder("act_1", &Job("act_1".into())),
+            Marker::Wrapper
+        );
+        assert_eq!(marker_holder("act_1", &Unreadable), Marker::Unknown);
+        for gone in [Job("act_2".into()), Unnamed, NotWrapper] {
+            assert_eq!(marker_holder("act_1", &gone), Marker::Stale, "{gone:?}");
+        }
     }
 }

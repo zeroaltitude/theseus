@@ -295,14 +295,21 @@ fn a_double_fork_stays_under_its_wrapper_which_lingers_until_it_ends() {
     });
     assert!(alive(wrapper) && alive(grandchild));
     assert_eq!(stat(grandchild).unwrap().1, wrapper);
-    assert_eq!(job::wrapper_job(wrapper).as_deref(), Some("act_linger"));
+    assert_eq!(
+        job::wrapper_job(wrapper),
+        job::WrapperIdentity::Job("act_linger".into())
+    );
     // The grandchild ends; the wrapper reaps it and exits.
     std::fs::write(rig.path("release"), "").unwrap();
     wait_for("the wrapper to exit", || (!alive(wrapper)).then_some(()));
     assert!(!alive(grandchild));
     assert!(rig.spool.lingering().is_empty());
     assert!(!rig.path("spool/lingering/act_linger").exists());
-    assert_eq!(job::wrapper_job(wrapper), None, "an exited wrapper is none");
+    assert_eq!(
+        job::wrapper_job(wrapper),
+        job::WrapperIdentity::NotWrapper,
+        "an exited wrapper is none"
+    );
 }
 
 /// theseus-v18k: a wrapper that will linger marks itself before it reports.
