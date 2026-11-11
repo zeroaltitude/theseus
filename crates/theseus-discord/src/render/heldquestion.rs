@@ -30,9 +30,18 @@
 //! question whether to exclude the footer or fix it: *"fix the footer,
 //! keeping the features i loved about the footer"*. So the shape of the
 //! change is the narrowest one that stops the lie: the words beside the
-//! timestamp, and nothing else. The live `<t:…:R>`, the `-# Needs you ·`
-//! line, the buttons, the Details fields, the task prefix and an
-//! `owner_ask`'s `(fallback)` clause are all untouched.
+//! timestamp, and nothing else. The live `<t:…:R>`, the buttons, the Details
+//! fields, the task prefix and an `owner_ask`'s `(fallback)` clause are all
+//! untouched.
+//!
+//! The `-# Needs you ·` line (the needs-you post's own footer,
+//! `render::ask::card_text`) kept saying `expires` here when this surface
+//! landed, because it is a different renderer and was not this commit's
+//! question. The owner fixed it the same way later that night (theseus-la5oc,
+//! Discord DM 2026-11-10 22:31, *"your recommendation"* to **FIX IT THE SAME
+//! WAY**): `needs_you::card_body` now carries `held`/`requested_at_ms`
+//! alongside `expires_at_ms`, and `card_text` picks the same two clauses this
+//! file's `footer_clause` does, for the same reason.
 
 use theseus_protocol::work::ask::held_tool;
 use theseus_protocol::ConfirmRequest;
@@ -219,8 +228,10 @@ mod tests {
     /// **The contract.** The features the owner said to keep are byte-identical:
     /// an `owner_ask`'s footer with its `(fallback)` clause (its question does
     /// expire, so its deadline is true), a task change's footer (it expires
-    /// too - `TaskChangeExpired`), and the `-# Needs you ·` line of the
-    /// needs-you post. None of them is a held question, and none of them moves.
+    /// too - `TaskChangeExpired`), and a needs-you post with no `held` field
+    /// (an older daemon's, or one of these two kinds escalated to the DM the
+    /// same way) still reading `expires`, byte-identical to before theseus-la5oc.
+    /// None of the three is a held question, and none of them moves.
     #[test]
     fn the_cards_whose_deadline_is_real_are_untouched() {
         let ask = held(json!({"tool": "owner_ask",
@@ -250,6 +261,44 @@ mod tests {
                 .unwrap()
                 .starts_with("-# Needs you · expires <t:1790000300:R>"),
             "{post}"
+        );
+    }
+
+    /// The needs-you post's own footer (`render::ask::card_text`) is a
+    /// different renderer from the card this file builds, so surface 3 (the
+    /// test above, which this scenario used to sit inside, before
+    /// theseus-la5oc) pinned it still saying `expires` and moved on — a held
+    /// question's needs-you post was the one surface that fix did not reach.
+    /// The owner fixed it the same way at 22:31: `needs_you::card_body` now
+    /// adds `held`/`requested_at_ms` beside `expires_at_ms`, and a held
+    /// question's needs-you post says `held since … still waiting` too.
+    #[test]
+    fn the_needs_you_posts_footer_is_fixed_the_same_way() {
+        let held_body = json!({"kind": "needs_you", "asked_by": "a task", "prompt": "Ship it?",
+            "choices": [], "expires_at_ms": 1_790_000_300_000_u64, "held": true,
+            "requested_at_ms": 1_790_000_000_000_u64,
+            "card": {"kind": "approval", "what": "ship it", "why": "because", "yes": "Yes ships it."}});
+        let post = crate::render::needs_you(&held_body);
+        assert!(
+            post.lines()
+                .last()
+                .unwrap()
+                .starts_with("-# Needs you · held since <t:1790000000:R> · still waiting"),
+            "{post}"
+        );
+        assert!(!post.contains("expires"), "no promise of an expiry: {post}");
+
+        let real_deadline = json!({"kind": "needs_you", "asked_by": "a task", "prompt": "Ship it?",
+            "choices": [], "expires_at_ms": 1_790_000_300_000_u64, "held": false,
+            "requested_at_ms": 1_790_000_000_000_u64,
+            "card": {"kind": "approval", "what": "ship it", "why": "because", "yes": "Yes ships it."}});
+        assert!(
+            crate::render::needs_you(&real_deadline)
+                .lines()
+                .last()
+                .unwrap()
+                .starts_with("-# Needs you · expires <t:1790000300:R>"),
+            "not held: the wording is exactly what it was before"
         );
     }
 
