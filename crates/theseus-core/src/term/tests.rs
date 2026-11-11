@@ -673,6 +673,28 @@ async fn a_session_holds_four_terminals() {
     )
     .unwrap_err();
     assert!(e.contains("unknown key \"Hyper-X\""), "{e}");
+    // The text typed is in the plan, so the gate can read the paths its
+    // words name: without it the plan carried the TERMINAL's argv and its
+    // cwd and nothing of what was typed, and a floored path typed into a
+    // shell reached it with nothing asked (`theseus-3i6d1`, the floor
+    // reviewer's F1, 2026-11-10). The gate's side is asserted in
+    // `tests_floor_shapes.rs`.
+    let pl = theseus_tools::Tool::plan(
+        &send,
+        &json!({"terminal": "t1", "text": "cat /etc/theseus/theseus.toml\n"}),
+        &ctx(d.path()),
+    )
+    .unwrap();
+    assert_eq!(pl.lines, ["cat /etc/theseus/theseus.toml\n"]);
+    assert_eq!(pl.argv.as_deref(), Some(["cat".to_string()].as_slice()));
+    // Keys alone type no text, and name no path.
+    let pl = theseus_tools::Tool::plan(
+        &send,
+        &json!({"terminal": "t1", "keys": ["Enter"]}),
+        &ctx(d.path()),
+    )
+    .unwrap();
+    assert!(pl.lines.is_empty());
     let e = fails(
         &terms,
         "s3",

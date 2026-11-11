@@ -31,6 +31,18 @@ use super::Server;
 /// in every turn's definitions.
 pub const DESCRIPTION_MAX: usize = 2_000;
 
+/// Every string an MCP call's arguments hold, at any depth, for the gate to
+/// read the paths they name (`plan`). An object's keys are the server's
+/// schema, not its data, so only values are read.
+pub(crate) fn strings(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) => out.push(s.clone()),
+        Value::Array(a) => a.iter().for_each(|v| strings(v, out)),
+        Value::Object(o) => o.values().for_each(|v| strings(v, out)),
+        _ => {}
+    }
+}
+
 /// A description cut to [`DESCRIPTION_MAX`] characters, saying so.
 pub fn cap_description(d: &mut String) {
     if let Some((i, _)) = d.char_indices().nth(DESCRIPTION_MAX) {
@@ -159,7 +171,20 @@ impl Tool for McpTool {
     }
 
     /// The gate decides by name, as it always does: the plan names the
-    /// server and the tool, and reads no meaning into the arguments.
+    /// server and the tool, and reads no meaning into the arguments — except
+    /// the paths they name, which the floor holds (the floor reviewer's F1,
+    /// 2026-11-10: an MCP call's plan carried no resource, no argv and no
+    /// line, so there was nothing of it for the floor to read at all).
+    ///
+    /// Its arguments go in `lines` because that is what they are to us: text
+    /// only the server's own schema understands. We do not know its grammar,
+    /// so a string of it that names a floored path holds the call. That is
+    /// blunter than the shell line's reading — a path mentioned in an MCP
+    /// argument is held where the same words quoted in a `bash -c` line are
+    /// not — and deliberately so: of the two, only bash's grammar is one we
+    /// can read. It costs nothing on the owner's config today, which
+    /// configures no MCP client server at all, and it is right the day one
+    /// is.
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         if !(input.is_object() || input.is_null()) {
             return Err(format!(
@@ -167,8 +192,11 @@ impl Tool for McpTool {
                 self.wire
             ));
         }
+        let mut lines = vec![];
+        strings(input, &mut lines);
         Ok(Plan {
             summary: format!("{} {}", self.canonical, super::short(input, 120)),
+            lines,
             ..Plan::default()
         })
     }

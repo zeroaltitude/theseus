@@ -587,13 +587,13 @@ async fn the_copy_is_on_the_floor() {
 /// nothing but the floor can be what holds a call on either: `outside_roots`
 /// never applies (it only raises an `open` access to `notify`, which runs),
 /// and no `[policy.tools]` line is set.
-struct OwnFiles {
-    core: Arc<Core>,
-    root: PathBuf,
+pub(crate) struct OwnFiles {
+    pub(crate) core: Arc<Core>,
+    pub(crate) root: PathBuf,
     /// The config file in use (`Config::config_file`).
-    config: PathBuf,
+    pub(crate) config: PathBuf,
     /// `<state_dir>/AGENTS.md` (`project_context::USER_FILE`).
-    agents: PathBuf,
+    pub(crate) agents: PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -604,7 +604,7 @@ const OWN_TEXT: &str = "# the owner's own\n";
 /// A core at `enforcement` whose provider follows the script `f` builds from
 /// the root, the config file and the user-level file, all three of which exist
 /// before the core does.
-fn own_files(
+pub(crate) fn own_files(
     enforcement: Posture,
     f: impl FnOnce(&Path, &Path, &Path) -> Vec<Scripted>,
 ) -> OwnFiles {

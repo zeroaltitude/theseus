@@ -130,6 +130,19 @@ pub struct Plan {
     #[serde(skip)]
     #[cfg_attr(test, ts(skip))]
     pub card: Option<Value>,
+    /// Text this call hands to a program to read rather than running itself:
+    /// the text `term.send` types into a terminal's program, and an MCP
+    /// call's own arguments, which only its server understands. The gate
+    /// reads the paths its words name, as it reads a command's argv
+    /// (`ToolPolicy::view`), so the floor holds a path whichever shape of a
+    /// call names it. A `proc.run {command}` line needs no entry here: it is
+    /// already the argv `bash -c <line>`, and the gate reads a shell's `-c`
+    /// line wherever it finds one. Held in memory, as `authority`: the
+    /// record keeps the verdict in its reason, so a node's layout is
+    /// unchanged.
+    #[serde(skip)]
+    #[cfg_attr(test, ts(skip))]
+    pub lines: Vec<String>,
 }
 
 /// A proposed tool call as the model (or a test) states it: what a
