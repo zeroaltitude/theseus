@@ -479,6 +479,72 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   with no conflict, shortened two marked functions in `turn.rs`, and added one test function over 100 lines, and one run
   of the script marked the one and removed the two.
 
+### A file that fell under 2,500 and needs its ceiling entry back (theseus-4vsrz)
+
+A row that grows a Rust file with **no** `long-files.txt` entry past 2,500 lines — whether its entry was deleted
+when it shrank, or it never had one — does exactly what a row raising an existing ceiling does: **one commit that
+grows the file and writes the entry together, with the `ceiling-raised` trailer.** There is no two-step land, and
+the claim in circulation that such a file "cannot get its entry back in one step" is **false**. Measured at
+`42b9212e` by growing `crates/theseus-protocol/src/lib.rs` from 2,497 to 2,617 lines with filler comments and
+reverting it, three scenarios over the same tree:
+
+| the tree as it stands | `bash scripts/shape.sh` says | exit |
+|---|---|---|
+| grown to 2,617 **and** `crates/theseus-protocol/src/lib.rs 2700 <reason>` added, **together** | `shape: ok (no file over 2500 lines but the 6 listed)` | **0** |
+| grown to 2,617 only, no entry | `shape: crates/theseus-protocol/src/lib.rs has 2617 lines, over 2500, and no entry in scripts/long-files.txt: split it, or list it with a ceiling and the reason` | 1 |
+| the entry added only, file still 2,497 | `shape: crates/theseus-protocol/src/lib.rs has 2497 lines, at or under 2500: delete its entry in scripts/long-files.txt` | 1 |
+
+The cause is `shape.sh`'s own control flow: it measures the tree **as it stands after the change** (`wc -l` over
+`git ls-files --cached --others`), so the "at or under 2,500: delete its entry" refusal at `shape.sh:38` is reached
+only while the file is **still small**. Grow it in the same change and that branch is never taken; the `n > c` test
+at `:41` then compares the new length against the new ceiling and passes. **The two separate orders are the only
+ones that red**, so a two-step land means a deliberately red intermediate commit — which "one commit per green
+sub-step" forbids and which a later bisect walks into. One commit, or nothing.
+
+What does bite is the keel guard, once:
+
+```
+scripts/long-files.txt:12: ceiling-raised: (no entry) -> crates/theseus-protocol/src/lib.rs 2700
+```
+
+`(no entry) -> <path> <ceiling>` is the guard's own rendering of a **re-founded** entry; an existing entry raised
+renders as `<path> <old> -> <path> <new>` (measured on `thread_route.rs` 2600 -> 2700). **Same rule, same trailer,
+same exit 1** — which is the whole argument that the two cases are one case and must not be given two procedures.
+The finding is a property of the **list alone**, not of the file: it is byte-identical whether or not the commit
+grows the file (scenarios 1 and 3 above print the same line, which is why the entry-only step of a two-step land
+buys nothing — it reds twice). The trailer that clears it is the one `turn.rs` has been raised under four times:
+
+```
+Keel: ceiling-raised scripts/long-files.txt — <the owner's authorising words>
+```
+
+For our own development limits those words are the owner's standing ones of 2026-10-25, quoted in `long-files.txt`
+beside the `turn.rs` and `thread_route.rs` reasons. The commit body names the file's length before and after, the
+ceiling and why, and why the lines could not go in a sibling module — the same body `turn.rs`'s four raisings carry.
+
+**Deleting an entry is the opposite act and needs no trailer.** A listed file whose test module moves out and falls
+to 2,500 lines or fewer MUST lose its entry in the same commit — `shape.sh:39` requires it — and the guard says
+`keel: ok` on the deletion (measured: `thread_route.rs`'s entry removed, `keel: ok ... 0 findings`, exit 0). A
+ceiling going away is not erosion. This direction is also the one `docs/design/invariant-merge-class.md` puts out
+of the merge class: no sibling branch can shrink a file the shrinking branch did not shrink.
+
+**A row that cannot sign** — every cloud row, and any agent without a key in `scripts/keel-signers` — does not
+apply the grow-and-list change at all, because the guard fails the gate in a second and the trailer cannot be made
+true. It puts the new lines in a sibling module instead (`crates/theseus-protocol/src/work.rs` and its siblings are
+where protocol types go; three lines is one struct field), or, where that is genuinely impossible, writes the hunk
+and the draft trailer into its report with the owner's words left blank, and lands everything else.
+
+**The two files in this position at `42b9212e`**, so the rule has a referent: `crates/theseus-discord/src/render.rs`
+at **1,327 lines**, whose explicit 3,009 ceiling was deleted when its 1,643-line test module moved out to
+`render/tests.rs` at `5e71c15a` (it was 2,970 of 3,009 before), so its effective ceiling is now the default 2,500;
+and `crates/theseus-protocol/src/lib.rs` at **2,497 lines**, three under the default and never listed.
+
+**Rejected, with the reason.** A `shape.sh` flag for an entry being re-founded: it buys nothing, because `shape.sh`
+already passes the case at exit 0, and both `shape.sh`'s keel lines and `keel-guard.py` itself are keel-class, so the
+complexity would cost an ack as well as a reader. A deliberate refusal: there is nothing to refuse — the act is
+legal at both guards, has a four-times precedent in `turn.rs`, and already has its trailer. A rule that made these
+two near-identical acts behave differently is a rule the next row would get wrong.
+
 ### The daily deny job
 
 `deny-daily.sh` is the fresh half of two contracts (theseus-goa8; theseus-4vsrz). The gate's `cargo deny --offline` judges
