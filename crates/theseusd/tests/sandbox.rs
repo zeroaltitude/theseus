@@ -726,6 +726,27 @@ fn with_marker(marker: &str) -> Vec<u32> {
         .collect()
 }
 
+/// Whether `pid` is `root` or one of its descendants, by parent links.
+fn descends_from(mut pid: u32, root: u32) -> bool {
+    while pid > 1 {
+        if pid == root {
+            return true;
+        }
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            return false;
+        };
+        // `pid (comm) S ppid ...`: comm may hold spaces and parentheses.
+        let Some(rest) = stat.rsplit_once(')').map(|(_, r)| r) else {
+            return false;
+        };
+        match rest.split_whitespace().nth(1).and_then(|p| p.parse().ok()) {
+            Some(ppid) => pid = ppid,
+            None => return false,
+        }
+    }
+    false
+}
+
 /// M4 18a's L1 row (design §2.3): an L1 job whose command leaves a `setsid`
 /// sleeper behind runs on in the background; `execution.cancel` stops it
 /// through its init, and answers that its pid namespace is gone, with the
@@ -733,7 +754,8 @@ fn with_marker(marker: &str) -> Vec<u32> {
 /// a `/proc` scan agree.
 #[test]
 fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
-    let marker = "300.1806";
+    // Its own marker, so a process another run left is never counted or ended.
+    let marker = &format!("301.{:07}", std::process::id());
     let r = Rig::start(|t| {
         let tools = t.get_mut("tools").and_then(|v| v.as_table_mut()).unwrap();
         tools.insert("proc_sync_secs".into(), 1.into());
@@ -770,7 +792,8 @@ fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
         )
         .unwrap();
     let left = with_marker(marker);
-    for pid in &left {
+    // Ends only what the rig's daemon started, whatever else holds the marker.
+    for pid in left.iter().filter(|p| descends_from(**p, r.daemon.id())) {
         unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
     }
     assert!(
