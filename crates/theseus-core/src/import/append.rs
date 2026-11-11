@@ -265,12 +265,19 @@ pub(super) fn records(
     let sid = rec.session_id.clone();
     let mut nodes = 0;
     let mut written = 0u32;
+    // On a renumbered episode (`p.idx_of` non-empty) a pre-anchor message the
+    // source added -- a compaction's own summary turn, say -- has no entry:
+    // it was never imported, so `unwrap_or(m.idx)` would alias its own local
+    // idx onto an unrelated stored message's. Left out of `ids` instead, a
+    // cite naming it is dropped below rather than pointed at the wrong node.
     let mut ids: BTreeMap<u32, String> = BTreeMap::new();
     for m in &e.messages {
-        ids.insert(
-            m.idx,
-            node_id_of(&sid, p.idx_of.get(&m.idx).copied().unwrap_or(m.idx)),
-        );
+        let idx = match p.idx_of.get(&m.idx) {
+            Some(&i) => i,
+            None if p.idx_of.is_empty() => m.idx,
+            None => continue,
+        };
+        ids.insert(m.idx, node_id_of(&sid, idx));
     }
     for m in e.messages[p.from..]
         .iter()

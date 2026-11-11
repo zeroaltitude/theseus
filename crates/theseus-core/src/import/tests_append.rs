@@ -922,6 +922,55 @@ async fn a_content_anchor_that_is_not_certain_is_refused() {
     .await;
 }
 
+/// A pre-anchor message the source added that matches no stored digest (a
+/// compaction's own summary turn, the one case `anchor::find`'s own doc
+/// names as accepted and not imported) must not alias its episode-local idx
+/// onto an unrelated stored message when a summary cites it
+/// (`b4-import-renumber-gaps-review.md` C3): the cite is dropped, not wrong.
+#[tokio::test]
+async fn an_unmapped_pre_anchor_message_drops_its_cite_rather_than_aliasing_one() {
+    let r = live();
+    let c = &r.core;
+    import(c, lines(&[sync(46, TAG, &(0..10).collect::<Vec<u32>>())])).await;
+    // idx 2 is a new text (999) that matches no stored message: a compaction
+    // turn inserted before the anchor. idx 3..7 re-anchor on the stored
+    // 6..9, idx 8 is a genuinely new turn past the anchor.
+    let t = [0, 1, 999, 6, 7, 8, 9, 91];
+    let idxs: Vec<u32> = (0..t.len() as u32).collect();
+    let mut e = sync(46, "openclaw-sync-2026-11", &idxs);
+    for (k, x) in t.iter().enumerate() {
+        e["messages"][k]["text"] = json!(text(*x));
+    }
+    e["summary"] = json!({
+        "text": "Episode 46 settled where the tide log is kept.",
+        // 2 cites the unmapped compaction turn; 6 cites the re-anchored
+        // message that is really stored message 9.
+        "cites": [2, 6],
+        "model": "jev-1.13.0",
+    });
+    e["hash"] = json!(episode::hash_of(&e));
+    let got = import(c, lines(&[e])).await;
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+    assert_eq!((got.appended, got.nodes), (1, 2), "{got:?}");
+    let (rec, _) = stored(c, 46);
+    let nodes = c.store.session_nodes(&rec.session_id).unwrap();
+    let cites = nodes
+        .iter()
+        .find_map(|(_, n)| match &n.body {
+            Body::ImportedSummary { cites, .. } => Some(cites.clone()),
+            _ => None,
+        })
+        .expect("a summary node");
+    // Only the real cite survives, naming stored message 9's own node --
+    // never message 2 (the unmapped compaction turn) and never a cite
+    // pointing at the wrong node under message 2's borrowed local idx.
+    assert_eq!(
+        cites,
+        vec![node_id_of(&rec.session_id, 9)],
+        "the unmapped cite is dropped, not aliased onto stored message 2"
+    );
+}
+
 /// An insertion just before the last stored message: the last text moves to
 /// an idx that is not stored, and is still caught.
 #[tokio::test]
