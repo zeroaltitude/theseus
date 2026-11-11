@@ -224,14 +224,34 @@ async fn the_floor_holds_the_programs_a_terminal_is_told_to_type() {
     };
     for (what, text, program) in [
         // The round-3 reviewer's own reproduction, verbatim.
-        ("the 1Password CLI typed", "op item get x --reveal\n", "bash"),
-        ("Theseus's own binary typed", "theseusd --config /tmp/x.toml\n", "bash"),
+        (
+            "the 1Password CLI typed",
+            "op item get x --reveal\n",
+            "bash",
+        ),
+        (
+            "Theseus's own binary typed",
+            "theseusd --config /tmp/x.toml\n",
+            "bash",
+        ),
         // The terminal need not be a shell: the gate does not know what the
         // program on the far end will do with the text, and that is the
         // over-hold this row accepts rather than the list it refuses.
-        ("the 1Password CLI typed into a REPL", "op item get x\n", "python3"),
-        ("a leading assignment before it", "OP_ACCOUNT=y op item get x\n", "bash"),
-        ("the second command of a typed chain", "cd /tmp; op item get x\n", "bash"),
+        (
+            "the 1Password CLI typed into a REPL",
+            "op item get x\n",
+            "python3",
+        ),
+        (
+            "a leading assignment before it",
+            "OP_ACCOUNT=y op item get x\n",
+            "bash",
+        ),
+        (
+            "the second command of a typed chain",
+            "cd /tmp; op item get x\n",
+            "bash",
+        ),
     ] {
         let (floor, fails_open, reason) = decide_plan(&r, &typed(text, program));
         assert!(floor, "{what} is not held: {reason}");
@@ -240,9 +260,18 @@ async fn the_floor_holds_the_programs_a_terminal_is_told_to_type() {
     // The other side, and the reason the width differs from a run line's.
     for (what, text) in [
         ("an ordinary line", "cargo test\n"),
-        ("prose that mentions the vault's CLI", "we should op out of that plan\n"),
-        ("prose that mentions the daemon", "the theseusd unit is up again\n"),
-        ("a health check for the daemon", "grep -c theseusd depart.log\n"),
+        (
+            "prose that mentions the vault's CLI",
+            "we should op out of that plan\n",
+        ),
+        (
+            "prose that mentions the daemon",
+            "the theseusd unit is up again\n",
+        ),
+        (
+            "a health check for the daemon",
+            "grep -c theseusd depart.log\n",
+        ),
     ] {
         let (floor, _, reason) = decide_plan(&r, &typed(text, "bash"));
         assert!(!floor, "{what} typed is held and should not be: {reason}");
@@ -267,22 +296,58 @@ async fn a_wrapper_does_not_hide_a_floored_program() {
         // A wrapper in front of the program, as a line and as the call's own
         // argv. Nothing says list-free that `nohup` execs its tail, so the
         // floor reads every position a program can stand in instead.
-        ("nohup, as a line", json!({"command": "nohup op item get x --reveal"})),
-        ("env, as a line", json!({"command": "env op item get x --reveal"})),
-        ("env -i, which puts it at argv[2]", json!({"command": "env -i op item get x"})),
-        ("timeout, which puts it after a number", json!({"command": "timeout 5 op item get x"})),
-        ("setsid", json!({"command": "setsid theseusd --config /tmp/x.toml"})),
-        ("xargs on the far side of a pipe", json!({"command": format!("find {root} -maxdepth 0 | xargs op item get x")})),
-        ("a wrapper in the call's own argv", json!({"argv": ["nohup", "op", "item", "get", "x", "--reveal"]})),
-        ("a wrapper in a step's argv", json!({"steps": [{"argv": ["timeout", "5", "op", "item", "get", "x"]}]})),
+        (
+            "nohup, as a line",
+            json!({"command": "nohup op item get x --reveal"}),
+        ),
+        (
+            "env, as a line",
+            json!({"command": "env op item get x --reveal"}),
+        ),
+        (
+            "env -i, which puts it at argv[2]",
+            json!({"command": "env -i op item get x"}),
+        ),
+        (
+            "timeout, which puts it after a number",
+            json!({"command": "timeout 5 op item get x"}),
+        ),
+        (
+            "setsid",
+            json!({"command": "setsid theseusd --config /tmp/x.toml"}),
+        ),
+        (
+            "xargs on the far side of a pipe",
+            json!({"command": format!("find {root} -maxdepth 0 | xargs op item get x")}),
+        ),
+        (
+            "a wrapper in the call's own argv",
+            json!({"argv": ["nohup", "op", "item", "get", "x", "--reveal"]}),
+        ),
+        (
+            "a wrapper in a step's argv",
+            json!({"steps": [{"argv": ["timeout", "5", "op", "item", "get", "x"]}]}),
+        ),
         // `find -exec` and `-execdir`: a flag introduces the PROGRAM and its
         // arguments are find's own argv words, so the line the flag key reads
         // is one word and a one-word line is deliberately not a program. The
         // floor's MATCH is what answers this, not the line rule.
-        ("find -exec, as a line", json!({"command": format!("find {root} -maxdepth 0 -exec op item get x --reveal {{}} ;")})),
-        ("find -exec, as the call's own argv", json!({"argv": ["find", &root, "-maxdepth", "0", "-exec", "op", "item", "get", "x", "--reveal", ";"]})),
-        ("find -execdir", json!({"command": format!("find {root} -maxdepth 0 -execdir op item get x ;")})),
-        ("find -exec Theseus's own binary", json!({"command": format!("find {root} -maxdepth 0 -exec theseusd --config /tmp/x.toml {{}} ;")})),
+        (
+            "find -exec, as a line",
+            json!({"command": format!("find {root} -maxdepth 0 -exec op item get x --reveal {{}} ;")}),
+        ),
+        (
+            "find -exec, as the call's own argv",
+            json!({"argv": ["find", &root, "-maxdepth", "0", "-exec", "op", "item", "get", "x", "--reveal", ";"]}),
+        ),
+        (
+            "find -execdir",
+            json!({"command": format!("find {root} -maxdepth 0 -execdir op item get x ;")}),
+        ),
+        (
+            "find -exec Theseus's own binary",
+            json!({"command": format!("find {root} -maxdepth 0 -exec theseusd --config /tmp/x.toml {{}} ;")}),
+        ),
     ] {
         let (floor, fails_open, reason) = decide(&r, "proc.run", input);
         assert!(floor, "{what} reaches a floored program unheld: {reason}");
@@ -292,9 +357,18 @@ async fn a_wrapper_does_not_hide_a_floored_program() {
     // anywhere": an ordinary `find -exec` sweep, and the pattern cases round
     // 2 filed as false positives, are all still clear.
     for (what, input) in [
-        ("an ordinary find -exec sweep", json!({"command": format!("find {root} -name '*.rs' -exec grep -l fn {{}} +")})),
-        ("a log grep for the daemon", json!({"command": format!("grep -c theseusd {root}/depart.log")})),
-        ("a health check through a pipe", json!({"command": "ps -ef | grep -c theseusd"})),
+        (
+            "an ordinary find -exec sweep",
+            json!({"command": format!("find {root} -name '*.rs' -exec grep -l fn {{}} +")}),
+        ),
+        (
+            "a log grep for the daemon",
+            json!({"command": format!("grep -c theseusd {root}/depart.log")}),
+        ),
+        (
+            "a health check through a pipe",
+            json!({"command": "ps -ef | grep -c theseusd"}),
+        ),
     ] {
         let (floor, _, reason) = decide(&r, "proc.run", input);
         assert!(!floor, "{what} is held and should not be: {reason}");
@@ -1107,7 +1181,11 @@ const INTERPRETERS: &[(&[&str], &[&str], &str)] = &[
     (&["awk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
     (&["gawk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
     (&["mawk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
-    (&["busybox", "awk"], &[""], r#"BEGIN { printf "x" >> "PATH" }"#),
+    (
+        &["busybox", "awk"],
+        &[""],
+        r#"BEGIN { printf "x" >> "PATH" }"#,
+    ),
     (
         &["php"],
         &["-r"],
