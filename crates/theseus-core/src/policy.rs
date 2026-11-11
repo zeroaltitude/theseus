@@ -627,10 +627,31 @@ pub(crate) fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
 /// It needs its own answer because an `exec` flag's command takes its
 /// arguments from the SIBLING argv words, so reading it as a line yields one
 /// word (`op`) and a one-word line is deliberately not a program
-/// ([`shell_argvs`]) — which is why `find <dir> -exec op item get {} \;` and
-/// `-execdir` reached the 1Password CLI with nothing asked.
+/// ([`shell_argvs`]) — which is why `find <dir> -exec op item get {} \;` reached
+/// the 1Password CLI with nothing asked.
 fn introduces_a_program(w: &str) -> bool {
     w.starts_with('-') && w.trim_start_matches('-').starts_with("exec")
+}
+
+/// The code letters a MEASURED false positive needs the PROGRAM-position
+/// exclusion for; priced in `a_code_cluster_wrapper_does_not_hide_a_floored_program`.
+const PROGRAM_HIDING_LETTERS: [char; 2] = ['c', 'e'];
+
+/// The reserved words no COMMAND can follow, so an argv beginning with one AND
+/// carrying the `in` its grammar requires puts its later words in no program
+/// position. **The words left out and the `in` test are the point of the list,
+/// not gaps in it**: `a_shell_keyword_hides_no_program` pins both ways.
+const WORDS_NO_COMMAND_FOLLOWS: [&str; 2] = ["for", "case"];
+
+/// Whether a flag hides the NEXT WORD from the program match, which
+/// [`introduces_code`] answered too widely: **`getopt` gives an option its
+/// argument from the remainder of its own cluster**, so the next word is the
+/// flag's only when the code letter is the cluster's LAST character.
+fn hides_the_next_program(w: &str) -> bool {
+    match w.strip_prefix('-').filter(|c| !c.starts_with('-')) {
+        Some(cluster) => cluster.ends_with(PROGRAM_HIDING_LETTERS),
+        None => CODE_FLAGS.contains(&w),
+    }
 }
 
 /// Whether this command RUNS the floored program `f`, read at every position
@@ -638,29 +659,32 @@ fn introduces_a_program(w: &str) -> bool {
 /// word, and every later word that is not itself a flag and that no code flag
 /// introduced — except an `exec` flag, which introduces one.
 ///
-/// `floor_argv` matched position 0 alone until this row, so **every wrapper
-/// hid a floored program**: `nohup op item get`, `env -i op`, `timeout 5 op`,
-/// `find … | xargs op` and a call's own `argv:["nohup","op",…]` all reach the
-/// 1Password CLI unheld on main. Nothing says list-free that `nohup` execs its
-/// tail, so rather than restore a list of wrappers this reads every position a
-/// program could occupy and accepts the over-hold — the same trade, same
-/// direction, this floor already pins in
-/// `the_over_hold_this_row_accepts_is_pinned`.
-///
-/// **Excluding a code flag's argument keeps that trade from growing.**
-/// `grep -c theseusd <log>` is a pattern, and holding it was four of round 2's
-/// seven false positives; telling a pattern from a command needs the list, so
-/// the pattern side stays with the flag key and the program side with the
-/// position. The cost is measured, not described: a bare `op` or `theseusd`
-/// WORD in a command the call runs holds it, so this repo's own
-/// `for b in theseus theseusd theseus-index; do` waits for a yes — two names,
-/// pinned by `a_word_list_naming_a_floored_program_is_held`.
+/// Nothing says list-free that `nohup` execs its tail, so rather than keep a
+/// list of wrappers this reads every position a program could occupy and
+/// accepts the over-hold (`a_wrapper_does_not_hide_a_floored_program`):
+/// **18 of 24** of this repository's own `scripts/` lines, pinned by
+/// `a_word_list_naming_a_floored_program_is_held`. Excluding a code flag's
+/// argument keeps that trade from growing (`grep -c theseusd <log>` is a
+/// pattern, four of round 2's seven false positives), but **which flag does
+/// the hiding is [`hides_the_next_program`]'s question, not
+/// [`introduces_code`]'s**, and reading them as one left `sudo -E op item get
+/// --reveal` live.
 fn runs_program(argv: &[String], f: &[String]) -> bool {
-    (0..argv.len()).any(|i| {
-        !argv[i].starts_with('-')
-            && (i == 0 || !introduces_code(&argv[i - 1]) || introduces_a_program(&argv[i - 1]))
-            && prefix_match(&argv[i..], f)
-    })
+    // Both reserved words are reserved only in a compound their own `in`
+    // clause follows, so a `for` with no `in` is not it and its words stay
+    // program positions -- which keeps `{argv:["for","op",...]}` held.
+    let word_list_head = argv
+        .first()
+        .is_some_and(|w| WORDS_NO_COMMAND_FOLLOWS.contains(&w.as_str()))
+        && argv.iter().any(|w| w == "in");
+    !word_list_head
+        && (0..argv.len()).any(|i| {
+            !argv[i].starts_with('-')
+                && (i == 0
+                    || !hides_the_next_program(&argv[i - 1])
+                    || introduces_a_program(&argv[i - 1]))
+                && prefix_match(&argv[i..], f)
+        })
 }
 
 /// What of an AWS call waits for the operator at every posture, in the
