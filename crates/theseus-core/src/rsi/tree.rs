@@ -361,6 +361,11 @@ impl Place {
     /// itself is free. `run_niced` runs this script as `bash <script>`, so
     /// nothing outside the locked part ever needed the bit and no self build
     /// reached it until the bench-binary check was fixed (theseus-1eemp).
+    ///
+    /// The mode is set on **every** call, not only when the copy is first
+    /// frozen, so a copy left behind by a build from before this holds is
+    /// repaired rather than returned as it is: a frozen blob is never
+    /// rewritten, and nothing prunes this directory.
     fn main_script(&self, path: &str, name: &str) -> Result<Option<PathBuf>> {
         use std::os::unix::fs::PermissionsExt;
         let Some(blob) = self.main_blob(path) else {
@@ -379,6 +384,12 @@ impl Place {
             std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))?;
             std::fs::rename(&tmp, &out)?;
         }
+        // On every call, not only a fresh freeze. The write above is skipped
+        // for a blob that is already frozen, so a copy written by a build from
+        // before that line still carries the daemon's umask — and nothing
+        // prunes this directory, so it would be handed to `flock` as it is for
+        // as long as main's blob is unchanged.
+        std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o700))?;
         Ok(Some(out))
     }
 }
