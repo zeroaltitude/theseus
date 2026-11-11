@@ -221,10 +221,10 @@ fn route(stored: &[(u32, String)], e: &Episode) -> std::result::Result<Route, St
         return Err(why);
     }
     let at = first_difference(stored, e);
-    if let Some(moved) = moved(stored, e) {
+    if moved(stored, e).is_some() {
         // The source renumbered: the stored end is read from content.
-        // Refused with `moved`'s words when the content does not settle it.
-        let a = anchor::find(stored, e).map_err(|_| moved)?;
+        // Refused with anchor::find's own words when the content does not settle it.
+        let a = anchor::find(stored, e)?;
         return Ok(route(a.from, Some(at), Default::default(), a.idx_of));
     }
     // The prefix no longer matches in place (a rewrite): the new turns are
@@ -265,12 +265,19 @@ pub(super) fn records(
     let sid = rec.session_id.clone();
     let mut nodes = 0;
     let mut written = 0u32;
+    // On a renumbered episode (`p.idx_of` non-empty) a pre-anchor message the
+    // source added -- a compaction's own summary turn, say -- has no entry:
+    // it was never imported, so `unwrap_or(m.idx)` would alias its own local
+    // idx onto an unrelated stored message's. Left out of `ids` instead, a
+    // cite naming it is dropped below rather than pointed at the wrong node.
     let mut ids: BTreeMap<u32, String> = BTreeMap::new();
     for m in &e.messages {
-        ids.insert(
-            m.idx,
-            node_id_of(&sid, p.idx_of.get(&m.idx).copied().unwrap_or(m.idx)),
-        );
+        let idx = match p.idx_of.get(&m.idx) {
+            Some(&i) => i,
+            None if p.idx_of.is_empty() => m.idx,
+            None => continue,
+        };
+        ids.insert(m.idx, node_id_of(&sid, idx));
     }
     for m in e.messages[p.from..]
         .iter()
