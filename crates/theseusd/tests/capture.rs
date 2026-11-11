@@ -182,6 +182,21 @@ fn a_preference_is_kept_undone_and_counted_when_said_again() {
     // plain question is nothing to keep.
     hears(&jev, "none", 0.95);
     r.ask("What is 2 + 2?");
+    // Its `directive.v1` judgment is asked beside the turn, not before the
+    // reply: re-script Jev only once the ask has reached it, or the plain
+    // question is heard as the preference and kept as a second record.
+    r.wait("Jev to be asked about the plain question", || {
+        let asked = jev
+            .seen()
+            .into_iter()
+            .filter(|s| {
+                s.body["questions"]
+                    .as_object()
+                    .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v1/")))
+            })
+            .count();
+        (asked >= 2).then_some(())
+    });
     let carried = r.model.requests().iter().any(|q| {
         q["system"]
             .to_string()
