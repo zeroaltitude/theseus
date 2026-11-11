@@ -12,11 +12,14 @@
 //!
 //! - it is the answer's *first* paragraph and opens with `Noted` or
 //!   `Understood` (the two openings the owner saw, no others);
-//! - it is short (at most [`MAX_CHARS`]) and most of its content words
-//!   ([`RESTATES`]) are words of one or more records the request showed, at
-//!   least [`MIN_SHARED`] of them: "nothing in it but a restatement" is
-//!   decided by that share, not by meaning, so a paragraph that also says
-//!   something else falls under the share and is left alone entirely;
+//! - it is short (at most [`MAX_CHARS`]) and at least [`RESTATES`] (40 %, a
+//!   minority, not "most") of its content words are words of one or more
+//!   records the request showed, at least [`MIN_SHARED`] of them: "nothing in
+//!   it but a restatement" is decided by that share, not by meaning, so a
+//!   paragraph that also says something else falls under the share and is
+//!   left alone entirely. The margin is thin: the stripping fixture lands near
+//!   46 % and the negative near 27 %, so a little more of either's wording
+//!   moves it across the line;
 //! - the owner's last message does not carry those shared words (fewer than
 //!   [`MIN_SHARED`] of them): if he just said it, "Noted" is a reply;
 //! - something follows it. An answer that is only the acknowledgement is
@@ -36,7 +39,14 @@ pub const MIN_SHARED: usize = 3;
 pub const RESTATES: usize = 400;
 
 /// The openings the check knows: the two the owner saw, and no others.
-const MARKERS: [&str; 2] = ["Noted", "Understood"];
+pub(crate) const MARKERS: [&str; 2] = ["Noted", "Understood"];
+
+/// The cheap pre-filter in front of [`check`]: the answer opens with one of
+/// [`MARKERS`]. The step iterates the one list through this, so a marker added
+/// to it is never rejected before `check` runs.
+pub(crate) fn opens_with_marker(answer: &str) -> bool {
+    MARKERS.iter().any(|m| answer.trim_start().starts_with(m))
+}
 
 /// Words too common to show a restatement.
 const STOP: &[&str] = &[
