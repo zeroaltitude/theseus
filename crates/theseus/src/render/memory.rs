@@ -440,10 +440,11 @@ pub fn recalls_lines(r: &MemoryRecallsResult) -> Vec<Line> {
     // theseus-ectzg, B4 L79: SEPARATE — the total is of turns whose OWN
     // verdict said `low`, never a turn that only inherited the previous
     // message's; a carried one is counted on its own line, not folded in.
+    // The flag did not exist on older rows: absence is unknown, not own.
     let own: Vec<u64> = r
         .recalls
         .iter()
-        .filter(|m| m.would_drop_carried != Some(true))
+        .filter(|m| m.would_drop_carried == Some(false))
         .filter_map(|m| m.would_drop)
         .collect();
     if !own.is_empty() {
@@ -471,6 +472,23 @@ pub fn recalls_lines(r: &MemoryRecallsResult) -> Vec<Line> {
                 "small-talk bar (shadow), carried from an earlier message: {} more, {} admitted notes in all",
                 plural(carried.len() as u64, "recall", "recalls"),
                 carried.iter().sum::<u64>()
+            ),
+        );
+    }
+    let unknown: Vec<u64> = r
+        .recalls
+        .iter()
+        .filter(|m| m.would_drop_carried.is_none())
+        .filter_map(|m| m.would_drop)
+        .collect();
+    if !unknown.is_empty() {
+        push(
+            &mut out,
+            Tag::Dim,
+            &format!(
+                "small-talk bar (shadow), recorded before the own/carried split: {} with {} admitted notes in all (unknown)",
+                plural(unknown.len() as u64, "recall", "recalls"),
+                unknown.iter().sum::<u64>()
             ),
         );
     }
@@ -588,6 +606,7 @@ mod tests {
             outcome: "ran".into(),
             admitted: (1..=5).map(item).collect(),
             would_drop: Some(3),
+            would_drop_carried: Some(false),
             ..RecallManifest::default()
         };
         let text = |m: &RecallManifest| {
@@ -658,6 +677,11 @@ mod tests {
             would_drop_carried: Some(true),
             ..own.clone()
         };
+        let unknown = RecallManifest {
+            would_drop: Some(7),
+            would_drop_carried: None,
+            ..own.clone()
+        };
         let own_text = recall_lines(&own)
             .into_iter()
             .map(|l| l.text)
@@ -679,8 +703,8 @@ mod tests {
         );
         let all = recalls_lines(&MemoryRecallsResult {
             session_id: "ses_a".into(),
-            total: 2,
-            recalls: vec![own, carried],
+            total: 3,
+            recalls: vec![own, carried, unknown],
         })
         .into_iter()
         .map(|l| l.text)
@@ -696,9 +720,16 @@ mod tests {
             ),
             "the carried recall is reported, never silently dropped from the page: {all}"
         );
+        assert!(
+            all.contains(
+                "small-talk bar (shadow), recorded before the own/carried split: 1 recall with 7 admitted notes in all (unknown)"
+            ),
+            "a pre-flag row is named unknown, never silently assigned to own: {all}"
+        );
         // Not "1 recall ... 8 admitted notes in all": that is the regression this test exists to
         // catch — a carried verdict counted as the turn's own.
         assert!(!all.contains("8 admitted notes in all"), "{all}");
+        assert!(!all.contains("15 admitted notes in all"), "{all}");
     }
 
     #[test]
