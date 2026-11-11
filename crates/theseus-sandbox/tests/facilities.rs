@@ -283,7 +283,7 @@ fn cover_holds() -> Result<(), String> {
     argv.push(ws.path().join("mnt").display().to_string());
     let mut spec = job(argv, ws.path());
     spec.ro_paths = vec![exe];
-    spec.hidden = vec![sealed.clone()];
+    spec.hidden = vec![sealed];
     // The MOST permissive view this build can make: the cover must hold here
     // or nowhere.
     spec.facilities = Facilities {
