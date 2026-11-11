@@ -400,7 +400,10 @@ fn code_attached(w: &str) -> Option<&str> {
 /// is. Nothing is expanded and nothing is run.
 ///
 /// What is OUTSIDE the class is code in a position no flag introduces at all:
-/// `awk '<program>'`, `ssh <host> '<line>'`, `find … -exec … ;`. That gap is
+/// `awk '<program>'`, `ssh <host> '<line>'`. (`find … -exec <program> … \;`
+/// was listed here and does not belong: `-exec` is a cluster carrying `e` and
+/// `c`, so a flag DOES introduce it — a PROGRAM, which is
+/// `introduces_a_program`'s answer and not this key's.) That gap is
 /// measured rather than described — `tests_floor_shapes`'s
 /// `every_spelling_that_really_runs_a_line_is_held` runs each generated
 /// spelling for real and asserts the floor holds every one that executed, so
@@ -531,11 +534,19 @@ fn shell_words(line: &str) -> Vec<String> {
 /// mechanism 1), none of them held by main or by the head round 1 reviewed.
 ///
 /// The cost is named rather than hidden: the one-word spelling `bash -c op`
-/// no longer reaches the program floor. A one-word line can only run a
-/// program with NO arguments, so it can ask nothing of the vault and name no
-/// path — which is why this is the cheap side of the trade and not a hole
-/// with a nice sentence attached. `a_one_word_line_is_a_word_not_a_program`
-/// pins both halves.
+/// no longer reaches the program floor. That is the cheap side of the trade
+/// **as a line** — a one-word LINE runs its program with no arguments of its
+/// own.
+///
+/// It is NOT true that such a program can therefore ask nothing of the vault,
+/// and the sentence that said so here was false for one real spelling: a flag
+/// whose argument is a program takes that program's arguments from the SIBLING
+/// argv words, so `find <dir> -exec op item get {} \;` is a one-word line
+/// (`op`) whose program runs with real arguments and reaches the 1Password CLI
+/// (the round-3 reviewer's probe `R3B-PLANTC`). It is answered in the floor's
+/// MATCH (`introduces_a_program`, `runs_program`), because the defect was
+/// never that the line was short; `a_one_word_line_is_a_word_not_a_program`
+/// pins both halves of the line rule and that case.
 fn shell_argvs(line: &str) -> Vec<Vec<String>> {
     let commands = shell_commands(line);
     if commands.iter().map(Vec::len).sum::<usize>() < 2 {
@@ -565,14 +576,30 @@ struct View {
     nargv: Vec<String>,
     /// The path words its own argv names: the roots label and the allow list.
     args: Vec<(String, PathBuf)>,
-    /// Every argv it runs, its own and each step's: the floor's programs.
+    /// Every argv it RUNS, its own, each step's, and each command of a line it
+    /// runs: the floor's programs, read at every program position
+    /// (`runs_program`).
     argvs: Vec<Vec<String>>,
+    /// Every argv of text it HANDS on — what `term.send` types, an MCP call's
+    /// arguments: the floor's programs, read at a command's first word only
+    /// (`prefix_match`). Narrower than `argvs` on purpose, and the reason is
+    /// in [`ToolPolicy::floor_view`].
+    handed_argvs: Vec<Vec<String>>,
     /// Every path word any shape of the call names: the floor's paths. A
     /// superset of `args` (`ToolPolicy::floor_view`).
     floor_args: Vec<(String, PathBuf)>,
     /// How many lines nested inside this call's lines the floor did NOT read,
     /// because reading them would pass [`LINES_READ`]. Nonzero holds the call:
     /// a ceiling that drops work must fail CLOSED (`ToolPolicy::floor`).
+    unread_lines: usize,
+}
+
+/// The floor's half of [`View`] ([`ToolPolicy::floor_view`]), named rather
+/// than returned as a tuple. Each field is documented on `View`.
+struct FloorView {
+    argvs: Vec<Vec<String>>,
+    handed_argvs: Vec<Vec<String>>,
+    args: Vec<(String, PathBuf)>,
     unread_lines: usize,
 }
 
@@ -591,6 +618,49 @@ const LINES_READ: usize = 64;
 
 pub(crate) fn prefix_match(argv: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && argv.len() >= prefix.len() && argv.iter().zip(prefix).all(|(a, p)| a == p)
+}
+
+/// A flag whose argument is a PROGRAM rather than a line: `find`'s `-exec`
+/// and `-execdir`, and the long `--exec`/`--execute` [`CODE_FLAGS`] holds. The
+/// flag's own name says it, which is the only thing read here.
+///
+/// It needs its own answer because an `exec` flag's command takes its
+/// arguments from the SIBLING argv words, so reading it as a line yields one
+/// word (`op`) and a one-word line is deliberately not a program
+/// ([`shell_argvs`]) — which is why `find <dir> -exec op item get {} \;` and
+/// `-execdir` reached the 1Password CLI with nothing asked.
+fn introduces_a_program(w: &str) -> bool {
+    w.starts_with('-') && w.trim_start_matches('-').starts_with("exec")
+}
+
+/// Whether this command RUNS the floored program `f`, read at every position
+/// a program can stand in with no program name consulted: the argv's first
+/// word, and every later word that is not itself a flag and that no code flag
+/// introduced — except an `exec` flag, which introduces one.
+///
+/// `floor_argv` matched position 0 alone until this row, so **every wrapper
+/// hid a floored program**: `nohup op item get`, `env -i op`, `timeout 5 op`,
+/// `find … | xargs op` and a call's own `argv:["nohup","op",…]` all reach the
+/// 1Password CLI unheld on main. Nothing says list-free that `nohup` execs its
+/// tail, so rather than restore a list of wrappers this reads every position a
+/// program could occupy and accepts the over-hold — the same trade, same
+/// direction, this floor already pins in
+/// `the_over_hold_this_row_accepts_is_pinned`.
+///
+/// **Excluding a code flag's argument keeps that trade from growing.**
+/// `grep -c theseusd <log>` is a pattern, and holding it was four of round 2's
+/// seven false positives; telling a pattern from a command needs the list, so
+/// the pattern side stays with the flag key and the program side with the
+/// position. The cost is measured, not described: a bare `op` or `theseusd`
+/// WORD in a command the call runs holds it, so this repo's own
+/// `for b in theseus theseusd theseus-index; do` waits for a yes — two names,
+/// pinned by `a_word_list_naming_a_floored_program_is_held`.
+fn runs_program(argv: &[String], f: &[String]) -> bool {
+    (0..argv.len()).any(|i| {
+        !argv[i].starts_with('-')
+            && (i == 0 || !introduces_code(&argv[i - 1]) || introduces_a_program(&argv[i - 1]))
+            && prefix_match(&argv[i..], f)
+    })
 }
 
 /// What of an AWS call waits for the operator at every posture, in the
@@ -858,14 +928,15 @@ impl ToolPolicy {
         } else {
             path_args(argv, &cwd)
         };
-        let (argvs, floor_args, unread_lines) = Self::floor_view(plan, &cwds, &cwd, args.clone());
+        let f = Self::floor_view(plan, &cwds, &cwd, args.clone());
         View {
             resources,
             nargv,
             args,
-            argvs,
-            floor_args,
-            unread_lines,
+            argvs: f.argvs,
+            handed_argvs: f.handed_argvs,
+            floor_args: f.args,
+            unread_lines: f.unread_lines,
         }
     }
 
@@ -899,7 +970,7 @@ impl ToolPolicy {
         cwds: &[PathBuf],
         cwd: &Path,
         mut args: Vec<(String, PathBuf)>,
-    ) -> (Vec<Vec<String>>, Vec<(String, PathBuf)>, usize) {
+    ) -> FloorView {
         let own = plan.argv.as_deref().unwrap_or(&[]);
         let steps = plan.steps.as_deref().unwrap_or(&[]);
         let runs = || std::iter::once(own).chain(steps.iter().map(|s| s.as_slice()));
@@ -947,20 +1018,37 @@ impl ToolPolicy {
         // stops exactly where the spelling put a shell. A step's line counts
         // too: a batch may hold a `bash -c` step of its own.
         //
-        // A line the call RUNS also gives the program floor the programs of
-        // the commands inside it (`shell_argvs`): `proc.run {steps}` left
+        // A line the call RUNS gives the program floor the programs of the
+        // commands inside it (`shell_argvs`): `proc.run {steps}` left
         // `Plan::argv` `None`, so a batch bypassed the program floor
         // outright, and `bash -c "op item get …"` named no program at all.
-        // Text the call only HANDS to another program to read -- what
-        // `term.send` types, an MCP call's arguments -- gives paths alone, as
-        // it did before this row: the gate is not the thing deciding what a
-        // REPL will do with a word.
+        //
+        // Text the call only HANDS on -- what `term.send` types, an MCP call's
+        // arguments -- gives its programs too, and that is this row. It gave
+        // paths alone, on the reasoning that the gate is not the thing
+        // deciding what a REPL will do with a word; what overturned that is
+        // the measurement that `term.open {argv:["bash"]}` then
+        // `term.send {text:"op item get x --reveal\n"}` was `floor=false
+        // fails_open=true` -- a live path to the 1Password CLI with the floor
+        // open, and a self session typing it anyway. Deciding CORRECTLY what
+        // the far end does with the text needs the list of shell names this
+        // row deleted; CLOSING it does not, because `shell_argvs` derives the
+        // argv with no program name consulted.
+        //
+        // The two are read at different WIDTHS, and that is the boundary: a
+        // line the call runs is a command we chose, so every program position
+        // of it is read (`runs_program`); handed text is read at a command's
+        // FIRST word (`prefix_match`), so the cost is text whose command
+        // BEGINS `op` or `theseusd`, not every sentence with `op` in the
+        // middle. Prose is the common case of text typed at a prompt and the
+        // uncommon case of a command we chose to run.
         //
         // The ceiling (`LINES_READ`) is there so a line that nests lines
         // cannot cost the gate unbounded work; nothing anyone writes comes
         // near it, and a call that does come near it is HELD rather than read
         // in part.
         let mut unread_lines = 0usize;
+        let mut handed_argvs: Vec<Vec<String>> = vec![];
         let mut lines: Vec<(String, bool)> = runs()
             .flat_map(code_lines)
             .map(|l| (l.to_string(), true))
@@ -982,11 +1070,17 @@ impl ToolPolicy {
                     false => unread_lines += 1,
                 }
             }
-            if runs_it {
-                argvs.extend(inner);
+            match runs_it {
+                true => argvs.extend(inner),
+                false => handed_argvs.extend(inner),
             }
         }
-        (argvs, args, unread_lines)
+        FloorView {
+            argvs,
+            handed_argvs,
+            args,
+            unread_lines,
+        }
     }
 
     /// The answers that come before the allow list and the posture: the floor,
@@ -1133,11 +1227,12 @@ impl ToolPolicy {
         if let Some(p) = v.resources.iter().find(|p| on(p)) {
             return Some(format!("{} is {FLOOR_STATE}", p.display()));
         }
-        if let Some(f) = self
-            .floor_argv
-            .iter()
-            .find(|f| v.argvs.iter().any(|a| prefix_match(a, f)))
-        {
+        // A command the call RUNS is read at every program position; text it
+        // only HANDS on, at a command's first word (`floor_view`).
+        if let Some(f) = self.floor_argv.iter().find(|f| {
+            v.argvs.iter().any(|a| runs_program(a, f))
+                || v.handed_argvs.iter().any(|a| prefix_match(a, f))
+        }) {
             return Some(format!(
                 "`{}` is Theseus's own binary or the 1Password CLI",
                 f.join(" ")
@@ -1313,19 +1408,39 @@ mod tests {
     /// command held an ordinary health check — four of the round-2 reviewer's
     /// seven false positives, none of them held by main.
     ///
-    /// The cost is the one-word spelling `bash -c op`, and it is the cheap
-    /// side of the trade rather than a hole with a nice sentence attached: a
-    /// one-word line can only run a program with NO arguments, so it can
-    /// name no path and ask nothing of the vault. The moment the line has a
-    /// second word — which is every line that does anything — the programs
-    /// are read again, and that is the half that matters and is asserted
-    /// here too.
+    /// The cost is the one-word spelling `bash -c op`, the cheap side of the
+    /// trade **as a line**: a one-word line runs its program with no arguments
+    /// of its own. The sentence this comment used to carry — that such a
+    /// program can therefore ask nothing of the vault — was FALSE, and
+    /// `find <dir> -exec op item get {} \;` is its counter-example: the
+    /// one-word line is `op` and its arguments are find's own argv words. That
+    /// case is answered by the floor's MATCH (`introduces_a_program`) and
+    /// asserted below, so the line rule carries no claim about programs it
+    /// cannot see. The moment a line has a second word — every line that does
+    /// anything — its programs are read again, which is asserted here too.
     #[test]
     fn a_one_word_line_is_a_word_not_a_program() {
         let got = |l: &str| shell_argvs(l);
         let none: Vec<Vec<String>> = vec![];
         assert_eq!(got("theseusd"), none, "a grep pattern is not a program");
-        assert_eq!(got("op"), none);
+        // `-exec`'s one-word line yields no program, and the floor holds the
+        // call anyway because `op` stands in a program position of the argv.
+        assert_eq!(got("op"), none, "find -exec's line is still one word");
+        let words = |w: &[&str]| -> Vec<String> { w.iter().map(|s| s.to_string()).collect() };
+        assert!(
+            runs_program(
+                &words(&["find", "/x", "-exec", "op", "item", "get", "y", ";"]),
+                &words(&["op"])
+            ),
+            "a program an `exec` flag introduces is held by the match"
+        );
+        assert!(
+            !runs_program(
+                &words(&["grep", "-c", "theseusd", "/x/depart.log"]),
+                &words(&["theseusd"])
+            ),
+            "a pattern a CODE flag introduces is not a program"
+        );
         // A substitution expression is one word too, because a chain
         // character chains nothing in text with no whitespace in it.
         assert_eq!(got("s|/x/y.toml|/tmp/other.toml|"), none);
