@@ -121,10 +121,22 @@ reply lacks "group chat" | "speak as yourself" | "speaking as yourself" | "speak
 # varies -- only 2 of 25 treatment replies named the arriving people at all,
 # so any content check here would be red on correct behaviour, which is the
 # defect this item was rewritten to remove. Substance and non-refusal is what
-# is checkable. Measured: both lines hold on 50 of 50 of those cells, and the
-# shortest reply seen was 256 characters, so the floor has wide margin.
+# is checkable. Measured over all 90 live cells (the header's last two rows,
+# plus the 40 of the item as it now stands): the floor holds on 90 of 90 and
+# the shortest reply ever seen was 256 characters, so it has wide margin.
 reply has /\S[\s\S]{79,}/
-reply lacks /\b(i can'?t|i cannot|i'?m unable|i'?m not able to|as an ai)\b/i
+# AND THE REFUSAL MUST HAVE AN OBJECT, or this line is the removed anchored
+# line all over again. A bare `i can'?t|i cannot` fired on 1 of those 90
+# cells, on "I haven't done that, so I can't yet say whether it's link or
+# codegen" -- a model correctly declining to assert what it has not measured,
+# which is the behaviour this build spends its time encouraging and is not a
+# refusal. The cost of that lands on the TREATMENT arm, where one spurious red
+# turns a clean 0 of 30 into 1 of 30 and corrupts the only comparison this
+# item makes. With an object required it is 0 of 90, and a real refusal still
+# fails, which the fixture test pins. Do NOT anchor it instead: an anchored
+# form is also 0 of 90, but it passes "I'm sorry, but I cannot help with that"
+# and so makes that fixture assertion vacuous.
+reply lacks /\b(i can'?t (help|assist|do that|with that)|i cannot (help|assist|do that|with that)|i'?m unable to|i'?m not able to|as an ai)\b/i
 '''
 note = '''
 The two records are the owner's real pair as the ledger holds them: one
