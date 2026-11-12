@@ -58,6 +58,7 @@ pub mod month_warn;
 pub mod narrow;
 pub mod policy_keys;
 pub mod presigned;
+pub mod repair;
 pub mod s3;
 pub mod secret;
 pub mod session;

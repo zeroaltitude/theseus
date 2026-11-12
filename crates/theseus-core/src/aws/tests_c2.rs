@@ -132,6 +132,19 @@ fn xml_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// Percent-encoding, as IAM encodes a trust policy document in its answers.
+fn url_encoded(s: &str) -> String {
+    s.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
 fn xml(n: usize, body: String) -> Reply {
     (
         200,
@@ -240,6 +253,10 @@ struct Cloud {
     stacks: BTreeMap<String, Stack>,
     change_sets: BTreeMap<String, ChangeSet>,
     owner_role: bool,
+    /// The owner role's trust policy, when IAM has the role (theseus-ps12):
+    /// what `GetRole` answers and `UpdateAssumeRolePolicy` rewrites. `None`
+    /// is a role IAM does not have.
+    trust: Option<String>,
     /// The reconcile's change set touches more than the budget.
     beyond_budget: bool,
     /// A change set that sets other tags than the stack holds changes every
@@ -383,6 +400,8 @@ impl Cloud {
                 ok(n, "ExecuteChangeSet", "<ExecuteChangeSetResult/>")
             }
             "DeleteChangeSet" => ok(n, "DeleteChangeSet", "<DeleteChangeSetResult/>"),
+            "GetRole" => self.get_role(&f, n),
+            "UpdateAssumeRolePolicy" => self.update_trust(&f, n),
             "SetStackPolicy" => self.set_policy(&f, &name, s, n),
             "GetStackPolicy" => self.get_policy(&name, n),
             "UpdateTerminationProtection" => self.protect(&f, &name, n),
@@ -393,6 +412,44 @@ impl Cloud {
                 &format!("the fake does not know {other:?}"),
             ),
         }
+    }
+
+    /// `GetRole`: the trust policy, URL-encoded as IAM answers it, or
+    /// `NoSuchEntity` for a role IAM does not have (theseus-ps12).
+    fn get_role(&self, f: &BTreeMap<String, String>, n: usize) -> Reply {
+        let role = f.get("RoleName").cloned().unwrap_or_default();
+        let Some(doc) = self.trust.clone() else {
+            return error(
+                n,
+                404,
+                "NoSuchEntity",
+                &format!("The role with name {role} cannot be found."),
+            );
+        };
+        ok(
+            n,
+            "GetRole",
+            &format!(
+                "<GetRoleResult><Role><RoleName>{role}</RoleName>\
+                 <Arn>arn:aws:iam::{ACCOUNT}:role/{role}</Arn><RoleId>AROATESTEXAMPLE</RoleId>\
+                 <Path>/</Path><CreateDate>2026-01-01T00:00:00Z</CreateDate>\
+                 <AssumeRolePolicyDocument>{}</AssumeRolePolicyDocument></Role></GetRoleResult>",
+                xml_escape(&url_encoded(&doc))
+            ),
+        )
+    }
+
+    /// `UpdateAssumeRolePolicy`: the role takes the document, and the key can
+    /// assume it from here (theseus-ps12).
+    fn update_trust(&mut self, f: &BTreeMap<String, String>, n: usize) -> Reply {
+        if self.trust.is_none() {
+            return error(n, 404, "NoSuchEntity", "The role cannot be found.");
+        }
+        let doc = f.get("PolicyDocument").cloned().unwrap_or_default();
+        let named: Value = serde_json::from_str(&doc).expect("a trust policy document");
+        self.owner_role = super::repair::allows(&named, &format!("arn:aws:iam::{ACCOUNT}:user/example"));
+        self.trust = Some(doc);
+        ok(n, "UpdateAssumeRolePolicy", "<UpdateAssumeRolePolicyResult/>")
     }
 
     /// `GetStackPolicy`: no body when no policy is set.
@@ -1552,6 +1609,152 @@ fn three_guards_in_the_floor_session_and_one_create(seen: &[Seen]) {
 /// no termination protection, and no relay. The plan says what each lacks
 /// and sends no write. The apply sets the two stacks' policies and
 /// protections in the floor session, with no change set, and creates the
+/// The repair, in the order the fake saw it (theseus-ps12): the refused mint,
+/// then IAM asked which refusal it is, then the trust policy written, then a
+/// mint that works -- exactly one repair, and no second read of the role. And
+/// the trust policy alone: the owner's decision for this row is the careful
+/// one, so nothing of the role's boundary or its attached policies is sent.
+/// The counts come first, so the closed list below is no claim about an empty
+/// set: two IAM calls were made, and these twelve were not among them.
+fn one_trust_repair_and_nothing_else_of_iam(actions: &[String]) {
+    let at = |op: &str| actions.iter().position(|x| x == op);
+    let count = |op: &str| actions.iter().filter(|x| *x == op).count();
+    assert_eq!(count("GetRole"), 1, "{actions:?}");
+    assert_eq!(count("UpdateAssumeRolePolicy"), 1, "{actions:?}");
+    assert!(
+        at("AssumeRole") < at("GetRole") && at("GetRole") < at("UpdateAssumeRolePolicy"),
+        "{actions:?}"
+    );
+    assert!(
+        count("AssumeRole") >= 2,
+        "a mint before the repair and one after: {actions:?}"
+    );
+    const NEVER: [&str; 12] = [
+        "PutRolePermissionsBoundary",
+        "DeleteRolePermissionsBoundary",
+        "AttachRolePolicy",
+        "DetachRolePolicy",
+        "PutRolePolicy",
+        "DeleteRolePolicy",
+        "CreateRole",
+        "UpdateRole",
+        "DeleteRole",
+        "CreatePolicy",
+        "CreatePolicyVersion",
+        "SetDefaultPolicyVersion",
+    ];
+    let touched: Vec<&String> = actions
+        .iter()
+        .filter(|a| NEVER.contains(&a.as_str()))
+        .collect();
+    assert!(
+        touched.is_empty(),
+        "the repair touches the trust policy alone: {touched:?} in {actions:?}"
+    );
+}
+
+/// An owner role IAM has and will not let the key assume (theseus-ps12): the
+/// apply needs a floor session, STS refuses the `AssumeRole`, and before this
+/// row the bootstrap spent its minute of retries and reported
+/// `sts:AssumeRole into theseus-owner failed`, which reads as a credential
+/// fault and is not one. Now it asks IAM which it is, adds the key's principal
+/// to the trust policy, mints again, and the result tells the operator. The
+/// boundary is never touched: the repair is `UpdateAssumeRolePolicy` alone.
+#[tokio::test]
+async fn an_unmintable_owner_role_has_its_trust_policy_repaired_and_the_operator_told() {
+    let owner = [
+        ("OwnerUserName", "example"),
+        ("MonthlyBudgetUsd", "50"),
+        ("DailyBudgetUsd", "0"),
+        ("AlertEmail", "alerts@example.com"),
+    ];
+    // The role's trust policy names CloudFormation and not the account's key,
+    // so STS refuses every mint of it (`owner_role: false`).
+    let trust = json!({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "cloudformation.amazonaws.com"},
+            "Action": "sts:AssumeRole"
+        }]
+    })
+    .to_string();
+    let (fake, c) = cloud(Cloud {
+        stacks: BTreeMap::from([(
+            "theseus-foundation".to_string(),
+            made(bootstrap::FOUNDATION_TEMPLATE, &owner),
+        )]),
+        owner_role: false,
+        trust: Some(trust),
+        ..Default::default()
+    });
+    let aws = layer(&fake, false, Some(50));
+    let account = aws.account(None).unwrap().clone();
+    let p = AwsBootstrapParams {
+        alert_email: Some("alerts@example.com".into()),
+        ..Default::default()
+    };
+    let plan = bootstrap::plan(&account, &p).await.unwrap();
+    // The plan writes nothing, here as everywhere: the repair is the apply's,
+    // and the apply is the operator's own yes.
+    assert!(writes(&fake).is_empty(), "{:?}", writes(&fake));
+    assert!(
+        !fake
+            .seen()
+            .iter()
+            .any(|s| form(&s.body).get("Action").map(String::as_str) == Some("GetRole")),
+        "a plan asks IAM about no role"
+    );
+
+    let before = fake.seen().len();
+    let applied = bootstrap::apply(&account, &p, &plan.digest).await.unwrap();
+    let seen = fake.seen();
+    let after = &seen[before..];
+    let actions: Vec<String> = after
+        .iter()
+        .filter_map(|s| form(&s.body).get("Action").cloned())
+        .collect();
+
+    one_trust_repair_and_nothing_else_of_iam(&actions);
+
+    // What the trust policy holds now: the statement it had, and the key's.
+    let written: Value =
+        serde_json::from_str(&c.lock().unwrap().trust.clone().expect("a trust policy")).unwrap();
+    let st = written["Statement"].as_array().expect("statements").clone();
+    assert_eq!(st.len(), 2, "{written}");
+    assert_eq!(st[0]["Principal"]["Service"], "cloudformation.amazonaws.com");
+    assert_eq!(
+        st[1]["Principal"]["AWS"],
+        format!("arn:aws:iam::{ACCOUNT}:user/example")
+    );
+    assert_eq!(st[1]["Action"], "sts:AssumeRole");
+    assert!(c.lock().unwrap().owner_role, "the role is assumable now");
+
+    // The apply finished: the stacks the floor session had to make are made.
+    let stacks = c.lock().unwrap().stacks.clone();
+    assert_eq!(stacks["theseus-posture"].status, "CREATE_COMPLETE");
+
+    // And the operator is told, in the result every surface prints.
+    let r = bootstrap::result(&account, &applied, true);
+    let told: Vec<&String> = r
+        .warnings
+        .iter()
+        .filter(|w| w.contains("trust policy"))
+        .collect();
+    assert_eq!(told.len(), 1, "one notice: {:?}", r.warnings);
+    assert!(told[0].contains("theseus-owner"), "{}", told[0]);
+    assert!(
+        told[0].contains(&format!("arn:aws:iam::{ACCOUNT}:user/example")),
+        "{}",
+        told[0]
+    );
+    assert!(
+        told[0].contains("boundary is never repaired without your word"),
+        "{}",
+        told[0]
+    );
+}
+
 /// relay with its own. A second plan has nothing to do.
 #[tokio::test]
 async fn a_stopped_bootstrap_resumes_and_sets_what_it_skipped() {
