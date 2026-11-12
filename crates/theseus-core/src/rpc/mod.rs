@@ -136,6 +136,8 @@ mod tests_history;
 #[cfg(test)]
 mod tests_home_claim;
 #[cfg(test)]
+mod tests_import_sync_deadline;
+#[cfg(test)]
 mod tests_imported;
 #[cfg(test)]
 mod tests_imported_fields;

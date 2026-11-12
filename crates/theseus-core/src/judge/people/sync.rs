@@ -16,6 +16,9 @@
 //!   pass it is not begun, and stays in the sync's list for the next run.
 //! - **Off with the sweep**: a cap of 0, or `[people] live = false`, turns
 //!   it off, and the sessions are not kept for later.
+//! - **Under the run's deadline too** (theseus-ectzg): the nightly sync hands
+//!   down what is left of its wall clock, and the session loop stops there
+//!   with the rest kept for the next run. The sweep's own tender passes none.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -106,6 +109,18 @@ impl Core {
     /// is left of the sweep's day. `done` names the sessions that need no
     /// more; the rest wait for the next run.
     pub async fn people_sync(&self, todo: Vec<String>) -> Result<Swept> {
+        self.people_sync_within(todo, None).await
+    }
+
+    /// [`Core::people_sync`], stopping where it is once `deadline` passes: the
+    /// nightly sync's run is capped on wall time as well as on the day's
+    /// spend (theseus-ectzg, `crate::rpc::import_sync`). `None` is no cap,
+    /// which is what every caller but that sync wants.
+    pub(crate) async fn people_sync_within(
+        &self,
+        todo: Vec<String>,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Swept> {
         let now = theseus_protocol::now_unix_ms();
         let cfg = &self.runner.cfg.people;
         let mut out = Swept::default();
@@ -137,7 +152,8 @@ impl Core {
             self.people_write(&marks).await?;
             out.done.extend(bare.into_iter().map(|d| d.sid));
         }
-        self.pass_plan(read, "sync", cap, &mut out).await?;
+        self.pass_plan(read, "sync", (cap, deadline), &mut out)
+            .await?;
         let spent = theseus_kernel::micros_to_usd(out.spent);
         if out.spent > 0 {
             let day = SyncDay {

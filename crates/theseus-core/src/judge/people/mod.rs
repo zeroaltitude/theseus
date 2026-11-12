@@ -56,8 +56,11 @@ pub mod same;
 pub mod seen;
 pub mod sweep;
 pub mod sync;
+// `pub(crate)`: the nightly sync's own tests (`crate::rpc::tests_import_sync_deadline`)
+// build the same rig as this pack's, and a second copy of `people_on` and
+// `script` would be a second thing to keep right.
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 #[cfg(test)]
 mod tests_excl;
 #[cfg(test)]
