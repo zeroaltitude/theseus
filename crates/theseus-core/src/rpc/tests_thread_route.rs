@@ -719,7 +719,11 @@ async fn a_late_connection_reads_the_waiting_ask_and_it_leaves_once_answered() {
     let _ = w.response(id).await;
     let lid = late.send(method::THREAD_ASK_LIST, Value::Null).await;
     let after = late.response(lid).await;
-    assert_eq!(after["result"]["asks"].as_array().unwrap().len(), 0, "{after}");
+    assert_eq!(
+        after["result"]["asks"].as_array().unwrap().len(),
+        0,
+        "{after}"
+    );
 }
 
 /// Stickiness alone cannot overrule Jev (theseus-eqp1v; the threadbench's
