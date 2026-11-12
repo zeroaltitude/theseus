@@ -103,6 +103,7 @@ pub mod progress_step;
 mod promise_step;
 mod prompt_input;
 mod recall_step;
+pub mod repeat_step;
 mod reply_step;
 mod request;
 mod rerank_step;
@@ -457,6 +458,8 @@ struct Turn<'a> {
     recall: recall_step::Recalled,
     /// The place digest this turn's requests carry (theseus-98bz.9).
     digest: digest_step::Digest,
+    /// The loop signatures this turn has repeated (`p5kln-p0-unbounded-hold`).
+    repeats: repeat_step::Repeats,
     /// Routing's verdict and what it moved (M5 25e).
     route: route_step::RouteState,
     /// A running task's checkpoints (theseus-ypnxt.9).
@@ -603,6 +606,7 @@ impl<'a> Turn<'a> {
             ended: false,
             recall: recall_step::Recalled::default(),
             digest: digest_step::Digest::default(),
+            repeats: repeat_step::Repeats::default(),
             route: route_step::RouteState::default(),
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
@@ -2110,6 +2114,7 @@ impl TurnRunner {
             Self::go_back(t, &mut spec, (&resp, &node));
             run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
+            self.repeat_noticed(t, &uses, run_model)?;
             run_model = self.progress(t, i, run_model)?;
             let ended = checkpoint_step::Ended {
                 compiled: &compiled,
