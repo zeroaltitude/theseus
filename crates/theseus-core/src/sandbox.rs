@@ -333,6 +333,56 @@ pub(crate) fn started<'a>(
     }))
 }
 
+/// What a restart's adoption lists again (theseus-7yis; the owner's word of
+/// 2026-11-12, "rebuild only on 1.0.6"): the L1 job the surviving action
+/// describes, so a daemon that comes back to a job still running shows it
+/// instead of reading an empty map.
+///
+/// A rebuild and not a say-so: the map keeps no field the record lacks. The
+/// class comes from the proposal that bound the job (`Bound`, as the
+/// dispatch read it), the command from the action's own call, and the
+/// started time from its dispatch — the moment the wrapper was launched,
+/// which is what `started` records for a job of this process. An L0 job is
+/// `None`: the map never listed one, at launch or here.
+pub(crate) fn adopted_job(
+    a: &theseus_kernel::Action,
+    bound: &Bound,
+    tool: &str,
+    argv: Vec<String>,
+) -> Option<RunningJob> {
+    if bound.class != Class::L1 {
+        return None;
+    }
+    Some(RunningJob {
+        correlation_id: a.correlation_id.to_string(),
+        session_id: a.session_id.to_string(),
+        tool: tool.into(),
+        argv,
+        started_at_ms: a.dispatched_at_ms.unwrap_or(a.planned_at_ms),
+    })
+}
+
+/// Lists [`adopted_job`]'s job for as long as it runs. The listing is kept
+/// at once — the job runs past the call that adopted it, as a background
+/// job's does — so `prune` ends it with its action and nothing else does.
+pub(crate) fn adopt(
+    rt: &ToolRuntime,
+    tc: &crate::toolrun::TurnCtx<'_>,
+    a: &theseus_kernel::Action,
+    bound: &Bound,
+    tool: &str,
+    argv: Vec<String>,
+) -> bool {
+    let Some(job) = adopted_job(a, bound, tool, argv) else {
+        return false;
+    };
+    // As at a launch: a daemon nobody asks still drops what has ended.
+    rt.sandbox
+        .prune(|id| still_dispatched(tc.kernel.action(id)));
+    rt.sandbox.running(job).keep();
+    true
+}
+
 /// Whether a listed job's action still runs: dispatched. Any other state
 /// has ended it, `outcome_unknown` (a lost wrapper) included, which
 /// `is_settled` leaves out; no action at all too. An action the store cannot
@@ -817,6 +867,124 @@ fn theseus_sandbox_limits(cfg: &SandboxConfig) -> theseus_sandbox::Limits {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// An action as a restart finds one: dispatched, its job still running.
+    fn dispatched(corr: &str, class: Class) -> theseus_kernel::Action {
+        // The gate binds the class in the proposal's policy context, so the
+        // fixture starts with the object the dispatch's own proposal has.
+        let mut p = theseus_kernel::Proposal {
+            tool: "proc.run".into(),
+            policy_context: json!({}),
+            ..Default::default()
+        };
+        bind_class(&mut p, class);
+        assert_eq!(class_in(&p), class, "the fixture binds what it says");
+        theseus_kernel::Action {
+            correlation_id: corr.into(),
+            schema: 2,
+            execution_id: "exe_0000a1b2c3".into(),
+            session_id: "ses_0000d4e5f6".into(),
+            tool: "proc.run".into(),
+            args_digest: String::new(),
+            proposal: Some(p),
+            resource: None,
+            retry_class: theseus_kernel::RetryClass::NonRepeatable,
+            state: theseus_kernel::ActionState::Dispatched,
+            deadline_at_ms: 0,
+            planned_at_ms: 1_000,
+            authorized_at_ms: None,
+            dispatched_at_ms: Some(2_000),
+            settled_at_ms: None,
+            external_op_id: None,
+            result_ref: None,
+            confirm: None,
+            cancel: None,
+            verdict: None,
+            reservation_id: None,
+            reserved_micros: 0,
+            resolution: None,
+            completions_seen: 0,
+            detail: None,
+            parent: None,
+        }
+    }
+
+    /// A restart reads the running map empty while the job it describes is
+    /// still running (theseus-7yis): what the adoption lists again is the
+    /// job the action and its proposal already hold, started when its
+    /// wrapper was dispatched, and an L0 job is listed by neither path.
+    #[test]
+    fn an_adopted_l1_job_is_listed_again_from_its_own_action() {
+        let argv = ["bash", "-lc", "cargo build"].map(String::from).to_vec();
+        let l1 = dispatched("cor_a1b2c3", Class::L1);
+        let job = adopted_job(
+            &l1,
+            &Bound::of(l1.proposal.as_ref().unwrap()),
+            "proc.run",
+            argv.clone(),
+        )
+        .expect("an L1 job the restart adopted is listed");
+        assert_eq!(
+            (
+                job.correlation_id.as_str(),
+                job.session_id.as_str(),
+                job.tool.as_str(),
+                job.started_at_ms
+            ),
+            ("cor_a1b2c3", "ses_0000d4e5f6", "proc.run", 2_000),
+            "every field is the action's own, the started time its dispatch"
+        );
+        assert_eq!(job.argv, argv, "its command, as the row has it");
+
+        let l0 = dispatched("cor_d4e5f6", Class::L0);
+        assert_eq!(
+            adopted_job(
+                &l0,
+                &Bound::of(l0.proposal.as_ref().unwrap()),
+                "proc.run",
+                argv.clone()
+            ),
+            None,
+            "an L0 job is in no running map, at a launch or at an adoption"
+        );
+        // A dispatched action with nothing bound at all reads as L0.
+        assert_eq!(adopted_job(&l1, &Bound::default(), "proc.run", argv), None);
+    }
+
+    /// The listing an adoption makes outlives the call that made it (the job
+    /// runs on in the background) and leaves when its action does, which is
+    /// what `prune` reads: so a job adopted once is not listed for ever.
+    #[test]
+    fn an_adopted_jobs_listing_outlives_its_call_and_ends_with_its_action() {
+        let sandbox = Sandbox::new(&SandboxConfig::default(), &[], &[]);
+        assert!(
+            sandbox.usage().running.is_empty(),
+            "nothing after a restart"
+        );
+        let a = dispatched("cor_a1b2c3", Class::L1);
+        let job = adopted_job(
+            &a,
+            &Bound::of(a.proposal.as_ref().unwrap()),
+            "proc.run",
+            vec!["sleep".into()],
+        )
+        .unwrap();
+        sandbox.running(job).keep();
+        let usage = sandbox.usage();
+        assert_eq!(usage.running.len(), 1, "listed past the adopting call");
+        assert_eq!(usage.running[0].correlation_id, "cor_a1b2c3");
+        // Still dispatched: the next launch's prune keeps it.
+        sandbox.prune(|id| still_dispatched(Ok(Some(dispatched(id, Class::L1)))));
+        assert_eq!(sandbox.usage().running.len(), 1, "it still runs");
+        // Settled: it goes, as any background job's listing does.
+        let mut ended = dispatched("cor_a1b2c3", Class::L1);
+        ended.state = theseus_kernel::ActionState::Succeeded;
+        sandbox.prune(|_| still_dispatched(Ok(Some(ended.clone()))));
+        assert!(
+            sandbox.usage().running.is_empty(),
+            "and leaves with its action"
+        );
+    }
 
     /// The class goes toward L1 only: the default, `l1_argv`, or the call's
     /// own ask, and `sandbox: false` undoes neither of the first two
