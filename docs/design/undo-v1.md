@@ -118,3 +118,84 @@ The eventual bar is the wiring row's test `a_final_verdict_survives_auto_mode`: 
 mode, a call whose verdict is `irreversible_final`, and the owner still asked. There is no code test
 today because there is no layer; this document and the pack's own comment are the whole of the bar
 for this card.
+
+## Where the question itself is asked: 0d sits AFTER the outright refusals
+
+Card `p5kln-p0-judge-egress`, row B6 `theseus-2yowd`, P0 (security). Written against the same base.
+
+The section above settles where the *answer* is read. This one settles where the *question* is asked,
+which is a separate and a security question, because asking it sends a tool call's whole content to a
+model.
+
+### What the question ships
+
+`crates/theseus-judge/src/builders/undo.rs:156 struct UndoInput` is the payload, and it is the most
+revealing state any pack has:
+
+| field | line | what it is |
+|---|---|---|
+| `argv` | `:167` | a program call's whole command line, up to 24 entries, 200 characters each |
+| `steps` | `:170` | a batch's every command line, up to 16 of them |
+| `targets` | `:173` | every path the call names, **in full**, up to 12 |
+| `url` | `:176` | a network tool's address |
+| `other_args` | `:179` | **everything else the model wrote, as it wrote it** — for `fs.write`, that is the content |
+| `cwd` | `:181` | where a program call runs |
+| `terminal_tail` | `:190` | the last lines on the screen a `term.send` types into |
+
+Nothing in the product sends that today. `undo.v1` is `action = "none"`, no point dispatches it, and
+nothing anywhere constructs `Input::Undo`, so "off" is the current state and keeping it off costs
+nothing. This card is the one that defines the new egress; the wiring row is the one that makes it
+live.
+
+### The decision
+
+> **The judge's check (0d) runs AFTER the outright refusals.**
+
+A call the gate was going to refuse outright must not have its content, its target paths, its
+terminal tail and the bytes it was about to write serialised and sent to a model first. The set that
+refuses outright is, in `crates/theseus-core/src/toolrun/batch.rs:35 ToolRuntime::judge`:
+
+1. `self.sealed.refusal_of_input(input)` — the sealed holdout sets, on the call's raw input;
+2. `self.refusal_at(at, tool, plan)` (`crates/theseus-core/src/policy/modes.rs:136`), which is
+   `ToolRuntime::refusal` (`crates/theseus-core/src/toolrun/order.rs:73`: the sealed holdout again on
+   the plan, then `places::refusal`, then the place's ceiling) followed by `plan_refusal`,
+   `helper_refusal` and `content_refusal` — plan mode, a helper's narrowed set, and the injection
+   freeze, whose reader is `At::labels` (`order.rs:31`).
+
+Each of those says "this call is not going to run" for a reason that has nothing to do with
+reversibility, and three of them — the sealed holdout, the place rule and the injection freeze — are
+reasons the material itself must not travel. 1.0.4 decided that; a classifier placed before them
+would undo it quietly, and the first anyone would know is a judge spend row against a refused call.
+
+So 0d sits between the refusals and `order`: after everything that refuses outright, and before the
+§3.9 order, so a `reshapeable` verdict can short-circuit beside the refusals as the section above
+requires and a held call still makes no card.
+
+### What the new path must not bypass
+
+`crates/theseus-core/src/data_gate.rs` is the provider chokepoint: every provider is wrapped once
+when the core is built, so one place covers every caller, and it refuses a request to a model of
+restricted origin for a session whose labels disqualify it. `crates/theseus-core/src/turn/data_step.rs`
+is the turn's side of the same rule. A judge request is a provider request and goes through that
+wrapper like any other; the thing to get wrong would be a path that reaches a model some other way,
+and there must not be one. The gate's own `[content_based_security] injection` freeze is already in
+the refusal set above, so a frozen session never reaches 0d at all.
+
+### Switched off by default
+
+The pack's `action = "none"` is the off position and is the current state. The wiring row turns it on
+— the owner decided on 2026-11-12 that the classifier lands wired and ON — but the *order* decided
+here is what makes that safe: on or off, a refused call is never sent.
+
+### The bar, and why there is no code test for it yet
+
+The card's bar is a test in `crates/theseus-core/src/toolrun/` that plans a call the sealed holdout
+refuses and asserts that **no `undo.v1` request is built**. That test cannot be written honestly on
+this base: nothing constructs `Input::Undo`, so the assertion is met by an empty set and would pass
+against a tree with the layer in the wrong place. The test is owed by the row that builds the layer,
+and it needs both halves, which is what makes it a real check rather than a vacuous one:
+
+* a call the sealed holdout refuses produces **no** `undo.v1` request — asserted against a recording
+  stand-in judge, so "no judge spend row" is read from what was asked and not from what was billed;
+* a call nothing refuses produces **exactly one** — the positive count, without which the first
+  assertion passes on a tree where 0d was never wired at all.
