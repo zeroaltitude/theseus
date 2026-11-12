@@ -17,7 +17,7 @@ use crate::node::{Body, Node};
 use crate::stub::Stub;
 
 const WROTE: &str = "claude-sonnet-5-5";
-const OTHER: &str = "claude-opus-5-5";
+const OTHER: &str = "claude-haiku-5-5";
 
 fn spec(model: &str, fallback: Option<&str>) -> RequestSpec {
     RequestSpec {
