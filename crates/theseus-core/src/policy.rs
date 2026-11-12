@@ -365,8 +365,10 @@ fn code_in_flag(w: &str) -> Option<&str> {
 /// sets errexit and the line is still `-c`'s. So the remainder is a line only
 /// when it carries something no flag cluster carries — a quote, a bracket, a
 /// space, a slash, a dot. The cost of that test is a line that is one bare
-/// word (`bash -cls`), and a one-word line can only run a program with no
-/// arguments, which is the cost `shell_argvs` already names and pins.
+/// word (`bash -cls`): it remains a flag cluster rather than code. That is a
+/// parsing boundary, not a claim that a one-word program is harmless;
+/// `shell_argvs` states the separate line rule and its `find -exec`
+/// counter-example.
 fn code_attached(w: &str) -> Option<&str> {
     let cluster = w.strip_prefix('-').filter(|c| !c.starts_with('-'))?;
     let at = cluster.find(|c| CODE_LETTERS.contains(&c))?;
@@ -452,9 +454,10 @@ fn shell_commands(line: &str) -> Vec<Vec<String>> {
     // delimiter and not a pipe. Reading it as a pipe held
     // `sed -i -e 's|<floored config>|/tmp/other.toml|' notes.md` and
     // `perl -pe` likewise — ordinary lines that touch nothing floored, two of
-    // the round-2 reviewer's seven false positives (F-1, mechanism 2). What a
-    // whitespace-free chain can still spell is a chain of programs with no
-    // arguments, which can ask nothing of the vault; grouping is NOT exempted,
+    // the round-2 reviewer's seven false positives (F-1, mechanism 2). A
+    // whitespace-free chain can still spell bare command words; whether any
+    // particular program can affect the vault is a program-semantic question,
+    // not a reason to exempt grouping. Grouping is NOT exempted,
     // because an interpreter's own one-liner really does use it
     // (`python3 -c 'open("/x","a").write("y")'` names its path inside
     // parentheses and no space appears in it).
