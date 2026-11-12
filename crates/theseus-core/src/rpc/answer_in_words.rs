@@ -42,6 +42,14 @@
 //! the difference between an addressed answer and an overheard one: a typed
 //! answer names its question, loose words do not, and in a room other people
 //! write in a stranger's "yes" must never become the owner's.
+//!
+//! **And the turn is told what the yes did** (theseus-2yowd, row B6). The
+//! notice above goes where approvals go; the turn the yes starts used to run
+//! with the word in its input and nothing in it saying what the harness made
+//! of it, which is how a bare "Yes, you may abandon it" could still be acted
+//! on. Every outcome here now also stages one harness fact for that turn
+//! (`crate::yes_fact`), naming what was approved and what was not, behind
+//! `[standing] yes_fact`, which is off by default.
 
 use serde_json::json;
 use theseus_protocol::{ConfirmRequest, TurnSubmitParams};
@@ -50,6 +58,7 @@ use super::server::Conn;
 use super::Core;
 use crate::approval::Surface;
 use crate::owner_note::Kind;
+use crate::yes_fact;
 
 /// The longest message read as a bare answer: past this it is a message that
 /// happens to start with "yes", not an answer to a question.
@@ -221,6 +230,85 @@ pub(crate) fn read(text: &str, waiting: &[ConfirmRequest]) -> InWords {
     }
 }
 
+/// A yes the harness could not spend, and why: the one input both the
+/// notice where approvals go and the starting turn's fact are worded from, so
+/// the two can never say different things (theseus-2yowd).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unplaced {
+    /// The yes names a question that has already closed.
+    Gone,
+    /// More than one question here could be the one it meant: each, [`named`].
+    Which(Vec<String>),
+    /// The one question here has answers to choose from, which a bare yes
+    /// does not pick.
+    Choice(String),
+}
+
+/// The notice (its kind, title, why and body) and the starting turn's fact,
+/// for one unplaced yes. Pure: its table is a unit test.
+pub(crate) fn words(u: &Unplaced) -> (Kind, &'static str, String, String, yes_fact::Decided) {
+    match u {
+        Unplaced::Gone => (
+            Kind::Fyi,
+            "That question is no longer waiting",
+            "your yes names a question that has already closed".into(),
+            "It was answered, withdrawn or expired before your yes arrived, so nothing \
+             ran. `theseus confirm` lists what is waiting now."
+                .into(),
+            yes_fact::Decided {
+                why: "and the question it names had already closed".into(),
+                approved: None,
+                waiting: vec![],
+                next: "Nothing ran and nothing is approved. Say that the question had \
+                       already closed, and do not do its work by hand."
+                    .into(),
+            },
+        ),
+        Unplaced::Which(names) => (
+            Kind::Decision,
+            "Which one do you mean?",
+            format!(
+                "your yes could mean any of {} questions waiting here",
+                names.len()
+            ),
+            format!(
+                "Nothing has been approved. Name the one you mean and I will take it:\n{}",
+                names
+                    .iter()
+                    .map(|n| format!("- {n}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+            yes_fact::Decided {
+                why: "and more than one question waiting here could be the one it meant, so \
+                      the harness placed it at none of them"
+                    .into(),
+                approved: None,
+                waiting: names.clone(),
+                next: "Do not act as though any of them were approved, and do not do their \
+                       work by hand. Ask the owner which one they mean."
+                    .into(),
+            },
+        ),
+        Unplaced::Choice(name) => (
+            Kind::Decision,
+            "That question has answers to choose from",
+            "your yes meets a question with answers to choose from".into(),
+            format!("Nothing has been approved. Which answer do you mean?\n- {name}"),
+            yes_fact::Decided {
+                why: "and the one question waiting here has answers to choose from, which a \
+                      bare yes does not pick"
+                    .into(),
+                approved: None,
+                waiting: vec![name.clone()],
+                next: "Nothing has been approved. Ask the owner which of its answers they \
+                       mean."
+                    .into(),
+            },
+        ),
+    }
+}
+
 /// One waiting question, as the note names it: by something the owner can
 /// say back, never by the correlation id alone.
 fn named(q: &ConfirmRequest) -> String {
@@ -264,60 +352,75 @@ impl Core {
             // A bare yes with nothing waiting is conversation, and says
             // nothing; one that names a question is addressed at it, and is
             // told that it is gone.
-            InWords::NoneWaiting if names_a_question(&p.input) => self.say_of_words(
-                session,
-                Kind::Fyi,
-                "That question is no longer waiting",
-                "your yes names a question that has already closed",
-                "It was answered, withdrawn or expired before your yes arrived, so nothing \
-                 ran. `theseus confirm` lists what is waiting now.",
-            ),
-            InWords::NoneWaiting => {}
+            InWords::NoneWaiting => {
+                if names_a_question(&p.input) {
+                    self.yes_unplaced(session, &Unplaced::Gone);
+                }
+            }
             InWords::Which(which) => {
-                let list = which
-                    .iter()
-                    .filter_map(|i| waiting.get(*i))
-                    .map(|q| format!("- {}", named(q)))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                self.say_of_words(
-                    session,
-                    Kind::Decision,
-                    "Which one do you mean?",
-                    &format!(
-                        "your yes could mean any of {} questions waiting here",
-                        which.len()
-                    ),
-                    &format!(
-                        "Nothing has been approved. Name the one you mean and I will take \
-                         it:\n{list}"
-                    ),
-                );
+                let names = which.iter().filter_map(|i| waiting.get(*i)).map(named);
+                self.yes_unplaced(session, &Unplaced::Which(names.collect()));
             }
             InWords::One(i) => {
                 let Some(q) = waiting.get(i) else { return };
                 if needs_an_option(q) {
-                    self.say_of_words(
-                        session,
-                        Kind::Decision,
-                        "That question has answers to choose from",
-                        "your yes meets a question with answers to choose from",
-                        &format!(
-                            "Nothing has been approved. Which answer do you mean?\n- {}",
-                            named(q)
-                        ),
-                    );
-                    return;
-                }
-                let who = conn.answerer(
-                    p.author.clone(),
-                    p.speaking.as_ref().map(|s| s.discord.clone()),
-                );
-                if let Err(e) = self.confirm_action(&q.correlation_id, true, Some(SAID), who) {
-                    tracing::warn!(session = %session, question = %q.correlation_id,
-                        error = %format!("{e:#}"), "the owner's yes in words was not taken");
+                    self.yes_unplaced(session, &Unplaced::Choice(named(q)));
+                } else {
+                    self.yes_taken(p, conn, session, q);
                 }
             }
+        }
+    }
+
+    /// The one question a yes can mean, taken through `confirm_action`, the
+    /// one place an answer becomes a decision; then the starting turn is told
+    /// that it was approved and that nothing else was, so the turn neither
+    /// asks for it again nor does its work by hand.
+    fn yes_taken(
+        &self,
+        p: &TurnSubmitParams,
+        conn: Conn<'_>,
+        session: &str,
+        q: &ConfirmRequest,
+    ) {
+        let who = conn.answerer(
+            p.author.clone(),
+            p.speaking.as_ref().map(|s| s.discord.clone()),
+        );
+        if let Err(e) = self.confirm_action(&q.correlation_id, true, Some(SAID), who) {
+            tracing::warn!(session = %session, question = %q.correlation_id,
+                error = %format!("{e:#}"), "the owner's yes in words was not taken");
+            return;
+        }
+        self.stage_yes_fact(
+            session,
+            &yes_fact::Decided {
+                why: "and exactly one question waiting here could be the one it meant".into(),
+                approved: Some(named(q)),
+                waiting: vec![],
+                next: "It is approved and runs on its own: do not ask for it again, and do \
+                       not do its work by hand."
+                    .into(),
+            },
+        );
+    }
+
+    /// A yes the harness could not spend: the notice where approvals go, and
+    /// the same outcome staged for the turn that yes starts.
+    fn yes_unplaced(&self, session: &str, u: &Unplaced) {
+        let (kind, title, why, body, fact) = words(u);
+        self.say_of_words(session, kind, title, &why, &body);
+        self.stage_yes_fact(session, &fact);
+    }
+
+    /// Stage the fact for the turn about to start, when `[standing] yes_fact`
+    /// is on. Off (the default) nothing is staged and nothing is rendered:
+    /// the notice is all that is said, as before theseus-2yowd.
+    fn stage_yes_fact(&self, session: &str, d: &yes_fact::Decided) {
+        if self.cfg.standing.yes_fact {
+            self.runner
+                .yes_facts
+                .stage(session, yes_fact::render(d));
         }
     }
 

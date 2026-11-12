@@ -183,6 +183,8 @@ pub mod watch_tool;
 pub mod web;
 pub mod webui;
 mod wrapper_lost;
+/// What the harness did with the owner's yes, for the turn it starts (theseus-2yowd).
+pub mod yes_fact;
 
 pub use config::Config;
 pub use rpc::Core;

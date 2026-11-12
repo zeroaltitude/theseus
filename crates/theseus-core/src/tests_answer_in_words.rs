@@ -285,3 +285,122 @@ async fn a_yes_in_another_conversation_does_not_count() {
     );
     r.model.hold_tasks.store(false, SeqCst);
 }
+
+/// (B6, theseus-2yowd) The residue theseus-3i6d1 left open: the turn an
+/// ambiguous yes starts now carries a harness fact naming what was and was
+/// not approved, so the model is told what the mechanism could not guess.
+///
+/// Observable, and both halves are asserted: the fact is in the request of
+/// **that** turn, and in no later turn's. A positive count goes with the
+/// negative one (proof rule 3) — the block names both waiting questions, so
+/// an empty set could not pass this.
+#[tokio::test]
+async fn an_ambiguous_yes_tells_the_turn_it_starts_what_was_not_approved() {
+    let r = rig_on(tempfile::tempdir().unwrap(), |cfg| {
+        cfg.standing.yes_fact = true;
+    });
+    let c = &r.core;
+    let s = session(c);
+    r.model.hold_tasks.store(true, SeqCst);
+    // Two questions waiting at this place, as the sitting's two were: a
+    // conversation holds at most one of its own, because the question holds
+    // its turn (the note on the test above).
+    let (sa, sb) = (beside(c, &s), beside(c, &s));
+    let census = a_task(&r, &sa, "Chart the outer harbour", CENSUS).await;
+    ask_to_abandon(&r, &sa, &census).await;
+    let other = a_task(&r, &sb, "Sound the inner channel", OTHER).await;
+    ask_to_abandon(&r, &sb, &other).await;
+    assert_eq!(c.confirm_list().unwrap().len(), 2);
+
+    say(&r, &s, "Yes, you may abandon it").await;
+
+    // The fact rode exactly one request, and it is the one this turn made.
+    let carried = facts(&r);
+    assert_eq!(carried.len(), 1, "{carried:?}");
+    let fact = &carried[0];
+    assert!(fact.contains("Approved: nothing."), "{fact}");
+    assert!(
+        fact.contains("more than one question waiting here could be the one it meant"),
+        "{fact}"
+    );
+    // The positive half: both questions are named, by the task each would
+    // abandon, so the block cannot be empty and pass.
+    assert!(
+        fact.contains("NOT approved, and still waiting (2):"),
+        "{fact}"
+    );
+    for t in [&census, &other] {
+        assert!(fact.contains(&t.title), "{} is not named: {fact}", t.title);
+    }
+    assert!(
+        fact.contains("Do not act as though any of them were approved"),
+        "{fact}"
+    );
+    // And nothing ran: the fact is a telling, not a new way to approve.
+    assert_eq!(c.confirm_list().unwrap().len(), 2);
+    assert!(rows(c, "action.confirm_answered").is_empty());
+
+    // The next turn in the same conversation does not carry it.
+    say(&r, &s, "what is waiting?").await;
+    assert_eq!(facts(&r).len(), 1, "the fact rode a second turn: {:?}", facts(&r));
+    r.model.hold_tasks.store(false, SeqCst);
+}
+
+/// The same ambiguous yes with `[standing] yes_fact` at its default (off)
+/// tells the turn nothing: the notice where approvals go is all that is said,
+/// exactly as before this row. The negative is paired with the notice's
+/// positive count, so a run in which nothing happened at all cannot pass.
+#[tokio::test]
+async fn the_turn_is_told_nothing_while_the_key_is_off() {
+    let r = rig_on(tempfile::tempdir().unwrap(), |_| {});
+    let c = &r.core;
+    assert!(!c.cfg.standing.yes_fact, "the key's default is off");
+    let s = session(c);
+    r.model.hold_tasks.store(true, SeqCst);
+    let (sa, sb) = (beside(c, &s), beside(c, &s));
+    let census = a_task(&r, &sa, "Chart the outer harbour", CENSUS).await;
+    ask_to_abandon(&r, &sa, &census).await;
+    let other = a_task(&r, &sb, "Sound the inner channel", OTHER).await;
+    ask_to_abandon(&r, &sb, &other).await;
+
+    say(&r, &s, "Yes, you may abandon it").await;
+
+    assert!(facts(&r).is_empty(), "{:?}", facts(&r));
+    // The notice still went where approvals go, so this is the key's doing.
+    let said = notes(&r);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("Which one do you mean?"), "{said:?}");
+    assert_ne!(r.task(&other.id).state, TaskState::Abandoned);
+    assert_ne!(r.task(&census.id).state, TaskState::Abandoned);
+    r.model.hold_tasks.store(false, SeqCst);
+}
+
+/// A sibling session that answers at `sid`'s place, as a task's own asks do.
+fn beside(c: &std::sync::Arc<crate::Core>, sid: &str) -> String {
+    let rec = SessionRecord::new(theseus_protocol::SessionKind::Conversation, None);
+    c.store.put_session(&rec.session_id, &rec).unwrap();
+    c.outbox
+        .show_at(&rec.session_id, c.outbox.target(sid).as_deref())
+        .unwrap();
+    assert_eq!(c.outbox.target(&rec.session_id), c.outbox.target(sid));
+    rec.session_id
+}
+
+/// Every model request that carried the turn's yes fact, in order: the block
+/// is found by its own head, so nothing else in a request can pass for it.
+fn facts(r: &Rig) -> Vec<String> {
+    r.model
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|q| {
+            q.messages.last()?["content"]
+                .as_array()?
+                .iter()
+                .filter_map(|b| b["text"].as_str())
+                .find(|t| t.starts_with(crate::yes_fact::HEAD))
+                .map(str::to_string)
+        })
+        .collect()
+}
