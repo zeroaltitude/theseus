@@ -92,12 +92,22 @@ async fn a_run_past_its_deadline_stops_and_returns_what_it_has() {
     r.fake
         .when_tool(crate::judge::people::extract::TOOL, answer(json!([])));
 
-    // The plant: a cap of one millisecond, which the record's first step
-    // (two store frames) has already spent by the time the people step is
-    // reached.
+    // The plant: a cap of ZERO, which `Cap::new` spends at the instant it is
+    // made -- `at` is `Instant::now()`, and `Instant` is monotone, so the first
+    // `passed()` is true on every machine by construction.
+    //
+    // It was `from_millis(1)` and that was a RACE, not a plant: it assumed the
+    // record's first step (two store frames) costs more than a millisecond, which
+    // is true on this x86 box and FALSE on the M1 Max. There the people step began
+    // inside the cap, started a tag, and stopped at the next check instead of the
+    // first -- so `stopped` was set, `tags` was not empty, and the ARM gate of
+    // 2026-11-12 13:19 went red on line 113 while the same tree was green here.
+    // A test about WHICH check catches the deadline must not be timed against the
+    // host's speed. Sibling `..._stops_at_the_deadline_it_is_handed` had it right
+    // all along: hand it an instant that is already spent.
     let out = r
         .core
-        .sync_record(rec, "test", Duration::from_millis(1))
+        .sync_record(rec, "test", Duration::ZERO)
         .await
         .expect("a run past its deadline returns, it does not error");
 
