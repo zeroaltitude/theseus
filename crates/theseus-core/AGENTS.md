@@ -3729,7 +3729,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   to get the rest (`Tool::rest`), or the kept file and its lines (`toolrun/kept.rs`). A listing names its scope.
 - **A kept output is scrubbed, never raw.** What a job printed before the scrubber saw it stays in the spool only
   until its result is written; a copy anywhere else goes through the scrubber first.
-- **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking. Exception: Sonnet to Opus 5.5, `compiler/readable.rs`.
+- **Thinking goes back only to the provider that wrote it**, and every recompile strips the prefix's thinking.
 - **A shared place never receives the owner's material** (the place rule). Its model is offered only the public
   tools, the gate refuses anything else, and its system block carries only public context files. A task takes its
   parent's class. Nothing flows from a private place to a shared one but what a person says there, and the owner's
