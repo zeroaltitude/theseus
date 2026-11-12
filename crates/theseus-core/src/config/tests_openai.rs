@@ -25,7 +25,10 @@ fn a_provider_may_name_the_openai_responses_protocol() {
 #[test]
 fn the_template_declares_the_openai_block_commented_out() {
     let t = Config::EXAMPLE_TOML;
-    assert!(t.contains("# [providers.openai]"), "no openai provider block");
+    assert!(
+        t.contains("# [providers.openai]"),
+        "no openai provider block"
+    );
     assert!(
         t.contains("# kind = \"openai_responses\""),
         "the block does not name the protocol"

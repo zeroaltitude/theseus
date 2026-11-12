@@ -222,7 +222,9 @@ impl OpenAi {
             },
             ..Default::default()
         };
-        let done = self.events(resp, &mut out, started, deadline, on_delta).await?;
+        let done = self
+            .events(resp, &mut out, started, deadline, on_delta)
+            .await?;
         out.text = super::text_of(&out.content);
         out.timing.total_ms = elapsed(started);
         match done {

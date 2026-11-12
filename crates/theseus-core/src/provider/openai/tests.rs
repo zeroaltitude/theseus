@@ -64,7 +64,10 @@ fn the_request_carries_the_whole_call_in_the_responses_shape() {
     assert_eq!(b["instructions"], "the header\n\nthe project");
     // Thinking on: the budget becomes an effort word, and the encrypted
     // reasoning is asked for, without which a thinking block cannot replay.
-    assert_eq!(b["reasoning"], json!({"effort": "medium", "summary": "auto"}));
+    assert_eq!(
+        b["reasoning"],
+        json!({"effort": "medium", "summary": "auto"})
+    );
     assert_eq!(b["include"], json!(["reasoning.encrypted_content"]));
     // The tool: `input_schema` becomes `parameters`, and `strict` is false.
     assert_eq!(
@@ -170,7 +173,10 @@ fn only_this_providers_own_reasoning_is_replayed() {
     assert_eq!(items[0]["encrypted_content"], "A");
     assert_eq!(items[1]["type"], "message");
     let text = Value::Array(items).to_string();
-    assert!(!text.contains("EqoBCkYIBBgCKkA") && !text.contains("OPAQUE"), "{text}");
+    assert!(
+        !text.contains("EqoBCkYIBBgCKkA") && !text.contains("OPAQUE"),
+        "{text}"
+    );
 }
 
 /// A finished output item becomes the Anthropic-shaped block the transcript
@@ -208,7 +214,10 @@ fn an_assistants_blocks_round_trip_through_the_wire() {
     let out = wire::body(&r, false)["input"].as_array().unwrap().clone();
     assert_eq!(out.len(), 3);
     assert_eq!(out[0], items[0]);
-    assert_eq!(out[1]["content"], json!([{"type": "output_text", "text": "the answer"}]));
+    assert_eq!(
+        out[1]["content"],
+        json!([{"type": "output_text", "text": "the answer"}])
+    );
     assert_eq!(out[2], items[2]);
 }
 
@@ -225,7 +234,10 @@ fn a_call_whose_arguments_do_not_parse_is_recorded_by_id() {
     )
     .unwrap();
     assert_eq!(b["input"], json!({}));
-    assert_eq!(invalid.get("call_3").map(String::as_str), Some("{\"path\": "));
+    assert_eq!(
+        invalid.get("call_3").map(String::as_str),
+        Some("{\"path\": ")
+    );
     // A reasoning item with no encrypted content has nothing to replay, so no
     // block is stored for it at all.
     assert!(wire::block_of(
@@ -277,7 +289,12 @@ fn the_stream_sends_deltas_live_and_builds_blocks_from_finished_items() {
     }
     assert_eq!(
         seen,
-        vec!["think:weighing", "text:the ", "text:answer", "call:fs_read:call_5"]
+        vec![
+            "think:weighing",
+            "text:the ",
+            "text:answer",
+            "call:fs_read:call_5"
+        ]
     );
     assert_eq!(
         blocks,
@@ -325,7 +342,9 @@ fn the_stop_reason_is_said_in_the_harnesss_own_words() {
     assert_eq!(wire::stop_reason(&capped, false), "max_tokens");
     // `hit_cap` is the one place the harness tests for a cut answer, and it
     // must read this arm's word too.
-    assert!(super::super::hit_cap(Some(&wire::stop_reason(&capped, false))));
+    assert!(super::super::hit_cap(Some(&wire::stop_reason(
+        &capped, false
+    ))));
     let filtered = json!({"status": "incomplete",
                           "incomplete_details": {"reason": "content_filter"}});
     assert_eq!(wire::stop_reason(&filtered, false), "refusal");

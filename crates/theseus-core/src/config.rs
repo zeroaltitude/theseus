@@ -2310,8 +2310,8 @@ mod tests_inherit;
 #[cfg(test)]
 mod tests_moonshot;
 #[cfg(test)]
-mod tests_openai;
-#[cfg(test)]
 mod tests_ontology;
+#[cfg(test)]
+mod tests_openai;
 #[cfg(test)]
 mod tests_persona;

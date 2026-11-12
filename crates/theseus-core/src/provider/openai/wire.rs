@@ -167,7 +167,11 @@ fn message_items(role: &str, blocks: &[Value], out: &mut Vec<Value>) {
         match b.get("type").and_then(Value::as_str) {
             Some("text") => {
                 let text = b.get("text").and_then(Value::as_str).unwrap_or_default();
-                let kind = if assistant { "output_text" } else { "input_text" };
+                let kind = if assistant {
+                    "output_text"
+                } else {
+                    "input_text"
+                };
                 parts.push(json!({"type": kind, "text": text}));
             }
             Some("image") => {
@@ -206,7 +210,10 @@ fn message_items(role: &str, blocks: &[Value], out: &mut Vec<Value>) {
                     continue;
                 };
                 flush(&mut parts, out);
-                let summary = b.get("thinking").and_then(Value::as_str).unwrap_or_default();
+                let summary = b
+                    .get("thinking")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 let mut m = Map::new();
                 m.insert("type".into(), json!("reasoning"));
                 m.insert("id".into(), json!(id));
