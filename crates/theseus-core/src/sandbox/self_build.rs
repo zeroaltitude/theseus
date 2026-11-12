@@ -239,9 +239,10 @@ fn view_grants() -> String {
 /// that silently skips nothing and silently runs nothing is the failure this
 /// whole bucket exists to kill.
 ///
-/// **Measured on 2026-11-11, on the exact 123 tests the 08:43 self build
-/// failed, run inside this view one grant at a time:** nothing granted 0,
-/// `pty` 60, `+devices` 63, `+nesting` 67, `+visible_proc` **119**.
+/// Run once inside this view, against the exact 123 tests the 08:43 self
+/// build failed, at five grant levels — nothing granted, `pty`, `+devices`,
+/// `+nesting`, `+visible_proc` — which is **evidence, not proof** of each
+/// rung's effect.
 ///
 /// The four that remain are named here, and **not one of them is a facility
 /// this view withholds** — each fails identically at every rung, so no
