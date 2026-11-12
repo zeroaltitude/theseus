@@ -61,10 +61,15 @@ pub(super) fn guarded_paths(cfg: &crate::Config) -> (Vec<PathBuf>, Vec<PathBuf>)
         .map(|r| canon(r))
         .chain(crate::rsi::pr::trees_root(cfg, &state))
         .collect();
-    // The floor: Theseus's own state (its store, spool, and bindings file, in
-    // the state dir actually in use) and the 1Password CLI's credentials.
-    // Since theseus-3i6d1 the owner's own instruction file in that same state
-    // dir is there too, and so is the config file the daemon serves from.
+    // The floor: Theseus's own state (EVERY store a mode can serve and the
+    // spool beside each, and the bindings file, in the state dir actually in
+    // use) and the 1Password CLI's credentials. Since theseus-3i6d1 the
+    // owner's own instruction file in that same state dir is there too, and so
+    // is the config file the daemon serves from. This sentence said "its
+    // store, spool, and bindings file" until theseus-rq78r -- a singular pair,
+    // which stopped being true when the floor started naming every store
+    // (theseus-0h9f3 L21, the floor review's F3); the comment below is the
+    // precise one.
     let canon_path = |p: PathBuf| theseus_tools::paths::canonical_best_effort(&p);
     // Every store a daemon can serve and the spool beside each, out of the
     // one list the daemon picks its own name from (`rpc::STORE_DIR_NAMES`)
@@ -186,6 +191,35 @@ mod tests {
         // The pair a `--stdio` daemon serves, by name. The floor named only
         // the socket pair before this row, so these two are the assertion
         // that was missing.
+        //
+        // ⚠ WRITTEN AS WORDS ON PURPOSE, AND LOAD-BEARING: THIS IS THE ONLY
+        // PLACE THAT SAYS SO (theseus-rq78r, from the floor review's F2).
+        // `rpc::STORE_DIR_NAMES` -- the list the floor above reads -- lives in
+        // `rpc/mod.rs`, which is NOT in `scripts/keel-guard.py`'s
+        // `KEEL_FILES`. So the floor's CONTENT is set in a file the keel does
+        // not watch, while the assertions over it are in this file, which the
+        // keel does. Which assertion carries which hazard was measured both
+        // ways on 2026-11-11 against this tree, not reasoned about:
+        //
+        //   * NARROW the list (`[STORE_DIR, STORE_DIR_STDIO]` ->
+        //     `[STORE_DIR]`): 5 red, 2 of them outside this file. Here the
+        //     loop ABOVE reds first, at its `floor.contains(&store)`, because
+        //     `rpc::store_dir` builds the stdio name from `STORE_DIR_STDIO`
+        //     and NEVER from the list, so a narrowing desynchronises the two
+        //     readers. THESE loops do not even execute -- the test is already
+        //     over. (`the_floor_is_over_the_configs_state_dir_and_nothing_else`
+        //     does catch it, by its own name list.)
+        //   * RENAME the stdio store consistently, so both readers move
+        //     together: 6 red, and now the loop above PASSES. THIS loop is
+        //     what reds, with the `assert_eq!` in
+        //     `the_daemons_store_name_is_one_the_floor_knows`.
+        //
+        // So the literal words are not a second way of catching a narrowing;
+        // they are what pins the NAME, and in this file only the assertions
+        // written as words do that. Deleting them to "stop repeating the
+        // constant" would leave the store's name unpinned in the keel while
+        // the list that holds it sits outside the keel. That is the `--stdio`
+        // hole's own shape. Keep them, and keep them written as words.
         for name in ["store-stdio", "spool-stdio"] {
             assert!(
                 floor.contains(&state.join(name)),
@@ -206,6 +240,13 @@ mod tests {
     /// resolves through `rpc::store_dir`, which joins a name out of
     /// `STORE_DIR_NAMES`, and the floor floors every name in that list. One
     /// list with two readers (theseus-0h9f3 L21).
+    ///
+    /// Its `assert_eq!`s name the two store directories as words, and that is
+    /// load-bearing for the same measured reason as the literal loops in the
+    /// test above -- see the ⚠ note there (theseus-rq78r). The
+    /// `STORE_DIR_NAMES.contains` loop below is the half that catches a
+    /// narrowing of the list; the `assert_eq!`s are the half that catches a
+    /// rename.
     #[test]
     fn the_daemons_store_name_is_one_the_floor_knows() {
         let state = std::path::Path::new("/nonexistent/theseus-guarded/state");
