@@ -39,6 +39,7 @@ import type { DropTarget } from '@/ops/rehome'
 import type { RunResult } from '@/ops/selection'
 import { comingShows, DOCK_KEY, flip, idleSel, INSPECTOR_KEY, OPEN_SEL, parseFold, QUEUE_KEY, regionsFor } from '@/ops/regions'
 import { BoardLens } from '@/ops/BoardLens'
+import { TasksTab } from '@/ops/TasksTab'
 import { ThreadsLens } from '@/ops/ThreadsLens'
 import { Queue } from '@/ops/Queue'
 import { toggleBucket } from '@/ops/tiles'
@@ -431,6 +432,7 @@ export default function Ops() {
     <div className="h-full min-h-0 min-w-0 flex-1">
       {a.lens === 'board' && <BoardLens cols={cols} rows={rows} older={older} onMore={() => setOlder((x) => x + DONE_PAGE)} focus={row?.id ?? null} onFocus={pick} onContext={(id, x, y) => setCtxMenu({ id, x, y })} confirms={confirms} now={now}
         picked={picked} onPick={pickOne} drag={drag} titleOf={titleOf} />}
+      {a.lens === 'tasks' && <TasksTab rows={rows} queue={queue} now={now} onOpen={(id) => set({ lens: 'board', sel: id })} />}
       {a.lens === 'threads' && <ThreadsLens views={views} groups={groups} records={records} ready={ready || !!world} error={error} now={now} past={past} focus={slug} onFocus={pick}
         matches={(t) => shownSlugs.has(t.group.slug)} rows={rows} kept={shownIds} context={contextIds} onSelect={pick} />}
       {a.lens === 'timeline' && (

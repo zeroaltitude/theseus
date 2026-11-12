@@ -10,8 +10,8 @@
 //   do      `answer`: a deep link focuses the selected item's answer in the queue (herdr's `&do=answer`)
 // Keys the page does not own (the task graph's `task`, a chart's `table`) are kept as they were.
 
-export type Lens = 'graph' | 'board' | 'timeline' | 'threads'
-export const LENSES: readonly Lens[] = ['graph', 'board', 'timeline', 'threads']
+export type Lens = 'graph' | 'board' | 'timeline' | 'threads' | 'tasks'
+export const LENSES: readonly Lens[] = ['graph', 'board', 'timeline', 'threads', 'tasks']
 export const DEFAULT_LENS: Lens = 'board'
 
 /** The command bar's counters, each also a filter. */

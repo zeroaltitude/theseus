@@ -31,7 +31,7 @@ const COUNTERS: ReadonlyArray<{ b: Bucket; key?: string; tone: Tone; glyph: stri
   { b: 'spent', tone: 'money', glyph: '$' },
 ]
 
-const LENS_KEYS: Record<Lens, string> = { graph: 'g g', board: 'g b', timeline: 'g t', threads: 'g h' }
+const LENS_KEYS: Record<Lens, string> = { graph: 'g g', board: 'g b', timeline: 'g t', threads: 'g h', tasks: 'no key' }
 
 /** The last hour, one sample a minute: a timer that reads nothing. */
 const SAMPLES = 60
