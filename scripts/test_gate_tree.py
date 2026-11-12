@@ -217,8 +217,14 @@ class GateTree(unittest.TestCase):
     def gate(self, **env):
         """The real gate.sh, with the stand-ins; (exit status, its output, the stand-in cargo's log lines)."""
         # What a door, or a caller judging a moved base, leaves in the environment is the tree it judges and not this one's.
+        # THE VIEW'S TWO NAMES BELONG HERE TOO, and this cost a fleet run to find (2026-11-12): these tests run as
+        # the gate's own `gate tests` phase, so inside a SELF BUILD the launcher's THESEUS_VIEW_WITHHELD is in the
+        # environment of every gate they start. Left in, it filtered the fixture's suite and failed the test that
+        # asserts an ordinary lane gate passes no -E -- so a self build that touched gate.sh would red on its own
+        # gate tests, for a variable the fixture never set. A test about what a gate does with a variable must be
+        # the only thing that sets it.
         outer = ("CARGO_INCREMENTAL", "THESEUS_GATE_ROOT", "THESEUS_GATE_DOOR", "THESEUS_KEEL_BASE",
-                 "THESEUS_GATE_MIN_FREE_GB")
+                 "THESEUS_GATE_MIN_FREE_GB", "THESEUS_VIEW_WITHHELD", "THESEUS_VIEW_GRANTS")
         base = {k: v for k, v in self.git_env.items() if k not in outer}
         # The stand-in df has 500 GB free unless a test says otherwise, so the floor is no part of a test about the tree.
         e = {**base, "THESEUS_GATE_NO_BENCH": "1", "THESEUS_GATE_NO_SCRUB": "1", "STUB_LOG": str(self.log),
@@ -481,6 +487,21 @@ class GateTree(unittest.TestCase):
         self.assertEqual(rc, 79, out)
         self.assertIn("REFUSED", out)
         self.assertIn("<binary id> <test name>", out)
+
+    def test_a_launchers_view_in_the_outer_environment_does_not_reach_these_tests_own_gates(self):
+        # Found by a fleet run on 2026-11-12, not by reading: these tests ARE the gate's `gate tests` phase, so
+        # in a self build the launcher's view is in the environment of every gate they start. Left in, it
+        # filtered the fixture's suite and reddened the lane-gate test above -- a self build that touched
+        # gate.sh would have failed its own gate tests over a variable no test set.
+        os.environ["THESEUS_VIEW_WITHHELD"] = self.VIEW_SET
+        os.environ["THESEUS_VIEW_GRANTS"] = "a self build's, granting pty"
+        self.addCleanup(os.environ.pop, "THESEUS_VIEW_WITHHELD", None)
+        self.addCleanup(os.environ.pop, "THESEUS_VIEW_GRANTS", None)
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("-E", self.suite_argv(calls), "the outer view filtered this test's own gate")
+        self.assertNotIn("this view cannot run", out)
+        self.assertNotIn("the view this run had", out)
 
     def test_the_withheld_set_is_named_test_by_test_before_the_suite_runs(self):
         # Not only in the verdict: a reader watching the run sees what it is about to leave out, and the
