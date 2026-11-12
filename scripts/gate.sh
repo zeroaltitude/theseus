@@ -215,6 +215,38 @@ phase_began=0
 summary_printed=""
 # A phase that passed may name how, in the table: `scrub ok` and `scrub skipped` read differently at a glance.
 phase_label=""
+# THE STATE THE GATE STOPPED IN, where the phase's own name would say something untrue (theseus-rq78r, B7).
+#
+# SEPARATE FROM phase_label ABOVE, DELIBERATELY, and this is the whole reason there are two variables. phase_label
+# is how a phase that PASSED did so, and it is live at moments this gate can still die: scrub_phase sets
+# `scrub ok` and then runs test_scrub_added.py, and suite() sets `suite filtered` and then runs the suite. Reading
+# phase_label on the failure path would therefore have printed `FAILED in scrub ok` and `FAILED in suite filtered`
+# -- a new false sentence in two states, to fix a false sentence in one. So the failure surface gets its own
+# variable, set NOWHERE but at a site that knows its phase's name is wrong, which also makes every verdict,
+# table row and times row this script already printed byte-identical: there is exactly one state whose words move.
+#
+# WHAT IT FIXES. `locked_checks` names its phase `lock wait` before the flock, because that is what it is about to
+# do. When the flock cannot even exec the locked part (status 126, the 2026-11-10 15:44 self build: a frozen copy
+# of this script at mode 0600) the part never began, nothing ever waited, and the gate still ended
+# `gate: FAILED in lock wait` with a table reading `lock wait 0  <- failed here`. An exec failure, a lock that
+# could not be opened and a real wait ended by a signal all read alike, so the one-word verdict sent the next
+# reader to the lock, and the lock was fine. The stand-down registered at that site says the tests did not run;
+# it cannot say WHY, and the row filed on this (the conductor, 2026-11-11 23:03) is that an exec failure must be
+# reported as an exec failure -- the defect is in the summary, not the diagnostics.
+#
+# EVERY SURFACE THAT NAMES A FAILURE'S STATE, not just the verdict. `${phase_label:-$phase_now}` sits on phase()'s
+# SUCCESS path, so a gate that dies inside a phase never reaches it: the table's `<- failed here` row, the
+# `$times` csv row, the record the locked part leaves for its caller, the ABORTED line and both verdict lines each
+# read the state for themselves, and all of them read it from here. A fix to the verdict alone would have left the
+# table still naming a wait that never happened.
+phase_failed_as=""
+# The clause the verdict and the abort carry, and empty when the gate stopped outside any phase (its shape is
+# skipped_clause's below, and for the same reason: four callers, one place that decides whether there are words).
+failed_in() {
+  local w="${phase_failed_as:-$phase_now}"
+  [ -n "$w" ] || return 0
+  printf ' in %s' "$w"
+}
 # What the `line pressure` phase found, repeated under the table so it reaches a reader who sees only the tail
 # (`ec2.sh tail LANE gate` is 30 lines by default, and that phase runs minutes of compiling before the end).
 # Empty when the phase did not run: every locked part, and any gate that stopped before it.
@@ -275,6 +307,7 @@ phase() {
   phase_now="$1"
   phase_began=$SECONDS
   phase_label=""
+  phase_failed_as=""
   shift
   "$@"
   phase_names+=("${phase_label:-$phase_now}")
@@ -285,14 +318,14 @@ phase() {
 summary() {
   [ -z "$summary_printed" ] || return 0
   summary_printed=1
-  local status=$1 total=$((SECONDS - gate_began)) i when
+  local status=$1 total=$((SECONDS - gate_began)) i when failed_as="${phase_failed_as:-$phase_now}"
   when="$(date -Iseconds)"
   echo "gate: phase times, in seconds"
   for i in "${!phase_names[@]}"; do
     printf '  %-16s %5d\n' "${phase_names[$i]}" "${phase_secs[$i]}"
   done
   if [ -n "$phase_now" ]; then
-    printf '  %-16s %5d  <- failed here\n' "$phase_now" "$((SECONDS - phase_began))"
+    printf '  %-16s %5d  <- failed here\n' "$failed_as" "$((SECONDS - phase_began))"
   fi
   printf '  %-16s %5d\n' total "$total"
   [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
@@ -306,7 +339,7 @@ summary() {
       printf '%s,"%s",%s,%s,ok\n' "$when" "$label" "${phase_names[$i]// /_}" "${phase_secs[$i]}"
     done
     if [ -n "$phase_now" ]; then
-      printf '%s,"%s",%s,%s,failed\n' "$when" "$label" "${phase_now// /_}" "$((SECONDS - phase_began))"
+      printf '%s,"%s",%s,%s,failed\n' "$when" "$label" "${failed_as// /_}" "$((SECONDS - phase_began))"
     fi
     printf '%s,"%s",total,%s,%s\n' "$when" "$label" "$total" "$status"
   } >>"$times" 2>/dev/null || echo "gate: the phase times were NOT logged to $times"
@@ -321,7 +354,11 @@ save_locked_record() {
       printf 'phase %s %s\n' "${phase_secs[$i]}" "${phase_names[$i]}"
     done
     if [ -n "$phase_now" ]; then
-      printf 'failed %s %s\n' "$((SECONDS - phase_began))" "$phase_now"
+      # The STATE it stopped in, by the same rule the gate above uses, so a locked phase that knows its own name
+      # would be false can correct the caller's table and verdict too. Nothing in the locked part sets that today;
+      # the channel is here because a correction made in this process reaches a reader only by being written down,
+      # which is the lesson the `skipped` records below were added for.
+      printf 'failed %s %s\n' "$((SECONDS - phase_began))" "${phase_failed_as:-$phase_now}"
     fi
     # What the part stood down, for the gate above it: that is where the verdict line is printed, in another
     # process, so a stand-down registered in here reaches a reader only by being written down. The seconds
@@ -442,19 +479,19 @@ on_exit() {
   rm -rf "$gate_tmp"
   if [ -n "$moved" ]; then
     summary aborted
-    echo "gate: ABORTED${phase_now:+ in $phase_now}: the tree moved, so this run is no verdict, pass or fail"
+    echo "gate: ABORTED$(failed_in): the tree moved, so this run is no verdict, pass or fail"
     exit "$tree_moved_status"
   fi
   if [ "$status" -eq "$tree_moved_status" ]; then
     echo "gate: the phase exited $tree_moved_status (EX_TEMPFAIL) on a tree that had not moved: a failure, not the gate's abort"
     summary failed
-    echo "gate: FAILED${phase_now:+ in $phase_now}"
+    echo "gate: FAILED$(failed_in)"
     exit 1
   fi
   if [ "$status" -ne 0 ] || [ -z "$gate_done" ]; then
     [ "$status" -ne 0 ] || echo "gate: stopped by a signal"
     summary failed
-    echo "gate: FAILED${phase_now:+ in $phase_now}"
+    echo "gate: FAILED$(failed_in)"
   fi
 }
 trap on_exit EXIT
@@ -1317,10 +1354,31 @@ locked_checks() {
   # was lost to a failure before it, and only the caller can say so. The five registrations inside machine_checks
   # could not have: that process did not start, so locked.rec holds neither `began` nor a `skipped` record, and the
   # array this run hands to the verdict line is whatever the unlocked phases put in it.
+  #
+  # AND THE PHASE'S NAME, WHICH THE REGISTRATION ABOVE COULD NOT CORRECT (theseus-rq78r, B7). The stand-down says
+  # the tests did not run; it cannot say why, and the one-word verdict a reader greps for still read `lock wait`
+  # for a flock that never waited. So this branch, which is the only place that knows which of these happened,
+  # names the state itself. THREE STATES, THREE SENTENCES, and that is the bar the row sets:
+  #   `lock exec`       -- flock could not execute the locked part at all (126 "failed to execute", 127 not found):
+  #                        nothing waited and no lock was ever contended. The 15:44 build's case.
+  #   `lock not taken`  -- flock ran and the part still never wrote its `began` line: the lock file could not be
+  #                        opened, or the part died before its first statement. A lock problem, but not a wait.
+  #   `lock wait`       -- kept, and now only ever TRUE: flock -o has no -w, so a wait ends only when the lock is
+  #                        released or a signal ends this gate, and in the signal case phase_now stands unaltered
+  #                        above and the verdict reads `FAILED in lock wait` beside `stopped by a signal`.
+  # A fourth state, a non-zero LOCKED PART, already reads correctly and is untouched: the part wrote `began` and a
+  # `failed SECS NAME` record, which the loop above replays as the phase that actually failed (`FAILED in suite`).
   if [ -z "$began" ]; then
     echo "gate: the shared lock was not taken, so the tests and benches did not run"
     skip "the tests and benches (the shared lock was not taken)"
     phase_now="lock wait"
+    case "$status" in
+      126 | 127)
+        echo "gate: and it never waited for it: the locked part could not be executed (flock exited $status), so no lock was contended"
+        phase_failed_as="lock exec"
+        ;;
+      *) phase_failed_as="lock not taken" ;;
+    esac
     phase_began=$((SECONDS - ($(date +%s) - asked)))
     exit "$((status == 0 ? 1 : status))"
   fi

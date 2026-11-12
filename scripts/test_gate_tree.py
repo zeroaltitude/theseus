@@ -749,12 +749,61 @@ class GateTree(unittest.TestCase):
         rc, out, _ = self.gate()
         self.assertNotEqual(rc, 0, out)
         self.assertIn("the shared lock was not taken, so the tests and benches did not run", out)
-        self.assertIn("gate: FAILED in lock wait", out,
-                      "the phase's own name is the other half of this defect, and another row's line")
-        # The half this row owns: on a FAILED run the summary names the stand-down too, so the misnamed phase
-        # is no longer the only thing a reader of the tail has to go on.
+        # On a FAILED run the summary names the stand-down too, so the phase name is no longer the only thing a
+        # reader of the tail has to go on. (The sibling row's half, landed at 1e3f9976.)
         self.assertIn("gate: what this run did NOT do:", out)
         self.assertIn("the tests and benches (the shared lock was not taken)", out)
+        # AND THE NAME ITSELF, which that half deliberately left to this one (theseus-rq78r). An exec failure is
+        # reported as an exec failure: nothing waited, so the one-word verdict must not say `lock wait` and send
+        # the next reader to a lock that was fine.
+        self.assertIn("gate: FAILED in lock exec", self.verdict(out))
+        self.assertNotIn("lock wait", self.verdict(out),
+                         "nothing waited for the lock, so the verdict must not name a wait")
+        self.assertIn("could not be executed (flock exited 126)", out)
+        # The table says it too: `lock wait 0  <- failed here` was the other half of the same false sentence.
+        self.assertRegex(out, r"\n  lock exec +0  <- failed here")
+        self.assertNotIn("lock wait", out, "no surface of this run names a wait that never happened")
+
+    def test_a_lock_that_could_not_be_opened_is_not_reported_as_a_wait_either(self):
+        # THE SECOND STATE THE OLD VERDICT CONFLATED, found by running the defect rather than reading the row:
+        # the row's evidence was flock's 126, but every other way the locked part can fail to write its `began`
+        # line read `gate: FAILED in lock wait` as well. A flock that ran and could not open the lock file is a
+        # lock problem and is still not a wait, so it gets its own words -- and NOT the exec one's, because the
+        # distinction a reader needs is which half of the system to go and look at.
+        self.put(self.home / ".cargo" / "bin" / "flock",
+                 '#!/bin/sh\necho "flock: cannot open lock file $2: Permission denied" >&2\nexit 1\n')
+        rc, out, _ = self.gate()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("the shared lock was not taken, so the tests and benches did not run", out)
+        self.assertIn("gate: FAILED in lock not taken", self.verdict(out))
+        self.assertNotIn("lock wait", out)
+        self.assertNotIn("could not be executed", out, "flock ran; it is the lock it could not open")
+
+    def test_a_phase_whose_name_is_true_keeps_it_byte_for_byte(self):
+        # THE OTHER SIDE OF THE FIX, and the reason it is a variable of its own rather than phase_label. Every
+        # phase that does not correct its own name must read exactly as it read before, because the verdict line
+        # is what the fleet runner puts in front of a reader (host/run.sh greps `^gate: (ok|FAILED)`) and what
+        # five assertions in scripts/test_keel_guard.py and five more here already hold. phase_label would NOT
+        # have kept this: scrub_phase sets `scrub ok` and then runs its driver's tests, and suite() sets
+        # `suite filtered` and then runs the suite, so reading phase_label on the failure path would have printed
+        # `FAILED in scrub ok` and `FAILED in suite filtered` -- a new false sentence in two more states.
+        self.put(self.root / "scripts" / "shape.sh", '#!/bin/sh\necho "shape: over"\nexit 1\n')
+        rc, out, _ = self.gate()
+        self.assertNotEqual(rc, 0, out)
+        self.assertEqual("gate: FAILED in shape", self.verdict(out))
+        self.assertRegex(out, r"\n  shape +\d+  <- failed here")
+
+    def test_a_filtered_suite_that_fails_is_still_FAILED_in_suite(self):
+        # THE CASE THAT RULED phase_label OUT, run rather than argued. suite() calls suite_filters, which sets
+        # the label `suite filtered` for the table, and only THEN runs the suite: a verdict reading the label
+        # would say `FAILED in suite filtered` here, which is not a phase and is not what the five existing
+        # assertions on `gate: FAILED in <phase>` expect.
+        self.stale_filter()
+        rc, out, _ = self.gate(STUB_SUITE_RC="1")
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("suite filters: ACTIVE", out, "the label is live at the moment the gate dies")
+        self.assertEqual("gate: FAILED in suite", self.verdict(out),
+                         "the phase is `suite`; `suite filtered` is how a PASSING one is labelled in the table")
 
 
 class SkipRegistry(unittest.TestCase):
@@ -959,6 +1008,66 @@ class SkipRegistry(unittest.TestCase):
         found = {n: len(self.CALL.findall(b)) for n, b in self.functions().items() if self.registers(b)}
         self.assertEqual(found, expected,
                          "a site was added, removed or moved: update this inventory and say what the site is")
+
+
+class FailureState(unittest.TestCase):
+    """Every surface that names the state a gate stopped in reads it from one place (theseus-rq78r, B7).
+
+    `locked_checks` names its phase `lock wait` before the flock, because that is what it is about to do. When
+    the flock could not exec the locked part at all the gate still ended `gate: FAILED in lock wait`, with a
+    table reading `lock wait 0  <- failed here` for a run that never waited, so an exec failure, a lock that
+    could not be opened and a real wait all read alike and the one-word verdict sent the next reader to the
+    wrong half of the system. The fix is phase_failed_as, which a site sets when it knows its phase's own name
+    would say something untrue, and which every FAILURE surface reads with phase_now as its fallback.
+
+    These are static reads, like SkipRegistry's above, and they exist for the case no passing run can catch: a
+    surface added later that prints bare phase_now, which would quietly put the false sentence back in one place
+    while the other places stayed honest. `${phase_label:-$phase_now}` is a different thing and stays: that is
+    how a phase that PASSED is named in the table, and it is live at moments the gate can still die (`scrub ok`
+    before the scrubber's own tests, `suite filtered` before the suite), which is exactly why the failure
+    surface has a variable of its own instead of reusing it.
+    """
+
+    GATE = (REPO / "scripts" / "gate.sh").read_text()
+
+    # The expression a failure surface must read, in either of its two forms: the clause-printing helper (for the
+    # verdict and the abort, which carry ` in <state>`), or the bare expansion (for the table row, the times row
+    # and the record the locked part leaves its caller, which carry the state alone).
+    READS_IT = ("failed_in", "${phase_failed_as:-$phase_now}", '"$failed_as"', "${failed_as// /_}")
+
+    # Says ABORTED and names no phase at all: it names the PATH in the tree that changed under the run, which is
+    # the whole content of that message, and the abort line that does carry the state is the one in on_exit.
+    NOT_A_STATE = 'echo "gate: ABORTED, THE TREE MOVED ($where): this is NOT a test failure and no verdict on the code"'
+
+    def lines_naming_a_failures_state(self):
+        """gate.sh's lines that print or record WHERE a run stopped, by the text that makes them one."""
+        marks = ("gate: FAILED", "gate: ABORTED", "<- failed here", ",failed\\n", "'failed %s %s\\n'")
+        return [t.strip() for t in self.GATE.split("\n")
+                if any(m in t for m in marks) and not t.strip().startswith("#")
+                and t.strip() != self.NOT_A_STATE]
+
+    def test_the_surfaces_exist_and_are_all_accounted_for(self):
+        # Six: two verdict lines, the abort, the table's row, the times row, and the locked part's record. If this
+        # number moves, a surface was added or removed and the test below is the one that matters.
+        found = self.lines_naming_a_failures_state()
+        self.assertEqual(len(found), 6, f"the surfaces that name a failure's state: {found}")
+        self.assertIn(self.NOT_A_STATE, self.GATE, "the excluded line is still there and still spelled this way")
+
+    def test_no_surface_reads_bare_phase_now(self):
+        for line in self.lines_naming_a_failures_state():
+            self.assertTrue(any(r in line for r in self.READS_IT),
+                            f"this names where a run stopped and must read phase_failed_as first: {line}")
+            self.assertNotIn("${phase_now:+", line, f"the bare phase name is the defect: {line}")
+
+    def test_the_variable_is_cleared_for_every_phase(self):
+        # A correction that leaked into the next phase would be a new false sentence, so phase() clears it beside
+        # phase_label, and nothing else in the file assigns it except the one site that knows.
+        self.assertIn("  phase_label=\"\"\n  phase_failed_as=\"\"\n", self.GATE)
+        sets = [t.strip() for t in self.GATE.split("\n")
+                if "phase_failed_as=" in t and not t.strip().startswith("#")]
+        self.assertEqual(sets, ['phase_failed_as=""', 'phase_failed_as=""',
+                                'phase_failed_as="lock exec"', '*) phase_failed_as="lock not taken" ;;'],
+                         "the declaration, phase()'s reset, and the one site that corrects its phase's name")
 
 
 # A stand-in cargo for deny-daily.sh: logs its argv and keeps a copy of the --config file it is given (the script deletes it).
