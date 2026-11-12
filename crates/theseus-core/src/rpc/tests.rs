@@ -1820,10 +1820,18 @@ async fn narrative_watch_scoped_to_one_session_gets_only_that_sessions_lines() {
     let w: NarrativeWatchResult =
         serde_json::from_value(responses(&msgs)[0].result.clone().unwrap()).unwrap();
     let texts: Vec<&str> = w.lines.iter().map(|l| l.text.as_str()).collect();
-    assert_eq!(texts, ["a1", "a2", "a3"], "that session's tail, not ses_b's");
+    assert_eq!(
+        texts,
+        ["a1", "a2", "a3"],
+        "that session's tail, not ses_b's"
+    );
     let all = roundtrip(
         core.clone(),
-        vec![Request::new(Id::Num(2), method::NARRATIVE_WATCH, Value::Null)],
+        vec![Request::new(
+            Id::Num(2),
+            method::NARRATIVE_WATCH,
+            Value::Null,
+        )],
     )
     .await;
     let w: NarrativeWatchResult =
@@ -1848,7 +1856,10 @@ async fn narrative_watch_scoped_to_one_session_gets_only_that_sessions_lines() {
         .filter(|n| n.method == notify::NARRATIVE_LINE)
         .map(|n| serde_json::from_value(n.params.clone()).unwrap())
         .collect();
-    assert_eq!(heard.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), ["b2"]);
+    assert_eq!(
+        heard.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(),
+        ["b2"]
+    );
     cw.shutdown().await.unwrap();
     drop(cw);
     drop(lines);

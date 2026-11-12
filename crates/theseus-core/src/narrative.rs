@@ -204,7 +204,11 @@ impl Narrator {
 
     /// Stop sending to a connection (also when it closes).
     pub fn unwatch(&self, conn: &str) {
-        self.state.lock().unwrap().subs.retain(|sub| sub.conn != conn);
+        self.state
+            .lock()
+            .unwrap()
+            .subs
+            .retain(|sub| sub.conn != conn);
     }
 
     pub fn subscribers(&self) -> usize {
@@ -673,7 +677,9 @@ mod tests {
         assert_eq!(texts, ["q1", "q2"], "the shared tail holds only noisy's");
         let (tx2, _rx2) = unbounded_channel();
         let all = n.watch("all", tx2).unwrap();
-        assert!(all.iter().all(|l| l.session_id.as_deref() == Some("noisy") || l.text == "q2"));
+        assert!(all
+            .iter()
+            .all(|l| l.session_id.as_deref() == Some("noisy") || l.text == "q2"));
         say_in(&n, "noisy", "n11");
         assert!(rx.try_recv().is_err(), "another session's line is not sent");
         say_in(&n, "quiet", "q3");
