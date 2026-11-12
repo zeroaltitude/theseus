@@ -1327,6 +1327,38 @@ fn the_sync_timer_is_installed_beside_the_daemons_unit_and_removed_again() {
     assert!(dir.join("theseusd-sync.timer").exists());
 }
 
+/// The nightly sync's oneshot carries a FINITE start timeout (theseus-ectzg). A `Type=oneshot` has none by
+/// default -- systemd.service(5): "except when Type=oneshot is used, in which case the timeout is disabled by
+/// default" -- and a oneshot that never finishes blocks its own timer: the next night's elapse is merged into the
+/// job still activating, so that night is silently skipped and `systemctl` reads `activating` rather than
+/// anything that looks wrong. The 2026-11-11 03:40 run sat that way until a human stopped it by hand, and the
+/// installed unit then read `TimeoutStartUSec=infinity`. The bound makes a hang a `failed` the next run can see.
+#[test]
+fn the_sync_timer_bounds_its_oneshot_so_a_hang_cannot_block_the_timer() {
+    let r = Rig::new();
+    let dir = r.home().join(".config/systemd/user");
+    // The dry run names the bound too: what it says it would write is what it writes.
+    let (code, out) = r.run(&["--dry-run", "sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("TimeoutStartSec=2h"), "{out}");
+
+    let (code, out) = r.run(&["sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    let svc = std::fs::read_to_string(dir.join("theseusd-sync.service")).unwrap();
+    assert!(svc.contains("Type=oneshot"), "{svc}");
+    let bound = svc
+        .lines()
+        .find_map(|l| l.strip_prefix("TimeoutStartSec="))
+        .expect("the sync's oneshot bounds its start: without one a hang blocks its own timer");
+    assert_eq!(bound, "2h", "{svc}");
+    // In [Service], which is where systemd reads it: in [Unit] or [Timer] it would do nothing.
+    let service = svc.split("[Service]").nth(1).expect("a [Service] section");
+    assert!(service.contains("TimeoutStartSec="), "{svc}");
+    // And the timer's period is far longer than the bound, so the night after a hang still starts.
+    let tim = std::fs::read_to_string(dir.join("theseusd-sync.timer")).unwrap();
+    assert!(tim.contains("OnCalendar=*-*-* 03:40:00"), "{tim}");
+}
+
 /// The sync's python3 is found on the PATH the timer was installed from, escaped as systemd reads it
 /// (theseus-7kuy2): a python3 only a brewed directory holds is still found at night.
 #[test]

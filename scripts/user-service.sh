@@ -659,6 +659,21 @@ cmd_install() {
 
 SYNC_MARK="# written by user-service.sh sync-timer"
 
+# How long the nightly sync's oneshot may take before systemd calls it failed (theseus-ectzg).
+# A Type=oneshot has NO start timeout at all by default -- systemd.service(5): "Defaults to
+# DefaultTimeoutStartSec=, except when Type=oneshot is used, in which case the timeout is
+# disabled by default" -- and a oneshot that never finishes BLOCKS ITS OWN TIMER: the next
+# night's elapse is merged into the job still activating, so the run is silently skipped and
+# systemctl reads "activating", which looks like nothing is wrong. On 2026-11-11 the 03:40 run
+# sat that way until a human stopped it by hand.
+#
+# The bound is above every run ever observed to work and far below the timer's 24 h period, so
+# night N+1 always starts: the runs on record took 5 to 24 minutes, and the one slow run that
+# still completed took about 85. It costs at most the run's printed summary -- the daemon's
+# record is two frames, and what its people step has left stays in that state for the next run,
+# so a client stopped here loses nothing the next night needs.
+SYNC_TIMEOUT=2h
+
 # write_sync_unit FILE TEXT: write one of the sync's unit files (a dry run says what it would write).
 # Not `write_unit`: that is the daemon's unit's writer above, and a second definition replaced it.
 write_sync_unit() {
@@ -707,6 +722,9 @@ cmd_sync_timer() {
 Description=Theseus: the nightly OpenClaw sync (theseus-pjmj7)
 [Service]
 Type=oneshot
+# A oneshot has no start timeout of its own, and one that never finishes blocks its own timer:
+# this makes a hang a failure the next night can see (theseus-ectzg; see SYNC_TIMEOUT above).
+TimeoutStartSec=$SYNC_TIMEOUT
 Nice=19
 IOSchedulingClass=idle
 Environment=THESEUS_SOCKET=$SOCKET
