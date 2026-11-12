@@ -9,8 +9,13 @@
 //! What is asserted here is that a run which passes its cap **stops where it
 //! is, returns, and says so** -- not that a cap is configured. Each test runs
 //! the record's own path (`Core::sync_record`) with the cap as its parameter,
-//! so the planted one is a millisecond's, and the one beside it is the
-//! daemon's own. Every name is invented.
+//! so the planted one is zero, and the one beside it is the daemon's own.
+//! Every name is invented.
+//!
+//! The planted cap is `Duration::ZERO` and not a small one on purpose: a cap
+//! is spent the instant `Cap::new` makes it, so the first check is true on any
+//! host at any speed. A millisecond stood here until 2026-11-12 and was a RACE
+//! against the host's clock, green on x86 and red on the M1 Max every time.
 
 use std::time::Duration;
 

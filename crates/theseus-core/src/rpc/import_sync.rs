@@ -80,9 +80,15 @@ impl Cap {
         if core.outbox.stopping() {
             format!("the daemon is stopping, {left}")
         } else {
-            // `Duration`'s own words (`5400s`, `1ms`): `as_secs()` reads
+            // `Duration`'s own words (`5400s`, `0ns`): `as_secs()` reads
             // "0 s deadline" for any cap under a second, which is the shape
-            // a test plants.
+            // a test plants -- and the shape it plants is `Duration::ZERO`.
+            //
+            // Do NOT "helpfully" short-circuit `Cap::new` on a zero `within`:
+            // zero means FIRE IMMEDIATELY here, and the deadline tests rely on
+            // that. It is the spend cap in `judge::people::sync` where a 0
+            // means DISABLED -- a different parameter of a different type on a
+            // different axis, and the one place a reader could confuse them.
             format!("the run passed its {:?} deadline, {left}", self.within)
         }
     }
