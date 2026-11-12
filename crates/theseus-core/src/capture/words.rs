@@ -33,7 +33,11 @@ pub fn line(text: &str) -> Option<String> {
     (n > 0 && n <= MAX_LINE).then_some(line)
 }
 
-fn content(text: &str) -> BTreeSet<String> {
+/// The content words of a line: words of three letters or more, lower case,
+/// less a few connectives. One rule, read by [`same`] here and by
+/// `owner_ask`'s cover (theseus-mqret), so the two cannot drift apart on what
+/// a word worth comparing is.
+pub fn content_words(text: &str) -> BTreeSet<String> {
     text.split(|c: char| !c.is_alphanumeric() && c != '\'')
         .map(|w| w.trim_matches('\'').to_lowercase())
         .filter(|w| w.chars().count() >= 3 && !CONNECTIVES.contains(&w.as_str()))
@@ -42,7 +46,7 @@ fn content(text: &str) -> BTreeSet<String> {
 
 /// Whether two lines say the same thing, as far as their words show.
 pub fn same(a: &str, b: &str) -> bool {
-    let (a, b) = (content(a), content(b));
+    let (a, b) = (content_words(a), content_words(b));
     let shared = a.intersection(&b).count();
     let all = a.union(&b).count();
     let shorter = a.len().min(b.len());
