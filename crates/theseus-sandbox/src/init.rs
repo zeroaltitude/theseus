@@ -118,6 +118,7 @@ fn run(report: &mut File, t0: Instant) -> Result<i32, Failure> {
         pid,
         setup_us: t0.elapsed().as_micros() as u64,
         sys: view.sys,
+        residue: view.residue.clone(),
         lo,
     })
     .write_to(report)

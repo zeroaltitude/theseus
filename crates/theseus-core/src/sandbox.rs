@@ -476,6 +476,14 @@ pub fn result_lines(detail: &Value) -> String {
                 .into(),
         );
     }
+    // What the hidden list's inode walk covered, and what it did not
+    // (quft-hidden-bind). The words are the sandbox's own
+    // (`theseus_sandbox::Residue::say`), carried through the wrapper's
+    // `detail.sandbox.residue`, so a bounded walk says here that it was
+    // bounded and that a clean walk proves no absence.
+    if let Some(said) = sb["residue"].as_str().filter(|s| !s.is_empty()) {
+        lines.push(said.to_string());
+    }
     if let Some(a) = sb["skipped"].as_array().filter(|a| !a.is_empty()) {
         let names: Vec<&str> = a.iter().filter_map(Value::as_str).collect();
         lines.push(format!(

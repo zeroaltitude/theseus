@@ -151,6 +151,11 @@ pub(crate) fn run(
     let started = child.started();
     sandbox["setup_us"] = json!(started.setup_us);
     sandbox["sys"] = json!(started.sys);
+    // What the bounded inode walk covered and what it did not, in the words
+    // the sandbox makes once (quft-hidden-bind). theseus-core's
+    // `sandbox::result_lines` puts it at the head of the job's result; the
+    // statement is part of the behaviour, by the owner's word.
+    sandbox["residue"] = json!(started.residue.say());
     sandbox["lo"] = json!(started.lo);
     let proxy = egress::start(&mut child, l1, &allow, detail);
     let (exit, end) = wait(&mut child, reap, patience);

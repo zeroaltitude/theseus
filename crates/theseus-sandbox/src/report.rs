@@ -33,6 +33,11 @@ pub struct Started {
     /// A fresh sysfs is at `/sys`. False when the kernel refused the mount
     /// (`mount_too_revealing`): the view then has no `/sys`.
     pub sys: bool,
+    /// What the bounded inode walk covered, and what it did not
+    /// (quft-hidden-bind). `#[serde(default)]`, so a wrapper reading an
+    /// older init's line gets the empty value rather than a parse failure.
+    #[serde(default)]
+    pub residue: crate::residue::Residue,
     /// `lo` is up in the job's network namespace.
     pub lo: bool,
 }
