@@ -447,9 +447,14 @@ impl Cloud {
         }
         let doc = f.get("PolicyDocument").cloned().unwrap_or_default();
         let named: Value = serde_json::from_str(&doc).expect("a trust policy document");
-        self.owner_role = super::repair::allows(&named, &format!("arn:aws:iam::{ACCOUNT}:user/example"));
+        self.owner_role =
+            super::repair::allows(&named, &format!("arn:aws:iam::{ACCOUNT}:user/example"));
         self.trust = Some(doc);
-        ok(n, "UpdateAssumeRolePolicy", "<UpdateAssumeRolePolicyResult/>")
+        ok(
+            n,
+            "UpdateAssumeRolePolicy",
+            "<UpdateAssumeRolePolicyResult/>",
+        )
     }
 
     /// `GetStackPolicy`: no body when no policy is set.
@@ -1722,7 +1727,10 @@ async fn an_unmintable_owner_role_has_its_trust_policy_repaired_and_the_operator
         serde_json::from_str(&c.lock().unwrap().trust.clone().expect("a trust policy")).unwrap();
     let st = written["Statement"].as_array().expect("statements").clone();
     assert_eq!(st.len(), 2, "{written}");
-    assert_eq!(st[0]["Principal"]["Service"], "cloudformation.amazonaws.com");
+    assert_eq!(
+        st[0]["Principal"]["Service"],
+        "cloudformation.amazonaws.com"
+    );
     assert_eq!(
         st[1]["Principal"]["AWS"],
         format!("arn:aws:iam::{ACCOUNT}:user/example")

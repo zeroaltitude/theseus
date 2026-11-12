@@ -128,23 +128,27 @@ pub fn allows(doc: &Value, principal: &str) -> bool {
     let one_of = |v: &Value| -> Vec<String> {
         match v {
             Value::String(s) => vec![s.clone()],
-            Value::Array(a) => a.iter().filter_map(|x| x.as_str()).map(String::from).collect(),
+            Value::Array(a) => a
+                .iter()
+                .filter_map(|x| x.as_str())
+                .map(String::from)
+                .collect(),
             _ => Vec::new(),
         }
     };
     let names = |v: &Value| {
-        one_of(v).iter().any(|p| {
-            p == principal || root.as_deref() == Some(p.as_str()) || p == "*"
-        })
+        one_of(v)
+            .iter()
+            .any(|p| p == principal || root.as_deref() == Some(p.as_str()) || p == "*")
     };
     let assumes = |v: &Value| {
         one_of(v)
             .iter()
             .any(|a| a == "sts:AssumeRole" || a == "sts:*" || a == "*")
     };
-    statements(doc).iter().any(|s| {
-        s["Effect"] == "Allow" && assumes(&s["Action"]) && names(&s["Principal"]["AWS"])
-    })
+    statements(doc)
+        .iter()
+        .any(|s| s["Effect"] == "Allow" && assumes(&s["Action"]) && names(&s["Principal"]["AWS"]))
 }
 
 fn statements(doc: &Value) -> Vec<Value> {

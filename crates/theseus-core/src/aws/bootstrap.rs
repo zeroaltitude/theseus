@@ -42,9 +42,9 @@ use theseus_aws::Credentials;
 use theseus_aws_guard::{glob, Context, Truth};
 use theseus_protocol::{AwsBootstrapParams, AwsBootstrapResult, AwsBootstrapStack};
 
+use super::repair;
 use super::session::{self, Kind};
 use super::stack::{resource_changes, role_arn, Cfn, ChangeSetSpec, Param, Ready, DEPLOYER};
-use super::repair;
 use super::stack_tags;
 use super::tend::FOUNDATION;
 use super::{Account, Failure, Request, Signer};
