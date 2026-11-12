@@ -126,13 +126,10 @@ impl Staged {
     /// Stage `text` for the next turn in `session`. An unclaimed fact is
     /// replaced: the newer message is the one the turn runs on.
     pub(crate) fn stage(&self, session: &str, text: String) {
-        self.by_session.lock().unwrap().insert(
-            session.to_string(),
-            Pending {
-                text,
-                turn: None,
-            },
-        );
+        self.by_session
+            .lock()
+            .unwrap()
+            .insert(session.to_string(), Pending { text, turn: None });
     }
 
     /// The fact for `turn`, if it is the turn the staged fact belongs to. The
@@ -209,11 +206,20 @@ mod tests {
     /// a silence cannot read as an approval.
     #[test]
     fn the_block_says_what_was_approved_and_what_was_not() {
-        let text = render(&decided(&["`task.close` «the outer harbour»", "`proc.run` (…aa11)"]));
+        let text = render(&decided(&[
+            "`task.close` «the outer harbour»",
+            "`proc.run` (…aa11)",
+        ]));
         assert!(text.starts_with(HEAD), "{text}");
         assert!(text.contains("Approved: nothing."), "{text}");
-        assert!(text.contains("NOT approved, and still waiting (2):"), "{text}");
-        assert!(text.contains("- `task.close` «the outer harbour»"), "{text}");
+        assert!(
+            text.contains("NOT approved, and still waiting (2):"),
+            "{text}"
+        );
+        assert!(
+            text.contains("- `task.close` «the outer harbour»"),
+            "{text}"
+        );
         assert!(text.contains("- `proc.run` (…aa11)"), "{text}");
         assert!(text.contains("Ask which one the owner means."), "{text}");
         assert!(text.ends_with(']'), "{text}");
@@ -242,7 +248,9 @@ mod tests {
     /// growing without bound, and a newline inside a name is folded.
     #[test]
     fn a_long_list_is_cut_and_says_how_many_it_left_out() {
-        let names: Vec<String> = (0..MAX_LINES + 3).map(|i| format!("`q{i}`\nmore")).collect();
+        let names: Vec<String> = (0..MAX_LINES + 3)
+            .map(|i| format!("`q{i}`\nmore"))
+            .collect();
         let d = Decided {
             waiting: names,
             ..decided(&[])
@@ -251,7 +259,10 @@ mod tests {
         assert!(text.contains("still waiting (9):"), "{text}");
         assert_eq!(text.matches("\n- `q").count(), MAX_LINES, "{text}");
         assert!(text.contains("\n- and 3 more"), "{text}");
-        assert!(!text.contains("`q0`\nmore"), "a name kept its newline: {text}");
+        assert!(
+            !text.contains("`q0`\nmore"),
+            "a name kept its newline: {text}"
+        );
         assert!(text.contains("`q0` more"), "{text}");
     }
 

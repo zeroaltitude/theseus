@@ -342,7 +342,12 @@ async fn an_ambiguous_yes_tells_the_turn_it_starts_what_was_not_approved() {
 
     // The next turn in the same conversation does not carry it.
     say(&r, &s, "what is waiting?").await;
-    assert_eq!(facts(&r).len(), 1, "the fact rode a second turn: {:?}", facts(&r));
+    assert_eq!(
+        facts(&r).len(),
+        1,
+        "the fact rode a second turn: {:?}",
+        facts(&r)
+    );
     r.model.hold_tasks.store(false, SeqCst);
 }
 

@@ -376,13 +376,7 @@ impl Core {
     /// one place an answer becomes a decision; then the starting turn is told
     /// that it was approved and that nothing else was, so the turn neither
     /// asks for it again nor does its work by hand.
-    fn yes_taken(
-        &self,
-        p: &TurnSubmitParams,
-        conn: Conn<'_>,
-        session: &str,
-        q: &ConfirmRequest,
-    ) {
+    fn yes_taken(&self, p: &TurnSubmitParams, conn: Conn<'_>, session: &str, q: &ConfirmRequest) {
         let who = conn.answerer(
             p.author.clone(),
             p.speaking.as_ref().map(|s| s.discord.clone()),
@@ -418,9 +412,7 @@ impl Core {
     /// the notice is all that is said, as before theseus-2yowd.
     fn stage_yes_fact(&self, session: &str, d: &yes_fact::Decided) {
         if self.cfg.standing.yes_fact {
-            self.runner
-                .yes_facts
-                .stage(session, yes_fact::render(d));
+            self.runner.yes_facts.stage(session, yes_fact::render(d));
         }
     }
 
