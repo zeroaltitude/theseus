@@ -777,6 +777,27 @@ fn a_cancel_of_an_l1_job_is_verified_by_its_pid_namespace() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    // `descends_from` is load-bearing for the cleanup below and nothing else
+    // checks it: a filter that always answered `false` would pass this test and
+    // silently leave its own 301 s sleepers running for a later run to find.
+    // Prove it both ways here, on live pids, while the sleepers are still up —
+    // after the cancel the set is empty and an `all()` over it is vacuous. The
+    // job's own sleepers must be owned, and this test process, which is the
+    // rig daemon's parent and not its child, must be foreign; both answers walk
+    // the real parent links rather than taking the `pid == root` shortcut.
+    let mine = with_marker(marker);
+    assert!(mine.len() >= 2, "the sleepers went early: {mine:?}");
+    assert!(
+        mine.iter().all(|p| descends_from(*p, r.daemon.id())),
+        "descends_from denies the job's own sleepers {mine:?} under the daemon {}",
+        r.daemon.id()
+    );
+    assert!(
+        !descends_from(std::process::id(), r.daemon.id()),
+        "descends_from claims this test process {} descends from the daemon {} it started",
+        std::process::id(),
+        r.daemon.id()
+    );
     let actions = r.call("action.list", json!({})).unwrap();
     let job = actions["actions"]
         .as_array()

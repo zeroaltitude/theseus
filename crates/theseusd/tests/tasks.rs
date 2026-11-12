@@ -700,19 +700,31 @@ fn running(needle: &str) -> bool {
 /// A red here on a host with cores to spare is therefore a finding, not this.
 #[test]
 fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
+    // This run's own sleeps, so no neighbour's are ever read as this run's.
+    // `running` below is a substring match over the whole command line, and with
+    // the bare `sleep 4711`/`sleep 4712` this test read every copy of itself on
+    // the host: a stranger's sleeper satisfied the positive checks at "the jobs
+    // run" and "its tasks run on" with this run's own jobs never having started,
+    // and outlived the negative wait "the sleeps gone", failing this run on a
+    // process it never created. Seven digits of this run's pid, so no marker
+    // holds another's (`pid_max` is seven digits); the idiom is `term/tests.rs`'s
+    // `ctrl_c_interrupts_a_command` and `sandbox.rs`'s `301.{pid:07}`.
+    let alpha = format!("4711.{:07}", std::process::id());
+    let beta = format!("4712.{:07}", std::process::id());
+    let (sleep_a, sleep_b) = (format!("sleep {alpha}"), format!("sleep {beta}"));
     let r = Rig::new(vec![
         (
             "Alpha: run the sleeping job",
             vec![(
                 "proc_run",
-                json!({"argv": ["sleep", "4711"], "timeout_secs": 3600}),
+                json!({"argv": ["sleep", alpha], "timeout_secs": 3600}),
             )],
         ),
         (
             "Beta: run the other sleeping job",
             vec![(
                 "proc_run",
-                json!({"argv": ["sleep", "4712"], "timeout_secs": 3600}),
+                json!({"argv": ["sleep", beta], "timeout_secs": 3600}),
             )],
         ),
         (
@@ -748,7 +760,7 @@ fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
         let t = r.tasks();
         (t.len() == 3 && t.iter().filter(|t| t["waiting_on"] == "a job").count() == 2).then_some(t)
     });
-    assert!(running("sleep 4711") && running("sleep 4712"));
+    assert!(running(&sleep_a) && running(&sleep_b));
     let exec = execution_of(&r, &sid)["execution_id"]
         .as_str()
         .unwrap()
@@ -769,7 +781,7 @@ fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
         "its tasks run on: {:?}",
         r.tasks()
     );
-    assert!(running("sleep 4711"));
+    assert!(running(&sleep_a));
 
     // With `tasks`: all three, the sleeps gone, the wake kept.
     let res = r
@@ -781,7 +793,7 @@ fn a_stop_all_cancels_every_task_under_the_conversation_and_keeps_its_wake() {
     assert_eq!(res["cancelled"].as_array().unwrap().len(), 3, "{res}");
     assert_eq!(res["tasks_running"], 0, "{res}");
     r.wait("the sleeps gone", || {
-        (!running("sleep 4711") && !running("sleep 4712")).then_some(())
+        (!running(&sleep_a) && !running(&sleep_b)).then_some(())
     });
     for t in r.tasks() {
         assert_eq!(t["state"], "cancelled", "{t}");
