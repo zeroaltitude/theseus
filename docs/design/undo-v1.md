@@ -199,3 +199,30 @@ and it needs both halves, which is what makes it a real check rather than a vacu
   stand-in judge, so "no judge spend row" is read from what was asked and not from what was billed;
 * a call nothing refuses produces **exactly one** — the positive count, without which the first
   assertion passes on a tree where 0d was never wired at all.
+## `remote_keeps` for v1: `unknown`, said out loud
+
+Card `p5kln-remote-keeps`, row B6 `theseus-2yowd`.
+
+Whether a bucket keeps versions or a document keeps revisions is an API call. The classifier answers
+synchronously inside the tool gate (`ToolRuntime::judge`, above, is not async), so there is nowhere
+to put that call that does not add a provider round trip and its latency to every write-classified
+tool call — on a path that has neither today.
+
+**The decision for v1: accept `unknown`.** That is the current behaviour, not a change:
+`crates/theseus-judge/fixtures/golden/undo.v1.request.json` already carries
+`"remote_keeps":"unknown"`, and `undo.rs:186`'s `remote_keeps` is a serde-default input nothing
+resolves. The three options were paying for the call on the tool path, caching per target with a
+staleness bound, and accepting `unknown`; the first two are the ones that widen what Theseus reaches,
+and neither has been measured.
+
+What this costs, stated rather than hidden: the two identical-call hard pairs that turn on a remote
+store's own retention are **not measurable on the live path** in v1. They are
+`fixtures/eval/undo.v1.json`'s versioned-against-unversioned bucket pair (`remote_keeps: "versions"`
+against `"none"`) and the document-revisions pair (`"revisions"` against `"none"`). They still
+measure in the labelled set, which states the word, so the banked whole-set figure is unaffected; it
+is the wired run that cannot claim them. A remote call whose store's retention is unknown is read by
+the pack as keeping nothing, which is the safe direction: it reads as a loss and the call is held or
+raised rather than run.
+
+The release note this owes is **not written here**: `docs/status.md` is the maintainer's at review.
+The line it needs is in `CLOUD_REPORT.md`, ready to paste.
