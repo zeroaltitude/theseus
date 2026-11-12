@@ -1490,6 +1490,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # owner_ids = []                          # your sender ids in OpenClaw's channels: a message from
 #                                         # one is yours (operator); any other sender's is outside text
 # agents = []                             # the agents to read; none is every agent under agents/
+# sync_deadline_mins = 90                 # the wall clock the DAEMON's half of one run may take before it stops where it is and returns what it has (its people step's remainder waits in the state for the next run; passing it is not an error); 1 to 115, and it must stay under the sync unit's own 2 h start timeout or it could never fire -- the client would be killed first and the daemon would carry on
 
 # ---------------------------------------------------------------- self
 # Self-improvement: Theseus building its own code, yardsticks and backlog, joining
