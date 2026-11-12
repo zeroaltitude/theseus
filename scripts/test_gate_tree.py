@@ -767,8 +767,9 @@ class GateTree(unittest.TestCase):
         # phase straddles an epoch-second boundary and the row reads `1`. Measured on the M1 Max 2026-11-12:
         # idle, 10 of 10 runs printed `0`; under a load average of 14, SIX of thirty printed `1`, and this test
         # failed 2 of 30 -- on `origin/main` 9c6434c1, with no branch involved. It cost a departure before it was
-        # understood, because `gate tests` only runs when `scripts/gate.sh` CHANGES, so a timing assertion in
-        # here can sit unexercised for weeks and then red the one cut that touches the gate.
+        # understood, because this phase runs only when a cut differs from main in one of `gate_tests()`'s own
+        # four files (`gate.sh`, `test_gate_tree.py`, `deny-daily.sh`, `build.sh` -- `gate.sh:1039`), so a timing
+        # assertion in here can sit unexercised for weeks and then red the one cut that touches them.
         # Its sibling at `shape` below already had this right.
         self.assertRegex(out, r"\n  lock exec +\d+  <- failed here")
         self.assertNotIn("lock wait", out, "no surface of this run names a wait that never happened")
