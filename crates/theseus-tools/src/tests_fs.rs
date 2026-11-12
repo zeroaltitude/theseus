@@ -276,6 +276,28 @@ fn read_write_edit_roundtrip_with_errors_the_model_can_act_on() {
         fs::read_to_string(d.path().join("dup.txt")).unwrap(),
         "y y y"
     );
+    // An identical edit (usually a retry of one that landed) is not invalid
+    // input: it is a no-op that says so and leaves the file alone. Text that
+    // is absent is still the ordinary not-found error.
+    let same = json!({"path": "dup.txt", "old_string": "y y", "new_string": "y y"});
+    assert!(
+        Edit.plan(&same, &c).is_ok(),
+        "an identical edit is not invalid input"
+    );
+    let noop = Edit.run(&same, &c).unwrap();
+    assert!(noop.text.starts_with("No change made"), "{}", noop.text);
+    assert_eq!(noop.meta["replacements"], 0);
+    assert_eq!(
+        fs::read_to_string(d.path().join("dup.txt")).unwrap(),
+        "y y y"
+    );
+    let absent = Edit
+        .run(
+            &json!({"path": "dup.txt", "old_string": "zzz", "new_string": "zzz"}),
+            &c,
+        )
+        .unwrap_err();
+    assert!(absent.message.contains("not found"));
     assert!(Edit
         .plan(
             &json!({"path": "a", "old_string": "", "new_string": "x"}),
