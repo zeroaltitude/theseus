@@ -82,7 +82,7 @@
 //! | `tests_stop_nudge.rs:60` | 3 s | verdicts, but the turn waits only `judge::stop::WAIT` (1 s), so the budget does not bind |
 //! | `tests_stop_nudge.rs:423` | 6 s | same: `Slow(3 s)` past the 1 s wait; a latent product-wait class, reported and not decided |
 //! | `google/tests_label.rs:562` | 10 s | verdict; below the in-body 20 s guard at `:585` |
-//! | `rpc/tests_thread_route.rs` | 17 sites at 5 s | the tests that need a verdict set `route_wait_ms = 3000` (`:584`, `:698`, `:752`, and five more), so the product's own wait binds |
+//! | `rpc/tests_thread_route.rs` | 17 sites at 5 s | `route_wait_ms` is the observable bound, not `total_secs`: 8 of the 17 sites set it to 3,000 ms and `:547` sets it to 60 ms on purpose (`timed_out == true` at `:563`); the remaining 21 tests — 14 through `rig()` and 7 direct `rig_on` tests — run at the 400 ms default, where `:461` asserts `timed_out == false`. |
 //! | `tests_rerank.rs:86` | 5 s | verdict; no short guard over it |
 //! | `tests_route.rs:306`, `:602`, `:965` | 30 s | already raised; `:602` holds `Held` on purpose and `:306` is `held()` with a 200 ms wait |
 //! | `theseus-discord/src/tests_gateway/content.rs:248` | 2 s | `FakeMode::Down` on purpose at `:234`: nothing is awaited |
