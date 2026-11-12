@@ -42,11 +42,16 @@ CARGO = r"""#!/usr/bin/env bash
 case " $* " in
   *" --no-run "*) what=build ;;
   *tests_registry*) what=registry ;;
-  *" -E "*) what=protocol ;;
+  # Named by the package it filters on, not by " -E " alone: since 2026-11-12 the SUITE can carry an -E too (a
+  # self build's withheld set), and a rule that read any -E as the protocol phase would have mislabelled it.
+  *"package(theseus-protocol)"*) what=protocol ;;
   *" nextest "*) what=suite ;;
   *) what=$1 ;;
 esac
 echo "$what inc=${CARGO_INCREMENTAL-unset}" >>"$STUB_LOG"
+# The argv, in a log of its OWN: several tests compare $STUB_LOG's lines exactly, and widening them there would
+# have rewritten a dozen unrelated assertions to buy one. A test that wants the filter reads this file instead.
+echo "$what $*" >>"${STUB_ARGV_LOG:-/dev/null}"
 move() {
   [ "${STUB_MOVE_AT:-}" = "$1" ] || return 0
   case "$STUB_MOVE" in
@@ -83,6 +88,9 @@ case "$what" in
       echo "        FAIL [   0.100s] stub::a_test_that_fails_on_the_moved_tree"
       exit "$STUB_SUITE_RC"
     fi
+    # A test name the stand-in prints as having RUN, whatever the filter said: the way to prove the gate catches
+    # a withheld test that ran anyway, which is the exact state three real self builds were in.
+    [ -z "${STUB_SUITE_RAN:-}" ] || echo "        PASS [   0.010s] (1/9) $STUB_SUITE_RAN"
     if [ -n "${STUB_APPLIED:-}" ]; then
       echo "────────────"
       echo "     Starting 9 tests across 1 binaries ($STUB_APPLIED tests skipped, including $STUB_APPLIED tests via profile.default.default-filter)"
@@ -166,6 +174,7 @@ class GateTree(unittest.TestCase):
         self.home = tmp / "home"
         self.root = tmp / "tree"
         self.log = tmp / "cargo.log"
+        self.argv_log = tmp / "cargo-argv.log"
         self.df_log = tmp / "df.log"
         self.git_env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null",
                         "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "",
@@ -213,8 +222,10 @@ class GateTree(unittest.TestCase):
         base = {k: v for k, v in self.git_env.items() if k not in outer}
         # The stand-in df has 500 GB free unless a test says otherwise, so the floor is no part of a test about the tree.
         e = {**base, "THESEUS_GATE_NO_BENCH": "1", "THESEUS_GATE_NO_SCRUB": "1", "STUB_LOG": str(self.log),
+             "STUB_ARGV_LOG": str(self.argv_log),
              "STUB_DF_LOG": str(self.df_log), "STUB_DF_AVAIL_KB": str(500 * GIB), "STUB_MOVE": "edit", **env}
         self.log.unlink(missing_ok=True)  # the calls of this run, whatever an earlier run of the same test made
+        self.argv_log.unlink(missing_ok=True)
         p = run(["bash", "scripts/gate.sh"], self.root, e)
         calls = self.log.read_text().splitlines() if self.log.exists() else []
         return p.returncode, p.stdout + p.stderr, calls
@@ -386,6 +397,98 @@ class GateTree(unittest.TestCase):
         self.assertIn("2 test(s) excluded", out)
         self.assertNotIn("MISMATCH", out)
         self.assertRegex(out, r"\n  suite filtered +\d+\n")
+
+
+    # ---- a self build's withheld set: a real exclusion, and a verdict derived from it (theseus-1eemp)
+    #
+    # Until 2026-11-12 THESEUS_VIEW_WITHHELD carried a SENTENCE, the gate appended it to the verdict's skipped
+    # list at summary time -- after every test had run -- and nothing filtered on it. Three self builds
+    # (11-11 23:24, 11-11 23:59, 11-12 05:31) closed with that sentence while it was false of all four tests it
+    # named: two RAN AND FAILED and were two of each run's own survivors, two RAN AND PASSED. The test that
+    # existed over this behaviour asserted only that the gate SAID the sentence, so the lie satisfied it.
+    #
+    # These hold the MECHANISM: the set reaches nextest as an exclusion, the verdict names every member of that
+    # same set, an unset variable changes nothing at all, and a member that runs anyway fails the gate.
+
+    VIEW_SET = ("theseus-sandbox::contract clause_11_not_granted_is_denied\n"
+                "theseus-core rpc::tests_self_mint::a_validation_runs_its_tiers_writes_one_row_and_loads_nothing")
+
+    def suite_argv(self, calls):
+        """The argv the stand-in cargo was given for the suite phase."""
+        lines = self.argv_log.read_text().splitlines() if self.argv_log.exists() else []
+        suite = [c for c in lines if c.startswith("suite ")]
+        self.assertEqual(len(suite), 1, f"one suite run: {lines} / {calls}")
+        return suite[0]
+
+    def test_the_views_withheld_set_is_passed_to_nextest_as_a_real_exclusion(self):
+        rc, out, calls = self.gate(THESEUS_VIEW_WITHHELD=self.VIEW_SET)
+        self.assertEqual(rc, 0, out)
+        argv = self.suite_argv(calls)
+        # The exclusion itself, both members, built from the set and nothing else.
+        self.assertIn("-E not (", argv, f"the suite ran with no filter at all: {argv}")
+        self.assertIn("(binary_id(=theseus-sandbox::contract) & test(=clause_11_not_granted_is_denied))", argv)
+        self.assertIn("(binary_id(=theseus-core) & "
+                      "test(=rpc::tests_self_mint::a_validation_runs_its_tiers_writes_one_row_and_loads_nothing))",
+                      argv)
+        # `not (a | b)`, not `not a | b`: the second excludes one test and RUNS ONLY the other, which would turn
+        # a gate of 9,884 tests into a gate of one and still print a green verdict.
+        after = argv.split("-E ", 1)[1]
+        self.assertTrue(after.startswith("not (("), after)
+        self.assertIn(") | (", after, "the members are alternatives inside the one `not`")
+        self.assertTrue(after.endswith("))"), after)
+
+    def test_the_verdict_names_every_member_of_the_withheld_set(self):
+        rc, out, _ = self.gate(THESEUS_VIEW_WITHHELD=self.VIEW_SET)
+        self.assertEqual(rc, 0, out)
+        verdict = next(l for l in out.split("\n") if l.startswith("gate: what this run did NOT do:"))
+        for member in self.VIEW_SET.split("\n"):
+            self.assertIn(member, verdict, f"the verdict must name every test the run withheld: {verdict}")
+        self.assertIn("2 test(s) this view cannot run", verdict, "the count is derived from the set")
+        # And the sentence this replaced is gone: a count the set did not produce is the defect coming back.
+        self.assertNotIn("4 tests no grant reaches", out)
+
+    def test_a_lane_gate_sets_neither_variable_and_says_nothing_about_a_view(self):
+        rc, out, calls = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("-E", self.suite_argv(calls), "an ordinary lane gate passes the suite no filter")
+        self.assertNotIn("this view cannot run", out)
+        self.assertNotIn("the view this run had", out)
+        self.assertNotIn("withheld", out)
+
+    def test_an_empty_withheld_set_prints_no_line_and_filters_nothing(self):
+        # A run that withheld nothing must not say that it withheld nothing-in-particular: the line goes away.
+        for empty in ("", "\n", "   \n\n  "):
+            with self.subTest(empty=repr(empty)):
+                rc, out, calls = self.gate(THESEUS_VIEW_WITHHELD=empty)
+                self.assertEqual(rc, 0, out)
+                self.assertNotIn("-E", self.suite_argv(calls))
+                self.assertNotIn("this view cannot run", out)
+
+    def test_a_withheld_test_that_ran_anyway_fails_the_gate_instead_of_being_called_withheld(self):
+        # THE DEFECT'S OWN SHAPE, held as a test. The stand-in prints the test as having run; the gate was about
+        # to call it withheld. Three real self builds were in exactly this state and said so in their verdict.
+        ran = "theseus-sandbox::contract clause_11_not_granted_is_denied"
+        rc, out, _ = self.gate(THESEUS_VIEW_WITHHELD=self.VIEW_SET, STUB_SUITE_RAN=ran)
+        self.assertNotEqual(rc, 0, "a verdict that would have been false must fail the gate: " + out)
+        self.assertIn("MISMATCH", out)
+        self.assertIn(ran, out)
+        self.assertIn("RAN in the suite above", out)
+
+    def test_a_malformed_withheld_entry_is_refused_rather_than_guessed_at(self):
+        # An entry with no test name would build a filter nobody can read back, which is how the sentence this
+        # mechanism replaces survived three runs.
+        rc, out, _ = self.gate(THESEUS_VIEW_WITHHELD="theseus-sandbox::contract")
+        self.assertEqual(rc, 79, out)
+        self.assertIn("REFUSED", out)
+        self.assertIn("<binary id> <test name>", out)
+
+    def test_the_withheld_set_is_named_test_by_test_before_the_suite_runs(self):
+        # Not only in the verdict: a reader watching the run sees what it is about to leave out, and the
+        # expression that does it, so the claim is checkable against nextest's own output in the same log.
+        rc, out, _ = self.gate(THESEUS_VIEW_WITHHELD=self.VIEW_SET)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("gate: the view's withheld set is EXCLUDING 2 test(s)", out)
+        self.assertIn("gate:   nextest filter: not (", out)
 
     # ---- cargo deny: the gate's database is a pin, and the gate never fetches into it
 
