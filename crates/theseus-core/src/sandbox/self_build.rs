@@ -29,14 +29,15 @@
 //!   `/tmp` caps sized for a compiler: the model's `proc.run` limits would
 //!   stop a link.
 //! - **the facilities the suite's own subjects need** ([`FACILITIES`]): a
-//!   pty, `/dev/full` and `/dev/tty`, and the six calls that build a sandbox
-//!   of its own, with the `/proc` masks off, which the kernel requires before
-//!   those calls buy anything. [`WITHHELD`] names the four tests that no
-//!   grant reaches. This is the only view in the build that gets any of them,
-//!   and the reason is the one the owner gave on 2026-11-11: a self loop
-//!   that cannot test the sandbox, the pty, the daemon and the devices can
-//!   never improve them. What it does **not** get is unchanged: no floor
-//!   path, no credential, no sealed set, no store, no spool, no network.
+//!   pty, `/dev/full` and `/dev/tty`, the six calls that build a sandbox of
+//!   its own, and a `/proc` without its masks. The last has a return that is
+//!   evidence and not proof, and a price: [`FACILITIES`] says both.
+//!   [`WITHHELD`] names the four tests that no grant reaches. This is the
+//!   only view in the build that gets any of them, and the reason is the one
+//!   the owner gave on 2026-11-11: a self loop that cannot test the sandbox,
+//!   the pty, the daemon and the devices can never improve them. What it
+//!   does **not** get is unchanged: no floor path, no credential, no sealed
+//!   set, no store, no spool, no network.
 
 use std::path::{Path, PathBuf};
 
@@ -62,11 +63,21 @@ pub const BUILD_PIDS: u64 = 8192;
 /// | 1 | `/dev/full` → `NotFound`, on a host that has it | `devices` |
 /// | 15 | a timeout or a value, naming no facility; downstream of the above | — |
 ///
-/// And the ladder, measured by running those same 123 inside this view one
-/// grant at a time: **0 -> 60 (`pty`) -> 63 (`devices`) -> 67 (`nesting`)
-/// -> 119 (`visible_proc`)**. `nesting` reads as worth one test on its own
-/// and is worth 52 with the grant that unblocks it, which is why the two are
-/// granted together and why neither is granted quietly.
+/// And the ladder, which is **evidence, not proof**: the same 123 were run
+/// once inside this view, of which 0 pass at no grants, 67 with `pty`,
+/// `devices` and `nesting`, and 119 with `visible_proc` as well. **That is one
+/// unreproducible run on a rig that no longer exists, and the cause of the
+/// last step is not established**: `nesting` alone already yields
+/// `nested_proc: ok` on the kernel the counts were taken on, so the step may
+/// not be `visible_proc`'s doing. Do not restate the counts as a cause.
+/// Finding the real mechanism is a 1.0.6 line, and
+/// `theseus_sandbox::Facilities::visible_proc` carries the rest.
+///
+/// An earlier version of this comment (up to `e4cff663`, 2026-11-11) gave a
+/// count for every rung, called the run "measured", and said `nesting` was
+/// worth a count "with the grant that unblocks it". That last was a cause and
+/// was never established; the counts for `pty` and `devices` alone are gone
+/// with it, and none of it is to be put back.
 ///
 /// A run inside this view is not a weaker run than a lane's: it is the only
 /// run in which the sandbox contract, the terminal and the device nodes are
