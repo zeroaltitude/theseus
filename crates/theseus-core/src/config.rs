@@ -1142,12 +1142,21 @@ pub struct ProviderConfig {
     pub origin: Option<crate::catalog::ModelOrigin>,
 }
 
-/// A provider's wire protocol. Only the Anthropic Messages API exists today.
+/// A provider's wire protocol. The Anthropic Messages API is the default and
+/// what every first-party and compatible endpoint speaks; OpenAI's Responses
+/// API is the second arm (theseus-bq73s), in process, translated inside the
+/// provider so the compiler renders one request shape for both.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     #[default]
     AnthropicMessages,
+    /// `POST /v1/responses`, streaming. A provider no profile names is never
+    /// called, so this value switches nothing on by itself. Renamed
+    /// explicitly: `rename_all = "snake_case"` would word it
+    /// `open_ai_responses`, and the operator writes the vendor's own name.
+    #[serde(rename = "openai_responses")]
+    OpenAiResponses,
 }
 
 /// A named way of running turns: which provider, which model, how long an
@@ -2300,6 +2309,8 @@ mod tests_google;
 mod tests_inherit;
 #[cfg(test)]
 mod tests_moonshot;
+#[cfg(test)]
+mod tests_openai;
 #[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]

@@ -332,6 +332,15 @@ origin = "cn"                           # a China-origin host is "cn" whatever i
 # kind = "anthropic_messages"
 # origin = "cn"                         # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
 
+# OpenAI, on its Responses API: the second wire protocol (theseus-bq73s). Add its key to the secrets table
+# (the commented openai_api_key below), un-comment these, then add a [catalog.<model>] row for the model you
+# want (window and prices, as [catalog.some-new-model] shows) and a [profiles.<name>] naming this provider.
+# Nothing here is called until a profile names a model on it.
+# [providers.openai]
+# api_base = "https://api.openai.com/v1"
+# api_key_secret = "openai_api_key"
+# kind = "openai_responses"             # the second wire protocol: POST /v1/responses, streaming
+
 # ---------------------------------------------------------------- secrets
 # name → where its value comes from. The vault is the recommended source.
 # Each placeholder below names what to put there: make one item per secret in
@@ -359,6 +368,7 @@ anthropic_api_key = "op://<your vault>/<Anthropic API key item>/notesPlain"
 zai_api_key = "op://<your vault>/<Z.ai API key item>/notesPlain"
 deepseek_api_key = "op://<your vault>/<DeepSeek API key item>/notesPlain"   # the deepseek provider's key
 # moonshot_api_key = "op://<your vault>/<Moonshot API key item>/notesPlain"   # the moonshot provider's key: add the item first
+# openai_api_key = "op://<your vault>/<OpenAI API key item>/notesPlain"   # the openai provider's key: add the item first
 jev_api_key = "op://<your vault>/<Jev API key item>/notesPlain"
 github_token = "op://<your vault>/<GitHub token item>/notesPlain"
 aws_access_key_id = "op://<your vault>/<AWS key item>/notesPlain#AWS_ACCESS_KEY_ID"
