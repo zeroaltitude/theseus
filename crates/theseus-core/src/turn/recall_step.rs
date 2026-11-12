@@ -451,15 +451,25 @@ impl TurnRunner {
     /// would have left out. Nothing is dropped; the budget is the one already
     /// fixed, so this never waits. A paused manifest (the session's cap) holds
     /// notes that were never attached, so it records none.
+    ///
+    /// **The decision is the route step's, not this step's**
+    /// (`tier::ShadowMark`, card `b4-fpm2-f4-sibling-hole`). The two
+    /// predicates it reads, `low_effort` and `low_effort_carried`, are the
+    /// mark's own readers and nothing else: this step does not work out for
+    /// itself whether the turn belongs in the sample. A refused mark names
+    /// the case it refused for — a verdict that said `high`, no verdict at
+    /// all, or a verdict that MISSED the route's own wait — and the route row
+    /// carries that word, so the sample's shortfall is countable instead of
+    /// being a fact a reader has to take from a doc comment.
     fn mark_would_drop(t: &Turn<'_>, m: &mut RecallManifest) {
-        let Some(b) = t.route.injection.as_ref().filter(|b| b.low_effort) else {
+        let Some(b) = t.route.injection.as_ref().filter(|b| b.low_effort()) else {
             return;
         };
         if m.outcome != "paused" && !m.admitted.is_empty() {
             m.would_drop = Some(m.admitted.len() as u64);
             // theseus-ectzg, B4 L79: SEPARATE — a carried verdict (the
             // previous message's) is told apart from this turn's own.
-            m.would_drop_carried = Some(b.low_effort_carried);
+            m.would_drop_carried = Some(b.low_effort_carried());
         }
     }
 
