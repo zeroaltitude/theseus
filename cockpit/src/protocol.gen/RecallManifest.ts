@@ -132,7 +132,9 @@ would_drop?: number,
  * L79, decided SEPARATE: "the would-drop shadow sample tells a carried
  * verdict from the turn's own \[a flag on the sample\]"). A count over
  * `would_drop` that does not filter this flag mixes a turn's own
- * small-talk shadow with the turn before it's.
+ * small-talk shadow with the turn before it's. `None` is a row written
+ * before this flag existed: it is unknown, not evidence that the verdict
+ * was this turn's own, and an owner-facing total must report it apart.
  */
 would_drop_carried?: boolean, 
 /**
