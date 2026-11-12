@@ -432,12 +432,15 @@ async fn a_halt_between_phases_stops_it_and_the_row_says_where() {
 /// guard this test bound nothing and still saw a card - the post was staged
 /// against a lane that would never resolve it.
 fn bind_the_owners_dm(r: &Rig) {
-    r.core.runner.place_rule.bind_one(crate::places::BoundPlace {
-        target: "discord:dm:7".into(),
-        name: "DM".into(),
-        private: true,
-        ..Default::default()
-    });
+    r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: "discord:dm:7".into(),
+            name: "DM".into(),
+            private: true,
+            ..Default::default()
+        });
 }
 
 #[tokio::test]
