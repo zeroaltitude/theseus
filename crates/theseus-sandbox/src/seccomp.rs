@@ -31,6 +31,8 @@ use std::io;
 
 use libc::sock_filter;
 
+use crate::spec::Facilities;
+
 #[cfg(target_arch = "x86_64")]
 const AUDIT_ARCH: u32 = 0xC000_003E; // EM_X86_64 | 64-bit | little-endian
 #[cfg(target_arch = "aarch64")]
@@ -113,6 +115,22 @@ pub const CLONE_NEW_MASK: u32 = (libc::CLONE_NEWNS
 /// syscall table as data first, so that a call on neither list is enumerated
 /// by someone); until it is answered the filter allows all of the above.
 pub fn denied() -> Vec<(&'static str, libc::c_long)> {
+    denied_for(Facilities::NONE)
+}
+
+/// The denied calls a view granted [`Facilities::nesting`] gets back: the
+/// five the init uses **by name**, and separately `clone`'s `CLONE_NEW*`
+/// flags, which are the flag rule rather than an entry of this list.
+///
+/// `setns` and the whole new mount API (`open_tree`, `move_mount`, `fsopen`,
+/// `fsconfig`, `fsmount`, `fspick`) stay denied: `view::build` uses none of
+/// them, so granting them would buy no test and widen the surface for
+/// nothing. **The grant is sized to what the init measurably calls.**
+pub const NESTING_ALLOWS: [&str; 5] =
+    ["unshare", "mount", "umount2", "pivot_root", "mount_setattr"];
+
+/// [`denied`], less whatever `f` grants.
+pub fn denied_for(f: Facilities) -> Vec<(&'static str, libc::c_long)> {
     let v = vec![
         ("unshare", libc::SYS_unshare),
         ("setns", libc::SYS_setns),
@@ -171,6 +189,12 @@ pub fn denied() -> Vec<(&'static str, libc::c_long)> {
         ],
     ]
     .concat();
+    if f.nesting {
+        return v
+            .into_iter()
+            .filter(|(name, _)| !NESTING_ALLOWS.contains(name))
+            .collect();
+    }
     v
 }
 
@@ -231,8 +255,19 @@ fn push(p: &mut Vec<Insn>, insn: Insn) -> usize {
     p.len() - 1
 }
 
-/// The filter's program.
+/// The filter's program: the contract's, with nothing granted. Every job's
+/// but a self build's, and the init's own in every case.
 pub fn program() -> Vec<sock_filter> {
+    program_for(Facilities::NONE)
+}
+
+/// The filter's program for a view granted `f`.
+///
+/// Only [`Facilities::nesting`] changes it, and in exactly two places: the
+/// five names in [`NESTING_ALLOWS`] leave the denied list, and `clone` stops
+/// being judged by its flags. Nothing else moves — a granted view is held to
+/// the same filter as every other job for all 40-odd remaining calls.
+pub fn program_for(f: Facilities) -> Vec<sock_filter> {
     let mut p = vec![
         ld(OFF_ARCH),
         jmp(JEQ, AUDIT_ARCH, To::Next, To::Kill),
@@ -240,7 +275,9 @@ pub fn program() -> Vec<sock_filter> {
     ];
     #[cfg(target_arch = "x86_64")]
     p.push(jmp(JGE, X32_SYSCALL_BIT, To::Kill, To::Next));
-    p.push(jmp(JEQ, libc::SYS_clone as u32, To::CloneFlags, To::Next));
+    if !f.nesting {
+        p.push(jmp(JEQ, libc::SYS_clone as u32, To::CloneFlags, To::Next));
+    }
     p.push(jmp(JEQ, libc::SYS_clone3 as u32, To::Enosys, To::Next));
     p.push(jmp(
         JEQ,
@@ -248,15 +285,18 @@ pub fn program() -> Vec<sock_filter> {
         To::SocketFamily,
         To::Next,
     ));
-    for (_, nr) in denied() {
+    for (_, nr) in denied_for(f) {
         p.push(jmp(JEQ, nr as u32, To::Eperm, To::Next));
     }
     p.push(ret(RET_ALLOW));
     // Classic BPF jumps forward only, so clone's check ends in an allow of
-    // its own.
-    let clone_flags = push(&mut p, ld(OFF_ARG0_LO));
-    p.push(jmp(JSET, CLONE_NEW_MASK, To::Eperm, To::Next));
-    p.push(ret(RET_ALLOW));
+    // its own. A granted view has no such check and emits no block for it.
+    let clone_flags = (!f.nesting).then(|| {
+        let at = push(&mut p, ld(OFF_ARG0_LO));
+        p.push(jmp(JSET, CLONE_NEW_MASK, To::Eperm, To::Next));
+        p.push(ret(RET_ALLOW));
+        at
+    });
     // `socket` is judged by its family, argument 0: the kernel crypto API
     // (`AF_ALG`) and a hypervisor transport (`AF_VSOCK`) are refused.
     let socket_family = push(&mut p, ld(OFF_ARG0_LO));
@@ -270,7 +310,9 @@ pub fn program() -> Vec<sock_filter> {
     let resolve = |i: usize, to: To| -> u8 {
         let target = match to {
             To::Next => i + 1,
-            To::CloneFlags => clone_flags,
+            To::CloneFlags => {
+                clone_flags.expect("nothing jumps to the clone-flag rule when nesting is granted")
+            }
             To::SocketFamily => socket_family,
             To::Enosys => enosys,
             To::Eperm => eperm,
@@ -777,5 +819,126 @@ mod tests {
             rule.len(),
             list.len()
         );
+    }
+    /// A nesting grant moves **exactly** [`NESTING_ALLOWS`] and `clone`'s
+    /// flag rule, and nothing else: the parity rule's whole remaining set is
+    /// still denied, run through the built program rather than read off the
+    /// list (theseus-1eemp).
+    #[test]
+    fn a_nesting_grant_allows_its_five_and_clone_and_denies_everything_else() {
+        let granted = program_for(Facilities {
+            nesting: true,
+            ..Facilities::NONE
+        });
+        let rule = must_deny();
+        let mut wrong = Vec::new();
+        for (why, name, nr) in &rule {
+            let got = run(&granted, AUDIT_ARCH, *nr as u32, 0);
+            let expected_allow = NESTING_ALLOWS.contains(name);
+            // The two clone-flag rows of the rule are not entries of
+            // `denied()`; they are judged by argument, below.
+            if name.starts_with("clone_") {
+                continue;
+            }
+            if expected_allow && got != RET_ALLOW {
+                wrong.push(format!(
+                    "  {name} (#{nr}) -> {got:#x}, but the grant names it"
+                ));
+            }
+            if !expected_allow && got != eperm() {
+                wrong.push(format!(
+                    "  {name} (#{nr}, {why}) -> {got:#x}, not EPERM: the NESTING grant \
+                     widened past the five it promises"
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "a nesting grant must move exactly {:?} and clone's flags:\n{}",
+            NESTING_ALLOWS,
+            wrong.join("\n")
+        );
+        // clone with every namespace flag, which the contract's filter
+        // refuses one by one.
+        let clone = libc::SYS_clone as u32;
+        for flag in [
+            libc::CLONE_NEWNS,
+            libc::CLONE_NEWUSER,
+            libc::CLONE_NEWPID,
+            libc::CLONE_NEWNET,
+            libc::CLONE_NEWIPC,
+            libc::CLONE_NEWUTS,
+            libc::CLONE_NEWCGROUP,
+        ] {
+            assert_eq!(
+                run(&granted, AUDIT_ARCH, clone, flag as u64),
+                RET_ALLOW,
+                "clone {flag:#x} under a nesting grant"
+            );
+            assert_eq!(
+                run(&program(), AUDIT_ARCH, clone, flag as u64),
+                eperm(),
+                "clone {flag:#x} without one"
+            );
+        }
+        // And the foreign-ABI kill and `clone3`'s ENOSYS are untouched by a
+        // grant: a relaxed filter is still a filter.
+        assert_eq!(run(&granted, 0x1234, clone, 0), RET_KILL_PROCESS);
+        assert_eq!(
+            run(&granted, AUDIT_ARCH, libc::SYS_clone3 as u32, 0),
+            RET_ERRNO | libc::ENOSYS as u32
+        );
+    }
+
+    /// `pty` and `devices` are view-building grants and must not touch the
+    /// filter at all: the program for either is byte-identical to the
+    /// contract's. (A grant that silently widened the filter is the failure
+    /// this holds shut.)
+    #[test]
+    fn the_pty_and_devices_grants_change_no_system_call() {
+        let plain = program();
+        for f in [
+            Facilities {
+                pty: true,
+                ..Facilities::NONE
+            },
+            Facilities {
+                devices: true,
+                ..Facilities::NONE
+            },
+            Facilities {
+                pty: true,
+                devices: true,
+                ..Facilities::NONE
+            },
+        ] {
+            let p = program_for(f);
+            assert_eq!(
+                p.len(),
+                plain.len(),
+                "{:?} changed the filter's length",
+                f.named()
+            );
+            for (i, (a, b)) in p.iter().zip(&plain).enumerate() {
+                assert!(
+                    a.code == b.code && a.jt == b.jt && a.jf == b.jf && a.k == b.k,
+                    "{:?} changed instruction {i}",
+                    f.named()
+                );
+            }
+        }
+    }
+
+    /// Nothing granted is the program `program()` builds, so every caller
+    /// that wants the contract can keep calling it.
+    #[test]
+    fn the_contracts_program_is_the_program_for_no_grant() {
+        let a = program();
+        let b = program_for(Facilities::NONE);
+        assert_eq!(a.len(), b.len());
+        assert!(a
+            .iter()
+            .zip(&b)
+            .all(|(x, y)| x.code == y.code && x.jt == y.jt && x.jf == y.jf && x.k == y.k));
     }
 }

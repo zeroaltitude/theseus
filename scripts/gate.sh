@@ -329,9 +329,16 @@ summary() {
   fi
   printf '  %-16s %5d\n' total "$total"
   [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
+  # A self build runs below a view that grants it a pseudo-terminal, more device nodes and the calls that build a
+  # sandbox, so the 108 tests whose SUBJECT is one of those three can be run rather than left out. Two things a
+  # reader of the tail is then owed, and the launcher puts both in the environment because only it knows the view:
+  # which view judged this run, and -- registered as any other stand-down -- what that view still withholds.
+  # Unset everywhere else, so an ordinary lane gate prints neither.
+  [ -z "${THESEUS_VIEW_WITHHELD:-}" ] || skip "${THESEUS_VIEW_WITHHELD}"
   # Beside the table, where a reader of the tail gets it, and on a FAILED run too: what a run did not do is as
   # much a part of reading its result as the phases it timed.
   [ "${#skipped[@]}" -eq 0 ] || echo "gate: what this run did NOT do: $(skipped_list)"
+  [ -z "${THESEUS_VIEW_GRANTS:-}" ] || echo "gate: the view this run had: ${THESEUS_VIEW_GRANTS}"
   mkdir -p "$(dirname "$times")" 2>/dev/null || true
   {
     [ -s "$times" ] || echo "time,label,phase,seconds,status"

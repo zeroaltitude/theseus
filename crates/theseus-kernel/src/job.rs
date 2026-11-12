@@ -107,6 +107,14 @@ pub struct L1 {
     /// that is not a self build's is as it was.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rw: Vec<PathBuf>,
+    /// The host facilities the view grants beyond the contract's floor: a
+    /// pty, more device nodes, the calls that build a sandbox of its own
+    /// (theseus-1eemp). **Only the core's self-build launcher sets it**, for
+    /// the same reason `rw` says, and it reaches no floor path, no
+    /// credential, no sealed set and no store: see
+    /// `theseus_sandbox::Facilities`.
+    #[serde(default, skip_serializing_if = "theseus_sandbox::Facilities::is_none")]
+    pub facilities: theseus_sandbox::Facilities,
 }
 
 /// A job's output file keeps this much unless the config says otherwise

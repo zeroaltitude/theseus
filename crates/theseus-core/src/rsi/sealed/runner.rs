@@ -298,6 +298,10 @@ pub fn runner_view(base: &L1, root: &Path, relay: &str) -> L1 {
         // An item's job keeps no write: only a self build's view binds
         // read-write (theseus-pw1q.21.1).
         rw: Vec::new(),
+        // And is granted no facility, for the same reason, an exam runner
+        // least of all: it is the one job whose subject is the sealed set the
+        // floor hides (theseus-1eemp).
+        facilities: theseus_sandbox::Facilities::NONE,
     }
 }
 

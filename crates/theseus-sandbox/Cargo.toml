@@ -27,6 +27,10 @@ name = "contract"
 harness = false
 
 [[test]]
+name = "facilities"
+harness = false
+
+[[test]]
 name = "bench"
 harness = false
 

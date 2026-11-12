@@ -209,6 +209,7 @@ fn spec(args: &WrapperArgs, l1: &L1, env: Vec<(String, String)>) -> (Spec, Vec<S
     spec.rw = l1.rw.iter().filter(|p| p.is_dir()).cloned().collect();
     spec.hidden = l1.hidden.clone();
     spec.limits = l1.limits;
+    spec.facilities = l1.facilities;
     let skipped = missing.iter().map(|p| p.display().to_string()).collect();
     (spec, skipped)
 }

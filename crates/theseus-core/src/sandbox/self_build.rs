@@ -28,6 +28,15 @@
 //! - 8,192 processes (the job default of 512 stays), and file, scratch and
 //!   `/tmp` caps sized for a compiler: the model's `proc.run` limits would
 //!   stop a link.
+//! - **the facilities the suite's own subjects need** ([`FACILITIES`]): a
+//!   pty, `/dev/full` and `/dev/tty`, and the six calls that build a sandbox
+//!   of its own, with the `/proc` masks off, which the kernel requires before
+//!   those calls buy anything. [`WITHHELD`] names the four tests that no
+//!   grant reaches. This is the only view in the build that gets any of them,
+//!   and the reason is the one the owner gave on 2026-11-11: a self loop
+//!   that cannot test the sandbox, the pty, the daemon and the devices can
+//!   never improve them. What it does **not** get is unchanged: no floor
+//!   path, no credential, no sealed set, no store, no spool, no network.
 
 use std::path::{Path, PathBuf};
 
@@ -38,6 +47,50 @@ use super::Sandbox;
 /// A self build's processes (`RLIMIT_NPROC` in its own user namespace): a
 /// parallel cargo build and a test run fork far past the job default.
 pub const BUILD_PIDS: u64 = 8192;
+
+/// What a self build's view grants that no other L1 job's does, and the
+/// whole of it (theseus-1eemp).
+///
+/// **Measured, not guessed.** The 2026-11-11 08:43 self build was the first
+/// ever to reach the suite, and 123 of 9,819 tests failed, none of them the
+/// item's change. Classified by the error each printed:
+///
+/// | n | what it printed | granted by |
+/// |---:|---|---|
+/// | 58 | `posix_openpt`/`openpty` → `ENOENT`: no `/dev/ptmx` | `pty` |
+/// | 49 | `cloning the init into its namespaces: EPERM`, our own filter | `nesting` |
+/// | 1 | `/dev/full` → `NotFound`, on a host that has it | `devices` |
+/// | 15 | a timeout or a value, naming no facility; downstream of the above | — |
+///
+/// And the ladder, measured by running those same 123 inside this view one
+/// grant at a time: **0 -> 60 (`pty`) -> 63 (`devices`) -> 67 (`nesting`)
+/// -> 119 (`visible_proc`)**. `nesting` reads as worth one test on its own
+/// and is worth 52 with the grant that unblocks it, which is why the two are
+/// granted together and why neither is granted quietly.
+///
+/// A run inside this view is not a weaker run than a lane's: it is the only
+/// run in which the sandbox contract, the terminal and the device nodes are
+/// *tested* rather than skipped. `theseus_sandbox::Facilities` carries why
+/// each grant cannot reach the floor; the one that needs an argument rather
+/// than an assertion is `nesting`, and its doc gives it.
+pub const FACILITIES: theseus_sandbox::Facilities = theseus_sandbox::Facilities {
+    pty: true,
+    devices: true,
+    nesting: true,
+    // ON by the owner's decision of 2026-11-11 16:32 (S6-1 in
+    // `logistics/OWNER-ANSWERS-20261110-1406.md`), and the grant to read
+    // twice: it has the largest measured return and the only real price.
+    // The return is EVIDENCE, NOT PROOF — the ladder's 67 -> 119 step was
+    // measured once on a rig that no longer exists, and its cause is NOT
+    // established: `nesting` alone already mounts a nested procfs on the
+    // kernel the counts were taken on. Its price is disclosure only, and
+    // narrower than once written here: `/proc/interrupts` and `/proc/keys`'
+    // key *names* (never payloads), no host process at any rung, and `/sys`
+    // untouched. `theseus_sandbox::Facilities::visible_proc` carries the
+    // measurements and the 1.0.6 line to find the real mechanism. One word
+    // takes it back off.
+    visible_proc: true,
+};
 /// The largest file a self build may write: a linked binary with debug info.
 const BUILD_OUTPUT_MB: u64 = 16 * 1024;
 /// Each of `/tmp`, `/dev/shm` and HOME, and scratch, for a build.
@@ -125,14 +178,17 @@ impl Sandbox {
             egress: Vec::new(),
             egress_dns: None,
             rw,
+            facilities: FACILITIES,
         }
     }
 }
 
 /// The environment of a self build's command, the whole of it: the
 /// operator's `HOME` (an empty tmpfs in the view), a `PATH` that finds the
-/// pinned node and cargo's shims, the build tree, and cargo told it has no
-/// network.
+/// pinned node and cargo's shims, the build tree, cargo told it has no
+/// network, and the two names that carry the gate's honesty line about the
+/// view this run was judged in ([`WITHHELD`]). Nothing of the daemon's own
+/// state and no credential, which `tests_jail` holds by an allowlist.
 pub fn env(home: &Path, target: &Path) -> Vec<(String, String)> {
     let var = |k: &str, v: String| (k.to_string(), v);
     vec![
@@ -151,8 +207,55 @@ pub fn env(home: &Path, target: &Path) -> Vec<(String, String)> {
         var("RUSTC_WRAPPER", String::new()),
         var("CARGO_BUILD_RUSTC_WRAPPER", String::new()),
         var("GIT_TERMINAL_PROMPT", "0".into()),
+        // The gate's honesty line, which only the launcher can fill: the view
+        // a self run was judged in is as much a part of reading its result as
+        // the phases it timed, and a run inside a relaxed view that said so
+        // nowhere would be the quietest possible version of this bucket's own
+        // disease. `gate.sh`'s summary prints the first and registers the
+        // second as any other stand-down; both are unset for a lane gate.
+        var("THESEUS_VIEW_GRANTS", view_grants()),
+        var("THESEUS_VIEW_WITHHELD", WITHHELD.to_string()),
     ]
 }
+
+/// What the gate prints as *the view this run had*.
+fn view_grants() -> String {
+    format!("a self build's, granting {}", FACILITIES.named().join(", "))
+}
+
+/// What a self run still does NOT do that an ordinary lane gate does, in the
+/// words the gate's `what this run did NOT do:` line carries — because a run
+/// that silently skips nothing and silently runs nothing is the failure this
+/// whole bucket exists to kill.
+///
+/// **Measured on 2026-11-11, on the exact 123 tests the 08:43 self build
+/// failed, run inside this view one grant at a time:** nothing granted 0,
+/// `pty` 60, `+devices` 63, `+nesting` 67, `+visible_proc` **119**.
+///
+/// The four that remain are named here, and **not one of them is a facility
+/// this view withholds** — each fails identically at every rung, so no
+/// further grant would move it:
+///
+/// - `theseusd::sandbox a_probe_script_in_l1_shows_the_contract_and_l0_the_contrast`
+///   asserts that an L1 job and an L0 job see *different* hostnames. Inside a
+///   self build both are `theseus-l1`, because a self build has no L0: its own
+///   view is L1. **No grant can fix a test whose subject is the contrast
+///   between inside and outside, run from inside.** It wants a named skip for
+///   a self run, which is a line, not a grant.
+/// - `theseus-core term::tests_keep::a_close_leaves_no_child_forked_into_a_new_session_during_it`
+///   and `::a_keeping_close_names_a_child_forked_into_a_new_session_during_it`
+///   fail on `fork` (`Resource temporarily unavailable`, and its sibling's
+///   `the forker forked`) at every rung, alone as well as beside the other
+///   nineteen binaries. A limit or an ordering inside the view, not a
+///   facility; it wants its own line.
+/// - `theseus-core rpc::tests_self_mint::a_validation_runs_its_tiers_writes_one_row_and_loads_nothing`
+///   ends both arms `handback:step-failed` at every rung. Unexplained. Ruled
+///   out: a facility (grant-independent), `/tmp` being `noexec` (it is not)
+///   and load (it fails alone). It wants its own line too.
+///
+/// Empty would mean a self run does everything a lane gate does. It does not,
+/// and the gate must not pretend otherwise.
+const WITHHELD: &str = "4 tests no grant reaches: the L1-vs-L0 contrast probe, two term close-and-fork tests, and the self-mint fixture tier";
 
 /// The lines cargo and npm print when a build needed the network, which a
 /// self build never has.

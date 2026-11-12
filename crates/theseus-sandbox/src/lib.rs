@@ -34,8 +34,8 @@ mod view;
 pub use init::init_main;
 pub use report::{Exit, Scratch, Started};
 pub use spawn::{refusal, refused_here, spawn, SandboxChild, SpawnError, Stdio, ROOT_REFUSED};
-pub use spec::{Init, Limits, Spec, HOSTNAME, INIT_ROLE};
-pub use view::DEVICES;
+pub use spec::{Facilities, Init, Limits, Spec, HOSTNAME, INIT_ROLE};
+pub use view::{DEVICES, MORE_DEVICES};
 
 /// The shared shape for a list that must be complete (theseus-3i6d1):
 /// `crates/complete.rs`, one file included by each crate that needs it

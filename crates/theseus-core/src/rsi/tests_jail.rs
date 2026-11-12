@@ -30,6 +30,51 @@ fn build<'a>(ro: &'a [PathBuf], home: &'a Path) -> SelfBuild<'a> {
     }
 }
 
+/// **The invariant the whole grant rests on: only `self_build_view` grants**
+/// (theseus-1eemp). `Sandbox::job_view` is the single source for both job
+/// families that are not self builds — `proc.run`'s L1 jobs, which clone it
+/// in `for_job`, and every L1 MCP server — so one literal there is the
+/// boundary for both, and nothing but that literal held it before this test.
+/// A merge resolution that carried `self_build::FACILITIES`
+/// onto `job_view` would hand every model-proposed job a pty, the extra
+/// device nodes, the mount calls and an unmasked `/proc`, and the rest of
+/// the suite would stay green. The exam runner is asserted for the same
+/// reason and is the sharpest case of it: its subject is the sealed set the
+/// floor hides.
+///
+/// The grants are spelled out rather than compared against `FACILITIES` on
+/// purpose — the point is to pin the decided value, so that flipping the
+/// constant reds here and must be done deliberately. `visible_proc` is on by
+/// the owner's decision of 2026-11-11 16:32; if the 1.0.6 line finds
+/// `nesting` suffices and takes it back off, this test is the edit that
+/// records it.
+#[test]
+fn only_the_self_build_view_carries_facility_grants() {
+    let sb = sandbox();
+    assert_eq!(
+        sb.job_view().facilities,
+        theseus_sandbox::Facilities::NONE,
+        "an ordinary L1 job (and every L1 MCP server) must be granted nothing"
+    );
+    let view = sb.self_build_view(&build(&[], Path::new("/home/op")));
+    assert_eq!(
+        view.facilities,
+        theseus_sandbox::Facilities {
+            pty: true,
+            devices: true,
+            nesting: true,
+            visible_proc: true,
+        },
+        "the self-build view carries exactly the four decided grants"
+    );
+    let exam = super::sealed::runner::runner_view(&view, Path::new("/exam"), "relay:80");
+    assert_eq!(
+        exam.facilities,
+        theseus_sandbox::Facilities::NONE,
+        "an exam runner inherits no grant from the self-build view it is cut from"
+    );
+}
+
 /// The only writable binds are the tree and its build tree; the repo, cargo's
 /// and npm's homes and the bench history are overlays whose writes vanish;
 /// the toolchain and the gate are read-only. No network, the model's
@@ -292,13 +337,45 @@ fn a_self_builds_environment_is_its_own_and_offline() {
     assert_eq!(get("RUSTC_WRAPPER"), Some(""));
     assert_eq!(get("HOME"), Some("/home/op"));
     assert!(get("PATH").unwrap().contains("/home/op/.cargo/bin:"));
+    // What this bar was built for, and still is: nothing of the daemon's own
+    // state and no secret. Two `THESEUS_` names are allowed BY NAME, and only
+    // these two — they carry the gate's honesty line about the view the run
+    // was judged in (theseus-1eemp), hold no path of the daemon's and no
+    // credential, and a reader of a self run's tail is owed both. An
+    // allowlist, so a third appearing fails here rather than riding in behind
+    // them.
+    const TOLD: [&str; 2] = ["THESEUS_VIEW_GRANTS", "THESEUS_VIEW_WITHHELD"];
     let names: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
     assert!(
         names
             .iter()
-            .all(|n| !n.starts_with("THESEUS_") && !n.contains("TOKEN")),
+            .all(|n| (!n.starts_with("THESEUS_") || TOLD.contains(n)) && !n.contains("TOKEN")),
         "{names:?}"
     );
+    // And what the two say, so they are a contract rather than two strings.
+    assert_eq!(
+        get("THESEUS_VIEW_GRANTS"),
+        Some("a self build's, granting pty, devices, nesting, visible_proc")
+    );
+    // Not empty, and that is the point: four tests no grant reaches stay
+    // withheld, and the gate says so (`self_build::WITHHELD`).
+    let withheld = get("THESEUS_VIEW_WITHHELD").unwrap();
+    assert!(
+        withheld.contains("4 tests no grant reaches"),
+        "{withheld:?}"
+    );
+    // Neither may ever carry a path OF THE OPERATOR'S: the gate echoes both
+    // into a log a self run pushes. `/proc` is a kernel name and is fine; a
+    // home, a state dir or a tree is not.
+    for n in TOLD {
+        let v = get(n).unwrap();
+        for bad in ["/home/", "/root", ".theseus", "/tmp/", "$"] {
+            assert!(
+                !v.contains(bad),
+                "{n} must name facilities, never one of the operator's paths: {v:?}"
+            );
+        }
+    }
 }
 
 /// `Jail::prepare` is what the gate runs in: the place's own variables (a

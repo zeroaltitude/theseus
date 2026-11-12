@@ -999,6 +999,13 @@ class SkipRegistry(unittest.TestCase):
             "scrub_added": 3,         # the flag; no scrubber on the host; nothing added to scan
             "suite_applied": 1,       # nextest says it applied a default-filter
             "suite_filters": 1,       # the banner says one is active
+            # The only site whose words come from OUTSIDE the gate. A self build runs below a view that grants
+            # it a pty, device nodes and the calls that build a sandbox, so the suite's own subjects can be
+            # tested rather than left out; the launcher is the one thing that knows what that view still
+            # withholds, and it says so in THESEUS_VIEW_WITHHELD. The gate registers it like any other
+            # stand-down, so it reaches the verdict and not only the log. Unset for a lane gate, which
+            # registers nothing here (theseus-1eemp).
+            "summary": 1,             # THESEUS_VIEW_WITHHELD: what a self build's view withholds
             "turn_step": 1,           # the burst and the history entry, not the bench
             # One of these two is not a site: the replay of the locked part's own registrations, read back across
             # the lock. The other is a real site and the only one that is not a check standing itself down -- the
