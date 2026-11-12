@@ -407,6 +407,24 @@ impl ToolRuntime {
                 .settle_job_failure(tc, correlation_id, tool.name(), call, &r.to_string())
                 .map(Err);
         }
+        // The job cap (theseus-v6bd; `jobcap`): a call that would pass
+        // `[tools] max_jobs` is refused with a named reason, never queued
+        // (the owner, 2026-11-12). Counted from the spool's pid files, one
+        // directory read; the module doc says what that count does not see.
+        if self.max_jobs != super::jobcap::OFF {
+            let running = spool.running().len();
+            if super::jobcap::at_cap(self.max_jobs, running) {
+                return self
+                    .settle_job_failure(
+                        tc,
+                        correlation_id,
+                        tool.name(),
+                        call,
+                        &super::jobcap::refusal(self.max_jobs, running),
+                    )
+                    .map(Err);
+            }
+        }
         let mut env = self.job_base_env();
         for (k, v) in &spec.env {
             if forbidden_env(k) {

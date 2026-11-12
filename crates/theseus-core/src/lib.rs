@@ -413,6 +413,8 @@ mod tests_job_handles;
 #[cfg(test)]
 mod tests_job_sites;
 #[cfg(test)]
+mod tests_jobcap;
+#[cfg(test)]
 mod tests_jobs;
 #[cfg(test)]
 mod tests_judge;
