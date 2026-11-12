@@ -7,6 +7,7 @@
 //! clears the notice.
 
 use serde_json::json;
+use theseus_client::render::stop_reach;
 use theseus_protocol::{method, CancelVerdict, ExecutionStopResult};
 
 use super::state::{call, Chat, Effect, Purpose, AUTHOR};
@@ -90,6 +91,14 @@ impl Chat {
         if let Some(v) = verified(&r.verdicts) {
             words.push_str(" · ");
             words.push_str(&v);
+        }
+        // What it reached past the turn, worded as `theseus stop` words it:
+        // the tasks it cancelled, the jobs it ended, the jobs it kept and on
+        // whose word. `keep_jobs` spares the jobs, so the daemon sends the
+        // job lists only to a stop that does not.
+        for clause in stop_reach(r) {
+            words.push_str(" · ");
+            words.push_str(&clause);
         }
         self.gap();
         self.say_words(Sty::Yellow, &words);
