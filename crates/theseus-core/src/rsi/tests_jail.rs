@@ -357,12 +357,75 @@ fn a_self_builds_environment_is_its_own_and_offline() {
         get("THESEUS_VIEW_GRANTS"),
         Some("a self build's, granting pty, devices, nesting, visible_proc")
     );
-    // Not empty, and that is the point: four tests no grant reaches stay
-    // withheld, and the gate says so (`self_build::WITHHELD`).
+    // AND THE SECOND IS A SET, NOT A SENTENCE -- which is this assertion's
+    // whole subject, and the reason it was rewritten on 2026-11-12.
+    //
+    // It used to read `withheld.contains("4 tests no grant reaches")`: it
+    // asserted that the gate SAID a sentence, so the sentence satisfied it
+    // whatever the run did. Nothing filtered on that variable -- `gate.sh`
+    // appended it to the verdict's skipped list inside `summary()`, after
+    // every test had already run -- and on three self builds (2026-11-11
+    // 23:24, 2026-11-11 23:59, 2026-11-12 05:31) the sentence was false of
+    // ALL FOUR tests it named: the L1-vs-L0 probe and the self-mint fixture
+    // tier ran and FAILED, and were two of each run's own survivors, while
+    // the two `term::tests_keep` tests ran and PASSED in about 24 s and 35 s.
+    // A test that a string can satisfy is what let that live for three runs.
+    //
+    // So this asserts the MECHANISM instead: that the value is a set in the
+    // form the gate turns into a real nextest exclusion, and that the gate
+    // still does turn it into one.
     let withheld = get("THESEUS_VIEW_WITHHELD").unwrap();
+    let members: Vec<&str> = withheld.lines().collect();
+    assert!(!members.is_empty(), "{withheld:?}");
+    for m in &members {
+        // `<binary id><SP><test name>`, exactly what nextest prints, so one
+        // string drives the filter, names the test in the verdict, and is
+        // what a reader greps the run's log for.
+        let (bid, test) = m
+            .split_once(' ')
+            .unwrap_or_else(|| panic!("not `<binary id> <test name>`: {m:?}"));
+        assert!(!bid.is_empty() && !test.is_empty(), "{m:?}");
+        assert!(!test.contains(' '), "a test name, never prose: {m:?}");
+    }
+    // The three the owner's answer of 2026-11-12 10:41:48 MST covers, and the
+    // two the old sentence already CLAIMED were skipped and were not.
+    for named in [
+        "theseus-sandbox::contract clause_04_no_localhost_services",
+        "theseus-sandbox::contract clause_11_not_granted_is_denied",
+        "theseus-sandbox::facilities a_visible_proc_grant_takes_the_masks_off_and_nothing_else_does",
+        "theseusd::sandbox a_probe_script_in_l1_shows_the_contract_and_l0_the_contrast",
+        "theseus-core rpc::tests_self_mint::a_validation_runs_its_tiers_writes_one_row_and_loads_nothing",
+    ] {
+        assert!(members.contains(&named), "{named} is not in {members:?}");
+    }
+    // AND THE TWO TERM TESTS ARE NOT IN IT, measured rather than assumed:
+    // they ran and PASSED in all three self builds. A passing test in a skip
+    // set is cover given up for nothing, and the owner's answer says in terms
+    // that no fourth test is covered by it.
     assert!(
-        withheld.contains("4 tests no grant reaches"),
-        "{withheld:?}"
+        !withheld.contains("tests_keep"),
+        "the term close-and-fork tests run and pass inside the view: {withheld:?}"
+    );
+    // And the gate really does exclude them. `scripts/gate.sh` is the other
+    // half of this mechanism and lives outside this crate, so read its source
+    // -- the same way `every_file_the_keel_guard_holds_is_in_a_class` reads
+    // the keel guard's. A `gate.sh` that stopped filtering would leave this
+    // value a claim again, which is precisely the state being fixed.
+    let gate = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/gate.sh"),
+    )
+    .unwrap();
+    assert!(
+        gate.contains("view_withheld_filter") && gate.contains("binary_id(=$bid) & test(=$tname)"),
+        "gate.sh no longer builds a nextest exclusion from THESEUS_VIEW_WITHHELD"
+    );
+    assert!(
+        gate.contains("view_withheld_check"),
+        "gate.sh no longer checks that the tests it calls withheld were absent from the run"
+    );
+    assert!(
+        !gate.contains("4 tests no grant reaches"),
+        "the hand-written sentence is back in gate.sh"
     );
     // Neither may ever carry a path OF THE OPERATOR'S: the gate echoes both
     // into a log a self run pushes. `/proc` is a kernel name and is fine; a

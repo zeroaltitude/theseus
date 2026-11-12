@@ -63,6 +63,17 @@ pub const CLASSES: &[Class] = &[
             "crates/theseus-core/src/external.rs",
             "crates/theseus-core/src/toolrun/order.rs",
             "crates/theseus-core/src/sandbox.rs",
+            // Named on its own line rather than by widening `sandbox.rs` to
+            // `sandbox/**`, so the widening is a decision a reader can see and
+            // nothing else under `sandbox/` is swept in unasked. This one file
+            // defines the VIEW a self build runs in -- the view the join's own
+            // merge gate (`joining.rs`, `tree::gate_with_benches`) is judged
+            // inside. Without a class, a self branch could edit the thing that
+            // judges self branches and reach main with nothing said: measured
+            // 2026-11-12, `scripts/keel-guard.py` returned `0 findings` for a
+            // working tree holding only a cap raise in this file, and
+            // `classify` returned no class for it at all.
+            "crates/theseus-core/src/sandbox/self_build.rs",
             "crates/theseus-core/src/egress.rs",
         ],
     },
@@ -426,6 +437,7 @@ mod tests {
             "crates/theseus-core/src/external.rs",
             "crates/theseus-core/src/toolrun/order.rs",
             "crates/theseus-core/src/sandbox.rs",
+            "crates/theseus-core/src/sandbox/self_build.rs",
             "crates/theseus-core/src/egress.rs",
         ] {
             assert_eq!(classes(&[p], ""), ["policy"], "{p}");

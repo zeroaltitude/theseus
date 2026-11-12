@@ -225,7 +225,7 @@ pub fn env(home: &Path, target: &Path) -> Vec<(String, String)> {
         // disease. `gate.sh`'s summary prints the first and registers the
         // second as any other stand-down; both are unset for a lane gate.
         var("THESEUS_VIEW_GRANTS", view_grants()),
-        var("THESEUS_VIEW_WITHHELD", WITHHELD.to_string()),
+        var("THESEUS_VIEW_WITHHELD", withheld()),
     ]
 }
 
@@ -234,40 +234,68 @@ fn view_grants() -> String {
     format!("a self build's, granting {}", FACILITIES.named().join(", "))
 }
 
-/// What a self run still does NOT do that an ordinary lane gate does, in the
-/// words the gate's `what this run did NOT do:` line carries — because a run
-/// that silently skips nothing and silently runs nothing is the failure this
-/// whole bucket exists to kill.
+/// The tests a self build's view CANNOT run, as a SET -- never a sentence.
 ///
-/// Run once inside this view, against the exact 123 tests the 08:43 self
-/// build failed, at five grant levels — nothing granted, `pty`, `+devices`,
-/// `+nesting`, `+visible_proc` — which is **evidence, not proof** of each
-/// rung's effect.
+/// A self build runs inside a view that grants `pty`, `devices`, `nesting`
+/// and `visible_proc`, which is what lets the 108 tests whose subject is one
+/// of those three run at all. A few tests are then false *by construction*:
+/// a clause asserting that what is not granted is denied cannot hold where
+/// the thing is granted. The owner's word of 2026-11-12 10:41:48 MST lets
+/// exactly those be skipped **for self builds only, named in the verdict on
+/// every run** -- and `scripts/gate.sh` turns this set into a real nextest
+/// exclusion (`view_withheld_filter`) and derives that verdict line from the
+/// same set (`view_withheld_clause`).
 ///
-/// The four that remain are named here, and **not one of them is a facility
-/// this view withholds** — each fails identically at every rung, so no
-/// further grant would move it:
+/// Each entry is `<binary id> <test name>`, exactly the form nextest's own
+/// output prints, so one string drives the filter, names the test in the
+/// verdict, and is what a reader greps the log for. There is no second copy
+/// to drift.
 ///
-/// - `theseusd::sandbox a_probe_script_in_l1_shows_the_contract_and_l0_the_contrast`
-///   asserts that an L1 job and an L0 job see *different* hostnames. Inside a
-///   self build both are `theseus-l1`, because a self build has no L0: its own
-///   view is L1. **No grant can fix a test whose subject is the contrast
-///   between inside and outside, run from inside.** It wants a named skip for
-///   a self run, which is a line, not a grant.
-/// - `theseus-core term::tests_keep::a_close_leaves_no_child_forked_into_a_new_session_during_it`
-///   and `::a_keeping_close_names_a_child_forked_into_a_new_session_during_it`
-///   fail on `fork` (`Resource temporarily unavailable`, and its sibling's
-///   `the forker forked`) at every rung, alone as well as beside the other
-///   nineteen binaries. A limit or an ordering inside the view, not a
-///   facility; it wants its own line.
-/// - `theseus-core rpc::tests_self_mint::a_validation_runs_its_tiers_writes_one_row_and_loads_nothing`
-///   ends both arms `handback:step-failed` at every rung. Unexplained. Ruled
-///   out: a facility (grant-independent), `/tmp` being `noexec` (it is not)
-///   and load (it fails alone). It wants its own line too.
+/// **WHAT THIS REPLACED, because the shape of the defect is the point.**
+/// Until 2026-11-12 this was a hand-written string --
+/// *"4 tests no grant reaches: the L1-vs-L0 contrast probe, two term
+/// close-and-fork tests, and the self-mint fixture tier"* -- pushed into the
+/// environment and **appended to a reporting array at summary time, after
+/// every test had already run**. Nothing filtered on it. Three self builds
+/// (2026-11-11 23:24, 2026-11-11 23:59, 2026-11-12 05:31) each closed with
+/// that sentence, and it was false of **all four** tests it named:
 ///
-/// Empty would mean a self run does everything a lane gate does. It does not,
-/// and the gate must not pretend otherwise.
-const WITHHELD: &str = "4 tests no grant reaches: the L1-vs-L0 contrast probe, two term close-and-fork tests, and the self-mint fixture tier";
+/// - the L1-vs-L0 contrast probe and the self-mint fixture tier **ran and
+///   FAILED**, and were two of each run's own survivors;
+/// - the two `term::tests_keep` close-and-fork tests **ran and PASSED**, in
+///   about 24 s and 35 s, in all three runs.
+///
+/// So the two term tests are **not in this set and must not be added**: they
+/// are not withheld, they pass, and skipping a passing test is a loss of
+/// cover bought for nothing. The owner's answer covers these five and says
+/// in terms that no fourth test is covered.
+///
+/// A member that nonetheless runs fails the gate (`view_withheld_check`):
+/// the gate proves its claim instead of asserting it.
+const WITHHELD: [&str; 5] = [
+    // CLASS A -- the three the owner's answer of 2026-11-12 names. Each
+    // asserts a denial of something this view grants.
+    "theseus-sandbox::contract clause_04_no_localhost_services",
+    "theseus-sandbox::contract clause_11_not_granted_is_denied",
+    "theseus-sandbox::facilities a_visible_proc_grant_takes_the_masks_off_and_nothing_else_does",
+    // CLASS B -- the two the old sentence ALREADY claimed were skipped and
+    // which simply were not. Handled by the same mechanism, so the claim
+    // becomes true rather than a sixth thing to believe. The probe asserts
+    // that an L1 job and an L0 job see different hostnames; inside a self
+    // build both are `theseus-l1`, because a self build has no L0 -- its own
+    // view is L1. No grant can fix a test whose subject is the contrast
+    // between inside and outside, run from inside.
+    "theseusd::sandbox a_probe_script_in_l1_shows_the_contract_and_l0_the_contrast",
+    // Ends both arms `handback:step-failed` at every rung. Grant-independent;
+    // ruled out: a facility, `/tmp` being noexec (it is not) and load (it
+    // fails alone).
+    "theseus-core rpc::tests_self_mint::a_validation_runs_its_tiers_writes_one_row_and_loads_nothing",
+];
+
+/// The set as the gate receives it: one entry per line.
+fn withheld() -> String {
+    WITHHELD.join("\n")
+}
 
 /// The lines cargo and npm print when a build needed the network, which a
 /// self build never has.

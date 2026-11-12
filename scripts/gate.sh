@@ -334,7 +334,15 @@ summary() {
   # reader of the tail is then owed, and the launcher puts both in the environment because only it knows the view:
   # which view judged this run, and -- registered as any other stand-down -- what that view still withholds.
   # Unset everywhere else, so an ordinary lane gate prints neither.
-  [ -z "${THESEUS_VIEW_WITHHELD:-}" ] || skip "${THESEUS_VIEW_WITHHELD}"
+  #
+  # THE CLAUSE IS DERIVED FROM THE SET THAT DOES THE EXCLUDING, never written by hand (theseus-1eemp, and the
+  # reason this line changed on 2026-11-12). Until then THESEUS_VIEW_WITHHELD carried a SENTENCE, and this site
+  # appended it to the report -- after every test had already run. Nothing filtered on it, so the sentence was a
+  # pure claim, and on three self builds (11-11 23:24, 11-11 23:59, 11-12 05:31) it was false of all four tests it
+  # named: two of them RAN AND FAILED and were two of the run's own survivors, and two RAN AND PASSED in 24 s and
+  # 35 s. A hand-written claim cannot track its subject; a clause derived from the filter's own set cannot drift
+  # from it, because there is only one of them.
+  [ -z "$(view_withheld_set)" ] || skip "$(view_withheld_clause)"
   # Beside the table, where a reader of the tail gets it, and on a FAILED run too: what a run did not do is as
   # much a part of reading its result as the phases it timed.
   [ "${#skipped[@]}" -eq 0 ] || echo "gate: what this run did NOT do: $(skipped_list)"
@@ -503,14 +511,80 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# THE VIEW'S WITHHELD SET: a real exclusion, not a sentence (theseus-1eemp, 2026-11-12).
+#
+# A self build runs inside a view that GRANTS what a few tests exist to prove is denied, so those tests are false
+# by construction there -- `clause_11_not_granted_is_denied` cannot hold where the thing is granted. The owner's
+# word of 2026-11-12 10:41:48 lets them be skipped FOR SELF BUILDS ONLY, named in the verdict on every run.
+#
+# The launcher supplies a SET, one entry per line, in exactly the form nextest's own output prints:
+#
+#     <binary id><SP><test name>     e.g.  theseus-sandbox::contract clause_04_no_localhost_services
+#
+# which is the whole point of that form: the same string drives the filter, names the test in the verdict, and is
+# what a reader greps the run's log for. One set, three uses, and no second copy to drift from it. Until today the
+# variable held a hand-written SENTENCE that nothing filtered on; three self builds (11-11 23:24, 11-11 23:59,
+# 11-12 05:31) proved it false of all four tests it named -- two ran and FAILED, two ran and PASSED.
+#
+# Unset for an ordinary lane gate, which passes no -E and behaves exactly as it did.
+view_withheld_set() {
+  printf '%s\n' "${THESEUS_VIEW_WITHHELD:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d'
+}
+# The nextest filterset that EXCLUDES the set: `not ((binary_id(=a) & test(=b)) | ...)`. An entry missing either
+# half is REFUSED, never guessed at: a malformed entry here silently changes which tests the gate runs, and a
+# filter nobody can read back is exactly how the sentence this replaces survived three runs unnoticed.
+view_withheld_refused=79
+view_withheld_filter() {
+  local line bid tname expr=""
+  while IFS= read -r line; do
+    bid="${line%% *}"
+    tname="${line#* }"
+    if [ -z "$bid" ] || [ -z "$tname" ] || [ "$tname" = "$line" ]; then
+      echo "gate: REFUSED: THESEUS_VIEW_WITHHELD entry is not '<binary id> <test name>': ${line}" >&2
+      echo "gate: each entry must be exactly the form nextest prints, e.g. 'theseus-sandbox::contract clause_04_no_localhost_services' (exit status $view_withheld_refused)" >&2
+      exit "$view_withheld_refused"
+    fi
+    expr="${expr:+$expr | }(binary_id(=$bid) & test(=$tname))"
+  done < <(view_withheld_set)
+  [ -n "$expr" ] || return 0
+  printf 'not (%s)' "$expr"
+}
+# The verdict's clause, DERIVED from the same set. It names every member on every run, and prints nothing at all
+# when the set is empty -- an empty set means the view withheld nothing, and a run that withheld nothing must not
+# say that it did.
+view_withheld_clause() {
+  local line out="" n=0
+  while IFS= read -r line; do
+    out="${out:+$out; }$line"
+    n=$((n + 1))
+  done < <(view_withheld_set)
+  [ "$n" -gt 0 ] || return 0
+  printf '%s test(s) this view cannot run, excluded from the suite by name: %s' "$n" "$out"
+}
+# AND THE GATE CHECKS ITS OWN CLAIM. Every member must be absent from the suite's output; if one ran, the verdict
+# line about to be printed is a lie, which is the entire defect this mechanism replaces. A misspelled entry fails
+# here instead of quietly filtering nothing while the verdict still names it. The suite's log prints each test as
+# `<binary id> <test name>`, the set's own form, so the check is a fixed-string search for the member itself.
+view_withheld_check() {
+  local log="$1" line bad=""
+  while IFS= read -r line; do
+    ! grep -qF -- "$line" "$log" || bad="${bad:+$bad; }$line"
+  done < <(view_withheld_set)
+  [ -n "$bad" ] || return 0
+  echo "gate: MISMATCH: the view's withheld set names test(s) that RAN in the suite above: $bad" >&2
+  echo "gate: the verdict line would have called them withheld. Fix the set or the filter; do not print it." >&2
+  return 1
+}
 # The suite, and then the tests that passed only on a retry. `.config/nextest.toml`
 # retries named flaky tests (and only those), so a flake costs a rerun of the test
 # and not of the gate; this says which ones flaked, so a retry is recorded and not
 # forgotten, in the output and in `$THESEUS_FLAKY_LOG` (time, label, test, attempt).
 # How a test gets onto the list, and off it, is in scripts/AGENTS.md.
 #
-# What the suite does not run is said first (theseus-4vsrz). The suite passes no `-E`, so a `default-filter` in
-# `.config/nextest.toml` is the only filter there is, and it skips its tests in every run: nextest counts them as
+# What the suite does not run is said first (theseus-4vsrz). The suite passes no `-E` OF ITS OWN -- the one
+# exception is a self build's withheld set (`view_withheld_filter`, above), which is named test by test on stdout
+# before the run and again in the verdict, and is unset everywhere else -- so a `default-filter` in
+# `.config/nextest.toml` is otherwise the only filter there is, and it skips its tests in every run: nextest counts them as
 # "skipped" with the #[ignore]d ones, so a stale line (uncommitted, kept in a lane from an earlier run: four tests
 # skipped from every gate on 2026-11-07, gate green) left nothing in the result to read. A gate never refuses one. It names
 # each line, with its profile and place, and whether HEAD has it or the working tree alone does. A line under this run's
@@ -581,13 +655,27 @@ suite_applied() {
   fi
 }
 suite() {
-  local log="$gate_tmp/suite.log"
+  local log="$gate_tmp/suite.log" view_e
   suite_filters
-  cargo nextest run --workspace --no-fail-fast 2>&1 | tee "$log"
+  # The view's exclusion, when a launcher set one. An ordinary lane gate leaves the array empty and the command
+  # below is character for character the one it has always run.
+  view_e="$(view_withheld_filter)"
+  local view_args=()
+  if [ -n "$view_e" ]; then
+    view_args=(-E "$view_e")
+    echo "gate: the view's withheld set is EXCLUDING $(view_withheld_set | wc -l | tr -d ' ') test(s) from the suite below, by name:"
+    view_withheld_set | sed 's/^/gate:   /'
+    echo "gate:   nextest filter: $view_e"
+  fi
+  cargo nextest run --workspace --no-fail-fast ${view_args[@]+"${view_args[@]}"} 2>&1 | tee "$log"
   if [ "$phase_label" = "suite filtered" ]; then
     echo "gate: the suite above ran under a default-filter (suite filters, above): its \"skipped\" count includes the tests the filter excluded"
   fi
   suite_applied "$log"
+  # The gate judges its own claim before it makes it: a member of the set that appears in the run's output ran,
+  # and the verdict is about to call it withheld. That is the defect this whole mechanism replaces, so it fails
+  # the gate rather than printing a falsehood.
+  view_withheld_check "$log"
   local flaky
   flaky="$(grep -E '^ *FLAKY ' "$log" || true)"
   if [ -n "$flaky" ]; then
