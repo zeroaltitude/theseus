@@ -11,10 +11,11 @@
 //! again with the step's spend and what it left. A run that failed, or asked for no
 //! people step, stops after the first.
 //!
-//! The whole of the daemon's half is capped on wall time ([`DEADLINE`]), not
-//! only on the day's spend: a run that passes it stops where it is and returns
-//! what it has, and what it did not reach waits in the state for the next
-//! night.
+//! The whole of the daemon's half is capped on wall time
+//! (`[import.openclaw] sync_deadline_mins`, read by [`Core::sync_deadline`]),
+//! not only on the day's spend: a run that passes it stops where it is and
+//! returns what it has, and what it did not reach waits in the state for the
+//! next night.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,30 +28,6 @@ use super::server::{parse, Conn, RpcFailure};
 use super::{import, Core};
 use crate::import::people;
 use crate::import::sync::STATE_KEY;
-
-/// How long the daemon's half of one `theseus import sync` may run before it
-/// stops where it is and returns what it has (theseus-ectzg).
-///
-/// The record was capped on the day's spend and on nothing else, so a people
-/// step that ran long ran for as long as it liked while the client waited in
-/// its one `await`. **The unit's `TimeoutStartSec=` bounds the CLIENT, not
-/// this** (`scripts/user-service.sh`, 2 h): a client killed there leaves this
-/// work running inside the daemon, which is the one thing that bound cannot
-/// reach. **So this cap must stay strictly below the unit's**, or it can never
-/// fire -- the client would be killed first and the daemon would carry on, and
-/// the next night's run would begin beside a pass still going.
-///
-/// 90 minutes: above the slowest run ever observed to finish (about 85 min, on
-/// 2026-11-11; the others on record took 5 to 24 min, and 2026-11-12's took
-/// 7 min 25 s), and half an hour below the unit's 2 h -- room enough for this
-/// to stop, return, and have the client print its summary before systemd
-/// would kill it.
-///
-/// Passing it is **not** an error. The run stops, what it finished is already
-/// written, and what it did not stays in the state's `people_todo` for the
-/// next night: a cap that fires costs one night's remainder, and an uncapped
-/// run costs every night after it.
-const DEADLINE: Duration = Duration::from_secs(90 * 60);
 
 /// One run's wall-clock cap: when it falls, and how long it was, for the line
 /// the result carries.
@@ -110,14 +87,40 @@ impl Core {
         let rec: ImportSyncRecord = parse(params)?;
         let by = self.import_judged(conn, name_of(name), "the OpenClaw sync's record")?;
         let r = self
-            .sync_record(rec, &by, DEADLINE)
+            .sync_record(rec, &by, self.sync_deadline())
             .await
             .map_err(RpcFailure::invalid)?;
         serde_json::to_value(r).map_err(|e| RpcFailure::invalid(e.into()))
     }
 
-    /// One run's end, `within` of wall clock at most ([`DEADLINE`] in the
-    /// daemon; a test plants its own).
+    /// How long the daemon's half of one `theseus import sync` may run before
+    /// it stops where it is and returns what it has: `[import.openclaw]
+    /// sync_deadline_mins`, whose default is the measured 90 minutes
+    /// (`config::import::default_sync_deadline_mins`, and the range
+    /// `MAX_SYNC_DEADLINE_MINS` the loader holds it to).
+    ///
+    /// The record was capped on the day's spend and on nothing else, so a
+    /// people step that ran long ran for as long as it liked while the client
+    /// waited in its one `await` (theseus-ectzg). **The sync unit's
+    /// `TimeoutStartSec=` bounds the CLIENT, not this**
+    /// (`scripts/user-service.sh`, 2 h): a client killed there leaves this
+    /// work running inside the daemon, which is the one thing that bound
+    /// cannot reach. **So this cap must stay strictly below the unit's**, or
+    /// it can never fire -- the client would be killed first and the daemon
+    /// would carry on, and the next night's run would begin beside a pass
+    /// still going. The loader's range is what holds that now, where a
+    /// constant held it before (b4-import-sync-unbounded-walltime).
+    ///
+    /// Passing it is **not** an error. The run stops, what it finished is
+    /// already written, and what it did not stays in the state's
+    /// `people_todo` for the next night: a cap that fires costs one night's
+    /// remainder, and an uncapped run costs every night after it.
+    pub(crate) fn sync_deadline(&self) -> Duration {
+        Duration::from_secs(self.runner.cfg.import.openclaw.sync_deadline_mins * 60)
+    }
+
+    /// One run's end, `within` of wall clock at most
+    /// ([`Core::sync_deadline`] in the daemon; a test plants its own).
     pub(super) async fn sync_record(
         self: &Arc<Self>,
         rec: ImportSyncRecord,
