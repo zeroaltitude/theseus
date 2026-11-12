@@ -122,14 +122,16 @@ Nothing, on this base, that the owner would notice.
 - **`node.list`.** Closed by the 2026-11-09 01:20 departure, which gave it the surface this note argued it
   needed. It is also in `NOT_FOR_MCP`, so the classification now says in writing that MCP is refused it,
   rather than leaving that to an absence.
-- **`memory_get` / `memory_search` over the MCP server.** **KEEP for 1.0.5**, decided by the owner in a
-  Discord DM on 2026-11-12 at 10:41:48 MST (Fifteenth set, S15-2): "I take your recommendations."
-  With `[mcp_server] memory = true` (off by default), `memory_search` and `memory_get` keep returning imported
-  episodes' text: turning the switch on is already the owner's explicit yes, and the text stays labelled as
-  imported and veiled by sensitivity. `memory_get` returns an imported session's text because `place_of`
-  reads it private. Either answer is defensible — the setting is the owner's explicit yes, and the episodes
-  are the owner's own words. This is a 1.0.5 decision, not a permanent one. If a later decision is "withhold", the
-  mechanism is already written: `nodes_of` gains the `is_imported` check beside its `place_of` one.
+- **`memory_get` / `memory_search` over the MCP server.** **KEEP for 1.0.5.** The question was put to the
+  owner with the recommendation *"keep for 1.0.5: turning the switch on is already your explicit yes, and the
+  text stays labelled as imported and veiled by sensitivity"*, and the owner took it: "I take your
+  recommendations." (Discord DM, 2026-11-12 10:41:48 MST; Fifteenth set, S15-2 — one sentence that answered
+  S15-1 in the same breath.) So with `[mcp_server] memory = true` (off by default), `memory_search` and
+  `memory_get` go on returning imported episodes' text, labelled as imported and veiled by sensitivity;
+  `memory_get` reaches an imported session's text because `place_of` reads it private. This is a 1.0.5
+  decision, not a permanent one — before it was taken, either answer was defensible, the episodes being the
+  owner's own words. If a later decision is "withhold", the mechanism is already written: `nodes_of` gains
+  the `is_imported` check beside its `place_of` one.
 
 ## A correction to the follow-up this note answers
 
