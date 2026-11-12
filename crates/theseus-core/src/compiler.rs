@@ -68,6 +68,7 @@ pub use clearing::Pass;
 pub mod situation;
 pub use effort::{output_config, BETA_TURN_EFFORT};
 pub mod kept;
+mod readable;
 mod render;
 mod server_calls;
 pub mod stubs;
@@ -670,7 +671,14 @@ fn compile_with(
                 // or provider change their signatures (theseus-kol). The
                 // earlier model's reasoning goes; its text, calls, and
                 // results stay.
-                Some((t.join("+"), "transcript", true))
+                // The one exception: a first-party switch to a model the
+                // provider documents as reading the writer's thinking keeps
+                // it (`readable`, theseus-9bggi).
+                let keeps = t == ["model_changed"]
+                    && input.spec.first_party
+                    && m.provider == now_manifest.provider
+                    && readable::reads(&m.provider, &m.model, &now_manifest.model);
+                Some((t.join("+"), "transcript", !keeps))
             }
         }
     };

@@ -196,7 +196,9 @@ impl State {
                 // another model (M5 25e) carries none back either.
                 let strip = (in_prefix && ctx.strip_prefix_thinking)
                     || wrote != ctx.provider
-                    || (wrote_model != media.model && media.also != Some(wrote_model));
+                    || (wrote_model != media.model
+                        && media.also != Some(wrote_model)
+                        && !super::readable::reads(wrote, wrote_model, media.model));
                 let bl: Vec<Value> = if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {
