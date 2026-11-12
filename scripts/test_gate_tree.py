@@ -761,7 +761,16 @@ class GateTree(unittest.TestCase):
                          "nothing waited for the lock, so the verdict must not name a wait")
         self.assertIn("could not be executed (flock exited 126)", out)
         # The table says it too: `lock wait 0  <- failed here` was the other half of the same false sentence.
-        self.assertRegex(out, r"\n  lock exec +0  <- failed here")
+        #
+        # `\d+` AND NOT A LITERAL `0`: the number in that column is a WALL-CLOCK SECONDS count, and this
+        # assertion is about WHICH PHASE the table blames, never about how long it took. On a loaded host the
+        # phase straddles an epoch-second boundary and the row reads `1`. Measured on the M1 Max 2026-11-12:
+        # idle, 10 of 10 runs printed `0`; under a load average of 14, SIX of thirty printed `1`, and this test
+        # failed 2 of 30 -- on `origin/main` 9c6434c1, with no branch involved. It cost a departure before it was
+        # understood, because `gate tests` only runs when `scripts/gate.sh` CHANGES, so a timing assertion in
+        # here can sit unexercised for weeks and then red the one cut that touches the gate.
+        # Its sibling at `shape` below already had this right.
+        self.assertRegex(out, r"\n  lock exec +\d+  <- failed here")
         self.assertNotIn("lock wait", out, "no surface of this run names a wait that never happened")
 
     def test_a_lock_that_could_not_be_opened_is_not_reported_as_a_wait_either(self):
