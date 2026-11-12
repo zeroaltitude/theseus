@@ -117,44 +117,60 @@ pub struct Facilities {
     /// asserts the sealed bytes stay unreadable.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub nesting: bool,
-    /// A `/proc` and a `/sys` **without Docker's masks** and without the
-    /// read-only remounts under `/proc`.
+    /// A `/proc` without either of its two mask groups: the covers
+    /// (`PROC_MASKED`) and the read-only remounts (`proc_readonly`, both in
+    /// `view.rs`). **`/sys` is untouched** — `SYS_MASKED` stays on,
+    /// firmware, cgroups and powercap with it.
     ///
-    /// **This is the kernel's precondition for [`nesting`](Self::nesting) to
-    /// be of any use, and it was found by measurement, not by reading.** With
-    /// `nesting` alone the nested `clone` succeeds and the nested init then
-    /// dies at `mounting /proc: Operation not permitted`:
-    /// `mount_too_revealing` refuses a fresh procfs in a less-privileged
-    /// mount namespace unless the namespace already holds a *fully visible*
-    /// mount of that filesystem, and `mnt_already_visible` does not count a
-    /// mount that has locked child mounts covering anything but a
-    /// permanently-empty directory. Our masks are exactly such children, so
-    /// a masked `/proc` makes a nested procfs impossible — and there is no
-    /// third option: a second, hidden, fully-visible procfs would itself be
-    /// skipped by the same rule, and binding the outer `/proc` would take
-    /// the nested job out of its own pid namespace, which is the thing under
-    /// test.
+    /// **It is ON for a self build's view, by the owner's decision of
+    /// 2026-11-11 16:32** (`logistics/OWNER-ANSWERS-20261110-1406.md`, sixth
+    /// set, S6-1: a yes to this grant *only*). It is on deliberately and is
+    /// not an oversight; one word takes it back off.
     ///
-    /// **Its price, measured and not minimised.** It reaches no credential,
-    /// no store, no spool, no sealed set and no floor path — but an
-    /// unmasked `/proc` and `/sys` disclose host facts: `/proc/sched_debug`
-    /// and `/proc/timer_list` name tasks beyond the job's pid namespace,
-    /// `/sys/fs/cgroup` names the operator's units, `/sys/firmware` carries
-    /// DMI and ACPI identifiers, and `/sys/devices/virtual/powercap` is an
-    /// energy side-channel. The writes those paths would need are refused
-    /// by capability (`sysrq-trigger` and a non-namespaced sysctl each want
-    /// `CAP_SYS_ADMIN` in the initial user namespace, which no nested one
-    /// confers) and `/proc/kcore` wants `CAP_SYS_RAWIO` there, so the cost
-    /// is **disclosure, not control**.
+    /// **What it buys is EVIDENCE, NOT PROOF, and the distinction is the
+    /// point.** The ladder was measured once, inside the view, on a rig that
+    /// no longer exists: of 123 tests that fail in an ungranted view, 0 pass
+    /// at no grants, 67 with `pty`, `devices` and `nesting`, and 119 with
+    /// this grant as well. **The counts are one unreproducible run, and the
+    /// cause of the last step is not established**: the claim that a masked
+    /// `/proc` makes a nested procfs impossible does not reproduce on the
+    /// kernel the 123 were measured on, where `nesting` alone already yields
+    /// `nested_proc: ok`. So the step may not be this grant's doing. Finding
+    /// the real mechanism — and taking the grant back off if `nesting`
+    /// suffices — is a 1.0.6 line. Do not restate the counts as a cause.
     ///
-    /// **It is off, and it is an owner question** (asked 2026-11-11 by the
-    /// shift-5 self-view builder). The owner's 11:34 grant covers the
-    /// facilities the suite's subjects need; it was given without this fact,
-    /// because nobody had it yet. Turning it on also means a self build's
-    /// own view no longer satisfies `clause_08_proc_and_sys_masked` — the
-    /// clause it is running in order to test. Until he answers, `nesting` is
-    /// granted, this is not, and the gate names the 48 tests that stay
-    /// withheld (`self_build::WITHHELD`).
+    /// **Its price is disclosure, and it is smaller than it was once written
+    /// to be.** It reaches no credential, no store, no spool, no sealed set
+    /// and no floor path. What it actually discloses, measured path by path
+    /// at every rung on two kernels, is **`/proc/interrupts`** (the host's
+    /// CPU count and its IRQ and device names — a hardware fingerprint and a
+    /// timing side-channel) and **`/proc/keys`** (the operator's keyring
+    /// names, uid and permission mask; **never a payload**). **No host
+    /// process is visible at any rung**: the job sees two pids, its init and
+    /// itself, granted or not. Neither `/proc/sched_debug` (absent on both
+    /// kernels) nor `/proc/timer_list` (root-only in the initial namespace)
+    /// discloses anything — an earlier version of this paragraph claimed
+    /// they name tasks beyond the job's pid namespace, and that was wrong.
+    ///
+    /// **Writes are contained by namespacing, not refused by capability.**
+    /// As the job every sysctl write is denied, but as the correctly-mapped
+    /// nested root that `nesting` grants, `net/ipv4/ip_forward` and
+    /// `user/max_user_namespaces` both succeed — on the job's *own* net and
+    /// user namespace. Every host-wide write (`sysrq-trigger`,
+    /// `core_pattern`, `drop_caches`, `modprobe`) stays denied, and
+    /// `/proc/kcore` wants `CAP_SYS_RAWIO` in the initial user namespace,
+    /// which no nested one confers. So the cost is **disclosure, not
+    /// control**.
+    ///
+    /// **And `clause_08_proc_and_sys_masked` is no longer a property of
+    /// every L1 job**: a self build's view is the one exception, and
+    /// [`Facilities`]'s own contract — that only `self_build_view` grants —
+    /// is what confines it. The clause's *test* still passes inside the
+    /// view, because it builds its own job spec with default facilities, so
+    /// a green `contract` is not evidence the exception is contained;
+    /// `tests_jail` pins that separately. The gate names the **4** tests no
+    /// grant reaches (`self_build::WITHHELD`): the L1-vs-L0 contrast probe,
+    /// two term close-and-fork tests, and the self-mint fixture tier.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub visible_proc: bool,
 }

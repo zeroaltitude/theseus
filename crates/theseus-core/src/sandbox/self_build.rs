@@ -77,17 +77,18 @@ pub const FACILITIES: theseus_sandbox::Facilities = theseus_sandbox::Facilities 
     pty: true,
     devices: true,
     nesting: true,
-    // ON, and the grant with the largest price and the largest return, so it
-    // is the one to read twice. `nesting` without it buys ONE test of 123:
-    // every nested L1 job dies at `mounting /proc: Operation not permitted`
-    // while `/proc`'s masks are on. With it the count goes 67 -> 119. It
-    // discloses host facts through `/proc` (`sched_debug` and `timer_list`
-    // name tasks beyond the job's pid namespace) and gives control of none,
-    // and it is narrowed to `/proc` alone: `/sys`'s masks stay on, because
-    // taking them off as well changed nothing. A confirm line is with the
-    // owner (2026-11-11); his 11:34 grant covers the facilities the suite's
-    // subjects need and this is one, so it is on rather than held, and one
-    // word takes it back off.
+    // ON by the owner's decision of 2026-11-11 16:32 (S6-1 in
+    // `logistics/OWNER-ANSWERS-20261110-1406.md`), and the grant to read
+    // twice: it has the largest measured return and the only real price.
+    // The return is EVIDENCE, NOT PROOF — the ladder's 67 -> 119 step was
+    // measured once on a rig that no longer exists, and its cause is NOT
+    // established: `nesting` alone already mounts a nested procfs on the
+    // kernel the counts were taken on. Its price is disclosure only, and
+    // narrower than once written here: `/proc/interrupts` and `/proc/keys`'
+    // key *names* (never payloads), no host process at any rung, and `/sys`
+    // untouched. `theseus_sandbox::Facilities::visible_proc` carries the
+    // measurements and the 1.0.6 line to find the real mechanism. One word
+    // takes it back off.
     visible_proc: true,
 };
 /// The largest file a self build may write: a linked binary with debug info.
