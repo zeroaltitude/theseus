@@ -223,3 +223,139 @@ async fn a_hands_alert_pings_where_notices_are_silent() {
     let plan = lane.plan(&a).await.unwrap();
     assert!(plan.writes[0].ping, "no `quiet` mutes an AWS alert");
 }
+
+/// A self build's body as `told_where_it_reports` stages it (`rsi/pr.rs:656`):
+/// the kind, the item, the verdict, and the one line of text.
+fn self_build_body(kind: &str) -> Value {
+    json!({
+        "kind": kind,
+        "item": "trim-the-sails",
+        "verdict": if kind == "self_build" { "green" } else { "red" },
+        "text": "Trim the sails ended red in suite (exit 101, 467 s).",
+    })
+}
+
+/// A self build's post as the courier plans it, on **the item's own thread**:
+/// the `_ =>` branch of `self_build_post` (theseus-1eemp). The core's four
+/// `mod told` tests assert where the post is *staged* and **never reach the
+/// courier at all**, so until this one nothing asserted the courier's own half
+/// - the thread branch, the `self_build:{corr}` key, the `extra` carrying
+/// `item`, or the `TaskEnded`/`TaskFailed` mapping. The equivalence between
+/// the two branches is a source reading, not a test; and the branch that
+/// reading covers is the one **dead on the owner's live daemon** - a self
+/// item's task hangs off `self:backlog` and no place syncs it - so it is the
+/// half that would stay silent if it broke.
+///
+/// `silent = ["reports"]` is what makes the event mapping observable at all: a
+/// `self_build` is `Event::TaskEnded`, whose category is `Reports`, and a
+/// `self_build_red` is `Event::TaskFailed`, whose category is `Failures`. With
+/// the default empty list both would ping and swapping the two arms would
+/// change nothing. The quiet one being the green one is also the honest
+/// behaviour: a report does not interrupt, a failure does.
+#[tokio::test]
+async fn a_self_build_post_on_a_threads_own_lane_carries_the_key_the_item_and_the_event() {
+    use theseus_core::config::discord::Category;
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let target = format!("discord:channel:{CHANNEL}");
+    let mut lane = lane_silent(
+        d.path(),
+        &fake,
+        (&target, "channel", Some(CHANNEL)),
+        true,
+        vec![Category::Reports],
+    );
+    let post = |lane: &Lane, kind: &str| {
+        lane.shared
+            .core
+            .outbox
+            .post("sess_self", "exec_self", &target, self_build_body(kind))
+            .unwrap()
+    };
+
+    let green = post(&lane, "self_build");
+    let plan = lane.plan(&green).await.unwrap();
+    assert_eq!(plan.writes.len(), 1, "one line where the item reports");
+    let w = &plan.writes[0];
+    assert_eq!(w.channel, CHANNEL, "the item's own thread, not a DM");
+    assert_eq!(
+        w.key,
+        format!("self_build:{}", green.correlation_id),
+        "one post per build: a retry edits it rather than making a second"
+    );
+    assert_eq!(
+        w.content, "Trim the sails ended red in suite (exit 101, 467 s).",
+        "the core's own words, not the courier's"
+    );
+    assert_eq!(
+        plan.extra["item"], "trim-the-sails",
+        "the item the post is about"
+    );
+    assert!(
+        plan.extra.get("place").is_none(),
+        "a thread's lane names no place: {:?}",
+        plan.extra
+    );
+    assert!(
+        !w.ping,
+        "a green build is TaskEnded, and reports are silent here"
+    );
+
+    let red = post(&lane, "self_build_red");
+    let plan = lane.plan(&red).await.unwrap();
+    let w = &plan.writes[0];
+    assert_eq!(
+        w.key,
+        format!("self_build:{}", red.correlation_id),
+        "both kinds post under the one key prefix"
+    );
+    assert_ne!(red.correlation_id, green.correlation_id, "two builds");
+    assert_eq!(plan.extra["item"], "trim-the-sails");
+    assert!(
+        w.ping,
+        "a red build is TaskFailed, and failures are not silenced here: \
+         swapping the two arms reds this and the line above together"
+    );
+}
+
+/// The operator's DM: the branch the live daemon actually takes, and the one
+/// whose `extra` must carry **both** halves - the `place` the operator lane
+/// names because it has none of its own, and the `item` the post is about.
+/// Nothing asserted that the `item` mutation leaves `place` standing.
+#[tokio::test]
+async fn a_self_build_post_to_the_operator_names_its_place_and_its_item() {
+    use theseus_core::config::discord::Category;
+    let d = tempfile::tempdir().unwrap();
+    let fake = FakeDiscord::start();
+    let mut lane = lane_silent(
+        d.path(),
+        &fake,
+        (OPERATOR_TARGET, "operator", None),
+        true,
+        vec![Category::Reports],
+    );
+    let a = lane
+        .shared
+        .core
+        .outbox
+        .to_operator(Some("sess_self"), self_build_body("self_build_red"))
+        .unwrap();
+    let plan = lane.plan(&a).await.unwrap();
+    assert_eq!(plan.writes.len(), 1);
+    let w = &plan.writes[0];
+    assert_eq!(w.channel, DM, "where approvals go");
+    assert_eq!(w.key, format!("self_build:{}", a.correlation_id));
+    assert_eq!(
+        w.content,
+        "Trim the sails ended red in suite (exit 101, 467 s)."
+    );
+    assert_eq!(
+        plan.extra["place"], "the owner",
+        "the operator lane names the DM it went to, as its siblings do"
+    );
+    assert_eq!(
+        plan.extra["item"], "trim-the-sails",
+        "and the item, beside it: neither overwrites the other"
+    );
+    assert!(w.ping, "a red build pings where reports are silent");
+}

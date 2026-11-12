@@ -424,9 +424,29 @@ async fn a_halt_between_phases_stops_it_and_the_row_says_where() {
     assert_eq!(upstream_refs(&r.f), "refs/heads/main");
 }
 
+/// A DM is bound here because the card is a post on the operator's lane and
+/// that lane is the owner's DM (theseus-1eemp): the card is guarded on
+/// `owner_dm_bound`, as `stage_self_digest` and `told_where_it_reports` are,
+/// so a rig with no DM has nowhere to put it. The headless half is the test
+/// below, which asserts the mark holds the branch without one. Before the
+/// guard this test bound nothing and still saw a card - the post was staged
+/// against a lane that would never resolve it.
+fn bind_the_owners_dm(r: &Rig) {
+    r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: "discord:dm:7".into(),
+            name: "DM".into(),
+            private: true,
+            ..Default::default()
+        });
+}
+
 #[tokio::test]
 async fn a_keel_finding_stops_at_the_owners_card_and_is_never_retried() {
     let r = rig(SelfMode::Act, Some("origin"));
+    bind_the_owners_dm(&r);
     let sid = r.session("self");
     r.open_and_edit(&sid, "keel.txt").await;
     let said = r.turn(&sid, WIRE, propose()).await;
@@ -445,6 +465,53 @@ async fn a_keel_finding_stops_at_the_owners_card_and_is_never_retried() {
     let said = r.turn(&sid, WIRE, propose()).await;
     assert!(said.contains("waits for the owner"), "{said}");
     assert_eq!(r.rows().len(), 1, "no attempt around it");
+}
+
+/// A headless daemon stages no keel card, and the branch is held anyway
+/// (theseus-1eemp). The card goes to the operator's lane, which is the owner's
+/// DM, so with none bound it has nowhere to be delivered - and it would not be
+/// refused either, because `Outbox::refuse_unbound` exempts `OPERATOR_TARGET`
+/// by name, so it would **pend** against a place that never resolves: neither
+/// delivered nor failed, and counted in nothing.
+///
+/// **What must NOT be read into this test:** the guard is on the card, not on
+/// the stop. The mark is written before it and unconditionally, so the second
+/// attempt below is refused here exactly as it is with a DM bound. Losing the
+/// card must not become losing the hold.
+#[tokio::test]
+async fn with_no_dm_bound_a_keel_finding_stages_no_card_and_still_holds_the_branch() {
+    let r = rig(SelfMode::Act, Some("origin"));
+    assert!(
+        !r.core.runner.place_rule.owner_dm_bound(),
+        "the headless shape this test is for"
+    );
+    let sid = r.session("self");
+    r.open_and_edit(&sid, "keel.txt").await;
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(said.contains("stopped at the keel"), "{said}");
+    assert!(
+        said.contains("no DM is bound"),
+        "the result says why there is no card: {said}"
+    );
+    assert_eq!(
+        crate::tests_day_ceiling::posts(&r.core, "self_keel").len(),
+        0,
+        "a card was staged against a lane with no DM behind it"
+    );
+    assert!(
+        crate::outbox::OPERATOR_KINDS.contains(&"self_keel"),
+        "the vacuity guard: a kind nothing stages would pass the count above"
+    );
+
+    // The hold is the mark, not the card: the keel still stops the retry.
+    let rows = r.rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["gate"], "keel");
+    assert_eq!(rows[0]["stopped_at"], "push");
+    assert_eq!(upstream_refs(&r.f), "refs/heads/main", "nothing was pushed");
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(said.contains("waits for the owner"), "{said}");
+    assert_eq!(r.rows().len(), 1, "no attempt around it, card or no card");
 }
 
 /// A red build on the three surfaces the owner looks at (theseus-1eemp). The

@@ -714,6 +714,17 @@ pub(crate) fn keel_text(branch: &str, item: &str, report: &str) -> String {
 
 /// The keel stopped it: its mark, so nothing retries around it, and the
 /// owner's card.
+///
+/// **The mark is unconditional and the card is guarded** (theseus-1eemp). The
+/// mark is what stops the next attempt, so it is written whatever the daemon
+/// looks like; the card is a post on the operator's lane, and that lane is the
+/// owner's DM, so with no DM bound it has nowhere to be delivered. It would
+/// not be refused either: `Outbox::refuse_unbound` exempts `OPERATOR_TARGET`
+/// by name (`outbox.rs:1017`), so an unguarded card **pends** against a place
+/// that will never resolve - a post that is neither delivered nor failed, and
+/// so counted in nothing. The same guard the rest of the self loop already
+/// takes (`backlog::start::stage_self_digest`, `told_where_it_reports`, and
+/// `folded_add_ended` on the note) is the one taken here.
 fn keel(
     core: &Core,
     place: &Place,
@@ -722,6 +733,15 @@ fn keel(
 ) -> Result<(String, Value), String> {
     a.stopped_at = Some(PUSH);
     let _ = std::fs::write(keel_mark(place, &a.tree), &a.tree.branch);
+    if !core.runner.place_rule.owner_dm_bound() {
+        // Nothing retries around it either way: the mark above is written
+        // first and is what holds the branch.
+        return Ok(said(
+            a,
+            "It stopped at the keel and waits for the owner's word; no DM is \
+             bound, so no card was posted.",
+        ));
+    }
     let text = keel_text(
         &a.tree.branch,
         &a.i.item,
