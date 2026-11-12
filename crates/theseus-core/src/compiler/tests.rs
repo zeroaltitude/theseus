@@ -328,6 +328,47 @@ fn opus_reads_sonnets_thinking_across_a_first_party_switch_and_not_the_reverse()
     assert_eq!(kept(&back), 1);
 }
 
+/// A cassette of a response as the Messages API documents it: a signed
+/// `thinking` block, a `redacted_thinking` block with opaque data, then text.
+/// Hand-written to the documented shape, NOT a live recording (theseus-9bggi:
+/// no API key in the VM that built it); the bytes are odd on purpose.
+fn cassette_blocks() -> Vec<Value> {
+    vec![
+        json!({"type": "thinking", "thinking": "step one", "signature": "EqQBCkYIAxgC+/=="}),
+        json!({"type": "redacted_thinking", "data": "EmwKAhgBEgy3va3pzix/LafPsn4aDFIT90cYlmL9\n+/AA=="}),
+        json!({"type": "text", "text": "done"}),
+    ]
+}
+
+#[test]
+fn a_redacted_thinking_block_goes_back_verbatim_and_strips_with_the_rest() {
+    let nodes = vec![
+        (1, Node::user("s", None, "web", "hi")),
+        (2, assistant(cassette_blocks())),
+        (3, Node::user("s", None, "web", "again")),
+    ];
+    let sp = spec("claude-opus-5", "A");
+    let c1 = run(&nodes[..1], None, &sp, 1);
+    // Append: the next request carries the answer's blocks byte for byte.
+    let c2 = run(&nodes, Some(&c1.compilation), &sp, 3);
+    assert_eq!(c2.decision(), "append");
+    assert_eq!(
+        c2.request.messages[1]["content"],
+        Value::Array(cassette_blocks())
+    );
+    // A system change recompiles and strips both kinds, keeping the text.
+    let c3 = run(
+        &nodes,
+        Some(&c1.compilation),
+        &spec("claude-opus-5", "B"),
+        3,
+    );
+    assert_eq!(
+        c3.request.messages[1]["content"],
+        json!([{"type": "text", "text": "done"}])
+    );
+}
+
 /// An assistant message another provider wrote: GLM's, with z.ai's
 /// signature, as the history a turn on Anthropic replays (theseus-kol).
 fn glm_said(blocks: Vec<Value>) -> Node {
