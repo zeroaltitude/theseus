@@ -67,6 +67,7 @@ pub mod mcp_server;
 pub mod memory;
 pub mod modes;
 mod nodes;
+pub mod narrative_watch;
 pub mod notice;
 pub mod notices;
 pub mod nudge;
