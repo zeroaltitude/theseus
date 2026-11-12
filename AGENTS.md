@@ -186,6 +186,10 @@ Each traces to the Part III item that taught it.
   A lane pushes only its own branch. The reviewer merges it once reviewed, one lane at a time and never while a
   spine step works on `main`: a plain merge, never a rebase (`docs/development.md`, "Joins"), `Cargo.lock`
   regenerated, the whole gate, `main` fast-forwarded, and the branch and worktree deleted.
+- **Before the first push.** Run the private range scrubber named in the shift brief over the branch range and read its
+  output **before** publishing any ref: its first argument is the HEAD ref and its second is the base. Reversing those
+  arguments scans nothing and exits 3; that is not a pass. A later gate scrub can catch a leak but cannot make an
+  already-published object private: deleting a branch makes it unreachable, not unpublished.
 - **The gate before every commit.** A lane: `THESEUS_GATE_NO_BENCH=1 scripts/gate.sh && git commit …`. The chain's
   gate on `main`: `scripts/gate.sh && …`, with its benches. The gate takes the shared lock itself, so never wrap it in
   `flock` or `theseus-quiet.sh`. Chain with `&&`, never `;`. Its first phases need no build: the door (when this
