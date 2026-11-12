@@ -82,7 +82,10 @@ async fn the_loop_that_asks_the_budget_question_writes_its_loop_ended_row() {
         ended[1],
         json!({
             "loop": 1,
-            "outcome": {"loop_index": 1, "provider_stop_reason": null, "tool_calls": 0, "output_chars": 0},
+            // `repeats` is `LoopOutcome`'s repeat count (p5kln-p0-unbounded-hold):
+            // 0 for a loop that counts nothing, as a budget-ended loop does.
+            "outcome": {"loop_index": 1, "provider_stop_reason": null, "tool_calls": 0,
+                        "output_chars": 0, "repeats": 0},
             "advancer": "budget",
             "decision": {"decision": "budget"},
             "usage": {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
