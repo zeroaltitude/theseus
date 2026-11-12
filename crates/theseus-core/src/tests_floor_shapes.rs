@@ -393,14 +393,33 @@ async fn a_wrapper_does_not_hide_a_floored_program() {
 /// program position, so `for b in theseus theseusd theseus-index` is no longer
 /// held and has moved to the not-held block below with its measurement.
 /// `a_shell_keyword_hides_no_program` owns that case and both directions of
-/// it. **The other seventeen of this repository's own 24 `scripts/` lines are
+/// it. **The other eighteen of this repository's own 23 `scripts/` lines are
 /// not reachable that way** — they are `<cmd> [flag…] theseusd` operands
 /// (`cargo build -p theseusd`, `journalctl -u theseusd`, `command -v op`) and
 /// bare words at position 1 of an ordinary program (`grep theseusd <log>`,
 /// `pkill theseusd`) — and nothing tells those from `nohup op item get`
 /// without knowing what `nohup` is, which is the list this floor refuses to
-/// keep. The honest size of the trade is **18 of 24** and it is written where
-/// the cost is, in `runs_program`.
+/// keep.
+///
+/// **The honest size of the trade is `18 of 23`**, measured on two trees
+/// rather than estimated — and the corpus is **23 cases, not the `24` that
+/// three reports in this family carried**: that `24` was a hardcoded literal
+/// in the measuring harness's own `eprintln!`, which is how a wrong
+/// denominator survived being measured. Counting the harness's own cases
+/// gives 23.
+///
+/// **And `18 of 23` is not the whole bill, because that corpus is blind to
+/// the class this row's own change creates.** On the 24 cluster shapes the
+/// change newly reads the over-hold goes **`1` held → `19`, so `+18`** —
+/// eight from the getopt half, of which `journalctl -eu theseusd -f` is the
+/// sharp one (`-eu` is the standard idiom and `theseusd` is the owner's own
+/// unit), and ten from dropping `E`/`S` (`grep -E theseusd`,
+/// `sed -E theseusd`, `ssh -S theseusd`, `perl -E theseusd`, …).
+/// **Across both corpora — 46 distinct cases, one shared — the figure is
+/// `36 of 46`: `19` held → `36`, `+17`, bought with twelve live
+/// `fails_open=true` paths to the credential tool closed. `36 of 46` is the
+/// figure a later floor row must reason from**, and it is written where the
+/// cost is, in `runs_program`.
 #[tokio::test]
 async fn a_word_list_naming_a_floored_program_is_held() {
     let r = own_files(Posture::Open, |_, _, _| vec![]);
@@ -447,9 +466,12 @@ async fn a_word_list_naming_a_floored_program_is_held() {
 /// the cluster's LAST character for the next word to be the flag's) and keys
 /// on [`PROGRAM_HIDING_LETTERS`] rather than every code letter.
 ///
-/// **The accepted cost is the last block and it is one shape**, stated here
-/// rather than discovered later: a one-word ERE whose pattern IS a floored
-/// program name now waits for a yes.
+/// **The accepted cost is one shape and it is no longer in this test**: every
+/// block below is held-and-must-be, and the clippy-driven split at `4c61f336`
+/// moved the cost to `the_letters_the_program_key_drops_cost_one_shape`, which
+/// owns it in full and in one place. It is stated there rather than discovered
+/// later: a one-word ERE whose pattern IS a floored program name now waits for
+/// a yes.
 #[tokio::test]
 async fn a_code_cluster_wrapper_does_not_hide_a_floored_program() {
     let r = own_files(Posture::Open, |_, _, _| vec![]);
@@ -632,7 +654,8 @@ async fn the_letters_the_program_key_drops_cost_one_shape() {
 /// **A reserved word hides no program, and the half nobody priced is the
 /// hole.** The previous row proposed `for`/`in`/`case` as a sharper rule and
 /// left it as a line for want of a measurement. The measurement is: it retires
-/// **one** of the eighteen `scripts/` lines the position match holds, and a
+/// **one** of the nineteen `scripts/` lines the position match holds — leaving
+/// the eighteen `a_word_list_naming_a_floored_program_is_held` prices — and a
 /// list that reached one word further would hand the vault away.
 ///
 /// `shell_argvs("for i in 1; do op item get --reveal; done")` really derives
@@ -951,8 +974,8 @@ async fn an_ordinary_command_still_runs_with_nothing_asked() {
         // socket far more often than it is `env`'s split.
         //
         // ⚠ MOVED, NOT DELETED — `grep -E 'theseusd' <file>` lived here and
-        // now lives in `a_code_cluster_wrapper_does_not_hide_a_floored_program`'s
-        // last block, asserted HELD and pinned both ways. It is the one case
+        // now lives in `the_letters_the_program_key_drops_cost_one_shape`,
+        // asserted HELD and pinned both ways. It is the one case
         // in this tree that the program-position key's narrowing to
         // `PROGRAM_HIDING_LETTERS` flips, and it was flipped on purpose and
         // against measurement: it is the whole price of holding `sudo -E op
