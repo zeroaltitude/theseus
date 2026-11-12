@@ -28,7 +28,7 @@ use std::path::Path;
 use serde_json::Value;
 use theseus_protocol::method;
 
-use super::dock::{menu_window, MENU_ROWS};
+use super::dock::menu_window;
 use super::state::{call, Chat, Effect, Purpose};
 use super::style::{one, Line, Sty};
 
@@ -503,11 +503,16 @@ impl Chat {
         }
     }
 
-    /// The rows under the input while the word at the cursor is an `@word`.
-    pub(super) fn at_rows(&self) -> Vec<Line> {
+    /// The rows under the input while the word at the cursor is an `@word`,
+    /// in the `rows` the pane leaves them (theseus-nuqut): with none the
+    /// picker shows nothing rather than pushing the input off the pane.
+    pub(super) fn at_rows(&self, rows: usize) -> Vec<Line> {
         let Some(q) = self.at_query() else {
             return Vec::new();
         };
+        if rows == 0 {
+            return Vec::new();
+        }
         match &self.at.load {
             Load::Unasked | Load::Roots | Load::Walking => {
                 vec![one(Sty::Dim, "  reading the files…")]
@@ -518,7 +523,12 @@ impl Chat {
                 if m.is_empty() {
                     return vec![one(Sty::Dim, format!("  no file matches @{q}"))];
                 }
-                let (first, shown) = menu_window(m.len(), self.at.sel);
+                // The `… more` row under the list takes one of them.
+                let (first, shown) = menu_window(
+                    m.len(),
+                    self.at.sel,
+                    rows.saturating_sub(usize::from(ix.truncated)),
+                );
                 let sel = self.at.sel.min(m.len() - 1);
                 let mut rows: Vec<Line> = m
                     .iter()
@@ -532,7 +542,7 @@ impl Chat {
                         )
                     })
                     .collect();
-                if m.len() > MENU_ROWS || ix.truncated {
+                if m.len() > shown || ix.truncated {
                     let cut = if ix.truncated {
                         format!(" · the list stops at {MAX_FILES} files")
                     } else {
@@ -542,7 +552,7 @@ impl Chat {
                         Sty::Dim,
                         format!(
                             "  {} more · ↑/↓ scroll · tab picks · esc closes{cut}",
-                            m.len().saturating_sub(MENU_ROWS)
+                            m.len().saturating_sub(shown)
                         ),
                     ));
                 }
