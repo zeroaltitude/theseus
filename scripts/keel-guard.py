@@ -48,7 +48,12 @@ The rules, by the name the report and the ack use:
                   to assert.ok; one that compared with a bool or None is not), a constant bound loosened (raised on the
                   upper side of < or <=, lowered on the lower side; a Duration's or a tolerance's number too; Python's
                   assertLess/assertGreater), an assertion made vacuous (assert!(true)), commented out, or its line
-                  made a discard (let _ =, _ =, void).
+                  made a discard (let _ =, _ =, void). In Rust this rule ALSO reads a fn that is no test but holds
+                  a wait's deadline assertion (`assert!(t0.elapsed() < Duration::from_secs(20), …)`) in a test
+                  file or a test module — the shared `until_*`/`wait_for*` helpers, whose bound is the timeout of
+                  every test that calls them (theseus-4vsrz). Only that rule sees them: such a helper deleted,
+                  renamed, or shorn of an assertion is no finding, since widening test-removed/assert-removed to
+                  every shared helper would fire on ordinary refactors.
   allow-added     a #[allow(...)], #![allow(...)] or #[expect(...)] (an expect silences a lint as an allow does:
                   the shape budget's marks) added for a lint on an item that had none, counted per lint and item
                   across the changed files, so a moved item keeps its marks; a lint level lowered or removed in a
@@ -367,8 +372,29 @@ def is_ignore_attr(attr):
     return body.startswith("ignore") or (body.startswith("cfg_attr") and re.search(r"\bignore\b", body) is not None)
 
 
+def wait_guard(code):
+    """Whether a fn that carries no test attribute still guards a wait with a deadline assertion —
+    `assert!(t0.elapsed() < Duration::from_secs(20), …)`, the shape of the shared `until_*`/`wait_for*` helpers
+    (theseus-4vsrz). Such a helper's bound IS the timeout of every test that calls it, so a raise in it is an
+    erosion of the same kind as a raise inside the test, and `assert-weakened` has to see it. The predicate is
+    deliberately narrow: an assertion naming `elapsed(` with a spaced comparison in its first argument. A fn with
+    no such assertion is kept out entirely, which is what keeps this from firing on ordinary helper edits."""
+    for m in CALLS["rs"].finditer(code):
+        end = scan_to(code, m.end() - 1, QUOTES["rs"])
+        args = code[m.end():end - 1]
+        if "elapsed(" in args and CMP_OP.search(args):
+            return True
+    return False
+
+
 def parse_rust(src):
-    """Tests (key -> dict) and allow marks ([(lint, item, line, text)]) of one Rust file."""
+    """Tests (key -> dict) and allow marks ([(lint, item, line, text)]) of one Rust file.
+
+    A fn with no test attribute is kept too, marked `"helper": True`; the rules read that mark and give a helper
+    the weakened-assertion rule alone, and only where `wait_guard` holds of its body AT THE BASE (tests_rule).
+    Everything a test entry is used for — test-removed, test-ignored, assert-removed, the renamed-and-rewritten
+    pairing — sees the same set it saw before.
+    """
     tests, marks = {}, []
     stack = []  # ("mod", name) | ("test", info) | ("other",)
     pending = []  # attributes before the next item
@@ -395,10 +421,8 @@ def parse_rust(src):
             continue  # a comment, a string or a char
         if m.group("fn"):
             attrs = [a for a, _ in pending]
-            if any(is_test_attr(a) for a in attrs):
-                pending_fn = (m.group("fn"), attrs, pending[0][1] if pending else m.start(), m.start())
-            else:
-                pending_fn = None
+            is_test = any(is_test_attr(a) for a in attrs)
+            pending_fn = (m.group("fn"), attrs, pending[0][1] if pending else m.start(), m.start(), not is_test)
             continue
         if m.group("mod"):
             pending.clear()
@@ -417,11 +441,20 @@ def parse_rust(src):
             if stack:
                 top = stack.pop()
                 if top[0] == "test":
-                    (name, attrs, astart, fstart), _ = top[1], top[2]
+                    (name, attrs, astart, fstart, helper), _ = top[1], top[2]
                     mods = [s[1] for s in stack if s[0] == "mod"]
                     key = "::".join(mods + [name])
                     body = src[fstart:m.end()]
                     code = strip_rs_comments(body)
+                    # A helper never displaces a test of the same key, and never replaces a helper already kept:
+                    # a test entry is the stronger one, and first-wins is the same choice on both sides of the
+                    # range, so a pairing cannot be made by the order a file happens to be written in.
+                    # Which helpers the RULE then looks at is decided at the base, in tests_rule — not here —
+                    # so that a guard made vacuous or deleted at the head is still compared against the base.
+                    if helper and key in tests:
+                        pending.clear()
+                        pending_fn = None
+                        continue
                     tests[key] = {
                         "name": name,
                         "line": line_of(src, fstart),
@@ -433,6 +466,7 @@ def parse_rust(src):
                         "lang": "rs",
                         "code": code,
                         "raw": body,
+                        "helper": helper,
                     }
             pending.clear()
             pending_fn = None
@@ -617,12 +651,31 @@ def parse_ts(src):
 
 # ---------------------------------------------------------------- the rules
 
+def wait_helper_here(path, key):
+    """Whether a non-test wait guard at `path::key` is a TEST's wait guard, which is the only kind this rule is
+    about: a file the keel already reads as a test file, a fn inside a `tests`/`test_*` module (a `#[cfg(test)]
+    mod tests` in an ordinary source file), or a fn under a NESTED `tests/` directory (theseus-4vsrz, C2): TEST_FILE's
+    `tests/[^/]+\\.rs$` alternative cannot match a path with a `/` inside that slot, so `crates/theseusd/tests/
+    common/fixture.rs` — the `theseusd` integration rig's shared `wait`, ~180 call sites across 33 files — was
+    invisible here. The idiom is the one `cap_code_rule`'s budget-raised exclusion already uses (`"/tests/" not in
+    p`). A production retry loop that happens to assert on `elapsed()` stays out — raising one is a behaviour
+    change for the daemon, which is a different question from eroding a test."""
+    return (bool(TEST_FILE.search(path)) or "/tests/" in path
+            or any(s.startswith("test") for s in key.split("::")[:-1]))
+
+
 def tests_rule(tree, paths, out):
     base_tests, head_tests = {}, {}
+    # The non-test wait guards, kept apart so that nothing a test entry is used for can see them: they get
+    # `weakened_rule` and nothing else (theseus-4vsrz). A helper deleted or shorn of an assertion is NOT a
+    # finding here — that is `test-removed`/`assert-removed` territory and widening those to every shared helper
+    # under crates/ would fire on ordinary refactors, which is the cost that teaches people to ack blind.
+    base_waits, head_waits = {}, {}
     base_marks, head_marks = [], []
     for path in paths:
         rust = path.endswith(".rs")
-        for side, store, marks in (("old", base_tests, base_marks), ("new", head_tests, head_marks)):
+        for side, store, waits, marks in (("old", base_tests, base_waits, base_marks),
+                                          ("new", head_tests, head_waits, head_marks)):
             src = getattr(tree, side)(path)
             if src is None:
                 continue
@@ -631,7 +684,13 @@ def tests_rule(tree, paths, out):
                     continue
                 t = parse_ts(src)
             elif rust:
-                if "#[" not in src and "#![" not in src:
+                # The fast path below skips a file with no attribute at all, which used to be sound: only a
+                # `#[test]`/`#[tokio::test]` fn could ever be recorded. It stops being sound for a wait guard
+                # under a nested `tests/` directory with no attribute anywhere in the file (theseus-4vsrz, C2) —
+                # `crates/theseusd/tests/common/fixture.rs` is exactly this: zero `#[` in the whole file. So the
+                # fast path only fires where `wait_helper_here` (path alone; `key=""` drops its module clause)
+                # also says no helper here could matter.
+                if "#[" not in src and "#![" not in src and not wait_helper_here(path, ""):
                     continue
                 t, mk = parse_rust(src)
                 marks.extend((path,) + x for x in mk)
@@ -641,6 +700,10 @@ def tests_rule(tree, paths, out):
                 t = parse_python(src)
             for k, v in t.items():
                 v["path"] = path
+                if v.pop("helper", False):
+                    if wait_helper_here(path, k):
+                        waits[(path, k)] = v
+                    continue
                 store[(path, k)] = v
     removed = [k for k in base_tests if k not in head_tests]
     added = [k for k in head_tests if k not in base_tests]
@@ -691,6 +754,14 @@ def tests_rule(tree, paths, out):
             out.append(Finding("test-removed", bk[0], b["line"], b["head"], "(gone)"))
         else:
             out.extend(derived)
+    # A shared wait guard is paired by path and name only — never by similarity, never across files. A helper that
+    # moved or was renamed is simply not judged, which loses nothing the keel had before and keeps the rule from
+    # ever naming a file the range did not erode (the guessed_elsewhere lesson, one rule up).
+    # Judged on the BASE's shape: a helper that guarded a wait before the range is compared, whatever the head
+    # made of it, so a guard raised, made vacuous, commented out or discarded is all one rule.
+    for k, b in base_waits.items():
+        if k in head_waits and wait_guard(b["code"]):
+            weakened_rule(b, head_waits[k], k[0], out)
     allow_rule(base_marks, head_marks, out)
 
 
