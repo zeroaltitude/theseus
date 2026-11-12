@@ -662,8 +662,15 @@ fn hides_the_next_program(w: &str) -> bool {
 /// Nothing says list-free that `nohup` execs its tail, so rather than keep a
 /// list of wrappers this reads every position a program could occupy and
 /// accepts the over-hold (`a_wrapper_does_not_hide_a_floored_program`):
-/// **18 of 24** of this repository's own `scripts/` lines, pinned by
-/// `a_word_list_naming_a_floored_program_is_held`. Excluding a code flag's
+/// **18 of 23** of this repository's own `scripts/` lines, pinned by
+/// `a_word_list_naming_a_floored_program_is_held`. **`23`, not the `24` three
+/// reports in this family carried** — that `24` was a hardcoded literal in the
+/// measuring harness's own `eprintln!`, so a wrong denominator survived being
+/// measured. **And that corpus is blind to the class the code-letter
+/// narrowing below creates, where the over-hold goes `1` → `19`, `+18`, so the
+/// whole trade is `36 of 46` across both corpora** (46 distinct cases, one
+/// shared; `19` held → `36`, `+17`) — bought with twelve live
+/// `fails_open=true` paths to the credential tool closed. Excluding a code flag's
 /// argument keeps that trade from growing (`grep -c theseusd <log>` is a
 /// pattern, four of round 2's seven false positives), but **which flag does
 /// the hiding is [`hides_the_next_program`]'s question, not
