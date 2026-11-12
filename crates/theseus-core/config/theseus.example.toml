@@ -554,6 +554,15 @@ job_pids_max = 4096                     # the most processes and threads one L0 
 outputs_keep_days = 7                   # a kept output is deleted after this many days
 outputs_max_bytes = 2147483648          # past this many bytes in all (2 GiB), the oldest kept outputs are deleted first
 
+# A large payload (theseus-czpp): an output this long or longer is given a guid
+# where it enters and every compile renders one marker line in its place, so a
+# command that prints a megabyte costs a line of the window rather than
+# result_max_chars of head and tail. Nothing puts the bytes back on its own: the
+# marker names the guid, says what the payload is and when it is worth reading,
+# and gives the fs_read that returns it. 0 turns it off; a value under
+# result_max_chars is read as result_max_chars.
+large_payload_chars = 200000            # characters of a whole output that make it a large payload
+
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types
 # are named with their size, not read); web.search asks the Brave Search API.

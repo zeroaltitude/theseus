@@ -129,6 +129,7 @@ fn plant_result(r: &Rig, sid: &str, node: &str, text: &str) -> Node {
             meta: Value::Null,
             image: None,
             external: None,
+            payload: None,
         },
     );
     n.id = node.to_string();
@@ -955,6 +956,7 @@ async fn an_item_with_no_text_is_not_asked() {
                 external: Some(theseus_tools::External {
                     url: "https://example.com/page".into(),
                 }),
+                payload: None,
             },
         )
     };

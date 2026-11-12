@@ -89,6 +89,7 @@ fn result(id: &str, content: String, late: bool) -> Node {
             meta: json!({}),
             image: None,
             external: None,
+            payload: None,
         },
     )
 }

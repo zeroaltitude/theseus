@@ -7,11 +7,30 @@
 //! tool with a cap of its own (`fs.read`, `Tool::result_max_chars`) is cut to
 //! a contiguous head at its last whole line, never head and tail. Every other
 //! result keeps its head and tail, as before.
+//!
+//! This is also where a **large payload** is flagged (theseus-czpp): an
+//! output of `[tools] large_payload_chars` characters or more, whose whole
+//! bytes the keep above has just saved, is given a guid here and recorded on
+//! the result ([`crate::payload::Marked`]), and every compile then renders
+//! its marker in place of the capped text. The flag is at ingest and nowhere
+//! else: the compile reads the record and decides nothing.
 
 use theseus_tools::REST_NARROWER;
 
 use super::{cap, ResultNode, ToolRuntime};
 use crate::narrative;
+use crate::payload::Marked;
+
+/// What the cap made of a result's text: what the model sees, whether it was
+/// cut, the file its whole output was kept in, and the large payload it is
+/// when its whole output passed `[tools] large_payload_chars`.
+#[derive(Debug, Default)]
+pub(super) struct Capped {
+    pub content: String,
+    pub truncated: bool,
+    pub full_ref: Option<String>,
+    pub payload: Option<Box<Marked>>,
+}
 
 /// Where the output in a result's text is, and what it was read from: the
 /// output is the text's last `from_end` bytes but its last `after` (a batch's
@@ -29,22 +48,22 @@ pub(super) struct Source {
 const READ_LINES: usize = 2000;
 
 impl ToolRuntime {
-    /// `text`, `r`'s text, capped: the content, whether it was cut, and the
-    /// file it names when the whole output was kept.
-    pub(super) fn capped(
-        &self,
-        session_id: &str,
-        r: &ResultNode<'_>,
-        text: &str,
-    ) -> (String, bool, Option<String>) {
+    /// `text`, `r`'s text, capped: the content, whether it was cut, the
+    /// file it names when the whole output was kept, and the large payload
+    /// it is when that whole output passed `[tools] large_payload_chars`.
+    pub(super) fn capped(&self, session_id: &str, r: &ResultNode<'_>, text: &str) -> Capped {
         let tool = self.tool(r.tool);
         let rest = |left: &str| {
             tool.as_ref()
                 .map_or_else(|| REST_NARROWER.into(), |t| t.rest(left))
         };
         if let Some(max) = tool.as_ref().and_then(|t| t.result_max_chars()) {
-            let (c, t) = head(text, max, rest);
-            return (c, t, None);
+            let (content, truncated) = head(text, max, rest);
+            return Capped {
+                content,
+                truncated,
+                ..Capped::default()
+            };
         }
         let max = self.result_max_chars;
         let source = r.kept.clone().or_else(|| {
@@ -54,27 +73,64 @@ impl ToolRuntime {
             })
         });
         let Some(source) = source.filter(|_| text.chars().count() > max && max >= 64) else {
-            let (c, t) = cap(text, max, rest);
-            return (c, t, None);
+            let (content, truncated) = cap(text, max, rest);
+            return Capped {
+                content,
+                truncated,
+                ..Capped::default()
+            };
         };
         let span = output_span(&r.text, &source);
         match self.keep(session_id, r.tool_use_id, &source, span.as_ref(), text) {
             Ok((path, before)) => {
-                let (c, t) = cap(text, max, |left| {
+                let (content, truncated) = cap(text, max, |left| {
                     // `left` is a part of `text`: where it starts.
                     let at = left.as_ptr() as usize - text.as_ptr() as usize;
                     words(&path, span.as_ref(), text, at, left, before)
                 });
-                (c, t, Some(path))
+                let payload = self.large(r.tool, text, span.as_ref(), max, &path);
+                Capped {
+                    content,
+                    truncated,
+                    full_ref: Some(path),
+                    payload,
+                }
             }
             Err(e) => {
                 tracing::warn!(error = %e, tool = r.tool, "a capped result's whole output was not kept");
-                let (c, t) = cap(text, max, |left| {
+                let (content, truncated) = cap(text, max, |left| {
                     format!("its whole output was not kept ({e}): {}", rest(left))
                 });
-                (c, t, None)
+                Capped {
+                    content,
+                    truncated,
+                    ..Capped::default()
+                }
             }
         }
+    }
+
+    /// The large payload `text` is, or None (theseus-czpp). The line is
+    /// `[tools] large_payload_chars`, never under the result cap: a payload
+    /// the cap did not cut has nothing kept to rehydrate from, and this is
+    /// only reached once the keep above has succeeded. The payload's own
+    /// text is the output within the result (`span`), so a result's header
+    /// is no part of what the marker quotes.
+    fn large(
+        &self,
+        tool: &str,
+        text: &str,
+        span: Option<&std::ops::Range<usize>>,
+        max: usize,
+        path: &str,
+    ) -> Option<Box<Marked>> {
+        let line = self.large_payload_chars;
+        if line == 0 {
+            return None;
+        }
+        let whole = span.map_or(text, |s| &text[s.clone()]);
+        (whole.chars().count() >= line.max(max))
+            .then(|| Box::new(Marked::of(tool, whole, path)))
     }
 
     /// The whole output kept: the job's raw file, or the result's own

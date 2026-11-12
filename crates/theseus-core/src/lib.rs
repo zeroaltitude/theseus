@@ -97,6 +97,7 @@ mod pace;
 pub mod pacer;
 pub mod pack_names;
 pub mod parked;
+pub mod payload;
 pub mod peer;
 pub mod peer_proc;
 pub mod persona;
@@ -502,6 +503,8 @@ mod tests_outside_text;
 mod tests_overflow;
 #[cfg(test)]
 mod tests_owner_note;
+#[cfg(test)]
+mod tests_payload;
 #[cfg(test)]
 mod tests_people_proposals;
 #[cfg(test)]

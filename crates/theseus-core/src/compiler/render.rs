@@ -29,10 +29,17 @@ fn tool_result_block(r: &Node, media: &Media, spend: &mut crate::attach::Spend) 
             content,
             is_error,
             image,
+            payload,
             ..
         } => {
             if *is_error {
                 json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": true})
+            } else if let Some(p) = payload {
+                // A large payload is held out of the request and read back by
+                // hand: its marker, never its bytes (theseus-czpp). It is
+                // ahead of the image arm because a result with both has no
+                // image worth sending beside a payload it is not sending.
+                json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": p.line()})
             } else if let Some(img) = image {
                 // An image the tool returned (theseus-9g2), or a PDF's pages
                 // (theseus-c9l6).

@@ -99,6 +99,7 @@ pub fn is_outside(node: &Node) -> bool {
         &node.body,
         Body::ToolResult {
             external: Some(_),
+            payload: None,
             ..
         }
     )
@@ -118,6 +119,7 @@ pub fn first(nodes: &[Node]) -> Option<Outside> {
     nodes.iter().find_map(|n| match &n.body {
         Body::ToolResult {
             external: Some(e),
+            payload: None,
             tool,
             ..
         } => Some(Outside {
@@ -163,6 +165,7 @@ mod tests {
                 meta: serde_json::Value::Null,
                 image: None,
                 external: url.map(|u| theseus_tools::External { url: u.into() }),
+                payload: None,
             },
         );
         n.id = id.into();

@@ -1397,6 +1397,7 @@ async fn rows_stored_with_the_old_denied_names_still_decode() {
             meta: Value::Null,
             image: None,
             external: None,
+            payload: None,
         },
     );
     let mut old = serde_json::to_value(&n).unwrap();

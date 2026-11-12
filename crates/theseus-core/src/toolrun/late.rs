@@ -565,6 +565,7 @@ pub(crate) fn not_run_results(
                 meta,
                 image: None,
                 external: None,
+                payload: None,
             },
         );
         out.push(node.record()?);

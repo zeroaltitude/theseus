@@ -122,6 +122,7 @@ fn add_turn(c: &Core, sid: &str, n: usize) {
                 meta: Value::Null,
                 image: None,
                 external: None,
+                payload: None,
             },
         );
         recs.extend([

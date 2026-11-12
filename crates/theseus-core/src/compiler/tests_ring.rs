@@ -90,6 +90,7 @@ pub(super) fn result(id: &str, content: &str) -> Node {
             meta: json!({}),
             image: None,
             external: None,
+            payload: None,
         },
     )
 }

@@ -97,6 +97,7 @@ fn result(id: &str, content: &str, status: ResultStatus, late: bool) -> Node {
             meta: json!({"exit_code": 0}),
             image: None,
             external: None,
+            payload: None,
         },
     )
 }

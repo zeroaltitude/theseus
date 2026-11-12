@@ -231,6 +231,9 @@ pub struct ToolRuntime {
     pub launcher: Arc<dyn JobLauncher>,
     pub notify_socket: Option<PathBuf>,
     pub result_max_chars: usize,
+    /// `[tools] large_payload_chars`: an output this long is a large payload,
+    /// compiled out to a marker (theseus-czpp). 0 is off.
+    pub large_payload_chars: usize,
     pub proc_sync_secs: u64,
     /// The longest one `job_wait` waits (`[tools] job_wait_max_secs`).
     pub job_wait_max_secs: u64,
@@ -478,6 +481,7 @@ impl ToolRuntime {
             launcher: Arc::new(InlineLauncher),
             notify_socket: None,
             result_max_chars: 30_000,
+            large_payload_chars: crate::config::default_large_payload_chars(),
             proc_sync_secs: 60,
             job_wait_max_secs: crate::config::default_job_wait_max_secs(),
             parallel_runs: crate::config::default_parallel_runs(),
@@ -761,7 +765,14 @@ impl ToolRuntime {
     ) -> Node {
         let r = self.fit_noted(r);
         // What the cap leaves out: kept, or the tool's to say (theseus-v73m).
-        let (content, truncated, full_ref) = self.capped(session_id, &r, &r.text);
+        // A whole output past `[tools] large_payload_chars` is also flagged
+        // as a large payload here, where it enters (theseus-czpp).
+        let kept::Capped {
+            content,
+            truncated,
+            full_ref,
+            payload,
+        } = self.capped(session_id, &r, &r.text);
         // A job of the daemon's own CLI names the native call that does it,
         // after the cap so no cut takes it (theseus-8c8s).
         let content = match &r.hint {
@@ -794,6 +805,9 @@ impl ToolRuntime {
                 meta: r.meta,
                 image: r.image,
                 external: r.external,
+                // Its whole output is held out of every compile and read
+                // back by hand (theseus-czpp).
+                payload,
             },
         )
     }
@@ -2163,6 +2177,7 @@ pub fn build_runtime(
         launcher,
         notify_socket,
         result_max_chars: t.result_max_chars,
+        large_payload_chars: t.large_payload_chars,
         proc_sync_secs: t.proc_sync_secs,
         job_wait_max_secs: t.job_wait_max_secs,
         reads: Default::default(),

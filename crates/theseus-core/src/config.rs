@@ -526,6 +526,16 @@ pub struct ToolsConfig {
     pub outputs_keep_days: u64,
     #[serde(default = "outputs::max_bytes")]
     pub outputs_max_bytes: u64,
+    /// A tool output this many characters or longer is a **large payload**
+    /// (theseus-czpp): it is given a guid where it enters, its bytes stay in
+    /// `<state>/outputs/`, and every compile renders one marker line in its
+    /// place instead of `result_max_chars` of head and tail. Nothing puts
+    /// the bytes back on its own; the marker says how to read them. 0 turns
+    /// it off, and anything under `result_max_chars` is read as
+    /// `result_max_chars` (a payload the cap does not cut has nothing kept
+    /// to rehydrate from).
+    #[serde(default = "default_large_payload_chars")]
+    pub large_payload_chars: usize,
     /// Each L0 job's cgroup's `pids.max` (theseus-a5nv), where the daemon's
     /// cgroup is delegated: its processes and threads at once. 0: no cap.
     #[serde(default = "default_job_pids_max")]
@@ -581,6 +591,13 @@ fn default_proc_timeout_max_secs() -> u64 {
 }
 fn default_job_output_max_bytes() -> u64 {
     theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES
+}
+/// 200,000 characters: about 50,000 tokens, far more than any ordinary
+/// result and more than six times the result cap, so a build's or a test
+/// run's usual output is untouched and the megabyte dumps that moved this
+/// row are not (theseus-czpp).
+pub fn default_large_payload_chars() -> usize {
+    200_000
 }
 fn default_job_pids_max() -> u64 {
     theseus_kernel::cgroup::DEFAULT_PIDS_MAX
@@ -659,6 +676,7 @@ impl Default for ToolsConfig {
             job_pids_max: default_job_pids_max(),
             outputs_keep_days: outputs::keep_days(),
             outputs_max_bytes: outputs::max_bytes(),
+            large_payload_chars: default_large_payload_chars(),
             web: WebToolsConfig::default(),
             term: term::TermToolsConfig::default(),
             defer: defer::DeferConfig::default(),

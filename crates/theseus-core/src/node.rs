@@ -238,6 +238,15 @@ pub enum Body {
         /// without the operator's confirmation (§5.2).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         external: Option<theseus_tools::External>,
+        /// Its whole output passed `[tools] large_payload_chars`, so every
+        /// compile renders this marker in the payload's place and nothing
+        /// puts the bytes back on its own (theseus-czpp; store format 59).
+        /// `full_ref` names the same file; this is the payload's own record,
+        /// and `None` on every result of an older store. Boxed, as the gate
+        /// record is: a payload is rare and the variant is the enum's
+        /// largest (`clippy::large_enum_variant`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        payload: Option<Box<crate::payload::Marked>>,
     },
     /// What recall put in front of the model (M6 step 30b, §2.8): references
     /// to its sources, never copies. It renders after the turn's new message,

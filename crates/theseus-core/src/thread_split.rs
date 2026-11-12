@@ -527,6 +527,7 @@ mod tests {
                 meta: Value::Null,
                 image: None,
                 external: None,
+                payload: None,
             },
         )
     }

@@ -478,6 +478,7 @@ async fn a_cluster_with_external_text_is_never_synthesized() {
             external: Some(theseus_tools::External {
                 url: "example.invalid/kestrel".into(),
             }),
+            payload: None,
         },
     );
     c.store.append(&[n.record().unwrap()]).unwrap();
