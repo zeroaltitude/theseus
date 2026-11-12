@@ -42,7 +42,7 @@ fn line(n: usize, author: &str, text: &str) -> Line {
 }
 
 /// The extractor's answer: `people` as its tool's input.
-pub(super) fn answer(people: serde_json::Value) -> Scripted {
+pub(crate) fn answer(people: serde_json::Value) -> Scripted {
     Scripted::tools(
         "",
         &[("tu_1", super::extract::TOOL, json!({"people": people}))],
@@ -202,7 +202,7 @@ pub(super) fn import(core: &Core) {
 
 /// People on (and its live gate, people_seen.v1), categorize off, the
 /// owner's name never a person.
-pub(super) fn people_on(c: &mut crate::config::Config) {
+pub(crate) fn people_on(c: &mut crate::config::Config) {
     let on = |mode| JudgePackConfig {
         mode: Some(mode),
         sample: None,
@@ -219,7 +219,7 @@ pub(super) fn people_on(c: &mut crate::config::Config) {
 
 /// Jev's answers: a real person, involved, new, a role line that states a
 /// role; Kestrel is a codename; Orrin is the held Orrin, his line a judgment.
-pub(super) fn script(jev: &FakeJev) {
+pub(crate) fn script(jev: &FakeJev) {
     jev.script("real", Jev::Noul(0.95));
     jev.script("involved", Jev::Noul(0.93));
     jev.script("evaluative", Jev::Noul(0.05));

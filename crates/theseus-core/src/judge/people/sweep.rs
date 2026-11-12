@@ -193,17 +193,23 @@ impl Core {
         out: &mut Swept,
     ) -> anyhow::Result<()> {
         let plan = theseus_store::blocking(|| self.sweep_plan(from_ms, now))?;
-        self.pass_plan(plan, "sweep", cap, out).await
+        // The tender has its own cadence and no client waiting on it, so it
+        // takes no wall-clock deadline: that is the nightly sync's alone.
+        self.pass_plan(plan, "sweep", (cap, None), out).await
     }
 
     /// The due sessions, each passed under the cap, in order: the sweep's
     /// (`purpose` `sweep`) and the nightly sync's. A session whose worst case
-    /// would pass what is left of `cap` is not begun, nor is any after it.
+    /// would pass what is left of `cap` is not begun, nor is any after it;
+    /// nor is any once `deadline` has passed, which is how the nightly sync
+    /// bounds this loop on wall time (theseus-ectzg).
     pub(super) async fn pass_plan(
         &self,
         plan: Vec<Due>,
         purpose: &str,
-        cap: Micros,
+        // `std`'s instant, not `tokio`'s `Instant` above: this is real wall
+        // clock, which a test's paused timer must not move.
+        (cap, deadline): (Micros, Option<std::time::Instant>),
         out: &mut Swept,
     ) -> anyhow::Result<()> {
         out.due = plan.len() as u64;
@@ -225,6 +231,12 @@ impl Core {
             }
             if self.outbox.stopping() {
                 out.stopped = Some(format!("the daemon is stopping, {left} sessions left"));
+                break;
+            }
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+                out.stopped = Some(format!(
+                    "the run passed its wall-clock deadline, {left} sessions left"
+                ));
                 break;
             }
             let request = self.people_request(&target.model, &d.title, &d.lines);
