@@ -672,6 +672,56 @@ async fn when_it_cannot_tell_it_asks_in_one_line_and_the_answer_routes_the_messa
     );
 }
 
+/// A connection that opens after the router asked can still read the question
+/// (`thread.ask_list`, theseus-nuqut): the same ask the push brought, listed
+/// while it waits and gone once it is answered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_late_connection_reads_the_waiting_ask_and_it_leaves_once_answered() {
+    let jev = FakeJev::start().unwrap();
+    thread_answer(&jev, "pr-round", 0.55);
+    let r = rig_on(texts(4), Some(&jev), |c| {
+        inbound_only(c);
+        c.judge.total_secs = 5;
+        c.threads.route_wait_ms = 3000;
+        c.threads.ask_wait_secs = 30;
+    });
+    let c = &r.core;
+    two_threads(c);
+    let dm = home(c, None);
+    let mut w = Wire::open(c);
+    let id = w
+        .send(
+            method::TURN_SUBMIT,
+            params(&dm, "why is the build red in vault", None),
+        )
+        .await;
+    let asked = w.notice("thread.asked").await;
+    let mut late = Wire::open(c);
+    let lid = late.send(method::THREAD_ASK_LIST, Value::Null).await;
+    let listed = late.response(lid).await;
+    let asks = listed["result"]["asks"].as_array().expect("asks").clone();
+    assert_eq!(asks.len(), 1, "{listed}");
+    assert_eq!(asks[0], asked, "the list says what the push said");
+    assert_eq!(asks[0]["session_id"], dm.as_str());
+    assert!(!asks[0]["question"].as_str().unwrap().is_empty());
+    let aid = late
+        .send(
+            method::THREAD_ANSWER,
+            ThreadAnswerParams {
+                ask_id: asked["ask_id"].as_str().unwrap().into(),
+                choice: "2".into(),
+                author: None,
+                discord: None,
+            },
+        )
+        .await;
+    assert_eq!(late.response(aid).await["result"]["routed"], "pr-round");
+    let _ = w.response(id).await;
+    let lid = late.send(method::THREAD_ASK_LIST, Value::Null).await;
+    let after = late.response(lid).await;
+    assert_eq!(after["result"]["asks"].as_array().unwrap().len(), 0, "{after}");
+}
+
 /// Stickiness alone cannot overrule Jev (theseus-eqp1v; the threadbench's
 /// msg-5 shape): right after a thread's reply, a new stream's first message
 /// scores that thread 0.88 from stickiness and the chain alone. Jev dissents,
