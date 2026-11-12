@@ -30,6 +30,51 @@ fn build<'a>(ro: &'a [PathBuf], home: &'a Path) -> SelfBuild<'a> {
     }
 }
 
+/// **The invariant the whole grant rests on: only `self_build_view` grants**
+/// (theseus-1eemp). `Sandbox::job_view` is the single source for both job
+/// families that are not self builds — `proc.run`'s L1 jobs, which clone it
+/// in `for_job`, and every L1 MCP server — so one literal there is the
+/// boundary for both, and nothing but that literal held it before this test.
+/// A merge resolution that carried `self_build::FACILITIES`
+/// onto `job_view` would hand every model-proposed job a pty, the extra
+/// device nodes, the mount calls and an unmasked `/proc`, and the rest of
+/// the suite would stay green. The exam runner is asserted for the same
+/// reason and is the sharpest case of it: its subject is the sealed set the
+/// floor hides.
+///
+/// The grants are spelled out rather than compared against `FACILITIES` on
+/// purpose — the point is to pin the decided value, so that flipping the
+/// constant reds here and must be done deliberately. `visible_proc` is on by
+/// the owner's decision of 2026-11-11 16:32; if the 1.0.6 line finds
+/// `nesting` suffices and takes it back off, this test is the edit that
+/// records it.
+#[test]
+fn only_the_self_build_view_carries_facility_grants() {
+    let sb = sandbox();
+    assert_eq!(
+        sb.job_view().facilities,
+        theseus_sandbox::Facilities::NONE,
+        "an ordinary L1 job (and every L1 MCP server) must be granted nothing"
+    );
+    let view = sb.self_build_view(&build(&[], Path::new("/home/op")));
+    assert_eq!(
+        view.facilities,
+        theseus_sandbox::Facilities {
+            pty: true,
+            devices: true,
+            nesting: true,
+            visible_proc: true,
+        },
+        "the self-build view carries exactly the four decided grants"
+    );
+    let exam = super::sealed::runner::runner_view(&view, Path::new("/exam"), "relay:80");
+    assert_eq!(
+        exam.facilities,
+        theseus_sandbox::Facilities::NONE,
+        "an exam runner inherits no grant from the self-build view it is cut from"
+    );
+}
+
 /// The only writable binds are the tree and its build tree; the repo, cargo's
 /// and npm's homes and the bench history are overlays whose writes vanish;
 /// the toolchain and the gate are read-only. No network, the model's
