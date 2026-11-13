@@ -511,7 +511,10 @@ async fn a_signal_and_no_trigger_asks_continue_in_shadow_once() {
             "people.v1: live",
             "people_seen.v1: live",
             "content.v4: off",
-            "delay.v1: live"
+            "delay.v1: live",
+            // Live from theseus-p5kln: `[judge] reversibility` is on by
+            // default, the owner's own word of 2026-11-12.
+            "undo.v1: live"
         ]
     );
 }

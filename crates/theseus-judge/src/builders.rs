@@ -64,6 +64,8 @@ pub const SAME_KIND_VERSION: u32 = 1;
 pub const NAME_IT_VERSION: u32 = 1;
 /// `recall_cross.v1`'s builder (module `cross`, theseus-98bz.10).
 pub const RECALL_CROSS_VERSION: u32 = 1;
+/// `precedence.v1`'s builder (module `precedence`, theseus-3nk).
+pub const PRECEDENCE_VERSION: u32 = 1;
 
 /// `families.v1`'s builder (module `families`, theseus-xlri5).
 pub const FAMILIES_VERSION: u32 = 1;
@@ -463,6 +465,9 @@ pub enum Input {
     /// `undo.v1`'s (theseus-p5kln): one tool call, and what code found about
     /// putting back what it would change.
     Undo(UndoInput),
+    /// `precedence.v1`'s (theseus-3nk): pairs of recorded testimony that may
+    /// disagree, with who wrote each and when.
+    Precedence(precedence::PrecedenceInput),
 }
 
 impl Input {
@@ -492,6 +497,7 @@ impl Input {
             Input::Families(_) => Builder::Families,
             Input::Content(_) => Builder::Content,
             Input::Delay(_) => Builder::Delay,
+            Input::Precedence(_) => Builder::Precedence,
         }
     }
 
@@ -524,6 +530,7 @@ impl Input {
             Builder::Families => Input::Families(serde_json::from_str(json)?),
             Builder::Content => Input::Content(serde_json::from_str(json)?),
             Builder::Delay => Input::Delay(serde_json::from_str(json)?),
+            Builder::Precedence => Input::Precedence(serde_json::from_str(json)?),
         })
     }
 }
@@ -577,6 +584,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::SameKind(i) => sweep_names::same_kind(i, cap, scrub),
         Input::NameIt(i) => sweep_names::name_it(i, cap, scrub),
         Input::RecallCross(i) => cross::cross(i, cap, scrub),
+        Input::Precedence(i) => precedence::precedence(i, cap, scrub),
         Input::Families(i) => families::families(i, cap, scrub),
         Input::Content(i) => content::content(i, pack.version, cap, scrub),
         Input::Delay(i) => delay::delay(i, cap, scrub),
@@ -786,6 +794,7 @@ mod families;
 mod heard;
 mod memory;
 mod people;
+pub mod precedence;
 mod rerank;
 mod security2;
 mod sweep;

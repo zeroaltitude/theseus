@@ -30,10 +30,10 @@ impl Counts {
         let mut done = 0u64;
         for r in t.alive() {
             c.chunks += 1;
-            if r.vec.is_some() {
+            if r.vec().is_some() {
                 c.vectors += 1;
             }
-            if matches!(r.vec, Some((0, _))) {
+            if matches!(r.vec(), Some((0, _))) {
                 done += 1;
             }
         }

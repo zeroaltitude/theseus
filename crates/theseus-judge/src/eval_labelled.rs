@@ -1,6 +1,7 @@
 //! Labelled sets for packs whose questions have one right answer per case
 //! (theseus-98bz.9, theseus-98bz.10): `classify.v4`'s `scope` and `thread`,
-//! `recall_cross.v1`'s `same_subject`, `families.v1`'s `relevant`
+//! `recall_cross.v1`'s `same_subject`, `precedence.v1`'s two questions
+//! (theseus-3nk), `families.v1`'s `relevant`
 //! (theseus-xlri5), and `content.v1`'s four flags (theseus-9ymz0). Each case is the pack's own input
 //! and the answers it should draw, checked as `eval::check` checks them (an
 //! option id, or `high`/`low` for a Noul). `jev-probe --eval <pack>` runs a
@@ -24,9 +25,10 @@ const CONTENT_V2: &str = include_str!("../fixtures/eval/content.v2.json");
 const CONTENT_V3: &str = include_str!("../fixtures/eval/content.v3.json");
 const CONTENT_V4: &str = include_str!("../fixtures/eval/content.v4.json");
 const UNDO_V1: &str = include_str!("../fixtures/eval/undo.v1.json");
+const PRECEDENCE_V1: &str = include_str!("../fixtures/eval/precedence.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 8] = [
+pub const PACKS: [&str; 9] = [
     "classify.v4",
     "recall_cross.v1",
     "families.v1",
@@ -35,6 +37,7 @@ pub const PACKS: [&str; 8] = [
     "content.v3",
     "content.v4",
     "undo.v1",
+    "precedence.v1",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -60,6 +63,7 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "content.v3" => CONTENT_V3,
         "content.v4" => CONTENT_V4,
         "undo.v1" => UNDO_V1,
+        "precedence.v1" => PRECEDENCE_V1,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
@@ -762,7 +766,7 @@ mod tests {
     /// For this pack the two happen to coincide, which is luck and not design:
     /// if that fallback changes, this is where the pack notices.
     #[test]
-    fn undo_v1_fails_open_under_the_bar_and_acts_nowhere_yet() {
+    fn undo_v1_fails_open_under_the_bar_and_acts_as_a_hold() {
         let p = by_name("undo.v1").expect("undo.v1 is embedded");
         let verdict = p.question("reversible").expect("it asks `reversible`");
         assert_eq!(verdict.no_match.as_deref(), Some("reversible"));
@@ -781,9 +785,13 @@ mod tests {
             ]
         );
 
-        // It acts nowhere yet: going live is the owner's separate decision, as
-        // route.v10 landed before `ROUTE_PACK` named it.
-        assert_eq!(p.action, crate::pack::Action::None);
+        // It acts, since theseus-p5kln wired it: the hold at point one and
+        // the raise at point two, whose reader is theseus-core's
+        // `toolrun/reversible.rs`. This assertion is not loosened by the
+        // change — it still pins the action to exactly one value, and that
+        // value is now the one the code reads. Before theseus-p5kln it was
+        // `Action::None`, which the owner's decision of 2026-11-12 ended.
+        assert_eq!(p.action, crate::pack::Action::Hold);
         assert!(
             !p.rollback.is_empty(),
             "its rollback rules are declared before it is wired, so the numbers can be argued with"

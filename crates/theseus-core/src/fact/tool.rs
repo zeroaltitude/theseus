@@ -912,7 +912,7 @@ impl Fact for FileRead<'_> {
         json!({"via": r.via, "name": r.name, "media_type": r.media_type, "bytes": r.bytes,
                "digest": r.digest, "pages": r.pages, "parts": r.parts,
                "text_bytes": r.text_bytes, "outcome": r.outcome(), "why": r.why,
-               "ms": r.ms, "capped": r.capped})
+               "ms": r.ms, "capped": r.capped, "drawn": r.drawn})
     }
 
     fn span(&self, trace: &mut crate::trace::Trace) {
@@ -944,5 +944,66 @@ impl Fact for FileRead<'_> {
             (None, _) => format!("read in {} ms", r.ms),
         };
         say.line(Tool, format!("{} ({what}): {how}.", r.name));
+    }
+}
+
+/// A call `undo.v1` held before the order ran (theseus-p5kln): it did not
+/// run, the model reads why and re-plans it, and no card was made. The row
+/// names the judgment, so the verdict's own `judge.call` row joins to it.
+pub struct ToolHeld<'a> {
+    pub tool: &'a str,
+    pub judgment: &'a str,
+    /// The shape the pack chose, where it chose one above its own bar.
+    pub shape: Option<&'a str>,
+    /// The deciding answer's confidence.
+    pub p: f64,
+    pub summary: &'a str,
+}
+
+impl Fact for ToolHeld<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolHeld);
+
+    fn row(&self) -> Value {
+        json!({"tool": self.tool, "judgment": self.judgment, "shape": self.shape,
+               "p": self.p, "summary": self.summary, "verdict": "irreversible_reshapeable"})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "{}: it would lose something a reshaped call would keep, so it does not run and the model is asked to re-plan it.",
+                self.tool
+            ),
+        );
+    }
+}
+
+/// A call whose posture `undo.v1` raised to `approve` after the order
+/// (theseus-p5kln): the loss is one no reshaping could touch, so the owner
+/// is asked rather than the model.
+pub struct ToolRaised<'a> {
+    pub tool: &'a str,
+    pub judgment: &'a str,
+    pub p: f64,
+    pub summary: &'a str,
+}
+
+impl Fact for ToolRaised<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolRaised);
+
+    fn row(&self) -> Value {
+        json!({"tool": self.tool, "judgment": self.judgment, "p": self.p,
+               "summary": self.summary, "verdict": "irreversible_final"})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "{}: nothing would bring back what it loses, so it waits for you.",
+                self.tool
+            ),
+        );
     }
 }

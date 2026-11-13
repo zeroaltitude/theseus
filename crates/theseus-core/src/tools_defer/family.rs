@@ -100,6 +100,10 @@ pub const FAMILIES: &[(&str, &str)] = &[
         "AWS CloudFormation stacks: plan, apply, status and delete",
     ),
     (
+        "aws-tags",
+        "AWS tags: list the account's resources with their tags, and set or remove tags by ARN",
+    ),
+    (
         "aws-hands",
         "AWS hands: run a command as hands on Lambda or Fargate",
     ),
@@ -182,6 +186,7 @@ fn aws_family(wire: &str) -> &'static str {
         w if w.starts_with("aws_logs_") => "aws-logs",
         "aws_inventory" | "aws_cost" | "aws_trail" => "aws-review",
         w if w.starts_with("aws_stack_") => "aws-stacks",
+        w if w.starts_with("aws_tag_") => "aws-tags",
         w if w.starts_with("aws_hands_") => "aws-hands",
         _ => "aws",
     }

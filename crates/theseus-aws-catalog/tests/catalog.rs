@@ -13,8 +13,8 @@ fn cat() -> &'static Catalog {
 #[test]
 fn every_service_decodes() {
     let c = cat();
-    assert_eq!(c.snapshot(), "aws-cli/2.34.15");
-    assert_eq!(c.services().len(), 416);
+    assert_eq!(c.snapshot(), "aws-cli/2.40.2");
+    assert_eq!(c.services().len(), 436);
     let (mut ops, mut shapes) = (0, 0);
     for e in c.services() {
         let s = c
@@ -34,8 +34,8 @@ fn every_service_decodes() {
             let _ = op.errors().count();
         }
     }
-    assert_eq!(ops, 17_928);
-    assert_eq!(shapes, 111_253);
+    assert_eq!(ops, 19_595);
+    assert_eq!(shapes, 125_321);
 }
 
 #[test]
@@ -483,19 +483,49 @@ fn the_flags_say_why() {
     assert!(k.note.is_some());
 }
 
+/// The services whose only protocol the client does not speak
+/// (`Protocol::is_supported`), named so that a new one cannot arrive with a
+/// catalog refresh unremarked.
+///
+/// Three arrived together at aws-cli/2.40.2, the first in this catalog, each
+/// listing `smithy-rpc-v2-cbor` and nothing else:
+///
+/// - `cloudwatchomni` — CloudWatch Omni, API 2025-01-01, 62 operations;
+/// - `eventbridgev2` — Amazon EventBridgeV2, API 2025-05-15, 25 operations;
+/// - `partnercentral-revenue-measurement` — Partner Central Revenue
+///   Measurement, API 2022-07-26, 18 operations.
+///
+/// The catalog keeps them, so `aws.describe` still names them and the
+/// operator can see they are there, and the client refuses a call to one by
+/// name before it signs anything: `theseus-aws`'s `build::unsupported` reads
+/// this very predicate, and theseus-aws's
+/// `what_the_client_cannot_do_it_says` holds the refusal and its words.
+const ONLY_UNSUPPORTED: &[&str] = &[
+    "cloudwatchomni",
+    "eventbridgev2",
+    "partnercentral-revenue-measurement",
+];
+
 #[test]
 fn the_protocols_are_the_six_and_every_service_has_one() {
     let c = cat();
     let mut seen = std::collections::BTreeMap::new();
+    let mut unsupported = Vec::new();
     for e in c.services() {
         *seen.entry(e.protocol.as_str()).or_insert(0) += 1;
-        assert!(
-            e.protocol.is_supported(),
-            "{} speaks only {:?}",
-            e.name,
-            e.protocol
-        );
+        if !e.protocol.is_supported() {
+            unsupported.push(e.name.as_str());
+        }
     }
+    // The services the client cannot speak to are exactly the named ones,
+    // which says of every other service what `is_supported()` said of all
+    // of them before: a service the client cannot call must be listed
+    // above, with what it is, before the refresh lands.
+    assert_eq!(unsupported, ONLY_UNSUPPORTED, "{seen:?}");
+    assert!(
+        c.services().len() > unsupported.len() + 300,
+        "almost everything must still be callable: {seen:?}"
+    );
     // CloudWatch prefers CBOR, then JSON; the client takes JSON.
     assert_eq!(c.service("cloudwatch").unwrap().protocol(), Protocol::Json);
     assert_eq!(c.service("ec2").unwrap().protocol(), Protocol::Ec2);
@@ -683,7 +713,7 @@ fn services_answer_to_their_aliases() {
 fn describe_is_compact() {
     let c = cat();
     let all = theseus_aws_catalog::describe_services(c);
-    assert_eq!(all["count"], 416);
+    assert_eq!(all["count"], 436);
     let s3 = c.service("s3").unwrap();
     let svc = theseus_aws_catalog::describe_service(&s3);
     assert!(svc["operations"]["read"]

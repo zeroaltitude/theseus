@@ -143,7 +143,10 @@ pub trait Texts {
 
 mod entries;
 mod heap;
+mod held;
 mod status;
+
+pub use held::Held;
 
 // ---------------------------------------------------------------------------
 // One stamp's vectors on disk.
@@ -529,8 +532,30 @@ struct Row {
     hash: u128,
     tokens: u32,
     alive: bool,
-    /// (cache, entry): the vector this row answers with.
-    vec: Option<(u8, u32)>,
+    /// The file among [`Table::caches`] whose entry `entry` is the vector
+    /// this row answers with. Two fields and not an `Option<(u8, u32)>`,
+    /// which has no niche to put its `None` in: its twelve bytes rounded
+    /// `Row` from 64 bytes to 80, 16 bytes a chunk (theseus-xxac7). Read and
+    /// written through [`Row::vec`] and [`Row::set_vec`], never bare.
+    cache: u8,
+    /// [`NO_VEC`] where this row has no vector of any stamp yet.
+    entry: u32,
+}
+
+/// A row with no vector: no file can hold `u32::MAX` entries (a record is
+/// 1,816 bytes of the 256/768 stamp, so that would be 7.8 TB), and
+/// [`Entries`] spells an empty slot the same way.
+const NO_VEC: u32 = u32::MAX;
+
+impl Row {
+    /// The file and entry of the vector this row answers with, if it has one.
+    fn vec(&self) -> Option<(u8, u32)> {
+        (self.entry != NO_VEC).then_some((self.cache, self.entry))
+    }
+
+    fn set_vec(&mut self, v: Option<(u8, u32)>) {
+        (self.cache, self.entry) = v.unwrap_or((0, NO_VEC));
+    }
 }
 
 #[derive(Debug, Default)]
@@ -695,7 +720,7 @@ impl Scan for Flat<'_> {
         best(
             n,
             t.rows.iter().enumerate().filter_map(|(i, r)| {
-                let (c, e) = r.vec?;
+                let (c, e) = r.vec()?;
                 if !r.alive || !keep(i) {
                     return None;
                 }
@@ -750,7 +775,7 @@ impl Table {
         let r = &self.rows[i as usize];
         let vec = self.resolve(r.hash);
         let (hash, tokens, position) = (r.hash, r.tokens, r.position);
-        self.rows[i as usize].vec = vec;
+        self.rows[i as usize].set_vec(vec);
         if vec.is_some() {
             self.mark(hash, false);
         }
@@ -808,6 +833,29 @@ impl Table {
         }
     }
 
+    /// Room for the chunks a reconcile is about to add, measured before the
+    /// first one instead of reached by doubling (theseus-xxac7). `rows` is 80
+    /// bytes a chunk and nothing ever shrinks it, so a start that doubled its
+    /// way up to the index's chunk count kept the spare rows of its last
+    /// doubling for the tender's life: at the 1.7M chunks the owner's index
+    /// holds, the next power of two is 2,097,152, which is 397,152 spare rows,
+    /// 32 MB, and in the worst case (just past a doubling) nearly half of the
+    /// 149 MB the rows cost. It counts only the nodes the reconcile will
+    /// actually add, so a second reconcile of the same nodes reserves nothing;
+    /// a forget racing it can leave the count a few chunks high.
+    fn reserve_for(&mut self, nodes: &[NodeChunks]) {
+        let adding = nodes
+            .iter()
+            .filter(|n| {
+                !self.by_node.contains_key(n.node_id.as_str())
+                    && !self.forgot_nodes.contains(&n.node_id)
+            })
+            .map(|n| n.chunks.len());
+        let (nodes, chunks) = adding.fold((0usize, 0usize), |(n, c), k| (n + 1, c + k));
+        self.rows.reserve_exact(chunks);
+        self.by_node.reserve(nodes);
+    }
+
     fn add_node(&mut self, n: &NodeChunks) {
         if let Some(rows) = self.by_node.get(n.node_id.as_str()) {
             let same = rows.len() == n.chunks.len()
@@ -846,7 +894,8 @@ impl Table {
                 hash: c.hash,
                 tokens: c.tokens,
                 alive: true,
-                vec: None,
+                cache: 0,
+                entry: NO_VEC,
             });
             self.by_hash.entry(c.hash).or_default().push(i);
             ids.push(i);
@@ -972,7 +1021,7 @@ impl Table {
     }
 
     fn full_of(&self, i: usize) -> io::Result<Option<Vec<f32>>> {
-        match self.rows[i].vec {
+        match self.rows[i].vec() {
             Some((c, e)) => self.caches[c as usize].full(e).map(Some),
             None => Ok(None),
         }
@@ -1510,6 +1559,7 @@ impl Vectors {
         let nodes = texts.all_nodes()?;
         let mut t = self.table.write().unwrap();
         if t.generation == generation {
+            t.reserve_for(&nodes);
             for n in &nodes {
                 if t.by_node.contains_key(n.node_id.as_str()) || t.forgot_nodes.contains(&n.node_id)
                 {
@@ -1756,7 +1806,7 @@ impl Vectors {
                 for ((h, _), e) in items.iter().zip(entries) {
                     let rows = t.by_hash.get(h).map(|r| r.as_slice().to_vec());
                     for i in rows.unwrap_or_default() {
-                        t.rows[i as usize].vec = Some((0, e));
+                        t.rows[i as usize].set_vec(Some((0, e)));
                     }
                 }
             }
@@ -1784,7 +1834,7 @@ impl Vectors {
     /// older stamps' files go. (Dead records go by the compaction rules, in
     /// `work_once`.)
     fn finish_stamp(t: &mut Table) {
-        let covered = t.alive().all(|r| matches!(r.vec, Some((0, _))));
+        let covered = t.alive().all(|r| matches!(r.vec(), Some((0, _))));
         if !covered {
             return;
         }

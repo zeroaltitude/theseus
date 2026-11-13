@@ -310,11 +310,15 @@ impl Core {
                     Some("[lsp.servers.<name>] start_on_edit, and proc.run's posture".into()),
                 )]
             }
+            // `Reversibility` is not a layer of the order: it is the raise
+            // `toolrun/reversible.rs` applies to what the order returned,
+            // and this probe never asks 0d, so it never arrives here.
             Layer::Lsp
             | Layer::SharedFetch
             | Layer::Glide
             | Layer::Mode
-            | Layer::Routine => {
+            | Layer::Routine
+            | Layer::Reversibility => {
                 return None
             }
             Layer::Floor => vec![row(

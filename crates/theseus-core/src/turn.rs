@@ -2902,6 +2902,11 @@ impl TurnRunner {
         let caps = crate::attach::Caps {
             max_text: self.cfg.tools.max_read_bytes,
             max_file: self.cfg.tools.max_attachment_bytes,
+            page_images: self
+                .cfg
+                .tools
+                .pdf_page_images
+                .then_some(crate::page_images::POPPLER),
         };
         let blobs = self.store.blobs();
         let (files, reads) = match wire.iter().any(|w| w.data.is_some()) {

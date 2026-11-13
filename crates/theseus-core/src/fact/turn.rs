@@ -1841,7 +1841,18 @@ impl Fact for ContextRecompiled<'_> {
 
     fn row(&self) -> Value {
         let c = self.compilation;
-        json!({"compilation_id": c.id, "trigger": c.trigger, "strategy": c.strategy, "as_of": c.as_of, "includes": c.includes.len(), "derived_from": c.derived_from, "strip_thinking": c.manifest.strip_thinking, "model": c.manifest.model})
+        let mut row = json!({"compilation_id": c.id, "trigger": c.trigger, "strategy": c.strategy, "as_of": c.as_of, "includes": c.includes.len(), "derived_from": c.derived_from, "strip_thinking": c.manifest.strip_thinking, "model": c.manifest.model});
+        // Never silently thinner (M6 §2.11, theseus-3nk): the nodes of its
+        // predecessor's prefix this one dropped that its report cannot place.
+        // Absent, as it is from every compilation whose accounting is whole.
+        let thinner = c
+            .budget
+            .as_ref()
+            .map_or(0, crate::compiler::thinner::unaccounted);
+        if thinner > 0 {
+            row["thinner"] = json!(thinner);
+        }
+        row
     }
 }
 

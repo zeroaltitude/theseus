@@ -28,8 +28,11 @@ pub(crate) struct At<'a> {
     /// The call's session's content labels (theseus-9ymz0), read only when
     /// the injection freeze is asked about: a call that is a read, and any
     /// call where `[content_based_security] injection` is `notify`, never reads the record.
-    pub labels: &'a dyn Fn() -> Option<crate::content::ContentFlags>,
-    pub mcp: &'a dyn Fn() -> Option<Posture>,
+    /// `Send + Sync` because the gate's 0d awaits a model with this in
+    /// scope (theseus-p5kln): a closure that is neither would make that
+    /// future unsendable, and the turn's own future is `Send`.
+    pub labels: &'a (dyn Fn() -> Option<crate::content::ContentFlags> + Send + Sync),
+    pub mcp: &'a (dyn Fn() -> Option<Posture> + Send + Sync),
     pub glide: Option<&'a crate::glide::Resolved>,
     /// The call's session: a read of its own kept outputs reads as one
     /// inside the roots (theseus-v73m). None for `policy.explain`'s probe.
@@ -65,6 +68,11 @@ pub(crate) enum Layer {
     Routine,
     /// An MCP client's floor (step 41b).
     McpClient,
+    /// `undo.v1`'s raise, applied to what this order RETURNED
+    /// (theseus-p5kln; `toolrun/reversible.rs`): no layer of the order emits
+    /// it, and the explain probe, which runs the order alone and never asks
+    /// 0d, never sees it.
+    Reversibility,
 }
 
 impl ToolRuntime {

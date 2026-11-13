@@ -101,7 +101,7 @@ fn the_flat_scan_matches_a_naive_loop() {
             let mut want: Vec<(usize, f32)> = (0..t.rows.len())
                 .filter(|&i| t.rows[i].alive && t.admits(&rf, i))
                 .filter_map(|i| {
-                    let (c, e) = t.rows[i].vec?;
+                    let (c, e) = t.rows[i].vec()?;
                     let cache = &t.caches[c as usize];
                     Some((i, dot_i8(cache.q(e), &q) as f32 * cache.scale[e as usize]))
                 })

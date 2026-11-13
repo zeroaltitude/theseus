@@ -98,6 +98,15 @@ Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`
   `PlacesHealth`, each place with its class. The rule itself is the core's (`places.rs`). 19a's labels went with it:
   a stored node's `label` and a manifest's audience fields read and are left unread (NODE 7, COMPILATION 5), and a
   row of the five `label.*` kinds reads as an unknown kind.
+- `outbox.rs`: health's `OutboxStatus` (a binding's outbox: pending, sent, failed, the oldest pending, the last
+  error), and `Receipt` (theseus-vug), the delivery vocabulary M5's clause names: `posted | transport_failed |
+  never_posted`, with `as_str`/`parse` (the one spelling, stored and wired), `words` (the one wording every
+  surface shows: `never posted`), `delivered`, and `agrees`, the table of which receipt can stand with a failed
+  settle. `ALL` is the list a reader holds the vocabulary to. There is deliberately no `seen`. The kernel's
+  `outbox_settle` refuses a settle that names no receipt, so every settled post has one; the core records it at
+  each settle site and counts it (`theseus_core::outbox::receipt_of`), and the core's error line leads with
+  `words()`, which is what `theseus_client::render::outbox_line` prints. Not a wire shape and not in the
+  TypeScript: no field of `OutboxStatus` carries it yet.
 - `sandbox.rs`: health's `sandbox` block (17b, with 18c's egress counts), and `reach` and `egress_in`, the one
   wording of an L1 job's reach (`no network`, `egress: github.com:443`) and the list a proposal binds.
 - `cred.rs` (theseus-gh7): `HarnessOnly`, health's and `theseusd check`'s line of the secrets a job may be handed

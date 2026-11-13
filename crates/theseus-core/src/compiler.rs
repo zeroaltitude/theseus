@@ -66,6 +66,7 @@ mod tests_ring_sums;
 mod tests_search_refs;
 pub use clearing::Pass;
 pub mod situation;
+pub mod thinner;
 pub use effort::{output_config, BETA_TURN_EFFORT};
 pub mod kept;
 mod readable;
@@ -869,7 +870,15 @@ fn compile_with(
     // The results it renders cleared stay in its report (theseus-3ki0).
     let drops = clearing::drops(compilation.budget.as_ref()).cloned();
     let limit = window.map(|w| request_budget(w, spec));
-    let budget = budget_report(limit, &est, drops.chain(ring_drop));
+    let mut budget = budget_report(limit, &est, drops.chain(ring_drop));
+    // Never silently thinner (M6 §2.11, theseus-3nk): a new prefix holding
+    // fewer of its predecessor's nodes than this report accounts for says so
+    // in the report itself.
+    if let Some(previous) = input.current.filter(|_| new_compilation) {
+        if let Some(t) = thinner::read(previous, &compilation, &budget, input.nodes, &moves) {
+            thinner::say(&mut budget, &t, &compilation.id);
+        }
+    }
     let first = input.current.is_none();
     let situation = situation::settle(input.situation, first, new_compilation, trigger.as_deref());
     if new_compilation {

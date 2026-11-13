@@ -114,11 +114,13 @@ impl<'a> ResultNode<'a> {
 }
 
 /// A call whose input the toollet refused, or that its place may not make
-/// (`refused`, the place rule); its gate record is still stored.
+/// (`refused`, the place rule), or that `undo.v1` held before the order ran
+/// (`held`, theseus-p5kln); its gate record is still stored.
 pub(super) struct Invalid {
     pub(super) record: Box<GateRecord>,
     pub(super) error: String,
     pub(super) refused: bool,
+    pub(super) held: Option<super::reversible::Hold>,
 }
 
 /// The last assistant message, and its `tool_use`s with no result yet.

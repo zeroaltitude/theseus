@@ -7,7 +7,10 @@
 //! each is refused too. In `notify` mode nothing is refused. A session with no
 //! label is refused nothing, and a local read never reads the labels.
 
-use std::cell::Cell;
+// `AtomicU32` and not `Cell`: `At`'s `labels` is `Send + Sync` since
+// theseus-p5kln, because the gate awaits a model with it in scope. The
+// counting is the same, and every assertion below is unchanged.
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde_json::{json, Value};
 use theseus_judge::band::Band;
@@ -40,7 +43,7 @@ fn refusal(
     tool: &str,
     input: Value,
     flags: Option<ContentFlags>,
-    reads: &Cell<u32>,
+    reads: &AtomicU32,
 ) -> Option<String> {
     let rt = &r.core.tools;
     let tool = rt
@@ -53,7 +56,7 @@ fn refusal(
         .unwrap_or_else(|e| panic!("{}: {e:?}", tool.name()));
     let mcp = || None;
     let labels = || {
-        reads.set(reads.get() + 1);
+        reads.fetch_add(1, Ordering::Relaxed);
         flags.clone()
     };
     let at = At {
@@ -94,7 +97,7 @@ fn stopped(r: &Rig) -> Vec<(&'static str, Value)> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_frozen_session_refuses_what_acts_and_everything_that_leaves_the_machine() {
     let r = rig(None, 1, |_| {});
-    let reads = Cell::new(0);
+    let reads = AtomicU32::new(0);
     for (tool, input) in stopped(&r) {
         let why = refusal(&r, tool, input, Some(frozen()), &reads)
             .unwrap_or_else(|| panic!("{tool} was not refused"));
@@ -119,7 +122,7 @@ async fn notify_mode_refuses_nothing() {
     let r = rig(None, 1, |c| {
         c.content_based_security.injection = InjectionMode::Notify
     });
-    let reads = Cell::new(0);
+    let reads = AtomicU32::new(0);
     for (tool, input) in stopped(&r) {
         assert_eq!(
             refusal(&r, tool, input, Some(frozen()), &reads),
@@ -127,7 +130,11 @@ async fn notify_mode_refuses_nothing() {
             "{tool}"
         );
     }
-    assert_eq!(reads.get(), 0, "notify never reads the labels");
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        0,
+        "notify never reads the labels"
+    );
 }
 
 /// Test 9, in the gate: without `injection` on the session, nothing changes.
@@ -135,7 +142,7 @@ async fn notify_mode_refuses_nothing() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn without_injection_nothing_is_refused() {
     let r = rig(None, 1, |_| {});
-    let reads = Cell::new(0);
+    let reads = AtomicU32::new(0);
     let mut other = ContentFlags::default();
     other.raise(Label {
         flag: Flag::Confidential,
@@ -163,16 +170,16 @@ async fn without_injection_nothing_is_refused() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_local_read_never_reads_the_labels() {
     let r = rig(None, 1, |_| {});
-    let reads = Cell::new(0);
+    let reads = AtomicU32::new(0);
     let path = r.core.tools.ctx.cwd.join("a.txt");
     assert_eq!(
         refusal(&r, "fs.read", json!({"path": path}), None, &reads),
         None
     );
-    assert_eq!(reads.get(), 0);
+    assert_eq!(reads.load(Ordering::Relaxed), 0);
     let (tool, input) = stopped(&r).remove(0);
     refusal(&r, tool, input, None, &reads);
-    assert_eq!(reads.get(), 1, "a write asks, once");
+    assert_eq!(reads.load(Ordering::Relaxed), 1, "a write asks, once");
 }
 
 /// R6 (theseus-gyjyo.8): removing the `injection` label is the one thing that lets a refused call run. On a

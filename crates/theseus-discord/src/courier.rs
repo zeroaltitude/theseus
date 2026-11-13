@@ -40,6 +40,7 @@ use sha2::{Digest, Sha256};
 use theseus_core::outbox::{body_of, kind_of, Closed};
 use theseus_core::places::PlaceClass;
 use theseus_kernel::{Action, ActionState, Outcome};
+use theseus_protocol::outbox::Receipt;
 use theseus_protocol::TurnSubmitResult;
 use tokio::sync::mpsc;
 use twilight_http::request::Request;
@@ -703,11 +704,26 @@ impl Lane {
             Ok(p) => p,
             Err(e) if e.away => return Err(e),
             Err(e) => {
-                return self.settle(a, Outcome::Failed, vec![], json!({"error": e.message}));
+                // The plan itself was refused, so nothing was ever sent.
+                return self.settle(
+                    a,
+                    Outcome::Failed,
+                    Receipt::NeverPosted,
+                    vec![],
+                    json!({"error": e.message}),
+                );
             }
         };
         if plan.writes.is_empty() {
-            return self.settle(a, Outcome::Succeeded, vec![], plan.extra);
+            // Nothing to send (`Plan::nothing`): the post ends well and
+            // reached no channel.
+            return self.settle(
+                a,
+                Outcome::Succeeded,
+                Receipt::NeverPosted,
+                vec![],
+                plan.extra,
+            );
         }
         // In flight from just before its dispatch until it settles, or its
         // delivery gives up: a clean stop waits for it, within its grace, and
@@ -758,7 +774,14 @@ impl Lane {
                     tracing::info!(post = %a.correlation_id, key = %w.key, "the message to edit is gone");
                 }
                 Err(e) => {
-                    return self.settle(a, Outcome::Failed, messages, json!({"error": e.message}));
+                    // Discord refused a write: it was sent and did not land.
+                    return self.settle(
+                        a,
+                        Outcome::Failed,
+                        Receipt::TransportFailed,
+                        messages,
+                        json!({"error": e.message}),
+                    );
                 }
             }
         }
@@ -772,16 +795,20 @@ impl Lane {
             let q = q.to_string();
             self.v2_settled(&q).await;
         }
-        self.settle(a, Outcome::Succeeded, messages, extra)
+        self.settle(a, Outcome::Succeeded, Receipt::Posted, messages, extra)
     }
 
-    /// Record how a post went. When the store will not take it, the post is
-    /// still open: the lane backs off and sends it again later, under the same
-    /// nonce, rather than taking it up again at once.
+    /// Record how a post went, with its delivery receipt (theseus-vug): this
+    /// lane is the surface that tried, so it is the one that says whether
+    /// anything reached the channel, and no reader rebuilds that afterwards.
+    /// When the store will not take it, the post is still open: the lane backs
+    /// off and sends it again later, under the same nonce, rather than taking
+    /// it up again at once.
     fn settle(
         &mut self,
         a: &Action,
         outcome: Outcome,
+        receipt: Receipt,
         messages: Vec<(String, u64, u64)>,
         mut detail: Value,
     ) -> Result<(), SendErr> {
@@ -790,12 +817,14 @@ impl Lane {
             .iter()
             .map(|(k, c, m)| json!({"key": k, "channel": c.to_string(), "id": m.to_string()}))
             .collect();
-        match self
-            .shared
-            .core
-            .outbox
-            .settle(&a.correlation_id, outcome, first, detail, "discord")
-        {
+        match self.shared.core.outbox.settle(
+            &a.correlation_id,
+            outcome,
+            receipt,
+            first,
+            detail,
+            "discord",
+        ) {
             Ok(_) => {
                 self.unsure.remove(&a.correlation_id);
                 Ok(())

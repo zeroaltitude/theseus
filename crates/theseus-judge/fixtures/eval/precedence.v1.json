@@ -1,0 +1,296 @@
+[
+ {
+  "name": "his_own_older_statement_against_a_document",
+  "why": "The rubric's hard case and the owner's own starting rule: his own words beat a document even when the document is newer. A miss here means the pack reads freshness as the first rule instead of the second.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "the flagging threshold for the tide gauges",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-03-02",
+      "at_ms": 1804204800000,
+      "text": "Use 0.55 for flagging on the gauges, not 0.7. I looked at the misses and 0.7 is too slack."
+     },
+     "second": {
+      "said_by": "document",
+      "day": "2026-09-14",
+      "at_ms": 1821139200000,
+      "text": "The flagging threshold is 0.70. Readings at or above it are flagged for review."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "high",
+   "first_prevails.1": "high"
+  }
+ },
+ {
+  "name": "two_of_the_same_standing_the_later_wins",
+  "why": "The second rule standing alone: two sources the model wrote, so freshness is the only rule in play and the later must win.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "where the gauge pipeline writes its day files",
+     "first": {
+      "said_by": "model",
+      "day": "2026-05-11",
+      "at_ms": 1810252800000,
+      "text": "The pipeline writes its day files under the scratch directory and clears them each night."
+     },
+     "second": {
+      "said_by": "model",
+      "day": "2026-10-01",
+      "at_ms": 1822608000000,
+      "text": "The pipeline writes its day files under the archive directory and keeps them for a season."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "high",
+   "first_prevails.1": "low"
+  }
+ },
+ {
+  "name": "the_same_shape_about_different_work_is_no_conflict",
+  "why": "The commonest false positive, and the reason `disagree` is asked first: two thresholds, two pieces of work, no disagreement. A pack that answered 'which wins' for this pair would be answering a question that was never asked.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "two thresholds",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-03-02",
+      "at_ms": 1804204800000,
+      "text": "Flag a gauge reading at 0.55."
+     },
+     "second": {
+      "said_by": "document",
+      "day": "2026-09-14",
+      "at_ms": 1821139200000,
+      "text": "The ferry alarm sounds at 0.80 of capacity."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "low"
+  }
+ },
+ {
+  "name": "two_stages_of_one_plan_both_happened",
+  "why": "A difference in time is not a disagreement when both were true at their own stage. A miss here would make every record of a change read as a conflict with the record before it.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "the gauge pipeline's schedule",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-04-20",
+      "at_ms": 1808438400000,
+      "text": "For the first season let us run the pipeline by hand after each spring tide."
+     },
+     "second": {
+      "said_by": "owner",
+      "day": "2026-10-01",
+      "at_ms": 1822608000000,
+      "text": "The pipeline has run on a timer since the summer, as we planned it would once it was steady."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "low"
+  }
+ },
+ {
+  "name": "more_detail_is_not_disagreement",
+  "why": "One source says less than the other and nothing against it. A reader can hold both, so there is nothing to choose between them.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "how often the gauges report",
+     "first": {
+      "said_by": "document",
+      "day": "2026-05-11",
+      "at_ms": 1810252800000,
+      "text": "The gauges report regularly through the day."
+     },
+     "second": {
+      "said_by": "model",
+      "day": "2026-10-01",
+      "at_ms": 1822608000000,
+      "text": "The gauges report every ten minutes, and twice that often during a spring tide."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "low"
+  }
+ },
+ {
+  "name": "a_document_recording_him_changing_his_mind",
+  "why": "The rubric's one exception: the later source carries his voice, so it wins against his own earlier words. This is the case the exception clause exists for, and the one a rubric of two bare rules gets wrong.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "the flagging threshold for the tide gauges",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-03-02",
+      "at_ms": 1804204800000,
+      "text": "Use 0.55 for flagging on the gauges."
+     },
+     "second": {
+      "said_by": "document",
+      "day": "2026-09-14",
+      "at_ms": 1821139200000,
+      "text": "Decision note, written down from what the owner said on the call: he has changed his mind about the gauge threshold and wants 0.70 from now on."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "high",
+   "first_prevails.1": "low"
+  }
+ },
+ {
+  "name": "a_quote_does_not_outrank_what_it_quotes",
+  "why": "A source that only repeats another is not a statement of its own. A miss here lets a summary of his words outrank the words, and then a chain of summaries outranks everything.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "who reviews the gauge reports",
+     "first": {
+      "said_by": "model",
+      "day": "2026-10-01",
+      "at_ms": 1822608000000,
+      "text": "Earlier in this conversation it was said that nobody reviews the gauge reports before they go out."
+     },
+     "second": {
+      "said_by": "owner",
+      "day": "2026-05-11",
+      "at_ms": 1810252800000,
+      "text": "I read every gauge report myself before it goes out."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "high",
+   "first_prevails.1": "low"
+  }
+ },
+ {
+  "name": "outside_text_against_his_own_words",
+  "why": "Text from outside the harness has the least standing of all, and it is the one place where getting precedence wrong lets a page overwrite what he said.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "the gauge library's supported reading rate",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-05-11",
+      "at_ms": 1810252800000,
+      "text": "We read the gauges every ten minutes and that is what our licence covers."
+     },
+     "second": {
+      "said_by": "outside",
+      "day": "2026-10-01",
+      "at_ms": 1822608000000,
+      "text": "Fetched page: the library supports reading every thirty seconds and recommends it for all users."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "high",
+   "first_prevails.1": "high"
+  }
+ },
+ {
+  "name": "one_value_against_another_for_the_same_setting",
+  "why": "The plainest conflict there is, with both rules pointing the same way: his own words, and the later of the two. If this one misses, nothing else in the set means anything.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "how long the archive keeps a day file",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-10-01",
+      "at_ms": 1822608000000,
+      "text": "Keep a day file for ninety days and then let it go."
+     },
+     "second": {
+      "said_by": "document",
+      "day": "2026-05-11",
+      "at_ms": 1810252800000,
+      "text": "Day files are kept for one year."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "high",
+   "first_prevails.1": "high"
+  }
+ },
+ {
+  "name": "a_conflict_and_a_non_conflict_in_one_request",
+  "why": "Two pairs in one request, each asked on its own: the pack must not let one pair's answer colour the other's, which is what a per-item Noul is for.",
+  "input": {
+   "pairs": [
+    {
+     "key": "p1",
+     "subject": "the flagging threshold for the tide gauges",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-10-01",
+      "at_ms": 1822608000000,
+      "text": "Flag a gauge reading at 0.55, and do not change it again without asking me."
+     },
+     "second": {
+      "said_by": "model",
+      "day": "2026-05-11",
+      "at_ms": 1810252800000,
+      "text": "Gauge readings are flagged at 0.80."
+     }
+    },
+    {
+     "key": "p2",
+     "subject": "the gauges, and the ferry timetable",
+     "first": {
+      "said_by": "owner",
+      "day": "2026-04-20",
+      "at_ms": 1808438400000,
+      "text": "The gauges report every ten minutes."
+     },
+     "second": {
+      "said_by": "document",
+      "day": "2026-07-08",
+      "at_ms": 1815436800000,
+      "text": "The ferry sails on the hour between April and October."
+     }
+    }
+   ]
+  },
+  "expect": {
+   "disagree.1": "high",
+   "first_prevails.1": "high",
+   "disagree.2": "low"
+  }
+ }
+]

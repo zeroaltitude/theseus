@@ -27,10 +27,41 @@ pub(crate) enum Turned {
     Invalid(String),
 }
 
+/// One thing the order judges: a plain call, or one step of a batch, as the
+/// refusals admitted it.
+#[derive(Debug)]
+pub(crate) struct Judged {
+    /// The step as a batch's reason names it (`step 2 of 3 (`rm -rf x`)`).
+    pub named: String,
+    pub plan: Plan,
+    pub input: Value,
+}
+
+/// What the refusals admitted: a plain call's one plan, or a batch's steps.
+/// A batch is told apart from a one-step call because its reason names the
+/// step and a plain call's does not.
+#[derive(Debug)]
+pub(crate) enum Admits {
+    /// Boxed: a `Judged` holds a whole `Plan`, and the two variants differ
+    /// by some hundreds of bytes without it.
+    One(Box<Judged>),
+    Batch(Vec<Judged>),
+}
+
 impl ToolRuntime {
     /// The place's refusal, then the order, for a planned call: for a batch,
     /// every step's, and the strictest. Err: why the place refuses it, or
     /// why its input is invalid.
+    ///
+    /// The two halves are apart because the reversibility layer (0d) sits
+    /// between them: a call the gate would refuse outright must not have its
+    /// content sent to a model first (`docs/design/undo-v1.md`, "0d sits
+    /// AFTER the outright refusals"). Every caller that asks nothing — the
+    /// explain probe, the tests, a daemon with the pack off — gets exactly
+    /// what it got before, because this runs both in order. The gate's own
+    /// path goes through `judge_reversibility`, which is this with 0d
+    /// between the halves, so this composition is now the tests' alone.
+    #[cfg(test)]
     pub(crate) fn judge(
         &self,
         at: &At<'_>,
@@ -39,6 +70,22 @@ impl ToolRuntime {
         input: &Value,
         seen: &mut dyn FnMut(Layer, &Decision),
     ) -> Result<(Decision, Bound), Turned> {
+        let admits = self.refusals(at, tool, plan, input)?;
+        self.ordered(at, tool, &admits, seen)
+    }
+
+    /// The outright refusals, and nothing else: the sealed holdout on the
+    /// call's raw input, then, for a call and for every step of a batch, the
+    /// place rule, the place's ceiling, plan mode, a helper's set and the
+    /// injection freeze (`ToolRuntime::refusal_at`). Nothing here reads a
+    /// model, so a refused call's content never leaves the daemon.
+    pub(crate) fn refusals(
+        &self,
+        at: &At<'_>,
+        tool: &dyn Tool,
+        plan: &Plan,
+        input: &Value,
+    ) -> Result<Admits, Turned> {
         if let Some(why) = self.sealed.refusal_of_input(input) {
             return Err(Turned::Place(why));
         }
@@ -46,12 +93,14 @@ impl ToolRuntime {
             if let Some(why) = self.refusal_at(at, tool, plan) {
                 return Err(Turned::Place(why));
             }
-            return Ok(self.order(at, tool, plan, input, seen));
+            return Ok(Admits::One(Box::new(Judged {
+                named: String::new(),
+                plan: plan.clone(),
+                input: input.clone(),
+            })));
         };
         let n = steps.len();
-        let mut worst: Option<(String, Decision, Bound)> = None;
-        let mut granted = Vec::new();
-        let mut classes = Vec::new();
+        let mut out = Vec::with_capacity(n);
         for (i, one) in steps.iter().enumerate() {
             let p = tool
                 .plan(one, at.ctx)
@@ -61,19 +110,46 @@ impl ToolRuntime {
             if let Some(why) = self.refusal_at(at, tool, &p) {
                 return Err(Turned::Place(format!("{named}: {why}")));
             }
-            let (d, b) = self.order(at, tool, &p, one, seen);
+            out.push(Judged {
+                named,
+                plan: p,
+                input: one.clone(),
+            });
+        }
+        Ok(Admits::Batch(out))
+    }
+
+    /// The whole §3.9 order over what the refusals admitted, and for a batch
+    /// the strictest step's, its reason naming that step.
+    pub(crate) fn ordered(
+        &self,
+        at: &At<'_>,
+        tool: &dyn Tool,
+        admits: &Admits,
+        seen: &mut dyn FnMut(Layer, &Decision),
+    ) -> Result<(Decision, Bound), Turned> {
+        let steps = match admits {
+            Admits::One(j) => return Ok(self.order(at, tool, &j.plan, &j.input, seen)),
+            Admits::Batch(steps) => steps,
+        };
+        let mut worst: Option<(String, Decision, Bound)> = None;
+        let mut granted = Vec::new();
+        let mut classes = Vec::new();
+        for j in steps {
+            let argv = j.plan.argv.as_deref().unwrap_or_default();
+            let (d, b) = self.order(at, tool, &j.plan, &j.input, seen);
             // What chose L1, as `sandbox::unbrokered` asked it.
             let l1 = b
                 .l1()
-                .then(|| self.sandbox.l1_for(argv, one).unwrap_or_default());
-            classes.push((named.clone(), l1));
+                .then(|| self.sandbox.l1_for(argv, &j.input).unwrap_or_default());
+            classes.push((j.named.clone(), l1));
             if let Some(g) = &d.granted {
                 if !granted.contains(g) {
                     granted.push(g.clone());
                 }
             }
             if worst.as_ref().is_none_or(|(_, w, _)| stricter(&d, w)) {
-                worst = Some((named, d, b));
+                worst = Some((j.named.clone(), d, b));
             }
         }
         one_class(&classes)?;

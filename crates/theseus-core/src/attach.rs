@@ -281,10 +281,12 @@ pub fn blocks(
             }
             Shown::Line(line) => vec![text(line)],
         },
-        AttachmentContent::File { .. } if is_pdf(a) => match document(a, author, media, spend) {
-            (line, Some(block)) => vec![text(line), block],
-            (line, None) => vec![text(line)],
-        },
+        AttachmentContent::File { .. } if is_pdf(a) => {
+            let (line, blocks) = document(a, author, media, spend);
+            let mut out = vec![text(line)];
+            out.extend(blocks);
+            out
+        }
         AttachmentContent::File { .. } => doc_blocks(a, author, media, spend),
     }
 }
@@ -372,12 +374,13 @@ pub fn tool_content(content: &str, file: &Attachment, media: &Media, spend: &mut
         if !is_pdf(file) {
             return Value::String(format!("{content}\n{}", header(file, None)));
         }
-        return match document(file, None, media, spend) {
-            (line, Some(block)) => {
-                json!([{"type": "text", "text": format!("{content}\n{line}")}, block])
-            }
-            (line, None) => Value::String(format!("{content}\n{line}")),
-        };
+        let (line, blocks) = document(file, None, media, spend);
+        if blocks.is_empty() {
+            return Value::String(format!("{content}\n{line}"));
+        }
+        let mut out = vec![json!({"type": "text", "text": format!("{content}\n{line}")})];
+        out.extend(blocks);
+        return Value::Array(out);
     }
     match show(file, None, media) {
         Shown::Block(block, t) => {
@@ -399,7 +402,7 @@ fn document(
     author: Option<&str>,
     media: &Media,
     spend: &mut Spend,
-) -> (String, Option<Value>) {
+) -> (String, Vec<Value>) {
     let AttachmentContent::File {
         digest,
         pages,
@@ -408,11 +411,11 @@ fn document(
         unread,
     } = &a.content
     else {
-        return (header(a, author), None);
+        return (header(a, author), Vec::new());
     };
     let line = header(a, author);
     if !is_pdf(a) {
-        return (line, None);
+        return (line, Vec::new());
     }
     let refused = media
         .hidden
@@ -433,12 +436,17 @@ fn document(
                         Some(s) => format!("{}; {s}]", line.trim_end_matches(']')),
                         None => line,
                     };
-                    return (line, Some(block));
+                    return (line, vec![block]);
                 }
                 None => "its stored bytes are missing".to_string(),
             },
         },
     };
+    // Its pages that hold no text, drawn when they arrived and kept beside
+    // it (theseus-w68l): a model with vision reads a scan as the page
+    // itself, since there is no text to read.
+    let pictures = pictures_of(digest, media, spend);
+    let shown: Vec<u32> = pictures.iter().map(|(p, _)| *p).collect();
     (
         as_text(
             &line,
@@ -447,9 +455,35 @@ fn document(
             text.as_deref(),
             unread.as_deref(),
             media,
+            &shown,
         ),
-        None,
+        pictures.into_iter().map(|(_, b)| b).collect(),
     )
+}
+
+/// The pages of a PDF this request shows as pictures, each with the page it
+/// is: none for a model with no vision, and none for a PDF that drew
+/// nothing (every PDF while `[tools] pdf_page_images` is off). `spend`
+/// gains their tiles, as an image attachment's do.
+fn pictures_of(digest: &str, media: &Media, spend: &mut Spend) -> Vec<(u32, Value)> {
+    if !media.vision {
+        return Vec::new();
+    }
+    let Some(kept) = crate::page_images::of(media.blobs, digest) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for img in &kept.images {
+        let Some(data) = media.blobs.and_then(|b| b.base64(&img.digest)) else {
+            continue;
+        };
+        spend.tokens += crate::catalog::image_tokens(media.model, img.width, img.height);
+        out.push((
+            img.page,
+            json!({"type": "image", "source": {"type": "base64", "media_type": img.media_type, "data": &*data}}),
+        ));
+    }
+    out
 }
 
 /// Which of a PDF's forms a request still has room for.
@@ -519,6 +553,26 @@ fn shown(
     Some((block, said))
 }
 
+/// What a page shown as a picture holds in the text, in place of
+/// `(no text on this page)`.
+const AS_A_PICTURE: &str = "(no text on this page: the page itself follows as a picture)";
+
+/// What a PDF's line says about the pages its text leaves out. With no page
+/// drawn (every PDF while `[tools] pdf_page_images` is off) it is the
+/// sentence Theseus has always sent, byte for byte.
+fn pictures_note(pictures: &[u32]) -> String {
+    match pictures.len() {
+        0 => "; a page's pictures, charts, and scanned text are not in it".to_string(),
+        1 => format!(
+            "; a page's pictures and charts are not in it, and page {} holds no text, so that page follows as a picture",
+            pictures[0]
+        ),
+        n => format!(
+            "; a page's pictures and charts are not in it, and {n} of its pages hold no text, so those pages follow as pictures"
+        ),
+    }
+}
+
 /// A PDF as its text, page by page, under its line, which says why it is
 /// not shown as a document; cut at [`MAX_DOCUMENT_TEXT`] with a line that
 /// says where.
@@ -529,6 +583,7 @@ fn as_text(
     text: Option<&str>,
     unread: Option<&str>,
     media: &Media,
+    pictures: &[u32],
 ) -> String {
     let head = line.trim_end_matches(']');
     let texts = text.and_then(|d| media.blobs.and_then(|b| b.texts(d)));
@@ -540,12 +595,16 @@ fn as_text(
         return format!("{head}: not shown, {why}; {not}]");
     };
     let mut out = format!(
-        "{head}: its text, page by page, since {why}; a page's pictures, charts, and scanned text are not in it]"
+        "{head}: its text, page by page, since {why}{}]",
+        pictures_note(pictures)
     );
     let total = pages.unwrap_or(texts.len() as u32);
     for (i, t) in texts.iter().enumerate() {
         let page = if t.text.trim().is_empty() {
-            format!("\n--- page {} ---\n(no text on this page)", i + 1)
+            match pictures.contains(&(i as u32 + 1)) {
+                true => format!("\n--- page {} ---\n{AS_A_PICTURE}", i + 1),
+                false => format!("\n--- page {} ---\n(no text on this page)", i + 1),
+            }
         } else {
             format!("\n--- page {} ---\n{}", i + 1, t.text)
         };
@@ -808,11 +867,33 @@ pub fn store_image(bytes: &[u8], blobs: &Blobs) -> Result<(image::ImageInfo, Str
 /// What a message's files may hold (theseus-c9l6): the text kept of a text
 /// file (`[tools] max_read_bytes`), and the bytes of any other file kept
 /// whole (`[tools] max_attachment_bytes`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Caps {
     pub max_text: usize,
     pub max_file: u64,
+    /// How a scanned PDF's pages that hold no text are drawn and kept
+    /// beside it (theseus-w68l): the daemon passes
+    /// [`crate::page_images::POPPLER`] while `[tools] pdf_page_images` is
+    /// on, and `None` — nothing drawn — otherwise, which is the default,
+    /// since drawing a page runs a program. A test passes its own, as
+    /// `convert`'s spawn hook does, so no test needs a renderer installed.
+    pub page_images: Option<crate::page_images::Draw>,
 }
+
+/// Two caps are equal when they cap the same and either both draw a scan's
+/// pages or neither does. A function pointer has no identity worth
+/// comparing (two of them can share an address after a merge), so the
+/// renderer counts by presence, which is the only part of it a caller
+/// chooses.
+impl PartialEq for Caps {
+    fn eq(&self, other: &Self) -> bool {
+        self.max_text == other.max_text
+            && self.max_file == other.max_file
+            && self.page_images.is_some() == other.page_images.is_some()
+    }
+}
+
+impl Eq for Caps {}
 
 /// One file read for a model (theseus-c9l6): an attachment kept when it
 /// arrived, or a PDF a tool read, for its `file.read` row.
@@ -833,6 +914,10 @@ pub struct FileRead {
     /// The conversion's time, and whether it ran in the capped child.
     pub ms: u64,
     pub capped: bool,
+    /// How many of its pages were drawn as pictures (theseus-w68l): 0 for
+    /// every file but a PDF with pages that hold no text, and for every one
+    /// while `[tools] pdf_page_images` is off.
+    pub drawn: usize,
 }
 
 impl FileRead {
@@ -877,7 +962,7 @@ pub fn from_wire(
                 (None, Some(text), _) if document_text(&a.name, &text) => {
                     let bytes = text.into_bytes();
                     a.size = bytes.len() as u64;
-                    let (content, read) = keep(&mut a, &bytes, caps.max_file, blobs);
+                    let (content, read) = keep(&mut a, &bytes, caps, blobs);
                     reads.extend(read);
                     content
                 }
@@ -894,7 +979,7 @@ pub fn from_wire(
                     },
                     Ok(bytes) => {
                         a.size = bytes.len() as u64;
-                        let (content, read) = keep(&mut a, &bytes, caps.max_file, blobs);
+                        let (content, read) = keep(&mut a, &bytes, caps, blobs);
                         reads.extend(read);
                         content
                     }
@@ -920,7 +1005,7 @@ fn document_text(name: &str, text: &str) -> bool {
 fn keep(
     a: &mut Attachment,
     bytes: &[u8],
-    max_file: u64,
+    caps: Caps,
     blobs: &Blobs,
 ) -> (AttachmentContent, Option<FileRead>) {
     let refused = match image::sniff(bytes) {
@@ -940,12 +1025,12 @@ fn keep(
         },
         None => None,
     };
-    if bytes.len() as u64 > max_file {
+    if bytes.len() as u64 > caps.max_file {
         let reason = match refused {
             Some(why) => why,
             None => format!(
                 "over the {} limit for files ([tools] max_attachment_bytes)",
-                narrative::bytes(max_file)
+                narrative::bytes(caps.max_file)
             ),
         };
         return (AttachmentContent::NotRead { reason }, None);
@@ -965,16 +1050,53 @@ fn keep(
         None => {}
     }
     match keep_file(bytes, blobs, "attachment", &a.name, &a.media_type) {
-        Ok((mut content, read)) => {
+        Ok((mut content, mut read)) => {
             // An image the models would refuse is kept, and says why it
             // is not shown.
             if let (AttachmentContent::File { unread, .. }, Some(why)) = (&mut content, refused) {
                 *unread = Some(why);
             }
+            if let (Some(draw), Kind::Pdf) = (caps.page_images, kind) {
+                read.drawn = draw_pages(bytes, &content, blobs, draw);
+            }
             (content, Some(read))
         }
         Err(reason) => (AttachmentContent::NotRead { reason }, None),
     }
+}
+
+/// Draw a scanned PDF's pages that hold no text and keep them beside its
+/// bytes (theseus-w68l), when `[tools] pdf_page_images` is on. A model that
+/// reads no PDFs is given a PDF's text, and a scan has none, so without
+/// this those pages reach it as `(no text on this page)` and nothing else.
+/// It runs a child process and writes to the blobs: call it in the same
+/// blocking section as the PDF's own reading.
+fn draw_pages(
+    bytes: &[u8],
+    content: &AttachmentContent,
+    blobs: &Blobs,
+    draw: crate::page_images::Draw,
+) -> usize {
+    let AttachmentContent::File {
+        digest,
+        text: Some(t),
+        ..
+    } = content
+    else {
+        return 0;
+    };
+    let Some(texts) = blobs.texts(t) else {
+        return 0;
+    };
+    let drawn = crate::page_images::keep(bytes, digest, &texts, blobs, draw);
+    if let Some(why) = &drawn.why {
+        tracing::warn!(
+            why = %why,
+            drawn = drawn.pages,
+            "a PDF's pages with no text were not all drawn"
+        );
+    }
+    drawn.pages
 }
 
 /// Keep a file whole in the blobs, and read it if it is a PDF: its pages,
@@ -1004,6 +1126,7 @@ pub fn keep_file(
         why: None,
         ms: 0,
         capped: false,
+        drawn: 0,
     };
     let mut content = AttachmentContent::File {
         digest,
@@ -1209,6 +1332,7 @@ pub fn keep_pages(
         why: None,
         ms: 0,
         capped: false,
+        drawn: 0,
     };
     Ok((a, r))
 }
@@ -1551,6 +1675,7 @@ pub(crate) mod tests {
         let tiny = Caps {
             max_text: 262_144,
             max_file: 10,
+            page_images: None,
         };
         let (over, _) = from_wire(
             vec![image_wire("zip.png", b"PK\x03\x04 a zip in disguise")],
@@ -1567,6 +1692,16 @@ pub(crate) mod tests {
         Caps {
             max_text,
             max_file: theseus_files::MAX_FILE_BYTES,
+            page_images: None,
+        }
+    }
+
+    /// The caps of a daemon that draws a scan's pages (theseus-w68l),
+    /// with `draw` for its renderer.
+    pub(crate) fn caps_drawing(max_text: usize, draw: crate::page_images::Draw) -> Caps {
+        Caps {
+            page_images: Some(draw),
+            ..caps(max_text)
         }
     }
 
@@ -1727,6 +1862,148 @@ pub(crate) mod tests {
             &mut spend,
         );
         assert_eq!(native[1]["type"], "document", "{native}");
+    }
+
+    /// A model with vision that reads no PDFs (GLM's flash: the catalog's
+    /// `vision` true, `pdf` false).
+    fn glm_flash(blobs: &Blobs) -> Media<'_> {
+        Media {
+            vision: true,
+            pdf: false,
+            pdf_pages: 0,
+            model: "glm-5.3-flash",
+            also: None,
+            blobs: Some(blobs),
+            hidden: &[],
+        }
+    }
+
+    /// A stand-in renderer (theseus-w68l): one PNG per page, each of its
+    /// own width, so no test needs a renderer on the machine.
+    fn drew(_bytes: &[u8], page: u32) -> Result<Vec<u8>, String> {
+        Ok(png(600 + page, 800, 64))
+    }
+
+    /// theseus-w68l: a page with no text layer reaches a model that reads
+    /// no PDFs as the page itself, not as `(no text on this page)`, which
+    /// was every word such a model ever saw of a scan.
+    #[test]
+    fn a_page_with_no_text_reaches_a_model_that_reads_no_pdfs_as_a_picture() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        // `harbour()`'s third page holds no text: a page like a scan's.
+        let bytes = harbour();
+        let (got, reads) = from_wire(
+            vec![pdf_wire("orders.pdf", &bytes)],
+            caps_drawing(262_144, drew),
+            &blobs,
+        );
+        // The `file.read` row counts what was drawn.
+        assert_eq!((reads.len(), reads[0].drawn), (1, 1));
+        // Only the page with no text was drawn, and it was kept beside the
+        // PDF's own bytes, so no stored record gained a field.
+        let kept = crate::page_images::of(Some(&blobs), &crate::blobs::digest(&bytes))
+            .expect("its pages were kept");
+        assert_eq!(
+            kept.images.iter().map(|i| i.page).collect::<Vec<_>>(),
+            vec![3]
+        );
+
+        let mut spend = Spend::default();
+        let b = blocks(&got[0], None, &glm_flash(&blobs), &mut spend);
+        assert_eq!(b.len(), 2, "its text, then the page as a picture: {b:?}");
+        let text = b[0]["text"].as_str().expect("text");
+        assert!(
+            text.contains(
+                "--- page 3 ---\n(no text on this page: the page itself follows as a picture)"
+            ),
+            "{text}"
+        );
+        assert!(
+            !text.contains("--- page 3 ---\n(no text on this page)\n")
+                && !text.ends_with("--- page 3 ---\n(no text on this page)"),
+            "the blank line is gone: {text}"
+        );
+        assert!(
+            text.contains("page 3 holds no text, so that page follows as a picture"),
+            "the line says what follows: {text}"
+        );
+        // The pages that do hold text are its text, exactly as before.
+        assert!(
+            text.contains("--- page 1 ---\nThe harbour master is Odile Varnack.")
+                && text.contains("--- page 2 ---\nBuoy B-2 is green."),
+            "{text}"
+        );
+        assert_eq!(b[1]["type"], "image");
+        assert_eq!(b[1]["source"]["media_type"], "image/png");
+        assert_eq!(
+            crate::blobs::decode(b[1]["source"]["data"].as_str().expect("data")).expect("base64"),
+            drew(&bytes, 3).expect("drawn"),
+            "the picture is page 3's"
+        );
+        // It is priced as an image, not as a document.
+        assert_eq!(
+            spend,
+            Spend {
+                tokens: crate::catalog::image_tokens("glm-5.3-flash", 603, 800),
+                pages: 0,
+                bytes: 0,
+            }
+        );
+        let again = blocks(&got[0], None, &glm_flash(&blobs), &mut spend);
+        assert_eq!(
+            serde_json::to_vec(&again).expect("json"),
+            serde_json::to_vec(&b).expect("json"),
+            "the same node renders to the same bytes"
+        );
+
+        // A model with no vision reads the line it always read.
+        let mut blind = Spend::default();
+        let b = blocks(&got[0], None, &glm(&blobs), &mut blind);
+        assert_eq!(b.len(), 1, "no picture for a model that cannot see: {b:?}");
+        let text = b[0]["text"].as_str().expect("text");
+        assert!(
+            text.ends_with("--- page 3 ---\n(no text on this page)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("a page's pictures, charts, and scanned text are not in it"),
+            "{text}"
+        );
+        assert_eq!(blind, Spend::default());
+
+        // A model that reads PDFs still gets the document itself, and pays
+        // nothing for a picture.
+        let mut native = Spend::default();
+        let b = blocks(&got[0], None, &claude(&blobs, 600, &[]), &mut native);
+        assert_eq!(b.len(), 2);
+        assert_eq!(b[1]["type"], "document");
+        assert_eq!((native.pages, native.bytes), (3, bytes.len() as u64));
+    }
+
+    /// Nothing is drawn, and every word is the word it was, until the
+    /// operator turns the key on (theseus-w68l).
+    #[test]
+    fn a_page_with_no_text_is_drawn_only_when_the_key_is_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = Blobs::new(dir.path());
+        let bytes = harbour();
+        let (off, reads) = from_wire(vec![pdf_wire("orders.pdf", &bytes)], caps(262_144), &blobs);
+        assert_eq!(reads[0].drawn, 0, "nothing drawn");
+        assert!(
+            crate::page_images::of(Some(&blobs), &crate::blobs::digest(&bytes)).is_none(),
+            "the default draws nothing"
+        );
+        let mut spend = Spend::default();
+        let b = blocks(&off[0], None, &glm_flash(&blobs), &mut spend);
+        assert_eq!(b.len(), 1);
+        let text = b[0]["text"].as_str().expect("text");
+        assert!(
+            text.contains("a page's pictures, charts, and scanned text are not in it")
+                && text.ends_with("--- page 3 ---\n(no text on this page)"),
+            "{text}"
+        );
+        assert_eq!(spend, Spend::default());
     }
 
     /// A request's PDFs are budgeted in the order they render: one the
