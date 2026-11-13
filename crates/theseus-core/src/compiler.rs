@@ -68,6 +68,7 @@ pub use clearing::Pass;
 pub mod situation;
 pub use effort::{output_config, BETA_TURN_EFFORT};
 pub mod kept;
+mod readable;
 mod render;
 mod server_calls;
 pub mod stubs;
@@ -670,7 +671,14 @@ fn compile_with(
                 // or provider change their signatures (theseus-kol). The
                 // earlier model's reasoning goes; its text, calls, and
                 // results stay.
-                Some((t.join("+"), "transcript", true))
+                // The one exception: a first-party switch to a model the
+                // provider documents as reading the writer's thinking keeps
+                // it (`readable`, theseus-9bggi).
+                let keeps = t == ["model_changed"]
+                    && input.spec.first_party
+                    && m.provider == now_manifest.provider
+                    && readable::reads(input.spec.first_party, &m.model, &now_manifest.model);
+                Some((t.join("+"), "transcript", !keeps))
             }
         }
     };
@@ -957,12 +965,20 @@ fn render_kept(
             kept::Kept1 {
                 kept,
                 session,
-                key: kept::Key::of(&c.id, strip, &spec.provider, &media, view, &offers),
+                key: kept::Key::of(
+                    &c.id,
+                    (strip, spec.first_party),
+                    &spec.provider,
+                    &media,
+                    view,
+                    &offers,
+                ),
             },
             &prefix,
             &tail,
             kept::Args {
                 strip_prefix_thinking: strip,
+                first_party: spec.first_party,
                 provider: &spec.provider,
                 media: &media,
                 retrying,
@@ -974,7 +990,7 @@ fn render_kept(
         None => render_messages(
             &prefix,
             &tail,
-            strip,
+            (strip, spec.first_party),
             &spec.provider,
             &media,
             retrying,
@@ -987,21 +1003,8 @@ fn render_kept(
     let mut extra = std::collections::BTreeMap::new();
     // A fallback's request is one that model takes (theseus-7gir.18).
     let entry = fallback.map_or(entry, |f| catalog.get(f.0));
-    let thinking = match entry.map(|e| e.thinking) {
-        Some(ThinkingMode::Always) | Some(ThinkingMode::Adaptive) => {
-            let always = entry.map(|e| e.thinking) == Some(ThinkingMode::Always);
-            let display = match spec.thinking_display {
-                ThinkingDisplay::Updates if always => {
-                    betas.push(BETA_THINKING_UPDATES.to_string());
-                    "updates"
-                }
-                ThinkingDisplay::Omitted => "omitted",
-                _ => "summarized",
-            };
-            Some(json!({"type": "adaptive", "display": display}))
-        }
-        _ => None,
-    };
+    let (thinking, thinking_beta) = thinking_config(entry, spec.thinking_display);
+    betas.extend(thinking_beta);
     let output_config = output_config(entry, spec.effort);
     if server_fallbacks(spec, entry) {
         betas.push(BETA_FALLBACKS.to_string());
@@ -1045,6 +1048,34 @@ fn render_kept(
         repairs: rendered.repairs,
         tail_from,
     }
+}
+
+/// What the request asks for in `thinking`: the model's own mode decides
+/// whether it is sent at all, and the profile decides how the blocks are
+/// shown. Only a model that always thinks takes `display: "updates"`, and
+/// that display rides a beta, which comes back alongside the config for the
+/// caller to put on the request.
+fn thinking_config(
+    entry: Option<&crate::catalog::CatalogEntry>,
+    thinking_display: ThinkingDisplay,
+) -> (Option<Value>, Option<String>) {
+    let mut beta = None;
+    let thinking = match entry.map(|e| e.thinking) {
+        Some(ThinkingMode::Always) | Some(ThinkingMode::Adaptive) => {
+            let always = entry.map(|e| e.thinking) == Some(ThinkingMode::Always);
+            let display = match thinking_display {
+                ThinkingDisplay::Updates if always => {
+                    beta = Some(BETA_THINKING_UPDATES.to_string());
+                    "updates"
+                }
+                ThinkingDisplay::Omitted => "omitted",
+                _ => "summarized",
+            };
+            Some(json!({"type": "adaptive", "display": display}))
+        }
+        _ => None,
+    };
+    (thinking, beta)
 }
 
 /// How a request on `spec` shows its images and PDFs: the compilation's

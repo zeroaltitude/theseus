@@ -10,7 +10,8 @@
 //! it. **The rule that matters**: that is byte for byte what a render of
 //! every node makes. It holds because a kept state is taken up only when
 //! - its key is this render's: the compilation (its prefix, its cleared
-//!   results, its thinking stripped or not), the provider, the model and
+//!   results, its thinking stripped or not), the provider and whether it is
+//!   first-party (whose switches keep thinking), the model and
 //!   the fallback (whose thinking goes back), how images and PDFs show, the
 //!   images the provider refused, and the caller's view (`view`: the old
 //!   attachments a cold rewrite stubbed);
@@ -44,6 +45,9 @@ use serde_json::Value;
 pub(super) struct Key {
     pub compilation: String,
     pub strip: bool,
+    /// Whether Anthropic's own API answers it: a model switch's thinking
+    /// goes back only on a first-party one (`readable`).
+    pub first_party: bool,
     pub provider: String,
     pub model: String,
     pub also: Option<String>,
@@ -61,7 +65,7 @@ pub(super) struct Key {
 impl Key {
     pub(super) fn of(
         compilation: &str,
-        strip: bool,
+        (strip, first_party): (bool, bool),
         provider: &str,
         media: &Media,
         view: u64,
@@ -70,6 +74,7 @@ impl Key {
         Key {
             compilation: compilation.into(),
             strip,
+            first_party,
             provider: provider.into(),
             model: media.model.into(),
             also: media.also.map(str::to_string),
@@ -184,6 +189,7 @@ pub(super) struct Kept1<'a> {
 /// The rest of `render_messages`' arguments.
 pub(super) struct Args<'a> {
     pub strip_prefix_thinking: bool,
+    pub first_party: bool,
     pub provider: &'a str,
     pub media: &'a Media<'a>,
     pub retrying: Option<&'a str>,
@@ -199,7 +205,7 @@ pub(super) fn render(k: Kept1<'_>, prefix: &[&Node], tail: &[&Node], a: Args<'_>
         return render_messages(
             prefix,
             tail,
-            a.strip_prefix_thinking,
+            (a.strip_prefix_thinking, a.first_party),
             a.provider,
             a.media,
             a.retrying,
@@ -233,6 +239,7 @@ pub(super) fn render(k: Kept1<'_>, prefix: &[&Node], tail: &[&Node], a: Args<'_>
         results: &results,
         replaced: &replaced,
         strip_prefix_thinking: a.strip_prefix_thinking,
+        first_party: a.first_party,
         provider: a.provider,
         media: a.media,
         sources: a.sources,

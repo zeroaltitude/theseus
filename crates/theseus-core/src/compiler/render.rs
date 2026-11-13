@@ -93,6 +93,9 @@ pub(super) struct Ctx<'a, 'n> {
     /// The answers a later call replaced.
     pub replaced: &'a HashSet<&'n str>,
     pub strip_prefix_thinking: bool,
+    /// Whether Anthropic's own API answers this request (the spec's
+    /// `first_party`): what `readable` asks of a model switch's thinking.
+    pub first_party: bool,
     pub provider: &'a str,
     pub media: &'a Media<'a>,
     pub sources: &'a crate::recall::render::Sources,
@@ -131,7 +134,7 @@ pub(super) fn results_of<'n>(nodes: impl Iterator<Item = &'n Node>) -> HashMap<&
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
-    strip_prefix_thinking: bool,
+    (strip_prefix_thinking, first_party): (bool, bool),
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
@@ -145,6 +148,7 @@ pub fn render_messages(
         results: &results,
         replaced: &replaced,
         strip_prefix_thinking,
+        first_party,
         provider,
         media,
         sources,
@@ -196,7 +200,9 @@ impl State {
                 // another model (M5 25e) carries none back either.
                 let strip = (in_prefix && ctx.strip_prefix_thinking)
                     || wrote != ctx.provider
-                    || (wrote_model != media.model && media.also != Some(wrote_model));
+                    || (wrote_model != media.model
+                        && media.also != Some(wrote_model)
+                        && !super::readable::reads(ctx.first_party, wrote_model, media.model));
                 let bl: Vec<Value> = if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {

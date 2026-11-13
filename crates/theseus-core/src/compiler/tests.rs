@@ -276,6 +276,99 @@ fn a_system_or_model_change_recompiles_and_strips_the_prefixs_thinking() {
     );
 }
 
+#[test]
+fn opus_reads_sonnets_thinking_across_a_first_party_switch_and_not_the_reverse() {
+    let nodes = vec![
+        (1, Node::user("s", None, "web", "hi")),
+        (
+            2,
+            assistant(vec![thinking(), json!({"type": "text", "text": "hello"})]),
+        ),
+        (3, Node::user("s", None, "web", "again")),
+    ];
+    let kept = |c: &Compiled| c.request.messages[1]["content"].as_array().unwrap().len();
+    let mut sonnet_said = nodes.clone();
+    if let Body::AssistantMessage { model, .. } = &mut sonnet_said[1].1.body {
+        *model = "claude-sonnet-5-5".into();
+    }
+    let sonnet = spec("claude-sonnet-5-5", "A");
+    let c1 = run(&sonnet_said[..1], None, &sonnet, 1);
+
+    // Sonnet 5.5 to Opus 5.5: the trigger stays, the thinking stays.
+    let opus = spec("claude-opus-5-5", "A");
+    let c2 = run(&sonnet_said, Some(&c1.compilation), &opus, 3);
+    assert_eq!(c2.trigger.as_deref(), Some("model_changed"));
+    assert!(!c2.compilation.manifest.strip_thinking);
+    assert_eq!(kept(&c2), 2, "{:?}", c2.request.messages);
+    assert_eq!(c2.request.messages[1]["content"][0], thinking());
+
+    // The same switch with a system change too is not the exception.
+    let mut changed = spec("claude-opus-5-5", "B");
+    let c3 = run(&sonnet_said, Some(&c1.compilation), &changed, 3);
+    assert_eq!(c3.trigger.as_deref(), Some("model_changed+system_changed"));
+    assert_eq!(kept(&c3), 1);
+
+    // Not first party: stripped, and the trigger is still model_changed.
+    changed = spec("claude-opus-5-5", "A");
+    changed.first_party = false;
+    let c4 = run(&sonnet_said, Some(&c1.compilation), &changed, 3);
+    assert_eq!(c4.trigger.as_deref(), Some("model_changed"));
+    assert!(c4.compilation.manifest.strip_thinking);
+    assert_eq!(kept(&c4), 1);
+
+    // The other way (Opus wrote, Sonnet reads): stripped.
+    let mut opus_said = nodes;
+    if let Body::AssistantMessage { model, .. } = &mut opus_said[1].1.body {
+        *model = "claude-opus-5-5".into();
+    }
+    let o1 = run(&opus_said[..1], None, &opus, 1);
+    let back = run(&opus_said, Some(&o1.compilation), &sonnet, 3);
+    assert_eq!(back.trigger.as_deref(), Some("model_changed"));
+    assert!(back.compilation.manifest.strip_thinking);
+    assert_eq!(kept(&back), 1);
+}
+
+/// A cassette of a response as the Messages API documents it: a signed
+/// `thinking` block, a `redacted_thinking` block with opaque data, then text.
+/// Hand-written to the documented shape, NOT a live recording (theseus-9bggi:
+/// no API key in the VM that built it); the bytes are odd on purpose.
+fn cassette_blocks() -> Vec<Value> {
+    vec![
+        json!({"type": "thinking", "thinking": "step one", "signature": "EqQBCkYIAxgC+/=="}),
+        json!({"type": "redacted_thinking", "data": "EmwKAhgBEgy3va3pzix/LafPsn4aDFIT90cYlmL9\n+/AA=="}),
+        json!({"type": "text", "text": "done"}),
+    ]
+}
+
+#[test]
+fn a_redacted_thinking_block_goes_back_verbatim_and_strips_with_the_rest() {
+    let nodes = vec![
+        (1, Node::user("s", None, "web", "hi")),
+        (2, assistant(cassette_blocks())),
+        (3, Node::user("s", None, "web", "again")),
+    ];
+    let sp = spec("claude-opus-5", "A");
+    let c1 = run(&nodes[..1], None, &sp, 1);
+    // Append: the next request carries the answer's blocks byte for byte.
+    let c2 = run(&nodes, Some(&c1.compilation), &sp, 3);
+    assert_eq!(c2.decision(), "append");
+    assert_eq!(
+        c2.request.messages[1]["content"],
+        Value::Array(cassette_blocks())
+    );
+    // A system change recompiles and strips both kinds, keeping the text.
+    let c3 = run(
+        &nodes,
+        Some(&c1.compilation),
+        &spec("claude-opus-5", "B"),
+        3,
+    );
+    assert_eq!(
+        c3.request.messages[1]["content"],
+        json!([{"type": "text", "text": "done"}])
+    );
+}
+
 /// An assistant message another provider wrote: GLM's, with z.ai's
 /// signature, as the history a turn on Anthropic replays (theseus-kol).
 fn glm_said(blocks: Vec<Value>) -> Node {
