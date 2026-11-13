@@ -88,7 +88,11 @@ pub const BUILD_PIDS: u64 = 8192;
 /// count for every rung, called the run "measured", and said `nesting` was
 /// worth a count "with the grant that unblocks it". That last was a cause and
 /// was never established; the counts for `pty` and `devices` alone are gone
-/// with it, and none of it is to be put back.
+/// with it, and none of it is to be put back -- not the per-rung counts, and
+/// not a count restated as a cause, here or in any other comment in this
+/// file, which is where a second copy of those counts lived until
+/// `0ffacd47` (2026-11-11). That bar does not reach the mechanism: the
+/// paragraph above establishes it on a measurement of its own.
 ///
 /// A run inside this view is not a weaker run than a lane's: it is the only
 /// run in which the sandbox contract, the terminal and the device nodes are
