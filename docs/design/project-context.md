@@ -348,7 +348,7 @@ block, and the OS fact.
 
 ## 11. Status: what is built (audit of 2026-11-12, base 75f19f3c)
 
-§7 and §8 are built, and F2 (§6's budget) is closed. Read on the tree, not assumed:
+§7 is built, §8's three stops are built, and F2 (§6's budget) is closed. Read on the tree, not assumed:
 
 - **The grant.** `project_context/trust.rs`: the META record `project.trust` (`RECORD`), a
   map from `repo_id(root)` to `Grant { root, by, via, at_ms }`; `granted` is one keyed
@@ -373,4 +373,9 @@ then `untrust` removing it, is run by the maintainer on the owner's machine. (2)
 with no terminal is accepted as the grantor: `Act::Standing` is judged by
 `owner_in_private`, which asks only the surface, and `Answerer.agent` is consulted for
 `Act::Answer` alone (`rpc/confirms.rs`, the `owners_alone` arm). No test grants as an
-agent. That and a grant from chat validated as the owner are tracked as `theseus-me9fc`.
+agent. That and a grant from chat validated as the owner are tracked as `theseus-me9fc`. (3) §8's
+"After a grant" is NOT built: a trusted file that changes is carried, but the change is
+not named in the block and not ledgered, and there is no configuration line that turns
+the notice into an ask — `[project]` is `max_tokens` and `tail_facts` only. The residual
+risk is the one `judge/content.rs` names: text written into a granted repository's file
+by an unfrozen session at notify posture is never asked the injection question.
