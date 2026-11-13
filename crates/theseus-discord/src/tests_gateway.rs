@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use self::patience::Patience;
+
 use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
 use theseus_core::secrets::{Secret, SecretBoard};
@@ -185,16 +187,16 @@ impl Rig {
     }
 
     pub(crate) async fn until(&self, what: &str, f: impl Fn() -> bool) {
-        let t0 = Instant::now();
+        let mut patience = Patience::new();
         while !f() {
             assert!(
-                t0.elapsed() < Duration::from_secs(20),
+                !patience.spent(),
                 "timed out: {what}; #lab holds {:#?}; the DM {:#?}; answers {:#?}",
                 self.fake.messages(LAB),
                 self.fake.messages(ANA_DM),
                 self.fake.replies()
             );
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            patience.nap().await;
         }
     }
 
@@ -957,6 +959,7 @@ mod content;
 mod horizon;
 mod link;
 mod onto;
+pub(crate) mod patience;
 mod persona_soul;
 mod remind;
 mod reply;
