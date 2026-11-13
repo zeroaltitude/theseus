@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="192" viewBox="0 0 720 192" role="img" aria-labelledby="t-contamination t-contamination-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-contamination">Contamination by arm</title>
+<desc id="t-contamination-d">How often does an in-stream answer give another stream's value of the same kind?</desc>
+<rect width="720" height="192" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Contamination by arm</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#d55181"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">A1o Theseus with threads and the ontology (+onto)</text>
+<circle cx="375.0" cy="50.0" r="5" fill="#008300"/>
+<text x="390.0" y="54.0" font-size="12" fill="#c3c2b7">A1 Theseus with threads, natural addressing</text>
+<line x1="56.2" y1="72.0" x2="56.2" y2="136.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="157.8" y1="72.0" x2="157.8" y2="136.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="259.5" y1="72.0" x2="259.5" y2="136.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="361.1" y1="72.0" x2="361.1" y2="136.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="462.7" y1="72.0" x2="462.7" y2="136.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="564.3" y1="72.0" x2="564.3" y2="136.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="42.2" y="94.0" font-size="12" fill="#ffffff" text-anchor="end">A1o</text>
+<g><title>A1o: 0.0%  [0.0%, 12.9%] (0 of 26 in-stream answers gave a colliding stream's value)</title>
+<line x1="56.2" y1="90.0" x2="187.0" y2="90.0" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<line x1="56.2" y1="85.0" x2="56.2" y2="95.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="187.0" y1="85.0" x2="187.0" y2="95.0" stroke="#d55181" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="56.2" cy="90.0" r="12" fill="transparent"/>
+<circle cx="56.2" cy="90.0" r="5" fill="#d55181" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="94.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">0.0%  [0.0%, 12.9%]</text>
+<text x="42.2" y="122.0" font-size="12" fill="#ffffff" text-anchor="end">A1</text>
+<g><title>A1: 23.1%  [11.0%, 42.0%] (6 of 26 in-stream answers gave a colliding stream's value)</title>
+<line x1="168.3" y1="118.0" x2="483.5" y2="118.0" stroke="#008300" stroke-width="2" stroke-linecap="round"/>
+<line x1="168.3" y1="113.0" x2="168.3" y2="123.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="483.5" y1="113.0" x2="483.5" y2="123.0" stroke="#008300" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="290.8" cy="118.0" r="12" fill="transparent"/>
+<circle cx="290.8" cy="118.0" r="5" fill="#008300" stroke="#1a1a19" stroke-width="2"/>
+</g>
+<text x="578.3" y="122.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">23.1%  [11.0%, 42.0%]</text>
+<line x1="56.2" y1="136.0" x2="564.3" y2="136.0" stroke="#383835" stroke-width="1"/>
+<text x="56.2" y="152.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0%</text>
+<text x="157.8" y="152.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10%</text>
+<text x="259.5" y="152.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">20%</text>
+<text x="361.1" y="152.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">30%</text>
+<text x="462.7" y="152.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">40%</text>
+<text x="564.3" y="152.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">50%</text>
+<text x="310.3" y="170.0" font-size="12" fill="#c3c2b7" text-anchor="middle">in-stream answers with a colliding value (95% Wilson)</text>
+</svg>

@@ -1,0 +1,328 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="258" viewBox="0 0 720 258" role="img" aria-labelledby="t-stream-correctness t-stream-correctness-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-stream-correctness">End-state oracle by stream and arm</title>
+<desc id="t-stream-correctness-d">Which arm finished which stream's work correctly?</desc>
+<rect width="720" height="258" rx="8" fill="#fcfcfb" stroke="#e6e5df"/>
+<text x="18.0" y="32.0" font-size="15" fill="#0b0b0b" font-weight="600">End-state oracle by stream and arm</text>
+<circle cx="25.0" cy="50.0" r="5" fill="#e87ba4"/>
+<text x="40.0" y="54.0" font-size="12" fill="#52514e">A1o Theseus with threads and the ontology (+onto)</text>
+<circle cx="375.0" cy="50.0" r="5" fill="#008300"/>
+<text x="390.0" y="54.0" font-size="12" fill="#52514e">A1 Theseus with threads, natural addressing</text>
+<circle cx="25.0" cy="70.0" r="5" fill="#2a78d6"/>
+<text x="40.0" y="74.0" font-size="12" fill="#52514e">A3 Theseus, one session</text>
+<circle cx="211.6" cy="70.0" r="5" fill="#1baf7a"/>
+<text x="226.6" y="74.0" font-size="12" fill="#52514e">A5 Theseus, a session per stream</text>
+<circle cx="451.2" cy="70.0" r="5" fill="#52514e"/>
+<text x="466.2" y="74.0" font-size="12" fill="#52514e">oracle holds</text>
+<circle cx="563.8" cy="70.0" r="4.5" fill="#fcfcfb" stroke="#52514e" stroke-width="1.6"/>
+<text x="578.8" y="74.0" font-size="12" fill="#52514e">oracle fails</text>
+<text x="128.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 128.5 119.3)">A1o</text>
+<text x="143.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 143.5 119.3)">A1o</text>
+<text x="158.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 158.5 119.3)">A1o</text>
+<text x="181.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 181.5 119.3)">A1</text>
+<text x="196.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 196.5 119.3)">A1</text>
+<text x="211.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 211.5 119.3)">A1</text>
+<text x="234.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 234.5 119.3)">A3</text>
+<text x="249.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 249.5 119.3)">A3</text>
+<text x="264.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 264.5 119.3)">A3</text>
+<text x="287.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 287.5 119.3)">A5</text>
+<text x="302.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 302.5 119.3)">A5</text>
+<text x="317.5" y="119.3" font-size="10" fill="#52514e" transform="rotate(-45 317.5 119.3)">A5</text>
+<text x="115.0" y="135.8" font-size="11" fill="#0b0b0b" text-anchor="end">sec-fix (sealed)</text>
+<g><title>sec-fix (sealed) · A1o: oracle holds (A1o: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="123.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="130.5" cy="131.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>sec-fix (sealed) · A1o: oracle holds (A1o: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="138.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="145.5" cy="131.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>sec-fix (sealed) · A1o: oracle holds (A1o: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="153.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="160.5" cy="131.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>sec-fix (sealed) · A1: oracle holds (A1: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="176.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="183.5" cy="131.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>sec-fix (sealed) · A1: oracle holds (A1: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="191.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="198.5" cy="131.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>sec-fix (sealed) · A1: oracle holds (A1: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="206.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="213.5" cy="131.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>sec-fix (sealed) · A3: oracle holds (A3: 5 of 5 oracle checks; recall 2/4 (50.0%))</title>
+<rect x="229.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="236.5" cy="131.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>sec-fix (sealed) · A3: oracle holds (A3: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="244.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="251.5" cy="131.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>sec-fix (sealed) · A3: oracle holds (A3: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="259.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="266.5" cy="131.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>sec-fix (sealed) · A5: oracle holds (A5: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="282.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="289.5" cy="131.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>sec-fix (sealed) · A5: oracle holds (A5: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="297.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="304.5" cy="131.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>sec-fix (sealed) · A5: oracle holds (A5: 5 of 5 oracle checks; recall 4/4 (100.0%))</title>
+<rect x="312.0" y="124.3" width="15" height="15" fill="transparent"/>
+<circle cx="319.5" cy="131.8" r="4.6" fill="#1baf7a"/>
+</g>
+<rect x="18.0" y="139.3" width="321.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="115.0" y="150.8" font-size="11" fill="#0b0b0b" text-anchor="end">pipeline</text>
+<g><title>pipeline · A1o: oracle fails (A1o: 2 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="123.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="130.5" cy="146.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>pipeline · A1o: oracle fails (A1o: 2 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="138.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="145.5" cy="146.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>pipeline · A1o: oracle fails (A1o: 2 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="153.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="160.5" cy="146.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>pipeline · A1: oracle fails (A1: 2 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="176.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="183.5" cy="146.8" r="4" fill="#fcfcfb" stroke="#008300" stroke-width="1.5"/>
+</g>
+<g><title>pipeline · A1: oracle fails (A1: 2 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="191.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="198.5" cy="146.8" r="4" fill="#fcfcfb" stroke="#008300" stroke-width="1.5"/>
+</g>
+<g><title>pipeline · A1: oracle holds (A1: 4 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="206.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="213.5" cy="146.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>pipeline · A3: oracle holds (A3: 4 of 4 oracle checks; recall 1/4 (25.0%))</title>
+<rect x="229.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="236.5" cy="146.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>pipeline · A3: oracle holds (A3: 4 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="244.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="251.5" cy="146.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>pipeline · A3: oracle holds (A3: 4 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="259.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="266.5" cy="146.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>pipeline · A5: oracle holds (A5: 4 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="282.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="289.5" cy="146.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>pipeline · A5: oracle holds (A5: 4 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="297.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="304.5" cy="146.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>pipeline · A5: oracle holds (A5: 4 of 4 oracle checks; recall 3/4 (75.0%))</title>
+<rect x="312.0" y="139.3" width="15" height="15" fill="transparent"/>
+<circle cx="319.5" cy="146.8" r="4.6" fill="#1baf7a"/>
+</g>
+<text x="115.0" y="165.8" font-size="11" fill="#0b0b0b" text-anchor="end">pr-round</text>
+<g><title>pr-round · A1o: oracle fails (A1o: 2 of 5 oracle checks; recall 5/6 (83.3%))</title>
+<rect x="123.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="130.5" cy="161.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>pr-round · A1o: oracle holds (A1o: 5 of 5 oracle checks; recall 4/6 (66.7%))</title>
+<rect x="138.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="145.5" cy="161.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>pr-round · A1o: oracle fails (A1o: 2 of 5 oracle checks; recall 5/6 (83.3%))</title>
+<rect x="153.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="160.5" cy="161.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>pr-round · A1: oracle fails (A1: 2 of 5 oracle checks; recall 4/6 (66.7%))</title>
+<rect x="176.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="183.5" cy="161.8" r="4" fill="#fcfcfb" stroke="#008300" stroke-width="1.5"/>
+</g>
+<g><title>pr-round · A1: oracle holds (A1: 5 of 5 oracle checks; recall 5/6 (83.3%))</title>
+<rect x="191.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="198.5" cy="161.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>pr-round · A1: oracle holds (A1: 5 of 5 oracle checks; recall 5/6 (83.3%))</title>
+<rect x="206.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="213.5" cy="161.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>pr-round · A3: oracle holds (A3: 5 of 5 oracle checks; recall 4/6 (66.7%))</title>
+<rect x="229.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="236.5" cy="161.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>pr-round · A3: oracle holds (A3: 5 of 5 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="244.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="251.5" cy="161.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>pr-round · A3: oracle holds (A3: 5 of 5 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="259.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="266.5" cy="161.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>pr-round · A5: oracle holds (A5: 5 of 5 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="282.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="289.5" cy="161.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>pr-round · A5: oracle holds (A5: 5 of 5 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="297.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="304.5" cy="161.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>pr-round · A5: oracle holds (A5: 5 of 5 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="312.0" y="154.3" width="15" height="15" fill="transparent"/>
+<circle cx="319.5" cy="161.8" r="4.6" fill="#1baf7a"/>
+</g>
+<rect x="18.0" y="169.3" width="321.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="115.0" y="180.8" font-size="11" fill="#0b0b0b" text-anchor="end">harness-dev</text>
+<g><title>harness-dev · A1o: oracle fails (A1o: 4 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="123.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="130.5" cy="176.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>harness-dev · A1o: oracle fails (A1o: 2 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="138.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="145.5" cy="176.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>harness-dev · A1o: oracle fails (A1o: 2 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="153.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="160.5" cy="176.8" r="4" fill="#fcfcfb" stroke="#e87ba4" stroke-width="1.5"/>
+</g>
+<g><title>harness-dev · A1: oracle fails (A1: 3 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="176.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="183.5" cy="176.8" r="4" fill="#fcfcfb" stroke="#008300" stroke-width="1.5"/>
+</g>
+<g><title>harness-dev · A1: oracle holds (A1: 5 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="191.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="198.5" cy="176.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>harness-dev · A1: oracle holds (A1: 5 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="206.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="213.5" cy="176.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>harness-dev · A3: oracle holds (A3: 5 of 5 oracle checks; recall 4/5 (80.0%))</title>
+<rect x="229.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="236.5" cy="176.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>harness-dev · A3: oracle holds (A3: 5 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="244.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="251.5" cy="176.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>harness-dev · A3: oracle holds (A3: 5 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="259.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="266.5" cy="176.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>harness-dev · A5: oracle holds (A5: 5 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="282.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="289.5" cy="176.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>harness-dev · A5: oracle holds (A5: 5 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="297.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="304.5" cy="176.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>harness-dev · A5: oracle holds (A5: 5 of 5 oracle checks; recall 5/5 (100.0%))</title>
+<rect x="312.0" y="169.3" width="15" height="15" fill="transparent"/>
+<circle cx="319.5" cy="176.8" r="4.6" fill="#1baf7a"/>
+</g>
+<text x="115.0" y="195.8" font-size="11" fill="#0b0b0b" text-anchor="end">local-ops</text>
+<g><title>local-ops · A1o: oracle holds (A1o: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="123.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="130.5" cy="191.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>local-ops · A1o: oracle holds (A1o: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="138.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="145.5" cy="191.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>local-ops · A1o: oracle holds (A1o: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="153.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="160.5" cy="191.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>local-ops · A1: oracle holds (A1: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="176.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="183.5" cy="191.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>local-ops · A1: oracle holds (A1: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="191.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="198.5" cy="191.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>local-ops · A1: oracle holds (A1: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="206.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="213.5" cy="191.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>local-ops · A3: oracle holds (A3: 4 of 4 oracle checks; recall 4/6 (66.7%))</title>
+<rect x="229.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="236.5" cy="191.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>local-ops · A3: oracle holds (A3: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="244.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="251.5" cy="191.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>local-ops · A3: oracle holds (A3: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="259.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="266.5" cy="191.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>local-ops · A5: oracle holds (A5: 4 of 4 oracle checks; recall 4/6 (66.7%))</title>
+<rect x="282.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="289.5" cy="191.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>local-ops · A5: oracle holds (A5: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="297.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="304.5" cy="191.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>local-ops · A5: oracle holds (A5: 4 of 4 oracle checks; recall 6/6 (100.0%))</title>
+<rect x="312.0" y="184.3" width="15" height="15" fill="transparent"/>
+<circle cx="319.5" cy="191.8" r="4.6" fill="#1baf7a"/>
+</g>
+<rect x="18.0" y="199.3" width="321.0" height="15" fill="#e1e0d9" fill-opacity="0.45"/>
+<text x="115.0" y="210.8" font-size="11" fill="#0b0b0b" text-anchor="end">home</text>
+<g><title>home · A1o: oracle holds (A1o: 3 of 3 oracle checks; recall 0/1 (0.0%))</title>
+<rect x="123.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="130.5" cy="206.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>home · A1o: oracle holds (A1o: 3 of 3 oracle checks; recall 0/1 (0.0%))</title>
+<rect x="138.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="145.5" cy="206.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>home · A1o: oracle holds (A1o: 3 of 3 oracle checks; recall 0/1 (0.0%))</title>
+<rect x="153.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="160.5" cy="206.8" r="4.6" fill="#e87ba4"/>
+</g>
+<g><title>home · A1: oracle holds (A1: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="176.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="183.5" cy="206.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>home · A1: oracle holds (A1: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="191.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="198.5" cy="206.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>home · A1: oracle holds (A1: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="206.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="213.5" cy="206.8" r="4.6" fill="#008300"/>
+</g>
+<g><title>home · A3: oracle holds (A3: 3 of 3 oracle checks; recall 0/1 (0.0%))</title>
+<rect x="229.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="236.5" cy="206.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>home · A3: oracle holds (A3: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="244.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="251.5" cy="206.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>home · A3: oracle holds (A3: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="259.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="266.5" cy="206.8" r="4.6" fill="#2a78d6"/>
+</g>
+<g><title>home · A5: oracle holds (A5: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="282.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="289.5" cy="206.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>home · A5: oracle holds (A5: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="297.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="304.5" cy="206.8" r="4.6" fill="#1baf7a"/>
+</g>
+<g><title>home · A5: oracle holds (A5: 3 of 3 oracle checks; recall 1/1 (100.0%))</title>
+<rect x="312.0" y="199.3" width="15" height="15" fill="transparent"/>
+<circle cx="319.5" cy="206.8" r="4.6" fill="#1baf7a"/>
+</g>
+<text x="18.0" y="234.3" font-size="11" fill="#52514e">P: every check the stream's end-state oracle runs holds. Hover a cell for its checks.</text>
+</svg>

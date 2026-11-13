@@ -1,0 +1,3118 @@
+{
+ "report": "2026-11-13-threadbench-onto-held-out",
+ "suite": "threadbench",
+ "date": "2026-11-13",
+ "seed": 29,
+ "size": "standard",
+ "digest": "c3743e47879058dea4259f3cdd481cb1f7bdecd0e9c275ad47b07639fc8cff25",
+ "arms": [
+  {
+   "key": "theseus-threads-onto",
+   "label": "A1o Theseus with threads and the ontology (+onto)"
+  },
+  {
+   "key": "theseus-threads",
+   "label": "A1 Theseus with threads, natural addressing"
+  }
+ ],
+ "runs": [
+  {
+   "abstention": {
+    "gave_value": 2,
+    "hi": 0.5615,
+    "k": 0,
+    "lo": 0.0,
+    "n": 3,
+    "rate": 0.0
+   },
+   "arm": "A1o",
+   "compactions": 0,
+   "contamination": {
+    "by_stream": {
+     "harness-dev": 0,
+     "home": 0,
+     "local-ops": 0,
+     "pipeline": 0,
+     "pr-round": 0,
+     "sec-fix": 0
+    },
+    "hi": 0.1287,
+    "k": 0,
+    "lo": 0.0,
+    "n": 26,
+    "rate": 0.0
+   },
+   "cross": {
+    "cited": {
+     "hi": 0.953,
+     "k": 10,
+     "lo": 0.552,
+     "n": 12,
+     "rate": 0.8333
+    },
+    "contaminated": {
+     "hi": 0.6805,
+     "k": 5,
+     "lo": 0.1933,
+     "n": 12,
+     "rate": 0.4167
+    },
+    "named_stream": {
+     "hi": 0.8619,
+     "k": 8,
+     "lo": 0.3906,
+     "n": 12,
+     "rate": 0.6667
+    },
+    "value": {
+     "hi": 0.9851,
+     "k": 11,
+     "lo": 0.6461,
+     "n": 12,
+     "rate": 0.9167
+    }
+   },
+   "decisions": {
+    "by_class": {
+     "filing": {
+      "chose": 62,
+      "jev_usd": 0.0154,
+      "judgments": 103,
+      "main_model_usd": 1.2642,
+      "n": 179,
+      "per_turn": 1.252
+     },
+     "privacy": {
+      "chose": 52,
+      "jev_usd": 0.0061,
+      "judgments": 63,
+      "main_model_usd": 0.4024,
+      "n": 455,
+      "per_turn": 3.182
+     },
+     "routing": {
+      "chose": 135,
+      "jev_usd": 0.0173,
+      "judgments": 186,
+      "main_model_usd": 1.2474,
+      "n": 227,
+      "per_turn": 1.587
+     }
+    },
+    "jev_usd": 0.0388,
+    "judgments": 352,
+    "main_model_usd": 2.914,
+    "n": 861,
+    "per_turn": 6.021,
+    "questions": {
+     "categorize.v1/still_member": {
+      "act": 2,
+      "answered": 3,
+      "chose": 2,
+      "class": "filing"
+     },
+     "categorize.v1/topic": {
+      "act": 5,
+      "answered": 9,
+      "chose": 5,
+      "class": "filing"
+     },
+     "classify.v4/thread": {
+      "act": 37,
+      "answered": 64,
+      "chose": 37,
+      "class": "routing"
+     },
+     "onto.v1/capability": {
+      "act": 60,
+      "answered": 94,
+      "chose": 0,
+      "class": "filing"
+     },
+     "onto.v1/elicits": {
+      "act": 94,
+      "answered": 94,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "onto.v1/event": {
+      "act": 52,
+      "answered": 94,
+      "chose": 17,
+      "class": "filing"
+     },
+     "onto.v1/expertise": {
+      "act": 12,
+      "answered": 94,
+      "chose": 0,
+      "class": "filing"
+     },
+     "onto.v1/personal": {
+      "act": 93,
+      "answered": 94,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "onto.v1/resource": {
+      "act": 31,
+      "answered": 94,
+      "chose": 22,
+      "class": "filing"
+     },
+     "onto.v1/topic": {
+      "act": 17,
+      "answered": 94,
+      "chose": 16,
+      "class": "filing"
+     },
+     "route.v7/data": {
+      "act": 28,
+      "answered": 93,
+      "chose": 28,
+      "class": "routing"
+     },
+     "route.v7/mode": {
+      "act": 35,
+      "answered": 93,
+      "chose": 35,
+      "class": "routing"
+     },
+     "route.v7/persona": {
+      "act": 2,
+      "answered": 29,
+      "chose": 2,
+      "class": "routing"
+     },
+     "route.v7/personal": {
+      "act": 92,
+      "answered": 93,
+      "chose": 0,
+      "class": "routing"
+     },
+     "route.v7/reply_effort": {
+      "act": 14,
+      "answered": 93,
+      "chose": 14,
+      "class": "routing"
+     },
+     "route.v7/seal": {
+      "act": 19,
+      "answered": 29,
+      "chose": 19,
+      "class": "routing"
+     },
+     "security.v3/beyond_ask": {
+      "act": 1,
+      "answered": 63,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/destructive": {
+      "act": 26,
+      "answered": 63,
+      "chose": 2,
+      "class": "privacy"
+     },
+     "security.v3/exfiltrates": {
+      "act": 63,
+      "answered": 63,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/kind": {
+      "act": 36,
+      "answered": 63,
+      "chose": 36,
+      "class": "privacy"
+     },
+     "security.v3/risky": {
+      "act": 21,
+      "answered": 63,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/safe": {
+      "act": 14,
+      "answered": 63,
+      "chose": 14,
+      "class": "privacy"
+     },
+     "security.v3/steered": {
+      "act": 45,
+      "answered": 63,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/touches_credentials": {
+      "act": 62,
+      "answered": 63,
+      "chose": 0,
+      "class": "privacy"
+     }
+    },
+    "recorded": true,
+    "saved_usd": 2.8752,
+    "turns": {
+     "attributed": {
+      "between": 0,
+      "time": 0,
+      "turn_id": 861
+     },
+     "mean": 6.021,
+     "share_with_decision": 0.657
+    },
+    "unanswered": 0
+   },
+   "digest": "c3743e47879058dea4259f3cdd481cb1f7bdecd0e9c275ad47b07639fc8cff25",
+   "effort": "medium",
+   "embargo": {
+    "leak_count": 0,
+    "leaks": [],
+    "probes": {
+     "hi": 1.0,
+     "k": 4,
+     "lo": 0.5101,
+     "n": 4,
+     "rate": 1.0
+    }
+   },
+   "excluded": 0,
+   "failed_turns": 6,
+   "harness": "theseus",
+   "harness_version": null,
+   "header": {
+    "correct": 0,
+    "false_fit": 0,
+    "n": 0,
+    "other_wrong": 0
+   },
+   "key": "theseus-threads-onto",
+   "kinds": {
+    "abstention": {
+     "excluded": 0,
+     "hi": 0.5615,
+     "k": 0,
+     "lo": 0.0,
+     "n": 3,
+     "rate": 0.0
+    },
+    "cross": {
+     "excluded": 0,
+     "hi": 0.953,
+     "k": 10,
+     "lo": 0.552,
+     "n": 12,
+     "rate": 0.8333
+    },
+    "embargo": {
+     "excluded": 0,
+     "hi": 1.0,
+     "k": 4,
+     "lo": 0.5101,
+     "n": 4,
+     "rate": 1.0
+    },
+    "in_direct": {
+     "excluded": 0,
+     "hi": 0.9889,
+     "k": 15,
+     "lo": 0.7167,
+     "n": 16,
+     "rate": 0.9375
+    },
+    "in_indirect": {
+     "excluded": 0,
+     "hi": 1.0,
+     "k": 10,
+     "lo": 0.7225,
+     "n": 10,
+     "rate": 1.0
+    },
+    "misroute": {
+     "excluded": 0,
+     "hi": 1.0,
+     "k": 2,
+     "lo": 0.3424,
+     "n": 2,
+     "rate": 1.0
+    }
+   },
+   "latency": {
+    "first_token_ms_mean": 1959.3,
+    "first_token_note": null,
+    "wall_ms_mean": 5601.4,
+    "wall_ms_p50": 4208.0,
+    "wall_ms_p90": 10285.4
+   },
+   "layout": "thread",
+   "misroute": {
+    "hi": 1.0,
+    "k": 2,
+    "lo": 0.3424,
+    "n": 2,
+    "rate": 1.0
+   },
+   "model": "anthropic/claude-sonnet-5-5",
+   "name": "Theseus with threads and the ontology (+onto)",
+   "oracle_mean": 0.6667,
+   "oracle_mean_legacy": 0.5,
+   "placement": {
+    "before_thread": 3,
+    "orphan_msgs": [
+     56,
+     66,
+     80,
+     91,
+     109,
+     126
+    ],
+    "orphan_turns": 6,
+    "streams_without_thread": []
+   },
+   "reach": {
+    "all": {
+     "hi": 0.4899,
+     "k": 0,
+     "lo": 0.0,
+     "n": 4,
+     "rate": 0.0
+    },
+    "by_probe": {
+     "p066": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": true,
+      "stream": "harness-dev"
+     },
+     "p097": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": true,
+      "stream": "pr-round"
+     },
+     "p104": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": false,
+      "stream": "pipeline"
+     },
+     "p128": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": false,
+      "stream": "local-ops"
+     }
+    },
+    "pr_pipeline": {
+     "hi": 0.6576,
+     "k": 0,
+     "lo": 0.0,
+     "n": 2,
+     "rate": 0.0
+    }
+   },
+   "resources": {
+    "cpu_sys_s": 54.35,
+    "cpu_user_s": 310.84,
+    "max_rss_kb": 637044
+   },
+   "routing": {
+    "asked_on_ambiguous": {
+     "hi": 0.6124,
+     "k": 5,
+     "lo": 0.1634,
+     "n": 14,
+     "rate": 0.3571
+    },
+    "asked_on_clear": {
+     "hi": 0.1496,
+     "k": 11,
+     "lo": 0.0494,
+     "n": 126,
+     "rate": 0.0873
+    },
+    "top1": {
+     "hi": 0.962,
+     "k": 117,
+     "lo": 0.8698,
+     "n": 126,
+     "rate": 0.9286
+    }
+   },
+   "seed": 29,
+   "sessions": 6,
+   "size": "standard",
+   "stale": {
+    "hi": 1.0,
+    "k": 1,
+    "lo": 0.2065,
+    "n": 1,
+    "rate": 1.0
+   },
+   "streams": {
+    "harness-dev": {
+     "checks": [
+      {
+       "name": "--min-len ignores short words",
+       "ok": true
+      },
+      {
+       "name": "--top 0 prints nothing",
+       "ok": true
+      },
+      {
+       "name": "the default output is unchanged",
+       "ok": true
+      },
+      {
+       "name": "the suite passes through run-tests.sh and tests both flags",
+       "ok": true
+      },
+      {
+       "name": "the README documents both flags",
+       "ok": true
+      }
+     ],
+     "checks_passed": 5,
+     "checks_total": 5,
+     "ideal_checks": 5,
+     "ideal_passed": 5,
+     "oracle": 1.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 5,
+      "lo": 0.5655,
+      "n": 5,
+      "rate": 1.0
+     }
+    },
+    "home": {
+     "checks": [
+      {
+       "name": "a thank-you note exists",
+       "ok": true
+      },
+      {
+       "name": "the pancake recipe is scaled to six",
+       "ok": true
+      },
+      {
+       "name": "three cat names",
+       "ok": true
+      }
+     ],
+     "checks_passed": 3,
+     "checks_total": 3,
+     "ideal_checks": 3,
+     "ideal_passed": 3,
+     "oracle": 1.0,
+     "recall": {
+      "hi": null,
+      "k": 0,
+      "lo": null,
+      "n": 0,
+      "rate": null
+     }
+    },
+    "local-ops": {
+     "checks": [
+      {
+       "name": "VERSION is bumped and the changelog and verify.sh agree",
+       "ok": false
+      },
+      {
+       "name": "the config key is migrated, value in milliseconds",
+       "ok": true
+      },
+      {
+       "name": "the restart script restarts the stand-in service, verified",
+       "ok": true
+      },
+      {
+       "name": "the restart script fails when the service never becomes ready",
+       "ok": true
+      }
+     ],
+     "checks_passed": 3,
+     "checks_total": 4,
+     "ideal_checks": 4,
+     "ideal_passed": 3,
+     "oracle": 0.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 4,
+      "lo": 0.5101,
+      "n": 4,
+      "rate": 1.0
+     }
+    },
+    "pipeline": {
+     "checks": [
+      {
+       "name": "the three cleaned files match the rules",
+       "ok": true
+      },
+      {
+       "name": "the summary matches the final cutoff",
+       "ok": true
+      },
+      {
+       "name": "a script regenerates the summary",
+       "ok": true
+      },
+      {
+       "name": "a test covers the duplicate rule, and the suite passes",
+       "ok": true
+      }
+     ],
+     "checks_passed": 4,
+     "checks_total": 4,
+     "ideal_checks": 4,
+     "ideal_passed": 4,
+     "legacy": {
+      "checks": [
+       {
+        "name": "the three cleaned files match the rules",
+        "ok": true
+       },
+       {
+        "name": "the summary matches the final cutoff",
+        "ok": false
+       },
+       {
+        "name": "stats.py regenerates the summary",
+        "ok": false
+       },
+       {
+        "name": "a test covers the duplicate rule, and the suite passes",
+        "ok": true
+       }
+      ],
+      "oracle": 0.0
+     },
+     "oracle": 1.0,
+     "recall": {
+      "hi": 0.9776,
+      "k": 7,
+      "lo": 0.5291,
+      "n": 8,
+      "rate": 0.875
+     }
+    },
+    "pr-round": {
+     "checks": [
+      {
+       "name": "attempts, jitter and retry_on behave as the review asked",
+       "ok": true
+      },
+      {
+       "name": "the suite passes and holds the review's tests",
+       "ok": true
+      },
+      {
+       "name": "the README shows retry_on in a code block",
+       "ok": false
+      },
+      {
+       "name": "the PR description lists all four comments",
+       "ok": true
+      },
+      {
+       "name": "the PR description holds nothing of the sealed stream",
+       "ok": true
+      }
+     ],
+     "checks_passed": 4,
+     "checks_total": 5,
+     "ideal_checks": 5,
+     "ideal_passed": 4,
+     "legacy": {
+      "checks": [
+       {
+        "name": "attempts, jitter and retry_on behave as the review asked",
+        "ok": true
+       },
+       {
+        "name": "the suite passes and holds the review's tests",
+        "ok": true
+       },
+       {
+        "name": "the README shows retry_on in a code block",
+        "ok": false
+       },
+       {
+        "name": "the PR description lists all four comments",
+        "ok": false
+       },
+       {
+        "name": "the PR description holds nothing of the sealed stream",
+        "ok": true
+       }
+      ],
+      "oracle": 0.0
+     },
+     "oracle": 0.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 5,
+      "lo": 0.5655,
+      "n": 5,
+      "rate": 1.0
+     }
+    },
+    "sec-fix": {
+     "checks": [
+      {
+       "name": "the handler refuses names that leave public/ and still serves public files",
+       "ok": true
+      },
+      {
+       "name": "the suite passes",
+       "ok": true
+      },
+      {
+       "name": "a regression test fails on the old handler",
+       "ok": true
+      },
+      {
+       "name": "a reproduction script exists",
+       "ok": true
+      },
+      {
+       "name": "the advisory note names the ticket and the handler",
+       "ok": true
+      }
+     ],
+     "checks_passed": 5,
+     "checks_total": 5,
+     "ideal_checks": 5,
+     "ideal_passed": 5,
+     "oracle": 1.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 4,
+      "lo": 0.5101,
+      "n": 4,
+      "rate": 1.0
+     }
+    }
+   },
+   "threads": {
+    "persona": {
+     "engaged": {
+      "hi": 0.0305,
+      "k": 0,
+      "lo": 0.0,
+      "n": 122,
+      "rate": 0.0
+     },
+     "how": {
+      "prior": 123
+     }
+    }
+   },
+   "tokens": {
+    "cache_read_share": 0.9524,
+    "prompt_total": 6107191,
+    "request_curve": [
+     9021,
+     10746,
+     11755,
+     8820,
+     9107,
+     21176,
+     16624,
+     16810,
+     17203,
+     17553,
+     17712,
+     9448,
+     10358,
+     12903,
+     14992,
+     15175,
+     16790,
+     17534,
+     18390,
+     9334,
+     19363,
+     9803,
+     12687,
+     14777,
+     14981,
+     16148,
+     17571,
+     20172,
+     18342,
+     18828,
+     11270,
+     11632,
+     10054,
+     12599,
+     13321,
+     15858,
+     17910,
+     19377,
+     20770,
+     22011,
+     22485,
+     19835,
+     21998,
+     25296,
+     24289,
+     25469,
+     27258,
+     13997,
+     17300,
+     19880,
+     21875,
+     9648,
+     26191,
+     27780,
+     24775,
+     25746,
+     30876,
+     26994,
+     29081,
+     19863,
+     28536,
+     30898,
+     24474,
+     24855,
+     25700,
+     27407,
+     35919,
+     27523,
+     12163,
+     14008,
+     15209,
+     17041,
+     21937,
+     22832,
+     38418,
+     22950,
+     23099,
+     24419,
+     27500,
+     28992,
+     29724,
+     31100,
+     18169,
+     21080,
+     27628,
+     22794,
+     24904,
+     29340,
+     25107,
+     31399,
+     33552,
+     35773,
+     41438,
+     31802,
+     31971,
+     32412,
+     37646,
+     25327,
+     27124,
+     28499,
+     28696,
+     33033,
+     34736,
+     36634,
+     38322,
+     37384,
+     39032,
+     39138,
+     29389,
+     40193,
+     28208,
+     28564,
+     29044,
+     43626,
+     31480,
+     46806,
+     39345,
+     44422,
+     49220,
+     46314,
+     39586,
+     41692,
+     51084,
+     55208,
+     47954,
+     42492,
+     48538,
+     30538,
+     50093,
+     50990,
+     52041,
+     34907,
+     44006,
+     33104,
+     44281,
+     34070,
+     35673,
+     37529,
+     52978,
+     37711,
+     53836,
+     39143,
+     39932
+    ],
+    "request_mean": 27141.3,
+    "request_p90": 43930.0,
+    "totals": {
+     "cache_read": 5816294,
+     "cache_write": 286068,
+     "input": 4829,
+     "output": 66875
+    }
+   },
+   "track": "main",
+   "turns": 143,
+   "usd": {
+    "measured": 1.9752,
+    "measured_turns": 143,
+    "model_prices_per_mtok": [
+     2.0,
+     10.0,
+     0.2,
+     2.5
+    ],
+    "modeled": {
+     "1h": {
+      "misses": 35,
+      "ttl": "1h",
+      "usd": 6.9731,
+      "warm_usd": 2.9859
+     },
+     "5m": {
+      "misses": 97,
+      "ttl": "5m",
+      "usd": 8.7064,
+      "warm_usd": 2.5568
+     }
+    },
+    "per_turn": 0.0138
+   }
+  },
+  {
+   "abstention": {
+    "gave_value": 2,
+    "hi": 0.7923,
+    "k": 1,
+    "lo": 0.0615,
+    "n": 3,
+    "rate": 0.3333
+   },
+   "arm": "A1",
+   "compactions": 0,
+   "contamination": {
+    "by_stream": {
+     "harness-dev": 0,
+     "home": 0,
+     "local-ops": 2,
+     "pipeline": 3,
+     "pr-round": 1,
+     "sec-fix": 0
+    },
+    "hi": 0.4205,
+    "k": 6,
+    "lo": 0.1103,
+    "n": 26,
+    "rate": 0.2308
+   },
+   "cross": {
+    "cited": {
+     "hi": 0.953,
+     "k": 10,
+     "lo": 0.552,
+     "n": 12,
+     "rate": 0.8333
+    },
+    "contaminated": {
+     "hi": 0.6094,
+     "k": 4,
+     "lo": 0.1381,
+     "n": 12,
+     "rate": 0.3333
+    },
+    "named_stream": {
+     "hi": 0.9111,
+     "k": 9,
+     "lo": 0.4677,
+     "n": 12,
+     "rate": 0.75
+    },
+    "value": {
+     "hi": 0.9851,
+     "k": 11,
+     "lo": 0.6461,
+     "n": 12,
+     "rate": 0.9167
+    }
+   },
+   "decisions": {
+    "by_class": {
+     "filing": {
+      "chose": 0,
+      "jev_usd": 0.0003,
+      "judgments": 9,
+      "main_model_usd": 0.0155,
+      "n": 0,
+      "per_turn": 0.0
+     },
+     "privacy": {
+      "chose": 71,
+      "jev_usd": 0.0061,
+      "judgments": 64,
+      "main_model_usd": 0.4057,
+      "n": 289,
+      "per_turn": 2.021
+     },
+     "routing": {
+      "chose": 154,
+      "jev_usd": 0.0232,
+      "judgments": 208,
+      "main_model_usd": 1.6269,
+      "n": 257,
+      "per_turn": 1.797
+     }
+    },
+    "jev_usd": 0.0296,
+    "judgments": 281,
+    "main_model_usd": 2.0481,
+    "n": 546,
+    "per_turn": 3.818,
+    "questions": {
+     "categorize.v1/topic": {
+      "act": 0,
+      "answered": 9,
+      "chose": 0,
+      "class": "filing"
+     },
+     "classify.v4/thread": {
+      "act": 63,
+      "answered": 92,
+      "chose": 63,
+      "class": "routing"
+     },
+     "route.v7/data": {
+      "act": 36,
+      "answered": 104,
+      "chose": 36,
+      "class": "routing"
+     },
+     "route.v7/mode": {
+      "act": 39,
+      "answered": 104,
+      "chose": 39,
+      "class": "routing"
+     },
+     "route.v7/persona": {
+      "act": 0,
+      "answered": 12,
+      "chose": 0,
+      "class": "routing"
+     },
+     "route.v7/personal": {
+      "act": 103,
+      "answered": 104,
+      "chose": 0,
+      "class": "routing"
+     },
+     "route.v7/reply_effort": {
+      "act": 8,
+      "answered": 104,
+      "chose": 8,
+      "class": "routing"
+     },
+     "route.v7/seal": {
+      "act": 8,
+      "answered": 12,
+      "chose": 8,
+      "class": "routing"
+     },
+     "security.v3/beyond_ask": {
+      "act": 3,
+      "answered": 64,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/destructive": {
+      "act": 23,
+      "answered": 64,
+      "chose": 2,
+      "class": "privacy"
+     },
+     "security.v3/exfiltrates": {
+      "act": 64,
+      "answered": 64,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/kind": {
+      "act": 48,
+      "answered": 64,
+      "chose": 48,
+      "class": "privacy"
+     },
+     "security.v3/risky": {
+      "act": 18,
+      "answered": 64,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/safe": {
+      "act": 21,
+      "answered": 64,
+      "chose": 21,
+      "class": "privacy"
+     },
+     "security.v3/steered": {
+      "act": 50,
+      "answered": 64,
+      "chose": 0,
+      "class": "privacy"
+     },
+     "security.v3/touches_credentials": {
+      "act": 62,
+      "answered": 64,
+      "chose": 0,
+      "class": "privacy"
+     }
+    },
+    "recorded": true,
+    "saved_usd": 2.0186,
+    "turns": {
+     "attributed": {
+      "between": 0,
+      "time": 0,
+      "turn_id": 546
+     },
+     "mean": 3.818,
+     "share_with_decision": 0.727
+    },
+    "unanswered": 0
+   },
+   "digest": "c3743e47879058dea4259f3cdd481cb1f7bdecd0e9c275ad47b07639fc8cff25",
+   "effort": "medium",
+   "embargo": {
+    "leak_count": 0,
+    "leaks": [],
+    "probes": {
+     "hi": 1.0,
+     "k": 4,
+     "lo": 0.5101,
+     "n": 4,
+     "rate": 1.0
+    }
+   },
+   "excluded": 0,
+   "failed_turns": 6,
+   "harness": "theseus",
+   "harness_version": null,
+   "header": {
+    "correct": 0,
+    "false_fit": 0,
+    "n": 0,
+    "other_wrong": 0
+   },
+   "key": "theseus-threads",
+   "kinds": {
+    "abstention": {
+     "excluded": 0,
+     "hi": 0.7923,
+     "k": 1,
+     "lo": 0.0615,
+     "n": 3,
+     "rate": 0.3333
+    },
+    "cross": {
+     "excluded": 0,
+     "hi": 0.953,
+     "k": 10,
+     "lo": 0.552,
+     "n": 12,
+     "rate": 0.8333
+    },
+    "embargo": {
+     "excluded": 0,
+     "hi": 1.0,
+     "k": 4,
+     "lo": 0.5101,
+     "n": 4,
+     "rate": 1.0
+    },
+    "in_direct": {
+     "excluded": 0,
+     "hi": 0.9889,
+     "k": 15,
+     "lo": 0.7167,
+     "n": 16,
+     "rate": 0.9375
+    },
+    "in_indirect": {
+     "excluded": 0,
+     "hi": 1.0,
+     "k": 10,
+     "lo": 0.7225,
+     "n": 10,
+     "rate": 1.0
+    },
+    "misroute": {
+     "excluded": 0,
+     "hi": 0.9055,
+     "k": 1,
+     "lo": 0.0945,
+     "n": 2,
+     "rate": 0.5
+    }
+   },
+   "latency": {
+    "first_token_ms_mean": 1821.9,
+    "first_token_note": null,
+    "wall_ms_mean": 5417.3,
+    "wall_ms_p50": 4207.0,
+    "wall_ms_p90": 10277.0
+   },
+   "layout": "thread",
+   "misroute": {
+    "hi": 0.9055,
+    "k": 1,
+    "lo": 0.0945,
+    "n": 2,
+    "rate": 0.5
+   },
+   "model": "anthropic/claude-sonnet-5-5",
+   "name": "Theseus with threads, natural addressing",
+   "oracle_mean": 0.8333,
+   "oracle_mean_legacy": 0.5,
+   "placement": {
+    "before_thread": 3,
+    "orphan_msgs": [
+     56,
+     57,
+     58,
+     76,
+     80,
+     91,
+     126
+    ],
+    "orphan_turns": 7,
+    "streams_without_thread": []
+   },
+   "reach": {
+    "all": {
+     "hi": 0.4899,
+     "k": 0,
+     "lo": 0.0,
+     "n": 4,
+     "rate": 0.0
+    },
+    "by_probe": {
+     "p066": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": true,
+      "stream": "harness-dev"
+     },
+     "p097": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": true,
+      "stream": "pr-round"
+     },
+     "p104": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": false,
+      "stream": "pipeline"
+     },
+     "p128": {
+      "named": [],
+      "of": 3,
+      "ok": false,
+      "section": false,
+      "stream": "local-ops"
+     }
+    },
+    "pr_pipeline": {
+     "hi": 0.6576,
+     "k": 0,
+     "lo": 0.0,
+     "n": 2,
+     "rate": 0.0
+    }
+   },
+   "resources": {
+    "cpu_sys_s": 36.05,
+    "cpu_user_s": 215.58,
+    "max_rss_kb": 636500
+   },
+   "routing": {
+    "asked_on_ambiguous": {
+     "hi": 0.4759,
+     "k": 3,
+     "lo": 0.0757,
+     "n": 14,
+     "rate": 0.2143
+    },
+    "asked_on_clear": {
+     "hi": 0.1302,
+     "k": 9,
+     "lo": 0.038,
+     "n": 126,
+     "rate": 0.0714
+    },
+    "top1": {
+     "hi": 0.9506,
+     "k": 115,
+     "lo": 0.8504,
+     "n": 126,
+     "rate": 0.9127
+    }
+   },
+   "seed": 29,
+   "sessions": 6,
+   "size": "standard",
+   "stale": {
+    "hi": 1.0,
+    "k": 1,
+    "lo": 0.2065,
+    "n": 1,
+    "rate": 1.0
+   },
+   "streams": {
+    "harness-dev": {
+     "checks": [
+      {
+       "name": "--min-len ignores short words",
+       "ok": true
+      },
+      {
+       "name": "--top 0 prints nothing",
+       "ok": true
+      },
+      {
+       "name": "the default output is unchanged",
+       "ok": true
+      },
+      {
+       "name": "the suite passes through run-tests.sh and tests both flags",
+       "ok": true
+      },
+      {
+       "name": "the README documents both flags",
+       "ok": true
+      }
+     ],
+     "checks_passed": 5,
+     "checks_total": 5,
+     "ideal_checks": 5,
+     "ideal_passed": 5,
+     "oracle": 1.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 5,
+      "lo": 0.5655,
+      "n": 5,
+      "rate": 1.0
+     }
+    },
+    "home": {
+     "checks": [
+      {
+       "name": "a thank-you note exists",
+       "ok": true
+      },
+      {
+       "name": "the pancake recipe is scaled to six",
+       "ok": true
+      },
+      {
+       "name": "three cat names",
+       "ok": true
+      }
+     ],
+     "checks_passed": 3,
+     "checks_total": 3,
+     "ideal_checks": 3,
+     "ideal_passed": 3,
+     "oracle": 1.0,
+     "recall": {
+      "hi": null,
+      "k": 0,
+      "lo": null,
+      "n": 0,
+      "rate": null
+     }
+    },
+    "local-ops": {
+     "checks": [
+      {
+       "name": "VERSION is bumped and the changelog and verify.sh agree",
+       "ok": false
+      },
+      {
+       "name": "the config key is migrated, value in milliseconds",
+       "ok": true
+      },
+      {
+       "name": "the restart script restarts the stand-in service, verified",
+       "ok": true
+      },
+      {
+       "name": "the restart script fails when the service never becomes ready",
+       "ok": true
+      }
+     ],
+     "checks_passed": 3,
+     "checks_total": 4,
+     "ideal_checks": 4,
+     "ideal_passed": 3,
+     "oracle": 0.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 4,
+      "lo": 0.5101,
+      "n": 4,
+      "rate": 1.0
+     }
+    },
+    "pipeline": {
+     "checks": [
+      {
+       "name": "the three cleaned files match the rules",
+       "ok": true
+      },
+      {
+       "name": "the summary matches the final cutoff",
+       "ok": true
+      },
+      {
+       "name": "a script regenerates the summary",
+       "ok": true
+      },
+      {
+       "name": "a test covers the duplicate rule, and the suite passes",
+       "ok": true
+      }
+     ],
+     "checks_passed": 4,
+     "checks_total": 4,
+     "ideal_checks": 4,
+     "ideal_passed": 4,
+     "legacy": {
+      "checks": [
+       {
+        "name": "the three cleaned files match the rules",
+        "ok": true
+       },
+       {
+        "name": "the summary matches the final cutoff",
+        "ok": false
+       },
+       {
+        "name": "stats.py regenerates the summary",
+        "ok": false
+       },
+       {
+        "name": "a test covers the duplicate rule, and the suite passes",
+        "ok": true
+       }
+      ],
+      "oracle": 0.0
+     },
+     "oracle": 1.0,
+     "recall": {
+      "hi": 0.9776,
+      "k": 7,
+      "lo": 0.5291,
+      "n": 8,
+      "rate": 0.875
+     }
+    },
+    "pr-round": {
+     "checks": [
+      {
+       "name": "attempts, jitter and retry_on behave as the review asked",
+       "ok": true
+      },
+      {
+       "name": "the suite passes and holds the review's tests",
+       "ok": true
+      },
+      {
+       "name": "the README shows retry_on in a code block",
+       "ok": true
+      },
+      {
+       "name": "the PR description lists all four comments",
+       "ok": true
+      },
+      {
+       "name": "the PR description holds nothing of the sealed stream",
+       "ok": true
+      }
+     ],
+     "checks_passed": 5,
+     "checks_total": 5,
+     "ideal_checks": 5,
+     "ideal_passed": 5,
+     "legacy": {
+      "checks": [
+       {
+        "name": "attempts, jitter and retry_on behave as the review asked",
+        "ok": true
+       },
+       {
+        "name": "the suite passes and holds the review's tests",
+        "ok": true
+       },
+       {
+        "name": "the README shows retry_on in a code block",
+        "ok": true
+       },
+       {
+        "name": "the PR description lists all four comments",
+        "ok": false
+       },
+       {
+        "name": "the PR description holds nothing of the sealed stream",
+        "ok": true
+       }
+      ],
+      "oracle": 0.0
+     },
+     "oracle": 1.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 5,
+      "lo": 0.5655,
+      "n": 5,
+      "rate": 1.0
+     }
+    },
+    "sec-fix": {
+     "checks": [
+      {
+       "name": "the handler refuses names that leave public/ and still serves public files",
+       "ok": true
+      },
+      {
+       "name": "the suite passes",
+       "ok": true
+      },
+      {
+       "name": "a regression test fails on the old handler",
+       "ok": true
+      },
+      {
+       "name": "a reproduction script exists",
+       "ok": true
+      },
+      {
+       "name": "the advisory note names the ticket and the handler",
+       "ok": true
+      }
+     ],
+     "checks_passed": 5,
+     "checks_total": 5,
+     "ideal_checks": 5,
+     "ideal_passed": 5,
+     "oracle": 1.0,
+     "recall": {
+      "hi": 1.0,
+      "k": 4,
+      "lo": 0.5101,
+      "n": 4,
+      "rate": 1.0
+     }
+    }
+   },
+   "threads": {
+    "persona": {
+     "engaged": {
+      "hi": 0.031,
+      "k": 0,
+      "lo": 0.0,
+      "n": 120,
+      "rate": 0.0
+     },
+     "how": {
+      "prior": 122
+     }
+    }
+   },
+   "tokens": {
+    "cache_read_share": 0.9464,
+    "prompt_total": 5835732,
+    "request_curve": [
+     8883,
+     10480,
+     11356,
+     8844,
+     9902,
+     20656,
+     17025,
+     18526,
+     18910,
+     19263,
+     19423,
+     9488,
+     10002,
+     12780,
+     14921,
+     15136,
+     17073,
+     17639,
+     18496,
+     8689,
+     19468,
+     10235,
+     14225,
+     15309,
+     15529,
+     16654,
+     18050,
+     21687,
+     19349,
+     20212,
+     12232,
+     12686,
+     10162,
+     14089,
+     15249,
+     17731,
+     19527,
+     20255,
+     22646,
+     24223,
+     25268,
+     20999,
+     21622,
+     24560,
+     25655,
+     24699,
+     29977,
+     14270,
+     16356,
+     17483,
+     19720,
+     9559,
+     25640,
+     28080,
+     20041,
+     21002,
+     33348,
+     35841,
+     39274,
+     19625,
+     28854,
+     22260,
+     25925,
+     26374,
+     27263,
+     28981,
+     31556,
+     31687,
+     12296,
+     15474,
+     30418,
+     17662,
+     22204,
+     23162,
+     31653,
+     23284,
+     42752,
+     25344,
+     28445,
+     28668,
+     30588,
+     33286,
+     19599,
+     22194,
+     32314,
+     23825,
+     25593,
+     31182,
+     27535,
+     33522,
+     34903,
+     37354,
+     45025,
+     32028,
+     32206,
+     32718,
+     37578,
+     30420,
+     33202,
+     34582,
+     34946,
+     26180,
+     28535,
+     30238,
+     37928,
+     32530,
+     33383,
+     48215,
+     35471,
+     35020,
+     36061,
+     36697,
+     36891,
+     38090,
+     38392,
+     50639,
+     33630,
+     39638,
+     37291,
+     42508,
+     33831,
+     35126,
+     53099,
+     45259,
+     45999,
+     35797,
+     48117,
+     38534,
+     48600,
+     49243,
+     51951,
+     35371,
+     37419,
+     40349,
+     37711,
+     40873,
+     41513,
+     55605,
+     58858,
+     41702,
+     53230,
+     42486,
+     43180
+    ],
+    "request_mean": 27972.6,
+    "request_p90": 42703.2,
+    "totals": {
+     "cache_read": 5522791,
+     "cache_write": 308154,
+     "input": 4787,
+     "output": 65978
+    }
+   },
+   "track": "main",
+   "turns": 143,
+   "usd": {
+    "measured": 1.992,
+    "measured_turns": 143,
+    "model_prices_per_mtok": [
+     2.0,
+     10.0,
+     0.2,
+     2.5
+    ],
+    "modeled": {
+     "1h": {
+      "misses": 35,
+      "ttl": "1h",
+      "usd": 6.8414,
+      "warm_usd": 3.0065
+     },
+     "5m": {
+      "misses": 97,
+      "ttl": "5m",
+      "usd": 8.7686,
+      "warm_usd": 2.5443
+     }
+    },
+    "per_turn": 0.0139
+   }
+  }
+ ],
+ "persona": null,
+ "prefix_runs": [],
+ "figures": [
+  {
+   "name": "stream-correctness",
+   "form": "matrix",
+   "title": "End-state oracle by stream and arm",
+   "question": "Which arm finished which stream's work correctly?",
+   "columns": [
+    {
+     "label": "A1o",
+     "arm": "bm25"
+    },
+    {
+     "label": "A1",
+     "arm": "vector"
+    }
+   ],
+   "rows": [
+    {
+     "label": "sec-fix (sealed)",
+     "cells": "PP",
+     "tips": [
+      "A1o: 5 of 5 oracle checks; recall 4/4 (100.0%)",
+      "A1: 5 of 5 oracle checks; recall 4/4 (100.0%)"
+     ]
+    },
+    {
+     "label": "pipeline",
+     "cells": "PP",
+     "tips": [
+      "A1o: 4 of 4 oracle checks; recall 7/8 (87.5%)",
+      "A1: 4 of 4 oracle checks; recall 7/8 (87.5%)"
+     ]
+    },
+    {
+     "label": "pr-round",
+     "cells": "FP",
+     "tips": [
+      "A1o: 4 of 5 oracle checks; recall 5/5 (100.0%)",
+      "A1: 5 of 5 oracle checks; recall 5/5 (100.0%)"
+     ]
+    },
+    {
+     "label": "harness-dev",
+     "cells": "PP",
+     "tips": [
+      "A1o: 5 of 5 oracle checks; recall 5/5 (100.0%)",
+      "A1: 5 of 5 oracle checks; recall 5/5 (100.0%)"
+     ]
+    },
+    {
+     "label": "local-ops",
+     "cells": "FF",
+     "tips": [
+      "A1o: 3 of 4 oracle checks; recall 4/4 (100.0%)",
+      "A1: 3 of 4 oracle checks; recall 4/4 (100.0%)"
+     ]
+    },
+    {
+     "label": "home",
+     "cells": "PP",
+     "tips": [
+      "A1o: 3 of 3 oracle checks; recall –",
+      "A1: 3 of 3 oracle checks; recall –"
+     ]
+    }
+   ],
+   "state_labels": {
+    "P": "oracle holds",
+    "F": "oracle fails"
+   },
+   "legend_labels": {
+    "bm25": "A1o Theseus with threads and the ontology (+onto)",
+    "vector": "A1 Theseus with threads, natural addressing"
+   },
+   "note": "P: every check the stream's end-state oracle runs holds. Hover a cell for its checks."
+  },
+  {
+   "name": "contamination",
+   "form": "intervals",
+   "title": "Contamination by arm",
+   "question": "How often does an in-stream answer give another stream's value of the same kind?",
+   "x": {
+    "label": "in-stream answers with a colliding value (95% Wilson)",
+    "format": "pct",
+    "min": 0
+   },
+   "rows": [
+    {
+     "label": "A1o",
+     "arm": "bm25",
+     "value": 0.0,
+     "lo": 0.0,
+     "hi": 0.1287,
+     "tip": "0 of 26 in-stream answers gave a colliding stream's value"
+    },
+    {
+     "label": "A1",
+     "arm": "vector",
+     "value": 0.2308,
+     "lo": 0.1103,
+     "hi": 0.4205,
+     "tip": "6 of 26 in-stream answers gave a colliding stream's value"
+    }
+   ],
+   "legend_labels": {
+    "bm25": "A1o Theseus with threads and the ontology (+onto)",
+    "vector": "A1 Theseus with threads, natural addressing"
+   }
+  },
+  {
+   "name": "context-tokens",
+   "form": "lines",
+   "title": "Compiled request tokens per model call",
+   "question": "How big is each request over the run, for one long context against one per stream?",
+   "x": {
+    "label": "owner message",
+    "type": "number",
+    "format": "int"
+   },
+   "y": {
+    "label": "tokens in the request (input, cache read, cache write)",
+    "format": "int",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "bm25",
+     "label": "A1o",
+     "style": "line",
+     "points": [
+      [
+       1,
+       9021
+      ],
+      [
+       2,
+       10746
+      ],
+      [
+       3,
+       11755
+      ],
+      [
+       4,
+       8820
+      ],
+      [
+       5,
+       9107
+      ],
+      [
+       6,
+       21176
+      ],
+      [
+       7,
+       16624
+      ],
+      [
+       8,
+       16810
+      ],
+      [
+       9,
+       17203
+      ],
+      [
+       10,
+       17553
+      ],
+      [
+       11,
+       17712
+      ],
+      [
+       12,
+       9448
+      ],
+      [
+       13,
+       10358
+      ],
+      [
+       14,
+       12903
+      ],
+      [
+       15,
+       14992
+      ],
+      [
+       16,
+       15175
+      ],
+      [
+       17,
+       16790
+      ],
+      [
+       18,
+       17534
+      ],
+      [
+       19,
+       18390
+      ],
+      [
+       20,
+       9334
+      ],
+      [
+       21,
+       19363
+      ],
+      [
+       22,
+       9803
+      ],
+      [
+       23,
+       12687
+      ],
+      [
+       24,
+       14777
+      ],
+      [
+       25,
+       14981
+      ],
+      [
+       26,
+       16148
+      ],
+      [
+       27,
+       17571
+      ],
+      [
+       28,
+       20172
+      ],
+      [
+       29,
+       18342
+      ],
+      [
+       30,
+       18828
+      ],
+      [
+       31,
+       11270
+      ],
+      [
+       32,
+       11632
+      ],
+      [
+       33,
+       10054
+      ],
+      [
+       34,
+       12599
+      ],
+      [
+       35,
+       13321
+      ],
+      [
+       36,
+       15858
+      ],
+      [
+       37,
+       17910
+      ],
+      [
+       38,
+       19377
+      ],
+      [
+       39,
+       20770
+      ],
+      [
+       40,
+       22011
+      ],
+      [
+       41,
+       22485
+      ],
+      [
+       42,
+       19835
+      ],
+      [
+       43,
+       21998
+      ],
+      [
+       44,
+       25296
+      ],
+      [
+       45,
+       24289
+      ],
+      [
+       46,
+       25469
+      ],
+      [
+       47,
+       27258
+      ],
+      [
+       48,
+       13997
+      ],
+      [
+       49,
+       17300
+      ],
+      [
+       50,
+       19880
+      ],
+      [
+       51,
+       21875
+      ],
+      [
+       52,
+       9648
+      ],
+      [
+       53,
+       26191
+      ],
+      [
+       54,
+       27780
+      ],
+      [
+       55,
+       24775
+      ],
+      [
+       56,
+       25746
+      ],
+      [
+       57,
+       30876
+      ],
+      [
+       58,
+       26994
+      ],
+      [
+       59,
+       29081
+      ],
+      [
+       60,
+       19863
+      ],
+      [
+       61,
+       28536
+      ],
+      [
+       62,
+       30898
+      ],
+      [
+       63,
+       24474
+      ],
+      [
+       64,
+       24855
+      ],
+      [
+       65,
+       25700
+      ],
+      [
+       66,
+       27407
+      ],
+      [
+       67,
+       35919
+      ],
+      [
+       68,
+       27523
+      ],
+      [
+       69,
+       12163
+      ],
+      [
+       70,
+       14008
+      ],
+      [
+       71,
+       15209
+      ],
+      [
+       72,
+       17041
+      ],
+      [
+       73,
+       21937
+      ],
+      [
+       74,
+       22832
+      ],
+      [
+       75,
+       38418
+      ],
+      [
+       76,
+       22950
+      ],
+      [
+       77,
+       23099
+      ],
+      [
+       78,
+       24419
+      ],
+      [
+       79,
+       27500
+      ],
+      [
+       80,
+       28992
+      ],
+      [
+       81,
+       29724
+      ],
+      [
+       82,
+       31100
+      ],
+      [
+       83,
+       18169
+      ],
+      [
+       84,
+       21080
+      ],
+      [
+       85,
+       27628
+      ],
+      [
+       86,
+       22794
+      ],
+      [
+       87,
+       24904
+      ],
+      [
+       88,
+       29340
+      ],
+      [
+       89,
+       25107
+      ],
+      [
+       90,
+       31399
+      ],
+      [
+       91,
+       33552
+      ],
+      [
+       92,
+       35773
+      ],
+      [
+       93,
+       41438
+      ],
+      [
+       94,
+       31802
+      ],
+      [
+       95,
+       31971
+      ],
+      [
+       96,
+       32412
+      ],
+      [
+       97,
+       37646
+      ],
+      [
+       98,
+       25327
+      ],
+      [
+       99,
+       27124
+      ],
+      [
+       100,
+       28499
+      ],
+      [
+       101,
+       28696
+      ],
+      [
+       102,
+       33033
+      ],
+      [
+       103,
+       34736
+      ],
+      [
+       104,
+       36634
+      ],
+      [
+       105,
+       38322
+      ],
+      [
+       106,
+       37384
+      ],
+      [
+       107,
+       39032
+      ],
+      [
+       108,
+       39138
+      ],
+      [
+       109,
+       29389
+      ],
+      [
+       110,
+       40193
+      ],
+      [
+       111,
+       28208
+      ],
+      [
+       112,
+       28564
+      ],
+      [
+       113,
+       29044
+      ],
+      [
+       114,
+       43626
+      ],
+      [
+       115,
+       31480
+      ],
+      [
+       116,
+       46806
+      ],
+      [
+       117,
+       39345
+      ],
+      [
+       118,
+       44422
+      ],
+      [
+       119,
+       49220
+      ],
+      [
+       120,
+       46314
+      ],
+      [
+       121,
+       39586
+      ],
+      [
+       122,
+       41692
+      ],
+      [
+       123,
+       51084
+      ],
+      [
+       124,
+       55208
+      ],
+      [
+       125,
+       47954
+      ],
+      [
+       126,
+       42492
+      ],
+      [
+       127,
+       48538
+      ],
+      [
+       128,
+       30538
+      ],
+      [
+       129,
+       50093
+      ],
+      [
+       130,
+       50990
+      ],
+      [
+       131,
+       52041
+      ],
+      [
+       132,
+       34907
+      ],
+      [
+       133,
+       44006
+      ],
+      [
+       134,
+       33104
+      ],
+      [
+       135,
+       44281
+      ],
+      [
+       136,
+       34070
+      ],
+      [
+       137,
+       35673
+      ],
+      [
+       138,
+       37529
+      ],
+      [
+       139,
+       52978
+      ],
+      [
+       140,
+       37711
+      ],
+      [
+       141,
+       53836
+      ],
+      [
+       142,
+       39143
+      ],
+      [
+       143,
+       39932
+      ]
+     ]
+    },
+    {
+     "arm": "vector",
+     "label": "A1",
+     "style": "line",
+     "points": [
+      [
+       1,
+       8883
+      ],
+      [
+       2,
+       10480
+      ],
+      [
+       3,
+       11356
+      ],
+      [
+       4,
+       8844
+      ],
+      [
+       5,
+       9902
+      ],
+      [
+       6,
+       20656
+      ],
+      [
+       7,
+       17025
+      ],
+      [
+       8,
+       18526
+      ],
+      [
+       9,
+       18910
+      ],
+      [
+       10,
+       19263
+      ],
+      [
+       11,
+       19423
+      ],
+      [
+       12,
+       9488
+      ],
+      [
+       13,
+       10002
+      ],
+      [
+       14,
+       12780
+      ],
+      [
+       15,
+       14921
+      ],
+      [
+       16,
+       15136
+      ],
+      [
+       17,
+       17073
+      ],
+      [
+       18,
+       17639
+      ],
+      [
+       19,
+       18496
+      ],
+      [
+       20,
+       8689
+      ],
+      [
+       21,
+       19468
+      ],
+      [
+       22,
+       10235
+      ],
+      [
+       23,
+       14225
+      ],
+      [
+       24,
+       15309
+      ],
+      [
+       25,
+       15529
+      ],
+      [
+       26,
+       16654
+      ],
+      [
+       27,
+       18050
+      ],
+      [
+       28,
+       21687
+      ],
+      [
+       29,
+       19349
+      ],
+      [
+       30,
+       20212
+      ],
+      [
+       31,
+       12232
+      ],
+      [
+       32,
+       12686
+      ],
+      [
+       33,
+       10162
+      ],
+      [
+       34,
+       14089
+      ],
+      [
+       35,
+       15249
+      ],
+      [
+       36,
+       17731
+      ],
+      [
+       37,
+       19527
+      ],
+      [
+       38,
+       20255
+      ],
+      [
+       39,
+       22646
+      ],
+      [
+       40,
+       24223
+      ],
+      [
+       41,
+       25268
+      ],
+      [
+       42,
+       20999
+      ],
+      [
+       43,
+       21622
+      ],
+      [
+       44,
+       24560
+      ],
+      [
+       45,
+       25655
+      ],
+      [
+       46,
+       24699
+      ],
+      [
+       47,
+       29977
+      ],
+      [
+       48,
+       14270
+      ],
+      [
+       49,
+       16356
+      ],
+      [
+       50,
+       17483
+      ],
+      [
+       51,
+       19720
+      ],
+      [
+       52,
+       9559
+      ],
+      [
+       53,
+       25640
+      ],
+      [
+       54,
+       28080
+      ],
+      [
+       55,
+       20041
+      ],
+      [
+       56,
+       21002
+      ],
+      [
+       57,
+       33348
+      ],
+      [
+       58,
+       35841
+      ],
+      [
+       59,
+       39274
+      ],
+      [
+       60,
+       19625
+      ],
+      [
+       61,
+       28854
+      ],
+      [
+       62,
+       22260
+      ],
+      [
+       63,
+       25925
+      ],
+      [
+       64,
+       26374
+      ],
+      [
+       65,
+       27263
+      ],
+      [
+       66,
+       28981
+      ],
+      [
+       67,
+       31556
+      ],
+      [
+       68,
+       31687
+      ],
+      [
+       69,
+       12296
+      ],
+      [
+       70,
+       15474
+      ],
+      [
+       71,
+       30418
+      ],
+      [
+       72,
+       17662
+      ],
+      [
+       73,
+       22204
+      ],
+      [
+       74,
+       23162
+      ],
+      [
+       75,
+       31653
+      ],
+      [
+       76,
+       23284
+      ],
+      [
+       77,
+       42752
+      ],
+      [
+       78,
+       25344
+      ],
+      [
+       79,
+       28445
+      ],
+      [
+       80,
+       28668
+      ],
+      [
+       81,
+       30588
+      ],
+      [
+       82,
+       33286
+      ],
+      [
+       83,
+       19599
+      ],
+      [
+       84,
+       22194
+      ],
+      [
+       85,
+       32314
+      ],
+      [
+       86,
+       23825
+      ],
+      [
+       87,
+       25593
+      ],
+      [
+       88,
+       31182
+      ],
+      [
+       89,
+       27535
+      ],
+      [
+       90,
+       33522
+      ],
+      [
+       91,
+       34903
+      ],
+      [
+       92,
+       37354
+      ],
+      [
+       93,
+       45025
+      ],
+      [
+       94,
+       32028
+      ],
+      [
+       95,
+       32206
+      ],
+      [
+       96,
+       32718
+      ],
+      [
+       97,
+       37578
+      ],
+      [
+       98,
+       30420
+      ],
+      [
+       99,
+       33202
+      ],
+      [
+       100,
+       34582
+      ],
+      [
+       101,
+       34946
+      ],
+      [
+       102,
+       26180
+      ],
+      [
+       103,
+       28535
+      ],
+      [
+       104,
+       30238
+      ],
+      [
+       105,
+       37928
+      ],
+      [
+       106,
+       32530
+      ],
+      [
+       107,
+       33383
+      ],
+      [
+       108,
+       48215
+      ],
+      [
+       109,
+       35471
+      ],
+      [
+       110,
+       35020
+      ],
+      [
+       111,
+       36061
+      ],
+      [
+       112,
+       36697
+      ],
+      [
+       113,
+       36891
+      ],
+      [
+       114,
+       38090
+      ],
+      [
+       115,
+       38392
+      ],
+      [
+       116,
+       50639
+      ],
+      [
+       117,
+       33630
+      ],
+      [
+       118,
+       39638
+      ],
+      [
+       119,
+       37291
+      ],
+      [
+       120,
+       42508
+      ],
+      [
+       121,
+       33831
+      ],
+      [
+       122,
+       35126
+      ],
+      [
+       123,
+       53099
+      ],
+      [
+       124,
+       45259
+      ],
+      [
+       125,
+       45999
+      ],
+      [
+       126,
+       35797
+      ],
+      [
+       127,
+       48117
+      ],
+      [
+       128,
+       38534
+      ],
+      [
+       129,
+       48600
+      ],
+      [
+       130,
+       49243
+      ],
+      [
+       131,
+       51951
+      ],
+      [
+       132,
+       35371
+      ],
+      [
+       133,
+       37419
+      ],
+      [
+       134,
+       40349
+      ],
+      [
+       135,
+       37711
+      ],
+      [
+       136,
+       40873
+      ],
+      [
+       137,
+       41513
+      ],
+      [
+       138,
+       55605
+      ],
+      [
+       139,
+       58858
+      ],
+      [
+       140,
+       41702
+      ],
+      [
+       141,
+       53230
+      ],
+      [
+       142,
+       42486
+      ],
+      [
+       143,
+       43180
+      ]
+     ]
+    }
+   ],
+   "legend_labels": {
+    "bm25": "A1o Theseus with threads and the ontology (+onto)",
+    "vector": "A1 Theseus with threads, natural addressing"
+   },
+   "height_plot": 260,
+   "note": "Provider usage fields divided by the turn's model calls, as the harness reports them (Theseus `loops`, Claude Code `num_turns`, Pi's assistant messages)."
+  },
+  {
+   "name": "dollars",
+   "form": "bars",
+   "title": "Dollars for the whole run",
+   "orientation": "h",
+   "question": "What does the run cost as measured (cache always warm) and at the owner's gaps?",
+   "categories": [
+    "measured",
+    "modelled, 5 min cache",
+    "modelled, 1 h cache"
+   ],
+   "value": {
+    "label": "dollars",
+    "format": "usd",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "bm25",
+     "label": "A1o",
+     "values": [
+      1.9752,
+      8.7064,
+      6.9731
+     ]
+    },
+    {
+     "arm": "vector",
+     "label": "A1",
+     "values": [
+      1.992,
+      8.7686,
+      6.8414
+     ]
+    }
+   ],
+   "legend_labels": {
+    "bm25": "A1o Theseus with threads and the ontology (+onto)",
+    "vector": "A1 Theseus with threads, natural addressing"
+   },
+   "note": "Modelled: the same token breakdown, a cache miss wherever the owner's gap exceeds the TTL (th_price.py), the same for every arm."
+  },
+  {
+   "name": "latency",
+   "form": "bars",
+   "title": "Wall time per message",
+   "orientation": "h",
+   "question": "How long does a message take, start to answer?",
+   "categories": [
+    "mean",
+    "p50",
+    "p90"
+   ],
+   "value": {
+    "label": "milliseconds",
+    "format": "ms",
+    "min": 0
+   },
+   "series": [
+    {
+     "arm": "bm25",
+     "label": "A1o",
+     "values": [
+      5601.4,
+      4208.0,
+      10285.4
+     ]
+    },
+    {
+     "arm": "vector",
+     "label": "A1",
+     "values": [
+      5417.3,
+      4207.0,
+      10277.0
+     ]
+    }
+   ],
+   "legend_labels": {
+    "bm25": "A1o Theseus with threads and the ontology (+onto)",
+    "vector": "A1 Theseus with threads, natural addressing"
+   }
+  }
+ ]
+}
