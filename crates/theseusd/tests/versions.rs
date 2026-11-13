@@ -264,7 +264,7 @@ fn an_older_binarys_store_serves_at_once_and_moves_to_this_builds_format_at_its_
     let m = rig.manifest();
     assert_eq!(
         m,
-        json!({"format": 58, "engine": "redb"}),
+        json!({"format": 59, "engine": "redb"}),
         "the start wrote {:?}",
         rig.written_after(LAST)
     );
