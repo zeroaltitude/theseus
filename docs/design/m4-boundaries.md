@@ -472,8 +472,10 @@ And, forty seconds later, his own one-line form of it:
    or changes what it may do next *because of where the bytes came from*.
 4. **The only protection on content is Jev's classification OF THE CONTENT**: `injection`, `dangerous`, `secret`,
    `confidential`, `personal` — each raised from what the text says, not from which tool returned it. An
-   `injection` label freezes the calls that act (`content::refusal`); `secret`, `confidential` and `personal`
-   keep the session off a model of restricted origin (`content/cn.rs`). Those are content rules and they stay.
+   `injection` label's effect is `[content_based_security] injection`, **`notify` since 1.0.6** (S17-D8): the call
+   runs and the operator is told; under `injection = "refuse"` it freezes the calls that act (`content::refusal`).
+   `secret`, `confidential` and `personal` keep the session off a model of restricted origin (`content/cn.rs`).
+   Those are content rules and they stay.
 5. **L1 stays, for specialised security use cases**, and keeps its deterministic egress answer (§2.4): a job that
    reached a host beyond `[sandbox] egress` is marked `external`. That is an *observation of what a call did*,
    not a label about where bytes came from, which is why it survives this position while the L0 analogue does
