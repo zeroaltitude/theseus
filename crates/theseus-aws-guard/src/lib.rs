@@ -28,8 +28,8 @@ pub use list::{
 };
 pub use node::Node;
 pub use policy::{
-    Document, Policy, PolicyKind, Statement, MANAGED_POLICY_LIMIT, SCPS_PER_TARGET, SCP_LIMIT,
-    SESSION_POLICY_ARNS, SESSION_POLICY_PLAINTEXT,
+    Document, Policy, PolicyKind, Statement, BOUNDARY_MARGIN, MANAGED_POLICY_LIMIT,
+    SCPS_PER_TARGET, SCP_LIMIT, SESSION_POLICY_ARNS, SESSION_POLICY_PLAINTEXT,
 };
 pub use template::{
     parse_template, planned_resources, PlannedResource, Scan, TemplateError, TemplateHit,
