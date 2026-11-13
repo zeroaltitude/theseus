@@ -10,6 +10,13 @@
 //! ("exactly one"), read off `FakeJev::seen`, so neither can pass against a
 //! tree where 0d was never wired.
 //!
+//! Since `p5kln-location-facts` piece 4 it also holds **the one-way floor**
+//! (the owner, 2026-11-13 12:22, S25-1), in its own section at the end: a
+//! plain file write whose resolved word says nothing holds a copy is held
+//! whatever the model answers. Every test there answers `reversible` from Jev
+//! on purpose, because what the model said is the one thing the result must
+//! not depend on.
+//!
 //! No clock is read: nothing here sleeps on wall time but the one 200 ms
 //! settle in the refusal test, which bounds a thing that must never happen.
 
@@ -33,6 +40,7 @@ use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::tests_judge::{board, off, warm};
 use crate::toolrun::reversible::HELD_REASON;
+use crate::turn::repeat_step::MAX_REPEATS;
 use crate::turn::{repeat_step, TurnRequest};
 use crate::Config;
 
@@ -265,7 +273,11 @@ async fn a_reshapeable_verdict_holds_the_call_and_makes_no_card() {
     // unbounded (`turn::repeat_step`). Nothing the model reads moved with it
     // -- `is_error` is `status.is_error()`, true of both -- and the words,
     // the reason, the absent card and the `tool.held` row below are unchanged.
-    assert_eq!(status, "Declined");
+    assert_eq!(
+        status, "Declined",
+        "a hold is a call that NEVER RAN, and `turn::repeat_step` counts it \
+         by that word: `Error` means the tool ran and failed"
+    );
     assert!(text.starts_with("Not run: "), "{text}");
     assert!(
         text.contains("Move the targets somewhere out of the way"),
@@ -406,11 +418,24 @@ async fn a_model_that_keeps_re_planning_the_same_held_call_ends_the_turn() {
 /// A `reversible` verdict changes nothing: the call runs and nothing is
 /// held or raised. The positive count beside the negatives: Jev WAS asked,
 /// so this does not pass on a tree where 0d was never wired.
+///
+/// **The target is a COMMITTED file since the one-way floor landed**
+/// (`p5kln-location-facts` piece 4). It used to be a file in a bare temporary
+/// directory, whose word is `outside_repo` -- one of the three the floor holds
+/// on, so there is no longer any model answer under which that call runs, and
+/// the test's own premise would be dead. `kept.txt` is `tracked_clean`: a
+/// checkout brings it back, the floor does not reach it, and what is left is
+/// what this test was always about -- that a `reversible` answer is acted on.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reversible_verdict_runs_the_call_unchanged() {
-    let r = rig(REVERSIBLE, 0.97, false, |_| {});
+    let r = repo_rig(&["target/\n"], "kept.txt", |_| {}, REVERSIBLE, 0.97, script);
     let sid = r.session();
     r.turn(&sid).await;
+    assert_eq!(
+        r.words_sent()[0].1,
+        "tracked_clean",
+        "the arrangement the floor does not reach"
+    );
     assert_eq!(r.bytes(), NOW, "the call ran");
     assert!(r.rows("tool.held").is_empty());
     assert!(r.rows("tool.raised").is_empty());
@@ -969,7 +994,28 @@ async fn an_ignored_data_directory_reaches_the_request_as_untracked() {
 /// `fs.write` to `rel` under it. Returns the one recovery word the request
 /// carried for that target.
 async fn rig_in_a_repo(ignore: &[&str], rel: &str, arrange: impl FnOnce(&Path)) -> String {
-    let jev = says(REVERSIBLE, 0.95);
+    let r = repo_rig(ignore, rel, arrange, REVERSIBLE, 0.95, script);
+    let sid = r.session();
+    r.turn(&sid).await;
+    let words = r.words_sent();
+    assert_eq!(words.len(), 1, "one target: {words:?}");
+    words[0].1.clone()
+}
+
+/// The same rig, handed back whole and with no turn run: `verdict` at
+/// `confidence` from Jev, `script` for the provider, and the scripted call's
+/// target at `rel` under the repository. The floor's tests need the rig
+/// itself, because what they assert is what the gate DID with the word and
+/// not only which word reached the request.
+fn repo_rig(
+    ignore: &[&str],
+    rel: &str,
+    arrange: impl FnOnce(&Path),
+    verdict: &str,
+    confidence: f64,
+    script: impl FnOnce(&Path) -> Vec<Scripted>,
+) -> Rig {
+    let jev = says(verdict, confidence);
     let dir = crate::scratch::tempdir();
     let base = dir.path().canonicalize().unwrap();
     let (state, work, holdout) = (base.join("state"), base.join("work"), base.join("sealed"));
@@ -1029,15 +1075,352 @@ async fn rig_in_a_repo(ignore: &[&str], rel: &str, arrange: impl FnOnce(&Path)) 
     p.secrets = board();
     let core = Core::build(p).unwrap();
     warm(&core);
-    let r = Rig {
+    Rig {
         core,
         target,
         jev,
         _dir: dir,
-    };
+    }
+}
+
+// ---- piece 4: THE ONE-WAY FLOOR, on the live gate path -------------------
+//
+// `p5kln-location-facts` piece 4; the owner, 2026-11-13 12:22 MST, Twenty-fifth
+// set, S25-1, whose whole message was *"Yes"*: for a plain file write or edit
+// whose resolved word says nothing holds a copy, the call is HELD whatever the
+// model answers.
+//
+// These are the five whole-core tests the card names, and what each is for:
+// the first two are the floor doing its work against a model that said the
+// call was fine; the next two are the floor NOT doing it, which is what keeps
+// it off ordinary coding and is the pair that would be felt within a minute of
+// using the product if it were wrong; the last two are the owner's own two
+// conditions -- his override still runs the original call, and the hold is
+// counted by the repeat cap.
+//
+// Every one of them runs the LIVE path: a real `fs.write` through the real
+// gate, with the recovery word resolved by the real probe against a real tree.
+// The fake Jev answers `reversible` in all of them, which is the whole point:
+// in each, what the model said is the thing the result must NOT depend on.
+
+/// The arrangement `f4` is: an existing file inside a repository that does not
+/// track it, which is `untracked` -- one of the owner's three words.
+fn an_untracked_file(work: &Path) {
+    std::fs::write(work.join("local.env.example"), WAS).unwrap();
+}
+
+/// **The card's first whole-core test.** `f4`'s shape is held though the judge
+/// answers `reversible` at a confidence well above the question's confirm bar.
+/// The hold is the ORDINARY hold: the same `Declined` result, the same
+/// `tool.held` row with the same `irreversible_reshapeable` verdict, the same
+/// absence of a card. Jev was asked, and its answer was not what decided.
+#[tokio::test(flavor = "multi_thread")]
+async fn f4s_shape_is_held_though_the_judge_calls_it_reversible() {
+    let r = repo_rig(
+        &["target/\n"],
+        "local.env.example",
+        an_untracked_file,
+        REVERSIBLE,
+        0.97,
+        script,
+    );
     let sid = r.session();
     r.turn(&sid).await;
-    let words = r.words_sent();
-    assert_eq!(words.len(), 1, "one target: {words:?}");
-    words[0].1.clone()
+
+    assert_eq!(
+        r.words_sent()[0].1,
+        "untracked",
+        "the word the floor acted on is the word the model was shown"
+    );
+    assert_eq!(r.bytes(), WAS, "the call did not run");
+
+    let results = r.results(&sid);
+    assert_eq!(results.len(), 1, "one result: {results:?}");
+    let (status, text, reason) = &results[0];
+    assert_eq!(status, "Declined", "a hold is a call that never ran");
+    assert!(text.starts_with("Not run: "), "{text}");
+    assert!(
+        reason.starts_with(&format!("{HELD_REASON}: ")),
+        "an ordinary reversibility hold, by its ordinary reason: {reason}"
+    );
+
+    let held = r.rows("tool.held");
+    assert_eq!(held.len(), 1, "one tool.held row: {held:?}");
+    assert_eq!(held[0]["tool"], "fs.write");
+    assert_eq!(
+        held[0]["verdict"], RESHAPEABLE,
+        "the same status as a hold the model chose: the card's own condition"
+    );
+    assert_eq!(
+        held[0]["floored"], true,
+        "and the row says code decided it, so the floor can be measured"
+    );
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "a floored hold makes no card either: it costs the owner no attention"
+    );
+    assert!(r.rows("tool.raised").is_empty(), "a hold is not a raise");
+    assert_eq!(
+        r.jev.seen().len(),
+        1,
+        "the model was still asked: the floor does not skip the question, it \
+         only stops the answer from being the last word"
+    );
+}
+
+/// **The same test at `f4`'s own measured confidence**, and the one that makes
+/// the floor worth having at all. The card records `f4` answered `reversible`
+/// at 0.43-0.48, UNDER the question's 0.60 confirm bar, where the pack's
+/// fail-open rule runs the call: `UndoVerdict::of` returns `None` and nothing
+/// is acted on. That is an ANSWER, not a non-answer, so the floor reaches it.
+#[tokio::test(flavor = "multi_thread")]
+async fn f4s_shape_is_held_though_the_answer_is_under_the_confirm_bar() {
+    let r = repo_rig(
+        &["target/\n"],
+        "local.env.example",
+        an_untracked_file,
+        REVERSIBLE,
+        0.45,
+        script,
+    );
+    let sid = r.session();
+    r.turn(&sid).await;
+
+    assert_eq!(r.bytes(), WAS, "the call did not run, though it failed open");
+    let held = r.rows("tool.held");
+    assert_eq!(held.len(), 1, "one tool.held row: {held:?}");
+    assert_eq!(held[0]["floored"], true);
+    assert_eq!(
+        held[0]["verdict"], RESHAPEABLE,
+        "an under-bar answer still leaves an ordinary reshapeable hold"
+    );
+    assert_eq!(r.jev.seen().len(), 1);
+}
+
+/// **The card's second whole-core test, and the one that protects the owner's
+/// day.** A session rewriting a file it wrote itself two minutes ago is the
+/// commonest shape of coding there is. Its own record holds those bytes, so
+/// the word is `read_this_session`, the floor does not reach it, and the call
+/// runs. If this is weak the floor holds ordinary coding.
+///
+/// The negative beside it is the same file changed underneath the session
+/// since: the record's bytes are stale, nothing holds the current ones, and
+/// that call IS held. Without that pair a floor wired to nothing would pass
+/// the first half.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_this_session_wrote_is_not_held_and_one_changed_underneath_it_is() {
+    let wrote = rig(REVERSIBLE, 0.97, false, |_| {});
+    let sid = wrote.session();
+    let mark = theseus_tools::reads::Mark::at(&wrote.target).expect("the target's mark");
+    wrote.core.tools.reads.wrote(&sid, &wrote.target, mark, theseus_tools::reads::Whole::Yes);
+    wrote.turn(&sid).await;
+    assert_eq!(
+        wrote.words_sent()[0].1,
+        "read_this_session",
+        "the session's own record holds those bytes"
+    );
+    assert_eq!(wrote.bytes(), NOW, "so the call RAN: ordinary coding is not held");
+    assert!(
+        wrote.rows("tool.held").is_empty(),
+        "and nothing was held: {:?}",
+        wrote.rows("tool.held")
+    );
+
+    // The negative: somebody else wrote it since, so the record claims no copy.
+    let stale = rig(REVERSIBLE, 0.97, false, |_| {});
+    let sid = stale.session();
+    let mark = theseus_tools::reads::Mark::at(&stale.target).expect("the target's mark");
+    stale.core.tools.reads.wrote(&sid, &stale.target, mark, theseus_tools::reads::Whole::Yes);
+    std::fs::write(&stale.target, "a third party wrote this, and it is longer\n").unwrap();
+    stale.turn(&sid).await;
+    assert_eq!(stale.words_sent()[0].1, "outside_repo");
+    assert_eq!(
+        stale.rows("tool.held").len(),
+        1,
+        "nothing holds the bytes this call would destroy, so the floor holds it"
+    );
+    assert_ne!(stale.bytes(), NOW, "and it did not run");
+}
+
+/// **The card's third whole-core test.** A build path is not held: `target/`
+/// beside a `Cargo.toml` in a repository that ignores it resolves to
+/// `regenerable`, which is not one of the owner's three words, so the call
+/// runs. Piece 2 is what makes this true, and it is why the floor lands only
+/// together with or after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_build_path_is_not_held_by_the_floor() {
+    let r = repo_rig(
+        &["target/\n.env\n"],
+        "target/debug/app",
+        |work| {
+            std::fs::write(work.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+            std::fs::create_dir_all(work.join("target/debug")).unwrap();
+            std::fs::write(work.join("target/debug/app"), WAS).unwrap();
+        },
+        REVERSIBLE,
+        0.97,
+        script,
+    );
+    let sid = r.session();
+    r.turn(&sid).await;
+    assert_eq!(
+        r.words_sent()[0].1,
+        "regenerable",
+        "the project's own build makes it again, and the closed table says so"
+    );
+    assert_eq!(r.bytes(), NOW, "so the call ran");
+    assert!(r.rows("tool.held").is_empty(), "and nothing was held");
+}
+
+/// **The card's fourth whole-core test, and the owner's S17-D6 condition.**
+/// His existing override route runs the ORIGINAL call, for a hold code forced
+/// exactly as for one the model chose: the hold arrives at point one as an
+/// ordinary `irreversible_reshapeable`, so `allowance_for` and `spend` are the
+/// same code for it.
+///
+/// The re-planned call beside it is the other half of the proof. `move_aside`
+/// writes BESIDE the original, to a path that is not there yet, whose word is
+/// `absent`: the floor does not reach it and it runs on its own merits. So
+/// this one test shows the floor holding the call that would lose bytes and
+/// letting through the reshaped call that would not -- which is the whole
+/// behaviour the owner said yes to.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_override_runs_a_floored_call_and_the_reshaped_one_was_never_held() {
+    let r = repo_rig(
+        &["target/\n"],
+        "local.env.example",
+        an_untracked_file,
+        REVERSIBLE,
+        0.97,
+        script_original_and_replanned,
+    );
+    let sid = r.session();
+
+    r.turn(&sid).await;
+    assert_eq!(r.bytes(), WAS, "the floor held it");
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call to override: {held:?}");
+    assert_eq!(held[0].tool, "fs.write");
+    assert_eq!(held[0].input["content"], NOW, "the original's own bytes");
+    assert!(!held[0].waiting(), "nothing has allowed it yet");
+
+    r.allow_as(Rig::owner(), &held[0].id)
+        .await
+        .expect("the owner may override a hold code forced, as he may any other");
+    assert_eq!(r.rows("tool.hold_allowed").len(), 1);
+
+    r.turn(&sid).await;
+    assert_eq!(
+        r.bytes(),
+        NOW,
+        "the ORIGINAL call ran, as it was first proposed"
+    );
+    let spent = r.rows("tool.hold_overridden");
+    assert_eq!(spent.len(), 1, "one allowance spent: {spent:?}");
+    assert_eq!(spent[0]["hold"], held[0].id);
+    assert_eq!(
+        r.beside(),
+        Some(NOW.to_string()),
+        "and the reshaped call ran too, because it was never held: it creates \
+         a file that is not there, which loses nothing"
+    );
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "no card at any point: an override is not a question"
+    );
+}
+
+/// The model re-planning into the same floored write, loop after loop, with
+/// nothing else beside it: the shape the repeat cap exists to end. More loops
+/// are scripted than the cap allows, so a turn that is NOT ended runs on and
+/// the test fails on the reason rather than hanging.
+fn script_the_same_write_for_ever(path: &Path) -> Vec<Scripted> {
+    let call = json!({"path": path.to_string_lossy(), "content": NOW});
+    let ids: Vec<String> = (0..MAX_REPEATS + 4).map(|i| format!("c{i}")).collect();
+    let mut out: Vec<Scripted> = ids
+        .iter()
+        .map(|id| Scripted::tools("I'll write it.", &[(id.as_str(), "fs_write", call.clone())]))
+        .collect();
+    out.push(Scripted::text("Done."));
+    out
+}
+
+/// **The card's fifth whole-core test, and the owner's other condition: the
+/// hold is counted by the repeat cap P0-B added.**
+///
+/// It was not, on the base this was built from, and not for floored holds
+/// only -- for NO reversibility hold. `turn::repeat_step`'s own header states
+/// what the wiring row owed it, in these words: *"a reversibility hold must
+/// write its result as `Declined`, not `Error`, so that this rule sees it"*.
+/// The wiring row wrote `Error`, `repeat_step::never_ran` is
+/// `Declined | Cancelled`, so `made_no_progress` was false for every held loop
+/// and the counter never advanced. A model re-planning into a hold ran to the
+/// kernel's hard multiple of the spend limit -- some thousands of loops -- which
+/// is the exact pathology P0-B was written to end. The floor makes more holds,
+/// so it would have made that worse; `toolrun::invalid_input` now writes the
+/// word `repeat_step` reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_that_replans_the_same_floored_write_stops_at_the_repeat_cap() {
+    let r = repo_rig(
+        &["target/\n"],
+        "local.env.example",
+        an_untracked_file,
+        REVERSIBLE,
+        0.97,
+        script_the_same_write_for_ever,
+    );
+    let sid = r.session();
+    let out = r.turn(&sid).await;
+
+    assert_eq!(
+        out.stop_reason,
+        crate::turn::repeat_step::REPEATING,
+        "the turn ended on the repeat, and not on running out of script"
+    );
+    assert_eq!(
+        out.loops, MAX_REPEATS,
+        "the sixth identical loop is the last: {out:?}"
+    );
+    assert_eq!(
+        r.rows("tool.held").len(),
+        MAX_REPEATS as usize,
+        "one hold a loop, and no more after the cap"
+    );
+    assert_eq!(r.bytes(), WAS, "and nothing was ever written");
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "six holds still cost the owner no attention"
+    );
+}
+
+/// **One direction only.** The floor can force a hold and must never lower a
+/// verdict. `irreversible_final` is MORE than a hold -- it raises what the
+/// order returned to `approve`, which reaches the owner, where a hold costs
+/// one model loop and does not -- so a floored call whose model answer was
+/// `final` is still raised and still asks him, and is not quietly turned into
+/// a hold he would never see.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_floor_never_lowers_a_final_verdict_to_a_hold() {
+    let r = repo_rig(
+        &["target/\n"],
+        "local.env.example",
+        an_untracked_file,
+        FINAL,
+        0.95,
+        script,
+    );
+    let sid = r.session();
+    r.core.tools.modes.set(&sid, SessionMode::Auto);
+    r.turn(&sid).await;
+
+    assert_eq!(r.words_sent()[0].1, "untracked", "the floor's own word");
+    let cards = r.rows("tool.confirm_requested");
+    assert_eq!(cards.len(), 1, "the owner is still asked: {cards:?}");
+    assert_eq!(r.bytes(), WAS, "and nothing is written until he answers");
+    assert_eq!(r.rows("tool.raised").len(), 1, "the raise stands");
+    assert!(
+        r.rows("tool.held").is_empty(),
+        "the floor did not turn a question for the owner into a hold he \
+         would never see"
+    );
 }
