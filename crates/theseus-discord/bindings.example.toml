@@ -44,6 +44,14 @@ voice = false                      # true for a voice channel: /join from a priv
 # task_threads = true              # a task started here gets a Discord thread of its own, where its
                                    # tool lines and replies go and the channel gets one linking line;
                                    # false: they interleave in the channel, as before
+# notify = true                    # this channel is the announcement place, `theseus-notify`: the
+                                   # morning note, the digests, the self-improvement notices, the AWS
+                                   # month warning and the Google upkeep note come here instead of the
+                                   # owner's DM. Anything that needs him (an approval, a question, a
+                                   # card, a retraction, the day's ceiling) still goes to his DM. One
+                                   # channel at most, never a forum or a voice channel; bind it on a
+                                   # channel this file also calls private. Off unless you say so, and
+                                   # `notify here` in a place says it from chat instead
 # kind = "forum"                   # a forum channel (default "text"): each task of this guild's places
                                    # is a post whose first message is the task's live card, tagged
                                    # needs you / running / done / failed. Takes no message and runs
