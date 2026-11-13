@@ -24,6 +24,7 @@
 use serde_json::{json, Value};
 use theseus_core::outbox::{body_of, kind_of};
 use theseus_kernel::{Action, Outcome};
+use theseus_protocol::outbox::Receipt;
 
 use super::{lone, Lane, SendErr};
 use crate::policy::{self, Event};
@@ -274,9 +275,12 @@ impl Lane {
                 .find(|a| a.correlation_id == id);
             if let Some(a) = open {
                 let detail = json!({"folded_into": f.message.to_string(), "catchup": f.key});
+                // The fold's one message carried it: it is posted, and
+                // `folded_into` says in which message (theseus-vug).
                 let settled = self.settle(
                     &a,
                     Outcome::Succeeded,
+                    Receipt::Posted,
                     vec![(f.key.clone(), f.channel, f.message)],
                     detail,
                 );

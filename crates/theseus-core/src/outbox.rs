@@ -14,6 +14,12 @@
 //! edits of a reply while its turn runs, stay the binding's, best-effort and
 //! never replayed.
 //!
+//! Every settle says its delivery receipt (theseus-vug): `posted`,
+//! `transport_failed` or `never_posted`, written by whoever tried to deliver
+//! the post, kept in the settle's detail and so on the post's own record and
+//! its ledger row. Nothing rebuilds delivery from an outcome afterwards, and
+//! there is no `seen`.
+//!
 //! A session's posts go to the place whose record names it (the Discord
 //! binding's `discord.session.<place>` meta): `discord:<place>`. A task's go
 //! where its parent's went when it started (`task.place.<task session>`),
@@ -27,7 +33,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use theseus_kernel::{Action, ActionState, Completion, Kernel, Outcome, Post, RetryClass, Settled};
-use theseus_protocol::OutboxStatus;
+use theseus_protocol::{outbox::Receipt, OutboxStatus};
 use theseus_store::{kinds, NewRecord, Store as _};
 
 use crate::store::Store;
@@ -224,11 +230,49 @@ struct Index {
     counts: BTreeMap<String, Counts>,
 }
 
+/// A binding's settles, on two axes (theseus-vug). The outcome says whether
+/// the delivery attempt ended in an error, which is what health has always
+/// counted; the delivery receipt says whether anything reached the channel,
+/// which is the honest question and the one a surface shows. Every settled
+/// post is counted on both, so `sent + failed == settled()`: a post cannot
+/// end in no state.
 #[derive(Default, Clone)]
 struct Counts {
+    /// The settle did not fail (delivered, or nothing to send).
     sent: u64,
+    /// The settle failed: a refusal no retry can change.
     failed: u64,
+    posted: u64,
+    transport_failed: u64,
+    never_posted: u64,
+    /// Settles from before receipts were written: the record does not say
+    /// which, and nothing here guesses one.
+    unsaid: u64,
     last_error: Option<(u64, String)>,
+}
+
+impl Counts {
+    /// Count one settled post on both axes. `None` is a post settled before
+    /// receipts: `unsaid`, never a guess.
+    fn took(&mut self, failed: bool, receipt: Option<Receipt>) {
+        *(match failed {
+            true => &mut self.failed,
+            false => &mut self.sent,
+        }) += 1;
+        *(match receipt {
+            Some(Receipt::Posted) => &mut self.posted,
+            Some(Receipt::TransportFailed) => &mut self.transport_failed,
+            Some(Receipt::NeverPosted) => &mut self.never_posted,
+            None => &mut self.unsaid,
+        }) += 1;
+    }
+
+    /// Every settled post, by its receipt: the vocabulary's own total. Read
+    /// by `tests_receipt`, which holds the two axes to each other.
+    #[cfg(test)]
+    fn settled(&self) -> u64 {
+        self.posted + self.transport_failed + self.never_posted + self.unsaid
+    }
 }
 
 /// Whether `place` is a thread's virtual place (`thread:<slug>`, theseus-nhew):
@@ -281,6 +325,17 @@ fn hold_operator_kind(body: &Value) {
 pub fn body_of(a: &Action) -> &Value {
     static NULL: Value = Value::Null;
     a.proposal.as_ref().map_or(&NULL, |p| &p.args)
+}
+
+/// The receipt a settled post's record carries (theseus-vug), as the surface
+/// that settled it wrote it. `None` for a post still open, and for one
+/// settled before receipts were recorded at all: nothing here invents one.
+#[must_use]
+pub fn receipt_of(a: &Action) -> Option<Receipt> {
+    a.detail
+        .as_ref()
+        .and_then(|d| d["receipt"].as_str())
+        .and_then(Receipt::parse)
 }
 
 /// Where a post goes.
@@ -468,9 +523,15 @@ impl Outbox {
         let posts = self.kernel.outbox_actions()?;
         for a in &posts {
             let binding = binding_of(target_of(a)).to_string();
+            // A settled post's receipt is the one its own record carries,
+            // read back, never rebuilt from its state (theseus-vug); a post
+            // settled before receipts has none and is counted `unsaid`.
             match a.state {
-                ActionState::Succeeded => ix.counts.entry(binding).or_default().sent += 1,
-                ActionState::Failed => ix.counts.entry(binding).or_default().failed += 1,
+                ActionState::Succeeded | ActionState::Failed => ix
+                    .counts
+                    .entry(binding)
+                    .or_default()
+                    .took(a.state == ActionState::Failed, receipt_of(a)),
                 _ => {
                     ix.open.insert(
                         a.correlation_id.clone(),
@@ -1021,7 +1082,15 @@ impl Outbox {
             let why = format!("not bound here any more ({place})");
             for a in self.open_for(&target) {
                 let detail = json!({"error": why, "unbound": place});
-                match self.settle(&a.correlation_id, Outcome::Failed, None, detail, binding) {
+                // Nothing was sent: the honest receipt is `never_posted`.
+                match self.settle(
+                    &a.correlation_id,
+                    Outcome::Failed,
+                    Receipt::NeverPosted,
+                    None,
+                    detail,
+                    binding,
+                ) {
                     Ok(_) => n += 1,
                     Err(e) => tracing::warn!(
                         error = %format!("{e:#}"),
@@ -1041,15 +1110,24 @@ impl Outbox {
 
     /// Settle a post with what the channel answered: `detail` holds its
     /// messages. A failure is a refusal no retry can change.
+    ///
+    /// **The receipt is the caller's word** (theseus-vug): whoever tried to
+    /// deliver the post says which of the three it was, and it is written
+    /// into the settle's `detail` as `receipt`, so the post's own record and
+    /// its settle's ledger row carry it, and no reader has to rebuild
+    /// delivery from an outcome. The kernel refuses a settle that names no
+    /// receipt, or one the outcome contradicts (`Receipt::agrees`).
     pub fn settle(
         &self,
         correlation_id: &str,
         outcome: Outcome,
+        receipt: Receipt,
         external_op_id: Option<String>,
-        detail: Value,
+        mut detail: Value,
         producer: &str,
     ) -> Result<Action> {
         let now = theseus_protocol::now_unix_ms();
+        detail["receipt"] = json!(receipt.as_str());
         let s = self.kernel.outbox_settle(&Completion {
             correlation_id: correlation_id.into(),
             outcome,
@@ -1064,12 +1142,15 @@ impl Outbox {
         })?;
         let a = match s {
             Settled::Now(a) => {
+                // The receipt leads the error line, so every surface that
+                // prints it says whether anything was sent (theseus-vug).
                 let error = (a.state == ActionState::Failed).then(|| {
-                    a.detail
+                    let why = a
+                        .detail
                         .as_ref()
                         .and_then(|d| d["error"].as_str())
-                        .unwrap_or("refused")
-                        .to_string()
+                        .unwrap_or("refused");
+                    format!("{}: {why}", receipt.words())
                 });
                 self.with(|ix| {
                     ix.open.remove(&a.correlation_id);
@@ -1077,12 +1158,9 @@ impl Outbox {
                         .counts
                         .entry(binding_of(target_of(&a)).to_string())
                         .or_default();
-                    match &error {
-                        None => c.sent += 1,
-                        Some(e) => {
-                            c.failed += 1;
-                            c.last_error = Some((now, e.clone()));
-                        }
+                    c.took(a.state == ActionState::Failed, Some(receipt));
+                    if let Some(e) = &error {
+                        c.last_error = Some((now, e.clone()));
                     }
                 })?;
                 a
@@ -1332,6 +1410,9 @@ impl crate::Core {
         }
     }
 }
+
+#[cfg(test)]
+mod tests_receipt;
 
 #[cfg(test)]
 mod tests {
@@ -1796,7 +1877,7 @@ mod tests {
         assert!(kinds_named_in(commented).is_empty());
     }
 
-    fn outbox(dir: &tempfile::TempDir) -> Arc<Outbox> {
+    pub(super) fn outbox(dir: &tempfile::TempDir) -> Arc<Outbox> {
         let store = Store::open(&dir.path().join("store")).unwrap();
         let kernel = Arc::new(Kernel::new(
             store.shared(),

@@ -73,7 +73,7 @@ pub mod notices;
 pub mod nudge;
 mod ontology;
 pub mod ops;
-mod outbox;
+pub mod outbox;
 pub mod own_bench;
 pub mod packs;
 pub mod patterns;

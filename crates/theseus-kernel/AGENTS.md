@@ -68,6 +68,15 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
   empty (still in its exec, theseus-mi6a) again, up to `EXEC_WAIT` (500 ms) in all, so a tender just started is
   not taken for an orphan (theseus-r4hn); `learn` is the rule, tested by order.
 - `outbox.rs`: posts that must reach a channel, as actions of their own record kind, `OUTBOX`.
+  **Every settle says its delivery receipt** (theseus-vug; M5's delivery clause in `docs/spec/06-part1-s10.md`):
+  `Completion.detail.receipt` is one of `theseus_protocol::outbox::Receipt`'s three words, `posted |
+  transport_failed | never_posted`, and `outbox_settle` refuses a settle that names none, or one its outcome
+  contradicts (`Receipt::agrees`: `posted` only with a settle that did not fail, `transport_failed` only with one
+  that did, `never_posted` with either), writing nothing, as it refuses `Outcome::Unknown`. The word is the
+  settler's — the surface that tried to deliver, or the core refusing a post for a place it no longer binds — and
+  it goes on the post's own record and in its settle's ledger row (`receipt`), so no reader rebuilds delivery from
+  an outcome. There is no `seen`: a channel's acknowledgement says a message exists, never that a person read it.
+  Tests: `outbox::tests`'s last three.
 - `earlier.rs` (theseus-m9iy): an earlier process's in-process calls. Startup's reconcile notes each dispatched
   provider call (`Evidence::in_process`, by its tool) in memory and writes nothing; the driver's first tick after
   serving (or the heartbeat) marks them all `outcome_unknown` in one frame, as `in_process_before_restart`, each
@@ -191,6 +200,10 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 - **A question answered while its turn runs is read at the turn's end** (theseus-q5af): `end_turn` queues the
   execution (`Kernel::queued_at_end`, why `answered`) instead of parking it on a question already bound, so an
   answer is never lost to a running turn, and one continuation follows. Tests: `tests_answered.rs`.
+- **No post ends in no state** (theseus-vug). `outbox_settle` is the one place an outbox post ends, and it takes
+  the post's delivery receipt or refuses the settle, so the vocabulary is total over settled posts by
+  construction. A post settled by a build from before receipts carries none: a reader reads that as unsaid and
+  invents no word for it.
 - **An attempt that may have run is `OutcomeUnknown`**, never "not sent". Its money is held, unless its process is
   gone (an earlier process's in-process call), when it is booked at its reservation (theseus-f3wr).
 - **Read by state, never every record** (theseus-lv2). The store's index keeps `terms.rs`'s terms for each
