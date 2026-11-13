@@ -601,9 +601,8 @@ impl Tool for Edit {
         if a.old_string.is_empty() {
             return Err("old_string must not be empty (use fs_write to create a file)".into());
         }
-        if a.old_string == a.new_string {
-            return Err("old_string and new_string are identical; nothing would change".into());
-        }
+        // An identical pair is not invalid input: it is usually a retry of an
+        // edit that already landed. `run` answers it as a no-op.
         let path = ctx.resolve(&a.path);
         Ok(Plan {
             summary: format!(
@@ -647,6 +646,15 @@ impl Tool for Edit {
                 "old_string was not found in {}. Read the file again and copy the exact text, including whitespace and indentation.",
                 path.display()
             )));
+        }
+        if a.old_string == a.new_string {
+            return Ok(ToolOutput {
+                text: format!(
+                    "No change made: the replacement is identical to the text already in {}. If you meant to change it, send a new_string that differs from old_string.",
+                    path.display()
+                ),
+                meta: json!({"path": path, "replacements": 0, "bytes_before": before.len(), "bytes_after": before.len()}),
+            });
         }
         if n > 1 && !a.replace_all {
             return Err(ToolFailure::new(format!(
