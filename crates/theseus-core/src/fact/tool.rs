@@ -986,6 +986,12 @@ pub struct ToolHeld<'a> {
     /// The deciding answer's confidence.
     pub p: f64,
     pub summary: &'a str,
+    /// Whether the one-way floor forced this hold (`judge/undo/floor.rs`; the
+    /// owner, 2026-11-13 12:22, S25-1) rather than the model choosing it. The
+    /// hold itself is the same hold either way; this is here so the floor can
+    /// be MEASURED — how often code decides, and on what — without reading
+    /// every judgment back.
+    pub floored: bool,
 }
 
 impl Fact for ToolHeld<'_> {
@@ -993,7 +999,8 @@ impl Fact for ToolHeld<'_> {
 
     fn row(&self) -> Value {
         json!({"tool": self.tool, "judgment": self.judgment, "shape": self.shape,
-               "p": self.p, "summary": self.summary, "verdict": "irreversible_reshapeable"})
+               "p": self.p, "summary": self.summary, "verdict": "irreversible_reshapeable",
+               "floored": self.floored})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

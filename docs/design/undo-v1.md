@@ -107,6 +107,44 @@ breaker open, the call shed, the call timed out, or an answer under the question
 is the pack's fail-open rule, and it is what makes the pack a net addition rather than a new
 dependency of writing a file.
 
+### The one-way floor: where the model's answer stops being the last word
+
+`p5kln-location-facts` piece 4. The owner, 2026-11-13 12:22 MST (Twenty-fifth set, S25-1), whole
+message **"Yes"**, to this question: *for a plain file write or edit whose resolved fact says nothing
+holds a copy, the call is held whatever the model answers.*
+
+The rules are his, as the question was put to him, and the code is `judge/undo/floor.rs`:
+
+- **One direction only.** Code can force a hold. It never forces `reversible`, never lowers a
+  verdict, and never turns an `irreversible_final` into a hold: that answer reaches the owner, where
+  a hold costs one model loop and does not, so it is the stronger of the two and it stands.
+- **Plain file tools only**, from a closed three-line table (`fs.write`, `fs.edit`, `fs.patch`) —
+  the tools whose whole effect is the file targets their plan names. Shell commands, sends,
+  network tools and MCP tools stay with the model's judgment, because code does not know their whole
+  effect. The table is the same instrument `undo_regen` uses for build paths, and growing it is a
+  decision with a reviewer.
+- **Three words**, the three he named: `untracked`, `outside_repo`, `tracked_dirty`, and only on a
+  target the call would WRITE. `absent` is not among them, so creating a file is never held;
+  `unknown` is not among them either, because a floor is code overriding a model and it runs on the
+  facts he named, not on the resolver's admission that it could not tell.
+- **It is an ordinary reversibility hold**: the same `irreversible_reshapeable` status, the same
+  reshape hint, the same `tool.held` row, no card, counted by the repeat cap P0-B added, and
+  overridable through his existing `undo.allow` route (his S17-D6 condition). The row carries
+  `floored` so the floor can be measured; nothing else about the hold differs.
+- **It lands only together with or after pieces 1 and 2.** Without the session-held-bytes fact a
+  file this session wrote two minutes ago reads as one nothing holds a copy of, and without the
+  build-path fact so does `target/`. With both, what is left for the floor is a call overwriting
+  bytes this session has not seen that neither git nor a build holds — which is the eval set's `f4`.
+
+**It does not change the fail-open rule above.** The floor acts only where the model ANSWERED the
+deciding question, which is the whole of what "whatever the model answers" asks for. The judge off,
+the pack in shadow, the credential unresolved, the breaker open, the call shed, the 300 ms wait
+missed: every one of those is still the ordinary order, because failing closed there would make Jev
+a hard dependency of writing a file. The one arm it does reach is the last item on that list — an
+answer **under the question's confirm bar** — because that is an answer and not a non-answer, and it
+is exactly where `f4` sits: the model calls it `reversible` at 0.43–0.48, under the 0.60 bar, so
+before the floor the fail-open rule ran it.
+
 ## What this constrains, and what it does not
 
 This document fixes **where** the verdict is read. It does not decide whether the pack is on, what
