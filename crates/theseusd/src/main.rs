@@ -37,6 +37,7 @@ use tokio::net::UnixListener;
 mod install;
 mod mcp;
 mod stdio;
+mod systemd;
 mod web;
 
 const AFTER_HELP: &str = "\
@@ -261,10 +262,16 @@ fn main() -> Result<()> {
         );
     }
     let stdio = cli.stdio;
+    // Socket activation and sd_notify (theseus-r8yj): read once, here, while
+    // this is still one thread and before any child exists, so the five
+    // variables reach no job and nothing else can take the passed socket.
+    // An init system set none of them for a start from a shell, and then
+    // nothing below reports anything.
+    let sd = systemd::Systemd::from_env()?;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let exit = rt.block_on(daemon(cli, lookup, origin))?;
+    let exit = rt.block_on(daemon(cli, lookup, origin, sd))?;
     // The clean shutdown path has run, for a stop and a restart in place
     // alike (theseus-jo7f). The runtime's tasks go, and with them the store,
     // which closes (redb's close, logged by the index): each timed
@@ -323,7 +330,7 @@ enum Start {
 
 #[expect(clippy::cognitive_complexity, reason = "shape budget: split it")]
 #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
-async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
+async fn daemon(cli: Cli, lookup: Lookup, origin: Instant, sd: systemd::Systemd) -> Result<Exit> {
     // Nothing named a config, and the lookup found neither file: the start
     // says where a config comes from (theseus-8d1b, theseus-5aqz).
     let Some(source) = lookup.source().map(str::to_string) else {
@@ -599,6 +606,12 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
 
     if cli.stdio {
         tracing::info!("serving protocol on stdio");
+        if sd.listener.is_some() {
+            tracing::warn!(
+                "systemd passed a listening socket and this daemon serves stdio: the passed \
+                 socket is not used"
+            );
+        }
         // Its one client has a failed turn, and retries it if it wants: the
         // driver retries none (theseus-zqxv). Said before anything is served.
         core.runner.failed_turns.leave_to_the_client();
@@ -635,6 +648,12 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
             stdout,
             Client::new("stdio", Surface::Cli).with_pid(parent),
         );
+        // READY at the same point the socket daemon says it: the one client's
+        // connection is being served (theseus-r8yj). A `--stdio` daemon is
+        // normally a spawned child and not an init system's service, but a
+        // unit of `Type=notify` that ran one would otherwise wait out its
+        // start timeout.
+        sd.notify.ready("serving on stdio");
         let served = tokio::select! {
             r = conn => r,
             () = &mut stop => {
@@ -657,6 +676,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
         // SIGTERM (L2), the posts in flight settle (none, with no channel
         // bound), and the index is checkpointed.
         core.stop_lsp();
+        sd.notify.stopping();
         core.finish_stop().await;
         flush_telemetry(&core).await;
         served?;
@@ -668,7 +688,7 @@ async fn daemon(cli: Cli, lookup: Lookup, origin: Instant) -> Result<Exit> {
     let after_bind = after_serving(core.clone(), keep, Some(bindings_path), state_dir, mode);
     stdio::planted_hold(&core);
     stdio::planted_thread_hold(&core);
-    let served = serve_socket(core.clone(), socket_path, signals, after_bind).await;
+    let served = serve_socket(core.clone(), socket_path, signals, after_bind, sd).await;
     stop_phase("serving loop ended");
     // The index tender gets SIGTERM and is never waited for (§9), unless this
     // is a restart in place, whose next image takes it over (roadmap row 51).
@@ -1396,31 +1416,39 @@ async fn serve_socket(
     path: PathBuf,
     signals: Signals,
     after_bind: impl std::future::Future<Output = ()> + Send + 'static,
+    sd: systemd::Systemd,
 ) -> Result<()> {
     let t = Instant::now();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    if path.exists() {
-        // A stale socket from a previous run; if something is listening, fail rather than steal it.
-        if tokio::net::UnixStream::connect(&path).await.is_ok() {
-            anyhow::bail!(
-                "another theseusd is already listening on {}",
-                path.display()
-            );
-        }
-        std::fs::remove_file(&path)?;
-    }
-    let listener =
-        UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    // The socket systemd passed, or one bound here (theseus-r8yj). A passed
+    // socket is systemd's: its path is not ours to unlink at the stop.
+    let passed = sd.listener.is_some();
+    let listener = match sd.listener {
+        Some(l) => UnixListener::from_std(l).context("adopting the socket systemd passed")?,
+        None => bound_socket(&path).await?,
+    };
     core.startup_log
-        .record("socket", false, t, serde_json::Value::Null);
-    tracing::info!(socket = %path.display(), secrets = %core.secrets.status().summary(), "serving protocol; localhost only, file permissions are the auth");
+        .record("socket", false, t, serde_json::json!({"activated": passed}));
+    tracing::info!(socket = %path.display(), activated = passed, secrets = %core.secrets.status().summary(), "serving protocol; localhost only, file permissions are the auth");
+    // READY, at the one honest point: the listener is up, so a client that
+    // connects from here on is served. Nothing before this line answers.
+    sd.notify.ready(&format!("serving on {}", path.display()));
+    // WATCHDOG, only where the unit asked for one (`WatchdogSec=`): none of
+    // the units this binary installs does.
+    if let Some(every) = sd.notify.watchdog_every() {
+        let notify = sd.notify.clone();
+        tracing::info!(
+            every_ms = every.as_millis(),
+            "telling systemd the daemon is alive"
+        );
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(every);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                notify.watchdog();
+            }
+        });
+    }
     tokio::spawn(after_bind);
 
     raise_limits(&core);
@@ -1472,26 +1500,62 @@ async fn serve_socket(
             }
             _ = &mut stop => {
                 tracing::info!("shutdown requested over protocol");
+                sd.notify.stopping();
                 break;
             }
+            // No STOPPING for a restart in place: the pid lives on through
+            // the exec and serves again, so the init system is told nothing.
             _ = core.restart_asked() => {
                 tracing::info!("restarting onto the vault's changed config note");
                 break;
             }
             _ = sigint.recv() => {
                 tracing::info!(signal = "SIGINT", "stopping on a signal");
+                sd.notify.stopping();
                 core.stopping_on("SIGINT");
                 break;
             }
             _ = sigterm.recv() => {
                 tracing::info!(signal = "SIGTERM", "stopping on a signal");
+                sd.notify.stopping();
                 core.stopping_on("SIGTERM");
                 break;
             }
         }
     }
-    let _ = std::fs::remove_file(&path);
+    // A socket this daemon bound is this daemon's to remove; one systemd made
+    // belongs to its socket unit, which keeps it across the daemon's restart.
+    if !passed {
+        let _ = std::fs::remove_file(&path);
+    }
     Ok(())
+}
+
+/// The socket this daemon binds for itself, when systemd passed none: the
+/// stale-socket check, the bind, and the permissions that are the auth. Its
+/// own function so `serve_socket` stays under the shape limit.
+async fn bound_socket(path: &std::path::Path) -> Result<UnixListener> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    if path.exists() {
+        // A stale socket from a previous run; if something is listening, fail rather than steal it.
+        if tokio::net::UnixStream::connect(path).await.is_ok() {
+            anyhow::bail!(
+                "another theseusd is already listening on {}",
+                path.display()
+            );
+        }
+        std::fs::remove_file(path)?;
+    }
+    let listener =
+        UnixListener::bind(path).with_context(|| format!("binding {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(listener)
 }
 
 /// `theseusd restore`: refuse while a daemon serves this store, then rebuild

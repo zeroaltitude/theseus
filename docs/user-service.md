@@ -255,7 +255,11 @@ StartLimitIntervalSec=300
 StartLimitBurst=10
 
 [Service]
-Type=exec
+# `systemctl start` returns when the daemon can answer, not when the
+# process exists: it says READY=1 once its RPC listener is up
+# (theseus-r8yj). NotifyAccess=main: only the daemon itself reports.
+Type=notify
+NotifyAccess=main
 ExecStart=/home/ada/.local/bin/theseusd --config op://<vault>/<item>/notesPlain --op-token-file /home/ada/.config/theseus/op-token
 Environment="PATH=/home/ada/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="LANG=C.UTF-8"
