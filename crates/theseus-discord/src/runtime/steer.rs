@@ -14,7 +14,8 @@
 //! that comes while one is out ends it, and its answer says nothing more
 //! (theseus-07m8b).
 
-use theseus_protocol::{Attachment, TurnSubmitParams, TurnSubmitResult};
+use theseus_protocol::threads::Speaking;
+use theseus_protocol::{Attachment, DiscordOrigin, TurnSubmitParams, TurnSubmitResult};
 use twilight_model::id::{marker::MessageMarker, Id};
 
 use super::{CallError, Inbound, LaneMsg, Pending, Place, PlaceMsg};
@@ -41,6 +42,18 @@ impl Steering {
 /// replied to, so the router can address its thread (theseus-rha2). One shape
 /// for a turn of the place's own and a steer: the steer built its own, and
 /// left that turn out.
+///
+/// `speaker` is **who wrote it**, as the core's place rule reads an act: the
+/// numeric Discord ids, not the handle in `author`. Without it the core sees
+/// `Surface::Discord` and no origin, which `Answerer::unknown` refuses — so
+/// the owner's own message in his own DM was judged no one's
+/// (`owner_input` false, and `TurnRunner::message_kind` therefore
+/// `person_message`), against his rule of 2026-10-17: *"my own DM or channel
+/// text should never cause a flag"*. It is a **claim of identity, never of
+/// authority**: the core checks the id against `[places] owner` and the
+/// place's class itself, so a stranger's message carries their own origin and
+/// is kinded a person's message exactly as before. None when no single
+/// person wrote the turn (a coalesced batch of several authors).
 pub(super) fn submit_params(
     sid: String,
     author: String,
@@ -48,6 +61,7 @@ pub(super) fn submit_params(
     attachments: Vec<Attachment>,
     anchor: Option<Id<MessageMarker>>,
     reply_turn: Option<String>,
+    speaker: Option<DiscordOrigin>,
 ) -> TurnSubmitParams {
     TurnSubmitParams {
         session_id: Some(sid),
@@ -56,8 +70,28 @@ pub(super) fn submit_params(
         attachments,
         reply_to: anchor.map(|a| a.to_string()),
         in_reply_to: reply_turn,
+        // `answer_at` is the thread path's: this turn is the place's own, and
+        // its reply goes back the way it always did.
+        speaking: speaker.map(|discord| Speaking {
+            discord,
+            answer_at: None,
+        }),
         ..Default::default()
     }
+}
+
+/// Who spoke, for a turn of the place's own: the one person who wrote the
+/// batch, by their Discord ids. **None when several people's messages
+/// coalesced into it** — that turn's input is not one person's words, and a
+/// turn whose speaker is unnamed is read as a person's message, which is the
+/// safe direction (`TurnRunner::message_kind`). Empty batches cannot occur
+/// (`Place::submit` reads `batch[0]`), and answer `None` all the same.
+pub(super) fn speaker_of(batch: &[Inbound]) -> Option<DiscordOrigin> {
+    let one = batch.first()?;
+    batch
+        .last()
+        .filter(|_| batch.iter().all(|m| m.author == one.author))
+        .map(Inbound::origin)
 }
 
 /// What a steer sends of `m`, but for its files, which are added when they
@@ -70,6 +104,7 @@ pub(super) fn steer_params(sid: &str, m: &Inbound) -> TurnSubmitParams {
         Vec::new(),
         Some(m.message),
         m.reply_turn.clone(),
+        Some(m.origin()),
     )
 }
 
