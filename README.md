@@ -207,14 +207,17 @@ project ships one build to one machine rather than a library to the world. What 
   carries the release number and `theseus --version` prints it; `MANIFEST_FORMAT` moves whenever a stored record
   changes shape, so a build refuses a store written by a newer one.
 
-**What a `2.0.0` would be: one thing is recorded, and the rest is not.** The 1.0.5 tag says it in a line — *"the
-benchmarks stay parked. The 2.x line is where measuring begins"* — so the next major number is where the numbers in
-this README get run again, against the rivals, on a build worth measuring. Beyond that: two lines of work are
-designed, decided and unbuilt — the daemon, the CLI and the index each on its own machine over mTLS
-([remote runtimes](docs/design/remote-runtimes.md)), and working ahead in a sandbox on the likely next ask
-([speculation](docs/design/speculation.md)) — and the [north-star plan](docs/design/north-star-plan.md) names what
-"crush it" would mean on memory, personality, speed, scale and task horizons. **Which of those earns the `2.0.0`
-tag, and what a `3.0.0` would be, is not written down anywhere in this repository, so this page does not guess.**
+**What `2.0.0` and `3.0.0` are: both are decided.** **`2.0.0` is the last bugs and issues of the 1.x line** —
+not new capability, and not measurement. **Measuring is the `2.0.x` line**, which is what the 1.0.5 tag means by
+*"the benchmarks stay parked. The 2.x line is where measuring begins"*: once 2.0.0 closes out the remaining
+bugs, the benchmarking plans are populated and the project runs in a regime of benchmark-and-improve, so the
+numbers in this README get run again, against the rivals, on a build worth measuring. **`3.0.0` is the two lines
+of work that are designed, decided and unbuilt**: the daemon, the CLI and the index each on its own machine over
+mTLS ([remote runtimes](docs/design/remote-runtimes.md)), and working ahead in a sandbox on the likely next ask
+([speculation](docs/design/speculation.md)). Both are filed for that release rather than this one. Beside them
+the [north-star plan](docs/design/north-star-plan.md) names what "crush it" would mean on memory, personality,
+speed, scale and task horizons; it is a direction the numbered releases are measured against, not a release of
+its own.
 When it is decided, it lands here and on [the status page](docs/status.md).
 
 ## How it works
