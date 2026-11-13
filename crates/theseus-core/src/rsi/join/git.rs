@@ -242,11 +242,11 @@ pub fn merge(p: &Place, t: &Tree, head: &str, message: &str) -> Result<String> {
     p.git_ok(&t.dir, &["rev-parse", "HEAD"])
 }
 
-/// The key `user.signingkey` names in the repo's config, if any.
+/// The key `user.signingkey` names in the repo's config, if any. It reads
+/// [`Place::signing_key`], which is where the key lives now that the self
+/// loop's content commit ([`tree::commit`]) is signed with the same one.
 pub fn signing_key(p: &Place) -> Option<String> {
-    p.git_ok(&p.repo, &["config", "--get", "user.signingkey"])
-        .ok()
-        .filter(|k| !k.trim().is_empty())
+    p.signing_key()
 }
 
 /// Sign the tree's merge (the same tree and parents, so the gate's verdict
