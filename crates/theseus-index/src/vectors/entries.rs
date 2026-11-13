@@ -33,6 +33,11 @@ impl Entries {
         }
     }
 
+    /// The slots it has allocated, 4 bytes each: what `held` counts.
+    pub fn slots(&self) -> usize {
+        self.slots.capacity()
+    }
+
     /// Where `hash`'s probe starts: its bits mixed (Fibonacci hashing), the
     /// table's power of two from the top.
     fn start(&self, hash: u128) -> usize {

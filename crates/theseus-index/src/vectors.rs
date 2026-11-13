@@ -143,7 +143,10 @@ pub trait Texts {
 
 mod entries;
 mod heap;
+mod held;
 mod status;
+
+pub use held::Held;
 
 // ---------------------------------------------------------------------------
 // One stamp's vectors on disk.

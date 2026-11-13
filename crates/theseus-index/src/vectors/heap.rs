@@ -94,6 +94,53 @@ mod tests {
         open(dir, nodes)
     }
 
+    /// This process's peak resident set (`VmHWM`), in bytes. `clear_refs`
+    /// resets it to what is resident now, as `tests_weights.rs` does.
+    fn hwm() -> u64 {
+        let s = fs::read_to_string("/proc/self/status").unwrap();
+        s.lines()
+            .find_map(|l| {
+                let v = l.strip_prefix("VmHWM")?.strip_prefix(':')?;
+                v.trim().trim_end_matches(" kB").trim().parse::<u64>().ok()
+            })
+            .unwrap_or(0)
+            * 1024
+    }
+
+    /// A vector file's read takes its room once (theseus-xxac7): the peak
+    /// resident set grows by about what its records hold in memory, not by
+    /// twice it. **This is a guard, not the record of a fix**: the read's
+    /// `Vec`s do double (nothing tells them how many records the file holds)
+    /// and `shrink` then frees a block as large as the int8 cuts, and it was
+    /// expected to leave that block resident, because nothing in the tender
+    /// trims — `release_memory` runs only when the embedding model unloads or
+    /// refuses. Measured on this base it does not: at 29,000 records the peak
+    /// grew by 6,868,992 bytes for 8,295,144 bytes of room, because glibc
+    /// grows and shrinks a chunk this size with `mremap`, which moves pages
+    /// rather than copying them. The guard stands so a read that does start
+    /// taking its room twice is caught.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[test]
+    fn a_vector_files_read_takes_its_room_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        write(tmp.path(), 10_000, 31);
+        // SAFETY: no pointers.
+        unsafe { libc::malloc_trim(0) };
+        fs::write("/proc/self/clear_refs", "5").unwrap();
+        let base = hwm();
+        let c = Cache::open(tmp.path(), &stamp()).unwrap();
+        let grew = hwm().saturating_sub(base);
+        let held = c.held();
+        let room = held.total();
+        assert_eq!(c.len(), 29_000, "every text has a vector but a tenth");
+        assert!(room > 7_000_000, "{room} bytes of room for 29,000 records");
+        eprintln!("{room} bytes of room, the peak grew by {grew}\n{held}");
+        assert!(
+            grew < room + room / 2,
+            "the read's peak grew by {grew} bytes for {room} bytes of room"
+        );
+    }
+
     /// The heap in use, glibc's count: its arenas' and its mapped chunks'.
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     fn heap() -> usize {
@@ -102,16 +149,19 @@ mod tests {
         m.uordblks + m.hblkhd
     }
 
+    /// The heap the table took, its chunks, and what [`Table::held`] says it
+    /// went on.
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    fn per_chunk(nodes: usize) -> (f64, usize) {
+    fn per_chunk(nodes: usize) -> (f64, usize, usize, Held) {
         let tmp = tempfile::tempdir().unwrap();
         write(tmp.path(), nodes, 29);
         let before = heap();
         let t = open(tmp.path(), nodes);
         let used = heap().saturating_sub(before);
         let chunks = t.rows.len();
+        let held = t.held();
         drop(t);
-        (used as f64 / chunks as f64, chunks)
+        (used as f64 / chunks as f64, chunks, used, held)
     }
 
     /// The heap per chunk at 30,000 chunks, held under 600 bytes (665 before the maps were
@@ -120,12 +170,62 @@ mod tests {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     #[test]
     fn the_heap_per_chunk_stays_near_its_int8_cut() {
-        let (b, chunks) = per_chunk(10_000);
+        let (b, chunks, _, held) = per_chunk(10_000);
         eprintln!(
-            "{chunks} chunks: {b:.0} bytes of heap a chunk (a row {} bytes, a cut 256)",
+            "{chunks} chunks: {b:.0} bytes of heap a chunk (a row {} bytes, a cut 256)\n{held}",
             std::mem::size_of::<Row>()
         );
         assert!(b < 600.0, "{b:.0} bytes a chunk");
+    }
+
+    /// The breakdown is not a story about the heap: its sum is within a
+    /// seventh of what glibc says the same table took, it names every chunk
+    /// and record (so an empty table cannot pass it), and its cache lines are
+    /// exactly what the files' own [`Cache::held`] says.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[test]
+    fn the_breakdown_accounts_for_the_heap_it_measures() {
+        let (_, chunks, used, held) = per_chunk(10_000);
+        eprintln!(
+            "glibc {used} bytes, the breakdown {} bytes\n{held}",
+            held.total()
+        );
+        assert_eq!((chunks, held.chunks), (30_000, 30_000));
+        assert_eq!(held.records, 29_000, "every text has a vector but a tenth");
+        let (sum, measured) = (held.total() as f64, used as f64);
+        assert!(
+            sum > measured * 6.0 / 7.0 && sum < measured * 8.0 / 7.0,
+            "the breakdown says {sum:.0} bytes of the {measured:.0} glibc counted"
+        );
+        assert_eq!(
+            held.lines()[0].0,
+            "the int8 cuts",
+            "the largest holder moved: {held}"
+        );
+        assert!(
+            held.backlog > 0 && held.rest > 0,
+            "a tenth of the texts wait, and the sessions are interned: {held}"
+        );
+    }
+
+    /// Every file's own lines add up to the table's (theseus-xxac7): a table
+    /// of two files counts both, and one of none counts no cut at all.
+    #[test]
+    fn a_tables_cache_lines_are_its_files_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = build(tmp.path(), 200, 11);
+        let held = t.held();
+        let mut cuts = 0u64;
+        let mut records = 0u64;
+        for c in &t.caches {
+            cuts += c.held().cuts;
+            records += c.held().records;
+        }
+        assert!(cuts > 0 && records > 0, "the fixture holds vectors");
+        assert_eq!((held.cuts, held.records), (cuts, records));
+        let empty = Table::default().held();
+        assert_eq!((empty.cuts, empty.records, empty.chunks), (0, 0, 0));
+        assert_eq!(empty.total(), 0);
     }
 
     /// The same at 100,000 nodes (300,000 chunks), printed:
@@ -134,8 +234,8 @@ mod tests {
     #[test]
     #[ignore = "a measure: 300,000 chunks, about 600 MB of vector file"]
     fn bench_the_heap_at_300k_chunks() {
-        let (b, chunks) = per_chunk(100_000);
-        eprintln!("{chunks} chunks: {b:.0} bytes of heap a chunk");
+        let (b, chunks, _, held) = per_chunk(100_000);
+        eprintln!("{chunks} chunks: {b:.0} bytes of heap a chunk\n{held}");
     }
 
     /// One fixture's best ten for three queries, as the table answered them
