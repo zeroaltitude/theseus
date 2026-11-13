@@ -1307,7 +1307,7 @@ fn the_new_offer_rides_only_the_ask_the_cap_made() {
 
 // ---- `[threads] unsure = "guess"` (theseus-ttlze)
 
-const GUESS: Rules = Rules {
+const GUESSING: Rules = Rules {
     guess_unsure: true,
     ..ON
 };
@@ -1335,8 +1335,11 @@ fn under_guess_every_ask_and_offer_is_a_guess_and_ask_is_unchanged() {
         p: 0.2,
     };
     let asked = decide(&t, &close, Some(&low), Voice::Jev, Some("x"), ON);
-    assert!(matches!(asked, Decision::Ask { .. }), "the premise: {asked:?}");
-    let g = decide(&t, &close, Some(&low), Voice::Jev, Some("x"), GUESS);
+    assert!(
+        matches!(asked, Decision::Ask { .. }),
+        "the premise: {asked:?}"
+    );
+    let g = decide(&t, &close, Some(&low), Voice::Jev, Some("x"), GUESSING);
     let tag = guess_of(&g);
     assert!(tag.slug.is_some(), "Jev's thread pick is the guess: {g:?}");
     // A new-thread offer is a guess of home, never a thread made.
@@ -1346,12 +1349,12 @@ fn under_guess_every_ask_and_offer_is_a_guess_and_ask_is_unchanged() {
     };
     let offer = decide(&t, &close, Some(&new), Voice::Jev, Some("x"), ON);
     assert!(matches!(offer, Decision::OfferNew { .. }), "{offer:?}");
-    let g = decide(&t, &close, Some(&new), Voice::Jev, Some("x"), GUESS);
+    let g = decide(&t, &close, Some(&new), Voice::Jev, Some("x"), GUESSING);
     let _ = guess_of(&g); // a Route cannot make a thread
-    // A route that was not an ask is not touched.
+                          // A route that was not an ask is not touched.
     let sure = pre_with(&[("pr-round", 0.95), ("security-fix", 0.05)]);
     let same = decide(&t, &sure, None, Voice::Alone, None, ON);
-    assert_eq!(decide(&t, &sure, None, Voice::Alone, None, GUESS), same);
+    assert_eq!(decide(&t, &sure, None, Voice::Alone, None, GUESSING), same);
 }
 
 /// A guess never lands in a sealed or seal-pending thread: it goes home.
@@ -1369,12 +1372,11 @@ fn a_guess_never_lands_in_a_sealed_or_seal_pending_thread() {
         let all = [top, security_fix()];
         let t = refs(&all);
         let close = pre_with(&[("pr-round", 0.70), ("security-fix", 0.65)]);
-        let d = guessed(
-            Decision::Ask { options: vec![] },
-            &t,
-            &close,
+        let d = guessed(Decision::Ask { options: vec![] }, &t, &close, None);
+        assert_eq!(
+            guess_of(&d).slug,
             None,
+            "home, not the sealed thread: {d:?}"
         );
-        assert_eq!(guess_of(&d).slug, None, "home, not the sealed thread: {d:?}");
     }
 }

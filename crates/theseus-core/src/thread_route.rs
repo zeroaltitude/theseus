@@ -1113,12 +1113,7 @@ pub fn decide(
 /// A guess never lands in a sealed or seal-pending thread (it goes home), and
 /// never makes a thread: a pick of `New` is a guess of home. Movable, so the
 /// reply can offer the change.
-pub fn guessed(
-    d: Decision,
-    threads: &[&ThreadInfo],
-    pre: &[Pre],
-    jev: Option<&Jev>,
-) -> Decision {
+pub fn guessed(d: Decision, threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&Jev>) -> Decision {
     if matches!(d, Decision::Route(_)) {
         return d;
     }
