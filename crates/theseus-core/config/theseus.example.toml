@@ -553,6 +553,13 @@ job_pids_max = 4096                     # the most processes and threads one L0 
 # or past either line below.
 outputs_keep_days = 7                   # a kept output is deleted after this many days
 outputs_max_bytes = 2147483648          # past this many bytes in all (2 GiB), the oldest kept outputs are deleted first
+# A model that reads no PDFs is given a PDF's text, and a scanned page has no
+# text to give: with this on, such a page is drawn as a picture when the file
+# arrives (poppler's pdftocairo, in a capped child) and the request shows the
+# picture to a model with vision. Off: a scanned page reads "(no text on this
+# page)", as it always has. It draws at most 8 pages of one PDF, only the ones
+# that hold no text, and nothing at all on a machine with no renderer.
+pdf_page_images = false                 # draw an attached PDF's pages that hold no text, and show them to a model that reads no PDFs
 
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types

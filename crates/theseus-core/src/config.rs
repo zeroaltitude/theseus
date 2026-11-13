@@ -530,6 +530,15 @@ pub struct ToolsConfig {
     /// cgroup is delegated: its processes and threads at once. 0: no cap.
     #[serde(default = "default_job_pids_max")]
     pub job_pids_max: u64,
+    /// Draw the pages of an attached PDF that hold no text as pictures when
+    /// it arrives, and keep them beside it (theseus-w68l): a model that
+    /// reads no PDFs is given a PDF's text, and a scan has no text, so
+    /// without this a scanned page reaches such a model as nothing at all.
+    /// It runs a renderer (poppler's `pdftocairo`) in a capped child, so it
+    /// is off unless the operator turns it on; on a machine with no
+    /// renderer it draws nothing and says so in the log.
+    #[serde(default = "default_pdf_page_images")]
+    pub pdf_page_images: bool,
     /// `[tools.web]`: `http.fetch` and `web.search` (DD5).
     #[serde(default)]
     pub web: WebToolsConfig,
@@ -581,6 +590,11 @@ fn default_proc_timeout_max_secs() -> u64 {
 }
 fn default_job_output_max_bytes() -> u64 {
     theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES
+}
+/// Off: drawing a page runs a program, and nothing that widens what
+/// Theseus reaches for is on by default.
+fn default_pdf_page_images() -> bool {
+    false
 }
 fn default_job_pids_max() -> u64 {
     theseus_kernel::cgroup::DEFAULT_PIDS_MAX
@@ -657,6 +671,7 @@ impl Default for ToolsConfig {
             proc_env: default_proc_env(),
             job_output_max_bytes: default_job_output_max_bytes(),
             job_pids_max: default_job_pids_max(),
+            pdf_page_images: default_pdf_page_images(),
             outputs_keep_days: outputs::keep_days(),
             outputs_max_bytes: outputs::max_bytes(),
             web: WebToolsConfig::default(),

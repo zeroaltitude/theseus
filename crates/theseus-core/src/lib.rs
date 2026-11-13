@@ -96,6 +96,7 @@ pub mod owner_note;
 mod pace;
 pub mod pacer;
 pub mod pack_names;
+pub mod page_images;
 pub mod parked;
 pub mod peer;
 pub mod peer_proc;
