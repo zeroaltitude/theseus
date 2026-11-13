@@ -165,6 +165,95 @@ async fn without_injection_nothing_is_refused() {
     }
 }
 
+/// **A content freeze is recorded as a content refusal, not a place's**
+/// (F2a of the live freeze of 2026-11-13). `refusal_reason` had two arms,
+/// `mode:` and `place:`, and a freeze is neither, so the owner's own
+/// `gate: deny` row read `place: this session is holding: …` and attributed
+/// a content-label hold to the place rule.
+///
+/// The two halves of the bar, and the second is why this test lives beside
+/// the freeze rather than beside `refusal_reason`: the word is right, AND
+/// the word is keyed on the refusal a real frozen session actually produces.
+/// `modes.rs` keeps its own copy of that refusal's lead (`CONTENT_HOLD`),
+/// since the words are built in `content::refusal`; this holds the copy to
+/// the original, so a reword there reds here instead of silently putting the
+/// `place:` prefix back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_content_freeze_is_recorded_as_a_content_refusal_and_not_a_places() {
+    // `refuse` is written out rather than taken from the default: this test
+    // is about how a freeze is RECORDED, so it must say which mode it wants.
+    // F3 (`p6/f3-l0-notify-not-refuse`) is making `notify` the default, and
+    // a test of the freeze that leaned on the default would turn red on a
+    // change that has nothing to do with it.
+    let r = rig(None, 1, |c| {
+        c.content_based_security.injection = InjectionMode::Refuse
+    });
+    let reads = AtomicU32::new(0);
+    let why = refusal(
+        &r,
+        "proc.run",
+        json!({"argv": ["echo", "x"]}),
+        Some(frozen()),
+        &reads,
+    )
+    .expect("a frozen session refuses proc.run");
+    // The premise: these are the words the gate hands the model, and they
+    // are the ones `refusal_reason` must recognise. The literal is the copy
+    // `modes::CONTENT_HOLD` keys on, held here against a real refusal's.
+    assert!(why.starts_with("this session is holding:"), "{why}");
+    let reason = crate::policy::modes::refusal_reason(&why);
+    assert!(
+        reason.starts_with("content: "),
+        "the record names what held: {reason}"
+    );
+    assert!(
+        !reason.starts_with(&format!("{}: ", crate::toolrun::PLACE_REFUSAL)),
+        "the place rule had no part in it: {reason}"
+    );
+    // A place's refusal and a mode's keep their own words.
+    assert!(
+        crate::policy::modes::refusal_reason("fs.write is not offered in #lab")
+            .starts_with("place: ")
+    );
+    assert!(
+        crate::policy::modes::refusal_reason(crate::policy::modes::REFUSAL).starts_with("mode: ")
+    );
+    // And the narration the owner reads names the label, not a shared place:
+    // with only the two old arms a `content:` reason would read "the input is
+    // invalid", which is no truer than the shared-place line it used to get.
+    assert!(narrated(&reason).contains("holding a content label"));
+    assert!(!narrated(&reason).contains("this place is shared"));
+    assert!(narrated("place: fs.write is not offered in #lab").contains("this place is shared"));
+}
+
+/// The sentence `tool.invalid_input` narrates for a call refused with
+/// `reason`.
+fn narrated(reason: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::store::Store::open(&dir.path().join("store")).unwrap();
+    let narrator = crate::narrative::Narrator::new(true);
+    let call = crate::provider::ToolUse {
+        id: "call_1".into(),
+        name: "proc.run".into(),
+        input: json!({"argv": ["echo", "x"]}),
+    };
+    crate::fact::Rec {
+        narrator: &narrator,
+        session: Some("ses_frozen"),
+        turn: None,
+        to: crate::fact::To::Nobody,
+        store: &store,
+    }
+    .announce(&crate::fact::tool::InvalidInput {
+        tool: "proc.run",
+        call: &call,
+        reason,
+    });
+    let lines = narrator.tail();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    lines[0].text.clone()
+}
+
 /// A session with no label costs no record read for a call that is a local
 /// read: the labels are asked only past that test.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
