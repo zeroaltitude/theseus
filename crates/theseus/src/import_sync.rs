@@ -17,6 +17,15 @@
 //!   cursor where it was; what it wrote is kept, and a rerun skips it.
 //! - `--dry-run` runs the exporter with no output and prints what it would read,
 //!   recording nothing.
+//! - **On demand** (theseus-ievo3). `--request` asks the daemon for a sync now
+//!   (`import.sync.request`) and runs nothing: a caller that is not on this
+//!   machine -- the web UI, or a DM with an owner -- cannot run the exporter,
+//!   but it can leave the request. `--if-requested` is the other half: it runs
+//!   only when the plan carries a request, and does nothing otherwise, so the
+//!   on-demand timer can poll every few minutes for the price of one call.
+//!   **`--if-requested` implies `--no-people`**: the people step is where the
+//!   minutes and the dollars go, and it stays nightly, so no number of
+//!   on-demand runs can multiply it.
 //! - The owner's act, refused inside a job: the plan is an operator's method.
 
 use std::path::{Path, PathBuf};
@@ -63,6 +72,12 @@ pub struct SyncArgs {
     /// Import only: skip the people steps.
     #[arg(long)]
     pub no_people: bool,
+    /// Ask for a sync now and run nothing: the next `--if-requested` run serves it.
+    #[arg(long, conflicts_with_all = ["dry_run", "if_requested"])]
+    pub request: bool,
+    /// Run only if a sync was asked for, and do nothing otherwise; skips the people steps.
+    #[arg(long = "if-requested", conflicts_with = "dry_run")]
+    pub if_requested: bool,
 }
 
 /// The exporter's report (its `--report` JSON), the parts this reads.
@@ -275,10 +290,82 @@ async fn export(
     Ok((sent, rep))
 }
 
-pub async fn run(conn: &mut Conn, json: bool, a: SyncArgs) -> Result<()> {
-    let started_ms = theseus_protocol::now_unix_ms();
+/// Whether a run skips the people steps (theseus-ievo3). `--if-requested` is
+/// the on-demand carrier's command, and an on-demand run is import-only
+/// whatever else was passed: the people step is where the minutes and the
+/// dollars go, and it stays nightly, so no number of on-demand runs can
+/// multiply it. The sessions the run touched wait in the daemon's own
+/// `people_todo` for the night's full run. Pure, so a test reads it.
+pub fn no_people(a: &SyncArgs) -> bool {
+    a.no_people || a.if_requested
+}
+
+/// What `--request` prints, and what `--if-requested` prints when there is
+/// nothing to serve: pure, so a test reads them.
+pub fn request_line(plan: &ImportSyncPlan) -> String {
+    match (plan.requested_ms, &plan.requested_by) {
+        (0, _) => "no sync has been asked for: nothing to run\n".to_string(),
+        (at, by) => format!(
+            "a sync is waiting: asked for {} by {}; the next `theseus import sync --if-requested` \
+             run serves it\n",
+            theseus_client::render::time::fmt_date(at),
+            by.as_deref().unwrap_or("someone")
+        ),
+    }
+}
+
+/// A dry run's report, printed. Its own function for the same reason
+/// `plan_or_done` is: `run` sits at clippy's `too_many_lines` ceiling, and the
+/// on-demand half had to take two lines of it.
+fn say_dry_run(json: bool, rep: Option<Report>) -> Result<()> {
+    let rep = rep.unwrap_or_default();
+    let v = serde_json::json!({"dry_run": true, "episodes": rep.episodes, "messages": rep.messages,
+        "agents": rep.agents.iter().map(|(k, v)| (k.clone(), serde_json::json!({
+            "sessions": v.sessions, "messages": v.messages, "archives": v.archives,
+            "skipped": v.skipped, "errors": v.errors}))).collect::<serde_json::Map<_, _>>()});
+    output(json, v, |v: Value| {
+        print!("{}", dry_lines(&v));
+        Ok(())
+    })
+}
+
+/// The plan this run works from, or `None` when the run is already over: the
+/// two short paths the on-demand half adds (theseus-ievo3). Its own function
+/// because `run` is at clippy's `too_many_lines` ceiling, and an `#[allow]`
+/// is an erosion wherever it goes.
+///
+/// - `--request` is the whole of the on-demand trigger a caller off this
+///   machine can make: the record, not the run. It reads the plan back, so
+///   what it prints is the request the daemon actually holds.
+/// - An `--if-requested` poll with nothing to serve makes that ONE call and
+///   stops. This is what makes a poll of minutes cheap enough to be the
+///   carrier: the exporter and its `python3` never start.
+async fn plan_or_done(conn: &mut Conn, json: bool, a: &SyncArgs) -> Result<Option<ImportSyncPlan>> {
+    let say = |p: ImportSyncPlan| {
+        print!("{}", request_line(&p));
+        Ok(())
+    };
+    if a.request {
+        let v = conn
+            .request(method::IMPORT_SYNC_REQUEST, Value::Null)
+            .await?;
+        output(json, v, say)?;
+        return Ok(None);
+    }
     let v = conn.request(method::IMPORT_SYNC_PLAN, Value::Null).await?;
     let plan: ImportSyncPlan = serde_json::from_value(v)?;
+    if a.if_requested && plan.requested_ms == 0 {
+        output(json, serde_json::to_value(&plan)?, say)?;
+        return Ok(None);
+    }
+    Ok(Some(plan))
+}
+
+pub async fn run(conn: &mut Conn, json: bool, a: SyncArgs) -> Result<()> {
+    let started_ms = theseus_protocol::now_unix_ms();
+    let Some(plan) = plan_or_done(conn, json, &a).await? else {
+        return Ok(());
+    };
     let state_dir = match (&a.from, &plan.state_dir) {
         (Some(f), _) => f.clone(),
         (None, Some(d)) => expand(d),
@@ -325,19 +412,12 @@ pub async fn run(conn: &mut Conn, json: bool, a: SyncArgs) -> Result<()> {
     if a.dry_run {
         let (sent, rep) = got.map_err(|e| anyhow!(e))?;
         let _ = sent;
-        let rep = rep.unwrap_or_default();
-        let v = serde_json::json!({"dry_run": true, "episodes": rep.episodes, "messages": rep.messages,
-            "agents": rep.agents.iter().map(|(k, v)| (k.clone(), serde_json::json!({
-                "sessions": v.sessions, "messages": v.messages, "archives": v.archives,
-                "skipped": v.skipped, "errors": v.errors}))).collect::<serde_json::Map<_, _>>()});
-        return output(json, v, |v: Value| {
-            print!("{}", dry_lines(&v));
-            Ok(())
-        });
+        return say_dry_run(json, rep);
     }
     let mut rec = ImportSyncRecord {
         started_ms,
-        no_people: a.no_people,
+        // The gate on the people step (theseus-ievo3): see `no_people`.
+        no_people: no_people(&a),
         ..ImportSyncRecord::default()
     };
     let failure = match got {

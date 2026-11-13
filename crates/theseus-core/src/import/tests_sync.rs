@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_protocol::import_sync::{
-    ImportSyncPlan, ImportSyncRecord, ImportSyncResult, MISSED_AFTER_MS,
+    ImportSyncPlan, ImportSyncRecord, ImportSyncResult, MISSED_AFTER_MS, REQUEST_STALE_AFTER_MS,
 };
 use theseus_protocol::method;
 
@@ -269,6 +269,143 @@ fn health_words_the_run_and_a_failed_or_missed_night() {
     );
 }
 
+/// The shortened path (theseus-ievo3): a decision recorded in OpenClaw was
+/// readable in Theseus only at the next night's run, so for most of a working
+/// day Theseus acted on yesterday's picture. `import.sync.request` records
+/// that a sync is wanted NOW; the plan carries it, so the next run of
+/// `theseus import sync --if-requested` -- a poll of minutes, not a day --
+/// serves it, and health says a sync is waiting.
+///
+/// The path is measured in both directions: with no request the only thing
+/// telling anyone to run is the night, hours away; with one, the wait is zero
+/// and the request names who asked.
+#[tokio::test]
+async fn a_request_shortens_the_path_from_the_next_night_to_the_next_poll() {
+    let r = live();
+    let c = &r.core;
+    // Before: nothing asks for a run, and the only due time is the night's.
+    let p = plan(c).await;
+    assert_eq!((p.requested_ms, p.requested_by), (0, None));
+    let now = theseus_protocol::now_unix_ms();
+
+    // The request: the owner's act, recorded, answering the plan it shortens.
+    let asked: ImportSyncPlan = serde_json::from_value(
+        call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        asked.requested_ms >= now,
+        "the request is stamped: {asked:?}"
+    );
+    assert_eq!(
+        asked.requested_by.as_deref(),
+        Some(Surface::Cli.name()),
+        "the request names who asked, as every `by` does"
+    );
+    // A second request does not move the first: the oldest wait is the one
+    // health and the next run see.
+    let again: ImportSyncPlan = serde_json::from_value(
+        call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(again.requested_ms, asked.requested_ms, "the first stands");
+    let p = plan(c).await;
+    assert_eq!(p.requested_ms, asked.requested_ms, "the plan carries it");
+
+    // The shortening itself, measured: the next SCHEDULED run is still hours
+    // away, and the request's own wait is zero -- the whole of the defect was
+    // that the first figure was the only one there was.
+    let night = next_run(p.requested_ms, 3);
+    assert!(
+        night > p.requested_ms,
+        "the next scheduled run is ahead of the request: {night} vs {}",
+        p.requested_ms
+    );
+    let h = c.health().imported.sync.expect("health names the request");
+    assert_eq!(h.requested_ms, asked.requested_ms);
+
+    // A run that failed leaves the request standing, exactly as it leaves the
+    // cursor: nothing was imported, so the decision is still not readable.
+    record(
+        c,
+        &ImportSyncRecord {
+            error: Some("python3 did not start".into()),
+            no_people: true,
+            ..ImportSyncRecord::default()
+        },
+    )
+    .await;
+    assert_eq!(
+        plan(c).await.requested_ms,
+        asked.requested_ms,
+        "a failed run does not serve the request"
+    );
+
+    // A run that did not fail serves it, and the request is gone.
+    let e = sync(4, TAG, &[0, 1, 2, 3]);
+    let got = import(c, lines(std::slice::from_ref(&e))).await;
+    let res = record(
+        c,
+        &ImportSyncRecord {
+            episodes: 1,
+            messages: 4,
+            imported: 1,
+            touched: got.touched,
+            no_people: true,
+            ..ImportSyncRecord::default()
+        },
+    )
+    .await;
+    assert_eq!(res.sync.sessions_new, 1, "the run imported the session");
+    assert_eq!(res.sync.requested_ms, 0, "served: {:?}", res.sync);
+    let p = plan(c).await;
+    assert_eq!((p.requested_ms, p.requested_by), (0, None));
+
+    // The people step stays nightly: the served run took none, and the
+    // session it touched waits for the night's full run.
+    assert!(
+        res.people.is_none(),
+        "an on-demand run takes no people step"
+    );
+    assert_eq!(p.people_todo, 1, "it waits for the nightly sweep");
+}
+
+/// A request nothing serves is a warning, not a silence (theseus-ievo3): with
+/// no on-demand unit installed the request waits for the hourly import, and
+/// health says so rather than looking well.
+#[test]
+fn a_request_nothing_served_warns_once_it_is_stale() {
+    let st = SyncState {
+        at_ms: 1_790_000_000_000,
+        requested_ms: 1_790_000_000_000 + 1_000,
+        requested_by: Some("discord:dm".into()),
+        ..SyncState::default()
+    };
+    // Fresh: no warning, a poll of minutes is still ahead of it.
+    assert!(st.health(st.requested_ms + 1_000, 3).warn.is_none());
+    let late = st.health(st.requested_ms + REQUEST_STALE_AFTER_MS + 1, 3);
+    let w = late.warn.expect("a request nothing served warns");
+    assert!(w.starts_with("a sync was asked for"), "{w}");
+    assert!(w.contains("and has not run"), "{w}");
+    assert_eq!(late.requested_ms, st.requested_ms);
+    // A failed run still outranks it: that is why the run did not serve it.
+    let failed = SyncState {
+        error: Some("an agent's store would not open".into()),
+        ..st
+    };
+    assert_eq!(
+        failed
+            .health(failed.requested_ms + 10 * REQUEST_STALE_AFTER_MS, 3)
+            .warn
+            .as_deref(),
+        Some("the last sync failed: an agent's store would not open")
+    );
+}
+
 /// The plan and the record are the owner's acts: a place that is not private
 /// is refused, and nothing is written.
 #[tokio::test]
@@ -277,6 +414,7 @@ async fn the_sync_is_the_owners_act_from_a_private_place() {
     let c = &r.core;
     for (m, params) in [
         (method::IMPORT_SYNC_PLAN, Value::Null),
+        (method::IMPORT_SYNC_REQUEST, Value::Null),
         (
             method::IMPORT_SYNC_RECORD,
             serde_json::to_value(ImportSyncRecord::default()).unwrap(),

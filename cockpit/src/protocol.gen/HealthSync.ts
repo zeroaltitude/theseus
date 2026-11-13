@@ -24,4 +24,9 @@ error?: string,
 /**
  * A failed or a missed night, in one sentence for every surface's warning.
  */
-warn?: string, };
+warn?: string, 
+/**
+ * A sync asked for that no run has served yet, unix ms; 0 is none
+ * (theseus-ievo3).
+ */
+requested_ms: number, };

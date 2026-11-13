@@ -304,7 +304,7 @@ impl Core {
             }
             method::IMPORT_TOPICS => return self.import_topics(params, conn).await,
             method::IMPORT_PEOPLE => return self.import_people(params, conn).await,
-            method::IMPORT_SYNC_PLAN | method::IMPORT_SYNC_RECORD => {
+            method::IMPORT_SYNC_PLAN | method::IMPORT_SYNC_RECORD | method::IMPORT_SYNC_REQUEST => {
                 return self.import_sync(name, params, conn).await
             }
             other => {

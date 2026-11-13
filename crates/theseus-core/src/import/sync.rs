@@ -16,12 +16,24 @@
 //! - **Health** names the last run, the next one (the next
 //!   [`SYNC_MINUTE`] past `[judge] learning_hour`), and a failed or a missed
 //!   night as a warning.
+//! - **A sync on demand** (theseus-ievo3). A decision recorded in OpenClaw was
+//!   readable here only at the next night's run, so for most of a working day
+//!   Theseus acted on yesterday's picture. `import.sync.request` records that a
+//!   sync is wanted now ([`SyncState::requested_ms`]); the plan carries it, and
+//!   `theseus import sync --if-requested` -- which the on-demand timer runs
+//!   every few minutes -- is what serves it. **The daemon starts nothing**: the
+//!   reading is the CLI's, so the daemon's half of "on demand" is a record.
+//!   A run that did not fail clears the request; a run that failed leaves it,
+//!   exactly as it leaves the cursor, because nothing was imported.
+//!   `--if-requested` passes `no_people`, so an on-demand run can never drag
+//!   the people step -- which stays nightly -- along with it.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_protocol::import_sync::{
-    HealthSync, ImportSyncPlan, ImportSyncRecord, MISSED_AFTER_MS, SAMPLES, SYNC_MINUTE,
+    HealthSync, ImportSyncPlan, ImportSyncRecord, MISSED_AFTER_MS, REQUEST_STALE_AFTER_MS, SAMPLES,
+    SYNC_MINUTE,
 };
 
 use crate::learning::local_midnight;
@@ -56,6 +68,14 @@ pub struct SyncState {
     /// Sessions whose people step is left for the next run.
     #[serde(default)]
     pub people_todo: Vec<String>,
+    /// When a sync was asked for and no run has served it yet, unix ms; 0 is
+    /// none (theseus-ievo3, `Core::sync_request`). A run that did not fail
+    /// clears it; a run that failed leaves it, as it leaves the cursor.
+    #[serde(default)]
+    pub requested_ms: u64,
+    /// Who asked for it, as the act's record labels them.
+    #[serde(default)]
+    pub requested_by: Option<String>,
 }
 
 /// The newest `as_of` end, in unix ms, of the imported sessions whose source
@@ -99,10 +119,27 @@ impl SyncState {
         let next_ms = next_run(self.at_ms, hour);
         let warn = match &self.error {
             Some(e) => Some(format!("the last sync failed: {e}")),
-            None if now_ms > next_ms + MISSED_AFTER_MS => Some(format!(
+            // `at_ms == 0` is a state that holds a request and no run yet
+            // (theseus-ievo3): there is no night to have missed.
+            None if self.at_ms > 0 && now_ms > next_ms + MISSED_AFTER_MS => Some(format!(
                 "a night's sync was missed: it was due {} {hour:02}:{SYNC_MINUTE:02} and has not run",
                 crate::judge::spend::local_day(next_ms)
             )),
+            // A request nothing served (theseus-ievo3): the on-demand timer's
+            // period is minutes and the import-only timer's an hour, so a
+            // request older than [`REQUEST_STALE_AFTER_MS`] means neither ran.
+            // Said rather than left silent: a request that waits looks exactly
+            // like a healthy sync from here otherwise.
+            None if self.requested_ms > 0
+                && now_ms > self.requested_ms + REQUEST_STALE_AFTER_MS =>
+            {
+                Some(format!(
+                    "a sync was asked for on {} and has not run: check that the sync timers are \
+                     installed (`scripts/user-service.sh sync-timer status`), or run `theseus \
+                     import sync` yourself",
+                    crate::judge::spend::local_day(self.requested_ms)
+                ))
+            }
             None => None,
         };
         HealthSync {
@@ -115,6 +152,7 @@ impl SyncState {
             next_ms,
             error: self.error.clone(),
             warn,
+            requested_ms: self.requested_ms,
         }
     }
 }
@@ -151,8 +189,36 @@ impl Core {
             cursor,
             since_ms,
             learning_hour: cfg.judge.learning_hour,
+            requested_ms: state.as_ref().map_or(0, |s| s.requested_ms),
+            requested_by: state.as_ref().and_then(|s| s.requested_by.clone()),
             people_todo: state.map_or(0, |s| s.people_todo.len() as u64),
         })
+    }
+
+    /// `import.sync.request` (theseus-ievo3): record that a sync is wanted now
+    /// and answer with the effective request's time. **It starts no run** --
+    /// the reading is the CLI's (`scripts/openclaw-export.py`), so what the
+    /// daemon can do on demand is say that a run is wanted; the next
+    /// `theseus import sync --if-requested` serves it.
+    ///
+    /// A second request while one waits does not move the first: the wait that
+    /// matters is the oldest one, and moving it would hide a request nothing
+    /// served from [`SyncState::health`]'s warning.
+    pub(crate) async fn sync_request(&self, by: &str) -> Result<u64> {
+        let prev: SyncState =
+            theseus_store::blocking(|| self.store.get_meta(STATE_KEY))?.unwrap_or_default();
+        if prev.requested_ms > 0 {
+            return Ok(prev.requested_ms);
+        }
+        let at = theseus_protocol::now_unix_ms();
+        let state = SyncState {
+            requested_ms: at,
+            requested_by: Some(by.to_string()),
+            ..prev
+        };
+        self.people_write(&[crate::judge::people::run::meta(STATE_KEY, &state)?])
+            .await?;
+        Ok(at)
     }
 
     /// Health's `sync`: the last run, once one has run.
@@ -193,6 +259,17 @@ impl Core {
             error: rec.error.clone(),
             samples: samples(rec),
             people_todo: todo.clone(),
+            // A run that did not fail has read everything up to its cursor, so
+            // it served whatever was asked for; one that failed imported
+            // nothing, so the request stands, as the cursor does.
+            requested_ms: match rec.error {
+                Some(_) => prev.requested_ms,
+                None => 0,
+            },
+            requested_by: match rec.error {
+                Some(_) => prev.requested_by.clone(),
+                None => None,
+            },
         };
         let row = crate::fact::import::ImportSynced {
             by,

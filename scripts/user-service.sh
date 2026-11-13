@@ -27,6 +27,9 @@
 #                          THESEUS_SOCKET and THESEUS_STATE_DIR, gets a unit of its own
 #   --hour N               sync-timer: the local hour the nightly sync runs at, :40 past it (default 3)
 #   --every-hours N        sync-timer: how often the import-only run goes, at :10 past (default 1)
+#   --on-demand-mins N     sync-timer: how often a sync ASKED FOR is served (default 2; 0: no such
+#                          timer). That run is `theseus import sync --no-people --if-requested`,
+#                          which makes one call and stops when nothing was asked for.
 #   --help, -h
 #
 # The daemon's own variables are read the way `theseusd install --user` reads them, and the plan
@@ -67,8 +70,9 @@ LINGER=unknown # yes | no | unknown | maybe (a dry run)
 HAND=0         # 1 a daemon started by hand answers on the socket; 2 maybe (a dry run)
 TOKEN_ARGS=()
 REST=()
-SYNC_HOUR=3  # --hour: the nightly sync's local hour
-SYNC_EVERY=1 # --every-hours: how often the import-only run goes (24: no second timer)
+SYNC_HOUR=3      # --hour: the nightly sync's local hour
+SYNC_EVERY=1     # --every-hours: how often the import-only run goes (24: no second timer)
+SYNC_ONDEMAND=2  # --on-demand-mins: how often a sync asked for is served (0: no third timer)
 
 usage() {
   cat <<EOF
@@ -83,9 +87,12 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
   start       systemctl --user start theseusd
   uninstall   stop the service and remove its unit; your store is not touched
   sync-timer install|uninstall|status
-              the OpenClaw sync, two timers beside the daemon's unit: the nightly full run
-              (`theseus import sync`) at HOUR:40 (--hour, default 3), and the import-only run
-              (`theseus import sync --no-people`) every --every-hours hours at :10
+              the OpenClaw sync, three timers beside the daemon's unit: the nightly full run
+              (`theseus import sync`) at HOUR:40 (--hour, default 3), the import-only run
+              (`theseus import sync --no-people`) every --every-hours hours at :10, and the
+              on-demand run (`theseus import sync --no-people --if-requested`) every
+              --on-demand-mins minutes, which serves a sync somebody asked for and otherwise
+              makes one call and stops
 
   --dry-run   print each command instead of running it
   --yes       answer yes to every question
@@ -99,6 +106,10 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
   --every-hours N
               sync-timer: how often the import-only run goes, at :10 past the hour (default 1,
               hourly; 24 installs no second timer and removes one this script wrote)
+  --on-demand-mins N
+              sync-timer: how often a sync somebody asked for is served (default 2 minutes, 1 to
+              30; 0 installs no such timer and removes one this script wrote). Without it a
+              request waits for the next import-only run instead.
 
 The how-to: docs/user-service.md
 EOF
@@ -693,6 +704,25 @@ SYNC_HOURLY_TIMEOUT=45min
 # own import is already done and its people step has the state waiting for it.
 IMPORT_MINUTE=10
 
+# How often the on-demand run polls, and the shortest wait it leaves (theseus-ievo3). Anything
+# decided in an OpenClaw conversation was readable in Theseus only at the next scheduled run; the
+# bar is "within minutes". `import.sync.request` records that a sync is wanted and starts nothing --
+# the reading is the CLI's, so the daemon has no route into OpenClaw's stores of its own -- and this
+# timer is what serves the request. Its command makes ONE call to the daemon and stops when nothing
+# was asked for (`--if-requested`), so polling costs no exporter and no python3; only a run that
+# actually has a request to serve does any work.
+#
+# Its start bound is the import-only run's, 45 min, because it runs the same command and so the same
+# work. A run that outlives this timer's period does merge the elapses behind it, which is harmless
+# here and NOT the theseus-ectzg defect: the merged polls would have found the request that this run
+# is already serving. What that defect was is a oneshot with NO bound at all, which blocks its timer
+# for ever; this one is bounded, so a hang costs at most one bound and then shows as `failed`.
+ONDEMAND_TIMEOUT=$SYNC_HOURLY_TIMEOUT
+
+# systemd batches timers to AccuracySec, whose default is a minute: on a 2-minute period that is up
+# to half the period of added wait, for nothing. This asks for 15 s.
+ONDEMAND_ACCURACY=15s
+
 # write_sync_unit FILE TEXT: write one of the sync's unit files (a dry run says what it would write).
 # Not `write_unit`: that is the daemon's unit's writer above, and a second definition replaced it.
 write_sync_unit() {
@@ -718,13 +748,14 @@ unit_env() {
 
 cmd_sync_timer() {
   local sub=${REST[0]:-} base=$UNIT_NAME-sync dir=$CONFIG_HOME/systemd/user bin
-  local hbase=$UNIT_NAME-sync-hourly
+  local hbase=$UNIT_NAME-sync-hourly obase=$UNIT_NAME-sync-ondemand
   if [ ${#REST[@]} -ne 1 ]; then
     echo "$SELF: sync-timer takes install, uninstall or status" >&2
     exit 2
   fi
   local svc=$dir/$base.service tim=$dir/$base.timer
   local hsvc=$dir/$hbase.service htim=$dir/$hbase.timer
+  local osvc=$dir/$obase.service otim=$dir/$obase.timer
   case $sub in
   install)
     bin=$(command -v theseus || true)
@@ -798,24 +829,69 @@ WantedBy=timers.target"
         run rm -f "$htim" "$hsvc"
       fi
     fi
+    # The on-demand run (theseus-ievo3), the second half of the owner's "both". `import.sync.request`
+    # records that a sync is wanted; this is what serves it, within --on-demand-mins rather than at
+    # the next scheduled run. Its command makes ONE call and stops when nothing was asked for, so a
+    # poll of minutes costs no exporter and no python3. It carries `--no-people` as well, so the
+    # people step stays nightly however often a sync is asked for -- and the CLI holds that too
+    # (`--if-requested` sets `no_people` on the record it sends), so neither side alone can let the
+    # people cost multiply.
+    if [ "$SYNC_ONDEMAND" -gt 0 ]; then
+      write_sync_unit "$osvc" "$SYNC_MARK
+[Unit]
+Description=Theseus: an OpenClaw sync asked for, served within $SYNC_ONDEMAND min (theseus-ievo3)
+[Service]
+Type=oneshot
+# As the other two, and for the same reason (see ONDEMAND_TIMEOUT above).
+TimeoutStartSec=$ONDEMAND_TIMEOUT
+Nice=19
+IOSchedulingClass=idle
+Environment=THESEUS_SOCKET=$SOCKET
+$path_line
+ExecStart=$bin import sync --no-people --if-requested"
+      write_sync_unit "$otim" "$SYNC_MARK
+[Unit]
+Description=Theseus: a sync asked for, served every $SYNC_ONDEMAND min (theseus-ievo3)
+[Timer]
+OnCalendar=*-*-* *:0/$SYNC_ONDEMAND:00
+AccuracySec=$ONDEMAND_ACCURACY
+[Install]
+WantedBy=timers.target"
+    else
+      # --on-demand-mins 0 turns it off again, taking only a pair this script wrote.
+      if [ -f "$otim" ] && grep -q "$SYNC_MARK" "$otim" 2>/dev/null; then
+        run systemctl --user disable --now "$obase.timer" || true
+        run rm -f "$otim" "$osvc"
+      fi
+    fi
     run systemctl --user daemon-reload || return 1
     run systemctl --user enable --now "$base.timer" || return 1
     if [ "$SYNC_EVERY" -lt 24 ]; then
       run systemctl --user enable --now "$hbase.timer" || return 1
     fi
-    done_say "The full sync runs every night at $(printf '%02d' "$SYNC_HOUR"):40 local, and at the next start if a night was missed: $bin import sync. $(if [ "$SYNC_EVERY" -lt 24 ]; then printf 'The import alone runs every %s h at :%02d, with no people step (its sessions wait for the night): %s import sync --no-people. ' "$SYNC_EVERY" "$IMPORT_MINUTE" "$bin"; else printf 'No import-only timer is installed (--every-hours 24). '; fi)It needs [import.openclaw] state_dir in your config; \`$SELF sync-timer status\` shows the next runs."
+    if [ "$SYNC_ONDEMAND" -gt 0 ]; then
+      run systemctl --user enable --now "$obase.timer" || return 1
+    fi
+    done_say "The full sync runs every night at $(printf '%02d' "$SYNC_HOUR"):40 local, and at the next start if a night was missed: $bin import sync. $(if [ "$SYNC_EVERY" -lt 24 ]; then printf 'The import alone runs every %s h at :%02d, with no people step (its sessions wait for the night): %s import sync --no-people. ' "$SYNC_EVERY" "$IMPORT_MINUTE" "$bin"; else printf 'No import-only timer is installed (--every-hours 24). '; fi)$(if [ "$SYNC_ONDEMAND" -gt 0 ]; then printf 'A sync somebody ASKED FOR (theseus import sync --request, or import.sync.request from the web UI or a DM) is served within %s min, import only: %s import sync --no-people --if-requested. ' "$SYNC_ONDEMAND" "$bin"; else printf 'No on-demand timer is installed (--on-demand-mins 0): a sync asked for waits for the next import-only run. '; fi)It needs [import.openclaw] state_dir in your config; \`$SELF sync-timer status\` shows the next runs."
     ;;
   uninstall)
     if [ -f "$tim" ] && ! grep -q "$SYNC_MARK" "$tim" 2>/dev/null; then
       say "Nothing to remove: $tim was not written by this script."
       return 0
     fi
-    if [ ! -f "$tim" ] && [ ! -f "$svc" ] && [ ! -f "$htim" ] && [ ! -f "$hsvc" ] && ! dry; then
+    if [ ! -f "$tim" ] && [ ! -f "$svc" ] && [ ! -f "$htim" ] && [ ! -f "$hsvc" ] &&
+      [ ! -f "$otim" ] && [ ! -f "$osvc" ] && ! dry; then
       say "Nothing to remove: no sync timer is installed."
       return 0
     fi
     run systemctl --user disable --now "$base.timer" || true
     run rm -f "$tim" "$svc"
+    # And the on-demand pair, on the same rule: only a pair this script wrote (theseus-ievo3).
+    if dry || { [ -f "$otim" ] && grep -q "$SYNC_MARK" "$otim" 2>/dev/null; } ||
+      { [ ! -f "$otim" ] && [ -f "$osvc" ] && grep -q "$SYNC_MARK" "$osvc" 2>/dev/null; }; then
+      run systemctl --user disable --now "$obase.timer" || true
+      run rm -f "$otim" "$osvc"
+    fi
     # The import-only pair goes with it, but only a pair this script wrote (theseus-ievo3).
     if dry || { [ -f "$htim" ] && grep -q "$SYNC_MARK" "$htim" 2>/dev/null; } ||
       { [ ! -f "$htim" ] && [ -f "$hsvc" ] && grep -q "$SYNC_MARK" "$hsvc" 2>/dev/null; }; then
@@ -826,7 +902,7 @@ WantedBy=timers.target"
     done_say "Removed the sync timers. Your store was not touched."
     ;;
   status)
-    probe systemctl --user list-timers "$base.timer" "$hbase.timer" --no-pager || true
+    probe systemctl --user list-timers "$base.timer" "$hbase.timer" "$obase.timer" --no-pager || true
     ;;
   *)
     echo "$SELF: sync-timer takes install, uninstall or status, not $sub" >&2
@@ -976,6 +1052,15 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --every-hours=*) SYNC_EVERY=${1#*=} ;;
+  --on-demand-mins)
+    [ $# -ge 2 ] || {
+      echo "$SELF: --on-demand-mins needs a number" >&2
+      exit 2
+    }
+    SYNC_ONDEMAND=$2
+    shift
+    ;;
+  --on-demand-mins=*) SYNC_ONDEMAND=${1#*=} ;;
   -h | --help)
     usage
     exit 0
@@ -1028,6 +1113,15 @@ case $SYNC_EVERY in
 [1-9] | 1[0-9] | 2[0-4]) SYNC_EVERY=$((10#$SYNC_EVERY)) ;;
 *)
   echo "$SELF: --every-hours '$SYNC_EVERY': 1 to 24 hours (24: no import-only timer)" >&2
+  exit 2
+  ;;
+esac
+# 30 is the ceiling because past it the on-demand run is no longer "within minutes", which is the
+# whole of what it exists for: the import-only timer already covers an hour (theseus-ievo3).
+case $SYNC_ONDEMAND in
+[0-9] | [12][0-9] | 30) SYNC_ONDEMAND=$((10#$SYNC_ONDEMAND)) ;;
+*)
+  echo "$SELF: --on-demand-mins '$SYNC_ONDEMAND': 0 to 30 minutes (0: no on-demand timer)" >&2
   exit 2
   ;;
 esac

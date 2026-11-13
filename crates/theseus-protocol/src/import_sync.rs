@@ -12,8 +12,18 @@
 //!   no model call) and reads the new messages of the sessions it touched for
 //!   people (a model and Jev, under `[people] sweep_usd_per_day`), and writes
 //!   the people step's spend.
+//! - **`import.sync.request`** (theseus-ievo3): a sync wanted now, rather than
+//!   at the next scheduled run. It records the request and answers the plan.
+//!   **It starts nothing**: the reading is the CLI's (`openclaw-export.py`),
+//!   and what serves a request is the next run of `theseus import sync
+//!   --if-requested`, which the on-demand timer takes every few minutes. So
+//!   the daemon's half of "on demand" is a record, not a process.
 //!
-//! Both are the owner's acts, from a private place, refused inside a job.
+//! All three are the owner's acts, from a private place, refused inside a job.
+//! That is the whole of the authorisation, and it is the same rule the plan and
+//! the record have always taken (`places::owner_in_private`): the CLI, the web
+//! UI, a DM with an owner, or a channel bound private -- so a chat-originated
+//! request needs no second mechanism, only a surface that calls this method.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -26,6 +36,14 @@ pub const SYNC_MINUTE: u32 = 40;
 
 /// A night past its time by this long, with no run since, is missed.
 pub const MISSED_AFTER_MS: u64 = 2 * 3_600_000;
+
+/// A request this old that no run has served is a warning (theseus-ievo3).
+/// The on-demand timer's period is minutes, and the import-only timer's is an
+/// hour, so an unserved request this old means neither is installed or neither
+/// is running: health says so rather than looking well. It is deliberately
+/// longer than the hourly import's period, so the hourly run alone -- the
+/// fallback when no on-demand unit is installed -- never trips it.
+pub const REQUEST_STALE_AFTER_MS: u64 = 75 * 60_000;
 
 /// How many of a run's rejections its stored state names.
 pub const SAMPLES: usize = 5;
@@ -62,6 +80,16 @@ pub struct ImportSyncPlan {
     /// Sessions the last run's people step left for this one.
     #[cfg_attr(test, ts(type = "number"))]
     pub people_todo: u64,
+    /// When a sync was asked for and no run has served it yet, unix ms; 0 is
+    /// none (theseus-ievo3). A run of `--if-requested` runs when this is set
+    /// and does nothing when it is not.
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub requested_ms: u64,
+    /// Who asked, as the act's record labels them; `None` with no request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub requested_by: Option<String>,
 }
 
 /// `import.sync.record`'s params: one run's end.
@@ -155,6 +183,11 @@ pub struct HealthSync {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub warn: Option<String>,
+    /// A sync asked for that no run has served yet, unix ms; 0 is none
+    /// (theseus-ievo3).
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub requested_ms: u64,
 }
 
 /// `import.sync.record`'s answer.

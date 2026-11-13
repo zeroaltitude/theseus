@@ -129,3 +129,76 @@ fn a_dry_run_says_it_wrote_nothing() {
         "dry run: 2 sessions with 9 messages would be taken; nothing was written or recorded\n  main: 2 sessions, 9 messages, 1 from the archive\n"
     );
 }
+
+/// The gate on the people step (theseus-ievo3): a run that serves a request is
+/// import-only whatever else was passed, so the people step stays nightly
+/// however often a sync is asked for. The CLI sets `no_people` on the record it
+/// sends, and the on-demand unit passes `--no-people` as well: two independent
+/// holds, so neither side alone can let the people cost multiply.
+#[test]
+fn an_on_demand_run_is_import_only_whatever_else_was_passed() {
+    for (a, want) in [
+        (SyncArgs::default(), false),
+        (
+            SyncArgs {
+                no_people: true,
+                ..SyncArgs::default()
+            },
+            true,
+        ),
+        // The one this card adds: --if-requested alone, with no --no-people.
+        (
+            SyncArgs {
+                if_requested: true,
+                ..SyncArgs::default()
+            },
+            true,
+        ),
+        (
+            SyncArgs {
+                if_requested: true,
+                no_people: true,
+                ..SyncArgs::default()
+            },
+            true,
+        ),
+    ] {
+        assert_eq!(
+            no_people(&a),
+            want,
+            "if_requested={} no_people={}",
+            a.if_requested,
+            a.no_people
+        );
+    }
+}
+
+/// What `--request` and an unserved `--if-requested` poll say. The positive arm
+/// names who asked, so a request filed from a DM is distinguishable from one
+/// filed on this machine; the empty arm says plainly that nothing ran, which is
+/// what the on-demand timer prints most of the time.
+#[test]
+fn a_request_is_worded_with_who_asked_and_an_empty_poll_says_it_ran_nothing() {
+    assert_eq!(
+        request_line(&plan()),
+        "no sync has been asked for: nothing to run\n"
+    );
+    let p = ImportSyncPlan {
+        requested_ms: 1_790_000_000_000,
+        requested_by: Some("discord:dm".into()),
+        ..plan()
+    };
+    let out = request_line(&p);
+    assert!(out.starts_with("a sync is waiting: asked for "), "{out}");
+    assert!(out.contains(" by discord:dm; "), "{out}");
+    assert!(
+        out.ends_with("--if-requested` run serves it\n"),
+        "it names what serves it: {out}"
+    );
+    // A request with no name recorded still reads as a sentence.
+    let out = request_line(&ImportSyncPlan {
+        requested_by: None,
+        ..p
+    });
+    assert!(out.contains(" by someone; "), "{out}");
+}
