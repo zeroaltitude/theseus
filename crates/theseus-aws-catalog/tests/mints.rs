@@ -44,8 +44,6 @@ const MINTS: &[(&str, &str, RetryClass)] = &[
     ("gamelift", "GetComputeAccess", Again),
     ("gamelift", "GetInstanceAccess", Again),
     ("gamelift", "RequestUploadCredentials", Again),
-    ("finspace-data", "GetProgrammaticAccessCredentials", Again),
-    ("finspace-data", "GetExternalDataViewAccessDetails", Again),
     ("emr", "GetClusterSessionCredentials", Again),
     (
         "emr-containers",
@@ -94,9 +92,31 @@ const MINTS: &[(&str, &str, RetryClass)] = &[
         Once,
     ),
     ("lakeformation", "GetTemporaryGlueTableCredentials", Once),
+    // New at aws-cli/2.40.2, under the same `GetTemporaryGlue*Credentials`
+    // globs as its two siblings, and settled the same way: a mint, so its
+    // value is held on the secrets board under a handle and never shown,
+    // and a repeat redeems another credential, so `Once`.
+    ("lakeformation", "GetTemporaryGlueFunctionCredentials", Once),
     ("ecr", "GetAuthorizationToken", Again),
     ("ecr-public", "GetAuthorizationToken", Once),
     ("codeartifact", "GetAuthorizationToken", Once),
+    // New at aws-cli/2.40.2 (theseus-mgw.14), each settled as a mint: it
+    // answers with an AWS credential or a bearer token of its own making,
+    // held on the secrets board under a handle and never shown.
+    //
+    // A role's credentials, as sso:GetRoleCredentials above.
+    ("account-access-runtime", "GetRoleCredentials", Again),
+    // A space's AWS credentials. `Once`: its model marks neither readonly
+    // nor idempotent and no RETRY row settles them, so the catalog's own
+    // rule leaves them non-repeatable.
+    ("cloudwatchomni", "GetSpaceCredentialsForOrganization", Once),
+    ("cloudwatchomni", "GetSpaceDataAccess", Once),
+    // Three siblings of signin:CreateOAuth2Token above, and `Once` for the
+    // same reason: no RETRY row settles them, and a repeat would spend the
+    // grant again.
+    ("signin", "CreateBearerToken", Once),
+    ("signin", "CreateOAuth2TokenWithIAM", Once),
+    ("signin", "CreateOAuth2TokenWithTokenExchange", Once),
 ];
 
 fn cat() -> &'static Catalog {

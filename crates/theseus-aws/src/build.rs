@@ -58,8 +58,12 @@ pub(crate) fn unsupported(op: OperationRef<'_>) -> Option<String> {
         ));
     }
     if !svc.protocol().is_supported() {
+        // As every other refusal of this function does, it says where the
+        // call can still be made (theseus-mgw.14: the first such service
+        // arrived with the aws-cli/2.40.2 catalog, and the message said
+        // nothing about the CLI).
         return Some(format!(
-            "{} speaks only {}",
+            "{} speaks only {}; use the CLI",
             svc.name(),
             svc.protocol().as_str()
         ));

@@ -164,18 +164,36 @@ async fn a_model_given_only_the_trees_root_reaches_an_operation_no_tool_names() 
 /// and the test below pins the row for the snapshot in the tree while the
 /// floors it also asserts hold for any catalog. A figure that moves *under
 /// its own snapshot* is a change to the classification and fails here.
-const MEASURED: &[(&str, Breadth)] = &[(
-    "aws-cli/2.34.15",
-    Breadth {
-        services: 416,
-        operations: 17_928,
-        proved_reads: 7_663,
-        writes: 10_207,
-        unproved: 10_145,
-        runs: 58,
-        iac_only: 1_758,
-    },
-)];
+const MEASURED: &[(&str, Breadth)] = &[
+    (
+        "aws-cli/2.34.15",
+        Breadth {
+            services: 416,
+            operations: 17_928,
+            proved_reads: 7_663,
+            writes: 10_207,
+            unproved: 10_145,
+            runs: 58,
+            iac_only: 1_758,
+        },
+    ),
+    // theseus-mgw.14's refresh. By the branch of the catalog's rule:
+    // Default 11,040 (every one a write), NamePrefix 3,981, HttpMethod
+    // 2,161, ReadonlyTrait 2,239, Override 116 (49 reads), RunList 58.
+    // Callable without one new `NAMES` entry: 17,793.
+    (
+        "aws-cli/2.40.2",
+        Breadth {
+            services: 436,
+            operations: 19_595,
+            proved_reads: 8_430,
+            writes: 11_107,
+            unproved: 11_040,
+            runs: 58,
+            iac_only: 1_802,
+        },
+    ),
+];
 
 /// The measure this row cares about, and the rule under it, in one walk of
 /// the catalog (it decodes every service, so it is the operator's read, not
