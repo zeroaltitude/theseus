@@ -128,15 +128,24 @@ fn a_tool_the_table_does_not_name_is_never_floored() {
 #[test]
 fn a_table_tool_whose_call_carries_more_than_its_targets_is_not_floored() {
     let base = || write_of("fs.write", "write", Recovery::Untracked);
-    assert!(forces_hold(&base().0, &base().1), "the plain call is floored");
+    assert!(
+        forces_hold(&base().0, &base().1),
+        "the plain call is floored"
+    );
 
     let mut argv = base();
     argv.0.argv = vec!["rm".into(), "-rf".into()];
-    assert!(!forces_hold(&argv.0, &argv.1), "an argv is not a file target");
+    assert!(
+        !forces_hold(&argv.0, &argv.1),
+        "an argv is not a file target"
+    );
 
     let mut steps = base();
     steps.0.steps = vec![vec!["rm".into()]];
-    assert!(!forces_hold(&steps.0, &steps.1), "steps are not file targets");
+    assert!(
+        !forces_hold(&steps.0, &steps.1),
+        "steps are not file targets"
+    );
 
     let mut url = base();
     url.0.url = Some("https://example.invalid/".into());
@@ -203,10 +212,7 @@ fn the_table_is_closed_and_every_line_says_its_whole_effect() {
         PLAIN_FILE_TOOLS.len(),
         3,
         "growing this table is a decision with a reviewer: {:?}",
-        PLAIN_FILE_TOOLS
-            .iter()
-            .map(|p| p.tool)
-            .collect::<Vec<_>>()
+        PLAIN_FILE_TOOLS.iter().map(|p| p.tool).collect::<Vec<_>>()
     );
     for p in PLAIN_FILE_TOOLS {
         assert!(

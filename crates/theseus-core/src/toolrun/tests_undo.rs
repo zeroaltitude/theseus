@@ -1186,7 +1186,11 @@ async fn f4s_shape_is_held_though_the_answer_is_under_the_confirm_bar() {
     let sid = r.session();
     r.turn(&sid).await;
 
-    assert_eq!(r.bytes(), WAS, "the call did not run, though it failed open");
+    assert_eq!(
+        r.bytes(),
+        WAS,
+        "the call did not run, though it failed open"
+    );
     let held = r.rows("tool.held");
     assert_eq!(held.len(), 1, "one tool.held row: {held:?}");
     assert_eq!(held[0]["floored"], true);
@@ -1212,14 +1216,22 @@ async fn a_file_this_session_wrote_is_not_held_and_one_changed_underneath_it_is(
     let wrote = rig(REVERSIBLE, 0.97, false, |_| {});
     let sid = wrote.session();
     let mark = theseus_tools::reads::Mark::at(&wrote.target).expect("the target's mark");
-    wrote.core.tools.reads.wrote(&sid, &wrote.target, mark, theseus_tools::reads::Whole::Yes);
+    wrote
+        .core
+        .tools
+        .reads
+        .wrote(&sid, &wrote.target, mark, theseus_tools::reads::Whole::Yes);
     wrote.turn(&sid).await;
     assert_eq!(
         wrote.words_sent()[0].1,
         "read_this_session",
         "the session's own record holds those bytes"
     );
-    assert_eq!(wrote.bytes(), NOW, "so the call RAN: ordinary coding is not held");
+    assert_eq!(
+        wrote.bytes(),
+        NOW,
+        "so the call RAN: ordinary coding is not held"
+    );
     assert!(
         wrote.rows("tool.held").is_empty(),
         "and nothing was held: {:?}",
@@ -1230,8 +1242,16 @@ async fn a_file_this_session_wrote_is_not_held_and_one_changed_underneath_it_is(
     let stale = rig(REVERSIBLE, 0.97, false, |_| {});
     let sid = stale.session();
     let mark = theseus_tools::reads::Mark::at(&stale.target).expect("the target's mark");
-    stale.core.tools.reads.wrote(&sid, &stale.target, mark, theseus_tools::reads::Whole::Yes);
-    std::fs::write(&stale.target, "a third party wrote this, and it is longer\n").unwrap();
+    stale
+        .core
+        .tools
+        .reads
+        .wrote(&sid, &stale.target, mark, theseus_tools::reads::Whole::Yes);
+    std::fs::write(
+        &stale.target,
+        "a third party wrote this, and it is longer\n",
+    )
+    .unwrap();
     stale.turn(&sid).await;
     assert_eq!(stale.words_sent()[0].1, "outside_repo");
     assert_eq!(
