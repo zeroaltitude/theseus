@@ -537,6 +537,7 @@ facts![
     flow::FlowRetired<'static>,
     flow::FlowRan<'static>,
     project::ProjectTrust<'static>,
+    project::ProjectChanged<'static>,
     retry::FailureDismissed<'static>,
     retry::TaskRetried<'static>,
     ops::SessionProfileSet<'static>,

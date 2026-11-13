@@ -100,6 +100,7 @@ mod persona_engage;
 pub(crate) mod persona_step;
 pub(crate) mod personal_step;
 pub mod progress_step;
+mod project_step;
 mod promise_step;
 mod prompt_input;
 mod recall_step;
@@ -1829,6 +1830,8 @@ impl TurnRunner {
         self.injection(t, false);
         self.defer_tools(t, &mut spec);
         self.observe_persona(t, target, &spec);
+        let (project_dir, project_place) = (t.tc.dir, t.tc.place());
+        self.observe_project(t, project_dir, project_place);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");
