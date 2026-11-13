@@ -229,3 +229,17 @@ mod fill {
         );
     }
 }
+
+#[cfg(test)]
+mod pacing_tests {
+    use super::super::*;
+
+    /// The embedding thread's default wait has no bound (theseus-195j): a
+    /// busy machine is never given a batch because ten seconds passed.
+    #[test]
+    fn the_embedder_waits_out_pressure_by_default() {
+        let cfg = VectorConfig::off();
+        assert_eq!(cfg.yield_bound, theseus_store::pressure::PATIENT);
+        assert!(cfg.yield_bound > theseus_store::pressure::BOUND * 1000);
+    }
+}

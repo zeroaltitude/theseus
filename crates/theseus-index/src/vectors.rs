@@ -79,7 +79,8 @@ pub struct VectorConfig {
     /// the stamp within its space.
     pub engine: String,
     /// The longest the embedding thread waits between two pieces of work
-    /// while the machine is busy (theseus-tood). Tests give zero: there the
+    /// while the machine is busy (theseus-tood); unbounded by default
+    /// (theseus-195j: never a core from the owner). Tests give zero: there the
     /// suite's own load is the pressure.
     pub yield_bound: Duration,
     /// A pause before each layer of a query's pass: zero, but for a test's
@@ -95,7 +96,7 @@ impl VectorConfig {
             spec: ModelSpec::nomic_v1_5(),
             idle_unload: Duration::from_secs(600),
             engine: embedder::engine_tag(),
-            yield_bound: theseus_store::pressure::BOUND,
+            yield_bound: theseus_store::pressure::PATIENT,
             query_step: Duration::ZERO,
         }
     }
