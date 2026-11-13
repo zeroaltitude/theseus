@@ -83,14 +83,23 @@ pub(super) async fn session(
             ),
             false => clipped(&one_line(&crate::recall::text_of(n)), cut as usize),
         };
+        // A volatile value is read with the time it was true at, never as a
+        // bare fact (M6 §2.11, theseus-3nk): the recall render's one rule and
+        // one wording, over the text this line shows. Veiled text shows
+        // nothing to read, so it is never marked.
+        let mark = match veiled {
+            true => None,
+            false => crate::recall::render::volatile_at(&body, n.created_at_ms),
+        };
         let line = format!(
-            "\n{}. {} · {}\n   {body}",
+            "\n{}. {} · {}{}\n   {body}",
             offset + i as u64 + 1,
             moment(n.created_at_ms),
             n.author.as_deref().unwrap_or(match &n.body {
                 Body::AssistantMessage { .. } => "the model",
                 _ => "someone",
             }),
+            mark.map(|m| format!(" · {m}")).unwrap_or_default(),
         );
         let cost = line.len() as u64 / 4;
         if shown > 0 && used + cost > budget {

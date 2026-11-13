@@ -434,6 +434,17 @@ fn render(n: u64, it: &Item) -> String {
         head.push_str(&format!(" · book {b}"));
     }
     let veiled = veils(it.sensitivity.as_deref());
+    // A volatile value is answered with the time it was true at, never as a
+    // bare fact (M6 §2.11, theseus-3nk): the recall render's own rule and
+    // wording, so the same value says the same thing here and in a prefix.
+    // Veiled text shows nothing to read, and an item whose source's time
+    // could not be read has no as-of to give.
+    if let Some(mark) = (!veiled && it.at_ms > 0)
+        .then(|| crate::recall::render::volatile_at(&it.text, it.at_ms))
+        .flatten()
+    {
+        head.push_str(&format!(" · {mark}"));
+    }
     let body = match veiled {
         true => format!(
             "[{} · veiled: its text stays veiled here, as on the cockpit's Context page; the owner opens it there]",

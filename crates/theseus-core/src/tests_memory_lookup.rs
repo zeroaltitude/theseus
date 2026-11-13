@@ -775,3 +775,80 @@ async fn a_proc_run_of_the_cli_in_the_owners_dm_ends_with_the_native_call() {
         "{got}"
     );
 }
+
+/// What a volatile value says: a count of a counted noun and a word of the
+/// moment, so the labeler's rule fires on it (`memory_pass::labels`).
+const MOVES: &str = "the gauge pipeline currently fails 3 tests";
+/// What a value that does not move says.
+const STANDS: &str = "the gauge pipeline reads a fixed-width column";
+
+/// Two messages of one conversation, the first volatile and the second not.
+fn mixed(n: usize) -> Value {
+    let at = |d: u32| format!("2026-03-{d:02}T18:00:00Z");
+    let msg = |idx: u32, text: &str| {
+        json!({"idx": idx, "time": at(10 + idx), "author": "wren", "integrity": "operator",
+               "text": text, "unit": format!("u-{n}-{idx}"), "sha256": "ab".repeat(32)})
+    };
+    let mut v = json!({
+        "format": 1, "import_tag": "kelp-2026", "episode_id": format!("ep_{:064x}", 0xfa11 + n),
+        "source": "claude-cli", "agent": "main",
+        "place": {"kind": "cli", "name": format!("desk-{n}")},
+        "as_of": {"start": at(10), "end": at(11)},
+        "labels": {"sensitivity": "public", "topic": ["kelp/gauges"], "book_hint": "casebook"},
+        "summary": {"text": format!("Episode {n}: the gauge pipeline, in two messages."),
+                    "cites": [0], "model": "claude-opus-5-5"},
+        "messages": [msg(0, MOVES), msg(1, STANDS)],
+    });
+    v["hash"] = json!(episode::hash_of(&v));
+    v
+}
+
+/// A volatile value comes back with the time it was true at, never as a
+/// bare fact (M6 §2.11, theseus-3nk): both of `memory.lookup`'s pages, the
+/// search of words and a session read, end a volatile item's header with
+/// the recall render's own mark, dated by the source's own day; an item
+/// whose text holds no volatile value is unmarked, so the mark says
+/// something. The positive counts are asserted beside the absences: one
+/// marked item and one unmarked, in a page of exactly two.
+#[tokio::test]
+async fn a_volatile_value_comes_back_as_of_the_day_it_was_true() {
+    let r = rig_scripted(|_| {}, script);
+    let ids = import(&r.core, &[mixed(0)]);
+    let day = |d: u32| {
+        crate::judge::spend::local_day(
+            crate::wake::parse_at(&format!("2026-03-{d:02}T18:00:00Z")).unwrap(),
+        )
+    };
+    let mark = |d: u32| format!("volatile: as of {}, unverified", day(d));
+    // A session read: the volatile message's line is marked, the other's not.
+    let cli = session(&r.core, None);
+    let got = call(&r.core, &cli, json!({"session": ids[0]}))
+        .await
+        .unwrap();
+    assert!(got.contains("2 messages, oldest first"), "{got}");
+    let moves = got.lines().find(|l| l.contains("1. ")).expect(&got);
+    let stands = got.lines().find(|l| l.contains("2. ")).expect(&got);
+    assert!(moves.contains(&mark(10)), "the volatile line: {moves}");
+    assert!(!stands.contains("volatile"), "the stable line: {stands}");
+    assert_eq!(got.matches("volatile: as of").count(), 1, "{got}");
+    assert!(got.contains(MOVES) && got.contains(STANDS), "{got}");
+    // A search of words: the same rule and the same wording, on the item's
+    // own header, dated by the message and not by its episode's span.
+    r.core
+        .runner
+        .memory
+        .set_ask(index_over(&r.core, ids.clone()));
+    let got = call(&r.core, &cli, json!({"words": "gauge", "limit": 25}))
+        .await
+        .unwrap();
+    assert!(
+        got.contains(MOVES),
+        "the volatile message is in the page: {got}"
+    );
+    let head = got
+        .lines()
+        .find(|l| l.contains(&mark(10)))
+        .unwrap_or_else(|| panic!("a marked header: {got}"));
+    assert!(head.contains(&ids[0]), "{head}");
+    assert_eq!(got.matches("volatile: as of").count(), 1, "{got}");
+}
