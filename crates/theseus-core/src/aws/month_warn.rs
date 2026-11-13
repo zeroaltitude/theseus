@@ -126,7 +126,14 @@ impl crate::Core {
                 true => {
                     let (a, records) = self
                         .outbox
-                        .stage_to_operator(None, json!({"kind": "spend_ceiling", "text": text}))?;
+                        // An announcement, not an ask: the owner's own list
+                        // puts the month warning in the notify thread
+                        // (theseus-nuqut). The day ceiling's warning, which
+                        // shares this kind, sets nothing and stays in the DM.
+                        .stage_to_operator(
+                            None,
+                            json!({"kind": "spend_ceiling", "text": text, "announce": true}),
+                        )?;
                     frame.extend(records);
                     Some(a)
                 }
@@ -280,6 +287,50 @@ mod tests {
         let a = c.tools.aws.clone().unwrap().account(None).unwrap().clone();
         let key = stopped_key(&a.id);
         (c, a, key)
+    }
+
+    /// theseus-nuqut: the month's **warning** is an announcement (the owner's
+    /// own list puts it in the notify thread), and the month's **stop**, which
+    /// shares the kind `spend_ceiling`, is not: it stops AWS spend, so by his
+    /// rule ("urgency = main dm") it stays in his DM. Nothing about where
+    /// either is written moves here — `announces` is read by the Discord
+    /// binding when it picks a channel, and only when a notify place is bound.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_months_warning_announces_and_its_stop_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, a, _) = rig(dir.path());
+        // The warning is guarded by a bound DM, as it always was.
+        c.runner.place_rule.bind_one(crate::places::BoundPlace {
+            target: "discord:dm:4211".into(),
+            name: "DM".into(),
+            private: false,
+            ..Default::default()
+        });
+        let ceilings = |c: &crate::Core| -> Vec<serde_json::Value> {
+            c.outbox
+                .open_for(crate::outbox::OPERATOR_TARGET)
+                .iter()
+                .filter(|p| crate::outbox::kind_of(p) == "spend_ceiling")
+                .map(|p| crate::outbox::body_of(p).clone())
+                .collect()
+        };
+        c.aws_month_warned(&a, &at(9_000));
+        let warned = ceilings(&c);
+        assert_eq!(warned.len(), 1, "one warning: {warned:?}");
+        assert!(
+            crate::outbox::announces(&warned[0]),
+            "the month's warning announces: {:?}",
+            warned[0]
+        );
+        c.aws_month_stopped(&a, &at(10_000));
+        let both = ceilings(&c);
+        assert_eq!(both.len(), 2, "the warning and the stop: {both:?}");
+        let stop = both.iter().find(|b| !crate::outbox::announces(b));
+        let stop = stop.expect("the stop is no announcement");
+        assert!(
+            stop["text"].as_str().unwrap_or("").contains("Rule F1"),
+            "the one that does not announce is the stop: {stop:?}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

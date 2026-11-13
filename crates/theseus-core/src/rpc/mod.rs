@@ -993,6 +993,7 @@ impl Core {
             .told_to(outbox.clone()),
             effort_refusals: Default::default(),
             verdicts: Default::default(),
+            yes_facts: Default::default(),
             keep_warm: Default::default(),
             cache_numbers: Default::default(),
             stubs: Default::default(),
@@ -1094,6 +1095,7 @@ impl Core {
         core.tools.lookup.attach(&core);
         core.tools.thread_read.attach(&core);
         core.tools.card_observed.attach(&core);
+        core.tools.self_file.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools
             .admission

@@ -47,6 +47,7 @@ mod glide;
 pub(crate) mod handles;
 mod hands;
 pub(crate) mod job;
+mod job_path;
 pub mod jobcap;
 pub mod jobs_tools;
 mod kept;
@@ -250,6 +251,10 @@ pub struct ToolRuntime {
     /// The owner's login shell's toolchain, captured once after serving
     /// (theseus-v4cj); `job_base_env` adds it to `proc_env` for a job.
     pub login_env: login_env::LoginEnv,
+    /// `[tools] path_prepend`: the operator's own directories, searched before
+    /// the daemon's and the shell's on every job's `PATH` (theseus-v4cj).
+    /// Empty by default.
+    pub path_prepend: Vec<String>,
     /// Calls per tool since the daemon started. Counting the store's history
     /// instead would put a scan of every node on the start path (§9).
     pub calls: Mutex<BTreeMap<String, u64>>,
@@ -342,6 +347,8 @@ pub struct ToolRuntime {
     pub thread_read: crate::thread_read::Board,
     /// What `card.observed` reads (theseus-6f8t0): the core, once built.
     pub card_observed: crate::card::tool::Board,
+    /// `self.file` (theseus-cux0o): a person's finding, filed from a chat.
+    pub self_file: crate::rsi::backlog::tool::Board,
     /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
     pub defer: crate::tools_defer::Board,
     /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
@@ -494,6 +501,7 @@ impl ToolRuntime {
             parallel_writes: crate::config::default_parallel_writes(),
             proc_env: vec![],
             login_env: Default::default(),
+            path_prepend: vec![],
             calls: Mutex::new(BTreeMap::new()),
             fit_notes: Default::default(),
             tightened: Default::default(),
@@ -527,6 +535,7 @@ impl ToolRuntime {
             routines: Default::default(),
             thread_read: Default::default(),
             card_observed: Default::default(),
+            self_file: Default::default(),
             defer: Default::default(),
             projects: Default::default(),
             jobs: Default::default(),
@@ -563,13 +572,26 @@ impl ToolRuntime {
     }
 
     /// What a job starts with: the daemon's own `proc_env`, then the login
-    /// shell's names the daemon's lacks (the daemon's value of a name wins).
+    /// shell's names the daemon's lacks (the daemon's value of a name wins),
+    /// and `PATH` **merged** rather than chosen between (`job_path`, at parity
+    /// with OpenClaw; theseus-v4cj). The daemon's own environment is not
+    /// touched: this is what a job sees, not what the daemon runs with.
     pub(crate) fn job_base_env(&self) -> Vec<(String, String)> {
         let mut env = self.proc_env.clone();
         for (k, v) in self.login_env.kept() {
             if !env.iter().any(|(ek, _)| ek == k) {
                 env.push((k.clone(), v.clone()));
             }
+        }
+        let shell_path = self
+            .login_env
+            .kept()
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.as_str());
+        if let Some(path) = job_path::merge(&self.path_prepend, self.proc_path(), shell_path) {
+            env.retain(|(k, _)| k != "PATH");
+            env.push(("PATH".to_string(), path));
         }
         env
     }
@@ -1683,6 +1705,7 @@ impl ToolRuntime {
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // What has been kept about the owner, asked for (theseus-6f8t0).
                 crate::card::tool::FAMILY => self.card_observed.run(tc, &input),
+                crate::rsi::backlog::tool::FAMILY => self.self_file.run(tc, &input),
                 crate::tools_defer::FAMILY => self.defer.run(tc.session_id, &input),
                 // Part of a thread, a thread of its own (theseus-vt9k).
                 crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),
@@ -2102,6 +2125,7 @@ pub fn build_runtime(
         }
         crate::rsi::pr::register(cfg, &mut r);
         crate::rsi::evidence::register(cfg, &mut r);
+        crate::rsi::backlog::tool::register(cfg, &mut r);
         r.register(Arc::new(crate::tools_defer::find::FindTool));
         r
     } else {
@@ -2192,6 +2216,7 @@ pub fn build_runtime(
         parallel_writes: t.parallel_writes.max(1),
         proc_env,
         login_env: login_env::LoginEnv::new(t.proc_env.clone()),
+        path_prepend: t.path_prepend.clone(),
         calls: Mutex::new(BTreeMap::new()),
         fit_notes: Default::default(),
         // Read from the store when the core starts (`Core::build`).
@@ -2238,6 +2263,7 @@ pub fn build_runtime(
         routines: crate::routine::Book::new(&cfg.routines),
         thread_read: Default::default(),
         card_observed: Default::default(),
+        self_file: Default::default(),
         defer: Default::default(),
         projects: cfg.projects.clone(),
         jobs: Default::default(),

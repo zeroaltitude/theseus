@@ -115,6 +115,14 @@ const BARE: &[(&str, &str)] = &[
         "test-only: a hermetic git",
     ),
     ("theseus-core/src/flow/tests_run.rs", "test-only"),
+    (
+        "theseus-core/src/import/tests_notes.rs",
+        "test-only: it runs `scripts/notes-export.py` and `scripts/rows-export.py` and \
+         imports what they wrote, which is the cross-language contract of the episode \
+         format; the file is test code by the declaration the compiler reads \
+         (`#[cfg(test)] mod tests_notes;` in `import/mod.rs`), so it runs in a test \
+         process, which has no sweep",
+    ),
     ("theseus-core/src/judge/people/tests_same.rs", "test-only"),
     ("theseus-core/src/own_bench/whole/tests.rs", "test-only"),
     ("theseus-core/src/rpc/tests_scratch.rs", "test-only"),

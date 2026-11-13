@@ -226,9 +226,9 @@ impl Shared {
             .map_err(|e| e.message)
     }
 
-    /// An interaction of `/orders`, `/thread` or `/extensions` or a Revoke
-    /// button of either: true when it was one, and answered. One call from
-    /// `on_interaction`, which clippy holds to its complexity.
+    /// An interaction of `/orders`, `/thread`, `/project` or `/extensions`,
+    /// or a Revoke button of either: true when it was one, and answered. One
+    /// call from `on_interaction`, which clippy holds to its complexity.
     pub(super) async fn revokable_interaction(
         self: &std::sync::Arc<Self>,
         i: &Interaction,
@@ -239,6 +239,8 @@ impl Shared {
         self.orders_interaction(i, tx, who, discord.clone()).await
             || self.thread_interaction(i, who, discord.clone()).await
             || self.move_interaction(i, who, discord.clone()).await
+            // `/project trust|untrust|trusted` (theseus-me9fc).
+            || self.project_trust_interaction(i, who, discord.clone()).await
             || self.extensions_interaction(i, tx, who, discord).await
             // The future's commands, buttons and modals (theseus-j90w2).
             || self.horizon_interaction(i, who).await

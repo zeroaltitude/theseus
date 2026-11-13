@@ -429,7 +429,7 @@ pub mod method {
         EXTENSION_REVOKE = "extension.revoke",
         /// Self-improvement (theseus-pw1q; `rsi`): the kill switch, anyone's halt and the owner's resume, the log, the digest.
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
-        SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_RETRY = "self.retry", SELF_BRANCHES = "self.branches",
+        SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_RETRY = "self.retry", SELF_FILE = "self.file", SELF_BRANCHES = "self.branches",
         SELF_EXAMS = "self.exams", SELF_REVERT = "self.revert", SELF_PIPELINE = "self.pipeline", SELF_PATTERNS = "self.patterns",
         /// Narrower policies for the hand roles (theseus-pw1q.15; `rsi::SelfNarrowParams`). The owner's to apply.
         SELF_NARROW = "self.narrow",

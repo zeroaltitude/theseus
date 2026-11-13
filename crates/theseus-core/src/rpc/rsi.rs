@@ -2,15 +2,17 @@
 //! (anyone's), `self.resume` (the owner's alone, from any place; the CLI
 //! sends a job's `THESEUS_SESSION` so the core refuses and ledgers it),
 //! `self.log`, `self.digest`, `self.branches` (theseus-pw1q.8), `self.exams` and `self.pipeline`
-//! (theseus-pw1q.16) (reads). The work is `crate::rsi`'s.
+//! (theseus-pw1q.16) (reads), and `self.file` (theseus-cux0o: a person's own
+//! finding onto the backlog, the owner's as `self.drop` is). The work is
+//! `crate::rsi`'s.
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use theseus_protocol::patterns::SelfPatternsParams;
 use theseus_protocol::rsi::{
-    SelfBacklogParams, SelfDropParams, SelfHaltParams, SelfMoveParams, SelfResumeParams,
-    SelfRetryParams, SelfRevertParams,
+    SelfBacklogParams, SelfDropParams, SelfFileParams, SelfHaltParams, SelfMoveParams,
+    SelfResumeParams, SelfRetryParams, SelfRevertParams,
 };
 use theseus_protocol::{error_code, method};
 
@@ -19,7 +21,7 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 14] = [
+pub(super) const OWN: [&str; 15] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
@@ -28,6 +30,7 @@ pub(super) const OWN: [&str; 14] = [
     method::SELF_DROP,
     method::SELF_MOVE,
     method::SELF_RETRY,
+    method::SELF_FILE,
     method::SELF_BRANCHES,
     method::SELF_EXAMS,
     method::SELF_NARROW,
@@ -68,6 +71,10 @@ impl Core {
             method::SELF_RETRY => route(params, |p: SelfRetryParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.self_retry(&p, &who).map_err(word_refused)
+            }),
+            method::SELF_FILE => route(params, |p: SelfFileParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.self_file(&p, &who).map_err(word_refused)
             }),
             method::SELF_BRANCHES => route(params, |p| Ok(self.self_branches(&p)?)),
             method::SELF_PIPELINE => route(params, |p| Ok(self.self_pipeline(&p)?)),

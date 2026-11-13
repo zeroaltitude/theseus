@@ -564,6 +564,13 @@ max_jobs = 200                          # the most jobs in flight at once over t
 # or past either line below.
 outputs_keep_days = 7                   # a kept output is deleted after this many days
 outputs_max_bytes = 2147483648          # past this many bytes in all (2 GiB), the oldest kept outputs are deleted first
+# A job's PATH is the daemon's own merged with the login shell's captured one
+# (theseus-v4cj, at parity with OpenClaw's practice): the directories below
+# first, then the daemon's in their own order, then the shell's entries that
+# neither already holds, so no program a job could already find resolves
+# elsewhere. The daemon's own PATH is not changed by any of this, and a tool
+# call that sets PATH is refused by name.
+path_prepend = []                       # directories searched FIRST on every job's PATH; unset by default
 
 # A large payload (theseus-czpp): an output this long or longer is given a guid
 # where it enters and every compile renders one marker line in its place, so a
@@ -1421,6 +1428,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # `theseus packs rollback directive.v1` puts the pack back in shadow.
 # [standing]
 # capture = true                          # false: nothing is captured, asked or counted
+# A yes said in words that the harness could not place answers nothing and says so where
+# approvals go. With this on, the turn that yes starts also carries a harness fact naming
+# what was and was not approved, in that turn's request alone, so the model does not act on
+# the half the owner did not approve (theseus-2yowd).
+# yes_fact = false                        # true: the starting turn is told what the yes did
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
@@ -1511,6 +1523,16 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # one is yours (operator); any other sender's is outside text
 # agents = []                             # the agents to read; none is every agent under agents/
 # sync_deadline_mins = 90                 # the wall clock the DAEMON's half of one run may take before it stops where it is and returns what it has (its people step's remainder waits in the state for the next run; passing it is not an error); 1 to 115, and it must stay under the sync unit's own 2 h start timeout or it could never fire -- the client would be killed first and the daemon would carry on
+#
+# An agent's own operating notes, imported as episodes of source `agent-notes`
+# (`scripts/notes-export.py`, one note a file, one file an episode). BOTH SWITCHES ARE
+# OFF: while enabled is off every note is refused and the refusal names what the
+# durable-versus-run-state rule read it as, so the off state is the dry run -- the import
+# runs, every note comes back classified, and nothing is written. The rule is
+# docs/design/agent-notes-rule.md, and the bulk pass waits on your sight of it.
+# [import.notes]
+# enabled = false                         # whether an agent note is written at all; off, each one is refused with its reading (the dry run)
+# keep_run_state = false                  # whether a note the rule reads as run state is written once the path is on; off, only the durable ones go in
 
 # ---------------------------------------------------------------- self
 # Self-improvement: Theseus building its own code, yardsticks and backlog, joining
@@ -1602,6 +1624,39 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # `theseusd check` runs L1's self-test. An L1 job's memory has no limit, as an
 # L0 job's has none (memory_mb is retired: a config that still sets it loads,
 # with a warning, and it is ignored).
+
+# ---------------------------------------------------------------- self_issues
+# The repository's own OPEN GITHUB ISSUES as a second backlog source beside
+# the Beads rows and the causes the night mines from Theseus's own record
+# (theseus-dl4pu). After 1.0.6 the planning moves to GitHub: one issue per
+# bucket of work, each tagged with the version it is planned for, and
+# version_label below picks this release's buckets out of the rest.
+#
+# OFF by default, and it stays off until enabled is true AND repo is named.
+# An item that comes from an issue names the issue it came from, number and
+# title, so `theseus self backlog` tells you where to go and look.
+#
+# The read is READ-ONLY: nothing here opens, closes, comments on or labels an
+# issue, and there is no code that could. A source that FAILS (no file, bad
+# JSON, a repository that is not there) leaves the rest of the night's
+# backlog exactly as it was, and the night says it failed — which is not the
+# same as a source that read and found nothing.
+#
+# Issue text is text other people write, so it is an injection surface like
+# any fetched page: nothing read here is ever treated as an instruction.
+#
+# The LIVE read is not built. A read of the real repository needs a token on
+# this machine, so the bytes come from the file below, which is what
+# `gh issue list --repo <repo> --state open --json number,title,body,labels,updatedAt`
+# writes. These keys are a section of their own, not [self] ones, because the
+# Rust type behind [self] lives in a file scripts/keel-guard.py locks.
+# [self_issues]
+# enabled = false                         # true: read the issues below each night as candidate work
+# repo = "zeroaltitude/theseus"           # owner/name of the repository whose open issues to read
+# file = "~/.theseus/github-issues.json"  # the issue JSON to read (a JSON array, or an object with an items array)
+# version_label = "1.0.6"                 # keep only the issues carrying this label (unset: every open issue)
+# max = 20                                # the most issues one night takes, most recently updated first
+
 [sandbox]
 default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)
 # l1_argv = [["npm", "install"], ["cargo", "build"], ["cargo", "test"]]   # programs that always run in L1, matched as allow_argv matches (default none)

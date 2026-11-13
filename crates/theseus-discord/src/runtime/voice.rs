@@ -2164,14 +2164,14 @@ mod tests {
         let cmds = commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["join", "leave", "mute", "unmute"]);
-        // The binding registers them after its own twenty (`/why` the eleventh, `/digest` the twelfth, `/orders` the thirteenth, `/thread` the fourteenth, `/remind` the fifteenth, `/move` the sixteenth; the future's `/agenda`, `/routine`, `/snooze` and `/watch` follow, theseus-j90w2).
+        // The binding registers them after its own twenty-one (`/project` the ninth, theseus-me9fc; `/why` the twelfth, `/digest` the thirteenth, `/orders` the fourteenth, `/thread` the fifteenth, `/remind` the sixteenth, `/move` the seventeenth; the future's `/agenda`, `/routine`, `/snooze` and `/watch` follow, theseus-j90w2).
         let all = super::super::commands();
         // The task commands (`/task`, `/answer`, `/quiet`, "Make this a task") come after them (theseus-a5uds); horizon's four before them (theseus-j90w2).
-        let last: Vec<&str> = all[20..].iter().map(|c| c.name.as_str()).collect();
+        let last: Vec<&str> = all[21..].iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             (all.len(), last),
             (
-                28,
+                29,
                 vec![
                     "join",
                     "leave",

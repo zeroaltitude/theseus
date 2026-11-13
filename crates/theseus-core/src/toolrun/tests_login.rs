@@ -42,7 +42,18 @@ const TOOLCHAIN: &str = "echo 'greeting from an rc file'\n\
     echo NVM_DIR=/opt/example/nvm\necho PATH=/opt/example/shell/bin";
 
 /// (a) A captured, allowlisted name reaches the environment a job starts with;
-/// the daemon's own value of a name wins over the shell's.
+/// the daemon's own value of a name wins over the shell's — **except `PATH`,
+/// which is MERGED** (theseus-v4cj, parity with OpenClaw).
+///
+/// This test is the rewrite of the one that asserted the shell's `PATH` was
+/// discarded: it asserted `("PATH", "/usr/bin")`, the daemon's own value, and
+/// that exactly one `PATH` reached a job. The old behaviour was deliberate,
+/// which is why the test is rewritten rather than deleted. It now asserts the
+/// merge, and it is **stronger** than it was, not weaker: it still pins
+/// exactly one `PATH`, it still pins the daemon's own directory and still
+/// pins its POSITION (first, so nothing a job could resolve before resolves
+/// elsewhere now), and it pins in addition that the shell's directory is
+/// reachable and that it follows.
 #[tokio::test]
 async fn a_captured_allowlisted_name_reaches_the_jobs_environment() {
     let d = dir("a");
@@ -55,6 +66,14 @@ async fn a_captured_allowlisted_name_reaches_the_jobs_environment() {
         !t.job_base_env().iter().any(|(k, _)| k == "JAVA_HOME"),
         "before the capture"
     );
+    assert_eq!(
+        t.job_base_env()
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.as_str()),
+        Some("/usr/bin"),
+        "before the capture a job has the daemon's PATH alone"
+    );
     let got = t
         .login_env
         .capture(Some(&sh), Duration::from_secs(10))
@@ -65,7 +84,9 @@ async fn a_captured_allowlisted_name_reaches_the_jobs_environment() {
         ("VIRTUAL_ENV", "/opt/example/venv"),
         ("JAVA_HOME", "/opt/example/jdk"),
         ("NVM_DIR", "/opt/example/nvm"),
-        ("PATH", "/usr/bin"),
+        // Part 1 of the ask: the shell's directory is reachable by a job, and
+        // the daemon's keeps its place in front of it.
+        ("PATH", "/usr/bin:/opt/example/shell/bin"),
     ] {
         assert!(
             env.contains(&(k.to_string(), v.to_string())),
@@ -75,6 +96,37 @@ async fn a_captured_allowlisted_name_reaches_the_jobs_environment() {
     assert_eq!(
         env.iter().filter(|(k, _)| k == "PATH").count(),
         1,
+        "{env:?}"
+    );
+    // Part 2: the daemon's own environment is untouched. `proc_env` is what
+    // the daemon resolved for itself at startup, and the merge is per job.
+    assert_eq!(
+        t.proc_env,
+        vec![("PATH".to_string(), "/usr/bin".to_string())]
+    );
+}
+
+/// Part 4 of theseus-v4cj: `[tools] path_prepend` puts the operator's own
+/// directories first, before the daemon's and before the shell's, and it is
+/// empty by default (the test above runs with it empty and sees the daemon's
+/// directory first).
+#[tokio::test]
+async fn the_operators_path_prepend_is_searched_before_everything_else() {
+    let d = dir("f");
+    let sh = stub(&d, TOOLCHAIN);
+    let mut t = runtime(&["PATH"], &[("PATH", "/usr/bin:/bin")]);
+    t.path_prepend = vec!["/opt/example/mine".to_string()];
+    let got = t
+        .login_env
+        .capture(Some(&sh), Duration::from_secs(10))
+        .await;
+    assert_eq!(got, names(&["PATH"]), "{got:?}");
+    let env = t.job_base_env();
+    assert_eq!(
+        env.iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.as_str()),
+        Some("/opt/example/mine:/usr/bin:/bin:/opt/example/shell/bin"),
         "{env:?}"
     );
 }

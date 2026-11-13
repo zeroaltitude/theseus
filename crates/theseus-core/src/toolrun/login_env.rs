@@ -13,7 +13,11 @@
 //! the capture runs once, would cost that daemon the toolchain for its whole
 //! life. The result joins only the environment `proc.run`
 //! builds (`ToolRuntime::job_base_env`), and the daemon's own value of a name
-//! wins over the shell's.
+//! wins over the shell's — **except `PATH`, which is merged rather than
+//! chosen between** (`super::job_path`, at parity with OpenClaw): the
+//! operator's `[tools] path_prepend` first, then the daemon's entries, then
+//! the shell's that neither holds. The daemon's own environment is never
+//! changed by any of it.
 
 use std::process::Stdio;
 use std::sync::OnceLock;

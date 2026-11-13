@@ -26,13 +26,21 @@ use twilight_model::id::Id;
 use super::Shared;
 use crate::bindings::{snowflake, Bindings};
 
+pub(crate) mod notify;
+
 /// Each place's guild and ceiling, by its key (`channel:<id>`, `dm:<user>`):
 /// what its health, its `discord.bound` row, and its spend limit read. The
 /// bindings file read live replaces them (`replace`, theseus-ocwt).
 #[derive(Default)]
 pub(crate) struct PlaceBits(
     std::sync::Mutex<HashMap<String, Bits>>,
+    /// The one guild the file trusts whole; none when it trusts none or
+    /// several.
     std::sync::Mutex<Option<u64>>,
+    /// The announcement place's channel and label (theseus-nuqut): the
+    /// `[[channel]]` the file marks `notify = true`, none when it marks none,
+    /// and then every announcement keeps the owner's DM.
+    std::sync::Mutex<Option<(u64, String)>>,
 );
 
 /// The permissions the invite asks for: `326686067792` is the six it asked
@@ -52,7 +60,23 @@ impl PlaceBits {
         Self(
             std::sync::Mutex::new(Self::of(b)),
             std::sync::Mutex::new(Self::trusted_of(b)),
+            std::sync::Mutex::new(Self::notify_of(b)),
         )
+    }
+
+    /// The announcement place the file binds (theseus-nuqut): the one
+    /// `[[channel]]` with `notify = true`, by its channel and label. A file
+    /// that marks none gives none, which is the shipped default and keeps
+    /// every announcement in the owner's DM. `Bindings::parse` refuses a
+    /// second one, a forum and a voice channel, so this takes the first.
+    fn notify_of(b: &Bindings) -> Option<(u64, String)> {
+        let c = b.channel.iter().find(|c| c.notify)?;
+        Some((c.id.parse().ok()?, c.label()))
+    }
+
+    /// Where the announcements go, when the file binds a place for them.
+    pub(crate) fn notify_place(&self) -> Option<(u64, String)> {
+        self.2.lock().unwrap().clone()
     }
 
     /// The one guild the file trusts; none when it trusts none or several.
@@ -74,6 +98,7 @@ impl PlaceBits {
     pub(crate) fn replace(&self, b: &Bindings) {
         *self.0.lock().unwrap() = Self::of(b);
         *self.1.lock().unwrap() = Self::trusted_of(b);
+        *self.2.lock().unwrap() = Self::notify_of(b);
     }
 
     fn of(b: &Bindings) -> HashMap<String, Bits> {

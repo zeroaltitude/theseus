@@ -5,12 +5,17 @@
 //! starts; a dropped item never comes back; a non-owner's drop is refused
 //! with an `approval.refused` row; and with the mode off or the switch
 //! halted a night reads nothing and writes nothing.
+//!
+//! And `self.file` (theseus-cux0o): a person's own finding goes on the
+//! backlog, marked as theirs for good, waits for the owner when its words
+//! name a keel class, is never retired for its one sighting, is refused for a
+//! stranger and in a job, and an agent's filing is marked as the agent's.
 
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_protocol::rsi::{
-    SelfBacklogParams, SelfDropParams, SelfMode, SelfMoveParams, SelfResumeParams,
+    SelfBacklogParams, SelfDropParams, SelfFileParams, SelfMode, SelfMoveParams, SelfResumeParams,
 };
 use theseus_protocol::tasks::TaskState;
 
@@ -834,6 +839,7 @@ fn a_green_build_frees_its_slot_for_the_night() {
 }
 
 mod infra;
+mod issues;
 
 /// A `judge.report` row for `pack`: `failed` of `calls` in the last day.
 fn failing_pack(c: &Core, pack: &str, failed: u64, calls: u64, at: u64) {
@@ -1043,4 +1049,243 @@ mod bound {
             "a self build's session resolves to a target"
         );
     }
+}
+
+// ---- `self.file`: a person hands the loop a finding (theseus-cux0o) ----
+
+fn filing(finding: &str) -> SelfFileParams {
+    SelfFileParams {
+        finding: finding.into(),
+        ..Default::default()
+    }
+}
+
+/// The task record of a backlog item, as the store holds it.
+fn task_of(c: &Core, id: &str) -> theseus_protocol::tasks::TaskRecord {
+    crate::task_graph::all(&c.store)
+        .unwrap()
+        .into_iter()
+        .find(|t| t.id == id)
+        .unwrap_or_else(|| panic!("no task {id}"))
+}
+
+/// The whole of the mark: a person's item is distinguishable from a mined one
+/// for good, in fields a task already has, and it names who filed it.
+#[test]
+fn a_person_files_a_finding_and_the_item_is_marked_as_theirs_for_good() {
+    let c = acting(1, 10);
+    let r = c
+        .self_file(
+            &filing("The gate runs clippy twice. It costs a minute a commit."),
+            &cli(),
+        )
+        .unwrap();
+    assert_eq!(r.title, "The gate runs clippy twice.");
+    assert_eq!(r.cause, format!("person:{}", r.item));
+    assert_eq!(r.filed_by, "the CLI");
+    assert_eq!(r.rank, 1, "the only open item is first");
+
+    // It is a real item of the backlog, open and ready.
+    let items = listed(&c);
+    assert_eq!(items.len(), 1, "{items:?}");
+    let it = &items[0];
+    assert_eq!(it.id, r.item);
+    assert_eq!(it.state, TaskState::Proposed.as_str());
+    assert_eq!(it.cause, r.cause);
+    assert_eq!(it.count, 1);
+    assert!(it.keel.is_none(), "{:?}", it.keel);
+    assert!(it.score > 0, "a filed item must rank: {}", it.score);
+    assert!(
+        it.objective.contains("The gate runs clippy twice"),
+        "the finding rides verbatim: {}",
+        it.objective
+    );
+    assert!(
+        it.objective.contains("self.propose_change"),
+        "it must end with the call the loop makes: {}",
+        it.objective
+    );
+
+    // The mark itself, read from the stored record.
+    let t = task_of(&c, &r.item);
+    assert!(
+        !t.origin.self_started,
+        "a person's item is not self-started"
+    );
+    assert!(!t.origin.by_model, "a person's item is not the model's");
+    assert_eq!(t.origin.because, None, "only a self-started task has one");
+    assert_eq!(t.origin.session, "self:filed");
+    assert_eq!(t.origin.principal, "self");
+    assert!(
+        t.evidence.iter().any(|e| e.by == "the CLI"
+            && e.identity == "filed:the CLI"
+            && e.note.as_deref().is_some_and(|n| n.contains("filed by"))),
+        "the evidence must name who filed it: {:?}",
+        t.evidence
+    );
+
+    // And a mined item of the same night is still marked the miner's, so the
+    // mark discriminates rather than being true of everything.
+    seed_day(&c, tick());
+    c.backlog_night(tick()).unwrap();
+    let mined = listed(&c)
+        .into_iter()
+        .find(|i| i.cause.starts_with("turn.failed"))
+        .expect("the night still files its own");
+    let m = task_of(&c, &mined.id);
+    assert!(m.origin.self_started && m.origin.by_model);
+    assert_eq!(m.origin.session, "self:backlog");
+}
+
+/// The card's own bar: the loop picks it up on its next pass.
+#[test]
+fn a_filed_item_is_started_by_the_next_pass() {
+    let c = acting(1, 10);
+    let r = c
+        .self_file(&filing("fs.read's cap cuts mid-line"), &cli())
+        .unwrap();
+    assert_eq!(listed(&c)[0].state, TaskState::Proposed.as_str());
+    let night = c.backlog_night(tick()).unwrap();
+    assert_eq!(night.gate, "allowed");
+    assert!(
+        night.started.iter().any(|s| s.item == r.item),
+        "the night must start the person's item: {:?}",
+        night.started
+    );
+    let after = task_of(&c, &r.item);
+    assert_eq!(after.state, TaskState::InProgress);
+}
+
+/// The words are read by the keel table exactly as a mined cause is, so
+/// filing a finding is not the owner's yes to touch a keel class.
+#[test]
+fn a_findings_keel_words_make_the_item_wait_for_the_owner() {
+    let c = acting(1, 10);
+    let r = c
+        .self_file(
+            &filing("the sealed holdout set is leaking into the exam"),
+            &cli(),
+        )
+        .unwrap();
+    let it = &listed(&c)[0];
+    assert_eq!(it.keel.as_deref(), Some("sealed sets"));
+    assert_eq!(it.state, TaskState::WaitingHuman.as_str());
+    let night = c.backlog_night(tick()).unwrap();
+    assert!(
+        !night.started.iter().any(|s| s.item == r.item),
+        "a keel-marked item never starts: {:?}",
+        night.started
+    );
+}
+
+/// A person meant it once; the one-sighting retirement is for a mined cause
+/// that appeared once and never came back.
+#[test]
+fn a_persons_item_is_never_retired_for_its_one_sighting() {
+    let c = acting(0, 10);
+    let mine = c
+        .self_file(&filing("the digest folds two kinds into one line"), &cli())
+        .unwrap();
+    // A mined one-sighting item beside it, as the control.
+    let t0 = tick();
+    failed_turn(&c, "timeout: the provider did not answer", t0 - HOUR);
+    c.backlog_night(tick()).unwrap();
+    let mined = listed(&c)
+        .into_iter()
+        .find(|i| i.cause.starts_with("turn.failed"))
+        .expect("the control must be there, or this test proves nothing");
+    assert_eq!(mined.count, 1);
+
+    let night = c.backlog_night(tick() + 15 * DAY).unwrap();
+    assert!(
+        night.retired.contains(&mined.id),
+        "the mined one-sighting item must retire: {:?}",
+        night.retired
+    );
+    assert!(
+        !night.retired.contains(&mine.item),
+        "a person's item must not retire: {:?}",
+        night.retired
+    );
+    assert!(listed(&c)
+        .iter()
+        .any(|i| i.id == mine.item && i.state == TaskState::Proposed.as_str()));
+}
+
+/// Invalid input, refused before anything is written.
+#[test]
+fn an_empty_or_over_long_finding_writes_nothing() {
+    let c = acting(0, 10);
+    for bad in ["", "   \n  ", &"x".repeat(4_001)] {
+        let e = c.self_file(&filing(bad), &cli()).unwrap_err();
+        assert!(
+            e.downcast_ref::<crate::rsi::backlog::BadItem>().is_some(),
+            "{e:#}"
+        );
+    }
+    assert!(listed(&c).is_empty(), "nothing was filed");
+    // And a good one does file, so the emptiness above is not vacuous.
+    c.self_file(&filing("the beat's notice repeats its last line"), &cli())
+        .unwrap();
+    assert_eq!(listed(&c).len(), 1);
+}
+
+/// The place rule is `self.drop`'s exactly: a stranger is refused and
+/// ledgered, and the owner's own surface is refused inside a job.
+#[test]
+fn a_strangers_filing_is_refused_and_ledgered_and_a_jobs_is_too() {
+    let c = acting(0, 10);
+    let e = c
+        .self_file(
+            &filing("the spool sweep misses a retired session"),
+            &stranger(),
+        )
+        .unwrap_err();
+    assert!(e.downcast_ref::<Refusal>().is_some(), "{e:#}");
+    let e = c
+        .self_file(
+            &SelfFileParams {
+                finding: "the spool sweep misses a retired session".into(),
+                from_job: Some("ses_0000aa".into()),
+                ..Default::default()
+            },
+            &cli(),
+        )
+        .unwrap_err();
+    assert!(e.downcast_ref::<Refusal>().is_some(), "{e:#}");
+    assert!(listed(&c).is_empty(), "neither refusal wrote an item");
+    let refused: Vec<Value> = rows(&c, "approval.refused")
+        .into_iter()
+        .filter(|r| r["act"] == "self.file")
+        .collect();
+    assert_eq!(refused.len(), 2, "{refused:?}");
+}
+
+/// An agent's filing is the agent's, never passed off as the owner's. The
+/// label is what `rpc/server.rs`'s `answerer` already resolves for a process
+/// running under an agent, so this holds the mark to that one spelling.
+#[test]
+fn an_agents_filing_is_marked_as_the_agents() {
+    let c = acting(0, 10);
+    let agent = Answerer::from(theseus_protocol::agent_by("claude").as_str());
+    let r = c
+        .self_file(
+            &filing("the wait's beat counts a restarted job twice"),
+            &agent,
+        )
+        .unwrap();
+    assert_eq!(r.filed_by, "agent:claude");
+    let t = task_of(&c, &r.item);
+    assert!(
+        t.evidence.iter().any(|e| e.by == "agent:claude"),
+        "{:?}",
+        t.evidence
+    );
+    assert!(
+        !t.evidence
+            .iter()
+            .any(|e| e.by == "the CLI" || e.by == "owner"),
+        "an agent's filing must never read as the owner's: {:?}",
+        t.evidence
+    );
 }

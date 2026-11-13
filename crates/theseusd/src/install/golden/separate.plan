@@ -31,7 +31,11 @@ theseusd install --separate: the plan. Nothing is changed: --apply performs it, 
                  | StartLimitBurst=10
                  |
                  | [Service]
-                 | Type=exec
+                 | # `systemctl start` returns when the daemon can answer, not when the
+                 | # process exists: it says READY=1 once its RPC listener is up
+                 | # (theseus-r8yj). NotifyAccess=main: only the daemon itself reports.
+                 | Type=notify
+                 | NotifyAccess=main
                  | User=theseus
                  | Group=theseus
                  | # The group whose members reach the daemon's sockets.

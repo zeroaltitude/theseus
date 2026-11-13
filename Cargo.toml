@@ -71,7 +71,7 @@ toml = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "sync", "time", "signal", "fs"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "http2"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 zeroize = { version = "1", features = ["derive"] }

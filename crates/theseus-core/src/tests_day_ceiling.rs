@@ -222,6 +222,14 @@ async fn a_turn_at_the_ceiling_makes_no_call_and_ends_with_the_words() {
         text.contains("$0.01 daily ceiling") && text.contains("daily_spend_ceiling_usd"),
         "{text}"
     );
+    // The day ceiling's warning can stop work, so it is no announcement: it
+    // keeps the owner's DM whatever announcement place is bound
+    // (theseus-nuqut; the owner's rule, "urgency = main dm").
+    assert!(
+        !crate::outbox::announces(&p[0]),
+        "the day ceiling's warning stays in the DM: {:?}",
+        p[0]
+    );
     // The session's place hears the turn failed, with the words.
     let failed: Vec<serde_json::Value> = r
         .core

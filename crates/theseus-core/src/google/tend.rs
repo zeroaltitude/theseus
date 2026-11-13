@@ -44,9 +44,13 @@ impl crate::Core {
         let told = (|| -> anyhow::Result<()> {
             let mut frame = Vec::new();
             let post = if self.runner.place_rule.owner_dm_bound() {
-                let (a, records) = self
-                    .outbox
-                    .stage_to_operator(None, json!({"kind": "spend_ceiling", "text": text}))?;
+                // The Google upkeep note is an announcement, by the owner's
+                // own list (theseus-nuqut): with a notify thread bound it
+                // goes there, not to his DM.
+                let (a, records) = self.outbox.stage_to_operator(
+                    None,
+                    json!({"kind": "spend_ceiling", "text": text, "announce": true}),
+                )?;
                 frame.extend(records);
                 Some(a)
             } else {

@@ -149,8 +149,9 @@ pub struct Facilities {
     /// process is visible at any rung**: the job sees two pids, its init and
     /// itself, granted or not. Neither `/proc/sched_debug` (absent on both
     /// kernels) nor `/proc/timer_list` (root-only in the initial namespace)
-    /// discloses anything — an earlier version of this paragraph claimed
-    /// they name tasks beyond the job's pid namespace, and that was wrong.
+    /// discloses anything — this paragraph as it stood before `d9204ea`
+    /// (2026-11-11) claimed they name tasks beyond the job's pid namespace,
+    /// and that was wrong.
     ///
     /// **Writes are contained by namespacing, not refused by capability.**
     /// As the job every sysctl write is denied, but as the correctly-mapped

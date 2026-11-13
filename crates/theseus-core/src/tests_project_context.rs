@@ -625,3 +625,126 @@ async fn the_same_bytes_are_asked_as_a_tool_result_and_never_as_block_3() {
         "block 3's frame reaches no node of the transcript"
     );
 }
+
+/// **theseus-me9fc: a caller not validated as the owner cannot grant.** A
+/// grant lets a repository's own instruction files into the system block with
+/// an instruction's authority, so it is the one act that widens who can widen
+/// reach, and `Act::Trust` asks `places::owner_in_person` for it.
+///
+/// Four callers, and the zeros are the point. An agent's own CLI connection —
+/// `agent:no terminal`, which is exactly what the ledger recorded as the
+/// grantor of a real grant on 2026-11-12 and nothing stopped, and
+/// `agent:claude` — is refused **by name** on `project.trust` and on
+/// `project.untrust` alike, with an `approval.refused` row each and nothing
+/// granted. A guild channel bound private, which `owner_in_private` counts as
+/// a private place, is refused too: the owner's words allow a DM or a
+/// trusted-user check, and the narrower reading is what a widening act takes.
+/// The owner's own terminal and an owner's DM both grant, which is the
+/// positive count the zeros stand against.
+#[tokio::test]
+async fn a_caller_that_is_not_the_owner_in_person_cannot_grant_a_repositorys_trust() {
+    use crate::approval::Surface;
+    use crate::peer_proc::Behind;
+    use crate::tests_m3::{rpc_as, surface};
+    use theseus_protocol::DiscordOrigin;
+
+    /// An invented owner, and a channel: short ids, nothing snowflake-shaped.
+    const OWNER: &str = "4210";
+    const CHANNEL: &str = "7731";
+    const GUILD: &str = "8814";
+
+    let r = rig_with(|c| c.places.owner = Some(vec![format!("discord:{OWNER}")]));
+    let (repo, _here) = hostile_repo(&r.root);
+    let path = repo.to_string_lossy().into_owned();
+    // The private-bound guild channel: `owner_in_private` would count it.
+    r.core.bind_places(vec![crate::places::BoundPlace {
+        target: format!("discord:channel:{CHANNEL}"),
+        name: "#tide-gauges".into(),
+        private: true,
+        guild: Some(GUILD.into()),
+        ..Default::default()
+    }]);
+
+    let dm = |guild: Option<&str>| DiscordOrigin {
+        user_id: OWNER.into(),
+        channel_id: CHANNEL.into(),
+        guild_id: guild.map(str::to_string),
+    };
+    let agent = |name: &str, s: Surface| surface("sock#9", s).behind(Behind::Agent(name.into()));
+
+    // Each refused caller, on both writes, with the clause its refusal names.
+    let refused: Vec<(crate::approval::Client, Option<DiscordOrigin>, &str)> = vec![
+        (agent("no terminal", Surface::Cli), None, "no terminal"),
+        (agent("claude", Surface::Cli), None, "claude"),
+        (agent("untraced", Surface::Web), None, "untraced"),
+        (
+            surface("discord#1", Surface::Discord).behind(Behind::Owner),
+            Some(dm(Some(GUILD))),
+            "it came from a channel",
+        ),
+    ];
+    let mut refusals = 0;
+    for (client, origin, clause) in refused {
+        for m in [method::PROJECT_TRUST, method::PROJECT_UNTRUST] {
+            let p = json!({"path": path, "discord": origin});
+            let e = rpc_as(&r.core, client.clone(), m, p)
+                .await
+                .expect_err("not the owner in person");
+            assert_eq!(e.code, theseus_protocol::error_code::REFUSED, "{m}: {e:?}");
+            let why = format!("{e:?}");
+            assert!(
+                why.contains(clause),
+                "{m} refusal must name {clause}: {why}"
+            );
+            refusals += 1;
+        }
+    }
+    assert_eq!(refusals, 8, "four callers, two writes each");
+    assert!(
+        r.core.project_trusted().unwrap().is_empty(),
+        "nothing was granted"
+    );
+    assert!(
+        crate::test_support::rows_100k(&r.core, "project.trust").is_empty(),
+        "no grant row was written"
+    );
+    let rows = crate::test_support::rows_100k(&r.core, "approval.refused");
+    assert_eq!(rows.len(), 8, "every refused act is one row: {rows:?}");
+    assert!(
+        rows.iter().all(|row| row["act"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("project.")),
+        "{rows:?}"
+    );
+
+    // The positive count: the owner's own terminal grants, and an owner's DM
+    // takes it back. Both are `Act::Trust` passing, and the DM's row records
+    // its route in `via`.
+    let owner_cli = surface("sock#1", Surface::Cli).behind(Behind::Owner);
+    rpc_as(
+        &r.core,
+        owner_cli,
+        method::PROJECT_TRUST,
+        json!({"path": path}),
+    )
+    .await
+    .expect("the owner's own terminal grants");
+    assert_eq!(r.core.project_trusted().unwrap().len(), 1);
+
+    let owner_dm = surface("discord#2", Surface::Discord).behind(Behind::Owner);
+    rpc_as(
+        &r.core,
+        owner_dm,
+        method::PROJECT_UNTRUST,
+        json!({"path": path, "discord": dm(None)}),
+    )
+    .await
+    .expect("the owner's DM takes it back");
+    assert!(r.core.project_trusted().unwrap().is_empty());
+    let grants = crate::test_support::rows_100k(&r.core, "project.trust");
+    assert_eq!(grants.len(), 2, "one grant and one revoke: {grants:?}");
+    assert_eq!(grants[0]["via"], "cli");
+    assert_eq!(grants[1]["via"], "discord:dm");
+    assert_eq!(grants[1]["granted"], false);
+}

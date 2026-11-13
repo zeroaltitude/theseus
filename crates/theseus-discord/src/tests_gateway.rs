@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use self::patience::Patience;
+
 use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
 use theseus_core::secrets::{Secret, SecretBoard};
@@ -185,16 +187,16 @@ impl Rig {
     }
 
     pub(crate) async fn until(&self, what: &str, f: impl Fn() -> bool) {
-        let t0 = Instant::now();
+        let mut patience = Patience::new();
         while !f() {
             assert!(
-                t0.elapsed() < Duration::from_secs(20),
+                !patience.spent(),
                 "timed out: {what}; #lab holds {:#?}; the DM {:#?}; answers {:#?}",
                 self.fake.messages(LAB),
                 self.fake.messages(ANA_DM),
                 self.fake.replies()
             );
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            patience.nap().await;
         }
     }
 
@@ -235,6 +237,19 @@ impl Rig {
         self.posted(channel)
             .into_iter()
             .find(|m| m.versions[0].contains("**Approve?**"))
+    }
+
+    /// The announcement place the owner bound from chat, by its channel
+    /// (theseus-nuqut): the binding's own META key, read as the courier reads
+    /// it.
+    pub(crate) fn shared_notify_said(&self) -> Option<u64> {
+        self.core
+            .store
+            .get_meta::<String>("discord.notify_place")
+            .ok()
+            .flatten()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok())
     }
 
     pub(crate) fn ledger(&self, kind: &str) -> Vec<serde_json::Value> {
@@ -956,7 +971,9 @@ mod cards;
 mod content;
 mod horizon;
 mod link;
+mod notify;
 mod onto;
+pub(crate) mod patience;
 mod persona_soul;
 mod remind;
 mod reply;

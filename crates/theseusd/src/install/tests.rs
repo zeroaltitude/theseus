@@ -963,7 +963,10 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
     }));
     assert!(again.contains("Nothing to do"), "{again}");
     assert_eq!(tree(&r.env.root), files);
-    // A different config source is a difference, named by its line.
+    // A different config source is a difference, named by its line. The
+    // line moved from 10 to 14 when the unit became `Type=notify` with its
+    // three-line note (theseus-r8yj): the assertion is the same strength,
+    // and the number is a fact about the unit's own text.
     r.g.config = "op://Example/another/notesPlain".into();
     let (code, out) = r
         .run(&args(|a| {
@@ -972,7 +975,13 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
         }))
         .unwrap();
     assert_eq!(code, 1);
-    assert!(out.contains("content: line 10 is `ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain"), "{out}");
+    assert!(
+        out.contains(&format!(
+            "content: line 14 is `ExecStart=/opt/theseus/bin/theseusd --config {}",
+            SOURCE
+        )),
+        "{out}"
+    );
     let log = r.ok(&args(|a| {
         a.user = true;
         a.remove = true;

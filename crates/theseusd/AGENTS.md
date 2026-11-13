@@ -22,6 +22,21 @@ Key modules: `main.rs`, `web.rs`, `install/`. Read by: (a binary).
   check's own process, `Sandbox::self_test`), and health reports the last real L1 launch (theseus-gyin). An L1 job
   has no cgroup. `tests/sandbox.rs` runs real L1 jobs, its state dir and socket inside the workspace so the view's
   hiding is what keeps them out.
+- **Socket activation and `sd_notify`** (theseus-r8yj, `src/systemd.rs`): both units are `Type=notify`
+  with `NotifyAccess=main`, so `systemctl start theseusd` returns when the daemon can **answer**, not when
+  the process exists. `Systemd::from_env` reads the five variables (`LISTEN_PID`, `LISTEN_FDS`,
+  `LISTEN_FDNAMES`, `NOTIFY_SOCKET`, `WATCHDOG_USEC`) once, in `main`, before the runtime and before any
+  child, and removes all five, so no job inherits them and none can take the daemon's listener. `READY=1`
+  is said in `serve_socket` once the listener is up (and in the `--stdio` arm once its one connection is
+  being served), `STOPPING=1` at a clean stop but **never** at a restart in place, whose pid lives on
+  through the exec. A socket systemd passed on fd 3 is adopted instead of bound (`activated` in the
+  `socket` startup phase) and its path is not unlinked at the stop: the socket unit owns it. `WATCHDOG=1`
+  goes at half of systemd's own `WATCHDOG_USEC`, and **no unit this binary installs sets `WatchdogSec=`**,
+  so a watchdog is the operator's own drop-in, never a default. Known limit: a restart in place (the
+  vault's changed note) does not carry the passed socket — the variables are gone and fd 3 is
+  close-on-exec — so the new image binds `[server] socket` instead. `tests/systemd.rs` runs the real
+  binary: READY then an immediate `health` with no retry, the ping, the stop, and a socket the test bound
+  and passed as fd 3.
 - The units ask for `Delegate=yes` (theseus-a5nv): the daemon stays in its unit's cgroup, readied after serving
   (`theseus_core::cgroup`), and each L0 job's command is born in a threaded cgroup of its own below it. A restart
   while a job runs starts as any start does, so there is no stop hook. `tests/cgroup.rs` proves the stop, the cap,

@@ -74,6 +74,16 @@ pub enum SelfCmd {
         /// The item's id, or the end of it.
         item: String,
     },
+    /// Put a finding of your own on the backlog: the owner's. The item is marked as a person's
+    /// choice for good, and the loop picks it up on its next pass. With self-improvement off it
+    /// sits and nothing runs.
+    File {
+        /// The finding, in your own words.
+        finding: String,
+        /// The one line the backlog lists it by; with none, the finding's first sentence.
+        #[arg(long, value_name = "LINE")]
+        title: Option<String>,
+    },
     /// The self branches Theseus built: each one's tree, gate verdict and frozen report.
     Branches,
     /// The self-exams: counted items by family and half, and today's candidates with their
@@ -196,6 +206,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
         SelfCmd::Drop { item } => backlog::drop_item(conn, json, item).await,
         SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
         SelfCmd::Retry { item } => backlog::retry_item(conn, json, item).await,
+        SelfCmd::File { finding, title } => backlog::file_item(conn, json, finding, title).await,
         SelfCmd::Branches => branches::run(conn, json).await,
         SelfCmd::Exams => exams::run(conn, json).await,
         SelfCmd::Narrow { cmd } => narrow::run(conn, json, cmd).await,
