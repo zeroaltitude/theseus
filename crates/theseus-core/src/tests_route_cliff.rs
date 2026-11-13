@@ -163,4 +163,55 @@ async fn an_ordinary_turn_carries_far_less_context_than_the_bound() {
         fixed > context,
         "the universal prefix is most of the request: prefix {fixed}, the session's {context}"
     );
+
+    // **The doubling detector** (b7-route-cliff-context-weight). Deleting the
+    // size assertion above left nothing noticing if the baseline context of
+    // every turn moved materially, and the figure it left behind is large: on
+    // this rig, measured at 75f19f3c, `context` is 15,119 tokens of a 30,000
+    // `cold_switch_tokens` bound, **50.4 %** of it. (The row that opened this
+    // read 14,977, 49.9 %, some rows earlier; the difference is the tool
+    // catalog, which is the whole reason the number is not asserted as a
+    // literal.)
+    //
+    // So: a fraction, generously. `FRACTION` is 60 %, which leaves about
+    // 2,900 tokens of headroom — by the paragraph above's own figure of +89
+    // tokens of `context` per ordinary tool definition, about thirty more
+    // tools. That is the distinction from the assertion that was deleted,
+    // which was `context * 2 < cold` and passed by 46 tokens of 30,000: one
+    // tool crossed it, and it reddened departures for drift that was legally
+    // inside its limit. This one cannot be crossed by drift; a change that
+    // **doubles** what an ordinary turn carries fails it, which is the thing
+    // nobody was watching for.
+    //
+    // **What it adds over the assertion above it, measured.** `fixed >
+    // context` bounds `context` against the *prefix*, which grows with the
+    // tool catalog, so it loosens as tools are added: with a 40,000-token
+    // prefix it would permit a `context` of 133 % of the bound. This one is
+    // against the bound, which does not move. Today the two overlap and the
+    // sibling is the tighter: `fixed` is 15,378, so it already holds
+    // `context` under 51.3 % and no 60 % ceiling can be reached while it
+    // stands. That was probed, not reasoned: doubling the message trips
+    // `fixed > context` at `context` 24,816 and never reaches this line.
+    // Shadowed is not dead — the scenario this one exists for is the prefix
+    // and the session's context growing *together*, which the sibling
+    // permits and this refuses — but a reader should know which of the two
+    // fires today, and it is the one above.
+    //
+    // It is not a budget and it may not be loosened to buy a green gate:
+    // raising `FRACTION` is a `budget-raised` erosion to the keel guard and
+    // needs the owner. If it ever fires, the question is what doubled.
+    const FRACTION: u64 = 60;
+    let cold = r.core.cfg.routing.cold_switch_tokens;
+    assert!(
+        context * 100 < FRACTION * cold,
+        "an ordinary one-message turn carries {context} tokens of this place's {cold}, over \
+         {FRACTION}% of it: what doubled? (the prefix was {fixed}, the whole estimate {est})"
+    );
+    // And a positive floor, so an empty turn cannot meet the bar above: the
+    // message is 32,000 characters, so its own context is thousands of
+    // tokens and never nothing.
+    assert!(
+        context > 1_000,
+        "the turn carried its own message: {context} tokens of context"
+    );
 }
