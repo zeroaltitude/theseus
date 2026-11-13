@@ -555,7 +555,9 @@ fn the_ask_posture_keeps_waiting_and_the_notice_stores_what_it_saw() {
     );
     assert_eq!(waiting.asked.len(), 1, "only the ask moves");
     // Stored, the same wait says nothing a second time.
-    store.append(&[waiting.record(&crate::flow::spec::repo_id(&root)).unwrap()]).unwrap();
+    store
+        .append(&[waiting.record(&crate::flow::spec::repo_id(&root)).unwrap()])
+        .unwrap();
     let again = change::observe(&cfg, &store, &files, &root, &found.project);
     assert_eq!(again.changes.len(), 1, "the block still names it");
     assert!(again.fresh.is_empty(), "the ledger does not say it twice");

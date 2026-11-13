@@ -192,7 +192,9 @@ impl Core {
         let rec = self.rec(None);
         let mut records = vec![rec.row(&fact)?, grants.record()?];
         if change::Seen::read(&self.store, &id).is_some() {
-            records.push(theseus_store::NewRecord::delete_meta(&change::seen_key(&id)));
+            records.push(theseus_store::NewRecord::delete_meta(&change::seen_key(
+                &id,
+            )));
         }
         self.store.append(&records)?;
         rec.announce(&fact);
