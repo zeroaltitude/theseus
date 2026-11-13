@@ -100,6 +100,7 @@ mod persona_engage;
 pub(crate) mod persona_step;
 pub(crate) mod personal_step;
 pub mod progress_step;
+mod project_step;
 mod promise_step;
 mod prompt_input;
 mod recall_step;

@@ -217,6 +217,7 @@ pub fn sighting(files: &ContextFiles, found: &[Found], at_ms: u64) -> Seen {
             .zip(found)
             .map(|(c, f)| (f.shown.clone(), c.file.digest.unwrap_or_default()))
             .collect(),
+        asked: BTreeMap::new(),
         at_ms,
     }
 }
