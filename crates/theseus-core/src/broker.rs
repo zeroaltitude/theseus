@@ -779,6 +779,9 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
             "deepgram_api_key",
             "deepseek_api_key",
             "moonshot_api_key",
+            // The second wire protocol's key is a provider's key by the same
+            // rule and is harness-only for the same reason (theseus-bq73s).
+            "openai_api_key",
             "zai_api_key"
         ]
     );
@@ -791,7 +794,8 @@ pub(crate) fn the_templates_harness_only_keys(cfg: &crate::Config) {
         h.line(),
         "broker: a job may be handed 1 secret (github_token); harness-only: the AWS keys \
          (aws_access_key_id, aws_secret_access_key) and the providers' keys (anthropic_api_key, \
-         deepgram_api_key, deepseek_api_key, moonshot_api_key, zai_api_key) and Google's secrets (google_client, \
+         deepgram_api_key, deepseek_api_key, moonshot_api_key, openai_api_key, zai_api_key) and \
+         Google's secrets (google_client, \
          google_refresh_token); jobs get short-lived AWS sessions, never the key (aws)"
     );
 }
