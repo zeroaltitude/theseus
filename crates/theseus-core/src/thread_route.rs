@@ -1120,11 +1120,35 @@ pub fn decide(
 /// would route it into one the judge has implicitly just rejected. That was
 /// this function's behaviour until the fix, and it was a worse guess than
 /// home.
+///
+/// **And Jev answering `Home` is a guess of HOME** (F6 of the live freeze of
+/// 2026-11-13). It is the same positive evidence by the same reasoning, and
+/// it was not guarded: the fused ranking keeps only `OTHERS` of a thread Jev
+/// did not pick, which is a discount and not a veto, so a keyword prefilter
+/// could still outrank the judge's explicit "keep it home". It did. A fresh
+/// request of the owner's, with Jev answering `home` at p 0.31, went to an
+/// archive thread whose prefilter score was 0.552 on the bare word
+/// "theseus" -- 0.552 x 0.85 = 0.4692, the confidence in the row. A keyword
+/// hit must not override the judge's own answer.
+///
+/// The broad guard this incident also argues for -- that no guess should
+/// land in a thread at 137k of context, or in one whose goal says it is an
+/// archive -- is NOT here. The router reads neither context size nor the
+/// goal, and giving it either is a 2.0.0 change with its own bench.
 pub fn guessed(d: Decision, threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&Jev>) -> Decision {
     if matches!(d, Decision::Route(_)) {
         return d;
     }
     if matches!(d, Decision::OfferNew { .. }) {
+        return Decision::Route(home_guess(threads, pre, jev));
+    }
+    if matches!(
+        jev,
+        Some(Jev {
+            pick: Pick::Home,
+            ..
+        })
+    ) {
         return Decision::Route(home_guess(threads, pre, jev));
     }
     let ranked = fuse(pre, jev);
@@ -1150,11 +1174,12 @@ pub fn guessed(d: Decision, threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&J
 /// fused score, so the tag says how sure the guess is rather than borrowing
 /// the rejected thread's number.
 ///
-/// Two callers, and they are the two paths the guard names: [`guessed`]'s
-/// `OfferNew` arm, and `rpc/thread_flow.rs`'s lone-thread offer
-/// (`offer_beside_one`), which fires only when the one live thread is BELOW
-/// the confirm bar — so handing that `Ask` to the ranking guessed straight
-/// into the below-bar thread, at whatever score it had, 0.0 included.
+/// Three callers, each a path on which the judge has said that no existing
+/// thread holds the message: [`guessed`]'s `OfferNew` arm and its `Home` arm
+/// (F6), and `rpc/thread_flow.rs`'s lone-thread offer (`offer_beside_one`),
+/// which fires only when the one live thread is BELOW the confirm bar — so
+/// handing that `Ask` to the ranking guessed straight into the below-bar
+/// thread, at whatever score it had, 0.0 included.
 pub fn home_guess(threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&Jev>) -> ThreadTag {
     let conf = fuse(pre, jev)
         .into_iter()
