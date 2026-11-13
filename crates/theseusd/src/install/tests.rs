@@ -975,7 +975,13 @@ fn a_user_apply_checks_clean_a_second_changes_nothing_and_remove_undoes_it() {
         }))
         .unwrap();
     assert_eq!(code, 1);
-    assert!(out.contains("content: line 14 is `ExecStart=/opt/theseus/bin/theseusd --config op://Example/theseus-config/notesPlain"), "{out}");
+    assert!(
+        out.contains(&format!(
+            "content: line 14 is `ExecStart=/opt/theseus/bin/theseusd --config {}",
+            SOURCE
+        )),
+        "{out}"
+    );
     let log = r.ok(&args(|a| {
         a.user = true;
         a.remove = true;
