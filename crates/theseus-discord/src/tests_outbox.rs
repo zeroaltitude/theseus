@@ -239,6 +239,14 @@ async fn a_reply_that_ends_while_discord_is_away_is_posted_once_when_it_is_back(
     assert_eq!(creates.len(), 1, "{creates:?}");
     let st = core.outbox.status("discord");
     assert!(st.sent >= 2 && st.last_error.is_some(), "{st:?}");
+    // Each of those settles says its delivery receipt, and this lane
+    // delivered every one of them (theseus-vug).
+    let settles = settle_receipts(&core);
+    assert!(settles.len() >= 2, "{settles:?}");
+    assert!(
+        settles.iter().all(|(_, r)| r == "posted"),
+        "the lane that sent them says so: {settles:?}"
+    );
 }
 
 /// Three replies written while Discord is away go out in the order they
@@ -351,6 +359,25 @@ fn a_crash_between_send_and_settle_leaves_one_message() {
 }
 
 /// The ledger's `action.failed` rows for posts, by post.
+/// Every outbox settle in the ledger, as `(outbox target, receipt)`
+/// (theseus-vug): what the lane recorded, read back from the row the
+/// surfaces read.
+fn settle_receipts(core: &Core) -> Vec<(String, String)> {
+    let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> = core.store.ledger_tail(500).unwrap();
+    rows.into_iter()
+        .filter(|(_, r)| {
+            matches!(r.kind.as_str(), "action.succeeded" | "action.failed")
+                && r.data["outbox"].is_string()
+        })
+        .map(|(_, r)| {
+            (
+                r.data["outbox"].as_str().unwrap_or("").to_string(),
+                r.data["receipt"].as_str().unwrap_or("(none)").to_string(),
+            )
+        })
+        .collect()
+}
+
 fn refused_rows(core: &Core) -> Vec<serde_json::Value> {
     let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> = core.store.ledger_tail(500).unwrap();
     rows.into_iter()
@@ -417,16 +444,23 @@ fn a_post_for_a_place_no_longer_bound_is_refused_at_the_next_start() {
         let c = core.clone();
         until("the post is refused", 10, move || pending(&c) == 0).await;
         let why = format!("not bound here any more ({place})");
+        // Since theseus-vug the line leads with the post's delivery
+        // receipt: nothing was sent, so it is `never posted`.
+        let said = format!("never posted: {why}");
         let st = core.outbox.status("discord");
         assert_eq!(
             (st.failed, st.oldest_pending_ms, st.last_error.as_deref()),
-            (1, 0, Some(why.as_str())),
+            (1, 0, Some(said.as_str())),
             "{st:?}"
         );
         let rows = refused_rows(&core);
         assert_eq!(rows.len(), 1, "{rows:?}");
         assert_eq!(rows[0]["outbox"], format!("discord:{place}"));
         assert_eq!(rows[0]["detail"]["error"], why.as_str());
+        // The row the ledger carries says which of the three it was, so no
+        // surface rebuilds delivery from the outcome (theseus-vug).
+        assert_eq!(rows[0]["receipt"], "never_posted");
+        assert_eq!(rows[0]["detail"]["receipt"], "never_posted");
         // A post written for that place later is refused at once.
         ask(&rpc, &sid, "and tomorrow?").await;
         let c = core.clone();

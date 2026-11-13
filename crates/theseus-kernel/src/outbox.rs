@@ -23,7 +23,7 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
-use theseus_protocol::LedgerKind;
+use theseus_protocol::{outbox::Receipt, LedgerKind};
 use theseus_store::{kinds, NewRecord};
 
 use crate::gate::{digest_proposal, Proposal};
@@ -167,7 +167,31 @@ impl Kernel {
     /// Idempotent: a post settled before is left as it was. A post settled
     /// without a dispatch never reached the channel (another post took its
     /// place, or there was nothing left to say).
+    ///
+    /// **Every settle says its delivery receipt** (theseus-vug; M5's delivery
+    /// clause): `detail.receipt` is one of `posted | transport_failed |
+    /// never_posted`, written by whoever tried to deliver the post, and this
+    /// is the one place every post ends, so no post can end in no state. A
+    /// settle that names none, or one its outcome contradicts
+    /// (`Receipt::agrees`), is refused and writes nothing, as a settle whose
+    /// outcome is unknown is.
     pub fn outbox_settle(&self, c: &Completion) -> Result<Settled> {
+        let receipt = receipt_of(c).ok_or_else(|| {
+            anyhow::anyhow!(
+                "outbox post {} settles with a delivery receipt, one of {}: {:?}",
+                c.correlation_id,
+                receipt_words(),
+                c.detail.as_ref().map(|d| d["receipt"].clone()),
+            )
+        })?;
+        if !receipt.agrees(c.outcome == Outcome::Failed) {
+            anyhow::bail!(
+                "outbox post {} settles {:?} with the receipt {}",
+                c.correlation_id,
+                c.outcome,
+                receipt.as_str(),
+            );
+        }
         let _w = self.locks().lock(&lock_key(&c.correlation_id));
         let mut a = self
             .outbox_action(&c.correlation_id)?
@@ -197,12 +221,31 @@ impl Kernel {
             kind,
             scope(&a),
             json!({"correlation_id": a.correlation_id, "tool": a.tool, "outbox": a.resource,
-                   "outcome": c.outcome, "producer": c.producer, "external_op_id": a.external_op_id,
+                   "outcome": c.outcome, "receipt": receipt.as_str(), "producer": c.producer,
+                   "external_op_id": a.external_op_id,
                    "duration_ms": c.finished_at_ms.saturating_sub(c.started_at_ms), "detail": c.detail}),
         )?;
         self.commit(&[outbox_record(&a)?, row])?;
         Ok(Settled::Now(a))
     }
+}
+
+/// The delivery receipt a settle names (theseus-vug), read from its detail;
+/// `None` when it names none, or one no reader knows.
+fn receipt_of(c: &Completion) -> Option<Receipt> {
+    c.detail
+        .as_ref()
+        .and_then(|d| d["receipt"].as_str())
+        .and_then(Receipt::parse)
+}
+
+/// The vocabulary, for the refusal to name.
+fn receipt_words() -> String {
+    Receipt::ALL
+        .iter()
+        .map(|r| r.as_str())
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 /// The lock a post's transitions take: its own, never an execution's.
@@ -249,7 +292,18 @@ mod tests {
         }
     }
 
+    /// A settle with the receipt its outcome implies: every settle says one
+    /// (theseus-vug), and these are the two plain cases.
     fn done(corr: &str, outcome: Outcome, id: &str) -> Completion {
+        let receipt = match outcome {
+            Outcome::Failed => Receipt::TransportFailed,
+            _ => Receipt::Posted,
+        };
+        with_receipt(done_without_a_receipt(corr, outcome, id), receipt)
+    }
+
+    /// The same settle with its receipt taken out, for the refusal's test.
+    fn done_without_a_receipt(corr: &str, outcome: Outcome, id: &str) -> Completion {
         Completion {
             correlation_id: corr.into(),
             outcome,
@@ -262,6 +316,13 @@ mod tests {
             cost_micros: None,
             detail: Some(json!({"messages": [{"key": "note", "id": id}]})),
         }
+    }
+
+    fn with_receipt(mut c: Completion, receipt: Receipt) -> Completion {
+        let mut d = c.detail.take().unwrap_or_else(|| json!({}));
+        d["receipt"] = json!(receipt.as_str());
+        c.detail = Some(d);
+        c
     }
 
     #[test]
@@ -347,5 +408,112 @@ mod tests {
         assert!(matches!(failed, Settled::Now(ref a) if a.state == ActionState::Failed));
         // A settled post cannot be dispatched again.
         assert!(k.outbox_dispatch(&a.correlation_id).is_err());
+    }
+
+    /// Delivery receipts (theseus-vug; M5's clause in spec §10): this is the
+    /// one place a post ends, so a settle that says nothing about delivery is
+    /// refused and writes nothing. That refusal is what makes the vocabulary
+    /// total: no post can end in no state.
+    #[test]
+    fn a_settle_that_names_no_receipt_is_refused_and_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let k = kernel(dir.path());
+        let a = k.outbox_plan(post("discord:dm:1", "reply")).unwrap();
+        k.outbox_dispatch(&a.correlation_id).unwrap();
+        let frames = k.store().stats().unwrap().frames_appended;
+        for c in [
+            done_without_a_receipt(&a.correlation_id, Outcome::Succeeded, "m1"),
+            // A word no reader knows is no receipt either: nothing here
+            // invents one from it.
+            {
+                let mut c = done_without_a_receipt(&a.correlation_id, Outcome::Succeeded, "m1");
+                c.detail = Some(json!({"receipt": "seen"}));
+                c
+            },
+        ] {
+            let e = k.outbox_settle(&c).expect_err("a settle must say");
+            let said = format!("{e:#}");
+            assert!(
+                said.contains("delivery receipt") && said.contains("never_posted"),
+                "the refusal names the vocabulary: {said}"
+            );
+        }
+        assert_eq!(k.store().stats().unwrap().frames_appended, frames);
+        let still = k.outbox_action(&a.correlation_id).unwrap().unwrap();
+        assert_eq!(still.state, ActionState::Dispatched, "still open");
+    }
+
+    /// A receipt that contradicts its outcome is a lie about delivery, so it
+    /// is refused too: `posted` cannot stand with a failed settle, nor
+    /// `transport_failed` with one that did not fail. `never_posted` stands
+    /// with either, since a post that sent nothing was refused or had
+    /// nothing to send.
+    #[test]
+    fn a_receipt_its_outcome_contradicts_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let k = kernel(dir.path());
+        let a = k.outbox_plan(post("discord:dm:1", "reply")).unwrap();
+        let bad = [
+            (Outcome::Failed, Receipt::Posted),
+            (Outcome::Succeeded, Receipt::TransportFailed),
+        ];
+        for (outcome, receipt) in bad {
+            let c = with_receipt(
+                done_without_a_receipt(&a.correlation_id, outcome, "m1"),
+                receipt,
+            );
+            let e = k.outbox_settle(&c).expect_err("the two disagree");
+            assert!(
+                format!("{e:#}").contains(receipt.as_str()),
+                "the refusal names the receipt: {e:#}"
+            );
+        }
+        // And the honest pair of each settles.
+        let c = with_receipt(
+            done_without_a_receipt(&a.correlation_id, Outcome::Failed, "m1"),
+            Receipt::NeverPosted,
+        );
+        assert!(matches!(k.outbox_settle(&c).unwrap(), Settled::Now(_)));
+    }
+
+    /// The vocabulary is total over settled posts, and each post's record
+    /// carries the word its settler wrote: a reader reads it back and never
+    /// rebuilds delivery from the outcome.
+    #[test]
+    fn every_settled_post_carries_the_receipt_its_settler_wrote() {
+        let dir = tempfile::tempdir().unwrap();
+        let k = kernel(dir.path());
+        let mut want = Vec::new();
+        for (receipt, outcome) in [
+            (Receipt::Posted, Outcome::Succeeded),
+            (Receipt::TransportFailed, Outcome::Failed),
+            (Receipt::NeverPosted, Outcome::Succeeded),
+        ] {
+            let a = k.outbox_plan(post("discord:dm:1", "reply")).unwrap();
+            let c = with_receipt(
+                done_without_a_receipt(&a.correlation_id, outcome, "m1"),
+                receipt,
+            );
+            k.outbox_settle(&c).unwrap();
+            want.push((a.correlation_id, receipt));
+        }
+        assert_eq!(want.len(), Receipt::ALL.len(), "one post per receipt");
+        let posts = k.outbox_actions().unwrap();
+        assert_eq!(posts.len(), Receipt::ALL.len());
+        for a in &posts {
+            assert!(a.state.is_settled());
+            let said = a.detail.as_ref().and_then(|d| d["receipt"].as_str());
+            let read = said.and_then(Receipt::parse);
+            assert!(
+                read.is_some(),
+                "post {} settled with no receipt: {said:?}",
+                a.correlation_id
+            );
+            let (_, wanted) = want
+                .iter()
+                .find(|(id, _)| *id == a.correlation_id)
+                .expect("its post");
+            assert_eq!(read, Some(*wanted), "post {}", a.correlation_id);
+        }
     }
 }

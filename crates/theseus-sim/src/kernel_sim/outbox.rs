@@ -15,6 +15,7 @@ use anyhow::{bail, Result};
 use rand::Rng;
 use serde_json::json;
 use theseus_kernel::*;
+use theseus_protocol::outbox::Receipt;
 
 use super::World;
 
@@ -193,7 +194,16 @@ impl World {
             producer: "sim-binding".into(),
             signature: None,
             cost_micros: None,
-            detail: Some(json!({"messages": id.map(|id| vec![json!({"key": "reply", "id": id})])})),
+            // Every settle says its delivery receipt (theseus-vug): this
+            // fake binding sent it, so it is the one that says whether the
+            // channel took it.
+            detail: Some(json!({
+                "messages": id.map(|id| vec![json!({"key": "reply", "id": id})]),
+                "receipt": match id.is_some() {
+                    true => Receipt::Posted,
+                    false => Receipt::TransportFailed,
+                }.as_str(),
+            })),
         };
         let settled = match self
             .kernel
