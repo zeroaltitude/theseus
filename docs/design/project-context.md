@@ -345,3 +345,37 @@ recompile all already exist.
 What is new is a discovery module, a level on two structs, a `[project]` configuration
 section for the budget and the change posture, the grant's META record, the tail's live
 block, and the OS fact.
+
+## 11. Status: what is built (audit of 2026-11-12, base 75f19f3c)
+
+§7 is built, §8's three stops are built, and F2 (§6's budget) is closed. Read on the tree, not assumed:
+
+- **The grant.** `project_context/trust.rs`: the META record `project.trust` (`RECORD`), a
+  map from `repo_id(root)` to `Grant { root, by, via, at_ms }`; `granted` is one keyed
+  read, and a store that fails to answer is no. `block` calls it per compile.
+- **The acts.** `rpc/project_trust.rs`: `project.trust`, `project.untrust`,
+  `project.trusted`. Trust and untrust each write one frame (the record and its
+  `project.trust` ledger row, `fact/project.rs`) and are judged `Act::Standing`, which
+  falls to `places::owner_in_private`. A path outside every repository is refused; a
+  second trust writes nothing; an untrust of an untrusted repository is an error.
+- **The manifest.** `ContextFileRef.level`, shipped at store format 58 (no bump needed).
+- **F2.** The regrow pass (`allocate(plan, &root, budget, &mut used, true)`) lets a root
+  file cut at half grow into what the chain left; the test is
+  `a_root_file_cut_at_half_grows_into_what_the_chain_left`.
+- **Tests that hold it:** `project_context/tests.rs` (`the_grant_seam_is_the_only_way_text_is_carried`,
+  "the default is closed"), and in `tests_project_context.rs` the hostile repository
+  reaching no byte of the request, the grant landing in block 3, a trust being a record
+  and a row revoked by an untrust, a copy elsewhere inheriting nothing, and the dispatch
+  refusing `Unnamed` and `Mcp` surfaces.
+
+**Open.** (1) The live proof on a real repository: trusted text seen in a real compile,
+then `untrust` removing it, is run by the maintainer on the owner's machine. (2) An agent
+with no terminal is accepted as the grantor: `Act::Standing` is judged by
+`owner_in_private`, which asks only the surface, and `Answerer.agent` is consulted for
+`Act::Answer` alone (`rpc/confirms.rs`, the `owners_alone` arm). No test grants as an
+agent. That and a grant from chat validated as the owner are tracked as `theseus-me9fc`. (3) §8's
+"After a grant" is NOT built: a trusted file that changes is carried, but the change is
+not named in the block and not ledgered, and there is no configuration line that turns
+the notice into an ask — `[project]` is `max_tokens` and `tail_facts` only. The residual
+risk is the one `judge/content.rs` names: text written into a granted repository's file
+by an unfrozen session at notify posture is never asked the injection question.
