@@ -1,0 +1,287 @@
+//! The reversibility layer (theseus-p5kln, row B6 `theseus-2yowd`): 0d, and
+//! the two places its answer is read.
+//!
+//! The design is `docs/design/undo-v1.md` and the question is
+//! `crates/theseus-judge/packs/undo.v1.toml`; this is the code they describe.
+//! **ASK ONCE, CONSUME TWICE, ON OPPOSITE SIDES OF THE ORDER:**
+//!
+//! ```text
+//! ToolRuntime::judge_reversibility
+//!   |
+//!   |-- refusals(...)     the sealed holdout, the place rule, the place's
+//!   |                     ceiling, plan mode, the helper's set, the
+//!   |                     injection freeze. Nothing is sent to a model
+//!   |                     before these: a call the gate was going to refuse
+//!   |                     must not have its content, its paths and the bytes
+//!   |                     it was about to write serialised and sent first.
+//!   |
+//!   |-- 0d: ask undo.v1, ONCE, for this call
+//!   |
+//!   |-- POINT ONE: `irreversible_reshapeable` short-circuits HERE, beside
+//!   |              the refusals. `order` never runs, so no card is made and
+//!   |              nothing can lower a hold: a hold is not a posture.
+//!   |
+//!   |-- ordered(...)      the whole §3.9 order: Policy, Mode, Grant, Lsp,
+//!   |                     SharedFetch, Floor, Glide, Routine, McpClient
+//!   |
+//!   `-- POINT TWO: `irreversible_final` raises what `order` RETURNED. Every
+//!                  layer has had its say, so `Layer::Mode` cannot lower it
+//!                  in an `edits` or `auto` session and no `floor: true` has
+//!                  to be invented to protect it.
+//!
+//! **WHY POINT TWO IS AFTER AND NOT INSIDE THE LADDER.** `policy/modes.rs`'s
+//! `gate` exists to LOWER an `Approve` in an `edits` or `auto` session, in a
+//! private place, on an untightened tool with `floor` unset — which is
+//! exactly the shape of this raise. A raise placed before it would read as
+//! present in the code and be absent in the product in `auto` mode, which is
+//! the mode a long coding session runs in. The order's own invariant (each
+//! layer after the first only raises) is what makes the late raise safe: it
+//! can only leave an already-stricter decision alone.
+//!
+//! **FAIL OPEN.** No verdict means the ordinary order, for every reason there
+//! can be none: the judge off, the pack in shadow, the credential
+//! unresolved, the breaker open, the call shed, the 300 ms wait missed, or an
+//! answer under the question's confirm bar. The reason is the pack's: this
+//! classifier is a net addition to a gate that still has every guard it had
+//! in 1.0.4, so failing open returns the product to the release before it,
+//! while failing closed would make Jev a hard dependency of writing a file.
+
+use serde_json::Value;
+use theseus_tools::{Backend, Plan, Tool};
+
+use super::batch::Turned;
+use super::order::{At, Layer};
+use super::{ToolRuntime, TurnCtx};
+use crate::judge::undo::{self, UndoVerdict};
+use crate::policy::{Decision, Posture};
+use crate::sandbox::Bound;
+
+/// The `reason` a held call's record and row carry, as `place:` and `mode:`
+/// name the other two kinds of "this call did not run".
+pub const HELD_REASON: &str = "undo";
+
+/// What the gate came to for one planned call, once the refusals, 0d, the
+/// order and a glide's own word have all had their say. It is its own type
+/// so `gate` stays inside the shape budget: the three ways a call does not
+/// run differ only in the words and the record each leaves.
+#[derive(Debug)]
+pub(crate) enum Decided {
+    Runs(Decision, Bound),
+    /// It will not run: the words the model reads, whether that is a
+    /// refusal (as against invalid input), and the hold where there is one.
+    Stopped {
+        why: String,
+        refused: bool,
+        held: Option<Hold>,
+    },
+}
+
+/// Why the gate turned a planned call away, with the hold beside the two
+/// answers that existed before. `Turned` itself is untouched: it is matched
+/// in files this row may not edit, and a third variant there would have
+/// meant editing them (`Turned` is `batch.rs`'s).
+#[derive(Debug)]
+pub(crate) enum Blocked {
+    /// The refusals' or the order's own word.
+    Turned(Turned),
+    /// `undo.v1` judged that the call would lose something a reshaped call
+    /// would keep: it is held, the model re-plans it, and no card is made.
+    /// `order` never ran for it.
+    Held(Hold),
+}
+
+/// A call held at point one: what the model reads, and what the record keeps
+/// so the owner can still say the original was right.
+#[derive(Debug, Clone)]
+pub(crate) struct Hold {
+    /// The sentence the model reads, built from the pack's own words.
+    pub why: String,
+    /// The judgment that held it.
+    pub judgment: String,
+    /// The shape the pack chose, where it chose one above its own bar.
+    pub shape: Option<String>,
+}
+
+impl ToolRuntime {
+    /// One planned call through the refusals, 0d, the order, the thread
+    /// guard's doubt and a glide's own word, in that order: everything the
+    /// gate decides about a call it was able to plan.
+    pub(crate) async fn decided(
+        &self,
+        tc: &TurnCtx<'_>,
+        at: &At<'_>,
+        tool: &dyn Tool,
+        plan: &Plan,
+        input: &Value,
+        glided: Option<String>,
+    ) -> Decided {
+        let stop = |why: String, refused: bool| Decided::Stopped {
+            why,
+            refused,
+            held: None,
+        };
+        match self
+            .judge_reversibility(tc, at, tool, plan, input, &mut |_, _| {})
+            .await
+        {
+            // A batch whose steps differ in class (theseus-nrvq).
+            Err(Blocked::Turned(Turned::Invalid(e))) => stop(e, false),
+            Err(Blocked::Turned(Turned::Place(why))) => stop(why, true),
+            Err(Blocked::Held(h)) => Decided::Stopped {
+                why: h.why.clone(),
+                refused: true,
+                held: Some(h),
+            },
+            Ok((d, class)) => match glided {
+                Some(why) => stop(why, true),
+                None => Decided::Runs(self.misroute_hold(tc, tool, plan, d), class),
+            },
+        }
+    }
+
+    /// The refusals, 0d, and the order, with the verdict read on both sides
+    /// of it. `Err(Blocked::Held)`: point one held the call.
+    pub(crate) async fn judge_reversibility(
+        &self,
+        tc: &TurnCtx<'_>,
+        at: &At<'_>,
+        tool: &dyn Tool,
+        plan: &Plan,
+        input: &Value,
+        seen: &mut (dyn FnMut(Layer, &Decision) + Send),
+    ) -> Result<(Decision, Bound), Blocked> {
+        let admits = self
+            .refusals(at, tool, plan, input)
+            .map_err(Blocked::Turned)?;
+        // 0d. After every outright refusal, before the order.
+        let verdict = self.undo_check(tc, tool, plan, input).await;
+        // Point one.
+        if let Some(v) = verdict.as_ref().filter(|v| v.holds()) {
+            return Err(Blocked::Held(self.hold_of(tc, tool, plan, v)));
+        }
+        let (decision, bound) = self
+            .ordered(at, tool, &admits, seen)
+            .map_err(Blocked::Turned)?;
+        // Point two, on what the order returned.
+        let decision = match verdict.as_ref().filter(|v| v.raises()) {
+            None => decision,
+            Some(v) => {
+                let d = raised(decision, tool.name(), &plan.summary);
+                seen(Layer::Reversibility, &d);
+                tc.record(&crate::fact::tool::ToolRaised {
+                    tool: tool.name(),
+                    judgment: &v.judgment,
+                    p: v.p,
+                    summary: &plan.summary,
+                });
+                d
+            }
+        };
+        Ok((decision, bound))
+    }
+
+    /// 0d itself: `undo.v1` asked once about this planned call. `None` is
+    /// every fail-open arm, and it is also what a call the pack can say
+    /// nothing useful about comes to, which is asked about and billed for
+    /// nowhere ([`UndoCall::worth_asking`](crate::judge::undo::state::UndoCall::worth_asking)).
+    async fn undo_check(
+        &self,
+        tc: &TurnCtx<'_>,
+        tool: &dyn Tool,
+        plan: &Plan,
+        input: &Value,
+    ) -> Option<UndoVerdict> {
+        let judge = self.judge.get()?;
+        if !judge.undo_on(tc.session_id) {
+            return None;
+        }
+        let is_program = tool.backend() == Backend::Job;
+        let l1 = is_program
+            && self
+                .sandbox
+                .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
+                .is_some();
+        let call = undo::state::UndoCall::of(
+            tc.session_id,
+            tc.turn_id,
+            tool,
+            plan,
+            input,
+            is_program,
+            l1,
+        );
+        if !call.worth_asking() {
+            return None;
+        }
+        judge.judge_undo(call).await
+    }
+
+    /// A hold's words and its record. The shape's sentence is the pack's
+    /// own, read from the pack that answered, so the six shapes the owner
+    /// can argue with are the six the model is told about.
+    fn hold_of(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, plan: &Plan, v: &UndoVerdict) -> Hold {
+        let means = self
+            .judge
+            .get()
+            .and_then(|j| j.pack(undo::PACK_NAME))
+            .and_then(|p| v.shape_means(&p));
+        let why = words(&plan.summary, means.as_deref());
+        tc.record(&crate::fact::tool::ToolHeld {
+            tool: tool.name(),
+            judgment: &v.judgment,
+            shape: v.shape.as_deref(),
+            p: v.p,
+            summary: &plan.summary,
+        });
+        Hold {
+            why,
+            judgment: v.judgment.clone(),
+            shape: v.shape.clone(),
+        }
+    }
+}
+
+/// What the model reads when a call is held. Facts and one instruction: what
+/// was held, that something would be lost, and the shape to take instead.
+/// It does not invite the same call again — a hold the model answers by
+/// re-proposing what it proposed is the loop the repeat cap exists to end
+/// (`p5kln-p0-unbounded-hold`).
+pub(crate) fn words(summary: &str, means: Option<&str>) -> String {
+    let mut s = format!(
+        "{summary}: this would lose something that nothing holds a copy of, \
+         and the same work has a shape that keeps a way back."
+    );
+    match means {
+        Some(m) => s.push_str(&format!(" Do it this way instead: {m}")),
+        None => s.push_str(
+            " Do it a way that keeps a way back — move the targets aside, \
+             write beside the file and rename into place, copy or export \
+             first, publish under a new name, or name the exact targets \
+             instead of a sweep — and say which you chose.",
+        ),
+    }
+    s
+}
+
+/// Point two: the decision the order returned, raised to `approve`. The
+/// `why` is the clause every surface shows the owner
+/// (`needs_you::rule_clause` reads the last `— approve (…)`).
+fn raised(d: Decision, tool: &str, summary: &str) -> Decision {
+    d.at_least(
+        Posture::Approve,
+        "undo.v1: nothing would bring back what this loses",
+        "[judge] reversibility",
+        tool,
+        summary,
+    )
+}
+
+/// The `reason` a held call's gate record and result node carry, beside
+/// `place: …` and `mode: …`. The shape is in it, so the ledger row and the
+/// stored record both say which of the six was suggested.
+pub(crate) fn reason(h: &Hold) -> String {
+    match &h.shape {
+        Some(shape) => format!("{HELD_REASON}: {shape} ({})", h.judgment),
+        None => format!("{HELD_REASON}: no shape named ({})", h.judgment),
+    }
+}

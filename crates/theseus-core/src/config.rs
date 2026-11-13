@@ -82,7 +82,7 @@ pub use aws::{
 };
 pub use google::{GoogleConfig, GoogleCredentialNames};
 pub use google_calendars::{primary_spec, CalendarEntry, CalendarSpec, CalendarTable};
-pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig};
+pub use judge::{JudgeConfig, JudgePackConfig, PackMode, SignalsConfig, UNDO_PACK};
 pub use limits::{
     default_fan_in_chars, default_fan_out_max_wait_secs, default_fan_out_wait_secs,
     default_helper_floor_usd, default_helper_max_output_tokens, default_job_wait_beat_secs,

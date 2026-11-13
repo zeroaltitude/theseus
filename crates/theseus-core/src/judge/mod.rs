@@ -57,6 +57,7 @@ pub mod sink;
 pub mod small_talk;
 pub mod spend;
 pub mod stop;
+pub mod undo;
 #[cfg(test)]
 mod tests_ahead;
 #[cfg(test)]
@@ -132,6 +133,10 @@ pub const WIRED: &[(&str, PackMode)] = &[
     (people::seen::SEEN_PACK, PackMode::Live),
     (content::PACK, PackMode::Live),
     (delay::PACK, PackMode::Live),
+    // The reversibility classifier (theseus-p5kln): live is the owner's own
+    // word, 2026-11-12, "i would like it wired and switched on". `[judge]
+    // reversibility = false` lowers it to shadow without a build.
+    (undo::PACK_NAME, PackMode::Live),
 ];
 
 /// The mode `WIRED` gives `pack` (shadow for one it does not list).

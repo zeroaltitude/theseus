@@ -225,6 +225,11 @@ pub enum Action {
     /// Keeps, asks about, or notes a standing record from the owner's words
     /// (`directive.v1`, theseus-slvl.5).
     Capture,
+    /// Holds a tool call that would lose something a reshaped call would
+    /// keep, and raises one whose loss no reshaping could touch
+    /// (`undo.v1`, theseus-p5kln). Its reader is theseus-core's
+    /// `toolrun/reversible.rs`.
+    Hold,
 }
 
 /// Where a question's dynamic options or per-item Nouls come from.

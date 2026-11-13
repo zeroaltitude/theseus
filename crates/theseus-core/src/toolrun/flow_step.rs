@@ -30,14 +30,17 @@ impl ToolRuntime {
         assistant_node: &str,
         call: &ToolUse,
     ) -> Result<Stepped> {
-        match self.admit(
-            tc,
-            assistant_node,
-            &Call {
-                call,
-                invalid: None,
-            },
-        )? {
+        match self
+            .admit(
+                tc,
+                assistant_node,
+                &Call {
+                    call,
+                    invalid: None,
+                },
+            )
+            .await?
+        {
             Admitted::Answered(o) => Ok(Stepped::Ran(o)),
             Admitted::Asks(_, g) => Ok(Stepped::Asks {
                 why: reason(&g.decision),
