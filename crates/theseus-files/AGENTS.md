@@ -2,10 +2,11 @@
 
 Files people give the model, read for it (theseus-c9l6): a PDF's pages counted, its text extracted page by page,
 and a range of its pages cut out as a PDF of its own; Word, Excel, PowerPoint, OpenDocument, EPUB, RTF, and Jupyter
-notebooks read into sections; archives listed and a member read out; ffmpeg and tesseract when present. Every
+notebooks read into sections; archives listed and a member read out; a page drawn as a picture when a renderer is
+present; ffmpeg and tesseract when present. Every
 conversion runs in a capped child process.
 
-Key modules: `pdf.rs`, `doc.rs`, `archive.rs`, `kind.rs`, `media.rs`, `convert.rs`. Read by: theseus-core
+Key modules: `pdf.rs`, `doc.rs`, `archive.rs`, `kind.rs`, `media.rs`, `render.rs`, `convert.rs`. Read by: theseus-core
 (`attach.rs`, `file_read.rs`, `web/fetch.rs`), theseus-tools (`docs.rs`, `fs.read`), and theseusd (the converter's
 role).
 
@@ -24,6 +25,15 @@ role).
   XML scanner it reads with (no dependency); `src/archive.rs` lists zips, tars, and gzipped tars as streams, and reads
   one member out only by a relative path that climbs nowhere (`safe_path`). Dependencies: `zip` (already in the
   lock; `deflate-flate2` only) and `flate2` (lopdf's too): no crate new to the workspace but lopdf's.
+- `src/render.rs`: a PDF page drawn as a picture (theseus-w68l), for a model that reads no PDFs: a scan has no text
+  to extract, so those pages reached such a model as nothing. `render::page(bytes, page)` runs poppler's
+  `pdftocairo` (`- -`: the PDF on its stdin, a PNG on its stdout, so it writes no file and runs under `run_capped`'s
+  `RLIMIT_FSIZE` 0) at `LONG_EDGE_PX` (1,100) and refuses an answer that is no PNG or over `MAX_PNG_BYTES`.
+  `pdftoppm`, its sibling, writes a file named `-.png` instead and so cannot run here. An absent renderer is said,
+  never a failure, in `media`'s words. **No renderer is vendored and no crate was added**: the seam is this one
+  function, so a pure-Rust renderer (a dependency, and a `deny.toml` licence entry) can take its place without
+  theseus-core changing. theseus-core's `page_images` is its reader, and it draws nothing unless
+  `[tools] pdf_page_images` is on.
 - `src/media.rs`: ffprobe (a recording's length), ffmpeg (a video's audio, a strip of its frames, a long recording cut
   to its cap), tesseract (OCR), each found on `PATH` or the usual places and run through `run_capped` with
   `MEDIA_LIMITS` (90 s, 2 GiB, two threads, an empty environment). An absent tool is said, never a failure.

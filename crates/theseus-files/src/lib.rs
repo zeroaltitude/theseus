@@ -2,8 +2,9 @@
 //! counted, its text extracted page by page, and a range of its pages cut out
 //! as a PDF of its own (`pdf`); Word, Excel, PowerPoint, OpenDocument, EPUB,
 //! RTF, and Jupyter notebooks read into sections (`doc`); archives listed and
-//! one member read out (`archive`); what a file is (`kind`); and ffmpeg and
-//! tesseract when they are present (`media`). Each conversion runs in a child
+//! one member read out (`archive`); what a file is (`kind`); a page drawn as a
+//! picture when a renderer is present (`render`); and ffmpeg and tesseract
+//! when they are present (`media`). Each conversion runs in a child
 //! process with a time limit and a memory cap (`convert`), since a hostile
 //! file is real.
 //!
@@ -18,6 +19,7 @@ pub mod doc;
 pub mod kind;
 pub mod media;
 pub mod pdf;
+pub mod render;
 mod xml;
 
 /// The largest file a surface accepts, and a tool reads, as a document: the
