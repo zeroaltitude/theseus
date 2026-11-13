@@ -541,6 +541,7 @@ is a consumer.
 | `theseus-memory/src/recall.rs:453-455` | `if c.external && !p.include_external` → `Reason::Untrusted`: a marked node is not drawn into a prompt unless the operator's config admits it | **kept.** It decides what gets *recalled into a prompt*, which is DD5/§5.2's durability rule ("such text never becomes durable without the operator's confirmation"), not a treatment of the session. It holds no call, freezes nothing, and changes nothing about what the session may **do** |
 | `theseus-memory/src/recall.rs:79-80, 113, 134` | `Reason::Untrusted` and its word, `"untrusted"` | **kept**: the named reason a candidate was left out, which is the honesty half of the filter above |
 | `theseus-memory/src/recall.rs:254, 344` and `theseus-core/src/config/memory.rs:175, 336, 469` | `Params::include_external`, default `false`, from `[memory] include_external` | **kept**: the operator's own switch over the filter above. A config key the owner sets, not a hold the daemon applies |
+| `theseus-memory/src/recall.rs:941-951` | `include_external_admits_it`, the test that `include_external: true` admits a marked candidate; its doc at `:941` reads *"External text is admitted only when the config says so."* | **kept**: the test of the operator's switch above, not a site of its own. It pins the switch's behaviour and cannot contradict the position |
 | `theseus-memory/src/recall.rs:173` | `Candidate::external`, the carrier | **kept**: a field, no decision |
 | `theseus-core/src/consolidate/run.rs:464` with `:1029` | a cluster any of whose sources is marked is skipped, counted as `skipped["external"]`, and never synthesized into a memory | **kept**, same reason as the recall filter: it governs what becomes a durable synthesis, not what the session may do. The synthesis is *refused*, not the call |
 | `theseus-index/src/extract.rs:143` | `external = body.external.is_some()` for a tool result | **kept**: the carrier that puts the node's own marker into the index |
@@ -720,11 +721,11 @@ from the context: the labels say "nothing untrusted in play", while T1 says "hel
 **Transmission: every path the latch travels.** Each is deterministic, and each is written in the frame that
 writes the transmitted node.
 
-| Path | Today (T1) | With labels |
-|---|---|---|
 *The "Today (T1)" column below is as of 2026; its "Latches" entries describe the retired hold and no longer
 hold — nothing latches at this commit (§2.4a, §2.4a.1). The "With labels" column is M4's plan.*
 
+| Path | Today (T1) | With labels |
+|---|---|---|
 | A result from `http.fetch` or `web.search` | Latches (retired: §2.4a.1) | The same, by the `external` origin |
 | A task's brief, from a latched session | Latches the task (`via: task.create`) | The same: the brief is untrusted by transmission |
 | A report, from a latched task | Latches the parent (`via: task.report`) | The same |
