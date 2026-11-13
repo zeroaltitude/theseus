@@ -1426,7 +1426,8 @@ impl Lane {
     ) -> Result<Plan, SendErr> {
         let (channel, mut extra) = match self.kind {
             "operator" => {
-                let (channel, place) = self.operator_channel(body).await?;
+                let dm = self.operator_channel(body).await?;
+                let (channel, place) = self.announced(body, dm);
                 (channel, json!({"place": place}))
             }
             _ => (self.place_channel().await?, json!({})),
@@ -1538,7 +1539,8 @@ impl Lane {
     /// A Jev notice, or the notices' pause, in the owner's DM: a notice
     /// under its judgment's key, with its right / wrong / noise.
     async fn jev_post(&mut self, a: &Action, body: &Value) -> Result<Plan, SendErr> {
-        let (channel, place) = self.owner_dm().await?;
+        let dm = self.owner_dm().await?;
+        let (channel, place) = self.announced(body, dm);
         let (content, key, buttons) = match kind_of(a) {
             "jev_notice" => {
                 let judgment = body["judgment"].as_str().unwrap_or(&a.correlation_id);
@@ -1634,6 +1636,28 @@ impl Lane {
             }],
             extra: json!({"place": place, "text": content}),
         })
+    }
+
+    /// Where an operator post goes once the announcements have a place of
+    /// their own (theseus-nuqut): the announcement place for a post that only
+    /// tells the owner something (`theseus_core::outbox::announces`), and the
+    /// channel `dm` would have given for everything else. The owner's rule,
+    /// 2026-11-12: *"urgency = main dm"*.
+    ///
+    /// With no announcement place bound this is `dm` itself, byte for byte,
+    /// which is why a daemon that binds none writes exactly what it wrote
+    /// before. The post still travels the operator's own lane — one writer,
+    /// in order — and only the channel it writes to moves.
+    fn announced(&self, body: &Value, dm: (u64, String)) -> (u64, String) {
+        if !theseus_core::outbox::announces(body) {
+            return dm;
+        }
+        // The owner's own word first (`notify here`, theseus-nuqut), then the
+        // bindings file's `notify = true`, then the DM.
+        if let Some(c) = self.shared.notify_said() {
+            return (c, format!("discord:channel:{c}"));
+        }
+        self.shared.place_bits.notify_place().unwrap_or(dm)
     }
 
     /// Where a Jev notice goes: the owner's DM, the one approvals go to,

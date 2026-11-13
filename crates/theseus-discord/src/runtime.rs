@@ -784,6 +784,7 @@ enum Control {
     /// "resume self": its author's ids; the core counts only the owner's.
     ResumeSelf(Option<DiscordOrigin>),
     SelfWord(self_word::Word),
+    NotifyPlace(guilds::notify::Said), // theseus-nuqut, `runtime/guilds/notify.rs`
 }
 
 /// What `/stop` answers (W1): what stopped, and that the conversation goes
@@ -852,7 +853,7 @@ fn parse_control(text: &str) -> Option<Control> {
         "/tasks" => Some(Control::Tasks),
         "/wakes" => Some(Control::Wakes),
         "/trust" => Some(Control::Trust(None)),
-        _ => self_word::words(text).map(Control::SelfWord),
+        _ => guilds::notify::words(text).or_else(|| self_word::words(text).map(Control::SelfWord)),
     }
 }
 
@@ -2244,6 +2245,7 @@ impl Place {
             Control::HaltSelf(..) | Control::ResumeSelf(_) | Control::SelfWord(_) => {
                 self.self_control(cmd, by).await
             }
+            Control::NotifyPlace(said) => self.notify_place(said, by),
             Control::Join(named, origin) => self.join(named, origin, by).await,
             Control::Leave => self.leave(by).await,
             Control::Mute(on) => self.mute(on),
