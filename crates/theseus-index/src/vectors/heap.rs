@@ -141,6 +141,57 @@ mod tests {
         );
     }
 
+    /// A `Texts` of a fixed list of nodes, as a start's index gives them.
+    struct Nodes(Vec<NodeChunks>);
+
+    impl Texts for Nodes {
+        fn chunk_text(&self, _: &str, _: u32) -> Option<String> {
+            None
+        }
+
+        fn all_nodes(&self) -> anyhow::Result<Vec<NodeChunks>> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// A start's rows take their room once (theseus-xxac7): a reconcile is
+    /// handed every node the index holds before it adds one, so `rows` (64
+    /// bytes a chunk, never shrunk afterwards) is allocated at that size
+    /// instead of doubled up to it, which left a spare copy of up to half of
+    /// them resident for the tender's life.
+    #[test]
+    fn a_reconciles_rows_take_their_room_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nodes: Vec<NodeChunks> = (0..10_000u64)
+            .map(|i| NodeChunks {
+                node_id: format!("nd_{i:026}"),
+                position: i * 7,
+                session: format!("ses_{:026}", i % 50),
+                kind: "user_message".into(),
+                external: false,
+                chunks: (0..3)
+                    .map(|c| ChunkKey {
+                        chunk: c,
+                        hash: u128::from(i) << 8 | u128::from(c),
+                        tokens: 100,
+                    })
+                    .collect(),
+            })
+            .collect();
+        let v = Vectors::new(
+            VectorConfig::new(Some(tmp.path().to_path_buf())),
+            tmp.path(),
+        );
+        v.reconcile(&Nodes(nodes)).unwrap();
+        let t = v.table.read().unwrap();
+        assert_eq!(t.rows.len(), 30_000);
+        assert_eq!(
+            t.rows.capacity(),
+            30_000,
+            "the rows were doubled up to their size, not measured first"
+        );
+    }
+
     /// The heap in use, glibc's count: its arenas' and its mapped chunks'.
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     fn heap() -> usize {

@@ -811,6 +811,29 @@ impl Table {
         }
     }
 
+    /// Room for the chunks a reconcile is about to add, measured before the
+    /// first one instead of reached by doubling (theseus-xxac7). `rows` is 80
+    /// bytes a chunk and nothing ever shrinks it, so a start that doubled its
+    /// way up to the index's chunk count kept the spare rows of its last
+    /// doubling for the tender's life: at the 1.7M chunks the owner's index
+    /// holds, the next power of two is 2,097,152, which is 397,152 spare rows,
+    /// 32 MB, and in the worst case (just past a doubling) nearly half of the
+    /// 149 MB the rows cost. It counts only the nodes the reconcile will
+    /// actually add, so a second reconcile of the same nodes reserves nothing;
+    /// a forget racing it can leave the count a few chunks high.
+    fn reserve_for(&mut self, nodes: &[NodeChunks]) {
+        let adding = nodes
+            .iter()
+            .filter(|n| {
+                !self.by_node.contains_key(n.node_id.as_str())
+                    && !self.forgot_nodes.contains(&n.node_id)
+            })
+            .map(|n| n.chunks.len());
+        let (nodes, chunks) = adding.fold((0usize, 0usize), |(n, c), k| (n + 1, c + k));
+        self.rows.reserve_exact(chunks);
+        self.by_node.reserve(nodes);
+    }
+
     fn add_node(&mut self, n: &NodeChunks) {
         if let Some(rows) = self.by_node.get(n.node_id.as_str()) {
             let same = rows.len() == n.chunks.len()
@@ -1513,6 +1536,7 @@ impl Vectors {
         let nodes = texts.all_nodes()?;
         let mut t = self.table.write().unwrap();
         if t.generation == generation {
+            t.reserve_for(&nodes);
             for n in &nodes {
                 if t.by_node.contains_key(n.node_id.as_str()) || t.forgot_nodes.contains(&n.node_id)
                 {
