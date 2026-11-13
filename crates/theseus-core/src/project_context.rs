@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 
 use crate::context_files::{ContextFile, ContextFiles, ContextPath, Level};
 
+pub mod change;
 pub mod trust;
 
 #[cfg(test)]
@@ -430,10 +431,26 @@ pub fn block(
     if !found.project.is_empty() {
         if granted {
             let budget = cfg.project.budget_bytes();
-            let a = assemble(files, &found.project, budget);
+            // §8's "After a grant": what changed since the owner last read
+            // these files, and -- at `ask` posture -- which of them this
+            // compile does not read because of it. The row and the stored
+            // sighting are the turn's (`observe_project`); this is the
+            // block's half, which is where the model sees it.
+            let root = found.root.as_deref().expect("a project file has a root");
+            let seen = change::observe(cfg, store, files, root, &found.project);
+            let carry: Vec<Found> = found
+                .project
+                .iter()
+                .filter(|f| !seen.withholds(&f.shown))
+                .cloned()
+                .collect();
+            let a = assemble(files, &carry, budget);
             if !a.text.is_empty() {
                 parts.push(FRAME.to_string());
                 parts.push(a.text);
+            }
+            if let Some(line) = seen.line() {
+                parts.push(line);
             }
         } else if let Some(line) = found.naming_line() {
             parts.push(line);

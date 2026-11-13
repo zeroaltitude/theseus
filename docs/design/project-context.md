@@ -301,7 +301,8 @@ The default is to notify rather than to ask, deliberately. Asking on every edit 
 fire a card many times a day in the repository being actively edited, and a card that
 fires constantly is a card that is clicked through, which is worse security than a
 notice that is read. A maintainer taking outside patches can turn it into an ask with
-one configuration line.
+one configuration line, `[project] on_change = "ask"`, which names a changed file and
+does not read it until the repository is granted again.
 
 ### How the owner sees it
 
@@ -346,9 +347,9 @@ What is new is a discovery module, a level on two structs, a `[project]` configu
 section for the budget and the change posture, the grant's META record, the tail's live
 block, and the OS fact.
 
-## 11. Status: what is built (audit of 2026-11-12, base 75f19f3c)
+## 11. Status: what is built (audit of 2026-11-12, base 75f19f3c; §8's "After a grant" added 2026-11-13)
 
-§7 is built, §8's three stops are built, and F2 (§6's budget) is closed. Read on the tree, not assumed:
+§7 is built, §8 is built, and F2 (§6's budget) is closed. Read on the tree, not assumed:
 
 - **The grant.** `project_context/trust.rs`: the META record `project.trust` (`RECORD`), a
   map from `repo_id(root)` to `Grant { root, by, via, at_ms }`; `granted` is one keyed
@@ -359,6 +360,25 @@ block, and the OS fact.
   falls to `places::owner_in_private`. A path outside every repository is refused; a
   second trust writes nothing; an untrust of an untrusted repository is an error.
 - **The manifest.** `ContextFileRef.level`, shipped at store format 58 (no bump needed).
+- **After a grant.** `project_context/change.rs`: each compile of a granted repository builds a
+  sighting of its instruction files' digests (`sighting`, from the reader's own digests and its
+  stat-based cache) and compares it with the META record `project.seen.<repo_id>`. A difference is
+  named in the block (`Observed::line`, after the carried text) and is one `project.changed` row a
+  file (`fact/project.rs`), written with the new sighting in the turn's next frame by
+  `TurnRunner::observe_project`. Both halves come from one `change::observe` call on the same
+  inputs, so the block and the ledger cannot disagree. A first sighting stores the state and says
+  nothing: the notice is for a change *after* the owner looked. Digests, never text. No watcher --
+  the comparison rides a recompile the session already pays for.
+- **The posture.** `[project] on_change`, `"notice"` (the default, and today's behaviour but for
+  the saying of it) or `"ask"`. At `ask` the *changed* files are named and not read, the unchanged
+  ones are carried as before, no sighting is stored -- so the file keeps waiting rather than
+  arriving by itself on the next turn -- and the row says `carried: false`. The owner's accept is
+  `untrust` then `trust`: `Core::project_untrust` drops the repository's sighting in the grant's own
+  frame, so the grant given again does not report a change he has just this moment read.
+  `notice` is the default because the design says why in as many words: a card that fires on every
+  edit of a repository being actively edited is a card that is clicked through, which is worse
+  security than a notice that is read. A notice also widens nothing, so it is not covered by the
+  rule that what widens reach ships switched off.
 - **F2.** The regrow pass (`allocate(plan, &root, budget, &mut used, true)`) lets a root
   file cut at half grow into what the chain left; the test is
   `a_root_file_cut_at_half_grows_into_what_the_chain_left`.
@@ -374,8 +394,13 @@ with no terminal is accepted as the grantor: `Act::Standing` is judged by
 `owner_in_private`, which asks only the surface, and `Answerer.agent` is consulted for
 `Act::Answer` alone (`rpc/confirms.rs`, the `owners_alone` arm). No test grants as an
 agent. That and a grant from chat validated as the owner are tracked as `theseus-me9fc`. (3) §8's
-"After a grant" is NOT built: a trusted file that changes is carried, but the change is
-not named in the block and not ledgered, and there is no configuration line that turns
-the notice into an ask — `[project]` is `max_tokens` and `tail_facts` only. The residual
-risk is the one `judge/content.rs` names: text written into a granted repository's file
-by an unfrozen session at notify posture is never asked the injection question.
+"After a grant" is **built** (2026-11-13, above): the change is named in the block, it is one
+`project.changed` row a file, and `[project] on_change = "ask"` turns the notice into an ask. What
+remains open under it is the live proof of (1) — a real edit to a real granted repository, seen in a
+real recompile — and **the residual risk, which this does not close and cannot**: text written into
+a granted repository's file by an unfrozen session at notify posture is never asked the injection
+question, because block 3 is assembled text and no node, so no content label can be raised on it
+(`judge/content.rs`, "A granted repository's instruction text is no item, on purpose"). Naming the
+change does not stop such a write; it is what gives the owner a chance to *see* one, which is why
+this half of §8 matters more than its size suggests. Closing it would mean labelling block 3's
+project text, which is a different design.
