@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 1.0.4" src="https://img.shields.io/badge/version-1.0.4-d6a548?style=flat-square">
+  <img alt="Version 1.0.5" src="https://img.shields.io/badge/version-1.0.5-d6a548?style=flat-square">
   <img alt="Rust 1.98 or later" src="https://img.shields.io/badge/rust-1.98%2B-13314d?style=flat-square">
   <img alt="Runs on Linux" src="https://img.shields.io/badge/runs%20on-Linux-13314d?style=flat-square">
   <img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-13314d?style=flat-square">
@@ -121,10 +121,17 @@ repeated unit of work into a tool, and in the morning says what changed, why, an
 things worse reverts itself. A short keel still needs your yes: loosening a test or a budget, security and
 permission changes, spending limits, and the off switch.
 
-**Proof.** The nightly loop has been on since 2026-10-18. Its tests walk each step: a green self-made branch is
-reviewed by a different model, joined, signed and announced once, and a regression planted after a join is found,
-bisected and reverted. The keel guard fails any commit range that weakens a test without a signed, quoted yes —
-including the commits Theseus writes about itself. [The whole page](docs/features/self-improvement.md).
+**Proof.** The nightly loop has been on since 2026-10-18, and in 1.0.5 **it landed a change on `main` by itself,
+unattended, for the first time**: it mined a real defect out of its own record, built the fix inside its own sandbox
+view, passed the project's full gate there (9,879 of 9,879 tests), was reviewed by a model other than the one that
+wrote it, and joined under the join lock. The fix was small and real — `fs.edit` had answered an edit whose old text
+equals its new text as invalid input, and now answers "No change made" and leaves the file alone. The keel guard
+fails any commit range that weakens a test without a signed, quoted yes, Theseus's own commits included, and the
+file that defines what a self build may reach is itself in a class that stops a self-made join for the owner's word,
+so the loop cannot widen its own view. One thing it does **not** yet have: the two commits of that merge are not
+verified by the forge — the content commit is unsigned and the merge is signed by the machine's own key — and whether
+a self-made join should carry the verified mark is an open question, not a solved one.
+[The whole page](docs/features/self-improvement.md).
 
 ### 7. Many characters, one memory; separate lines of work
 
@@ -159,9 +166,12 @@ new compiler errors in its result.
 **Proof, including where it loses.** On all 89 tasks of Terminal-Bench 2.0 at high effort, the frozen 1.0.3 build
 solved 78.3% of its trials (2026-10-26) — level with the harnesses on its own model: Claude Code 75.3%, OpenClaw
 74.2%, OpenHands 71.9%. It is **behind** the harnesses on GPT-6 Astra (Codex 85.4%, OpenClaw 82.0%), and on the 30
-hardest tasks at top effort it solved 65.6% to Codex's 86.7% (2026-10-27). And it is **expensive**: 1.0.3 costs 2.2
-to 2.8 times what the v1 build cost a trial, like for like, because a model refusal switches the rest of a turn to
-a fallback model. That cause is named, is unchanged as of 1.0.4, and the fix is still open.
+hardest tasks at top effort it solved 65.6% to Codex's 86.7% (2026-10-27). And it was **expensive**: 1.0.3 cost 2.2
+to 2.8 times what the v1 build cost a trial, like for like, because a model refusal switched the rest of a turn to
+a fallback model. The cause was named rather than guessed at, and it is narrower now — a refused request is first
+made again on the model that refused it, and only a refusal that survives that goes to the fallback. **What the cost
+is today is not measured**: the benchmarks are parked until the 2.x line, so this paragraph's numbers are the last
+ones that were run and not a claim about the build you would install.
 [The whole page](docs/features/coding.md).
 
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
@@ -184,24 +194,28 @@ project ships one build to one machine rather than a library to the world. What 
   - **1.0.3** — the principles migration: trust, privacy and content rebuilt in twelve rows (feature 8 above).
   - **1.0.4** — Jev chooses the model and its effort on every turn, and the approve lists are retired in favour of
     a notify list and the floor.
-  - **1.0.5** — a polish release over the core features: the rough edges the first four patches named, each with
-    its own row and gate. In flight as this is written.
-  - **1.0.6** — the next bundle after it, planned as one GitHub issue per bucket of work, each issue tagged with
+  - **1.0.5** — the broad feature release of the 1.x line, and the one where the self loop landed its own change
+    on `main` unattended (feature 6 above). 323 of 335 planned lines closed; tagged `release-1.0.5` on 2026-11-12,
+    with the full gate green on two hosts (9,881 and 9,884 tests, both exit 0). The twelve lines left open are
+    named in the tag rather than discovered later, and move to 1.0.6.
+  - **1.0.6** — the release being built now, planned as one GitHub issue per bucket of work, each issue tagged with
     the release it is planned for.
 - **The minor number is unused so far.** Every release to date has been `1.0.N`; there has been no `1.1.0`. The
   *roadmap* called "v1.1" is a planning document for the week after v1, and its work landed as patch releases, not
   as a `1.1.0` tag.
-- **The version is one number for the whole workspace.** Every crate carries it, `theseus --version` prints it, and
-  the store has a separate format number (`MANIFEST_FORMAT`) that moves whenever a stored record changes shape, so
-  a build refuses a store written by a newer one.
+- **The version is one number for the whole workspace**, and the store's format is a separate one. Every crate
+  carries the release number and `theseus --version` prints it; `MANIFEST_FORMAT` moves whenever a stored record
+  changes shape, so a build refuses a store written by a newer one.
 
-**What is not decided, said plainly.** Two lines of work are designed, decided and unbuilt — the daemon, the CLI
-and the index each on its own machine over mTLS ([remote runtimes](docs/design/remote-runtimes.md)), and working
-ahead in a sandbox on the likely next ask ([speculation](docs/design/speculation.md)) — and the
-[north-star plan](docs/design/north-star-plan.md) names what "crush it" would mean on memory, personality, speed,
-scale and task horizons. **Which of those earns a `2.0.0`, and what a `3.0.0` would be, is not written down
-anywhere in this repository, so this page does not guess.** When it is decided, it lands here and on
-[the status page](docs/status.md).
+**What a `2.0.0` would be: one thing is recorded, and the rest is not.** The 1.0.5 tag says it in a line — *"the
+benchmarks stay parked. The 2.x line is where measuring begins"* — so the next major number is where the numbers in
+this README get run again, against the rivals, on a build worth measuring. Beyond that: two lines of work are
+designed, decided and unbuilt — the daemon, the CLI and the index each on its own machine over mTLS
+([remote runtimes](docs/design/remote-runtimes.md)), and working ahead in a sandbox on the likely next ask
+([speculation](docs/design/speculation.md)) — and the [north-star plan](docs/design/north-star-plan.md) names what
+"crush it" would mean on memory, personality, speed, scale and task horizons. **Which of those earns the `2.0.0`
+tag, and what a `3.0.0` would be, is not written down anywhere in this repository, so this page does not guess.**
+When it is decided, it lands here and on [the status page](docs/status.md).
 
 ## How it works
 
@@ -234,8 +248,8 @@ These hold whatever the model does:
 
 ## Where it stands
 
-Theseus is at **version 1.0.4**, runs on Linux, and has one daily user. 1.0.4 is the build meant as a daily driver.
-1.0.5, a polish release over the core features, is in flight; 1.0.6 is being planned.
+Theseus is at **version 1.0.5**, runs on Linux, and has one daily user: the broad feature release of the 1.x line,
+tagged on 2026-11-12 with the full gate green on two hosts. 1.0.6 is being built now.
 **[The status page](docs/status.md)** says what works today, what is still rough and what comes next, and
 [the benchmarks](docs/benchmarks/omnibus.md) say where it loses — including the places it loses badly. Those pages
 change with every step that lands.
