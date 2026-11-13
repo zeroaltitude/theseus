@@ -532,8 +532,30 @@ struct Row {
     hash: u128,
     tokens: u32,
     alive: bool,
-    /// (cache, entry): the vector this row answers with.
-    vec: Option<(u8, u32)>,
+    /// The file among [`Table::caches`] whose entry `entry` is the vector
+    /// this row answers with. Two fields and not an `Option<(u8, u32)>`,
+    /// which has no niche to put its `None` in: its twelve bytes rounded
+    /// `Row` from 64 bytes to 80, 16 bytes a chunk (theseus-xxac7). Read and
+    /// written through [`Row::vec`] and [`Row::set_vec`], never bare.
+    cache: u8,
+    /// [`NO_VEC`] where this row has no vector of any stamp yet.
+    entry: u32,
+}
+
+/// A row with no vector: no file can hold `u32::MAX` entries (a record is
+/// 1,816 bytes of the 256/768 stamp, so that would be 7.8 TB), and
+/// [`Entries`] spells an empty slot the same way.
+const NO_VEC: u32 = u32::MAX;
+
+impl Row {
+    /// The file and entry of the vector this row answers with, if it has one.
+    fn vec(&self) -> Option<(u8, u32)> {
+        (self.entry != NO_VEC).then_some((self.cache, self.entry))
+    }
+
+    fn set_vec(&mut self, v: Option<(u8, u32)>) {
+        (self.cache, self.entry) = v.unwrap_or((0, NO_VEC));
+    }
 }
 
 #[derive(Debug, Default)]
@@ -698,7 +720,7 @@ impl Scan for Flat<'_> {
         best(
             n,
             t.rows.iter().enumerate().filter_map(|(i, r)| {
-                let (c, e) = r.vec?;
+                let (c, e) = r.vec()?;
                 if !r.alive || !keep(i) {
                     return None;
                 }
@@ -753,7 +775,7 @@ impl Table {
         let r = &self.rows[i as usize];
         let vec = self.resolve(r.hash);
         let (hash, tokens, position) = (r.hash, r.tokens, r.position);
-        self.rows[i as usize].vec = vec;
+        self.rows[i as usize].set_vec(vec);
         if vec.is_some() {
             self.mark(hash, false);
         }
@@ -872,7 +894,8 @@ impl Table {
                 hash: c.hash,
                 tokens: c.tokens,
                 alive: true,
-                vec: None,
+                cache: 0,
+                entry: NO_VEC,
             });
             self.by_hash.entry(c.hash).or_default().push(i);
             ids.push(i);
@@ -998,7 +1021,7 @@ impl Table {
     }
 
     fn full_of(&self, i: usize) -> io::Result<Option<Vec<f32>>> {
-        match self.rows[i].vec {
+        match self.rows[i].vec() {
             Some((c, e)) => self.caches[c as usize].full(e).map(Some),
             None => Ok(None),
         }
@@ -1783,7 +1806,7 @@ impl Vectors {
                 for ((h, _), e) in items.iter().zip(entries) {
                     let rows = t.by_hash.get(h).map(|r| r.as_slice().to_vec());
                     for i in rows.unwrap_or_default() {
-                        t.rows[i as usize].vec = Some((0, e));
+                        t.rows[i as usize].set_vec(Some((0, e)));
                     }
                 }
             }
@@ -1811,7 +1834,7 @@ impl Vectors {
     /// older stamps' files go. (Dead records go by the compaction rules, in
     /// `work_once`.)
     fn finish_stamp(t: &mut Table) {
-        let covered = t.alive().all(|r| matches!(r.vec, Some((0, _))));
+        let covered = t.alive().all(|r| matches!(r.vec(), Some((0, _))));
         if !covered {
             return;
         }

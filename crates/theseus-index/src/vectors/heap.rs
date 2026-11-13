@@ -229,6 +229,40 @@ mod tests {
         assert!(b < 600.0, "{b:.0} bytes a chunk");
     }
 
+    /// A row is 64 bytes, not 80 (theseus-xxac7). `rows` is the third
+    /// largest holder in the breakdown, one `Row` a chunk, and `Row` carries
+    /// a `u128` so its size rounds to a multiple of 16: the 12 bytes of an
+    /// `Option<(u8, u32)>` (no niche for its `None`) pushed the fields' 68 up
+    /// to 80, and the 5 of a `u8` beside a `u32` sentinel leave 61, which
+    /// rounds to 64. At the 1.7M chunks the owner's index holds that is
+    /// 27 MB. If a field is added and this test fails, read what the fields
+    /// add up to before raising the number: the next step is 80 again.
+    #[test]
+    fn a_row_is_sixty_four_bytes() {
+        assert_eq!(std::mem::size_of::<Row>(), 64);
+        assert_eq!(std::mem::align_of::<Row>(), 16);
+    }
+
+    /// A row's vector reads back as it was set, and no vector reads as none
+    /// (theseus-xxac7): the two fields behave as the `Option` they replaced.
+    #[test]
+    fn a_rows_vector_reads_back_as_it_was_set() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = build(tmp.path(), 40, 3);
+        let answered = t.rows.iter().filter(|r| r.vec().is_some()).count();
+        assert_eq!((t.rows.len(), answered), (120, 116), "every tenth waits");
+        let mut r = t.rows[0].clone();
+        for v in [
+            Some((0u8, 0u32)),
+            Some((3, 71)),
+            None,
+            Some((255, 4_000_000)),
+        ] {
+            r.set_vec(v);
+            assert_eq!(r.vec(), v);
+        }
+    }
+
     /// The breakdown is not a story about the heap: its sum is within a
     /// seventh of what glibc says the same table took, it names every chunk
     /// and record (so an empty table cannot pass it), and its cache lines are
