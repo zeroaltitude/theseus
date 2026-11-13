@@ -114,6 +114,7 @@ fn sample(i: usize) -> Node {
                 meta: serde_json::Value::Null,
                 image: None,
                 external: None,
+                payload: None,
             },
         ),
         4 => Node::recall(SID, "trn_1", "rcl_wren", "baseline", Vec::new()),

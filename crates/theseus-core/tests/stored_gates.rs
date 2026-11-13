@@ -123,6 +123,7 @@ fn a_node_of_every_kind_reencodes_unchanged() {
                 meta: serde_json::json!({"cost": 0.025_932_800_000_000_002f64}),
                 image: None,
                 external: None,
+                payload: None,
             },
         ),
     ];

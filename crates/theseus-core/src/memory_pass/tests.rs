@@ -307,6 +307,7 @@ fn result(sid: &str, turn: &str, text: &str) -> Node {
             meta: Value::Null,
             image: None,
             external: None,
+            payload: None,
         },
     )
 }

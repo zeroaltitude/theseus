@@ -1120,6 +1120,7 @@ mod tests {
                 meta: serde_json::Value::Null,
                 image: None,
                 external: None,
+                payload: None,
             },
         )
     }

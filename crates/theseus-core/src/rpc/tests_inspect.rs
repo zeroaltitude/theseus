@@ -117,6 +117,7 @@ fn write_loop(core: &Core, s: &str, t: &str, i: u32, last: bool, calls: u32) {
                     meta: Value::Null,
                     image: None,
                     external: None,
+                    payload: None,
                 },
             );
             r.created_at_ms = at + 470;

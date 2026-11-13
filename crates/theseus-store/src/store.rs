@@ -747,7 +747,13 @@ const BULK: usize = 4096;
 /// `manifest.context_files` entry gains `level` (`system`, `persona`, `user`, `project`), left
 /// out for the system level. A record from before reads every file as `system` and writes back
 /// byte for byte; the sample is `tests_layouts::COMPILATION_AT_57`, written by hand.
-pub const MANIFEST_FORMAT: u32 = 58;
+/// 59 = a large payload's marker on a tool result (theseus-czpp): a NODE record's
+/// `tool_result` body gains `payload` (`crate::payload::Marked`: the payload's guid, its kind,
+/// the tool it came from, its characters and lines, where its bytes are kept, and its first and
+/// last line), left out while absent, which it is for every result whose whole output did not
+/// pass `[tools] large_payload_chars`. A record from before reads it absent and writes back
+/// byte for byte; the sample is `tests_layouts::TOOL_RESULT_KEPT_AT_58`, written by hand.
+pub const MANIFEST_FORMAT: u32 = 59;
 /// The oldest format this build reads. A format-3 manifest's per-kind marks
 /// are left unread.
 const MANIFEST_OLDEST: u32 = 2;

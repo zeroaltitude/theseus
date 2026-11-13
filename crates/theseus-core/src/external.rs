@@ -163,6 +163,7 @@ mod tests {
                 meta: serde_json::Value::Null,
                 image: None,
                 external: url.map(|u| theseus_tools::External { url: u.into() }),
+                payload: None,
             },
         );
         n.id = id.into();
