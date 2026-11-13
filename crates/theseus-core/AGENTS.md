@@ -137,7 +137,20 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     has room for, with a line saying what was left out), else its text by page (GLM, a PDF the provider refused, one
     the request has no room for). PDFs are budgeted in render order (`attach::Spend`), so an earlier one never
     renders differently because of a later one, and the cached prefix holds. `fs.read` and `http.fetch` return a
-    PDF's pages (`theseus_tools::Media::Pdf`), kept the same way (`toolrun::keep_media`). Join 2: a Word, Excel,
+    PDF's pages (`theseus_tools::Media::Pdf`), kept the same way (`toolrun::keep_media`).
+    **A scanned page is a picture** (theseus-w68l; `page_images.rs`, `[tools] pdf_page_images`, off): a model that
+    reads no PDFs is given the text, and a scan has none, so such a page reached it as `(no text on this page)` and
+    nothing else. With the key on, an attached PDF's pages that hold no text are drawn when it arrives (at most
+    `page_images::MAX_PAGES`, 8), each a blob, and the list is kept as the *derived* file
+    `<blobs>/derived/<digest>.pages.json` (`Blobs::put_derived`), so no stored record gained a field and no store
+    format moved. `attach::pictures_of` renders them as image blocks after the text for a model with vision,
+    `as_text`'s line says which pages follow as pictures, and the page itself reads
+    `attach::AS_A_PICTURE`; they are priced as images (`catalog::image_tokens`), never as a document's pages, and
+    `FileRead.drawn` (the `file.read` row's `drawn`) counts them. A model with no vision, and every PDF while the
+    key is off, read exactly the words they read before. The renderer is `attach::Caps.page_images`, a
+    `page_images::Draw`: the daemon's is `page_images::POPPLER` (theseus-files' `render`, poppler's `pdftocairo`
+    when the machine has it), and a test passes its own, so no test needs a renderer installed. **No pure-Rust
+    renderer is vendored**: that is a dependency and a licence entry, and the owner's call. Join 2: a Word, Excel,
     PowerPoint, OpenDocument, EPUB, RTF, or notebook file, and an archive's list, is read into sections when it
     arrives (`theseus_files::convert::doc`; a JSON `{"sections": …}` blob, `blobs::Section`), and every model reads
     its text, a vision model its notebook images too; a recording, a video, and any other file are named with how to

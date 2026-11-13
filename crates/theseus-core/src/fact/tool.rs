@@ -912,7 +912,7 @@ impl Fact for FileRead<'_> {
         json!({"via": r.via, "name": r.name, "media_type": r.media_type, "bytes": r.bytes,
                "digest": r.digest, "pages": r.pages, "parts": r.parts,
                "text_bytes": r.text_bytes, "outcome": r.outcome(), "why": r.why,
-               "ms": r.ms, "capped": r.capped})
+               "ms": r.ms, "capped": r.capped, "drawn": r.drawn})
     }
 
     fn span(&self, trace: &mut crate::trace::Trace) {
