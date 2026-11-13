@@ -199,7 +199,10 @@ fn a_self_commit_is_signed_with_the_same_key_as_the_merge() {
     let base = jgit::main_of(&p, "origin").unwrap();
     let j = jgit::detached(&p, "join", &t.branch, &base).unwrap();
     let merge = jgit::merge(&p, &j, &c, "Merge self/replace-the-planks").unwrap();
-    assert!(!jgit::signed(&p, &merge).unwrap(), "the merge waits for the gate");
+    assert!(
+        !jgit::signed(&p, &merge).unwrap(),
+        "the merge waits for the gate"
+    );
     let signed = jgit::sign(&p, &j, &p.signing_key().unwrap()).unwrap();
     assert!(jgit::signed(&p, &signed).unwrap());
     let made = std::fs::read_to_string(&calls).unwrap();
@@ -231,7 +234,11 @@ fn a_self_commit_with_no_usable_key_is_unsigned_and_not_refused() {
 
     // A key its gpg refuses: the commit is still made, and still unsigned.
     let (p, _f) = place_without_identity();
-    gpg_program(&p, "broken-gpg.sh", "#!/bin/bash\necho 'gpg: no secret key' >&2\nexit 2\n");
+    gpg_program(
+        &p,
+        "broken-gpg.sh",
+        "#!/bin/bash\necho 'gpg: no secret key' >&2\nexit 2\n",
+    );
     git(&p.repo, &["config", "user.signingkey", "LOCKEDKEY"]);
     assert_eq!(p.signing_key().as_deref(), Some("LOCKEDKEY"));
     let t = tree::open(&p, "step the mast", NOW).unwrap();
