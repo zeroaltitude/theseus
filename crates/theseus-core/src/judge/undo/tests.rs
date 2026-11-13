@@ -178,7 +178,10 @@ fn the_holds_shape_and_its_sentence_come_from_the_pack() {
     let v = |shape: &str, c: f64| {
         UndoVerdict::of(
             &p,
-            &judged(&[(VERDICT, RESHAPEABLE, 0.95), (SHAPE, shape, c)], Mode::Live),
+            &judged(
+                &[(VERDICT, RESHAPEABLE, 0.95), (SHAPE, shape, c)],
+                Mode::Live,
+            ),
         )
         .expect("a verdict")
     };
@@ -253,7 +256,11 @@ fn the_state_carries_each_targets_word_and_the_gates_own_facts() {
     );
     assert_eq!(i.targets[0].access, "write");
     assert_eq!(i.cwd_kind, Some(CwdKind::RepoDirty));
-    assert_eq!(i.sandbox, Some(Sandbox::L1), "the class the gate would bind");
+    assert_eq!(
+        i.sandbox,
+        Some(Sandbox::L1),
+        "the class the gate would bind"
+    );
     assert_eq!(i.argv, c.argv);
     assert_eq!(i.tool, "fs.write");
     assert_eq!(i.class, "write");

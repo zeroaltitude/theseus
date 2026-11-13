@@ -130,7 +130,11 @@ async fn notify_mode_refuses_nothing() {
             "{tool}"
         );
     }
-    assert_eq!(reads.load(Ordering::Relaxed), 0, "notify never reads the labels");
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        0,
+        "notify never reads the labels"
+    );
 }
 
 /// Test 9, in the gate: without `injection` on the session, nothing changes.

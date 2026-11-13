@@ -201,15 +201,8 @@ impl ToolRuntime {
                 .sandbox
                 .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
                 .is_some();
-        let call = undo::state::UndoCall::of(
-            tc.session_id,
-            tc.turn_id,
-            tool,
-            plan,
-            input,
-            is_program,
-            l1,
-        );
+        let call =
+            undo::state::UndoCall::of(tc.session_id, tc.turn_id, tool, plan, input, is_program, l1);
         if !call.worth_asking() {
             return None;
         }

@@ -57,7 +57,6 @@ pub mod sink;
 pub mod small_talk;
 pub mod spend;
 pub mod stop;
-pub mod undo;
 #[cfg(test)]
 mod tests_ahead;
 #[cfg(test)]
@@ -70,6 +69,7 @@ mod tests_quotes;
 mod tests_reserve;
 #[cfg(test)]
 mod tests_route_facts;
+pub mod undo;
 pub mod warm;
 
 use std::collections::{BTreeMap, HashSet};

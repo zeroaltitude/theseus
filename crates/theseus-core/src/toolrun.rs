@@ -62,10 +62,10 @@ mod parallel;
 mod peek;
 mod proc_cap;
 mod proposal;
-pub(crate) mod reversible;
 pub mod reads;
 mod result_node;
 mod resume;
+pub(crate) mod reversible;
 mod self_pr;
 pub(crate) mod session_dir;
 mod steps;
@@ -1206,10 +1206,7 @@ impl ToolRuntime {
         let (reason, text) = match (&bad.held, bad.refused) {
             // A hold is its own kind of "this call did not run", beside the
             // place's and the mode's (theseus-p5kln).
-            (Some(h), _) => (
-                reversible::reason(h),
-                format!("Not run: {}", bad.error),
-            ),
+            (Some(h), _) => (reversible::reason(h), format!("Not run: {}", bad.error)),
             (None, true) => (
                 crate::policy::modes::refusal_reason(&bad.error),
                 format!("Not run: {}", bad.error),

@@ -282,7 +282,11 @@ async fn a_reversible_verdict_runs_the_call_unchanged() {
     assert!(r.rows("tool.held").is_empty());
     assert!(r.rows("tool.raised").is_empty());
     assert!(r.rows("tool.confirm_requested").is_empty());
-    assert_eq!(r.jev.seen().len(), 1, "asked once, and the answer let it run");
+    assert_eq!(
+        r.jev.seen().len(),
+        1,
+        "asked once, and the answer let it run"
+    );
 }
 
 /// Point two, and the error `docs/design/undo-v1.md` corrects: in `auto`
@@ -325,7 +329,9 @@ async fn a_call_the_sealed_holdout_refuses_is_never_sent_to_jev() {
     assert_eq!(results.len(), 1, "{results:?}");
     assert!(results[0].1.starts_with("Not run: "), "{:?}", results[0]);
     assert!(
-        results[0].1.contains("the sealed holdout set is out of reach"),
+        results[0]
+            .1
+            .contains("the sealed holdout set is out of reach"),
         "the sealed holdout refused it, not some other rule: {:?}",
         results[0].1
     );
