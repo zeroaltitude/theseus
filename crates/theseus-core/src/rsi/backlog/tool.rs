@@ -268,9 +268,15 @@ mod tests {
     fn the_plan_asks_at_every_posture_and_names_the_title() {
         let ctx = ToolCtx::default();
         let p = SelfFile
-            .plan(&json!({"finding": "The digest folds two kinds. And more."}), &ctx)
+            .plan(
+                &json!({"finding": "The digest folds two kinds. And more."}),
+                &ctx,
+            )
             .unwrap();
-        assert_eq!(p.summary, "file a self-improvement item: The digest folds two kinds.");
+        assert_eq!(
+            p.summary,
+            "file a self-improvement item: The digest folds two kinds."
+        );
         let a = p.authority.expect("a filing waits for a person's own yes");
         assert!(a.contains("The digest folds two kinds."), "{a}");
         // A given title is what both lines say.

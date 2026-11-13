@@ -412,7 +412,12 @@ impl Core {
 
     /// The write both filing routes share: one frame with the item, the
     /// record and the rows, under the backlog's own lock.
-    fn file_on_backlog(&self, finding: &str, title: &str, filed_by: &str) -> Result<SelfFileResult> {
+    fn file_on_backlog(
+        &self,
+        finding: &str,
+        title: &str,
+        filed_by: &str,
+    ) -> Result<SelfFileResult> {
         let _one = self
             .rsi
             .backlog

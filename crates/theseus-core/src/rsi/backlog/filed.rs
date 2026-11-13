@@ -192,7 +192,10 @@ mod tests {
     #[test]
     fn an_empty_or_over_long_finding_is_refused_with_words() {
         assert!(finding_of("   \n ").unwrap_err().contains("your own words"));
-        assert_eq!(finding_of("  the gate is slow  ").unwrap(), "the gate is slow");
+        assert_eq!(
+            finding_of("  the gate is slow  ").unwrap(),
+            "the gate is slow"
+        );
         let long = "x".repeat(FINDING_MAX + 1);
         let why = finding_of(&long).unwrap_err();
         assert!(why.contains(&(FINDING_MAX + 1).to_string()), "{why}");
@@ -209,7 +212,10 @@ mod tests {
             "The gate re-runs clippy twice."
         );
         assert_eq!(
-            title_of("The gate re-runs clippy twice.", Some("  clippy runs twice  ")),
+            title_of(
+                "The gate re-runs clippy twice.",
+                Some("  clippy runs twice  ")
+            ),
             "clippy runs twice"
         );
         // A blank title is no title.
@@ -238,7 +244,11 @@ mod tests {
     fn a_long_title_is_cut_on_a_word_with_an_ellipsis() {
         let words = "alpha ".repeat(60);
         let t = title_of(&words, None);
-        assert!(t.chars().count() <= TITLE_MAX, "{} chars", t.chars().count());
+        assert!(
+            t.chars().count() <= TITLE_MAX,
+            "{} chars",
+            t.chars().count()
+        );
         assert!(t.ends_with('…'), "{t}");
         assert!(t.starts_with("alpha alpha"), "{t}");
         // One unbroken word still fits the bound.
@@ -256,11 +266,17 @@ mod tests {
             keel_class("loosen the sealed sets", "the holdout set is wrong"),
             Some("sealed sets")
         );
-        assert_eq!(keel_class("Secrets loader is slow", "it is"), Some("secrets"));
+        assert_eq!(
+            keel_class("Secrets loader is slow", "it is"),
+            Some("secrets")
+        );
         // Upper case is read too, so a filer's capitals cannot dodge it.
         assert_eq!(keel_class("POLICY is wrong", "x"), Some("security"));
         // And an ordinary finding is unmarked, so the mark discriminates.
-        assert_eq!(keel_class("the gate runs clippy twice", "it costs a minute"), None);
+        assert_eq!(
+            keel_class("the gate runs clippy twice", "it costs a minute"),
+            None
+        );
     }
 
     #[test]

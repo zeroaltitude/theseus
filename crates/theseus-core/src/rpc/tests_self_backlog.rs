@@ -1107,7 +1107,10 @@ fn a_person_files_a_finding_and_the_item_is_marked_as_theirs_for_good() {
 
     // The mark itself, read from the stored record.
     let t = task_of(&c, &r.item);
-    assert!(!t.origin.self_started, "a person's item is not self-started");
+    assert!(
+        !t.origin.self_started,
+        "a person's item is not self-started"
+    );
     assert!(!t.origin.by_model, "a person's item is not the model's");
     assert_eq!(t.origin.because, None, "only a self-started task has one");
     assert_eq!(t.origin.session, "self:filed");
@@ -1137,7 +1140,9 @@ fn a_person_files_a_finding_and_the_item_is_marked_as_theirs_for_good() {
 #[test]
 fn a_filed_item_is_started_by_the_next_pass() {
     let c = acting(1, 10);
-    let r = c.self_file(&filing("fs.read's cap cuts mid-line"), &cli()).unwrap();
+    let r = c
+        .self_file(&filing("fs.read's cap cuts mid-line"), &cli())
+        .unwrap();
     assert_eq!(listed(&c)[0].state, TaskState::Proposed.as_str());
     let night = c.backlog_night(tick()).unwrap();
     assert_eq!(night.gate, "allowed");
@@ -1156,7 +1161,10 @@ fn a_filed_item_is_started_by_the_next_pass() {
 fn a_findings_keel_words_make_the_item_wait_for_the_owner() {
     let c = acting(1, 10);
     let r = c
-        .self_file(&filing("the sealed holdout set is leaking into the exam"), &cli())
+        .self_file(
+            &filing("the sealed holdout set is leaking into the exam"),
+            &cli(),
+        )
         .unwrap();
     let it = &listed(&c)[0];
     assert_eq!(it.keel.as_deref(), Some("sealed sets"));
@@ -1174,7 +1182,9 @@ fn a_findings_keel_words_make_the_item_wait_for_the_owner() {
 #[test]
 fn a_persons_item_is_never_retired_for_its_one_sighting() {
     let c = acting(0, 10);
-    let mine = c.self_file(&filing("the digest folds two kinds into one line"), &cli()).unwrap();
+    let mine = c
+        .self_file(&filing("the digest folds two kinds into one line"), &cli())
+        .unwrap();
     // A mined one-sighting item beside it, as the control.
     let t0 = tick();
     failed_turn(&c, "timeout: the provider did not answer", t0 - HOUR);
@@ -1196,8 +1206,9 @@ fn a_persons_item_is_never_retired_for_its_one_sighting() {
         "a person's item must not retire: {:?}",
         night.retired
     );
-    assert!(listed(&c).iter().any(|i| i.id == mine.item
-        && i.state == TaskState::Proposed.as_str()));
+    assert!(listed(&c)
+        .iter()
+        .any(|i| i.id == mine.item && i.state == TaskState::Proposed.as_str()));
 }
 
 /// Invalid input, refused before anything is written.
@@ -1206,7 +1217,10 @@ fn an_empty_or_over_long_finding_writes_nothing() {
     let c = acting(0, 10);
     for bad in ["", "   \n  ", &"x".repeat(4_001)] {
         let e = c.self_file(&filing(bad), &cli()).unwrap_err();
-        assert!(e.downcast_ref::<crate::rsi::backlog::BadItem>().is_some(), "{e:#}");
+        assert!(
+            e.downcast_ref::<crate::rsi::backlog::BadItem>().is_some(),
+            "{e:#}"
+        );
     }
     assert!(listed(&c).is_empty(), "nothing was filed");
     // And a good one does file, so the emptiness above is not vacuous.
@@ -1220,7 +1234,11 @@ fn an_empty_or_over_long_finding_writes_nothing() {
 #[test]
 fn a_strangers_filing_is_refused_and_ledgered_and_a_jobs_is_too() {
     let c = acting(0, 10);
-    let e = c.self_file(&filing("the spool sweep misses a retired session"), &stranger())
+    let e = c
+        .self_file(
+            &filing("the spool sweep misses a retired session"),
+            &stranger(),
+        )
         .unwrap_err();
     assert!(e.downcast_ref::<Refusal>().is_some(), "{e:#}");
     let e = c
@@ -1250,13 +1268,22 @@ fn an_agents_filing_is_marked_as_the_agents() {
     let c = acting(0, 10);
     let agent = Answerer::from(theseus_protocol::agent_by("claude").as_str());
     let r = c
-        .self_file(&filing("the wait's beat counts a restarted job twice"), &agent)
+        .self_file(
+            &filing("the wait's beat counts a restarted job twice"),
+            &agent,
+        )
         .unwrap();
     assert_eq!(r.filed_by, "agent:claude");
     let t = task_of(&c, &r.item);
-    assert!(t.evidence.iter().any(|e| e.by == "agent:claude"), "{:?}", t.evidence);
     assert!(
-        !t.evidence.iter().any(|e| e.by == "the CLI" || e.by == "owner"),
+        t.evidence.iter().any(|e| e.by == "agent:claude"),
+        "{:?}",
+        t.evidence
+    );
+    assert!(
+        !t.evidence
+            .iter()
+            .any(|e| e.by == "the CLI" || e.by == "owner"),
         "an agent's filing must never read as the owner's: {:?}",
         t.evidence
     );
