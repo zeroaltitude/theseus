@@ -589,10 +589,16 @@ below.
 - **The gate's order has no web-text layer.** `toolrun/order.rs:51-75` enumerates `Layer`: `Policy`, `Mode`,
   `Grant`, `Lsp`, `SharedFetch`, `Floor`, `Glide`, `Routine`, `McpClient`, `Reversibility`. Outside text is
   not among them, in any crate, so no marked result can hold a later call.
-- **The only freeze in the system is a content label.** `content.rs:360` — `frozen()` is `has(Flag::Injection)`
-  and nothing else; `content.rs:99-109` puts that flag's bar at `Band::Act`; `content::refusal` (`:540-564`)
-  is what refuses, and it reads the label, never the marker. `cn.rs:35` records that `injection` does **not**
-  disqualify a model: "it freezes, not cn."
+- **Nothing freezes because of the marker, and the only thing that can freeze a session is a content label.**
+  `content.rs:360` — `frozen()` is `has(Flag::Injection)` and nothing else; `content.rs:99-109` puts that
+  flag's bar at `Band::Act`; `content::refusal` (`:540-564`) is what refuses, and it reads the label and the
+  configured mode, never the marker. **Whether that label freezes anything is a mode, not a property of the
+  system:** `refusal` returns `None` at its first line (`content.rs:546`) under `[content_based_security]
+  injection = "notify"`, where the call runs and the operator is told, and builds its refusal under `refuse`.
+  So "freeze" names what the `refuse` mode does, and no value of that key gives the marker a say in it. What no
+  mode changes is the other half: `cn.rs:35`, the `Flag::Injection => false` arm of `disqualifies`, records that
+  an `injection` label does **not** disqualify a model, and `content.rs:853` asserts it in the test's own
+  words: "it freezes, not cn."
 
 **`theseus-core`'s own sites, re-verified at `5cc7fbac`** (the table above this subsection is unchanged and
 stands; these are the additions the symbol walk turned up inside the crate). `external.rs:19` `PROGRAMS` is a
