@@ -182,7 +182,10 @@ fn a_start_with_the_judge_on_builds_nothing_of_it() {
             // counting its own (theseus-9ymz0).
             "content.v4: off",
             // Live: one reconsideration point for every delay (theseus-5x8ry).
-            "delay.v1: live"
+            "delay.v1: live",
+            // Live from theseus-p5kln: `[judge] reversibility` is on by
+            // default, the owner's own word of 2026-11-12.
+            "undo.v1: live"
         ])
     );
     assert_eq!(rig.rows("pack.mode").len(), 3, "one adoption row each");

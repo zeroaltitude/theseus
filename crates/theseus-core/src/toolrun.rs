@@ -66,6 +66,7 @@ mod proposal;
 pub mod reads;
 mod result_node;
 mod resume;
+pub(crate) mod reversible;
 mod self_pr;
 pub(crate) mod session_dir;
 mod steps;
@@ -75,6 +76,9 @@ pub mod waits;
 use mcp_floor::mcp_floor;
 pub(crate) use mcp_floor::mcp_floor_of;
 
+// The gate's own path reads it through `reversible::Blocked`; the probes and
+// the tests that judge a call with `judge` read it by this name.
+#[cfg(test)]
 pub(crate) use batch::Turned;
 pub use late::LateCall;
 pub(crate) use late::{announce_cancelled, not_run_results};
@@ -939,7 +943,12 @@ impl ToolRuntime {
     }
 
     /// One call through the gate: counted, and answered now if it cannot run.
-    fn admit(&self, tc: &TurnCtx<'_>, assistant_node: &str, c: &Call<'_>) -> Result<Admitted> {
+    async fn admit(
+        &self,
+        tc: &TurnCtx<'_>,
+        assistant_node: &str,
+        c: &Call<'_>,
+    ) -> Result<Admitted> {
         let call = c.call;
         let Some(tool) = self.tool_by_wire(&call.name) else {
             return self.unknown_tool(tc, call).map(Admitted::Answered);
@@ -950,7 +959,7 @@ impl ToolRuntime {
                 .invalid_json(tc, call, tool.name(), raw)
                 .map(Admitted::Answered);
         }
-        match self.gate(tc, tool.as_ref(), call) {
+        match self.gate(tc, tool.as_ref(), call).await {
             Err(bad) => self
                 .invalid_input(tc, assistant_node, call, tool.name(), bad)
                 .map(Admitted::Answered),
@@ -1069,7 +1078,12 @@ impl ToolRuntime {
     /// call, notifies, or waits (§3.9); nothing it decides refuses one
     /// (theseus-8az). The record keeps the keys stored tool-call nodes carry,
     /// and `tool.proposed` shows it to the session's clients.
-    fn gate(&self, tc: &TurnCtx<'_>, tool: &dyn Tool, call: &ToolUse) -> Result<Gated, Invalid> {
+    async fn gate(
+        &self,
+        tc: &TurnCtx<'_>,
+        tool: &dyn Tool,
+        call: &ToolUse,
+    ) -> Result<Gated, Invalid> {
         let ctx = self.ctx_in(tc);
         let mut proposal = Self::proposal_for(tool, &call.input, &ctx);
         let planned = tool.plan(&call.input, &ctx);
@@ -1108,38 +1122,34 @@ impl ToolRuntime {
         // rule): the catalog offers nothing else, and this refuses it, in case.
         // A batch's every step is judged (`batch.rs`, theseus-7gir.3).
         let mut refused = None;
-        let planned = planned.and_then(|plan| {
-            let glided = glide.as_ref().and_then(|g| g.as_ref().err().cloned());
-            let judged = match self.judge(&at, tool, &plan, &call.input, &mut |_, _| {}) {
-                // A batch whose steps differ in class (theseus-nrvq).
-                Err(Turned::Invalid(e)) => return Err(e),
-                Err(Turned::Place(why)) => Err(why),
-                Ok((d, c)) => Ok((self.misroute_hold(tc, tool, &plan, d), c)),
-            };
-            judged
-                .and_then(|j| glided.map_or(Ok(j), Err))
-                .map(|(decision, job_class)| (plan, decision, job_class))
-                .inspect_err(|why| refused = Some(why.clone()))
-        });
-        let result = match &planned {
-            Err(e) => GateResult {
-                gate: "deny".into(),
-                reason: Some(match refused {
-                    Some(_) => crate::policy::modes::refusal_reason(e),
-                    None => format!("validation: {e}"),
-                }),
-                by: None,
-            },
-            Ok((_, d, _)) if d.posture == Posture::Approve => GateResult {
-                gate: "needs_confirm".into(),
-                reason: None,
-                by: Some(self.policy.confirmer.clone()),
-            },
-            Ok(_) => GateResult {
-                gate: "allow".into(),
-                ..Default::default()
-            },
+        let mut held = None;
+        // 0d sits inside `decided`: the refusals, then `undo.v1`, then the
+        // order, with the verdict read on both sides of it
+        // (`toolrun/reversible.rs`).
+        let planned = match planned {
+            Err(e) => Err(e),
+            Ok(plan) => {
+                let glided = glide.as_ref().and_then(|g| g.as_ref().err().cloned());
+                match self
+                    .decided(tc, &at, tool, &plan, &call.input, glided)
+                    .await
+                {
+                    reversible::Decided::Runs(d, class) => Ok((plan, d, class)),
+                    reversible::Decided::Stopped {
+                        why,
+                        refused: r,
+                        held: h,
+                    } => {
+                        if r {
+                            refused = Some(why.clone());
+                        }
+                        held = h;
+                        Err(why)
+                    }
+                }
+            }
         };
+        let result = self.gate_result(&planned, &held, &refused);
         if let Ok((plan, _, bound)) = &planned {
             proposal.resource = plan.resources.first().map(|r| r.path.display().to_string());
             bound.bind(&mut proposal);
@@ -1170,7 +1180,39 @@ impl ToolRuntime {
                 record: Box::new(record),
                 error,
                 refused: refused.is_some(),
+                held,
             }),
+        }
+    }
+
+    /// The gate's own `GateResult` for a planned call: why it will not run
+    /// (a hold, a refusal, or invalid input), that it waits, or that it
+    /// runs. Lifted out of `gate` unchanged, for the shape budget.
+    fn gate_result(
+        &self,
+        planned: &Result<(Plan, Decision, sandbox::Bound), String>,
+        held: &Option<reversible::Hold>,
+        refused: &Option<String>,
+    ) -> GateResult {
+        match planned {
+            Err(e) => GateResult {
+                gate: "deny".into(),
+                reason: Some(match (held, refused) {
+                    (Some(h), _) => reversible::reason(h),
+                    (None, Some(_)) => crate::policy::modes::refusal_reason(e),
+                    (None, None) => format!("validation: {e}"),
+                }),
+                by: None,
+            },
+            Ok((_, d, _)) if d.posture == Posture::Approve => GateResult {
+                gate: "needs_confirm".into(),
+                reason: None,
+                by: Some(self.policy.confirmer.clone()),
+            },
+            Ok(_) => GateResult {
+                gate: "allow".into(),
+                ..Default::default()
+            },
         }
     }
 
@@ -1183,12 +1225,15 @@ impl ToolRuntime {
         tool: &str,
         bad: Invalid,
     ) -> Result<CallOutcome> {
-        let (reason, text) = match bad.refused {
-            true => (
+        let (reason, text) = match (&bad.held, bad.refused) {
+            // A hold is its own kind of "this call did not run", beside the
+            // place's and the mode's (theseus-p5kln).
+            (Some(h), _) => (reversible::reason(h), format!("Not run: {}", bad.error)),
+            (None, true) => (
                 crate::policy::modes::refusal_reason(&bad.error),
                 format!("Not run: {}", bad.error),
             ),
-            false => (
+            (None, false) => (
                 format!("validation: {}", bad.error),
                 format!("Invalid input: {}", self.field_hinted(tool, &bad.error)),
             ),
@@ -2295,3 +2340,5 @@ mod tests;
 
 #[cfg(test)]
 mod tests_login;
+#[cfg(test)]
+mod tests_undo;

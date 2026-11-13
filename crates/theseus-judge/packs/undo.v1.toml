@@ -85,11 +85,16 @@
 # invariant -- each layer after the first only raises -- is what makes the second point safe: a
 # raise that lands after all of them can only leave an already-stricter decision alone.
 #
-# NOT WIRED. As `route.v10` was before it ("until `ROUTE_PACK` names it, v10 is embedded and
-# replayable and is NOT the acting pack"), undo.v1 lands embedded, replayable and measured, acting
-# nowhere: `action = "none"`, no point dispatches it, no call is held. Going live is a separate step
-# with two real decisions in it — whether `irreversible_final` waits for the owner or only notifies,
-# and the fail-open rule below — rather than a fait accompli found in a release note.
+# WIRED, AND ON, SINCE theseus-p5kln. It landed embedded, replayable and measured, acting nowhere
+# (`action = "none"`, as route.v10 did before `ROUTE_PACK` named it). The wiring row turned it on:
+# `action = "hold"`, the question asked at 0d on the tool gate's own path, and the verdict read at
+# two points on opposite sides of the gate's order (`crates/theseus-core/src/toolrun/reversible.rs`;
+# the design of the consumption is `docs/design/undo-v1.md`). The two decisions that going live
+# needed are both taken: `irreversible_final` WAITS for the owner (it raises the posture to
+# `approve`, it does not merely notify), and the fail-open rule below stands as written. The switch
+# is `[judge] reversibility`, on by default, the owner's own word (2026-11-12: "i would like it
+# wired and switched on"); `false` lowers this pack to shadow, so it is still judged and recorded
+# and holds nothing.
 #
 # FAIL OPEN, DELIBERATELY. When the judge is off, when its credential does not resolve, when the breaker is open,
 # when the call is shed or times out, and when the answer is under the question's confirm bar, the
@@ -169,7 +174,7 @@ state = "undo"
 state_cap_tokens = 3000
 sample = 1.0
 baseline = "posture"
-action = "none"
+action = "hold"
 description = "UNDO: whether what a tool call changes could be put back as it was; and, when it could not, which reversible shape the same work should take instead. Replaces the approve lists 1.0.4 deleted. Shadow only: it holds nothing yet."
 
 [questions.reversible]

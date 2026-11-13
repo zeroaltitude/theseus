@@ -71,7 +71,7 @@ impl ToolRuntime {
         let mut ask = None;
         for (i, c) in calls.iter().enumerate() {
             let started = Instant::now();
-            let answered = match self.admit(tc, assistant_node, c)? {
+            let answered = match self.admit(tc, assistant_node, c).await? {
                 Admitted::Answered(outcome) => outcome,
                 Admitted::Asks(_, g) if declined => {
                     self.not_asked(tc, assistant_node, c.call, g)?

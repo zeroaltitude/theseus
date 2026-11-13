@@ -766,7 +766,7 @@ mod tests {
     /// For this pack the two happen to coincide, which is luck and not design:
     /// if that fallback changes, this is where the pack notices.
     #[test]
-    fn undo_v1_fails_open_under_the_bar_and_acts_nowhere_yet() {
+    fn undo_v1_fails_open_under_the_bar_and_acts_as_a_hold() {
         let p = by_name("undo.v1").expect("undo.v1 is embedded");
         let verdict = p.question("reversible").expect("it asks `reversible`");
         assert_eq!(verdict.no_match.as_deref(), Some("reversible"));
@@ -785,9 +785,13 @@ mod tests {
             ]
         );
 
-        // It acts nowhere yet: going live is the owner's separate decision, as
-        // route.v10 landed before `ROUTE_PACK` named it.
-        assert_eq!(p.action, crate::pack::Action::None);
+        // It acts, since theseus-p5kln wired it: the hold at point one and
+        // the raise at point two, whose reader is theseus-core's
+        // `toolrun/reversible.rs`. This assertion is not loosened by the
+        // change — it still pins the action to exactly one value, and that
+        // value is now the one the code reads. Before theseus-p5kln it was
+        // `Action::None`, which the owner's decision of 2026-11-12 ended.
+        assert_eq!(p.action, crate::pack::Action::Hold);
         assert!(
             !p.rollback.is_empty(),
             "its rollback rules are declared before it is wired, so the numbers can be argued with"
