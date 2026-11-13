@@ -66,11 +66,16 @@ pub const BUILD_PIDS: u64 = 8192;
 /// And the ladder, which is **evidence, not proof**: the same 123 were run
 /// once inside this view, of which 0 pass at no grants, 67 with `pty`,
 /// `devices` and `nesting`, and 119 with `visible_proc` as well. **That is one
-/// unreproducible run on a rig that no longer exists, and the cause of the
-/// last step is not established**: `nesting` alone already yields
-/// `nested_proc: ok` on the kernel the counts were taken on, so the step may
-/// not be `visible_proc`'s doing. Do not restate the counts as a cause.
-/// Finding the real mechanism is a 1.0.6 line, and
+/// unreproducible run on a rig that no longer exists**, and the counts are
+/// not to be restated as a cause. **But the cause of the last step is now
+/// established, and it is `visible_proc`**: measured on 2026-11-13 on two
+/// kernels, with the two rungs differing in that one bool, a real nested L1
+/// job spawned from inside the view is refused with `mounting /proc:
+/// Operation not permitted` without it and starts and exits 0 with it. It is
+/// a hard precondition for a nested L1 job, and `nesting` alone does not
+/// suffice on either kernel. The `nested_proc: ok` that once put this in
+/// doubt is a probe mounting at `/tmp`, where nothing is covered, and is not
+/// the gate a real init meets at `/proc`.
 /// `theseus_sandbox::Facilities::visible_proc` carries the rest.
 ///
 /// An earlier version of this comment (up to `e4cff663`, 2026-11-11) gave a
@@ -91,15 +96,19 @@ pub const FACILITIES: theseus_sandbox::Facilities = theseus_sandbox::Facilities 
     // ON by the owner's decision of 2026-11-11 16:32 (S6-1 in
     // `logistics/OWNER-ANSWERS-20261110-1406.md`), and the grant to read
     // twice: it has the largest measured return and the only real price.
-    // The return is EVIDENCE, NOT PROOF — the ladder's 67 -> 119 step was
-    // measured once on a rig that no longer exists, and its cause is NOT
-    // established: `nesting` alone already mounts a nested procfs on the
-    // kernel the counts were taken on. Its price is disclosure only, and
-    // narrower than once written here: `/proc/interrupts` and `/proc/keys`'
-    // key *names* (never payloads), no host process at any rung, and `/sys`
+    // The ladder's counts are still EVIDENCE, NOT PROOF — measured once on a
+    // rig that no longer exists — but the cause of their last step IS now
+    // established, on 2026-11-13, on two kernels: without this grant a real
+    // nested L1 job is refused with `mounting /proc: Operation not
+    // permitted`, and with it the job starts and exits 0. It is a hard
+    // precondition for a nested L1 job, `nesting` alone does not suffice, and
+    // the 1.0.6 line that would have taken it back off if it did is closed.
+    // Its price is disclosure only, and narrower than once written here:
+    // `/proc/interrupts`, `/proc/keys`' key *names* (never payloads) and
+    // `/proc/latency_stats` (27 bytes of version header on one of the two
+    // kernels, absent on the other), no host process at any rung, and `/sys`
     // untouched. `theseus_sandbox::Facilities::visible_proc` carries the
-    // measurements and the 1.0.6 line to find the real mechanism. One word
-    // takes it back off.
+    // measurements. One word still takes it back off.
     visible_proc: true,
 };
 /// The largest file a self build may write: a linked binary with debug info.
