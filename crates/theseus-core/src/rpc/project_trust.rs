@@ -1,8 +1,21 @@
 //! The owner's grant of a repository's instruction files (theseus-wadu,
 //! phase 2; `docs/design/project-context.md` §7). A grant and its revoke are
-//! the owner's acts, judged as a standing record's are (`Act::Standing`: the
-//! owner, from a private place), and each is one frame: the META record
+//! the owner's acts, and each is one frame: the META record
 //! (`project_context::trust::RECORD`) and its `project.trust` row.
+//!
+//! **Who may grant** (theseus-me9fc). Narrower than the place rule, because
+//! a grant lets a repository's own `AGENTS.md` and `CLAUDE.md` into the
+//! system block with an *instruction's* authority: this is the act that
+//! widens who can widen reach. So both writes are judged `Act::Trust`, which
+//! asks `places::owner_in_person` rather than `places::owner_in_private`:
+//! **no agent's process may grant**, whatever its surface, and on a
+//! transport only a DM with an owner counts. Until theseus-me9fc both were
+//! judged `Act::Standing`, which reads the place and not the process, so an
+//! agent's `theseus project trust` was *recorded* as the grantor
+//! (`by: agent:no terminal`) and allowed; the name that was evidence is now
+//! the refusal. A refusal is one `approval.refused` row and the error, and
+//! nothing is written. `places::owner_in_person` has the whole rule and the
+//! reason the narrower of the owner's two readings was taken.
 //!
 //! The repository is named by any path inside it; its identity is the
 //! canonical root's `repo_id`, so a clone elsewhere or a re-pointed remote
@@ -55,7 +68,7 @@ impl Trusted {
 
 impl Core {
     /// The grant's methods, by name: the owner's acts, judged by the writes
-    /// themselves (`Act::Standing`), and the list, a read. A relative path is
+    /// themselves (`Act::Trust`), and the list, a read. A relative path is
     /// refused first: `repo_root` would resolve it against the daemon's
     /// directory, not the caller's.
     pub(super) fn rpc_project_trust(
@@ -105,9 +118,9 @@ impl Core {
         let who = who.into();
         self.judge_act(
             &who,
-            Act::Standing {
+            Act::Trust {
                 method: method::PROJECT_TRUST,
-                what: "a repository's trust",
+                what: &format!("The trust of the repository holding {}", path.display()),
             },
         )?;
         let root = Self::trust_root(path)?;
@@ -145,9 +158,9 @@ impl Core {
         let who = who.into();
         self.judge_act(
             &who,
-            Act::Standing {
+            Act::Trust {
                 method: method::PROJECT_UNTRUST,
-                what: "a repository's untrust",
+                what: &format!("The untrust of the repository holding {}", path.display()),
             },
         )?;
         let root = Self::trust_root(path)?;

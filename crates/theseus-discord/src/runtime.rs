@@ -93,6 +93,7 @@ pub(crate) use jev::{
 pub(crate) use live::ticks as live_ticks;
 #[cfg(test)]
 pub(crate) use live::PERIOD as LIVE_PERIOD;
+mod project_trust;
 mod prompt;
 mod publish;
 pub(crate) mod route;

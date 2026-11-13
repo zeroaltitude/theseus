@@ -6,8 +6,8 @@ use twilight_model::application::command::CommandType;
 use twilight_util::builder::command::CommandBuilder;
 
 use super::{
-    digest, extensions, halt, horizon_cmds, orders, prompt, remind, task_cmds, thread, thread_ask,
-    voice, why,
+    digest, extensions, halt, horizon_cmds, orders, project_trust, prompt, remind, task_cmds,
+    thread, thread_ask, voice, why,
 };
 
 /// The slash commands every place answers, one effect each (the owner's rule):
@@ -82,6 +82,9 @@ pub(super) fn commands() -> Vec<twilight_model::application::command::Command> {
         .option(text("note", "Your words above it"))
         .build(),
     );
+    // `/project trust|untrust|trusted` (theseus-me9fc): the grant of a
+    // repository's own instruction files, from chat. The core judges it.
+    cmds.push(project_trust::command());
     cmds.push(prompt::command());
     cmds.push(extensions::command());
     cmds.extend([why::command(), digest::command()]);

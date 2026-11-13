@@ -740,6 +740,13 @@ impl Core {
             Act::SelfRevert { from_job: None, .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
             }
+            // A repository's instruction files (theseus-me9fc): this act
+            // widens who can widen reach, so it takes the narrower rule —
+            // the owner in person, with no agent's process behind the
+            // connection, and on a transport a DM alone.
+            Act::Trust { .. } => {
+                crate::places::owner_in_person(who, &self.runner.place_rule, &self.cfg)
+            }
             // A job's stop: the owner from any channel, a shared place's too.
             Act::Stop { .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
@@ -985,6 +992,14 @@ pub(crate) enum Act<'a> {
     /// orders ride every prompt of their scope, so a job's process that wrote
     /// one would steer every session. `what` names it: `the revoke of std_…`.
     Standing { method: &'static str, what: &'a str },
+    /// A repository's instruction files granted or revoked (theseus-me9fc,
+    /// `project.trust`, `project.untrust`): a grant lets that repository's
+    /// own `AGENTS.md` and `CLAUDE.md` into the system block with an
+    /// instruction's authority, so it widens *who can widen reach* and takes
+    /// the narrower rule, `places::owner_in_person`: the owner in person, no
+    /// agent's process behind the connection, and on a transport a DM alone.
+    /// `what` names it: `the trust of r:1a2b3c4d`.
+    Trust { method: &'static str, what: &'a str },
     /// A routine's making, edit, pause, resume, run or deletion (theseus-pvm5c): it
     /// spends money on a schedule, so only the owner, from a private place.
     /// `what` names it: `the routine a41d04`.
@@ -1060,7 +1075,7 @@ impl Act<'_> {
             Act::Import { method, .. } => method,
             Act::Session { method, .. } => method,
             Act::Unlabel { .. } => theseus_protocol::method::CONTENT_UNLABEL,
-            Act::Standing { method, .. } => method,
+            Act::Standing { method, .. } | Act::Trust { method, .. } => method,
             Act::Routine { method, .. } => method,
             Act::Thread { method, .. } => method,
             Act::Watch { method, .. } => method,

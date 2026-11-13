@@ -208,6 +208,7 @@ impl ActRefused<'_> {
             | Act::Task { .. }
             | Act::Stop { .. }
             | Act::Standing { .. }
+            | Act::Trust { .. }
             | Act::Routine { .. }
             | Act::Watch { .. }
             | Act::Thread { .. } => None,
@@ -248,6 +249,7 @@ impl Fact for ActRefused<'_> {
             | Act::Import { what, .. }
             | Act::Session { what, .. }
             | Act::Standing { what, .. }
+            | Act::Trust { what, .. }
             | Act::Routine { what, .. }
             | Act::Watch { what, .. }
             | Act::Thread { what, .. } => {
@@ -342,6 +344,10 @@ impl Fact for ActRefused<'_> {
             Act::Standing { what, .. } => format!(
                 "{what}, from {who} through {via}, did not count: {why}. The owner's standing \
                  records are as they were."
+            ),
+            Act::Trust { what, .. } => format!(
+                "{what}, from {who} through {via}, did not count: {why}. The repository is as \
+                 it was: nothing was granted or taken back."
             ),
             Act::JudgeLabel { what } => format!(
                 "A judgment's label, {what}, from {who} through {via}, did not count: {why}. \
