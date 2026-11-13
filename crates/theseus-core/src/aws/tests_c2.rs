@@ -1609,11 +1609,6 @@ fn three_guards_in_the_floor_session_and_one_create(seen: &[Seen]) {
     }
 }
 
-/// A stopped bootstrap resumes (theseus-oszz). The account as the second
-/// live run left it: the foundation and the posture made, with no policy and
-/// no termination protection, and no relay. The plan says what each lacks
-/// and sends no write. The apply sets the two stacks' policies and
-/// protections in the floor session, with no change set, and creates the
 /// The repair, in the order the fake saw it (theseus-ps12): the refused mint,
 /// then IAM asked which refusal it is, then the trust policy written, then a
 /// mint that works -- exactly one repair, and no second read of the role. And
@@ -1763,6 +1758,11 @@ async fn an_unmintable_owner_role_has_its_trust_policy_repaired_and_the_operator
     );
 }
 
+/// A stopped bootstrap resumes (theseus-oszz). The account as the second
+/// live run left it: the foundation and the posture made, with no policy and
+/// no termination protection, and no relay. The plan says what each lacks
+/// and sends no write. The apply sets the two stacks' policies and
+/// protections in the floor session, with no change set, and creates the
 /// relay with its own. A second plan has nothing to do.
 #[tokio::test]
 async fn a_stopped_bootstrap_resumes_and_sets_what_it_skipped() {
