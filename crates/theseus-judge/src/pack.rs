@@ -87,6 +87,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
         "recall_cross.v1",
         include_str!("../packs/recall_cross.v1.toml"),
     ),
+    ("precedence.v1", include_str!("../packs/precedence.v1.toml")),
     ("families.v1", include_str!("../packs/families.v1.toml")),
     ("content.v1", include_str!("../packs/content.v1.toml")),
     ("content.v2", include_str!("../packs/content.v2.toml")),
@@ -176,6 +177,8 @@ pub enum Builder {
     /// `recall_cross.v1`'s: the message and the notes the thread lens dropped
     /// near the bar (theseus-98bz.10).
     RecallCross,
+    /// `precedence.v1`'s (theseus-3nk): pairs of testimony that may disagree.
+    Precedence,
     /// `families.v1`'s: the message and the tool families its request hides
     /// (theseus-xlri5).
     Families,
@@ -300,6 +303,9 @@ pub enum Source {
     /// `injection` is asked only then, theseus-9ymz0): the builder sets it
     /// from the item's kind, so the rule is the code's, not the wording's.
     Untrusted,
+    /// `precedence.v1`'s pairs of testimony that may disagree (theseus-3nk),
+    /// numbered: at most ten, as a per-item Noul asks.
+    SourcePairs,
 }
 
 /// One dynamic item: its key (an option id, or what a per-item Noul is

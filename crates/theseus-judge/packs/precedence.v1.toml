@@ -1,0 +1,80 @@
+# precedence.v1 (theseus-3nk, M6 Appendix F / design m6-memory.md §2.11): when two pieces of
+# testimony disagree, which of them is the one to trust now, and why.
+#
+# THE OWNER'S OWN DECISION, 2026-11-12 14:33:10, point 2 of two: "i want to build all three and i
+# like your precedence starting point, judged by a jev judger with adequate context and a good
+# rubric". The precedence starting point, as it was put to him and as the rubric below starts from:
+# HIS OWN STATEMENT BEATS A DOCUMENT; A NEWER SOURCE BEATS AN OLDER ONE; AND THE ANSWER ALWAYS SAYS
+# WHICH IT USED. So this is a judged rule and NOT a fixed table in code — that is the whole point of
+# the decision, and a later version may revise the rubric without touching any caller.
+#
+# WHY A PACK AND NOT A TABLE. The two starting rules conflict constantly: the owner said a thing in
+# March and a document written in October says otherwise. A table has to pick an order and then be
+# wrong about every case the order does not fit; one question in front of the two sources can weigh
+# who said it, when, and what kind of claim it is. §2.11's precedence LINE already tells the model
+# the order of KINDS of source inside one request ("what this turn's tools just returned; the
+# operator's current request; the recent conversation; older conversation and summaries; recalled
+# notes, which are dated testimony") and that line is unchanged and still the first guard. This pack
+# is the other half: two pieces of testimony of the SAME kind that cannot both be true.
+#
+# WHAT THE BUILDER COMPUTES AND THE PACK NEVER ASKS. The loader forbids a question that asks Jev to
+# count, to do arithmetic or to work out a date, and the design forbids it too. So `builders/
+# precedence.rs` states, per pair and as fields: who wrote each source (`said_by`), its day
+# (`when`), which of the two is the newer (`newer`), and whether the two starting rules point the
+# same way or pull against each other (`rules_agree`). Jev reads those words and applies the rubric
+# to them. A version of this pack without those fields would be asking a language model to subtract
+# two dates, which is the one thing it must not be asked.
+#
+# TWO QUESTIONS, IN ORDER, AND THE FIRST GATES THE SECOND. `disagree` asks whether the pair is a
+# disagreement at all; most pairs that look alike are two statements about different things, and a
+# pack that went straight to "which wins" would answer that question for every such pair and the
+# answer would mean nothing. `first_prevails` then asks which of the two to trust. Both are Nouls so
+# the pair's order carries the answer: the builder fixes A and B and a yes means A. Jev writes no
+# text — the WHY is the code's, worded from the same fields the state stated, so the reason a reader
+# is given is the reason the decision was actually made and never a sentence a model composed.
+#
+# NOT WIRED, DELIBERATELY, AS route.v10 AND undo.v1 WERE BEFORE IT. `action = "none"`, no point
+# dispatches it, and nothing in the daemon reads its answer yet: it lands embedded, replayable and
+# measured against its labelled set, deciding nothing. The caller the design intends is
+# consolidation's synthesis check (`consolidate/run.rs`'s `verdict`, beside `citation.v1`, at the
+# `consolidation` point, off every turn's path), and it is a step of its own because it has a real
+# decision in it that nobody has taken: what a synthesis DOES with the losing source — leave it
+# standing as testimony with a note, or let the precedence verdict mark it superseded. Reading this
+# header as a description of a running mechanism would be the mistake the 1.0.5 review caught in
+# undo.v1; it is written plainly here so the next reader cannot repeat it.
+#
+# NOT MEASURED LIVE. `fixtures/eval/precedence.v1.json` is the set, written with the pack, and the
+# bar is `eval_labelled`'s own: 80% of its cases, rounded up. No live run of it exists — this build
+# had no Jev credential — so the set is a statement of what the pack SHOULD answer and not a record
+# of what it did. `jev-probe --eval precedence.v1` is the command that turns one into the other, and
+# the first run belongs in the wiring step, before anything acts on an answer.
+id = "precedence"
+version = 1
+jev_model = "jev-1.13.0"
+point = "consolidation"
+state = "precedence"
+state_cap_tokens = 6000
+sample = 1.0
+baseline = "rules"
+action = "none"
+description = "Precedence between testimony: of two pieces of recorded testimony that cannot both be true, whether they really disagree and which of them is the one to trust now. The owner's own statement beats a document; a newer source beats an older one; and the answer always says which it used."
+
+[questions.disagree]
+type = "noul"
+per = "source_pairs"
+max = 10
+instructions = "The state gives pairs of recorded testimony, each with who wrote it, when, and its words. Two sources about DIFFERENT subjects never conflict, however alike their shape — a port, a threshold, a schedule or a name for one piece of work says nothing about another piece of work. Two sources about the same subject that simply say more or less detail do not conflict either, nor do two that describe the same thing at two stages of a plan both of which happened. It is a conflict when a reader who trusted both would be left with two answers to one question and no way to hold both: one value against another value for the same setting, one instruction against its opposite, one statement that a thing is so against a statement that it is not. Judge the words as they are given; a difference you have to assume facts to find is not one. Of the pair numbered {item}: do the two say things that cannot both be true of the same subject as it stands now?"
+act = 0.80
+confirm = 0.60
+when_true = "A reader asking one question of the same subject would get two answers from this pair and could not hold both."
+when_false = "The two are about different subjects, or they agree, or one is only more detailed than the other, or both were true at their own stage of the same work."
+
+[questions.first_prevails]
+type = "noul"
+per = "source_pairs"
+max = 10
+instructions = "This asks which of two pieces of testimony to trust about one subject as it stands now. Weigh it in this order. First, who said it: a statement the owner made himself, in his own words, outranks a document, a note, a summary, a report or anything the model wrote, because a document records what was true when someone wrote it and the owner states what he wants. The state says who wrote each of the two as the words after `said_by`. Second, freshness: of two sources of the same standing, the one written later outranks the one written earlier, and the state says which of the two is the later. Where those two point the same way the state says so, and the answer is the source both favour. Where they pull against each other — the owner said it first and a document says otherwise since — prefer the owner's own words unless the second source is itself a record of the owner changing his mind, in which case it carries his voice and the later one wins. A source that only repeats or quotes another is not a statement of its own and never outranks what it quotes. Where the pair is no disagreement at all there is nothing to prefer: answer no, and the code reads the other question for whether the pair mattered. Of the pair numbered {item}, is the FIRST of the two the one to trust about that subject as it stands now, rather than the second?"
+act = 0.80
+confirm = 0.60
+when_true = "The first of the two is the one a reader should act on now: its author outranks the other's, or, their authors standing equal, it is the later of the two."
+when_false = "The second of the two is the one to act on now, or the pair is no disagreement and there is nothing to choose between them."
