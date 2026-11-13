@@ -41,7 +41,7 @@ use crate::content::{footer_labels, ItemKind};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
 use crate::narrative::{self, Narrator};
-use crate::node::{Body, Node};
+use crate::node::{Body, Node, ResultStatus};
 use crate::provider::{
     Delta, ModelResponse, Overflow, Provider, ProviderError, ToolUse, WINDOW_EXCEEDED,
 };
@@ -3220,18 +3220,25 @@ impl TurnRunner {
         t.tool_calls += batch.ran.len() as u32;
         calls::trace_calls(&mut t.trace, &self.tools, uses, &batch.ran);
         let mut answered = 0;
+        // One status per judged call, for the repeat cap (`repeat_step`).
+        let mut outcomes = Vec::with_capacity(batch.ran.len());
         for r in batch.ran {
             t.checkpoint.answered(&uses[r.index], &r.outcome);
             match r.outcome {
                 CallOutcome::AwaitingConfirm { .. } => {}
                 CallOutcome::Background { correlation_id } => {
                     t.background.push(correlation_id);
+                    outcomes.push(ResultStatus::Background);
                     answered += 1;
                 }
-                CallOutcome::Done { .. } => answered += 1,
+                CallOutcome::Done { status } => {
+                    outcomes.push(status);
+                    answered += 1;
+                }
             }
         }
         t.awaiting = batch.awaiting;
+        t.repeats.note_idle(uses, &outcomes, t.awaiting.is_some());
         Ok(answered + unloaded)
     }
 

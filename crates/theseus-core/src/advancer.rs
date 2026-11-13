@@ -9,11 +9,25 @@ pub struct LoopOutcome {
     pub provider_stop_reason: Option<String>,
     pub tool_calls: u32,
     pub output_chars: usize,
-    /// How often the commonest identical loop signature has appeared in this
-    /// turn, this loop counted (`turn::repeat_step`): the number that bounds a
-    /// turn re-planning the same work for ever. 0 for a loop that counts
-    /// nothing — one with no tool calls, or one that only waits.
+    /// The highest number of times one loop signature has repeated in this
+    /// turn (`turn::repeat_step`): the number that bounds a turn re-planning
+    /// the same work for ever. 0 while nothing has repeated, which is every
+    /// turn that got anywhere.
+    ///
+    /// **Left out of the row when it is 0**, as `LoopEnded::row`'s own `say`
+    /// and `on` are left out when absent (`fact/turn.rs:796`). A `"repeats":0`
+    /// on every loop of every turn would be noise, and it would move
+    /// `tests/golden/core_output.txt` and every other pinned `loop.ended` row
+    /// for a field that says nothing happened. A turn that did repeat carries
+    /// it, beside the `end_turn:repeating` decision it caused.
+    #[serde(skip_serializing_if = "never_repeated")]
     pub repeats: u32,
+}
+
+/// Whether a loop outcome's repeat count is worth recording: a turn where
+/// nothing repeated leaves the field out of its row entirely.
+fn never_repeated(n: &u32) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

@@ -46,10 +46,9 @@ impl TurnRunner {
             max_repeats: repeat_step::MAX_REPEATS,
         };
         let stop = resp.stop_reason.as_deref();
-        // What the model asked for this loop, noted before the decision: a
-        // turn re-planning the same work is bounded by nothing else
-        // (`repeat_step`'s header says which guard each misses).
-        let repeats = t.repeats.note(&resp.tool_uses());
+        // The highest repeat count this turn has reached. `run_tools` noted
+        // the loop, and only if it ran nothing (`repeat_step::made_no_progress`).
+        let repeats = t.repeats.most();
         let outcome = LoopOutcome {
             loop_index: i,
             provider_stop_reason: resp.stop_reason.clone(),
