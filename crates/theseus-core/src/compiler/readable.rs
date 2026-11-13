@@ -10,11 +10,12 @@
 /// writer's blocks verbatim.
 const READABLE: &[(&str, &str)] = &[("claude-sonnet-5-5", "claude-opus-5-5")];
 
-/// The built-in provider key of Anthropic's own API (`catalog`).
-const FIRST_PARTY: &str = "anthropic";
-
-/// Whether `reader`, on `provider`, takes blocks `writer` wrote on that
-/// provider. The caller has already required the two providers to be one.
-pub(super) fn reads(provider: &str, writer: &str, reader: &str) -> bool {
-    provider == FIRST_PARTY && READABLE.contains(&(writer, reader))
+/// Whether `reader` takes blocks `writer` wrote on the same provider, which
+/// only a first-party one documents. `first_party` is the request's
+/// (`RequestSpec::first_party`, from `provider.rs`'s `is_first_party` over
+/// the provider's `api_base`): a provider's key is the operator's word and
+/// says nothing about whose API answers it. The caller has already required
+/// the two providers to be one.
+pub(super) fn reads(first_party: bool, writer: &str, reader: &str) -> bool {
+    first_party && READABLE.contains(&(writer, reader))
 }

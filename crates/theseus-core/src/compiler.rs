@@ -677,7 +677,7 @@ fn compile_with(
                 let keeps = t == ["model_changed"]
                     && input.spec.first_party
                     && m.provider == now_manifest.provider
-                    && readable::reads(&m.provider, &m.model, &now_manifest.model);
+                    && readable::reads(input.spec.first_party, &m.model, &now_manifest.model);
                 Some((t.join("+"), "transcript", !keeps))
             }
         }
@@ -965,12 +965,20 @@ fn render_kept(
             kept::Kept1 {
                 kept,
                 session,
-                key: kept::Key::of(&c.id, strip, &spec.provider, &media, view, &offers),
+                key: kept::Key::of(
+                    &c.id,
+                    (strip, spec.first_party),
+                    &spec.provider,
+                    &media,
+                    view,
+                    &offers,
+                ),
             },
             &prefix,
             &tail,
             kept::Args {
                 strip_prefix_thinking: strip,
+                first_party: spec.first_party,
                 provider: &spec.provider,
                 media: &media,
                 retrying,
@@ -982,7 +990,7 @@ fn render_kept(
         None => render_messages(
             &prefix,
             &tail,
-            strip,
+            (strip, spec.first_party),
             &spec.provider,
             &media,
             retrying,
