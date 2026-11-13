@@ -131,13 +131,30 @@ pub struct Facilities {
     /// point.** The ladder was measured once, inside the view, on a rig that
     /// no longer exists: of 123 tests that fail in an ungranted view, 0 pass
     /// at no grants, 67 with `pty`, `devices` and `nesting`, and 119 with
-    /// this grant as well. **The counts are one unreproducible run, and the
-    /// cause of the last step is not established**: the claim that a masked
-    /// `/proc` makes a nested procfs impossible does not reproduce on the
-    /// kernel the 123 were measured on, where `nesting` alone already yields
-    /// `nested_proc: ok`. So the step may not be this grant's doing. Finding
-    /// the real mechanism — and taking the grant back off if `nesting`
-    /// suffices — is a 1.0.6 line. Do not restate the counts as a cause.
+    /// this grant as well. **The counts are one unreproducible run** and are
+    /// not to be restated as a cause.
+    ///
+    /// **But the cause of the last step is now established, and it is this
+    /// grant.** Measured on 2026-11-13 on two kernels (`7.0.0-1014-aws` and
+    /// `6.18.54.1-microsoft-standard-WSL2`), one tree and one session per
+    /// host, the two rungs differing in this one bool: a real nested L1 job
+    /// spawned from inside the view is **refused with `mounting /proc:
+    /// Operation not permitted`** at `pty`, `devices` and `nesting`, and
+    /// **starts and exits 0** with this grant as well. A musl and a glibc
+    /// build of the probe agreed exactly, so this is no libc artifact. **So
+    /// the grant is a hard precondition for a nested L1 job**, `nesting`
+    /// alone does not suffice on either kernel, and the 1.0.6 line that
+    /// would have taken it back off if it did is closed: nothing comes off.
+    ///
+    /// **The `nested_proc` probe that once put this in doubt measures the
+    /// wrong thing.** It mounts a bare procfs at `/tmp`, where nothing is
+    /// covered; a real init mounts at `/proc`, where the inherited locked
+    /// covers are. At the very rung the old doubt rested on — `nesting`
+    /// alone on 6.18 — the two disagree: `nested_proc: ok` while a real
+    /// nested L1 job is refused. That probe is also kernel-dependent, which
+    /// this tree did not record: under `nesting` alone it is `ok` on 6.18
+    /// and `EPERM` on 7.0.0. Conclusions drawn from it about what this grant
+    /// buys are unsound, and are not to be put back.
     ///
     /// **Its price is disclosure, and it is smaller than it was once written
     /// to be.** It reaches no credential, no store, no spool, no sealed set
