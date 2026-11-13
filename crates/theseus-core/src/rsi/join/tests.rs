@@ -75,7 +75,11 @@ impl Installer for Builds {
     fn start(&self, p: &Place, merge: &str) -> anyhow::Result<String> {
         let target = install::built_tree(p, merge, &|_, t, _| {
             // The tree is open while its build runs, and is a worktree.
-            assert!(t.dir.join(".git").exists(), "{} is no worktree", t.dir.display());
+            assert!(
+                t.dir.join(".git").exists(),
+                "{} is no worktree",
+                t.dir.display()
+            );
             // What `scripts/build.sh --profile release` leaves behind: the
             // binaries in the build tree, which is its `CARGO_TARGET_DIR`.
             let out = t.target.join("release");
