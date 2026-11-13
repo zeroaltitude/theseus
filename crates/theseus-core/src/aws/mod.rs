@@ -64,6 +64,7 @@ pub mod secret;
 pub mod session;
 pub mod stack;
 pub mod stack_tags;
+pub mod tag;
 pub mod tend;
 pub mod tools;
 pub mod trail;
@@ -111,12 +112,14 @@ mod tests_session_mints;
 #[cfg(test)]
 mod tests_synced;
 #[cfg(test)]
+mod tests_tag;
+#[cfg(test)]
 mod tests_tree;
 #[cfg(test)]
 mod tests_when_present;
 
 /// The AWS tools' names, for the config's check of `[policy.tools]`.
-pub const NAMES: [&str; 16] = [
+pub const NAMES: [&str; 19] = [
     "aws.call",
     "aws.cost",
     "aws.describe",
@@ -131,6 +134,9 @@ pub const NAMES: [&str; 16] = [
     "aws.stack.delete",
     "aws.stack.plan",
     "aws.stack.status",
+    "aws.tag.clear",
+    "aws.tag.list",
+    "aws.tag.set",
     "aws.trail",
     "aws.whoami",
 ];
@@ -146,7 +152,9 @@ pub const ALLOW_ALL: &str = "theseus-allow-all";
 pub fn tool_class(name: &str) -> Option<&'static str> {
     match name {
         "aws.describe" => None,
-        "aws.stack.apply" | "aws.stack.delete" | "aws.s3.put" => Some("write"),
+        "aws.stack.apply" | "aws.stack.delete" | "aws.s3.put" | "aws.tag.set" | "aws.tag.clear" => {
+            Some("write")
+        }
         hands::RUN => Some("run"),
         n if NAMES.contains(&n) => Some("read"),
         _ => None,
@@ -209,6 +217,7 @@ impl Aws {
         all.extend(trail::all(self));
         all.extend(inventory::all(self));
         all.extend(stack::all(self));
+        all.extend(tag::all(self));
         all.push(Arc::new(cost::Cost::new(self.clone())));
         all.push(Arc::new(hands::tool::HandsRun(self.clone())));
         all
