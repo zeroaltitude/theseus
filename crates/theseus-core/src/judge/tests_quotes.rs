@@ -96,6 +96,7 @@ fn run_refusal(r: &Rig, sid: &str) -> Option<String> {
             class: PlaceClass::Private,
             ceiling: None,
             voice: false,
+            chat: false,
         },
         labels: &labels,
         mcp: &mcp,

@@ -62,6 +62,7 @@ impl TurnCtx<'_> {
             class: self.class,
             ceiling: self.ceiling,
             voice: false,
+            chat: false,
         }
     }
 }

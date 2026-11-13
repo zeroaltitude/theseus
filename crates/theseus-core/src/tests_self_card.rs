@@ -30,9 +30,34 @@ fn private(voice: bool) -> PlaceView {
     }
 }
 
+/// The bound places the chat tests read: the owner's DM, and a shared
+/// channel of the same guild.
+const DM: &str = "discord:dm:200000000000000001";
+const LOBBY: &str = "discord:channel:300000000000000001";
+
+fn bound() -> PlaceRule {
+    let rule = PlaceRule::default();
+    rule.bind(vec![
+        BoundPlace {
+            target: DM.into(),
+            name: "DM @owner".into(),
+            private: true,
+            ..Default::default()
+        },
+        BoundPlace {
+            target: LOBBY.into(),
+            name: "#lobby".into(),
+            guild: Some("100000000000000001".into()),
+            ..Default::default()
+        },
+    ]);
+    rule
+}
+
 const VOICE: &str = "You can join a voice channel the bindings name: the person types /join in a private place to invite you.";
 const WAKES: &str = "You can set a wake to follow up later and run background tasks.";
 const PAST: &str = "You can look up past conversations.";
+const CHAT: &str = "The person can act here from chat with slash commands, which Discord lists when they type `/` \u{2014} `/trust` clears a content label this conversation is holding, and `/project trust <path>` grants or revokes a repository's own instruction files; never send them to a terminal for something a command here does.";
 
 #[test]
 fn a_private_place_with_voice_bound_says_all_four() {
@@ -99,29 +124,46 @@ fn the_card_is_fixed_for_a_config_and_follows_it() {
     );
 }
 
+/// **A private Discord place is told that the owner's acts have a chat
+/// route** (F5 of the live freeze of 2026-11-13). Asked from his DM to
+/// untrust a repository, the model searched the CLI's source, found only the
+/// terminal route, and sent him to a shell -- against his standing wish that
+/// no owner act need one. `/project trust|untrust|trusted` had shipped the
+/// day before; this card, the one place a place's non-tool affordances are
+/// told to the model, named no owner slash command at all.
+///
+/// The card is read THROUGH the place rule here, not from a hand-built view,
+/// because the gate is the half that was missing: the line must hold on the
+/// owner's DM and on no other place. The CLI's place is private too, and a
+/// card that offered a slash command there would be the same kind of untrue
+/// sentence in the other direction.
+#[test]
+fn a_private_discord_place_is_told_the_owners_acts_have_a_chat_route() {
+    let cfg = config(|_| {});
+    let rule = bound();
+    let rt = runtime(&cfg);
+    let said = card(&cfg, &rt, rule.place(&cfg, Some(DM)));
+    assert!(said.ends_with(CHAT), "{said}");
+    // Not a shared channel's, not the CLI's or the web UI's.
+    assert!(!card(&cfg, &rt, rule.place(&cfg, Some(LOBBY))).contains("/trust"));
+    assert!(!card(&cfg, &rt, rule.place(&cfg, None)).contains("/trust"));
+    // It is one line, not a list of every command: a card that enumerated
+    // them would go stale at the next one.
+    assert!(
+        !said.contains("/stop") && !said.contains("/publish"),
+        "{said}"
+    );
+}
+
 /// `/join` is offered on a Discord place of the owner's, when the file binds
 /// a voice channel: never on the CLI's or web UI's place, a shared one, or
 /// before the binding has said.
 #[test]
 fn the_place_rule_offers_join_on_a_private_discord_place_only_once_voice_is_bound() {
     let cfg = config(|_| {});
-    let rule = PlaceRule::default();
-    rule.bind(vec![
-        BoundPlace {
-            target: "discord:dm:200000000000000001".into(),
-            name: "DM @owner".into(),
-            private: true,
-            ..Default::default()
-        },
-        BoundPlace {
-            target: "discord:channel:300000000000000001".into(),
-            name: "#lobby".into(),
-            guild: Some("100000000000000001".into()),
-            ..Default::default()
-        },
-    ]);
-    let dm = Some("discord:dm:200000000000000001");
-    let lobby = Some("discord:channel:300000000000000001");
+    let rule = bound();
+    let dm = Some(DM);
+    let lobby = Some(LOBBY);
     assert!(!rule.place(&cfg, dm).voice, "not bound yet");
     rule.bind_voice(true);
     assert!(rule.place(&cfg, dm).voice);
