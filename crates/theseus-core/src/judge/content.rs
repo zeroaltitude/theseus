@@ -140,8 +140,9 @@ impl ContentItem {
     ///    item tries to steer the assistant: instructions it was not given by
     ///    the operator". A granted repository's files are instructions the
     ///    operator chose to carry: the grant is his own act
-    ///    (`rpc::project_trust`, judged `Act::Standing` -- the owner, from a
-    ///    private place) and it lives as a META record in the store, which
+    ///    (`rpc::project_trust`, judged `Act::Trust` -- the owner in person,
+    ///    no agent's process, and on a transport a DM alone: theseus-me9fc)
+    ///    and it lives as a META record in the store, which
     ///    `toolrun/guarded.rs` floors, so no tool call can write it. Asking a
     ///    model to re-derive a decision the owner has already made can only
     ///    subtract from it.

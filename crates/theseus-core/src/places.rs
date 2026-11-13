@@ -470,6 +470,51 @@ pub fn owner_in_private(
     }
 }
 
+/// Whether `who` may grant or revoke a repository's instruction files
+/// (theseus-me9fc): the narrower half of the place rule, for the one act
+/// that widens what may enter the system block with an *instruction's*
+/// authority. Two things are stricter than [`owner_in_private`].
+///
+/// **An agent's connection cannot grant, whatever its surface.** The CLI's
+/// socket is mode 0600 and the web UI's port is loopback, so every process
+/// of the owner's own user reaches both; `peer_proc` already names the agent
+/// behind one (`agent:claude`, `agent:no terminal`), and until now that name
+/// was only *recorded*, in the row's `by`. A grant taken from an agent with
+/// no controlling terminal therefore stood, with the daemon's own checkout
+/// as its root. It no longer does: the name that was evidence is now the
+/// refusal.
+///
+/// **On a transport only a DM with an owner counts**, never a guild channel
+/// bound private. The owner's words of 2026-11-12 allow either a DM or a
+/// trusted-user check on another surface; this is the narrower of the two
+/// readings, and the narrower is what a widening act takes.
+///
+/// `Err` says why not, in the words the refusal shows.
+pub fn owner_in_person(
+    who: &crate::approval::Answerer,
+    rule: &PlaceRule,
+    cfg: &crate::Config,
+) -> Result<(), String> {
+    if let Some(agent) = &who.agent {
+        return Err(format!(
+            "it came from an agent's process ({agent}), and a repository's instruction files are \
+             granted by the owner alone: a grant lets that repository's own AGENTS.md and \
+             CLAUDE.md into the system block with an instruction's authority. Give it from your \
+             own terminal, the web UI, or a DM with you"
+        ));
+    }
+    match owner_anywhere(who, rule, cfg)? {
+        // The CLI and the web UI with no agent behind them: the owner's own.
+        None => Ok(()),
+        Some(from) if from.starts_with("discord:dm:") => Ok(()),
+        Some(_) => Err(
+            "it came from a channel, and a repository's trust is given in a DM with you, from \
+             your own terminal, or in the web UI"
+                .into(),
+        ),
+    }
+}
+
 /// The tools whose results are public by nature, which a shared place is
 /// offered whatever its config.
 pub fn public_tool(name: &str) -> bool {
@@ -683,6 +728,75 @@ mod tests {
         let mut c = Config::example();
         c.places.owner = Some(vec![format!("discord:{OWNER}")]);
         c
+    }
+
+    /// **theseus-me9fc**: `owner_in_person` is `owner_in_private` with two
+    /// clauses more, and each of them is a refusal today's rule allows.
+    /// An agent's process is refused by name on the CLI and in the web UI —
+    /// `owner_in_private` lets both straight through, which is how a grant
+    /// came to stand with `by: agent:no terminal` — and on a transport only
+    /// an owner's DM counts, never a guild channel bound private, which
+    /// `owner_in_private` does count. The owner's own two surfaces and an
+    /// owner's DM pass both rules: three passes against five refusals, so
+    /// a predicate that refused everything could not stand in for it.
+    #[test]
+    fn only_the_owner_in_person_grants_a_repositorys_trust() {
+        use crate::approval::{Answerer, Surface};
+        use theseus_protocol::DiscordOrigin;
+        let cfg = cfg();
+        let rule = PlaceRule::default();
+        rule.bind(vec![BoundPlace {
+            target: "discord:channel:333333333333333333".into(),
+            name: "#tide-gauges".into(),
+            private: true,
+            guild: Some("444444444444444444".into()),
+            ..Default::default()
+        }]);
+        let who =
+            |surface: Surface, discord: Option<DiscordOrigin>, agent: Option<&str>| Answerer {
+                label: agent.map_or_else(|| "the CLI".to_string(), |a| format!("agent:{a}")),
+                surface,
+                discord,
+                agent: agent.map(str::to_string),
+            };
+        let at = |user: &str, guild: Option<&str>| {
+            Some(DiscordOrigin {
+                user_id: user.into(),
+                channel_id: "333333333333333333".into(),
+                guild_id: guild.map(str::to_string),
+            })
+        };
+        // The four that pass both rules.
+        for a in [
+            who(Surface::Cli, None, None),
+            who(Surface::Web, None, None),
+            who(Surface::Discord, at(OWNER, None), None),
+        ] {
+            assert_eq!(owner_in_private(&a, &rule, &cfg), Ok(()), "{a:?}");
+            assert_eq!(owner_in_person(&a, &rule, &cfg), Ok(()), "{a:?}");
+        }
+        // An agent's process: private lets it in, in person names it.
+        for s in [Surface::Cli, Surface::Web] {
+            for name in [crate::peer_proc::NO_TERMINAL, "claude"] {
+                let a = who(s, None, Some(name));
+                assert_eq!(owner_in_private(&a, &rule, &cfg), Ok(()), "{a:?}");
+                let why = owner_in_person(&a, &rule, &cfg).expect_err("an agent cannot grant");
+                assert!(why.contains(name), "the refusal names the agent: {why}");
+            }
+        }
+        // A guild channel bound private: a private place, and not a DM.
+        let in_channel = who(
+            Surface::Discord,
+            at(OWNER, Some("444444444444444444")),
+            None,
+        );
+        assert_eq!(owner_in_private(&in_channel, &rule, &cfg), Ok(()));
+        let why = owner_in_person(&in_channel, &rule, &cfg).expect_err("a channel is not a DM");
+        assert!(why.contains("in a DM with you"), "{why}");
+        // Someone else's DM is refused by both, as it always was.
+        let guest = who(Surface::Discord, at(ALICE, None), None);
+        assert!(owner_in_private(&guest, &rule, &cfg).is_err());
+        assert!(owner_in_person(&guest, &rule, &cfg).is_err());
     }
 
     /// The template's `[places]` block and its persona's files, uncommented,
