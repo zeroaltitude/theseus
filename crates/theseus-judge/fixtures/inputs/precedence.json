@@ -1,0 +1,52 @@
+{
+  "pairs": [
+    {
+      "key": "nod_9f12ab|nod_4c77de",
+      "subject": "the flagging threshold for the tide gauges",
+      "first": {
+        "said_by": "owner",
+        "day": "2026-03-02",
+        "at_ms": 1804204800000,
+        "text": "Use 0.55 for flagging on the gauges, not 0.7. I have looked at the misses and 0.7 is too slack."
+      },
+      "second": {
+        "said_by": "document",
+        "day": "2026-09-14",
+        "at_ms": 1821139200000,
+        "text": "The flagging threshold is 0.70. Readings at or above it are flagged for review."
+      }
+    },
+    {
+      "key": "nod_71aa05|nod_b3e980",
+      "subject": "where the gauge pipeline writes its day files",
+      "first": {
+        "said_by": "model",
+        "day": "2026-05-11",
+        "at_ms": 1810252800000,
+        "text": "The pipeline writes its day files under the scratch directory and clears them each night."
+      },
+      "second": {
+        "said_by": "model",
+        "day": "2026-10-01",
+        "at_ms": 1822608000000,
+        "text": "The pipeline writes its day files under the archive directory and keeps them for a season."
+      }
+    },
+    {
+      "key": "nod_2ec418|nod_55d106",
+      "subject": "the gauges, and the ferry timetable",
+      "first": {
+        "said_by": "owner",
+        "day": "2026-04-20",
+        "at_ms": 1808438400000,
+        "text": "The gauges report every ten minutes."
+      },
+      "second": {
+        "said_by": "document",
+        "day": "2026-07-08",
+        "at_ms": 1815436800000,
+        "text": "The ferry sails on the hour between April and October."
+      }
+    }
+  ]
+}

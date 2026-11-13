@@ -100,6 +100,11 @@ pub fn unrebuildable(b: Builder) -> Option<&'static str> {
             "a delay's state is what each progress signal read when the delay began and again when \
              it was reconsidered, which the record keeps only in the judgment's blob",
         ),
+        Builder::Precedence => Some(
+            "a precedence state is the pairs of testimony a reader held together at that moment, \
+             with each source's text as it was then read, which the record keeps only in the \
+             judgment's blob",
+        ),
     }
 }
 

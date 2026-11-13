@@ -190,9 +190,17 @@ pub fn unplaced(session_id: &str) -> String {
 /// is not asked at recall, and a source written moments ago has no
 /// `memory.labeled` row yet.
 pub fn volatile(n: &Node, shown: &str) -> Option<String> {
+    volatile_at(shown, n.created_at_ms)
+}
+
+/// `volatile`, for a reader that holds its source's text and the time it
+/// was written but no node: `memory.lookup`'s page lines (theseus-3nk). The
+/// one rule and the one wording, so a value answered by the tool and the
+/// same value recalled into a prefix say the same thing.
+pub fn volatile_at(shown: &str, created_at_ms: u64) -> Option<String> {
     let why = crate::memory_pass::labels::volatile(shown, &[]);
-    // The note's local day, as its header says it.
-    let day = stamp::date(n.created_at_ms);
+    // The source's local day, as its header says it.
+    let day = stamp::date(created_at_ms);
     (!why.is_empty()).then(|| format!("volatile: as of {day}, unverified"))
 }
 
