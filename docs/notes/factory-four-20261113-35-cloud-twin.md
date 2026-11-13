@@ -92,3 +92,19 @@ independent count above exactly.
   and arming it is the conductor's call, not mine. A one-off cleanup is not the fix and was not mine to do.
 - The detectors were not changed; their half of the line was already done.
 - Nothing was landed, queued, ticked, installed or tagged.
+
+## The changed script, verbatim, and the change as a diff
+
+`cloud-twin-hygiene.sh` and its harness are copied beside this note, but `depart.sh` — the file this line
+actually *changed* — was not, and it is the harder of the two to reconstruct: a call site spliced into a
+1454-line operator script that exists on one machine. Both are now recorded (added 2026-11-13 10:58 MST by the
+factory-four round-2 fixer, closing the gap the review named):
+
+- `factory-four-20261113-35-depart.sh.txt` — `~/reports/theseus-105-kickoff/logistics/depart.sh` in full,
+  byte-identical to the live file as of 2026-11-13 10:04 (md5 `903835d4d2777d13744332550d6bdcb3`).
+- `factory-four-20261113-35-depart.sh.diff.txt` — the unified diff against its house-pattern backup
+  `depart.sh.bak-20261113-1005-b7-cloud-twin-hygiene`: **one hunk, 20 added lines, not one line removed.**
+
+That last number is this note's central safety claim in the one form a reader can check for themselves. Nothing
+was removed, so the old slug-matched block above the new call is byte-intact, and creating the arming flag
+remains the only change in behaviour.

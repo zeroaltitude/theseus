@@ -1,0 +1,105 @@
+--- ec2.sh.bak-20261113-0953-b7-hold-not-released	2026-11-12 15:28:45.796057516 -0700
++++ ec2.sh	2026-11-13 09:58:20.499618356 -0700
+@@ -24,9 +24,13 @@
+ #                                      at run-instances time, so no other caller's `send` can take the box you
+ #                                      just paid for while it boots.
+ #   ec2.sh rm LANE                     release the lane's claim on its box, keep the box
+-#   ec2.sh release-done [LANE|all]     release holds whose work has FINISHED (no unit running, idle past
+-#                                      RELEASE_GRACE minutes, default 20); every box is KEPT, none terminated.
+-#                                      `send` runs this itself before it reports no free box.
++#   ec2.sh release-done [LANE|all]     release holds whose work has FINISHED; every box is KEPT, none terminated.
++#                                      `send` runs this itself before it reports no free box. Two graces, because
++#                                      an OBSERVED exit is knowledge and idleness is only a guess:
++#                                        - the lane's results in S3 all say exited  -> RELEASE_GRACE_DONE (2 min)
++#                                        - no results, or one still says running    -> RELEASE_GRACE     (20 min)
++#                                      `wait` calls it on the exit it just observed, so a finished box is free to
++#                                      the next departure in ~2 minutes instead of ~20.
+ #   ec2.sh terminate LANE|all          terminate the box holding LANE (or every gate box)
+ #   ec2.sh reap-idle [MINUTES]         terminate boxes idle past MINUTES (default 30); the on-box reaper does
+ #                                      this by itself -- this is the belt to its braces, for a box whose timer died
+@@ -54,7 +58,17 @@
+ STACK=theseus-fleet
+ TYPES=${TYPES:-"c7i.8xlarge c6i.8xlarge c7i.4xlarge"}
+ IDLE_DEFAULT=30
+-RELEASE_GRACE=${RELEASE_GRACE:-20}   # minutes idle after which a FINISHED lane's hold is released; see release-done
++RELEASE_GRACE=${RELEASE_GRACE:-20}   # minutes idle after which a lane whose finish is only INFERRED is released
++RELEASE_GRACE_DONE=${RELEASE_GRACE_DONE:-2}   # ...and after which a lane whose exit we have OBSERVED in S3 is.
++#   WHY TWO GRACES (2026-11-13, b7-ec2-hold-not-released). `launch --for` reserves a box and `send` claims one, so
++#   a hold was always released by a 20-minute idleness GUESS or by hand -- and `release-done`'s own comment says
++#   what that costs: "a departure could be refused its second host by a box that was idle, healthy and warm".
++#   Twenty minutes is the right timidity for a guess. But when every result object for the lane in S3 says the
++#   unit EXITED, the finish is not a guess, and the only thing the long grace still buys is twenty minutes of
++#   starvation. So an observed finish gets a short grace -- long enough that a caller running units back to back
++#   (precut-fleet.sh runs `gate` and then `test` on one lane) keeps its warm box between them, short enough that
++#   a child which gated and wandered off stops holding the fleet. The box is KEPT either way; nothing here
++#   terminates. RELEASE_GRACE's default is unchanged, and so is the rule that an unparseable answer keeps the hold.
+ 
+ # One theseus-owner session per call (w.py), never a credential on disk and never one in this shell.
+ W() { timeout 300 python3.12 "$here/w.py" --raw "$@"; }
+@@ -89,8 +103,21 @@
+ #   - the grace is 20 minutes, INSIDE the 30-minute reaper that would otherwise terminate the box and whatever
+ #     was committed on it, so this can only ever free a box earlier than the reaper destroys it;
+ #   - it releases holds and nothing else: it never launches, sends or terminates.
++lane_finish() {   # LANE -> done | running | unknown, from the lane's own result objects in S3
++  # The exit of a unit is recorded by the on-box run.sh as fleet/results/<lane>/<kind>.exit, and `wait`/`result`
++  # already read exactly these. `done` means at least one kind is recorded and NONE of them says `running`.
++  local lane=$1 b=$2 e all="" k
++  all=$(WM s3 ls "s3://$b/fleet/results/$lane/" 2>/dev/null | awk '{print $4}' | sed -n 's/\.exit$//p')
++  [ -n "$all" ] || { echo unknown; return; }
++  for k in $all; do
++    e=$(WM s3 cp "s3://$b/fleet/results/$lane/$k.exit" - 2>/dev/null | tr -d '\n')
++    case "$e" in running) echo running; return ;; '') echo unknown; return ;; esac
++  done
++  echo done
++}
+ release_done() {   # [LANE|all] -> 0 if it freed at least one box
+-  local want=${1:-all} f=/tmp/ec2-rel-$$.sh freed=0 id lane a u i
++  local want=${1:-all} f=/tmp/ec2-rel-$$.sh freed=0 id lane a u i fin g B
++  B=$(bucket)
+   cat > "$f" <<'EOS'
+ m=/home/theseus/fleet/last-busy
+ u=$(sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 systemctl --user list-units --no-legend --plain --state=active,activating,deactivating 'ec2-*.service' 2>/dev/null | wc -l)
+@@ -102,12 +129,15 @@
+     a=$(SSM "$id" "$f" 45 2>/dev/null | sed -n '2p')
+     u=${a#units=}; u=${u%% *}; i=${a##*idle=}
+     case "${u:-x}${i:-x}" in *[!0-9]*) echo "keeping $lane on $id: no usable answer over SSM (${a:-none})"; continue ;; esac
+-    if [ "$u" = 0 ] && [ "$i" -ge "$RELEASE_GRACE" ] 2>/dev/null; then
++    # Which grace applies is decided by what S3 KNOWS about the lane's units, not by how long the box has dozed.
++    fin=$(lane_finish "$lane" "$B")
++    case $fin in done) g=$RELEASE_GRACE_DONE ;; *) g=$RELEASE_GRACE ;; esac
++    if [ "$u" = 0 ] && [ "$i" -ge "$g" ] 2>/dev/null; then
+       W ec2 delete-tags --resources "$id" --tags Key=theseus:lane >/dev/null
+-      echo "released lane $lane from $id: nothing running, idle ${i}m (>= ${RELEASE_GRACE}m); the box is kept"
++      echo "released lane $lane from $id: nothing running, idle ${i}m (>= ${g}m, finish $fin); the box is kept"
+       freed=$((freed + 1))
+     else
+-      echo "keeping $lane on $id: $a"
++      echo "keeping $lane on $id: $a (finish $fin, grace ${g}m)"
+     fi
+   done < <(boxes | awk '$5=="running" && $4!="None" {print $1, $4}')
+   rm -f "$f"
+@@ -348,7 +378,14 @@
+   NAME=$1; KIND=$2; S=${3:-90}; B=$(bucket)
+   for i in $(seq 1 $((S / 10))); do
+     e=$(WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.exit" - 2>/dev/null | tr -d '\n')
+-    [ "$e" = running ] || { echo "[$e] $(WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.sum" - 2>/dev/null)"; exit 0; }
++    if [ "$e" != running ]; then
++      echo "[$e] $(WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.sum" - 2>/dev/null)"
++      # THE EXIT IS NOW OBSERVED, so sweep this lane's hold here -- the place that knows. release_done still
++      # asks the box whether anything is running and still honours a grace (the short one, now that the finish
++      # is known), so a caller about to start its next unit on this lane keeps its warm box. HOLD=keep opts out.
++      [ "${HOLD:-}" = keep ] || release_done "$NAME" >&2 || true
++      exit 0
++    fi
+     sleep 10
+   done
+   echo "[running] $(WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.sum" - 2>/dev/null)" ;;
+@@ -394,7 +431,7 @@
+   echo "fetched $NAME HEAD $s -> ec2/$NAME${BR:+ and $BR}" ;;
+ 
+ release-done)
+-  release_done "${1:-all}" || echo "nothing was releasable (a hold is released only when its box has no unit running and has been idle $RELEASE_GRACE minutes)"
++  release_done "${1:-all}" || echo "nothing was releasable (a hold is released only when its box has no unit running and has been idle $RELEASE_GRACE_DONE minutes with its exit recorded in S3, or $RELEASE_GRACE minutes without)"
+   exit 0 ;;
+ 
+ rm)

@@ -84,3 +84,22 @@ family as the `| head` exit-status trap in `FLEET.md` section 3.
 - **No AWS box was started and no live fleet call was made.** The line is about how `ec2.sh` behaves.
 - `reap-idle`, `terminate`, `rm` and `launch` are unchanged.
 - Nothing was landed, queued, ticked, installed or tagged.
+
+## The script itself, verbatim, and the change as a diff
+
+The recoverability this note rests on is only real if the script can be reconstructed from the repository, and
+until now it could not be: every script this branch *wrote* had a verbatim copy, and neither script it
+*changed* did. Both are recorded beside this note (added 2026-11-13 10:58 MST by the factory-four round-2
+fixer, closing the gap the review named):
+
+- `factory-four-20261113-45-ec2.sh.txt` — `~/reports/theseus-fleet/ec2.sh` in full, byte-identical to the live
+  file as of 2026-11-13 09:58 (md5 `96f56f31710dc69379659416a1ed4044`). `.txt`, as the other copies here are,
+  so it carries no executable bit and no glob that runs scripts can ever reach it.
+- `factory-four-20261113-45-ec2.sh.diff.txt` — the unified diff of that file against its house-pattern backup
+  `ec2.sh.bak-20261113-0953-b7-hold-not-released`: **47 added lines, 10 removed, in six hunks**, which is the
+  change this note describes and nothing else — the usage header's two graces, `RELEASE_GRACE_DONE`,
+  `lane_finish`, `release_done`'s choice of grace, the `wait` hook, and `release-done`'s message.
+
+That diff is also where the two ceiling claims above become checkable rather than asserted: **`MAXBOXES` does
+not appear in it at all**, and `RELEASE_GRACE=${RELEASE_GRACE:-20}` is present on both sides of its one
+changed line, where only the trailing comment differs.
