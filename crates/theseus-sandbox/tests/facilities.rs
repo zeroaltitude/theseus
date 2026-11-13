@@ -2,10 +2,11 @@
 //! it still refuses (theseus-1eemp).
 //!
 //! The 2026-11-11 08:43 self build was the first ever to reach the suite, and
-//! 123 of 9,819 tests failed with no facility to fail on: 58 wanted a pty, 49
-//! wanted the calls that build a sandbox, one wanted `/dev/full`. The owner's
-//! call that day was to grant them rather than to skip the tests, so each
-//! grant is a rung here, measured on its own:
+//! 123 of 9,819 tests failed with no facility to fail on, classified by the
+//! error each printed: 58 named a missing pty, 49 the calls that build a
+//! sandbox, one `/dev/full` -- the facility each error named, not a measured
+//! result of granting it. The owner's call that day was to grant them rather
+//! than to skip the tests, so each grant is a rung here, measured on its own:
 //!
 //! - nothing granted is the floor the contract tests describe: no `/dev/ptmx`,
 //!   no `/dev/full`, and `clone(CLONE_NEW*)` refused;

@@ -52,16 +52,22 @@ pub const BUILD_PIDS: u64 = 8192;
 /// What a self build's view grants that no other L1 job's does, and the
 /// whole of it (theseus-1eemp).
 ///
-/// **Measured, not guessed.** The 2026-11-11 08:43 self build was the first
-/// ever to reach the suite, and 123 of 9,819 tests failed, none of them the
-/// item's change. Classified by the error each printed:
+/// **Measured, not guessed** -- the failures and the error each printed
+/// were. The 2026-11-11 08:43 self build was the first ever to reach the
+/// suite, and 123 of 9,819 tests failed, none of them the item's change.
+/// Classified by the error each printed:
 ///
-/// | n | what it printed | granted by |
+/// | n | what it printed | the facility its error named |
 /// |---:|---|---|
 /// | 58 | `posix_openpt`/`openpty` → `ENOENT`: no `/dev/ptmx` | `pty` |
 /// | 49 | `cloning the init into its namespaces: EPERM`, our own filter | `nesting` |
 /// | 1 | `/dev/full` → `NotFound`, on a host that has it | `devices` |
 /// | 15 | a timeout or a value, naming no facility; downstream of the above | — |
+///
+/// The last column is what each test's own error named, not a measured
+/// result of granting it. It is why the owner's call was to grant these
+/// three; the evidence that granting them is enough is the ladder below,
+/// on the terms the ladder states.
 ///
 /// And the ladder, which is **evidence, not proof**: the same 123 were run
 /// once inside this view, of which 0 pass at no grants, 67 with `pty`,
