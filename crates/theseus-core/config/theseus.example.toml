@@ -832,6 +832,11 @@ agent_processes = ["claude", "codex", "gemini", "aider", "opencode", "openclaw"]
 # "aws.trail" = "approve"
 # "aws.inventory" = "approve"
 # "aws.hands.run" = "approve"            # a group of hands in AWS (unset: [policy.aws] run)
+# aws.tag.list reads the account's resources with their tags; aws.tag.set and
+# .clear change tags by ARN, and are writes ([policy.aws] write)
+# "aws.tag.list" = "approve"
+# "aws.tag.set" = "approve"
+# "aws.tag.clear" = "approve"
 # Google Workspace, when [google] names an account. Every tool is deferred. A
 # read inherits enforcement, and a call that sends, deletes, shares, changes a
 # permission or invites asks at every posture, whatever a line here says.

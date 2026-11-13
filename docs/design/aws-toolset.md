@@ -275,8 +275,8 @@ to get whole-of-AWS reach:
   `password`, `secret`, `key`, `credential`, `passphrase`, `seed`)? Either question alone is wrong.
   The marking alone is not a credential rule, because AWS marks `sensitive` to keep a value out of
   logs, so the marking covers personal data and customer content too: taking every marked member
-  would reach 1478 further operations and 2654 further members, down to postal codes and tag values,
-  against this rule's 166 and 122. The name alone is a guess, and the names that matter do not
+  would reach 1731 further operations and 3148 further members, down to postal codes and tag values,
+  against this rule's 175 and 131. The name alone is a guess, and the names that matter do not
   cooperate — a stream key arrives as `StreamKey.value`, a Grafana workspace key as `key`, a TOTP seed
   as `SecretCode`, a channel's key as `Srt.passphrase`. Reading the shape's name as well as the
   member's is what finds `StreamKey.value`: `value` says nothing and `StreamKey` says all of it. All
@@ -305,7 +305,7 @@ to get whole-of-AWS reach:
   Connect's `StartWebRTCContact` did exactly that with `ParticipantToken` beside its held join token.
   Every credential-shaped member of a secret-bearing answer must now be one the walk holds.
 
-  The rule selects 166 operations beyond its predecessor; each is now a secret-bearing row or an
+  The rule selects 175 operations beyond its predecessor; each is now a secret-bearing row or an
   allowed row with its reason — 28 `SECRET` rows, 20 `WHEN_PRESENT` groups covering 66 operations,
   and 22 allowed rows.)_
 - **Retry class** (§3.16), from the traits:

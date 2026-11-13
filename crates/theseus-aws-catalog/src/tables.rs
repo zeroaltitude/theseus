@@ -116,18 +116,6 @@ pub(crate) static CLASS: &[ClassRow] = &[
     class("gamelift", "GetComputeAccess", Class::Write, MINT),
     class("gamelift", "GetInstanceAccess", Class::Write, MINT),
     class("gamelift", "RequestUploadCredentials", Class::Write, MINT),
-    class(
-        "finspace-data",
-        "GetProgrammaticAccessCredentials",
-        Class::Write,
-        MINT,
-    ),
-    class(
-        "finspace-data",
-        "GetExternalDataViewAccessDetails",
-        Class::Write,
-        MINT,
-    ),
     class("emr", "GetClusterSessionCredentials", Class::Write, MINT),
     class(
         "emr-containers",
@@ -213,6 +201,30 @@ pub(crate) static CLASS: &[ClassRow] = &[
     class("ecr", "GetAuthorizationToken", Class::Write, MINT),
     class("ecr-public", "GetAuthorizationToken", Class::Write, MINT),
     class("codeartifact", "GetAuthorizationToken", Class::Write, MINT),
+    // New at aws-cli/2.40.2 (theseus-mgw.14). Each returns an AWS
+    // credential or a bearer token of its own making, and each is named
+    // `Get`/`Create`, so without this row it would read as a read.
+    class(
+        "account-access-runtime",
+        "GetRoleCredentials",
+        Class::Write,
+        MINT,
+    ),
+    class(
+        "cloudwatchomni",
+        "GetSpaceCredentialsForOrganization",
+        Class::Write,
+        MINT,
+    ),
+    class("cloudwatchomni", "GetSpaceDataAccess", Class::Write, MINT),
+    class("signin", "CreateBearerToken", Class::Write, MINT),
+    class("signin", "CreateOAuth2TokenWithIAM", Class::Write, MINT),
+    class(
+        "signin",
+        "CreateOAuth2TokenWithTokenExchange",
+        Class::Write,
+        MINT,
+    ),
     paid(
         "athena",
         "StartQueryExecution",
@@ -655,12 +667,16 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("gamelift", "GetComputeAccess"),
     secret("gamelift", "GetInstanceAccess"),
     secret("gamelift", "RequestUploadCredentials"),
-    secret("finspace-data", "GetProgrammaticAccessCredentials"),
-    secret("finspace-data", "GetExternalDataViewAccessDetails"),
     secret("emr", "GetClusterSessionCredentials"),
     secret("emr-containers", "GetManagedEndpointSessionCredentials"),
     secret("datazone", "GetEnvironmentCredentials"),
     secret("signin", "CreateOAuth2Token"),
+    secret("account-access-runtime", "GetRoleCredentials"),
+    secret("cloudwatchomni", "GetSpaceCredentialsForOrganization"),
+    secret("cloudwatchomni", "GetSpaceDataAccess"),
+    secret("signin", "CreateBearerToken"),
+    secret("signin", "CreateOAuth2TokenWithIAM"),
+    secret("signin", "CreateOAuth2TokenWithTokenExchange"),
     secret("amplifyuibuilder", "ExchangeCodeForToken"),
     secret("amplifyuibuilder", "RefreshToken"),
     secret("bedrock-agentcore", "GetWorkloadAccessToken*"),
@@ -692,7 +708,6 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("sso-oidc", "RegisterClient"),
     secret("wickr", "RegisterOpentdfConfig"),
     secret("wickr", "GetOpentdfConfig"),
-    secret("finspace-data", "ResetUserPassword"),
     secret("iot-managed-integrations", "CreateProvisioningProfile"),
     secret("iotwireless", "AssociateAwsAccountWithPartnerAccount"),
     secret("location", "CreateKey"),
@@ -790,9 +805,33 @@ pub(crate) static SECRET: &[SecretRow] = &[
     secret("athena", "GetSessionEndpoint"),
     secret("gamelift", "GetComputeAuthToken"),
     secret("wafv2", "CreateAPIKey"),
-    // Marked, but named for what it connects to rather than for the
-    // credential signed into it.
-    secret("finspace", "GetKxConnectionString"),
+    // New at aws-cli/2.40.2 (theseus-mgw.14), each settled as a secret the
+    // answer always carries.
+    //
+    // A session endpoint's own credential, as athena's above: an auth token,
+    // and emr's a password beside it.
+    secret("emr", "GetSessionEndpoint"),
+    secret("emr-serverless", "GetSessionEndpoint"),
+    secret("glue", "GetSessionEndpoint"),
+    // The MAC key of an ACME external account binding: it signs the account
+    // to the CA.
+    secret("acm", "GetAcmeExternalAccountBindingCredentials"),
+    // A user pool client's access token, as cognito-idp's other
+    // authentication results above.
+    secret("cognito-idp", "GetClientToken"),
+    // A participant token, as StartChatContact's and CreateParticipant's.
+    secret("connect", "StartAssistantContact"),
+    // The token of an admin shell on a stream session.
+    secret("gameliftstreams", "CreateStreamSessionAdminShell"),
+    // The depot URL carries its own token.
+    secret("evs", "GetDepotUrl"),
+    // ML-KEM encapsulation: the shared secret is a symmetric key, as
+    // DeriveSharedSecret's above.
+    secret("kms", "Decapsulate"),
+    secret("kms", "Encapsulate"),
+    // A payment token for a resource: bearer tokens and an authorisation
+    // signature.
+    secret("bedrock-agentcore", "GetResourcePaymentToken"),
 ];
 
 /// Results that hold a secret only sometimes (theseus-qan5): what the walk
@@ -1154,6 +1193,37 @@ pub(crate) static WHEN_PRESENT: &[Ops] = &[
             "ListEksAnywhereSubscriptions",
             "UpdateEksAnywhereSubscription",
         ],
+    ),
+    // New at aws-cli/2.40.2 (theseus-mgw.14). Each echoes a credential that
+    // is in the answer only when the resource carries one, so a result with
+    // none is returned whole.
+    //
+    // A webhook's own secret and API key, as configured.
+    ops("devops-agent", &["AssociateService", "UpdateAssociation"]),
+    // A connection's activation key, which exists only while the connection
+    // waits to be activated.
+    ops(
+        "interconnect",
+        &[
+            "AcceptConnectionProposal",
+            "CreateConnection",
+            "DeleteConnection",
+            "GetConnection",
+            "UpdateConnection",
+        ],
+    ),
+    // An integration's secret, echoed when it is set.
+    ops("securityagent", &["UpdateIntegration"]),
+    // A DLP provider's credentials, echoed when the setting names a
+    // provider that takes them.
+    ops("quicksight", &["DescribeDlpSetting"]),
+    // A payment instrument's own token, and the credential a payment
+    // output carries for its method. Neither is plainly a credential from
+    // its name alone and the model marks both sensitive, so they are held
+    // when they are there; the owner may want to read these two rows.
+    ops(
+        "bedrock-agentcore",
+        &["GetPaymentInstrumentBalance", "ProcessPayment"],
     ),
 ];
 
@@ -2151,16 +2221,6 @@ pub(crate) static RETRY: &[RetryRow] = &[
     retry(
         "gamelift",
         "RequestUploadCredentials",
-        RetryClass::SafeToRepeat,
-    ),
-    retry(
-        "finspace-data",
-        "GetProgrammaticAccessCredentials",
-        RetryClass::SafeToRepeat,
-    ),
-    retry(
-        "finspace-data",
-        "GetExternalDataViewAccessDetails",
         RetryClass::SafeToRepeat,
     ),
     retry(

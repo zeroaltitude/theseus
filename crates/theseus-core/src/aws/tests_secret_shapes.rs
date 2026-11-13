@@ -22,9 +22,9 @@
 //! (theseus-37ds). The marking alone is not a credential rule: AWS marks
 //! `sensitive` to keep a value out of logs, so the marking covers personal
 //! data and customer content too, and holding every marked member would
-//! reach 1478 further operations and 2654 further members — a postal code, a
+//! reach 1731 further operations and 3148 further members — a postal code, a
 //! given name, a control's description, a tag's value — against this rule's
-//! 166 and 122. The words alone are a guess about a name, and the names that
+//! 175 and 131. The words alone are a guess about a name, and the names that
 //! matter do not cooperate: a stream key arrives as `StreamKey.value`, a
 //! Grafana key as `key`, a TOTP seed as `SecretCode`, a channel's key as
 //! `Srt.passphrase`. Read together they keep the marking's authority — the
@@ -113,13 +113,13 @@ const MARKED: &[(&str, &str, &str)] = &[
     ),
     // The QR code encodes the same seed as the `Base32StringSeed` beside it.
     ("iam", "VirtualMFADevice", "QRCodePNG"),
-    // A kdb connection string with the caller's signature in it: named for
-    // what it connects to, not for the credential signed into it.
-    (
-        "finspace",
-        "GetKxConnectionStringResponse",
-        "signedConnectionString",
-    ),
+    // A crypto payment's own output payload: new at aws-cli/2.40.2
+    // (theseus-mgw.14), marked sensitive, and named for nothing. An x402
+    // payment output carries the signed authorisation that moves the funds,
+    // so it is held; its operation (`ProcessPayment`) is secret-bearing when
+    // present. Read from the member, not from a source: the owner may want
+    // to confirm it.
+    ("bedrock-agentcore", "CryptoX402PaymentOutput", "payload"),
     // The rows below were found by `every_marked_candidate_is_on_a_list`
     // (theseus-3i6d1), which walks the catalog instead of reading this list:
     // every one is a marked member of a secret-bearing answer whose name says
@@ -592,6 +592,69 @@ static ALLOWED: &[Allowed] = &[
         "ReadAPIKeyConnectionMetadata.Email",
         "an email address on a connector's metadata",
     ),
+    // New at aws-cli/2.40.2 (theseus-mgw.14): credential-shaped by the
+    // rule, and not credentials. Each reason is the member's own plain
+    // reading of what the operation returns, not a sourced fact.
+    allow(
+        "datazone",
+        &["StartNotebookImport", "StartNotebookSync"],
+        "S3File.key",
+        "an S3 object's key: its name",
+    ),
+    allow(
+        "ecs",
+        ALL,
+        "*ContainerDefinition.repositoryCredentials",
+        NAMES_A_SECRET,
+    ),
+    // The operator gives these at CreateEnvironment and every read of the
+    // environment echoes them. They license VMware software and authorise
+    // nothing in the account; `Environment.credentials` beside them is
+    // already allowed, so evs is not a secret-bearing service and making it
+    // one would make that row stale. A judgement the owner may want to
+    // confirm (theseus-mgw.14).
+    allow(
+        "evs",
+        ALL,
+        "LicenseInfo.solutionKey",
+        "a VMware product licence key the operator gave at CreateEnvironment",
+    ),
+    allow(
+        "evs",
+        ALL,
+        "LicenseInfo.vsanKey",
+        "a VMware vSAN licence key the operator gave at CreateEnvironment",
+    ),
+    allow(
+        "quicksight",
+        &["DescribeOAuthClientApplication"],
+        "OAuthClientApplication.OAuthTokenEndpointUrl",
+        "the address the token endpoint is at, not a token",
+    ),
+    // A domain-verification value is made to be published: in a DNS TXT
+    // record, or at an HTTP path on the domain. It proves control of the
+    // domain to AWS and authorises nothing.
+    allow(
+        "securityagent",
+        ALL,
+        "DnsVerification.token",
+        "a domain-verification value, published in a DNS TXT record",
+    ),
+    allow(
+        "securityagent",
+        ALL,
+        "HttpVerification.token",
+        "a domain-verification value, served at an HTTP path on the domain",
+    ),
+    // As codepipeline's approval token above: it names the work item, and
+    // SendTaskSuccess and SendTaskFailure take the caller's own credentials.
+    allow(
+        "stepfunctions",
+        &["GetActivityTask"],
+        "GetActivityTaskOutput.taskToken",
+        "an activity task's token: it reports that task's outcome only with the caller's own \
+         credentials",
+    ),
 ];
 
 /// A glob over names: `*` matches any run of characters.
@@ -928,7 +991,7 @@ fn the_rules_reach_is_what_the_design_doc_says() {
     let marking = reach(c, &marking_alone);
     assert_eq!(
         (conjunction, marking),
-        ((166, 122), (1478, 2654)),
+        ((175, 131), (1731, 3148)),
         "the rule's reach moved: the conjunction now selects {conjunction:?} \
          (operations, members) beyond the rule it replaced, and the marking alone would \
          select {marking:?}. Correct the module doc above and docs/design/aws-toolset.md."
@@ -1176,6 +1239,9 @@ const TRIAGED: &[(&str, &str, &str, &str)] = &[
     ("workspaces-thin-client", "Environment", "name", "the environment's name; its activationCode is on MARKED"),
     ("workspaces-thin-client", "EnvironmentSummary", "desktopEndpoint", "the desktop service's URL"),
     ("workspaces-thin-client", "EnvironmentSummary", "name", "the environment's name; its activationCode is on MARKED"),
+    // New at aws-cli/2.40.2 (theseus-mgw.14), in an answer this refresh made
+    // secret-bearing: read, and not a credential.
+    ("devops-agent", "PagerDutyConfiguration", "customerEmail", "the email address PagerDuty notifies: personal, and so marked, and no credential"),
 ];
 
 /// One candidate for [`MARKED`]: a marked, wordless member of a
@@ -1271,7 +1337,7 @@ fn marked_candidates(c: &Catalog) -> std::collections::BTreeMap<String, String> 
 /// neither fails, naming the member, the operation, and both lists.
 ///
 /// Why a secret-bearing answer and not every answer: AWS marks `sensitive`
-/// for logging, so the whole marked set is 2,654 members — postal codes,
+/// for logging, so the whole marked set is 3,148 members — postal codes,
 /// given names, a tag's value. The members that matter are the ones already
 /// travelling beside a credential, where a miss is a *partial hold*: an
 /// answer that reads as covered and is not.

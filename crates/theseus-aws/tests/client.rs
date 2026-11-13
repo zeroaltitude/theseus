@@ -565,6 +565,11 @@ fn what_the_client_cannot_do_it_says() {
             "ListObjectsV2",
             json!({"Bucket": "example--usw2-az1--x-s3"}),
         ),
+        // A service whose only protocol is CBOR: new at aws-cli/2.40.2,
+        // and the first in the catalog (theseus-mgw.14). The catalog keeps
+        // it so `aws.describe` names it; the client refuses it before it
+        // signs.
+        ("cloudwatchomni", "CreateDomain", json!({})),
     ] {
         match prepare(svc, op, input) {
             Err(CallError::Unsupported(m)) => assert!(m.contains("CLI"), "{svc}:{op}: {m}"),

@@ -1011,6 +1011,9 @@ async fn an_aws_call_through_the_core_is_a_row_a_span_and_a_result() {
             "aws_stack_delete",
             "aws_stack_plan",
             "aws_stack_status",
+            "aws_tag_clear",
+            "aws_tag_list",
+            "aws_tag_set",
             "aws_trail",
             "aws_whoami"
         ]
@@ -1157,7 +1160,8 @@ fn every_aws_tool_is_in_a_deferred_family_small_enough_to_load_alone() {
             "aws-logs",
             "aws-review",
             "aws-s3",
-            "aws-stacks"
+            "aws-stacks",
+            "aws-tags"
         ]
     );
 }
