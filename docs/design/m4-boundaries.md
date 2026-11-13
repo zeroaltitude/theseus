@@ -171,7 +171,7 @@ The spec's P6: "Make the durability and safety claims true, and measure them." [
 | Cancel | `Driver::terminate_all` (`theseus-core/src/rpc/driver.rs:187`) calls `job::terminate(pid, corr, 2 s)`: SIGTERM, then SIGKILL, to the wrapper's process group. It counts as verified once the wrapper's pid is gone. `CancelState` is `requested`, `acknowledged`, `termination_verified`, `unsupported`, or `outcome_uncertain` (`types.rs:411`). In-process calls are `unsupported` | Verified means the tree is gone, and the record says how (§2.3) |
 | The broker | `broker.rs`: grants by direct argv (`for_job`), toollet grants (`ToolCtx::secret`), and per-secret postures. The M4 hook is the comment above `Broker::secret_for_tool` | A per-job socket for run-time requests (§2.4) |
 | The gate's order | `ToolRuntime::gate` (`toolrun.rs:817`): `decide_with` (floor, lists, allow list, posture, tightening), then `brokered`, then `external::gate`. A `Decision` carries its posture, reason, notice, `floor`, `granted`, and `external` | `external::gate` becomes the integrity step (§2.6). The class (L0 or L1) is added to the decision and to what a confirm binds |
-| T1 | `external.rs`: `SessionRecord.external: Option<ExternalText>`, written by `hold` in three frames (a result's completion, `open_task`, and `take_reports`), with `session.external_read`. It is cleared by `policy.trust` or a trusted approval | Kept, and fed by labels (§2.6) |
+| T1 | **Superseded by R6/theseus-gyjyo.8, and read §2.4a before this cell.** As written it described the hold: `external.rs`'s `SessionRecord.external: Option<ExternalText>`, written by `hold` in three frames (a result's completion, `open_task`, and `take_reports`), with `session.external_read`, cleared by `policy.trust` or a trusted approval. **None of that exists** (§2.4a.1's negatives): no `hold`, no `SessionRecord.external`, no `ExternalText`, no `external::gate`, and `session.external_read` has no writer. What remains is the marker alone (`ToolResult.external`, the row below) | Kept, and fed by labels (§2.6) |
 | Nodes | `node.rs`: `Origin` is `operator`, `agent`, `tool`, or `harness`. `ToolResult.external: Option<External { url }>` (DD5). There is no label | A `label` on every new node, and origin `external` (§2.5) |
 | Edges | `EDGE` records are no longer written (theseus-hco). A compilation carries `derived_from`. Transmissions between sessions are nodes: a task's brief (`Node::relayed`, origin `agent`) and its report (origin `harness`) | The label rides the transmitted node. No edge record is needed |
 | Compiler | `compiler.rs` compiles a session's own transcript. Its triggers are deterministic, and its `Manifest` records versions, profile, model, the system digest, tools, and context files. There is no audience | The audience, readers, the integrity in play, what was withheld, and memberships (§2.7, §2.8) |
@@ -508,6 +508,123 @@ that the config template sets neither, commented or not. There is no path by whi
 running daemon. **A builder must not re-propose it**: "list the programs that fetch" is a road closed by
 R6/theseus-gyjyo.8 and closed again by this position.
 
+#### 2.4a.1 The widened audit: every crate (2026-11-13)
+
+The audit above searched **one crate**, `theseus-core`, and the row above was written on that. The owner was
+told so and answered, 2026-11-13 09:03 (S21-3): **"Yes: do the wider search"** — every crate that consumes the
+marker — "rather than tick the line on the narrower claim." This is that search. It is recorded here because a
+negative is a claim about a search, and the search has to be readable to be believed.
+
+**What was searched, and where.** Every tree in the repository: `crates/*` (25 crates), `cockpit/`, `scripts/`.
+Followed as symbols, not as strings: the marker type `theseus_tools::External` (`theseus-tools/src/lib.rs:135`)
+and its field `ToolResult.external` (`theseus-core/src/node.rs:240`); the whole surface of
+`theseus-core/src/external.rs` — `PROGRAMS`, `Listed`, `Listed::of`, `Listed::in_text`, `Listed::marker`,
+`is_outside`, `first`, `Outside`, `read_any`; `egress::external`, `egress::marker`, `egress::summary`; the
+latch's downstream names `include_external`, `Reason::Untrusted`, `Source::Untrusted`, `asks_injection`; the
+retired keys `policy.external_text` and `policy.external_programs`; the dead ledger row
+`session.external_read`; the retired record field `SessionRecord.external` / `ExternalText`; the judge's
+scalars `session_holds_external_text` and `host_is_external_text_host`; and the word `external` itself, by
+crate, as a backstop against a consumer that renames on import. Per-crate hit counts for the bare word:
+`theseus-index` 49, `theseus-memory` 15, `theseus-exam` 14, `theseus` 13, `theseus-judge` 6,
+`theseus-protocol` 6, `theseusd` 6, `theseus-kernel` 3, `theseus-discord` 2, `theseus-sim` 2,
+`theseus-aws-catalog` 1, and **zero** in `theseus-sandbox`, `theseus-tui`, `theseus-mcp`, `theseus-store`,
+`theseus-follow`, `theseus-files`, `theseus-ontology`, `theseus-voice`, `theseus-google`, `theseus-lsp`,
+`theseus-aws`, `theseus-aws-guard`, `theseus-tools` (beyond the type's own definition). The hits in
+`theseus-kernel`, `theseus-discord`, `theseus-sim` and `theseus-aws-catalog` are all other senses of the word
+(an external termination backend, a Discord "external" event type, an ACME external account binding) and none
+is a consumer.
+
+**The sites, outside `theseus-core`.** These are what the widened search added.
+
+| site | what it does | verdict, and why |
+|---|---|---|
+| `theseus-memory/src/recall.rs:453-455` | `if c.external && !p.include_external` → `Reason::Untrusted`: a marked node is not drawn into a prompt unless the operator's config admits it | **kept.** It decides what gets *recalled into a prompt*, which is DD5/§5.2's durability rule ("such text never becomes durable without the operator's confirmation"), not a treatment of the session. It holds no call, freezes nothing, and changes nothing about what the session may **do** |
+| `theseus-memory/src/recall.rs:79-80, 113, 134` | `Reason::Untrusted` and its word, `"untrusted"` | **kept**: the named reason a candidate was left out, which is the honesty half of the filter above |
+| `theseus-memory/src/recall.rs:254, 344` and `theseus-core/src/config/memory.rs:175, 336, 469` | `Params::include_external`, default `false`, from `[memory] include_external` | **kept**: the operator's own switch over the filter above. A config key the owner sets, not a hold the daemon applies |
+| `theseus-memory/src/recall.rs:941-951` | `include_external_admits_it`, the test that `include_external: true` admits a marked candidate; its doc at `:941` reads *"External text is admitted only when the config says so."* | **kept**: the test of the operator's switch above, not a site of its own. It pins the switch's behaviour and cannot contradict the position |
+| `theseus-memory/src/recall.rs:173` | `Candidate::external`, the carrier | **kept**: a field, no decision |
+| `theseus-core/src/consolidate/run.rs:464` with `:1029` | a cluster any of whose sources is marked is skipped, counted as `skipped["external"]`, and never synthesized into a memory | **kept**, same reason as the recall filter: it governs what becomes a durable synthesis, not what the session may do. The synthesis is *refused*, not the call |
+| `theseus-index/src/extract.rs:143` | `external = body.external.is_some()` for a tool result | **kept**: the carrier that puts the node's own marker into the index |
+| `theseus-index/src/extract.rs:154` | an **imported** message of `outside` integrity is external (theseus-0lrr.6) | **kept**: a true statement about imported text's author, which feeds the same recall filter |
+| `theseus-index/src/engine.rs:76, 97, 434, 691, 740` | the `external` bool field, indexed and stored, and its read-back into a hit | **kept**: storage and carriage |
+| `theseus-index/src/vectors.rs:133, 531, 657, 893, 1006`; `vectors/heap.rs:79, 171` | `RowFilter::external: Option<bool>` and the row's flag | **kept**: the mechanism the recall filter and `index.query` use. The policy is `include_external`, above; this is the machinery |
+| `theseus-index/src/tender.rs:651` | carries the flag into the vector rows as a node is indexed | **kept**: carrier |
+| `theseus-protocol/src/index.rs:199-202` | `Query::external: Option<bool>` — "only external text, or none of it" | **kept**: a query filter the caller chooses, in both directions |
+| `theseus-protocol/src/index.rs:258` | `IndexHit::external`, the wire field | **kept**: carrier |
+| `theseus-protocol/src/why.rs:678` | `"untrusted"` reads out as "left out as external text" | **kept**: wording for a recall explanation |
+| `theseus-protocol/src/lib.rs:1780-1783` | `JOB_SESSION_ENV` (`THESEUS_SESSION`), documented as "a light guard under default trust, **not a boundary**" | **already the position**, in those words |
+| `theseus-judge/src/builders.rs:933` | the security state's `session_holds_external_text` scalar, and the `hold` object (tool, host, minutes ago) at `:934-940` | **kept**: a fact put in front of Jev. `security.v3` is asked *after* the gate decided and "changes no call's treatment" (`judge/gate.rs:9-16`); the one thing that acts on it is a notice, after the call. That is notify-but-execute |
+| `theseus-judge/src/builders/security2.rs:115` | the `host_is_external_text_host` feature, set only when a hold exists | **kept**, same reason: a feature of a judgment that cannot change the call |
+| `theseus-judge/src/builders/content.rs:46-48, 160-167` and `pack.rs:310` | `asks_injection(kind)` gates the `injection` question via `Source::Untrusted` | **kept, and it is the decisive detail:** the gate is the item's **kind** (everything that is not an operator message or a task brief), never the marker. Every tool result is content-classified whether or not it is marked, which is exactly "a default-trusted, Jev classified surface" |
+| `theseusd/src/mcp/trace.rs` | finds which job's session an MCP client runs in, so a session it opens names that session as `opened_from` | **kept.** `opened_from` is recorded on `session.opened` and read for *authorship* — whether a message is the owner's own (`rpc/owner_input.rs:12-15`, `rpc/capture.rs:219-222`, `rpc/allow_in_words.rs:163`). It carries no hold: `theseus/src/client.rs:277` says so outright — "it holds nothing since the external-text hold went (theseus-gyjyo.8)". Its module doc's phrase "hold of external text" is stale prose, listed below |
+| `theseus/src/render/index.rs:236-237` | an index hit prints " · external" | **kept**: display, and the visibility clause 2 asks for |
+| `theseus-exam/src/item.rs:269`, `fixture.rs:74, 252`, `replay.rs:457`, `tender.rs:279`, `generate.rs:188` | an exam item may declare fetched text; the fixture turns it into the index flag | **kept**: test data for the recall exams |
+| `cockpit/src/ship/model.ts:35, 473-493, 579`, `states.ts:63`, `engine.ts:55, 62`, `words.ts:34, 152`, `HoverCard.tsx:87` | a result that carried external text glows magenta, is counted in the ship's stats, and reads "ok · text from the web" | **kept**: display only, and it *is* the position's clause 2 — the operator can see it. Nothing in the cockpit gates on it |
+| `scripts/openclaw-export.py:269, 369, 539` | an imported OpenClaw window whose `hook_external_content_source` is set becomes `integrity: "outside"` | **kept**: provenance of imported text, which `extract.rs:154` turns into the index flag |
+| `scripts/rows-export.py:39` | a comment by anyone but the owner's login is `outside`, "which the index marks external" | **kept**, same |
+
+**Three hits that look like sites and are not**, recorded so the next reader does not chase them:
+`crates/theseus/src/render/external.rs` is a **name collision** — health's sentence about waiting executions
+(theseus-g00vv), with no relation to the marker. `theseus-core/src/native.rs:12` names `external::Listed` only
+as the argv-reading *pattern* its own hint copies. `theseus-core/src/content/cn.rs` contains **no reference to
+the marker at all** (verified: zero hits for `external`, `outside`, `External` in the file) — see the negative
+below.
+
+**The negatives, each as a search.**
+
+- **Nothing re-routes a session off a model because of the marker.** The data rule's two chokepoints,
+  `theseus-core/src/data_gate.rs` and `theseus-core/src/turn/data_step.rs`, and the predicate they both spend
+  their decision in, `content/cn.rs`, contain **zero** references to `external`, `is_outside`, `Outside` or
+  `External`. `cn.rs:32-37` matches on `Flag` alone. So the card's own "widens reach" worry — that latching
+  would "change which models those sessions can reach" — cannot happen through this marker by construction,
+  in any crate.
+- **The session hold has no writer.** `session.external_read` appears 17 times in the repository and **every
+  one is a test asserting it is empty**: `tests_marker.rs:90, 163`, `tests_task_start.rs:321, 344, 352`,
+  `tests_egress.rs:402`, `aws/tests_outside.rs:86, 112`, `google/tests.rs:274`, `google/tests_gate.rs:57`,
+  `google/tests_mail.rs:661`, `google/tests_write_hold.rs:41`, `mcp/tests.rs:565, 841`, `tests_m3.rs:7659`,
+  `watch/tests_mail.rs:271`, `theseusd/tests/sandbox.rs:1217`. There is no `hold` function, no
+  `SessionRecord.external`, no `ExternalText` type and no `external::gate` anywhere in the tree.
+  `theseusd/tests/task_start.rs:189` pins it from the daemon's side: the session record carries no
+  `external_text` key.
+- **The gate's order has no web-text layer.** `toolrun/order.rs:51-75` enumerates `Layer`: `Policy`, `Mode`,
+  `Grant`, `Lsp`, `SharedFetch`, `Floor`, `Glide`, `Routine`, `McpClient`, `Reversibility`. Outside text is
+  not among them, in any crate, so no marked result can hold a later call.
+- **The only freeze in the system is a content label.** `content.rs:360` — `frozen()` is `has(Flag::Injection)`
+  and nothing else; `content.rs:99-109` puts that flag's bar at `Band::Act`; `content::refusal` (`:540-564`)
+  is what refuses, and it reads the label, never the marker. `cn.rs:35` records that `injection` does **not**
+  disqualify a model: "it freezes, not cn."
+
+**`theseus-core`'s own sites, re-verified at `5cc7fbac`** (the table above this subsection is unchanged and
+stands; these are the additions the symbol walk turned up inside the crate). `external.rs:19` `PROGRAMS` is a
+one-element list, `["gh"]`, with no config behind it; `toolrun/job.rs:1016, 1052` applies
+`Listed::marker` to a job's result only when `egress::marker` returned nothing, which at L0 is always, so this
+**is** the one place an L0 result is marked from its *source* rather than its content. Its whole downstream is
+the table above and this one: a `source` string shown to Jev (`judge/content.rs:223-227`), a `security.v3` ask
+that cannot change a call, a recall filter, a consolidation skip, an index flag and a magenta light. It is kept
+**because every one of those is either the Jev classification the position keeps, a durability rule, or
+visibility** — and because `judge/content.rs:218-220` shows the marker does not even decide whether the
+content is classified: the tool's name does, and every result is classified. `term/mod.rs:120, 134, 357, 396`
+marks a terminal the same way, from its argv or its typed keys, with the same downstream.
+
+**Verdict of the widened audit: no site in any crate contradicts §2.4a, and there is nothing to remove.**
+No crate latches, freezes, re-routes or re-models an L0 session because of where its bytes came from. What the
+marker does, everywhere it is read, is one of three things the position explicitly keeps: it describes content
+to Jev, it keeps a stranger's words from becoming durable memory unasked, or it shows the operator what
+happened. Because nothing is removed, **no `policy` or `data-rule` keel change is owed by this row** — the keel
+word S17-D8 would have authorised is not needed, which is the cleanest form this answer could take.
+
+**Stale prose this audit found, so a later reader is not misled.** None is a code site; all are sentences
+written before R6/theseus-gyjyo.8 retired the hold, and they describe a mechanism that is gone. In this
+document: the **T1 row of §2.1's table (above)** names `SessionRecord.external: Option<ExternalText>`, a `hold`
+in three frames, `session.external_read` and clearing by `policy.trust` — none of which exists; and the same
+table's gate row names `external::gate`, which does not exist either. The **"Today (T1)"** column of §2.6's
+transmission table reads "Latches" for a fetch, a brief and a report; at this commit nothing latches, as the
+negatives above show. Outside this document: `theseusd/src/mcp/trace.rs:2`,
+`theseusd/tests/mcp_server.rs:16`, `theseusd/tests/task_start.rs:5`, `theseus-core/src/toolrun/order.rs:125`
+("every later layer (web text, …)"), `docs/design/m5-judgment.md:69` and `docs/design/m7-surface.md:116` each
+still speak of T1's hold. They are listed, not edited: this row's job is the audit, and each of those lines
+belongs to a file whose owner should correct it in its own change.
+
 ### 2.5 Labels: one model for integrity and confidentiality
 
 > **Superseded (2026-10-03).** Its confidentiality half and §2.7 (labels on nodes, the audience-safe compile, held posts, quiet loops, graduation, and the disclosure tests) were replaced by the place rule (theseus-nbsh; the cut-list's Tier 2; the spec's Part III, Item 76): every place is private or shared, a shared place gets the public tools alone, and the owner publishes into one explicitly. Its integrity half, labels fed into T1's hold (20a), was dropped for integrity's light pieces (theseus-b5cl; Tier 1.1; Item 74). Read the core's `places.rs` and `external.rs` and its AGENTS.md, not these sections, before building on them.
@@ -604,9 +721,12 @@ from the context: the labels say "nothing untrusted in play", while T1 says "hel
 **Transmission: every path the latch travels.** Each is deterministic, and each is written in the frame that
 writes the transmitted node.
 
+*The "Today (T1)" column below is as of 2026; its "Latches" entries describe the retired hold and no longer
+hold — nothing latches at this commit (§2.4a, §2.4a.1). The "With labels" column is M4's plan.*
+
 | Path | Today (T1) | With labels |
 |---|---|---|
-| A result from `http.fetch` or `web.search` | Latches | The same, by the `external` origin |
+| A result from `http.fetch` or `web.search` | Latches (retired: §2.4a.1) | The same, by the `external` origin |
 | A task's brief, from a latched session | Latches the task (`via: task.create`) | The same: the brief is untrusted by transmission |
 | A report, from a latched task | Latches the parent (`via: task.report`) | The same |
 | **A file** written by `fs.write`, `fs.edit`, or `fs.patch` in a latched session, then read by any session | Not caught | **Caught**: the write records the file's hash, and a read that matches it is untrusted (`via: file`) and latches the reader |
@@ -1307,7 +1427,10 @@ The build never waits on these: each step takes the default, and the owner can o
    nothing is done to the session because of a provenance label, and the only protection on content is Jev's
    classification of that content. `[policy] external_programs` is retired and never loads, and re-proposing it
    is closed. L1 keeps the deterministic egress answer (§2.4) for the specialised cases that want it. Read §2.4a
-   for the clauses and for the audit of what the code does against them.
+   for the clauses and for the audit of what the code does against them. **Widened and re-confirmed 2026-11-13**
+   on the owner's word of that morning (S21-3, "do the wider search"): §2.4a.1 audits every crate, `cockpit/`
+   and `scripts/`, and finds no site anywhere that latches, freezes, re-routes or re-models an L0 session
+   because of where its bytes came from, so nothing was removed and no keel change is owed.
 5. **The owner set for labels.**
    *Default: the local surfaces and `[approval] trusted_users`.*
 6. **A guild channel whose viewers cannot be read.**
