@@ -1612,8 +1612,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # The LIVE read is not built. A read of the real repository needs a token on
 # this machine, so the bytes come from the file below, which is what
 # `gh issue list --repo <repo> --state open --json number,title,body,labels,updatedAt`
-# writes. These keys are a section of their own, not [self] ones, because
-# [self]'s type is in a file scripts/keel-guard.py locks.
+# writes. These keys are a section of their own, not [self] ones, because the
+# Rust type behind [self] lives in a file scripts/keel-guard.py locks.
 # [self_issues]
 # enabled = false                         # true: read the issues below each night as candidate work
 # repo = "zeroaltitude/theseus"           # owner/name of the repository whose open issues to read
