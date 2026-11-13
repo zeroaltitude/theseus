@@ -30,8 +30,12 @@ use crate::import::tests_append::{sync as episode, TAG};
 use crate::judge::people::tests::{answer, people_on, script};
 use crate::tests_categorize::{rig, Rig};
 
-/// The daemon's own cap, as `import.sync.record` passes it.
-const LIVE: Duration = Duration::from_secs(90 * 60);
+/// The daemon's own cap, as `import.sync.record` passes it: the config's own
+/// default, read through the same function the method reads, so the two
+/// cannot drift (b4-import-sync-unbounded-walltime).
+fn live() -> Duration {
+    Duration::from_secs(crate::config::import::default_sync_deadline_mins() * 60)
+}
 
 /// Two OpenClaw sessions imported under `TAG`, and the record a run would
 /// send for them.
@@ -154,7 +158,7 @@ async fn the_same_run_inside_its_deadline_completes() {
     r.fake
         .when_tool(crate::judge::people::extract::TOOL, answer(json!([])));
 
-    let out = r.core.sync_record(rec, "test", LIVE).await.unwrap();
+    let out = r.core.sync_record(rec, "test", live()).await.unwrap();
 
     let people = out.people.expect("the people step reports what it did");
     assert_eq!(
@@ -201,4 +205,33 @@ async fn the_extractions_session_loop_stops_at_the_deadline_it_is_handed() {
     let open = r.core.people_sync(waiting.clone()).await.unwrap();
     assert_eq!(open.stopped, None, "{open:?}");
     assert_eq!(open.swept as usize, waiting.len(), "{open:?}");
+}
+
+/// The bound the run is capped on is the OPERATOR'S, not a constant
+/// (`b4-import-sync-unbounded-walltime`): `import.sync.record` passes
+/// `Core::sync_deadline`, which is `[import.openclaw] sync_deadline_mins`.
+///
+/// What the card's bar asks for beyond the landed cap is exactly this one
+/// word, *configured*: with a constant the owner could state the bound only
+/// by reading the source of the build that was running. Before this change
+/// the key was unknown to the loader, so this test's own config refused to
+/// load (`unknown field \`sync_deadline_mins\``).
+///
+/// It is proved as a plant and not by assertion: with `sync_deadline` wired
+/// back to the old `Duration::from_secs(90 * 60)`, the first case reads 5400 s
+/// where it wants 420.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_runs_cap_is_the_configured_bound() {
+    let r = rig(None, 0, |c| c.import.openclaw.sync_deadline_mins = 7);
+    assert_eq!(
+        r.core.sync_deadline(),
+        Duration::from_secs(7 * 60),
+        "the run is capped on the configured bound"
+    );
+
+    // And a config that says nothing keeps the measured 90 minutes, which is
+    // what every run before this change was capped on.
+    let plain = rig(None, 0, |_| {});
+    assert_eq!(plain.core.sync_deadline(), live());
+    assert_eq!(plain.core.sync_deadline(), Duration::from_secs(90 * 60));
 }
