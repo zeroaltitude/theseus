@@ -309,6 +309,16 @@ impl Place {
         )
     }
 
+    /// The key the repo's `user.signingkey` names, if any: the one key every
+    /// commit of the self loop is signed with, the content commit
+    /// ([`commit`]) and the merge ([`super::join::git::sign`]) alike. None
+    /// when the repo names none, which is the owner's card at the join.
+    pub fn signing_key(&self) -> Option<String> {
+        self.git_ok(&self.repo, &["config", "--get", "user.signingkey"])
+            .ok()
+            .filter(|k| !k.trim().is_empty())
+    }
+
     /// [`Place::identity`] as the `-c` pairs that put it on a git call; they
     /// beat the repo's config, which is why they carry the repo's own.
     pub fn ident_args(&self) -> Vec<String> {
@@ -611,8 +621,24 @@ pub fn next_branch(p: &Place, tree: &mut Tree) -> Result<()> {
 }
 
 /// Commit everything the tree holds that is not committed, as the repo's
-/// identity ([`Place::identity`]), with
+/// identity ([`Place::identity`]) and signed with the repo's key
+/// ([`Place::signing_key`]), with
 /// `subject` and `body`. Its head, or none when there was nothing to commit.
+///
+/// The key is the merge's own ([`super::join::git::sign`]) and the identity
+/// goes on the call beside it, because the signature must match the key's
+/// user ID. Unlike the merge, which is made unsigned and signed by an amend
+/// after the gate, the content commit is signed where it is made: nothing
+/// amends it later, and signing it at its making leaves its tree untouched,
+/// so the gate still judges what the branch holds.
+///
+/// **It fails safe, not closed.** A repo that names no key still commits,
+/// unsigned, as it always did; so does a repo whose key its gpg cannot use
+/// (an agent that is not unlocked is the ordinary case). Either leaves a
+/// warning. The loop must be able to build on such a machine: an unsigned
+/// branch is held at the join's sign phase with the owner's card, which is a
+/// stop the loop knows how to take, and `push_main` refuses it besides — a
+/// build that cannot commit at all is a wedge with no card and no stop.
 pub fn commit(p: &Place, tree: &Tree, subject: &str, body: &str) -> Result<Option<String>> {
     p.git_ok(&tree.dir, &["add", "-A"])?;
     let clean = p
@@ -623,19 +649,44 @@ pub fn commit(p: &Place, tree: &Tree, subject: &str, body: &str) -> Result<Optio
         return Ok(None);
     }
     let msg = format!("{subject}\n\n{body}\n");
+    let Some(key) = p.signing_key() else {
+        tracing::warn!(
+            branch = %tree.branch,
+            "self commit: the repo names no user.signingkey, so this commit is unsigned"
+        );
+        return Ok(Some(commit_once(p, tree, &msg, None)?));
+    };
+    match commit_once(p, tree, &msg, Some(&key)) {
+        Ok(head) => Ok(Some(head)),
+        Err(e) => {
+            tracing::warn!(
+                branch = %tree.branch,
+                "self commit: it could not be signed, so it is unsigned and the join's sign \
+                 phase will hold the branch with the owner's card: {e:#}"
+            );
+            Ok(Some(commit_once(p, tree, &msg, None)?))
+        }
+    }
+}
+
+/// One commit of what the tree has staged, signed with `key` or unsigned.
+/// A commit git refuses leaves the index as it was, so an unsigned one can
+/// still be made after a signed one failed.
+fn commit_once(p: &Place, tree: &Tree, msg: &str, key: Option<&str>) -> Result<String> {
     let ident = p.ident_args();
     let mut args: Vec<&str> = ident.iter().map(String::as_str).collect();
-    args.extend([
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-q",
-        "--no-verify",
-        "-m",
-        &msg,
-    ]);
+    let signingkey = key.map(|k| format!("user.signingkey={k}"));
+    match &signingkey {
+        Some(k) => args.extend(["-c", k.as_str()]),
+        None => args.extend(["-c", "commit.gpgsign=false"]),
+    }
+    args.extend(["commit", "-q", "--no-verify"]);
+    if key.is_some() {
+        args.push("-S");
+    }
+    args.extend(["-m", msg]);
     p.git_ok(&tree.dir, &args)?;
-    Ok(Some(p.git_ok(&tree.dir, &["rev-parse", "HEAD"])?))
+    p.git_ok(&tree.dir, &["rev-parse", "HEAD"])
 }
 
 /// The commits the tree's branch holds past main, with their subjects.
