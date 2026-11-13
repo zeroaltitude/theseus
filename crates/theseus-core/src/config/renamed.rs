@@ -38,14 +38,14 @@ pub const RETIRED: &[(&str, &str)] = &[
     (
         "policy.external_text",
         "the `injection` label replaced it: reading outside text no longer holds a session, and a session that \
-         carries `injection` refuses the calls that act until the operator removes the label \
-         (`[content_based_security] injection`)",
+         carries `injection` runs its calls and tells the operator — only `[content_based_security] injection = \
+         \"refuse\"` refuses the calls that act until he removes the label",
     ),
     (
         "policy.external_programs",
         "the `injection` label replaced it: no program's output holds a session any more; the content pack asks \
-         of every result what it asks of a page, and `injection` is what stops a session (`[content_based_security] \
-         injection`)",
+         of every result what it asks of a page, and `injection` tells the operator rather than stopping the \
+         session, unless `[content_based_security] injection = \"refuse\"` is set",
     ),
 ];
 
