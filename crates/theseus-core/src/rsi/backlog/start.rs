@@ -510,6 +510,10 @@ impl Night {
             && self.trimmed.is_empty()
             && self.retired.is_empty()
             && self.kept_out == 0
+            // A failed source is news even on a night with nothing else to
+            // say: silence would make a missing source look like no work
+            // (theseus-dl4pu).
+            && self.issues_failed.is_none()
     }
 }
 
@@ -577,6 +581,14 @@ pub(crate) fn night_text(night: &Night, item: impl Fn(&str) -> Item) -> String {
         body.push_str(&format!(
             "- {} kept out: dropped by you, or an item whose build never ran; `theseus self backlog --all` lists them, `theseus self retry <item>` puts one back\n",
             night.kept_out
+        ));
+    }
+    // A source that failed is said, because a source that fails must not look
+    // like a source that is empty (theseus-dl4pu): a backlog quietly missing
+    // the repository's issues looks exactly like a backlog with none.
+    if let Some(why) = &night.issues_failed {
+        body.push_str(&format!(
+            "- the repository's open issues were NOT read tonight, so any work only they hold is missing from this list: {why}\n"
         ));
     }
     body.push_str("Reorder or drop with `theseus self move <item> <rank>` / `theseus self drop <item>`; `theseus self backlog` lists it.");

@@ -1589,6 +1589,38 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # L0 job's has none (memory_mb is retired: a config that still sets it loads,
 # with a warning, and it is ignored).
 
+# ---------------------------------------------------------------- self_issues
+# The repository's own OPEN GITHUB ISSUES as a second backlog source beside
+# the Beads rows and the causes the night mines from Theseus's own record
+# (theseus-dl4pu). After 1.0.6 the planning moves to GitHub: one issue per
+# bucket of work, each tagged with the version it is planned for, and
+# version_label below picks this release's buckets out of the rest.
+#
+# OFF by default, and it stays off until enabled is true AND repo is named.
+# An item that comes from an issue names the issue it came from, number and
+# title, so `theseus self backlog` tells you where to go and look.
+#
+# The read is READ-ONLY: nothing here opens, closes, comments on or labels an
+# issue, and there is no code that could. A source that FAILS (no file, bad
+# JSON, a repository that is not there) leaves the rest of the night's
+# backlog exactly as it was, and the night says it failed — which is not the
+# same as a source that read and found nothing.
+#
+# Issue text is text other people write, so it is an injection surface like
+# any fetched page: nothing read here is ever treated as an instruction.
+#
+# The LIVE read is not built. A read of the real repository needs a token on
+# this machine, so the bytes come from the file below, which is what
+# `gh issue list --repo <repo> --state open --json number,title,body,labels,updatedAt`
+# writes. These keys are a section of their own, not [self] ones, because
+# [self]'s type is in a file scripts/keel-guard.py locks.
+# [self_issues]
+# enabled = false                         # true: read the issues below each night as candidate work
+# repo = "zeroaltitude/theseus"           # owner/name of the repository whose open issues to read
+# file = "~/.theseus/github-issues.json"  # the issue JSON to read (a JSON array, or an object with an items array)
+# version_label = "1.0.6"                 # keep only the issues carrying this label (unset: every open issue)
+# max = 20                                # the most issues one night takes, most recently updated first
+
 [sandbox]
 default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)
 # l1_argv = [["npm", "install"], ["cargo", "build"], ["cargo", "test"]]   # programs that always run in L1, matched as allow_argv matches (default none)

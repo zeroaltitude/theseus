@@ -48,6 +48,7 @@ mod routines;
 pub(crate) mod routing;
 mod routing_checkpoints;
 pub mod self_improve;
+pub mod self_issues;
 pub mod self_mint;
 mod self_sealed;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
@@ -269,6 +270,13 @@ pub struct Config {
     #[serde(default, rename = "self")]
     #[serde(skip_serializing_if = "self_improve::SelfImproveConfig::is_default")]
     pub self_improve: self_improve::SelfImproveConfig,
+    /// `[self_issues]`: the repository's own open GitHub issues as a second
+    /// backlog source (theseus-dl4pu), OFF by default, in
+    /// `config/self_issues.rs` — which says why the keys are not under
+    /// `[self]`: that section's type is in a keel-guarded file.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "self_issues::SelfIssuesConfig::is_default")]
+    pub self_issues: self_issues::SelfIssuesConfig,
     /// `[sandbox]`: L1 for `proc.run` (M4 17b), in `crate::sandbox`.
     #[serde(default)]
     pub sandbox: crate::sandbox::SandboxConfig,

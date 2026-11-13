@@ -50,6 +50,7 @@
 
 mod folded;
 mod graduate;
+pub mod issues;
 mod keel;
 mod rank;
 mod read;
@@ -121,6 +122,13 @@ pub struct Night {
     pub held: Vec<(String, String)>,
     /// Open items waiting on the owner (keel marks), filed this night.
     pub waiting: Vec<String>,
+    /// Observations the repository's own open issues gave this night
+    /// (theseus-dl4pu). 0 with `issues_failed` set is a source that FAILED;
+    /// 0 with it unset is a source that read and found nothing, or one that
+    /// is switched off. The two are never the same thing.
+    pub issues: usize,
+    /// Why the issue source gave nothing, when the reason is a failure.
+    pub issues_failed: Option<String>,
 }
 
 /// An item that started: the session its work runs in.
@@ -604,6 +612,17 @@ impl Core {
         obs.extend(read::from_health(&self.health(), now_ms, &date(now_ms)));
         obs.extend(self.graduate_obs(&st, now_ms));
         obs.extend(self.mine_obs(now_ms, &date(now_ms)));
+        // The second source, beside the others and never inside them
+        // (theseus-dl4pu): the repository's own open issues. A source that
+        // FAILS leaves every observation above untouched — `issue_obs` never
+        // returns an error and never clears `obs` — which is the difference
+        // between a backlog missing one source and a backlog gone empty.
+        let before = obs.len();
+        let (from_issues, issues_failed) = self.issue_obs(now_ms);
+        night.issues = from_issues.len();
+        night.issues_failed = issues_failed;
+        obs.extend(from_issues);
+        debug_assert!(obs.len() >= before, "a source only ever adds");
         let cands = read::group_with(obs, &|k| st.is_dropped(k));
         night.candidates = cands.len();
         st.read_ms = Some(now_ms);

@@ -834,6 +834,7 @@ fn a_green_build_frees_its_slot_for_the_night() {
 }
 
 mod infra;
+mod issues;
 
 /// A `judge.report` row for `pack`: `failed` of `calls` in the last day.
 fn failing_pack(c: &Core, pack: &str, failed: u64, calls: u64, at: u64) {
