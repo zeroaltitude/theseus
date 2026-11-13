@@ -342,6 +342,8 @@ pub struct ToolRuntime {
     pub thread_read: crate::thread_read::Board,
     /// What `card.observed` reads (theseus-6f8t0): the core, once built.
     pub card_observed: crate::card::tool::Board,
+    /// `self.file` (theseus-cux0o): a person's finding, filed from a chat.
+    pub self_file: crate::rsi::backlog::tool::Board,
     /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
     pub defer: crate::tools_defer::Board,
     /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
@@ -527,6 +529,7 @@ impl ToolRuntime {
             routines: Default::default(),
             thread_read: Default::default(),
             card_observed: Default::default(),
+            self_file: Default::default(),
             defer: Default::default(),
             projects: Default::default(),
             jobs: Default::default(),
@@ -1683,6 +1686,7 @@ impl ToolRuntime {
                 crate::thread_read::FAMILY => self.thread_read.run(tc, &input),
                 // What has been kept about the owner, asked for (theseus-6f8t0).
                 crate::card::tool::FAMILY => self.card_observed.run(tc, &input),
+                crate::rsi::backlog::tool::FAMILY => self.self_file.run(tc, &input),
                 crate::tools_defer::FAMILY => self.defer.run(tc.session_id, &input),
                 // Part of a thread, a thread of its own (theseus-vt9k).
                 crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),
@@ -2102,6 +2106,7 @@ pub fn build_runtime(
         }
         crate::rsi::pr::register(cfg, &mut r);
         crate::rsi::evidence::register(cfg, &mut r);
+        crate::rsi::backlog::tool::register(cfg, &mut r);
         r.register(Arc::new(crate::tools_defer::find::FindTool));
         r
     } else {
@@ -2238,6 +2243,7 @@ pub fn build_runtime(
         routines: crate::routine::Book::new(&cfg.routines),
         thread_read: Default::default(),
         card_observed: Default::default(),
+        self_file: Default::default(),
         defer: Default::default(),
         projects: cfg.projects.clone(),
         jobs: Default::default(),

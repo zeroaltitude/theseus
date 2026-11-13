@@ -234,8 +234,14 @@ fn visible_proc_grant() -> Result<(), String> {
         v["proc_masks"] == 0,
         format!("visible_proc must leave no mask mount under /proc: {v}"),
     )?;
-    // And it is narrowed to /proc: `/sys`'s masks stay on, because taking
-    // them off as well moved no test (the same 119 of 123 either way).
+    // And it is narrowed to /proc: `/sys`'s masks stay on. The one ladder
+    // run that took them off as well ended on the same 119 of 123 -- one
+    // unreproducible run inside the 2026-11-11 08:43 self build, on a rig
+    // that no longer exists; `Facilities::visible_proc`'s own doc holds its
+    // terms. That is EVIDENCE that nothing moved and NOT
+    // proof that `/sys`'s masks cost no test: row B5 measures the ladder,
+    // and until it has, the narrowing stands on the rule that a grant
+    // reaches no further than its subject needs -- not on that count.
     check(
         v["sys_masks"].as_u64().unwrap_or(0) >= 3,
         format!("visible_proc must leave /sys's masks ON: {v}"),

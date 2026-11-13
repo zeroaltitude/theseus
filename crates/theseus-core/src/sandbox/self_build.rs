@@ -237,8 +237,12 @@ fn view_grants() -> String {
 /// The tests a self build's view CANNOT run, as a SET -- never a sentence.
 ///
 /// A self build runs inside a view that grants `pty`, `devices`, `nesting`
-/// and `visible_proc`, which is what lets the 108 tests whose subject is one
-/// of those three run at all. A few tests are then false *by construction*:
+/// and `visible_proc` ([`FACILITIES`]). Three of those four -- `pty`,
+/// `devices` and `nesting` -- are what let the 108 tests run at all whose
+/// own error named one of them, which is [`FACILITIES`]'s classification
+/// table and not a ladder count. `visible_proc` is credited with none of
+/// the 108: what it buys is the 1.0.6 measurement B5 owes, and its doc
+/// says so. A few tests are then false *by construction*:
 /// a clause asserting that what is not granted is denied cannot hold where
 /// the thing is granted. The owner's word of 2026-11-12 10:41:48 MST lets
 /// exactly those be skipped **for self builds only, named in the verdict on

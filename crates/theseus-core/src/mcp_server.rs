@@ -415,6 +415,7 @@ mod tests {
         method::SELF_DROP,
         method::SELF_MOVE,
         method::SELF_RETRY,
+        method::SELF_FILE,
         method::SELF_BRANCHES,
         method::SELF_EXAMS,
         method::SELF_REVERT,

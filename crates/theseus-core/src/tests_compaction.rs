@@ -1157,14 +1157,26 @@ async fn a_self_tasks_compaction_is_counted_on_the_self_budget() {
         std::fs::create_dir_all(&root).unwrap();
         let mut cfg = config(&root.canonicalize().unwrap(), dir.path(), "glm");
         cfg.self_improve.mode = theseus_protocol::rsi::SelfMode::Act;
-        // A thousand tokens over the other rigs' window: the ring's six kept
-        // turns leave the 4,096-token summary its room whatever a few bytes
-        // of the tool list move (the open tasks' schemas, theseus-a1wvq.6,
-        // left it 4,045).
+        // Two thousand tokens over the other rigs' window: the ring's six
+        // kept turns leave the 4,096-token summary its room whatever a few
+        // bytes of the tool list move (the open tasks' schemas,
+        // theseus-a1wvq.6, left it 4,045).
+        //
+        // Raised from 1,000 for theseus-cux0o, and MEASURED, not guessed:
+        // this rig sets `[self] mode = "act"`, so the `self.file` tool that
+        // row adds joins the catalog here, and its description and schema
+        // cost 350 of those tokens -- the summary's room fell from 4,045 to
+        // 3,695 and the compaction became a ring ("a summary of up to 4,096
+        // tokens would not fit beside the 41,209 the kept turns take, within
+        // the 44,904 the window leaves"). 2,000 puts the room at 4,695, so
+        // the summary fits with 599 to spare and the next tool to join does
+        // not tip it again. Nothing about what this test asserts moved: it
+        // still demands a real `compaction` outcome and still checks that
+        // the summary's call is counted on the self budget.
         cfg.catalog
             .get_mut("claude-sonnet-5-5")
             .unwrap()
-            .context_window = Some(WINDOW + 1_000);
+            .context_window = Some(WINDOW + 2_000);
         let model = Arc::new(FakeProvider::scripted(vec![]));
         let glm = Arc::new(FakeProvider::scripted(vec![summary(
             "The keeper logged six tides; the operator asked for each one.",
