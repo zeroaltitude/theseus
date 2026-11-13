@@ -9,7 +9,8 @@
 //! (`advancer.rs`: the arm is `!self.notify && …`); `loop.v1` is dispatched
 //! only for a turn that stopped on `no_tool_calls`, which a held loop never
 //! reaches; and the progress check's steer arms on an edit that answered
-//! WITHOUT error, while a hold always answers with one. The terminus was the
+//! WITHOUT error, while a held call's answer is an error to every reader that
+//! asks `is_error` (`node::ResultStatus::is_error`). The terminus was the
 //! kernel's hard multiple of the spend limit — about ten times it, and some
 //! thousands of loops. This module is the repeat detector that was owed before
 //! the pack could be wired, and it is worth landing whether or not it ever is:
@@ -52,11 +53,21 @@
 //! designed behaviour, not a stale expectation, so the detector was narrowed
 //! rather than the tests changed.
 //!
-//! WHAT THE WIRING ROW OWES THIS, in one sentence: a reversibility hold must
-//! write its result as `Declined`, not `Error`, so that this rule sees it. A
-//! hold IS a call that never ran, which is what `Declined` means
+//! WHAT THE WIRING ROW OWED THIS, AND NOW PAYS: a reversibility hold writes
+//! its result as `Declined`, not `Error`, so that this rule sees it. A hold
+//! IS a call that never ran, which is what `Declined` means
 //! (`node::ResultStatus`: "The call never ran"), and writing it as `Error`
-//! would make it indistinguishable from a command that ran and failed.
+//! would make it indistinguishable from a command that ran and failed. The
+//! wiring row (`08f4749e`) left it as `Error`, so for a while the one hazard
+//! this module was built for was the one hazard it could not see: a model
+//! re-planning the same held call produced `[Error]` every loop,
+//! `made_no_progress` was false, and the terminus was the spend stop again.
+//! `toolrun::invalid_input`'s hold arm is where that is paid
+//! (`p0b-held-loop-repeat-cap`), and
+//! `tests_undo::a_model_that_keeps_re_planning_the_same_held_call_ends_the_turn`
+//! is the whole-core test that would fail if it were taken back out. Nothing
+//! here changed for it: `never_ran` is still `Declined | Cancelled` only, so
+//! a genuine `Error` from a tool that really ran still counts as progress.
 //!
 //! The counter lives on the `Turn`, so it dies with the turn: a turn's repeats
 //! are its own, and nothing is stored.
@@ -187,16 +198,19 @@ pub fn words(who: &str, n: u32, what: &str, stop_how: &str) -> String {
     )
 }
 
-/// How the owner lifts the hold the repeat was spent against. **This sentence
-/// is a placeholder for what the wiring row owes it.** The owner decided on
-/// 2026-11-12 that every reversibility hold gains an override that runs the
-/// ORIGINAL call as the model first proposed it, by a route that needs him and
-/// that the model can never take, and that there is a chat route for it as well
-/// as a command-line one. None of that is built: no reversibility layer exists
-/// in `toolrun/` and nothing constructs `Input::Undo`, so naming a command here
-/// would be a lie. Until the wiring row lands, this says only what is true —
-/// the next message is what decides — and the row that builds the override
-/// replaces exactly this constant.
+/// How the owner lifts the hold the repeat was spent against. The owner
+/// decided on 2026-11-12 that every reversibility hold gains an override that
+/// runs the ORIGINAL call as the model first proposed it, by a route that needs
+/// him and that the model can never take, and that there is a chat route for it
+/// as well as a command-line one. **The layer and the override now exist** —
+/// `toolrun/reversible.rs` holds the call, `judge/undo.rs` constructs
+/// `Input::Undo`, `toolrun::holds` keeps each held call as an offer, and
+/// `reversible::allowed_original` spends an allowance the owner left for one
+/// call — so the first two halves of the old note are no longer true and this
+/// comment no longer says they are. What this sentence still says is only what
+/// a turn ended by a repeat can promise: the next message is what decides, and
+/// nothing is waiting on an answer. A row that wants to name the two routes
+/// here replaces exactly this constant.
 pub const OVERRIDE: &str =
     "If the work should go ahead as it was first proposed, say so in your next message: a repeat \
      ends the turn and asks nothing, so nothing is waiting on an answer.";

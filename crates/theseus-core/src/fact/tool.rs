@@ -601,6 +601,16 @@ impl Fact for ToolEnded<'_> {
                      later message."
                 ),
             ),
+            // A reversibility hold writes `Declined` too, because the call
+            // never ran -- but nobody declined it, so it is not the
+            // approval's line (`toolrun::reversible`, `toolrun::invalid_input`).
+            ResultStatus::Declined if held(meta) => (
+                Tool,
+                format!(
+                    "{tool} not run: it was held, because nothing would bring back what it would \
+                     lose; the model was asked to re-plan it."
+                ),
+            ),
             ResultStatus::Declined => (Approval, format!("{tool} not run: it was declined.")),
             // A `/stop` ended it: what the operator asked for (theseus-4uw).
             ResultStatus::Cancelled if meta.get("stopped_by").is_some() => (
@@ -632,6 +642,15 @@ impl Fact for ToolEnded<'_> {
         };
         say.line(part, line);
     }
+}
+
+/// Whether a result that never ran was held by the reversibility layer, read
+/// off the `reason` its meta carries (`toolrun::reversible::reason`): a hold
+/// and an operator's decline share a status and want different words.
+fn held(meta: &Value) -> bool {
+    meta.get("reason")
+        .and_then(Value::as_str)
+        .is_some_and(|r| r.starts_with(&format!("{}: ", crate::toolrun::reversible::HELD_REASON)))
 }
 
 /// New input came instead of an answer: the waiting call is declined, and

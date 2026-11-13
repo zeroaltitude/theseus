@@ -1253,15 +1253,30 @@ impl ToolRuntime {
         tool: &str,
         bad: Invalid,
     ) -> Result<CallOutcome> {
-        let (reason, text) = match (&bad.held, bad.refused) {
+        let (status, reason, text) = match (&bad.held, bad.refused) {
             // A hold is its own kind of "this call did not run", beside the
-            // place's and the mode's (theseus-p5kln).
-            (Some(h), _) => (reversible::reason(h), format!("Not run: {}", bad.error)),
+            // place's and the mode's (theseus-p5kln). Its status is
+            // `Declined` -- "the call never ran" -- and not `Error`, which
+            // means "the tool ran and failed, or its input was invalid"
+            // (`node::ResultStatus`) and is true of neither half of a hold.
+            // The status is what the repeat cap reads to tell a loop that ran
+            // nothing from one that ran and failed, so an `Error` here left a
+            // model re-planning the same held call unbounded to the kernel's
+            // spend stop (`turn::repeat_step`, `p0b-held-loop-repeat-cap`).
+            // Nothing the model reads moves with it: `is_error` is
+            // `status.is_error()`, which holds for both.
+            (Some(h), _) => (
+                ResultStatus::Declined,
+                reversible::reason(h),
+                format!("Not run: {}", bad.error),
+            ),
             (None, true) => (
+                ResultStatus::Error,
                 crate::policy::modes::refusal_reason(&bad.error),
                 format!("Not run: {}", bad.error),
             ),
             (None, false) => (
+                ResultStatus::Error,
                 format!("validation: {}", bad.error),
                 format!("Invalid input: {}", self.field_hinted(tool, &bad.error)),
             ),
@@ -1271,7 +1286,7 @@ impl ToolRuntime {
             tc,
             ResultNode {
                 meta: json!({"reason": reason}),
-                ..ResultNode::new(&call.id, tool, ResultStatus::Error, text)
+                ..ResultNode::new(&call.id, tool, status, text)
             },
         );
         // A hold's own record rides the hold's frame (theseus-p5kln): the
@@ -1294,9 +1309,7 @@ impl ToolRuntime {
             reason: &reason,
         });
         Self::announce_end(tc, &node);
-        Ok(CallOutcome::Done {
-            status: ResultStatus::Error,
-        })
+        Ok(CallOutcome::Done { status })
     }
 
     /// Plan the call as a kernel action, with its `ToolCall` node in the same

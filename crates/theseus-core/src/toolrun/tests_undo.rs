@@ -33,7 +33,7 @@ use crate::session::SessionRecord;
 use crate::store::Store;
 use crate::tests_judge::{board, off, warm};
 use crate::toolrun::reversible::HELD_REASON;
-use crate::turn::TurnRequest;
+use crate::turn::{repeat_step, TurnRequest};
 use crate::Config;
 
 /// What the call would overwrite, and what it would write.
@@ -256,7 +256,16 @@ async fn a_reshapeable_verdict_holds_the_call_and_makes_no_card() {
     let results = r.results(&sid);
     assert_eq!(results.len(), 1, "one result: {results:?}");
     let (status, text, reason) = &results[0];
-    assert_eq!(status, "Error");
+    // `Declined` is "the call never ran", which is what a hold is; `Error`,
+    // which this asserted until `p0b-held-loop-repeat-cap`, means "the tool
+    // ran and failed, or its input was invalid" and is true of neither half.
+    // The change is deliberate and it is the P0 fix: the repeat cap reads
+    // this status to tell a loop that ran nothing from one that ran and
+    // failed, so an `Error` here left a model re-planning the same held call
+    // unbounded (`turn::repeat_step`). Nothing the model reads moved with it
+    // -- `is_error` is `status.is_error()`, true of both -- and the words,
+    // the reason, the absent card and the `tool.held` row below are unchanged.
+    assert_eq!(status, "Declined");
     assert!(text.starts_with("Not run: "), "{text}");
     assert!(
         text.contains("Move the targets somewhere out of the way"),
@@ -280,6 +289,118 @@ async fn a_reshapeable_verdict_holds_the_call_and_makes_no_card() {
     assert!(r.rows("tool.raised").is_empty(), "a hold is not a raise");
 
     assert_eq!(r.jev.seen().len(), 1, "asked exactly once for the one call");
+}
+
+/// How many times the scripted model re-plans the same held call. Well above
+/// `MAX_REPEATS`, so a turn that is NOT ended by the cap runs on into double
+/// digits and the test fails on the loop count rather than on a script that
+/// happened to run out.
+const REPLANS: usize = 14;
+
+/// A model that answers a hold by proposing the same call again, for ever:
+/// `REPLANS` byte-identical `fs.write` calls, each with its own `tool_use`
+/// id as a real response would have, and an answer at the end that is only
+/// reached if nothing bounds the loop.
+fn script_replanning_the_same_call(path: &Path) -> Vec<Scripted> {
+    let mut s: Vec<Scripted> = (0..REPLANS)
+        .map(|i| {
+            Scripted::tools(
+                "I'll replace it.",
+                &[(
+                    &format!("c{}", i + 1),
+                    "fs_write",
+                    json!({"path": path.to_string_lossy(), "content": NOW}),
+                )],
+            )
+        })
+        .collect();
+    s.push(Scripted::text("Done."));
+    s
+}
+
+/// **The P0 this card exists for, through a whole core**
+/// (`p0b-held-loop-repeat-cap`, row B6 `theseus-2yowd`): a model that answers
+/// a reversibility hold by re-planning the same call ends the turn at the
+/// repeat cap, in single-digit loops, with `end_turn:repeating` — and not at
+/// the kernel's hard multiple of the spend limit, some thousands of loops
+/// later, which was the only terminus until this.
+///
+/// It is a whole-core test on purpose. The unit tests in
+/// `turn::repeat_step` and `advancer` hand `Repeats` and the Advancer their
+/// inputs directly, and every one of them passed while this hazard was live:
+/// the chain broke between them, at the status a held call writes. So this
+/// drives the real thing — the classifier on, Jev answering
+/// `irreversible_reshapeable`, the gate holding the call, the turn loop
+/// counting it — and it is the test that goes red if the hold's status is
+/// taken back to `Error`.
+///
+/// The counts are positive as well as negative: `REPLANS` is 14, so a turn
+/// that was not ended by the cap has loops to spare; `tool.held` is asserted
+/// once per loop, so this cannot pass on a tree that stopped holding; and the
+/// statuses are read off the stored results, which is the field the cap reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_that_keeps_re_planning_the_same_held_call_ends_the_turn() {
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |_| {},
+        script_replanning_the_same_call,
+    );
+    let sid = r.session();
+    let res = r.turn(&sid).await;
+
+    assert_eq!(res.stop_reason, repeat_step::REPEATING, "{res:?}");
+    assert_eq!(res.loops, repeat_step::MAX_REPEATS, "{res:?}");
+    assert!(
+        res.loops < 10 && (REPLANS as u32) > res.loops + 2,
+        "single-digit loops, with script left over: {} of {REPLANS}",
+        res.loops
+    );
+    assert_eq!(r.bytes(), WAS, "the call never ran, in any loop");
+
+    // Every loop held, and not one of them asked the owner: the hold's whole
+    // point is that it costs him no attention, so the cap is the only thing
+    // that can end this turn.
+    let held = r.rows("tool.held");
+    assert_eq!(held.len() as u32, repeat_step::MAX_REPEATS, "{held:?}");
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "a held loop asks nobody, which is why it could run to the spend stop"
+    );
+
+    // The field the cap reads: one result a loop, every one of them "the call
+    // never ran". An `Error` here is the defect this card closed.
+    let results = r.results(&sid);
+    assert_eq!(
+        results.len() as u32,
+        repeat_step::MAX_REPEATS,
+        "{results:?}"
+    );
+    assert!(
+        results.iter().all(|(status, _, _)| status == "Declined"),
+        "every held result reads as a call that never ran: {results:?}"
+    );
+
+    // The durable record of the end, on the last loop's own row.
+    let loops = r.rows("loop.ended");
+    assert_eq!(loops.len() as u32, repeat_step::MAX_REPEATS, "{loops:?}");
+    let last = loops.last().unwrap();
+    assert_eq!(
+        last["decision"],
+        json!({"decision": "end_turn", "reason": repeat_step::REPEATING}),
+        "{last}"
+    );
+    assert_eq!(
+        last["outcome"]["repeats"],
+        json!(repeat_step::MAX_REPEATS),
+        "{last}"
+    );
+    assert_eq!(
+        r.jev.seen().len() as u32,
+        repeat_step::MAX_REPEATS,
+        "0d asked once for each loop's one call"
+    );
 }
 
 /// A `reversible` verdict changes nothing: the call runs and nothing is
