@@ -1796,6 +1796,76 @@ where
     }
 }
 
+/// A `narrative.watch` scoped by `session_ids` receives that session's lines
+/// and not another's, and its returned tail is that session's last lines
+/// (theseus-nuqut). No params is every session, as before.
+#[tokio::test]
+async fn narrative_watch_scoped_to_one_session_gets_only_that_sessions_lines() {
+    use theseus_protocol::{NarrativeLine, NarrativePart, NarrativeWatchResult};
+    let core = test_core("hello there");
+    for i in 1..=3 {
+        core.narrator
+            .line(NarrativePart::Turn, Some("ses_a"), None, format!("a{i}"));
+    }
+    core.narrator
+        .line(NarrativePart::Turn, Some("ses_b"), None, "b1".into());
+    let scoped = |ids: Vec<&str>| {
+        Request::new(
+            Id::Num(1),
+            method::NARRATIVE_WATCH,
+            json!({ "session_ids": ids }),
+        )
+    };
+    let msgs = roundtrip(core.clone(), vec![scoped(vec!["ses_a"])]).await;
+    let w: NarrativeWatchResult =
+        serde_json::from_value(responses(&msgs)[0].result.clone().unwrap()).unwrap();
+    let texts: Vec<&str> = w.lines.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        ["a1", "a2", "a3"],
+        "that session's tail, not ses_b's"
+    );
+    let all = roundtrip(
+        core.clone(),
+        vec![Request::new(
+            Id::Num(2),
+            method::NARRATIVE_WATCH,
+            Value::Null,
+        )],
+    )
+    .await;
+    let w: NarrativeWatchResult =
+        serde_json::from_value(responses(&all)[0].result.clone().unwrap()).unwrap();
+    assert_eq!(w.lines.len(), 4, "no params is every session");
+    // Live: a connection scoped to ses_b hears ses_b's line only.
+    let (client, server) = duplex(64 * 1024);
+    let (sr, sw) = tokio::io::split(server);
+    let srv = tokio::spawn(core.clone().serve_connection(sr, sw, "tab".into()));
+    let (cr, mut cw) = tokio::io::split(client);
+    let mut lines = BufReader::new(cr).lines();
+    let (r, _) = ask(&mut cw, &mut lines, scoped(vec!["ses_b"])).await;
+    assert!(r.error.is_none(), "{:?}", r.error);
+    core.narrator
+        .line(NarrativePart::Turn, Some("ses_a"), None, "a4".into());
+    core.narrator
+        .line(NarrativePart::Turn, Some("ses_b"), None, "b2".into());
+    let unwatch = Request::new(Id::Num(3), method::NARRATIVE_UNWATCH, Value::Null);
+    let (_, notes) = ask(&mut cw, &mut lines, unwatch).await;
+    let heard: Vec<NarrativeLine> = notes
+        .iter()
+        .filter(|n| n.method == notify::NARRATIVE_LINE)
+        .map(|n| serde_json::from_value(n.params.clone()).unwrap())
+        .collect();
+    assert_eq!(
+        heard.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(),
+        ["b2"]
+    );
+    cw.shutdown().await.unwrap();
+    drop(cw);
+    drop(lines);
+    let _ = srv.await;
+}
+
 /// `narrative.watch` returns the tail, then streams every line as
 /// `narrative.line` on the same connection until `narrative.unwatch`; a
 /// connection that arrives late gets the same lines as its tail. With

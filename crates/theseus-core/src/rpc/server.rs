@@ -370,7 +370,7 @@ impl Core {
             method::NARRATIVE_WATCH | method::NARRATIVE_UNWATCH if !self.narrator.on() => {
                 Err(narration_off())
             }
-            method::NARRATIVE_WATCH => reply(self.narrative_watch(conn)),
+            method::NARRATIVE_WATCH => reply(self.narrative_watch(parse(or_empty(params))?, conn)),
             method::NARRATIVE_UNWATCH => reply(self.narrative_unwatch(conn)),
             m @ (method::EXECUTIONS_WATCH | method::STATUS_SHORT) => {
                 self.executions_reads(m, params, conn).await

@@ -1974,10 +1974,14 @@ impl Core {
         self.tools.sandbox.usage()
     }
 
-    pub(super) fn narrative_watch(&self, conn: Conn<'_>) -> theseus_protocol::NarrativeWatchResult {
+    pub(super) fn narrative_watch(
+        &self,
+        p: theseus_protocol::narrative_watch::NarrativeWatchParams,
+        conn: Conn<'_>,
+    ) -> theseus_protocol::NarrativeWatchResult {
         let lines = self
             .narrator
-            .watch(conn.client, conn.tx.clone())
+            .watch_sessions(conn.client, conn.tx.clone(), &p.session_ids)
             .unwrap_or_default();
         theseus_protocol::NarrativeWatchResult {
             lines,

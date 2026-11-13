@@ -14,7 +14,7 @@
 //! times, and costs. It never carries tool input or output, secrets, or
 //! message text beyond a character count.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -22,6 +22,28 @@ use theseus_protocol::{Event, Message, NarrativeLine, NarrativePart};
 
 /// Lines the tail keeps for a subscriber that arrives late.
 pub const TAIL: usize = 500;
+
+/// Sessions that keep a tail of their own, for a watch scoped to sessions
+/// (theseus-nuqut). Past it, the session quiet the longest loses its tail.
+const SESSION_TAILS: usize = 256;
+
+/// One subscriber: its connection, where lines go, and the sessions it asked
+/// for. No sessions means every line, as before.
+struct Sub {
+    conn: String,
+    tx: crate::outbound::Outbound,
+    sessions: HashSet<String>,
+}
+
+impl Sub {
+    fn wants(&self, line: &NarrativeLine) -> bool {
+        self.sessions.is_empty()
+            || line
+                .session_id
+                .as_ref()
+                .is_some_and(|s| self.sessions.contains(s))
+    }
+}
 
 /// Narrate one line: `narrate!(narrator, Session, Some(session_id), None, "…")`.
 /// The format arguments are evaluated only when narration is on.
@@ -51,7 +73,11 @@ pub struct Narrator {
 struct State {
     seq: u64,
     tail: VecDeque<NarrativeLine>,
-    subs: Vec<(String, crate::outbound::Outbound)>,
+    subs: Vec<Sub>,
+    /// Each session's own last lines, so a quiet session's sentences are not
+    /// pushed out of the shared tail by a noisy neighbour's (a scoped watch
+    /// reads these). Only lines that name a session are kept here.
+    by_session: HashMap<String, VecDeque<NarrativeLine>>,
     /// Sessions the narrative has met since the daemon started. The first
     /// turn of any other session with turns behind it is a resume.
     seen: HashSet<String>,
@@ -103,7 +129,25 @@ impl Narrator {
         if !s.subs.is_empty() {
             let m = Message::from(Event::NarrativeLine(line.clone()));
             let note = crate::outbound::Note::new(&m);
-            s.subs.retain(|(_, tx)| tx.notify(&note, "narrative"));
+            s.subs
+                .retain(|sub| !sub.wants(&line) || sub.tx.notify(&note, "narrative"));
+        }
+        if let Some(id) = &line.session_id {
+            if !s.by_session.contains_key(id) && s.by_session.len() >= SESSION_TAILS {
+                let quietest = s
+                    .by_session
+                    .iter()
+                    .min_by_key(|(_, q)| q.back().map_or(0, |l| l.seq))
+                    .map(|(k, _)| k.clone());
+                if let Some(k) = quietest {
+                    s.by_session.remove(&k);
+                }
+            }
+            let q = s.by_session.entry(id.clone()).or_default();
+            q.push_back(line.clone());
+            while q.len() > self.capacity {
+                q.pop_front();
+            }
         }
         s.tail.push_back(line);
         while s.tail.len() > self.capacity {
@@ -118,18 +162,53 @@ impl Narrator {
         conn: &str,
         tx: impl Into<crate::outbound::Outbound>,
     ) -> Option<Vec<NarrativeLine>> {
+        self.watch_sessions(conn, tx, &[])
+    }
+
+    /// [`Self::watch`] scoped to `sessions` (theseus-nuqut): only their lines
+    /// are sent, and the tail is their own last lines, oldest first, at most
+    /// `capacity` of them across all. An empty list is every session. Watching
+    /// again on the same connection replaces the scope.
+    pub fn watch_sessions(
+        &self,
+        conn: &str,
+        tx: impl Into<crate::outbound::Outbound>,
+        sessions: &[String],
+    ) -> Option<Vec<NarrativeLine>> {
         if !self.on {
             return None;
         }
         let mut s = self.state.lock().unwrap();
-        s.subs.retain(|(c, _)| c != conn);
-        s.subs.push((conn.to_string(), tx.into()));
-        Some(s.tail.iter().cloned().collect())
+        s.subs.retain(|sub| sub.conn != conn);
+        s.subs.push(Sub {
+            conn: conn.to_string(),
+            tx: tx.into(),
+            sessions: sessions.iter().cloned().collect(),
+        });
+        if sessions.is_empty() {
+            return Some(s.tail.iter().cloned().collect());
+        }
+        let mut lines: Vec<NarrativeLine> = sessions
+            .iter()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .filter_map(|id| s.by_session.get(id))
+            .flatten()
+            .cloned()
+            .collect();
+        lines.sort_by_key(|l| l.seq);
+        let extra = lines.len().saturating_sub(self.capacity);
+        lines.drain(..extra);
+        Some(lines)
     }
 
     /// Stop sending to a connection (also when it closes).
     pub fn unwatch(&self, conn: &str) {
-        self.state.lock().unwrap().subs.retain(|(c, _)| c != conn);
+        self.state
+            .lock()
+            .unwrap()
+            .subs
+            .retain(|sub| sub.conn != conn);
     }
 
     pub fn subscribers(&self) -> usize {
@@ -574,5 +653,48 @@ mod tests {
             gate_why("something else", "", "fs.read", "open", None, "the setting"),
             "the setting"
         );
+    }
+
+    fn say_in(n: &Narrator, session: &str, text: &str) {
+        narrate!(n, Turn, Some(session), None, "{text}");
+    }
+
+    /// A watch scoped to sessions gets those sessions' own last lines and
+    /// only their live lines; a noisy neighbour cannot push a quiet
+    /// session's lines out of its tail (theseus-nuqut).
+    #[test]
+    fn a_scoped_watch_gets_its_sessions_own_tail_and_lines() {
+        let n = Narrator::with_capacity(true, 3);
+        say_in(&n, "quiet", "q1");
+        for i in 1..=10 {
+            say_in(&n, "noisy", &format!("n{i}"));
+        }
+        say_in(&n, "quiet", "q2");
+        let (tx, mut rx) = unbounded_channel();
+        let mine = vec!["quiet".to_string()];
+        let tail = n.watch_sessions("tab", tx, &mine).unwrap();
+        let texts: Vec<&str> = tail.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["q1", "q2"], "the shared tail holds only noisy's");
+        let (tx2, _rx2) = unbounded_channel();
+        let all = n.watch("all", tx2).unwrap();
+        assert!(all
+            .iter()
+            .all(|l| l.session_id.as_deref() == Some("noisy") || l.text == "q2"));
+        say_in(&n, "noisy", "n11");
+        assert!(rx.try_recv().is_err(), "another session's line is not sent");
+        say_in(&n, "quiet", "q3");
+        let Ok(Message::Notification(m)) = rx.try_recv() else {
+            panic!("the scoped session's line is sent");
+        };
+        let line: NarrativeLine = serde_json::from_value(m.params).unwrap();
+        assert_eq!(line.text, "q3");
+        assert_eq!(n.subscribers(), 2);
+        // Two sessions merge by seq and stay within capacity.
+        let (tx3, _rx3) = unbounded_channel();
+        let both = vec!["quiet".to_string(), "noisy".to_string()];
+        let merged = n.watch_sessions("two", tx3, &both).unwrap();
+        assert_eq!(merged.len(), 3);
+        assert!(merged.windows(2).all(|w| w[0].seq < w[1].seq));
+        assert_eq!(merged.last().unwrap().text, "q3");
     }
 }

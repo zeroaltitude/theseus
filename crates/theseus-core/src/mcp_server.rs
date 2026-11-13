@@ -272,6 +272,7 @@ mod tests {
         method::THREAD_UNSEAL,
         method::THREAD_SEAL_DISMISS,
         method::THREAD_ANSWER,
+        method::THREAD_ASK_LIST,
         method::THREAD_MOVE,
         method::THREAD_MERGE,
         method::THREAD_UNMERGE,
