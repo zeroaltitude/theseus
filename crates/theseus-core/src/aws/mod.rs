@@ -67,6 +67,7 @@ pub mod stack_tags;
 pub mod tend;
 pub mod tools;
 pub mod trail;
+pub mod tree;
 mod value_shape;
 
 #[cfg(test)]
@@ -109,6 +110,8 @@ mod tests_secret_shapes;
 mod tests_session_mints;
 #[cfg(test)]
 mod tests_synced;
+#[cfg(test)]
+mod tests_tree;
 #[cfg(test)]
 mod tests_when_present;
 

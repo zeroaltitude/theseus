@@ -619,8 +619,10 @@ impl Describe {
                     }
                 }
                 text.push_str(
-                    "aws.call makes the reads; writes and runs arrive with step 14b. Describe \
-                     an operation for its input's members.\n",
+                    "aws.call makes any of them — a read, a write, or a run — on this \
+                     account. Durable infrastructure (the IaC-only writes above) goes \
+                     through aws_stack_plan instead. Describe an operation for its input's \
+                     members.\n",
                 );
                 Ok(text)
             }
