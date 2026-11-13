@@ -242,17 +242,35 @@ async fn a_late_low_verdict_still_records_what_a_bar_would_drop() {
         );
         let want = greeting.then_some(m.admitted.len() as u64);
         assert_eq!(m.would_drop, want, "{level}");
+        // The route step's own word for each case, in the row: a `low`
+        // verdict that came inside the wait is `recorded` (this turn's own,
+        // so not carried), and a `high` one is refused by name rather than
+        // by silence (card `b4-fpm2-f4-sibling-hole`).
+        let word = match greeting {
+            true => "recorded",
+            false => "not low effort",
+        };
+        assert_eq!(row["injection"]["would_drop"], word, "{level}: {row}");
     }
 }
 
-/// The hole the test above does not cover, pinned on purpose (theseus-fpm2's `Late` hole): a
-/// greeting whose `low` verdict misses the route's own wait (`routing.max_wait_ms`; here the judge
-/// is held past it) is `Got::Late` in `route_step.rs`'s `read_verdict`, its verdict lands for the
-/// session's next message, and this turn records no `would_drop`. The shadow's sample is short by
-/// every low-effort turn the wait missed; `RecallManifest::would_drop`'s doc says so. What closes
-/// it: marking such a turn when its verdict arrives (a design change to the route step, not made).
-/// What makes this fail: any edit that records `would_drop` for a turn like this one, which is
-/// then the edit to make, with that doc changed to match.
+/// The hole the test above does not cover (theseus-fpm2's `Late` hole), now asserted in code
+/// rather than described in prose (card `b4-fpm2-f4-sibling-hole`): a greeting whose `low` verdict
+/// misses the route's own wait (`routing.max_wait_ms`; here the judge is held past it) is
+/// `Got::Late` in `route_step.rs`'s `read_verdict`, its verdict lands for the session's next
+/// message, and this turn records no `would_drop`.
+///
+/// What changed is not the behaviour but who states it. The route step now NAMES the case it
+/// refused for — `tier::ShadowMark::Refused(NoMark::MissedTheWait)` — and the `route.decided`
+/// row carries the word, so the shadow's shortfall is countable from the record instead of being
+/// a fact a reader takes from a doc comment. `tier::tests` holds the whole table of cases; the
+/// assertion below is its end-to-end proof, and it is a POSITIVE one: `would_drop` being absent
+/// is a bar an empty set passes, while the row saying `missed the wait` is not.
+///
+/// The sample is still short by every low-effort turn the wait missed: closing THAT needs the
+/// pack to wait for the verdict, and `tier.rs`'s "never a wait" is load-bearing. What makes this
+/// fail: any edit that records `would_drop` for a turn like this one, or that stops the route step
+/// naming the case, with `NoMark::MissedTheWait`'s doc changed to match.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_verdict_that_misses_the_routes_wait_records_no_would_drop() {
     let jev = FakeJev::start().unwrap();
@@ -277,6 +295,12 @@ async fn a_verdict_that_misses_the_routes_wait_records_no_would_drop() {
     assert_eq!(
         m.would_drop, None,
         "a verdict that missed the wait marks nothing"
+    );
+    // And the route step says SO, in the row: the refusal is a case it named,
+    // not an absence (card `b4-fpm2-f4-sibling-hole`).
+    assert_eq!(
+        row["injection"]["would_drop"], "missed the wait",
+        "the route step names the case it refused for: {row}"
     );
     jev.release();
 }
@@ -333,6 +357,19 @@ async fn a_late_verdict_marks_the_next_messages_would_drop() {
         m.would_drop,
         Some(m.admitted.len() as u64),
         "the carried verdict of message one marks message two"
+    );
+    // And the route step's word says WHICH: `recorded carried`, not
+    // `recorded`, so a series over the row can tell the two apart without
+    // reading the manifest (card `b4-fpm2-f4-sibling-hole`).
+    assert_eq!(
+        row["injection"]["would_drop"], "recorded carried",
+        "message two's mark is message one's verdict: {row}"
+    );
+    // Message ONE refused, by name: its own verdict missed its wait.
+    assert_eq!(
+        d[0]["injection"]["would_drop"], "missed the wait",
+        "message one: {}",
+        d[0]
     );
     assert_eq!(
         m.would_drop_carried,
@@ -528,6 +565,10 @@ async fn no_verdict_peeked_means_the_small_talk_bar_does_not_fire() {
         (&"verdict late".into(), &"late".into(), &Value::Null),
         "the route's own wait ended with no verdict: {row}"
     );
+    assert_eq!(
+        row["injection"]["would_drop"], "missed the wait",
+        "and the bar's own case is named too: {row}"
+    );
     let q = r.claude.requests().pop().expect("a request");
     assert!(
         carries_a_note(&q),
@@ -586,6 +627,10 @@ async fn a_late_low_verdict_marks_the_shadow_and_the_bar_still_carries_the_notes
         m.would_drop,
         Some(m.admitted.len() as u64),
         "the shadow marks it from the late verdict"
+    );
+    assert_eq!(
+        row["injection"]["would_drop"], "recorded",
+        "the route step re-marked the `LATE` budget: {row}"
     );
     let q = r.claude.requests().pop().expect("a request");
     assert!(
