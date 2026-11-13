@@ -5,6 +5,8 @@
 //   ⌘⏎ while a turn runs queues the message, sent when `turn.ended` comes
 //   esc drops a queued message
 //   ⏎ with nothing running is an ordinary send; ⌘⏎ then is the same
+import type { Attachment } from '@protocol'
+
 export type ComposerState =
   | { kind: 'idle' }
   | { kind: 'running' }
@@ -47,10 +49,13 @@ export function composerHint(s: ComposerState): string {
 /** What `turn.submit` takes for a message, and whether the "this turn only" profile is spent once it answers ok. A
  *  steer reaches the turn already running, on the model it began with: it sends no `profile` and keeps the choice for
  *  the next turn. A send that is refused or fails keeps it too: the pane clears it in the `.then`, never before. */
-export function submitOf(a: { sid?: string; thread?: string; input: string; turnProfile?: string | null; steer: boolean }): { params: Record<string, unknown>; clearOnOk: boolean } {
+export function submitOf(a: { sid?: string; thread?: string; input: string; turnProfile?: string | null; steer: boolean; attachments?: readonly Attachment[] }): { params: Record<string, unknown>; clearOnOk: boolean } {
   const profile = a.steer ? undefined : a.turnProfile ?? undefined
+  // A chosen file rides the turn as `turn.submit`'s `attachments`, built by `ops/attach.ts` in the shape the
+  // CLI's `--attach` builds (theseus-qgsv); with none chosen the params are what they were.
+  const files = a.attachments?.length ? { attachments: a.attachments } : undefined
   return {
-    params: { ...(a.sid ? { session_id: a.sid } : { thread: a.thread }), input: a.input, ...(profile && { profile }) },
+    params: { ...(a.sid ? { session_id: a.sid } : { thread: a.thread }), input: a.input, ...(profile && { profile }), ...files },
     clearOnOk: !!a.sid && !!profile,
   }
 }

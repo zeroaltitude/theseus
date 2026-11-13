@@ -172,8 +172,22 @@ pub const MENU_ROWS: usize = 6;
 
 /// The slice of a menu of `len` rows that shows with row `sel` chosen: it
 /// scrolls just far enough that the chosen row is always one of them.
-pub fn menu_window(len: usize, sel: usize) -> (usize, usize) {
-    let shown = len.min(MENU_ROWS);
+///
+/// `rows` is every row the menu and the count row under it may take
+/// together, which is what the pane leaves them: a short pane shows fewer
+/// than [`MENU_ROWS`] of them, and none at all when it has no room
+/// (theseus-nuqut). With `MENU_ROWS + 1` rows or more the window is what it
+/// always was.
+pub fn menu_window(len: usize, sel: usize, rows: usize) -> (usize, usize) {
+    // A menu that does not fit keeps a row for the count of what it left out.
+    let fits = match len > rows {
+        true => rows.saturating_sub(1),
+        false => len,
+    };
+    let shown = len.min(MENU_ROWS).min(fits);
+    if shown == 0 {
+        return (0, 0);
+    }
     let sel = sel.min(len.saturating_sub(1));
     let first = (sel + 1).saturating_sub(shown).min(len - shown);
     (first, shown)
@@ -209,12 +223,17 @@ pub fn build(chat: &Chat) -> Dock {
         };
     }
 
-    // The input, with room left for the rows under it.
-    let menu: Vec<_> = chat.suggestions();
-    let (mfirst, mshown) = menu_window(menu.len(), chat.menu);
-    let at_rows = chat.at_rows();
-    let below = mshown + usize::from(menu.len() > MENU_ROWS) + at_rows.len() + 1;
+    // The input, with room left for the rows under it. The rows under the
+    // input never crowd it out: the input's own row and the status line are
+    // kept, and the menu and the `@` list share what is left, so in a pane
+    // of eight rows the line being typed is still on it (theseus-nuqut).
     let height = usize::from(chat.height);
+    let under = height.saturating_sub(above + 2);
+    let menu: Vec<_> = chat.suggestions();
+    let (mfirst, mshown) = menu_window(menu.len(), chat.menu, under);
+    let more = usize::from(mshown > 0 && menu.len() > mshown);
+    let at_rows = chat.at_rows(under.saturating_sub(mshown + more));
+    let below = mshown + more + at_rows.len() + 1;
     let allow = height.saturating_sub(above + below + 1).max(1);
     let prompt = chat.prompt();
     let pad = prompt.chars().count();
@@ -247,13 +266,10 @@ pub fn build(chat: &Chat) -> Dock {
         };
         rows.push(one(sty, format!("  /{:<wide$} {}", c.name, c.help)));
     }
-    if menu.len() > MENU_ROWS {
+    if more > 0 {
         rows.push(one(
             Sty::Dim,
-            format!(
-                "  {} more · ↑/↓ scroll · esc closes",
-                menu.len() - MENU_ROWS
-            ),
+            format!("  {} more · ↑/↓ scroll · esc closes", menu.len() - mshown),
         ));
     }
     rows.extend(at_rows);

@@ -3,19 +3,24 @@
 // it (`turn.submit` reaches the running turn at its next step: `turn.steered`, marked in the transcript), ⌘⏎ holds the
 // message until `turn.ended`, esc drops it, ⇧⇥ cycles the mode. A thread with no session opens one with its first
 // message (`turn.submit { thread }`). With `compact` it is the inspector's composer: the last turns and the box.
+// A file goes with a message (theseus-qgsv): the paperclip, a drop on the box or a paste chooses it, the browser
+// reads its bytes and `ops/attach.ts` builds the `Attachment` `theseus ask --attach` builds; a file over the cap
+// is refused here, in the chat's own words, and no call is made.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { SendHorizontal } from 'lucide-react'
-import type { SessionHistoryResult, SessionInfo, SessionMode, SessionModeResult, ThreadRow } from '@protocol'
+import { Paperclip, SendHorizontal, X } from 'lucide-react'
+import type { Attachment, SessionHistoryResult, SessionInfo, SessionMode, SessionModeResult, ThreadRow } from '@protocol'
 import { useRpc, usePush } from '@/lib/rpc'
 import { turnRows } from '@/lib/derive'
 import { useHistoryRows } from '@/lib/history'
 import { addDraft, admitted, dropDraft, failDraft, useDrafts } from '@/lib/drafts'
 import { cn, ago } from '@/lib/format'
+import { bytes } from '@/lib/figures'
 import { Transcript } from '@/components/Transcript'
 import { Empty } from '@/components/ui'
 import { composerHint, composerStep, submitOf, type ComposerState } from './composer'
+import { attachRefusal, attachmentOf } from './attach'
 import { liveOf } from './live'
 import { transcriptTail } from './sections'
 import { MODES, modeAsk } from './menus'
@@ -49,11 +54,25 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
   useEffect(() => { for (const d of admitted(drafts, hist?.nodes ?? [])) dropDraft(d.id) }, [drafts, hist])
   const rows = useHistoryRows().rows
   const turns = useMemo(() => new Map(turnRows(rows.filter((r) => r.session_id === sid)).map((t) => [t.turn_id, t])), [rows, sid])
+  const [files, setFiles] = useState<Attachment[]>([])
+  const pick = useRef<HTMLInputElement | null>(null)
+
+  // The browser reads the bytes; the one builder makes the attachment, cap and all.
+  const take = async (chosen: FileList | File[] | null | undefined) => {
+    const list = Array.from(chosen ?? [])
+    if (list.length === 0) return
+    const read = await Promise.all(list.map(async (f) => attachmentOf(f, new Uint8Array(await f.arrayBuffer()))))
+    setError(attachRefusal(read))
+    setFiles((was) => [...was, ...read])
+  }
 
   const send = (input: string, steer = false) => {
     setError(null)
+    const refused = attachRefusal(files)
+    if (refused) { setError(refused); return }
     const draft = sid ? addDraft(sid, input) : null
-    const { params, clearOnOk } = submitOf({ sid, thread, input, turnProfile, steer })
+    const { params, clearOnOk } = submitOf({ sid, thread, input, turnProfile, steer, attachments: files })
+    setFiles([])
     post('join', 'turn.submit', params)
       .then(() => { if (draft != null) dropDraft(draft); if (clearOnOk && sid) setTurnProfile(sid, null); void qc.invalidateQueries({ queryKey: ['thread.show'] }) })
       .catch((e: any) => { if (draft != null) failDraft(draft, e?.message ?? String(e)); else setError(e?.message ?? String(e)) })
@@ -113,8 +132,24 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
       {error && <div className="mx-2 mb-1 rounded-md bg-fault/10 px-2.5 py-1 text-[12px] text-fault ring-1 ring-fault/30">{error}</div>}
       {cs.kind === 'queued' && <div className="mx-2 mb-1 rounded-md bg-wait/10 px-2.5 py-1 text-[12px] text-wait ring-1 ring-wait/30">queued: {cs.text.slice(0, 80)}</div>}
       <div className="border-t border-line bg-hull/80 p-2">
+        {files.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5" data-testid="composer-files">
+            {files.map((f, i) => (
+              <span key={`${f.name}:${i}`} className={cn('flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ring-1', f.not_read ? 'text-fault ring-fault/40' : 'text-ink ring-line-strong')}>
+                <Paperclip size={11} />{f.name}<span className="text-ink-faint">{f.not_read ?? bytes(f.size)}</span>
+                <button onClick={() => setFiles((was) => was.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`} className="text-ink-faint hover:text-ink"><X size={11} /></button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <input ref={pick} type="file" multiple className="hidden" aria-label="Attach files" onChange={(e) => { void take(e.target.files); e.target.value = '' }} />
+          <button onClick={() => pick.current?.click()} disabled={!on('join')} aria-label="Attach a file" title="attach a file: the model sees it with this message"
+            className="grid h-9 w-9 place-items-center rounded-lg text-ink-faint ring-1 ring-line hover:text-ink"><Paperclip size={16} /></button>
           <textarea autoFocus={focus} value={text} onChange={(e) => { if (onPicker && /^\/t\s$/.test(e.target.value)) { setText(''); onPicker(); return } setText(e.target.value) }} onKeyDown={onKey} rows={Math.min(5, Math.max(1, text.split('\n').length))} aria-label="Message"
+            onDragOver={(e) => { if (on('join') && e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
+            onDrop={(e) => { if (!on('join') || !e.dataTransfer.types.includes('Files')) return; e.preventDefault(); e.stopPropagation(); void take(e.dataTransfer.files) }}
+            onPaste={(e) => { const f = Array.from(e.clipboardData.files); if (on('join') && f.length > 0) { e.preventDefault(); void take(f) } }}
             disabled={!on('join')} placeholder={sid || thread ? 'Say something to it…' : 'Select a session or a thread'}
             className="min-h-9 flex-1 resize-none rounded-lg bg-white/[0.04] px-3 py-2 text-[13px] text-ink outline-none ring-1 ring-line placeholder:text-ink-faint focus:ring-live/40" />
           <button onClick={() => step({ kind: 'enter', text })} disabled={!text.trim() || !on('join')} aria-label="Send"

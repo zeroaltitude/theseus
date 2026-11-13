@@ -370,6 +370,14 @@ impl ToolRuntime {
                 .handles
                 .assign(tc.store, tc.session_id, corr, &argv);
             let text = adopted_text(&job, &argv, a.resource.as_deref());
+            // The sandbox's running map lives only in memory, so a restart
+            // read it empty while the job it describes was still running
+            // (theseus-7yis): the adoption lists the job again, from this
+            // action and the proposal that bound it, and the boundaries
+            // board shows the work instead of nothing.
+            let bound = confirm_proposal(tc.store, a, None)
+                .map_or_else(|_| Default::default(), |p| sandbox::Bound::of(&p));
+            sandbox::adopt(self, tc, a, &bound, &name, argv);
             let meta = serde_json::json!({"pid": pid, super::handles::KEY: job});
             self.answer(
                 tc,
