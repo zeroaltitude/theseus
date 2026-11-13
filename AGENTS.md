@@ -134,7 +134,8 @@ Each is a requirement, with its spec section.
     not load, or a vault that does not answer is said in health, and the copy keeps serving. The digest is a light
     check, not a boundary: a job that can write the copy can write the store while the daemon is down.
   - Outside text is marked, not held: a result from a page, a search, an MCP server marked `external` or a job that
-    reached a host beyond `[sandbox] egress` carries the marker; the `injection` label is what stops a session.
+    reached a host beyond `[sandbox] egress` carries the marker; the `injection` label tells the operator, and only
+    `[content_based_security] injection = "refuse"` stops a session.
   - Money is a gate: every call reserves its worst case before it runs.
 
 ## The principles discovered while building it
