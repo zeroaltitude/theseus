@@ -349,6 +349,11 @@ mod tests {
         method::PROJECT_TRUST,
         method::PROJECT_UNTRUST,
         method::PROJECT_TRUSTED,
+        // The owner's override of a held call, and the read beside it
+        // (theseus-p5kln): a route past a safety hold is `owner_in_person`'s,
+        // which an MCP client never is.
+        method::UNDO_LIST,
+        method::UNDO_ALLOW,
         method::EXECUTIONS_WATCH,
         method::EXECUTIONS_UNWATCH,
         method::WORK_WATCH,

@@ -46,6 +46,7 @@ pub mod fit;
 mod glide;
 pub(crate) mod handles;
 mod hands;
+pub(crate) mod holds;
 pub(crate) mod job;
 mod job_path;
 pub mod jobcap;
@@ -1191,7 +1192,7 @@ impl ToolRuntime {
     fn gate_result(
         &self,
         planned: &Result<(Plan, Decision, sandbox::Bound), String>,
-        held: &Option<reversible::Hold>,
+        held: &Option<Box<reversible::Hold>>,
         refused: &Option<String>,
     ) -> GateResult {
         match planned {
@@ -1214,6 +1215,33 @@ impl ToolRuntime {
                 ..Default::default()
             },
         }
+    }
+
+    /// The held call's own record, for the frame the hold writes: the call
+    /// as the model first proposed it, under a short id the owner can name
+    /// (`toolrun::holds`). A read-then-write inside the hold's own frame, so
+    /// two holds of one turn cannot lose each other's offer.
+    fn held_offer(
+        tc: &TurnCtx<'_>,
+        call: &ToolUse,
+        tool: &str,
+        h: &reversible::Hold,
+    ) -> Result<theseus_store::NewRecord> {
+        let mut held = holds::Holds::read(tc.store)?;
+        held.keep(theseus_protocol::work::undo::HeldCall {
+            id: holds::id_of(tc.session_id, tc.turn_id, &call.id),
+            session_id: tc.session_id.to_string(),
+            turn_id: Some(tc.turn_id.to_string()),
+            tool: tool.to_string(),
+            input: call.input.clone(),
+            summary: h.summary.clone(),
+            judgment: h.judgment.clone(),
+            shape: h.shape.clone(),
+            held_ms: theseus_protocol::now_unix_ms(),
+            allowed: None,
+            ran_ms: None,
+        });
+        held.record()
     }
 
     /// Invalid input: the call node and its error in one frame; it never runs.
@@ -1246,7 +1274,20 @@ impl ToolRuntime {
                 ..ResultNode::new(&call.id, tool, ResultStatus::Error, text)
             },
         );
-        tc.store.append(&[call_node.record()?, node.record()?])?;
+        // A hold's own record rides the hold's frame (theseus-p5kln): the
+        // call as the model first proposed it, so the owner can still say the
+        // original was right. It is an offer of an override and nothing else:
+        // no card is made, no action is parked, and a hold nobody overrides
+        // costs him no attention, which is the reshapeable arm's whole point.
+        let offer = bad
+            .held
+            .as_ref()
+            .map(|h| Self::held_offer(tc, call, tool, h));
+        let mut frame = vec![call_node.record()?, node.record()?];
+        if let Some(r) = offer.transpose()? {
+            frame.push(r);
+        }
+        tc.store.append(&frame)?;
         tc.record(&fact::tool::InvalidInput {
             tool,
             call,

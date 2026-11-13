@@ -18,6 +18,7 @@ use serde_json::Value;
 
 pub mod horizon;
 pub mod progress_line;
+pub mod undo;
 
 use crate::push::clip;
 use crate::work::horizon::{ProjectView, RoutineView, Series, WatchView};

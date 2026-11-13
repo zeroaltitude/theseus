@@ -979,6 +979,69 @@ impl Fact for ToolHeld<'_> {
     }
 }
 
+/// The owner let a held call run as it was first proposed (theseus-p5kln,
+/// `undo.allow`): the allowance is written and waits for the call. It is the
+/// act, so the row names who took it and from where, as a repository's trust
+/// does.
+pub struct ToolHoldAllowed<'a> {
+    pub hold: &'a str,
+    pub tool: &'a str,
+    pub judgment: &'a str,
+    pub summary: &'a str,
+    pub by: &'a str,
+    pub via: &'a str,
+}
+
+impl Fact for ToolHoldAllowed<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolHoldAllowed);
+
+    fn row(&self) -> Value {
+        json!({"hold": self.hold, "tool": self.tool, "judgment": self.judgment,
+               "summary": self.summary, "by": self.by, "via": self.via})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "{}: you said the original was right, so it runs as it was first proposed ({}).",
+                self.tool, self.hold
+            ),
+        );
+    }
+}
+
+/// A held call the owner's allowance admitted (theseus-p5kln): the gate spent
+/// it at 0d, so the call went into the ordinary order instead of being held.
+/// One allowance, one call: the row is the spend.
+pub struct ToolHoldOverridden<'a> {
+    pub hold: &'a str,
+    pub tool: &'a str,
+    pub judgment: &'a str,
+    pub shape: Option<&'a str>,
+    pub summary: &'a str,
+}
+
+impl Fact for ToolHoldOverridden<'_> {
+    const KIND: Option<LedgerKind> = Some(LedgerKind::ToolHoldOverridden);
+
+    fn row(&self) -> Value {
+        json!({"hold": self.hold, "tool": self.tool, "judgment": self.judgment,
+               "shape": self.shape, "summary": self.summary,
+               "verdict": "irreversible_reshapeable"})
+    }
+
+    fn narrate(&self, say: &mut Say<'_>) {
+        say.line(
+            Tool,
+            format!(
+                "{}: held, and you allowed it, so it runs as it was first proposed.",
+                self.tool
+            ),
+        );
+    }
+}
+
 /// A call whose posture `undo.v1` raised to `approve` after the order
 /// (theseus-p5kln): the loss is one no reshaping could touch, so the owner
 /// is asked rather than the model.

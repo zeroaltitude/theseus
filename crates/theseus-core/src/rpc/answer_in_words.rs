@@ -101,8 +101,10 @@ const NOT_YES: &[&str] = &[
 ];
 
 /// Whether `needle` (lower case) stands in `hay` (lower case) as a whole
-/// token: what is around it is not a word character.
-fn has_token(hay: &str, needle: &str) -> bool {
+/// token: what is around it is not a word character. Shared with
+/// `allow_in_words`, the override route, whose words are read by the same
+/// rule (theseus-p5kln).
+pub(super) fn has_token(hay: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return false;
     }

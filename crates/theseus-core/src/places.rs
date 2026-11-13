@@ -495,23 +495,43 @@ pub fn owner_in_person(
     rule: &PlaceRule,
     cfg: &crate::Config,
 ) -> Result<(), String> {
+    owner_in_person_of(
+        who,
+        rule,
+        cfg,
+        "a repository's instruction files are granted by the owner alone: a grant lets that \
+         repository's own AGENTS.md and CLAUDE.md into the system block with an instruction's \
+         authority",
+        "a repository's trust is given",
+    )
+}
+
+/// [`owner_in_person`]'s rule for any act that takes it, with that act's own
+/// words (theseus-p5kln): `why` says what the act does and why it is the
+/// owner's, and `given` names it in the channel refusal
+/// (`<given> in a DM with you, …`). The rule itself is one place, so a second
+/// act cannot drift from the first; only the sentences differ.
+pub fn owner_in_person_of(
+    who: &crate::approval::Answerer,
+    rule: &PlaceRule,
+    cfg: &crate::Config,
+    why: &str,
+    given: &str,
+) -> Result<(), String> {
     if let Some(agent) = &who.agent {
         return Err(format!(
-            "it came from an agent's process ({agent}), and a repository's instruction files are \
-             granted by the owner alone: a grant lets that repository's own AGENTS.md and \
-             CLAUDE.md into the system block with an instruction's authority. Give it from your \
-             own terminal, the web UI, or a DM with you"
+            "it came from an agent's process ({agent}), and {why}. Give it from your own \
+             terminal, the web UI, or a DM with you"
         ));
     }
     match owner_anywhere(who, rule, cfg)? {
         // The CLI and the web UI with no agent behind them: the owner's own.
         None => Ok(()),
         Some(from) if from.starts_with("discord:dm:") => Ok(()),
-        Some(_) => Err(
-            "it came from a channel, and a repository's trust is given in a DM with you, from \
-             your own terminal, or in the web UI"
-                .into(),
-        ),
+        Some(_) => Err(format!(
+            "it came from a channel, and {given} in a DM with you, from your own terminal, or \
+             in the web UI"
+        )),
     }
 }
 

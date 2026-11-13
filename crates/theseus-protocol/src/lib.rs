@@ -319,7 +319,7 @@ pub mod method {
         WATCH_CREATE = "watch.create", WATCH_LIST = "watch.list",
         /// Projects (theseus-n5ui2, `projects.rs`): long-term work on the task graph, with milestones, a weekly
         /// review, and a slice in every session that attaches.
-        PROJECT_CREATE = "project.create", PROJECT_LIST = "project.list", PROJECT_SHOW = "project.show", PROJECT_ATTACH = "project.attach", PROJECT_TRUST = "project.trust", PROJECT_UNTRUST = "project.untrust", PROJECT_TRUSTED = "project.trusted",
+        PROJECT_CREATE = "project.create", PROJECT_LIST = "project.list", PROJECT_SHOW = "project.show", PROJECT_ATTACH = "project.attach", PROJECT_TRUST = "project.trust", PROJECT_UNTRUST = "project.untrust", PROJECT_TRUSTED = "project.trusted", UNDO_LIST = "undo.list", UNDO_ALLOW = "undo.allow", // the owner lets a call undo.v1 held run as it was first proposed (theseus-p5kln)
         /// One answer verb for every question (theseus-ds5os).
         WORK_ANSWER = "work.answer",
         /// The push (theseus-in3): a snapshot of every execution that needs someone or works, then `execution.changed`, `confirm.requested`, and `confirm.resolved` for every session, until `executions.unwatch`. A read.

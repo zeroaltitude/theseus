@@ -394,6 +394,8 @@ ledger_kinds! {
     TermOpened = "term.opened",
     ToolConfirmRequested = "tool.confirm_requested",
     ToolHeld = "tool.held",
+    ToolHoldAllowed = "tool.hold_allowed",
+    ToolHoldOverridden = "tool.hold_overridden",
     ToolInvalidInput = "tool.invalid_input",
     ToolJobStarted = "tool.job_started",
     ToolLateResult = "tool.late_result",
