@@ -1292,3 +1292,9 @@ pass did not re-estimate v1.1's date. v1 was cut on October 18, after the last f
   October 4 default asked for (Item 144).
 - On this machine a turn's harness overhead reads well over the README's 5 ms, mostly the disk's fsyncs under WSL,
   in debug builds. A measurement on a release build is still to come.
+- The reversibility classifier (`undo.v1`) resolves each target's recovery word from the tree, but never from a remote
+  service: bucket versioning and document revisions are API calls, and the classifier answers synchronously inside the
+  tool gate, so `remote_keeps` is always `unknown` and the pack reads it as keeping nothing. A delete on a versioned
+  bucket is judged exactly as one on an unversioned bucket, held or raised rather than run, which is the safe
+  direction; the two hard pairs that turn on a store's retention measure in the labelled set alone (theseus-2yowd,
+  card `p5kln-remote-keeps`).
