@@ -1158,6 +1158,17 @@ fn outgoing(p: &Place, tree: &Tree, branch: &str) -> Result<String> {
 
 /// Remove the tree and its build tree; the branch stays in the repo.
 pub fn close(p: &Place, tree: &Tree) -> Result<()> {
+    close_with(p, tree, true)
+}
+
+/// Remove the tree alone, leaving its build tree where it is: what an
+/// install's tree needs (`join::install`), whose L0 half still reads
+/// `release/` out of the build tree after the tree itself is gone.
+pub fn close_keeping_target(p: &Place, tree: &Tree) -> Result<()> {
+    close_with(p, tree, false)
+}
+
+fn close_with(p: &Place, tree: &Tree, target_too: bool) -> Result<()> {
     let _one = REPO
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1168,7 +1179,7 @@ pub fn close(p: &Place, tree: &Tree) -> Result<()> {
     }
     p.git_ok(&p.repo, &["worktree", "remove", "--force", &d])?;
     let _ = p.git(&p.repo, &["worktree", "prune"]);
-    if tree.target.starts_with(p.targets()) && tree.target.exists() {
+    if target_too && tree.target.starts_with(p.targets()) && tree.target.exists() {
         std::fs::remove_dir_all(&tree.target)?;
     }
     Ok(())

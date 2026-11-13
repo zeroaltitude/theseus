@@ -115,16 +115,33 @@ pub fn argv(unit: &str, script: &Path) -> Vec<String> {
     ]
 }
 
+/// The build an install runs in its tree: [`build`] in the machine's own,
+/// a stand-in in a test's (the tree's own lifecycle is the same either way).
+pub type Build = dyn Fn(&Place, &Tree, &str) -> Result<()> + Send + Sync;
+
+/// The install's tree, and its build tree's path: a detached worktree at
+/// `merge`, built in L1 by `build`.
+///
+/// The build tree stays — the unit's L0 half ([`script`]) reads `release/`
+/// out of it after this returns and across the restart — and it is not
+/// counted as an open tree, since only `self/trees/` is
+/// (`rsi::capacity::trees_open`).
+pub fn built_tree(p: &Place, merge: &str, build: &Build) -> Result<std::path::PathBuf> {
+    let short = &merge[..merge.len().min(12)];
+    let t = git::detached(p, "install", short, merge)?;
+    build(p, &t, merge)?;
+    Ok(t.target)
+}
+
 /// The machine's own: a tree at the merge, the script, and its unit.
 pub struct Systemd;
 
 impl Installer for Systemd {
     fn start(&self, p: &Place, merge: &str) -> Result<String> {
         let short = &merge[..merge.len().min(12)];
-        let t = git::detached(p, "install", short, merge)?;
-        build(p, &t, merge)?;
+        let target = built_tree(p, merge, &build)?;
         let script_path = p.root().join(format!("install-{short}.sh"));
-        std::fs::write(&script_path, script(&t.target, merge))?;
+        std::fs::write(&script_path, script(&target, merge))?;
         let unit = format!("theseus-self-install-{short}");
         let a = argv(&unit, &script_path);
         let mut c = std::process::Command::new(&a[0]);
