@@ -95,6 +95,19 @@ impl TurnRunner {
                 compiled,
             );
         }
+        // What the harness made of the owner's yes, for the turn that yes
+        // started and for no later one (theseus-2yowd). Off by default.
+        if self.cfg.standing.yes_fact && session.task.is_none() {
+            crate::yes_fact::attach(
+                &self.yes_facts,
+                t.tc.session_id,
+                t.tc.turn_id,
+                t.tc.place().class,
+                self.target_of(&session.session_id).as_deref(),
+                !shared,
+                compiled,
+            );
+        }
         // Who answers this turn, one tail line (theseus-c1uz).
         Self::persona_line(t, compiled);
         // A deep_coding turn's reading hint (theseus-tdkcn).

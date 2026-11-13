@@ -1462,6 +1462,15 @@ mod tests {
                 "neither",
                 "its own head says whose it is: notes, not records, \"say nothing of them\", never thank the owner (11-10 audit)",
             ),
+            (
+                "yes_fact.rs",
+                "neither",
+                "states two facts about the owner's own yes, what it approved and what it \
+                 did not, under a head that says the harness wrote it; neither sentence \
+                 fits, because the model must be free to say what it reads here (asking \
+                 which question the owner meant is the point of it) and the owner did \
+                 write the yes it is about (theseus-2yowd)",
+            ),
         ]
     }
 

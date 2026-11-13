@@ -980,7 +980,11 @@ pub(crate) fn user_unit(name: &str, exec: &[String], env: &[(String, String)]) -
          Description={description}\n\
          {START_LIMIT}\n\
          [Service]\n\
-         Type=exec\n\
+         # `systemctl start` returns when the daemon can answer, not when the\n\
+         # process exists: it says READY=1 once its RPC listener is up\n\
+         # (theseus-r8yj). NotifyAccess=main: only the daemon itself reports.\n\
+         Type=notify\n\
+         NotifyAccess=main\n\
          ExecStart={}\n",
         exec.iter()
             .map(|a| unit_arg(a))
@@ -1007,7 +1011,11 @@ pub(crate) fn system_unit(exec: &[String]) -> Result<String> {
          After=network-online.target\n\
          {START_LIMIT}\n\
          [Service]\n\
-         Type=exec\n\
+         # `systemctl start` returns when the daemon can answer, not when the\n\
+         # process exists: it says READY=1 once its RPC listener is up\n\
+         # (theseus-r8yj). NotifyAccess=main: only the daemon itself reports.\n\
+         Type=notify\n\
+         NotifyAccess=main\n\
          User={DAEMON_USER}\n\
          Group={DAEMON_USER}\n\
          # The group whose members reach the daemon's sockets.\n\

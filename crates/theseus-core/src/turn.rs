@@ -253,6 +253,9 @@ pub struct TurnRunner {
     pub kept: Arc<crate::compiler::kept::Kept>,
     /// The self budget's account (theseus-pw1q.3).
     pub self_budget: crate::rsi::budget::Budget,
+    /// What the harness made of the owner's yes, staged at `turn.submit` for
+    /// the turn it starts (theseus-2yowd).
+    pub yes_facts: crate::yes_fact::Staged,
 }
 
 /// What a `/stop` tells the turn that holds its execution while the model's

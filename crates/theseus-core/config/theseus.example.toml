@@ -1421,6 +1421,11 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # `theseus packs rollback directive.v1` puts the pack back in shadow.
 # [standing]
 # capture = true                          # false: nothing is captured, asked or counted
+# A yes said in words that the harness could not place answers nothing and says so where
+# approvals go. With this on, the turn that yes starts also carries a harness fact naming
+# what was and was not approved, in that turn's request alone, so the model does not act on
+# the half the owner did not approve (theseus-2yowd).
+# yes_fact = false                        # true: the starting turn is told what the yes did
 
 # ---------------------------------------------------------------- people
 # People proposed from text (theseus-wy7y): a cheap profile reads a session's
