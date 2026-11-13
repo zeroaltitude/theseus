@@ -16,25 +16,27 @@
 //! - **Health** names the last run, the next one (the next
 //!   [`SYNC_MINUTE`] past `[judge] learning_hour`), and a failed or a missed
 //!   night as a warning.
-//! - **A sync on demand** (theseus-ievo3). A decision recorded in OpenClaw was
-//!   readable here only at the next night's run, so for most of a working day
-//!   Theseus acted on yesterday's picture. `import.sync.request` records that a
-//!   sync is wanted now ([`SyncState::requested_ms`]); the plan carries it, and
-//!   `theseus import sync --if-requested` -- which the on-demand timer runs
-//!   every few minutes -- is what serves it. **The daemon starts nothing**: the
-//!   reading is the CLI's, so the daemon's half of "on demand" is a record.
-//!   A run that did not fail clears the request; a run that failed leaves it,
-//!   exactly as it leaves the cursor, because nothing was imported.
-//!   `--if-requested` passes `no_people`, so an on-demand run can never drag
-//!   the people step -- which stays nightly -- along with it.
+//! - **A sync on demand** (theseus-ievo3, S29-1). A decision recorded in
+//!   OpenClaw was readable here only at the next night's run, so for most of a
+//!   working day Theseus acted on yesterday's picture. `import.sync.request`
+//!   **runs a sync then and there**: the daemon starts its own
+//!   `theseus import sync --no-people` as a registered child
+//!   ([`crate::import::sync_run`]) and tells the thread it started, then what
+//!   it imported. One run at a time; a second request while one goes is
+//!   answered "already running". The people step stays nightly -- the argv
+//!   carries `--no-people` -- so no number of requests can multiply its cost.
+
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_protocol::import_sync::{
-    HealthSync, ImportSyncPlan, ImportSyncRecord, MISSED_AFTER_MS, REQUEST_STALE_AFTER_MS, SAMPLES,
+    HealthSync, ImportSyncPlan, ImportSyncRecord, ImportSyncStarted, MISSED_AFTER_MS, SAMPLES,
     SYNC_MINUTE,
 };
+
+use super::sync_run;
 
 use crate::learning::local_midnight;
 use crate::rpc::Core;
@@ -68,14 +70,6 @@ pub struct SyncState {
     /// Sessions whose people step is left for the next run.
     #[serde(default)]
     pub people_todo: Vec<String>,
-    /// When a sync was asked for and no run has served it yet, unix ms; 0 is
-    /// none (theseus-ievo3, `Core::sync_request`). A run that did not fail
-    /// clears it; a run that failed leaves it, as it leaves the cursor.
-    #[serde(default)]
-    pub requested_ms: u64,
-    /// Who asked for it, as the act's record labels them.
-    #[serde(default)]
-    pub requested_by: Option<String>,
 }
 
 /// The newest `as_of` end, in unix ms, of the imported sessions whose source
@@ -119,27 +113,10 @@ impl SyncState {
         let next_ms = next_run(self.at_ms, hour);
         let warn = match &self.error {
             Some(e) => Some(format!("the last sync failed: {e}")),
-            // `at_ms == 0` is a state that holds a request and no run yet
-            // (theseus-ievo3): there is no night to have missed.
-            None if self.at_ms > 0 && now_ms > next_ms + MISSED_AFTER_MS => Some(format!(
+            None if now_ms > next_ms + MISSED_AFTER_MS => Some(format!(
                 "a night's sync was missed: it was due {} {hour:02}:{SYNC_MINUTE:02} and has not run",
                 crate::judge::spend::local_day(next_ms)
             )),
-            // A request nothing served (theseus-ievo3): the on-demand timer's
-            // period is minutes and the import-only timer's an hour, so a
-            // request older than [`REQUEST_STALE_AFTER_MS`] means neither ran.
-            // Said rather than left silent: a request that waits looks exactly
-            // like a healthy sync from here otherwise.
-            None if self.requested_ms > 0
-                && now_ms > self.requested_ms + REQUEST_STALE_AFTER_MS =>
-            {
-                Some(format!(
-                    "a sync was asked for on {} and has not run: check that the sync timers are \
-                     installed (`scripts/user-service.sh sync-timer status`), or run `theseus \
-                     import sync` yourself",
-                    crate::judge::spend::local_day(self.requested_ms)
-                ))
-            }
             None => None,
         };
         HealthSync {
@@ -152,7 +129,6 @@ impl SyncState {
             next_ms,
             error: self.error.clone(),
             warn,
-            requested_ms: self.requested_ms,
         }
     }
 }
@@ -189,36 +165,83 @@ impl Core {
             cursor,
             since_ms,
             learning_hour: cfg.judge.learning_hour,
-            requested_ms: state.as_ref().map_or(0, |s| s.requested_ms),
-            requested_by: state.as_ref().and_then(|s| s.requested_by.clone()),
             people_todo: state.map_or(0, |s| s.people_todo.len() as u64),
         })
     }
 
-    /// `import.sync.request` (theseus-ievo3): record that a sync is wanted now
-    /// and answer with the effective request's time. **It starts no run** --
-    /// the reading is the CLI's (`scripts/openclaw-export.py`), so what the
-    /// daemon can do on demand is say that a run is wanted; the next
-    /// `theseus import sync --if-requested` serves it.
+    /// `import.sync.request` (theseus-ievo3, S29-1): **run a sync now.**
     ///
-    /// A second request while one waits does not move the first: the wait that
-    /// matters is the oldest one, and moving it would hide a request nothing
-    /// served from [`SyncState::health`]'s warning.
-    pub(crate) async fn sync_request(&self, by: &str) -> Result<u64> {
-        let prev: SyncState =
-            theseus_store::blocking(|| self.store.get_meta(STATE_KEY))?.unwrap_or_default();
-        if prev.requested_ms > 0 {
-            return Ok(prev.requested_ms);
+    /// The owner's words, 2026-11-13 14:01:14 MST (Discord message
+    /// 1570906412190540072): *"How about when the request comes in we just
+    /// execute it"*. So this starts the run rather than recording a wish for
+    /// a poller, and answers [`ImportSyncStarted`]: that it started, or that
+    /// one was already going.
+    ///
+    /// The whole command is [`crate::import::sync_run`]'s constant and the
+    /// child is registered with the daemon's children, so the census holds.
+    /// `by` names who asked, for the daemon's log; **it reaches no argument,
+    /// no environment variable and no working directory of the child.**
+    ///
+    /// The second message -- what the run imported -- is posted to the
+    /// operator when the child ends (`sync_ran_notice`).
+    pub(crate) fn sync_request(self: &Arc<Self>, by: &str) -> ImportSyncStarted {
+        let now = theseus_protocol::now_unix_ms();
+        match self.on_demand.claim(now) {
+            // Already going: nothing is started, nothing is queued, and the
+            // answer is a different sentence -- never a quiet success.
+            sync_run::Asked::AlreadyRunning(at_ms) => {
+                tracing::info!(by, since_ms = at_ms, "a sync was asked for while one runs");
+                ImportSyncStarted {
+                    started: false,
+                    at_ms,
+                    say: sync_run::already_running_line(at_ms, now),
+                }
+            }
+            sync_run::Asked::Started(at_ms) => {
+                tracing::info!(by, "a sync was asked for: starting one");
+                // The state as it is now, so the run's own counts are the
+                // difference and not the last run's totals.
+                let before: SyncState = self
+                    .store
+                    .get_meta(STATE_KEY)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                let core = self.clone();
+                tokio::spawn(async move {
+                    let ran = core.on_demand.run_claimed().await;
+                    core.sync_ran_notice(&ran, &before);
+                });
+                ImportSyncStarted {
+                    started: true,
+                    at_ms,
+                    say: sync_run::started_line(),
+                }
+            }
         }
-        let at = theseus_protocol::now_unix_ms();
-        let state = SyncState {
-            requested_ms: at,
-            requested_by: Some(by.to_string()),
-            ..prev
-        };
-        self.people_write(&[crate::judge::people::run::meta(STATE_KEY, &state)?])
-            .await?;
-        Ok(at)
+    }
+
+    /// The second message a request gets: what the run imported, read from the
+    /// state the run itself recorded. It goes where approvals go, which is the
+    /// owner's own DM, so the thread that asked is told without this path
+    /// needing a route of its own.
+    fn sync_ran_notice(&self, ran: &sync_run::Ran, before: &SyncState) {
+        let after: SyncState = self
+            .store
+            .get_meta(STATE_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let text = sync_run::finished_line(ran, before, &after);
+        if !ran.ok() {
+            tracing::warn!(text, "the on-demand sync did not work");
+        }
+        if let Err(e) = self
+            .outbox
+            .to_operator(None, serde_json::json!({"kind": "notice", "text": text}))
+        {
+            tracing::warn!(error = %format!("{e:#}"), "the sync's report could not be posted");
+        }
     }
 
     /// Health's `sync`: the last run, once one has run.
@@ -259,17 +282,6 @@ impl Core {
             error: rec.error.clone(),
             samples: samples(rec),
             people_todo: todo.clone(),
-            // A run that did not fail has read everything up to its cursor, so
-            // it served whatever was asked for; one that failed imported
-            // nothing, so the request stands, as the cursor does.
-            requested_ms: match rec.error {
-                Some(_) => prev.requested_ms,
-                None => 0,
-            },
-            requested_by: match rec.error {
-                Some(_) => prev.requested_by.clone(),
-                None => None,
-            },
         };
         let row = crate::fact::import::ImportSynced {
             by,

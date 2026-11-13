@@ -17,15 +17,14 @@
 //!   cursor where it was; what it wrote is kept, and a rerun skips it.
 //! - `--dry-run` runs the exporter with no output and prints what it would read,
 //!   recording nothing.
-//! - **On demand** (theseus-ievo3). `--request` asks the daemon for a sync now
-//!   (`import.sync.request`) and runs nothing: a caller that is not on this
-//!   machine -- the web UI, or a DM with an owner -- cannot run the exporter,
-//!   but it can leave the request. `--if-requested` is the other half: it runs
-//!   only when the plan carries a request, and does nothing otherwise, so the
-//!   on-demand timer can poll every few minutes for the price of one call.
-//!   **`--if-requested` implies `--no-people`**: the people step is where the
-//!   minutes and the dollars go, and it stays nightly, so no number of
-//!   on-demand runs can multiply it.
+//! - **On demand** (theseus-ievo3, S29-1). `--request` asks the daemon to run
+//!   a sync NOW (`import.sync.request`) and runs nothing in this process: the
+//!   daemon starts its own `theseus import sync --no-people` and reports what
+//!   it imported when it ends. A caller that is not on this machine -- the web
+//!   UI, or a DM with an owner -- cannot run the exporter itself, and no
+//!   longer has to: the request is the run. There is no polling timer and no
+//!   `--if-requested` half; the owner rejected that design (his words at
+//!   2026-11-13 14:01:14 MST, Discord message 1570906412190540072).
 //! - The owner's act, refused inside a job: the plan is an operator's method.
 
 use std::path::{Path, PathBuf};
@@ -40,7 +39,8 @@ use theseus_protocol::import::{
     ImportEpisodesParams, ImportEpisodesResult, ImportLine, ImportRejected,
 };
 use theseus_protocol::import_sync::{
-    ImportSyncPlan, ImportSyncRecord, ImportSyncResult, ImportTouched, SyncPeople,
+    ImportSyncPlan, ImportSyncRecord, ImportSyncResult, ImportSyncStarted, ImportTouched,
+    SyncPeople,
 };
 use theseus_protocol::method;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
@@ -72,12 +72,9 @@ pub struct SyncArgs {
     /// Import only: skip the people steps.
     #[arg(long)]
     pub no_people: bool,
-    /// Ask for a sync now and run nothing: the next `--if-requested` run serves it.
-    #[arg(long, conflicts_with_all = ["dry_run", "if_requested"])]
+    /// Ask the daemon to run a sync now, and run nothing in this process.
+    #[arg(long, conflicts_with = "dry_run")]
     pub request: bool,
-    /// Run only if a sync was asked for, and do nothing otherwise; skips the people steps.
-    #[arg(long = "if-requested", conflicts_with = "dry_run")]
-    pub if_requested: bool,
 }
 
 /// The exporter's report (its `--report` JSON), the parts this reads.
@@ -290,28 +287,18 @@ async fn export(
     Ok((sent, rep))
 }
 
-/// Whether a run skips the people steps (theseus-ievo3). `--if-requested` is
-/// the on-demand carrier's command, and an on-demand run is import-only
-/// whatever else was passed: the people step is where the minutes and the
-/// dollars go, and it stays nightly, so no number of on-demand runs can
-/// multiply it. The sessions the run touched wait in the daemon's own
-/// `people_todo` for the night's full run. Pure, so a test reads it.
+/// Whether a run skips the people steps (theseus-ievo3). The people step is
+/// where the minutes and the dollars go and it stays nightly; the daemon's own
+/// on-demand run passes `--no-people` in its fixed argv, so it arrives here as
+/// an ordinary `--no-people` run. Pure, so a test reads it.
 pub fn no_people(a: &SyncArgs) -> bool {
-    a.no_people || a.if_requested
+    a.no_people
 }
 
-/// What `--request` prints, and what `--if-requested` prints when there is
-/// nothing to serve: pure, so a test reads them.
-pub fn request_line(plan: &ImportSyncPlan) -> String {
-    match (plan.requested_ms, &plan.requested_by) {
-        (0, _) => "no sync has been asked for: nothing to run\n".to_string(),
-        (at, by) => format!(
-            "a sync is waiting: asked for {} by {}; the next `theseus import sync --if-requested` \
-             run serves it\n",
-            theseus_client::render::time::fmt_date(at),
-            by.as_deref().unwrap_or("someone")
-        ),
-    }
+/// What `--request` prints: the daemon's own answer, the same sentence the
+/// thread gets. Pure, so a test reads it.
+pub fn request_line(started: &ImportSyncStarted) -> String {
+    format!("{}\n", started.say)
 }
 
 /// A dry run's report, printed. Its own function for the same reason
@@ -334,31 +321,23 @@ fn say_dry_run(json: bool, rep: Option<Report>) -> Result<()> {
 /// because `run` is at clippy's `too_many_lines` ceiling, and an `#[allow]`
 /// is an erosion wherever it goes.
 ///
-/// - `--request` is the whole of the on-demand trigger a caller off this
-///   machine can make: the record, not the run. It reads the plan back, so
-///   what it prints is the request the daemon actually holds.
-/// - An `--if-requested` poll with nothing to serve makes that ONE call and
-///   stops. This is what makes a poll of minutes cheap enough to be the
-///   carrier: the exporter and its `python3` never start.
+/// - `--request` runs nothing in THIS process: it asks the daemon, which
+///   starts the run itself (S29-1). What it prints is the daemon's own
+///   answer -- that a run started, or that one was already going -- so the
+///   terminal and the thread read the same sentence.
 async fn plan_or_done(conn: &mut Conn, json: bool, a: &SyncArgs) -> Result<Option<ImportSyncPlan>> {
-    let say = |p: ImportSyncPlan| {
-        print!("{}", request_line(&p));
-        Ok(())
-    };
     if a.request {
         let v = conn
             .request(method::IMPORT_SYNC_REQUEST, Value::Null)
             .await?;
-        output(json, v, say)?;
+        output(json, v, |s: ImportSyncStarted| {
+            print!("{}", request_line(&s));
+            Ok(())
+        })?;
         return Ok(None);
     }
     let v = conn.request(method::IMPORT_SYNC_PLAN, Value::Null).await?;
-    let plan: ImportSyncPlan = serde_json::from_value(v)?;
-    if a.if_requested && plan.requested_ms == 0 {
-        output(json, serde_json::to_value(&plan)?, say)?;
-        return Ok(None);
-    }
-    Ok(Some(plan))
+    Ok(Some(serde_json::from_value(v)?))
 }
 
 pub async fn run(conn: &mut Conn, json: bool, a: SyncArgs) -> Result<()> {

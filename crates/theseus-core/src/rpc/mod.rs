@@ -368,6 +368,10 @@ pub struct Core {
     pub warmth: crate::warm::Warmth,
     /// The open watches, in memory (theseus-f2r2b; `watch.rs`).
     pub watches: Arc<crate::watch::Board>,
+    /// The sync on demand (theseus-ievo3, S29-1): the one run at a time that
+    /// `import.sync.request` starts, and what starts it. One seat, so a
+    /// second request while one runs is told rather than served.
+    pub on_demand: crate::import::sync_run::OnDemand,
 }
 
 /// Where the index tender's supervisor writes its facts' rows
@@ -1084,6 +1088,7 @@ impl Core {
             sealed,
             warmth: Default::default(),
             watches,
+            on_demand: Default::default(),
         });
         core.index.set_ledger(index_ledger(&core));
         core.mcp.attach(Arc::downgrade(&core));

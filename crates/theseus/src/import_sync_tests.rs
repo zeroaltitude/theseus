@@ -130,75 +130,44 @@ fn a_dry_run_says_it_wrote_nothing() {
     );
 }
 
-/// The gate on the people step (theseus-ievo3): a run that serves a request is
-/// import-only whatever else was passed, so the people step stays nightly
-/// however often a sync is asked for. The CLI sets `no_people` on the record it
-/// sends, and the on-demand unit passes `--no-people` as well: two independent
-/// holds, so neither side alone can let the people cost multiply.
+/// The gate on the people step (theseus-ievo3, S29-1): the people step is
+/// where the minutes and the dollars go and it stays nightly, so the daemon's
+/// own on-demand run passes `--no-people` in its fixed argv
+/// (`theseus_core::import::sync_run::ARGV`) and arrives here as an ordinary
+/// `--no-people` run. Nothing else sets it, which is the point: there is one
+/// way to skip the people step and it is the flag.
 #[test]
-fn an_on_demand_run_is_import_only_whatever_else_was_passed() {
-    for (a, want) in [
-        (SyncArgs::default(), false),
-        (
-            SyncArgs {
-                no_people: true,
-                ..SyncArgs::default()
-            },
-            true,
-        ),
-        // The one this card adds: --if-requested alone, with no --no-people.
-        (
-            SyncArgs {
-                if_requested: true,
-                ..SyncArgs::default()
-            },
-            true,
-        ),
-        (
-            SyncArgs {
-                if_requested: true,
-                no_people: true,
-                ..SyncArgs::default()
-            },
-            true,
-        ),
-    ] {
-        assert_eq!(
-            no_people(&a),
-            want,
-            "if_requested={} no_people={}",
-            a.if_requested,
-            a.no_people
-        );
-    }
+fn an_on_demand_run_is_import_only_because_its_argv_says_so() {
+    assert!(!no_people(&SyncArgs::default()));
+    assert!(no_people(&SyncArgs {
+        no_people: true,
+        ..SyncArgs::default()
+    }));
 }
 
-/// What `--request` and an unserved `--if-requested` poll say. The positive arm
-/// names who asked, so a request filed from a DM is distinguishable from one
-/// filed on this machine; the empty arm says plainly that nothing ran, which is
-/// what the on-demand timer prints most of the time.
+/// What `--request` prints (theseus-ievo3, S29-1): the daemon's own sentence,
+/// unchanged, so the terminal and the thread read the same words. The CLI does
+/// not word this itself -- it cannot, since it is the daemon that knows
+/// whether a run started or one was already going.
 #[test]
-fn a_request_is_worded_with_who_asked_and_an_empty_poll_says_it_ran_nothing() {
+fn a_request_prints_the_daemons_own_sentence() {
     assert_eq!(
-        request_line(&plan()),
-        "no sync has been asked for: nothing to run\n"
+        request_line(&ImportSyncStarted {
+            started: true,
+            at_ms: 1_790_000_000_000,
+            say: "The OpenClaw sync started. I will say what it imported when it is done.".into(),
+        }),
+        "The OpenClaw sync started. I will say what it imported when it is done.\n"
     );
-    let p = ImportSyncPlan {
-        requested_ms: 1_790_000_000_000,
-        requested_by: Some("discord:dm".into()),
-        ..plan()
-    };
-    let out = request_line(&p);
-    assert!(out.starts_with("a sync is waiting: asked for "), "{out}");
-    assert!(out.contains(" by discord:dm; "), "{out}");
-    assert!(
-        out.ends_with("--if-requested` run serves it\n"),
-        "it names what serves it: {out}"
+    assert_eq!(
+        request_line(&ImportSyncStarted {
+            started: false,
+            at_ms: 1_790_000_000_000,
+            say: "An OpenClaw sync is already running (started 2 minutes ago); nothing new was \
+                  started. I will say what it imported when it is done."
+                .into(),
+        }),
+        "An OpenClaw sync is already running (started 2 minutes ago); nothing new was started. \
+         I will say what it imported when it is done.\n"
     );
-    // A request with no name recorded still reads as a sentence.
-    let out = request_line(&ImportSyncPlan {
-        requested_by: None,
-        ..p
-    });
-    assert!(out.contains(" by someone; "), "{out}");
 }

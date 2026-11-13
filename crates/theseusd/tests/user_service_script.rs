@@ -1522,73 +1522,49 @@ fn the_sync_timer_refuses_a_bad_word_and_a_bad_hour() {
         .contains("sync-timer install|uninstall|status"));
 }
 
-/// `sync-timer uninstall` takes the on-demand pair too (theseus-ievo3). Its own
-/// function, as the import-only one is, so the test that calls it stays inside
-/// clippy's `cognitive_complexity` budget.
-fn uninstall_takes_the_on_demand_pair(r: &Rig, dir: &std::path::Path) {
+/// **No on-demand timer is installed, and one an earlier build wrote is
+/// removed** (theseus-ievo3, S29-1). The owner rejected serving a request by
+/// polling -- *"How about when the request comes in we just execute it"*
+/// (2026-11-13 14:01:14 MST, Discord message 1570906412190540072) -- so
+/// `import.sync.request` runs the sync in the daemon and there is no third
+/// unit pair. Two timers are written, not three.
+///
+/// The removal matters as much as the absence: a `theseusd-sync-ondemand`
+/// pair an earlier build of this script wrote runs a command that no longer
+/// exists, so left alone it would fail every couple of minutes for ever.
+#[test]
+fn the_sync_timer_installs_no_on_demand_pair_and_removes_an_old_one() {
+    let r = Rig::new();
+    let dir = r.home().join(".config/systemd/user");
+
+    // A pair as an earlier build of this script wrote it, marked as its own.
+    std::fs::create_dir_all(&dir).unwrap();
+    for (f, body) in [
+        (
+            "theseusd-sync-ondemand.service",
+            "# written by user-service.sh sync-timer\n[Service]\nExecStart=theseus import sync \
+             --no-people --if-requested\n",
+        ),
+        (
+            "theseusd-sync-ondemand.timer",
+            "# written by user-service.sh sync-timer\n[Timer]\nOnCalendar=*-*-* *:0/2:00\n",
+        ),
+    ] {
+        std::fs::write(dir.join(f), body).unwrap();
+    }
+
     let (code, out) = r.run(&["sync-timer", "install"]);
     assert_eq!(code, 0, "{out}");
-    assert!(dir.join("theseusd-sync-ondemand.timer").exists());
-    let (code, out) = r.run(&["sync-timer", "uninstall"]);
-    assert_eq!(code, 0, "{out}");
-    for f in [
-        "theseusd-sync-ondemand.timer",
-        "theseusd-sync-ondemand.service",
-    ] {
-        assert!(!dir.join(f).exists(), "{f} stayed: {out}");
-    }
+    assert!(
+        !dir.join("theseusd-sync-ondemand.timer").exists()
+            && !dir.join("theseusd-sync-ondemand.service").exists(),
+        "an on-demand pair an earlier build wrote is removed: {out}"
+    );
     assert!(r
         .at("systemctl --user disable --now theseusd-sync-ondemand.timer")
         .is_some());
-}
 
-/// A sync asked for is served within minutes, not at the next scheduled run
-/// (theseus-ievo3). The owner asked for BOTH halves of this fix -- an hourly
-/// import, and a sync on demand -- and this is the second: `import.sync.request`
-/// records that a sync is wanted, and this third unit pair is what serves it.
-///
-/// Its command is `theseus import sync --no-people --if-requested`, which makes
-/// ONE call to the daemon and stops when nothing was asked for, so a poll every
-/// two minutes starts no exporter and no python3. The daemon spawns nothing: the
-/// reading is the CLI's, so the carrier has to be a timer, and this is it.
-///
-/// The people step stays nightly on two independent holds: the unit passes
-/// `--no-people`, and the CLI sets `no_people` on the record whenever
-/// `--if-requested` is given (`import_sync_tests`), so neither side alone can
-/// let the people cost multiply.
-#[test]
-fn a_sync_asked_for_is_served_within_minutes_and_takes_no_people_step() {
-    let r = Rig::new();
-    let dir = r.home().join(".config/systemd/user");
-    let (code, out) = r.run(&["sync-timer", "install"]);
-    assert_eq!(code, 0, "{out}");
-
-    let svc = std::fs::read_to_string(dir.join("theseusd-sync-ondemand.service"))
-        .expect("the on-demand unit is written beside the other two");
-    let tim = std::fs::read_to_string(dir.join("theseusd-sync-ondemand.timer")).unwrap();
-    assert!(
-        svc.trim_end()
-            .ends_with("import sync --no-people --if-requested"),
-        "it serves a request, import only: {svc}"
-    );
-    assert!(svc.contains("Type=oneshot"), "{svc}");
-    let bound = svc
-        .lines()
-        .find_map(|l| l.strip_prefix("TimeoutStartSec="))
-        .expect("the on-demand oneshot bounds its start too: an unbounded one blocks its timer");
-    assert_eq!(bound, "45min", "the import-only run's own bound: {svc}");
-    assert!(
-        tim.contains("OnCalendar=*-*-* *:0/2:00"),
-        "every two minutes by default: {tim}"
-    );
-    assert!(
-        tim.contains("AccuracySec=15s"),
-        "systemd's default minute of slack is half this period: {tim}"
-    );
-    assert!(r
-        .at("systemctl --user enable --now theseusd-sync-ondemand.timer")
-        .is_some());
-    // The other two pairs are untouched by it.
+    // The two that remain are the scheduled ones, untouched by this work.
     let night = std::fs::read_to_string(dir.join("theseusd-sync.service")).unwrap();
     assert!(night.trim_end().ends_with("import sync"), "{night}");
     let hourly = std::fs::read_to_string(dir.join("theseusd-sync-hourly.service")).unwrap();
@@ -1596,53 +1572,18 @@ fn a_sync_asked_for_is_served_within_minutes_and_takes_no_people_step() {
         hourly.trim_end().ends_with("import sync --no-people"),
         "{hourly}"
     );
+
+    // And the summary says the request is RUN, not served within N minutes.
     assert!(
-        out.contains("ASKED FOR") && out.contains("is served within 2 min"),
-        "the summary says what the third timer is for: {out}"
+        out.contains("is RUN THEN AND THERE by the daemon") && out.contains("no timer serves it"),
+        "the summary says the request runs it: {out}"
+    );
+    assert!(
+        !out.contains("is served within"),
+        "nothing promises a wait of minutes any more: {out}"
     );
 
-    // --on-demand-mins names the period, and nothing else moves.
+    // There is no period flag left to pass.
     let (code, out) = r.run(&["--on-demand-mins", "5", "sync-timer", "install"]);
-    assert_eq!(code, 0, "{out}");
-    let tim = std::fs::read_to_string(dir.join("theseusd-sync-ondemand.timer")).unwrap();
-    assert!(tim.contains("OnCalendar=*-*-* *:0/5:00"), "{tim}");
-    let hourly = std::fs::read_to_string(dir.join("theseusd-sync-hourly.timer")).unwrap();
-    assert!(hourly.contains("OnCalendar=*-*-* 00/1:10:00"), "{hourly}");
-
-    // 0 is how it is turned off again: the pair this script wrote goes, the
-    // other two stay, and the summary says a request then waits for the hour.
-    let (code, out) = r.run(&["--on-demand-mins", "0", "sync-timer", "install"]);
-    assert_eq!(code, 0, "{out}");
-    assert!(
-        !dir.join("theseusd-sync-ondemand.timer").exists()
-            && !dir.join("theseusd-sync-ondemand.service").exists(),
-        "--on-demand-mins 0 removes the on-demand pair"
-    );
-    assert!(
-        dir.join("theseusd-sync.timer").exists() && dir.join("theseusd-sync-hourly.timer").exists(),
-        "the other two stay"
-    );
-    assert!(out.contains("No on-demand timer"), "{out}");
-
-    uninstall_takes_the_on_demand_pair(&r, &dir);
-}
-
-/// A period outside 0 to 30 minutes is a usage error, and nothing is written for
-/// it: past half an hour an "on demand" run is no longer within minutes, which
-/// is the whole of what it exists for (theseus-ievo3).
-#[test]
-fn the_sync_timer_refuses_a_bad_on_demand_period() {
-    let r = Rig::new();
-    let dir = r.home().join(".config/systemd/user");
-    for bad in ["31", "60", "soon", "-1", "2.5"] {
-        let (code, out) = r.run(&["--on-demand-mins", bad, "sync-timer", "install"]);
-        assert_eq!(code, 2, "--on-demand-mins {bad}: {out}");
-        assert!(out.contains("--on-demand-mins"), "{out}");
-        assert!(!dir.join("theseusd-sync-ondemand.timer").exists(), "{out}");
-        assert!(!dir.join("theseusd-sync.timer").exists(), "{out}");
-    }
-    // And it needs a value at all.
-    let (code, out) = r.run(&["--on-demand-mins"]);
-    assert_eq!(code, 2, "{out}");
-    assert!(out.contains("needs a number"), "{out}");
+    assert_eq!(code, 2, "--on-demand-mins is gone: {out}");
 }

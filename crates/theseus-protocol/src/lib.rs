@@ -400,8 +400,8 @@ pub mod method {
         BOOKS_LIST = "books.list", BOOKS_PAGE = "books.page",
         IMPORT_TOPICS = "import.topics", IMPORT_PEOPLE = "import.people",
         /// The OpenClaw sync (theseus-pjmj7, theseus-ievo3; `import_sync`): the owner's config and cursor for a
-        /// run, a read; the run's end (cursor, counts, the people steps); and a sync asked for NOW, a record that
-        /// starts nothing and that the next `import sync --if-requested` run serves. The last two the owner's.
+        /// run, a read; the run's end (cursor, counts, the people steps); and a sync asked for NOW, which the
+        /// daemon RUNS then and there, one at a time (S29-1). The last two the owner's.
         IMPORT_SYNC_PLAN = "import.sync.plan", IMPORT_SYNC_RECORD = "import.sync.record", IMPORT_SYNC_REQUEST = "import.sync.request",
         /// The gates' bench history on this machine (theseus-1hk), for the
         /// cockpit's speed wall: every recorded run's p50s, p95s, and limits

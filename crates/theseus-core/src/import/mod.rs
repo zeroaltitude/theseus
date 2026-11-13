@@ -43,6 +43,7 @@ pub mod episode;
 pub mod notes;
 pub mod people;
 pub mod sync;
+pub mod sync_run;
 pub mod topics;
 pub mod write;
 
@@ -60,6 +61,8 @@ mod tests_notes;
 mod tests_people;
 #[cfg(test)]
 mod tests_sync;
+#[cfg(test)]
+mod tests_sync_run;
 #[cfg(test)]
 mod tests_system;
 #[cfg(test)]

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use theseus_protocol::import_sync::{
-    ImportSyncPlan, ImportSyncRecord, ImportSyncResult, MISSED_AFTER_MS, REQUEST_STALE_AFTER_MS,
+    ImportSyncPlan, ImportSyncRecord, ImportSyncResult, MISSED_AFTER_MS,
 };
 use theseus_protocol::method;
 
@@ -303,141 +303,92 @@ async fn the_request_runs_the_sync_rather_than_recording_a_wish_for_a_poller() {
     );
 }
 
-/// The shortened path (theseus-ievo3): a decision recorded in OpenClaw was
-/// readable in Theseus only at the next night's run, so for most of a working
-/// day Theseus acted on yesterday's picture. `import.sync.request` records
-/// that a sync is wanted NOW; the plan carries it, so the next run of
-/// `theseus import sync --if-requested` -- a poll of minutes, not a day --
-/// serves it, and health says a sync is waiting.
-///
-/// The path is measured in both directions: with no request the only thing
-/// telling anyone to run is the night, hours away; with one, the wait is zero
-/// and the request names who asked.
+/// **A second request while one runs answers "already running", on the live
+/// path** (theseus-ievo3, S29-1). Driven through `import.sync.request` itself
+/// rather than through the seat in isolation, because what the owner reads is
+/// the RPC's answer: it must start no second child, must not queue, and must
+/// NOT quietly report success.
 #[tokio::test]
-async fn a_request_shortens_the_path_from_the_next_night_to_the_next_poll() {
+async fn a_second_request_while_one_runs_is_told_and_starts_nothing() {
     let r = live();
     let c = &r.core;
-    // Before: nothing asks for a run, and the only due time is the night's.
-    let p = plan(c).await;
-    assert_eq!((p.requested_ms, p.requested_by), (0, None));
-    let now = theseus_protocol::now_unix_ms();
 
-    // The request: the owner's act, recorded, answering the plan it shortens.
-    let asked: ImportSyncPlan = serde_json::from_value(
-        call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
-            .await
-            .unwrap(),
-    )
-    .unwrap();
-    assert!(
-        asked.requested_ms >= now,
-        "the request is stamped: {asked:?}"
+    // A run that is going and will not finish until this test lets it.
+    let go = Arc::new(tokio::sync::Notify::new());
+    let started = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    {
+        let go = go.clone();
+        let started = started.clone();
+        c.on_demand.set_runner(Arc::new(move || {
+            let go = go.clone();
+            let started = started.clone();
+            Box::pin(async move {
+                started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                go.notified().await;
+                super::sync_run::Ran {
+                    pid: 1,
+                    code: Some(0),
+                    ..super::sync_run::Ran::default()
+                }
+            })
+        }));
+    }
+
+    let first = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(first["started"], json!(true), "{first}");
+    // Let the spawned run reach the runner before asking again.
+    for _ in 0..200 {
+        if started.load(std::sync::atomic::Ordering::SeqCst) == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    let second = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(
+        second["started"],
+        json!(false),
+        "a second request does not start a second run: {second}"
     );
     assert_eq!(
-        asked.requested_by.as_deref(),
-        Some(Surface::Cli.name()),
-        "the request names who asked, as every `by` does"
+        second["at_ms"], first["at_ms"],
+        "and it names the RUNNING one's start, not its own"
     );
-    // A second request does not move the first: the oldest wait is the one
-    // health and the next run see.
-    let again: ImportSyncPlan = serde_json::from_value(
-        call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
-            .await
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(again.requested_ms, asked.requested_ms, "the first stands");
-    let p = plan(c).await;
-    assert_eq!(p.requested_ms, asked.requested_ms, "the plan carries it");
-
-    // The shortening itself, measured: the next SCHEDULED run is still hours
-    // away, and the request's own wait is zero -- the whole of the defect was
-    // that the first figure was the only one there was.
-    let night = next_run(p.requested_ms, 3);
+    let say = second["say"].as_str().unwrap_or_default();
     assert!(
-        night > p.requested_ms,
-        "the next scheduled run is ahead of the request: {night} vs {}",
-        p.requested_ms
+        say.starts_with("An OpenClaw sync is already running"),
+        "it is told plainly, not answered with a success: {say}"
     );
-    let h = c.health().imported.sync.expect("health names the request");
-    assert_eq!(h.requested_ms, asked.requested_ms);
-
-    // A run that failed leaves the request standing, exactly as it leaves the
-    // cursor: nothing was imported, so the decision is still not readable.
-    record(
-        c,
-        &ImportSyncRecord {
-            error: Some("python3 did not start".into()),
-            no_people: true,
-            ..ImportSyncRecord::default()
-        },
-    )
-    .await;
-    assert_eq!(
-        plan(c).await.requested_ms,
-        asked.requested_ms,
-        "a failed run does not serve the request"
-    );
-
-    // A run that did not fail serves it, and the request is gone.
-    let e = sync(4, TAG, &[0, 1, 2, 3]);
-    let got = import(c, lines(std::slice::from_ref(&e))).await;
-    let res = record(
-        c,
-        &ImportSyncRecord {
-            episodes: 1,
-            messages: 4,
-            imported: 1,
-            touched: got.touched,
-            no_people: true,
-            ..ImportSyncRecord::default()
-        },
-    )
-    .await;
-    assert_eq!(res.sync.sessions_new, 1, "the run imported the session");
-    assert_eq!(res.sync.requested_ms, 0, "served: {:?}", res.sync);
-    let p = plan(c).await;
-    assert_eq!((p.requested_ms, p.requested_by), (0, None));
-
-    // The people step stays nightly: the served run took none, and the
-    // session it touched waits for the night's full run.
     assert!(
-        res.people.is_none(),
-        "an on-demand run takes no people step"
+        say.contains("nothing new was started"),
+        "and it says so in as many words: {say}"
     );
-    assert_eq!(p.people_todo, 1, "it waits for the nightly sweep");
-}
-
-/// A request nothing serves is a warning, not a silence (theseus-ievo3): with
-/// no on-demand unit installed the request waits for the hourly import, and
-/// health says so rather than looking well.
-#[test]
-fn a_request_nothing_served_warns_once_it_is_stale() {
-    let st = SyncState {
-        at_ms: 1_790_000_000_000,
-        requested_ms: 1_790_000_000_000 + 1_000,
-        requested_by: Some("discord:dm".into()),
-        ..SyncState::default()
-    };
-    // Fresh: no warning, a poll of minutes is still ahead of it.
-    assert!(st.health(st.requested_ms + 1_000, 3).warn.is_none());
-    let late = st.health(st.requested_ms + REQUEST_STALE_AFTER_MS + 1, 3);
-    let w = late.warn.expect("a request nothing served warns");
-    assert!(w.starts_with("a sync was asked for"), "{w}");
-    assert!(w.contains("and has not run"), "{w}");
-    assert_eq!(late.requested_ms, st.requested_ms);
-    // A failed run still outranks it: that is why the run did not serve it.
-    let failed = SyncState {
-        error: Some("an agent's store would not open".into()),
-        ..st
-    };
     assert_eq!(
-        failed
-            .health(failed.requested_ms + 10 * REQUEST_STALE_AFTER_MS, 3)
-            .warn
-            .as_deref(),
-        Some("the last sync failed: an agent's store would not open")
+        started.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "exactly one child, after two requests"
     );
+    assert_eq!(c.on_demand.started(), 1, "and the seat was taken once");
+
+    // The run ends; the seat comes back and a request is served again.
+    go.notify_waiters();
+    for _ in 0..200 {
+        if c.on_demand.flight().is_none() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(c.on_demand.flight(), None, "the seat came back");
+    let third = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(third["started"], json!(true), "{third}");
+    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
 
 /// The plan and the record are the owner's acts: a place that is not private

@@ -12,12 +12,17 @@
 //!   no model call) and reads the new messages of the sessions it touched for
 //!   people (a model and Jev, under `[people] sweep_usd_per_day`), and writes
 //!   the people step's spend.
-//! - **`import.sync.request`** (theseus-ievo3): a sync wanted now, rather than
-//!   at the next scheduled run. It records the request and answers the plan.
-//!   **It starts nothing**: the reading is the CLI's (`openclaw-export.py`),
-//!   and what serves a request is the next run of `theseus import sync
-//!   --if-requested`, which the on-demand timer takes every few minutes. So
-//!   the daemon's half of "on demand" is a record, not a process.
+//! - **`import.sync.request`** (theseus-ievo3, S29-1): a sync now, rather than
+//!   at the next scheduled run. **It runs it.** The daemon starts
+//!   `theseus import sync --no-people` -- its own binary, a fixed argv, a
+//!   registered child -- and answers [`ImportSyncStarted`]: that it started,
+//!   or that one was already running. The owner rejected the design in which
+//!   this recorded a wish for a polling timer to find (Discord message
+//!   1570906412190540072, 2026-11-13 14:01:14 MST: *"How about when the
+//!   request comes in we just execute it"*), and there is no such timer.
+//!   What the run imported reaches the thread when it ends.
+//!   `crate::import::sync_run` in theseus-core is where the whole command
+//!   lives; nothing of it comes from the model or from the message.
 //!
 //! All three are the owner's acts, from a private place, refused inside a job.
 //! That is the whole of the authorisation, and it is the same rule the plan and
@@ -36,14 +41,6 @@ pub const SYNC_MINUTE: u32 = 40;
 
 /// A night past its time by this long, with no run since, is missed.
 pub const MISSED_AFTER_MS: u64 = 2 * 3_600_000;
-
-/// A request this old that no run has served is a warning (theseus-ievo3).
-/// The on-demand timer's period is minutes, and the import-only timer's is an
-/// hour, so an unserved request this old means neither is installed or neither
-/// is running: health says so rather than looking well. It is deliberately
-/// longer than the hourly import's period, so the hourly run alone -- the
-/// fallback when no on-demand unit is installed -- never trips it.
-pub const REQUEST_STALE_AFTER_MS: u64 = 75 * 60_000;
 
 /// How many of a run's rejections its stored state names.
 pub const SAMPLES: usize = 5;
@@ -80,16 +77,6 @@ pub struct ImportSyncPlan {
     /// Sessions the last run's people step left for this one.
     #[cfg_attr(test, ts(type = "number"))]
     pub people_todo: u64,
-    /// When a sync was asked for and no run has served it yet, unix ms; 0 is
-    /// none (theseus-ievo3). A run of `--if-requested` runs when this is set
-    /// and does nothing when it is not.
-    #[serde(default)]
-    #[cfg_attr(test, ts(type = "number"))]
-    pub requested_ms: u64,
-    /// Who asked, as the act's record labels them; `None` with no request.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub requested_by: Option<String>,
 }
 
 /// `import.sync.record`'s params: one run's end.
@@ -183,11 +170,24 @@ pub struct HealthSync {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub warn: Option<String>,
-    /// A sync asked for that no run has served yet, unix ms; 0 is none
-    /// (theseus-ievo3).
-    #[serde(default)]
+}
+
+/// `import.sync.request`'s answer (theseus-ievo3, S29-1): a run of its own, or
+/// the one already going. There is no third case and no "it will happen within
+/// N minutes": by the time this is read the run has started or it has not.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ImportSyncStarted {
+    /// Whether THIS request started the run. False means one was already
+    /// running and nothing new was started -- never that the request was
+    /// quietly dropped, and never that it was queued.
+    pub started: bool,
+    /// When the run that is going started, unix ms.
     #[cfg_attr(test, ts(type = "number"))]
-    pub requested_ms: u64,
+    pub at_ms: u64,
+    /// What the thread is told now, rendered: the first of the two messages a
+    /// request gets. The second, what it imported, comes when the run ends.
+    pub say: String,
 }
 
 /// `import.sync.record`'s answer.

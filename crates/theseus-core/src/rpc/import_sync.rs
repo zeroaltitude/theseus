@@ -4,13 +4,21 @@
 //! (`judge_act(Act::Import)`), and the CLI refuses them inside a job
 //! (`OPERATORS`).
 //!
-//! **The request is a record and not a run.** The reading is the CLI's
-//! (`scripts/openclaw-export.py`, embedded in the `theseus` binary), so the
-//! daemon has no route into OpenClaw's stores of its own; what it can do on
-//! demand is write down that a run is wanted, which the next
-//! `theseus import sync --if-requested` sees in the plan and serves. Nothing
-//! here spawns a process, and `import.sync.request` is deliberately on
-//! `mcp_server`'s `NOT_FOR_MCP`: it is the owner's act, not an agent's.
+//! **The request IS the run** (S29-1). `import.sync.request` starts
+//! `theseus import sync --no-people` -- the daemon's own binary, through the
+//! daemon's registered child path -- and answers that it started, or that one
+//! was already running. The owner rejected the design in which it recorded a
+//! wish for a two-minute polling timer to find; that timer does not ship.
+//!
+//! **The authorisation did not widen for it.** `Act::Import` has no arm of its
+//! own in `judge_act`, so it falls to that match's `_ =>
+//! `places::owner_in_private`: the CLI, the web UI, a DM with an owner, or a
+//! channel bound private, and refused from a shared place or an agent's job.
+//! Starting a process is a new act for the daemon, but it is not a new ACTOR:
+//! this is the same gate the plan and the record have always taken, and
+//! `confirms.rs`, `places.rs` and `judge.rs` are untouched by this work.
+//! `import.sync.request` is on `mcp_server`'s `NOT_FOR_MCP`, so an agent's
+//! process cannot ask for one.
 //!
 //! The record is three steps and two frames, so a stop between them loses nothing
 //! the next run needs: the state and the run's row first (the cursor moves, the
@@ -95,10 +103,8 @@ impl Core {
         }
         if name == method::IMPORT_SYNC_REQUEST {
             let by = self.import_judged(conn, name_of(name), "the OpenClaw sync asked for now")?;
-            self.sync_request(&by).await.map_err(RpcFailure::invalid)?;
-            let core = self.clone();
-            let plan = import::blocking(move || core.sync_plan()).await?;
-            return serde_json::to_value(plan).map_err(|e| RpcFailure::invalid(e.into()));
+            let started = self.sync_request(&by);
+            return serde_json::to_value(started).map_err(|e| RpcFailure::invalid(e.into()));
         }
         let rec: ImportSyncRecord = parse(params)?;
         let by = self.import_judged(conn, name_of(name), "the OpenClaw sync's record")?;

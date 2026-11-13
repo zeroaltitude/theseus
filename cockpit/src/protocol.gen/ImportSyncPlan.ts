@@ -32,14 +32,4 @@ learning_hour: number,
 /**
  * Sessions the last run's people step left for this one.
  */
-people_todo: number, 
-/**
- * When a sync was asked for and no run has served it yet, unix ms; 0 is
- * none (theseus-ievo3). A run of `--if-requested` runs when this is set
- * and does nothing when it is not.
- */
-requested_ms: number, 
-/**
- * Who asked, as the act's record labels them; `None` with no request.
- */
-requested_by?: string, };
+people_todo: number, };
