@@ -12,7 +12,7 @@
 #   user-service.sh start       systemctl --user start theseusd
 #   user-service.sh uninstall   stop the service and remove its unit; your store is not touched
 #   user-service.sh sync-timer install|uninstall|status
-#                               the nightly OpenClaw sync (theseus-pjmj7): `theseus import sync`, run by a
+#                               the OpenClaw sync (theseus-pjmj7, theseus-ievo3): `theseus import sync`, run by a
 #                               systemd user timer at HOUR:40 (--hour, default 3: [judge] learning_hour's
 #                               default), beside the daemon's unit, as theseusd-sync.timer. It needs
 #                               [import.openclaw] state_dir in the config; the daemon reads it, the timer
@@ -25,7 +25,8 @@
 #                          $THESEUS_OP_TOKEN_FILE, else the file the installed unit names)
 #   --unit NAME            the unit's name (default theseusd): a second daemon, with its own
 #                          THESEUS_SOCKET and THESEUS_STATE_DIR, gets a unit of its own
-#   --hour N               sync-timer: the local hour the sync runs at, :40 past it (default 3)
+#   --hour N               sync-timer: the local hour the nightly sync runs at, :40 past it (default 3)
+#   --every-hours N        sync-timer: how often the import-only run goes, at :10 past (default 1)
 #   --help, -h
 #
 # The daemon's own variables are read the way `theseusd install --user` reads them, and the plan
@@ -66,7 +67,8 @@ LINGER=unknown # yes | no | unknown | maybe (a dry run)
 HAND=0         # 1 a daemon started by hand answers on the socket; 2 maybe (a dry run)
 TOKEN_ARGS=()
 REST=()
-SYNC_HOUR=3 # --hour: the nightly sync's local hour
+SYNC_HOUR=3  # --hour: the nightly sync's local hour
+SYNC_EVERY=1 # --every-hours: how often the import-only run goes (24: no second timer)
 
 usage() {
   cat <<EOF
@@ -81,8 +83,9 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
   start       systemctl --user start theseusd
   uninstall   stop the service and remove its unit; your store is not touched
   sync-timer install|uninstall|status
-              the nightly OpenClaw sync: `theseus import sync` run by a systemd user timer at
-              HOUR:40 (--hour, default 3), beside the daemon's unit
+              the OpenClaw sync, two timers beside the daemon's unit: the nightly full run
+              (`theseus import sync`) at HOUR:40 (--hour, default 3), and the import-only run
+              (`theseus import sync --no-people`) every --every-hours hours at :10
 
   --dry-run   print each command instead of running it
   --yes       answer yes to every question
@@ -91,8 +94,11 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
               \$THESEUS_OP_TOKEN_FILE, else the file the installed unit names)
   --unit NAME the unit's name (default theseusd): a second daemon, with its own
               THESEUS_SOCKET and THESEUS_STATE_DIR, gets a unit of its own
-  --hour N    sync-timer: the local hour the sync runs at, :40 past it (default 3, [judge]
-              learning_hour's default: set it to yours)
+  --hour N    sync-timer: the local hour the NIGHTLY sync runs at, :40 past it (default 3,
+              [judge] learning_hour's default: set it to yours)
+  --every-hours N
+              sync-timer: how often the import-only run goes, at :10 past the hour (default 1,
+              hourly; 24 installs no second timer and removes one this script wrote)
 
 The how-to: docs/user-service.md
 EOF
@@ -674,6 +680,19 @@ SYNC_MARK="# written by user-service.sh sync-timer"
 # so a client stopped here loses nothing the next night needs.
 SYNC_TIMEOUT=2h
 
+# The import-only run's own bound (theseus-ievo3). Its timer's period is an HOUR, not a day, so
+# the reasoning above binds it harder: a oneshot that outlives its period blocks its own next
+# elapse. 45 min is above every import ever observed (the batches alone, with no people step --
+# that is what `--no-people` takes off, and it is where the minutes went) and a quarter of an
+# hour under the shortest period this script will write.
+SYNC_HOURLY_TIMEOUT=45min
+
+# The minute past the hour the import-only run goes at. It is NOT :40, on purpose: the nightly
+# full run is at :40, and two runs of the same cursor at the same minute would race each other
+# for no gain. :10 puts the import-only run half an hour ahead of the nightly one, so the night's
+# own import is already done and its people step has the state waiting for it.
+IMPORT_MINUTE=10
+
 # write_sync_unit FILE TEXT: write one of the sync's unit files (a dry run says what it would write).
 # Not `write_unit`: that is the daemon's unit's writer above, and a second definition replaced it.
 write_sync_unit() {
@@ -699,11 +718,13 @@ unit_env() {
 
 cmd_sync_timer() {
   local sub=${REST[0]:-} base=$UNIT_NAME-sync dir=$CONFIG_HOME/systemd/user bin
+  local hbase=$UNIT_NAME-sync-hourly
   if [ ${#REST[@]} -ne 1 ]; then
     echo "$SELF: sync-timer takes install, uninstall or status" >&2
     exit 2
   fi
   local svc=$dir/$base.service tim=$dir/$base.timer
+  local hsvc=$dir/$hbase.service htim=$dir/$hbase.timer
   case $sub in
   install)
     bin=$(command -v theseus || true)
@@ -738,26 +759,74 @@ OnCalendar=*-*-* $(printf '%02d' "$SYNC_HOUR"):40:00
 Persistent=true
 [Install]
 WantedBy=timers.target"
+    # The import-only run (theseus-ievo3). A decision recorded in OpenClaw was invisible to
+    # Theseus until 03:40, so for most of a working day it acted on yesterday's picture. The
+    # import is cursor-based and resumable -- "the cursor moves only on a run that did not
+    # fail", and "a rerun finds it imported and skips it" -- so running it often is safe by
+    # construction. The PEOPLE STEP STAYS NIGHTLY: `--no-people` leaves each session this run
+    # touched in the daemon's `people_todo`, which the nightly full run then sweeps under its
+    # own wall-clock cap. That is why this is a second unit and not an hourly `OnCalendar` on
+    # the first: the two runs need different work AND different start timeouts, and one unit
+    # cannot have two of either.
+    if [ "$SYNC_EVERY" -lt 24 ]; then
+      write_sync_unit "$hsvc" "$SYNC_MARK
+[Unit]
+Description=Theseus: the OpenClaw import, every $SYNC_EVERY h (theseus-ievo3)
+[Service]
+Type=oneshot
+# As the nightly unit: a oneshot has no start timeout of its own, and one that never finishes
+# blocks its own timer. This period is an hour, so the bound is tighter (see SYNC_HOURLY_TIMEOUT).
+TimeoutStartSec=$SYNC_HOURLY_TIMEOUT
+Nice=19
+IOSchedulingClass=idle
+Environment=THESEUS_SOCKET=$SOCKET
+$path_line
+ExecStart=$bin import sync --no-people"
+      write_sync_unit "$htim" "$SYNC_MARK
+[Unit]
+Description=Theseus: the OpenClaw import, every $SYNC_EVERY h at :$(printf '%02d' "$IMPORT_MINUTE")
+[Timer]
+OnCalendar=*-*-* 00/$SYNC_EVERY:$(printf '%02d' "$IMPORT_MINUTE"):00
+Persistent=true
+[Install]
+WantedBy=timers.target"
+    else
+      # --every-hours 24 is how the second timer is turned off again: a pair this script wrote
+      # is removed, and anything else is left alone.
+      if [ -f "$htim" ] && grep -q "$SYNC_MARK" "$htim" 2>/dev/null; then
+        run systemctl --user disable --now "$hbase.timer" || true
+        run rm -f "$htim" "$hsvc"
+      fi
+    fi
     run systemctl --user daemon-reload || return 1
     run systemctl --user enable --now "$base.timer" || return 1
-    done_say "The sync runs every night at $(printf '%02d' "$SYNC_HOUR"):40 local, and at the next start if a night was missed: $bin import sync. It needs [import.openclaw] state_dir in your config; \`$SELF sync-timer status\` shows the next run."
+    if [ "$SYNC_EVERY" -lt 24 ]; then
+      run systemctl --user enable --now "$hbase.timer" || return 1
+    fi
+    done_say "The full sync runs every night at $(printf '%02d' "$SYNC_HOUR"):40 local, and at the next start if a night was missed: $bin import sync. $(if [ "$SYNC_EVERY" -lt 24 ]; then printf 'The import alone runs every %s h at :%02d, with no people step (its sessions wait for the night): %s import sync --no-people. ' "$SYNC_EVERY" "$IMPORT_MINUTE" "$bin"; else printf 'No import-only timer is installed (--every-hours 24). '; fi)It needs [import.openclaw] state_dir in your config; \`$SELF sync-timer status\` shows the next runs."
     ;;
   uninstall)
     if [ -f "$tim" ] && ! grep -q "$SYNC_MARK" "$tim" 2>/dev/null; then
       say "Nothing to remove: $tim was not written by this script."
       return 0
     fi
-    if [ ! -f "$tim" ] && [ ! -f "$svc" ] && ! dry; then
+    if [ ! -f "$tim" ] && [ ! -f "$svc" ] && [ ! -f "$htim" ] && [ ! -f "$hsvc" ] && ! dry; then
       say "Nothing to remove: no sync timer is installed."
       return 0
     fi
     run systemctl --user disable --now "$base.timer" || true
     run rm -f "$tim" "$svc"
+    # The import-only pair goes with it, but only a pair this script wrote (theseus-ievo3).
+    if dry || { [ -f "$htim" ] && grep -q "$SYNC_MARK" "$htim" 2>/dev/null; } ||
+      { [ ! -f "$htim" ] && [ -f "$hsvc" ] && grep -q "$SYNC_MARK" "$hsvc" 2>/dev/null; }; then
+      run systemctl --user disable --now "$hbase.timer" || true
+      run rm -f "$htim" "$hsvc"
+    fi
     run systemctl --user daemon-reload || return 1
-    done_say "Removed the sync timer. Your store was not touched."
+    done_say "Removed the sync timers. Your store was not touched."
     ;;
   status)
-    probe systemctl --user list-timers "$base.timer" --no-pager || true
+    probe systemctl --user list-timers "$base.timer" "$hbase.timer" --no-pager || true
     ;;
   *)
     echo "$SELF: sync-timer takes install, uninstall or status, not $sub" >&2
@@ -898,6 +967,15 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --hour=*) SYNC_HOUR=${1#*=} ;;
+  --every-hours)
+    [ $# -ge 2 ] || {
+      echo "$SELF: --every-hours needs a number" >&2
+      exit 2
+    }
+    SYNC_EVERY=$2
+    shift
+    ;;
+  --every-hours=*) SYNC_EVERY=${1#*=} ;;
   -h | --help)
     usage
     exit 0
@@ -943,6 +1021,13 @@ case $SYNC_HOUR in
 [0-9] | [01][0-9] | 2[0-3]) SYNC_HOUR=$((10#$SYNC_HOUR)) ;;
 *)
   echo "$SELF: --hour '$SYNC_HOUR': a local hour, 0 to 23" >&2
+  exit 2
+  ;;
+esac
+case $SYNC_EVERY in
+[1-9] | 1[0-9] | 2[0-4]) SYNC_EVERY=$((10#$SYNC_EVERY)) ;;
+*)
+  echo "$SELF: --every-hours '$SYNC_EVERY': 1 to 24 hours (24: no import-only timer)" >&2
   exit 2
   ;;
 esac

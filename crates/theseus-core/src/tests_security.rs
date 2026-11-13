@@ -185,6 +185,7 @@ pub(crate) fn session(core: &Core, read: Option<PageRead>) -> String {
             external: Some(theseus_tools::External {
                 url: "http://site.test/page.html".into(),
             }),
+            payload: None,
         };
         let node = crate::node::Node::tool_result(&rec.session_id, None, None, body);
         core.store.append(&[node.record().unwrap()]).unwrap();

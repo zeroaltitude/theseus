@@ -42,6 +42,7 @@ use theseus_aws::Credentials;
 use theseus_aws_guard::{glob, Context, Truth};
 use theseus_protocol::{AwsBootstrapParams, AwsBootstrapResult, AwsBootstrapStack};
 
+use super::repair;
 use super::session::{self, Kind};
 use super::stack::{resource_changes, role_arn, Cfn, ChangeSetSpec, Param, Ready, DEPLOYER};
 use super::stack_tags;
@@ -109,7 +110,7 @@ fn sha(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
 }
 
-fn said(f: &Failure) -> String {
+pub(super) fn said(f: &Failure) -> String {
     f.to_string()
 }
 
@@ -629,7 +630,21 @@ pub fn result(account: &Account, plan: &Plan, applied: bool) -> AwsBootstrapResu
 /// The floor session the apply makes its guarded changes in (§3.6): the
 /// owner role it made, allow-all, no guard. IAM may take a few seconds to
 /// know a new role, so the first mint is tried for up to a minute.
-async fn floor(account: &Arc<Account>, name: &str) -> Result<Credentials, String> {
+///
+/// A role AWS has and refuses the key is a different thing from a role it
+/// does not know yet, and the retry alone cannot tell them apart: it just
+/// spends the minute and reports a credential fault (theseus-ps12). So the
+/// first refusal asks IAM which it is, repairs the trust policy when that is
+/// what refused, and mints again at once. `Repaired` says what happened, in
+/// the operator's words, and the apply carries it into the plan's warnings.
+/// Only the trust policy: a permissions boundary is never repaired without a
+/// fresh yes from the owner. Reached only from [`apply`], which runs only on
+/// the operator's own yes.
+async fn floor(
+    account: &Arc<Account>,
+    name: &str,
+    said: &mut Vec<String>,
+) -> Result<Credentials, String> {
     let want = session::Want {
         kind: Kind::Floor,
         name: session::session_name(name),
@@ -638,10 +653,23 @@ async fn floor(account: &Arc<Account>, name: &str) -> Result<Credentials, String
         inline: None,
     };
     let mut last = String::new();
+    let mut asked_iam = false;
     for _ in 0..12 {
         match account.session(&want, Some(OWNER_ROLE), None).await {
             Ok(c) => return Ok(c),
             Err(e) => last = e,
+        }
+        if !asked_iam && repair::is_assume_refusal(&last) {
+            asked_iam = true;
+            let what = repair::trust_policy(account, OWNER_ROLE).await;
+            if what.changed() {
+                tracing::warn!(account = %account.id, role = OWNER_ROLE, "aws: the bootstrap repaired the owner role's trust policy");
+            }
+            said.push(what.line());
+            // A repair is worth a mint at once; its refusal is not.
+            if what.changed() {
+                continue;
+            }
         }
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
@@ -654,7 +682,7 @@ pub async fn apply(
     p: &AwsBootstrapParams,
     digest: &str,
 ) -> Result<Plan, String> {
-    let plan = plan(account, p).await?;
+    let mut plan = plan(account, p).await?;
     if plan.digest != digest {
         return Err(format!(
             "the plan changed since {digest} (it is {} now): run theseus aws bootstrap again, and \
@@ -664,6 +692,9 @@ pub async fn apply(
     }
     let name = format!("bootstrap-{}", theseus_protocol::now_unix_ms());
     let mut floor_creds: Option<Credentials> = None;
+    // What a repair of the owner role said, for the operator: the result's
+    // warnings are what every surface prints.
+    let mut repaired: Vec<String> = Vec::new();
     for s in plan
         .stacks
         .iter()
@@ -671,7 +702,7 @@ pub async fn apply(
     {
         let first = s.stack == FOUNDATION && s.action == "create";
         if !first && floor_creds.is_none() {
-            floor_creds = Some(floor(account, &format!("{name}.floor")).await?);
+            floor_creds = Some(floor(account, &format!("{name}.floor"), &mut repaired).await?);
         }
         if s.action != "none" {
             let signer = if first {
@@ -682,10 +713,11 @@ pub async fn apply(
             apply_stack(account, s, signer, &name, !first).await?;
         }
         if first {
-            floor_creds = Some(floor(account, &format!("{name}.floor")).await?);
+            floor_creds = Some(floor(account, &format!("{name}.floor"), &mut repaired).await?);
         }
         set_what_it_lacks(account, s, floor_creds.as_ref().expect("minted")).await?;
     }
+    plan.warnings.extend(repaired);
     Ok(plan)
 }
 

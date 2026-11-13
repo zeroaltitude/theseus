@@ -92,11 +92,13 @@ pub mod outbound;
 pub mod outbox;
 pub mod outputs;
 pub mod own_bench;
+pub mod owner_ask;
 pub mod owner_note;
 mod pace;
 pub mod pacer;
 pub mod pack_names;
 pub mod parked;
+pub mod payload;
 pub mod peer;
 pub mod peer_proc;
 pub mod persona;
@@ -413,6 +415,8 @@ mod tests_job_handles;
 #[cfg(test)]
 mod tests_job_sites;
 #[cfg(test)]
+mod tests_jobcap;
+#[cfg(test)]
 mod tests_jobs;
 #[cfg(test)]
 mod tests_judge;
@@ -502,6 +506,8 @@ mod tests_outside_text;
 mod tests_overflow;
 #[cfg(test)]
 mod tests_owner_note;
+#[cfg(test)]
+mod tests_payload;
 #[cfg(test)]
 mod tests_people_proposals;
 #[cfg(test)]

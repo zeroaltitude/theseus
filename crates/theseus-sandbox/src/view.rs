@@ -18,13 +18,15 @@
 //! goes before the command starts. Scratch is hidden too: the init keeps a
 //! descriptor to it, to report what was written.
 
+use std::collections::BTreeSet;
 use std::ffi::CString;
 use std::fs;
 use std::io;
 use std::os::fd::{FromRawFd, OwnedFd};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
+use crate::residue::{Budget, Residue, Stopped};
 use crate::spec::Spec;
 use crate::sys::{self, cpath, Failure, Stage};
 use crate::sys::{MOUNT_ATTR_NODEV, MOUNT_ATTR_NOEXEC, MOUNT_ATTR_NOSUID, MOUNT_ATTR_RDONLY};
@@ -77,6 +79,10 @@ pub(crate) struct View {
     /// Scratch's root (one `<i>/upper` per workspace root), hidden from the
     /// job, kept for the summary. None without a workspace.
     pub scratch: Option<OwnedFd>,
+    /// What the bounded inode walk covered, and what it did not
+    /// (quft-hidden-bind). It rides `report::Started` and is a line at the
+    /// head of the job's result.
+    pub residue: Residue,
     /// A fresh sysfs is at `/sys`.
     pub sys: bool,
 }
@@ -137,10 +143,19 @@ pub(crate) fn build(spec: &Spec) -> Result<View, Failure> {
                 .stage(format!("mounting the workspace {}", path.display()))?,
         }
     }
-    // What the operator's part must never show, whatever binds it (17b).
+    // What the operator's part must never show, whatever binds it (17b),
+    // and the inode each cover was placed over.
+    let mut covered = BTreeSet::new();
     for p in &spec.hidden {
-        mask(p).stage(format!("hiding {}", p.display()))?;
+        if let Some(id) = mask(p).stage(format!("hiding {}", p.display()))? {
+            covered.insert(id);
+        }
     }
+    // Then every second name under a live window that reaches one of those
+    // inodes, covered too, inside the walk's own two bounds: a cover is
+    // placed at a path, and a path is not an inode (quft-hidden-bind, and
+    // `residue.rs` for why the walk is bounded and what it leaves).
+    let residue = by_inode(spec, &covered);
 
     // The host's root goes, and scratch is hidden: the init keeps it open.
     sys::umount2(c"/.oldroot", libc::MNT_DETACH).stage("detaching the old root")?;
@@ -163,7 +178,11 @@ pub(crate) fn build(spec: &Spec) -> Result<View, Failure> {
     )
     .stage("making the root read-only")?;
     std::env::set_current_dir("/").stage("entering the view")?;
-    Ok(View { scratch, sys })
+    Ok(View {
+        scratch,
+        residue,
+        sys,
+    })
 }
 
 enum Part {
@@ -405,7 +424,9 @@ fn proc(atime: libc::c_ulong, visible: bool) -> Result<(), Failure> {
         return Ok(());
     }
     for name in PROC_MASKED {
-        mask(&Path::new("/proc").join(name)).stage(format!("masking /proc/{name}"))?;
+        // A fresh proc: no live window onto the host reaches these inodes,
+        // so the walk below is not interested in them.
+        let _ = mask(&Path::new("/proc").join(name)).stage(format!("masking /proc/{name}"))?;
     }
     // The dispositions are the skip's only witness, and nothing the init
     // itself needs: see `proc_readonly`.
@@ -489,7 +510,8 @@ fn sysfs(atime: libc::c_ulong) -> Result<bool, Failure> {
         r => r.stage("mounting /sys")?,
     }
     for name in SYS_MASKED {
-        mask(&Path::new("/sys").join(name)).stage(format!("masking /sys/{name}"))?;
+        // A fresh sysfs, as /proc above: its inodes are its own.
+        let _ = mask(&Path::new("/sys").join(name)).stage(format!("masking /sys/{name}"))?;
     }
     Ok(true)
 }
@@ -640,15 +662,111 @@ fn resolved(p: &Path) -> io::Result<Option<fs::Metadata>> {
 /// is a walk of every live bind at every job start, against the same 25 ms. So
 /// the residue stays named and unowned here, and this answer does not claim
 /// it.
-fn mask(p: &Path) -> io::Result<()> {
+fn mask(p: &Path) -> io::Result<Option<Ident>> {
     let Some(m) = resolved(p)? else {
+        return Ok(None);
+    };
+    let id = (m.dev(), m.ino());
+    if m.is_dir() {
+        tmpfs(p, 0o555, Some(1), libc::MS_RDONLY | libc::MS_NOEXEC)?;
+    } else {
+        sys::mount(Some(c"/dev/null"), &c(p)?, None, libc::MS_BIND, None)?;
+    }
+    Ok(Some(id))
+}
+
+/// What a name reaches, as the kernel knows it: its device and inode. Two
+/// names with one identity are one thing, however they were reached — which
+/// is the whole of [`by_inode`]'s question.
+type Ident = (u64, u64);
+
+/// The identity `p` reaches in the view, or None when nothing is behind it.
+/// [`resolved`]'s answer, as a mount would read it.
+fn ident_of(p: &Path) -> io::Result<Option<Ident>> {
+    Ok(resolved(p)?.map(|m| (m.dev(), m.ino())))
+}
+
+/// Covers every second name under a live window that reaches one of the
+/// inodes `covered` holds, and says what it did.
+///
+/// **Bounded, and it says so** (quft-hidden-bind; the owner, 2026-11-12: "a
+/// bounded walk", inside §2.2's 25 ms, which the walk does not move). The
+/// bounds, the windows it walks and the three it does not, and why a clean
+/// walk proves no absence, are all in `residue.rs`'s module doc; this
+/// function is that doc's one caller.
+///
+/// The windows are `Spec::ro_paths` and `Spec::rw` — the binds of the host's
+/// own trees, which are the only live windows a mount can cover. A workspace
+/// overlay is left out on `mask`'s own standing reason: its cover's target
+/// would be made in scratch's upper layer, which the init keeps open to
+/// report what the job wrote.
+fn by_inode(spec: &Spec, covered: &BTreeSet<Ident>) -> Residue {
+    let mut r = Residue::default();
+    if covered.is_empty() {
+        return r;
+    }
+    let mut budget = Budget::new();
+    for w in spec.ro_paths.iter().chain(spec.rw.iter()) {
+        match walk(w, covered, &mut budget, &mut r) {
+            Ok(()) => r.walked += 1,
+            Err(stop) => {
+                // The first window to run out names the bound; every window
+                // after it is one the walk never reached, and is left too.
+                r.stopped = Some(stop);
+                r.left.push(w.display().to_string());
+            }
+        }
+    }
+    r
+}
+
+/// One window, walked depth first: each name costs one of the budget's
+/// looks, a name whose identity is covered is covered here too, and a
+/// directory on the window's own device is descended into.
+///
+/// Errors that are about one name are skipped, never raised: a dangling
+/// link, a name unlinked between the listing and the `stat`, a directory the
+/// job's own uid may not list. **A hidden entry never stops a job**
+/// (theseus-txh9w's landed rule), and neither does this walk: what it could
+/// not see is what [`Residue::say`] exists to say.
+fn walk(
+    root: &Path,
+    covered: &BTreeSet<Ident>,
+    budget: &mut Budget,
+    r: &mut Residue,
+) -> Result<(), Stopped> {
+    let Ok(Some(top)) = ident_of(root) else {
+        // No window: a `ro_paths` entry the view skipped. Nothing to walk,
+        // and nothing left unwalked either.
         return Ok(());
     };
-    if m.is_dir() {
-        tmpfs(p, 0o555, Some(1), libc::MS_RDONLY | libc::MS_NOEXEC)
-    } else {
-        sys::mount(Some(c"/dev/null"), &c(p)?, None, libc::MS_BIND, None)
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            budget.take()?;
+            r.looked += 1;
+            let p = e.path();
+            let Ok(Some(id)) = ident_of(&p) else {
+                continue;
+            };
+            if covered.contains(&id) {
+                // A second name for something the hidden list covered. The
+                // cover goes here too; a mount that will not be made leaves
+                // the name as it was, and is not counted as covered.
+                if mask(&p).is_ok() {
+                    r.covered += 1;
+                }
+                continue;
+            }
+            if id.0 == top.0 && e.file_type().is_ok_and(|t| t.is_dir()) {
+                stack.push(p);
+            }
+        }
     }
+    Ok(())
 }
 
 /// A workspace root: the host's tree (`lower`) read-only under an overlay
@@ -819,7 +937,12 @@ mod tests {
         std::os::unix::fs::symlink(dir.join("nowhere"), &dangling).unwrap();
         for p in [&absent, &dangling] {
             assert!(resolved(p).unwrap().is_none(), "{} resolves", p.display());
-            mask(p).expect("a path that resolves to nothing is skipped");
+            assert_eq!(
+                mask(p).expect("a path that resolves to nothing is skipped"),
+                None,
+                "{} was covered",
+                p.display()
+            );
         }
         assert!(!absent.exists(), "mask made the absent path");
         assert!(dangling.symlink_metadata().is_ok(), "mask removed the link");
@@ -848,7 +971,12 @@ mod tests {
         // two shapes that resolve to nothing).
         for p in [&absent, &dangling] {
             assert!(resolved(p).unwrap().is_none(), "{} resolves", p.display());
-            mask(p).expect("a path that resolves to nothing is skipped");
+            assert_eq!(
+                mask(p).expect("a path that resolves to nothing is skipped"),
+                None,
+                "{} was covered",
+                p.display()
+            );
         }
         // The content arrives afterwards, as the host's writer makes it.
         let secret = "[registry]\ntoken = \"not-a-real-token\"\n";
@@ -952,6 +1080,147 @@ mod tests {
                 fs::read_to_string(out).unwrap_or_else(|e| format!("err\nno answer: {e}"))
             }
         }
+    }
+
+    /// quft-hidden-bind. **A cover is placed at a path, and a path is not an
+    /// inode**: before this row a second name reaching a covered inode — a
+    /// hard link, a second bind — read the hidden content in full, under a
+    /// name that was never on the hidden list, and the notify answer could
+    /// not report it because that answer names a *skipped* entry while this
+    /// one resolved and *was* covered (`mask`'s own doc said exactly this and
+    /// left the residue unowned).
+    ///
+    /// The owner's answer, 2026-11-12: **a bounded walk, inside §2.2's
+    /// existing 25 ms, which states that it is bounded and not exhaustive.**
+    /// This drives the production pair in `build`'s own order — `mask` over
+    /// `Spec::hidden`, then [`by_inode`] over the live windows — in one real
+    /// user, mount and pid namespace with a real read-only bind, which is
+    /// what the host `tests/contract.rs` needs and a root box cannot give
+    /// (`spawn` refuses a root operator's job, theseus-pv6i, so no clause of
+    /// the live contract reaches this).
+    ///
+    /// **Delete the `by_inode` call from `build`, or the `covered.contains`
+    /// arm from `walk`, and the two `through the second name` assertions go
+    /// red with the hidden bytes in the failure**, which is the defect as it
+    /// stood.
+    ///
+    /// The walk's time is printed, not asserted: its bound is structural
+    /// (`residue::SLICE`, 8 ms of the 25, pinned by
+    /// `residue::tests::the_time_bound_stops_a_walk_with_names_to_spare`),
+    /// and a wall-clock assertion on a shared 4-core box would measure the
+    /// box. §2.2's 25 ms is measured by the gate's `jobs --class l1` row on
+    /// the owner's machine.
+    #[test]
+    fn a_second_path_to_a_covered_inode_is_covered_too() {
+        let tmp = tempfile::tempdir().expect("a temp dir");
+        let dir = tmp.path().to_path_buf();
+        let out = dir.join("answer");
+        let (src, view) = (dir.join("win"), dir.join("view"));
+        // The host's tree, as the operator's own is before the view binds it.
+        let token = "not-a-real-token\n";
+        let inside = "not-a-real-key\n";
+        fs::create_dir_all(src.join("sub")).unwrap();
+        fs::create_dir_all(src.join("keys")).unwrap();
+        fs::create_dir_all(src.join("also")).unwrap();
+        fs::write(src.join("credentials"), token).unwrap();
+        fs::write(src.join("keys/id"), inside).unwrap();
+        // The two second names: a hard link to the hidden file, under a name
+        // no resolution of the hidden list derives, and a second mount of
+        // the hidden directory (there is no hard link to a directory).
+        fs::hard_link(src.join("credentials"), src.join("sub/other-name")).unwrap();
+        fs::create_dir_all(&view).unwrap();
+
+        let answer = in_a_namespace(&out, || {
+            let e = |w: &'static str| move |x: io::Error| format!("{w}: {x}");
+            sys::mount(
+                Some(&c(src.join("keys")).map_err(|x| x.to_string())?),
+                &c(src.join("also")).map_err(|x| x.to_string())?,
+                None,
+                libc::MS_BIND,
+                None,
+            )
+            .map_err(e("the second mount of the hidden directory"))?;
+            // The window: a read-only bind of the host's tree at its own
+            // path, exactly as `Part::ReadOnly` makes one.
+            bind_ro(&src, &view).map_err(e("binding the window read-only"))?;
+            let mut spec = Spec::new(vec!["true".into()], "/");
+            spec.ro_paths = vec![view.clone()];
+            spec.hidden = vec![view.join("credentials"), view.join("keys")];
+
+            // `build`'s own two steps, in its order.
+            let mut covered = BTreeSet::new();
+            for h in &spec.hidden {
+                if let Some(id) = mask(h).map_err(e("hiding"))? {
+                    covered.insert(id);
+                }
+            }
+            let began = std::time::Instant::now();
+            let r = by_inode(&spec, &covered);
+            let took = began.elapsed();
+
+            let read = |p: &Path| match fs::read_to_string(p) {
+                Ok(s) => format!("{} bytes", s.len()),
+                Err(x) => format!("errno {}", x.raw_os_error().unwrap_or(0)),
+            };
+            Ok(format!(
+                "hidden file: {}\nthrough the second name: {}\nhidden dir entry: {}\n\
+                 through the second mount: {}\ncovered: {}, looked: {}, walked: {}, \
+                 left: {}, stopped: {:?}\nsaid: {}\nwalk: {} us\n",
+                read(&view.join("credentials")),
+                read(&view.join("sub/other-name")),
+                read(&view.join("keys/id")),
+                read(&view.join("also/id")),
+                r.covered,
+                r.looked,
+                r.walked,
+                r.left.len(),
+                r.stopped,
+                r.say(),
+                took.as_micros(),
+            ))
+        });
+
+        let (how, detail) = answer.split_once('\n').unwrap_or(("", answer.as_str()));
+        assert_eq!(how, "ok", "{detail}");
+        // The hidden names themselves are covered, as they were before: an
+        // empty file where the cover is /dev/null, and ENOENT under the
+        // empty read-only tmpfs where it is a directory.
+        assert!(detail.contains("hidden file: 0 bytes\n"), "{detail}");
+        assert!(
+            detail.contains(&format!("hidden dir entry: errno {}\n", libc::ENOENT)),
+            "{detail}"
+        );
+        // And so are the two second names, which is the row: the hard link
+        // reads nothing, and the second mount's entry is gone.
+        assert!(
+            detail.contains("through the second name: 0 bytes\n"),
+            "{detail}"
+        );
+        assert!(
+            detail.contains(&format!(
+                "through the second mount: errno {}\n",
+                libc::ENOENT
+            )),
+            "{detail}"
+        );
+        // Counted, so an empty window cannot pass this: exactly the two
+        // second names were covered, the walk resolved names, and it walked
+        // its one window to the end inside both bounds.
+        assert!(detail.contains("covered: 2, "), "{detail}");
+        assert!(
+            detail.contains(", walked: 1, left: 0, stopped: None\n"),
+            "{detail}"
+        );
+        for n in 1..=4 {
+            if detail.contains(&format!("looked: {n},")) {
+                panic!("the walk resolved too few names to have seen the tree: {detail}");
+            }
+        }
+        // The statement rides out with it, in every arm (residue.rs).
+        assert!(
+            detail.contains("bounded and not exhaustive") && detail.contains("no proof"),
+            "{detail}"
+        );
     }
 
     /// theseus-3i6d1, P7. `proc_readonly`'s resolution step has exactly one

@@ -59,6 +59,7 @@ fn result(sid: &str, use_id: &str, text: &str) -> Node {
             meta: serde_json::Value::Null,
             image: None,
             external: None,
+            payload: None,
         },
     )
 }

@@ -188,7 +188,7 @@ impl TurnRunner {
 
     /// The notice's post to the session's place, staged for the turn's next
     /// frame, as a budget question's card is; whether it has a place.
-    fn notice(&self, t: &mut Turn<'_>, text: &str) -> Result<bool> {
+    pub(super) fn notice(&self, t: &mut Turn<'_>, text: &str) -> Result<bool> {
         let Some(target) = self.outbox.target(t.tc.session_id) else {
             return Ok(false);
         };

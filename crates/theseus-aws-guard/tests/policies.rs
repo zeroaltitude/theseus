@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 use theseus_aws_guard::{
-    embedded, glob, IamCondition, Policy, Scp, Statement, SCPS_PER_TARGET, SESSION_POLICY_ARNS,
-    SESSION_POLICY_PLAINTEXT,
+    embedded, glob, IamCondition, Policy, Scp, Statement, BOUNDARY_MARGIN, MANAGED_POLICY_LIMIT,
+    SCPS_PER_TARGET, SESSION_POLICY_ARNS, SESSION_POLICY_PLAINTEXT,
 };
 
 fn policies_dir() -> PathBuf {
@@ -366,6 +366,31 @@ fn the_boundary_is_one_policy_that_holds_every_guard() {
         patterns,
         l.compact.len(),
         "every pattern compacts something, so every one is used"
+    );
+}
+
+/// The boundary keeps room under IAM's limit (theseus-mgw.13), not merely fits it. A boundary 128
+/// characters under 6,144 refuses the next AWS permission of any kind, and nothing said so until the
+/// `CreateRole` that carried it failed: this fails `BOUNDARY_MARGIN` characters earlier, here, with
+/// the way out in the message. The floor on the denied set is half the assertion: an empty policy
+/// would meet a size bound on its own.
+#[test]
+fn the_boundary_keeps_its_margin_under_the_limit() {
+    let b = embedded().boundary();
+    let size = b.size();
+    let denied = b.denied_actions().count();
+    assert!(
+        denied >= 150,
+        "the boundary denies {denied} actions: it no longer holds every guard"
+    );
+    assert!(
+        size + BOUNDARY_MARGIN <= MANAGED_POLICY_LIMIT,
+        "theseus-boundary is {size} characters, leaving {} of IAM's {MANAGED_POLICY_LIMIT} and less \
+         than the {BOUNDARY_MARGIN} this test keeps. Compact more of the guards' unconditional denies \
+         with [boundary] patterns in guardrails.toml: a pattern is service:Verb… with a wildcard, it \
+         starts with a write verb, it must match no direct operation (tests/policies.rs DIRECT) and \
+         it must not turn a scoped deny into an unconditional one.",
+        MANAGED_POLICY_LIMIT.saturating_sub(size)
     );
 }
 

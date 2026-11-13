@@ -332,6 +332,15 @@ origin = "cn"                           # a China-origin host is "cn" whatever i
 # kind = "anthropic_messages"
 # origin = "cn"                         # a China-origin host is "cn" whatever is written here; for an unknown host, the operator's word
 
+# OpenAI, on its Responses API: the second wire protocol (theseus-bq73s). Add its key to the secrets table
+# (the commented openai_api_key below), un-comment these, then add a [catalog.<model>] row for the model you
+# want (window and prices, as [catalog.some-new-model] shows) and a [profiles.<name>] naming this provider.
+# Nothing here is called until a profile names a model on it.
+# [providers.openai]
+# api_base = "https://api.openai.com/v1"
+# api_key_secret = "openai_api_key"
+# kind = "openai_responses"             # the second wire protocol: POST /v1/responses, streaming
+
 # ---------------------------------------------------------------- secrets
 # name → where its value comes from. The vault is the recommended source.
 # Each placeholder below names what to put there: make one item per secret in
@@ -359,6 +368,7 @@ anthropic_api_key = "op://<your vault>/<Anthropic API key item>/notesPlain"
 zai_api_key = "op://<your vault>/<Z.ai API key item>/notesPlain"
 deepseek_api_key = "op://<your vault>/<DeepSeek API key item>/notesPlain"   # the deepseek provider's key
 # moonshot_api_key = "op://<your vault>/<Moonshot API key item>/notesPlain"   # the moonshot provider's key: add the item first
+# openai_api_key = "op://<your vault>/<OpenAI API key item>/notesPlain"   # the openai provider's key: add the item first
 jev_api_key = "op://<your vault>/<Jev API key item>/notesPlain"
 github_token = "op://<your vault>/<GitHub token item>/notesPlain"
 aws_access_key_id = "op://<your vault>/<AWS key item>/notesPlain#AWS_ACCESS_KEY_ID"
@@ -546,6 +556,7 @@ proc_timeout_max_secs = 3600            # ceiling a call may ask for (its silenc
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME", "SHELL", "LOGNAME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "VIRTUAL_ENV", "PYTHONPATH", "PYENV_ROOT", "CONDA_PREFIX", "CONDA_DEFAULT_ENV", "NVM_DIR", "NVM_BIN", "NODE_PATH", "NPM_CONFIG_PREFIX", "JAVA_HOME", "JDK_HOME", "MAVEN_HOME", "GRADLE_HOME", "GOPATH", "GOROOT", "PKG_CONFIG_PATH"]  # the ONLY variables a job sees (the toolchain's paths; a name that looks like a secret is dropped, and warned about)
 job_output_max_bytes = 67108864         # a job's raw output file keeps at most this much (64 MiB); past it the job runs on, and its result says how much was dropped
 job_pids_max = 4096                     # the most processes and threads one L0 job may have at once, where the daemon's cgroup is delegated (its unit's Delegate=yes); past it a fork fails, and its result says so; 0: no cap
+max_jobs = 200                          # the most jobs in flight at once over the whole daemon; a call that would pass it is REFUSED with a named reason, never queued, and the refusal names this key; 0: no cap
 # A result the cap cuts (result_max_chars) keeps its whole output, scrubbed, in
 # <state>/outputs/<session>/<call>.out, and its cut line names the file and
 # the lines left out, which fs_read reads: a proc_run's (to its job file's
@@ -553,6 +564,15 @@ job_pids_max = 4096                     # the most processes and threads one L0 
 # or past either line below.
 outputs_keep_days = 7                   # a kept output is deleted after this many days
 outputs_max_bytes = 2147483648          # past this many bytes in all (2 GiB), the oldest kept outputs are deleted first
+
+# A large payload (theseus-czpp): an output this long or longer is given a guid
+# where it enters and every compile renders one marker line in its place, so a
+# command that prints a megabyte costs a line of the window rather than
+# result_max_chars of head and tail. Nothing puts the bytes back on its own: the
+# marker names the guid, says what the payload is and when it is worth reading,
+# and gives the fs_read that returns it. 0 turns it off; a value under
+# result_max_chars is read as result_max_chars.
+large_payload_chars = 200000            # characters of a whole output that make it a large payload
 
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types
@@ -1490,6 +1510,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # owner_ids = []                          # your sender ids in OpenClaw's channels: a message from
 #                                         # one is yours (operator); any other sender's is outside text
 # agents = []                             # the agents to read; none is every agent under agents/
+# sync_deadline_mins = 90                 # the wall clock the DAEMON's half of one run may take before it stops where it is and returns what it has (its people step's remainder waits in the state for the next run; passing it is not an error); 1 to 115, and it must stay under the sync unit's own 2 h start timeout or it could never fire -- the client would be killed first and the daemon would carry on
 
 # ---------------------------------------------------------------- self
 # Self-improvement: Theseus building its own code, yardsticks and backlog, joining

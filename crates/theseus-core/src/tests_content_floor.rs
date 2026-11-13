@@ -395,6 +395,7 @@ fn planted_result(session: &str) -> crate::node::Node {
             meta: serde_json::Value::Null,
             image: None,
             external: None,
+            payload: None,
         },
     )
 }

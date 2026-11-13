@@ -122,6 +122,7 @@ pub(crate) fn result(session: &str, tool: &str, content: &str, external: bool) -
             image: None,
             external: external
                 .then(|| serde_json::from_value(json!({"url": "https://example.org/a"})).unwrap()),
+            payload: None,
         },
     )
 }

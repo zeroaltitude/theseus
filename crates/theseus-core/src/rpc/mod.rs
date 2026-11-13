@@ -525,15 +525,26 @@ impl Core {
                 .timeouts
                 .clone()
                 .unwrap_or_else(|| cfg.model.timeouts.clone());
-            providers.insert(
-                name.clone(),
-                Arc::new(Anthropic::new(
+            // The provider's `kind` picks its wire protocol (theseus-bq73s).
+            // One construction site, so a third arm is one more match arm and
+            // nothing else in the start path changes.
+            let p: Arc<dyn Provider> = match pc.kind {
+                crate::config::ProviderKind::AnthropicMessages => Arc::new(Anthropic::new(
                     &pc.api_base,
                     secrets.clone(),
                     &pc.api_key_secret,
                     timeouts,
                 )?),
-            );
+                crate::config::ProviderKind::OpenAiResponses => {
+                    Arc::new(crate::provider::openai::OpenAi::new(
+                        &pc.api_base,
+                        secrets.clone(),
+                        &pc.api_key_secret,
+                        timeouts,
+                    )?)
+                }
+            };
+            providers.insert(name.clone(), p);
         }
         let scrubber = Arc::new(Scrubber::from_board(secrets.clone()));
         // Wrappers run this very image (`self_exe`).

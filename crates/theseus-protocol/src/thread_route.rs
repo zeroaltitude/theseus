@@ -115,6 +115,16 @@ pub struct ThreadAsk {
     pub others: Vec<AskOption>,
 }
 
+/// `thread.ask_list`'s answer (theseus-nuqut): the router's questions waiting
+/// now, oldest first, the same `ThreadAsk`s `thread.asked` brought, so a
+/// surface opened after one was asked can read it. Expired and answered ones
+/// are not listed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ThreadAskListResult {
+    pub asks: Vec<ThreadAsk>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ThreadAnswerParams {

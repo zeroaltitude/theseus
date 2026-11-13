@@ -94,6 +94,9 @@ pub struct State {
     recent: Mutex<Recent>,
     handoffs: Mutex<HashMap<String, Handoff>>,
     asks: Mutex<HashMap<String, Pending>>,
+    /// Each waiting question as the push said it (`thread.asked`), for
+    /// `thread.ask_list`; only an id still in `asks` is listed.
+    shown: Mutex<HashMap<String, theseus_protocol::thread_route::ThreadAsk>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -247,6 +250,22 @@ impl State {
 
     pub fn ask(&self, id: &str, p: Pending) {
         lock(&self.asks).insert(id.to_string(), p);
+    }
+
+    /// The question as the surfaces were told it, kept to be read again.
+    pub fn shown(&self, ask: &theseus_protocol::thread_route::ThreadAsk) {
+        lock(&self.shown).insert(ask.ask_id.clone(), ask.clone());
+    }
+
+    /// The questions waiting at `now_ms`, oldest first: still pending and not
+    /// run out. The kept copies of those that are not are dropped here.
+    pub fn held(&self, now_ms: u64) -> Vec<theseus_protocol::thread_route::ThreadAsk> {
+        let asks = lock(&self.asks);
+        let mut shown = lock(&self.shown);
+        shown.retain(|id, a| asks.contains_key(id) && a.expires_ms > now_ms);
+        let mut out: Vec<_> = shown.values().cloned().collect();
+        out.sort_by(|a, b| (a.expires_ms, &a.ask_id).cmp(&(b.expires_ms, &b.ask_id)));
+        out
     }
 
     /// A question's pending state, to answer it: `Err` names why not.

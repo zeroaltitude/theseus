@@ -1437,6 +1437,7 @@ impl Fact for LoopEndedOnBudget<'_> {
             provider_stop_reason: None,
             tool_calls: 0,
             output_chars: 0,
+            repeats: 0,
         };
         json!({"loop": self.index, "outcome": outcome, "advancer": "budget", "decision": {"decision": "budget"}, "usage": Usage::default()})
     }

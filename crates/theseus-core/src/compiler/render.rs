@@ -29,10 +29,17 @@ fn tool_result_block(r: &Node, media: &Media, spend: &mut crate::attach::Spend) 
             content,
             is_error,
             image,
+            payload,
             ..
         } => {
             if *is_error {
                 json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": true})
+            } else if let Some(p) = payload {
+                // A large payload is held out of the request and read back by
+                // hand: its marker, never its bytes (theseus-czpp). It is
+                // ahead of the image arm because a result with both has no
+                // image worth sending beside a payload it is not sending.
+                json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": p.line()})
             } else if let Some(img) = image {
                 // An image the tool returned (theseus-9g2), or a PDF's pages
                 // (theseus-c9l6).
@@ -56,6 +63,7 @@ fn late_result_text(r: &Node) -> String {
             status,
             content,
             meta,
+            payload,
             ..
         } => {
             let exit = meta
@@ -63,8 +71,16 @@ fn late_result_text(r: &Node) -> String {
                 .and_then(Value::as_i64)
                 .map(|c| format!(", exit code {c}"))
                 .unwrap_or_default();
+            // A large payload is held out of a late result too
+            // (theseus-czpp). This is where a megabyte most often arrives:
+            // a `proc.run {background: true}` answers its placeholder first
+            // and delivers the real output here, past `tool_result_block`.
+            let shown = match payload {
+                Some(p) => p.line(),
+                None => content.clone(),
+            };
             format!(
-                "[Background result for your earlier {tool} call ({tool_use_id}): status {}{exit}]\n{content}",
+                "[Background result for your earlier {tool} call ({tool_use_id}): status {}{exit}]\n{shown}",
                 status.as_str()
             )
         }
@@ -93,6 +109,9 @@ pub(super) struct Ctx<'a, 'n> {
     /// The answers a later call replaced.
     pub replaced: &'a HashSet<&'n str>,
     pub strip_prefix_thinking: bool,
+    /// Whether Anthropic's own API answers this request (the spec's
+    /// `first_party`): what `readable` asks of a model switch's thinking.
+    pub first_party: bool,
     pub provider: &'a str,
     pub media: &'a Media<'a>,
     pub sources: &'a crate::recall::render::Sources,
@@ -131,7 +150,7 @@ pub(super) fn results_of<'n>(nodes: impl Iterator<Item = &'n Node>) -> HashMap<&
 pub fn render_messages(
     prefix: &[&Node],
     tail: &[&Node],
-    strip_prefix_thinking: bool,
+    (strip_prefix_thinking, first_party): (bool, bool),
     provider: &str,
     media: &Media,
     retrying: Option<&str>,
@@ -145,6 +164,7 @@ pub fn render_messages(
         results: &results,
         replaced: &replaced,
         strip_prefix_thinking,
+        first_party,
         provider,
         media,
         sources,
@@ -196,7 +216,9 @@ impl State {
                 // another model (M5 25e) carries none back either.
                 let strip = (in_prefix && ctx.strip_prefix_thinking)
                     || wrote != ctx.provider
-                    || (wrote_model != media.model && media.also != Some(wrote_model));
+                    || (wrote_model != media.model
+                        && media.also != Some(wrote_model)
+                        && !super::readable::reads(ctx.first_party, wrote_model, media.model));
                 let bl: Vec<Value> = if strip {
                     blocks.iter().filter(|b| !is_thinking(b)).cloned().collect()
                 } else {
@@ -373,4 +395,65 @@ pub(super) fn cut_answers<'n>(
         }
     }
     (replaced, !open.is_empty())
+}
+
+#[cfg(test)]
+mod tests_late {
+    use super::*;
+    use crate::node::ResultStatus;
+    use crate::payload::Marked;
+
+    /// A background job's real result arrives past `tool_result_block`
+    /// (`render_messages` renders it as text, not as a `tool_result` block),
+    /// so the payload has to be held out here too — and a
+    /// `proc.run {background: true}` is where a megabyte most often comes
+    /// from (theseus-czpp).
+    #[test]
+    fn a_late_results_large_payload_is_its_marker_and_not_its_bytes() {
+        let big: String = (1..=1200).map(|i| format!("line {i}: a row\n")).collect();
+        let marked = Marked::of("proc.run", &big, "/s/outputs/ses_x/t1.out");
+        let body = |payload: Option<Box<Marked>>| Body::ToolResult {
+            tool_use_id: "t1".into(),
+            tool: "proc.run".into(),
+            status: ResultStatus::Ok,
+            is_error: false,
+            content: big.clone(),
+            correlation_id: None,
+            bytes_total: big.len() as u64,
+            truncated: true,
+            full_ref: Some("/s/outputs/ses_x/t1.out".into()),
+            duration_ms: None,
+            late: true,
+            meta: json!({"exit_code": 0}),
+            image: None,
+            external: None,
+            payload,
+        };
+
+        let held = Node::tool_result("s", None, None, body(Some(Box::new(marked.clone()))));
+        let text = late_result_text(&held);
+        assert!(
+            text.starts_with(
+                "[Background result for your earlier proc.run call (t1): status ok, exit code 0]\n"
+            ),
+            "the header is unchanged: {}",
+            &text[..90.min(text.len())]
+        );
+        assert!(
+            text.ends_with(&marked.line()),
+            "the body is the marker: {text}"
+        );
+        assert!(text.contains(&marked.guid), "it carries the guid");
+        assert!(!text.contains("line 600:"), "and no line of the payload");
+
+        // The control: a late result with no payload is byte for byte what it
+        // always was, so this holds nothing back that was not a payload.
+        let plain = Node::tool_result("s", None, None, body(None));
+        let text = late_result_text(&plain);
+        assert!(
+            text.contains("line 600:"),
+            "a plain late result carries its output"
+        );
+        assert!(text.ends_with(&big), "byte for byte, as before");
+    }
 }

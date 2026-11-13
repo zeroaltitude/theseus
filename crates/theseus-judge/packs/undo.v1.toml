@@ -67,6 +67,24 @@
 # `model` question picks from the guidance table, and the hold renders the chosen shape's own sentence
 # beside the call's own targets. The owner can read the six shapes and argue with them.
 #
+# WHERE THE ANSWER IS READ: ASK ONCE, CONSUME TWICE. `docs/design/undo-v1.md` is the design of the
+# consumption, and this block is its summary, kept here so a reader of the pack cannot miss it. The
+# first sketch put the reversibility layer BEFORE `Layer::Mode` in the gate's order, which is wrong:
+# `policy/modes.rs`'s `gate` exists to LOWER an `Approve` in an `edits` or `auto` session, in a
+# private place, on an untightened tool, with `floor` unset -- which is exactly the shape an
+# `irreversible_final` raise has. In `auto` mode, the mode a long coding session runs in, the owner
+# would never have been asked, and the half of this feature a person sees would have been deleted
+# silently. Nor can the raise borrow `floor: true` to survive: the floor means Theseus's own binary,
+# state, or the credential tool, and `Decision::at_least` builds every arm through `Decision::new`,
+# which sets `floor: false` and carries only `granted`, so a raise made that way is lowerable by
+# construction. The corrected shape is one judgment with two consumption points on opposite sides of
+# the order: `irreversible_reshapeable` short-circuits beside the outright refusals, before `order`
+# runs, so the call is held, the model re-plans and no card is made; and `irreversible_final` is
+# applied to what `order` RETURNED, after every layer has had its say, so no mode, ceiling or glide
+# can lower it and no floor flag has to be invented. `reversible` changes nothing. The order's own
+# invariant -- each layer after the first only raises -- is what makes the second point safe: a
+# raise that lands after all of them can only leave an already-stricter decision alone.
+#
 # NOT WIRED. As `route.v10` was before it ("until `ROUTE_PACK` names it, v10 is embedded and
 # replayable and is NOT the acting pack"), undo.v1 lands embedded, replayable and measured, acting
 # nowhere: `action = "none"`, no point dispatches it, no call is held. Going live is a separate step

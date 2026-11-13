@@ -20,6 +20,7 @@ Appendix B, Appendix F, P6, Part III B1, J1, Z1, and A4 item 10). Code read at `
    - 2.2 L1, the native sandbox
    - 2.3 Cancellation verified per backend
    - 2.4 Egress, and credential brokering under L1
+   - 2.4a L0 is default-trusted: notify but execute (the owner's position)
    - 2.5 Labels: one model for integrity and confidentiality
    - 2.6 Integrity: how the labels take in T1's hold (the key question)
    - 2.7 Confidentiality: audience-safe compilation, disclosure, graduation
@@ -75,7 +76,9 @@ Appendix B, Appendix F, P6, Part III B1, J1, Z1, and A4 item 10). Code read at `
 
   The labels close two paths T1 leaves open today:
   - a file written in a latched session latches whoever reads it (a hash carries it);
-  - an L1 job that reached the network gives an external result, which closes theseus-20f for L1.
+  - an L1 job that reached the network gives an external result, which closes theseus-20f for L1. Its L0 half is
+    not a gap but a position (§2.4a): L0 is unsandboxed by design, default-trusted and notify-but-execute, and
+    nothing is done to a session because of where a program's bytes came from.
 - **Confidentiality is enforced at compile time.** The compiler admits a node only when its readers cover the
   session's audience, and a withheld tool result keeps its pairing as a placeholder.
   - On the owner's deployment nothing is withheld: the DM, the CLI, the web UI, and the private test channel all
@@ -434,6 +437,77 @@ the job is gone, and the record says how it knows.
   session credentials (a `credential_process` answer) arrive through the same socket, at the same posture
   rule.
 
+### 2.4a L0 is default-trusted: notify but execute (the owner's position, 2026-11-12)
+
+**This is a position, not a gap.** It is written here as a position because for a year this document carried the
+L0 half of theseus-20f as an unanswered question with a default, and §2.6's transmission table read its row as a
+defect ("Not caught"). The owner answered it, and the answer is not "close it later": it is that there is nothing
+there to close.
+
+His words, 2026-11-12 14:22:03:
+
+> "I certainly want the config retired cleanly and have it never try to load. I think that L0 is unsandboxed, and
+> that therefore, we return to the notify but execute situation. When tools are run, curl, fetch, grep, etc, we
+> can see them, but we don't try to do anything fancy to the session at all (aside from any jev classification
+> that would warn us that the content itself was an injection, dangerous, secret, not for china, etc). L1 is fine
+> for specialized security use cases, but the design here should sharply favor the experience of L0, which is a
+> default-trusted, Jev classified surface for reversible work that could in a local setting cause user setbacks."
+
+And, forty seconds later, his own one-line form of it:
+
+> "In other words, actual outcomes and content is king. We don't try to structure a paper security surface over
+> it."
+
+**The position, clause by clause.**
+
+1. **L0 is unsandboxed, and that is the point.** An L0 job runs as the operator's own user, in no namespace, with
+   no egress proxy. There is therefore no place to observe its connections, and §2.4's deterministic answer —
+   the proxy's `CONNECT` log — does not exist at L0 and cannot be made to exist without sandboxing L0, which
+   would be L1.
+2. **Notify but execute.** A tool run is visible to the operator: the call, its argv, its directory, its output,
+   its posture and its notice. That visibility is the control. The gate's postures (`open`, `notify`, `approve`)
+   and its floor are unchanged; nothing here loosens or tightens them.
+3. **Nothing is done to the session because of a provenance label.** Reading a page, running `curl`, running
+   `gh`, running `grep` over a download: none of them holds the session, freezes its calls, moves it off a model
+   or changes what it may do next *because of where the bytes came from*.
+4. **The only protection on content is Jev's classification OF THE CONTENT**: `injection`, `dangerous`, `secret`,
+   `confidential`, `personal` — each raised from what the text says, not from which tool returned it. An
+   `injection` label freezes the calls that act (`content::refusal`); `secret`, `confidential` and `personal`
+   keep the session off a model of restricted origin (`content/cn.rs`). Those are content rules and they stay.
+5. **L1 stays, for specialised security use cases**, and keeps its deterministic egress answer (§2.4): a job that
+   reached a host beyond `[sandbox] egress` is marked `external`. That is an *observation of what a call did*,
+   not a label about where bytes came from, which is why it survives this position while the L0 analogue does
+   not exist.
+6. **The design sharply favours the L0 experience.** L0 is where reversible local work happens, and a boundary
+   that cost the owner's DM a day of held calls to catch a `gh issue view` is a cost paid in the wrong currency.
+
+**The test to apply to any future piece of this surface** (his, in his own form): does this act on what the
+content **is**, or on what a call would **do**? Or is it a label about where something came from that changes
+nothing real? The third kind is not built, and is removed where found.
+
+**What the code does today, measured against the position** (audited 2026-11-12; `theseus-core`):
+
+| site | what it does | the position's verdict |
+|---|---|---|
+| `external::PROGRAMS` / `Listed` (`gh`), applied at `toolrun/job.rs` and in `term/` | marks a result `external` | kept: it is not a hold, and what it buys is Jev's attention on the content |
+| `external::read_any`, at `toolrun.rs`'s `judge_at_gate` | asks `security.v3` to judge the call | kept: this **is** the Jev classification the position keeps |
+| `external::first` | names the first outside text in Jev's security state | kept: a fact in the record, no effect on the session |
+| the index's `external` flag | recall does not draw outside text into a prompt unless asked | kept: about what the text is (a stranger's words), not a hold |
+| `egress::marker` | marks an **L1** job that reached beyond its list | kept: §2.4, an observation of what the call did |
+| `toolrun/order.rs`'s layer order | **has no web-text layer**: outside text holds no call | already the position |
+| `[policy] external_text`, `[policy] external_programs` | retired: a config that names either fails to load | already the position (R6, theseus-gyjyo.8) |
+
+So the removal half of this row found **nothing to remove**: no site latches, freezes or re-routes an L0 session
+because of where its bytes came from. What was wrong was this document, which still described a retired config
+key as the mechanism and its own L0 row as a defect. That is what this section and the two edits below fix.
+
+**`[policy] external_programs` is retired and never loads.** `config/renamed.rs` lists it with the reason, the
+loader refuses any config that names it, and `config/tests.rs`'s
+`external_text_and_external_programs_fail_to_load_naming_the_injection_label` holds both keys to that — including
+that the config template sets neither, commented or not. There is no path by which a value for it reaches a
+running daemon. **A builder must not re-propose it**: "list the programs that fetch" is a road closed by
+R6/theseus-gyjyo.8 and closed again by this position.
+
 ### 2.5 Labels: one model for integrity and confidentiality
 
 > **Superseded (2026-10-03).** Its confidentiality half and §2.7 (labels on nodes, the audience-safe compile, held posts, quiet loops, graduation, and the disclosure tests) were replaced by the place rule (theseus-nbsh; the cut-list's Tier 2; the spec's Part III, Item 76): every place is private or shared, a shared place gets the public tools alone, and the owner publishes into one explicitly. Its integrity half, labels fed into T1's hold (20a), was dropped for integrity's light pieces (theseus-b5cl; Tier 1.1; Item 74). Read the core's `places.rs` and `external.rs` and its AGENTS.md, not these sections, before building on them.
@@ -537,7 +611,7 @@ writes the transmitted node.
 | A report, from a latched task | Latches the parent (`via: task.report`) | The same |
 | **A file** written by `fs.write`, `fs.edit`, or `fs.patch` in a latched session, then read by any session | Not caught | **Caught**: the write records the file's hash, and a read that matches it is untrusted (`via: file`) and latches the reader |
 | **An L1 job that connected out** | Not caught (theseus-20f) | **Caught**: its result has the `external` origin (§2.4) |
-| An L0 job whose program fetches (`gh issue view`) | Not caught (theseus-20f) | Caught only when `[policy] external_programs` names the program. It is empty by default (§5, question 4) |
+| An L0 job whose program fetches (`gh issue view`) | **Not a path, by design** (§2.4a) | **Not a path, by design**: L0 is unsandboxed, default-trusted, notify-but-execute, and nothing is done to the session because of where a program's bytes came from. The only protection on its output is Jev's classification of the content. `[policy] external_programs` is retired and never loads |
 | **A session opened from a latched job's process** | Not caught (theseus-d64) | **Caught**: J1's trace at `session.open` and `turn.submit` gives the new session the job session's latch (`via: job`). theseus-d64 folds into step 20a |
 | A summary (M6's compaction) | — | The reader rule, for M6: a summary takes its inputs' integrity by `summarizes`, a transmission |
 | A graduated node | — | Keeps its source's integrity |
@@ -1226,11 +1300,14 @@ The build never waits on these: each step takes the default, and the owner can o
 3. **Which jobs go to L1 in his deployment?**
    *Default: none by list. The model's `sandbox: true` alone.* Appendix B's mapping (agent-authored code and
    package installs in L1) comes back with Jev's `shell.v1` in M5, or sooner through his `l1_argv`.
-4. **Should an L0 job's output latch its session by program** (theseus-20f's L0 half)? `gh` is the broker's
-   first program, and 43% of the DM's calls are `proc.run`. Latching every `gh` call would hold his DM most of
-   the day.
-   *Default: `[policy] external_programs = []`, so nothing at L0 latches by program.* L1's egress is the
-   deterministic answer (§2.4).
+4. **ANSWERED, 2026-11-12 (the owner; §2.4a): no, and not by any mechanism.** The question was whether an L0
+   job's output should latch its session by program (theseus-20f's L0 half). `gh` is the broker's first program,
+   and 43% of the DM's calls are `proc.run`; latching every `gh` call would hold his DM most of the day.
+   His answer is not a tuned default but a position: **L0 is unsandboxed, default-trusted, notify-but-execute**,
+   nothing is done to the session because of a provenance label, and the only protection on content is Jev's
+   classification of that content. `[policy] external_programs` is retired and never loads, and re-proposing it
+   is closed. L1 keeps the deterministic egress answer (§2.4) for the specialised cases that want it. Read §2.4a
+   for the clauses and for the audit of what the code does against them.
 5. **The owner set for labels.**
    *Default: the local surfaces and `[approval] trusted_users`.*
 6. **A guild channel whose viewers cannot be read.**

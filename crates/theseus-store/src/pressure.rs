@@ -27,6 +27,10 @@ pub const LOOK_EVERY: Duration = Duration::from_secs(1);
 /// The longest one chunk waits: one window of `avg10`, so a burst passes,
 /// and a machine busy for good costs a pass at most this much a chunk.
 pub const BOUND: Duration = Duration::from_secs(10);
+/// A bound that never comes (about 136 years): for work that must not compete
+/// with the owner at all, the index tender's embedding (theseus-195j). It
+/// waits as long as the machine is busy, and still ends at its `stopped`.
+pub const PATIENT: Duration = Duration::from_secs(u32::MAX as u64);
 
 /// What keeps background work waiting.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -100,10 +104,19 @@ pub fn quiet_blocking(bound: Duration) -> Duration {
 
 /// [`quiet_blocking`], ending too at the first look that finds `stopped`.
 pub fn quiet_blocking_unless(bound: Duration, stopped: impl Fn() -> bool) -> Duration {
+    wait_blocking(busy, bound, LOOK_EVERY, stopped)
+}
+
+fn wait_blocking(
+    mut busy: impl FnMut() -> Option<Busy>,
+    bound: Duration,
+    every: Duration,
+    stopped: impl Fn() -> bool,
+) -> Duration {
     let start = std::time::Instant::now();
     let mut waited = Duration::ZERO;
     while waited < bound && !stopped() && busy().is_some() {
-        std::thread::sleep(LOOK_EVERY.min(bound - waited));
+        std::thread::sleep(every.min(bound - waited));
         waited = start.elapsed();
     }
     waited
@@ -246,6 +259,32 @@ mod tests {
         let bound = Duration::from_millis(2500);
         looks.set(0);
         assert_eq!(quiet_with(busy_for(u32::MAX), bound).await, bound);
+    }
+
+    /// A bounded wait goes after its bound; [`PATIENT`] goes on while the
+    /// machine is busy, and ends when it is quiet or `stopped`
+    /// (theseus-195j: the embedder takes no permit under pressure).
+    #[test]
+    fn a_patient_wait_outlasts_the_bound_and_ends_when_quiet_or_stopped() {
+        let ms = Duration::from_millis(1);
+        let bound = ms * 10;
+        let busy_for = |n: u32| {
+            let looks = Cell::new(0u32);
+            move || {
+                looks.set(looks.get() + 1);
+                (looks.get() <= n).then_some(Busy::Cpu(42.0))
+            }
+        };
+        let w = wait_blocking(busy_for(u32::MAX), bound, ms, || false);
+        assert!(w >= bound && w < bound * 3, "{w:?}");
+        let w = wait_blocking(busy_for(40), PATIENT, ms, || false);
+        assert!(w >= ms * 40, "{w:?}");
+        let stop = Cell::new(0u32);
+        let w = wait_blocking(busy_for(u32::MAX), PATIENT, ms, || {
+            stop.set(stop.get() + 1);
+            stop.get() > 5
+        });
+        assert!(w < Duration::from_secs(2), "{w:?}");
     }
 
     /// The state's disk and its scheduler, where there is one (a tmpfs has

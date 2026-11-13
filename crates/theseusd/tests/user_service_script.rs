@@ -1388,6 +1388,121 @@ fn the_sync_timer_runs_on_the_installing_shells_path() {
     );
 }
 
+/// `sync-timer uninstall` takes the import-only pair with the nightly one (theseus-ievo3). Its own
+/// function so the test that calls it stays inside clippy's `cognitive_complexity` budget.
+fn uninstall_takes_both_pairs(r: &Rig, dir: &std::path::Path) {
+    let (code, out) = r.run(&["sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(dir.join("theseusd-sync-hourly.timer").exists());
+    let (code, out) = r.run(&["sync-timer", "uninstall"]);
+    assert_eq!(code, 0, "{out}");
+    for f in [
+        "theseusd-sync.timer",
+        "theseusd-sync.service",
+        "theseusd-sync-hourly.timer",
+        "theseusd-sync-hourly.service",
+    ] {
+        assert!(!dir.join(f).exists(), "{f} stayed: {out}");
+    }
+    assert!(r
+        .at("systemctl --user disable --now theseusd-sync-hourly.timer")
+        .is_some());
+}
+
+/// The import runs more often than the people step does (theseus-ievo3). Anything decided in an
+/// OpenClaw conversation was invisible to Theseus until 03:40, so for most of a working day it
+/// acted on yesterday's picture. `sync-timer install` now writes a SECOND pair beside the nightly
+/// one: `theseus import sync --no-people` at `--every-hours` (default 1, hourly), at :10 past the
+/// hour so it never runs at the same minute as the nightly :40 one.
+///
+/// Why a second unit and not an hourly `OnCalendar` on the first: the two runs need different work
+/// (`--no-people`) AND different start timeouts (the hourly one's period is an hour, and a oneshot
+/// that outlives its period blocks its own next elapse -- the 2026-11-11 defect), and one unit can
+/// carry neither pair of values twice.
+///
+/// The people step stays nightly by construction, not by a flag the daemon reads: `--no-people`
+/// leaves every session the import touched in the daemon's own `people_todo`, which the nightly
+/// full run then sweeps under its wall-clock cap.
+#[test]
+fn the_import_runs_hourly_beside_the_nightly_people_run() {
+    let r = Rig::new();
+    let dir = r.home().join(".config/systemd/user");
+    let (code, out) = r.run(&["sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+
+    // The nightly pair is what it always was: the full run, at :40, bounded at 2 h.
+    let night = std::fs::read_to_string(dir.join("theseusd-sync.service")).unwrap();
+    assert!(night.trim_end().ends_with("import sync"), "{night}");
+    assert!(night.contains("TimeoutStartSec=2h"), "{night}");
+
+    // And beside it, the import alone.
+    let svc = std::fs::read_to_string(dir.join("theseusd-sync-hourly.service"))
+        .expect("the import-only unit is written beside the nightly one");
+    let tim = std::fs::read_to_string(dir.join("theseusd-sync-hourly.timer")).unwrap();
+    assert!(
+        svc.trim_end().ends_with("import sync --no-people"),
+        "the import-only run skips the people step, which stays nightly: {svc}"
+    );
+    assert!(svc.contains("Type=oneshot"), "{svc}");
+    let bound = svc
+        .lines()
+        .find_map(|l| l.strip_prefix("TimeoutStartSec="))
+        .expect("the import-only oneshot bounds its start too");
+    assert_eq!(
+        bound, "45min",
+        "under its own hourly period, or a hang blocks its next elapse: {svc}"
+    );
+    assert!(
+        tim.contains("OnCalendar=*-*-* 00/1:10:00"),
+        "hourly, at :10, never the nightly run's :40: {tim}"
+    );
+    assert!(r
+        .at("systemctl --user enable --now theseusd-sync-hourly.timer")
+        .is_some());
+    assert!(r
+        .at("systemctl --user enable --now theseusd-sync.timer")
+        .is_some());
+
+    // --every-hours names the period, and the nightly run is untouched by it.
+    let (code, out) = r.run(&["--every-hours", "6", "sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    let tim = std::fs::read_to_string(dir.join("theseusd-sync-hourly.timer")).unwrap();
+    assert!(tim.contains("OnCalendar=*-*-* 00/6:10:00"), "{tim}");
+    let night = std::fs::read_to_string(dir.join("theseusd-sync.timer")).unwrap();
+    assert!(night.contains("OnCalendar=*-*-* 03:40:00"), "{night}");
+
+    // 24 is how it is turned off again: the pair this script wrote goes, the nightly one stays.
+    let (code, out) = r.run(&["--every-hours", "24", "sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        !dir.join("theseusd-sync-hourly.timer").exists()
+            && !dir.join("theseusd-sync-hourly.service").exists(),
+        "--every-hours 24 removes the import-only pair"
+    );
+    assert!(
+        dir.join("theseusd-sync.timer").exists(),
+        "the nightly stays"
+    );
+    assert!(out.contains("No import-only timer"), "{out}");
+
+    // An uninstall takes both pairs.
+    uninstall_takes_both_pairs(&r, &dir);
+}
+
+/// A period outside 1 to 24 hours is a usage error, and nothing is written for it.
+#[test]
+fn the_sync_timer_refuses_a_bad_period() {
+    let r = Rig::new();
+    let dir = r.home().join(".config/systemd/user");
+    for bad in ["0", "25", "soon", "-1"] {
+        let (code, out) = r.run(&["--every-hours", bad, "sync-timer", "install"]);
+        assert_eq!(code, 2, "--every-hours {bad}: {out}");
+        assert!(out.contains("--every-hours"), "{out}");
+        assert!(!dir.join("theseusd-sync-hourly.timer").exists(), "{out}");
+        assert!(!dir.join("theseusd-sync.timer").exists(), "{out}");
+    }
+}
+
 #[test]
 fn the_sync_timer_refuses_a_bad_word_and_a_bad_hour() {
     let r = Rig::new();

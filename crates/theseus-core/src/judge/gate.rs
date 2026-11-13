@@ -614,6 +614,7 @@ mod tests {
                     meta: Value::Null,
                     image: None,
                     external: url.map(|u| theseus_tools::External { url: u.into() }),
+                    payload: None,
                 },
             );
             n.created_at_ms = at;

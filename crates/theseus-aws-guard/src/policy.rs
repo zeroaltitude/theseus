@@ -23,6 +23,12 @@ use crate::list::{GuardList, IamCondition, Scp};
 
 /// IAM's limit on a managed policy, whitespace not counted.
 pub const MANAGED_POLICY_LIMIT: usize = 6_144;
+/// The room the boundary keeps under that limit, so a new AWS permission has somewhere to go
+/// (theseus-mgw.13). A boundary that merely fits is a boundary no guard can be added to: this one was
+/// 128 characters under the limit before the list's `[boundary]` patterns were extended. The margin is
+/// the maintainer's decision under the owner's delegation of 2026-11-11, which chose 1,000 over 500.
+/// `tests/policies.rs` fails at it, a thousand characters before AWS would.
+pub const BOUNDARY_MARGIN: usize = 1_000;
 /// Organizations' limit on an SCP.
 pub const SCP_LIMIT: usize = 5_120;
 /// SCPs one account or OU can hold, `FullAWSAccess` among them.

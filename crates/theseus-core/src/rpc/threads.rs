@@ -132,6 +132,7 @@ impl Core {
             method::THREAD_SEAL | method::THREAD_UNSEAL | method::THREAD_SEAL_DISMISS => {
                 super::thread_seal::route_seal(self, name, params, conn)
             }
+            method::THREAD_ASK_LIST => super::server::reply(self.thread_ask_list(conn)?),
             method::THREAD_ANSWER => route(
                 params,
                 |p: theseus_protocol::thread_route::ThreadAnswerParams| self.thread_answer(p, conn),

@@ -526,10 +526,27 @@ pub struct ToolsConfig {
     pub outputs_keep_days: u64,
     #[serde(default = "outputs::max_bytes")]
     pub outputs_max_bytes: u64,
+    /// A tool output this many characters or longer is a **large payload**
+    /// (theseus-czpp): it is given a guid where it enters, its bytes stay in
+    /// `<state>/outputs/`, and every compile renders one marker line in its
+    /// place instead of `result_max_chars` of head and tail. Nothing puts
+    /// the bytes back on its own; the marker says how to read them. 0 turns
+    /// it off, and anything under `result_max_chars` is read as
+    /// `result_max_chars` (a payload the cap does not cut has nothing kept
+    /// to rehydrate from).
+    #[serde(default = "default_large_payload_chars")]
+    pub large_payload_chars: usize,
     /// Each L0 job's cgroup's `pids.max` (theseus-a5nv), where the daemon's
     /// cgroup is delegated: its processes and threads at once. 0: no cap.
     #[serde(default = "default_job_pids_max")]
     pub job_pids_max: u64,
+    /// `[tools] max_jobs` (theseus-v6bd): the most jobs that may be in
+    /// flight at once, over the whole daemon. A call that would pass it is
+    /// **refused with a named reason, never queued** (the owner,
+    /// 2026-11-12); `toolrun::jobcap` is the decision and its words. 0: no
+    /// cap, which is what every daemon did before the key existed.
+    #[serde(default = "default_max_jobs")]
+    pub max_jobs: usize,
     /// `[tools.web]`: `http.fetch` and `web.search` (DD5).
     #[serde(default)]
     pub web: WebToolsConfig,
@@ -582,8 +599,22 @@ fn default_proc_timeout_max_secs() -> u64 {
 fn default_job_output_max_bytes() -> u64 {
     theseus_kernel::job::DEFAULT_OUTPUT_MAX_BYTES
 }
+/// 200,000 characters: about 50,000 tokens, far more than any ordinary
+/// result and more than six times the result cap, so a build's or a test
+/// run's usual output is untouched and the megabyte dumps that moved this
+/// row are not (theseus-czpp).
+pub fn default_large_payload_chars() -> usize {
+    200_000
+}
 fn default_job_pids_max() -> u64 {
     theseus_kernel::cgroup::DEFAULT_PIDS_MAX
+}
+/// `[tools] max_jobs` (theseus-v6bd). 200 is the number the row was written
+/// against ("a configured cap refuses the 201st"), and it is far above
+/// anything a conversation does: what it stops is a runaway, not a busy day.
+/// `jobcap::OFF` (0) is no cap.
+fn default_max_jobs() -> usize {
+    200
 }
 /// The smallest cap a job's output file may have: a page.
 const MIN_JOB_OUTPUT_MAX_BYTES: u64 = 4096;
@@ -657,8 +688,10 @@ impl Default for ToolsConfig {
             proc_env: default_proc_env(),
             job_output_max_bytes: default_job_output_max_bytes(),
             job_pids_max: default_job_pids_max(),
+            max_jobs: default_max_jobs(),
             outputs_keep_days: outputs::keep_days(),
             outputs_max_bytes: outputs::max_bytes(),
+            large_payload_chars: default_large_payload_chars(),
             web: WebToolsConfig::default(),
             term: term::TermToolsConfig::default(),
             defer: defer::DeferConfig::default(),
@@ -1142,12 +1175,21 @@ pub struct ProviderConfig {
     pub origin: Option<crate::catalog::ModelOrigin>,
 }
 
-/// A provider's wire protocol. Only the Anthropic Messages API exists today.
+/// A provider's wire protocol. The Anthropic Messages API is the default and
+/// what every first-party and compatible endpoint speaks; OpenAI's Responses
+/// API is the second arm (theseus-bq73s), in process, translated inside the
+/// provider so the compiler renders one request shape for both.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     #[default]
     AnthropicMessages,
+    /// `POST /v1/responses`, streaming. A provider no profile names is never
+    /// called, so this value switches nothing on by itself. Renamed
+    /// explicitly: `rename_all = "snake_case"` would word it
+    /// `open_ai_responses`, and the operator writes the vendor's own name.
+    #[serde(rename = "openai_responses")]
+    OpenAiResponses,
 }
 
 /// A named way of running turns: which provider, which model, how long an
@@ -2302,5 +2344,7 @@ mod tests_inherit;
 mod tests_moonshot;
 #[cfg(test)]
 mod tests_ontology;
+#[cfg(test)]
+mod tests_openai;
 #[cfg(test)]
 mod tests_persona;

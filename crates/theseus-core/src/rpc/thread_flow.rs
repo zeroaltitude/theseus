@@ -659,6 +659,7 @@ impl Core {
             expires_ms: theseus_protocol::now_unix_ms() + wait.as_millis() as u64,
             others,
         };
+        state.shown(&ask);
         let sink = EventSink::new(
             self.bus.clone(),
             home,
@@ -871,6 +872,25 @@ impl Core {
                 Choice::Thread(s) => Some(s),
                 _ => None,
             },
+        })
+    }
+
+    /// `thread.ask_list`: the questions waiting now, so a surface opened after
+    /// one was asked can still show it (theseus-nuqut). The owner's, from a
+    /// private place, as `thread.answer` is: a question carries a message's
+    /// start.
+    pub(super) fn thread_ask_list(
+        &self,
+        conn: Conn<'_>,
+    ) -> Result<theseus_protocol::thread_route::ThreadAskListResult, RpcFailure> {
+        let who = conn.answerer(None, None);
+        self.judge_thread(&who, theseus_protocol::method::THREAD_ASK_LIST, "asks")?;
+        Ok(theseus_protocol::thread_route::ThreadAskListResult {
+            asks: self
+                .runner
+                .threads
+                .route
+                .held(theseus_protocol::now_unix_ms()),
         })
     }
 }

@@ -1013,4 +1013,35 @@ compact = [
     "guardduty:Create*", "guardduty:Update*",
     "ec2:Create*Gateway", "ec2:Attach*Gateway", "ec2:Modify*Attribute", "s3:PutBucket*", "s3:Put*Configuration",
     "cloudformation:Create*", "cloudformation:Update*", "cloudformation:Delete*",
+    # The rest of the guarded write verbs, one rule a reader can state: Theseus's hands never make or
+    # change this service's posture, audit, budget, or durable infrastructure directly; a stack does
+    # (theseus-mgw.13). Each stands for every write of that verb in that service, which is why a
+    # narrow form appears where a verb also covers a direct operation: "cloudwatch:Put*Alarm" leaves
+    # cloudwatch:PutMetricData, "ecr:Put*Policy" leaves ecr:PutImage, "secretsmanager:Put*Policy"
+    # leaves secretsmanager:PutSecretValue, "dynamodb:Update*Table*" leaves dynamodb:UpdateItem,
+    # "config:PutConfig*" and "config:PutDelivery*" leave config:PutEvaluations, "kms:Disable*Rotation"
+    # leaves the scoped kms:DisableKey, and "ec2:Create*Group" leaves ec2:CreateTags. No pattern here
+    # turns a scoped deny (one with a condition or named resources) into an unconditional one.
+    "cloudtrail:Create*", "cloudtrail:Delete*", "cloudtrail:Put*", "cloudtrail:Stop*",
+    "cloudtrail:Update*",
+    "config:Delete*", "config:PutConfig*", "config:PutDelivery*", "config:Stop*",
+    "guardduty:Delete*", "securityhub:Disable*", "access-analyzer:Delete*",
+    "account:Delete*", "organizations:Accept*", "organizations:Create*", "organizations:Leave*",
+    "budgets:Create*", "budgets:Delete*", "budgets:Execute*", "budgets:Modify*", "budgets:Update*",
+    "cloudwatch:Put*Alarm", "logs:Associate*", "logs:Delete*", "logs:Disassociate*",
+    "kms:Disable*Rotation", "kms:Enable*", "kms:Put*", "kms:Update*",
+    "acm:Import*", "acm:Request*", "s3:PutAccount*", "secretsmanager:Put*Policy",
+    "glacier:Set*", "backup:Put*",
+    "ec2:Accept*", "ec2:Allocate*", "ec2:Create*Group", "ec2:Disable*", "ec2:Import*",
+    "route53:Associate*", "route53:Change*RecordSets", "route53:Create*",
+    "ram:Associate*", "ram:Create*", "cloudfront:Copy*", "cloudfront:Update*",
+    "elasticache:Create*", "redshift:CreateCluster*", "redshift:Restore*", "dms:Create*",
+    "mq:CreateBroker*",
+    "dynamodb:Create*", "dynamodb:Update*Table*", "dynamodb:UpdateTime*",
+    "elasticfilesystem:Update*", "ecr:Create*", "ecr:Put*Policy", "ecr:Set*",
+    "ecs:PutCluster*", "s3:Delete*Policy",
+    "events:Create*", "kinesis:Create*", "firehose:Create*", "states:Create*", "states:Update*",
+    "sns:Add*", "sns:Create*", "sns:Set*", "sqs:Add*", "sqs:Create*", "sqs:Set*",
+    "codebuild:Create*", "scheduler:Update*", "application-autoscaling:Register*",
+    "cloudformation:Execute*", "cloudformation:Import*", "cloudformation:Set*",
 ]

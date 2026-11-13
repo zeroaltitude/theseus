@@ -950,6 +950,7 @@ mod tests {
                     meta: json!({}),
                     image: None,
                     external: None,
+                    payload: None,
                 };
                 n
             })
