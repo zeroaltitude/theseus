@@ -32,7 +32,7 @@ use theseus_protocol::method;
 use super::server::{or_empty, parse, route, Conn, RpcFailure};
 use super::{Act, Core};
 use crate::approval::Refusal;
-use crate::import::{catalog, people, summary_id_of, topics, write};
+use crate::import::{catalog, notes, people, summary_id_of, topics, write};
 use crate::node::Body;
 
 /// Why a place that is not private reads no imported text.
@@ -201,10 +201,14 @@ impl Core {
         let p: ImportEpisodesParams = parse(params)?;
         let what = format!("a batch of {} lines of {}", p.lines.len(), p.file);
         let by = self.import_judged(conn, method::IMPORT_EPISODES, &what)?;
+        // `[import.notes]`, read here and carried into the write: the agent
+        // notes' switch is the daemon's, so no client can go round it
+        // (`b4-theseus-holds-its-own-notes`).
+        let gate = notes::Gate::of(&self.runner.cfg.import.notes);
         let core = self.clone();
         let b = blocking(move || {
             let stopping = || core.outbox.stopping();
-            write::import_batch_unless(&core.store, &p, &by, stopping)
+            write::import_batch_gated(&core.store, &p, &by, stopping, &gate)
         })
         .await?;
         if b.stopped {

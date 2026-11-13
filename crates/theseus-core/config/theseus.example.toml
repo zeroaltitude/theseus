@@ -1511,6 +1511,16 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 #                                         # one is yours (operator); any other sender's is outside text
 # agents = []                             # the agents to read; none is every agent under agents/
 # sync_deadline_mins = 90                 # the wall clock the DAEMON's half of one run may take before it stops where it is and returns what it has (its people step's remainder waits in the state for the next run; passing it is not an error); 1 to 115, and it must stay under the sync unit's own 2 h start timeout or it could never fire -- the client would be killed first and the daemon would carry on
+#
+# An agent's own operating notes, imported as episodes of source `agent-notes`
+# (`scripts/notes-export.py`, one note a file, one file an episode). BOTH SWITCHES ARE
+# OFF: while enabled is off every note is refused and the refusal names what the
+# durable-versus-run-state rule read it as, so the off state is the dry run -- the import
+# runs, every note comes back classified, and nothing is written. The rule is
+# docs/design/agent-notes-rule.md, and the bulk pass waits on your sight of it.
+# [import.notes]
+# enabled = false                         # whether an agent note is written at all; off, each one is refused with its reading (the dry run)
+# keep_run_state = false                  # whether a note the rule reads as run state is written once the path is on; off, only the durable ones go in
 
 # ---------------------------------------------------------------- self
 # Self-improvement: Theseus building its own code, yardsticks and backlog, joining
