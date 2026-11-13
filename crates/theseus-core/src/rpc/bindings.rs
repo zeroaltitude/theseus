@@ -99,37 +99,28 @@ impl Core {
 
     /// A ledger row written on behalf of a binding (`discord.*`), so its traffic
     /// sits in the same readable history as everything else.
+    /// Every such row rides the next frame of the store, and costs no frame
+    /// and no fdatasync of its own (theseus-ht8b; the owner, 2026-11-12:
+    /// "all rows ride along"). One with no frame behind it is written within
+    /// `store::DEFER_WITHIN`, and a crash between the row and its frame
+    /// loses the row, deliberately.
     pub fn binding_ledger(&self, kind: LedgerKind, session_id: Option<&str>, data: Value) {
         if let Err(e) = self
             .store
-            .append_ledger(&LedgerRow::new(kind, session_id, None, data))
+            .defer_ledger(&LedgerRow::new(kind, session_id, None, data))
         {
             tracing::warn!(error = %e, kind = kind.as_str(), "binding ledger append failed");
         }
     }
 
     /// `binding_ledger` for a row on the path a person waits on
-    /// (theseus-ck0n): a message out, before its lane's next write. The row
-    /// is appended on a blocking thread and the lane goes on, so its frame's
-    /// sync (1.4 s under a neighbour's IO, 2026-10-04) never holds the
-    /// reply's next edit; rows queued together share one sync. It still takes
-    /// the store's writer, so a frame queued behind it waits as before
-    /// (a message in, written just before its turn's admission frame, gains
-    /// nothing from this, and stays `binding_ledger`). Outside a runtime it is
-    /// written at once.
+    /// (theseus-ck0n): a message out, before its lane's next write. It used
+    /// to append on a blocking thread so that its frame's sync (1.4 s under
+    /// a neighbour's IO, 2026-10-04) never held the reply's next edit; since
+    /// theseus-ht8b no binding row takes a frame of its own at all, so this
+    /// is `binding_ledger` and is kept only for the callers that say which
+    /// path they are on.
     pub fn binding_ledger_soon(&self, kind: LedgerKind, session_id: Option<&str>, data: Value) {
-        let row = LedgerRow::new(kind, session_id, None, data);
-        let Ok(rt) = tokio::runtime::Handle::try_current() else {
-            if let Err(e) = self.store.append_ledger(&row) {
-                tracing::warn!(error = %e, kind = kind.as_str(), "binding ledger append failed");
-            }
-            return;
-        };
-        let store = self.store.clone();
-        rt.spawn_blocking(move || {
-            if let Err(e) = store.append_ledger(&row) {
-                tracing::warn!(error = %e, kind = kind.as_str(), "binding ledger append failed");
-            }
-        });
+        self.binding_ledger(kind, session_id, data);
     }
 }

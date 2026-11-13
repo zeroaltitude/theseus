@@ -27,10 +27,20 @@ Key modules: `wal.rs`, `index.rs`, `record.rs`, `store.rs` (`MANIFEST_FORMAT`). 
 ## Invariants
 
 - **One writer** (theseus-vni9). Every append goes through `WalStore`'s `store-writer` thread: the caller hands it
-  the frame and waits (in `blocking`, so no runtime worker waits), and the writer writes every frame queued, syncs
-  once for all of them, indexes them in one transaction, and answers each. The answer comes after the index, so a
+  the frame and waits (in `blocking`, so no runtime worker waits), and the writer writes every frame queued, indexes
+  them in one transaction, answers each, and syncs once for all of them. The answer comes after the index, so a
   caller's lock spans its read to its frame indexed (K1). Never append from the writer itself, and never hold
   `appending` while you append: the writer needs it shared.
+- **The answer comes before the sync** (theseus-7yhp; the owner's call of 2026-11-12, S19-1: "the index may show a
+  provider call's plan frame before that frame's sync has landed"). A frame is in the index when its append returns
+  and durable once that batch's sync, or any later frame's, has returned Ok, so a turn's model request leaves while
+  the disk takes the frame. What this trades away, deliberately: a crash in that window loses frames the answer
+  promised, and a sync that *fails* in it leaves the index holding frames the log has cut — so the store then takes
+  no further frame and no checkpoint, says why to every refused caller (`Inner::say_lost`), and the next open reads
+  the log, which is the truth. A position the log cut is never written again inside that process; the index's own
+  stale keys past the log's end are only mended by a rebuild (`theseusd restore`), which is the residue of the
+  trade. The sync still runs inside `commit`, under `appending` shared, so a checkpoint still claims only synced
+  positions. Tests: `store/tests_overlap.rs`, `store/tests::a_batch_whose_sync_fails_was_answered_before_it_and_stops_the_store`.
 - **The ledger chain is computed only in the writer** (theseus-bmkxk). In `commit`, before a frame is written, each
   `LEDGER` record that is a JSON object gets `,"chain":"<seq>.<hex>"` spliced onto its end, SHA-256 over the previous
   digest, the seq (8 bytes, little endian) and the payload as the caller gave it (never re-serialized, so no serde

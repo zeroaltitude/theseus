@@ -7,6 +7,15 @@ fn open(dir: &Path) -> WalStore {
         .with_checkpoint_every(0)
 }
 
+/// Wait until the writer has finished the batch it holds: it takes
+/// `appending` for reading from its first write through its sync, so taking
+/// it alone is the barrier a checkpoint takes. Since theseus-7yhp an append
+/// is answered before its sync, so a test that counts syncs or directory
+/// syncs waits here first.
+fn writer_idle(s: &WalStore) {
+    drop(s.inner.appending.write().unwrap());
+}
+
 /// Wait until `n` appends are queued for the writer.
 fn until_queued(s: &WalStore, n: i64) {
     let t0 = std::time::Instant::now();
@@ -22,14 +31,16 @@ fn until_queued(s: &WalStore, n: i64) {
 
 /// Group commit by construction (theseus-vni9): the appends that queue
 /// while the writer is busy are written back to back and made durable by
-/// one fdatasync, each answered once its frame is synced and indexed. The
-/// writer is held here as a checkpoint holds it, by `appending`.
+/// one fdatasync, each answered once its frame is indexed — before that one
+/// fdatasync, since theseus-7yhp. The writer is held here as a checkpoint
+/// holds it, by `appending`.
 #[test]
 fn the_writer_commits_every_queued_frame_with_one_sync() {
     let dir = tempfile::tempdir().unwrap();
     let s = Arc::new(open(dir.path()));
     s.append(&[NewRecord::json(kinds::LEDGER, None, &"first").unwrap()])
         .unwrap();
+    writer_idle(&s);
     let before = s.stats().unwrap();
     let held = s.inner.appending.write().unwrap();
     let appenders: Vec<_> = (0..12)
@@ -51,6 +62,7 @@ fn the_writer_commits_every_queued_frame_with_one_sync() {
         .into_iter()
         .flat_map(|a| a.join().unwrap())
         .collect();
+    writer_idle(&s);
     let after = s.stats().unwrap();
     assert_eq!(after.frames_appended - before.frames_appended, 12);
     assert_eq!(
@@ -1547,6 +1559,7 @@ fn a_new_stores_own_name_is_synced_with_its_first_frame() {
     let s = open(&root.path().join("store"));
     assert_eq!(dir_syncs(&s), 0, "nothing is synced before a frame is");
     s.append(&frame()).unwrap();
+    writer_idle(&s);
     assert_eq!(
         dir_syncs(&s),
         3,
@@ -1557,6 +1570,7 @@ fn a_new_stores_own_name_is_synced_with_its_first_frame() {
     // The state directory above it is new too: its holder is synced as well.
     let s = open(&root.path().join("state/deeper/store"));
     s.append(&frame()).unwrap();
+    writer_idle(&s);
     assert_eq!(
         dir_syncs(&s),
         5,
@@ -1568,6 +1582,7 @@ fn a_new_stores_own_name_is_synced_with_its_first_frame() {
     // directory, for the segment it found (theseus-c67g).
     let s = open(&root.path().join("store"));
     s.append(&frame()).unwrap();
+    writer_idle(&s);
     assert_eq!(dir_syncs(&s), 1);
 }
 
@@ -1589,6 +1604,7 @@ fn a_store_an_older_format_wrote_syncs_its_logs_name_with_the_first_frame() {
     let s = open(dir.path());
     assert_eq!(s.recovery().vouched, Some(crate::wal::Vouch::Mark));
     s.append(&frame("three")).unwrap();
+    writer_idle(&s);
     assert_eq!(dir_syncs(&s), 0, "vouched for, at this build's format");
     drop(s);
 
@@ -1602,6 +1618,7 @@ fn a_store_an_older_format_wrote_syncs_its_logs_name_with_the_first_frame() {
         "the marks vouch, and an older build may have written them"
     );
     s.append(&frame("four")).unwrap();
+    writer_idle(&s);
     assert_eq!(
         dir_syncs(&s),
         1,
@@ -1609,11 +1626,13 @@ fn a_store_an_older_format_wrote_syncs_its_logs_name_with_the_first_frame() {
     );
     assert_eq!(manifest(dir.path())["format"], MANIFEST_FORMAT);
     s.append(&frame("five")).unwrap();
+    writer_idle(&s);
     assert_eq!(dir_syncs(&s), 1, "once");
     drop(s);
 
     let s = open(dir.path());
     s.append(&frame("six")).unwrap();
+    writer_idle(&s);
     assert_eq!(dir_syncs(&s), 0, "the manifest moved: vouched for again");
 }
 
@@ -1640,7 +1659,9 @@ fn an_upgrade_syncs_the_logs_directory_before_its_manifest_moves() {
     let s = open(dir.path());
     assert_eq!(dir_syncs(&s), 0, "the open syncs nothing");
     s.inner.wal.fail_next_sync();
-    s.append(&frame("three")).unwrap_err();
+    // Answered before its sync (theseus-7yhp), which then fails and cuts it.
+    s.append(&frame("three")).unwrap();
+    writer_idle(&s);
     assert_eq!(
         manifest(dir.path())["format"],
         MANIFEST_FORMAT,
@@ -1661,6 +1682,7 @@ fn an_upgrade_syncs_the_logs_directory_before_its_manifest_moves() {
         "the marks vouch, now rightly"
     );
     s.append(&frame("four")).unwrap();
+    writer_idle(&s);
     assert_eq!(dir_syncs(&s), 0, "vouched for");
     assert_eq!(s.last_position(), 3);
 }
@@ -1706,12 +1728,17 @@ fn a_checkpointed_frame_gone_bad_is_refused_before_anything_is_cut() {
     assert_eq!(std::fs::read(&seg).unwrap(), b, "nothing was cut");
 }
 
-/// The writer's view of a failed sync (theseus-ljgm): a batch whose one sync
-/// fails is answered failed, every frame of it, and cut back off; the next
-/// batch goes on at the cut one's positions and is answered Ok; and a reopen
-/// holds exactly the records answered Ok, at gapless positions.
+/// The writer's view of a failed sync, with the answers before it
+/// (theseus-7yhp, which changed this from `a_batch_whose_sync_fails_is_
+/// answered_failed_and_never_comes_back`): the batch is answered Ok, every
+/// frame of it, and the log cuts it anyway. The index holds what the log
+/// lost, so the store takes no further frame and no checkpoint, says why to
+/// every refused caller, and the next open reads the log, which is the
+/// truth. That is the loss the owner took in writing on 2026-11-12: "I want
+/// to be nice and risky, so i'm betting on machine stability here, and since
+/// crashes don't happen much I think we can recover OK".
 #[test]
-fn a_batch_whose_sync_fails_is_answered_failed_and_never_comes_back() {
+fn a_batch_whose_sync_fails_was_answered_before_it_and_stops_the_store() {
     let dir = tempfile::tempdir().unwrap();
     let s = Arc::new(open(dir.path()));
     let rec = |key: &str| NewRecord::json(kinds::META, Some(key), &key).unwrap();
@@ -1730,23 +1757,35 @@ fn a_batch_whose_sync_fails_is_answered_failed_and_never_comes_back() {
     s.inner.wal.fail_next_sync();
     let syncs = s.stats().unwrap().syncs;
     drop(held);
-    for a in appenders {
-        let err = a.join().unwrap().unwrap_err();
-        assert!(err.to_string().contains("a sync that failed"), "{err:#}");
-    }
+    let mut answered: Vec<u64> = appenders
+        .into_iter()
+        .flat_map(|a| a.join().unwrap().expect("answered before its sync"))
+        .collect();
+    answered.sort_unstable();
+    assert_eq!(answered, vec![2, 3, 4], "each frame answered Ok");
+    drop(s.inner.appending.write().unwrap());
     assert_eq!(s.stats().unwrap().syncs, syncs, "one sync, which failed");
+    assert_eq!(s.last_position(), 1, "the log cut the batch it answered");
     for key in ["one", "two", "three"] {
+        let read = s.latest_by_key(kinds::META, key);
         assert!(
-            s.latest_by_key(kinds::META, key).unwrap().is_none(),
-            "{key}"
+            read.is_err(),
+            "the index still names {key}, whose frame the log lost, and the read of it is \
+             refused rather than answered from another record's bytes: {read:?}"
         );
     }
-    assert_eq!(s.last_position(), 1, "the batch is cut back off");
-    let after = s.append(&[rec("after")]).unwrap();
-    assert_eq!(
-        after,
-        vec![2],
-        "the next batch takes the cut one's first position"
+    // So no position of theirs may be written again, and nothing may claim
+    // them: this store is done until it is reopened.
+    let refused = format!("{:#}", s.append(&[rec("after")]).unwrap_err());
+    assert!(
+        refused.contains("the index still holds them")
+            && refused.contains("no further frame and no checkpoint"),
+        "{refused}"
+    );
+    let no_checkpoint = format!("{:#}", s.checkpoint().unwrap_err());
+    assert!(
+        no_checkpoint.contains("the index still holds them"),
+        "{no_checkpoint}"
     );
     drop(s);
     let s = open(dir.path());
@@ -1760,8 +1799,8 @@ fn a_batch_whose_sync_fails_is_answered_failed_and_never_comes_back() {
         .collect();
     assert_eq!(
         keys,
-        vec![(1, "before".to_string()), (2, "after".to_string())],
-        "exactly the records answered Ok"
+        vec![(1, "before".to_string())],
+        "the log holds what its syncs returned Ok for, and nothing else"
     );
     assert!(s.latest_by_key(kinds::META, "one").unwrap().is_none());
 }
