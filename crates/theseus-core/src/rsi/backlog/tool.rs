@@ -197,7 +197,7 @@ fn filed(core: &Core, private: bool, session: &str, a: Args) -> Result<ToolOutpu
         .map_err(|e| format!("the filing could not be written: {e:#}"))?;
     Ok(ToolOutput {
         text: format!(
-            "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a              person's choice for good, and the loop picks it up on its next pass. `theseus self              move {} 1` puts it first.",
+            "Filed {} ({}) on the self-improvement backlog at rank {}, by {}. It is marked a person's choice for good, and the loop picks it up on its next pass. `theseus self move {} 1` puts it first.",
             f.item, f.title, f.rank, f.filed_by, f.item
         ),
         meta: json!({"item": f.item, "cause": f.cause, "rank": f.rank}),
