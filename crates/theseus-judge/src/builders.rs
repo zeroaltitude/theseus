@@ -265,6 +265,11 @@ pub use undo::{
     undo as undo_state, CwdKind, Recovery, RemoteKeeps, Sandbox, Target, UndoInput, UNDO_ARGV,
     UNDO_STATE_KEYS, UNDO_STEPS, UNDO_TARGETS,
 };
+mod undo_resolve;
+pub use undo_resolve::{
+    cwd_kind_of, find as undo_find, recovery_of, sandbox_of, target_of, targets_of, Found, GitCli,
+    Probe, Tracked,
+};
 mod job;
 pub use job::{job, job_input, JobInput, JobKind};
 mod persona;

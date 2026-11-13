@@ -41,7 +41,7 @@ use crate::content::{footer_labels, ItemKind};
 use crate::context_files::{ContextFile, ContextFiles, Unreadable};
 use crate::fact::{self, Fact, To};
 use crate::narrative::{self, Narrator};
-use crate::node::{Body, Node};
+use crate::node::{Body, Node, ResultStatus};
 use crate::provider::{
     Delta, ModelResponse, Overflow, Provider, ProviderError, ToolUse, WINDOW_EXCEEDED,
 };
@@ -103,6 +103,7 @@ pub mod progress_step;
 mod promise_step;
 mod prompt_input;
 mod recall_step;
+pub mod repeat_step;
 mod reply_step;
 mod request;
 mod rerank_step;
@@ -457,6 +458,8 @@ struct Turn<'a> {
     recall: recall_step::Recalled,
     /// The place digest this turn's requests carry (theseus-98bz.9).
     digest: digest_step::Digest,
+    /// The loop signatures this turn has repeated (`p5kln-p0-unbounded-hold`).
+    repeats: repeat_step::Repeats,
     /// Routing's verdict and what it moved (M5 25e).
     route: route_step::RouteState,
     /// A running task's checkpoints (theseus-ypnxt.9).
@@ -603,6 +606,7 @@ impl<'a> Turn<'a> {
             ended: false,
             recall: recall_step::Recalled::default(),
             digest: digest_step::Digest::default(),
+            repeats: repeat_step::Repeats::default(),
             route: route_step::RouteState::default(),
             checkpoint: checkpoint_step::Checkpoints::default(),
             fallback: None,
@@ -2110,6 +2114,7 @@ impl TurnRunner {
             Self::go_back(t, &mut spec, (&resp, &node));
             run_model = self.advance(t, &resp, uses.len(), answered, i, window_retry || fell);
             self.loops_noticed(t, i, run_model)?;
+            self.repeat_noticed(t, &uses, run_model)?;
             run_model = self.progress(t, i, run_model)?;
             let ended = checkpoint_step::Ended {
                 compiled: &compiled,
@@ -3215,18 +3220,25 @@ impl TurnRunner {
         t.tool_calls += batch.ran.len() as u32;
         calls::trace_calls(&mut t.trace, &self.tools, uses, &batch.ran);
         let mut answered = 0;
+        // One status per judged call, for the repeat cap (`repeat_step`).
+        let mut outcomes = Vec::with_capacity(batch.ran.len());
         for r in batch.ran {
             t.checkpoint.answered(&uses[r.index], &r.outcome);
             match r.outcome {
                 CallOutcome::AwaitingConfirm { .. } => {}
                 CallOutcome::Background { correlation_id } => {
                     t.background.push(correlation_id);
+                    outcomes.push(ResultStatus::Background);
                     answered += 1;
                 }
-                CallOutcome::Done { .. } => answered += 1,
+                CallOutcome::Done { status } => {
+                    outcomes.push(status);
+                    answered += 1;
+                }
             }
         }
         t.awaiting = batch.awaiting;
+        t.repeats.note_idle(uses, &outcomes, t.awaiting.is_some());
         Ok(answered + unloaded)
     }
 

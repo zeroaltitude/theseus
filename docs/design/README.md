@@ -19,6 +19,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [imported-surface.md](imported-surface.md): what reaches an imported session's content (theseus-a7pr): the protected thing, where the surface check lives, what fail-closed means for a method nobody classified, and what a fail-closed default refuses.
 - [abandon-said-in-words.md](abandon-said-in-words.md): what would have to be true for the owner's words to answer an outstanding abandon card (theseus-3i6d1): where the owner's recent messages are already held and for how long, the rule for whose words they are, the two rules that disagree about a bound private channel, and the four questions that are still open.
 - [stale-edit.md](stale-edit.md): the stale edit (`theseus-w2cs` sub-item 2): a read record is noted when it exists and checked when it exists, never required; the required-prior-read shape that was built, measured and rejected, and why `rsi` self-sessions made it unacceptable; where the record lives, its cap, and why a `DefaultHasher` value may not cross a process.
+- [undo-v1.md](undo-v1.md): where `undo.v1`'s verdict is consumed (row B6, `theseus-2yowd`): why the layer cannot go before `Layer::Mode`, the ask-once-consume-twice shape, and why `irreversible_final` is applied to what the gate's order returned rather than raised inside it.
 
 And one review:
 

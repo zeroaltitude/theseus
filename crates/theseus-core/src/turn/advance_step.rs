@@ -43,13 +43,18 @@ impl TurnRunner {
         let advancer = UntilNoToolCalls {
             max_loops: t.target.max_loops,
             notify: t.target.on_max_loops == crate::config::MaxLoopsMode::Notify,
+            max_repeats: repeat_step::MAX_REPEATS,
         };
         let stop = resp.stop_reason.as_deref();
+        // The highest repeat count this turn has reached. `run_tools` noted
+        // the loop, and only if it ran nothing (`repeat_step::made_no_progress`).
+        let repeats = t.repeats.most();
         let outcome = LoopOutcome {
             loop_index: i,
             provider_stop_reason: resp.stop_reason.clone(),
             tool_calls: answered,
             output_chars: resp.text.chars().count(),
+            repeats,
         };
         let a0 = t.trace.now_us();
         let say = (uses > 0)
@@ -88,6 +93,41 @@ impl TurnRunner {
                 t.stop_reason = reason;
                 false
             }
+        }
+    }
+}
+
+impl TurnRunner {
+    /// The notice a turn ended by a repeat posts to its session's place
+    /// (`p5kln-p0-unbounded-hold`): which tools it kept asking for, how many
+    /// times, and how the owner says to go ahead anyway. A turn that ended for
+    /// any other reason, or one that goes on, posts nothing. The durable
+    /// record of the end is the loop's own `loop.ended` row, which carries
+    /// `outcome.repeats` and the decision `end_turn:repeating`; this is the
+    /// line a person reads.
+    pub(super) fn repeat_noticed(
+        &self,
+        t: &mut Turn<'_>,
+        uses: &[crate::provider::ToolUse],
+        going_on: bool,
+    ) -> Result<()> {
+        if going_on || t.stop_reason != repeat_step::REPEATING {
+            return Ok(());
+        }
+        let text = repeat_step::words(
+            &Self::who_repeated(t),
+            t.repeats.most(),
+            &repeat_step::what(uses),
+            &budget_step::stop_how(t.tc.session_id),
+        );
+        self.notice(t, &text)?;
+        Ok(())
+    }
+
+    fn who_repeated(t: &Turn<'_>) -> String {
+        match t.tc.task {
+            Some(_) => format!("Task {}", crate::task::short(t.tc.session_id)),
+            None => "This session".to_string(),
         }
     }
 }
