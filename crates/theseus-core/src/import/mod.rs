@@ -40,6 +40,7 @@ mod anchor;
 pub(crate) mod append;
 pub mod catalog;
 pub mod episode;
+pub mod notes;
 pub mod people;
 pub mod sync;
 pub mod topics;
@@ -53,6 +54,8 @@ pub(crate) mod tests_append;
 mod tests_catalog;
 #[cfg(test)]
 mod tests_harness;
+#[cfg(test)]
+mod tests_notes;
 #[cfg(test)]
 mod tests_people;
 #[cfg(test)]

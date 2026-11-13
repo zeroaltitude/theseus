@@ -17,6 +17,21 @@
 //!   unit's `TimeoutStartSec=` (`scripts/user-service.sh`, 2 h) bounds only
 //!   the client, so it must stay well under that or it could never fire: the
 //!   range refuses anything over `MAX_SYNC_DEADLINE_MINS`.
+//!
+//! `[import.notes]` (`b4-theseus-holds-its-own-notes`): the agent-notes
+//! import's two switches, both **off by default**, read by
+//! `crate::import::notes::Gate` at `import.episodes`.
+//!
+//! - `enabled`: whether an `agent-notes` episode is written at all. Off, each
+//!   one is refused and the refusal names what the durable-versus-run-state
+//!   rule read it as, so the off state IS the dry run: the import runs, every
+//!   note comes back classified, and nothing is written. It is what the bulk
+//!   pass waits on, until the owner has seen the rule
+//!   (`docs/design/agent-notes-rule.md`).
+//! - `keep_run_state`: whether a note the rule reads as run state is written
+//!   once the path is on. Off, it is refused and named; the durable ones go
+//!   in. Both default off because this import widens what Theseus holds to
+//!   our own operating notes.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -66,12 +81,35 @@ impl Default for OpenclawSyncConfig {
     }
 }
 
+/// `[import.notes]`: the agent-notes import's switches
+/// (`b4-theseus-holds-its-own-notes`). Both off by default.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotesImportConfig {
+    /// Whether an `agent-notes` episode is written at all. Off, every one is
+    /// refused with its reading: the dry run the owner is shown.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Whether a note the rule reads as run state is written, once the path
+    /// is on.
+    #[serde(default)]
+    pub keep_run_state: bool,
+}
+
+impl NotesImportConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// `[import]`: the import's own settings.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImportConfig {
     #[serde(default, skip_serializing_if = "OpenclawSyncConfig::is_default")]
     pub openclaw: OpenclawSyncConfig,
+    #[serde(default, skip_serializing_if = "NotesImportConfig::is_default")]
+    pub notes: NotesImportConfig,
 }
 
 impl OpenclawSyncConfig {
@@ -123,6 +161,7 @@ mod tests {
                 sync_deadline_mins: mins,
                 ..Default::default()
             },
+            ..Default::default()
         }
     }
 
@@ -180,5 +219,29 @@ mod tests {
         // names no OpenClaw settings serializes none (`is_default`).
         assert!(OpenclawSyncConfig::default().is_default());
         assert!(ImportConfig::default().is_default());
+    }
+
+    /// `[import.notes]`'s two switches read from a config note, and both
+    /// default OFF (`b4-theseus-holds-its-own-notes`): the import widens
+    /// what Theseus holds to our own operating notes, and the bulk pass
+    /// waits on the owner's sight of the rule.
+    #[test]
+    fn both_agent_notes_switches_default_off() {
+        let d = NotesImportConfig::default();
+        assert!(!d.enabled, "the path is off");
+        assert!(!d.keep_run_state, "and run state is out even when it is on");
+        assert!(d.is_default());
+        assert!(ImportConfig::default().notes.is_default());
+        // A config that names no table gets them off, and one that names the
+        // table takes exactly what it says.
+        let plain: ImportConfig = toml::from_str("[openclaw]\nagents = []\n").unwrap();
+        assert_eq!(plain.notes, NotesImportConfig::default());
+        let on: ImportConfig =
+            toml::from_str("[notes]\nenabled = true\nkeep_run_state = true\n").unwrap();
+        assert!(on.notes.enabled && on.notes.keep_run_state);
+        on.validate().unwrap();
+        // Under `deny_unknown_fields`, a misspelt switch is refused rather
+        // than read as off, which would look exactly like the default.
+        assert!(toml::from_str::<ImportConfig>("[notes]\nenable = true\n").is_err());
     }
 }

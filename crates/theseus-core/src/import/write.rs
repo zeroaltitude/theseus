@@ -43,6 +43,7 @@ use theseus_store::{kinds, NewRecord, Store as _};
 
 use super::append;
 use super::episode::{self, Episode};
+use super::notes;
 use super::{
     is_imported, node_id_of, session_id_of, summary_id_of, tag_key, tag_scope, Erased,
     ImportedFrom, TagCounts,
@@ -142,7 +143,21 @@ pub fn import_batch_unless(
     by: &str,
     stopping: impl Fn() -> bool,
 ) -> Result<Batch> {
-    import_batch_cut(store, p, by, stopping, FRAME_RECORDS)
+    import_batch_cut(store, p, by, stopping, FRAME_RECORDS, &notes::Gate::off())
+}
+
+/// [`import_batch_unless`] with the owner's `[import.notes]` switches: the
+/// one call the daemon makes (`rpc/import.rs`). Every other call site gets
+/// [`notes::Gate::off`], so a caller that names no config writes no agent
+/// note (`b4-theseus-holds-its-own-notes`).
+pub fn import_batch_gated(
+    store: &Store,
+    p: &ImportEpisodesParams,
+    by: &str,
+    stopping: impl Fn() -> bool,
+    gate: &notes::Gate,
+) -> Result<Batch> {
+    import_batch_cut(store, p, by, stopping, FRAME_RECORDS, gate)
 }
 
 /// [`import_batch_unless`], its frames cut past `cap` records: a test's
@@ -155,7 +170,7 @@ pub(super) fn import_batch_in(
     stopping: impl Fn() -> bool,
     cap: usize,
 ) -> Result<Batch> {
-    import_batch_cut(store, p, by, stopping, cap)
+    import_batch_cut(store, p, by, stopping, cap, &notes::Gate::off())
 }
 
 fn import_batch_cut(
@@ -164,6 +179,7 @@ fn import_batch_cut(
     by: &str,
     stopping: impl Fn() -> bool,
     cap: usize,
+    gate: &notes::Gate,
 ) -> Result<Batch> {
     let _one = ONE
         .lock()
@@ -205,7 +221,7 @@ fn import_batch_cut(
             file: &p.file,
             line: l.line,
         };
-        match take(store, e, &at, (&mut frame, &mut counts, &mut seen))? {
+        match take(store, e, &at, (&mut frame, &mut counts, &mut seen), gate)? {
             Took::Skipped => {
                 out.skipped += 1;
                 continue;
@@ -290,7 +306,15 @@ fn take(
     e: Episode,
     at: &Place<'_>,
     (frame, counts, seen): (&mut Frame, &mut Counts<'_>, &mut BTreeMap<String, String>),
+    gate: &notes::Gate,
 ) -> Result<Took> {
+    // The agent-notes gate is asked FIRST, before any read: a note the
+    // switch or the durable-versus-run-state rule holds back costs one pure
+    // reading and no store work, and the refusal carries that reading, which
+    // is what makes the off state a dry run (`import/notes.rs`).
+    if let Some(why) = notes::refused(&e, gate) {
+        return Ok(Took::Refused(why));
+    }
     let sid = session_id_of(&e.episode_id);
     let this = e.hash.clone();
     let another = |h: &str, why: &str| {

@@ -45,6 +45,23 @@ pub const SYNC_SOURCE: &str = "openclaw-sync";
 /// Vestige dump's memories, one note an episode, read by the CLI from a file.
 pub const VESTIGE_SOURCE: &str = "vestige";
 
+/// The source an agent's own operating notes come in under
+/// (`b4-theseus-holds-its-own-notes`): one note a file, one file an episode,
+/// its place `file` and its place's name the note's path as the exporter
+/// found it (`scripts/notes-export.py`). Apart from `SOURCES`, whose list is
+/// the old pipeline's.
+///
+/// **Its episode id is the digest of its name and its text**, as the Vestige
+/// dump's is of its text, so an edited note is a NEW episode and the one it
+/// replaces stays as history: the record only grows, and nothing has to
+/// decide whether an edit is an append. It is therefore not in
+/// [`DIGESTED_SOURCES`] and never reaches `append`.
+///
+/// Every episode of this source goes through `notes::refused` before it is
+/// written: `[import.notes]` is off by default and the rule decides the rest
+/// (`docs/design/agent-notes-rule.md`).
+pub const NOTES_SOURCE: &str = "agent-notes";
+
 /// The sources whose message digests the daemon computes itself, over the text
 /// it stores: the harnesses', the sync's and the Vestige dump's. A digest is
 /// what `append` compares to tell a rewritten message from a grown file, so
@@ -309,6 +326,7 @@ fn check_names(r: &RawEpisode) -> Result<(), String> {
         && !HARNESS_SOURCES.contains(&r.source.as_str())
         && r.source != SYNC_SOURCE
         && r.source != VESTIGE_SOURCE
+        && r.source != NOTES_SOURCE
     {
         return Err(format!("source {:?} is not one the format names", r.source));
     }
