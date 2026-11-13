@@ -78,6 +78,18 @@ fn says(verdict: &str, confidence: f64) -> FakeJev {
 /// `sealed` puts the target inside `[self.sealed] dir`, which refuses the
 /// call outright: that is the egress test's arrangement.
 fn rig(verdict: &str, confidence: f64, sealed: bool, tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_scripted(verdict, confidence, sealed, tweak, script)
+}
+
+/// The rig with a script of its own: the override's round trip needs two
+/// turns, and the second proposes the original call beside a re-planned one.
+fn rig_scripted(
+    verdict: &str,
+    confidence: f64,
+    sealed: bool,
+    tweak: impl FnOnce(&mut Config),
+    script: impl FnOnce(&Path) -> Vec<Scripted>,
+) -> Rig {
     let jev = says(verdict, confidence);
     let dir = crate::scratch::tempdir();
     let base = dir.path().canonicalize().unwrap();
@@ -363,4 +375,341 @@ async fn the_switch_off_judges_and_holds_nothing() {
     assert!(r.rows("tool.held").is_empty());
     assert!(r.rows("tool.raised").is_empty());
     assert_eq!(r.jev.seen().len(), 1, "and it was still judged");
+}
+
+// ---------------------------------------------------------------------------
+// The owner's override of a reshapeable hold (theseus-p5kln).
+//
+// The first half of his decision of 2026-11-12 is the base's: the classifier
+// is wired and ON. This is the second half, the power he asked for in those
+// words -- *"i have the power to say it's OK to run what was originally
+// suggested"* -- and the three things it does not touch are each asserted
+// here: the switch's default, the no-card property of a hold nobody
+// overrides, and that what runs is the ORIGINAL call and never a re-planned
+// one.
+// ---------------------------------------------------------------------------
+
+/// What the re-planned call would write to: the shape `move_aside` asks for,
+/// beside the original rather than over it.
+const BESIDE: &str = "notes.txt.new";
+
+/// Turn one proposes the call and it is held; turn two proposes the ORIGINAL
+/// call and a RE-PLANNED one in the same response, so one gate pass judges
+/// both with the owner's allowance standing.
+fn script_original_and_replanned(path: &Path) -> Vec<Scripted> {
+    let beside = path.with_file_name(BESIDE);
+    let original = json!({"path": path.to_string_lossy(), "content": NOW});
+    vec![
+        Scripted::tools("I'll replace it.", &[("c1", "fs_write", original.clone())]),
+        Scripted::text("Held; I'll re-plan it."),
+        Scripted::tools(
+            "The original, and the reshaped one.",
+            &[
+                ("c2", "fs_write", original),
+                (
+                    "c3",
+                    "fs_write",
+                    json!({"path": beside.to_string_lossy(), "content": NOW}),
+                ),
+            ],
+        ),
+        Scripted::text("Done."),
+    ]
+}
+
+impl Rig {
+    /// The holds the owner can still allow, newest first.
+    fn held(&self) -> Vec<theseus_protocol::work::undo::HeldCall> {
+        self.core
+            .undo_list(&theseus_protocol::work::undo::UndoListParams {
+                all: true,
+                ..Default::default()
+            })
+            .unwrap()
+    }
+
+    /// What the re-planned call would have written, if anything did.
+    fn beside(&self) -> Option<String> {
+        std::fs::read_to_string(self.target.with_file_name(BESIDE)).ok()
+    }
+
+    /// The owner's own terminal: `places::owner_in_person` passes it, since
+    /// no agent's process is behind it.
+    fn owner() -> crate::approval::Client {
+        use crate::approval::Surface;
+        crate::tests_m3::surface("sock#1", Surface::Cli).behind(crate::peer_proc::Behind::Owner)
+    }
+
+    /// `undo.allow` over the wire, as `client` (theseus-me9fc's own rig):
+    /// the dispatch arm, `route`, and `judge_act`, not just the core call.
+    async fn allow_as(
+        &self,
+        client: crate::approval::Client,
+        hold: &str,
+    ) -> Result<Value, theseus_protocol::RpcError> {
+        crate::tests_m3::rpc_as(
+            &self.core,
+            client,
+            theseus_protocol::method::UNDO_ALLOW,
+            json!({"hold": hold}),
+        )
+        .await
+    }
+}
+
+/// **The bar of `p5kln-override-route`, whole.** A reshapeable verdict holds
+/// the call; the owner takes the override by id; the ORIGINAL call runs, as
+/// it was first proposed; and the re-planned call does not.
+///
+/// The two file reads at the end are the whole proof and they are both
+/// positive: the original's bytes moved, and the reshaped call's file was
+/// never created. A test that asserted only the second would pass on a tree
+/// where the override ran nothing at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_override_runs_the_original_call_and_not_the_replanned_one() {
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |_| {},
+        script_original_and_replanned,
+    );
+    let sid = r.session();
+
+    // Turn one: held, as the base holds it, and no card.
+    r.turn(&sid).await;
+    assert_eq!(r.bytes(), WAS, "the call did not run");
+    assert_eq!(r.rows("tool.held").len(), 1);
+    assert!(r.rows("tool.confirm_requested").is_empty(), "no card");
+
+    // The hold left one offer, naming the call as it was first proposed.
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call to override: {held:?}");
+    assert_eq!(held[0].tool, "fs.write");
+    assert_eq!(held[0].input["content"], NOW, "the original's own bytes");
+    assert!(!held[0].waiting(), "nothing has allowed it yet");
+
+    // The owner's word, by id, from his own terminal.
+    r.allow_as(Rig::owner(), &held[0].id)
+        .await
+        .expect("the owner may override his own hold");
+    assert!(
+        r.held().iter().any(|h| h.id == held[0].id && h.waiting()),
+        "allowed, and not yet spent"
+    );
+    let rows = r.rows("tool.hold_allowed");
+    assert_eq!(rows.len(), 1, "one tool.hold_allowed row: {rows:?}");
+    assert_eq!(rows[0]["hold"], held[0].id);
+    assert_eq!(rows[0]["tool"], "fs.write");
+
+    // Turn two: the original call and a re-planned one, judged together.
+    r.turn(&sid).await;
+    assert_eq!(
+        r.bytes(),
+        NOW,
+        "the ORIGINAL call ran, as it was first proposed"
+    );
+    assert_eq!(
+        r.beside(),
+        None,
+        "and the re-planned call was still held: the owner allowed the \
+         original and nothing else"
+    );
+
+    // The spend: one allowance, one call, recorded.
+    let spent = r.rows("tool.hold_overridden");
+    assert_eq!(spent.len(), 1, "one override spent: {spent:?}");
+    assert_eq!(spent[0]["hold"], held[0].id);
+    let after = r.held();
+    assert!(
+        after
+            .iter()
+            .any(|h| h.id == held[0].id && h.ran_ms.is_some()),
+        "the allowance is spent: {after:?}"
+    );
+    // The re-planned call left its own hold, so it is still held and not run.
+    assert_eq!(
+        r.rows("tool.held").len(),
+        2,
+        "the re-planned call was held too"
+    );
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "and still no card: an override is not a question"
+    );
+}
+
+/// **The quiet path is still quiet.** The same two turns with no override:
+/// both calls stay held, nothing is written, and no card is made, so a
+/// reshapeable hold costs the owner no attention — which is the property the
+/// owner's decision puts out of reach. The positive count beside it: the
+/// holds ARE recorded, so the offer exists and nobody is asked about it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hold_nobody_overrode_runs_nothing_and_still_makes_no_card() {
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |_| {},
+        script_original_and_replanned,
+    );
+    let sid = r.session();
+    r.turn(&sid).await;
+    r.turn(&sid).await;
+
+    assert_eq!(r.bytes(), WAS, "nothing ran");
+    assert_eq!(r.beside(), None, "nothing ran beside it either");
+    assert_eq!(r.rows("tool.held").len(), 3, "three calls, three holds");
+    assert!(
+        r.rows("tool.hold_overridden").is_empty(),
+        "nothing was overridden"
+    );
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "a hold makes no card: it costs the owner no attention"
+    );
+    let held = r.held();
+    assert_eq!(
+        held.len(),
+        3,
+        "and each is offered for an override: {held:?}"
+    );
+    assert!(held.iter().all(|h| !h.waiting()));
+}
+
+/// **The override is the owner's and nobody else's** (this card's keel
+/// class). It is a route PAST a safety hold, so it takes the bar
+/// `theseus-me9fc` set for granting a repository's trust:
+/// `places::owner_in_person`. An agent's own CLI connection — the thing the
+/// place rule alone would have let through, since the socket is the owner's
+/// user — is refused by name, with an `approval.refused` row and no
+/// allowance; the owner's own terminal is the positive count.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_caller_that_is_not_the_owner_in_person_cannot_override_a_hold() {
+    use crate::approval::Surface;
+    use crate::peer_proc::Behind;
+    use crate::tests_m3::surface;
+
+    let r = rig(RESHAPEABLE, 0.96, false, |_| {});
+    let sid = r.session();
+    r.turn(&sid).await;
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call: {held:?}");
+
+    let agents = [
+        (
+            surface("sock#9", Surface::Cli).behind(Behind::Agent("no terminal".into())),
+            "no terminal",
+        ),
+        (
+            surface("sock#9", Surface::Cli).behind(Behind::Agent("claude".into())),
+            "claude",
+        ),
+        (
+            surface("web#9", Surface::Web).behind(Behind::Agent("untraced".into())),
+            "untraced",
+        ),
+    ];
+    for (client, name) in agents {
+        let e = r
+            .allow_as(client, &held[0].id)
+            .await
+            .expect_err("an agent's process cannot override a hold");
+        assert_eq!(
+            e.code,
+            theseus_protocol::error_code::REFUSED,
+            "{name}: {e:?}"
+        );
+        let why = format!("{e:?}");
+        assert!(
+            why.contains(name),
+            "the refusal names the agent's process ({name}): {why}"
+        );
+        assert!(
+            why.contains("held call"),
+            "and the refusal is about the hold, not a repository's trust: {why}"
+        );
+    }
+    let refused = r.rows("approval.refused");
+    assert_eq!(refused.len(), 3, "each refused act is one row: {refused:?}");
+    assert!(
+        refused.iter().all(|row| row["act"] == "undo.allow"),
+        "{refused:?}"
+    );
+    assert!(
+        r.rows("tool.hold_allowed").is_empty(),
+        "no allowance was written"
+    );
+    assert!(r.held().iter().all(|h| !h.waiting()), "none is allowed");
+
+    // The positive count: the owner's own terminal takes it.
+    r.allow_as(Rig::owner(), &held[0].id)
+        .await
+        .expect("the owner");
+    assert_eq!(r.rows("tool.hold_allowed").len(), 1);
+    assert!(r.held().iter().any(|h| h.waiting()));
+}
+
+/// Turn one is held; turn two proposes ONLY the re-planned call, with the
+/// owner's allowance standing; turn three proposes the original.
+fn script_replanned_then_original(path: &Path) -> Vec<Scripted> {
+    let beside = path.with_file_name(BESIDE);
+    let original = json!({"path": path.to_string_lossy(), "content": NOW});
+    let replanned = json!({"path": beside.to_string_lossy(), "content": NOW});
+    vec![
+        Scripted::tools("I'll replace it.", &[("c1", "fs_write", original.clone())]),
+        Scripted::text("Held; I'll re-plan it."),
+        Scripted::tools("Beside it instead.", &[("c2", "fs_write", replanned)]),
+        Scripted::text("Reshaped."),
+        Scripted::tools("The original, then.", &[("c3", "fs_write", original)]),
+        Scripted::text("Done."),
+    ]
+}
+
+/// **The allowance names the CALL, not the tool.** The previous test proves
+/// the round trip, but in it the original and the re-planned call are
+/// proposed together, so the original spends the one allowance first and the
+/// single-use rule alone would hold the other — a planted revert of
+/// `Holds::allowance_for`'s input match passed that test. This one isolates
+/// it: the re-planned call is proposed **alone**, with the allowance
+/// standing and unspent, and it must still be held. Then the original runs,
+/// which is the positive count without which an allowance that admitted
+/// nothing would pass.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_allowance_does_not_admit_a_replanned_call_proposed_alone() {
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |_| {},
+        script_replanned_then_original,
+    );
+    let sid = r.session();
+    r.turn(&sid).await;
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call: {held:?}");
+    r.allow_as(Rig::owner(), &held[0].id)
+        .await
+        .expect("the owner");
+
+    // Turn two: the re-planned call alone, with the allowance waiting.
+    r.turn(&sid).await;
+    assert_eq!(
+        r.beside(),
+        None,
+        "the re-planned call is not what the owner allowed, so it is held"
+    );
+    assert!(
+        r.rows("tool.hold_overridden").is_empty(),
+        "and nothing spent the allowance"
+    );
+    assert!(
+        r.held().iter().any(|h| h.id == held[0].id && h.waiting()),
+        "the allowance is still waiting for the call it names"
+    );
+
+    // Turn three: the original, which the allowance does name.
+    r.turn(&sid).await;
+    assert_eq!(r.bytes(), NOW, "the original ran");
+    assert_eq!(r.rows("tool.hold_overridden").len(), 1);
 }

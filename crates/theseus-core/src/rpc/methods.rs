@@ -967,6 +967,11 @@ impl Core {
         // (theseus-3i6d1): answered before the turn runs, and never guessed
         // when more than one question could be the one he means.
         self.answer_in_words(&p, conn, &session.session_id);
+        // The owner's override of a held call, said in words (theseus-p5kln):
+        // a `reshapeable` hold makes no card, so it is no question a yes can
+        // reach; these are its own words, and like a yes they are read before
+        // the turn runs and never guessed between two holds.
+        self.allow_in_words(&p, conn, &session.session_id);
         // A person's message starts its keep-warm window again (theseus-ezeg).
         let person = p.opened_from.is_none()
             && !matches!(

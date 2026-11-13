@@ -62,7 +62,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::routines::OWN.contains(&name)
         || super::watch::OWN.contains(&name)
         || super::projects::OWN.contains(&name)
-        || super::project_trust::OWN.contains(&name)
+        || super::undo_allow::owner_in_person_method(name)
         || name.starts_with("standing.")
         || name.starts_with("card.")
         || name.starts_with("thread.")
@@ -153,8 +153,10 @@ impl Core {
         if super::projects::OWN.contains(&name) {
             return self.rpc_projects(name, params, conn);
         }
-        if super::project_trust::OWN.contains(&name) {
-            return self.rpc_project_trust(name, params, conn);
+        // The two acts that take `places::owner_in_person`, in one arm
+        // (`rpc/undo_allow.rs`): `rpc_prefixed` is at clippy's 100 lines.
+        if super::undo_allow::owner_in_person_method(name) {
+            return self.rpc_owner_in_person(name, params, conn);
         }
         if super::wake_owner::OWN.contains(&name) {
             return self.rpc_wakes(name, params, conn);

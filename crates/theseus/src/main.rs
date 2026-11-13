@@ -84,6 +84,7 @@ mod tasks_forecast;
 mod tasks_tree;
 mod thread;
 mod thread_import;
+mod undo_cmd;
 mod vestige;
 mod voice_cmd;
 mod watch_cmd;
@@ -799,6 +800,14 @@ enum Cmd {
     Project {
         #[command(subcommand)]
         cmd: Option<project::ProjectCmd>,
+    },
+    /// The calls held for losing something nothing holds a copy of (`undo list`), and your word that
+    /// the original was right (`undo allow ID`), which lets that call run as it was first proposed.
+    /// Saying "run the original" in the conversation does the same thing. Yours alone (refused inside a job).
+    #[command(hide = true)]
+    Undo {
+        #[command(subcommand)]
+        cmd: Option<undo_cmd::UndoCmd>,
     },
     /// Send a raw JSON-RPC request (e.g. `rpc health`, `rpc turn.submit '{"input":"hi"}'`); notifications echo to stderr.
     #[command(hide = true)]
@@ -1537,6 +1546,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Standing { cmd } => standing_cmd::run(c, json, cmd.unwrap_or_default()).await,
         Cmd::WatchFor { cmd } => watch_cmd::go(c, json, cmd).await,
         Cmd::Thread { cmd } => thread::run(c, json, cmd.unwrap_or_default()).await,
+        Cmd::Undo { cmd } => undo_cmd::run(c, json, cmd.unwrap_or_default()).await,
         cmd @ (Cmd::Routine { .. } | Cmd::Project { .. }) => plans_cmd(c, json, cmd).await,
         Cmd::Model { cmd } => own_bench::run(c, json, cmd).await,
         Cmd::Rpc { method, params } => cmd::rpc(c, json, method, params).await,

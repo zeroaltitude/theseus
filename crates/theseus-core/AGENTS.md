@@ -959,8 +959,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   judge off, the pack in shadow, the credential unresolved, the breaker open, the call shed, the wait missed, or an
   answer under the question's confirm bar. Not resolved for v1, each erring toward holding: `remote_keeps`
   (`p5kln-remote-keeps`) and `read_this_session` stay unresolved, and `posture` is empty because 0d precedes every
-  layer. **Not built**: the owner's override of a `reshapeable` hold (his second and third bullets of 2026-11-12) —
-  an `irreversible_final` raise already has one, since answering its card runs the original call as proposed. Tests:
+  layer. The owner's override of a `reshapeable` hold IS built (theseus-p5kln): `toolrun/holds.rs`, `undo.allow`,
+  `theseus undo allow`, `rpc/allow_in_words.rs` in words, `owner_in_person` gated, the original call only. Tests:
   `toolrun/tests_undo.rs` (whole core, fake Jev), `judge/undo/tests.rs` (the mapping and the verdict, pure).
   Plus the harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after

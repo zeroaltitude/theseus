@@ -74,6 +74,10 @@
 //!   live, unsealed thread (four at most; past four, the best three and
 //!   `other`), and any live thread's slug answers it. Off, it lists the best
 //!   two, as before.
+//! - `unsure` (`"guess"`; theseus-ttlze): a message the router cannot place
+//!   runs at once in its best guess (Jev's pick, else the router's top, else
+//!   home; never a sealed thread, and a new thread offered becomes a guess of
+//!   home). `"ask"` holds it and asks, as before.
 //! - `working_set_grows` (true; theseus-98bz.5): after each turn that ran in a
 //!   thread, the paths its calls touched (a file under the session's directory
 //!   and its first component as a root) and the entities its message named join
@@ -129,6 +133,18 @@ pub enum PersonaEngage {
     Act,
 }
 
+/// What the router does with a message it cannot place (theseus-ttlze).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Unsure {
+    /// Run it at once in the best guess (never a sealed thread, never a new
+    /// thread made by the guess); a wrong guess is moved afterwards.
+    #[default]
+    Guess,
+    /// Hold it and ask which thread, as before.
+    Ask,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThreadsConfig {
@@ -172,6 +188,9 @@ pub struct ThreadsConfig {
     pub sticky_alone_asks: bool,
     #[serde(default = "default_true")]
     pub ask_every_thread: bool,
+    /// `unsure` (guess; theseus-ttlze): see [`Unsure`].
+    #[serde(default)]
+    pub unsure: Unsure,
     #[serde(default = "default_true")]
     pub working_set_grows: bool,
     #[serde(default)]
@@ -271,6 +290,7 @@ impl Default for ThreadsConfig {
             ask_wait_secs: default_ask_wait(),
             sticky_alone_asks: true,
             ask_every_thread: true,
+            unsure: Unsure::Guess,
             working_set_grows: true,
             bench_clock: false,
             single_offers_new: true,
@@ -480,6 +500,18 @@ mod tests {
         )
         .unwrap();
         assert!(!off.threads.sticky_alone_asks && !off.threads.ask_every_thread);
+    }
+
+    /// `[threads] unsure` is `guess` by default (the owner's word, 2026-11-12),
+    /// `"ask"` keeps today's question, and the template documents it (theseus-ttlze).
+    #[test]
+    fn unsure_guesses_by_default_and_ask_still_works() {
+        let cfg = crate::Config::from_toml(crate::Config::EXAMPLE_TOML).unwrap();
+        assert_eq!(cfg.threads.unsure, Unsure::Guess);
+        assert!(crate::Config::EXAMPLE_TOML.contains("# unsure = \"guess\""));
+        let ask = crate::Config::from_toml("[threads]\nunsure = \"ask\"\n").unwrap();
+        assert_eq!(ask.threads.unsure, Unsure::Ask);
+        assert!(crate::Config::from_toml("[threads]\nunsure = \"maybe\"\n").is_err());
     }
 
     /// `[cache] threads_keep_warm_hours` is 4 by default, 0 keeps no thread warm, and a

@@ -389,6 +389,14 @@ impl Core {
                 None => decide_single(live, &pre),
                 // As below: a spoken turn is never held for a question.
                 Some(_) if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
+                // `unsure = "guess"`: the offer is a guess of HOME, not a
+                // question (`ttlze-offer-new-home`). `offer_beside_one` fires
+                // only while the one live thread is BELOW the confirm bar, so
+                // this arm handed its `Ask` to the ranking and guessed into
+                // that same below-bar thread, at whatever score it had.
+                Some(_) if self.cfg.threads.unsure == crate::config::Unsure::Guess => {
+                    crate::thread_route::home_guess(live, &pre, None)
+                }
                 Some(ask) => {
                     self.ask_thread(ask, p, conn, (home, place), live, row)
                         .await
@@ -604,6 +612,7 @@ impl Core {
             // since that reads it only behind a hold the rule made.
             new_entities: new_entities(&p.input, live),
             ask_every_thread: self.cfg.threads.ask_every_thread,
+            guess_unsure: self.cfg.threads.unsure == crate::config::Unsure::Guess,
         };
         decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
     }

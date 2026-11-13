@@ -120,7 +120,10 @@ pub(super) struct Invalid {
     pub(super) record: Box<GateRecord>,
     pub(super) error: String,
     pub(super) refused: bool,
-    pub(super) held: Option<super::reversible::Hold>,
+    /// Boxed: `gate` returns this as its `Err`, and clippy's
+    /// `result_large_err` holds that variant under 128 bytes
+    /// (theseus-p5kln added the hold's summary, which crossed it).
+    pub(super) held: Option<Box<super::reversible::Hold>>,
 }
 
 /// The last assistant message, and its `tool_use`s with no result yet.

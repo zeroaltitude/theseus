@@ -50,6 +50,7 @@ use serde_json::Value;
 use theseus_tools::{Backend, Plan, Tool};
 
 use super::batch::Turned;
+use super::holds;
 use super::order::{At, Layer};
 use super::{ToolRuntime, TurnCtx};
 use crate::judge::undo::{self, UndoVerdict};
@@ -72,7 +73,7 @@ pub(crate) enum Decided {
     Stopped {
         why: String,
         refused: bool,
-        held: Option<Hold>,
+        held: Option<Box<Hold>>,
     },
 }
 
@@ -100,6 +101,9 @@ pub(crate) struct Hold {
     pub judgment: String,
     /// The shape the pack chose, where it chose one above its own bar.
     pub shape: Option<String>,
+    /// The call in one line, as the plan summarised it: what the owner reads
+    /// in `theseus undo list` (theseus-p5kln).
+    pub summary: String,
 }
 
 impl ToolRuntime {
@@ -130,7 +134,7 @@ impl ToolRuntime {
             Err(Blocked::Held(h)) => Decided::Stopped {
                 why: h.why.clone(),
                 refused: true,
-                held: Some(h),
+                held: Some(Box::new(h)),
             },
             Ok((d, class)) => match glided {
                 Some(why) => stop(why, true),
@@ -155,9 +159,18 @@ impl ToolRuntime {
             .map_err(Blocked::Turned)?;
         // 0d. After every outright refusal, before the order.
         let verdict = self.undo_check(tc, tool, plan, input).await;
-        // Point one.
+        // Point one, and the owner's override of it (theseus-p5kln). A hold
+        // nobody overrode is the hold it always was: the call does not run,
+        // the model re-plans it, and no card is made. An override admits
+        // THIS call and only this one -- `allowance_for` matches the tool
+        // and the input the owner was shown -- and it admits it into the
+        // ORDINARY ORDER, which keeps every say it had: the override is of
+        // the hold, not of the gate.
         if let Some(v) = verdict.as_ref().filter(|v| v.holds()) {
-            return Err(Blocked::Held(self.hold_of(tc, tool, plan, v)));
+            match Self::allowed_original(tc, tool, input) {
+                None => return Err(Blocked::Held(self.hold_of(tc, tool, plan, v))),
+                Some(id) => Self::spend_allowance(tc, &id, tool, plan, v),
+            }
         }
         let (decision, bound) = self
             .ordered(at, tool, &admits, seen)
@@ -209,6 +222,57 @@ impl ToolRuntime {
         judge.judge_undo(call).await
     }
 
+    /// The allowance the owner left for THIS call, if there is one: the id
+    /// of a hold of this session whose tool and input are the call's own
+    /// bytes, allowed and not yet spent (`toolrun::holds`). A keyed META
+    /// read, through `theseus_store::blocking` because the gate's path is a
+    /// runtime worker's, and reached only when a hold would otherwise fire --
+    /// so a call nothing holds pays nothing for the route.
+    fn allowed_original(tc: &TurnCtx<'_>, tool: &dyn Tool, input: &Value) -> Option<String> {
+        let store = tc.store;
+        let (session, name) = (tc.session_id, tool.name());
+        theseus_store::blocking(|| match holds::Holds::read(store) {
+            Ok(h) => h.allowance_for(session, name, input),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "the held calls could not be read");
+                None
+            }
+        })
+    }
+
+    /// Spend the allowance, in a frame of its own, BEFORE the call runs: a
+    /// crash between the spend and the call leaves the allowance spent and
+    /// nothing run, which costs the owner one more word; the other order
+    /// would let one allowance run the call twice. One frame holds the
+    /// holds' record and the `tool.hold_overridden` row.
+    fn spend_allowance(tc: &TurnCtx<'_>, id: &str, tool: &dyn Tool, plan: &Plan, v: &UndoVerdict) {
+        let (store, rec) = (tc.store, tc.rec());
+        let fact = crate::fact::tool::ToolHoldOverridden {
+            hold: id,
+            tool: tool.name(),
+            judgment: &v.judgment,
+            shape: v.shape.as_deref(),
+            summary: &plan.summary,
+        };
+        let written = theseus_store::blocking(|| -> anyhow::Result<bool> {
+            let mut held = holds::Holds::read(store)?;
+            if !held.spend(id, theseus_protocol::now_unix_ms()) {
+                return Ok(false);
+            }
+            store.append(&[rec.row(&fact)?, held.record()?])?;
+            Ok(true)
+        });
+        match written {
+            Ok(true) => rec.announce(&fact),
+            // Another call of this turn took the same allowance first, or the
+            // write failed: the call runs either way (the allowance was read
+            // as waiting), and the row says what happened.
+            Ok(false) => tracing::info!(hold = %id, "the allowance was already spent"),
+            Err(e) => tracing::warn!(hold = %id, error = %format!("{e:#}"),
+                "the allowance was not recorded as spent"),
+        }
+    }
+
     /// A hold's words and its record. The shape's sentence is the pack's
     /// own, read from the pack that answered, so the six shapes the owner
     /// can argue with are the six the model is told about.
@@ -230,6 +294,7 @@ impl ToolRuntime {
             why,
             judgment: v.judgment.clone(),
             shape: v.shape.clone(),
+            summary: plan.summary.clone(),
         }
     }
 }

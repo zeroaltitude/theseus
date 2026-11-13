@@ -744,9 +744,21 @@ impl Core {
             // widens who can widen reach, so it takes the narrower rule —
             // the owner in person, with no agent's process behind the
             // connection, and on a transport a DM alone.
+            // A repository's trust and a held call's override are the two
+            // acts that widen what may happen on someone's word, so both
+            // take the narrower rule (theseus-p5kln's keel class: the
+            // override must be the owner's and nobody else's).
             Act::Trust { .. } => {
                 crate::places::owner_in_person(who, &self.runner.place_rule, &self.cfg)
             }
+            Act::UndoAllow { .. } => crate::places::owner_in_person_of(
+                who,
+                &self.runner.place_rule,
+                &self.cfg,
+                "a held call is let past its hold by the owner alone: the hold is there because \
+                 the call would lose something that nothing holds a copy of",
+                "a held call's override is given",
+            ),
             // A job's stop: the owner from any channel, a shared place's too.
             Act::Stop { .. } => {
                 crate::places::owner_anywhere(who, &self.runner.place_rule, &self.cfg).map(|_| ())
@@ -1051,6 +1063,14 @@ pub(crate) enum Act<'a> {
     /// A job's stop (`job.stop`, theseus-bglzl): from any channel Theseus
     /// trusts as the owner's, whatever place it speaks in (`owner_anywhere`).
     Stop { job: &'a str },
+    /// The owner's override of a held call (theseus-p5kln, `undo.allow`): it
+    /// lets a call `undo.v1` held for losing something run as it was first
+    /// proposed. A route PAST a safety mechanism, so it takes the same
+    /// narrower rule a repository's trust does (`places::owner_in_person`):
+    /// no agent's process, and on a transport a DM with an owner alone.
+    /// `what` names it: `Letting the held call hld_… run as it was first
+    /// proposed`.
+    UndoAllow { what: &'a str },
     /// A node marked wrong (theseus-2ced, `fact.retract`): it labels the node out of
     /// every recall, writes notes into sessions, and posts a card, so a job's process
     /// that made it would grade its own memory. `what` names it: `the retraction of msg_…`.
@@ -1086,6 +1106,7 @@ impl Act<'_> {
             Act::Retract { .. } => theseus_protocol::method::FACT_RETRACT,
             Act::Task { .. } => theseus_protocol::method::TASK_START,
             Act::Stop { .. } => theseus_protocol::method::JOB_STOP,
+            Act::UndoAllow { .. } => theseus_protocol::method::UNDO_ALLOW,
         }
     }
 }
