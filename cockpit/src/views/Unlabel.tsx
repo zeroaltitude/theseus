@@ -45,7 +45,7 @@ export default function Unlabel() {
     <Panel help="session.unlabel" title={`Remove the ${route.flag} label`} icon={<Flag size={13} />} bodyClassName="p-4">
       <Field label="Session" mono>{route.session}</Field>
       <Field label="Label" mono>{route.flag}</Field>
-      {route.effect && <div className="mt-3 text-[13px] text-ink-dim">It {route.effect}; removing it lifts that.</div>}
+      {route.says && <div className="mt-3 text-[13px] text-ink-dim">{route.says}</div>}
       <div className="mt-2 text-[13px] text-ink-dim">The label and its removal stay in the ledger. Nothing is removed until you press Remove.</div>
       {said ? (
         <div className={`mt-3 text-[13px] ${said.tone === 'ok' ? 'text-ink' : 'text-fault'}`}>{said.words}</div>

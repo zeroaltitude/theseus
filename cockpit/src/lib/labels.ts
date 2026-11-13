@@ -26,10 +26,32 @@ export interface LabelChip {
 export const FLAG_EFFECT: Readonly<Record<string, string>> = {
   injection:
     'tells the operator that something tried to steer the session; the call still runs, and only ' +
-    '`[content_based_security] injection = "refuse"` refuses its writes, programs and sends until it is removed',
+    '`[content_based_security] injection = "refuse"` refuses its writes, programs and sends',
   secret: 'keeps the session off China-origin models',
   confidential: 'keeps the session off China-origin models',
   personal: 'keeps the session off China-origin models',
+}
+
+/** What removing each flag gives up — its own sentence, per flag, because what a label does and what its removal gives up
+ *  are not the same shape for every flag. `secret`'s restraint is applied in every configuration, so it is simply lifted;
+ *  an `injection` refuses nothing at the shipped default (`[content_based_security] injection = "notify"`), so there is
+ *  nothing there to lift and saying "removing it lifts that" would promise the operator a restraint he never had. A flag
+ *  with an effect but no entry here says only the effect. */
+export const FLAG_REMOVAL: Readonly<Record<string, string>> = {
+  injection: 'Removing it takes the warning off the session, and gives up that refusal where `refuse` is set.',
+  secret: 'Removing it lifts that.',
+  confidential: 'Removing it lifts that.',
+  personal: 'Removing it lifts that.',
+}
+
+/** The sentences Remove says about a label: what it does, then what removing it gives up. Empty for a flag the table
+ *  lacks. `askOf` and the removal page both read this one composition, so the question the operator is asked and the line
+ *  on the page he acts from cannot drift apart — they did, while the page wrote the template out a second time. */
+export const effectWords = (flag: string): string => {
+  const effect = FLAG_EFFECT[flag]
+  if (!effect) return ''
+  const removal = FLAG_REMOVAL[flag]
+  return `It ${effect}.${removal ? ` ${removal}` : ''}`
 }
 
 /** Injection is the one that asks the operator to look, so it takes the warning tone; the other three are the dimmer one. */
@@ -51,10 +73,10 @@ export function chipsOf(labels: readonly LabelView[] | undefined): LabelChip[] {
   })
 }
 
-/** What Remove asks first: what the removal lets the session do again, and that the ledger keeps the label. */
+/** What Remove asks first: what the label does, what the removal gives up, and that the ledger keeps the label. */
 export const askOf = (flag: string, session: string): string => {
-  const effect = FLAG_EFFECT[flag]
-  return `Remove the ${flag} label from ${session}?${effect ? ` It ${effect}; removing it lifts that.` : ''} The label and its removal stay in the ledger.`
+  const words = effectWords(flag)
+  return `Remove the ${flag} label from ${session}?${words ? ` ${words}` : ''} The label and its removal stay in the ledger.`
 }
 
 /** The call Remove makes: `content.unlabel` with the session and the flag, and the question to ask before it. */
@@ -84,7 +106,7 @@ export const FLAGS = ['injection', 'secret', 'confidential', 'personal'] as cons
 
 /** What the Ship makes of `/session/:id/unlabel/:flag`, the address a reply's footer links. */
 export type UnlabelRoute =
-  | { ok: true; session: string; flag: string; effect?: string; ask: string; call: ReturnType<typeof unlabelCall> }
+  | { ok: true; session: string; flag: string; says?: string; ask: string; call: ReturnType<typeof unlabelCall> }
   | { ok: false; why: string }
 
 /** Read the footer's address (theseus-emqbm). A reply's footer lists the labels its session carries, each a link here, so
@@ -100,8 +122,8 @@ export function unlabelRoute(session: string | undefined, flag: string | undefin
   if (!session) return { ok: false, why: 'That address names no session.' }
   if (!flag || !(FLAGS as readonly string[]).includes(flag))
     return { ok: false, why: `“${flag ?? ''}” is not a content label. They are ${FLAGS.join(', ')}.` }
-  const effect = FLAG_EFFECT[flag]
-  return { ok: true, session, flag, ...(effect ? { effect } : {}), ask: askOf(flag, session), call: unlabelCall(session, flag) }
+  const says = effectWords(flag)
+  return { ok: true, session, flag, ...(says ? { says } : {}), ask: askOf(flag, session), call: unlabelCall(session, flag) }
 }
 
 /** What the page says once the daemon has answered, in the daemon's own voice (`/trust`'s: what the removal lets the
