@@ -533,6 +533,9 @@ mod tests {
 
     /// The ledger rows of `kind` in the session, oldest first.
     fn rows(core: &Core, sid: &str, kind: &str) -> Vec<Value> {
+        // A booking's row rides the next frame, or the store's own within a
+        // second (theseus-ht8b): this reader is a test and wants it now.
+        core.store.flush_waiting();
         let rows: Vec<(u64, crate::ledger::LedgerRow)> = core.store.ledger_tail(1000).unwrap();
         rows.into_iter()
             .filter(|(_, r)| r.kind == kind && r.session_id.as_deref() == Some(sid))

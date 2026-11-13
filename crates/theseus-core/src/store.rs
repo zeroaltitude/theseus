@@ -12,6 +12,17 @@
 //! for it (`shared`, into `Kernel::view`). Such a handle keeps the turn's
 //! observability rows (`defer`) and puts them at the front of the next frame
 //! it commits, whoever commits it (theseus-qa0: every frame is an fdatasync).
+//! A row deferred with `defer_waiting` on a handle that is **no** turn's —
+//! a binding's ledger rows — waits for the next frame any writer on this
+//! store commits, and for at most `DEFER_WITHIN` (one second), after which
+//! the store writes it on its own (theseus-ht8b; the owner's call of
+//! 2026-11-12: "all rows ride along", and his shape of 20:46, "a binding row
+//! with no frame behind it waits at most ONE SECOND before the store syncs it
+//! on its own"). So a binding that writes N rows during a turn costs no
+//! frame and no fdatasync of its own, and a crash between a row and its
+//! frame loses that row, deliberately. A plain `defer` on such a handle
+//! still writes at once: its callers read their own row back as soon as the
+//! call returns.
 //! A state transition or a node is never deferred: it is in the index when
 //! the call that wrote it returns. A crash can lose rows still waiting, and
 //! the frames whose sync had not landed (theseus-7yhp).
@@ -130,6 +141,9 @@ pub struct Store {
     blobs: Arc<crate::blobs::Blobs>,
     /// A turn's handle: its waiting rows and its transcript.
     turn: Option<Arc<TurnState>>,
+    /// The rows no turn's frame is coming for (theseus-ht8b), shared by
+    /// every handle on this store.
+    pending: Arc<Pending>,
     /// Decoded nodes by position, shared by every handle (M6 step 33).
     cache: Arc<crate::node_cache::NodeCache>,
     /// Each session's transcript as last read, kept across turns as cold
@@ -314,6 +328,25 @@ impl Faults {
 /// also sees the kernel's frames. Shared by every handle on a store.
 type Seen = Arc<Mutex<Option<theseus_kernel::Observer>>>;
 
+/// Write the rows waiting for a frame as one frame of their own
+/// (theseus-ht8b): the flusher's write, and `Store::flush_waiting`'s. Rows a
+/// failed frame leaves wait again, in front of what came since, for the next
+/// frame or the next flush. Not a method, so the flusher task holds only
+/// these three and no turn's state.
+fn write_waiting(inner: &WalStore, watcher: &Seen, pending: &Pending, rows: Vec<NewRecord>) {
+    match inner.append(&rows) {
+        Ok(positions) => seen(watcher, &rows, &positions),
+        Err(e) => {
+            tracing::warn!(
+                error = %format!("{e:#}"),
+                rows = rows.len(),
+                "store: the rows waiting for a frame were not written; they wait for the next"
+            );
+            pending.give_back(rows);
+        }
+    }
+}
+
 /// Hand a frame just written to the observer, if one watches.
 fn seen(seen: &Seen, records: &[NewRecord], positions: &[u64]) {
     let Some(o) = seen.lock().unwrap().clone() else {
@@ -325,6 +358,62 @@ fn seen(seen: &Seen, records: &[NewRecord], positions: &[u64]) {
 /// A session's nodes with their WAL positions, in order (§4.1): each a
 /// stub until a reader touches its node (M6 step 33).
 pub type Transcript = Vec<(u64, crate::stub::Stub)>;
+
+/// How long a row deferred with no turn behind it waits before the store
+/// writes it on its own (theseus-ht8b, the owner's one-second bound). A test
+/// lowers it through `Store::defer_within`.
+pub const DEFER_WITHIN: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The rows no turn's frame is coming for (theseus-ht8b): a binding's ledger
+/// rows, which used to take a frame and an fdatasync each. They ride the next
+/// frame any writer on this store commits, and the flusher writes whatever is
+/// still here within `DEFER_WITHIN`. Shared by every handle on the store.
+struct Pending {
+    rows: Mutex<Vec<NewRecord>>,
+    /// Whether a flusher is awake for them: one at a time.
+    flushing: std::sync::atomic::AtomicBool,
+    /// `DEFER_WITHIN` in milliseconds, which a test lowers.
+    within_ms: std::sync::atomic::AtomicU64,
+}
+
+impl Default for Pending {
+    fn default() -> Self {
+        Self {
+            rows: Mutex::default(),
+            flushing: std::sync::atomic::AtomicBool::new(false),
+            within_ms: std::sync::atomic::AtomicU64::new(DEFER_WITHIN.as_millis() as u64),
+        }
+    }
+}
+
+impl Pending {
+    /// Park a row for the next frame.
+    fn park(&self, record: NewRecord) {
+        self.rows.lock().unwrap().push(record);
+    }
+
+    /// Take what waits, for a frame that carries it.
+    fn take(&self) -> Vec<NewRecord> {
+        std::mem::take(&mut *self.rows.lock().unwrap())
+    }
+
+    /// Whether any row waits now.
+    fn any(&self) -> bool {
+        !self.rows.lock().unwrap().is_empty()
+    }
+
+    /// Put rows back, in front of what came since: a frame that failed, or
+    /// one the store never wrote.
+    fn give_back(&self, mut rows: Vec<NewRecord>) {
+        let mut waiting = self.rows.lock().unwrap();
+        rows.append(&mut waiting);
+        *waiting = rows;
+    }
+
+    fn within(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.within_ms.load(std::sync::atomic::Ordering::Relaxed))
+    }
+}
 
 /// What a turn's handle keeps (theseus-qa0).
 #[derive(Default)]
@@ -343,14 +432,17 @@ struct TurnState {
 }
 
 impl TurnState {
-    /// Commit `records` with the waiting rows in front, as one frame, and
-    /// return the positions of `records`. A frame that fails is not written,
-    /// so its rows wait again for the next.
+    /// Commit `records` with the store's parked rows and then the turn's
+    /// waiting rows in front, as one frame, and return the positions of
+    /// `records`. A frame that fails is not written, so its rows wait again
+    /// for the next (each where it waited: theseus-ht8b's parked rows in the
+    /// store, the turn's on its handle).
     fn commit(
         &self,
         inner: &WalStore,
         cache: &NodeCache,
         watcher: &Seen,
+        pending: &Pending,
         kernels: bool,
         records: &[NewRecord],
     ) -> Result<Vec<u64>> {
@@ -358,19 +450,21 @@ impl TurnState {
         if self.faults.hit(records) {
             anyhow::bail!("an injected fault: this frame was not written");
         }
+        let parked = pending.take();
         let rows = std::mem::take(&mut *self.waiting.lock().unwrap());
-        if rows.is_empty() && records.is_empty() {
+        if parked.is_empty() && rows.is_empty() && records.is_empty() {
             return Ok(vec![]);
         }
-        let n = rows.len();
-        let mut frame = rows;
+        let (p, n) = (parked.len(), parked.len() + rows.len());
+        let mut frame = parked;
+        frame.extend(rows);
         frame.extend_from_slice(records);
         match inner.append(&frame) {
             Ok(mut positions) => {
                 self.frames
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 // The kernel's own observer has the records its frame holds:
-                // a frame it wrote shows the waiting rows alone.
+                // a frame it wrote shows the rows that rode it alone.
                 let shown = if kernels { n } else { frame.len() };
                 if shown > 0 {
                     seen(watcher, &frame[..shown], &positions[..shown]);
@@ -381,9 +475,11 @@ impl TurnState {
             }
             Err(e) => {
                 frame.truncate(n);
+                let mut mine = frame.split_off(p);
+                pending.give_back(frame);
                 let mut waiting = self.waiting.lock().unwrap();
-                frame.append(&mut waiting);
-                *waiting = frame;
+                mine.append(&mut waiting);
+                *waiting = mine;
                 Err(e)
             }
         }
@@ -433,12 +529,21 @@ struct TurnFrames {
     cache: Arc<NodeCache>,
     turn: Arc<TurnState>,
     watcher: Seen,
+    /// The store's parked rows, which this handle's frames carry too
+    /// (theseus-ht8b).
+    pending: Arc<Pending>,
 }
 
 impl theseus_store::Store for TurnFrames {
     fn append(&self, batch: &[NewRecord]) -> Result<Vec<u64>> {
-        self.turn
-            .commit(&self.inner, &self.cache, &self.watcher, true, batch)
+        self.turn.commit(
+            &self.inner,
+            &self.cache,
+            &self.watcher,
+            &self.pending,
+            true,
+            batch,
+        )
     }
     fn get(&self, position: u64) -> Result<Option<Record>> {
         self.inner.get(position)
@@ -543,6 +648,7 @@ impl Store {
             dir: dir.to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(dir)),
             turn: None,
+            pending: Arc::default(),
             cache: Arc::default(),
             kept: Arc::default(),
             sessions: Arc::default(),
@@ -648,19 +754,112 @@ impl Store {
     }
 
     /// An observability row that is no state transition: on a turn's handle
-    /// it waits for the turn's next frame; otherwise it is written now.
+    /// it waits for the turn's next frame; otherwise it is written now. A
+    /// caller whose row may wait for any frame, and for the bound, asks
+    /// `defer_waiting` instead.
     pub fn defer(&self, record: NewRecord) -> Result<()> {
         match &self.turn {
             Some(t) => {
                 t.waiting.lock().unwrap().push(record);
                 Ok(())
             }
-            None => {
-                let positions = self.inner.append(std::slice::from_ref(&record))?;
-                seen(&self.watcher, &[record], &positions);
+            None => self.write_now(record),
+        }
+    }
+
+    /// A row that may wait for ANY writer's next frame, and for at most
+    /// `DEFER_WITHIN` after which the store writes it on its own
+    /// (theseus-ht8b): a binding's ledger rows, which rode a frame and an
+    /// fdatasync of their own until then. On a turn's handle it is the
+    /// turn's next frame, as `defer` says. Outside a runtime there is no
+    /// timer to wait with, so it is written now, as it always was.
+    ///
+    /// Only a row no reader may miss for a second belongs here. Every other
+    /// deferred row keeps `defer`'s own rule: 97 tests in this workspace
+    /// read a row of their own writing back the moment the call returns, and
+    /// each one is a caller for whom "within a second" is not the contract.
+    pub fn defer_waiting(&self, record: NewRecord) -> Result<()> {
+        match (&self.turn, tokio::runtime::Handle::try_current()) {
+            (Some(t), _) => {
+                t.waiting.lock().unwrap().push(record);
                 Ok(())
             }
+            (None, Ok(rt)) => {
+                self.pending.park(record);
+                self.arm_pending(&rt);
+                Ok(())
+            }
+            (None, Err(_)) => self.write_now(record),
         }
+    }
+
+    /// A ledger row that waits as `defer_waiting` says.
+    pub fn defer_ledger<T: Serialize>(&self, row: &T) -> Result<()> {
+        self.defer_waiting(NewRecord::json(kinds::LEDGER, None, row)?)
+    }
+
+    /// One record as its own frame, now.
+    fn write_now(&self, record: NewRecord) -> Result<()> {
+        let positions = self.inner.append(std::slice::from_ref(&record))?;
+        seen(&self.watcher, &[record], &positions);
+        Ok(())
+    }
+
+    /// Start the flusher for the parked rows, unless one is awake: it waits
+    /// `DEFER_WITHIN`, writes whatever is still parked as one frame off the
+    /// runtime's workers, and stops once nothing waits. A task, not a
+    /// thread, so it dies with the runtime and never writes into a store
+    /// that is closing (theseus-ht8b).
+    fn arm_pending(&self, rt: &tokio::runtime::Handle) {
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.pending.flushing.swap(true, SeqCst) {
+            return;
+        }
+        // Only what the flush needs, never the whole handle: the task holds
+        // no turn's state and keeps no transcript alive.
+        let (pending, inner, watcher) = (
+            self.pending.clone(),
+            self.inner.clone(),
+            self.watcher.clone(),
+        );
+        rt.spawn(async move {
+            loop {
+                tokio::time::sleep(pending.within()).await;
+                let rows = pending.take();
+                if rows.is_empty() {
+                    pending.flushing.store(false, SeqCst);
+                    // A row parked while this was deciding saw a flusher
+                    // awake and armed none: take it over, or stop.
+                    if !pending.any() || pending.flushing.swap(true, SeqCst) {
+                        return;
+                    }
+                    continue;
+                }
+                let (p, i, w) = (pending.clone(), inner.clone(), watcher.clone());
+                // The disk wait goes off the runtime's workers.
+                let _ = tokio::task::spawn_blocking(move || write_waiting(&i, &w, &p, rows)).await;
+            }
+        });
+    }
+
+    /// Write whatever waits for a frame now, as one frame: a test that reads
+    /// a deferred row back, and any caller that wants them down before it
+    /// goes. Nothing waiting is no frame. (A stop needs no call: its own
+    /// row's frame carries them.)
+    pub fn flush_waiting(&self) {
+        let rows = self.pending.take();
+        if !rows.is_empty() {
+            write_waiting(&self.inner, &self.watcher, &self.pending, rows);
+        }
+    }
+
+    /// How long a parked row may wait, lowered by a test so the bound can be
+    /// proved without a second of waiting (`DEFER_WITHIN` is the daemon's).
+    #[cfg(test)]
+    pub fn defer_within(&self, d: std::time::Duration) {
+        self.pending
+            .within_ms
+            .store(d.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Take the rows waiting for the turn's next frame, for a frame that
@@ -707,19 +906,45 @@ impl Store {
         self.commit(&[]).map(|_| ())
     }
 
-    /// Every write: one frame, with a turn's waiting rows in front.
+    /// Every write: one frame, with the store's parked rows and a turn's
+    /// waiting rows in front.
     fn commit(&self, records: &[NewRecord]) -> Result<Vec<u64>> {
         match &self.turn {
-            Some(t) => t.commit(&self.inner, &self.cache, &self.watcher, false, records),
+            Some(t) => t.commit(
+                &self.inner,
+                &self.cache,
+                &self.watcher,
+                &self.pending,
+                false,
+                records,
+            ),
             None if records.is_empty() => Ok(vec![]),
             None => {
                 #[cfg(test)]
                 if self.plain_faults.hit(records) {
                     anyhow::bail!("an injected fault: this frame was not written");
                 }
-                let positions = self.inner.append(records)?;
-                seen(&self.watcher, records, &positions);
-                Ok(positions)
+                // The rows waiting for a frame ride this one (theseus-ht8b).
+                let parked = self.pending.take();
+                if parked.is_empty() {
+                    let positions = self.inner.append(records)?;
+                    seen(&self.watcher, records, &positions);
+                    return Ok(positions);
+                }
+                let n = parked.len();
+                let mut frame = parked;
+                frame.extend_from_slice(records);
+                match self.inner.append(&frame) {
+                    Ok(mut positions) => {
+                        seen(&self.watcher, &frame, &positions);
+                        Ok(positions.split_off(n))
+                    }
+                    Err(e) => {
+                        frame.truncate(n);
+                        self.pending.give_back(frame);
+                        Err(e)
+                    }
+                }
             }
         }
     }
@@ -757,6 +982,7 @@ impl Store {
                 cache: self.cache.clone(),
                 turn: t.clone(),
                 watcher: self.watcher.clone(),
+                pending: self.pending.clone(),
             }),
             None => self.inner.clone(),
         }
@@ -1302,6 +1528,140 @@ pub(crate) mod tests {
         assert!(!labels(&reopened, p0).contains(&"loop.ended".to_string()));
     }
 
+    /// A row deferred with no turn behind it (a binding's: theseus-ht8b, the
+    /// owner's "all rows ride along", 2026-11-12) rides the next frame any
+    /// writer on the store commits, and costs no frame and no fdatasync of
+    /// its own. Until that frame it is in no WAL, so a crash loses it,
+    /// deliberately: the log is the truth and the row is not in it.
+    #[tokio::test]
+    async fn binding_rows_ride_the_next_frame_and_a_crash_before_it_loses_them() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        // Long enough that only a frame can carry them here; the bound has
+        // its own test below.
+        store.defer_within(std::time::Duration::from_secs(600));
+        let frames = |s: &Store| s.stats().unwrap().frames_appended;
+        let (f0, p0) = (frames(&store), store.last_position());
+        for kind in ["discord.message.in", "discord.reply.posted"] {
+            store
+                .defer_ledger(&LedgerRow::named(
+                    kind,
+                    Some("ses_t"),
+                    None,
+                    serde_json::Value::Null,
+                ))
+                .unwrap();
+        }
+        assert_eq!(frames(&store), f0, "no frame of their own");
+        assert_eq!(
+            (store.last_position(), store.ledger_len().unwrap()),
+            (p0, 0),
+            "and nothing in the log or the index: a crash here loses them"
+        );
+        // The turn's next frame carries them, in front of its own rows.
+        let t = store.for_turn();
+        t.defer(row("turn.started")).unwrap();
+        t.put_session("ses_t", &serde_json::json!({"n": 1}))
+            .unwrap();
+        assert_eq!(frames(&store), f0 + 1, "one frame for all of it");
+        assert_eq!(
+            labels(&store, p0),
+            [
+                "ledger.chain_started",
+                "discord.message.in",
+                "discord.reply.posted",
+                "turn.started",
+                "session"
+            ]
+        );
+    }
+
+    /// A row with no frame behind it waits at most `DEFER_WITHIN` before the
+    /// store writes it on its own: the owner's bound of 2026-11-12 20:46, "a
+    /// binding row with no frame behind it waits at most ONE SECOND before
+    /// the store syncs it on its own". The bound itself is asserted here;
+    /// the wait is lowered so the test costs milliseconds, and the loop ends
+    /// on the frame, never on a sleep's length.
+    #[tokio::test]
+    async fn a_row_with_no_frame_behind_it_is_written_within_the_bound() {
+        assert_eq!(
+            super::DEFER_WITHIN,
+            std::time::Duration::from_secs(1),
+            "the owner's bound"
+        );
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        store.defer_within(std::time::Duration::from_millis(20));
+        let frames = |s: &Store| s.stats().unwrap().frames_appended;
+        let (f0, p0) = (frames(&store), store.last_position());
+        store
+            .defer_ledger(&LedgerRow::named(
+                "discord.message.in",
+                Some("ses_t"),
+                None,
+                serde_json::Value::Null,
+            ))
+            .unwrap();
+        assert_eq!(frames(&store), f0, "not on the caller's path");
+        let t0 = std::time::Instant::now();
+        while frames(&store) == f0 {
+            assert!(
+                t0.elapsed() < std::time::Duration::from_secs(20),
+                "the row waited {:?} with no frame behind it",
+                t0.elapsed()
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert_eq!(frames(&store), f0 + 1, "one frame, the store's own");
+        assert_eq!(
+            labels(&store, p0),
+            ["ledger.chain_started", "discord.message.in"]
+        );
+    }
+
+    /// The stop writes a row of its own, and that frame carries whatever
+    /// waits, so a clean stop loses no binding row (theseus-ht8b). A frame
+    /// that fails gives the rows back, in front of what came since, and the
+    /// next frame carries them.
+    #[tokio::test]
+    async fn a_failed_frame_gives_the_waiting_rows_back_and_the_stops_frame_carries_them() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open(d.path()).unwrap();
+        store.defer_within(std::time::Duration::from_secs(600));
+        let frames = |s: &Store| s.stats().unwrap().frames_appended;
+        let (f0, p0) = (frames(&store), store.last_position());
+        store
+            .defer_ledger(&LedgerRow::named(
+                "discord.message.in",
+                Some("ses_t"),
+                None,
+                serde_json::Value::Null,
+            ))
+            .unwrap();
+        store.fail_plain_frame(|_| true);
+        store.put_meta("m", &1).unwrap_err();
+        assert_eq!(frames(&store), f0, "nothing was written");
+        // The stop's own row, which is a plain append (`stop_record`).
+        store
+            .append_ledger(&LedgerRow::named(
+                "server.stopping",
+                None,
+                None,
+                serde_json::Value::Null,
+            ))
+            .unwrap();
+        assert_eq!(frames(&store), f0 + 1);
+        assert_eq!(
+            labels(&store, p0),
+            [
+                "ledger.chain_started",
+                "discord.message.in",
+                "server.stopping"
+            ],
+            "the row the failed frame gave back rode the stop's"
+        );
+    }
+
     /// A turn's transcript is read at its first reader and kept (theseus-qa0):
     /// the nodes its frames write join it with their positions, the kernel's
     /// frames included, and no later reader reads it again. Another session's
@@ -1409,6 +1769,7 @@ pub(crate) mod tests {
             dir: full.path().to_path_buf(),
             blobs: Arc::new(crate::blobs::Blobs::new(full.path())),
             turn: None,
+            pending: Arc::default(),
             cache: Arc::default(),
             kept: Arc::default(),
             sessions: Arc::default(),

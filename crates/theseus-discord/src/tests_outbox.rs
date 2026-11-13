@@ -379,6 +379,9 @@ fn settle_receipts(core: &Core) -> Vec<(String, String)> {
 }
 
 fn refused_rows(core: &Core) -> Vec<serde_json::Value> {
+    // A binding's rows ride the next frame, or the store's own within a
+    // second (theseus-ht8b): this reader wants them now.
+    core.store.flush_waiting();
     let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> = core.store.ledger_tail(500).unwrap();
     rows.into_iter()
         .filter(|(_, r)| r.kind == "action.failed" && r.data["outbox"].is_string())
@@ -861,6 +864,9 @@ const OTHER: u64 = 300_000_000_000_000_003;
 /// The ledger's `discord.message.out` rows: what Discord said each create
 /// mentioned, by its message id.
 fn mentioned_out(core: &Core) -> Vec<(String, serde_json::Value)> {
+    // A binding's rows ride the next frame, or the store's own within a
+    // second (theseus-ht8b): this reader wants them now.
+    core.store.flush_waiting();
     let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> = core.store.ledger_tail(500).unwrap();
     rows.into_iter()
         .filter(|(_, r)| r.kind == "discord.message.out")

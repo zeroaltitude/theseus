@@ -994,6 +994,7 @@ async fn interactions_find_their_place_as_messages_do_and_leave_the_rest_alone()
             .count()
     };
     let commands = || {
+        core.store.flush_waiting(); // its rows ride a frame (theseus-ht8b)
         core.store
             .ledger_tail::<theseus_core::ledger::LedgerRow>(100_000)
             .unwrap()

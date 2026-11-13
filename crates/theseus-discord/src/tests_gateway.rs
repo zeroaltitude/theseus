@@ -253,6 +253,9 @@ impl Rig {
     }
 
     pub(crate) fn ledger(&self, kind: &str) -> Vec<serde_json::Value> {
+        // A binding's rows ride the next frame, or the store's own within a
+        // second (theseus-ht8b): this reader wants them now.
+        self.core.store.flush_waiting();
         let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> =
             self.core.store.ledger_tail(2000).unwrap();
         rows.into_iter()
