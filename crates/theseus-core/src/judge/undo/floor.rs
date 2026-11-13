@@ -101,35 +101,42 @@ fn nothing_holds(r: Recovery) -> bool {
     }
 }
 
-/// Whether this call is a plain file write or edit: the table recognises the
-/// tool, **and** the call carries nothing but file targets. Both, because the
-/// table is about a tool and this is about one call of it.
-fn plain_file_call(call: &UndoCall) -> bool {
-    PLAIN_FILE_TOOLS.iter().any(|p| p.tool == call.tool)
-        && !call.is_program
-        && call.argv.is_empty()
-        && call.steps.is_empty()
-        && call.url.is_none()
+/// Whether one call of a table tool carries nothing but its file targets. The
+/// structural test sits UNDER the table, never instead of it: the table says
+/// this tool's whole effect is its targets, and this says THIS call of it is
+/// the shape the table was written about.
+fn carries_only_its_targets(call: &UndoCall) -> bool {
+    !call.is_program && call.argv.is_empty() && call.steps.is_empty() && call.url.is_none()
 }
 
-/// **The floor itself.** Whether code forces a hold for this call, from the
-/// same resolved words the request carries — so what the floor read and what
-/// the model was shown cannot differ.
-///
-/// Only `write` targets count. A plain file call may name a path it merely
-/// reads, and nothing is lost from a path the call does not change.
+/// **The floor itself.** Whether code forces a hold for this call.
 pub(crate) fn forces_hold(call: &UndoCall, input: &UndoInput) -> bool {
-    plain_file_call(call)
-        && input
-            .targets
-            .iter()
-            .any(|t| t.access == "write" && nothing_holds(t.recovery))
+    floored_because(call, input).is_some()
 }
 
-/// What the table says recreates nothing — the reader of each line's `effect`
-/// (the reader rule, AGENTS.md: nothing is declared without its reader). It is
-/// what a report or a row would say if it ever names why a call was floored.
-#[cfg(test)]
+/// **Why** the floor holds this call, in the table's own words for the tool's
+/// whole effect; `None` is "the model decides", which is every call this floor
+/// does not reach. It reads the same resolved words the request carries — they
+/// come from one `UndoInput` — so what code saw and what the model was shown
+/// cannot differ.
+///
+/// Only `write` targets count: a plain file call may name a path it merely
+/// reads, and nothing is lost from a path the call does not change.
+///
+/// This is the reader of each line's `effect` (the reader rule, AGENTS.md:
+/// nothing is declared without its reader), and it is what a report or a row
+/// would say if it ever names why a call was floored.
+pub(crate) fn floored_because(call: &UndoCall, input: &UndoInput) -> Option<&'static str> {
+    let effect = whole_effect_of(&call.tool)?;
+    let loses = input
+        .targets
+        .iter()
+        .any(|t| t.access == "write" && nothing_holds(t.recovery));
+    (carries_only_its_targets(call) && loses).then_some(effect)
+}
+
+/// The table's own words for what a tool's whole effect is, or `None` for a
+/// tool it does not name.
 pub(crate) fn whole_effect_of(tool: &str) -> Option<&'static str> {
     PLAIN_FILE_TOOLS
         .iter()

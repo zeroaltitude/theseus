@@ -221,6 +221,22 @@ fn the_table_is_closed_and_every_line_says_its_whole_effect() {
             p.tool
         );
         assert_eq!(whole_effect_of(p.tool), Some(p.effect));
+        // The words reach the answer, so the table's `effect` has a reader in
+        // the product and not only in this test.
+        let (c, i) = write_of(p.tool, "write", Recovery::Untracked);
+        assert_eq!(
+            floored_because(&c, &i),
+            Some(p.effect),
+            "{}: the floor says why in the table's own words",
+            p.tool
+        );
     }
     assert_eq!(whole_effect_of("proc.run"), None);
+    let (c, i) = write_of("fs.write", "write", Recovery::TrackedClean);
+    assert_eq!(
+        floored_because(&c, &i),
+        None,
+        "a call the floor does not reach has no reason, because it is the \
+         model's to decide"
+    );
 }
