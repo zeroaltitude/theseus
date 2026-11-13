@@ -75,191 +75,191 @@
    "decisions": {
     "by_class": {
      "filing": {
-      "chose": 62,
-      "jev_usd": 0.0154,
-      "judgments": 103,
-      "main_model_usd": 1.2642,
-      "n": 179,
-      "per_turn": 1.252
+      "chose": 80,
+      "jev_usd": 0.0225,
+      "judgments": 156,
+      "main_model_usd": 1.858,
+      "n": 274,
+      "per_turn": 1.916
      },
      "privacy": {
-      "chose": 52,
-      "jev_usd": 0.0061,
-      "judgments": 63,
-      "main_model_usd": 0.4024,
-      "n": 455,
-      "per_turn": 3.182
+      "chose": 79,
+      "jev_usd": 0.009,
+      "judgments": 92,
+      "main_model_usd": 0.5955,
+      "n": 671,
+      "per_turn": 4.692
      },
      "routing": {
-      "chose": 135,
-      "jev_usd": 0.0173,
-      "judgments": 186,
-      "main_model_usd": 1.2474,
-      "n": 227,
-      "per_turn": 1.587
+      "chose": 209,
+      "jev_usd": 0.0261,
+      "judgments": 286,
+      "main_model_usd": 1.8959,
+      "n": 351,
+      "per_turn": 2.455
      }
     },
-    "jev_usd": 0.0388,
-    "judgments": 352,
-    "main_model_usd": 2.914,
-    "n": 861,
-    "per_turn": 6.021,
+    "jev_usd": 0.0577,
+    "judgments": 534,
+    "main_model_usd": 4.3494,
+    "n": 1296,
+    "per_turn": 9.063,
     "questions": {
      "categorize.v1/still_member": {
-      "act": 2,
-      "answered": 3,
+      "act": 5,
+      "answered": 13,
       "chose": 2,
       "class": "filing"
      },
      "categorize.v1/topic": {
       "act": 5,
-      "answered": 9,
+      "answered": 13,
       "chose": 5,
       "class": "filing"
      },
      "classify.v4/thread": {
-      "act": 37,
-      "answered": 64,
-      "chose": 37,
+      "act": 52,
+      "answered": 100,
+      "chose": 52,
       "class": "routing"
      },
      "onto.v1/capability": {
-      "act": 60,
-      "answered": 94,
+      "act": 92,
+      "answered": 143,
       "chose": 0,
       "class": "filing"
      },
      "onto.v1/elicits": {
-      "act": 94,
-      "answered": 94,
+      "act": 143,
+      "answered": 143,
       "chose": 0,
       "class": "privacy"
      },
      "onto.v1/event": {
-      "act": 52,
-      "answered": 94,
-      "chose": 17,
+      "act": 81,
+      "answered": 143,
+      "chose": 21,
       "class": "filing"
      },
      "onto.v1/expertise": {
-      "act": 12,
-      "answered": 94,
+      "act": 20,
+      "answered": 143,
       "chose": 0,
       "class": "filing"
      },
      "onto.v1/personal": {
-      "act": 93,
-      "answered": 94,
+      "act": 133,
+      "answered": 143,
       "chose": 0,
       "class": "privacy"
      },
      "onto.v1/resource": {
-      "act": 31,
-      "answered": 94,
-      "chose": 22,
+      "act": 48,
+      "answered": 143,
+      "chose": 30,
       "class": "filing"
      },
      "onto.v1/topic": {
-      "act": 17,
-      "answered": 94,
-      "chose": 16,
+      "act": 23,
+      "answered": 143,
+      "chose": 22,
       "class": "filing"
      },
      "route.v7/data": {
-      "act": 28,
-      "answered": 93,
-      "chose": 28,
+      "act": 54,
+      "answered": 143,
+      "chose": 54,
       "class": "routing"
      },
      "route.v7/mode": {
-      "act": 35,
-      "answered": 93,
-      "chose": 35,
+      "act": 52,
+      "answered": 143,
+      "chose": 52,
       "class": "routing"
      },
      "route.v7/persona": {
-      "act": 2,
-      "answered": 29,
-      "chose": 2,
+      "act": 7,
+      "answered": 40,
+      "chose": 7,
       "class": "routing"
      },
      "route.v7/personal": {
-      "act": 92,
-      "answered": 93,
+      "act": 142,
+      "answered": 143,
       "chose": 0,
       "class": "routing"
      },
      "route.v7/reply_effort": {
-      "act": 14,
-      "answered": 93,
-      "chose": 14,
+      "act": 20,
+      "answered": 143,
+      "chose": 20,
       "class": "routing"
      },
      "route.v7/seal": {
-      "act": 19,
-      "answered": 29,
-      "chose": 19,
+      "act": 24,
+      "answered": 40,
+      "chose": 24,
       "class": "routing"
      },
      "security.v3/beyond_ask": {
-      "act": 1,
-      "answered": 63,
+      "act": 3,
+      "answered": 92,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/destructive": {
-      "act": 26,
-      "answered": 63,
-      "chose": 2,
+      "act": 38,
+      "answered": 92,
+      "chose": 4,
       "class": "privacy"
      },
      "security.v3/exfiltrates": {
-      "act": 63,
-      "answered": 63,
+      "act": 91,
+      "answered": 92,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/kind": {
-      "act": 36,
-      "answered": 63,
-      "chose": 36,
+      "act": 54,
+      "answered": 92,
+      "chose": 54,
       "class": "privacy"
      },
      "security.v3/risky": {
-      "act": 21,
-      "answered": 63,
+      "act": 27,
+      "answered": 92,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/safe": {
-      "act": 14,
-      "answered": 63,
-      "chose": 14,
+      "act": 21,
+      "answered": 92,
+      "chose": 21,
       "class": "privacy"
      },
      "security.v3/steered": {
-      "act": 45,
-      "answered": 63,
+      "act": 71,
+      "answered": 92,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/touches_credentials": {
-      "act": 62,
-      "answered": 63,
+      "act": 90,
+      "answered": 92,
       "chose": 0,
       "class": "privacy"
      }
     },
     "recorded": true,
-    "saved_usd": 2.8752,
+    "saved_usd": 4.2917,
     "turns": {
      "attributed": {
       "between": 0,
       "time": 0,
-      "turn_id": 861
+      "turn_id": 1296
      },
-     "mean": 6.021,
-     "share_with_decision": 0.657
+     "mean": 9.063,
+     "share_with_decision": 1.0
     },
     "unanswered": 0
    },
@@ -960,142 +960,142 @@
     "by_class": {
      "filing": {
       "chose": 0,
-      "jev_usd": 0.0003,
-      "judgments": 9,
-      "main_model_usd": 0.0155,
+      "jev_usd": 0.0004,
+      "judgments": 13,
+      "main_model_usd": 0.0218,
       "n": 0,
       "per_turn": 0.0
      },
      "privacy": {
-      "chose": 71,
-      "jev_usd": 0.0061,
-      "judgments": 64,
-      "main_model_usd": 0.4057,
-      "n": 289,
-      "per_turn": 2.021
+      "chose": 93,
+      "jev_usd": 0.0083,
+      "judgments": 87,
+      "main_model_usd": 0.5514,
+      "n": 401,
+      "per_turn": 2.804
      },
      "routing": {
-      "chose": 154,
-      "jev_usd": 0.0232,
-      "judgments": 208,
-      "main_model_usd": 1.6269,
-      "n": 257,
-      "per_turn": 1.797
+      "chose": 215,
+      "jev_usd": 0.0312,
+      "judgments": 286,
+      "main_model_usd": 2.1994,
+      "n": 357,
+      "per_turn": 2.497
      }
     },
-    "jev_usd": 0.0296,
-    "judgments": 281,
-    "main_model_usd": 2.0481,
-    "n": 546,
-    "per_turn": 3.818,
+    "jev_usd": 0.0399,
+    "judgments": 386,
+    "main_model_usd": 2.7727,
+    "n": 758,
+    "per_turn": 5.301,
     "questions": {
      "categorize.v1/topic": {
       "act": 0,
-      "answered": 9,
+      "answered": 13,
       "chose": 0,
       "class": "filing"
      },
      "classify.v4/thread": {
-      "act": 63,
-      "answered": 92,
-      "chose": 63,
+      "act": 75,
+      "answered": 122,
+      "chose": 75,
       "class": "routing"
      },
      "route.v7/data": {
-      "act": 36,
-      "answered": 104,
-      "chose": 36,
+      "act": 58,
+      "answered": 143,
+      "chose": 58,
       "class": "routing"
      },
      "route.v7/mode": {
-      "act": 39,
-      "answered": 104,
-      "chose": 39,
+      "act": 54,
+      "answered": 143,
+      "chose": 54,
       "class": "routing"
      },
      "route.v7/persona": {
-      "act": 0,
-      "answered": 12,
-      "chose": 0,
+      "act": 3,
+      "answered": 18,
+      "chose": 3,
       "class": "routing"
      },
      "route.v7/personal": {
-      "act": 103,
-      "answered": 104,
+      "act": 142,
+      "answered": 143,
       "chose": 0,
       "class": "routing"
      },
      "route.v7/reply_effort": {
-      "act": 8,
-      "answered": 104,
-      "chose": 8,
+      "act": 15,
+      "answered": 143,
+      "chose": 15,
       "class": "routing"
      },
      "route.v7/seal": {
-      "act": 8,
-      "answered": 12,
-      "chose": 8,
+      "act": 10,
+      "answered": 18,
+      "chose": 10,
       "class": "routing"
      },
      "security.v3/beyond_ask": {
-      "act": 3,
-      "answered": 64,
+      "act": 4,
+      "answered": 87,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/destructive": {
-      "act": 23,
-      "answered": 64,
-      "chose": 2,
+      "act": 37,
+      "answered": 87,
+      "chose": 4,
       "class": "privacy"
      },
      "security.v3/exfiltrates": {
-      "act": 64,
-      "answered": 64,
+      "act": 87,
+      "answered": 87,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/kind": {
-      "act": 48,
-      "answered": 64,
-      "chose": 48,
+      "act": 62,
+      "answered": 87,
+      "chose": 62,
       "class": "privacy"
      },
      "security.v3/risky": {
-      "act": 18,
-      "answered": 64,
+      "act": 27,
+      "answered": 87,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/safe": {
-      "act": 21,
-      "answered": 64,
-      "chose": 21,
+      "act": 27,
+      "answered": 87,
+      "chose": 27,
       "class": "privacy"
      },
      "security.v3/steered": {
-      "act": 50,
-      "answered": 64,
+      "act": 72,
+      "answered": 87,
       "chose": 0,
       "class": "privacy"
      },
      "security.v3/touches_credentials": {
-      "act": 62,
-      "answered": 64,
+      "act": 85,
+      "answered": 87,
       "chose": 0,
       "class": "privacy"
      }
     },
     "recorded": true,
-    "saved_usd": 2.0186,
+    "saved_usd": 2.7328,
     "turns": {
      "attributed": {
       "between": 0,
       "time": 0,
-      "turn_id": 546
+      "turn_id": 758
      },
-     "mean": 3.818,
-     "share_with_decision": 0.727
+     "mean": 5.301,
+     "share_with_decision": 0.993
     },
     "unanswered": 0
    },

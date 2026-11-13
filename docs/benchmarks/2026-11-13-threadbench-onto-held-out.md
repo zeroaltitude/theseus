@@ -4,7 +4,9 @@
 
 Both halves ran on the same frozen binaries, install #74, main `ae420a49`, deliberately: the plan's frozen-binary clause exists so that the held-out set and the development set are compared on one build rather than two.
 
-**What this half says.** Contamination: 0/26 for A1o against 6/26 (23.1%) for A1 — the development half's direction (3.8% against 12.8%), larger here. Context tokens a model call: 27,141 against 27,973. Dollars a message: $0.0138 against $0.0139. Decisions a message taken by Jev: 6.02 against 3.82, the ontology's filings being extra decision questions at the act band. Routing top-1 on a clear message: 92.9% against 91.3% — the opposite sign to the development half's 90.9% against 93.1%, which together say noise rather than an effect.
+**What this half says.** Contamination: 0/26 for A1o against 6/26 (23.1%) for A1 — the development half's direction (3.8% against 12.8%), larger here. Context tokens a model call: 27,141 against 27,973. Dollars a message: $0.0138 against $0.0139. Decisions a message taken by Jev: **9.06 against 5.30**, the ontology's filings being extra decision questions answered at the act band — a difference of +3.76 against the development half's +3.75, which is as close as two halves of this measurement come to agreeing. Routing top-1 on a clear message: 92.9% against 91.3% — the opposite sign to the development half's 90.9% against 93.1%, which together say noise rather than an effect.
+
+**A data repair, disclosed.** On this build the driver keeps only the newest 1,000 `judge.call` rows (`bench/recall/drive.py`, `ledger -n 1000`; `theseus-mcl4v`, P2), and each of these runs made more — 1,802 and 1,613. Both runs' `judgments.json` was rebuilt from the saved store WAL before scoring, exactly as the development half's six runs were, and the cut file is kept beside it as `judgments.capped.json`. Read from the capped files the decisions column would have read 6.02 against 3.82 and Jev's cost 35% low, which would not have been comparable with the development half. Jev's own cost here is $0.1053 for A1o and $0.0895 for A1.
 
 **What this half cannot say.** The oracle mean reads 66.7% against 83.3%, and that entire 16.7-point gap is **one check**: the oracle is all-or-nothing per stream, A1o passed 4 of 5 checks on `pr-round` and A1 passed 5 of 5, and one stream of six is 16.7 points. On the continuous measure it is 24 of 26 checks against 25 of 26. Both arms also lost six turns each to a misroute hold nobody answers, nine of those twelve holds being holds of work that was in the **right** thread (`theseus-4gb4w`, under "The build both halves ran on" below). **No correctness verdict should be read out of this run.**
 
@@ -154,53 +156,53 @@ First-token latency is carried by Theseus's turn result only; Claude Code and Pi
 
 | arm | decisions per message by Jev, all (routing / filing / privacy) | Jev's dollars | the main model's, modelled | saved | unanswered | judgments | messages with a decision |
 |---|---|---|---|---|---|---|---|
-| A1o | 6.02 (1.59 / 1.25 / 3.18) | $0.039 | $2.91 | $2.88 | 0 | 352 | 65.7% |
-| A1 | 3.82 (1.80 / 0.00 / 2.02) | $0.030 | $2.05 | $2.02 | 0 | 281 | 72.7% |
+| A1o | 9.06 (2.46 / 1.92 / 4.69) | $0.058 | $4.35 | $4.29 | 0 | 534 | 100.0% |
+| A1 | 5.30 (2.50 / 0.00 / 2.80) | $0.040 | $2.77 | $2.73 | 0 | 386 | 99.3% |
 
 Per question (answered; at the act band, which are the decisions; of those, the ones that chose something):
 
 | arm | question | class | answered | act band | chose |
 |---|---|---|---|---|---|
-| A1o | `categorize.v1/still_member` | filing | 3 | 2 | 2 |
-| A1o | `categorize.v1/topic` | filing | 9 | 5 | 5 |
-| A1o | `classify.v4/thread` | routing | 64 | 37 | 37 |
-| A1o | `onto.v1/capability` | filing | 94 | 60 | 0 |
-| A1o | `onto.v1/elicits` | privacy | 94 | 94 | 0 |
-| A1o | `onto.v1/event` | filing | 94 | 52 | 17 |
-| A1o | `onto.v1/expertise` | filing | 94 | 12 | 0 |
-| A1o | `onto.v1/personal` | privacy | 94 | 93 | 0 |
-| A1o | `onto.v1/resource` | filing | 94 | 31 | 22 |
-| A1o | `onto.v1/topic` | filing | 94 | 17 | 16 |
-| A1o | `route.v7/data` | routing | 93 | 28 | 28 |
-| A1o | `route.v7/mode` | routing | 93 | 35 | 35 |
-| A1o | `route.v7/persona` | routing | 29 | 2 | 2 |
-| A1o | `route.v7/personal` | routing | 93 | 92 | 0 |
-| A1o | `route.v7/reply_effort` | routing | 93 | 14 | 14 |
-| A1o | `route.v7/seal` | routing | 29 | 19 | 19 |
-| A1o | `security.v3/beyond_ask` | privacy | 63 | 1 | 0 |
-| A1o | `security.v3/destructive` | privacy | 63 | 26 | 2 |
-| A1o | `security.v3/exfiltrates` | privacy | 63 | 63 | 0 |
-| A1o | `security.v3/kind` | privacy | 63 | 36 | 36 |
-| A1o | `security.v3/risky` | privacy | 63 | 21 | 0 |
-| A1o | `security.v3/safe` | privacy | 63 | 14 | 14 |
-| A1o | `security.v3/steered` | privacy | 63 | 45 | 0 |
-| A1o | `security.v3/touches_credentials` | privacy | 63 | 62 | 0 |
-| A1 | `categorize.v1/topic` | filing | 9 | 0 | 0 |
-| A1 | `classify.v4/thread` | routing | 92 | 63 | 63 |
-| A1 | `route.v7/data` | routing | 104 | 36 | 36 |
-| A1 | `route.v7/mode` | routing | 104 | 39 | 39 |
-| A1 | `route.v7/persona` | routing | 12 | 0 | 0 |
-| A1 | `route.v7/personal` | routing | 104 | 103 | 0 |
-| A1 | `route.v7/reply_effort` | routing | 104 | 8 | 8 |
-| A1 | `route.v7/seal` | routing | 12 | 8 | 8 |
-| A1 | `security.v3/beyond_ask` | privacy | 64 | 3 | 0 |
-| A1 | `security.v3/destructive` | privacy | 64 | 23 | 2 |
-| A1 | `security.v3/exfiltrates` | privacy | 64 | 64 | 0 |
-| A1 | `security.v3/kind` | privacy | 64 | 48 | 48 |
-| A1 | `security.v3/risky` | privacy | 64 | 18 | 0 |
-| A1 | `security.v3/safe` | privacy | 64 | 21 | 21 |
-| A1 | `security.v3/steered` | privacy | 64 | 50 | 0 |
-| A1 | `security.v3/touches_credentials` | privacy | 64 | 62 | 0 |
+| A1o | `categorize.v1/still_member` | filing | 13 | 5 | 2 |
+| A1o | `categorize.v1/topic` | filing | 13 | 5 | 5 |
+| A1o | `classify.v4/thread` | routing | 100 | 52 | 52 |
+| A1o | `onto.v1/capability` | filing | 143 | 92 | 0 |
+| A1o | `onto.v1/elicits` | privacy | 143 | 143 | 0 |
+| A1o | `onto.v1/event` | filing | 143 | 81 | 21 |
+| A1o | `onto.v1/expertise` | filing | 143 | 20 | 0 |
+| A1o | `onto.v1/personal` | privacy | 143 | 133 | 0 |
+| A1o | `onto.v1/resource` | filing | 143 | 48 | 30 |
+| A1o | `onto.v1/topic` | filing | 143 | 23 | 22 |
+| A1o | `route.v7/data` | routing | 143 | 54 | 54 |
+| A1o | `route.v7/mode` | routing | 143 | 52 | 52 |
+| A1o | `route.v7/persona` | routing | 40 | 7 | 7 |
+| A1o | `route.v7/personal` | routing | 143 | 142 | 0 |
+| A1o | `route.v7/reply_effort` | routing | 143 | 20 | 20 |
+| A1o | `route.v7/seal` | routing | 40 | 24 | 24 |
+| A1o | `security.v3/beyond_ask` | privacy | 92 | 3 | 0 |
+| A1o | `security.v3/destructive` | privacy | 92 | 38 | 4 |
+| A1o | `security.v3/exfiltrates` | privacy | 92 | 91 | 0 |
+| A1o | `security.v3/kind` | privacy | 92 | 54 | 54 |
+| A1o | `security.v3/risky` | privacy | 92 | 27 | 0 |
+| A1o | `security.v3/safe` | privacy | 92 | 21 | 21 |
+| A1o | `security.v3/steered` | privacy | 92 | 71 | 0 |
+| A1o | `security.v3/touches_credentials` | privacy | 92 | 90 | 0 |
+| A1 | `categorize.v1/topic` | filing | 13 | 0 | 0 |
+| A1 | `classify.v4/thread` | routing | 122 | 75 | 75 |
+| A1 | `route.v7/data` | routing | 143 | 58 | 58 |
+| A1 | `route.v7/mode` | routing | 143 | 54 | 54 |
+| A1 | `route.v7/persona` | routing | 18 | 3 | 3 |
+| A1 | `route.v7/personal` | routing | 143 | 142 | 0 |
+| A1 | `route.v7/reply_effort` | routing | 143 | 15 | 15 |
+| A1 | `route.v7/seal` | routing | 18 | 10 | 10 |
+| A1 | `security.v3/beyond_ask` | privacy | 87 | 4 | 0 |
+| A1 | `security.v3/destructive` | privacy | 87 | 37 | 4 |
+| A1 | `security.v3/exfiltrates` | privacy | 87 | 87 | 0 |
+| A1 | `security.v3/kind` | privacy | 87 | 62 | 62 |
+| A1 | `security.v3/risky` | privacy | 87 | 27 | 0 |
+| A1 | `security.v3/safe` | privacy | 87 | 27 | 27 |
+| A1 | `security.v3/steered` | privacy | 87 | 72 | 0 |
+| A1 | `security.v3/touches_credentials` | privacy | 87 | 85 | 0 |
 
 A decision is one decision question answered at the act band: a filing (`onto.*`'s topic, project, event, resource, capability and expertise questions, and `categorize.*`), a routing (`route.*`, and `classify.*`'s `thread`) or a privacy decision (`security.*`, and `onto.*`'s `personal`, `elicits` and `shows_*`); one judgment holds as many as it has such answers. A judgment belongs to the turn its `context.turn` names, else to the turn of its session whose window holds its time, else to no turn; the mean is over all messages and the share counts the messages with a decision attributed to them. The dollars are per judgment, read from the run's `judge.call` rows (`judgments.json`). The main model's dollars are modelled, not measured: the same tokens Jev read, at the model's uncached input price, and the tokens Jev wrote at its output price; a free-form answer is longer than Jev's choice, so it is a floor. The oracle arm makes these decisions by asking the main model, one extra call each, so its count is the Jev arm's and its dollars are that column. Judgments Jev did not answer are counted apart: a decision not taken off the main model. A run from before the questions were recorded counts judgments and says so.
 
@@ -222,7 +224,7 @@ A decision is one decision question answered at the act band: a filing (`onto.*`
 | context tokens per model call, mean | 27,141 | 27,973 | -831 |
 | dollars per message, measured | $0.0138 | $0.0139 | $-0.0001 |
 | wall per message, mean (ms) | 5,601 | 5,417 | +184 |
-| decisions per message taken by Jev | 6.02 | 3.82 | +2.20 |
+| decisions per message taken by Jev | 9.06 | 5.30 | +3.76 |
 
 The decisions column is below. A positive difference in the oracle or in routing is for the ontology; a positive difference in tokens, dollars, latency or contamination is against it.
 
@@ -267,7 +269,7 @@ So, metric by metric:
 | contamination, cross-stream contamination | **yes** | a hold nobody answers removes a turn's *write*; it does not put another stream's value into an answer. Both halves agree in sign, and the held-out difference is the larger one. |
 | context tokens a model call | **yes** | measured per call over 143 turns in both arms; a lost write does not change what the prompt carried. |
 | dollars a message, dollars a run | **yes** | each turn's own usage, summed; both differences are under a tenth of a cent a message, which is the honest reading (no effect). |
-| decisions taken by Jev | **yes** | counted at the act band from the judgments ledger; unaffected by whether a tool call was later held. |
+| decisions taken by Jev | **yes, after the WAL repair** | counted at the act band from the judgments ledger, and unaffected by whether a tool call was later held — but only once `judgments.json` is rebuilt from the store WAL (`theseus-mcl4v`: the driver keeps the newest 1,000 `judge.call` rows and these runs make 1,353–1,802). Both halves were repaired before scoring; read from the capped files this column and Jev's cost come out about 35% low, and the two halves are not comparable. |
 | routing top-1, asked-on-clear | **yes, and it says nothing** | placement is decided before the guard arms. The two halves differ in opposite directions (−2.1 and +1.6 points), so the reading is "no measurable effect", not a winner. |
 | latency | **treat as a shape** | measured on a shared host; the held-out pair ran with host load 5.0–8.3 and the development half 3.2–9.3. Walls are not a result in this suite. |
 | **per-stream oracle / oracle mean** | **no** | all-or-nothing per stream: one failed check zeroes a stream and moves the mean 16.7 points. The held-out gap is one check. On top of that, the `4gb4w` holds remove turns from both arms at random. Published, marked, and not to be quoted as a correctness verdict. |
