@@ -1,17 +1,20 @@
 //! The kernel's view of storage: sessions, ledger rows, and small runtime
 //! state, written through `theseus_store::WalStore` (spec §6, M1 Keel).
 //!
-//! Every write is a WAL frame, durable when the call returns. Sessions and
-//! meta are "latest by key"; the ledger is an append-only kind. The index is
-//! rebuilt from the WAL on open if it lost anything, so this module never
-//! has to think about recovery.
+//! Every write is a WAL frame, in the index when the call returns and durable
+//! once its sync, or any later frame's, has returned Ok (theseus-7yhp: the
+//! store's writer answers before it syncs, so a turn's model request leaves
+//! while the disk works). Sessions and meta are "latest by key"; the ledger
+//! is an append-only kind. The index is rebuilt from the WAL on open if it
+//! lost anything, so this module never has to think about recovery.
 //!
 //! A turn writes through its own handle (`for_turn`), and so does the kernel
 //! for it (`shared`, into `Kernel::view`). Such a handle keeps the turn's
 //! observability rows (`defer`) and puts them at the front of the next frame
 //! it commits, whoever commits it (theseus-qa0: every frame is an fdatasync).
-//! A state transition or a node is never deferred: it is durable when the
-//! call that wrote it returns. A crash can lose only rows still waiting.
+//! A state transition or a node is never deferred: it is in the index when
+//! the call that wrote it returns. A crash can lose rows still waiting, and
+//! the frames whose sync had not landed (theseus-7yhp).
 //!
 //! The handle also keeps the turn's view of its session's transcript
 //! (`transcript`): read once, at the turn's first reader, then extended with

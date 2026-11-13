@@ -12,10 +12,15 @@
 //!
 //! **One writer** (theseus-vni9). A `WalStore` owns a thread, `store-writer`,
 //! which owns every append: a caller hands it a frame and waits for its
-//! answer, and the writer writes every frame queued, syncs once for all of
-//! them, indexes them in one transaction, and answers each. The wait holds no
-//! runtime worker (`blocking`). The periodic checkpoint runs on the writer
-//! too, after its answers (theseus-avvb).
+//! answer, and the writer writes every frame queued, indexes them in one
+//! transaction, answers each, and syncs once for all of them. The wait holds
+//! no runtime worker (`blocking`). The answer comes after the index and
+//! **before** the sync (theseus-7yhp), so a caller goes on while the disk
+//! takes its frame: what it wrote is in the index and in the log's file, and
+//! durable once that sync, or any later frame's, has returned Ok. A crash in
+//! that window loses it, by the owner's call. The periodic checkpoint runs on
+//! the writer too, after the batch's sync (theseus-avvb), so it still claims
+//! only synced positions.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -343,6 +348,13 @@ struct Inner {
     /// until the store is reopened and the open replays them. The log's last
     /// position when the gap opened (`gap`).
     index_gap: gap::Gap,
+    /// Why the log lost frames its writer had already answered
+    /// (theseus-7yhp): a sync that failed after its batch was answered and
+    /// indexed. The index holds those frames and the log has cut them, so
+    /// their positions must never be written again: while this stands the
+    /// store refuses every frame and every checkpoint, and the next open
+    /// reads the log, which is the truth. Said once, by `say_lost`.
+    answered_lost: std::sync::Mutex<Option<String>>,
     /// A test's count of the warnings the gap's opening and the periodic
     /// checkpoint's failure say.
     #[cfg(test)]
@@ -368,6 +380,12 @@ struct Inner {
     /// drops.
     #[cfg(test)]
     checkpoint_hold: std::sync::Mutex<Option<mpsc::Receiver<()>>>,
+    /// A test's way to hold a batch's sync, as a disk under writeback holds
+    /// one: the next sync waits until this channel's sender sends or drops.
+    /// Its callers are answered before it, so a test reads the answer and
+    /// the index while the sync is still in flight (theseus-7yhp).
+    #[cfg(test)]
+    sync_hold: std::sync::Mutex<Option<mpsc::Receiver<()>>>,
     /// The positions list reads skipped because their reads are refused
     /// (R4), and how many there were past the ones kept.
     refused: Mutex<(BTreeSet<u64>, u64)>,
@@ -1413,6 +1431,7 @@ impl Inner {
             pending_verified: VerifiedSlot::default(),
             queued: std::sync::atomic::AtomicI64::new(0),
             index_gap: gap::Gap::default(),
+            answered_lost: std::sync::Mutex::default(),
             #[cfg(test)]
             warned: AtomicU64::new(0),
             frame_times: FrameTimes::default(),
@@ -1423,6 +1442,8 @@ impl Inner {
             index_fail_after: std::sync::atomic::AtomicU32::new(0),
             #[cfg(test)]
             checkpoint_hold: std::sync::Mutex::default(),
+            #[cfg(test)]
+            sync_hold: std::sync::Mutex::default(),
             refused: Mutex::new((BTreeSet::new(), 0)),
             chain: Mutex::new(chain_writer::ChainState::default()),
             #[cfg(test)]
@@ -1514,6 +1535,12 @@ impl Inner {
                  no checkpoint until the store is reopened"
             );
         }
+        // Or when the index holds frames a failed sync cut, after their
+        // writer had answered them (theseus-7yhp): a claim over them would
+        // name positions the log no longer holds.
+        if let Some(why) = self.answered_lost.lock().unwrap().clone() {
+            anyhow::bail!("{why}");
+        }
         #[cfg(test)]
         {
             let hold = self.checkpoint_hold.lock().unwrap().take();
@@ -1581,13 +1608,15 @@ impl Inner {
     }
 
     /// The writer (theseus-vni9): it takes every append queued, writes their
-    /// frames back to back, syncs once for all of them, indexes them in one
-    /// transaction, and answers each. So one fdatasync commits whatever
-    /// queued while the last one ran: group commit across turns, by
-    /// construction. The answer comes once the frame is indexed, so a
-    /// caller's lock still spans its read to its frame indexed (K1). The
-    /// periodic checkpoint runs here too, after the answers (theseus-avvb):
-    /// no append's call pays it.
+    /// frames back to back, indexes them in one transaction, answers each,
+    /// and syncs once for all of them (theseus-7yhp: the sync comes last, so
+    /// a turn's model request leaves while the disk works). So one fdatasync
+    /// commits whatever queued while the last one ran: group commit across
+    /// turns, by construction. The answer comes once the frame is indexed, so
+    /// a caller's lock still spans its read to its frame indexed (K1), and a
+    /// later frame's sync covers every frame before it. The periodic
+    /// checkpoint runs here too, after the batch's sync (theseus-avvb): no
+    /// append's call pays it, and it claims only synced positions.
     fn write_loop(&self, jobs: &mpsc::Receiver<Job>) {
         while let Ok(first) = jobs.recv() {
             {
@@ -1682,26 +1711,64 @@ impl Inner {
     /// open indexes them, and a head left behind would chain two rows on one
     /// link. A failed sync cut its frames, so the head stays. An index write
     /// that failed past its bound opens the gap checkpoints refuse across.
-    fn after_index(
+    /// The bookkeeping the batch's index write decides, before its answers
+    /// (theseus-7yhp): a caller holding its answer reads a store that has
+    /// counted its frames.
+    fn after_index(&self, indexed: &Result<()>, records: u64) {
+        if indexed.is_ok() {
+            self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
+            if records > 0 {
+                self.index_gap.took();
+            }
+        }
+    }
+
+    /// The bookkeeping its sync decides. The chain head follows the log, so
+    /// a batch the index took has moved it already (`commit`); here is where
+    /// a batch the index refused moves it, and where a sync that failed
+    /// after its answers stops the store.
+    fn after_sync(
         &self,
-        synced: bool,
+        synced: &Result<()>,
         indexed: &Result<()>,
         records: u64,
         chained: chain_writer::ChainState,
     ) {
-        if synced {
-            *self.chain.lock().unwrap() = chained;
+        match (synced, indexed) {
+            (Ok(()), _) => *self.chain.lock().unwrap() = chained,
+            // The batch was answered before this sync, so the frames the log
+            // has just cut are in the index and in no caller's doubt
+            // (theseus-7yhp). An index write that failed answered them
+            // failed, so nothing holds them and the cut is as it was.
+            (Err(why), Ok(())) if records > 0 => self.say_lost(why),
+            (Err(_), _) => {}
         }
-        match indexed {
-            Ok(()) => {
-                self.since_checkpoint.fetch_add(records, Ordering::Relaxed);
-                if records > 0 {
-                    self.index_gap.took();
-                }
+        if let Err(why) = indexed {
+            if synced.is_ok() {
+                self.say_gap(why);
             }
-            Err(why) if synced => self.say_gap(why),
-            Err(_) => {}
         }
+    }
+
+    /// A sync that failed after its batch was answered and indexed
+    /// (theseus-7yhp): the log cut those frames and the index holds them, so
+    /// their positions must never be written again. The store takes no
+    /// further frame and no checkpoint until it is reopened, and every
+    /// refused caller is told why. Said once, loudly.
+    fn say_lost(&self, why: &anyhow::Error) {
+        let mut lost = self.answered_lost.lock().unwrap();
+        if lost.is_some() {
+            return;
+        }
+        let at = self.wal.last_position();
+        let said = format!(
+            "store: a sync failed after its frames were answered and indexed ({why:#}); the log \
+             cut them back to position {at} and the index still holds them, so this store takes \
+             no further frame and no checkpoint until it is reopened, and the next open reads the \
+             log, which is the truth"
+        );
+        tracing::error!(position = at, "{said}");
+        *lost = Some(said);
     }
 
     /// Opens the gap, saying so once (the first failure's position stands); a
@@ -1721,9 +1788,90 @@ impl Inner {
         }
     }
 
-    /// Write, sync, index, and answer one batch.
+    /// The index entries of a batch's written frames, and how many records
+    /// they hold: one transaction's worth (`index_batch`).
+    fn entries_of(batch: &[Job], written: &[Result<Placed>]) -> (Vec<IndexEntry>, u64) {
+        let mut records = 0u64;
+        let mut entries = Vec::new();
+        for (job, placed) in batch.iter().zip(written) {
+            let Ok((placed, at)) = placed else { continue };
+            records += placed.len() as u64;
+            for ((((pos, loc), r), (terms, sums)), tags) in placed
+                .iter()
+                .zip(&job.records)
+                .zip(&job.projected)
+                .zip(&job.tags)
+            {
+                entries.push(IndexEntry {
+                    position: *pos,
+                    at_unix_ms: *at,
+                    kind: r.kind,
+                    key: r.key.clone(),
+                    scope: r.scope.clone(),
+                    loc: *loc,
+                    terms: terms.clone(),
+                    sums: *sums,
+                    tags: tags.clone(),
+                });
+            }
+        }
+        (entries, records)
+    }
+
+    /// Answer every job of a batch, each with its frame's positions or the
+    /// reason it has none, and note the time the writer took over each frame
+    /// it answers Ok (theseus-w7dk). `began` is when the writer took the
+    /// batch; the sync runs after this (theseus-7yhp), so the time is what
+    /// the caller waited.
+    fn answer_all(
+        &self,
+        batch: Vec<Job>,
+        written: Vec<Result<Placed>>,
+        indexed: &Result<()>,
+        began: std::time::Instant,
+    ) {
+        let answered = std::time::Instant::now();
+        let us = answered.duration_since(began).as_micros() as u64;
+        #[cfg(test)]
+        let us = us + 1000 * self.commit_extra_ms.swap(0, Ordering::Relaxed);
+        for (job, placed) in batch.into_iter().zip(written) {
+            if let (Ok((p, _)), Ok(())) = (&placed, indexed) {
+                if let Some((first, _)) = p.first() {
+                    self.frame_times
+                        .note(answered, FrameTime { first: *first, us });
+                }
+            }
+            let answer = match (placed, indexed) {
+                (Err(e), _) => Err(e),
+                (Ok((placed, _)), Ok(())) => Ok(placed
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| Some(*i) != job.hidden)
+                    .map(|(_, (p, _))| p)
+                    .collect()),
+                // An index write that failed fails every frame it covered, as
+                // a failed group sync failed each one it led.
+                (Ok(_), Err(e)) => Err(anyhow::anyhow!("{e:#}")),
+            };
+            self.queued.fetch_sub(1, Ordering::SeqCst);
+            let _ = job.answer.send(answer);
+        }
+    }
+
+    /// Write, index, answer, and sync one batch (theseus-7yhp: the sync
+    /// comes after the answers, so a turn's model request leaves while the
+    /// disk works).
     fn commit(&self, mut batch: Vec<Job>) {
         let began = std::time::Instant::now();
+        if let Some(why) = self.answered_lost.lock().unwrap().clone() {
+            // The index holds frames a failed sync cut, so no position of
+            // theirs may be written again (`say_lost`).
+            for job in batch {
+                self.queued.fetch_sub(1, Ordering::SeqCst);
+                let _ = job.answer.send(Err(anyhow::anyhow!("{why}")));
+            }
+            return;
+        }
         if let Err(e) = self.upgrade_manifest() {
             // Nothing is written under a manifest an older build opens.
             for job in batch {
@@ -1759,72 +1907,57 @@ impl Inner {
         let wrote = written
             .iter()
             .any(|w| w.as_ref().is_ok_and(|(p, _)| !p.is_empty()));
-        // One sync for every frame of the batch.
-        let synced = if wrote && self.fsync {
+        // The index, in one transaction, before the sync: a reader may see a
+        // frame the disk has yet to take (theseus-7yhp; the owner, 2026-11-12
+        // 19:24, answering exactly this: "YES, OPTION (A) -- the index may
+        // show a provider call's plan frame before that frame's sync has
+        // landed"). The answer still comes after the index, so a caller's
+        // lock spans its read to its frame indexed (K1).
+        let (entries, records) = Self::entries_of(&batch, &written);
+        let indexed = if entries.is_empty() {
+            Ok(())
+        } else {
+            self.index_batch(&entries)
+        };
+        self.after_index(&indexed, records);
+        if indexed.is_err() {
+            // A batch the index refused is answered after its sync, exactly
+            // as every batch was before theseus-7yhp: nothing is waiting on
+            // a failure, and its gap must be open, and its chain head
+            // settled, before its caller is told.
+            let synced = self.sync_batch(wrote);
+            self.after_sync(&synced, &indexed, records, chained);
+            self.answer_all(batch, written, &indexed, began);
+            return;
+        }
+        // The chain head follows the log, which has taken these frames (one
+        // it refused gave its links back above). The batch is answered
+        // before its sync, so a caller holding its answer reads the head its
+        // own rows left; a sync that fails here stops the store, so no later
+        // row chains on what it lost.
+        *self.chain.lock().unwrap() = chained.clone();
+        self.answer_all(batch, written, &indexed, began);
+        let synced = self.sync_batch(wrote);
+        self.after_sync(&synced, &indexed, records, chained);
+    }
+
+    /// One sync for every frame of the batch, after its answers: the turn
+    /// that queued a frame goes on -- its model request leaves -- while the
+    /// disk works, and the frame is durable before the writer takes the next
+    /// batch, so every later frame's sync covers this one too. What a crash
+    /// in that window loses is lost, by the owner's call (theseus-7yhp).
+    fn sync_batch(&self, wrote: bool) -> Result<()> {
+        #[cfg(test)]
+        {
+            let hold = self.sync_hold.lock().unwrap().take();
+            if let Some(hold) = hold {
+                let _ = hold.recv();
+            }
+        }
+        if wrote && self.fsync {
             self.wal.sync().map_err(anyhow::Error::from)
         } else {
             Ok(())
-        };
-        // Then the index, in one transaction: a reader never sees a frame
-        // the disk may yet lose.
-        let mut records = 0u64;
-        let synced_ok = synced.is_ok();
-        let indexed = synced.and_then(|()| {
-            let mut entries = Vec::new();
-            for (job, placed) in batch.iter().zip(&written) {
-                let Ok((placed, at)) = placed else { continue };
-                records += placed.len() as u64;
-                for ((((pos, loc), r), (terms, sums)), tags) in placed
-                    .iter()
-                    .zip(&job.records)
-                    .zip(&job.projected)
-                    .zip(&job.tags)
-                {
-                    entries.push(IndexEntry {
-                        position: *pos,
-                        at_unix_ms: *at,
-                        kind: r.kind,
-                        key: r.key.clone(),
-                        scope: r.scope.clone(),
-                        loc: *loc,
-                        terms: terms.clone(),
-                        sums: *sums,
-                        tags: tags.clone(),
-                    });
-                }
-            }
-            if entries.is_empty() {
-                Ok(())
-            } else {
-                self.index_batch(&entries)
-            }
-        });
-        self.after_index(synced_ok, &indexed, records, chained);
-        let answered = std::time::Instant::now();
-        let us = answered.duration_since(began).as_micros() as u64;
-        #[cfg(test)]
-        let us = us + 1000 * self.commit_extra_ms.swap(0, Ordering::Relaxed);
-        for (job, placed) in batch.into_iter().zip(written) {
-            if let (Ok((p, _)), Ok(())) = (&placed, &indexed) {
-                if let Some((first, _)) = p.first() {
-                    self.frame_times
-                        .note(answered, FrameTime { first: *first, us });
-                }
-            }
-            let answer = match (placed, &indexed) {
-                (Err(e), _) => Err(e),
-                (Ok((placed, _)), Ok(())) => Ok(placed
-                    .into_iter()
-                    .enumerate()
-                    .filter(|(i, _)| Some(*i) != job.hidden)
-                    .map(|(_, (p, _))| p)
-                    .collect()),
-                // A sync or an index write that failed fails every frame it
-                // covered, as a failed group sync failed each one it led.
-                (Ok(_), Err(e)) => Err(anyhow::anyhow!("{e:#}")),
-            };
-            self.queued.fetch_sub(1, Ordering::SeqCst);
-            let _ = job.answer.send(answer);
         }
     }
 
@@ -2224,6 +2357,8 @@ mod tests_frame_times;
 mod tests_index_retry;
 #[cfg(test)]
 mod tests_keyed;
+#[cfg(test)]
+mod tests_overlap;
 #[cfg(test)]
 mod tests_pages;
 #[cfg(test)]
