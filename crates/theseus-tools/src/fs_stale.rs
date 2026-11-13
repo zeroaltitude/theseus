@@ -58,14 +58,24 @@ pub fn fresh(ctx: &ToolCtx, path: &Path) -> Result<(), ToolFailure> {
 /// note gains is the second reader's word (`p5kln-location-facts`): a session
 /// rewriting a file it wrote itself destroys nothing nothing holds.
 ///
+/// **`whole` is this caller's own claim about the bytes it authored**
+/// (`p5kln-wrote-keeps-window`). Pass [`Whole::Yes`] only from a writer that
+/// produced the ENTIRE file -- `fs.write`, or a patch section that creates
+/// one. `fs.edit` and a patch section that modifies a file pass
+/// [`Whole::No`]: they splice a region and hold no copy of the rest, so the
+/// note keeps whatever word a READ already put on it. A partial writer that
+/// claimed `Yes` would turn a window read of a file over the cap into a
+/// phantom whole copy, and the resolver would let a destructive call run on
+/// the strength of it.
+///
 /// **A window, left open on purpose.** `Mark::at(path)` runs here, after the
 /// caller's write has landed, so a third party's write between that write and
 /// this stat is recorded as this session's own state, and the next write is
 /// not refused when it should be. This guard notes and checks; it does not
 /// hold under a concurrent writer. No lock, no mark taken before the write.
-pub fn wrote(ctx: &ToolCtx, path: &Path) {
+pub fn wrote(ctx: &ToolCtx, path: &Path, whole: Whole) {
     let (Some(r), Some(m)) = (ctx.reads.as_ref(), Mark::at(path)) else {
         return;
     };
-    r.wrote(path, m);
+    r.wrote(path, m, whole);
 }
