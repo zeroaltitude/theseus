@@ -713,3 +713,203 @@ async fn an_allowance_does_not_admit_a_replanned_call_proposed_alone() {
     assert_eq!(r.bytes(), NOW, "the original ran");
     assert_eq!(r.rows("tool.hold_overridden").len(), 1);
 }
+
+// ---- the two facts the resolver now states, on the LIVE gate path ---------
+//
+// `p5kln-location-facts` (row B6 `theseus-2yowd`; the owner, 2026-11-13
+// 11:28). What these assert is the FACT that reached the request, not the
+// answer that came back: the fake Jev answers a scripted verdict whatever the
+// state says, so a test that read the verdict would be reading its own
+// script. The word is what this row built, and the word is what the labelled
+// set states by hand -- so proving the daemon now computes the same word is
+// exactly the gap the 1.0.5 review named. Whether Jev then uses it well is
+// the eval's measurement, on the eval's own set.
+
+impl Rig {
+    /// Every target word in the one `undo.v1` request this turn sent, as
+    /// `(path, recovery)`, read out of the fake's recorded body.
+    fn words_sent(&self) -> Vec<(String, String)> {
+        let seen = self.jev.seen();
+        assert_eq!(seen.len(), 1, "asked exactly once: {} times", seen.len());
+        // The body is `{"state", ["assets",] "model", "questions"}`
+        // (`client.rs`), and the state is the object the builder laid out.
+        let state = &seen[0].body["state"];
+        state["targets"]
+            .as_array()
+            .unwrap_or_else(|| panic!("the state carries targets: {state}"))
+            .iter()
+            .map(|t| {
+                (
+                    t["path"].as_str().unwrap_or_default().to_string(),
+                    t["recovery"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect()
+    }
+}
+
+/// A session that WROTE the file it is now rewriting: its own record holds
+/// those bytes, so the word is `read_this_session` and not "nothing holds a
+/// copy". The card's first bar, on the live path.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_this_session_wrote_reaches_the_request_as_one_the_record_holds() {
+    let r = rig(REVERSIBLE, 0.95, false, |_| {});
+    let sid = r.session();
+    // The session wrote it: exactly what `fs_stale::wrote` records after an
+    // `fs.write`, through the board the runtime binds per call.
+    let mark = theseus_tools::reads::Mark::at(&r.target).expect("the target's mark");
+    r.core.tools.reads.wrote(&sid, &r.target, mark);
+
+    r.turn(&sid).await;
+    let words = r.words_sent();
+    assert_eq!(words.len(), 1, "one target: {words:?}");
+    assert_eq!(
+        words[0].1, "read_this_session",
+        "a file this session wrote is one its own record holds: {words:?}"
+    );
+}
+
+/// The same file, changed underneath the session since. The record holds
+/// bytes that are no longer the ones the call would destroy, so the honest
+/// word is the one that holds the call. The card's second bar.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_changed_underneath_the_session_reaches_the_request_as_one_nothing_holds() {
+    let r = rig(REVERSIBLE, 0.95, false, |_| {});
+    let sid = r.session();
+    let mark = theseus_tools::reads::Mark::at(&r.target).expect("the target's mark");
+    r.core.tools.reads.wrote(&sid, &r.target, mark);
+    // Somebody else writes it: a different length, so the mark differs
+    // whatever the filesystem's mtime resolution is.
+    std::fs::write(&r.target, "a third party wrote this, and it is longer\n").unwrap();
+
+    r.turn(&sid).await;
+    let words = r.words_sent();
+    assert_eq!(words.len(), 1, "one target: {words:?}");
+    assert_eq!(
+        words[0].1, "outside_repo",
+        "the record's bytes are stale, so it claims no copy: {words:?}"
+    );
+}
+
+/// `rm -rf target` beside a `Cargo.toml`, in a repository that ignores it:
+/// `regenerable`, from the closed table. The card's third bar.
+#[tokio::test(flavor = "multi_thread")]
+async fn rm_rf_a_build_directory_beside_a_manifest_reaches_the_request_as_regenerable() {
+    let r = rig_in_a_repo(&["target/\n.env\ndata/\n"], "target", |work| {
+        std::fs::write(work.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::create_dir_all(work.join("target/debug")).unwrap();
+        std::fs::write(work.join("target/debug/app"), "a build output\n").unwrap();
+    })
+    .await;
+    assert_eq!(
+        r, "regenerable",
+        "the project's own build makes it again, and the table says so"
+    );
+}
+
+/// An ignored `.env` in the same repository, beside the same manifest. The
+/// card's fourth bar, and the one that matters most: nothing recreates it,
+/// so it must NOT be `regenerable` however much git ignores it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ignored_env_file_reaches_the_request_as_untracked_and_never_regenerable() {
+    let r = rig_in_a_repo(&["target/\n.env\ndata/\n"], ".env", |work| {
+        std::fs::write(work.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::write(work.join(".env"), "API_BASE=\n").unwrap();
+    })
+    .await;
+    assert_eq!(
+        r, "untracked",
+        "git holds no copy of it and nothing rebuilds it"
+    );
+}
+
+/// An ignored data directory beside the same manifest: the dangerous one, and
+/// also not `regenerable`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ignored_data_directory_reaches_the_request_as_untracked() {
+    let r = rig_in_a_repo(&["target/\n.env\ndata/\n"], "data", |work| {
+        std::fs::write(work.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::create_dir_all(work.join("data")).unwrap();
+        std::fs::write(work.join("data/measurements.csv"), "1,2,3\n").unwrap();
+    })
+    .await;
+    assert_eq!(r, "untracked", "a data directory is nobody's build output");
+}
+
+/// A rig whose working root is a real git repository, with `ignore` as its
+/// `.gitignore` and `arrange` run inside it; the scripted call is an
+/// `fs.write` to `rel` under it. Returns the one recovery word the request
+/// carried for that target.
+async fn rig_in_a_repo(ignore: &[&str], rel: &str, arrange: impl FnOnce(&Path)) -> String {
+    let jev = says(REVERSIBLE, 0.95);
+    let dir = crate::scratch::tempdir();
+    let base = dir.path().canonicalize().unwrap();
+    let (state, work, holdout) = (base.join("state"), base.join("work"), base.join("sealed"));
+    for d in [&state, &work, &holdout] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    // A hermetic repository: none of the operator's git configuration, and
+    // signing off, so a locked agent cannot hang it (AGENTS.md, Item 7).
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .current_dir(&work)
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(work.join(".gitignore"), ignore.concat()).unwrap();
+    std::fs::write(work.join("kept.txt"), WAS).unwrap();
+    git(&["add", "kept.txt", ".gitignore"]);
+    git(&["commit", "-q", "-m", "the first commit"]);
+    arrange(&work);
+
+    let target = work.join(rel);
+    let mut cfg = Config::example();
+    cfg.server.state_dir = state.to_string_lossy().into_owned();
+    cfg.tools.projects_dir = Some(work.to_string_lossy().into_owned());
+    cfg.tools.roots = vec![];
+    cfg.policy.enforcement = Posture::Open;
+    cfg.self_improve.sealed.dir = Some(holdout.to_string_lossy().into_owned());
+    cfg.judge.enabled = true;
+    cfg.judge.api_base = jev.base();
+    cfg.judge.connect_secs = 1;
+    cfg.judge.total_secs = 3;
+    for p in crate::judge::inbound::PACKS {
+        cfg.judge.packs.insert(p.into(), off());
+    }
+    for (p, _) in crate::judge::WIRED {
+        if *p != crate::judge::undo::PACK_NAME {
+            cfg.judge.packs.insert((*p).into(), off());
+        }
+    }
+    cfg.validate().unwrap();
+
+    let store = Store::open(&state.join("store")).unwrap();
+    let fake = Arc::new(FakeProvider::scripted(script(&target)));
+    let mut p = Parts::for_tests(cfg, fake, store);
+    p.secrets = board();
+    let core = Core::build(p).unwrap();
+    warm(&core);
+    let r = Rig {
+        core,
+        target,
+        jev,
+        _dir: dir,
+    };
+    let sid = r.session();
+    r.turn(&sid).await;
+    let words = r.words_sent();
+    assert_eq!(words.len(), 1, "one target: {words:?}");
+    words[0].1.clone()
+}

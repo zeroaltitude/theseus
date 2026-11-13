@@ -12,10 +12,19 @@
 //! what a tree says instead of making one, and the *mapping* — which plan
 //! field becomes which state field — is readable without a repository.
 //!
-//! Three fields a plan does not carry are passed in by the gate because only
+//! FOUR fields a plan does not carry are passed in by the gate because only
 //! it knows them: `is_program` (the tool's backend), `l1` (what
 //! `Sandbox::l1_for` would bind for this argv, which the pack reads as
-//! losing nothing on this machine) and `cwd`.
+//! losing nothing on this machine), `cwd`, and -- since
+//! `p5kln-location-facts` -- [`UndoCall::held`], the targets whose whole
+//! current bytes this session's own read record holds. The fourth is here for
+//! the same reason as the first three: the record is the core's
+//! (`toolrun::reads`), so the judge cannot ask it and the resolver must be
+//! told. See [`UndoCall::held`] for why it is resolved before the probe runs
+//! rather than inside it.
+
+use std::collections::BTreeSet;
+use std::path::Path;
 
 use serde_json::Value;
 use theseus_judge::builders::{self as jb, Probe, Sandbox, UndoInput};
@@ -47,6 +56,17 @@ pub struct UndoCall {
     pub is_program: bool,
     /// Whether the gate would bind L1 for it.
     pub l1: bool,
+    /// The targets whose whole CURRENT bytes this session's own record holds
+    /// (`p5kln-location-facts`): the paths, out of `targets`, that
+    /// `toolrun::reads`'s board answers `holds` for -- read in full or
+    /// written by this session, and unchanged by anyone else since.
+    ///
+    /// **Resolved here, with the call, and not inside the probe.** The board
+    /// lives on the `ToolRuntime` and the probe lives in the judge, which
+    /// knows nothing of sessions; handing the judge a reference to the board
+    /// would put a core type through a crate that deliberately holds none.
+    /// One `stat` per target is what it costs, which the 300 ms budget buys.
+    pub held: BTreeSet<String>,
 }
 
 impl UndoCall {
@@ -59,15 +79,35 @@ impl UndoCall {
         tool: &dyn Tool,
         plan: &Plan,
         input: &Value,
-        is_program: bool,
-        l1: bool,
+        knows: Knows<'_>,
     ) -> Self {
+        let Knows {
+            is_program,
+            l1,
+            holds,
+        } = knows;
         let class = plan.class.unwrap_or(tool.class());
         let cwd = plan
             .resources
             .iter()
             .find(|r| r.access == Access::Exec)
             .map(|r| r.path.display().to_string());
+        let targets: Vec<(String, String)> = plan
+            .resources
+            .iter()
+            .filter(|r| r.access != Access::Exec)
+            .map(|r| (r.path.display().to_string(), access_word(r.access)))
+            .collect();
+        // One pass over the same paths the state will carry, so the word and
+        // the path cannot diverge: the board is asked about the plan's own
+        // resource path, which is what `undo_find` is given.
+        let held = plan
+            .resources
+            .iter()
+            .filter(|r| r.access != Access::Exec)
+            .filter(|r| holds(&r.path))
+            .map(|r| r.path.display().to_string())
+            .collect();
         Self {
             session_id: session_id.into(),
             turn_id: turn_id.into(),
@@ -75,17 +115,13 @@ impl UndoCall {
             class: class.as_str().into(),
             argv: plan.argv.clone().unwrap_or_default(),
             steps: plan.steps.clone().unwrap_or_default(),
-            targets: plan
-                .resources
-                .iter()
-                .filter(|r| r.access != Access::Exec)
-                .map(|r| (r.path.display().to_string(), access_word(r.access)))
-                .collect(),
+            targets,
             url: plan.url.clone(),
             other_args: super::other_args(input),
             cwd,
             is_program,
             l1,
+            held,
         }
     }
 
@@ -100,6 +136,21 @@ impl UndoCall {
         }
         !self.targets.is_empty() || !self.argv.is_empty() || self.url.is_some()
     }
+}
+
+/// What the GATE knows about a call and a plan does not, passed in because
+/// only it can know it (the module header). It is one struct rather than
+/// three parameters so [`UndoCall::of`] stays inside the shape budget, and
+/// so the next such fact lands here rather than widening a signature again.
+pub(crate) struct Knows<'a> {
+    /// Whether this call runs a program (the tool's backend is a job).
+    pub is_program: bool,
+    /// Whether the gate would bind L1 for it.
+    pub l1: bool,
+    /// Whether this session's own record holds one path's whole current
+    /// bytes (`toolrun::reads`'s `holds`). A closure, so `of` stays testable
+    /// without a board.
+    pub holds: &'a dyn Fn(&Path) -> bool,
 }
 
 /// The access word the state shows for one resource, as `Target::access`
@@ -120,10 +171,14 @@ pub(crate) fn input_of(call: &UndoCall, probe: &mut dyn Probe) -> UndoInput {
     let found: Vec<_> = call
         .targets
         .iter()
-        // `read_this_session` is false for v1: the transcript scan it needs
-        // is not bought on a 300 ms path, and false reads as "nothing holds
-        // a copy", which errs toward holding the call (the module header).
-        .map(|(path, access)| jb::undo_find(probe, path, access, false))
+        // `read_this_session` is the session's own read record, resolved
+        // with the call (`p5kln-location-facts`, `UndoCall::held`): the
+        // board holds this path's whole current bytes, because this session
+        // read them in full or wrote them and nobody has changed them since.
+        // It was a hard `false` until that row, and a false reads as
+        // "nothing holds a copy", which errs toward holding the call -- which
+        // is also what an empty board after a restart still comes to.
+        .map(|(path, access)| jb::undo_find(probe, path, access, call.held.contains(path)))
         .collect();
     let (root, dirty) = match &call.cwd {
         Some(d) => probe.repo(std::path::Path::new(d)),

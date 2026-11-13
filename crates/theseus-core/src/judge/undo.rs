@@ -25,12 +25,22 @@
 //! **WHAT IS NOT RESOLVED FOR v1, and why each is the safe direction.**
 //! `remote_keeps` stays `unknown` (`p5kln-remote-keeps`: it is an API call,
 //! and the gate's path has none), which the pack reads as keeping nothing, so
-//! a remote write reads as a loss and is held rather than run.
-//! `read_this_session` stays false (the transcript scan it needs is a page of
-//! the session's nodes on the gate's own path, which this row would not buy
-//! at 300 ms), so a file this session read reads as one nothing holds — again
-//! toward holding. `posture` is empty because 0d runs **before** the order:
-//! there is no posture yet, and the field's own comment calls it context only.
+//! a remote write reads as a loss and is held rather than run. `posture` is
+//! empty because 0d runs **before** the order: there is no posture yet, and
+//! the field's own comment calls it context only.
+//!
+//! **`read_this_session` IS RESOLVED SINCE `p5kln-location-facts`**, and the
+//! sentence that used to stand here said it never could be: that it needed a
+//! page of the session's nodes that a 300 ms path would not buy. The scan was
+//! never needed. `toolrun::reads` already keeps a per-session, in-memory,
+//! capped board of the files this session was handed, for the stale-edit
+//! guard, keyed by size and mtime so a change by anyone else is detected; the
+//! row added the two words that board was missing — a write leaves a note,
+//! and a window read is marked as not whole — and asks it once per target.
+//! The cost is one `stat` a target, not a page of nodes. After a restart the
+//! board is empty, so the answer is false for everything, which is the same
+//! safe direction the old hard `false` always took — now taken only when it
+//! is true.
 
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};

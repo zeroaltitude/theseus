@@ -22,20 +22,34 @@ use crate::{Tool, ToolCtx};
 /// A session's board, as the runtime's own (`theseus-core`'s
 /// `toolrun::reads`) behaves, with no cap: the cap's own eviction is tested
 /// there, and a test of two paths would never reach it.
+///
+/// It carries the board's two words, as the real one does since
+/// `p5kln-location-facts`: `guarded` (a READ put the path here, which is the
+/// only thing `mark_of` answers for) beside the mark. `whole` is the
+/// resolver's word and is not read on this side, so the fake does not keep
+/// it — these tests are the stale guard's.
 #[derive(Debug, Default)]
-struct Board(Mutex<HashMap<PathBuf, Mark>>);
+struct Board(Mutex<HashMap<PathBuf, (Mark, bool)>>);
 
 impl Reads for Board {
-    fn noted(&self, path: &Path, mark: Mark) {
-        self.0.lock().unwrap().insert(path.to_path_buf(), mark);
+    fn noted(&self, path: &Path, mark: Mark, _whole: crate::reads::Whole) {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), (mark, true));
     }
     fn mark_of(&self, path: &Path) -> Option<Mark> {
-        self.0.lock().unwrap().get(path).copied()
+        let b = self.0.lock().unwrap();
+        let (m, guarded) = b.get(path)?;
+        guarded.then_some(*m)
     }
     fn wrote(&self, path: &Path, mark: Mark) {
-        if let Some(m) = self.0.lock().unwrap().get_mut(path) {
-            *m = mark;
-        }
+        // As the real board does: the note is made or moved on, and it is
+        // unguarded unless a read had already guarded it, so a write never
+        // brings a path under the guard.
+        let mut b = self.0.lock().unwrap();
+        let guarded = b.get(path).is_some_and(|(_, g)| *g);
+        b.insert(path.to_path_buf(), (mark, guarded));
     }
 }
 

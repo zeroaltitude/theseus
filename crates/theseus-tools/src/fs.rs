@@ -317,7 +317,10 @@ impl Tool for Read {
                     a.limit.unwrap_or(DEFAULT_READ_LINES),
                 );
                 if let Some(out) = crate::fs_window::read(&path, from, limit, ctx.max_read_bytes)? {
-                    crate::fs_stale::noted(ctx, &path);
+                    // A WINDOW of a file over the cap: the session was handed
+                    // part of it, so the stale guard arms, and `undo.v1`'s
+                    // resolver must not read it as holding a copy.
+                    crate::fs_stale::noted(ctx, &path, crate::reads::Whole::No);
                     return Ok((out, None));
                 }
             }
@@ -333,7 +336,14 @@ impl Tool for Read {
         // notes the state it was in (theseus-w2cs sub-item 2). Everything
         // after this is how they are rendered, and a read that failed before
         // it notes nothing, so it brings no path under the guard.
-        crate::fs_stale::noted(ctx, &path);
+        //
+        // WHOLE, and the distinction matters to the second reader of this
+        // board (`p5kln-location-facts`): `read_regular` took every byte of
+        // the file, so the session's own record holds bytes a write over them
+        // could be put back from. What is rendered below may be a window of
+        // the LINES; the record is of the bytes, which is the claim
+        // `read_this_session` makes.
+        crate::fs_stale::noted(ctx, &path, crate::reads::Whole::Yes);
         // An image the models read comes back as an image (theseus-9g2),
         // capped as an attached one is.
         if let Some(info) = image::sniff(&bytes) {

@@ -25,6 +25,10 @@ struct Stated {
     absent: Vec<String>,
     root: Option<PathBuf>,
     dirty: Option<bool>,
+    /// What the repository ignores (`p5kln-location-facts`). Nothing, here,
+    /// unless a test states it: `undo_regen`'s table is tested against real
+    /// repositories in its own module, and these tests are the MAPPING.
+    ignored: Vec<String>,
 }
 
 impl Probe for Stated {
@@ -36,6 +40,9 @@ impl Probe for Stated {
             .get(&path.display().to_string())
             .copied()
             .unwrap_or(Tracked::Unknown)
+    }
+    fn ignored(&mut self, path: &Path) -> Option<bool> {
+        Some(self.ignored.contains(&path.display().to_string()))
     }
     fn repo(&mut self, _dir: &Path) -> (Option<PathBuf>, Option<bool>) {
         (self.root.clone(), self.dirty)
@@ -216,6 +223,7 @@ fn call() -> UndoCall {
         cwd: None,
         is_program: false,
         l1: false,
+        held: Default::default(),
     }
 }
 
@@ -232,6 +240,7 @@ fn the_state_carries_each_targets_word_and_the_gates_own_facts() {
         absent: vec!["/w/new.rs".into()],
         root: Some(PathBuf::from("/w")),
         dirty: Some(true),
+        ..Stated::default()
     };
     let mut c = call();
     c.targets = vec![
@@ -268,6 +277,111 @@ fn the_state_carries_each_targets_word_and_the_gates_own_facts() {
     assert_eq!(i.remote_keeps, None, "an API call the gate cannot make");
     assert_eq!(i.terminal_tail, None);
     assert_eq!(i.posture, "", "0d runs before the order");
+}
+
+/// `read_this_session` reaches the state from the session's own record, and
+/// it is the gate that answers it (`p5kln-location-facts`): the board is the
+/// core's, so `UndoCall::of` is told, and `input_of` reads what it was told.
+/// The precedence is `undo_resolve`'s; what is asserted here is the WIRING,
+/// which is the half that was a hard `false` before this row.
+#[test]
+fn a_target_this_sessions_record_holds_reaches_the_state_as_read_this_session() {
+    let mut probe = Stated {
+        tracked: [
+            ("/w/loose.txt".to_string(), Tracked::Untracked),
+            ("/w/other.txt".to_string(), Tracked::Untracked),
+        ]
+        .into(),
+        ..Stated::default()
+    };
+    let mut c = call();
+    c.targets = vec![
+        ("/w/loose.txt".into(), "write".into()),
+        ("/w/other.txt".into(), "write".into()),
+    ];
+
+    // Told nothing: both are files nothing holds a copy of, which is what
+    // every target read as before this row and is what an empty board after
+    // a daemon restart still reads as.
+    let i = input_of(&c, &mut probe);
+    assert_eq!(
+        i.targets.iter().map(|t| t.recovery).collect::<Vec<_>>(),
+        [Recovery::Untracked, Recovery::Untracked],
+        "an empty record errs toward holding"
+    );
+
+    // Told that the record holds the first one's bytes: only that one moves,
+    // and it moves to the word the pack reads as a way back.
+    c.held = ["/w/loose.txt".to_string()].into_iter().collect();
+    let i = input_of(&c, &mut probe);
+    assert_eq!(
+        i.targets.iter().map(|t| t.recovery).collect::<Vec<_>>(),
+        [Recovery::ReadThisSession, Recovery::Untracked],
+        "the word is per target, not per call"
+    );
+}
+
+/// `UndoCall::of` asks the board about each of the plan's own target paths,
+/// and only those: the `exec` resource is the working directory, not a
+/// target, and nothing is asked about it.
+#[test]
+fn the_gate_asks_the_record_about_each_target_path_and_no_other() {
+    use std::cell::RefCell;
+    use std::path::PathBuf as P;
+
+    use theseus_tools::Tool as _;
+
+    let asked: RefCell<Vec<P>> = RefCell::new(Vec::new());
+    let holds = |p: &Path| {
+        asked.borrow_mut().push(p.to_path_buf());
+        p.ends_with("kept.txt")
+    };
+
+    let tool = theseus_tools::fs::WriteFile;
+    let root = std::env::temp_dir().join(format!("theseus-undo-held-{}", std::process::id()));
+    std::fs::create_dir_all(&root).expect("the scratch root");
+    let ctx = theseus_tools::ToolCtx::for_tests(&root);
+    let target = root.join("kept.txt");
+    let input = json!({"path": target.display().to_string(), "content": "new bytes\n"});
+    let plan = tool.plan(&input, &ctx).expect("the plan");
+    let c = UndoCall::of(
+        "ses_held",
+        "trn_held",
+        &tool,
+        &plan,
+        &input,
+        super::state::Knows {
+            is_program: false,
+            l1: false,
+            holds: &holds,
+        },
+    );
+
+    let asked = asked.into_inner();
+    assert_eq!(asked.len(), 1, "one question per target, and no more");
+    assert!(asked[0].ends_with("kept.txt"), "{:?}", asked[0]);
+    assert_eq!(
+        c.held.len(),
+        1,
+        "the board said it holds it, so the call carries it"
+    );
+    assert!(
+        c.held
+            .iter()
+            .next()
+            .is_some_and(|p| p.ends_with("kept.txt")),
+        "{:?}",
+        c.held
+    );
+    // And the held set is keyed by the same string the state's target is, or
+    // `input_of` would look the word up under a path that is not there.
+    for (path, _) in &c.targets {
+        assert!(
+            c.held.contains(path),
+            "the held set must use the target's own path string: {path}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// A call that is not a program says nothing about a sandbox, rather than

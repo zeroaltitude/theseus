@@ -267,7 +267,9 @@ pub use undo::{
     undo as undo_state, CwdKind, Recovery, RemoteKeeps, Sandbox, Target, UndoInput, UNDO_ARGV,
     UNDO_STATE_KEYS, UNDO_STEPS, UNDO_TARGETS,
 };
+mod undo_regen;
 mod undo_resolve;
+pub use undo_regen::{recreated_by as undo_recreated_by, regenerable as undo_regenerable};
 pub use undo_resolve::{
     cwd_kind_of, find as undo_find, recovery_of, sandbox_of, target_of, targets_of, Found, GitCli,
     Probe, Tracked,
