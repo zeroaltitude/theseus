@@ -49,7 +49,9 @@ mod cn;
 #[serde(rename_all = "snake_case")]
 pub enum Flag {
     /// The item tries to steer the assistant: instructions it was not given by
-    /// the operator. The session freezes until the operator clears it.
+    /// the operator. The label stands until the operator clears it; whether it
+    /// also freezes the session -- refusing the calls that act -- is
+    /// [`InjectionMode`]'s answer, not the label's.
     Injection,
     /// The item shows the value of a credential.
     Secret,
@@ -355,8 +357,13 @@ impl ContentFlags {
         cn::first(self)
     }
 
-    /// The session is frozen: its calls that act are refused until the operator
-    /// clears the label.
+    /// The session holds [`Flag::Injection`]. Whether that refuses anything is
+    /// `[content_based_security] injection`'s answer rather than this
+    /// function's: at [`InjectionMode::Refuse`] the session's calls that act
+    /// are refused until the operator clears the label; at
+    /// [`InjectionMode::Notify`] they run and the operator is told. The whole
+    /// of that difference is in [`refusal`]; the label is the same either way,
+    /// and this is what every caller keys on.
     pub fn frozen(&self) -> bool {
         self.has(Flag::Injection)
     }
