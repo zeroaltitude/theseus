@@ -515,6 +515,12 @@ pub struct ToolsConfig {
     /// Environment variables `proc.run` passes through from the daemon (nothing else).
     #[serde(default = "default_proc_env")]
     pub proc_env: Vec<String>,
+    /// Directories put FIRST on every job's `PATH`, before the daemon's own
+    /// and before the login shell's (theseus-v4cj; OpenClaw spells this
+    /// `tools.exec.pathPrepend`). Unset by default, and it is the operator's
+    /// alone: a tool call that sets `PATH` is refused by name.
+    #[serde(default)]
+    pub path_prepend: Vec<String>,
     /// The most a job's raw output file keeps (theseus-102). Past it the job runs on, what it prints is counted
     /// and dropped, and its result says so. The runtime reads only the file's last 4 MiB.
     #[serde(default = "default_job_output_max_bytes")]
@@ -655,6 +661,7 @@ impl Default for ToolsConfig {
             proc_timeout_secs: default_proc_timeout_secs(),
             proc_timeout_max_secs: default_proc_timeout_max_secs(),
             proc_env: default_proc_env(),
+            path_prepend: Vec::new(),
             job_output_max_bytes: default_job_output_max_bytes(),
             job_pids_max: default_job_pids_max(),
             outputs_keep_days: outputs::keep_days(),

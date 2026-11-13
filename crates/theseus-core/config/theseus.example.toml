@@ -553,6 +553,13 @@ job_pids_max = 4096                     # the most processes and threads one L0 
 # or past either line below.
 outputs_keep_days = 7                   # a kept output is deleted after this many days
 outputs_max_bytes = 2147483648          # past this many bytes in all (2 GiB), the oldest kept outputs are deleted first
+# A job's PATH is the daemon's own merged with the login shell's captured one
+# (theseus-v4cj, at parity with OpenClaw's practice): the directories below
+# first, then the daemon's in their own order, then the shell's entries that
+# neither already holds, so no program a job could already find resolves
+# elsewhere. The daemon's own PATH is not changed by any of this, and a tool
+# call that sets PATH is refused by name.
+path_prepend = []                       # directories searched FIRST on every job's PATH; unset by default
 
 # The web tools (DD5): http.fetch GETs a URL, follows up to 5 redirects, and
 # returns an HTML page as text (text, JSON, and XML as they are; other types
@@ -1581,6 +1588,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # `theseusd check` runs L1's self-test. An L1 job's memory has no limit, as an
 # L0 job's has none (memory_mb is retired: a config that still sets it loads,
 # with a warning, and it is ignored).
+
 [sandbox]
 default = "l0"                          # l0 | l1: the class of every proc.run (built-in l0; "l1" runs every job in the sandbox)
 # l1_argv = [["npm", "install"], ["cargo", "build"], ["cargo", "test"]]   # programs that always run in L1, matched as allow_argv matches (default none)

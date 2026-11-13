@@ -409,6 +409,11 @@ impl ToolRuntime {
         }
         let mut env = self.job_base_env();
         for (k, v) in &spec.env {
+            if let Some(why) = job_path_refusal(k) {
+                return self
+                    .settle_job_failure(tc, correlation_id, tool.name(), call, &why)
+                    .map(Err);
+            }
             if forbidden_env(k) {
                 return self
                     .settle_job_failure(
@@ -1098,9 +1103,41 @@ impl ToolRuntime {
     }
 }
 
+/// Why a tool call may not set this variable, when the variable is `PATH`
+/// (theseus-v4cj, part 3 of the ask). A per-call `PATH` is **refused by
+/// name**: never silently dropped, so a model is told its call did not run,
+/// and never honoured, because a model that could re-point `PATH` could put a
+/// directory it writes in front of every program the gate judged by argv.
+/// `path_prepend` is the operator's way to put a directory first, and
+/// `job_path::merge` is the only thing that builds a job's `PATH`.
+fn job_path_refusal(name: &str) -> Option<String> {
+    name.eq_ignore_ascii_case("PATH").then(|| {
+        format!(
+            "environment variable {name} may not be set by a tool call: a job's PATH is the \
+             daemon's own merged with the login shell's, and `[tools] path_prepend` is the \
+             operator's way to put a directory first"
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Part 3 of theseus-v4cj: a per-call `PATH` is refused with a named
+    /// reason, and no other variable is caught by that refusal.
+    #[test]
+    fn a_per_call_path_is_refused_by_name_and_nothing_else_is() {
+        let why = job_path_refusal("PATH").expect("PATH is refused");
+        assert!(why.contains("PATH may not be set by a tool call"), "{why}");
+        assert!(why.contains("path_prepend"), "{why}");
+        // Case does not buy a way past it: `execvp` reads `PATH`, and an
+        // environment that holds both is the shell's to disambiguate.
+        assert!(job_path_refusal("Path").is_some());
+        for name in ["PATHS", "MANPATH", "JAVA_HOME", "PYTHONPATH", "LD_PATH"] {
+            assert!(job_path_refusal(name).is_none(), "{name}");
+        }
+    }
 
     /// A reader that counts the bytes read from it.
     struct Counted<R> {
