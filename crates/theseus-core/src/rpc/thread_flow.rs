@@ -389,6 +389,13 @@ impl Core {
                 None => decide_single(live, &pre),
                 // As below: a spoken turn is never held for a question.
                 Some(_) if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
+                // `unsure = "guess"`: the offer is a guess of home, not a question.
+                Some(ask) if self.cfg.threads.unsure == crate::config::Unsure::Guess => {
+                    match crate::thread_route::guessed(ask, live, &pre, None) {
+                        Decision::Route(tag) => tag,
+                        _ => unreachable!("a guess is a route"),
+                    }
+                }
                 Some(ask) => {
                     self.ask_thread(ask, p, conn, (home, place), live, row)
                         .await
@@ -604,6 +611,7 @@ impl Core {
             // since that reads it only behind a hold the rule made.
             new_entities: new_entities(&p.input, live),
             ask_every_thread: self.cfg.threads.ask_every_thread,
+            guess_unsure: self.cfg.threads.unsure == crate::config::Unsure::Guess,
         };
         decide(live, pre, jev.as_ref(), voice, Some(&title), rules)
     }

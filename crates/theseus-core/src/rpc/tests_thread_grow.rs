@@ -43,6 +43,8 @@ pub(super) fn rig(
     cfg.policy.enforcement = Posture::Notify;
     cfg.policy.tools.remove("fs.write");
     cfg.judge.enabled = false;
+    // The router's ask tests predate `unsure = "guess"` (theseus-ttlze).
+    cfg.threads.unsure = crate::config::Unsure::Ask;
     tweak(&mut cfg);
     let store = Store::open(&dir.path().join("store")).unwrap();
     let fake = Arc::new(FakeProvider::scripted(script(&root)));

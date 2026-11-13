@@ -125,6 +125,8 @@ pub(crate) fn rig_on(
 ) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = judge_config(dir.path(), jev);
+    // The router's ask tests predate `unsure = "guess"` (theseus-ttlze).
+    cfg.threads.unsure = crate::config::Unsure::Ask;
     tweak(&mut cfg);
     cfg.validate().unwrap();
     let store = Store::open(&dir.path().join("store")).unwrap();

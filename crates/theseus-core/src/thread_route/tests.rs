@@ -470,11 +470,13 @@ const OFF: Rules = Rules {
     sticky_alone_asks: false,
     new_entities: 0,
     ask_every_thread: false,
+    guess_unsure: false,
 };
 const ON: Rules = Rules {
     sticky_alone_asks: true,
     new_entities: 0,
     ask_every_thread: true,
+    guess_unsure: false,
 };
 
 /// `decide` under today's rules, before theseus-eqp1v.
@@ -1301,4 +1303,78 @@ fn the_new_offer_rides_only_the_ask_the_cap_made() {
     };
     let d = decide(&t, &close, Some(&new), Voice::Jev, Some("homesvc"), rules);
     assert!(keys(&d).contains(&"new".to_string()), "{d:?}");
+}
+
+// ---- `[threads] unsure = "guess"` (theseus-ttlze)
+
+const GUESS: Rules = Rules {
+    guess_unsure: true,
+    ..ON
+};
+
+fn guess_of(d: &Decision) -> &ThreadTag {
+    match d {
+        Decision::Route(tag) => {
+            assert_eq!(tag.how, RouteHow::Guess, "{d:?}");
+            assert!(tag.movable, "a guess can be moved: {d:?}");
+            tag
+        }
+        other => panic!("not a guess: {other:?}"),
+    }
+}
+
+/// Every table path that asks under `ask` places a guess under `guess`, and a
+/// path that already routes is untouched.
+#[test]
+fn under_guess_every_ask_and_offer_is_a_guess_and_ask_is_unchanged() {
+    let all = [pr_round(), security_fix()];
+    let t = refs(&all);
+    let close = pre_with(&[("pr-round", 0.70), ("security-fix", 0.65)]);
+    let low = Jev {
+        pick: Pick::Thread("security-fix".into()),
+        p: 0.2,
+    };
+    let asked = decide(&t, &close, Some(&low), Voice::Jev, Some("x"), ON);
+    assert!(matches!(asked, Decision::Ask { .. }), "the premise: {asked:?}");
+    let g = decide(&t, &close, Some(&low), Voice::Jev, Some("x"), GUESS);
+    let tag = guess_of(&g);
+    assert!(tag.slug.is_some(), "Jev's thread pick is the guess: {g:?}");
+    // A new-thread offer is a guess of home, never a thread made.
+    let new = Jev {
+        pick: Pick::New,
+        p: 0.95,
+    };
+    let offer = decide(&t, &close, Some(&new), Voice::Jev, Some("x"), ON);
+    assert!(matches!(offer, Decision::OfferNew { .. }), "{offer:?}");
+    let g = decide(&t, &close, Some(&new), Voice::Jev, Some("x"), GUESS);
+    let _ = guess_of(&g); // a Route cannot make a thread
+    // A route that was not an ask is not touched.
+    let sure = pre_with(&[("pr-round", 0.95), ("security-fix", 0.05)]);
+    let same = decide(&t, &sure, None, Voice::Alone, None, ON);
+    assert_eq!(decide(&t, &sure, None, Voice::Alone, None, GUESS), same);
+}
+
+/// A guess never lands in a sealed or seal-pending thread: it goes home.
+#[test]
+fn a_guess_never_lands_in_a_sealed_or_seal_pending_thread() {
+    let mut sealed = pr_round();
+    sealed.sealed = Some(theseus_protocol::threads::Seal {
+        by: "owner".into(),
+        at_ms: 1,
+        reason: "embargo".into(),
+    });
+    let mut pending = pr_round();
+    pending.seal_pending = Some("looks embargoed".into());
+    for top in [sealed, pending] {
+        let all = [top, security_fix()];
+        let t = refs(&all);
+        let close = pre_with(&[("pr-round", 0.70), ("security-fix", 0.65)]);
+        let d = guessed(
+            Decision::Ask { options: vec![] },
+            &t,
+            &close,
+            None,
+        );
+        assert_eq!(guess_of(&d).slug, None, "home, not the sealed thread: {d:?}");
+    }
 }

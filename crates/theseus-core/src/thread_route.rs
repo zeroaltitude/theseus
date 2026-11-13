@@ -824,6 +824,9 @@ pub struct Rules {
     /// `[threads] ask_every_thread` (theseus-98bz.4): an ask lists every live,
     /// unsealed thread (four at most, else three and `other`), not the best two.
     pub ask_every_thread: bool,
+    /// `[threads] unsure = "guess"` (theseus-ttlze): an ask or a new-thread
+    /// offer becomes a [`RouteHow::Guess`] placement ([`guessed`]).
+    pub guess_unsure: bool,
 }
 
 /// The most threads an ask lists by name; past it, [`LISTED_PAST`] and `other`.
@@ -1088,8 +1091,55 @@ pub enum Voice {
     Alone,
 }
 
-/// The decision table. `threads` are the live ones the scores are of.
+/// The decision table. `threads` are the live ones the scores are of. With
+/// `rules.guess_unsure` no path answers an ask or an offer: see [`guessed`].
 pub fn decide(
+    threads: &[&ThreadInfo],
+    pre: &[Pre],
+    jev: Option<&Jev>,
+    voice: Voice,
+    new_title: Option<&str>,
+    rules: Rules,
+) -> Decision {
+    let d = decide_table(threads, pre, jev, voice, new_title, rules);
+    match rules.guess_unsure {
+        true => guessed(d, threads, pre, jev),
+        false => d,
+    }
+}
+
+/// Under `unsure = "guess"` every `Ask` and `OfferNew` is a `Route` tagged
+/// `Guess`: Jev's pick when it answered, else the router's top, else home.
+/// A guess never lands in a sealed or seal-pending thread (it goes home), and
+/// never makes a thread: a pick of `New` is a guess of home. Movable, so the
+/// reply can offer the change.
+pub fn guessed(
+    d: Decision,
+    threads: &[&ThreadInfo],
+    pre: &[Pre],
+    jev: Option<&Jev>,
+) -> Decision {
+    if matches!(d, Decision::Route(_)) {
+        return d;
+    }
+    let ranked = fuse(pre, jev);
+    let (choice, conf) = ranked
+        .into_iter()
+        .find(|(c, _)| *c != Choice::New)
+        .unwrap_or((Choice::Home, 0.0));
+    let open = |s: &str| {
+        threads
+            .iter()
+            .any(|t| t.slug == s && t.sealed.is_none() && t.seal_pending.is_none())
+    };
+    let choice = match choice {
+        Choice::Thread(s) if open(&s) => Choice::Thread(s),
+        _ => Choice::Home,
+    };
+    Decision::Route(tag(threads, &choice, RouteHow::Guess, conf, true))
+}
+
+fn decide_table(
     threads: &[&ThreadInfo],
     pre: &[Pre],
     jev: Option<&Jev>,

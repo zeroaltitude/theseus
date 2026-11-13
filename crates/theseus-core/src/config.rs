@@ -71,7 +71,7 @@ pub use prefix::PrefixConfig;
 pub use route::RouteConfig;
 pub use sessions::SessionsConfig;
 pub use standing::StandingConfig;
-pub use threads::{PersonaEngage, ThreadsConfig};
+pub use threads::{PersonaEngage, ThreadsConfig, Unsure};
 pub use watches::WatchesConfig;
 pub mod defer;
 mod sparse;
