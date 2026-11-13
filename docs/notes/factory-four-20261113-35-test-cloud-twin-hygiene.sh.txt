@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# test-cloud-twin-hygiene.sh -- proof for b7-reharvest-cloud-twin-orphan against a SCRATCH FIXTURE.
+# (the factory-four worker, 2026-11-13)
+#
+# Builds a throwaway repo with its own throwaway "origin" under /tmp, so nothing here can reach a real branch.
+# The fixture reproduces every shape the line names, and asserts the OLD slug-matched rule's answer against the
+# NEW work-matched one. It also runs cloud-returns.sh over the same fixture (it has CLOUD_RETURNS_REPO for
+# exactly this) to show that the detector and the hygiene now agree branch for branch -- which is the property
+# the line is really about.
+#
+# Run: bash ~/reports/theseus-105-kickoff/logistics/test-cloud-twin-hygiene.sh   (exit 0 = every case passed)
+set -u
+HYG=${HYG:-$(cd "$(dirname "$0")" && pwd)/cloud-twin-hygiene.sh}
+DET=${DET:-$(cd "$(dirname "$0")" && pwd)/cloud-returns.sh}
+T=$(mktemp -d /tmp/ff-hyg-XXXXXX); trap 'rm -rf "$T"' EXIT
+UP=$T/origin.git; WK=$T/work; AR=$T/archive; RP=$T/reports
+mkdir -p "$AR" "$RP"
+git init -q --bare "$UP"
+git init -q "$WK"
+cd "$WK"
+git config user.email f@f; git config user.name f     # SAFE: a scratch repo under /tmp, never a theseus worktree
+git config commit.gpgsign false
+q() { "$@" >/dev/null 2>&1; }
+
+commit() { echo "$2" > "$1"; q git add "$1"; q git commit -m "$2"; }
+commit base.txt "base"
+q git branch -M main
+q git remote add origin "$UP"
+q git push -u origin main
+
+# A cloud row: branch cloud/<ns>-<slug> carrying CLOUD_REPORT.md and one work commit.
+mkrow() { # ns slug
+  q git checkout -q -b "cloud/$1-$2" main
+  commit "work-$2.txt" "work for $2"
+  echo "report for $2" > CLOUD_REPORT.md; echo "task for $2" > CLOUD_TASK.md
+  q git add CLOUD_REPORT.md CLOUD_TASK.md; q git commit -m "CLOUD_REPORT for $2"
+  q git push -q origin "cloud/$1-$2"
+  q git checkout -q main
+}
+# Land a row's work under a (possibly variant) slug, leaving the twin in one of the three places a twin lives.
+land() { # ns slug twin-slug where(origin|local|archive)
+  q git checkout -q -b "$1/$3" "cloud/$1-$2~1"   # the work commit, without the report
+  q git checkout -q main; q git merge -q --no-ff -m "land $1/$3" "$1/$3"; q git push -q origin main
+  case $4 in
+    origin)  q git push -q origin "$1/$3" ;;
+    local)   : ;;                                        # the branch stays local: refs/heads/<ns>/<twin>
+    archive) q git update-ref "refs/archive/$1/$3" "$1/$3"; q git branch -q -D "$1/$3" ;;
+  esac
+}
+
+# ---- the fixture ----------------------------------------------------------------------------------------
+mkrow p5 exact-origin   ; land p5 exact-origin   exact-origin      origin
+mkrow p5 exact-local    ; land p5 exact-local    exact-local       local
+mkrow p5 variant-six    ; land p5 variant-six    variant-six-six   local      # THE LINE'S CASE: -<variant>
+mkrow p5 variant-arch   ; land p5 variant-arch   variant-arch-take archive    # variant AND only an archive ref
+mkrow p5 really-pending                                                       # back, nothing landed
+mkrow p6 w99-exact      ; land p6 w99-exact      w99-exact         local
+mkrow p6 w98-variant    ; land p6 w98-variant    w98-variant-r2    local      # the p6 -r2 shape, 7 of them live
+mkrow p6 w97-pending
+mkrow p5 twin-not-landed                                                      # a twin exists but is NOT on main
+q git checkout -q -b p5/twin-not-landed "cloud/p5-twin-not-landed~1"
+q git push -q origin p5/twin-not-landed; q git checkout -q main
+q git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
+pass=0; fail=0
+want() { # label expect(WOULD|pending|skip) ref  -- against the DRY RUN
+  local label=$1 expect=$2 ref=$3 got
+  got=$(printf '%s\n' "$DRYOUT" | awk -v r="$ref" '$2==r {print $1; exit}')
+  if [ "$got" = "$expect" ]; then pass=$((pass+1)); printf 'ok    %-46s %s\n' "$label" "$expect"
+  else fail=$((fail+1)); printf 'FAIL  %-46s expected %s, got %s\n' "$label" "$expect" "${got:-<no line>}"; fi
+}
+
+echo "=== 1. the OLD rule, for comparison: cb=cloud/p5-\${br#p5/} on each landed branch ==="
+for br in $(git for-each-ref --format='%(refname:short)' refs/heads/p5/ refs/heads/p6/); do
+  cb="cloud/p5-${br#p5/}"
+  if git rev-parse -q --verify "origin/$cb" >/dev/null 2>&1; then echo "  old rule WOULD clean origin/$cb (from $br)"
+  else echo "  old rule missed: origin/$cb does not exist (landed branch $br)"; fi
+done
+
+echo
+echo "=== 2. the NEW rule, dry run ==="
+DRYOUT=$(REPO="$WK" MAIN=origin/main ARCH="$AR" bash "$HYG" --dry-run)
+printf '%s\n' "$DRYOUT" | sed 's/^/  /'
+echo
+want "exact slug, twin on origin"        WOULD   origin/cloud/p5-exact-origin
+want "exact slug, twin is a LOCAL head"  WOULD   origin/cloud/p5-exact-local
+want "VARIANT slug (-six), local twin"   WOULD   origin/cloud/p5-variant-six
+want "VARIANT slug, only an ARCHIVE ref" WOULD   origin/cloud/p5-variant-arch
+want "p6 exact slug"                     WOULD   origin/cloud/p6-w99-exact
+want "p6 VARIANT slug (-r2)"             WOULD   origin/cloud/p6-w98-variant
+want "back but nothing landed"           pending origin/cloud/p5-really-pending
+want "twin exists but is NOT on main"    pending origin/cloud/p5-twin-not-landed
+want "p6 nothing landed"                 pending origin/cloud/p6-w97-pending
+
+echo
+echo "=== 3. the dry run changed nothing ==="
+before=$(git ls-remote --heads "$UP" | wc -l)
+[ -z "$(ls -A "$AR")" ] && { pass=$((pass+1)); echo "ok    --dry-run wrote no archive"; } || { fail=$((fail+1)); echo "FAIL  --dry-run wrote into the archive"; }
+
+echo
+echo "=== 4. the detector agrees with the hygiene, branch for branch ==="
+# cloud-returns.sh is p5-only, so compare on the p5 rows. A row the hygiene would clean must NOT be offered
+# for harvest, and a row it keeps as pending MUST be (that is the whole contract between the two).
+mkdir -p "$T/locks"
+DETOUT=$(CLOUD_RETURNS_REPO="$WK" CLOUD_RETURNS_REPORTS="$RP" HOME="$T" bash "$DET" 2>/dev/null || true)
+printf '%s\n' "$DETOUT" | sed 's/^/  detector: /'
+for s in exact-origin exact-local variant-six variant-arch; do
+  if printf '%s\n' "$DETOUT" | grep -q "^$s	"; then fail=$((fail+1)); printf 'FAIL  %-46s detector still offers it\n' "landed $s suppressed"
+  else pass=$((pass+1)); printf 'ok    %-46s suppressed\n' "landed $s"; fi
+done
+for s in really-pending twin-not-landed; do
+  if printf '%s\n' "$DETOUT" | grep -q "^$s	"; then pass=$((pass+1)); printf 'ok    %-46s still offered\n' "pending $s"
+  else fail=$((fail+1)); printf 'FAIL  %-46s detector dropped a pending row\n' "pending $s"; fi
+done
+
+echo
+echo "=== 5. for real, against the fixture's own origin ==="
+OUT=$(REPO="$WK" MAIN=origin/main ARCH="$AR" bash "$HYG")
+printf '%s\n' "$OUT" | sed 's/^/  /'
+after=$(git ls-remote --heads "$UP" | wc -l)
+# six landed rows must be gone from the fixture's origin
+if [ "$((before - after))" = 6 ]; then pass=$((pass+1)); printf 'ok    %-46s %s -> %s heads\n' "six landed cloud branches deleted" "$before" "$after"
+else fail=$((fail+1)); printf 'FAIL  %-46s %s -> %s heads (expected -6)\n' "six landed cloud branches deleted" "$before" "$after"; fi
+for s in really-pending twin-not-landed; do
+  if git ls-remote --heads "$UP" "refs/heads/cloud/p5-$s" | grep -q .; then pass=$((pass+1)); printf 'ok    %-46s survived\n' "pending cloud/p5-$s"
+  else fail=$((fail+1)); printf 'FAIL  %-46s was deleted\n' "pending cloud/p5-$s"; fi
+done
+for s in variant-six w98-variant; do
+  f=$(ls "$AR/$s/CLOUD_REPORT.md" 2>/dev/null)
+  if [ -n "$f" ] && grep -q "report for $s" "$f"; then pass=$((pass+1)); printf 'ok    %-46s report archived before deletion\n' "$s"
+  else fail=$((fail+1)); printf 'FAIL  %-46s report NOT archived\n' "$s"; fi
+  if git -C "$WK" rev-parse -q --verify "refs/archive/cloud/$s" >/dev/null; then pass=$((pass+1)); printf 'ok    %-46s refs/archive/cloud ref written\n' "$s"
+  else fail=$((fail+1)); printf 'FAIL  %-46s no refs/archive/cloud ref\n' "$s"; fi
+done
+
+echo
+echo "=== 6. idempotent: a second run finds nothing left to do ==="
+OUT2=$(REPO="$WK" MAIN=origin/main ARCH="$AR" bash "$HYG")
+printf '%s\n' "$OUT2" | sed 's/^/  /'
+if printf '%s\n' "$OUT2" | tail -1 | grep -q '0 landed'; then pass=$((pass+1)); echo "ok    second run: 0 landed"
+else fail=$((fail+1)); echo "FAIL  second run still saw landed rows"; fi
+
+echo
+echo "=== 7. --max bounds one run ==="
+# rebuild three landed rows and allow only two
+for s in m1 m2 m3; do mkrow p5 "$s"; land p5 "$s" "$s" local; done
+q git fetch -q origin '+refs/heads/*:refs/remotes/origin/*' --prune
+OUT3=$(REPO="$WK" MAIN=origin/main ARCH="$AR" bash "$HYG" --max 2)
+printf '%s\n' "$OUT3" | sed 's/^/  /'
+if printf '%s\n' "$OUT3" | tail -1 | grep -q '2 deleted, 1 over the cap'; then pass=$((pass+1)); echo "ok    --max 2 deleted 2 and capped 1"
+else fail=$((fail+1)); echo "FAIL  --max did not bound the run"; fi
+
+echo
+echo "$pass passed, $fail failed"
+[ "$fail" = 0 ]
