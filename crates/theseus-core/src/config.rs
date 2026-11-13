@@ -540,6 +540,13 @@ pub struct ToolsConfig {
     /// cgroup is delegated: its processes and threads at once. 0: no cap.
     #[serde(default = "default_job_pids_max")]
     pub job_pids_max: u64,
+    /// `[tools] max_jobs` (theseus-v6bd): the most jobs that may be in
+    /// flight at once, over the whole daemon. A call that would pass it is
+    /// **refused with a named reason, never queued** (the owner,
+    /// 2026-11-12); `toolrun::jobcap` is the decision and its words. 0: no
+    /// cap, which is what every daemon did before the key existed.
+    #[serde(default = "default_max_jobs")]
+    pub max_jobs: usize,
     /// `[tools.web]`: `http.fetch` and `web.search` (DD5).
     #[serde(default)]
     pub web: WebToolsConfig,
@@ -601,6 +608,13 @@ pub fn default_large_payload_chars() -> usize {
 }
 fn default_job_pids_max() -> u64 {
     theseus_kernel::cgroup::DEFAULT_PIDS_MAX
+}
+/// `[tools] max_jobs` (theseus-v6bd). 200 is the number the row was written
+/// against ("a configured cap refuses the 201st"), and it is far above
+/// anything a conversation does: what it stops is a runaway, not a busy day.
+/// `jobcap::OFF` (0) is no cap.
+fn default_max_jobs() -> usize {
+    200
 }
 /// The smallest cap a job's output file may have: a page.
 const MIN_JOB_OUTPUT_MAX_BYTES: u64 = 4096;
@@ -674,6 +688,7 @@ impl Default for ToolsConfig {
             proc_env: default_proc_env(),
             job_output_max_bytes: default_job_output_max_bytes(),
             job_pids_max: default_job_pids_max(),
+            max_jobs: default_max_jobs(),
             outputs_keep_days: outputs::keep_days(),
             outputs_max_bytes: outputs::max_bytes(),
             large_payload_chars: default_large_payload_chars(),

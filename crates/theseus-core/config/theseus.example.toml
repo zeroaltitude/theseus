@@ -556,6 +556,7 @@ proc_timeout_max_secs = 3600            # ceiling a call may ask for (its silenc
 proc_env = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "TZ", "CARGO_HOME", "RUSTUP_HOME", "SHELL", "LOGNAME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "VIRTUAL_ENV", "PYTHONPATH", "PYENV_ROOT", "CONDA_PREFIX", "CONDA_DEFAULT_ENV", "NVM_DIR", "NVM_BIN", "NODE_PATH", "NPM_CONFIG_PREFIX", "JAVA_HOME", "JDK_HOME", "MAVEN_HOME", "GRADLE_HOME", "GOPATH", "GOROOT", "PKG_CONFIG_PATH"]  # the ONLY variables a job sees (the toolchain's paths; a name that looks like a secret is dropped, and warned about)
 job_output_max_bytes = 67108864         # a job's raw output file keeps at most this much (64 MiB); past it the job runs on, and its result says how much was dropped
 job_pids_max = 4096                     # the most processes and threads one L0 job may have at once, where the daemon's cgroup is delegated (its unit's Delegate=yes); past it a fork fails, and its result says so; 0: no cap
+max_jobs = 200                          # the most jobs in flight at once over the whole daemon; a call that would pass it is REFUSED with a named reason, never queued, and the refusal names this key; 0: no cap
 # A result the cap cuts (result_max_chars) keeps its whole output, scrubbed, in
 # <state>/outputs/<session>/<call>.out, and its cut line names the file and
 # the lines left out, which fs_read reads: a proc_run's (to its job file's

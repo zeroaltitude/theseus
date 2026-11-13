@@ -47,6 +47,7 @@ mod glide;
 pub(crate) mod handles;
 mod hands;
 pub(crate) mod job;
+pub mod jobcap;
 pub mod jobs_tools;
 mod kept;
 mod late;
@@ -310,6 +311,9 @@ pub struct ToolRuntime {
     /// What each session has been handed (theseus-w2cs sub-item 2): the
     /// stale-edit guard's board, bound to the calling session per call.
     pub reads: Arc<reads::ReadRecords>,
+    /// `[tools] max_jobs`: the most jobs in flight at once, over the whole
+    /// daemon. `jobcap::OFF` is no cap. Read at a job's launch.
+    pub max_jobs: usize,
     /// Where a capped result's whole output is kept (theseus-v73m).
     pub outputs: crate::outputs::Outputs,
     /// The admission queue (theseus-4g0l): the turn waits in it, and a job's wait lends its slot.
@@ -484,6 +488,7 @@ impl ToolRuntime {
             large_payload_chars: crate::config::default_large_payload_chars(),
             proc_sync_secs: 60,
             job_wait_max_secs: crate::config::default_job_wait_max_secs(),
+            max_jobs: jobcap::OFF,
             parallel_runs: crate::config::default_parallel_runs(),
             parallel_reads: crate::config::default_parallel_reads(),
             parallel_writes: crate::config::default_parallel_writes(),
@@ -2181,6 +2186,7 @@ pub fn build_runtime(
         proc_sync_secs: t.proc_sync_secs,
         job_wait_max_secs: t.job_wait_max_secs,
         reads: Default::default(),
+        max_jobs: t.max_jobs,
         parallel_runs: t.parallel_runs.max(1),
         parallel_reads: t.parallel_reads.max(1),
         parallel_writes: t.parallel_writes.max(1),

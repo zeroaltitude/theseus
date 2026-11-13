@@ -25,6 +25,7 @@
 pub mod egress;
 mod init;
 mod report;
+mod residue;
 pub mod seccomp;
 mod spawn;
 mod spec;
@@ -33,6 +34,7 @@ mod view;
 
 pub use init::init_main;
 pub use report::{Exit, Scratch, Started};
+pub use residue::{Residue, Stopped, LOOKS, SLICE};
 pub use spawn::{refusal, refused_here, spawn, SandboxChild, SpawnError, Stdio, ROOT_REFUSED};
 pub use spec::{Facilities, Init, Limits, Spec, HOSTNAME, INIT_ROLE};
 pub use view::{DEVICES, MORE_DEVICES};
