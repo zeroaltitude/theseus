@@ -350,7 +350,7 @@ impl Provider for TextAfterTheHeldCreate {
 /// lane runs in one of those gaps is the host's scheduling: the process
 /// message's first create is the thinking or the fold, and an end that comes
 /// first has the post written before any create. Given at once and held open,
-/// neither can happen. If no create is held within 10 s it goes on, and the
+/// neither can happen. If no create is held within the patience it goes on, and the
 /// test's scenario check says so.
 struct AllAtOnceThenHeld {
     inner: FakeProvider,
@@ -385,11 +385,12 @@ impl Provider for AllAtOnceThenHeld {
                     Delta::Text(t)
                 });
             }
-            let t0 = std::time::Instant::now();
-            while t0.elapsed() < std::time::Duration::from_secs(10)
-                && !self.fake.seen().iter().any(|q| q.outcome == "held")
-            {
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            // The wait is `until`'s patience (20 s of unstalled time), not a
+            // fixed 10 s of wall clock: on a starved host the lane's first
+            // create can come later than that (b7-tests-process-oneoff-red).
+            let mut patience = crate::tests_gateway::patience::Patience::new();
+            while !patience.spent() && !self.fake.seen().iter().any(|q| q.outcome == "held") {
+                patience.nap().await;
             }
             Ok(response)
         })
