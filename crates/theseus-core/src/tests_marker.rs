@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 use theseus_protocol::SessionKind;
 
 use crate::config::WebToolsConfig;
-use crate::node::{Body, ResultStatus};
+use crate::node::{Body, Node, ResultStatus};
+use crate::payload::Marked;
 use crate::policy::Posture;
 use crate::provider::{FakeProvider, Scripted};
 use crate::session::SessionRecord;
@@ -160,4 +161,86 @@ async fn a_job_of_gh_is_marked_outside_text_and_holds_nothing() {
         "an unlisted program is not marked"
     );
     assert!(ledgered(&core, "session.external_read").is_empty());
+}
+
+/// A result marked outside text whose output was large enough to be held out of the request
+/// (`[tools] large_payload_chars`) is still outside text. The marker and the payload are
+/// independent: the payload decides what a compile *renders*, the marker decides what the gate,
+/// the index and consolidation *count*, and the payload's bytes are reachable either way. Reading
+/// the payload into the marker's own test — a `Body::ToolResult` pattern that names `payload` is a
+/// condition, not a field — is how the marker gets narrowed by a mechanical pass without a single
+/// test failing, so this one holds the two apart by name (theseus-czpp).
+#[test]
+fn a_marked_result_with_a_large_payload_is_still_outside_text() {
+    fn result(session: &str, url: Option<&str>, payload: Option<Marked>) -> Node {
+        Node::harness_body(
+            "nod",
+            session,
+            "test",
+            Body::ToolResult {
+                tool_use_id: "tu_1".into(),
+                tool: "http.fetch".into(),
+                status: ResultStatus::Ok,
+                is_error: false,
+                content: "held out".into(),
+                correlation_id: None,
+                bytes_total: 8,
+                truncated: false,
+                full_ref: None,
+                duration_ms: None,
+                late: false,
+                meta: Value::Null,
+                image: None,
+                external: url.map(|u| theseus_tools::External { url: u.into() }),
+                payload: payload.map(Box::new),
+            },
+        )
+    }
+    // A page long enough to be held out: whoever wrote the page chose its length.
+    let big = "a line of the stranger's page\n".repeat(8_000);
+    let marked = Marked::of("http.fetch", &big, "/tmp/pay_1.txt");
+
+    // The payload does not unmark the result.
+    let held = result(
+        "ses_a",
+        Some("https://site.test/long"),
+        Some(marked.clone()),
+    );
+    assert!(
+        crate::external::is_outside(&held),
+        "a large payload must not narrow the marker"
+    );
+    assert_eq!(
+        crate::external::first(std::slice::from_ref(&held)),
+        Some(crate::external::Outside {
+            tool: "http.fetch".into(),
+            url: "https://site.test/long".into(),
+            at_ms: held.created_at_ms,
+        }),
+        "Jev's state names the large outside read"
+    );
+    // The control: a payload on an unmarked result is still not outside text, so the assertion
+    // above is about the marker and not about every result that carries a payload.
+    assert!(!crate::external::is_outside(&result(
+        "ses_a",
+        None,
+        Some(marked.clone())
+    )));
+
+    // And the gate's own input: a session whose only outside read was a large one has read
+    // outside text, so the `http.fetch` after it is judged (`judged`'s `holds`, Q12).
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("store")).unwrap();
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    store.put_session(&rec.session_id, &rec).unwrap();
+    let node = result(
+        &rec.session_id,
+        Some("https://site.test/long"),
+        Some(marked),
+    );
+    store.append(&[node.record().unwrap()]).unwrap();
+    assert!(
+        crate::external::read_any(&store, &rec.session_id),
+        "a session whose only outside read was large has read outside text"
+    );
 }
