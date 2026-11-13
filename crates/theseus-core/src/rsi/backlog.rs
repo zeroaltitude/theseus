@@ -48,6 +48,7 @@
 //!
 //! What it keeps beside the tasks is one META record ([`state`]).
 
+mod filed;
 mod folded;
 mod graduate;
 mod keel;
@@ -57,6 +58,7 @@ pub(crate) use read::plain_title;
 pub(crate) mod start;
 mod state;
 mod tender;
+pub(crate) mod tool;
 mod word;
 
 pub use read::{from_ledger, of_motif, Obs};
@@ -373,6 +375,86 @@ impl Work {
         id
     }
 
+    /// A person's own finding as a new item (theseus-cux0o). The mark that a
+    /// person chose it is `origin.self_started = false`, `by_model = false`,
+    /// no `because`, `origin.session` [`filed::FILED_FROM`], and an evidence
+    /// entry naming the filer -- every one of them a field a task already
+    /// has, so no stored record gains a field and `MANIFEST_FORMAT` does not
+    /// move. [`filed`]'s own doc is the whole rule.
+    ///
+    /// `work: 1` is the deliberate reading of an unknown size: the rank
+    /// divides by `work`, so a person's finding is not penalised for a size
+    /// nobody has estimated. `person: true` is the field's own meaning (a
+    /// person is waiting on it). It takes its place by score like any item;
+    /// `theseus self move <item> 1` pins it, and nothing here pins it for
+    /// the filer.
+    fn file_person(&mut self, finding: &str, title: &str, by: &str) -> String {
+        let id = task_graph::id_from(&crate::new_id("x"));
+        let cause = filed::cause_of(&id);
+        let keel = filed::keel_class(title, finding);
+        let mut t = task_graph::NewTask {
+            id: id.clone(),
+            title,
+            objective: filed::objective_of(&id, finding, by),
+            acceptance: vec![
+                "a test that fails without the fix passes with it".into(),
+                "every gate passes".into(),
+            ],
+            parent: self.st.parent.clone(),
+            deps: vec![],
+            session: None,
+            origin: TaskOrigin {
+                session: filed::FILED_FROM.into(),
+                principal: PRINCIPAL.into(),
+                by_model: false,
+                self_started: false,
+                because: None,
+            },
+            state: match keel.is_some() {
+                true => TaskState::WaitingHuman,
+                false => TaskState::Proposed,
+            },
+        }
+        .build(self.now);
+        let identity = format!("filed:{by}");
+        t.evidence.push(TaskEvidence {
+            node: None,
+            identity: identity.clone(),
+            note: Some(format!("filed by {by}, in their own words")),
+            by: by.into(),
+            at_ms: self.now,
+        });
+        let meta = Meta {
+            cause: cause.clone(),
+            source: filed::SOURCE.into(),
+            count: 1,
+            usd: 0.0,
+            person: true,
+            task_failed: false,
+            work: 1,
+            last_ms: self.now,
+            keel: keel.map(str::to_string),
+            score: 0,
+            rank: 0,
+            pin: None,
+            pattern: None,
+        };
+        self.said.push(Spoken::Filed(BacklogFiled {
+            item: id.clone(),
+            title: title.into(),
+            cause,
+            evidence: vec![identity],
+            source: filed::SOURCE.into(),
+            again: false,
+            count: 1,
+            keel: meta.keel.clone(),
+        }));
+        self.st.items.insert(id.clone(), meta);
+        self.tasks.insert(id.clone(), t);
+        self.touch(&id);
+        id
+    }
+
     /// Score and order the open items; drop those past `max_open`; write the
     /// ranks that moved. Returns the ids dropped.
     fn rank(&mut self, max_open: usize, by: &str, night: &mut Night) {
@@ -421,7 +503,13 @@ impl Work {
             .filter(|t| is_open(t))
             .filter(|t| {
                 self.st.items.get(&t.id).is_some_and(|m| {
-                    m.count == 1 && self.now.saturating_sub(m.last_ms) > RETIRE_AFTER_MS
+                    // A person's own finding is never retired on one
+                    // sighting: it was filed once because a person meant it
+                    // once, and the rule exists for a mined cause that
+                    // appeared once and never came back (theseus-cux0o).
+                    m.count == 1
+                        && !filed::is_person(&m.cause)
+                        && self.now.saturating_sub(m.last_ms) > RETIRE_AFTER_MS
                 })
             })
             .map(|t| t.id.clone())
@@ -651,6 +739,39 @@ impl Core {
         Ok(night)
     }
 
+    /// The one parent every item hangs under, made if it is not there yet.
+    /// Called by the night's filing and by a person's (`word::self_file`),
+    /// so the first item either of them files makes it.
+    fn ensure_parent(w: &mut Work) {
+        if w.st.parent.is_some() {
+            return;
+        }
+        let id = task_graph::id_from(&crate::new_id("x"));
+        w.parent = Some(
+            task_graph::NewTask {
+                id: id.clone(),
+                title: PARENT_TITLE,
+                objective: "The problems Theseus found in its own record, ranked, with the \
+                            evidence for each."
+                    .into(),
+                acceptance: vec![],
+                parent: None,
+                deps: vec![],
+                session: None,
+                origin: TaskOrigin {
+                    session: "self:backlog".into(),
+                    principal: PRINCIPAL.into(),
+                    by_model: true,
+                    self_started: true,
+                    because: Some("holds the problems found in its own record".into()),
+                },
+                state: TaskState::Accepted,
+            }
+            .build(w.now),
+        );
+        w.st.parent = Some(id);
+    }
+
     /// Phase one: the night's candidates onto the backlog.
     fn backlog_file(
         w: &mut Work,
@@ -658,31 +779,8 @@ impl Core {
         unjudged: &std::collections::HashSet<String>,
         night: &mut Night,
     ) {
-        if w.st.parent.is_none() && !cands.is_empty() {
-            let id = task_graph::id_from(&crate::new_id("x"));
-            w.parent = Some(
-                task_graph::NewTask {
-                    id: id.clone(),
-                    title: PARENT_TITLE,
-                    objective: "The problems Theseus found in its own record, ranked, with the \
-                                evidence for each."
-                        .into(),
-                    acceptance: vec![],
-                    parent: None,
-                    deps: vec![],
-                    session: None,
-                    origin: TaskOrigin {
-                        session: "self:backlog".into(),
-                        principal: PRINCIPAL.into(),
-                        by_model: true,
-                        self_started: true,
-                        because: Some("holds the problems found in its own record".into()),
-                    },
-                    state: TaskState::Accepted,
-                }
-                .build(w.now),
-            );
-            w.st.parent = Some(id);
+        if !cands.is_empty() {
+            Self::ensure_parent(w);
         }
         for c in cands {
             if w.st.is_dropped(&c.key) {

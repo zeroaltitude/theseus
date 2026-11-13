@@ -1,18 +1,21 @@
 //! The owner's word on the backlog: `self.backlog` (a read), `self.drop` and
-//! `self.move` and `self.retry` (the owner's, from any place, as the resume
-//! is). A drop abandons the item and remembers its cause, so the cause is
-//! never filed again; a move pins the item to a rank until it is moved
-//! again; a retry queues a failed item again.
+//! `self.move` and `self.retry` and `self.file` (the owner's, from any place,
+//! as the resume is). A drop abandons the item and remembers its cause, so
+//! the cause is never filed again; a move pins the item to a rank until it is
+//! moved again; a retry queues a failed item again; a file puts a person's own
+//! finding on the backlog, which until theseus-cux0o only the nightly miner
+//! could do ([`super::filed`] is the rule, and its doc the reasoning).
 
 use anyhow::Result;
 use theseus_protocol::rsi::{
     SelfBacklogItem, SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult,
-    SelfMoveParams, SelfMoveResult, SelfRetryParams, SelfRetryResult,
+    SelfFileParams, SelfFileResult, SelfMoveParams, SelfMoveResult, SelfRetryParams,
+    SelfRetryResult,
 };
 use theseus_protocol::tasks::{TaskEvidence, TaskRecord, TaskState};
 
 use super::state::State;
-use super::{is_open, rank, Night, Work};
+use super::{filed, is_open, rank, Night, Work};
 use crate::approval::Answerer;
 use crate::rpc::{Act, Core};
 
@@ -211,6 +214,24 @@ impl Core {
         Ok(true)
     }
 
+    /// A chat session's filing (theseus-cux0o): the same write with no
+    /// `judge_act`, because the caller has judged it. `super::tool` is the
+    /// only caller, and its own wall is stricter than the place rule here --
+    /// a private place the owner is alone in, never a task's -- while the
+    /// gate has already asked for a person's yes at every posture
+    /// (`Plan::authority`). The shape is `self_drop_vetoed`'s: the caller
+    /// judges, this only writes.
+    pub(crate) fn self_file_in_chat(
+        &self,
+        finding: &str,
+        title: Option<&str>,
+        by: &str,
+    ) -> Result<SelfFileResult> {
+        let finding = filed::finding_of(finding).map_err(BadItem)?.to_string();
+        let title = filed::title_of(&finding, title);
+        self.file_on_backlog(&finding, &title, by)
+    }
+
     /// Move an open item to a rank: the owner's word. It keeps the rank.
     pub fn self_move(&self, p: &SelfMoveParams, who: &Answerer) -> Result<SelfMoveResult> {
         let from_job = p
@@ -338,6 +359,93 @@ impl Core {
             item: id,
             title,
             rank,
+        })
+    }
+}
+
+impl Core {
+    /// Put a person's own finding on the backlog (theseus-cux0o): the
+    /// owner's word, judged and written exactly as `self.drop`,
+    /// `self.move` and `self.retry` are.
+    ///
+    /// Until this verb the only writer was the night's miner, whose
+    /// `Work::file` is private, takes a mined `Candidate` and a `Night`, and
+    /// is reachable from nowhere else -- so a person who found a defect had
+    /// no way to hand it to the loop, and the owner's own chosen shape for
+    /// the self-build bar could not be run.
+    ///
+    /// **It is gated by nothing new, and it starts nothing by itself.** The
+    /// item is written whatever `[self] mode` says, as a drop and a move are;
+    /// what the mode gates is the loop that would pick it up
+    /// (`backlog_night` and the pipeline both ask [`super::super::gate`]
+    /// first), so with self-improvement off a filed item sits and nothing
+    /// runs. That is the card's own sentence, and it is why no second switch
+    /// is added here.
+    ///
+    /// **The mark is permanent and says who**: [`Work::file_person`] writes
+    /// it into the fields a task already has, and the filer is `who.who()`,
+    /// which `rpc/server.rs`'s `answerer` already resolves to
+    /// `agent:<name>` for a process running under an agent -- so an agent's
+    /// filing is marked as the agent's and is never passed off as the
+    /// owner's, with no code of its own here.
+    pub fn self_file(&self, p: &SelfFileParams, who: &Answerer) -> Result<SelfFileResult> {
+        // Read before the act: a finding nobody could file is invalid input,
+        // and the title is what the refusal line and the ledger should name
+        // rather than the whole of a person's prose.
+        let finding = filed::finding_of(&p.finding).map_err(BadItem)?.to_string();
+        let title = filed::title_of(&finding, p.title.as_deref());
+        let from_job = p
+            .from_job
+            .as_deref()
+            .map(str::trim)
+            .filter(|j| !j.is_empty());
+        self.judge_act(
+            who,
+            Act::SelfBacklog {
+                method: theseus_protocol::method::SELF_FILE,
+                what: &title,
+                from_job,
+            },
+        )?;
+        self.file_on_backlog(&finding, &title, &who.who())
+    }
+
+    /// The write both filing routes share: one frame with the item, the
+    /// record and the rows, under the backlog's own lock.
+    fn file_on_backlog(&self, finding: &str, title: &str, filed_by: &str) -> Result<SelfFileResult> {
+        let _one = self
+            .rsi
+            .backlog
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut w = self.backlog_work()?;
+        Self::ensure_parent(&mut w);
+        let id = w.file_person(finding, title, filed_by);
+        // Ranked as the order now has it, so it shows ready at once, exactly
+        // as a retry does. Nothing is trimmed here: the night's own
+        // `Work::rank` is what holds the backlog to `backlog_max_open`.
+        let order = open_order(&mut w);
+        let mut night = Night::default();
+        for (i, o) in order.iter().enumerate() {
+            if let Some(m) = w.st.items.get_mut(o) {
+                m.score = rank::score(m, w.now);
+            }
+            w.set_rank(o, i as u32 + 1, filed_by, &mut night);
+        }
+        w.touch(&id);
+        let rank = order
+            .iter()
+            .position(|o| *o == id)
+            .map_or(0, |i| i as u32 + 1);
+        let cause = filed::cause_of(&id);
+        self.backlog_write(&mut w)?;
+        self.rsi.pipeline.kick();
+        Ok(SelfFileResult {
+            item: id,
+            title: title.to_string(),
+            cause,
+            rank,
+            filed_by: filed_by.to_string(),
         })
     }
 }

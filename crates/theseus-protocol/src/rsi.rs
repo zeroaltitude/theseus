@@ -662,6 +662,51 @@ pub struct SelfRetryResult {
     pub rank: u32,
 }
 
+/// `self.file`'s params (theseus-cux0o): a person hands the self loop a
+/// finding of their own, which only the nightly miner could do before.
+///
+/// `finding` is the whole of it in the filer's own words; `title` is the
+/// one line the backlog lists it by, and with none the first sentence of
+/// the finding stands in. The filer is `author`/`discord` as every other
+/// word on the backlog takes them, and the item keeps who it was for good.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfFileParams {
+    /// The finding, in the filer's own words.
+    pub finding: String,
+    /// The line the backlog lists it by; none takes it from the finding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub discord: Option<crate::DiscordOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub from_job: Option<String>,
+}
+
+/// `self.file`'s answer: the item a person put on the backlog, its rank in
+/// the order now, and the mark it carries for good.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SelfFileResult {
+    pub item: String,
+    pub title: String,
+    /// The cause key the item is held under: `person:<item>`, unique to it,
+    /// so a person's finding is never folded into a mined cause and never
+    /// suppressed by a drop of one.
+    pub cause: String,
+    /// Its rank among the open items, as the order stands now.
+    pub rank: u32,
+    /// Who filed it, as the item records it for good: the owner, or
+    /// `agent:<name>` for an agent's filing, never passed off as his.
+    pub filed_by: String,
+}
+
 // ---- self-exams (theseus-pw1q.11) ----
 
 /// `self.exams`' params: none yet.

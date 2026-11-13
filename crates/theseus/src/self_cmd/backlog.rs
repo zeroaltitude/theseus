@@ -1,14 +1,19 @@
-//! `theseus self backlog | drop | move | retry` (theseus-pw1q.7): Theseus's own
-//! ranked backlog, and the owner's word on it. `drop`, `move` and `retry` are
-//! the owner's: inside a job the CLI refuses them (`OPERATORS`), and the
-//! daemon refuses a non-owner and ledgers the refusal.
+//! `theseus self backlog | drop | move | retry | file` (theseus-pw1q.7,
+//! theseus-cux0o): Theseus's own ranked backlog, and the owner's word on it.
+//! `drop`, `move`, `retry` and `file` are the owner's: inside a job the CLI
+//! refuses them (`OPERATORS`), and the daemon refuses a non-owner and ledgers
+//! the refusal.
+//!
+//! `file` is the one that puts work IN rather than reordering what the night
+//! mined: it is the command half of theseus-cux0o, and the chat half is the
+//! `self.file` tool, so neither route needs the other.
 
 use anyhow::Result;
 use theseus_client::{render, Conn};
 use theseus_protocol::method;
 use theseus_protocol::rsi::{
-    SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult, SelfMoveParams,
-    SelfMoveResult, SelfRetryParams, SelfRetryResult,
+    SelfBacklogParams, SelfBacklogResult, SelfDropParams, SelfDropResult, SelfFileParams,
+    SelfFileResult, SelfMoveParams, SelfMoveResult, SelfRetryParams, SelfRetryResult,
 };
 
 use crate::cmd::output;
@@ -87,6 +92,45 @@ pub async fn retry_item(conn: &mut Conn, json: bool, item: String) -> Result<()>
         );
         Ok(())
     })
+}
+
+pub async fn file_item(
+    conn: &mut Conn,
+    json: bool,
+    finding: String,
+    title: Option<String>,
+) -> Result<()> {
+    let p = SelfFileParams {
+        finding,
+        title,
+        from_job: theseus_client::client::job_session(),
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::SELF_FILE, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: SelfFileResult| {
+        for l in filed_lines(&r) {
+            println!("{l}");
+        }
+        Ok(())
+    })
+}
+
+/// What `theseus self file` prints: the item, where it stands, and the one
+/// command that moves it, so the filer is never left guessing whether the
+/// loop will reach it.
+pub fn filed_lines(r: &SelfFileResult) -> Vec<String> {
+    vec![
+        format!(
+            "Filed {} ({}) at rank {}, by {}.",
+            r.item, r.title, r.rank, r.filed_by
+        ),
+        format!(
+            "It is marked a person's choice for good. To put it first: theseus self move {} 1.",
+            r.item
+        ),
+    ]
 }
 
 /// `theseus self backlog`'s lines: the state, then each item with its
