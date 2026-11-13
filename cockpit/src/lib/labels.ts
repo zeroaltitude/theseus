@@ -1,6 +1,8 @@
 // A session's content labels (theseus-9ymz0): every item that enters a session is classified, and what is found stays on
-// the session as a label until the owner removes it. `injection` freezes the session's writes, programs and sends;
-// `secret`, `confidential` and `personal` keep it off China-origin models. The daemon sends the labels on `session.list`
+// the session as a label until the owner removes it. `injection` tells the owner that something tried to steer the
+// session, and only `[content_based_security] injection = "refuse"` (not the default since 1.0.6) refuses its writes,
+// programs and sends; `secret`, `confidential` and `personal` keep it off China-origin models. The daemon sends the
+// labels on `session.list`
 // (`SessionInfo.labels`) and pushes `session.labelled` and `session.unlabelled`; the owner removes one with
 // `content.unlabel`, which is the re-trust of the session. Pure: `npm test` runs it
 // (test/labels.test.ts); the deck's chips are drawn in `views/SessionDeck.tsx`.
@@ -22,13 +24,15 @@ export interface LabelChip {
 
 /** What each flag does to the session, in the daemon's terms. An unknown flag (a newer daemon's) gets no sentence. */
 export const FLAG_EFFECT: Readonly<Record<string, string>> = {
-  injection: 'freezes the session’s writes, programs and sends until it is removed',
+  injection:
+    'tells the operator that something tried to steer the session; the call still runs, and only ' +
+    '`[content_based_security] injection = "refuse"` refuses its writes, programs and sends until it is removed',
   secret: 'keeps the session off China-origin models',
   confidential: 'keeps the session off China-origin models',
   personal: 'keeps the session off China-origin models',
 }
 
-/** Injection is the one that stops work, so it takes the warning tone; the other three are the dimmer one. */
+/** Injection is the one that asks the operator to look, so it takes the warning tone; the other three are the dimmer one. */
 export const toneOf = (flag: string): Tone => (flag === 'injection' ? 'wait' : 'idle')
 
 /** The chips for a session's labels, in the order the daemon sent them (the flags' order). A session with none gets none;
@@ -88,8 +92,9 @@ export type UnlabelRoute =
  *
  *  **It plans the removal; it does not make it.** The page shows what the removal does and takes one click, because the
  *  address is a one-way door: `ContentFlags::raise_after` will not raise a flag again for anything that entered the session
- *  before the removal, and removing `injection` unfreezes the session. A page that acted on load would act on a prefetch, a
- *  reopened tab or a restored history entry, and nothing here could put it back. The footer still carries a link and no
+ *  before the removal, and removing `injection` gives up the refusal `[content_based_security] injection = "refuse"`
+ *  would otherwise apply. A page that acted on load would act on a prefetch, a reopened tab or a restored history
+ *  entry, and nothing here could put it back. The footer still carries a link and no
  *  button, which is what the owner asked for. */
 export function unlabelRoute(session: string | undefined, flag: string | undefined): UnlabelRoute {
   if (!session) return { ok: false, why: 'That address names no session.' }
@@ -102,7 +107,7 @@ export function unlabelRoute(session: string | undefined, flag: string | undefin
 /** What the page says once the daemon has answered, in the daemon's own voice (`/trust`'s: what the removal lets the
  *  session do again). `by` is who the daemon recorded. */
 export const removedWords = (flag: string, by: string): string =>
-  `Removed the ${flag} label (by ${by})${flag === 'injection' ? ': calls that act run again' : ''}. The label and its removal stay in the ledger.`
+  `Removed the ${flag} label (by ${by})${flag === 'injection' ? ': calls that act are refused by nothing now' : ''}. The label and its removal stay in the ledger.`
 
 /** What the page says when the removal did not happen. A flag the session does not carry is an error from the daemon, and
  *  it is the common one: the owner opened the same link twice, or took the label off from somewhere else. It is said

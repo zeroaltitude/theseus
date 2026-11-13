@@ -19,7 +19,10 @@ test('a chip names the flag and the node, and its tooltip the kind, the source, 
   assert.equal(c.text, '⚑ injection · node nod_e1')
   assert.equal(c.node, 'nod_e1')
   assert.match(c.title, /^fetched_page · http\.fetch https:\/\/example\.test\/tides · 92% · act\./)
-  assert.match(c.title, /freezes the session’s writes, programs and sends/)
+  // Pinned to what the daemon actually does at the shipped default (the owner's S17-D8): the call runs and the operator
+  // is told. The second half pins that `refuse` is named as the mode that refuses, so neither half can drift back.
+  assert.match(c.title, /something tried to steer the session; the call still runs/)
+  assert.match(c.title, /injection = "refuse"` refuses its writes, programs and sends/)
 })
 
 test('a label with no node says only the flag', () => {
@@ -99,7 +102,8 @@ test('the footer’s address names a session and a flag, and plans the removal w
   assert.equal(r.session, 'ses_a1')
   assert.equal(r.flag, 'injection')
   assert.deepEqual(r.call, { method: 'content.unlabel', params: { session_id: 'ses_a1', flag: 'injection' }, ask: askOf('injection', 'ses_a1') })
-  assert.match(r.effect!, /freezes the session/)
+  assert.match(r.effect!, /the call still runs/)
+  assert.match(r.effect!, /injection = "refuse"` refuses its writes, programs and sends/)
 })
 
 test('every flag the daemon knows has an address, and nothing else does', () => {
@@ -117,7 +121,7 @@ test('every flag the daemon knows has an address, and nothing else does', () => 
 test('the page says what happened in the daemon’s voice, and that an already-gone label is no failure', () => {
   assert.equal(
     removedWords('injection', 'discord:1'),
-    'Removed the injection label (by discord:1): calls that act run again. The label and its removal stay in the ledger.',
+    'Removed the injection label (by discord:1): calls that act are refused by nothing now. The label and its removal stay in the ledger.',
   )
   assert.match(removedWords('secret', 'cockpit'), /^Removed the secret label \(by cockpit\)\. /)
   assert.equal(

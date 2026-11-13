@@ -5,8 +5,8 @@
 // **It asks once and does not act on load.** The owner asked for the link and for "immediately", and the link is what the
 // footer carries: no button there. The page itself takes one click, because the removal is a one-way door — the classifier
 // will not raise that flag again for anything that entered the session before the removal, and removing `injection`
-// unfreezes a session — and a page that acted on load would act on a browser's prefetch, a reopened tab or a restored
-// history entry. The reasoning is in `lib/labels.ts`'s `unlabelRoute`, which is this page's whole decision.
+// gives up the refusal `[content_based_security] injection = "refuse"` would otherwise apply — and a page that acted on
+// load would act on a browser's prefetch, a reopened tab or a restored history entry. The reasoning is in `lib/labels.ts`'s `unlabelRoute`, which is this page's whole decision.
 //
 // It adds no route to the daemon: `theseusd`'s `web.rs` already falls back to the app shell for the cockpit's own
 // client-side routes, and the removal is `content.unlabel` from this connection, which the core judges as it judges every
