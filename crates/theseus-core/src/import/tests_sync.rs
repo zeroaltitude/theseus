@@ -269,6 +269,40 @@ fn health_words_the_run_and_a_failed_or_missed_night() {
     );
 }
 
+/// **The red for the rework (theseus-ievo3, S29-1).** The owner read the
+/// design below -- a request RECORDED, served by a two-minute polling timer --
+/// and rejected its premise. His words, 2026-11-13 14:01:14 MST, Discord
+/// message 1570906412190540072: *"I still don't understand. Why is there a
+/// polling timer? I'm asking in a theseus thread to just re-import from
+/// external sessions, right? Can't it just execute it? Like I iimagine
+/// there's a once a day thing that just executes a script, or a tool, or a
+/// process. How about when the request comes in we just execute it"*
+///
+/// So: the request RUNS the sync, and answers that it started. It does not
+/// write a wish for a poller, and nothing in its answer is a time for
+/// somebody else to come back to.
+#[tokio::test]
+async fn the_request_runs_the_sync_rather_than_recording_a_wish_for_a_poller() {
+    let r = live();
+    let c = &r.core;
+    let got = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(
+        got["started"],
+        json!(true),
+        "the request started a run of its own: {got}"
+    );
+    assert!(
+        got["say"].as_str().is_some_and(|s| s.contains("started")),
+        "the thread is told it started: {got}"
+    );
+    assert!(
+        got.get("requested_ms").is_none(),
+        "nothing waits for a poller any more: {got}"
+    );
+}
+
 /// The shortened path (theseus-ievo3): a decision recorded in OpenClaw was
 /// readable in Theseus only at the next night's run, so for most of a working
 /// day Theseus acted on yesterday's picture. `import.sync.request` records
