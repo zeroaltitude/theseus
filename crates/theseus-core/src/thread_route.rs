@@ -1111,11 +1111,21 @@ pub fn decide(
 /// Under `unsure = "guess"` every `Ask` and `OfferNew` is a `Route` tagged
 /// `Guess`: Jev's pick when it answered, else the router's top, else home.
 /// A guess never lands in a sealed or seal-pending thread (it goes home), and
-/// never makes a thread: a pick of `New` is a guess of home. Movable, so the
-/// reply can offer the change.
+/// never makes a thread: a pick of `New` is a guess of [`home_guess`].
+/// Movable, so the reply can offer the change.
+///
+/// **An `OfferNew` is a guess of HOME** (`ttlze-offer-new-home`). Jev
+/// answering `New` at the confirm bar is positive evidence that no existing
+/// thread holds this message, so falling through to the next-ranked thread
+/// would route it into one the judge has implicitly just rejected. That was
+/// this function's behaviour until the fix, and it was a worse guess than
+/// home.
 pub fn guessed(d: Decision, threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&Jev>) -> Decision {
     if matches!(d, Decision::Route(_)) {
         return d;
+    }
+    if matches!(d, Decision::OfferNew { .. }) {
+        return Decision::Route(home_guess(threads, pre, jev));
     }
     let ranked = fuse(pre, jev);
     let (choice, conf) = ranked
@@ -1132,6 +1142,25 @@ pub fn guessed(d: Decision, threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&J
         _ => Choice::Home,
     };
     Decision::Route(tag(threads, &choice, RouteHow::Guess, conf, true))
+}
+
+/// An offered new thread as a guess of **home**, which is the owner's own
+/// guard in as many words (S17-D12: "an offered new thread becomes a guess of
+/// home with 'New thread' in the selector"). Its confidence is home's own
+/// fused score, so the tag says how sure the guess is rather than borrowing
+/// the rejected thread's number.
+///
+/// Two callers, and they are the two paths the guard names: [`guessed`]'s
+/// `OfferNew` arm, and `rpc/thread_flow.rs`'s lone-thread offer
+/// (`offer_beside_one`), which fires only when the one live thread is BELOW
+/// the confirm bar — so handing that `Ask` to the ranking guessed straight
+/// into the below-bar thread, at whatever score it had, 0.0 included.
+pub fn home_guess(threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&Jev>) -> ThreadTag {
+    let conf = fuse(pre, jev)
+        .into_iter()
+        .find(|(c, _)| *c == Choice::Home)
+        .map_or(0.0, |(_, s)| s);
+    tag(threads, &Choice::Home, RouteHow::Guess, conf, true)
 }
 
 fn decide_table(

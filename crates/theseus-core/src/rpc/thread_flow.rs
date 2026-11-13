@@ -389,12 +389,13 @@ impl Core {
                 None => decide_single(live, &pre),
                 // As below: a spoken turn is never held for a question.
                 Some(_) if spoken(p, conn) => self.answer_tag(None, live, p, ("", "")),
-                // `unsure = "guess"`: the offer is a guess of home, not a question.
-                Some(ask) if self.cfg.threads.unsure == crate::config::Unsure::Guess => {
-                    match crate::thread_route::guessed(ask, live, &pre, None) {
-                        Decision::Route(tag) => tag,
-                        _ => unreachable!("a guess is a route"),
-                    }
+                // `unsure = "guess"`: the offer is a guess of HOME, not a
+                // question (`ttlze-offer-new-home`). `offer_beside_one` fires
+                // only while the one live thread is BELOW the confirm bar, so
+                // this arm handed its `Ask` to the ranking and guessed into
+                // that same below-bar thread, at whatever score it had.
+                Some(_) if self.cfg.threads.unsure == crate::config::Unsure::Guess => {
+                    crate::thread_route::home_guess(live, &pre, None)
                 }
                 Some(ask) => {
                     self.ask_thread(ask, p, conn, (home, place), live, row)

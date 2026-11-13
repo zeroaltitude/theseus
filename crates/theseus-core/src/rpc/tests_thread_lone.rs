@@ -118,3 +118,38 @@ async fn with_the_switch_off_a_lone_thread_asks_nothing() {
         serde_json::to_value(RouteHow::Home).unwrap()
     );
 }
+
+/// **The lone-thread offer is a guess of HOME too** (`ttlze-offer-new-home`).
+///
+/// `offer_beside_one` fires only when the thread's score is **below** the
+/// confirm bar, and under `unsure = "guess"` the new arm handed that `Ask` to
+/// `thread_route::guessed`, which takes the best-ranked existing choice — the
+/// same below-bar thread. The W11 report's claim that the lone-thread offer
+/// "is also a home guess" was measured false by its reviewer: it is a guess of
+/// the lone thread whenever its score exceeds 0.
+///
+/// So this message, which the thread does not hold and which names a new
+/// stream's branch and ticket, must run at **home**, as a guess and movable.
+/// The positive counts beside it: the router did see the message
+/// (`thread.routed`), and nothing was asked, which is what `guess` is for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn under_guess_a_lone_threads_new_offer_guesses_home() {
+    let r = lone(|cfg| cfg.threads.unsure = crate::config::Unsure::Guess);
+    let home = r.home();
+    let v = send(&r.core, said(&home, NEW_STREAM)).await;
+    assert!(asked(&r).is_empty(), "a guess asks nothing");
+    assert_eq!(
+        v["result"]["thread"]["slug"],
+        serde_json::Value::Null,
+        "home, not the below-bar lone thread: {v}"
+    );
+    assert_eq!(v["result"]["session_id"], home.as_str(), "{v}");
+    assert_eq!(
+        v["result"]["thread"]["how"],
+        serde_json::to_value(RouteHow::Guess).unwrap(),
+        "{v}"
+    );
+    assert_eq!(v["result"]["thread"]["movable"], true, "{v}");
+    let routed = crate::test_support::ledger_rows_2k(&r.core, "thread.routed");
+    assert_eq!(routed.len(), 1, "the router saw it: {routed:?}");
+}
