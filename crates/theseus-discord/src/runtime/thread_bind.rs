@@ -208,6 +208,9 @@ impl Shared {
             persona: None,
             forum: false,
             task_threads: false,
+            // A place the binding makes is never the announcement place
+            // (theseus-nuqut): only the bindings file names that one.
+            notify: false,
         }
     }
 

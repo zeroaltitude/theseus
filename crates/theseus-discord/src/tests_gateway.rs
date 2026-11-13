@@ -239,6 +239,19 @@ impl Rig {
             .find(|m| m.versions[0].contains("**Approve?**"))
     }
 
+    /// The announcement place the owner bound from chat, by its channel
+    /// (theseus-nuqut): the binding's own META key, read as the courier reads
+    /// it.
+    pub(crate) fn shared_notify_said(&self) -> Option<u64> {
+        self.core
+            .store
+            .get_meta::<String>("discord.notify_place")
+            .ok()
+            .flatten()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok())
+    }
+
     pub(crate) fn ledger(&self, kind: &str) -> Vec<serde_json::Value> {
         let rows: Vec<(u64, theseus_core::ledger::LedgerRow)> =
             self.core.store.ledger_tail(2000).unwrap();
@@ -958,6 +971,7 @@ mod cards;
 mod content;
 mod horizon;
 mod link;
+mod notify;
 mod onto;
 pub(crate) mod patience;
 mod persona_soul;

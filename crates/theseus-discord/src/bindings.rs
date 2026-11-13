@@ -106,6 +106,14 @@ pub struct ChannelBinding {
     /// its tool lines and replies render (theseus-i3do6). On by default; a DM
     /// has no threads.
     pub task_threads: bool,
+    /// `notify = true` (theseus-nuqut): this channel is the announcement
+    /// place, `theseus-notify`. The operator lane writes the announcements
+    /// (`theseus_core::outbox::announces`) here instead of to the owner's DM;
+    /// everything that needs him keeps the DM. **Off unless the owner binds
+    /// one**, and with none bound every post keeps today's DM path exactly.
+    /// Bind it on a channel the file also calls `private = true`: a press on
+    /// a card posted there is judged by the place, as any press is.
+    pub notify: bool,
 }
 
 /// A `[[channel]]` as the file writes it, with where its keys are.
@@ -142,6 +150,8 @@ struct RawChannel {
     kind: Option<String>,
     #[serde(default = "yes")]
     task_threads: bool,
+    #[serde(default)]
+    notify: bool,
 }
 
 /// The file as written, with where its format's keys are.
@@ -338,6 +348,34 @@ impl Bindings {
             .map(|c| Self::channel_of(c, format, &guilds, text))
             .collect::<Result<Vec<_>>>()?;
         let (forums, channel): (Vec<_>, Vec<_>) = channel.into_iter().partition(|c| c.forum);
+        // One announcement place, and it is a text channel (theseus-nuqut): a
+        // forum takes no message and a voice channel's text is the call's.
+        let notify: Vec<&ChannelBinding> = channel.iter().filter(|c| c.notify).collect();
+        if let Some(c) = notify.first() {
+            if c.voice {
+                bail!(
+                    "{}: a voice channel is no announcement place (notify = true)",
+                    c.label()
+                );
+            }
+            if notify.len() > 1 {
+                bail!(
+                    "notify = true is on {} channels ({}): the announcements go to one place",
+                    notify.len(),
+                    notify
+                        .iter()
+                        .map(|c| c.label())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+        if let Some(f) = forums.iter().find(|c| c.notify) {
+            bail!(
+                "{}: a forum is no announcement place (notify = true)",
+                f.label()
+            );
+        }
         let mut dm = Vec::new();
         for d in raw.dm {
             snowflake("dm user", &d.user)?;
@@ -472,6 +510,7 @@ impl Bindings {
             persona: persona_of(c.persona, &label)?,
             forum,
             task_threads: c.task_threads,
+            notify: c.notify,
         })
     }
 }
@@ -479,6 +518,49 @@ impl Bindings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `notify` (theseus-nuqut) is off unless a channel says so, one channel
+    /// at most, and a forum or a voice channel is no announcement place.
+    #[test]
+    fn notify_is_off_by_default_and_one_text_channel_at_most() {
+        let chan = |id: &str, extra: &str| {
+            format!("[[channel]]\nid = \"{id}\"\nusers = [\"100000000000000007\"]\n{extra}")
+        };
+        let file = |body: String| format!("guild_id = \"123456789012345678\"\n{body}");
+        // Off unless the file says so, and read where it does.
+        let b = Bindings::parse(&file(format!(
+            "{}{}",
+            chan("223456789012345671", ""),
+            chan("223456789012345672", "notify = true\n")
+        )))
+        .unwrap();
+        assert_eq!(b.channel.len(), 2);
+        assert!(!b.channel[0].notify, "off unless the file says so");
+        assert!(b.channel[1].notify);
+        // Two is refused, naming both.
+        let e = Bindings::parse(&file(format!(
+            "{}{}",
+            chan("223456789012345671", "notify = true\n"),
+            chan("223456789012345672", "notify = true\n")
+        )))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            e.contains("notify = true is on 2 channels")
+                && e.contains("the announcements go to one place"),
+            "{e}"
+        );
+        // A forum and a voice channel are refused.
+        for extra in [
+            "kind = \"forum\"\nnotify = true\n",
+            "voice = true\nnotify = true\n",
+        ] {
+            let e = Bindings::parse(&file(chan("223456789012345673", extra)))
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("no announcement place"), "{extra}: {e}");
+        }
+    }
 
     #[test]
     fn the_example_parses_and_has_a_revision() {
