@@ -150,10 +150,7 @@ impl Marked {
         let edges = match (self.first.is_empty(), same) {
             (true, _) => String::new(),
             (false, true) => format!(" Its one line reads: \"{}\".", self.first),
-            (false, false) => format!(
-                " It begins \"{}\" and ends \"{}\".",
-                self.first, self.last
-            ),
+            (false, false) => format!(" It begins \"{}\" and ends \"{}\".", self.first, self.last),
         };
         format!(
             "[Large output held out of this request. Its id is {guid}: {noun} from your \

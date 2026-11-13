@@ -129,8 +129,7 @@ impl ToolRuntime {
             return None;
         }
         let whole = span.map_or(text, |s| &text[s.clone()]);
-        (whole.chars().count() >= line.max(max))
-            .then(|| Box::new(Marked::of(tool, whole, path)))
+        (whole.chars().count() >= line.max(max)).then(|| Box::new(Marked::of(tool, whole, path)))
     }
 
     /// The whole output kept: the job's raw file, or the result's own

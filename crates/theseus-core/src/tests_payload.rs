@@ -105,14 +105,20 @@ fn results_sent(r: &Rig) -> Vec<String> {
 /// back unchanged.
 #[tokio::test]
 async fn a_large_output_compiles_to_its_marker_and_reads_back_unchanged() {
-    let r = rig(vec![Scripted::text("Ran it."), Scripted::text("Done.")], LINE);
+    let r = rig(
+        vec![Scripted::text("Ran it."), Scripted::text("Done.")],
+        LINE,
+    );
     r.fake
         .script
         .lock()
         .unwrap()
         .push_front(Scripted::tools("", &[("t1", "proc_run", printer())]));
     let sid = session(&r.core);
-    assert_eq!(turn(&r.core, &sid, "run the survey").await.output, "Ran it.");
+    assert_eq!(
+        turn(&r.core, &sid, "run the survey").await.output,
+        "Ran it."
+    );
 
     // 1. Flagged where it entered, with a guid and the description's parts.
     let (payload, content) = payload_of(&r.core, &sid);
@@ -156,7 +162,11 @@ async fn a_large_output_compiles_to_its_marker_and_reads_back_unchanged() {
         .map(|i| format!("line {i}: a soundings row of the outer harbour survey\n"))
         .collect();
     assert_eq!(bytes, expected, "the kept bytes are what it printed");
-    assert_eq!(bytes.chars().count() as u64, p.chars, "and the count is its");
+    assert_eq!(
+        bytes.chars().count() as u64,
+        p.chars,
+        "and the count is its"
+    );
 }
 
 /// The positive control, which is also the planted revert: with the line at
@@ -172,7 +182,10 @@ async fn with_the_line_off_the_same_output_is_carried_as_before() {
         .unwrap()
         .push_front(Scripted::tools("", &[("t1", "proc_run", printer())]));
     let sid = session(&r.core);
-    assert_eq!(turn(&r.core, &sid, "run the survey").await.output, "Ran it.");
+    assert_eq!(
+        turn(&r.core, &sid, "run the survey").await.output,
+        "Ran it."
+    );
     let (payload, content) = payload_of(&r.core, &sid);
     assert_eq!(payload, None, "nothing is a payload with the line off");
     assert!(content.contains("line 1:"), "it kept its own text");
