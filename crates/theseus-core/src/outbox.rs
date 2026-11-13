@@ -105,6 +105,52 @@ pub const OPERATOR_KINDS: &[&str] = &[
 /// The downstream key of a post that creates messages: Discord's nonce.
 pub const NONCE_KEY: &str = "discord.nonce";
 
+/// Every operator kind that is an **announcement**: a post that tells the
+/// owner something happened and asks nothing of him (theseus-nuqut). His rule,
+/// 2026-11-12: *"urgency = main dm"* — anything that needs him, or that can
+/// stop work, is not here and keeps its DM path, whatever else it looks like.
+///
+/// What this is for: with an announcement place bound (a `theseus-notify`
+/// thread), the Discord binding posts these there instead of the DM. With
+/// none bound, nothing moves: the kind is read only to pick a channel, so a
+/// daemon that binds no announcement place writes exactly what it wrote
+/// before.
+///
+/// The list is a subset of [`OPERATOR_KINDS`], held to it by
+/// `every_announcement_kind_is_an_operator_kind`. A kind whose call sites
+/// disagree about this (`spend_ceiling` is the AWS month warning, the Google
+/// upkeep note **and** the day ceiling's own warning, which can stop work)
+/// is not listed: its announcement sites set [`ANNOUNCE_KEY`] instead.
+pub const ANNOUNCEMENT_KINDS: &[&str] = &[
+    // The morning FYI and the night's consolidation finding.
+    "initiative",
+    // The posted work digest, at each `[discord] digest_at` slot.
+    "digest",
+    // The week's self digest.
+    "self_digest",
+    // A self build's verdict: the self-made PR's news, green or red.
+    "self_build",
+    "self_build_red",
+];
+
+/// The body key a post sets when its kind alone cannot say whether it is an
+/// announcement (theseus-nuqut): `"announce": true` says it is. Only
+/// `spend_ceiling` needs it today — the AWS month warning and the Google
+/// upkeep note set it, and the day ceiling's warning does not, because it can
+/// stop work and so stays in the owner's DM.
+pub const ANNOUNCE_KEY: &str = "announce";
+
+/// Whether a post staged to [`OPERATOR_TARGET`] is an announcement rather
+/// than something that needs the owner: [`ANNOUNCEMENT_KINDS`], or
+/// [`ANNOUNCE_KEY`] set true on the body.
+#[must_use]
+pub fn announces(body: &Value) -> bool {
+    if body[ANNOUNCE_KEY].as_bool() == Some(true) {
+        return true;
+    }
+    ANNOUNCEMENT_KINDS.contains(&body["kind"].as_str().unwrap_or(""))
+}
+
 /// How a card's question closed, as its settle says.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Closed {
@@ -1708,6 +1754,76 @@ mod tests {
                 .map(|(p, n)| (p.clone(), format!("{n} computed-kind calls"))),
         );
         assert!(walked >= 20, "{walked} files walked");
+    }
+
+    /// theseus-nuqut: every announcement kind is an operator kind, and the
+    /// owner's own two lists come out the way he drew them. His rule,
+    /// 2026-11-12: *"urgency = main dm"*.
+    #[test]
+    fn the_announcement_kinds_are_the_owners_list_and_nothing_else() {
+        assert!(!ANNOUNCEMENT_KINDS.is_empty());
+        for k in ANNOUNCEMENT_KINDS {
+            assert!(
+                is_operator_kind(k),
+                "{k} announces but OPERATOR_KINDS does not list it"
+            );
+            assert!(announces(&json!({"kind": k})), "{k}");
+        }
+        // To the thread, by his list: the morning FYI, the posted digest, the
+        // self digest, and a self build's news.
+        for k in ["initiative", "digest", "self_digest", "self_build"] {
+            assert!(announces(&json!({"kind": k, "text": "x"})), "{k}");
+        }
+        // Staying in the DM: approvals and needs-you asks, the questions and
+        // cards waiting on him, retractions — and the self halt and the keel
+        // card, which stop work.
+        for k in [
+            "needs_you",
+            "jev_notice",
+            "card_question",
+            "standing_card",
+            "seal_card",
+            "link_card",
+            "onto_card",
+            "persona_soul",
+            "retraction",
+            "self_halt",
+            "self_keel",
+            "notice",
+            "disk",
+            "privacy_warning",
+        ] {
+            assert!(!announces(&json!({"kind": k, "text": "x"})), "{k}");
+            assert!(is_operator_kind(k), "{k} is no operator kind at all");
+        }
+    }
+
+    /// `spend_ceiling` is written by four call sites and only two of them
+    /// announce, so the kind cannot say: the body's `announce` does
+    /// (theseus-nuqut). These are the bodies those sites build.
+    #[test]
+    fn the_announce_key_settles_a_kind_its_call_sites_disagree_about() {
+        let ceiling = |extra: Value| {
+            let mut b = json!({"kind": "spend_ceiling", "text": "x"});
+            if let Some(o) = extra.as_object() {
+                for (k, v) in o {
+                    b[k] = v.clone();
+                }
+            }
+            b
+        };
+        // `day_ceiling.rs` and `aws/month_warn.rs`'s stop: no key, the DM.
+        assert!(!announces(&ceiling(json!({}))));
+        // `aws/month_warn.rs`'s warning and `google/tend.rs`'s upkeep note.
+        assert!(announces(&ceiling(json!({"announce": true}))));
+        // Only `true` announces: a missing, null or false key does not, and
+        // neither does the string "true".
+        for v in [json!(false), json!(null), json!("true"), json!(1)] {
+            assert!(!announces(&ceiling(json!({"announce": v}))), "{v}");
+        }
+        // A body with no kind at all announces nothing.
+        assert!(!announces(&json!({})));
+        assert_eq!(ANNOUNCE_KEY, "announce");
     }
 
     /// Staged is listed, at run time (theseus-gm7bd): a kind nobody listed

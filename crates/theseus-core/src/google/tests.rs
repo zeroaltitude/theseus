@@ -366,6 +366,41 @@ async fn invalid_grant_sets_needs_auth_and_one_notice() {
     assert_eq!(r.g.status().state, "needs_auth");
 }
 
+/// theseus-nuqut: the Google upkeep note is an announcement, by the owner's
+/// own list, so with a notify thread bound the binding posts it there. With
+/// none bound nothing moves: the only thing that changed is the `announce`
+/// key on the body, which the binding reads when it picks a channel.
+#[tokio::test]
+async fn the_upkeep_note_announces() {
+    let r = rig(vec![]).await;
+    // The note is guarded by a bound DM, as it always was.
+    r.core
+        .runner
+        .place_rule
+        .bind_one(crate::places::BoundPlace {
+            target: "discord:dm:4211".into(),
+            name: "DM".into(),
+            private: false,
+            ..Default::default()
+        });
+    r.core.google_lapse_told("upkeep@example.test");
+    let posts: Vec<Value> = r
+        .core
+        .outbox
+        .open_for(crate::outbox::OPERATOR_TARGET)
+        .iter()
+        .filter(|a| crate::outbox::kind_of(a) == "spend_ceiling")
+        .map(|a| crate::outbox::body_of(a).clone())
+        .collect();
+    assert_eq!(posts.len(), 1, "one note: {posts:?}");
+    assert!(
+        crate::outbox::announces(&posts[0]),
+        "the upkeep note announces: {:?}",
+        posts[0]
+    );
+    assert_eq!(ledgered(&r.core, "google.auth_lapsed").len(), 1);
+}
+
 #[test]
 fn a_fast_policy_is_the_default_shape() {
     // The core's retry is the crate's table: three attempts, one second up.
