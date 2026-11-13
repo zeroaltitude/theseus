@@ -79,7 +79,7 @@ fn a_turn_streams_as_edits_and_ends_with_a_footer() {
         ops,
         vec![(
             "t1:L0:tools".into(),
-            "✅ `fs.read` src/lib.rs · 12 ms".into()
+            "-# ✅ `fs.read` src/lib.rs · 12 ms".into()
         )]
     );
     r.on_notification(
@@ -457,7 +457,7 @@ fn without_notice_embeds_a_notified_call_rides_on_its_tool_line() {
         r.tick(),
         vec![Op::Upsert {
             key: "t1:L0:tools".into(),
-            content: "⏳ `proc.run` cargo test · 🔔 notified (enforcement = notify)".into(),
+            content: "-# ⏳ `proc.run` cargo test · 🔔 notified (enforcement = notify)".into(),
             buttons: Buttons::ShouldHaveAsked(vec![asked("proc.run", None)])
         }]
     );
@@ -471,7 +471,7 @@ fn without_notice_embeds_a_notified_call_rides_on_its_tool_line() {
         vec![Op::Upsert {
             key: "t1:L0:tools".into(),
             content:
-                "❌ `proc.run` cargo test · 🔔 notified (enforcement = notify) · error · 900 ms"
+                "-# ❌ `proc.run` cargo test · 🔔 notified (enforcement = notify) · error · 900 ms"
                     .into(),
             buttons: Buttons::Keep
         }]
@@ -516,7 +516,7 @@ fn a_call_given_a_secret_says_so_on_its_tool_line() {
     };
     assert_eq!(
         line(&mut r),
-        "⏳ `proc.run` gh api user · 🔑 gh got GH_TOKEN · 🔔 notified (enforcement = notify)"
+        "-# ⏳ `proc.run` gh api user · 🔑 gh got GH_TOKEN · 🔔 notified (enforcement = notify)"
     );
     // A job that got nothing it was granted says so instead.
     r.on_notification(
@@ -529,7 +529,7 @@ fn a_call_given_a_secret_says_so_on_its_tool_line() {
         "tool.started",
         &json!({"turn_id": "t1", "tool_use_id": "u2", "withheld": ["gh got no GH_TOKEN"]}),
     );
-    assert!(line(&mut r).contains("⏳ `proc.run` gh pr list · 🔑 gh got no GH_TOKEN"));
+    assert!(line(&mut r).contains("-# ⏳ `proc.run` gh pr list · 🔑 gh got no GH_TOKEN"));
 }
 
 fn asked(tool: &str, corr: Option<&str>) -> Asked {
@@ -759,7 +759,7 @@ fn thirty_notified_calls_post_one_tool_message_edited_in_place() {
     for (line, i) in shown.iter().zip(folded..) {
         assert_eq!(
             *line,
-            format!("✅ `proc.run` echo {i} · 🔔 notified (enforcement = notify) · 3 ms")
+            format!("-# ✅ `proc.run` echo {i} · 🔔 notified (enforcement = notify) · 3 ms")
         );
     }
     r.on_notification(
@@ -1174,7 +1174,7 @@ fn a_declined_call_keeps_saying_who_declined_it() {
         assert!(
             ops.contains(&(
                 "t1:L0:tools".into(),
-                "👎 `fs.read` /etc/hosts · declined by zeroaltitude".into()
+                "-# 👎 `fs.read` /etc/hosts · declined by zeroaltitude".into()
             )),
             "{status}: {ops:?}"
         );
@@ -1200,7 +1200,7 @@ fn a_call_that_never_ran_and_a_failed_turn_say_so() {
         assert!(
             ops.contains(&(
                 "t1:L0:tools".into(),
-                "🚫 `fs.read` ~/.ssh/config · not run".into()
+                "-# 🚫 `fs.read` ~/.ssh/config · not run".into()
             )),
             "{status}: {ops:?}"
         );

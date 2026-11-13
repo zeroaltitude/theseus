@@ -157,7 +157,7 @@ fn tool_lines(tools: &[&ToolLine], reserve: usize) -> String {
                 l.l1.as_ref()
                     .map_or(String::new(), |r| format!("🛡️ L1 · {r} · "));
             let head = format!("`{}` {l1}{}{key}{mark}", l.tool, l.summary);
-            match &l.state {
+            let line = match &l.state {
                 ToolState::Proposed => format!("▫️ {head}"),
                 ToolState::Running => format!("⏳ {head}"),
                 ToolState::Waiting => format!("⏸️ {head} · waiting for approval"),
@@ -177,7 +177,14 @@ fn tool_lines(tools: &[&ToolLine], reserve: usize) -> String {
                 } => {
                     format!("👎 {head} · declined by {by}")
                 }
-            }
+            };
+            // The owner, 2026-11-13 12:05 (S24-1): "I take it back: I do
+            // want all tools to be grey and small so I can easily
+            // distinguish them from the output text". Discord's small grey
+            // subtext, the same the footer uses, on every state a call
+            // passes through -- one prefix here rather than ten, so a state
+            // added later cannot be the big bright one.
+            format!("-# {line}")
         })
         .collect();
     // Keep the newest lines when a loop made more calls than one message holds,
@@ -441,6 +448,73 @@ mod tests {
             !shown[0].contains("running in the background"),
             "{}",
             shown[0]
+        );
+    }
+
+    /// The owner, in his own words (Discord DM 2026-11-13 12:05:24 MST,
+    /// S24-1): "I take it back: I do want all tools to be grey and small so
+    /// I can easily distinguish them from the output text". So every line a
+    /// tool message shows is Discord's small grey subtext: each call's line
+    /// in every state it passes through, and the "… N earlier call(s)" line
+    /// that stands in for the calls folded away, which is tool activity too.
+    /// What he is telling them apart from -- the reply's own text -- is not
+    /// rendered here and keeps its full size.
+    #[test]
+    fn every_tool_activity_line_is_small_grey_subtext() {
+        // Every content a tool message shows, including the states a call
+        // passes through before its end.
+        let mut shown: Vec<(String, String)> = Vec::new();
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+        let (mut ops, mut keys) = (0usize, Vec::new());
+        // Fifty calls, so the step rolls and the fold line is written.
+        for li in 0..50 {
+            tool_loop(&mut r, li, &mut ops, &mut keys);
+        }
+        shown.extend(upserts(
+            &r.on_notification("turn.ended", &ended("t1", None)),
+        ));
+        shown.extend(r.emitted.clone());
+        // A call waiting for an answer, and one stopped: states the loops
+        // above never reach.
+        let mut w = Renderer::default();
+        w.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t2"}));
+        w.on_notification(
+            "tool.proposed",
+            &json!({"turn_id": "t2", "tool_use_id": "u1", "tool": "fs.write",
+                    "input": {"path": "a.txt"}, "gate": {"result": {"gate": "ask"},
+                    "decision": {"mode": "ask", "posture": "ask"}}}),
+        );
+        shown.extend(upserts(&w.tick()));
+        w.on_notification(
+            "tool.started",
+            &json!({"turn_id": "t2", "tool_use_id": "u1", "tool": "fs.write"}),
+        );
+        shown.extend(upserts(&w.tick()));
+        shown.extend(w.emitted.clone());
+
+        let tools: Vec<&(String, String)> = shown
+            .iter()
+            .filter(|(k, _)| k.ends_with(":tools"))
+            .collect();
+        assert!(
+            !tools.is_empty(),
+            "the steps wrote tool messages: {shown:?}"
+        );
+        for (key, content) in &tools {
+            for line in content.lines().filter(|l| !l.trim().is_empty()) {
+                assert!(
+                    line.starts_with("-# "),
+                    "S24-1: every tool activity line is small grey subtext, \
+                     but {key} shows {line:?}"
+                );
+            }
+        }
+        // The fold line was really among them, so the assertion above judged
+        // it rather than passing for want of one.
+        assert!(
+            tools.iter().any(|(_, c)| c.contains("earlier call(s)")),
+            "the fold line is among the lines judged: {tools:?}"
         );
     }
 }

@@ -166,7 +166,7 @@ async fn a_thinking_turn_buzzes_for_its_answer_alone_and_folds_its_thinking() {
     for m in &thinking[..2] {
         let lines: Vec<&str> = m.content.lines().collect();
         assert_eq!(lines.len(), 2, "{m:#?}");
-        assert!(lines[1].starts_with("✅ `fs.read`"), "{m:#?}");
+        assert!(lines[1].starts_with("-# ✅ `fs.read`"), "{m:#?}");
     }
     // The last loop's: its thinking alone.
     assert_eq!(thinking[2].content.lines().count(), 1, "{:#?}", thinking[2]);
