@@ -466,6 +466,42 @@ mod tests {
     }
 
     #[test]
+    fn a_partial_write_over_a_window_does_not_make_it_a_copy() {
+        // The gap the test above leaves: it only moves note -> note, and
+        // never calls `wrote` after a `Whole::No` note. That is the path a
+        // real session takes -- `fs.read` of a file over `max_read_bytes`
+        // takes the window (`fs.rs:323`, `Whole::No`), then `fs.edit`
+        // (`fs.rs:684`) or `fs.apply_patch` (`fs.rs:885`) routes to
+        // `fs_stale::wrote`. Neither of those two writers holds the file's
+        // bytes: they splice a region of bytes they never handed the model.
+        // If the write upgrades the note to `whole`, `holds` answers true,
+        // `read_this_session` is true, and the pack tells the model its own
+        // record holds bytes it only ever saw a window of -- so a later
+        // destructive call on that file reads as `reversible` and RUNS
+        // UNHELD. That is the unsafe side of the resolver's own asymmetry.
+        let s = Scratch::new("windowthenwrote");
+        let r = ReadRecords::default();
+        let (p, m) = s.file("big.txt", "only a window of this was handed over\n");
+        r.note("ses_ww", &p, m, Whole::No);
+        assert!(!r.holds("ses_ww", &p), "a window is not a copy");
+
+        // The partial write lands, and notes the file as it now is. The mark
+        // is the CURRENT one on purpose: `holds`'s staleness check passes, so
+        // `whole` is the only thing left that can decide the answer.
+        changed_underneath(
+            &p,
+            "only a window of this was handed over, and one line was spliced\n",
+        );
+        let after = Mark::at(&p).expect("the mark after the partial write");
+        r.wrote("ses_ww", &p, after);
+        assert!(
+            !r.holds("ses_ww", &p),
+            "a partial write over a window must not upgrade the note to whole: \
+             the session still holds only a window of a file over the read cap"
+        );
+    }
+
+    #[test]
     fn a_restarted_daemon_holds_nothing_and_errs_toward_holding() {
         // The board is in memory and nothing persists it. A fresh
         // `ReadRecords` is what the daemon has after a restart, and it
