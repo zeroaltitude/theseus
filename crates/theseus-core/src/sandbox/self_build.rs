@@ -94,6 +94,22 @@ pub const BUILD_PIDS: u64 = 8192;
 /// `0ffacd47` (2026-11-11). That bar does not reach the mechanism: the
 /// paragraph above establishes it on a measurement of its own.
 ///
+/// **A commit message cannot be edited, so the log still carries the text
+/// this comment supersedes, and this is the annotation of it.**
+/// `6673b027`'s message prints the whole ladder, calls each grant "measured
+/// alone", says `/sys`'s masks stay on "because taking them off moved no
+/// test", and credits `nesting` with a count "with the grant that unblocks
+/// it"; `0ffacd47`'s reprints the two per-rung counts it removed from this
+/// file. All but one of those is superseded -- the counts are one
+/// unreproducible run and no cause -- by this comment and by
+/// `theseus_sandbox::Facilities::visible_proc`, which holds the `/sys`
+/// terms. The exception is a mechanism, not a count: the same sentence of
+/// `6673b027` that credits `nesting` with a count also said every nested L1
+/// job dies at `mounting /proc: Operation not permitted` while /proc's
+/// masks are on, and `1099a1b1` confirmed that on 2026-11-13 on two
+/// kernels. The count is superseded; the mechanism stands, and the ladder
+/// paragraph above states it. Read those two, not the log.
+///
 /// A run inside this view is not a weaker run than a lane's: it is the only
 /// run in which the sandbox contract, the terminal and the device nodes are
 /// *tested* rather than skipped. `theseus_sandbox::Facilities` carries why
