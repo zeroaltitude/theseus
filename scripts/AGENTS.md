@@ -150,6 +150,14 @@ including in a commit message, because it is stale by the next departure.
   the place, the cursor (per agent: the newest event and archive rowids and rewrite-watermark time; a floor under every
   session). Tests: `scripts/tests/test_openclaw_export.py` over small stores `scripts/tests/openclaw_fixture.py` builds
   with OpenClaw's own column names, pinned there; the gate runs them through theseusd's `tests/import_sync.rs`.
+- `notes-export.py`, `tests/test_notes_export.py` (`b4-theseus-holds-its-own-notes`): an agent's own operating notes as
+  episodes of source `agent-notes`, one note a file, read only, standard library only. Its id holds the note's text, so
+  an edited note is a new episode and the one it replaces stays as history. It classifies nothing: the
+  durable-versus-run-state rule has one implementation, the daemon's, and `[import.notes]` is off by default, so
+  importing with the switch off IS the dry run. The rule is `docs/design/agent-notes-rule.md`.
+- `rows-export.py` (`b4-theseus-holds-its-own-notes`): the Beads rows (`bd list --json`) and the GitHub issues
+  (`gh issue list --json …`) as episodes of source `beads` and `github-issues`. It runs nothing and reaches no network:
+  the caller hands it the JSON, so it can create, change or close nothing. `--include-retired` is off by default.
 - `setup.sh`: one command from a checkout to a running daemon: preflight, build, install, `/etc/theseus/theseus.toml` from
   the template, `theseusd check`, then `user-service.sh install`. The how-to is `docs/setup.md`; see "setup.sh" below.
 

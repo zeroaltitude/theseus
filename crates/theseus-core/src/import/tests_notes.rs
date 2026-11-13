@@ -167,3 +167,122 @@ async fn the_switch_holds_back_no_other_source() {
     assert!(stored(c, &eps[0]), "the sync's episode went in");
     assert!(!stored(c, &eps[1]), "the agent note did not");
 }
+
+// --------------------------------- the exporters' own lines, end to end ---
+
+/// The repository's root, from this crate's manifest directory.
+fn repo_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("the repository root")
+}
+
+/// Run one of the exporters and give its stdout, or `None` where there is no
+/// `python3` to run it (said loudly, never silently skipped).
+fn exporter(script: &str, args: &[&str]) -> Option<String> {
+    let root = repo_root();
+    let out = std::process::Command::new("python3")
+        .arg(root.join("scripts").join(script))
+        .args(args)
+        .current_dir(&root)
+        .output();
+    let out = match out {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("tests_notes: no python3 to run {script} ({e}): this check did not run");
+            return None;
+        }
+    };
+    assert!(
+        out.status.success(),
+        "{script} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Some(String::from_utf8(out.stdout).expect("utf-8"))
+}
+
+/// What `scripts/notes-export.py` writes is what the daemon takes: the lines
+/// parse, the switch classifies them, and with the path on the rules note
+/// goes in. This is the cross-language contract — the exporter's canonical
+/// JSON and the format's hash check — and nothing else holds it.
+#[tokio::test]
+async fn the_notes_exporters_lines_are_what_the_daemon_takes() {
+    let dir = tempfile::tempdir().unwrap();
+    let refs = dir.path().join("refs");
+    std::fs::create_dir_all(&refs).unwrap();
+    std::fs::write(refs.join("building.md"), RULES).unwrap();
+    std::fs::write(dir.path().join("day-notes.md"), LOG).unwrap();
+    let Some(out) = exporter(
+        "notes-export.py",
+        &[
+            "--root",
+            dir.path().to_str().unwrap(),
+            "--tag",
+            TAG,
+            "--agent",
+            "wren",
+        ],
+    ) else {
+        return;
+    };
+    let lines: Vec<theseus_protocol::import::ImportLine> = out
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .enumerate()
+        .map(|(i, l)| theseus_protocol::import::ImportLine {
+            line: i as u64 + 1,
+            text: l.to_string(),
+        })
+        .collect();
+    assert_eq!(lines.len(), 2, "two notes: {out}");
+    // With the path on, the rules note is written and the log is refused by
+    // the rule: so the exporter's episodes are valid AND the rule reaches
+    // them.
+    let r = rig_with_notes(true, false);
+    let got = import(&r.core, lines).await;
+    assert_eq!((got.read, got.imported), (2, 1), "{got:?}");
+    assert_eq!(got.rejected.len(), 1, "{:?}", got.rejected);
+    assert!(
+        got.rejected[0].why.contains("run state"),
+        "{:?}",
+        got.rejected[0]
+    );
+}
+
+/// What `scripts/rows-export.py` writes is what the daemon takes, and a row
+/// is NOT gated by `[import.notes]`: with both switches off a Beads row goes
+/// in, because a row is durable until it is retired (the owner, 2026-11-12).
+#[tokio::test]
+async fn the_rows_exporters_lines_are_taken_whatever_the_notes_switch_says() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.json");
+    std::fs::write(
+        &path,
+        r#"[{"id":"theseus-da9hv","title":"Theseus holds its operating notes","status":"open",
+             "labels":["memory"],"description":"Everything an agent needs.",
+             "updated":"2026-11-12T20:58:24Z"},
+            {"id":"theseus-shut","title":"A finished thing","status":"closed"}]"#,
+    )
+    .unwrap();
+    let Some(out) = exporter(
+        "rows-export.py",
+        &["--beads", path.to_str().unwrap(), "--tag", "rows-2026-11"],
+    ) else {
+        return;
+    };
+    let lines: Vec<theseus_protocol::import::ImportLine> = out
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .enumerate()
+        .map(|(i, l)| theseus_protocol::import::ImportLine {
+            line: i as u64 + 1,
+            text: l.to_string(),
+        })
+        .collect();
+    assert_eq!(lines.len(), 1, "the retired row is left out: {out}");
+    let r = rig_with_notes(false, false);
+    let got = import(&r.core, lines).await;
+    assert_eq!((got.read, got.imported, got.nodes), (1, 1, 1), "{got:?}");
+    assert!(got.rejected.is_empty(), "{:?}", got.rejected);
+}
