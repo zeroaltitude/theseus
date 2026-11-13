@@ -23,6 +23,11 @@
 //! tool touches that directory, which is the `system_changed` recompile a
 //! session moving directory already is (§2).
 //!
+//! A granted repository's file that has *changed* since the owner last read
+//! it is named here too (§8, "After a grant"), and at `[project] on_change =
+//! "ask"` it is named and not read. `turn/project_step.rs` is the same
+//! notice's ledger half.
+//!
 //! This block takes **no** breakpoint (`layers::cache_layout` leaves it
 //! unmarked, whatever its size). The provider's four are the header, the
 //! persona, the project layer, and the conversation's automatic one, which

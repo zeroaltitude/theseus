@@ -60,7 +60,7 @@ mod standing;
 mod threads;
 mod wake_limits;
 pub use cockpit::CockpitConfig;
-pub use project::ProjectConfig;
+pub use project::{OnChange, ProjectConfig};
 pub use projects::ProjectsConfig;
 pub use routines::RoutinesConfig;
 mod watches;

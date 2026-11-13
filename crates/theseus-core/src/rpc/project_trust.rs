@@ -38,6 +38,7 @@ use super::Core;
 use crate::approval::Answerer;
 use crate::fact::project::ProjectTrust;
 use crate::flow::spec::{repo_id, repo_root};
+use crate::project_context::change;
 use crate::project_context::trust::{Grant, Grants};
 
 /// The grant's methods, routed by one dispatch arm (`rpc_project_trust`).
@@ -154,6 +155,17 @@ impl Core {
 
     /// Take the repository's trust back: its files are named, not read, from
     /// the next recompile. A repository that was not trusted is an error.
+    ///
+    /// The repository's last-seen sighting goes with the grant
+    /// (`project_context::change`), in the same frame. Two reasons, and the
+    /// second is the one that matters: a sighting is only ever read for a
+    /// granted repository, so keeping it says nothing while the grant is
+    /// gone; and a grant given again after a change would otherwise diff
+    /// against the state of a compile from *before* the untrust and report a
+    /// change the owner has just this moment looked at. That is what makes
+    /// `untrust` then `trust` the owner's accept of a change at
+    /// `[project] on_change = "ask"`, where a changed file is named and not
+    /// read until he does it.
     pub fn project_untrust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(
@@ -178,7 +190,13 @@ impl Core {
             via: &who.via(),
         };
         let rec = self.rec(None);
-        self.store.append(&[rec.row(&fact)?, grants.record()?])?;
+        let mut records = vec![rec.row(&fact)?, grants.record()?];
+        if change::Seen::read(&self.store, &id).is_some() {
+            records.push(theseus_store::NewRecord::delete_meta(&change::seen_key(
+                &id,
+            )));
+        }
+        self.store.append(&records)?;
         rec.announce(&fact);
         Ok(Trusted { id, grant })
     }

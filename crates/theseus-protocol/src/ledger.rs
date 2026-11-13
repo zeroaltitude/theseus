@@ -243,6 +243,7 @@ ledger_kinds! {
     PrefixPicked = "prefix.picked",
     PrivacyWarned = "privacy.warned",
     ProfileChanged = "profile.changed",
+    ProjectChanged = "project.changed",
     ProjectTrust = "project.trust",
     PromiseKept = "promise.kept",
     PromiseUnkept = "promise.unkept",
