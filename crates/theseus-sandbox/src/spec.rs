@@ -161,8 +161,12 @@ pub struct Facilities {
     /// and no floor path. What it actually discloses, measured path by path
     /// at every rung on two kernels, is **`/proc/interrupts`** (the host's
     /// CPU count and its IRQ and device names — a hardware fingerprint and a
-    /// timing side-channel) and **`/proc/keys`** (the operator's keyring
-    /// names, uid and permission mask; **never a payload**). **No host
+    /// timing side-channel), **`/proc/keys`** (the operator's keyring
+    /// names, uid and permission mask; **never a payload**) and
+    /// **`/proc/latency_stats`**, which the 2026-11-13 measurement adds to
+    /// this list and neither the security review nor this paragraph had
+    /// named: 27 bytes on one line on `7.0.0-1014-aws`, almost certainly the
+    /// version header alone, and absent on 6.18. Real, and trivial. **No host
     /// process is visible at any rung**: the job sees two pids, its init and
     /// itself, granted or not. Neither `/proc/sched_debug` (absent on both
     /// kernels) nor `/proc/timer_list` (root-only in the initial namespace)
