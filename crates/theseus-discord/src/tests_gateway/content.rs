@@ -32,6 +32,10 @@ async fn rig() -> Rig {
         &[],
         |c| {
             c.places.owner = Some(vec![format!("discord:{ANA}")]);
+            // `notify` is the default since 1.0.6 (the owner's S17-D8), and its
+            // notice says nothing stops. The words asserted below are the
+            // freeze's, so this rig writes the mode they belong to.
+            c.content_based_security.injection = theseus_core::content::InjectionMode::Refuse;
         },
     )
     .await

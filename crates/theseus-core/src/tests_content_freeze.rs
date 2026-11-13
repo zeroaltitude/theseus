@@ -6,6 +6,11 @@
 //! class, and each is an outbound send with the data in its query string, so
 //! each is refused too. In `notify` mode nothing is refused. A session with no
 //! label is refused nothing, and a local read never reads the labels.
+//!
+//! **`notify` is the default since 1.0.6** (the owner's S17-D8, 2026-11-12), so
+//! every test here that wants the freeze writes `refuse` on its rig's config.
+//! The mode is never read from the default, in either direction: each test says
+//! which one it is testing.
 
 // `AtomicU32` and not `Cell`: `At`'s `labels` is `Send + Sync` since
 // theseus-p5kln, because the gate awaits a model with it in scope. The
@@ -17,6 +22,12 @@ use theseus_judge::band::Band;
 
 use crate::ceiling::PlaceView;
 use crate::content::{ContentFlags, Flag, InjectionMode, ItemKind, Label};
+
+/// The config of a daemon that has asked for the freeze: `refuse`, written out,
+/// as the specialised security use writes it.
+fn refusing(c: &mut crate::config::Config) {
+    c.content_based_security.injection = InjectionMode::Refuse;
+}
 use crate::places::PlaceClass;
 use crate::tests_route::{rig, Rig};
 use crate::toolrun::order::At;
@@ -96,7 +107,7 @@ fn stopped(r: &Rig) -> Vec<(&'static str, Value)> {
 /// message naming the flag and the removal command; and a local read runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_frozen_session_refuses_what_acts_and_everything_that_leaves_the_machine() {
-    let r = rig(None, 1, |_| {});
+    let r = rig(None, 1, refusing);
     let reads = AtomicU32::new(0);
     for (tool, input) in stopped(&r) {
         let why = refusal(&r, tool, input, Some(frozen()), &reads)
@@ -116,7 +127,35 @@ async fn a_frozen_session_refuses_what_acts_and_everything_that_leaves_the_machi
     );
 }
 
-/// In `notify` mode, the bench daemon's, the same calls are refused by nothing.
+/// **At the shipped default, with no `[content_based_security]` table at all,**
+/// a labelled session is refused nothing and its labels are never read. This is
+/// the whole-gate half of the owner's S17-D8 (2026-11-12): his own daemon's
+/// config names no such table, and on 2026-11-13 the `refuse` default froze his
+/// DM session for a `proc.run`. Under the default the call runs and he is told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn at_the_default_a_labelled_session_is_refused_nothing() {
+    let r = rig(None, 1, |_| {});
+    assert_eq!(
+        r.core.cfg.content_based_security.injection,
+        InjectionMode::Notify,
+        "a rig with no tweak is the shipped default"
+    );
+    let reads = AtomicU32::new(0);
+    for (tool, input) in stopped(&r) {
+        assert_eq!(
+            refusal(&r, tool, input, Some(frozen()), &reads),
+            None,
+            "{tool} is refused nothing at the default"
+        );
+    }
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        0,
+        "the default never reads the labels"
+    );
+}
+
+/// In `notify` mode, written out, the same calls are refused by nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn notify_mode_refuses_nothing() {
     let r = rig(None, 1, |c| {
@@ -141,7 +180,7 @@ async fn notify_mode_refuses_nothing() {
 /// No label, and a session with other labels (a cn word freezes nothing).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn without_injection_nothing_is_refused() {
-    let r = rig(None, 1, |_| {});
+    let r = rig(None, 1, refusing);
     let reads = AtomicU32::new(0);
     let mut other = ContentFlags::default();
     other.raise(Label {
@@ -169,7 +208,7 @@ async fn without_injection_nothing_is_refused() {
 /// read: the labels are asked only past that test.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_local_read_never_reads_the_labels() {
-    let r = rig(None, 1, |_| {});
+    let r = rig(None, 1, refusing);
     let reads = AtomicU32::new(0);
     let path = r.core.tools.ctx.cwd.join("a.txt");
     assert_eq!(
@@ -189,7 +228,7 @@ async fn a_local_read_never_reads_the_labels() {
 async fn removing_the_label_is_what_lets_the_refused_call_run() {
     use crate::session::SessionRecord;
     use theseus_protocol::SessionKind;
-    let r = rig(None, 1, |_| {});
+    let r = rig(None, 1, refusing);
     let mut rec = SessionRecord::new(SessionKind::Conversation, None);
     rec.data = Some(Box::new(frozen()));
     let sid = rec.session_id.clone();

@@ -2128,10 +2128,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     the cockpit chip's "wrong" and `theseus judge label` write the same row without removing the label, and `learning/system.rs`'s
     `content` arm labels a label left standing a week, or present when its session retires, `yes` at weight 0.5; format 54, theseus-gyjyo.7, removes the mark
     a record also carried, how far the session was judged and a worklist of what a failed ask left, which a record from before reads ignored). `secret`, `confidential` and `personal` raise at the confirm band and disqualify
-    a model of restricted origin (`cn`, `unknown`) for the session; `injection` raises only at the act band, is never asked of the
-    operator's own words, and freezes the session: `ToolRuntime::refusal_at` refuses every call that is not a local read
-    of files and code (`content::local_read`) until the operator removes the label (`[content_based_security] injection = "notify"` only tells,
-    the bench daemon's). Nothing is proved per request: the session carries a label or it does not.
+    a model of restricted origin (`cn`, `unknown`) for the session; `injection` raises only at the act band and is never asked of the
+    operator's own words. Its effect is `[content_based_security] injection`, **`notify` since 1.0.6** (S17-D8): told, not refused.
+    `refuse` freezes — `refusal_at` then refuses every call but a local read of files and code (`content::local_read`)
+    until the operator clears it. Nothing is proved per request: the session carries a label or it does not.
     **A failed ask** (`judge/content.rs`, theseus-gyjyo.7): an ask whose call failed is asked **once more** (after `REASK_PAUSE`, 200 ms),
     **inside the same open ask**, so the session's counter stays up across the retry; if that fails too the item is rowed `content.unjudged`
     (`why: failed`) and the owner is told once, in the session's place (`JudgeService::unjudged_told` -> `Core::tell_unjudged`, a `notice`

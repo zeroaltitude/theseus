@@ -1867,9 +1867,11 @@ min_loops_between = 4                   # at most one verdict per this many loop
 # message you send, each tool result, each page fetched and each file read — is classified once
 # by Jev, and what it finds becomes a label on the session that survives compaction and restart.
 # `secret`, `confidential` and `personal` disqualify a model of restricted origin for that
-# session; `injection` means something tried to steer the assistant, and its session's calls
-# that act are refused until you clear the label (`theseus content remove <session> injection`,
-# or the button on the message). The injection question is never asked of your own messages. The
+# session; `injection` means something tried to steer the assistant, and by default you are told
+# and nothing is refused (`injection = "notify"` below; write `injection = "refuse"` to have its
+# session's calls that act refused until you clear the label with
+# `theseus content remove <session> injection`, or the button on the message).
+# The injection question is never asked of your own messages. The
 # sensitive-names list above and a Google result (`[google]`) raise `confidential` the same way, with no
 # model call.
 # Reading outside text holds nothing any more: `[policy] external_text` and `external_programs` were
@@ -1884,9 +1886,12 @@ min_loops_between = 4                   # at most one verdict per this many loop
 #                                       # whatever the session carries, "follow_flags" refuses it
 #                                       # when the session's labels disqualify it, "never" refuses
 #                                       # it and routing skips such a profile altogether
-# injection = "refuse"                  # or "notify": the label is raised and told, nothing is
-#                                       # refused. A benchmark daemon sets this, so a trial
-#                                       # never waits for you to tap a button
+# injection = "notify"                  # the default: the label is raised and told, and nothing
+#                                       # is refused. "refuse" freezes the session instead — every
+#                                       # call but a local read of files and code is refused until
+#                                       # you clear the label. The default is notify because an
+#                                       # unsandboxed L0 session is default-trusted: the
+#                                       # classifier warns you, it does not latch the session
 # wait_ms = 4000                        # how long a turn bound for a model of restricted origin
 #                                       # waits for this session's outstanding content asks to
 #                                       # land, so a label its own items earn is read before the

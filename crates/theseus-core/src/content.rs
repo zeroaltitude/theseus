@@ -477,14 +477,28 @@ impl ContentFlags {
 // ------------------------------------------------------------ the freeze
 
 /// `[content_based_security] injection`: what an `injection` label does to a call that acts.
+///
+/// **`Notify` is the default**, and this `#[default]` is the only place that is
+/// materialised: the config key is `#[serde(default)]` and
+/// `ContentBasedSecurityConfig::default` calls `InjectionMode::default()`, so a
+/// daemon whose config names no `[content_based_security]` table runs this.
+/// The owner's ruling of 2026-11-12 (S17-D8): L0 is unsandboxed, and therefore
+/// *"we return to the notify but execute situation. When tools are run, curl,
+/// fetch, grep, etc, we can see them, but we don't try to do anything fancy to
+/// the session at all (aside from any jev classification that would warn us
+/// that the content itself was an injection, dangerous, secret, not for china,
+/// etc)"*. Jev's classification of the content WARNS; it does not latch the
+/// session. `Refuse` is what the specialised security use writes, the one L1
+/// is kept for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InjectionMode {
-    /// The call is refused until the operator removes the label.
-    #[default]
+    /// The call is refused until the operator removes the label. Written out
+    /// by a config that wants the freeze; it was the default until 1.0.6.
     Refuse,
-    /// The call runs and the operator is told. **The bench daemon's setting**,
-    /// so a trial never freezes waiting for a tap.
+    /// **The default.** The call runs and the operator is told: the label is
+    /// raised, the ⚑ card is posted and nothing is refused.
+    #[default]
     Notify,
 }
 
@@ -979,8 +993,9 @@ mod tests {
     }
 
     /// The freeze refuses every class but a read, says the one remedy, and is
-    /// off in `notify` — the bench daemon's mode, where a trial never waits for
-    /// a tap.
+    /// off in `notify`, the default since 1.0.6: every mode here is named
+    /// explicitly, so this test says the same thing whichever one is the
+    /// default.
     #[test]
     fn the_freeze_refuses_what_acts_and_notify_refuses_nothing() {
         let mut f = ContentFlags::default();
@@ -1075,6 +1090,41 @@ mod tests {
                 None
             );
         }
+    }
+
+    /// The shipped default is `notify`, and the owner's daemon runs it: his
+    /// config names no `[content_based_security]` table. His ruling of
+    /// 2026-11-12 (S17-D8): L0 is unsandboxed, so "we return to the notify but
+    /// execute situation" — nothing fancy is done to the session, and Jev's
+    /// classification of the content WARNS. So at the default a labelled
+    /// session's call RUNS and the operator is told; `refuse` is not dead, and
+    /// the specialised security use that writes it still freezes.
+    #[test]
+    fn the_default_mode_is_notify_and_refuse_still_refuses() {
+        assert_eq!(InjectionMode::default(), InjectionMode::Notify);
+        assert_eq!(InjectionMode::default().as_str(), "notify");
+        let mut f = ContentFlags::default();
+        f.raise(label(Flag::Injection));
+        assert_eq!(
+            refusal(
+                Some(&f),
+                InjectionMode::default(),
+                ToolClass::Write,
+                "fs.write"
+            ),
+            None,
+            "at the default a labelled session's write runs and the operator is told"
+        );
+        assert!(
+            refusal(
+                Some(&f),
+                InjectionMode::Refuse,
+                ToolClass::Write,
+                "fs.write"
+            )
+            .is_some(),
+            "refuse is not dead: it still freezes when a config writes it"
+        );
     }
 
     /// The skip list is exactly the two acknowledgement results, and a tool not

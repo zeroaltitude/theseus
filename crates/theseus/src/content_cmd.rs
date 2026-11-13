@@ -4,8 +4,11 @@
 //! `--all` removes every label on the session.
 //!
 //! A label is raised by what entered the session (a tool result, a page, the
-//! operator's own words), never by a command: an `injection` label stops the
-//! session's calls that act, and a `secret`, `confidential` or `personal` one
+//! operator's own words), never by a command: an `injection` label says
+//! something tried to steer the assistant — at the daemon's default
+//! (`[content_based_security] injection = "notify"`) the operator is told and
+//! nothing stops, and under `injection = "refuse"` the session's calls that act
+//! are refused — and a `secret`, `confidential` or `personal` one
 //! keeps it off a China-origin model, until the operator removes it. A removal
 //! loosens, so it is the owner's act (`content.unlabel` is in
 //! `client::OPERATORS`: a job's shell is refused before anything is sent, and
@@ -33,8 +36,8 @@ pub struct ContentArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum ContentCmd {
-    /// Remove a label from SESSION: `injection` lets its calls that act run at their postures
-    /// again, and `secret`, `confidential` or `personal` lets it use a China-origin model again.
+    /// Remove a label from SESSION: `injection` leaves its calls that act refused by nothing,
+    /// and `secret`, `confidential` or `personal` lets it use a China-origin model again.
     /// It loosens, so it counts only where an approval would, and never from a job's shell.
     Remove {
         #[arg(value_name = "SESSION")]

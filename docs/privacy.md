@@ -61,8 +61,9 @@ cn_models` is the one switch: `follow_flags` (the default) reads the labels, `ne
 a name. A turn bound for such a model waits a few seconds (`wait_ms`) for the checks still out for its conversation,
 then goes on the labels it has; an item whose check failed twice reaches such a model with no label, and the owner is
 told once. A task, a retry, a routine's run and a draft start with their parent's labels. A fourth label, `injection`,
-is not about origin: it says something tried to steer the assistant, and until the owner removes it every call except
-a local read of files and code is refused.
+is not about origin: it says something tried to steer the assistant. At the shipped default
+(`[content_based_security] injection = "notify"`) the owner is told and nothing is refused; with
+`injection = "refuse"` every call except a local read of files and code is refused until he removes it.
 
 What the labels do not do: they are not a promise about every other origin. A model of EU origin is refused nothing
 today, because no label keeps it off; the built-in catalog lists no model of EU origin, so the owner would have to add one. The labels also do not rewrite anything:

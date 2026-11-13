@@ -65,7 +65,8 @@ fn what_raised(l: &Label) -> String {
 
 /// The one message in the session's place when a label is raised (design
 /// §6.3). `injection` says the session is holding, and what stops until the
-/// operator clears it (under `notify` it says nothing stops); the three that
+/// operator clears it (under `notify`, **the default since 1.0.6**, it says
+/// nothing stops — which is what the operator is told); the three that
 /// disqualify a model of restricted origin say so, with no urgency, since
 /// nothing else is blocked.
 pub(crate) fn label_notice(l: &Label, mode: InjectionMode) -> String {

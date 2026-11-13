@@ -10,9 +10,14 @@
 //!   origin is sent whatever the session carries, only when its labels allow it, or never. Read by the provider
 //!   chokepoint (`data_gate.rs`, which reads the session's record and nothing else) and by the route
 //!   (`turn/data_step.rs`, which skips a profile `never` refuses).
-//! - `injection`: what an `injection` label does to a call that acts — `refuse` (the default) or `notify`. **The
-//!   bench daemon sets `notify`**, so a trial never freezes waiting for the operator to tap a button. The design
-//!   document calls the first one `freeze`; the spelling in an owner's config is `refuse`, and stays.
+//! - `injection`: what an `injection` label does to a call that acts — `notify` (**the default since 1.0.6**) or
+//!   `refuse`. Under `notify` the call runs and the operator is told: the label is raised and its ⚑ card posted,
+//!   and nothing is refused. Under `refuse` every call but a local read of files and code is refused until the
+//!   operator removes the label. The default is the owner's ruling of 2026-11-12 (S17-D8): L0 is unsandboxed and
+//!   default-trusted, so "we return to the notify but execute situation", and Jev's classification of the content
+//!   WARNS rather than latching the session. `refuse` is what the specialised security use writes, the one L1 is
+//!   kept for, and the bench daemon's config writes it no longer — it gets the default. The design document calls
+//!   that one `freeze`; the spelling in an owner's config is `refuse`, and stays.
 //! - `wait_ms`: how long a turn bound for a model of restricted origin waits for the content asks still out for its
 //!   session to land (`content_wait`, a counter of them). It then goes either way on the labels it reads: it is never
 //!   kept off a model for an ask that did not land. A Claude turn never waits, whatever this says. Zero means it
@@ -121,14 +126,14 @@ impl ContentBasedSecurityConfig {
 mod tests {
     use super::*;
 
-    /// The defaults are on, follow the flags, refuse, a four-second wait and twenty pieces; each key parses on its
-    /// own; and an unknown key is refused rather than ignored.
+    /// The defaults are on, follow the flags, notify (the owner's S17-D8, 2026-11-12), a four-second wait and
+    /// twenty pieces; each key parses on its own; and an unknown key is refused rather than ignored.
     #[test]
-    fn the_defaults_are_on_and_refusing() {
+    fn the_defaults_are_on_and_notifying() {
         let d = ContentBasedSecurityConfig::default();
         assert!(d.session_flags);
         assert_eq!(d.cn_models, CnModels::FollowFlags);
-        assert_eq!(d.injection, InjectionMode::Refuse);
+        assert_eq!(d.injection, InjectionMode::Notify);
         assert_eq!(d.wait_ms, 4_000);
         assert_eq!(d.max_pieces, 20);
         assert_eq!(d.context, "");
@@ -136,10 +141,16 @@ mod tests {
         let c: ContentBasedSecurityConfig = toml::from_str("").unwrap();
         assert_eq!(c, d, "an empty table is the default");
 
-        // The bench daemon's setting.
+        // The default written out is still the default.
         let c: ContentBasedSecurityConfig = toml::from_str("injection = \"notify\"").unwrap();
         assert_eq!(c.injection, InjectionMode::Notify);
         assert!(c.session_flags, "notify turns nothing else off");
+        assert!(c.is_default());
+
+        // The freeze is not dead: a config that writes `refuse` gets it.
+        let c: ContentBasedSecurityConfig = toml::from_str("injection = \"refuse\"").unwrap();
+        assert_eq!(c.injection, InjectionMode::Refuse);
+        assert!(c.session_flags, "refuse turns nothing else off");
         assert!(!c.is_default());
 
         let c: ContentBasedSecurityConfig = toml::from_str("wait_ms = 0").unwrap();

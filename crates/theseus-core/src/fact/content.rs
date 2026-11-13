@@ -77,9 +77,14 @@ impl Fact for ContentLabelled<'_> {
     }
 
     fn narrate(&self, say: &mut Say<'_>) {
+        // The injection label's effect is `[content_based_security] injection`,
+        // whose default is `notify` since 1.0.6 (the owner's S17-D8): the call
+        // runs and he is told. This line has no config to read, so it says what
+        // is true in either mode rather than claiming the freeze.
         let effect = match self.flag {
             Flag::Injection => {
-                "writes, programs and sends are refused until the operator clears it"
+                "the operator is told, and under `[content_based_security] injection = \"refuse\"` \
+                 writes, programs and sends are refused until he clears it"
             }
             _ => "China-origin models are off for this session",
         };
