@@ -1,7 +1,7 @@
 // Night or daylight (theseus-hnof.5): the cockpit's two modes. Night is the brass-and-neon bridge on navy glass, as it
 // has always been; daylight is the same bridge by day, ivory chart paper and brass, its inks and tones deepened to read
 // on paper. The operator chooses night, daylight, or the system's (theseus-001m: daylight while the system is light,
-// following it as it changes); night is the default. The choice is kept in this browser; `?mode=light`, `?mode=dark`
+// following it as it changes); daylight is the default. The choice is kept in this browser; `?mode=light`, `?mode=dark`
 // or `?mode=system` sets it for one page (screenshots, a wall display). The Ship's sea and the ship's log's track are
 // screens and stay at night either way.
 //
@@ -20,10 +20,10 @@ const SYSTEM_LIGHT = '(prefers-color-scheme: light)'
 const systemLight = (): boolean => typeof window !== 'undefined' && !!window.matchMedia?.(SYSTEM_LIGHT).matches
 
 function initial(): ModeChoice {
-  if (typeof window === 'undefined') return 'dark'
+  if (typeof window === 'undefined') return 'light'
   const asked = new URLSearchParams(window.location.search).get('mode')
   let kept: string | null = null
-  try { kept = localStorage.getItem(KEY) } catch { /* night */ }
+  try { kept = localStorage.getItem(KEY) } catch { /* the default */ }
   return choiceOf(asked, kept)
 }
 
