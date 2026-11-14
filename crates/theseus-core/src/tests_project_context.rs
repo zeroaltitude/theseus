@@ -1149,12 +1149,33 @@ async fn a_flagged_sessions_write_is_held_for_every_session(
          call put there:\n{block}"
     );
 
+    // **Which control delivered it**, asserted rather than left to a green
+    // tick. An independent review's negative control showed that the two
+    // `refuse` variants pass with the writer key removed -- they must, since
+    // at `refuse` the freeze refuses the acting call before it can move
+    // anything, so no hold can ever be created. Saying so in the test means
+    // a later reader counting ticks cannot read these four as evidence that
+    // the hold is exercised at `refuse`; it is not, and cannot be.
+    let hold = crate::project_context::change::Held::read(
+        &r.core.store,
+        &crate::flow::spec::repo_id(&repo),
+    );
     if mode == crate::content::InjectionMode::Refuse {
+        assert!(
+            hold.is_none(),
+            "{mode:?}/{by:?}: the FREEZE is what stopped this, not the hold -- \
+             the call never ran, so the writer key had nothing to see"
+        );
         // Nothing moved, so there is nothing to hold and nothing to say: the
         // grant's own text is carried as it always was.
         assert!(block.contains(IN_TEXT), "{mode:?}/{by:?}:\n{block}");
         return;
     }
+    assert!(
+        hold.is_some_and(|h| h.by == session),
+        "{mode:?}/{by:?}: the WRITER KEY is what stopped this, and the stored \
+         hold names the session whose call moved the file"
+    );
 
     assert!(
         block.contains("injection"),
