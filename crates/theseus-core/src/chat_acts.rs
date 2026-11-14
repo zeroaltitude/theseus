@@ -154,16 +154,6 @@ impl Heard {
         }
     }
 
-    /// The message bound to `turn`, **claiming nothing**. This is what a tool
-    /// call reads: a call made in a turn the offer step never claimed for —
-    /// a wake, a task report, a model that named a tool it was not offered —
-    /// finds nothing here and is refused.
-    fn bound(&self, session: &str, turn: &str) -> Option<Said> {
-        let held = self.lock();
-        let p = held.get(session)?;
-        (p.turn.as_deref() == Some(turn)).then(|| p.said.clone())
-    }
-
     /// How many sessions hold a staged message (the tests').
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
@@ -171,13 +161,36 @@ impl Heard {
     }
 }
 
+/// What one turn was OFFERED, kept so that the call acts on exactly that.
+///
+/// **This is not a cache, it is the contract.** A question is not listed by
+/// `confirm_list` once a turn is running in its session, so a tool that asked
+/// again at call time would find nothing and refuse every time -- which is the
+/// whole difference between a route read at `turn.submit`, BEFORE the turn
+/// runs, and a tool called DURING it. The matcher this replaced never met the
+/// problem because it acted before the turn began. So the offer step reads
+/// what is waiting and what is held once, at the turn's start, puts it in the
+/// description the model reads, and keeps it here; the call then acts on the
+/// same list the model was shown, and nothing else. `confirm_action` and
+/// `undo_allow` still decide for themselves whether the thing can still be
+/// acted on, so a question answered from a button in between is refused there,
+/// by its own rules.
+#[derive(Debug, Clone)]
+pub(crate) struct Offered {
+    pub turn: String,
+    pub said: Said,
+    pub waiting: Vec<theseus_protocol::ConfirmRequest>,
+    pub held: Vec<theseus_protocol::work::undo::HeldCall>,
+}
+
 /// What the chat acts reach: the core, given once it is built
-/// ([`Board::attach`], as `thread_read::Board` is given one), and the messages
-/// heard at `turn.submit`.
+/// ([`Board::attach`], as `thread_read::Board` is given one), the messages
+/// heard at `turn.submit`, and what each session's current turn was offered.
 #[derive(Default)]
 pub struct Board {
     core: OnceLock<Weak<Core>>,
     pub heard: Heard,
+    offered: Mutex<HashMap<String, Offered>>,
 }
 
 impl Board {
@@ -189,10 +202,14 @@ impl Board {
         self.core.get().and_then(Weak::upgrade)
     }
 
-    /// The message that started `turn` in `session`, when the offer step bound
-    /// one. **This is the structural rule**: no bound message, no chat act.
-    pub(crate) fn said(&self, session: &str, turn: &str) -> Option<Said> {
-        self.heard.bound(session, turn)
+    /// What `turn` in `session` was offered, when the offer step ran for it.
+    /// **This is the structural rule**: a turn no message of the owner's
+    /// started was offered nothing and finds nothing here, so a call made in
+    /// one -- a wake, a task's report, a model naming a tool it never saw --
+    /// is refused.
+    pub(crate) fn offered(&self, session: &str, turn: &str) -> Option<Offered> {
+        let kept = self.offered.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.get(session).filter(|o| o.turn == turn).cloned()
     }
 
     /// The chat acts this turn is offered, as wire definitions, sorted by name.
@@ -221,48 +238,53 @@ impl Board {
         let Some(said) = self.heard.claim(session, turn) else {
             return vec![];
         };
+        let waiting = run::waiting_here(&core, session).unwrap_or_else(|e| {
+            tracing::warn!(session, error = %format!("{e:#}"),
+                "the chat acts: what waits here could not be read, so no answer tool is offered");
+            vec![]
+        });
+        let held = match said.owner_input {
+            true => run::held_here(&core, session).unwrap_or_else(|e| {
+                tracing::warn!(session, error = %format!("{e:#}"),
+                    "the chat acts: what is held here could not be read, so no allow tool is offered");
+                vec![]
+            }),
+            // The allow tool is his alone, so a turn that is not his own typed
+            // input is offered it whatever is held.
+            false => vec![],
+        };
         let mut defs = Vec::new();
-        if let Some(d) = self.answer_offer(&core, session) {
-            defs.push(d);
+        if !waiting.is_empty() {
+            defs.push(definition(
+                ANSWER,
+                &tools::answer_description(&waiting),
+                tools::AnswerQuestion.input_schema(),
+            ));
         }
-        if said.owner_input {
-            if let Some(d) = self.allow_offer(&core, session) {
-                defs.push(d);
-            }
+        if !held.is_empty() {
+            defs.push(definition(
+                ALLOW,
+                &tools::allow_description(&held),
+                tools::AllowHeldCall.input_schema(),
+            ));
         }
         if let Some(d) = Self::sync_offer(&core) {
             defs.push(d);
         }
+        self.offered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(
+                session.to_string(),
+                Offered {
+                    turn: turn.to_string(),
+                    said,
+                    waiting,
+                    held,
+                },
+            );
         defs.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
         defs
-    }
-
-    /// The answer tool, when a question waits here: its description names each
-    /// one and what may be answered.
-    fn answer_offer(&self, core: &Core, session: &str) -> Option<Value> {
-        let waiting = run::waiting_here(core, session).ok()?;
-        if waiting.is_empty() {
-            return None;
-        }
-        Some(definition(
-            ANSWER,
-            &tools::answer_description(&waiting),
-            tools::AnswerQuestion.input_schema(),
-        ))
-    }
-
-    /// The allow tool, when a call is held here: its description states the
-    /// held call and that the decision is the owner's.
-    fn allow_offer(&self, core: &Core, session: &str) -> Option<Value> {
-        let held = run::held_here(core, session).ok()?;
-        if held.is_empty() {
-            return None;
-        }
-        Some(definition(
-            ALLOW,
-            &tools::allow_description(&held),
-            tools::AllowHeldCall.input_schema(),
-        ))
     }
 
     /// The sync tool, where the OpenClaw import is configured at all. **No new

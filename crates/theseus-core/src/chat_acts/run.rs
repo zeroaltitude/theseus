@@ -14,7 +14,7 @@ use theseus_protocol::work::undo::{allowed_words, HeldCall, SHORTEST_ID};
 use theseus_protocol::ConfirmRequest;
 
 use super::tools::{allow_args, answer_args, named_hold, named_question};
-use super::{Board, Said, ALLOW};
+use super::{Board, ALLOW};
 use crate::toolrun::holds::Holds;
 use crate::toolrun::TurnCtx;
 use crate::Core;
@@ -62,40 +62,39 @@ impl Board {
     /// model reads. **The structural rule lives here**: a call made in a turn
     /// no message of the owner's started — a wake, a task's report, a model
     /// naming a tool it was never offered — gets nothing.
-    fn standing(&self, tc: &TurnCtx<'_>) -> Result<(std::sync::Arc<Core>, Said), String> {
+    fn standing(&self, tc: &TurnCtx<'_>) -> Result<(std::sync::Arc<Core>, super::Offered), String> {
         let core = self
             .core()
             .ok_or("this tool is not ready: the core is not built")?;
-        let said = self.said(tc.session_id, tc.turn_id).ok_or(
+        let offered = self.offered(tc.session_id, tc.turn_id).ok_or(
             "this tool acts only in a turn the operator's own message started, and no message of \
              theirs started this one. Nothing was done.",
         )?;
-        Ok((core, said))
+        Ok((core, offered))
     }
 
     /// Answer the question waiting here with the answer the operator gave.
     pub(crate) fn answer(&self, tc: &TurnCtx<'_>, input: &Value) -> Done {
-        let (core, said) = self.standing(tc)?;
+        let (core, offered) = self.standing(tc)?;
         let a = answer_args(input)?;
-        let waiting = waiting_here(&core, tc.session_id)
-            .map_err(|e| format!("what is waiting here could not be read: {e:#}"))?;
-        let q = one_of(&waiting, a.question.as_deref(), |q| {
-            q.correlation_id.clone()
-        })
-        .map_err(|e| e.said("question", "waiting", &waiting, named_question))?;
+        // What this turn was OFFERED, not what is listed now: a question is
+        // not listed while a turn runs in its session (`chat_acts::Offered`).
+        let waiting = &offered.waiting;
+        let q = one_of(waiting, a.question.as_deref(), |q| q.correlation_id.clone())
+            .map_err(|e| e.said("question", "waiting", waiting, named_question))?;
         let note = a.note.as_deref().map(str::trim).filter(|t| !t.is_empty());
         let answer = a.answer.trim();
         let name = named_question(q);
         let out = match crate::rpc::answer::kind_of(q) {
             theseus_protocol::work::QuestionKind::Ask => {
-                core.answer_ask_act(q, answer, note, said.who.clone())
+                core.answer_ask_act(q, answer, note, offered.said.who.clone())
             }
-            _ => core.answer_plain_act(q, answer, note, said.who.clone()),
+            _ => core.answer_plain_act(q, answer, note, offered.said.who.clone()),
         }?;
         // What the harness made of it, for the rest of this turn
         // (`yes_fact.rs`): the block says what was answered and what was not,
         // so a turn cannot read a silence as either.
-        core.stage_answer_fact(tc.session_id, &name, &waiting, q);
+        core.stage_answer_fact(tc.session_id, &name, waiting, q);
         Ok((
             format!("{out} ({name}). Nothing else waiting here was answered."),
             json!({"chat_act": {"answered": q.correlation_id, "answer": answer}}),
@@ -111,7 +110,8 @@ impl Board {
     /// reached leaves the call STANDING and the ledger row records that it was
     /// not judged (see `chat_acts::judged`).
     pub(crate) async fn allow(&self, tc: &TurnCtx<'_>, input: &Value) -> Done {
-        let (core, said) = self.standing(tc)?;
+        let (core, offered) = self.standing(tc)?;
+        let said = &offered.said;
         if !said.owner_input {
             return Err(
                 "this tool acts only on the operator's own message, from a private \
@@ -120,12 +120,11 @@ impl Board {
             );
         }
         let a = allow_args(input)?;
-        let held = held_here(&core, tc.session_id)
-            .map_err(|e| format!("what is held here could not be read: {e:#}"))?;
-        let h = one_of(&held, a.hold.as_deref(), |h| h.id.clone())
-            .map_err(|e| e.said("hold", "held", &held, named_hold))?
+        let held = &offered.held;
+        let h = one_of(held, a.hold.as_deref(), |h| h.id.clone())
+            .map_err(|e| e.said("hold", "held", held, named_hold))?
             .clone();
-        let judged = match super::judged::says_run(&core, &said.text, &h, &held).await {
+        let judged = match super::judged::says_run(&core, &said.text, &h, held).await {
             super::judged::Verdict::No(why) => {
                 return Err(format!(
                     "The operator's message does not read as an instruction to run the held call \
@@ -167,7 +166,8 @@ impl Board {
     /// is invented here, and the actor judged is the operator who spoke, never
     /// the model.
     pub(crate) fn sync(&self, tc: &TurnCtx<'_>, input: &Value) -> Done {
-        let (core, said) = self.standing(tc)?;
+        let (core, offered) = self.standing(tc)?;
+        let said = &offered.said;
         let _: super::tools::SyncArgs = theseus_tools::parse(input).map_err(|e: String| e)?;
         core.import_act(&said.who)?;
         let started = core.sync_request_for(Some(tc.session_id), &said.who.label);

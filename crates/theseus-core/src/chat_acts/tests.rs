@@ -33,21 +33,15 @@ fn a_message_is_bound_to_the_turn_it_started_and_to_no_other() {
         owner_input: true,
     };
     heard.stage("ses_1", said);
-    assert!(
-        heard.bound("ses_1", "turn_1").is_none(),
-        "unclaimed: a tool call in a turn the offer step never ran for finds nothing"
+    assert_eq!(
+        heard.claim("ses_1", "turn_1").map(|s| s.text).as_deref(),
+        Some("run the original"),
+        "the turn it started claims it"
     );
     assert_eq!(
         heard.claim("ses_1", "turn_1").map(|s| s.text).as_deref(),
-        Some("run the original")
-    );
-    assert!(
-        heard.bound("ses_1", "turn_1").is_some(),
-        "bound to its own turn"
-    );
-    assert!(
-        heard.bound("ses_1", "turn_2").is_none(),
-        "not to another turn"
+        Some("run the original"),
+        "and every loop of that turn reads the same thing"
     );
     assert!(
         heard.claim("ses_1", "turn_2").is_none(),
@@ -58,7 +52,7 @@ fn a_message_is_bound_to_the_turn_it_started_and_to_no_other() {
         0,
         "and the staged message is gone, not left for a third turn"
     );
-    assert!(heard.bound("ses_1", "turn_1").is_none());
+    assert!(heard.claim("ses_1", "turn_3").is_none());
 }
 
 /// The answer tool's description names each waiting question and its answers;
