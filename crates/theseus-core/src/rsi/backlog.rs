@@ -53,6 +53,7 @@ mod folded;
 mod graduate;
 pub mod issues;
 mod keel;
+pub(crate) mod open_work;
 mod rank;
 mod read;
 pub(crate) use read::plain_title;
