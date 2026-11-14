@@ -413,6 +413,18 @@ impl Core {
                             })
                             .into(),
                     );
+                    if crate::rsi::backlog::aside::is_set_aside(t) {
+                        e.why = Some(
+                            "set aside by the owner: nothing starts it until it is brought back"
+                                .into(),
+                        );
+                        // A build the owner set aside stops, as a dropped one does.
+                        e.session = started(t).map(|(s, _)| s).or(e.session);
+                        e.live = self.live(e.execution.as_deref());
+                        if e.live {
+                            q.dropped.push(e.clone());
+                        }
+                    }
                     e.place = q.held.len() as u32 + 1;
                     q.held.push(e);
                 }

@@ -69,14 +69,14 @@ async fn a_leftover_tree_of_an_installed_merge_is_reaped_at_serving() {
 fn a_failed_install_build_reaps_its_tree() {
     let f = crate::rsi::tests_tree::fixture();
     let head = super::tests::git(&f.place.repo, &["rev-parse", "origin/main"]);
-    let seen = std::cell::Cell::new(None);
+    let seen = std::sync::Mutex::new(None);
     let built = install::built_tree(&f.place, &head, &|_, t, _| {
         std::fs::create_dir_all(t.target.join("release"))?;
-        seen.set(Some(t.target.clone()));
+        *seen.lock().unwrap() = Some(t.target.clone());
         anyhow::bail!("the build failed")
     });
     assert!(built.is_err());
-    let target = seen.take().unwrap();
+    let target = seen.lock().unwrap().take().unwrap();
     assert!(!target.exists(), "{} was left", target.display());
     assert_eq!(left_open(&f.place.trees(), true), Vec::<String>::new());
 }

@@ -57,6 +57,34 @@ pub async fn drop_item(conn: &mut Conn, json: bool, item: String) -> Result<()> 
     })
 }
 
+pub async fn set_aside(conn: &mut Conn, json: bool, item: String, why: Vec<String>) -> Result<()> {
+    let why = why.join(" ");
+    let p = SelfDropParams {
+        item,
+        set_aside: true,
+        why: (!why.trim().is_empty()).then_some(why),
+        from_job: theseus_client::client::job_session(),
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::SELF_DROP, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: SelfDropResult| {
+        println!(
+            "{}",
+            match r.changed {
+                true => format!(
+                    "Set {} ({}) aside. Nothing starts it, and nothing is forbidden: its cause, {}, \
+                     is still watched. `theseus self bring-back {}` puts it back.",
+                    r.item, r.title, r.cause, r.item
+                ),
+                false => format!("{} ({}) was set aside already.", r.item, r.title),
+            }
+        );
+        Ok(())
+    })
+}
+
 pub async fn move_item(conn: &mut Conn, json: bool, item: String, rank: u32) -> Result<()> {
     let p = SelfMoveParams {
         item,

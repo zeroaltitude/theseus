@@ -48,6 +48,7 @@
 //!
 //! What it keeps beside the tasks is one META record ([`state`]).
 
+pub(crate) mod aside;
 pub(crate) mod attempts;
 pub(crate) mod brief;
 mod filed;

@@ -80,6 +80,8 @@ mod tender;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_aside;
+#[cfg(test)]
 mod tests_brief;
 #[cfg(test)]
 mod tests_cap;
@@ -445,7 +447,7 @@ impl Core {
                     let m = Moved::new(&e.item, format!("the build of {} stopped", e.item))
                         .with("session", session.clone())
                         .with("reason", "dropped")
-                        .why("the owner dropped it");
+                        .why("the owner dropped it or set it aside");
                     w.say(key, Transition::Ended(Ended(m)))?;
                 }
             }

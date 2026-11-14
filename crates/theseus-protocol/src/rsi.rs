@@ -596,6 +596,14 @@ pub struct SelfDropParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub from_job: Option<String>,
+    /// Set the item aside instead of dropping it: nothing starts it, its cause is still
+    /// filed against it, and nothing is forbidden. `self.retry` brings it back.
+    #[serde(default)]
+    pub set_aside: bool,
+    /// Why, in a few words, for a set-aside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub why: Option<String>,
 }
 
 /// `self.drop`'s answer.
@@ -608,6 +616,9 @@ pub struct SelfDropResult {
     pub cause: String,
     /// False when the item had left the backlog already.
     pub changed: bool,
+    /// The item was set aside, not dropped: its cause is not forbidden.
+    #[serde(default)]
+    pub set_aside: bool,
 }
 
 /// `self.move`'s params: the owner's. Rank 1 is the top.
