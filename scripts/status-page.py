@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The status page's version line, held to the tree (issue 15's last line; theseus-fly32).
 
-    python3 scripts/status-page.py        # check; one line per fault, then a summary line
+    python3 scripts/status-page.py                       # check; one line per fault, then a summary line
+    python3 scripts/status-page.py --tag release-1.0.7   # before tagging: is this the tree's version?
 
 **Why this exists.** `docs/status.md` shipped two releases stale inside a tagged release, because nothing read its
 first line; and `release-1.0.5` was tagged on a commit whose workspace version still said 1.0.4, so the binaries of
@@ -9,7 +10,9 @@ that release print the version before it. Both are facts the tree holds, and nei
 
 **The line it reads** is the page's first line that starts `_Updated `, and it must have this shape:
 
-    _Updated <date> <time words>. Workspace version <X>; newest release tag `release-<Y>` (<name>) at `<sha>`, <date>.<rest>_
+    _Updated <date> <time words>. Workspace version <X>; newest release tag `release-<Y>` (<name>) at `<sha>`, <date>. The design document is at v<D>._
+
+(the last sentence may be left out, and nothing else may follow: free text there is how the page went stale)
 
 Everything in it can be read from the tree when the line is written, and this script reads each one back:
 
@@ -21,13 +24,15 @@ Everything in it can be read from the tree when the line is written, and this sc
   - `<X>` is not older than `<Y>`: a workspace version behind its newest tag is the stale page this exists to stop;
   - `<name>` is the release's name by the rule in `docs/development.md` ("Version cuts and releases"): `v1` for
     1.0.0, `v1 patch<N>` for 1.0.N. Other lines have no naming rule yet, so their name is not checked;
-  - if `<rest>` says "the design document is at v<D>", `<D>` is the version in the first heading of
-    `docs/spec/01-front.md`;
+  - `<D>`, when given, is the version in the first heading of `docs/spec/01-front.md`;
   - `<date>` after `_Updated` is not earlier than the tag's date.
 
 **Every reachable release tag is checked against its own tree:** the workspace version at the tagged commit must be
 the tag's version, which is what `theseus --version` prints. `release-1.0.5` is the one recorded exception
 (`KNOWN_MISTAGGED`): a tag is never moved, so it stays wrong, named here rather than failing every gate.
+
+**Before a tag** (`--tag release-<version>`), the name is held to the tree's workspace version, so a release cannot
+be tagged with the version before it. That is the one point where a mistag can be prevented, not only caught.
 
 **A clone with no release tags** (a box that fetched one commit) checks the workspace version line only, and says
 `status page: skipped: ...` so the gate registers the stand-down rather than calling it a pass.
@@ -50,9 +55,8 @@ HEADER = re.compile(
     r"Workspace version (?P<workspace>\d+\.\d+\.\d+); "
     r"newest release tag `release-(?P<tag>\d+\.\d+\.\d+)` \((?P<name>[^)]+)\) "
     r"at `(?P<sha>[0-9a-f]{8,40})`, (?P<tagged>\d{4}-\d{2}-\d{2})\."
-    r"(?P<rest>.*)_$"
+    r"(?: The design document is at v(?P<design>\d+(?:\.\d+)*)\.)?_$"
 )
-DESIGN = re.compile(r"the design document is at v(\d+(?:\.\d+)*)", re.I)
 FRONT_VERSION = re.compile(r"^# The Ship of Theseus — v(\d+(?:\.\d+)*)\s*$", re.M)
 
 
@@ -123,16 +127,15 @@ def check(root):
     faults = []
     if m["workspace"] != workspace:
         faults.append(f"the page says workspace version {m['workspace']}, Cargo.toml says {workspace}")
-    design = DESIGN.search(m["rest"])
-    if design:
+    if m["design"]:
         try:
             front = FRONT_VERSION.search(open(os.path.join(root, FRONT), encoding="utf-8").read())
         except OSError:
             front = None
         if front is None:
             faults.append(f"the page names the design document's version, and {FRONT} has no version heading")
-        elif front.group(1) != design.group(1):
-            faults.append(f"the page says the design document is at v{design.group(1)}, {FRONT} says v{front.group(1)}")
+        elif front.group(1) != m["design"]:
+            faults.append(f"the page says the design document is at v{m['design']}, {FRONT} says v{front.group(1)}")
     tags = release_tags(root)
     if not tags:
         return faults, [f"workspace version {workspace}"], True
@@ -164,9 +167,35 @@ def check(root):
     return faults, [f"workspace version {workspace}", f"newest tag {newest[0]} at {newest[2][:8]}"], False
 
 
-def main(argv=None):
-    root = os.getcwd() if not argv else argv[0]
+def tag_fault(root, name):
+    """Before tagging: the fault in tagging HEAD `name`, or None."""
+    m = re.fullmatch(r"release-(\d+\.\d+\.\d+)", name)
+    if m is None:
+        return f"{name} is not a release tag name (release-X.Y.Z)"
     try:
+        held = workspace_version(open(os.path.join(root, "Cargo.toml"), encoding="utf-8").read())
+    except OSError as e:
+        raise Unreadable(str(e)) from e
+    if held != m.group(1):
+        return f"{name} would tag a tree whose workspace version is {held}: its binaries would print {held}"
+    return None
+
+
+def main(argv=None):
+    argv = list(argv or [])
+    tag = None
+    if argv[:1] == ["--tag"]:
+        if len(argv) < 2:
+            print("usage: status-page.py [--tag release-X.Y.Z] [ROOT]")
+            return 2
+        tag, argv = argv[1], argv[2:]
+    root = argv[0] if argv else os.getcwd()
+    try:
+        if tag is not None:
+            fault = tag_fault(root, tag)
+            if fault:
+                print(f"status page: {fault}; bump [workspace.package] version in Cargo.toml first")
+                return 1
         faults, notes, skipped = check(root)
     except Unreadable as e:
         print(f"status page: could not read the page or the workspace version: {e}")

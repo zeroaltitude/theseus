@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-11-14 11:5x MST. Workspace version 1.0.6; newest release tag `release-1.0.6` (v1 patch6) at `b8b403b7`, 2026-11-14. Commits after that tag are on `main` and in no release yet, and the next release is 1.0.7; the design document is at v0.92._
+_Updated 2026-11-14 11:5x MST. Workspace version 1.0.6; newest release tag `release-1.0.6` (v1 patch6) at `b8b403b7`, 2026-11-14. The design document is at v0.92._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 

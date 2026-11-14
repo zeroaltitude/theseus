@@ -131,8 +131,8 @@ including in a commit message, because it is stale by the next departure.
   workspace version, the newest `release-*` tag reachable from HEAD with its commit and date, and the release's name.
   Every reachable tag's own workspace version must be its version (`release-1.0.5`, tagged at 1.0.4, is the one
   recorded exception). On a tagged commit the page may still name the tag before it. A clone with no tags checks the
-  version alone and says `skipped`. So a release cannot tag a stale page, and the first join after a tag is red
-  until the page names it.
+  version alone and says `skipped`. `--tag release-<version>`, run before tagging, refuses a tag name that is not the
+  workspace version. After a tag, the first join is red until the page names it.
 - `test-code-map.py`, `tests/test_test_code_map.py` (theseus-4vsrz): the map of what the compiler reads as test code, and
   two reports over it. **Membership comes from the declaration, never from a file's own text and never from a `tests_`-shaped
   path** — `#[cfg(test)] mod N;` resolved against the declaring file's module directory, an inline `mod N { .. }`'s

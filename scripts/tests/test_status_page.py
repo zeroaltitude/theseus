@@ -154,6 +154,31 @@ class StatusPage(unittest.TestCase):
         faults, _ = self.faults()
         self.assertEqual(faults, [f"the page says the design document is at v0.93, {sp.FRONT} says v0.92"])
 
+    def test_free_text_after_the_facts_is_refused(self):
+        # The old line went stale in its free text ("1.0.6 is being built now"), so the shape allows none.
+        sha = self.released("1.0.6")
+        self.commit("1.0.6", header("1.0.6", "1.0.6", sha[:8], rest=" The next release is 1.0.7."))
+        faults, _ = self.faults()
+        self.assertEqual(len(faults), 1, faults)
+        self.assertIn("does not have the shape", faults[0])
+        self.commit("1.0.6", header("1.0.6", "1.0.6", sha[:8], rest=" The design document is at v0.92. More."))
+        faults, _ = self.faults()
+        self.assertEqual(len(faults), 1, faults)
+
+    def test_before_a_tag_its_name_is_held_to_the_workspace_version(self):
+        sha = self.released("1.0.6")
+        self.commit("1.0.6", header("1.0.6", "1.0.6", sha[:8]))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(sp.main(["--tag", "release-1.0.7", self.root]), 1)
+        self.assertIn("release-1.0.7 would tag a tree whose workspace version is 1.0.6", out.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sp.main(["--tag", "1.0.7", self.root]), 1)
+            self.assertEqual(sp.main(["--tag"]), 2)
+        self.commit("1.0.7", header("1.0.7", "1.0.6", sha[:8]))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sp.main(["--tag", "release-1.0.7", self.root]), 0)
+
     def test_a_clone_with_no_tags_checks_the_version_and_says_it_skipped(self):
         self.commit("1.0.6", header("1.0.6", "1.0.6", "b8b403b7"))
         self.assertEqual(self.faults(), ([], True))

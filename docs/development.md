@@ -449,8 +449,9 @@ under `build.sh`, and "glibc or static musl").
   `release-1.0.2` for v1 patch2. GitHub lists them under Tags. The workspace version moves with them. The versioned
   binaries are kept with the commit and their sha256 checksums.
 - **The status page names the release before the tag.** The cut commit's `docs/status.md` line names the workspace
-  version and the newest tag as they are when it is written; the `status page` phase reads both back, and refuses a
-  tag whose tree holds another version. After the tag, the next join's gate is red until the page names it.
+  version and the newest tag as they are when it is written. Before tagging, `python3 scripts/status-page.py --tag
+  release-<version>` refuses a tag name that is not the tree's workspace version. After a tag, the `status page` phase
+  fails every gate whose page does not name it, and every gate at all if a tag's tree holds another version.
 - **Run `scripts/repro.sh`** before a release, after a toolchain bump, and after a dependency gains a build script.
 - **The cut's docs**: the spec's version line, `status.md`, the README's numbers from the cut's benchmark reports, and
   the omnibus of benchmarks.
