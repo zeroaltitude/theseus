@@ -615,7 +615,7 @@ fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
     // A red notice already went out for this item tonight: this one is only in the note.
     let quiet = task
         .as_ref()
-        .is_some_and(|t| crate::rsi::backlog::attempts::red_tonight(t));
+        .is_some_and(crate::rsi::backlog::attempts::red_tonight);
     let capped = told_on_task(core, task, &e, run);
     told_where_it_reports(core, tc, &e, run, quiet);
     if let Some(text) = capped {

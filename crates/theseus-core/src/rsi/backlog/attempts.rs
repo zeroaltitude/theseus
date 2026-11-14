@@ -116,7 +116,7 @@ fn or(e: &TaskEvidence, fallback: &str) -> String {
 }
 
 /// The tries of every item of one cause, from the owner's last retry on any of them.
-pub fn of_cause<'a>(items: &[&'a TaskRecord]) -> Vec<Try> {
+pub fn of_cause(items: &[&TaskRecord]) -> Vec<Try> {
     let since = last_retry(items.iter().copied());
     let mut all: Vec<Try> = items.iter().flat_map(|t| tries(t, since)).collect();
     all.sort_by_key(|t| t.at_ms);

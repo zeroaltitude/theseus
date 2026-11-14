@@ -319,6 +319,20 @@ fn stale(q: &mut Queues, tasks: &[TaskRecord]) {
 }
 
 impl Core {
+    /// An item the owner set aside (`backlog::aside`): its held entry says so. Whether it still
+    /// has a build or trees to stop and close.
+    fn set_aside(&self, place: &Place, t: &TaskRecord, e: &mut Entry) -> bool {
+        if !crate::rsi::backlog::aside::is_set_aside(t) {
+            return false;
+        }
+        e.why = Some("set aside by the owner: nothing starts it until it is brought back".into());
+        e.session = started(t).map(|(s, _)| s).or(e.session.take());
+        e.live = self.live(e.execution.as_deref());
+        e.live
+            || tree::find(place, &t.id).is_some()
+            || place.targets().join(tree::slug(&t.id)).exists()
+    }
+
     /// Whether an execution's turn runs, queues, or waits on the owner.
     fn live(&self, exec: Option<&str>) -> bool {
         exec.and_then(|id| self.kernel.execution(id).ok().flatten())
@@ -418,19 +432,9 @@ impl Core {
                             })
                             .into(),
                     );
-                    if crate::rsi::backlog::aside::is_set_aside(t) {
-                        e.why = Some(
-                            "set aside by the owner: nothing starts it until it is brought back"
-                                .into(),
-                        );
+                    if self.set_aside(place, t, &mut e) {
                         // A build the owner set aside stops, as a dropped one does.
-                        e.session = started(t).map(|(s, _)| s).or(e.session);
-                        e.live = self.live(e.execution.as_deref());
-                        let trees = tree::find(place, &t.id).is_some()
-                            || place.targets().join(tree::slug(&t.id)).exists();
-                        if e.live || trees {
-                            q.dropped.push(e.clone());
-                        }
+                        q.dropped.push(e.clone());
                     }
                     e.place = q.held.len() as u32 + 1;
                     q.held.push(e);

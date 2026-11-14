@@ -45,6 +45,8 @@ pub fn assert_closed(p: &Place, when: &str, merge: bool) {
         "a join left a tree open {when}: {}, which holds the pipeline's slot until it is closed",
         open.join(", ")
     );
-    assert!(!cfg!(test), "{said}");
+    if cfg!(test) {
+        panic!("{said}");
+    }
     tracing::warn!(trees = ?open, "self-join: {said}");
 }
