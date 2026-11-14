@@ -342,10 +342,7 @@ fn write_waiting(
     match inner.append(&rows) {
         Ok(positions) => {
             seen(watcher, &rows, &positions);
-            // The store takes frames again: the flusher may be armed again.
-            pending
-                .gave_up
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            pending.recovered();
             true
         }
         Err(e) => {
@@ -433,6 +430,13 @@ impl Pending {
         *waiting = rows;
     }
 
+    /// A frame was written: the store takes frames, so a flusher that gave up may be armed
+    /// again (`FLUSH_TRIES`).
+    fn recovered(&self) {
+        self.gave_up
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
     fn within(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.within_ms.load(std::sync::atomic::Ordering::Relaxed))
     }
@@ -484,6 +488,7 @@ impl TurnState {
         frame.extend_from_slice(records);
         match inner.append(&frame) {
             Ok(mut positions) => {
+                pending.recovered();
                 self.frames
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 // The kernel's own observer has the records its frame holds:
@@ -824,6 +829,7 @@ impl Store {
     /// One record as its own frame, now.
     fn write_now(&self, record: NewRecord) -> Result<()> {
         let positions = self.inner.append(std::slice::from_ref(&record))?;
+        self.pending.recovered();
         seen(&self.watcher, &[record], &positions);
         Ok(())
     }
@@ -966,6 +972,7 @@ impl Store {
                 let parked = self.pending.take();
                 if parked.is_empty() {
                     let positions = self.inner.append(records)?;
+                    self.pending.recovered();
                     seen(&self.watcher, records, &positions);
                     return Ok(positions);
                 }
@@ -974,6 +981,7 @@ impl Store {
                 frame.extend_from_slice(records);
                 match self.inner.append(&frame) {
                     Ok(mut positions) => {
+                        self.pending.recovered();
                         seen(&self.watcher, &frame, &positions);
                         Ok(positions.split_off(n))
                     }

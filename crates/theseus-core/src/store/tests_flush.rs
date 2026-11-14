@@ -67,14 +67,22 @@ async fn the_flusher_stops_after_its_tries_against_a_store_that_refuses() {
     // A row parked now does not arm another flusher while the store refuses.
     store.defer_waiting(big_row()).unwrap();
     assert!(!store.pending.flushing.load(SeqCst), "not armed again");
-    // A frame the store does take re-arms it: a successful flush clears the give-up.
+    // A frame the store does take, through the store's own append (not the flusher), re-arms
+    // it: the first review's F8. The stuck row is taken away first, as a turn's frame would
+    // carry it off.
     store.pending.take();
-    let rows = vec![NewRecord::bytes(kinds::LEDGER, None, b"small".to_vec())];
-    assert!(write_waiting(
-        &store.inner,
-        &store.watcher,
-        &store.pending,
-        rows
-    ));
-    assert!(!store.pending.gave_up.load(SeqCst));
+    store
+        .append(&[NewRecord::bytes(kinds::LEDGER, None, b"small".to_vec())])
+        .unwrap();
+    assert!(
+        !store.pending.gave_up.load(SeqCst),
+        "a written frame clears the give-up"
+    );
+    store
+        .defer_waiting(NewRecord::bytes(kinds::LEDGER, None, b"later".to_vec()))
+        .unwrap();
+    assert!(
+        store.pending.flushing.load(SeqCst),
+        "and the next parked row arms a flusher again"
+    );
 }
