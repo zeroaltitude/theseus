@@ -282,15 +282,24 @@ pub fn command() -> io::Result<tokio::process::Command> {
 /// Start the one command as a registered child and wait for it, up to
 /// [`DEADLINE_MS`]. Its log goes where the daemon's goes: stderr, inherited.
 pub async fn run() -> Ran {
-    let mut cmd = match command() {
-        Ok(c) => c,
-        Err(e) => {
-            return Ran {
-                error: Some(format!("the sync's binary could not be found: {e}")),
-                ..Ran::default()
-            }
-        }
-    };
+    match command() {
+        Ok(cmd) => run_command(cmd, std::time::Duration::from_millis(DEADLINE_MS)).await,
+        Err(e) => Ran {
+            error: Some(format!("the sync's binary could not be found: {e}")),
+            ..Ran::default()
+        },
+    }
+}
+
+/// The spawn, the deadline and the kill of one run: [`run`]'s whole path after the command is
+/// built, and nothing before it. It is a function of its own so that an integration test reaches
+/// the real spawn, the real wait and the real kill with a command and a deadline of its own
+/// (issue 6: that path had only ever run behind a swapped runner); [`run`] passes the one
+/// command and [`DEADLINE_MS`].
+pub(crate) async fn run_command(
+    mut cmd: tokio::process::Command,
+    deadline: std::time::Duration,
+) -> Ran {
     // Registered, so the children census still holds: `Kind::Owned` is the
     // kind whose spawner waits for it, which is what happens below.
     let mut child = match theseus_kernel::children::spawn(
@@ -307,7 +316,6 @@ pub async fn run() -> Ran {
         }
     };
     let pid = child.id().unwrap_or(0);
-    let deadline = std::time::Duration::from_millis(DEADLINE_MS);
     match tokio::time::timeout(deadline, child.wait()).await {
         Ok(Ok(st)) => Ran {
             pid,
