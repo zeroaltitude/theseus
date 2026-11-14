@@ -39,7 +39,69 @@ exceptions = [
 ]
 
 [bans]
-multiple-versions = "allow"
+# Two versions of one crate are a cost (compile time, binary size, a second copy to audit), so a duplicate must be
+# named here with who pulls the older one; a new one fails the gate. Most are one stack each: the proc-macro stack
+# (syn 1 and 2 under darling and derive_builder, in hls_m3u8 and davey), the RustCrypto 0.10 generation (digest, cipher,
+# crypto-common, block-buffer) under DAVE's stack, and rand 0.8 and sha2 0.10 under the same. Drop each entry when
+# the crate that pulls it moves (theseus-tcdl).
+multiple-versions = "deny"
+skip = [
+    { crate = "aes@0.8.4", reason = "pulled by aes-gcm, davey" },
+    { crate = "base64@0.13.1", reason = "pulled by spm_precompiled" },
+    { crate = "base64@0.22.1", reason = "pulled by axum, opentelemetry-proto, reqwest, serenity, tantivy, theseus, theseus-aws, theseus-core, theseus-files, theseus-google, theseus-judge, tokio-websockets" },
+    { crate = "bitflags@1.3.2", reason = "pulled by defmt, symphonia-core" },
+    { crate = "block-buffer@0.10.4", reason = "pulled by digest" },
+    { crate = "chacha20@0.9.1", reason = "pulled by chacha20poly1305" },
+    { crate = "cipher@0.4.4", reason = "pulled by aes, aes-gcm, chacha20, chacha20poly1305, ctr, davey, salsa20" },
+    { crate = "const-oid@0.9.6", reason = "pulled by der, digest" },
+    { crate = "convert_case@0.4.0", reason = "pulled by derive_more" },
+    { crate = "cpufeatures@0.2.17", reason = "pulled by aes, chacha20, const-hex, curve25519-dalek, poly1305, polyval, sha1, sha2" },
+    { crate = "crypto-common@0.1.7", reason = "pulled by aead, cipher, digest, songbird, universal-hash" },
+    { crate = "darling@0.10.2", reason = "pulled by derive_builder, derive_builder_core" },
+    { crate = "darling@0.20.11", reason = "pulled by derive_builder_core" },
+    { crate = "darling_core@0.10.2", reason = "pulled by darling, darling_macro" },
+    { crate = "darling_core@0.20.11", reason = "pulled by darling, darling_macro" },
+    { crate = "darling_macro@0.10.2", reason = "pulled by darling" },
+    { crate = "darling_macro@0.20.11", reason = "pulled by darling" },
+    { crate = "derive_builder@0.9.0", reason = "pulled by hls_m3u8" },
+    { crate = "derive_builder_core@0.9.0", reason = "pulled by derive_builder" },
+    { crate = "derive_more@0.99.20", reason = "pulled by hls_m3u8" },
+    { crate = "digest@0.10.7", reason = "pulled by curve25519-dalek, ecdsa, elliptic-curve, hmac, pbkdf2, sha1, sha2, signature" },
+    { crate = "getrandom@0.2.17", reason = "pulled by nanorand, rand_core, ring" },
+    { crate = "getrandom@0.3.4", reason = "pulled by ahash, openmls, rand_core, tokenizers" },
+    { crate = "hashbrown@0.14.5", reason = "pulled by dashmap" },
+    { crate = "hashbrown@0.16.1", reason = "pulled by clru, kasuari, lru, safetensors, twilight-http-ratelimiting" },
+    { crate = "heck@0.3.3", reason = "pulled by strum_macros" },
+    { crate = "hmac@0.12.1", reason = "pulled by davey, hkdf, openmls_rust_crypto, pbkdf2, rfc6979, theseus-core" },
+    { crate = "inout@0.1.4", reason = "pulled by cipher" },
+    { crate = "lru@0.16.4", reason = "pulled by tantivy" },
+    { crate = "miniz_oxide@0.8.9", reason = "pulled by png" },
+    { crate = "nom@7.1.3", reason = "pulled by spm_precompiled, tantivy-query-grammar" },
+    { crate = "ordered-float@2.10.1", reason = "pulled by serde-value" },
+    { crate = "parking_lot@0.11.2", reason = "pulled by fluvio-wasm-timer" },
+    { crate = "parking_lot_core@0.8.6", reason = "pulled by parking_lot" },
+    { crate = "rand@0.8.8", reason = "pulled by davey, hpke-rs-rust-crypto, openmls_basic_credential, openmls_rust_crypto, tungstenite" },
+    { crate = "rand@0.9.5", reason = "pulled by candle-core, float8, half, libcrux-ecdh, libcrux-kem, libcrux-ml-kem, libcrux-traits, opentelemetry_sdk, proptest, rand_distr, songbird, theseus-google, theseus-mcp, theseus-sim, theseus-store, tokenizers, tungstenite" },
+    { crate = "rand_chacha@0.3.1", reason = "pulled by hpke-rs-rust-crypto, openmls_rust_crypto, rand" },
+    { crate = "rand_chacha@0.9.0", reason = "pulled by proptest, rand" },
+    { crate = "rand_core@0.6.4", reason = "pulled by crypto-bigint, crypto-common, ed25519-dalek, elliptic-curve, ff, group, hpke-rs-rust-crypto, rand, rand_chacha, signature, x25519-dalek" },
+    { crate = "rand_core@0.9.5", reason = "pulled by hpke-rs, hpke-rs-crypto, rand, rand_chacha, rand_xorshift" },
+    { crate = "sha2@0.10.9", reason = "pulled by davey, ed25519-dalek, hpke-rs-rust-crypto, openmls_rust_crypto, p256, scrypt, theseus, theseus-core, theseus-discord, theseus-exam, theseus-google, theseus-index, theseus-judge, theseus-kernel, theseus-mcp, theseus-ontology, theseus-store" },
+    { crate = "socket2@0.5.10", reason = "pulled by songbird" },
+    { crate = "strsim@0.9.3", reason = "pulled by darling_core" },
+    { crate = "strum@0.17.1", reason = "pulled by hls_m3u8" },
+    { crate = "strum_macros@0.17.1", reason = "pulled by strum" },
+    { crate = "syn@1.0.109", reason = "pulled by darling_core, darling_macro, derivative, derive_builder, derive_builder_core, hashmap_derive, shorthand, strum_macros" },
+    { crate = "syn@2.0.119", reason = "pulled by aws-smithy-runtime-api-macros, curve25519-dalek-derive, darling_core, darling_macro, defmt-macros, derive_builder_core, derive_builder_macro, derive_more, derive_more-impl, enum-map-derive, gix-macros, hax-lib-macros, jiff-static, libcrux-macros, monostate-impl, num-derive, palette_derive, pin-project-internal, pnet_macros, prost-derive, rust-embed-impl, strum_macros, thiserror-impl, tls_codec_derive, tracing-attributes, ts-rs-macros, zerocopy-derive, zeroize_derive" },
+    { crate = "thiserror@1.0.69", reason = "pulled by hls_m3u8, tungstenite" },
+    { crate = "thiserror-impl@1.0.69", reason = "pulled by thiserror" },
+    { crate = "tokio-tungstenite@0.26.2", reason = "pulled by songbird, theseus-voice" },
+    { crate = "tokio-websockets@0.11.4", reason = "pulled by songbird" },
+    { crate = "tungstenite@0.26.2", reason = "pulled by tokio-tungstenite" },
+    { crate = "webpki-roots@0.26.11", reason = "pulled by theseus-voice, tokio-tungstenite" },
+    { crate = "winnow@0.7.15", reason = "pulled by toml" },
+    { crate = "zip@8.6.0", reason = "pulled by candle-core" },
+]
 # Path dependencies inside this workspace are not wildcards; the action's
 # bundled cargo-deny cannot resolve `dep.workspace = true` and flags them.
 wildcards = "allow"
