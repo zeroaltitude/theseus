@@ -1,0 +1,1454 @@
+#!/usr/bin/env bash
+# depart.sh — the mechanical departure (join) of the Theseus 1.0.5 factory: PLAN.md §2, "the sort".
+#
+#   depart.sh [--dry-run] [--tree-only] [--at HH:MM] [--branches FILE]
+#
+# One departure: cut (plain merges onto origin/main in its own worktree, each checked against a merge-tree dry run),
+# scrub the range, keel the range, one full gate on the ARM p4join lane, verdict, fast-forward push, prune both hosts,
+# manifest rows, a history row, and the tightening-rule numbers. It pages (PAGE-*.md beside this script) and stops on
+# a merge conflict (that branch only), a scrub hit, a keel finding, a red that is not a known flake, or any station
+# refusal. Nothing else needs a person.
+#
+# THE FLEET (added 2026-11-09, flag-gated). When depart-fleet.flag exists beside this script, the gate runs on BOTH
+# hosts: the ARM p4join lane and one spot box driven by ~/reports/theseus-fleet/ec2.sh. Both gate the identical tree
+# and are polled in the same loop. The FIRST host to finish green is the verdict, and the departure proceeds exactly
+# as a green does today; a red on one host while the other is green lands and files PAGE-flake-<stamp>.md; both red
+# is today's red path. A fleet box that dies mid-gate (a spot interruption) is logged and the departure continues on
+# ARM alone. WITHOUT THAT FLAG FILE NOTHING BELOW FIRES and the ARM path behaves exactly as it did before.
+# A fleet gate is strictly stronger than an ARM lane gate: it runs the WHOLE suite (the ARM lane skips its `fast`
+# group, four tests including acceptance_journey's main test) plus the lifecycle, jobs, turn and size benches (the
+# ARM lane sets THESEUS_GATE_NO_BENCH=1). It is weaker in exactly one place, by decision: it does not scrub, because
+# the scrubber's patterns are the names, so the join-time scrub above -- on this host -- stays the guard for a push.
+#
+# --tree-only is the pre-cut's entry point (precut-fleet.sh): preflight, read the queue, do the cut, print the head
+# and the branches, keep the integ branch, and stop. It never scrubs, keels, gates, pushes, prunes, or writes any
+# ledger; it takes its OWN lock and (through DEPART_WT) its own worktree, so it cannot collide with a departure;
+# and its pages carry a .precut suffix.
+#
+# Composed from the existing helpers, which it calls and never edits:
+#   ~/reports/theseus-merge/gate.sh / land.sh      the join lane's gate wrapper and lander (tree-match, push guard)
+#   ~/reports/theseus-arm-host/lane/arm.sh         send / run / result / status / rm on the M1 Max
+#   ~/reports/theseus-cloud/scrub-branch.sh        the name scrub over a range (<ref> [base]; exit 0 can still hit)
+#   scripts/keel-guard.py (the BASE's copy)        the keel over origin/main..HEAD, as scripts/gate.sh runs it
+#   ~/.openclaw/workspace/tools/theseus-lane-prune.sh   the WSL prune half
+#
+# --dry-run does the real merges, tree-match, scrub and keel in the depart worktree, then stops before arm.sh send.
+#   Since 2026-11-09 it also runs the BUILD CHECK over the cut tree (shape.sh, clippy on the crates the cut touches,
+#   the tripwire tests in precut-tests.txt) -- in the dry run AND in the real departure, after keel and before the
+#   send. DEPART_BUILD_CHECK=off skips it and says so in the verdict; DEPART_BUILD_BUDGET_S bounds it (default 900 s,
+#   and a timeout is INCONCLUSIVE, never a stop -- the ARM gate is still the authoritative verdict).
+# It never sends, never runs a gate, never pushes, never prunes, never writes manifest.tsv or depart-history.tsv:
+# it prints what it would do, writes manifest.dryrun.tsv, and its pages carry a .dryrun suffix.
+#
+# Exit: 0 landed clean; 4 LANDED and filed a page (a landing with something to read: green-over-flake, or one host
+#       red while the other was green); 2 usage, lock held, or a preflight refusal; 3 PAGED AND STOPPED -- nothing
+#       landed; 1 internal.  0 and 4 both mean the branches are on origin/main; only 3 means they are not.
+#       (B7 open #16, 2026-11-10: 3 used to mean both, so the 09:00 departure landed fifteen branches at 12889bcf
+#       and still left `systemctl --user list-units --state=failed` naming depart.service. depart.service carries
+#       SuccessExitStatus=4 so systemd's failed list keeps meaning 'nothing landed' -- which also NORMALISES the
+#       record, so `ExecMainStatus` reads 0 for a 4; depart.log's last `exit N (verdict)` line is the fine-grained
+#       surface, and a hand run still returns the real 4. DEPART.md has the table.)
+#       --tree-only: 0 a tree was cut (its head is on stdout as `TREE <sha>`); 3 nothing merged; 2 as above.
+set -euo pipefail
+export TZ=America/Phoenix
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO=${DEPART_REPO:-$HOME/projects/theseus}            # the object store; its working tree is never touched
+WT=${DEPART_WT:-$HOME/lanes-local/depart}              # this script's own worktree
+ARM=${DEPART_ARM:-$HOME/reports/theseus-arm-host/lane/arm.sh}
+SCRUB=${DEPART_SCRUB:-$HOME/reports/theseus-cloud/scrub-branch.sh}
+PRUNE=${DEPART_PRUNE:-$HOME/.openclaw/workspace/tools/theseus-lane-prune.sh}
+BREW_GIT=${DEPART_BREW_GIT:-/home/linuxbrew/.linuxbrew/bin/git}   # merge-tree --write-tree needs git >= 2.38
+ARM_LANE=${DEPART_ARM_LANE:-p4join}
+ARM_KEEP="p4w1 p4w2 p4w3 p4w4 p4join"                   # standing ARM lanes: never arm.sh rm
+POLL_SECS=${DEPART_POLL_SECS:-60}
+POLL_MAX=${DEPART_POLL_MAX:-40}                         # polls: 40 x 60 s = the 40-minute gate cap
+# The build check over the CUT TREE (B7 theseus-4vsrz, the 2026-11-08 P1). `on` runs shape.sh, clippy on the crates
+# this cut touches, and the tripwire tests, after keel and BEFORE the ARM send -- in the dry run as well as the real
+# departure. `off` skips it and says so in the verdict, so nobody can read a departure as pre-checked when it was not.
+BUILD_CHECK=${DEPART_BUILD_CHECK:-on}
+BUILD_BUDGET=${DEPART_BUILD_BUDGET_S:-900}              # seconds. A TIMEOUT is INCONCLUSIVE, never a stop: see the phase.
+# Invariant pressure over the CUT TREE (wave 13 B.7, 2026-11-10): a PRINTED report of how much headroom the
+# per-file line ceilings, clippy's 100-line function limit and the completeness censuses have left on the merged
+# tree. IT DECIDES NOTHING -- see the phase, below the keel. `off` skips it and says so. Cost measured on
+# origin/main 13b7776e at 2026-11-10 23:16, three runs: 10.0 s / 11.5 s / 9.8 s over 37,848 functions.
+INVARIANT_PRESSURE=${DEPART_INVARIANT_PRESSURE:-on}
+INVP_MARGIN=${DEPART_INVARIANT_MARGIN:-10}      # lines of headroom worth printing. The tool's own default is 50.
+INVP_BUDGET=${DEPART_INVARIANT_BUDGET_S:-120}   # seconds. A timeout says so and costs nothing: it decides nothing.
+INVP_SHOW=${DEPART_INVARIANT_SHOW:-40}          # report lines to print; the rest is COUNTED, never dropped silently.
+# cargo BY ABSOLUTE PATH, for the same reason depart.sh already calls git that way. The unit's PATH carries
+# ~/.cargo/bin, but a hand run inherits whoever's shell started it, and a bare `cargo` that is not found exits 127 --
+# which, read as a clippy exit code, pages a conductor with a BUILD FAILURE ON THE CUT TREE that never happened.
+# Found by this phase's own dry run on 2026-11-09, which is the sort of thing a dry run is for.
+CARGO=${DEPART_CARGO:-$(command -v cargo 2>/dev/null || echo "$HOME/.cargo/bin/cargo")}
+LOG=$HERE/depart.log
+MANIFEST=$HERE/manifest.tsv
+HISTORY=$HERE/depart-history.tsv
+INTERVAL_FILE=$HERE/depart-interval.txt                 # the current interval in minutes; the conductor edits it
+FLAKY=$HERE/flaky-known.txt
+TRIPWIRES=$HERE/precut-tests.txt    # one nextest filter expression per line: the whole-tree invariants a merge can stale.
+SCRUB_KNOWN=$HERE/scrub-known.txt   # adjudicated scrub hits: <path><TAB><needle> per line. Absent = old behaviour.
+QUEUE=$HERE/queue.txt
+SCRUB_DIR=$HERE/scrub
+# fleet_gate is a TRAILING column, appended 2026-11-09: no existing column's meaning or position moves.
+COLS=$'id\tbranch\thead\tlane\treport\treview\tdeparture\tarm_gate\tcloud\tlanded\tpruned\twait_min\twall_min\tfleet_gate'
+
+# ---------------------------------------------------------------- the fleet (flag-gated; absent flag = off)
+FLEET=${DEPART_FLEET:-$HOME/reports/theseus-fleet/ec2.sh}
+FLEET_FLAG=${DEPART_FLEET_FLAG:-$HERE/depart-fleet.flag}   # present = the fleet joins every gate. rm it to disable.
+FLEET_LANE=${DEPART_FLEET_LANE:-depart}                    # one lane per box; ec2.sh send refuses a busy lane
+FLEET_SEND_TRIES=${DEPART_FLEET_SEND_TRIES:-10}            # a booting box answers exit 7; ~70 s from launch to ready
+# 1 (the default) = terminate the box when its gate is done, instead of releasing it to the on-box 30-minute
+# idle reaper. The idle tail, not the gate, is what a lightly used fleet costs: 30 idle minutes are $0.36 and a
+# fresh launch is $0.04. Set 0 to keep a box warm between the pre-gate and the cut -- the departure's own gate
+# then inherits a target/ already built for today's main and is faster -- at about $0.30 a cut.
+# This is the one knob where speed and money genuinely trade. theseus-fleet/WIRING.md section 6 has the table.
+FLEET_TERMINATE=${DEPART_FLEET_TERMINATE:-1}
+
+# ---------------------------------------------------------------- the unpushed-lane check (B7 open #12 parts 3 and 4)
+# Read-only. It runs before the prune and its answer can only ever SUBTRACT from what the prune may remove.
+UNPUSHED_CHECK=${DEPART_UNPUSHED_CHECK:-$HERE/lane-unpushed-check.sh}
+UNPUSHED_BUDGET=${DEPART_UNPUSHED_BUDGET_S:-120}   # seconds. The ARM half is ~3 s for 10 lanes; this is slack, not a target.
+ARM_SSH_HOST=${DEPART_ARM_SSH_HOST:-user@arm-host.example}   # the M1 Max, as arm.sh:36 has it
+# The M1 Max needs the keychain agent loaded, exactly as arm.sh:35 and lane-unpushed-check.sh:170 load it.
+# SCOPED TO A FUNCTION BODY (a subshell) on purpose: depart.sh runs its own `git push` to origin, and exporting a
+# possibly stale SSH_AUTH_SOCK into the whole script would reach that push too.
+# Found 2026-11-10 by this wiring's own harness: without the keychain every raw ssh answers `Permission denied
+# (publickey,password)`, so EVERY ARM lane is held and the prune silently stops removing anything. A guard that
+# disables the thing it guards is not a guard -- it is an outage that looks like caution.
+# `ssh -n` IS LOAD-BEARING, not tidiness. This is called from inside the prune's `while read name sha` loop, and
+# ssh reads stdin by default -- so without -n the FIRST ssh swallows the rest of the lane list and the loop ends
+# after one lane. Observed 2026-11-10 in a sandbox departure: three prunable lanes, only `simlane-clean` was ever
+# judged, which would have silently stopped ARM pruning past the first lane on every real cut.
+arm_ssh() ( [ -f "$HOME/.keychain/<this-host>-sh" ] && . "$HOME/.keychain/<this-host>-sh" >/dev/null 2>&1
+           ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$ARM_SSH_HOST" "$@" )
+
+usage() { sed -n '2,40p' "$0"; }
+DRY=0; TREE_ONLY=0; AT=""; BRANCHES=$QUEUE
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY=1 ;;
+    --tree-only) TREE_ONLY=1 ;;
+    --at) AT=${2:-}; shift ;;
+    --branches) BRANCHES=${2:-}; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "depart.sh: bad argument $1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+[ "$DRY" = 1 ] && [ "$TREE_ONLY" = 1 ] && { echo "depart.sh: --dry-run and --tree-only are different jobs" >&2; exit 2; }
+[ -z "$AT" ] || [[ $AT =~ ^[0-9]{2}:[0-9]{2}$ ]] || { echo "depart.sh: --at wants HH:MM" >&2; exit 2; }
+[ -r "$BRANCHES" ] || { echo "depart.sh: no branch list $BRANCHES (one 'id<TAB>branch' per line)" >&2; exit 2; }
+
+PFX=""; [ "$DRY" = 1 ] && PFX="[dry-run] "
+[ "$TREE_ONLY" = 1 ] && PFX="[pre-cut] "
+log() { printf '%s %s%s\n' "$(date '+%F %T')" "$PFX" "$*" | tee -a "$LOG"; }
+step() { log "== $*"; }
+
+# One departure at a time: the timer and a hand run must never share the worktree or the ARM lane. --tree-only
+# takes a DIFFERENT lock on purpose: it owns no station, touches no ledger and has its own worktree, so holding
+# the departure's lock would let a pre-cut delay a cut-off for nothing.
+LOCKF=$HERE/depart.lock; [ "$TREE_ONLY" = 1 ] && LOCKF=$HERE/precut.lock
+exec 7>"$LOCKF"
+flock -n 7 || { echo "depart.sh: another run holds $LOCKF" >&2; exit 2; }
+
+# ---------------------------------------------------------------- the cut-off and the names
+# The cut-off is the departure time. The timer fires on the hour; a fire in the first five minutes is that hour.
+now_hm=$(date +%H:%M)
+if [ -z "$AT" ]; then
+  AT=$now_hm
+  [ "$((10#${now_hm#*:}))" -lt 5 ] && AT=${now_hm%:*}:00
+fi
+CUTOFF="$(date +%F) $AT"
+CUT_EPOCH=$(date -d "$CUTOFF" +%s)
+TAG=$(date -d "$CUTOFF" +%Y%m%d-%H%M)
+INTEG=integ/p5-depart-$TAG
+# The pre-cut's branch is named for what it is and stamped to the minute, so it never collides with a departure's.
+[ "$TREE_ONLY" = 1 ] && { TAG=$(date +%Y%m%d-%H%M); INTEG=integ/p5-precut-$TAG; }
+T0=$(date +%s)
+TMP=$(mktemp -d /tmp/depart.XXXXXX)
+PAGED=0            # a page was written
+KEEP_INTEG=0       # keep the integ branch after exit (a paged real run: the conductor reads its tree)
+HEAD_SHA=""        # the cut's head once the merges are done
+LANDED=0
+VERDICT=""
+mkdir -p "$SCRUB_DIR"
+
+# ---------------------------------------------------------------- pages
+# page NAME "title" <<EOF body EOF  -> PAGE-NAME.md (PAGE-NAME.dryrun.md in a dry run)
+page() {
+  local name=$1 title=$2 f
+  f=$HERE/PAGE-$name.md; [ "$DRY" = 1 ] && f=$HERE/PAGE-$name.dryrun.md
+  [ "$TREE_ONLY" = 1 ] && f=$HERE/PAGE-$name.precut.md
+  {
+    echo "# PAGE: $title"
+    echo
+    echo "- when: $(date '+%F %T %Z')"
+    echo "- departure: $INTEG (cut-off $CUTOFF)"
+    echo "- worktree: $WT; log: $LOG"
+    echo
+    cat
+  } > "$f"
+  PAGED=1
+  log "PAGE $title -> $f"
+}
+
+# ---------------------------------------------------------------- cleanup: the worktree is left at origin/main
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  if [ -e "$WT/.git" ]; then
+    if git -C "$WT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+      git -C "$WT" merge --abort >/dev/null 2>&1 || true
+      log "cleanup: aborted a merge left in flight"
+    fi
+    git -C "$WT" checkout -q --detach origin/main 2>/dev/null || true
+    if [ "$KEEP_INTEG" = 0 ] && git -C "$WT" rev-parse -q --verify "refs/heads/$INTEG" >/dev/null 2>&1; then
+      git -C "$WT" branch -D "$INTEG" >/dev/null 2>&1 && log "cleanup: deleted $INTEG${HEAD_SHA:+ (its head was ${HEAD_SHA:0:8})}"
+    elif [ "$KEEP_INTEG" = 1 ]; then
+      log "cleanup: kept $INTEG at ${HEAD_SHA:0:8} for the conductor"
+    fi
+    log "cleanup: $WT is at origin/main $(git -C "$WT" rev-parse --short=8 HEAD 2>/dev/null || echo '?')"
+  fi
+  rm -rf "$TMP"
+  log "exit $rc${VERDICT:+ ($VERDICT)}"
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'log "ERROR at line $LINENO: $BASH_COMMAND"' ERR
+
+# ---------------------------------------------------------------- the manifest (upsert by id)
+manifest_init() {
+  [ -s "$1" ] || { printf '%s\n' "$COLS" > "$1"; return 0; }
+  # A column appended to COLS is appended to an existing header too: manifest_upsert silently drops any key the
+  # header does not carry, so without this the new cell would never appear and nobody would be told why.
+  local c
+  for c in $(printf '%s' "$COLS" | tr '\t' ' '); do
+    head -1 "$1" | tr '\t' '\n' | grep -qxF "$c" || { sed -i "1s/\$/\t$c/" "$1"; log "manifest: appended the trailing $c column to $(basename "$1")"; }
+  done
+}
+manifest_get() {   # FILE ID COLUMN -> the cell
+  awk -F'\t' -v id="$2" -v col="$3" 'NR==1{for(i=1;i<=NF;i++) if($i==col) c=i; next} c && $1==id {print $c; exit}' "$1"
+}
+manifest_upsert() {   # FILE ID col=value ...   (a missing row is created; other columns are kept)
+  local f=$1 id=$2 sets="" kv t
+  shift 2
+  for kv in "$@"; do sets="$sets$kv"$'\n'; done
+  t=$(mktemp)
+  awk -F'\t' -v OFS='\t' -v id="$id" -v sets="$sets" '
+    BEGIN { n = split(sets, kv, "\n"); for (i = 1; i <= n; i++) { j = index(kv[i], "="); if (j) set[substr(kv[i], 1, j - 1)] = substr(kv[i], j + 1) } }
+    NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; ncol = NF; print; next }
+    { for (i = NF + 1; i <= ncol; i++) $i = "" }
+    $1 == id { for (k in set) if (col[k]) $(col[k]) = set[k]; found = 1 }
+    { print }
+    END { if (!found) { $0 = ""; for (i = 1; i <= ncol; i++) $i = ""; $1 = id; for (k in set) if (col[k]) $(col[k]) = set[k]; print } }
+  ' "$f" > "$t" && cat "$t" > "$f" && rm -f "$t"   # in place: the file keeps its mode and inode for whoever tails it
+}
+
+# ---------------------------------------------------------------- adjudicated scrub hits
+# scrub-known.txt holds hits a conductor has READ and judged harmless, one per line as
+#   <path-fragment><TAB><needle>
+# and a hit is tolerated only when its line contains BOTH. Line numbers are deliberately NOT part of the
+# match: they move whenever a branch is rebased, and an entry that silently stops matching is worse than one
+# that is slightly broad. Every tolerated hit is LOGGED by family, by the entry that matched it and by the
+# hit's own text -- an allowlist nobody can see is how a real leak ships. An absent or empty file leaves the
+# old behaviour exactly: the Co-Authored-By trailer is tolerated and everything else is a page.
+scrub_tolerated() {   # FAMILY HITLINES -> the hit lines that are still a page
+  local fam=$1 lines=$2 line path needle kept="" hit
+  [ -r "$SCRUB_KNOWN" ] || { printf '%s' "$lines"; return 0; }
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    hit=""
+    while IFS=$'\t' read -r path needle; do
+      case "$path" in ''|'#'*) continue;; esac
+      [ -z "$needle" ] && continue
+      case "$line" in *"$path"*) : ;; *) continue;; esac
+      case "$line" in *"$needle"*) hit="$path -> $needle"; break;; esac
+    done < "$SCRUB_KNOWN"
+    if [ -n "$hit" ]; then
+      printf '%s %sscrub: %s: TOLERATED by scrub-known.txt (%s): %s\n' \
+        "$(date '+%F %T')" "$PFX" "$fam" "$hit" "$(printf '%s' "$line" | cut -c1-150)" | tee -a "$LOG" >&2
+    else
+      kept="$kept$line"$'\n'
+    fi
+  done < <(printf '%s\n' "$lines")
+  printf '%s' "$kept"
+  return 0
+}
+
+# ---------------------------------------------------------------- the known-flake list
+# nextest's named retries (an override with `retries` names its tests as test(=NAME)) plus flaky-known.txt.
+known_flakes() {
+  {
+    awk '
+      /^\[\[/ { if (blk && r && f != "") print f; blk = ($0 ~ /^\[\[profile\.default\.overrides\]\]/); f = ""; r = 0; next }
+      /^\[/   { if (blk && r && f != "") print f; blk = 0; next }
+      blk && /^filter[[:space:]]*=/  { f = $0 }
+      blk && /^retries[[:space:]]*=/ { r = 1 }
+      END     { if (blk && r && f != "") print f }' "$WT/.config/nextest.toml" 2>/dev/null \
+      | grep -oE 'test\(=[^)]+\)' | sed -E 's/^test\(=//; s/\)$//' || true
+    grep -vE '^[[:space:]]*(#|$)' "$FLAKY" 2>/dev/null || true
+  } | sed -E 's/[[:space:]]+$//' | sort -u
+}
+
+# Test names from nextest FAIL/TIMEOUT lines (arm.sh errs or a gate log). The ARM summary's own `reds:` field drops
+# the name when the counter is padded, `( 523/9073)`, so the names are read here from the lines themselves.
+parse_reds() {
+  grep -E '^[[:space:]]*(FAIL|TIMEOUT|SIGSEGV|SIGABRT|SIGKILL) \[' \
+    | sed -E 's/^[[:space:]]*[A-Z]+ \[[^]]*\][[:space:]]*(\([[:space:]]*[0-9]+\/[0-9]+\)[[:space:]]*)?//' \
+    | awk '{print $2}' | sort -u || true
+}
+
+# HOOK, not wired: PLAN §2 T+20 (b), the cloud fleet as the bisector. When a departure reds on a test that is not a
+# known flake, the cloud's lane and prefix results (main+B1, main+B1+B2, ...) name the culprit in one round. Until the
+# fleet is fired by this script, this only logs; the page carries the same names for the conductor.
+bisect_with_cloud() {
+  log "bisect_with_cloud (hook only, nothing fired): would read the cloud prefix results for: $*"
+}
+
+# ---------------------------------------------------------------- one gate's verdict, host-independent
+# judge_gate WHO RESULT ERRS -> JV (green | green-over-flake | red), JEXIT, JSUM, JREDS, JUNKNOWN, JCELL.
+# This is the bar exactly as the ARM path has always applied it -- exit 0 is green; otherwise every red must be on
+# the known-flake list -- factored out so both hosts are judged by one piece of code and neither can drift.
+JV=""; JEXIT=""; JSUM=""; JREDS=""; JUNKNOWN=""; JCELL=""
+judge_gate() {
+  local who=$1 res=$2 errs=$3 secs=$4 known r t_run t_pass t_fail t_timed
+  JEXIT=$(sed -nE 's/.*gate exit=([0-9]+).*/\1/p' <<<"$res" | head -1)
+  JSUM=$(grep -oE 'Summary \[[^]]*\] [0-9]+ tests? run: [^|]*' <<<"$res" | head -1 || true)
+  # Red names. The log's own FAIL/TIMEOUT lines are authoritative; the summary's `reds:` field is a FALLBACK,
+  # and it is now read with two guards, both earned at 10:12 on 2026-11-09. That departure's ONLY red was
+  # `tests_task_threads::react::pause_parks_...`, which is on flaky-known.txt and should have landed
+  # green-over-flake -- and it was judged RED on two "tests" that are not tests at all:
+  #     judge: ARM is red (exit 100): fast known:
+  # `known:` and `fast` are the summary's own trailing `| known: <groups>` field, read as if they were test
+  # names by a fallback pattern that did not stop at the field boundary.
+  #   1. BOUNDED: the ARM summary continues `| known: <groups>` after the reds field and the fleet's ends the
+  #      line there, so `([^|]*)(\|.*)?$` takes exactly the field on either host and nothing after it.
+  #   2. A name taken from the summary must contain `::`. Every nextest name in these summaries is
+  #      module-path qualified -- that is the same property that makes a `test(=bare_fn)` filter match
+  #      nothing -- and no field label or filter-group name ever is.
+  # A PHANTOM RED IS WORSE THAN A MISSING ONE: a missing name costs a page that names no test, a phantom one
+  # turns a green-over-flake into a red and holds a whole departure. parse_reds, which reads the FAIL lines
+  # positionally, is unchanged and is still the primary source.
+  JREDS=$( { printf '%s\n' "$errs" | parse_reds
+             sed -nE 's/.*\| reds: ([^|]*)(\|.*)?$/\1/p' <<<"$res" | tr ' ' '\n' | grep -F '::'
+           } | grep -E '^[A-Za-z_][A-Za-z0-9_:]*$' | sort -u || true)
+  t_run=$(grep -oE '[0-9]+ tests? run' <<<"$JSUM" | grep -oE '^[0-9]+' || true)
+  t_pass=$(grep -oE '[0-9]+ passed' <<<"$JSUM" | grep -oE '^[0-9]+' || true)
+  t_fail=$(grep -oE '[0-9]+ failed' <<<"$JSUM" | grep -oE '^[0-9]+' || true)
+  t_timed=$(grep -oE '[0-9]+ timed out' <<<"$JSUM" | grep -oE '^[0-9]+' || true)
+  JCELL="${t_run:-?}/${t_pass:-?}/$(( ${t_fail:-0} + ${t_timed:-0} )) exit=${JEXIT:-?} ${secs}s"
+  JUNKNOWN=""
+  # THE GATE'S TREE-MOVED ABORT (gate.sh exit 75, landed 8f49671b on 2026-11-08 with p5/gatefix-tree-abort-incremental).
+  # The gate compiled one tree and the worktree moved under it before the suite, so it cannot vouch for what it tested.
+  # That is neither a red nor a green, and getting it wrong is dangerous in exactly one direction: an aborted run whose
+  # log happens to carry only known-flake reds would fall through to the green-over-flake arm below and PUSH MAIN on a
+  # verdict about a tree that no longer exists. So it is judged FIRST, before anything reads the reds, and it never
+  # lands. The remedy is to re-run the gate, not to hunt a culprit.
+  if [ "$JEXIT" = 75 ]; then
+    JV=abort
+    log "judge: $who ABORTED (exit 75): the tree moved after the compile phases; this gate vouches for nothing"
+    return 0
+  fi
+  if [ "$JEXIT" = 0 ]; then JV=green; return 0; fi
+  if [ -n "$JREDS" ]; then
+    known=$(known_flakes)
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      grep -qxF "$r" <<<"$known" || JUNKNOWN="$JUNKNOWN$r"$'\n'
+    done <<<"$JREDS"
+    [ -z "$JUNKNOWN" ] && { JV=green-over-flake; return 0; }
+  fi
+  JV=red
+  log "judge: $who is red (exit ${JEXIT:-?}): $(paste -sd' ' <<<"${JUNKNOWN:-no test named}")"
+}
+
+# Does this verdict authorise a push? ONLY green and green-over-flake do. Written as a predicate rather than as
+# `!= red` at each site, because `!= red` silently treats every NEW verdict as landable -- which is precisely how
+# an `abort` would have pushed main. A verdict this function does not know about does not land.
+gate_lands() { case "${1:-}" in green|green-over-flake) return 0 ;; *) return 1 ;; esac; }
+
+# ---------------------------------------------------------------- the fleet: a second gate host, flag-gated
+# Everything here is a no-op unless $FLEET_FLAG exists. fleet_claim ships the SAME tree the ARM lane is gating to
+# one spot box and starts the gate there; every failure path is a fall-back to ARM alone, never a stop, because
+# the fleet is a second opinion and the ARM gate is still the one the departure was built on.
+fleet_usable() {   # stdin = ec2.sh status: is there a box THIS cut can use -- unclaimed (lane None) or already ours?
+  # Boxes held by OTHER lanes (builders, the pre-gate) do not count. On 2026-11-09 16:30 two builder lanes held both
+  # live boxes and the old check ("any box alive") waited out the whole send budget instead of launching a third,
+  # so the fleet half of that cut silently became ARM alone. ec2.sh launch still enforces the ceiling of four.
+  awk -v l="$FLEET_LANE" '$1 ~ /^i-/ && ($4 == l || $4 == "None") && ($5 == "running" || $5 == "pending") {found = 1} END {exit !found}'
+}
+fleet_claim() {   # -> 0 the fleet is gating; non-zero: ARM alone, with the reason logged
+  local out rc=1 i head8=${HEAD_SHA:0:8}
+  out=$("$FLEET" status 2>&1) || { log "fleet: ec2.sh status failed: $(head -2 <<<"$out" | tr '\n' ' ')"; return 3; }
+  if ! fleet_usable <<<"$out"; then
+    log "fleet: no box is free or ours ($(grep -cE '^i-' <<<"$out" || true) alive, held by other lanes); ec2.sh launch 1 --for $FLEET_LANE (about 70 s to ready)"
+    # --for RESERVES it (2026-11-12, b7-ec2-hold-not-released). Without it the box we pay for is untagged while
+    # it boots, and ec2.sh's free_box hands it to whichever lane sends first -- so a departure could launch a
+    # host and then lose it to somebody else's child in the 70 seconds before it was usable. The reservation
+    # is released on every path below by fleet_release, which FLEET_CLAIMED=1 (set just after this) guarantees.
+    out=$("$FLEET" launch 1 --for "$FLEET_LANE" 2>&1) || { log "fleet: launch refused: $(tail -2 <<<"$out" | tr '\n' ' ')"; return 6; }
+    log "fleet: $(grep -E '^  i-|started' <<<"$out" | paste -sd'; ' | cut -c1-200)"
+  else
+    log "fleet: a box is free or already ours: $(grep -E '^i-' <<<"$out" | awk -v l="$FLEET_LANE" '$4 == l || $4 == "None"' | head -2 | cut -c1-150 | paste -sd'; ')"
+  fi
+  FLEET_CLAIMED=1   # from here on a box may carry the lane tag, so the release at the end must run
+  for ((i = 1; i <= FLEET_SEND_TRIES; i++)); do
+    if out=$("$FLEET" send "$FLEET_LANE" "$HEAD_SHA" --repo "$WT" 2>&1); then rc=0; else rc=$?; fi
+    [ "$rc" = 0 ] && break
+    case "$out" in
+      *"no free gate box"*)
+        # ec2.sh's free_box wants state=running, and a box launched seconds ago is `pending` -- so this message
+        # ALSO means "the box I just started is not running yet". Launching on it would start a second box, then
+        # a third, up to the fleet's ceiling of four, each on the meter. Only launch when no box is free or ours
+        # (a box another lane holds is not ours to wait for: fleet_usable).
+        if "$FLEET" status 2>/dev/null | fleet_usable; then
+          [ "$i" = 1 ] && log "fleet: a free (or our) box is alive but not running yet; waiting rather than launching another"
+          sleep 30
+        else
+          log "fleet: no box free or ours (try $i); ec2.sh launch 1 --for $FLEET_LANE"
+          "$FLEET" launch 1 --for "$FLEET_LANE" >>"$LOG" 2>&1 || true; sleep 60
+        fi ;;
+      # A box launched seconds ago is `pending`, not `running`, and SSM refuses it with InvalidInstanceId /
+      # "Instances not in a valid state" -- the same condition as BOOTING, so it is waited out, not failed on.
+      *"still booting"*|*InvalidInstanceId*|*"not in a valid state"*|*"could not reach"*)
+        [ "$i" = 1 ] && log "fleet: the box is not answering SSM yet (pending or booting); waiting"
+        sleep 30 ;;
+      *"is busy on"*)    log "fleet: lane $FLEET_LANE is busy, ARM alone for this cut: $(grep -i busy <<<"$out" | head -1 | cut -c1-160)"; return 6 ;;
+      *) log "fleet: send failed (exit $rc), ARM alone for this cut: $(tail -2 <<<"$out" | tr '\n' ' ' | cut -c1-200)"; return 3 ;;
+    esac
+  done
+  [ "$rc" = 0 ] || { log "fleet: send did not succeed in $FLEET_SEND_TRIES tries; ARM alone for this cut"; return 4; }
+  # NEVER gate a tree nobody sent. The bundle path's own message is written on the box, so the head is read back
+  # from ec2.sh status and must be this cut's head before a run is started.
+  out=$("$FLEET" status 2>&1) || true
+  if ! grep -E "^i-" <<<"$out" | grep -q "$head8"; then
+    log "fleet: the box does not report head $head8 after the send, ARM alone: $(grep -E '^i-' <<<"$out" | head -1 | cut -c1-160)"
+    return 5
+  fi
+  log "fleet: lane $FLEET_LANE holds $head8 on $(grep -E '^i-' <<<"$out" | grep "$head8" | awk '{print $1, $2, $3}' | head -1)"
+  if ! out=$("$FLEET" run "$FLEET_LANE" gate 2>&1) || ! grep -q "started ec2-$FLEET_LANE-gate" <<<"$out"; then
+    log "fleet: ec2.sh run did not start the gate, ARM alone: $(tail -2 <<<"$out" | tr '\n' ' ' | cut -c1-200)"
+    return 7
+  fi
+  log "fleet: $(grep -o "started ec2-$FLEET_LANE-gate.*" <<<"$out" | head -1)"
+  FLEET_T0=$(date +%s)   # the gate's clock starts HERE, not at the launch: the two hosts' seconds compare
+  return 0
+}
+fleet_alive() {   # is a box still holding our lane? a spot interruption answers no
+  "$FLEET" status 2>/dev/null | awk -v l="$FLEET_LANE" '$1 ~ /^i-/ && $4 == l {found = 1} END {exit !found}'
+}
+fleet_release() {
+  # A gate still in flight when the departure is already decided is an answer nobody will read AND a lane the
+  # next cut would find busy, so it is terminated rather than released. A finished gate's box is released to the
+  # on-box 30-minute reaper, where the next cut (or the next pre-gate) can pick it up warm -- unless the
+  # conductor has set DEPART_FLEET_TERMINATE=1 to cut the idle tail. See theseus-fleet/WIRING.md, the cost.
+  if [ -z "$FLEET_RES" ] || [ "$FLEET_TERMINATE" = 1 ]; then
+    log "fleet: ${FLEET_RES:+short idle tail: }$("$FLEET" terminate "$FLEET_LANE" 2>&1 | tail -1)"
+  else
+    log "fleet: $("$FLEET" rm "$FLEET_LANE" 2>&1 | tail -1)"
+  fi
+}
+
+# ---------------------------------------------------------------- history and the tightening rule (PLAN §5.4)
+history_append() {   # stamp branches wall_min verdict waiting [fleet_gate]
+  # fleet_gate is a TRAILING column added 2026-11-09. No existing column moves or changes meaning, and rows
+  # written before it stay five fields wide; the header gains the name the first time a run has one to write.
+  [ -s "$HISTORY" ] || printf 'stamp\tbranches\twall_min\tverdict\twaiting\tfleet_gate\n' > "$HISTORY"
+  if ! head -1 "$HISTORY" | grep -q 'fleet_gate'; then
+    sed -i '1s/$/\tfleet_gate/' "$HISTORY"
+    log "history: appended the trailing fleet_gate column to $(basename "$HISTORY")"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "${6:-}" >> "$HISTORY"
+}
+# recommend THIS_VERDICT THIS_WALL WAITING: prints the rule's numbers and a recommendation; changes no timer.
+recommend() {
+  local verdict=$1 wall=$2 waiting=$3 cur prev2 greens rec
+  cur=$({ grep -oE '^[0-9]+' "$INTERVAL_FILE" 2>/dev/null || true; } | head -1); cur=${cur:-240}
+  # the two most recent real departures (this one included when it was recorded), empties left out
+  prev2=$(grep -vE '^stamp' "$HISTORY" 2>/dev/null | awk -F'\t' '$4 != "empty" && $4 != "none"' | tail -2 || true)
+  greens=$(printf '%s\n' "$prev2" | awk -F'\t' '$4 ~ /^green/ && $3 != "" && $3 + 0 < 30' | wc -l)
+  rec="hold at $cur min"
+  if [ "$verdict" = red ] || { [ -n "$wall" ] && [ "$wall" -gt 90 ]; }; then
+    rec="DOUBLE: $cur -> $((cur * 2)) min (this departure: verdict $verdict, wall ${wall:-?} min)"
+  elif [ "$(printf '%s\n' "$prev2" | grep -c .)" -ge 2 ] && [ "$greens" -ge 2 ] && [ "$waiting" -ge 3 ]; then
+    rec="HALVE: $cur -> $((cur / 2)) min (two consecutive green under 30 min, $waiting waiting at this cut-off)"
+  fi
+  log "tightening rule: last two departures: $(printf '%s' "$prev2" | awk -F'\t' '{printf "%s %s/%smin; ", $1, $4, $3}')waiting at this cut-off: $waiting; current interval $cur min; recommended: $rec"
+  log "tightening rule: the conductor applies it and logs the two numbers; this script changes no timer"
+}
+
+# ================================================================ preflight
+step "departure $INTEG: cut-off $CUTOFF, list $BRANCHES, dry-run=$DRY"
+[ -x "$BREW_GIT" ] || { log "preflight: no $BREW_GIT (merge-tree --write-tree needs git >= 2.38)"; exit 2; }
+# (-h exits 129 after printing the usage, so its status is dropped before the pipe.)
+{ "$BREW_GIT" merge-tree -h 2>&1 || true; } | grep -q -- '--write-tree' || { log "preflight: $BREW_GIT has no merge-tree --write-tree"; exit 2; }
+for t in "$ARM" "$SCRUB" "$PRUNE"; do [ -r "$t" ] || { log "preflight: missing $t"; exit 2; }; done
+# Merges are signed by the repo's config (joins are signed plain merges); a timer has no pinentry, so prove it now.
+if [ "$(git -C "$REPO" config --get commit.gpgsign || true)" = true ]; then
+  key=$(git -C "$REPO" config --get user.signingkey || true)
+  if ! echo depart | gpg --batch --pinentry-mode error ${key:+-u "$key"} --sign -o /dev/null 2>"$TMP/gpg.err"; then
+    page preflight "gpg cannot sign headless" <<EOF
+The merges are signed (commit.gpgsign=true) and gpg-agent has no cached passphrase, so no merge can be made from a
+timer. Unlock the key once in a shell (any signed commit, or \`echo x | gpg --sign -o /dev/null\`), then re-run.
+
+\`\`\`
+$(cat "$TMP/gpg.err")
+\`\`\`
+EOF
+    exit 2
+  fi
+  log "preflight: gpg signs headless (key ${key:0:16}...)"
+fi
+log "preflight: git fetch origin (the object store; ${REPO}'s working tree is never touched)"
+git -C "$REPO" fetch -q origin
+
+# The worktree: created from origin/main when absent; refused when it holds someone's work.
+if [ ! -e "$WT/.git" ]; then
+  git -C "$REPO" worktree prune
+  git -C "$REPO" worktree add -q --detach "$WT" origin/main
+  log "preflight: created worktree $WT at origin/main"
+fi
+if git -C "$WT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+  cur=$(git -C "$WT" symbolic-ref -q --short HEAD || true)
+  if [[ $cur == integ/p5-depart-* ]]; then
+    git -C "$WT" merge --abort; log "preflight: aborted a merge a crashed departure left on $cur"
+  else
+    page preflight "the depart worktree has a merge in flight on $cur" <<EOF
+$WT has MERGE_HEAD set on branch \`$cur\`, which is not a departure branch. Someone else is working there. Not touched.
+EOF
+    exit 2
+  fi
+fi
+dirty=$(git -C "$WT" status --porcelain --untracked-files=no || true)
+if [ -n "$dirty" ]; then
+  page preflight "the depart worktree is dirty" <<EOF
+$WT has uncommitted tracked changes; a departure never destroys work it did not make. Not touched.
+
+\`\`\`
+$dirty
+\`\`\`
+EOF
+  exit 2
+fi
+cd "$WT"
+git checkout -q --detach origin/main
+git checkout -q -B "$INTEG" origin/main
+BASE=$(git rev-parse origin/main)
+log "preflight: $WT on $INTEG at origin/main ${BASE:0:8}"
+
+# ================================================================ the queue
+step "queue: reading $BRANCHES"
+IDS=(); BRS=(); REFS=()
+# B7c theseus-rq78r (the conductor, shift 6, 2026-11-11 21:5x MST): `|| [ -n "$id" ]` so an UNTERMINATED final
+# line of queue.txt is not silently discarded. `read` populates the variables and THEN returns non-zero at EOF,
+# so without this guard the last row of a file with no trailing newline is parsed and thrown away -- and
+# `nothing to depart` is a normal, frequently-correct state, so nothing in the log says a row went missing.
+# It nearly ate a reviewed (d, P1) at 23:16:41 on 2026-11-10. Measured both ways before this edit, not reasoned
+# about: on an unterminated file the old idiom sees 1 row and this one sees 2; on a terminated file BOTH see 2,
+# so there is no double-count regression, and both terminate at true EOF (where read assigns empty and the
+# guard is false). NOTE the next line's `[ -n "$id" ] || continue` LOOKS like this guard and is not: it is a
+# blank-line skip inside the loop BODY, which cannot run at all for a row the loop never iterates for.
+while read -r id br _ || [ -n "$id" ]; do
+  [ -n "$id" ] || continue
+  [[ $id == \#* ]] && continue
+  if [ -z "$br" ]; then log "queue: $id has no branch; skipped"; continue; fi
+  br=${br#origin/}; ref=origin/$br
+  if ! git rev-parse -q --verify "$ref^{commit}" >/dev/null; then log "queue: $id: no ref $ref on origin; skipped"; continue; fi
+  if git merge-base --is-ancestor "$ref" "$BASE"; then log "queue: $id: $br is on origin/main already; skipped"; continue; fi
+  IDS+=("$id"); BRS+=("$br"); REFS+=("$ref")
+  log "queue: $id $br $(git rev-parse --short=8 "$ref") (+$(git rev-list --count "$BASE..$ref") commits)"
+done < "$BRANCHES"
+WAITING=${#IDS[@]}
+log "queue: $WAITING branch(es) waiting at the $AT cut-off"
+if [ "$WAITING" -eq 0 ]; then
+  log "nothing to depart"
+  [ "$DRY" = 1 ] || [ "$TREE_ONLY" = 1 ] || history_append "$(date '+%F %T')" "" "" empty 0
+  [ "$TREE_ONLY" = 1 ] || recommend empty "" 0
+  VERDICT=empty
+  [ "$TREE_ONLY" = 1 ] && exit 3
+  exit 0
+fi
+
+# ================================================================ the cut: plain merges, each checked by merge-tree
+step "cut: plain merges onto ${BASE:0:8}, rerere off, merge-tree --write-tree before and tree-match after"
+LOADED_IDS=(); LOADED_BRS=(); LOADED_HEADS=(); DROPPED=()
+for i in "${!IDS[@]}"; do
+  id=${IDS[$i]}; br=${BRS[$i]}; ref=${REFS[$i]}
+  pre=$(git rev-parse HEAD); bsha=$(git rev-parse "$ref")
+  if mt_out=$("$BREW_GIT" merge-tree --write-tree HEAD "$ref" 2>&1); then mt_rc=0; else mt_rc=$?; fi
+  if [ "$mt_rc" -eq 1 ]; then
+    files=$(printf '%s\n' "$mt_out" | grep -E '^CONFLICT' | sed -E 's/.* in //' | sort -u | paste -sd' ' || true)
+    log "cut: CONFLICT $id $br onto ${pre:0:8}: ${files:-see the page}; dropped from this departure"
+    page "conflict-$id" "merge conflict: $id ($br)" <<EOF
+\`$br\` (${bsha:0:8}) does not merge cleanly onto ${pre:0:8} (origin/main ${BASE:0:8} plus the branches merged before it).
+It was dropped from this departure and the rest continued (PLAN §2 step 2: a conflict stops the lane, not the
+departure). Resolve it inside the lane by both intents, push, and re-queue it for the next cut-off.
+
+Conflicting files:
+$(printf '%s\n' "$mt_out" | grep -E '^CONFLICT' | sed 's/^/- /')
+
+merge-tree --write-tree output:
+\`\`\`
+$mt_out
+\`\`\`
+EOF
+    DROPPED+=("$id"); continue
+  elif [ "$mt_rc" -ne 0 ]; then
+    log "cut: merge-tree failed ($mt_rc) for $id $br: $(printf '%s' "$mt_out" | head -3 | tr '\n' ' '); dropped"
+    page "conflict-$id" "merge-tree failed for $id ($br)" <<EOF
+\`$BREW_GIT merge-tree --write-tree HEAD $ref\` exited $mt_rc, which is neither clean (0) nor a conflict (1).
+The branch was dropped from this departure.
+
+\`\`\`
+$mt_out
+\`\`\`
+EOF
+    DROPPED+=("$id"); continue
+  fi
+  want=$(printf '%s\n' "$mt_out" | head -1)
+  if ! merge_out=$(git -c rerere.enabled=false merge --no-ff --no-edit "$ref" 2>&1); then
+    ufiles=$(git diff --name-only --diff-filter=U | paste -sd' ' || true)
+    git merge --abort || true
+    log "cut: merge of $id $br FAILED after a clean merge-tree (${ufiles:-no unmerged paths}); aborted, dropped"
+    page "conflict-$id" "merge failed after a clean dry run: $id ($br)" <<EOF
+merge-tree predicted tree $want for \`$br\` (${bsha:0:8}) onto ${pre:0:8}, but \`git merge --no-ff\` failed. Aborted; dropped.
+
+Unmerged paths: ${ufiles:-none}
+
+\`\`\`
+$merge_out
+\`\`\`
+EOF
+    DROPPED+=("$id"); continue
+  fi
+  got=$(git rev-parse 'HEAD^{tree}')
+  if [ "$got" != "$want" ]; then
+    git reset -q --hard "$pre"
+    log "cut: TREE MISMATCH $id $br: merge-tree $want, merge $got; reset to ${pre:0:8}, dropped"
+    page "treematch-$id" "tree mismatch: $id ($br)" <<EOF
+The real merge of \`$br\` (${bsha:0:8}) onto ${pre:0:8} produced tree $got, but the rerere-free
+merge-tree dry run predicted $want. Something other than a plain merge shaped it (a merge driver, a hook, rerere).
+The merge was reset and the branch dropped from this departure.
+EOF
+    DROPPED+=("$id"); continue
+  fi
+  log "cut: merged $id $br ${bsha:0:8} -> $(git rev-parse --short=8 HEAD), tree-match ok"
+  LOADED_IDS+=("$id"); LOADED_BRS+=("$br"); LOADED_HEADS+=("${bsha:0:8}")
+done
+HEAD_SHA=$(git rev-parse HEAD)
+log "cut: ${#LOADED_IDS[@]} merged (${LOADED_IDS[*]:-none}), ${#DROPPED[@]} dropped (${DROPPED[*]:-none}); head ${HEAD_SHA:0:8}"
+if [ "${#LOADED_IDS[@]}" -eq 0 ]; then
+  VERDICT=none
+  log "nothing merged; this departure is empty"
+  [ "$DRY" = 1 ] || [ "$TREE_ONLY" = 1 ] || history_append "$(date '+%F %T')" "" "" none "$WAITING"
+  [ "$TREE_ONLY" = 1 ] || recommend none "" "$WAITING"
+  exit 3
+fi
+
+# ================================================================ --tree-only stops here (the pre-cut's entry point)
+# The caller gets the head and the branches on stdout and the branch is left in place for it to send. Nothing is
+# scrubbed, keeled, gated, pushed or written: a pre-cut is a measurement, and the departure does the real work.
+if [ "$TREE_ONLY" = 1 ]; then
+  KEEP_INTEG=1
+  step "tree-only: stopping after the cut; $INTEG is kept at ${HEAD_SHA:0:8}"
+  echo "TREE $HEAD_SHA"
+  echo "BASE $BASE"
+  echo "BRANCH $INTEG"
+  echo "LOADED ${LOADED_IDS[*]}"
+  echo "DROPPED ${DROPPED[*]:-none}"
+  VERDICT="tree-only: ${#LOADED_IDS[@]} merged, ${#DROPPED[@]} dropped"
+  exit 0
+fi
+
+# ================================================================ scrub over the range
+step "scrub: $SCRUB $INTEG origin/main (its output is read; its exit 0 is not a pass)"
+if SCRUB_REPO=$WT SCRUB_OUT_DIR=$SCRUB_DIR bash "$SCRUB" "$INTEG" origin/main >"$TMP/scrub.out" 2>&1; then scrub_rc=0; else scrub_rc=$?; fi
+slug=$(basename "$INTEG")
+scrub_txt=$SCRUB_DIR/$slug/scrub.txt; hits_txt=$SCRUB_DIR/$slug/hits.txt
+log "scrub: exit $scrub_rc; $(head -1 "$TMP/scrub.out" | cut -c1-160)"
+stray=""
+if [ -r "$scrub_txt" ]; then
+  while IFS= read -r line; do
+    fam=${line%%: *}; n=${line#*: }; n=${n%% *}
+    [ "$n" = 0 ] && continue
+    # The one tolerated hit: the Co-Authored-By trailer's address in the commit messages. Anything else is a page,
+    # unless the conductor has adjudicated that exact hit into scrub-known.txt (see scrub_tolerated below).
+    s=$(grep -F "[$fam]" "$hits_txt" 2>/dev/null | grep -v 'Co-Authored-By:' || true)
+    [ -z "$s" ] && { log "scrub: $fam: $n, all on Co-Authored-By trailers (tolerated)"; continue; }
+    s=$(scrub_tolerated "$fam" "$s")
+    [ -z "$s" ] && continue
+    stray="$stray$fam: $n"$'\n'"$s"$'\n'
+  done < <(grep -E '^[^:]+: [0-9]+' "$scrub_txt" | grep -v '^files read' || true)
+fi
+# An exit of 1 is a BLOCKING-family hit, and until 2026-11-13 it paged whatever scrub-known.txt said --
+# so an adjudication of a blocking hit was a no-op and the departure went on stopping on it. Owner S21-1
+# (2026-11-13 09:03:48 MST, verbatim "if it's just the NAME of the 1password item, i don't care"; the row's
+# own words: "the departure's scrub must stop blocking on that one fixture name") required otherwise. So:
+# exit 1 with `stray` EMPTY means every non-trailer hit, blocking included, was adjudicated in
+# scrub-known.txt by a conductor who read it and recorded its authority, and this run has already LOGGED
+# each one by family and by the entry that matched. That is not a page; it is a line in the log.
+# Exits 2 ("could not read the names") and 3 ("scanned nothing") STILL page, and so does any blocking hit
+# that is not in the file -- it stays in `stray`. No allowlist can cover a scrub that did not run.
+scrub_page=0
+if [ ! -r "$scrub_txt" ] || [ -n "$stray" ]; then
+  scrub_page=1
+elif [ "$scrub_rc" -eq 1 ]; then
+  log "scrub: exit 1 (a blocking family) and every non-trailer hit is adjudicated in scrub-known.txt: NOT a page (owner S21-1)"
+elif [ "$scrub_rc" -ne 0 ]; then
+  scrub_page=1
+fi
+if [ "$scrub_page" = 1 ]; then
+  KEEP_INTEG=1; VERDICT=scrub
+  log "scrub: PAGE (exit $scrub_rc, stray hits: $(printf '%s' "$stray" | grep -c . || true) lines)"
+  page scrub "scrub hit on $INTEG" <<EOF
+scrub-branch.sh exited $scrub_rc over origin/main..$INTEG (${HEAD_SHA:0:8}). A family count other than the
+Co-Authored-By trailer is a page unless scrub-known.txt adjudicates that exact hit (owner S21-1), whatever the
+exit code (exit 1 = a blocking family; 2 = could not read the names;
+3 = scanned nothing). The departure stopped before the gate; the integ branch is kept for reading.
+
+Hits that are not the trailer (a configured name is never printed, only "name #N"):
+\`\`\`
+${stray:-none}
+\`\`\`
+
+scrub-branch.sh output:
+\`\`\`
+$(cat "$TMP/scrub.out")
+\`\`\`
+Files: $scrub_txt, $hits_txt
+EOF
+  exit 3
+fi
+log "scrub: clean over origin/main..${HEAD_SHA:0:8}"
+
+# ================================================================ keel over the range (the base's own guard, as gate.sh)
+step "keel: origin/main's scripts/keel-guard.py --base ${BASE:0:8} --head ${HEAD_SHA:0:8}"
+git show "$BASE:scripts/keel-guard.py" > "$TMP/keel-guard.py"
+if python3 "$TMP/keel-guard.py" --repo "$WT" --base "$BASE" --head HEAD >"$TMP/keel.out" 2>&1; then keel_rc=0; else keel_rc=$?; fi
+log "keel: exit $keel_rc; $(grep -E '^keel: (ok|[0-9]+ erosions|the guard)' "$TMP/keel.out" | head -1 | cut -c1-160)"
+if [ "$keel_rc" -ne 0 ]; then
+  KEEP_INTEG=1; VERDICT=keel
+  page keel "keel finding on $INTEG" <<EOF
+The keel guard (origin/main's copy, run over ${BASE:0:8}..${HEAD_SHA:0:8}) exited $keel_rc (1 = an unacked finding,
+2 = it could not run). The departure stopped before the gate; the integ branch is kept for reading. A finding passes
+only with the owner's signed Keel: trailer on a commit in the range.
+
+\`\`\`
+$(cat "$TMP/keel.out")
+\`\`\`
+EOF
+  exit 3
+fi
+
+# ================================================================ invariant pressure over the CUT TREE (B.7)
+# A PRINTED WARNING AND NOTHING ELSE. It never sets VERDICT, never calls `page`, never exits, and cannot change
+# what a departure does. shape.sh and clippy -- one phase below -- are what actually hold these ceilings; this
+# phase reports the quantity those two cannot: not "did we pass" but "by how much".
+#
+# WHY IT IS WORTH ~10 s OF EVERY CUT. At 2026-11-10 23:15, origin/main 13b7776e had
+# crates/theseus-discord/src/runtime.rs at 3498/3500 -- TWO lines -- crates/theseus-protocol/src/lib.rs at
+# 2497/2500 with NO entry in scripts/long-files.txt (so shape.sh cannot legally let it grow at all), and
+# crates/theseus-kernel/src/kernel.rs at 3021/3030. runtime.rs was at 3496/3500 at 15:39 the same day: it lost
+# two of its four remaining lines inside one afternoon, and nothing in the factory was watching. Three ceilings
+# one cut from the 2026-11-08 shape red, and until this splice `grep -c invariant.pressure depart.sh` was 0 with
+# no caller anywhere, in repo or out of it.
+#
+# IT RUNS BEFORE THE BUILD CHECK ON PURPOSE. The build check STOPS the departure on a shape red, so a phase
+# placed after it would be silent in exactly the case where its numbers are the diagnostic the conductor wants
+# (which file, and by how much). Before it, the report is in the log either way -- and it is also the reading a
+# shape red needs in the same log entry. It is deliberately NOT up with scrub and keel: those two judge the RANGE
+# and page on it; this one measures the merged tree and belongs next to the other phase that measures the tree.
+#
+# THE PLUMBING IS STRUCTURAL, NOT STYLISTIC. It is copied from scripts/gate.sh's line_pressure() (:940-966) for
+# the reason the 13:30 departure of 2026-11-10 paid for: invariant-pressure.py restores SIGPIPE to SIG_DFL (it
+# dies on a closed pipe by design, scripts/invariant-pressure.py:181-182), so under `set -euo pipefail` a reader
+# that exits early -- `head -N` -- kills the producer and the STEP then fails from the PIPE rather than from its
+# verdict. So: the tool is captured ONCE into a variable with `|| true`, and every reader of that variable reads
+# to EOF (`sed -n 1,Np`, `grep -c`, `tail -1`). A nonzero exit, a timeout, a missing script and a tree it cannot
+# read all land on the same branch: say so in the log, and go on.
+INVP_SAID=""
+if [ "$INVARIANT_PRESSURE" != on ]; then
+  log "invariant pressure: SKIPPED (DEPART_INVARIANT_PRESSURE=$INVARIANT_PRESSURE)"
+elif [ ! -r "$WT/scripts/invariant-pressure.py" ]; then
+  log "invariant pressure: no scripts/invariant-pressure.py on this tree (a base that predates it); nothing measured"
+else
+  step "invariant pressure: headroom on the cut tree (margin $INVP_MARGIN, since ${BASE:0:8}) -- a warning, never a stop"
+  # PYTHONDONTWRITEBYTECODE=1 IS LOAD-BEARING: a __pycache__ written into $WT would dirty the cut worktree, and
+  # this script's own tree-match and prune steps read that worktree's cleanliness.
+  invp_out="$( cd "$WT" && PYTHONDONTWRITEBYTECODE=1 timeout "$INVP_BUDGET" \
+                 python3 scripts/invariant-pressure.py --margin "$INVP_MARGIN" --since "$BASE" 2>&1 || true )"
+  if [ -z "$invp_out" ]; then
+    log "invariant pressure: said nothing (a timeout at ${INVP_BUDGET}s, or it read no invariant at all); going on"
+  else
+    printf '%s\n' "$invp_out" | sed -n "1,${INVP_SHOW}p" | sed 's/^/  /' | tee -a "$LOG"
+    invp_n=$(printf '%s\n' "$invp_out" | grep -c . || true); invp_n=${invp_n:-0}
+    if [ "$invp_n" -gt "$INVP_SHOW" ]; then
+      log "invariant pressure: $((invp_n - INVP_SHOW)) more report line(s) not shown; re-run it in $WT to read them"
+    fi
+    INVP_SAID=$(printf '%s\n' "$invp_out" | sed -n 's/^invariant-pressure: /invariant pressure: /p' | tail -1)
+    if [ -n "$INVP_SAID" ]; then log "$INVP_SAID"; else log "invariant pressure: no summary line in its output"; fi
+  fi
+fi
+
+# ================================================================ the build check over the CUT TREE
+# THE DRY RUN PROVES THE MERGE, NOT THE BUILD -- B7 theseus-4vsrz's P1, and it cost two join gates in one afternoon.
+# merge-tree, the tree match, the scrub and keel all passed on 2026-11-08 on two trees that then failed their ARM
+# join gate, because the failures that matter at a cut are MERGE-SEMANTIC: true of every branch alone and false of
+# the sum. The two instances: clippy `this function has too many lines (106/100)` at card/run.rs:299, where main's
+# own batch and one branch each added lines that fit under the ceiling separately; and the operator call-site
+# census, made stale by a sibling branch in the same cut. Neither is visible to a merge-only check and both were
+# found fifteen minutes later by the gate. This phase moves that report from T+15 to T+2, and it runs in the DRY
+# RUN as well as in the real departure, because the dry run is what a conductor runs at the cut-off prep.
+#
+# Three steps, cheapest first -- the recipe refs/theseus.md already carries:
+#   1. shape.sh  -- per-file line ceilings. ~13 s, no build, and the highest yield of the three: on 2026-11-08 an
+#                   eleven-branch cut passed merge, scrub, keel, the census AND a full workspace clippy and then
+#                   failed `shape` in 13 seconds. A ceiling cannot be raised to fix it (`ceiling-raised` is a keel
+#                   rule) -- the answer is to drop the LARGER contributor, which leaves headroom for the next cut.
+#   2. clippy    -- on the crates THIS CUT TOUCHES, not the workspace. The function-line ceiling can only red in a
+#                   crate a branch wrote to, and the subset is what makes this affordable inside a 30-minute
+#                   departure interval.
+#   3. tripwires -- the whole-tree invariants a merge is known to be able to stale, as nextest filter expressions
+#                   in $TRIPWIRES, one per line. A file rather than a literal, so the list grows without an edit here.
+#
+# A REAL FAILURE STOPS THE DEPARTURE before the ARM send and pages. A TIMEOUT DOES NOT, and that asymmetry is
+# deliberate: this phase is a shortcut to the gate's own answer, not a second gate, so an answer that did not
+# arrive in the budget costs nothing to skip -- the ARM gate still produces the authoritative verdict fifteen
+# minutes later. What a timeout must never do is pass silently, so it pages and it is named in the verdict.
+# A NOTE, not a page. `page` sets PAGED, and PAGED makes the whole run exit 3 at the very end -- which is right for
+# something a conductor must adjudicate and wrong for "the pre-check did not finish in its budget". A departure that
+# then gates GREEN should not report exit 3 every half hour until the target warms, or the exit code stops meaning
+# anything. The note still lands on disk and in the verdict line, which is what the conductor reads after every run.
+note() {
+  local name=$1 title=$2 f=$HERE/NOTE-$name.md
+  [ "$DRY" = 1 ] && f=$HERE/NOTE-$name.dryrun.md
+  { printf '# %s\n\n_%s, %s_\n\n' "$title" "$(date '+%F %T')" "${INTEG:-no integ branch}"; cat; } > "$f"
+  log "NOTE $title -> $f"
+}
+
+step "build check: shape, clippy on the cut's crates, tripwires (over ${HEAD_SHA:0:8}, before the send)"
+BUILD_NOTE=""
+if [ "$BUILD_CHECK" != on ]; then
+  BUILD_NOTE="build check OFF (DEPART_BUILD_CHECK=$BUILD_CHECK)"
+  log "build check: SKIPPED -- $BUILD_NOTE. This cut is NOT pre-checked; the ARM gate is its only build evidence."
+else
+  bc_rc=0; bc_what=""; bc_out=$TMP/build.out; bc_cargo=1; bc_skipped=""
+  : > "$bc_out"
+  # A toolchain this script cannot find is a HOST problem, not a problem with the cut. shape.sh still runs (it is
+  # bash and it is the highest-yield step anyway); the two steps that need cargo are skipped and SAID to be skipped.
+  if [ ! -x "$CARGO" ] && ! command -v "$CARGO" >/dev/null 2>&1; then
+    bc_cargo=0
+    BUILD_NOTE="build check PARTIAL: no cargo at '$CARGO' (set DEPART_CARGO); shape ran, clippy and the tripwires did not"
+    log "build check: $BUILD_NOTE"
+  fi
+
+  # 1. shape.sh -- no build, so it runs first and always.
+  if ( cd "$WT" && bash scripts/shape.sh ) >>"$bc_out" 2>&1; then
+    log "build check: shape ok ($(grep -c . "$bc_out" || true) line(s))"
+  else
+    bc_rc=1; bc_what=shape
+  fi
+
+  # 2. clippy, on the crates the cut actually touches. The package NAME is read from each crate's Cargo.toml --
+  # the directory name has matched it everywhere so far, and reading the manifest is what keeps that from being an
+  # assumption. A touched path outside crates/ (the root manifest, bench/, cockpit/) falls back to the workspace,
+  # because there is no cheaper correct subset for it.
+  if [ "$bc_rc" = 0 ] && [ "$bc_cargo" = 1 ]; then
+    bc_pkgs=""; bc_whole=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      case "$f" in
+        crates/*/*)
+          d=${f#crates/}; d=crates/${d%%/*}
+          n=$(sed -nE 's/^name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$WT/$d/Cargo.toml" 2>/dev/null | head -1)
+          [ -n "$n" ] && case " $bc_pkgs " in *" $n "*) : ;; *) bc_pkgs="$bc_pkgs $n" ;; esac ;;
+        Cargo.toml|Cargo.lock|rust-toolchain.toml|clippy.toml|.cargo/*|bench/*|cockpit/*|vendor/*|crates/*.rs)
+          bc_whole=1 ;;
+      esac
+    done < <(git -C "$WT" diff --name-only "$BASE"..HEAD -- || true)
+    bc_pkgs=${bc_pkgs# }
+    if [ -z "$bc_pkgs" ] && [ "$bc_whole" = 0 ]; then
+      # Nothing under crates/ and no root manifest: a docs, scripts or logistics-only cut. clippy has nothing to
+      # say about it and a --workspace fallback would spend fifteen minutes proving that. The tripwires below
+      # still run, and they are the ones that catch the docs class (a docs-only merge HAS turned main red: the
+      # bench and cockpit tests read the real docs).
+      bc_sel=(); bc_why="skipped (no crates/ path and no root manifest in this cut)"
+      log "build check: clippy $bc_why"
+    elif [ "$bc_whole" = 1 ]; then
+      bc_sel=(--workspace); bc_why="the whole workspace (a root manifest, bench, cockpit or vendor path is in the cut)"
+    else
+      bc_sel=(); for n in $bc_pkgs; do bc_sel+=(-p "$n"); done
+      bc_why="$(wc -w <<<"$bc_pkgs") crate(s): $bc_pkgs"
+    fi
+    bc_t0=$(date +%s)
+    if [ "${#bc_sel[@]}" = 0 ]; then
+      :
+    elif log "build check: clippy over $bc_why; budget ${BUILD_BUDGET}s, CARGO_INCREMENTAL=0, target $WT/target" &&
+         ( cd "$WT" && CARGO_INCREMENTAL=0 timeout -k 30 "$BUILD_BUDGET" \
+           "$CARGO" clippy "${bc_sel[@]}" --all-targets -q -- -D warnings ) >>"$bc_out" 2>&1; then
+      log "build check: clippy ok ($(( $(date +%s) - bc_t0 ))s)"
+    else
+      bc_cr=$?
+      if [ "$bc_cr" = 124 ] || [ "$bc_cr" = 137 ]; then
+        BUILD_NOTE="build check INCONCLUSIVE: clippy hit the ${BUILD_BUDGET}s budget (a cold target costs this once)"
+        log "build check: $BUILD_NOTE -- the departure CONTINUES; the ARM gate is the verdict"
+        note buildcheck "build check inconclusive on $INTEG" <<EOF
+clippy over the cut tree did not finish inside the ${BUILD_BUDGET}s budget, so this cut reached the ARM send WITHOUT
+a pre-check. That is not a failure of the cut and the departure was not stopped -- the ARM gate still produces the
+authoritative verdict -- but nobody should read this departure as pre-checked.
+
+Selection: $bc_why. Target: \$WT/target (warm after the first departure; the first one pays a cold build).
+Raise the budget with DEPART_BUILD_BUDGET_S, or pre-warm \$WT/target between departures.
+
+Last 40 lines:
+\`\`\`
+$(tail -40 "$bc_out")
+\`\`\`
+EOF
+      elif [ "$bc_cr" = 127 ]; then
+        # 127 is "command not found", not a finding about the tree. Never page a build failure for it.
+        BUILD_NOTE="build check PARTIAL: clippy exited 127 (command not found) -- '$CARGO' is not runnable here"
+        log "build check: $BUILD_NOTE -- the departure CONTINUES; the ARM gate is the verdict"
+      else
+        bc_rc=1; bc_what="clippy (exit $bc_cr)"
+      fi
+    fi
+  fi
+
+  # 3. the tripwires: whole-tree invariants a merge can stale. Each line of $TRIPWIRES is a nextest -E expression.
+  if [ "$bc_rc" = 0 ] && [ "$bc_cargo" = 1 ] && [ -r "$TRIPWIRES" ]; then
+    while IFS= read -r t; do
+      case "$t" in ''|'#'*) continue ;; esac
+      pkg=${t%%|*}; expr=${t#*|}
+      [ "$pkg" = "$t" ] && { pkg=theseus-core; expr=$t; }
+      if ( cd "$WT" && CARGO_INCREMENTAL=0 timeout -k 30 "$BUILD_BUDGET" \
+             "$CARGO" nextest run -p "$pkg" -E "$expr" --no-fail-fast ) >>"$bc_out" 2>&1; then
+        log "build check: tripwire ok -- $pkg $expr"
+      else
+        bc_tr=$?
+        if [ "$bc_tr" = 124 ] || [ "$bc_tr" = 137 ]; then
+          # A tripwire that did not finish has told us NOTHING, and the verdict must say so. The first draft of
+          # this phase logged the timeout and then still printed "build check ok" at the end -- a fake green inside
+          # the very check written to stop one. Caught by its own dry run on a cold target, 2026-11-09.
+          bc_skipped="$bc_skipped $expr"
+          log "build check: tripwire INCONCLUSIVE (budget) -- $pkg $expr"
+        elif [ "$bc_tr" = 127 ]; then
+          bc_skipped="$bc_skipped $expr(no-cargo)"
+          log "build check: tripwire SKIPPED (exit 127, command not found) -- $pkg $expr"
+        else
+          bc_rc=1; bc_what="tripwire $pkg $expr (exit $bc_tr)"; break
+        fi
+      fi
+    done < "$TRIPWIRES"
+  fi
+
+  if [ "$bc_rc" != 0 ]; then
+    KEEP_INTEG=1; VERDICT=build-check
+    log "build check: PAGE -- $bc_what failed on the cut tree; the departure stopped BEFORE the send"
+    page buildcheck "build check failed on $INTEG ($bc_what)" <<EOF
+The cut tree ${HEAD_SHA:0:8} = origin/main ${BASE:0:8} + ${LOADED_IDS[*]} failed **$bc_what** before the ARM send.
+This is the check that exists because the dry run proves the MERGE and not the BUILD: a failure here is almost
+always MERGE-SEMANTIC -- true of no branch alone and true of the sum -- so do NOT assume the newest branch is the
+culprit without attributing it.
+
+How to attribute it, in the order that has worked:
+  git -C $WT diff --numstat $BASE..HEAD -- <the file named below>
+  git -C $WT diff --numstat $BASE..origin/<each queued branch> -- <that file>
+A clippy line ceiling: the contributors each fit under 100 alone. Drop the LARGER one -- it leaves headroom for the
+next cut -- and do NOT raise the ceiling or add an #[allow]: \`ceiling-raised\` and \`allow-added\` are keel rules and
+need the owner's own words in a trailer.
+A shape failure: same shape, per FILE rather than per function, and the same rule about the ceiling.
+A tripwire: a whole-tree invariant a sibling in this cut made stale. Sequence that branch last, or give the
+invariant a form a merge cannot disturb.
+
+Selection: ${bc_why:-n/a}
+The integ branch $INTEG is kept in $WT for reading.
+
+Output (last 80 lines):
+\`\`\`
+$(tail -80 "$bc_out")
+\`\`\`
+EOF
+    exit 3
+  fi
+  if [ -n "$bc_skipped" ]; then
+    BUILD_NOTE="${BUILD_NOTE:+$BUILD_NOTE; }build check PARTIAL: $(wc -w <<<"$bc_skipped") tripwire(s) did not finish in the ${BUILD_BUDGET}s budget:$bc_skipped"
+  fi
+  [ -n "$BUILD_NOTE" ] || BUILD_NOTE="build check ok (shape, clippy over ${bc_why:-n/a}, $(grep -cvE '^[[:space:]]*(#|$)' "$TRIPWIRES" 2>/dev/null || echo 0) tripwire(s))"
+  log "build check: $BUILD_NOTE"
+fi
+
+# ================================================================ dry run stops here
+if [ "$DRY" = 1 ]; then
+  step "dry run: stopping before the gate"
+  log "would: $ARM send $ARM_LANE $HEAD_SHA --repo $WT   (after waiting for $ARM_LANE to be idle)"
+  log "would: $ARM run $ARM_LANE gate; then poll '$ARM result $ARM_LANE gate' every ${POLL_SECS}s, up to $POLL_MAX times, for 'gate exit='"
+  log "would: on exit 0, or on reds all in the known-flake list ($(known_flakes | paste -sd',' | cut -c1-200)): land"
+  log "would: git push origin $HEAD_SHA:refs/heads/main (fast-forward only), re-fetch, assert origin/main == head"
+  log "would: bash $PRUNE; then arm.sh rm every landed idle ARM lane except $ARM_KEEP"
+  if [ -f "$FLEET_FLAG" ]; then
+    log "would: FLEET ON ($FLEET_FLAG exists): $FLEET status; launch 1 if no box; send $FLEET_LANE $HEAD_SHA --repo $WT; run $FLEET_LANE gate"
+    log "would: poll BOTH '$ARM result $ARM_LANE gate' and '$FLEET result $FLEET_LANE gate' in one loop; the first host to finish green is the verdict"
+    log "would: one host red + the other green -> land and file PAGE-flake-$TAG.md; both red -> the red path; a dead box -> ARM alone"
+    log "would: $FLEET $([ "$FLEET_TERMINATE" = 1 ] && echo terminate || echo rm) $FLEET_LANE after the gate"
+    if fst=$("$FLEET" status 2>&1); then
+      log "would: fleet status: $(grep -cE '^i-' <<<"$fst" || true) box(es) alive; $(grep -E '^AMIs:' <<<"$fst" | cut -c1-120)"
+    else
+      log "would: fleet status unavailable ($(head -1 <<<"$fst" | cut -c1-120)); the departure would fall back to ARM alone"
+    fi
+  else
+    log "would: FLEET OFF (no $FLEET_FLAG): the ARM path only, exactly as before"
+  fi
+  if st=$("$ARM" status 2>&1); then
+    busy=$(printf '%s\n' "$st" | sed -nE 's/^running arml-(.*)-[a-z]+\.service$/\1/p')
+    log "would: ARM status: $(printf '%s\n' "$st" | head -1)"
+    while read -r name sha; do
+      [ -n "$name" ] || continue
+      case " $ARM_KEEP " in *" $name "*) log "would: ARM keep $name (standing)"; continue ;; esac
+      if grep -qx "$name" <<<"$busy"; then log "would: ARM keep $name (a unit is running)"; continue; fi
+      if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then log "would: ARM keep $name ($sha unknown here)"; continue; fi
+      if git merge-base --is-ancestor "$sha" "$HEAD_SHA"; then log "would: $ARM rm $name ($sha would be on main)"; else log "would: ARM keep $name ($sha not on main)"; fi
+    done < <(printf '%s\n' "$st" | sed -nE 's/^lane ([^ ]+) ([0-9a-f]+) .*/\1 \2/p')
+  else
+    log "would: ARM status unavailable ($(printf '%s' "$st" | head -1 | cut -c1-120)); the prune list cannot be shown"
+  fi
+  DRYM=$HERE/manifest.dryrun.tsv
+  # The copy is made FIRST and initialised second: a dry run says manifest.tsv is untouched, and a header
+  # migration is still a touch.
+  cp "$MANIFEST" "$DRYM" 2>/dev/null || : > "$DRYM"
+  manifest_init "$DRYM"
+  wall=$(( ($(date +%s) - T0) / 60 ))
+  for i in "${!LOADED_IDS[@]}"; do
+    id=${LOADED_IDS[$i]}; rep=$(manifest_get "$DRYM" "$id" report); wmin=""
+    if [ -n "$rep" ] && re=$(date -d "$rep" +%s 2>/dev/null); then wmin=$(( (CUT_EPOCH - re) / 60 )); [ "$wmin" -lt 0 ] && wmin=0; fi
+    manifest_upsert "$DRYM" "$id" "branch=${LOADED_BRS[$i]}" "head=${LOADED_HEADS[$i]}" "departure=$CUTOFF" \
+      "arm_gate=(dry run: not gated)" "landed=(dry run: ${HEAD_SHA:0:8} not pushed)" "pruned=no" "wait_min=$wmin" "wall_min=$wall" \
+      "fleet_gate=(dry run: $([ -f "$FLEET_FLAG" ] && echo 'fleet ON, not gated' || echo 'fleet off'))"
+  done
+  log "wrote $DRYM (${#LOADED_IDS[@]} rows); manifest.tsv and depart-history.tsv untouched"
+  recommend dry-run "$wall" "$WAITING"
+  VERDICT="dry-run: ${#LOADED_IDS[@]} merged, ${#DROPPED[@]} dropped, scrub clean, keel clean, ${BUILD_NOTE:-build check not run}"
+  [ "$PAGED" = 1 ] && exit 3
+  exit 0
+fi
+
+# ================================================================ the gate: the ARM lane, and the fleet beside it
+FLEET_ON=0; FLEET_GATE=""; FLEET_RES=""; FLEET_ERRS=""; FLEET_SECS=0; FLEET_V=""; FLEET_WHY=""
+if [ -f "$FLEET_FLAG" ]; then
+  if [ -x "$FLEET" ]; then FLEET_ON=1
+  else log "fleet: $FLEET_FLAG exists but $FLEET is not executable; ARM alone"; FLEET_WHY="ec2.sh missing"; fi
+fi
+step "gate: $ARM_LANE on the M1 Max$([ "$FLEET_ON" = 1 ] && echo " and lane $FLEET_LANE on the fleet" || echo " (fleet off)")"
+for ((i = 0; i <= POLL_MAX; i++)); do
+  res=$("$ARM" result "$ARM_LANE" gate 2>&1 || true)
+  grep -q '\[running\]' <<<"$res" || break
+  [ "$i" -lt "$POLL_MAX" ] || { page arm-busy "$ARM_LANE still busy after $POLL_MAX polls" <<EOF
+\`$ARM result $ARM_LANE gate\` still says running: $res
+The lane was not sent to; nothing was started. The departure stopped (exit 3); re-run it when the lane is free.
+EOF
+    KEEP_INTEG=1; VERDICT=arm-busy; exit 3; }
+  [ "$i" -eq 0 ] && log "gate: $ARM_LANE is busy ($(cut -c1-120 <<<"$res")); waiting"
+  sleep "$POLL_SECS"
+done
+if ! out=$("$ARM" send "$ARM_LANE" "$HEAD_SHA" --repo "$WT" 2>&1) || ! grep -q "sent $ARM_LANE: HEAD ${HEAD_SHA:0:8}" <<<"$out"; then
+  KEEP_INTEG=1; VERDICT=arm-send
+  log "gate: arm.sh send refused: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+  page arm-send "arm.sh send $ARM_LANE refused" <<EOF
+\`$ARM send $ARM_LANE $HEAD_SHA --repo $WT\` did not print \`sent $ARM_LANE: HEAD ${HEAD_SHA:0:8}\`. Nothing was run
+(a run after a refused send would gate the lane's stale head). A dirty lane: \`ssh arm-host.example 'cd ~/lanes/$ARM_LANE && git checkout -- .'\`;
+a disk floor: \`arm.sh rm\` a merged lane first.
+
+\`\`\`
+$out
+\`\`\`
+EOF
+  exit 3
+fi
+log "gate: $(tail -1 <<<"$out")"
+if ! out=$("$ARM" run "$ARM_LANE" gate 2>&1) || ! grep -q "started arml-$ARM_LANE-gate" <<<"$out"; then
+  KEEP_INTEG=1; VERDICT=arm-run
+  page arm-run "arm.sh run $ARM_LANE gate did not start" <<EOF
+\`\`\`
+$out
+\`\`\`
+EOF
+  exit 3
+fi
+GATE_T0=$(date +%s)
+log "gate: $out"
+
+# ---- the fleet, started AFTER the ARM gate so a busy ARM lane never leaves a spot box idling on the meter.
+# The box boots (about 70 s) and ships while the ARM gate is still in its compile phases, so the two gates
+# overlap almost entirely. Every failure here falls back to ARM alone; none of them stops the departure.
+FLEET_PRE=""; FLEET_T0=$(date +%s)
+if [ "$FLEET_ON" = 1 ]; then
+  FLEET_PRE=$("$FLEET" result "$FLEET_LANE" gate 2>&1 || true)   # the PREVIOUS run's summary: S3 keeps it until
+                                                                  # this run's first 30 s mirror overwrites it
+  if fleet_claim; then
+    log "fleet: gating ${HEAD_SHA:0:8} on lane $FLEET_LANE beside $ARM_LANE"
+  else
+    FLEET_ON=0; FLEET_WHY="the fleet could not take the tree (see the fleet: lines above)"
+    log "fleet: ARM alone for this cut"
+  fi
+fi
+
+# ---- one loop, both hosts. The FIRST host to finish green is the verdict; a red waits for the other up to the cap.
+# Each host is judged ONCE, at the moment its result lands, by judge_gate -- so a red host costs one `errs` call,
+# not one per poll, and the two verdicts cannot drift apart between the loop and the decision below.
+res=""; ARM_SECS=0; r=""; fr=""; FIRST_IN=""
+ARM_V=""; ARM_GATE=""; ARM_REDS=""; ARM_UNKNOWN=""; gate_exit=""; sum=""; errs=""
+FLEET_V=""; FLEET_REDS=""; FLEET_UNKNOWN=""
+for ((i = 1; i <= POLL_MAX; i++)); do
+  sleep "$POLL_SECS"
+  if [ -z "$res" ]; then
+    r=$("$ARM" result "$ARM_LANE" gate 2>&1 || true)
+    if grep -q 'gate exit=' <<<"$r" && ! grep -q '\[running\]' <<<"$r"; then
+      res=$r; ARM_SECS=$(( $(date +%s) - GATE_T0 )); [ -n "$FIRST_IN" ] || FIRST_IN=ARM
+      log "gate: ARM finished at poll $i (${ARM_SECS}s): $(cut -c1-200 <<<"$res")"
+      errs=$("$ARM" errs "$ARM_LANE" gate 2>&1 || true)
+      judge_gate ARM "$res" "$errs" "$ARM_SECS"
+      ARM_V=$JV; ARM_GATE=$JCELL; ARM_REDS=$JREDS; ARM_UNKNOWN=$JUNKNOWN; gate_exit=$JEXIT; sum=$JSUM
+      log "gate: ARM verdict $ARM_V ($ARM_GATE)"
+    fi
+  fi
+  if [ "$FLEET_ON" = 1 ] && [ -z "$FLEET_RES" ]; then
+    fr=$("$FLEET" result "$FLEET_LANE" gate 2>&1 || true)
+    # A result is this run's only when it is not the summary S3 already held and the box is no longer running it.
+    if [ "$fr" != "$FLEET_PRE" ] && grep -q 'gate exit=' <<<"$fr" && ! grep -q '\[running\]' <<<"$fr"; then
+      FLEET_RES=$fr; FLEET_SECS=$(( $(date +%s) - FLEET_T0 )); [ -n "$FIRST_IN" ] || FIRST_IN=FLEET
+      log "gate: FLEET finished at poll $i (${FLEET_SECS}s): $(cut -c1-200 <<<"$FLEET_RES")"
+      judge_gate FLEET "$FLEET_RES" "$("$FLEET" errs "$FLEET_LANE" gate 2>&1 || true)" "$FLEET_SECS"
+      FLEET_V=$JV; FLEET_GATE=$JCELL; FLEET_REDS=$JREDS; FLEET_UNKNOWN=$JUNKNOWN
+      log "gate: fleet verdict $FLEET_V ($FLEET_GATE)"
+    elif [ $((i % 5)) -eq 0 ] && ! fleet_alive; then
+      # A spot interruption: the box is gone and no result will ever arrive. Say so and finish on ARM.
+      FLEET_ON=0; FLEET_WHY="the box holding lane $FLEET_LANE disappeared mid-gate (a spot interruption): no fleet verdict"
+      log "fleet: $FLEET_WHY; the departure continues on ARM alone"
+    fi
+  fi
+  # Decide as soon as the answer cannot change: a green on either host, both hosts in, or ARM in and no fleet.
+  { [ -n "$ARM_V" ]   && gate_lands "$ARM_V";   } && break
+  { [ -n "$FLEET_V" ] && gate_lands "$FLEET_V"; } && break
+  { [ -n "$res" ] && [ -n "$FLEET_RES" ]; } && break
+  { [ -n "$res" ] && [ "$FLEET_ON" = 0 ]; } && break
+  [ $((i % 5)) -eq 0 ] && log "gate: poll $i/$POLL_MAX: ARM $([ -n "$res" ] && echo "in ($ARM_V)" || cut -c1-90 <<<"$r")$([ "$FLEET_ON" = 1 ] && printf ' | fleet %s' "$([ -n "$FLEET_RES" ] && echo "in ($FLEET_V)" || cut -c1-90 <<<"$fr")")${FLEET_WHY:+ | fleet: $FLEET_WHY}"
+done
+if [ "$FLEET_ON" = 1 ] && [ -z "$FLEET_RES" ]; then
+  if [ -n "$ARM_V" ] && gate_lands "$ARM_V"; then
+    FLEET_WHY="no fleet verdict: the ARM gate finished green first and the departure did not wait"
+  else
+    FLEET_WHY="no fleet verdict inside the $((POLL_MAX * POLL_SECS / 60))-minute cap"
+  fi
+  log "fleet: $FLEET_WHY"
+fi
+# The fleet's box is released as soon as its answer is in (or cannot come): it is metered by the minute.
+[ "${FLEET_CLAIMED:-0}" = 1 ] && fleet_release
+[ -n "$ARM_GATE" ]   || ARM_GATE="(no verdict in $((POLL_MAX * POLL_SECS / 60)) min)"
+[ -n "$FLEET_GATE" ] || FLEET_GATE="(${FLEET_WHY:-off})"
+if [ -z "$ARM_V" ] && [ -z "$FLEET_V" ]; then
+  KEEP_INTEG=1; VERDICT=gate-timeout
+  page gate-timeout "no gate verdict on $ARM_LANE after $((POLL_MAX * POLL_SECS / 60)) min" <<EOF
+The gate on $ARM_LANE (head ${HEAD_SHA:0:8}, started $(date -d "@$GATE_T0" '+%T')) has no \`gate exit=\` yet. It was left running;
+read it with \`$ARM result $ARM_LANE gate\` (a gate queued behind another says "waiting for the host's gate turn").
+When it is green, land by hand: \`git -C $WT push origin $HEAD_SHA:refs/heads/main\` after \`git merge-base --is-ancestor origin/main $HEAD_SHA\`.
+
+The fleet: ${FLEET_WHY:-it was off for this cut (no $FLEET_FLAG)}.
+EOF
+  exit 3
+fi
+GATE_SECS=$ARM_SECS; [ -n "$ARM_V" ] || GATE_SECS=$FLEET_SECS
+
+# ================================================================ verdict: the first host to finish green
+# The bar is unchanged (PLAN §2 T+20 a): exit 0, or every red on the known-flake list, is a green. What the fleet
+# adds is a SECOND host judged by that same bar on the identical tree. The first host to finish green is the
+# verdict; a host that reds while the other is green does not hold the departure -- it files a flake candidate.
+step "verdict"
+LAND=0; OVER_FLAKE=""; WINNER=""; DISSENT=""; DISSENT_REDS=""
+if [ -n "$ARM_V" ] && gate_lands "$ARM_V"; then
+  WINNER=ARM; VERDICT=$ARM_V; LAND=1; reds=$ARM_REDS; unknown=$ARM_UNKNOWN
+  [ "$ARM_V" = green-over-flake ] && OVER_FLAKE=$(paste -sd' ' <<<"$ARM_REDS")
+fi
+if [ -n "$FLEET_V" ] && gate_lands "$FLEET_V" && { [ "$LAND" = 0 ] || [ "$FIRST_IN" = FLEET ]; }; then
+  WINNER=FLEET; VERDICT=$FLEET_V; LAND=1; reds=$FLEET_REDS; unknown=$FLEET_UNKNOWN
+  OVER_FLAKE=""; [ "$FLEET_V" = green-over-flake ] && OVER_FLAKE=$(paste -sd' ' <<<"$FLEET_REDS")
+fi
+if [ "$LAND" = 0 ]; then
+  # Nothing green. Prefer the ARM answer for the page, as every red departure before today did.
+  if [ -n "$ARM_V" ]; then reds=$ARM_REDS; unknown=$ARM_UNKNOWN; VERDICT=red
+  else reds=$FLEET_REDS; unknown=$FLEET_UNKNOWN; VERDICT=red; fi
+  # An abort is not a red and must not read as one: a conductor who takes it for a red starts a culprit search on a
+  # gate that never produced a verdict about anything.
+  if [ "${ARM_V:-}" = abort ] || [ "${FLEET_V:-}" = abort ]; then VERDICT=gate-abort; fi
+else
+  log "verdict: $VERDICT on $WINNER (first host in: ${FIRST_IN:-ARM}); ARM ${ARM_V:-no verdict}, fleet ${FLEET_V:-${FLEET_WHY:-off}}"
+  [ -z "$OVER_FLAKE" ] || log "verdict: pushed over known flake: $OVER_FLAKE"
+  # The disagreement: one host red, the other green, on the IDENTICAL tree. That is a flake candidate by
+  # construction (PLAN §2 T+20 a's bar, measured across hosts instead of across runs) -- it is filed, not fixed.
+  if [ "$WINNER" = ARM ] && [ "$FLEET_V" = red ]; then DISSENT=fleet; DISSENT_REDS=$FLEET_UNKNOWN; fi
+  if [ "$WINNER" = FLEET ] && [ "$ARM_V" = red ]; then DISSENT=ARM;   DISSENT_REDS=$ARM_UNKNOWN; fi
+fi
+if [ "$LAND" = 0 ]; then
+  KEEP_INTEG=1
+  bisect_with_cloud $reds
+  page red "red gate on $INTEG" <<EOF
+$([ "$VERDICT" = gate-abort ] && cat <<'ABORT'
+THIS IS AN ABORT, NOT A RED. A host exited 75: gate.sh found that its worktree moved between the compile phases and
+the suite, so it tested a different tree than it built and its exit code means nothing in either direction. DO NOT
+start a culprit search and DO NOT read the test list below as evidence about any branch. Find what touched the gate's
+worktree (a builder in ~/projects/theseus is the usual cause) and re-run the gate on the same head.
+
+ABORT
+)
+The gate on $ARM_LANE exited ${gate_exit:-(no verdict)} (${GATE_SECS}s) on head ${HEAD_SHA:0:8} = origin/main ${BASE:0:8} + ${LOADED_IDS[*]}.
+Summary: ${sum:-no Summary line (the red is before the suite: build, clippy, door, or keel)}
+
+Hosts: ARM $ARM_LANE ${ARM_V:-no verdict} [$ARM_GATE]; fleet ${FLEET_V:-${FLEET_WHY:-off}} [$FLEET_GATE].
+$([ "${FLEET_V:-}" = red ] && echo "BOTH HOSTS ARE RED ON THE IDENTICAL TREE, which is the strongest evidence this is the tree and not a host.")
+
+Red tests not on the known-flake list (nextest's named retries + flaky-known.txt):
+$(printf '%s' "${unknown:-${reds:-none named}}" | sed 's/^/- /')
+Known flakes among the reds: $(comm -12 <(sort -u <<<"$reds") <(known_flakes) | paste -sd' ' || true)
+$([ -n "${FLEET_REDS:-}" ] && printf 'Fleet reds: %s\n' "$(paste -sd' ' <<<"$FLEET_REDS")")
+
+Gate log: user@arm-host.example:~/lane-results/$ARM_LANE/gate.log  (\`$ARM tail $ARM_LANE gate 80\`, \`$ARM errs $ARM_LANE gate\`)
+$([ -n "${FLEET_V:-}" ] && printf 'Fleet log: `%s tail %s gate 80`, `%s errs %s gate` (S3, readable after the box is gone)\n' "$FLEET" "$FLEET_LANE" "$FLEET" "$FLEET_LANE")
+The integ branch $INTEG is kept in $WT (detached at origin/main now). PLAN §2 T+20 (b): the bar is 5 of 5 alone on
+the ARM reduced slot, or the cloud prefix results name the culprit; drop it, re-gate the rest, push.
+
+arm.sh result:
+\`\`\`
+$res
+\`\`\`
+arm.sh errs:
+\`\`\`
+$errs
+\`\`\`
+$([ -n "${FLEET_RES:-}" ] && printf 'ec2.sh result:\n```\n%s\n```\nec2.sh errs:\n```\n%s\n```\n' "$FLEET_RES" "$("$FLEET" errs "$FLEET_LANE" gate 2>&1 || true)")
+EOF
+  history_append "$(date '+%F %T')" "$(IFS=,; echo "${LOADED_IDS[*]}")" "$(( ($(date +%s) - T0) / 60 ))" red "$WAITING" "$FLEET_GATE"
+  recommend red "$(( ($(date +%s) - T0) / 60 ))" "$WAITING"
+  exit 3
+fi
+
+# ---- one host red, the other green on the identical tree: file it, do not stop. PLAN §2 T+20 (a) measured across
+# hosts. The departure lands on the green; this page is the flake candidate's record, named by host and by test.
+if [ -n "$DISSENT" ]; then
+  page "flake-$TAG" "flake candidate: $DISSENT red, $WINNER green on the same tree" <<EOF
+**Host:** $DISSENT ($([ "$DISSENT" = fleet ] && echo "spot box, lane $FLEET_LANE, whole suite + benches" || echo "M1 Max, lane $ARM_LANE, 'fast' group skipped, THESEUS_GATE_NO_BENCH=1"))
+**Tests that reddened there (not on the known-flake list):**
+$(printf '%s' "${DISSENT_REDS:-none named}" | sed 's/^/- /')
+
+**The other host was GREEN on the identical tree.** Both gated head ${HEAD_SHA:0:8} = origin/main ${BASE:0:8} +
+${LOADED_IDS[*]} -- the same commit, not two builds of the same branches -- so the tree is not the variable here;
+the host, the timing or the test is. The departure landed on the green host's verdict and nothing was dropped.
+
+| host | lane | verdict | numbers |
+|---|---|---|---|
+| ARM (M1 Max) | $ARM_LANE | ${ARM_V:-no verdict} | $ARM_GATE |
+| fleet (spot) | $FLEET_LANE | ${FLEET_V:-${FLEET_WHY:-off}} | $FLEET_GATE |
+
+**What closes this:** run the named test(s) alone 5x on the host that reddened, on this same commit. 5 of 5 makes it
+a flake -- add it to flaky-known.txt with this page's name as the evidence. Anything less is a real defect on that
+host, and the two hosts differ in known ways (the fleet runs the whole suite and the lifecycle/jobs benches the ARM
+lane skips; the ARM lane skips its \`fast\` group; the fleet is x86 + mold + 20 jobs, the ARM lane aarch64 + 10).
+
+\`\`\`
+ARM:   $res
+FLEET: ${FLEET_RES:-(none)}
+\`\`\`
+EOF
+  log "verdict: $DISSENT reddened where $WINNER was green; filed PAGE-flake-$TAG.md"
+fi
+
+# ================================================================ land: fast-forward only
+step "land: push ${HEAD_SHA:0:8} to origin/main"
+git fetch -q origin
+if ! git merge-base --is-ancestor origin/main "$HEAD_SHA"; then
+  KEEP_INTEG=1; VERDICT=push-refused
+  page push "origin/main moved during the gate" <<EOF
+origin/main is now $(git rev-parse --short=8 origin/main); the gated head ${HEAD_SHA:0:8} was cut from ${BASE:0:8} and is not a
+fast-forward of it. Nothing was pushed. Re-run the departure: the queue still lists these branches, and the cut will
+be from the new main.
+EOF
+  exit 3
+fi
+if ! out=$(git push origin "$HEAD_SHA:refs/heads/main" 2>&1); then
+  KEEP_INTEG=1; VERDICT=push-failed
+  page push "git push refused" <<EOF
+\`git push origin $HEAD_SHA:refs/heads/main\` failed:
+\`\`\`
+$out
+\`\`\`
+EOF
+  exit 3
+fi
+git fetch -q origin
+now_main=$(git rev-parse origin/main)
+if [ "$now_main" != "$HEAD_SHA" ]; then
+  KEEP_INTEG=1; VERDICT=push-unverified
+  page push "origin/main is not the pushed head" <<EOF
+After the push origin/main is ${now_main:0:8}, not ${HEAD_SHA:0:8}. Something pushed on top within seconds, or the push did not land. Read before acting.
+EOF
+  exit 3
+fi
+PUSH_T=$(date +%s); LANDED=1
+WALL=$(( (PUSH_T - T0) / 60 ))
+log "land: origin/main == ${HEAD_SHA:0:8}; wall ${WALL} min from the cut; gate ${GATE_SECS}s"
+
+# ================================================================ prune both hosts
+# ---- before the prune: what exists only in a lane (B7 open #12, parts 3 and 4; wired 2026-11-10)
+# The prune is the only destructive step in a departure, and lane-unpushed-check.sh sat beside this script unwired
+# while the class was found five times in one day -- 28 of 95 lanes on no origin ref at 15:07, the latest bb671d0e
+# in ~/lanes-local/importfix2. Nothing told anybody, which is the whole defect.
+#
+# THE SPLIT, and why it is a split: the WSL half is ALREADY GUARDED. theseus-lane-prune.sh:57-60 counts
+# `rev-list HEAD --not --remotes=origin` and holds the lane when it is > 0, naming what holds it. That guard is not
+# duplicated and not weakened here. The ARM half has no guard at all: arm.sh rm (arm.sh:286-290) checks only
+# lane_busy, then `git worktree remove --force` + `rm -rf ~/lanes/NAME` + `update-ref -d refs/arml/NAME/{head,base}`
+# -- which loses a host-made commit three ways in one command (a detached HEAD's only reachability, the send refs
+# that could still name it, and an uncommitted tree). And the loop below only ever asked whether the sha `arm.sh
+# status` RECORDS is an ancestor of main; it never asked whether the lane's live HEAD had moved past it.
+# So: probe the ARM lanes here, and let the answer only ever REMOVE names from what the loop may delete. This step
+# is given no power to delete anything. Cost: 10 lanes in ~3 s. The full local survey is 1m48s and is deliberately
+# NOT on this path -- the local half is already guarded, so the clock buys nothing there.
+step "lanes: unpushed check before the prune ($UNPUSHED_CHECK)"
+ARM_HOLD=""; UNPUSHED_RC=""
+if [ -x "$UNPUSHED_CHECK" ]; then
+  if ucout=$(LANE_CHECK_ARM_HOST=$ARM_SSH_HOST timeout "$UNPUSHED_BUDGET" \
+               "$UNPUSHED_CHECK" -q --no-local --no-cherry 2>&1); then UNPUSHED_RC=0; else UNPUSHED_RC=$?; fi
+  printf '%s\n' "$ucout" >> "$LOG"
+  log "lanes: unpushed check exit ${UNPUSHED_RC:-?} -- $(printf '%s\n' "$ucout" | sed -n 's/^=== //p' | tail -1 || true)"
+  # Every ARM lane the checker is not happy about, by name. Anything but OK holds the lane.
+  ARM_HOLD=$(printf '%s\n' "$ucout" | sed -nE 's#^  (UNPUSHED|ARM-UNFETCHED|DIRTY|ERROR) arm/([^ ]+).*#\2#p' | sort -u | paste -sd' ' || true)
+  [ -z "$ARM_HOLD" ] || log "lanes: ARM lanes HELD from this prune (not proven landed): $ARM_HOLD"
+  # exit 2 = a lane or the host could not be read. An unreadable host is not a licence to delete on it.
+  if [ "${UNPUSHED_RC:-0}" = 2 ]; then
+    ARM_HOLD=ALL
+    log "lanes: the checker could not read the ARM host (exit 2); HOLDING EVERY ARM LANE from this prune"
+  fi
+  # Something is unpushed somewhere. The departure has already landed, so this is a NOTE, not a stop -- but it must
+  # not be silent, which is exactly what B7 open #12 says went wrong. `page` sets PAGED, and PAGED now means exit 4
+  # (landed, with something to read), never exit 3.
+  if [ "${UNPUSHED_RC:-0}" = 1 ]; then
+    page "unpushed-$TAG" "work that exists only in a lane, found at the $CUTOFF prune" <<EOF
+The departure LANDED (origin/main is ${HEAD_SHA:0:8}). This page is a note about lanes, not a problem with the cut.
+
+\`$UNPUSHED_CHECK -q --no-local --no-cherry\` exited 1 at the prune step: at least one ARM lane holds commits that
+are on **no origin ref**. Those lanes were HELD from this departure's prune and nothing was removed on the host.
+
+Held from the prune: ${ARM_HOLD:-none named}
+
+\`\`\`
+$ucout
+\`\`\`
+
+**What closes this:** for each named lane, \`$ARM fetch <lane>\` to bring the host-made commits into
+~/projects/theseus, then push or discard them deliberately. A lane stays held every departure until it is clean, so
+this page repeats until somebody decides. The WSL half of the prune has its own guard
+(theseus-lane-prune.sh:57-60) and holds its lanes the same way; the full local survey
+(\`$UNPUSHED_CHECK -q --no-arm\`, ~2 min) lists those.
+EOF
+  fi
+else
+  ARM_HOLD=ALL
+  log "lanes: no executable $UNPUSHED_CHECK; HOLDING EVERY ARM LANE from this prune (nothing proved one landed)"
+fi
+
+step "prune: WSL ($PRUNE) and ARM (arm.sh rm landed idle lanes except $ARM_KEEP)"
+bash "$PRUNE" || log "prune: $PRUNE exited $?"
+log "prune: $(tail -1 "$HOME/reports/theseus-105-kickoff/lane-prune.log" 2>/dev/null || echo 'no lane-prune.log line')"
+if st=$("$ARM" status 2>&1); then
+  busy=$(printf '%s\n' "$st" | sed -nE 's/^running arml-(.*)-[a-z]+\.service$/\1/p')
+  while read -r name sha; do
+    [ -n "$name" ] || continue
+    case " $ARM_KEEP " in *" $name "*) continue ;; esac
+    if grep -qx "$name" <<<"$busy"; then log "prune: ARM keep $name (a unit is running)"; continue; fi
+    # B-6: the three refusals the loop never had. Each only ever KEEPS a lane.
+    if [ "$ARM_HOLD" = ALL ]; then log "prune: ARM keep $name (the unpushed check proved no lane safe this cut)"; continue; fi
+    case " $ARM_HOLD " in *" $name "*) log "prune: ARM keep $name (held by the unpushed check)"; continue ;; esac
+    # The RECORDED sha is what arm.sh status prints; the lane's LIVE HEAD is what rm would destroy. A host-made
+    # commit moves the second and not the first, so a landed recorded sha says nothing about what is in the tree.
+    if live=$(arm_ssh "git -C ~/lanes/$name rev-parse --verify -q HEAD" 2>/dev/null) && [ -n "$live" ]; then
+      if [ "${live:0:8}" != "${sha:0:8}" ]; then
+        log "prune: ARM keep $name (live HEAD ${live:0:8} != recorded ${sha:0:8}: the host committed on top)"; continue
+      fi
+    else
+      log "prune: ARM keep $name (could not read its live HEAD over ssh)"; continue
+    fi
+    if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then log "prune: ARM keep $name ($sha unknown here)"; continue; fi
+    if git merge-base --is-ancestor "$sha" "$HEAD_SHA"; then
+      out=$("$ARM" rm "$name" 2>&1 || true); log "prune: ARM rm $name ($sha landed): $(tail -1 <<<"$out")"
+    fi
+  done < <(printf '%s\n' "$st" | sed -nE 's/^lane ([^ ]+) ([0-9a-f]+) .*/\1 \2/p')
+else
+  log "prune: ARM status unavailable; no ARM lane removed"
+fi
+
+# ================================================================ branch hygiene (the owner, 2026-10-05 and 2026-11-08 20:32):
+# a landed branch leaves origin at its landing; a cloud twin's report is archived first (the branch is its only copy).
+step "hygiene: delete landed branches on origin; archive and delete their cloud twins"
+ARCH=$HOME/reports/theseus-105-kickoff/cloud-reports
+for i in "${!LOADED_IDS[@]}"; do
+  br=${LOADED_BRS[$i]}
+  if git merge-base --is-ancestor "origin/$br" "$HEAD_SHA" 2>/dev/null; then
+    git push -q origin --delete "$br" 2>>"$LOG" && log "hygiene: deleted origin/$br (landed)" || log "hygiene: could not delete origin/$br"
+  fi
+  cb="cloud/p5-${br#p5/}"
+  if git rev-parse -q --verify "origin/$cb" >/dev/null 2>&1; then
+    slug=${br#p5/}; d=$ARCH/$slug; mkdir -p "$d"
+    git show "origin/$cb:CLOUD_TASK.md" > "$d/CLOUD_TASK.md" 2>/dev/null || true
+    git show "origin/$cb:CLOUD_REPORT.md" > "$d/CLOUD_REPORT.md" 2>/dev/null || true
+    git log --format='%H %G? %cd %s' --date=iso "origin/main..origin/$cb" > "$d/commits.txt" 2>/dev/null || true
+    echo "$(git rev-parse "origin/$cb") $cb archived $(date '+%F %T') by depart.sh" >> "$ARCH/INDEX.txt"
+    git update-ref "refs/archive/cloud/$slug" "origin/$cb"
+    git push -q origin --delete "$cb" 2>>"$LOG" && log "hygiene: archived $cb to $d and refs/archive/cloud/$slug, deleted on origin" || log "hygiene: archived $cb; could not delete it on origin"
+  fi
+done
+
+# THE SLUG-MATCHED BLOCK ABOVE CANNOT SEE TWO SHAPES, and both leave a cloud branch alive on origin after its
+# work is on main (b7-reharvest-cloud-twin-orphan, measured 2026-11-13): work re-cut during a harvest lands
+# under a VARIANT slug (`-six`, `-quiet-take`, `-r2`), so `cb` names a branch that never existed; and `cb` is
+# hardcoded to `cloud/p5-`, so nothing in the p6 namespace has ever matched. 28 of the 31 `origin/cloud/p6-*`
+# branches that are back have landed and are still on origin, 7 of them under a `-r2` variant.
+# cloud-twin-hygiene.sh sweeps on the LANDED WORK instead, using character-for-character the predicate the two
+# harvest detectors use, so cleanup and suppression cannot drift apart again.
+# IT IS DRY BY DEFAULT. Arm it by creating the flag file; until then it only reports what it would do:
+#   touch ~/reports/theseus-105-kickoff/logistics/cloud-twin-hygiene.armed
+# When it is armed the slug-matched block above becomes redundant (the sweep is a strict superset of it) and
+# can be deleted. It is left in place until then so that arming is the only change in behaviour.
+TWINHYG=$HOME/reports/theseus-105-kickoff/logistics/cloud-twin-hygiene.sh
+if [ -x "$TWINHYG" ]; then
+  if [ -f "$HOME/reports/theseus-105-kickoff/logistics/cloud-twin-hygiene.armed" ]; then thdry=""; else thdry="--dry-run"; fi
+  while IFS= read -r l; do log "hygiene: twin-sweep${thdry:+ (dry)}: $l"; done \
+    < <(MAIN="$HEAD_SHA" bash "$TWINHYG" $thdry 2>&1 | grep -vE '^pending ' || true)
+else
+  log "hygiene: twin-sweep skipped ($TWINHYG is not executable)"
+fi
+git fetch -q --prune origin 2>/dev/null || true
+
+# ================================================================ manifest, history, the rule
+step "manifest: $MANIFEST"
+manifest_init "$MANIFEST"
+for i in "${!LOADED_IDS[@]}"; do
+  id=${LOADED_IDS[$i]}; rep=$(manifest_get "$MANIFEST" "$id" report); wmin=""
+  if [ -n "$rep" ] && re=$(date -d "$rep" +%s 2>/dev/null); then wmin=$(( (CUT_EPOCH - re) / 60 )); [ "$wmin" -lt 0 ] && wmin=0; fi
+  manifest_upsert "$MANIFEST" "$id" "branch=${LOADED_BRS[$i]}" "head=${LOADED_HEADS[$i]}" "departure=$CUTOFF" \
+    "arm_gate=$ARM_GATE" "landed=${HEAD_SHA:0:8}" "pruned=yes" "wait_min=$wmin" "wall_min=$WALL" "fleet_gate=$FLEET_GATE"
+  log "manifest: $id landed ${HEAD_SHA:0:8} (wait ${wmin:-?} min, wall $WALL min)"
+done
+[ -z "$OVER_FLAKE" ] || log "pushed over known flake: $OVER_FLAKE"
+history_append "$(date '+%F %T')" "$(IFS=,; echo "${LOADED_IDS[*]}")" "$WALL" "$VERDICT" "$WAITING" "$FLEET_GATE"
+recommend "$VERDICT" "$WALL" "$WAITING"
+log "landed: ${LOADED_IDS[*]} at ${HEAD_SHA:0:8}; dropped: ${DROPPED[*]:-none}"
+# B7 open #16 (2026-11-10): A LANDING IS NOT A STOP. This line used to exit 3, the same code every refusal above
+# uses, so a departure that pushed fifteen branches and filed a flake note was indistinguishable from one that
+# never cut a tree -- and `systemctl --user list-units --state=failed` named depart.service after the 09:00
+# departure landed at 12889bcf. That is the same disease as the nine silent hours of 00:30-08:30: a surface that
+# cannot tell landed from stopped. Exit 4 means LANDED, and a human still has a page to read. Every `exit 3` in
+# this script is now reachable only with LANDED=0, so 3 means exactly "nothing landed".
+if [ "$PAGED" = 1 ]; then
+  log "exit 4: LANDED ${HEAD_SHA:0:8} and filed a page (${VERDICT:-landed}) -- a landing with something to read, not a stop"
+  exit 4
+fi
+exit 0

@@ -8,7 +8,7 @@ _Updated 2026-11-13 21:3x MST. Version 1.0.5 (v1 patch5), tagged `release-1.0.5`
 
 **Self-improvement (RSI):** [the plan](design/rsi-plan.md) for Theseus to build its own code, yardsticks and backlog: act first and tell the owner after, inside a hard keel that still needs his yes; loop 1, the nightly dream, switched on for v1 on 2026-10-18 ([PDF](design/rsi-plan.pdf)).
 
-**The killer features:** [one page](design/killer-features.md) with a short section per feature (speed, self-improvement, parallel tool calls, task horizons, memory, personality, remote runtimes, speculation, Discord), each linking its plan ([PDF](design/killer-features.pdf)).
+**The killer features:** [one page](design/killer-features.md): for each feature, the sentence a developer would repeat and where it stands.
 
 **Remote runtimes:** [the design](design/remote-runtimes.md) for the CLI, the daemon and the index each on its own machine, over TLS 1.3 with mTLS, off by default; decided, and planned after v1 ([PDF](design/remote-runtimes.pdf)).
 

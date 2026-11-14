@@ -167,22 +167,53 @@ impl ContentItem {
     ///    `task.create` is refused outright (`policy/modes.rs`'s
     ///    `content_refusal`, `content::local_read`) no child is created at
     ///    all; where it is not, the child is labelled. The channel here is
-    ///    closed the same way, by the same ruling: **a session carrying
-    ///    `injection` does not read a granted repository's instruction file
-    ///    that has CHANGED since the owner last read it** -- the new text is
-    ///    named and held until he says yes, whatever `[project] on_change`
-    ///    is set to (`project_context::change`). **Where it is weaker, and
-    ///    this is said rather than glossed:** a brief is written by Theseus
-    ///    itself, a repository by whoever wrote it; the grant is given to a
-    ///    canonical root once and covers its files as they change
-    ///    (`project_context::trust`, "notify rather than ask"); and the hold
-    ///    is keyed on the *reading* session's label, not on who wrote the
-    ///    file, which cannot be known. So text written by a session that was
-    ///    never labelled still arrives unheld. Asking the injection question
-    ///    here would not close that remainder either -- it would answer yes
-    ///    on the honest files too. What fits it is the tool floor, which is
-    ///    an open owner question on theseus-3i6d1's `theseus.toml` line and
-    ///    is **not** settled here.
+    ///    closed the same way, by the same ruling, and by **two keys**
+    ///    (`project_context::change`):
+    ///    - the **reader** key: a session carrying `injection` does not read
+    ///      a granted repository's instruction file that has CHANGED since
+    ///      the owner last read it -- the new text is named and held until
+    ///      he says yes, whatever `[project] on_change` is set to;
+    ///    - the **writer** key: a SWEPT file of a granted repository that
+    ///      moved while a labelled session's ACTING call ran is held for
+    ///      **every** session, clean ones included, until he says yes. It
+    ///      does not know who wrote, and does not need to: the daemon is
+    ///      present at the moment of the call, so the file is treated as
+    ///      that call's. It covers a shell write as surely as a file tool's,
+    ///      and a call the operator confirmed as surely as one that ran
+    ///      straight off the gate; every granted repository is swept, not
+    ///      only the one the session is working in; and the hold is stored,
+    ///      so a restart is not a release. **Swept** is the load-bearing
+    ///      word: it is the files of the owner's stored sighting of each
+    ///      granted repository, plus the chain from the session's own
+    ///      repository root down to its own directory -- not a walk of a
+    ///      granted root (`project_context::change::swept`).
+    ///
+    ///    The reader key alone would have left the case the ruling actually
+    ///    names -- a labelled session edits the file and a CLEAN session
+    ///    opens next, carrying the new text with no warning on it.
+    ///
+    ///    **Where it is still weaker, and this is said rather than
+    ///    glossed:** a brief is written by Theseus itself, a repository by
+    ///    whoever wrote it; the grant is given to a canonical root once and
+    ///    covers its files as they change (`project_context::trust`,
+    ///    "notify rather than ask"); and three writes reach no key at all --
+    ///    any instruction file that is in NEITHER swept set, meaning neither
+    ///    in a granted repository's currently-stored sighting nor on the
+    ///    chain from the session's own root to its own directory, whether it
+    ///    was created or merely changed and whether or not its directory has
+    ///    ever been compiled in (the one bypass found in review that is
+    ///    still open; it covers a granted repository nobody has opened a
+    ///    session in, whose own `AGENTS.md` is unswept and arrives with no
+    ///    "changed" notice at all, and a file the owner HAS read that an
+    ///    ordinary compile elsewhere in the same repository evicted from the
+    ///    sighting -- `project_context::change::wrote`, item 1, states both
+    ///    in full), a background job's write that lands after its own call
+    ///    returned, and text written by a session that was never labelled at
+    ///    all. Asking the injection question here
+    ///    would not close that remainder either -- it would answer yes on
+    ///    the honest files too. What fits it is the tool floor, which is an
+    ///    open owner question on theseus-3i6d1's `theseus.toml` line and is
+    ///    **not** settled here.
     /// 4. **Asking it at the grant instead is the same question moved.** It
     ///    would let a model veto a grant the owner is making deliberately, at
     ///    the same false-positive rate, for the same reason.

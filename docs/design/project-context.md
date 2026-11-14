@@ -237,12 +237,19 @@ repository that merely happens to be on disk, and the default refuses it for exa
 that reason.
 
 **One narrowing of that trade, added by S31-1.** The label can still never fire on block 3
-text, and nothing below changes that. What changed is what a *labelled session* reads: if
-the session carrying `injection` compiles a granted repository whose instruction file has
-changed since the owner last read it, **the new text is named and not read until he says
-yes**, whatever `[project] on_change` is set to. So the text the owner granted is still
-carried, and a change made after he looked is not carried into a session that something
-has already tried to steer. See "After a grant" below.
+text, and nothing below changes that. What changed is what a CHANGE to a granted file
+reaches, and it changed in two ways. If a session carrying `injection` compiles a granted
+repository whose instruction file has changed since the owner last read it, **the new
+text is named and not read until he says yes**, whatever `[project] on_change` is set to.
+And if such a file moves **while a labelled session's acting call runs**, the new text is
+held out of **every** session's block — clean ones included — until he says yes, in any
+granted repository and not only the one that session is working in. So the text the owner
+granted is still carried; a change made after he looked is not carried into a session
+something has already tried to steer, and a change made *by* such a session is not
+carried into the clean session that opens next. Which files that sweep actually compares,
+and the writes it does not reach — not one write, as this line said until the fourth round
+of review, but a rule with three known cases and two further writes beside it — are in
+"After a grant" below.
 
 ### Trusted is still fenced
 
@@ -325,12 +332,83 @@ text waits, the unchanged files beside it are carried as before, what he last re
 not move forward, and `untrust` then `trust` is the yes that releases it. Only the
 sentence in the block differs, because the reason differs.
 
-The hold is keyed on the label of the session **reading** the file, not on who wrote it,
-because who wrote it cannot be known: a grant covers a canonical root's files as they
-change, and the writer may be a person, another tool, or a `git pull`. So this closes the
-case where a steered session's own edit comes back to it as an instruction, and it does
-not close the case where an unlabelled session writes the file. What fits that remainder
-is the tool floor, which is a separate and still-open question.
+**There are two keys, and the second is the one the owner's ruling names.** The first is
+the paragraph above: the label of the session **reading** the file. It closes the case
+where a steered session's own edit comes back to it as an instruction. On its own it
+leaves the case that matters more — a labelled session EDITS the file and the next
+session to open in that repository is CLEAN, so nothing holds the new text for it.
+
+The second key is the **writer** key, and it works without knowing who wrote. A later
+comparison of stored digests cannot say whose hand moved a file; but the daemon is
+present at the moment of every acting call, and a file that moved while a labelled
+session's acting call ran is treated as that call's. After each acting call of such a
+session — a file tool, a program, anything that is not a local read, and whether the
+call ran straight off the gate or after the operator confirmed it — **every** granted
+repository's swept files are compared with their stored sightings, and one that moved is
+**held for every session** until the owner grants that repository again. That covers a
+shell write as surely as `fs.write`, which is the property that matters, and the hold is
+a stored record rather than a daemon's memory, so a restart does not launder it. The
+ledger row names the session whose call it moved under.
+
+**A repository's swept files are not all the files under its root.** They are the union
+of two sets: the files the owner's stored sighting of that repository already names, and
+— for the repository the session is actually working in — the chain from its root down
+to the session's own directory. **Together they are still not every file a grant covers
+that anything has ever looked at**, which is what this note claimed until the fourth round
+of review. A sighting is stored per repository but taken from whichever directory the
+compiling session was in, and it replaces its predecessor — so a file the owner has read
+falls out of it the next time an ordinary clean session opens elsewhere in the same
+repository. And a granted repository no session has ever been opened in has no stored
+sighting at all. The union is reached without walking the repository, which would make the
+cost of an acting call scale with the size of the tree rather than with the grant.
+
+It errs the safe way where it is imprecise. A file that moved under such a call for an
+unrelated reason — a `git pull` in another terminal — is held too; the cost of that is
+one re-grant. A file the call created is held where it is swept; a file it deleted is
+named, and there is no new text to hold. A held file the owner then edits himself stays
+held, because nothing here can tell his hand from another write and the repository is
+what he re-reads when he re-grants. A granted repository whose root is not a directory
+right now — an unmounted disk — is skipped rather than held as one whose every file went
+away.
+
+**What neither key closes**, listed in full because a design note that overstates a
+containment is worse than none:
+
+1. **Any instruction file that is neither in a granted repository's currently-stored
+   sighting nor on the chain from the session's own repository root to its own working
+   directory** — whether it was created or merely changed, and whether or not its
+   directory has ever been compiled in. It is in neither swept set, so no sweep sees it,
+   and the first clean session to open where it lives carries it. This is the one of the
+   three bypasses found in review that is still open, and it is open deliberately:
+   closing it means walking a granted root on every acting call.
+
+   **It is wider than "a brand-new file in a directory nobody has opened"**, which is how
+   this note stated it until the third round of review, and two of its cases are ones that
+   wording excluded. **A granted repository no session has ever been opened in:** the grant
+   stores no sighting, and the repository is not the session's own, so both halves of the
+   swept set are empty and the repository's own `AGENTS.md` — the very file the grant was
+   given for — is unswept. Nothing was created and nothing is undiscovered; the repository
+   was simply never opened. It arrives with **no "changed" notice at all**, because a
+   repository's first sighting is not a diff — which is quieter than the new-file case,
+   and that at least produces a row. **A file the owner has already read, in a directory he
+   has already worked in:** a sighting is stored per repository but taken from whichever
+   directory the compiling session was in, and it replaces its predecessor, so an ordinary
+   clean session opening elsewhere in the same repository evicts that file from it, and
+   from then on it is in neither set. Nothing adversarial causes the eviction — ordinary
+   use does.
+
+   Closing it cheaply instead — by letting a compile that discovers a *new* instruction
+   file ask whether a labelled session acted in that repository since the owner last read
+   it — is the shape to weigh, and it is not built here. That shape closes the evicted-file
+   case but **not** the never-opened-repository case: a repository with no stored sighting
+   produces no diff at all, so nothing in it is ever *new*, and "acted in that repository"
+   is the wrong key when the labelled session acted in a different granted one. The part to
+   build first is accumulating a repository's discovered paths rather than replacing them,
+   which closes the eviction and is also what makes *new* mean something.
+2. A **background job that writes after its own call has returned**. The next acting call
+   of that session catches it; a clean session that opens before then does not.
+3. Text written by a session that was **never labelled at all**. What fits that is the
+   tool floor, which is a separate and still-open question.
 
 ### How the owner sees it
 
@@ -425,10 +503,22 @@ agent. That and a grant from chat validated as the owner are tracked as `theseus
 "After a grant" is **built** (2026-11-13, above): the change is named in the block, it is one
 `project.changed` row a file, and `[project] on_change = "ask"` turns the notice into an ask. What
 remains open under it is the live proof of (1) — a real edit to a real granted repository, seen in a
-real recompile — and **the residual risk, which this does not close and cannot**: text written into
-a granted repository's file by an unfrozen session at notify posture is never asked the injection
-question, because block 3 is assembled text and no node, so no content label can be raised on it
-(`judge/content.rs`, "A granted repository's instruction text is no item, on purpose"). Naming the
-change does not stop such a write; it is what gives the owner a chance to *see* one, which is why
-this half of §8 matters more than its size suggests. Closing it would mean labelling block 3's
-project text, which is a different design.
+real recompile. **The residual risk is narrower than this paragraph used to say, though not as
+narrow as §8's item 1 said until round 3.** It remains true
+that block 3 is assembled text and no node, so no content label can ever be raised on it
+(`judge/content.rs`, "A granted repository's instruction text is no item, on purpose"), and nothing
+asks the injection question of a granted file. What has changed is that the question no longer has
+to be asked to contain the write: a **swept** file of any granted repository that moves under the
+acting call of a session already carrying `injection` is held out of **every** session's block
+until the owner says yes (S31-1, the writer key), and a changed file read by a labelled session is
+held for that session (the reader key). What is left is three writes: any instruction file that is
+neither in a granted repository's currently-stored sighting nor on the chain from the session's own
+repository root to its own working directory — created or merely changed, its directory compiled in
+or not, which includes a granted repository nobody has ever opened a session in and a file the owner
+has read that an ordinary compile elsewhere in the same repository evicted from the sighting; a
+background job whose write lands after its own call returned; and a write by a session that was
+never labelled. Closing the last would mean labelling block 3's project text, which is a different
+design; closing the first means either walking a granted root on every acting call, or accumulating
+a repository's discovered paths rather than replacing them and then asking — when a compile
+discovers a *new* instruction file — whether a labelled session acted in that repository since the
+owner last read it. Neither is built, and §8's item 1 states the two excluded cases in full.

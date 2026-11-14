@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# arm-reach.sh -- is the M1 Max reachable right now, and since when was it not?
+# (the factory-four worker, 2026-11-13; b7-arm-reachability-watch)
+#
+# WHY THIS EXISTS. ARM reachability was only ever tested by a cut that needed it: `arm.sh send` would fail at
+# 01:00 and the departure discovered, at the moment it needed a second host, that the host had been down for
+# hours. Nothing on main watched it. This is the boring watcher that answers the two questions a conductor
+# actually asks -- "is it up" and "since when was it not" -- and it answers them from a recorded history
+# rather than from a probe taken at the instant of asking.
+#
+# WHAT IT IS NOT. It is not a notification channel and not a daemon. It has no loop: one `probe` writes one
+# line, and a systemd USER TIMER (arm-reach.timer, beside this file, NOT installed) is what makes it periodic.
+# It never pages, never messages, never writes to depart.log, and never touches a lane.
+#
+#   arm-reach.sh probe        one attempt; appends one line to reach.log; prints that line. Exit 0 always.
+#   arm-reach.sh status       ONE line for a conductor, in conductor-liveness.sh's shape. Exit 0 always.
+#                               OK ARM arm-host.example reachable, up since <stamp> (<n> consecutive probes)
+#                               DOWN ARM arm-host.example unreachable for <n> min, since <stamp> (<reason>)
+#                               AUTH ARM arm-host.example answering but refusing our key for <n> min, ...
+#                               UNKNOWN no probe recorded yet (enable arm-reach.timer)
+#
+# THREE STATES, NOT TWO, and the third was found by running this once. The first live probe answered
+# `Permission denied (publickey,password)` -- because arm.sh sources ~/.keychain/<this-host>-sh for its agent
+# and this script did not. A host that refuses a key has ANSWERED: it is up, listening and almost certainly
+# fine, and reporting it as "unreachable for 3 hours" would send a conductor hunting a dead machine that is
+# alive. So an auth failure is its own state (`auth`), and only a refused, timed-out or unroutable connection
+# is `down`. The keychain is now sourced exactly as arm.sh sources it, so `auth` should be rare -- and when it
+# appears it means the agent died on THIS machine, which is a different repair from a dead host.
+#   arm-reach.sh history [N]  the last N (default 20) records, newest last
+#
+# reach.log is TSV, append-only, one line per probe, and is the whole state:
+#   epoch <TAB> iso-local <TAB> up|down <TAB> rtt_ms|reason
+# "since when" is derived by walking back to the first record of the current run, so a restart of the timer or
+# a reboot of this machine loses nothing a conductor needs.
+set -u
+# The agent arm.sh uses. Sourced the same way, and its failure is not fatal: a missing agent shows up as the
+# `auth` state below rather than as a silent "host is down".
+. "$HOME/.keychain/<this-host>-sh" > /dev/null 2>&1 || true
+HOST=${ARM_REACH_HOST:-user@arm-host.example}
+ADDR=${HOST#*@}
+LOG=${ARM_REACH_LOG:-$(cd "$(dirname "$0")" && pwd)/reach.log}
+TIMEOUT=${ARM_REACH_TIMEOUT:-10}
+
+probe() {
+  local t0 t1 rtt out rc now iso
+  now=$(date +%s); iso=$(TZ=America/Phoenix date -d "@$now" '+%F %H:%M:%S')
+  t0=$(date +%s%3N)
+  # The same reachability `arm.sh` itself needs: a BatchMode ssh that runs one trivial command. A host that
+  # answers ping but will not take an ssh session is NOT usable by a cut, so ping is not the test.
+  if out=$(ssh -o BatchMode=yes -o ConnectTimeout="$TIMEOUT" -o StrictHostKeyChecking=accept-new \
+             "$HOST" 'echo ok' 2>&1); then rc=0; else rc=$?; fi
+  t1=$(date +%s%3N); rtt=$((t1 - t0))
+  if [ "$rc" = 0 ] && [ "${out%$'\n'}" = ok ]; then
+    printf '%s\t%s\t%s\t%s\n' "$now" "$iso" up "$rtt" | tee -a "$LOG"
+    return
+  fi
+  # The reason is kept to one short field so the log stays greppable; ssh's own first line is the useful part.
+  local why state; why=$(printf '%s' "$out" | head -1 | tr '\t\n' '  ' | cut -c1-90)
+  case $out in
+    *"Permission denied"*|*"Host key verification failed"*|*"Too many authentication failures"*|*"no matching host key"*)
+      state=auth ;;   # it ANSWERED; the fault is this machine's credential, not the host's health
+    *) state=down ;;  # refused, timed out, no route, name not resolving: a cut cannot use it
+  esac
+  printf '%s\t%s\t%s\t%s\n' "$now" "$iso" "$state" "rc=$rc ${why:-no output}" | tee -a "$LOG"
+}
+
+status() {
+  [ -s "$LOG" ] || { echo "UNKNOWN no probe recorded yet in $LOG (enable arm-reach.timer)"; return 0; }
+  local last_state last_epoch since_iso since_epoch n reason
+  # ONE pass. Walk back to the first record of the CURRENT run of the last state -- that is "since when".
+  # Fields come back separated by a vertical bar because the iso stamp itself contains a space.
+  IFS='|' read -r last_state last_epoch since_epoch since_iso n reason < <(awk -F'\t' '
+    { e[NR]=$1; i[NR]=$2; st[NR]=$3; r[NR]=$4 }
+    END { if (NR==0) exit 1; s=st[NR]; k=NR; while (k>1 && st[k-1]==s) k--;
+          print s"|"e[NR]"|"e[k]"|"i[k]"|"(NR-k+1)"|"r[k] }
+  ' "$LOG")
+  [ -n "${last_state:-}" ] || { echo "UNKNOWN $LOG has no readable record"; return 0; }
+  local mins=$(( ( $(date +%s) - since_epoch ) / 60 ))
+  local stale=$(( ( $(date +%s) - last_epoch ) / 60 ))
+  local tail=""
+  # A watcher whose own probes have stopped must say so, or "up since" is a lie told by a dead timer.
+  [ "$stale" -le 15 ] || tail=" [STALE: last probe ${stale} min ago; is arm-reach.timer running?]"
+  case $last_state in
+    up)   echo "OK ARM $ADDR reachable, up since $since_iso MST (${mins} min, $n consecutive probes)$tail" ;;
+    auth) echo "AUTH ARM $ADDR answering but refusing our key for ${mins} min, since $since_iso MST ($n probes; $reason) -- the host is UP; the ssh agent on this machine is the fault$tail" ;;
+    *)    echo "DOWN ARM $ADDR unreachable for ${mins} min, since $since_iso MST ($n probes; $reason)$tail" ;;
+  esac
+}
+
+case ${1:-status} in
+  probe)   probe ;;
+  status)  status ;;
+  history) tail -n "${2:-20}" "$LOG" 2>/dev/null || echo "no $LOG yet" ;;
+  *) sed -n '2,/^set -u/{/^set -u/!p}' "$0"; exit 2 ;;
+esac
+exit 0

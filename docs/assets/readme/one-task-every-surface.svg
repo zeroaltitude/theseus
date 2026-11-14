@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" width="960" height="380" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">One task on every surface</title>
+  <desc id="d">A task in the middle, joined to Discord, the terminal, the cockpit and a voice call. Its question is asked on every surface at once and one answer clears it everywhere. It survives a kill, a reboot and an upgrade.</desc>
+  <rect width="960" height="380" rx="16" fill="#13314d"/>
+  <g fill="#e9c97f">
+    <circle cx="96" cy="40" r="2"/><circle cx="318" cy="52" r="1.6"/><circle cx="472" cy="30" r="2.2"/>
+    <circle cx="640" cy="58" r="1.5"/><circle cx="866" cy="36" r="2"/><circle cx="930" cy="150" r="1.5"/><circle cx="30" cy="170" r="1.6"/>
+  </g>
+  <!-- the sea -->
+  <path d="M6 292 h948 v70 a12 12 0 0 1 -12 12 h-924 a12 12 0 0 1 -12 -12 z" fill="#173c5f"/>
+    <g fill="none" stroke-width="3" stroke-linecap="round">
+    <path d="M6 300 q20 -10 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t28 0" stroke="#5aa0b4"/>
+    <path d="M6 366 q20 -10 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t28 0" stroke="#336f84"/>
+  </g>
+  <!-- lines from the surfaces to the task -->
+  <g fill="none" stroke="#d6a548" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round">
+    <path d="M262 92 C310 92 300 150 344 150"/>
+    <path d="M262 232 C310 232 300 190 344 190"/>
+    <path d="M698 92 C650 92 660 150 616 150"/>
+    <path d="M698 232 C650 232 660 190 616 190"/>
+  </g>
+  <!-- the four surfaces -->
+  <g>
+    <g stroke="#13314d" stroke-width="1.5">
+      <rect x="52" y="60" width="210" height="64" rx="8" fill="#efe3c8"/>
+      <rect x="52" y="200" width="210" height="64" rx="8" fill="#e8dbbd"/>
+      <rect x="698" y="60" width="210" height="64" rx="8" fill="#e8dbbd"/>
+      <rect x="698" y="200" width="210" height="64" rx="8" fill="#efe3c8"/>
+    </g>
+    <g fill="#13314d" text-anchor="middle">
+      <text x="157" y="88" font-size="18" font-weight="700">Discord</text>
+      <text x="157" y="109" font-size="13">a post per task, a live card</text>
+      <text x="157" y="228" font-size="18" font-weight="700">Terminal</text>
+      <text x="157" y="249" font-size="13">theseus watch, theseus answer</text>
+      <text x="803" y="88" font-size="18" font-weight="700">Cockpit</text>
+      <text x="803" y="109" font-size="13">the Tasks page, in a browser</text>
+      <text x="803" y="228" font-size="18" font-weight="700">Voice call</text>
+      <text x="803" y="249" font-size="13">a spoken "approve"</text>
+    </g>
+  </g>
+  <!-- the task -->
+  <rect x="344" y="98" width="272" height="144" rx="10" fill="#efe3c8" stroke="#d6a548" stroke-width="3"/>
+  <g text-anchor="middle">
+    <text x="480" y="130" font-size="20" font-weight="700" fill="#13314d" font-family="Georgia, 'Times New Roman', serif" letter-spacing="2">ONE TASK</text>
+    <text x="480" y="152" font-size="13" fill="#13314d">a record on disk, not a process</text>
+    <g font-size="13" font-weight="600">
+      <rect x="362" y="170" width="74" height="26" rx="13" fill="#13314d"/>
+      <text x="399" y="188" fill="#efe3c8">working</text>
+      <rect x="443" y="170" width="84" height="26" rx="13" fill="#e2ae4f" stroke="#9c6f23"/>
+      <text x="485" y="188" fill="#13314d">needs you</text>
+      <rect x="534" y="170" width="64" height="26" rx="13" fill="#13314d"/>
+      <text x="566" y="188" fill="#efe3c8">done</text>
+    </g>
+    <text x="480" y="224" font-size="13" fill="#13314d">sleeps until it is due; thousands can wait</text>
+  </g>
+  <g text-anchor="middle" fill="#efe3c8">
+    <text x="480" y="326" font-size="16" font-weight="600">A question is asked on every surface at once. One answer clears it everywhere.</text>
+    <text x="480" y="349" font-size="14" fill-opacity="0.85">The task survives a kill, a reboot and an upgrade.</text>
+  </g>
+  <rect x="5" y="5" width="950" height="370" rx="12" fill="none" stroke="#d6a548" stroke-width="2"/>
+</svg>

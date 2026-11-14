@@ -11,7 +11,7 @@ Five other documents go deeper, and this page links to them rather than repeatin
 - [`scripts/AGENTS.md`](../scripts/AGENTS.md): the scripts, and the gate's phases in order;
 - [`scripts/RELEASES.md`](../scripts/RELEASES.md): the pinned toolchain, the build script and the release profiles,
   the reproducibility check, the installed service, the smokes, and the build host — moved out of
-  `scripts/AGENTS.md` on 2026-11-10 (theseus-4vsrz), verbatim, to get that file back under the context loader's
+  `scripts/AGENTS.md` on 2026-11-10, verbatim, to get that file back under the context loader's
   64 KiB ceiling;
 - [`scripts/GATE.md`](../scripts/GATE.md): running the gate on a busy machine — the disk floor, the shared lock,
   the bench busy allowance, and how long it takes — moved out of the same file on the same day, the same way;
@@ -20,31 +20,30 @@ Five other documents go deeper, and this page links to them rather than repeatin
 ## Contents
 
 1. [The shape of the work](#the-shape-of-the-work)
-2. [Tracking: Beads](#tracking-beads)
-3. [Where work happens](#where-work-happens)
-4. [Proof: what every change carries](#proof-what-every-change-carries)
-5. [The gate](#the-gate)
-6. [The keel](#the-keel)
-7. [Shape: files and functions](#shape-files-and-functions)
-8. [Review](#review)
-9. [Joins](#joins)
-10. [Installing](#installing)
-11. [Version cuts and releases](#version-cuts-and-releases)
-12. [Budgets the code is held to](#budgets-the-code-is-held-to)
-13. [The store's format](#the-stores-format)
-14. [Configuration changes](#configuration-changes)
-15. [Self-improvement](#self-improvement)
-16. [Branch hygiene](#branch-hygiene)
-17. [Benchmarks](#benchmarks)
-18. [The docs that move with the code](#the-docs-that-move-with-the-code)
-19. [Commits](#commits)
-20. [Models and roles](#models-and-roles)
+2. [Where work happens](#where-work-happens)
+3. [Proof: what every change carries](#proof-what-every-change-carries)
+4. [The gate](#the-gate)
+5. [The keel](#the-keel)
+6. [Shape: files and functions](#shape-files-and-functions)
+7. [Review](#review)
+8. [Joins](#joins)
+9. [Installing](#installing)
+10. [Version cuts and releases](#version-cuts-and-releases)
+11. [Budgets the code is held to](#budgets-the-code-is-held-to)
+12. [The store's format](#the-stores-format)
+13. [Configuration changes](#configuration-changes)
+14. [Self-improvement](#self-improvement)
+15. [Branch hygiene](#branch-hygiene)
+16. [Benchmarks](#benchmarks)
+17. [The docs that move with the code](#the-docs-that-move-with-the-code)
+18. [Commits](#commits)
+19. [Models and roles](#models-and-roles)
 
 ## The shape of the work
 
 ```text
  issue ──► branch ──► gate ──► review ──► join ──► main's gate ──► push ──► install ──► docs
- (Beads)    │          (no      │          (plain    (with the       (never
+            │          (no      │          (plain    (with the       (never
             │          benches) │          merge)    benches)        forced)
    lane, cloud row,        written review, planted
    or self branch          revert, live check
@@ -59,23 +58,6 @@ Five other documents go deeper, and this page links to them rather than repeatin
 - **The owner decides the keel; everything else acts, then tells.** Some changes need the owner's signed yes:
   deleting or loosening a test, budget or ceiling; a one-way store change; a security, policy or spend change.
   Everything else is built, gated, joined and installed, and the owner is told afterwards what changed.
-
-## Tracking: Beads
-
-The work is tracked in Beads (`bd`), with ids `theseus-<id>`. Its database is in the main checkout's `.beads/`, and
-`bd` works from any worktree.
-
-- **Every issue has an owner from the moment it is created.** An unowned issue invites two agents to start the same
-  work.
-- **Claim before you work**, with `bd update <id> --claim`. It is a compare-and-set: exit 0 means the issue is yours.
-  A nonzero exit means someone else holds it, so stop and do nothing for it.
-- **Read the notes first** (`bd show <id>`). The title is not the state: an issue can read `open` and already be done.
-- **Append to notes, never replace them**: `bd update <id> --append-notes "<text>"`. The `--notes` flag overwrites.
-- **Check the branch namespace too** before starting. A branch that already names the id means the work has begun.
-- **Ids everywhere.** Commits, briefs, Part III items and reports name their issue by id, so every artefact leads back
-  to its issue.
-- **Keep the status true**: `in_progress` while executing, `waiting_for_user` while the owner holds the issue, and
-  closed when it is done.
 
 ## Where work happens
 
@@ -113,7 +95,7 @@ A cloud row is one piece of work done by a cloud coding session on its own branc
 named commit of `main`.
 
 - **The task is the branch's first commit**, `CLOUD_TASK.md`. It holds:
-  - the issue and the files in play;
+  - the task and the files in play;
   - the acceptance tests and the planted reverts to make;
   - where `main` is: its commit, store format, and the long-file ceilings at that commit;
   - the sibling rows of the same batch, and which files each one owns;
@@ -237,7 +219,7 @@ judges the net change of the range against `main`. It reports each erosion as `p
 | `sealed-reach` | Code outside the sealed scorer's own files that names the sealed holdout sets |
 | `locked-flow` | The owner-locked Discord DM task flow changed: a golden under `crates/theseus-discord/src/golden/` edited or removed. The trailer quotes his OK for that change |
 
-**Two halves, and a brief must say which it means (theseus-4vsrz).** The table above mixes them, and the confusion
+**Two halves, and a brief must say which it means.** The table above mixes them, and the confusion
 has cost a gate twice.
 
 - **(a) Where you edit: the guarded FILE list.** `KEEL_FILES`, `KEEL_PREFIXES` and `LOCKED_FLOW_PREFIXES` in
@@ -343,7 +325,7 @@ different model. Theseus's own branches must be reviewed on a different model.
 
 A review:
 
-- reads the diff whole, against the task and the issue's acceptance;
+- reads the diff whole, against the task and what it was meant to do;
 - reruns the row's own tests, and the touched crates' suites, on the branch merged onto today's `main`;
 - reruns the planted reverts and records each as caught or missed (Theseus's self-join does this in code, before any
   reviewer is paid);
@@ -355,7 +337,7 @@ A review:
 - writes a verdict first: `ACCEPT`, `ACCEPT WITH A JOIN FIX` (with the fix's text), or `REJECT`. The findings follow,
   and the live check to run after the install.
 
-A finding is either fixed before the join, or filed as its own issue with an owner.
+A finding is fixed before the join, or recorded as an issue.
 
 ## Joins
 
@@ -369,7 +351,7 @@ may join together as a batch, landed with one gate.
      joins would not be what was reviewed and gated, and the branch would no longer show as merged.
    - Resolve conflicts in the merge commit. Remove the cloud row's `CLOUD_TASK.md` and `CLOUD_REPORT.md` there too.
    - Anything more the join needs, such as a semantic fix the merge did not show, is a separate signed commit after it:
-     `join fix: <what> (<issue>)`.
+     `join fix: <what>`.
 3. **Regenerate, never hand-merge**: `Cargo.lock`, the generated TypeScript, and the shape marks.
 4. **Check what a clean merge can still break.** A textually clean merge has more than once quietly undone another
    branch's change. Warm the build first (build, test build, clippy), run each row's own tests on the merged tree, and
@@ -396,8 +378,7 @@ may join together as a batch, landed with one gate.
    push, redo the dry run, the merge and the gate.
 7. **Clean up.** Archive each joined branch's head (report commit included) to `refs/archive/<branch>`, then delete the
    branch, remote and local, together with its worktree and build directory.
-8. **Record.** Close the issue with the merge commit and the gate named, then install
-   ([Installing](#installing)) and write the docs commit for the step.
+8. **Record.** Install ([Installing](#installing)) and write the docs commit for the step.
 
 ## Installing
 

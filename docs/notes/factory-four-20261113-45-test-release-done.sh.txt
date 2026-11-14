@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# test-release-done.sh -- proof for b7-ec2-hold-not-released, with NO AWS CALL AND NO BOX.
+# (the factory-four worker, 2026-11-13)
+#
+# ec2.sh is a case-dispatch script, so it cannot be sourced as a library. This harness copies everything ABOVE
+# its dispatch line into a scratch file, sources that, and replaces the four things that touch the world --
+# W (ec2 api), WM (s3), SSM (on-box probe) and boxes (the fleet listing) -- with fixtures. The function bodies
+# under test are the real ones, byte for byte.
+#
+# Run: bash ~/reports/theseus-fleet/test-release-done.sh     (exit 0 = every case passed)
+set -u
+EC2=${EC2:-$HOME/reports/theseus-fleet/ec2.sh}
+LIB=$(mktemp /tmp/ec2-lib-XXXXXX.sh)
+sed -n '1,/^cmd=\${1:-}/p' "$EC2" | sed '$d' > "$LIB"
+grep -q 'release_done()' "$LIB" || { echo "harness: did not capture release_done; ec2.sh's shape changed"; exit 2; }
+# shellcheck disable=SC1090
+. "$LIB"
+
+# ---- the fixture world -----------------------------------------------------------------------------------
+# FIX_BOXES: one line per box, "id type az lane state launch" exactly as boxes() prints.
+# FIX_PROBE: what the on-box probe answers, "units=N idle=M" (or anything else, to test the refusal).
+# FIX_EXITS: "kind=state,kind=state" per lane -- the result objects in S3. Empty means the lane has none.
+DELETED=""
+boxes()  { printf '%s\n' "$FIX_BOXES"; }
+bucket() { echo "test-bucket"; }
+SSM()    { echo "(ssm header)"; echo "$FIX_PROBE"; }
+W() {   # only ec2 delete-tags is exercised; anything else is a harness bug
+  case "$*" in
+    *"delete-tags"*) for a in "$@"; do case $a in i-*) DELETED="$DELETED $a" ;; esac; done; return 0 ;;
+    *) echo "HARNESS: unexpected W $*" >&2; return 1 ;;
+  esac
+}
+WM() {  # s3 ls of a lane's results, and s3 cp of one .exit
+  case "$1 $2" in
+    "s3 ls")
+      local lane=${3%/}; lane=${lane##*/results/}
+      local spec=${FIX_EXITS[$lane]:-}
+      [ -n "$spec" ] || return 0
+      local kv; for kv in ${spec//,/ }; do echo "2026-11-13 09:00:00  12 ${kv%%=*}.exit"; done ;;
+    "s3 cp")
+      local p=${3#s3://test-bucket/fleet/results/}; local lane=${p%%/*}; local kind=${p#*/}; kind=${kind%.exit}
+      local kv; for kv in ${FIX_EXITS[$lane]:-}; do :; done
+      for kv in ${FIX_EXITS[$lane]//,/ }; do [ "${kv%%=*}" = "$kind" ] && { echo -n "${kv#*=}"; return 0; }; done
+      return 1 ;;
+    *) echo "HARNESS: unexpected WM $*" >&2; return 1 ;;
+  esac
+}
+
+declare -A FIX_EXITS=()
+pass=0; fail=0
+# release_done must NOT be run inside $( ), or its assignment to DELETED is lost to the subshell -- the same
+# shape of mistake as the `| head` exit-status trap FLEET.md section 3 records. Output goes to a file.
+OUT=$(mktemp /tmp/ec2-out-XXXXXX)
+check() {   # NAME EXPECT(released|kept) -- runs release_done all and looks at what was delete-tagged
+  local name=$1 expect=$2 out
+  DELETED=""
+  release_done all >"$OUT" 2>&1; local rc=$?
+  out=$(cat "$OUT")
+  local got=kept; [ -n "$DELETED" ] && got=released
+  if [ "$got" = "$expect" ]; then
+    pass=$((pass+1)); printf 'ok    %-56s %s\n' "$name" "$(printf '%s' "$out" | tail -1)"
+  else
+    fail=$((fail+1)); printf 'FAIL  %-56s expected %s, got %s (rc=%s)\n      %s\n' \
+      "$name" "$expect" "$got" "$rc" "$(printf '%s' "$out" | tail -1)"
+  fi
+}
+
+echo "RELEASE_GRACE=$RELEASE_GRACE  RELEASE_GRACE_DONE=$RELEASE_GRACE_DONE"
+echo
+
+FIX_BOXES="i-aaa c7i.8xlarge us-west-1a depart running 2026-11-13T09:00:00"
+
+# 1. THE DEFECT. The gate exited; the box is idle 3 minutes. Before this change the hold stood for 20 minutes
+#    and a departure asking for a second host was told there was none.
+FIX_PROBE="units=0 idle=3"; FIX_EXITS=([depart]="gate=0")
+check "observed exit, idle 3m           -> released (short grace)" released
+
+# 2. The back-to-back caller. precut-fleet.sh reads `result`, then starts `test` on the same lane seconds later.
+#    Inside the short grace the hold -- and the warm target/ -- stays its own.
+FIX_PROBE="units=0 idle=1"; FIX_EXITS=([depart]="gate=0")
+check "observed exit, idle 1m           -> kept (inside short grace)" kept
+
+# 3. A unit is still running. Nothing may release this, at any idleness.
+FIX_PROBE="units=1 idle=99"; FIX_EXITS=([depart]="gate=0")
+check "a unit is running                -> kept" kept
+
+# 4. One kind still says running, so the lane's finish is NOT observed: the long grace applies, exactly as before.
+FIX_PROBE="units=0 idle=5"; FIX_EXITS=([depart]="gate=0,test=running")
+check "one result still running, idle 5m -> kept (long grace)" kept
+FIX_PROBE="units=0 idle=25"; FIX_EXITS=([depart]="gate=0,test=running")
+check "one result still running, idle 25m-> released (long grace)" released
+
+# 5. No results at all in S3: finish unknown, long grace. This is the pre-change behaviour, unchanged.
+FIX_PROBE="units=0 idle=5";  FIX_EXITS=()
+check "no results, idle 5m              -> kept (long grace)" kept
+FIX_PROBE="units=0 idle=25"; FIX_EXITS=()
+check "no results, idle 25m             -> released (long grace)" released
+
+# 6. The timidity that was already there and must survive: an answer it cannot parse keeps the hold.
+FIX_PROBE="connection refused"; FIX_EXITS=([depart]="gate=0")
+check "unparseable SSM answer           -> kept" kept
+FIX_PROBE=""; FIX_EXITS=([depart]="gate=0")
+check "empty SSM answer                 -> kept" kept
+
+# 7. A free box is not a hold and is never touched.
+FIX_BOXES="i-bbb c7i.8xlarge us-west-1a None running 2026-11-13T09:00:00"
+FIX_PROBE="units=0 idle=99"; FIX_EXITS=()
+check "an unheld box                    -> kept (nothing to release)" kept
+
+# 8. A box that is not running yet cannot be probed and is left alone.
+FIX_BOXES="i-ccc c7i.8xlarge us-west-1a depart pending 2026-11-13T09:00:00"
+FIX_PROBE="units=0 idle=99"; FIX_EXITS=([depart]="gate=0")
+check "a pending box                    -> kept" kept
+
+# 9. release-done LANE still selects: a different lane's hold is not swept.
+FIX_BOXES="i-ddd c7i.8xlarge us-west-1a other running 2026-11-13T09:00:00"
+FIX_PROBE="units=0 idle=3"; FIX_EXITS=([other]="gate=0")
+DELETED=""; release_done depart >/dev/null 2>&1
+if [ -z "$DELETED" ]; then pass=$((pass+1)); printf 'ok    %-56s\n' "release_done LANE ignores another lane's hold"
+else fail=$((fail+1)); printf 'FAIL  %-56s swept %s\n' "release_done LANE ignores another lane's hold" "$DELETED"; fi
+
+rm -f "$LIB" "$OUT"
+echo
+echo "$pass passed, $fail failed"
+[ "$fail" = 0 ]

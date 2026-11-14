@@ -52,16 +52,22 @@ pub const BUILD_PIDS: u64 = 8192;
 /// What a self build's view grants that no other L1 job's does, and the
 /// whole of it (theseus-1eemp).
 ///
-/// **Measured, not guessed.** The 2026-11-11 08:43 self build was the first
-/// ever to reach the suite, and 123 of 9,819 tests failed, none of them the
-/// item's change. Classified by the error each printed:
+/// **Measured, not guessed** -- the failures and the error each printed
+/// were. The 2026-11-11 08:43 self build was the first ever to reach the
+/// suite, and 123 of 9,819 tests failed, none of them the item's change.
+/// Classified by the error each printed:
 ///
-/// | n | what it printed | granted by |
+/// | n | what it printed | the facility its error named |
 /// |---:|---|---|
 /// | 58 | `posix_openpt`/`openpty` → `ENOENT`: no `/dev/ptmx` | `pty` |
 /// | 49 | `cloning the init into its namespaces: EPERM`, our own filter | `nesting` |
 /// | 1 | `/dev/full` → `NotFound`, on a host that has it | `devices` |
 /// | 15 | a timeout or a value, naming no facility; downstream of the above | — |
+///
+/// The last column is what each test's own error named, not a measured
+/// result of granting it. It is why the owner's call was to grant these
+/// three; the evidence that granting them is enough is the ladder below,
+/// on the terms the ladder states.
 ///
 /// And the ladder, which is **evidence, not proof**: the same 123 were run
 /// once inside this view, of which 0 pass at no grants, 67 with `pty`,
@@ -82,7 +88,27 @@ pub const BUILD_PIDS: u64 = 8192;
 /// count for every rung, called the run "measured", and said `nesting` was
 /// worth a count "with the grant that unblocks it". That last was a cause and
 /// was never established; the counts for `pty` and `devices` alone are gone
-/// with it, and none of it is to be put back.
+/// with it, and none of it is to be put back -- not the per-rung counts, and
+/// not a count restated as a cause, here or in any other comment in this
+/// file, which is where a second copy of those counts lived until
+/// `0ffacd47` (2026-11-11). That bar does not reach the mechanism: the
+/// paragraph above establishes it on a measurement of its own.
+///
+/// **A commit message cannot be edited, so the log still carries the text
+/// this comment supersedes, and this is the annotation of it.**
+/// `6673b027`'s message prints the whole ladder, calls each grant "measured
+/// alone", says `/sys`'s masks stay on "because taking them off moved no
+/// test", and credits `nesting` with a count "with the grant that unblocks
+/// it"; `0ffacd47`'s reprints the two per-rung counts it removed from this
+/// file. All but one of those is superseded -- the counts are one
+/// unreproducible run and no cause -- by this comment and by
+/// `theseus_sandbox::Facilities::visible_proc`, which holds the `/sys`
+/// terms. The exception is a mechanism, not a count: the same sentence of
+/// `6673b027` that credits `nesting` with a count also said every nested L1
+/// job dies at `mounting /proc: Operation not permitted` while /proc's
+/// masks are on, and `1099a1b1` confirmed that on 2026-11-13 on two
+/// kernels. The count is superseded; the mechanism stands, and the ladder
+/// paragraph above states it. Read those two, not the log.
 ///
 /// A run inside this view is not a weaker run than a lane's: it is the only
 /// run in which the sandbox contract, the terminal and the device nodes are

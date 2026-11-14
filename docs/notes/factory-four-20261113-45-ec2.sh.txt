@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+# Spot gate boxes in the WORKER AWS account (us-west-1), from the main machine. The same shape as arm.sh, which
+# drives the M1 Max: a lane is a tree sent to a box, a run is a unit on it, and results come back as one-line
+# summaries. The differences are all forced by the medium:
+#   - there is NO key pair, NO inbound rule and NO secret on a box. Every command goes over SSM, and every byte a
+#     box needs comes from the public repository or the foundation bucket's fleet/ prefix, which its instance
+#     role can read and write and nothing else;
+#   - results come back through S3, not ssh, so `result`/`tail`/`errs` work after the box is gone;
+#   - ONE LANE PER BOX: the lane is the box's own ~/theseus checkout, so every run reuses the AMI's warm target/.
+#
+#   ec2.sh launch [n] [--for LANE]     n spot gate boxes from the newest bake (c7i.8xlarge, then c6i.8xlarge,
+#                                      then c7i.4xlarge); refuses to take the fleet over MAXBOXES (6 since 2026-11-10; PLAN section 2's six lane-gate cards)
+#   ec2.sh status                      every box: type, AZ, lane, head, running units, idle minutes, disk
+#   ec2.sh send LANE REF [--repo DIR]  ship REF's tree to a box and check it out as LANE; refuses a busy lane
+#   ec2.sh run LANE KIND [ARG]         start unit ec2-LANE-KIND: build | test EXPR | clippy | gate [GROUPS] |
+#                                      sh FILE. The gate runs in a DELEGATED systemd --user unit, which the
+#                                      cgroup and sandbox tests need, and bare -- never under flock
+#   ec2.sh wait LANE KIND [SECS]       wait for it (one tool call's worth), print its summary
+#   ec2.sh result LANE [KIND]          summaries from S3
+#   ec2.sh tail LANE KIND [N]          last N lines of that unit's log, from S3 (mirrored every 30 s while live)
+#   ec2.sh errs LANE KIND              error/FAIL lines of its log
+#   ec2.sh fetch LANE [BRANCH]         commits made on the box, back through S3 as a bundle
+#                                      --for LANE RESERVES the first box started, by tagging it with that lane
+#                                      at run-instances time, so no other caller's `send` can take the box you
+#                                      just paid for while it boots.
+#   ec2.sh rm LANE                     release the lane's claim on its box, keep the box
+#   ec2.sh release-done [LANE|all]     release holds whose work has FINISHED; every box is KEPT, none terminated.
+#                                      `send` runs this itself before it reports no free box. Two graces, because
+#                                      an OBSERVED exit is knowledge and idleness is only a guess:
+#                                        - the lane's results in S3 all say exited  -> RELEASE_GRACE_DONE (2 min)
+#                                        - no results, or one still says running    -> RELEASE_GRACE     (20 min)
+#                                      `wait` calls it on the exit it just observed, so a finished box is free to
+#                                      the next departure in ~2 minutes instead of ~20.
+#   ec2.sh terminate LANE|all          terminate the box holding LANE (or every gate box)
+#   ec2.sh reap-idle [MINUTES]         terminate boxes idle past MINUTES (default 30); the on-box reaper does
+#                                      this by itself -- this is the belt to its braces, for a box whose timer died
+#   ec2.sh bake                        print the bake recipe (the bake is driven by hand; see FLEET.md)
+set -u
+here=$(cd "$(dirname "$0")" && pwd)
+MAXBOXES=${MAXBOXES:-10}   # RAISED 8 -> 10 on 2026-11-12 13:4x by Tabitha: the spot quota reads 320 vCPU (10 x c7i.8xlarge; the case for 384 is still open) and the owner's Sixteenth set makes spot boxes the primary machines (S16-2; S6-4 covers up to 12). Before that: RAISED 6 -> 8 on 2026-11-11 01:5x by the 1.0.5 conductor (shift 4), on a trip-wire it
+#   set on ITSELF at 01:45 and then had to honour 10 minutes later: "the first red on a single-host cut raises
+#   MAXBOXES to 8 for the rest of the night, immediately and without further argument." The 01:30 cut went
+#   "ARM alone for this cut" because all SIX boxes were held by the conductor's own children (b5plant, precut,
+#   rv3gate, rv3probe, b5gate + one idle), and it then went RED with NO cross-host read. A culprit search
+#   without a second architecture is exactly the expensive failure the interval rule exists to damp.
+#   Two extra cards is the cheapest possible insurance against that, and cost is a parameter.
+#   REVERT: set it back to 6 when the shift's fan-out ends (the morning conductor, or whoever finds the fleet
+#   idle at 8). Per-call override still works: MAXBOXES=N.
+MAXBOXES_WAS_6_UNTIL_20261111=1   # marker for whoever lowers it again
+#   RAISED 4 -> 6 on 2026-11-10 10:0x by the 1.0.5 conductor. PLAN.md section 2 reserves
+# SIX of the cloud's sixteen cards for lane and prefix gates, and this ceiling was the one place that number was
+# still four. It bound for real: once builder gates were routed off the M1 Max (which runs ONE gate at a time for
+# the whole host and must keep p4join free for a departure every 30 min), three rework children filled the fleet
+# and left no box for the departure's own parallel lane gate or for the next child dispatched. Boxes are spot
+# c7i.8xlarge (~$0.64/h) and the on-box reaper terminates them after 30 idle minutes, so the cost of the two
+# extra cards is bounded by use, not by the ceiling. Raise further with MAXBOXES= per call if a wave needs it.
+REGION=us-west-1
+STACK=theseus-fleet
+TYPES=${TYPES:-"c7i.8xlarge c6i.8xlarge c7i.4xlarge"}
+IDLE_DEFAULT=30
+RELEASE_GRACE=${RELEASE_GRACE:-20}   # minutes idle after which a lane whose finish is only INFERRED is released
+RELEASE_GRACE_DONE=${RELEASE_GRACE_DONE:-2}   # ...and after which a lane whose exit we have OBSERVED in S3 is.
+#   WHY TWO GRACES (2026-11-13, b7-ec2-hold-not-released). `launch --for` reserves a box and `send` claims one, so
+#   a hold was always released by a 20-minute idleness GUESS or by hand -- and `release-done`'s own comment says
+#   what that costs: "a departure could be refused its second host by a box that was idle, healthy and warm".
+#   Twenty minutes is the right timidity for a guess. But when every result object for the lane in S3 says the
+#   unit EXITED, the finish is not a guess, and the only thing the long grace still buys is twenty minutes of
+#   starvation. So an observed finish gets a short grace -- long enough that a caller running units back to back
+#   (precut-fleet.sh runs `gate` and then `test` on one lane) keeps its warm box between them, short enough that
+#   a child which gated and wandered off stops holding the fleet. The box is KEPT either way; nothing here
+#   terminates. RELEASE_GRACE's default is unchanged, and so is the rule that an unparseable answer keeps the hold.
+
+# One theseus-owner session per call (w.py), never a credential on disk and never one in this shell.
+W() { timeout 300 python3.12 "$here/w.py" --raw "$@"; }
+WM() { timeout 300 python3.12 "$here/w.py" "$@"; }
+SSM() { timeout 900 python3.12 "$here/w.py" ssm-run "$1" "$2" "${3:-300}"; }
+
+# The bucket's name carries the account number, so it is resolved per call and never printed or written to a file.
+bucket() { echo "theseus-$(W sts get-caller-identity --query Account --output text | tr -d '\n')-$REGION"; }
+
+boxes() {   # instance-id type az lane state  -- gate boxes only, the baker excluded
+  W ec2 describe-instances \
+    --filters "Name=tag:theseus:stack,Values=$STACK" "Name=tag:theseus:role,Values=gate" \
+      "Name=instance-state-name,Values=pending,running" \
+    --query 'Reservations[].Instances[].[InstanceId,InstanceType,Placement.AvailabilityZone,
+             (Tags[?Key==`theseus:lane`].Value|[0]),State.Name,LaunchTime]' --output text
+}
+box_of() {  # the instance holding LANE, or empty
+  boxes | awk -v l="$1" '$4==l {print $1; exit}'
+}
+free_box() {
+  boxes | awk '$4=="None" && $5=="running" {print $1; exit}'
+}
+
+# ---- the hold, and when it ends --------------------------------------------------------------------------
+# A lane tag is a HOLD on a box. depart.sh and precut-fleet.sh release their own when they finish, but a child
+# that gated and wandered off leaves one behind, and until 2026-11-12 the only thing that ever cleared such a
+# hold was the 30-minute idle reaper TERMINATING the box under it. So a departure could be refused its second
+# host by a box that was idle, healthy and warm -- twice on 2026-11-11, with only one or two of eight boxes
+# alive. This releases a hold whose WORK IS FINISHED and keeps the box, so whoever takes it next gets a warm
+# target/. It is deliberately timid:
+#   - no answer over SSM, or any answer it cannot parse, means the hold STAYS;
+#   - the grace is 20 minutes, INSIDE the 30-minute reaper that would otherwise terminate the box and whatever
+#     was committed on it, so this can only ever free a box earlier than the reaper destroys it;
+#   - it releases holds and nothing else: it never launches, sends or terminates.
+lane_finish() {   # LANE -> done | running | unknown, from the lane's own result objects in S3
+  # The exit of a unit is recorded by the on-box run.sh as fleet/results/<lane>/<kind>.exit, and `wait`/`result`
+  # already read exactly these. `done` means at least one kind is recorded and NONE of them says `running`.
+  local lane=$1 b=$2 e all="" k
+  all=$(WM s3 ls "s3://$b/fleet/results/$lane/" 2>/dev/null | awk '{print $4}' | sed -n 's/\.exit$//p')
+  [ -n "$all" ] || { echo unknown; return; }
+  for k in $all; do
+    e=$(WM s3 cp "s3://$b/fleet/results/$lane/$k.exit" - 2>/dev/null | tr -d '\n')
+    case "$e" in running) echo running; return ;; '') echo unknown; return ;; esac
+  done
+  echo done
+}
+release_done() {   # [LANE|all] -> 0 if it freed at least one box
+  local want=${1:-all} f=/tmp/ec2-rel-$$.sh freed=0 id lane a u i fin g B
+  B=$(bucket)
+  cat > "$f" <<'EOS'
+m=/home/theseus/fleet/last-busy
+u=$(sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 systemctl --user list-units --no-legend --plain --state=active,activating,deactivating 'ec2-*.service' 2>/dev/null | wc -l)
+i=$([ -f $m ] && echo $(( ( $(date +%s) - $(stat -c %Y $m) ) / 60 )) || echo 0)
+echo "units=$u idle=$i"
+EOS
+  while read -r id lane; do
+    [ "$want" = all ] || [ "$want" = "$lane" ] || continue
+    a=$(SSM "$id" "$f" 45 2>/dev/null | sed -n '2p')
+    u=${a#units=}; u=${u%% *}; i=${a##*idle=}
+    case "${u:-x}${i:-x}" in *[!0-9]*) echo "keeping $lane on $id: no usable answer over SSM (${a:-none})"; continue ;; esac
+    # Which grace applies is decided by what S3 KNOWS about the lane's units, not by how long the box has dozed.
+    fin=$(lane_finish "$lane" "$B")
+    case $fin in done) g=$RELEASE_GRACE_DONE ;; *) g=$RELEASE_GRACE ;; esac
+    if [ "$u" = 0 ] && [ "$i" -ge "$g" ] 2>/dev/null; then
+      W ec2 delete-tags --resources "$id" --tags Key=theseus:lane >/dev/null
+      echo "released lane $lane from $id: nothing running, idle ${i}m (>= ${g}m, finish $fin); the box is kept"
+      freed=$((freed + 1))
+    else
+      echo "keeping $lane on $id: $a (finish $fin, grace ${g}m)"
+    fi
+  done < <(boxes | awk '$5=="running" && $4!="None" {print $1, $4}')
+  rm -f "$f"
+  [ "$freed" -gt 0 ]
+}
+newest_ami() {
+  W ec2 describe-images --owners self --filters "Name=tag:theseus:stack,Values=$STACK" "Name=state,Values=available" \
+    --query 'reverse(sort_by(Images,&CreationDate))[0].[ImageId,Name]' --output text
+}
+cheapest_az() {   # TYPE -> "az price"
+  W ec2 describe-spot-price-history --instance-types "$1" --product-descriptions Linux/UNIX \
+    --query 'SpotPriceHistory[].[AvailabilityZone,SpotPrice]' --output text --max-items 8 |
+    grep -v '^None' | sort -k2 -g | head -1
+}
+subnet_in() {
+  W ec2 describe-subnets --filters "Name=availability-zone,Values=$1" "Name=default-for-az,Values=true" \
+    --query 'Subnets[0].SubnetId' --output text | tr -d '\n'
+}
+
+cmd=${1:-}; shift || true
+case "$cmd" in
+
+launch)
+  n=${1:-1}; [ $# -gt 0 ] && shift
+  # --for LANE: the box you start is YOURS. Without it there is a window between `launch` and your `send` in
+  # which the box you paid for is untagged, and free_box hands it to whoever sends first -- so a departure
+  # could launch a box and then lose it to another lane's child seconds later. The tag goes on at
+  # run-instances time, so the window does not exist.
+  FOR=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --for) FOR=${2:-}; [ -n "$FOR" ] || { echo "launch: --for needs a lane name"; exit 2; }; shift 2 ;;
+      *) echo "launch: bad argument $1 (launch [n] [--for LANE])"; exit 2 ;;
+    esac
+  done
+  if [ -n "$FOR" ] && [ -n "$(box_of "$FOR")" ]; then
+    echo "launch: lane $FOR already holds $(box_of "$FOR"); launching UNRESERVED (two boxes on one lane tag would hide one of them)"
+    FOR=""
+  fi
+  alive=$(boxes | grep -c . || true)
+  [ "$((alive + n))" -le "$MAXBOXES" ] || {
+    echo "launch refused: $alive gate boxes are alive and the fleet's ceiling is $MAXBOXES (MAXBOXES= to raise it)"
+    echo "  a box costs about \$0.68/h all in and terminates itself after $IDLE_DEFAULT idle minutes;"
+    echo "  'ec2.sh status' says which lanes hold them, 'ec2.sh terminate LANE' frees one"
+    exit 6; }
+  read -r ami aminame < <(newest_ami)
+  [ -n "${ami:-}" ] && [ "$ami" != None ] || { echo "launch: no AMI tagged theseus:stack=$STACK is available; bake one first (ec2.sh bake)"; exit 3; }
+  lt=$(W cloudformation describe-stacks --stack-name "$STACK" \
+       --query "Stacks[0].Outputs[?OutputKey=='LaunchTemplateId'].OutputValue" --output text | tr -d '\n')
+  echo "launching $n from $ami ($aminame)"
+  started=0
+  for i in $(seq 1 "$n"); do
+    ok=0
+    for t in $TYPES; do
+      read -r az price < <(cheapest_az "$t")
+      [ -n "${az:-}" ] || continue
+      sn=$(subnet_in "$az")
+      out=$(W ec2 run-instances \
+        --launch-template "LaunchTemplateId=$lt,Version=\$Latest" \
+        --image-id "$ami" --instance-type "$t" --subnet-id "$sn" \
+        --instance-market-options 'MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate}' \
+        --user-data "file://$here/host/gate-userdata.sh" \
+        --tag-specifications \
+          "ResourceType=instance,Tags=[{Key=Name,Value=theseus-gate},{Key=theseus:owner,Value=theseus},{Key=theseus:stack,Value=$STACK},{Key=theseus:session,Value=fleet},{Key=theseus:role,Value=gate}${FOR:+,{Key=theseus:lane,Value=$FOR\}}]" \
+          "ResourceType=volume,Tags=[{Key=theseus:owner,Value=theseus},{Key=theseus:stack,Value=$STACK},{Key=theseus:session,Value=fleet},{Key=theseus:role,Value=gate}]" \
+        --query 'Instances[0].InstanceId' --output text 2>&1 | tr -d '\n')
+      case "$out" in
+        i-*) echo "  $out  $t  $az  spot market \$$price/h${FOR:+  RESERVED for lane $FOR}"; started=$((started + 1)); ok=1
+             FOR=""   # the reservation is for ONE box: the caller asked for one host, not for the whole batch
+             break ;;
+        *) echo "  $t in $az: ${out:0:160}" ;;
+      esac
+    done
+    [ "$ok" = 1 ] || { echo "  no capacity in any of: $TYPES"; break; }
+  done
+  echo "$started started; they are usable once ~/fleet/READY exists (about 90 s): ec2.sh status"
+  [ "$started" -gt 0 ] ;;
+
+status)
+  B=$(bucket)
+  printf '%-20s %-14s %-12s %-10s %-9s %s\n' INSTANCE TYPE AZ LANE STATE 'HEAD / UNITS / IDLE'
+  boxes | while read -r id type az lane state launched; do
+    printf '%-20s %-14s %-12s %-10s %-9s ' "$id" "$type" "$az" "$lane" "$state"
+    if [ "$state" != running ]; then echo "launched $launched"; continue; fi
+    cat > /tmp/ec2-status-$$.sh <<'EOS'
+h=$(sudo -u theseus git -C /home/theseus/theseus rev-parse --short=8 HEAD 2>/dev/null || echo "-")
+u=$(sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 systemctl --user list-units --no-legend --plain --state=active,activating 'ec2-*.service' 2>/dev/null | awk '{printf "%s ", $1}')
+m=/home/theseus/fleet/last-busy
+i=$([ -f $m ] && echo $(( ( $(date +%s) - $(stat -c %Y $m) ) / 60 ))m || echo "?")
+r=$([ -f /home/theseus/fleet/READY ] && echo ready || echo BOOTING)
+s=$(sudo -u theseus cat /home/theseus/fleet/send.status 2>/dev/null | head -1)
+echo "$h  ${u:-no units}  idle $i  $r  disk $(df -h / | awk 'NR==2{print $4}')  | $s"
+EOS
+    SSM "$id" /tmp/ec2-status-$$.sh 90 2>/dev/null | sed -n '2p' || echo "(no answer over SSM)"
+    rm -f /tmp/ec2-status-$$.sh
+  done
+  echo
+  echo "AMIs: $(newest_ami | tr '\t' ' ')"
+  echo "results in S3 under fleet/results/ of the foundation bucket (name not printed)"
+  : "$B" ;;
+
+send)
+  [ $# -ge 2 ] || { echo "send LANE REF [--repo DIR]"; exit 2; }
+  NAME=$1; REF=$2; shift 2; REPO=$HOME/projects/theseus
+  while [ $# -gt 0 ]; do case "$1" in --repo) REPO=$2; shift 2;; *) echo "bad arg $1"; exit 2;; esac; done
+  sha=$(git -C "$REPO" rev-parse "$REF^{commit}") || exit 2
+  id=$(box_of "$NAME")
+  if [ -z "$id" ]; then
+    id=$(free_box)
+    if [ -z "$id" ]; then
+      # A hold whose gate finished is not a hold. Before telling the caller there is no box -- which sends a
+      # departure to ARM alone, or starts another box on the meter -- sweep the finished holds and look again.
+      # Cooled down so a caller's retry loop (depart.sh tries 6 times, precut-fleet.sh 14) cannot turn this
+      # into an SSM storm; the sweep itself is capped at 45 s per box.
+      st=/tmp/ec2-release-sweep.stamp
+      if [ ! -f "$st" ] || [ "$(( $(date +%s) - $(stat -c %Y "$st") ))" -ge "${SWEEP_COOL:-180}" ]; then
+        : > "$st" 2>/dev/null || true
+        echo "send: no box is free; releasing holds whose work has finished"
+        release_done all || true
+        id=$(free_box)
+      fi
+    fi
+    [ -n "$id" ] || { echo "send: no free gate box; 'ec2.sh launch 1' or 'ec2.sh rm LANE' to release one"; exit 6; }
+    W ec2 create-tags --resources "$id" --tags "Key=theseus:lane,Value=$NAME" >/dev/null
+    echo "lane $NAME claimed $id"
+  fi
+  # THE LANE'S LOCK, as arm.sh has it: a send would change the checkout under a live run, and a flake rate
+  # measured across two trees looks like signal. The unit IS the lock, so there is no file to go stale.
+  cat > /tmp/ec2-send-$$.sh <<'EOS'
+u=$(sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 systemctl --user list-units --no-legend --plain --state=active,activating,deactivating 'ec2-*.service' 2>/dev/null | awk '{printf "%s ", $1}')
+[ -z "$u" ] || { echo "BUSY $u"; exit 6; }
+[ -f /home/theseus/fleet/READY ] || { echo "BOOTING"; exit 7; }
+echo FREE
+EOS
+  out=$(SSM "$id" /tmp/ec2-send-$$.sh 120 2>&1); rm -f /tmp/ec2-send-$$.sh
+  case "$out" in
+    *BUSY*) echo "lane $NAME is busy on $id, send refused: $(echo "$out" | grep BUSY)"
+            echo "  wait for it (ec2.sh result $NAME KIND) or stop it (ec2.sh run ... is the only starter; terminate to force)"; exit 6 ;;
+    *BOOTING*) echo "box $id is still booting (no ~/fleet/READY yet); try again in a minute"; exit 7 ;;
+    *FREE*) ;;
+    *) echo "send: could not reach $id over SSM:"; echo "$out" | head -5; exit 3 ;;
+  esac
+  B=$(bucket)
+  # The repository is public, so a ref that origin already has needs no bundle at all: the box fetches it itself.
+  # Anything else (a local integration head, a staged merge) goes as a THIN bundle against origin/main, which
+  # needs no credential on the box either.
+  if git -C "$REPO" branch -r --contains "$sha" 2>/dev/null | grep -q '^ *origin/'; then
+    how="fetch from origin"
+    cat > /tmp/ec2-ship-$$.sh <<EOS
+set -e
+sudo -u theseus -H bash -lc '
+  cd ~/theseus
+  git fetch -q --filter=blob:none origin "+refs/heads/*:refs/remotes/origin/*" --prune
+  git reset -q --hard $sha
+  git clean -q -ffd -e target -e node_modules -e dist
+  echo "sent $NAME: HEAD \$(git rev-parse --short=8 HEAD)" > ~/fleet/send.status
+  cat ~/fleet/send.status'
+EOS
+  else
+    how="thin bundle through S3"
+    bundle=/tmp/ec2-$NAME-$$.bundle
+    # A BUNDLE MUST NAME A REF. `git bundle create <file> <raw-sha> --not origin/main` exits 128 with
+    # "Refusing to create empty bundle" and writes nothing, because a bundle records refs, not commits -- and
+    # every departure head IS a raw sha (a local integration merge that origin has never seen), so this path
+    # could not ship one. A throwaway ref is made for the sha and bundled; the box fetches refs/* out of the
+    # bundle and resets to the sha exactly as before, so nothing downstream changes.
+    # (Fixed 2026-11-09 by the fleet wirer. The failure was invisible because `| tail -2` reported tail's
+    # exit status, not git's -- the same PIPESTATUS trap the bake hit, FLEET.md section 3 defect 1.)
+    sref=refs/fleet-send/$NAME
+    git -C "$REPO" update-ref "$sref" "$sha"
+    if ! bout=$(git -C "$REPO" bundle create "$bundle" "$sref" --not origin/main 2>&1); then
+      git -C "$REPO" update-ref -d "$sref" 2>/dev/null || true
+      echo "send: git bundle create failed:"; printf '%s\n' "$bout" | tail -5; exit 3
+    fi
+    git -C "$REPO" update-ref -d "$sref" 2>/dev/null || true
+    WM s3 cp "$bundle" "s3://$B/fleet/bundles/$NAME.bundle" --only-show-errors || exit 3
+    echo "bundle $(du -h "$bundle" | cut -f1) uploaded"
+    rm -f "$bundle"
+    cat > /tmp/ec2-ship-$$.sh <<EOS
+set -e
+B=\$(cat /home/theseus/fleet/bucket)
+sudo -u theseus -H bash -lc "
+  cd ~/theseus
+  git fetch -q --filter=blob:none origin --prune
+  aws s3 cp s3://\$B/fleet/bundles/$NAME.bundle /tmp/$NAME.bundle --only-show-errors
+  git fetch -q /tmp/$NAME.bundle '+refs/*:refs/fleet/$NAME/*' || git fetch -q /tmp/$NAME.bundle $sha
+  rm -f /tmp/$NAME.bundle
+  git reset -q --hard $sha
+  git clean -q -ffd -e target -e node_modules -e dist
+  echo \"sent $NAME: HEAD \\\$(git rev-parse --short=8 HEAD)\" > ~/fleet/send.status
+  git log --oneline -1"
+EOS
+  fi
+  echo "shipping ${sha:0:8} to $id ($how)"
+  SSM "$id" /tmp/ec2-ship-$$.sh 600; rc=$?
+  rm -f /tmp/ec2-ship-$$.sh
+  [ "$rc" = 0 ] || { echo "send FAILED (exit $rc): the lane stays on the head it had"; exit 3; }
+  ;;
+
+run)
+  [ $# -ge 2 ] || { echo "run LANE KIND [ARG]"; exit 2; }
+  NAME=$1; KIND=$2; ARG=${3:-}
+  id=$(box_of "$NAME")
+  [ -n "$id" ] || { echo "run: no box holds lane $NAME (ec2.sh send $NAME REF first)"; exit 2; }
+  argfile=""
+  if [ "$KIND" = sh ]; then
+    [ -f "$ARG" ] || { echo "sh needs a local script"; exit 2; }
+    argfile=$(base64 -w0 "$ARG"); ARG=$(basename "$ARG")
+  fi
+  cat > /tmp/ec2-run-$$.sh <<EOS
+set -e
+R=/home/theseus/fleet/$NAME
+install -d -o theseus -g theseus "\$R"
+# A lane whose last send was refused still holds the head it had; running on it measures a tree nobody sent.
+grep -q '^sent $NAME' /home/theseus/fleet/send.status 2>/dev/null || { echo "lane $NAME: its last send did not succeed (\$(cat /home/theseus/fleet/send.status 2>/dev/null || echo 'none recorded')); resend"; exit 7; }
+d=\$(sudo -u theseus env GIT_OPTIONAL_LOCKS=0 git -C /home/theseus/theseus status --short --untracked-files=no)
+[ -z "\$d" ] || [ '${ARM_RUN_DIRTY:-}' = 1 ] || { echo "lane $NAME: its tree has uncommitted edits, which this would run under: \$(echo "\$d" | head -5 | paste -sd' ')"; exit 8; }
+u=\$(sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 systemctl --user list-units --no-legend --plain --state=active,activating 'ec2-$NAME-$KIND.service' 2>/dev/null | awk '{print \$1}')
+[ -z "\$u" ] || { echo "lane $NAME: $KIND is already running there (\$u)"; exit 6; }
+${argfile:+printf '%s' '$argfile' | base64 -d > "\$R/$ARG"; chown theseus:theseus "\$R/$ARG"}
+printf '%s\n' '$ARG' > "\$R/$KIND.args"; chown theseus:theseus "\$R/$KIND.args"
+echo running > "\$R/$KIND.exit"; chown theseus:theseus "\$R/$KIND.exit"
+sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 systemctl --user reset-failed ec2-$NAME-$KIND 2>/dev/null || true
+# Delegate=yes: the L1 sandbox and the cgroup tests need their own cgroup subtree. A gate from a bare shell
+# fails four of them. The gate itself is started BARE inside the unit -- never under flock, which would hold
+# the lock the gate then waits for.
+sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/2000/bus \\
+  systemd-run --user -q --collect -p Delegate=yes -p MemoryAccounting=yes -p CPUAccounting=yes \\
+  --unit ec2-$NAME-$KIND /home/theseus/fleet/run.sh $NAME $KIND
+echo "started ec2-$NAME-$KIND on \$(hostname) at \$(date '+%T')"
+EOS
+  SSM "$id" /tmp/ec2-run-$$.sh 180; rc=$?
+  rm -f /tmp/ec2-run-$$.sh
+  exit $rc ;;
+
+wait)
+  [ $# -ge 2 ] || { echo "wait LANE KIND [SECS]"; exit 2; }
+  NAME=$1; KIND=$2; S=${3:-90}; B=$(bucket)
+  for i in $(seq 1 $((S / 10))); do
+    e=$(WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.exit" - 2>/dev/null | tr -d '\n')
+    if [ "$e" != running ]; then
+      echo "[$e] $(WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.sum" - 2>/dev/null)"
+      # THE EXIT IS NOW OBSERVED, so sweep this lane's hold here -- the place that knows. release_done still
+      # asks the box whether anything is running and still honours a grace (the short one, now that the finish
+      # is known), so a caller about to start its next unit on this lane keeps its warm box. HOLD=keep opts out.
+      [ "${HOLD:-}" = keep ] || release_done "$NAME" >&2 || true
+      exit 0
+    fi
+    sleep 10
+  done
+  echo "[running] $(WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.sum" - 2>/dev/null)" ;;
+
+result)
+  [ $# -ge 1 ] || { echo "result LANE [KIND]"; exit 2; }
+  NAME=$1; K=${2:-}; B=$(bucket)
+  if [ -n "$K" ]; then kinds=$K
+  else kinds=$(WM s3 ls "s3://$B/fleet/results/$NAME/" 2>/dev/null | awk '{print $4}' | sed -n 's/\.sum$//p'); fi
+  for k in $kinds; do
+    printf '%s/%s [%s] %s\n' "$NAME" "$k" \
+      "$(WM s3 cp "s3://$B/fleet/results/$NAME/$k.exit" - 2>/dev/null | tr -d '\n')" \
+      "$(WM s3 cp "s3://$B/fleet/results/$NAME/$k.sum" - 2>/dev/null | tr -d '\n')"
+  done ;;
+
+tail)
+  [ $# -ge 2 ] || { echo "tail LANE KIND [N]"; exit 2; }
+  NAME=$1; KIND=$2; N=${3:-30}; B=$(bucket)
+  WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.log" - 2>/dev/null | tail -n "$N" | cut -c1-200 ;;
+
+errs)
+  [ $# -ge 2 ] || { echo "errs LANE KIND"; exit 2; }
+  NAME=$1; KIND=$2; B=$(bucket)
+  WM s3 cp "s3://$B/fleet/results/$NAME/$KIND.log" - 2>/dev/null |
+    grep -E '^error|^\s+(FAIL|TIMEOUT|SIGSEGV|SIGABRT) \[|^gate: FAILED|^gate: ABORTED|panicked at' |
+    cut -c1-200 | sort -u | head -25 ;;
+
+fetch)
+  [ $# -ge 1 ] || { echo "fetch LANE [BRANCH]"; exit 2; }
+  NAME=$1; BR=${2:-}; B=$(bucket)
+  id=$(box_of "$NAME"); [ -n "$id" ] || { echo "fetch: no box holds lane $NAME"; exit 2; }
+  cat > /tmp/ec2-fetch-$$.sh <<EOS
+set -e
+B=\$(cat /home/theseus/fleet/bucket)
+sudo -u theseus -H bash -lc "cd ~/theseus && git bundle create /tmp/$NAME-back.bundle HEAD --not origin/main && aws s3 cp /tmp/$NAME-back.bundle s3://\$B/fleet/bundles/$NAME-back.bundle --only-show-errors && git rev-parse HEAD"
+EOS
+  SSM "$id" /tmp/ec2-fetch-$$.sh 300 | tail -2; rm -f /tmp/ec2-fetch-$$.sh
+  WM s3 cp "s3://$B/fleet/bundles/$NAME-back.bundle" "/tmp/$NAME-back.bundle" --only-show-errors || exit 3
+  git -C "$HOME/projects/theseus" fetch -q --no-write-fetch-head "/tmp/$NAME-back.bundle" "+HEAD:refs/remotes/ec2/$NAME" || exit 3
+  s=$(git -C "$HOME/projects/theseus" rev-parse --short=8 "refs/remotes/ec2/$NAME")
+  [ -n "$BR" ] && git -C "$HOME/projects/theseus" update-ref "refs/heads/$BR" "refs/remotes/ec2/$NAME"
+  rm -f "/tmp/$NAME-back.bundle"
+  echo "fetched $NAME HEAD $s -> ec2/$NAME${BR:+ and $BR}" ;;
+
+release-done)
+  release_done "${1:-all}" || echo "nothing was releasable (a hold is released only when its box has no unit running and has been idle $RELEASE_GRACE_DONE minutes with its exit recorded in S3, or $RELEASE_GRACE minutes without)"
+  exit 0 ;;
+
+rm)
+  [ $# -ge 1 ] || { echo "rm LANE"; exit 2; }
+  NAME=$1; id=$(box_of "$NAME"); [ -n "$id" ] || { echo "no box holds lane $NAME"; exit 0; }
+  W ec2 delete-tags --resources "$id" --tags Key=theseus:lane >/dev/null
+  echo "released $NAME from $id; the box stays and reaps itself after $IDLE_DEFAULT idle minutes" ;;
+
+terminate)
+  [ $# -ge 1 ] || { echo "terminate LANE|all"; exit 2; }
+  if [ "$1" = all ]; then ids=$(boxes | awk '{print $1}')
+  else ids=$(box_of "$1"); fi
+  [ -n "$ids" ] || { echo "nothing to terminate"; exit 0; }
+  W ec2 terminate-instances --instance-ids $ids --query 'TerminatingInstances[].[InstanceId,CurrentState.Name]' --output text ;;
+
+reap-idle)
+  M=${1:-$IDLE_DEFAULT}
+  cat > /tmp/ec2-idle-$$.sh <<'EOS'
+m=/home/theseus/fleet/last-busy
+u=$(sudo -u theseus XDG_RUNTIME_DIR=/run/user/2000 systemctl --user list-units --no-legend --plain --state=active,activating 'ec2-*.service' 2>/dev/null | wc -l)
+i=$([ -f $m ] && echo $(( ( $(date +%s) - $(stat -c %Y $m) ) / 60 )) || echo 0)
+echo "units=$u idle=$i"
+EOS
+  boxes | awk '$5=="running"{print $1, $4}' | while read -r id lane; do
+    a=$(SSM "$id" /tmp/ec2-idle-$$.sh 90 2>/dev/null | sed -n '2p')
+    u=${a#units=}; u=${u%% *}; i=${a##*idle=}
+    if [ "${u:-1}" = 0 ] && [ "${i:-0}" -ge "$M" ] 2>/dev/null; then
+      echo "reaping $id (lane ${lane}) after ${i} idle minutes"
+      W ec2 terminate-instances --instance-ids "$id" --query 'TerminatingInstances[].CurrentState.Name' --output text
+    else
+      echo "keeping $id (lane ${lane}): $a"
+    fi
+  done
+  rm -f /tmp/ec2-idle-$$.sh ;;
+
+bake)
+  cat <<'EOS'
+The bake, driven by hand (about 20 minutes; ~/reports/theseus-fleet/FLEET.md records the run):
+
+  1. upload the host files and the advisory database the fleet judges `deny` with:
+       tar -czf /tmp/advisory-dbs.tar.gz -C ~/.cargo advisory-dbs
+       ec2.sh --upload-host              # host/run.sh, host/reaper.sh, known.txt, advisory-dbs.tar.gz
+  2. launch one c7i.8xlarge spot box from the current Ubuntu 24.04 AMI with host/../bake-userdata.sh as
+     its user-data, 200 GB gp3, IMDSv2 required, the theseus-fleet launch template;
+  3. watch it: w.py ssm-run <id> <a script that tails /var/log/theseus-bake.log>, until `BAKE OK <secs>`;
+  4. `cloud-init clean --logs --seed` on the box, so a launch from the image runs ITS user-data;
+  5. ec2 create-image --name theseus-gate-<date>-<sha8>, tagged theseus:stack=theseus-fleet; wait available;
+  6. terminate the baker.
+EOS
+  ;;
+
+--upload-host)
+  B=$(bucket)
+  cp "$here/../theseus-arm-host/lane/host/known.txt" /tmp/fleet-known.txt 2>/dev/null || : > /tmp/fleet-known.txt
+  for f in run.sh reaper.sh; do WM s3 cp "$here/host/$f" "s3://$B/fleet/host/$f" --only-show-errors; done
+  WM s3 cp /tmp/fleet-known.txt "s3://$B/fleet/host/known.txt" --only-show-errors
+  [ -f /tmp/advisory-dbs.tar.gz ] && WM s3 cp /tmp/advisory-dbs.tar.gz "s3://$B/fleet/advisory-dbs.tar.gz" --only-show-errors
+  echo "host files uploaded to the foundation bucket's fleet/host/ prefix" ;;
+
+*) sed -n '2,/^set -u/{/^set -u/!p}' "$0"; exit 2 ;;
+esac

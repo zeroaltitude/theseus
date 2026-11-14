@@ -1,0 +1,29 @@
+--- depart.sh.bak-20261113-1005-b7-cloud-twin-hygiene	2026-11-13 09:16:08.556118739 -0700
++++ depart.sh	2026-11-13 10:04:44.443546748 -0700
+@@ -1405,6 +1405,26 @@
+     git push -q origin --delete "$cb" 2>>"$LOG" && log "hygiene: archived $cb to $d and refs/archive/cloud/$slug, deleted on origin" || log "hygiene: archived $cb; could not delete it on origin"
+   fi
+ done
++
++# THE SLUG-MATCHED BLOCK ABOVE CANNOT SEE TWO SHAPES, and both leave a cloud branch alive on origin after its
++# work is on main (b7-reharvest-cloud-twin-orphan, measured 2026-11-13): work re-cut during a harvest lands
++# under a VARIANT slug (`-six`, `-quiet-take`, `-r2`), so `cb` names a branch that never existed; and `cb` is
++# hardcoded to `cloud/p5-`, so nothing in the p6 namespace has ever matched. 28 of the 31 `origin/cloud/p6-*`
++# branches that are back have landed and are still on origin, 7 of them under a `-r2` variant.
++# cloud-twin-hygiene.sh sweeps on the LANDED WORK instead, using character-for-character the predicate the two
++# harvest detectors use, so cleanup and suppression cannot drift apart again.
++# IT IS DRY BY DEFAULT. Arm it by creating the flag file; until then it only reports what it would do:
++#   touch ~/reports/theseus-105-kickoff/logistics/cloud-twin-hygiene.armed
++# When it is armed the slug-matched block above becomes redundant (the sweep is a strict superset of it) and
++# can be deleted. It is left in place until then so that arming is the only change in behaviour.
++TWINHYG=$HOME/reports/theseus-105-kickoff/logistics/cloud-twin-hygiene.sh
++if [ -x "$TWINHYG" ]; then
++  if [ -f "$HOME/reports/theseus-105-kickoff/logistics/cloud-twin-hygiene.armed" ]; then thdry=""; else thdry="--dry-run"; fi
++  while IFS= read -r l; do log "hygiene: twin-sweep${thdry:+ (dry)}: $l"; done \
++    < <(MAIN="$HEAD_SHA" bash "$TWINHYG" $thdry 2>&1 | grep -vE '^pending ' || true)
++else
++  log "hygiene: twin-sweep skipped ($TWINHYG is not executable)"
++fi
+ git fetch -q --prune origin 2>/dev/null || true
+ 
+ # ================================================================ manifest, history, the rule
