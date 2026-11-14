@@ -875,6 +875,18 @@ class GateTree(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("suite set: PARTIAL, run under a withheld set (", out.split("gate: phase times, in seconds", 1)[1])
 
+    def test_the_verdict_names_the_commit_the_gate_judged_and_the_state_of_its_tree(self):
+        # Issue 14: nothing recorded whether the commit gated is the commit pushed, so the gate says which commit it
+        # judged, under its table, and scripts/gate-judged.sh compares that with the push.
+        head = self.git("rev-parse", "HEAD").strip()
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"gate: judged commit {head}, tree clean", out.split("gate: phase times, in seconds", 1)[1])
+        (self.root / "notes.txt").write_text("an edit beyond HEAD\n")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, rf"gate: judged commit {head}, tree edited beyond it \([0-9a-f]{{16}}\)\n")
+
     def test_a_gate_that_could_not_take_the_lock_says_the_suite_did_not_run(self):
         # NOT A SKIP FLAG, AND THE WORST CASE OF THE CLASS (2026-11-10 15:44, the furthest any self build has
         # reached). `flock` execs this script again as the locked part, and the frozen copy it was given had no
@@ -961,6 +973,70 @@ class GateTree(unittest.TestCase):
         self.assertIn("suite filters: ACTIVE", out, "the label is live at the moment the gate dies")
         self.assertEqual("gate: FAILED in suite", self.verdict(out),
                          "the phase is `suite`; `suite filtered` is how a PASSING one is labelled in the table")
+
+
+class GateJudged(unittest.TestCase):
+    """scripts/gate-judged.sh: is the commit a gate judged the commit that is pushed (issue 14)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        tmp = Path(self.tmp.name)
+        self.env = {**os.environ, "HOME": str(tmp / "home"), "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+        self.remote = tmp / "remote.git"
+        self.work = tmp / "work"
+        self.git(tmp, "init", "-q", "--bare", "-b", "main", str(self.remote))
+        self.git(tmp, "clone", "-q", str(self.remote), str(self.work))
+        (self.work / "a.txt").write_text("one\n")
+        self.git(self.work, "add", "-A")
+        self.git(self.work, "commit", "-q", "-m", "one")
+        self.git(self.work, "push", "-q", "origin", "HEAD:main")
+        self.log = tmp / "gate.log"
+
+    def git(self, cwd, *args):
+        p = subprocess.run(["git", *args], cwd=cwd, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout.strip()
+
+    def judge(self, line):
+        self.log.write_text(("gate: ok\n" if line is None else f"gate: judged {line}\ngate: ok\n"))
+        p = subprocess.run(["bash", str(HERE / "gate-judged.sh"), str(self.log), "origin", "main"], cwd=self.work,
+                           env=self.env, capture_output=True, text=True)
+        return p.returncode, p.stdout
+
+    def test_the_commit_that_is_pushed_is_the_commit_judged(self):
+        head = self.git(self.work, "rev-parse", "HEAD")
+        rc, out = self.judge(f"commit {head}, tree clean")
+        self.assertEqual((rc, out.split(":")[1].strip()), (0, "SAME"), out)
+
+    def test_another_commit_pushed_is_not_the_one_judged(self):
+        judged = self.git(self.work, "rev-parse", "HEAD")
+        (self.work / "a.txt").write_text("two\n")
+        self.git(self.work, "commit", "-q", "-am", "two")
+        self.git(self.work, "push", "-q", "origin", "HEAD:main")
+        rc, out = self.judge(f"commit {judged}, tree clean")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("DIFFERENT", out)
+
+    def test_a_judged_tree_with_edits_is_not_the_pushed_commit_even_at_the_same_sha(self):
+        head = self.git(self.work, "rev-parse", "HEAD")
+        rc, out = self.judge(f"commit {head}, tree edited beyond it (0123456789abcdef)")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("edits beyond it", out)
+
+    def test_a_log_that_names_no_commit_shows_nothing_either_way(self):
+        rc, out = self.judge(None)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("UNKNOWN", out)
+
+    def test_a_remote_that_does_not_answer_shows_nothing_either_way(self):
+        head = self.git(self.work, "rev-parse", "HEAD")
+        self.log.write_text(f"gate: judged commit {head}, tree clean\n")
+        p = subprocess.run(["bash", str(HERE / "gate-judged.sh"), str(self.log), "origin", "no-such-branch"],
+                           cwd=self.work, env=self.env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 2, p.stdout)
 
 
 class DefaultSet(unittest.TestCase):

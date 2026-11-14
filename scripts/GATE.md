@@ -182,3 +182,16 @@ nowhere else.
   four of sixteen cores, and 54 to 63 % for forty loops across all sixteen (a load1 of 33 to 62). `full` is a
   constant zero for the CPU system-wide. The self pipeline's CPU hold reads the five-minute load
   average a core instead, held at two (`crates/theseus-core/src/rsi/capacity.rs`, `CPU_LOAD_BUSY`: why two).
+
+## What the verdict names: the set it ran, and the commit it judged (issue 14)
+
+Two lines under the phase table say what a verdict is a verdict of, so a tail reader (`ec2.sh tail LANE gate`) needs no more.
+
+- `gate: suite set: FULL, no filter and no test left out (N tests run: …)` or `gate: suite set: PARTIAL, run under a
+  default-filter / a withheld set (…): not the full set, so not a landing's verdict`. nextest's own count is quoted, so
+  a stale filter shows in the number as well as the words. A landing's verdict comes from a FULL run on the exact tree
+  that lands (`docs/development.md`, Joins).
+- `gate: judged commit <sha>, tree clean` (or `tree edited beyond it (<digest>)`), read before the first compile.
+  `scripts/gate-judged.sh LOG [REMOTE REF]` reads the last such line in a gate's log and the remote's tip of REF: SAME
+  (exit 0), DIFFERENT (1; another commit, or a tree with edits the push does not hold) or UNKNOWN (2). Run it after a
+  push, on the log of the gate that licensed it.

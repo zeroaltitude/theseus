@@ -255,6 +255,10 @@ line_pressure_said=""
 # tree that lands, so the gate says which set it ran, beside the table where a reader of the tail gets it. Set in the
 # locked part, where the suite runs, and carried back to this process in locked.rec like a stand-down.
 suite_said=""
+# The commit the gate judged and the state of its tree, from the identity read before the first compile (issue 14): the
+# verdict names it, so a later push can be compared with it (scripts/gate-judged.sh) and "the commit gated is the commit
+# pushed" is a check and not a belief.
+judged=""
 # WHAT THIS RUN DID NOT DO (theseus-4vsrz, B7). `gate: ok` read identically for a run that made every check and
 # one that made most of them, so a reader could not tell them apart. That cost 2026-11-10 three separate times,
 # the sharpest being a real blocking name hit a fleet gate would have shipped, because the fleet asks for
@@ -334,6 +338,7 @@ summary() {
   printf '  %-16s %5d\n' total "$total"
   [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
   [ -z "$suite_said" ] || echo "gate: $suite_said"
+  [ -z "$judged" ] || echo "gate: judged $judged"
   # A self build runs below a view that grants it a pseudo-terminal, more device nodes and the calls that build a
   # sandbox, so the 108 tests whose SUBJECT is one of those three can be run rather than left out. Two things a
   # reader of the tail is then owed, and the launcher puts both in the environment because only it knows the view:
@@ -428,8 +433,11 @@ tree_paths() {
   GIT_OPTIONAL_LOCKS=0 git status --porcelain -uall -- . "${tree_unseen[@]}" 2>/dev/null || true
 }
 tree_begin() {
+  local head digest
   tree_identity >"$gate_tmp/tree.base"
   tree_paths >"$gate_tmp/tree.paths"
+  read -r head digest _ <"$gate_tmp/tree.base"
+  if [ "$digest" = clean ]; then judged="commit $head, tree clean"; else judged="commit $head, tree edited beyond it ($digest)"; fi
 }
 # What moved, said so it cannot be taken for a test failure: the tree built, the tree found, and what differs.
 tree_moved_report() {
