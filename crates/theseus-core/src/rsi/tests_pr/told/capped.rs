@@ -28,7 +28,7 @@ fn slow() -> (Rig, String) {
 /// reaches the cap and is the one notice, with every reason; and a fourth call is refused.
 #[tokio::test]
 async fn reds_inside_a_night_are_one_post_and_the_cap_is_one_notice() {
-    let (r, sid) = rig_with_task();
+    let (r, sid) = slow();
     r.open_and_edit(&sid, "broken.txt").await;
     let said = r.turn(&sid, WIRE, propose()).await;
     assert!(said.contains("the gate is red"), "{said}");
