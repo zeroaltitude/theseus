@@ -820,12 +820,12 @@ fn the_template_holds_no_price_table() {
 fn a_catalog_table_names_what_it_changes_and_a_new_model_names_everything() {
     let base = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\n";
     let (cfg, _) = Config::parse(&format!(
-        "{base}[catalog.\"claude-sonnet-5-5\"]\ncache_read_per_mtok = 0.1\n"
+        "{base}[catalog.\"claude-sonnet-5-5\"]\ncache_read_per_mtok = 0.3\n"
     ))
     .unwrap();
     let c = crate::catalog::Catalog::with_overrides(&cfg.catalog);
     let s = c.get("claude-sonnet-5-5").unwrap();
-    assert_eq!((s.cache_read_per_mtok, s.output_per_mtok), (0.1, 10.0));
+    assert_eq!((s.cache_read_per_mtok, s.output_per_mtok), (0.3, 10.0));
     let e = format!(
         "{:#}",
         Config::parse(&format!(
