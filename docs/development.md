@@ -266,6 +266,17 @@ exists, and that is never written.
   - The list is read as it is at the base, so a branch cannot list its own key.
   - An unsigned trailer, or one signed by any other key, counts for nothing.
   - `python3 scripts/keel-guard.py --base <main> --head HEAD --quiet` prints the exact lines to fill in.
+- **What the list enforces, and what it does not.** It holds one key, the owner's, and against Theseus itself
+  that is a real cryptographic gate: the self-improvement loop signs with the key `user.signingkey` names in
+  `[self] repo` (`crates/theseus-core/src/rsi/tree.rs`), and **so long as that key is not the one listed here —
+  which nothing in this repository enforces or tests — a self branch cannot ack its own finding**. Independently
+  of any key, a change that touches a keel **path class** stops at the owner's card, and nothing a branch writes
+  clears a path class (`crates/theseus-core/src/rsi/join/keel.rs`). Against the agents that build this
+  repository it enforces nothing, because they sign with the owner's own key and the guard would accept an ack
+  from any of them; there the control is policy rather than cryptography — the brief that authorises the change,
+  his yes quoted in the trailer's reason, and an independent review that reads both. Read neither half as the
+  other: no rule is exempt from the ack, there is no never-ack list, and `keel-file` is owner-ackable like every
+  other rule; and policy held by briefs and review is a weaker control than a key, but it is not an absent one.
 - **Only on the owner's explicit yes.** An agent writes a `Keel:` trailer only after the owner has said yes to that
   specific erosion, and quotes the yes in the trailer's reason.
   - A vendored crate's `allow` is still `allow-added`.
