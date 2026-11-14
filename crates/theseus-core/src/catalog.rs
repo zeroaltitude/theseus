@@ -40,12 +40,12 @@
 //! models overview, pricing page and the Fable 5.2 and Sonnet 5.5 model pages
 //! (platform.claude.com); docs.z.ai's pricing, release notes and GLM pages;
 //! api-docs.deepseek.com's Models & Pricing page. Every row of those matched its
-//! page's window, output cap and prices (the GLM Flash rows' 1,048,576 and
-//! 131,072 against the page's rounded 1M and 128K aside), but one: the pages give Sonnet 5.5's
+//! page's window, output cap and prices, but one: the pages give Sonnet 5.5's
 //! cache read as $0.10 (0.05x of input), and the row keeps the owner's $0.20 of
-//! 2026-10-25, because $0.10 re-labels `switch_cost`'s cases and is his call.
-//! Moonshot's pages could not be read from a trusted host (they redirect off
-//! it), so the Kimi rows stand as of 2026-10-24.
+//! 2026-10-25, because $0.10 re-labels `switch_cost`'s cases and is the owner's
+//! call. The GLM Flash rows hold 1,048,576 and 131,072 where the page says 1M and
+//! 128K, an open question. Moonshot's pages moved to platform.kimi.ai and were
+//! not re-read, so the Kimi rows stand as of 2026-10-24.
 //!
 //! `off_peak` (theseus-9f72b) is a provider's cheaper hours (DeepSeek's: half of
 //! input, output and cache read outside 01:00 to 04:00 and 06:00 to 10:00 UTC on
@@ -68,7 +68,7 @@ pub use peak::price_period_at;
 mod switch;
 pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
 
-pub const BUILTIN_VERSION: &str = "2026-11-09.1";
+pub const BUILTIN_VERSION: &str = "2026-11-14.1";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -831,7 +831,10 @@ fn claude(
         vision: true,
         pdf: true,
         tool_search: true,
-        source: "Claude API reference (2026-06-24 model table; model-migration pricing)".into(),
+        source: "Claude API reference (2026-06-24 model table; model-migration pricing); \
+                 prices and limits checked against the models overview and pricing page, \
+                 2026-11-14"
+            .into(),
         bytes_per_token: TokenRates::CLAUDE,
         origin: ModelOrigin::Us,
         default_effort: None,
@@ -871,7 +874,9 @@ fn glm(
         // GLM reads a PDF's text (theseus-c9l6).
         pdf: false,
         tool_search: false,
-        source: "docs.z.ai pricing and model pages, 2026-10-17".into(),
+        source: "docs.z.ai pricing and model pages, 2026-10-17; checked again against them, \
+                 2026-11-14"
+            .into(),
         bytes_per_token: TokenRates::GLM,
         origin: ModelOrigin::Cn,
         default_effort: None,
@@ -906,8 +911,8 @@ fn deepseek(input: f64, output: f64, cache_read: f64, vision: bool, served: &str
         pdf: false,
         tool_search: false,
         source: format!(
-            "api-docs.deepseek.com pricing and Anthropic API pages, 2026-10-17; peak rates \
-             (off-peak is half); {served}"
+            "api-docs.deepseek.com pricing and Anthropic API pages, 2026-10-17, and the Models \
+             & Pricing page again 2026-11-14; peak rates (off-peak is half); {served}"
         ),
         bytes_per_token: TokenRates::of("deepseek-"),
         origin: ModelOrigin::Cn,
@@ -976,7 +981,8 @@ fn fable_rows(e: &mut BTreeMap<String, CatalogEntry>) {
             source: "Anthropic Models API and pricing page, 2026-11-09 (release day): \
                      1M in, 128k out, $8 in and $40 out a million, a 5-minute write at \
                      1.25 × input and an hour at 2 ×, and cache reads at 0.025 × input \
-                     as Fable 5.1's are"
+                     as Fable 5.1's are; checked again against the models overview, \
+                     pricing page and Fable 5.2 page, 2026-11-14"
                 .into(),
             per_message_effort: true,
             ..claude(m, 128_000, 8.0, 40.0, 0.20, 10.00, Always, true, 512)
@@ -1122,10 +1128,11 @@ impl Catalog {
         e.insert(
             "claude-sonnet-5-5".into(),
             CatalogEntry {
-                source: "Anthropic Models API and pricing page, 2026-09-28; cache reads $0.20, \
-                         the pricing page's 0.1x of input, as before the 2026-10-17 change to \
-                         $0.10 that undercounted them by half (the owner, 2026-10-25: \
-                         \"Do make the sonnet fix.\")"
+                source: "Anthropic Models API and pricing page, 2026-09-28, other figures \
+                         checked again against the overview, pricing page and Sonnet 5.5 page, \
+                         2026-11-14; cache reads $0.20, the owner's figure of 2026-10-25 (\
+                         \"Do make the sonnet fix.\"), where the 2026-11-14 pages say $0.10, \
+                         0.05x of input: left open, see the module notes"
                     .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
                 // The live probe of 2026-10-17: a per-message change keeps the
@@ -1148,8 +1155,10 @@ impl Catalog {
         e.insert(
             "claude-haiku-5-5".into(),
             CatalogEntry {
-                source: "Anthropic pricing page, Haiku 5.5 model page, and Models API, 2026-10-07"
-                    .into(),
+                source:
+                    "Anthropic pricing page, Haiku 5.5 model page, and Models API, 2026-10-07; \
+                         overview and pricing page again 2026-11-14"
+                        .into(),
                 refusal_fallback_model: Some("claude-sonnet-5".into()),
                 long_prompt: Some(LongPrompt {
                     above_tokens: 100_000,
@@ -1884,7 +1893,7 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-11-09.1");
+        assert_eq!(c.version, "2026-11-14.1");
         // Sonnet 5.5's cache read is $0.20, as Sonnet 5's is.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
