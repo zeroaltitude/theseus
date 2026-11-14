@@ -8,6 +8,13 @@
 //! from a request, so it is the same bytes for every session of a place class
 //! and the cached header does not churn. A change to the config or the
 //! bindings is a recompile, as for the tools note.
+//!
+//! Two of its sentences say something about the place a turn was spoken in,
+//! not about the project: the chat route and the voice channel. The header is
+//! the same bytes on every surface of a project (the cached prefix is shared),
+//! so the header is built without them (`PlaceView::for_header`), and they are
+//! told in each turn's tail, after the cached prefix, beside the date and the
+//! git state (`told`, `TurnRunner::env_tail`).
 
 use crate::ceiling::PlaceView;
 use crate::toolrun::ToolRuntime;
@@ -17,12 +24,7 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
     let offers =
         |name: &str| tools.registry.get(name).is_some() && place.offered(name, &tools.public_roots);
     let mut lines: Vec<String> = Vec::new();
-    if place.voice && cfg.voice.enabled {
-        lines.push(
-            "You can join a voice channel the bindings name: the person types /join in a private place to invite you."
-                .into(),
-        );
-    }
+    lines.extend(voice_line(cfg, place));
     if offers(crate::wake::AT) || offers("task.create") {
         lines.push("You can set a wake to follow up later and run background tasks.".into());
     }
@@ -58,14 +60,40 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
     // It is LAST on purpose: every place with no chat route keeps the
     // card it had, byte for byte, so the three exact-match card tests and
     // the private-request golden are untouched by this commit.
-    if place.chat {
-        lines.push(
-            "The person can act here from chat with slash commands, which Discord lists when they \
-             type `/` \u{2014} `/trust` clears a content label this conversation is holding, and \
-             `/project trust <path>` grants or revokes a repository's own instruction files; \
-             never send them to a terminal for something a command here does."
-                .into(),
-        );
-    }
+    //
+    // (1.0.7: a live turn's header never had this line or the voice one: the
+    // turn's place view carried neither flag. They are now told in the turn's
+    // tail (`told`, `env_tail`), since a header that differed by place would
+    // break the one prefix every surface shares, and the header is built
+    // without them, `PlaceView::for_header`. This card, read by its own tests,
+    // still says them for a place that has them.)
+    lines.extend(chat_line(place));
     lines.join(" ")
+}
+
+/// What the place tells the model of the person's own routes: the sentences
+/// that depend on where the turn was spoken, in the order the card puts them,
+/// for each turn's tail.
+pub fn told(cfg: &crate::Config, place: PlaceView) -> Vec<String> {
+    voice_line(cfg, place)
+        .into_iter()
+        .chain(chat_line(place))
+        .collect()
+}
+
+fn voice_line(cfg: &crate::Config, place: PlaceView) -> Option<String> {
+    (place.voice && cfg.voice.enabled).then(|| {
+        "You can join a voice channel the bindings name: the person types /join in a private place to invite you."
+            .into()
+    })
+}
+
+fn chat_line(place: PlaceView) -> Option<String> {
+    place.chat.then(|| {
+        "The person can act here from chat with slash commands, which Discord lists when they \
+         type `/` \u{2014} `/trust` clears a content label this conversation is holding, and \
+         `/project trust <path>` grants or revokes a repository's own instruction files; \
+         never send them to a terminal for something a command here does."
+            .into()
+    })
 }

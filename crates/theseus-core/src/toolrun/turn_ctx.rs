@@ -56,7 +56,10 @@ pub struct TurnCtx<'a> {
 }
 
 impl TurnCtx<'_> {
-    /// Where the turn's words go: its class and its ceiling.
+    /// Where the turn's words go: its class and its ceiling. What the place
+    /// tells the model beyond its tools (the chat route, the voice channel) is
+    /// not here: the turn's tail says it (`env_tail`), since the header is the
+    /// same bytes on every surface.
     pub fn place(&self) -> crate::ceiling::PlaceView {
         crate::ceiling::PlaceView {
             class: self.class,

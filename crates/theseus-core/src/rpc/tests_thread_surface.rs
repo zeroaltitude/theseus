@@ -216,11 +216,46 @@ fn a_place_runs_as_a_thread_when_it_is_private_and_the_thread_active() {
 /// One `turn.submit` over a Discord connection, as the binding sends a
 /// message the owner spoke in their DM to a thread.
 async fn say_in_dm(core: Arc<Core>, slug: &str, answer_at: &str, user: u64) -> serde_json::Value {
+    let speaking = Speaking {
+        discord: DiscordOrigin {
+            user_id: user.to_string(),
+            channel_id: DM_CHANNEL.to_string(),
+            guild_id: None,
+        },
+        answer_at: Some(answer_at.into()),
+    };
+    to_thread(
+        core,
+        slug,
+        Client::new("discord", Surface::Discord),
+        Some(speaking),
+    )
+    .await
+}
+
+/// One `turn.submit` addressed to the thread `slug`, over `client`, with
+/// `speaking` as that connection names it (none from the CLI).
+async fn to_thread(
+    core: Arc<Core>,
+    slug: &str,
+    client: Client,
+    speaking: Option<Speaking>,
+) -> serde_json::Value {
+    submit(core, (None, Some(slug)), client, speaking).await
+}
+
+/// One `turn.submit` to a session or a thread, over `client`.
+async fn submit(
+    core: Arc<Core>,
+    (session, slug): (Option<&str>, Option<&str>),
+    client: Client,
+    speaking: Option<Speaking>,
+) -> serde_json::Value {
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let (client, server) = duplex(64 * 1024);
+    let (client_end, server) = duplex(64 * 1024);
     let (sr, sw) = tokio::io::split(server);
-    let srv = tokio::spawn(core.serve_connection(sr, sw, Client::new("discord", Surface::Discord)));
-    let (cr, mut cw) = tokio::io::split(client);
+    let srv = tokio::spawn(core.serve_connection(sr, sw, client));
+    let (cr, mut cw) = tokio::io::split(client_end);
     let req = Request::new(
         Id::Num(1),
         theseus_protocol::method::TURN_SUBMIT,
@@ -228,7 +263,7 @@ async fn say_in_dm(core: Arc<Core>, slug: &str, answer_at: &str, user: u64) -> s
             dir: None,
             carried: false,
             prompt: None,
-            session_id: None,
+            session_id: session.map(str::to_string),
             input: "what does the gauge say".into(),
             profile: None,
             provider: None,
@@ -237,18 +272,11 @@ async fn say_in_dm(core: Arc<Core>, slug: &str, answer_at: &str, user: u64) -> s
             attachments: vec![],
             reply_to: Some("4242".into()),
             opened_from: None,
-            thread: Some(slug.into()),
+            thread: slug.map(str::to_string),
             in_reply_to: None,
             route_at_ms: None,
             deadline_secs: None,
-            speaking: Some(Speaking {
-                discord: DiscordOrigin {
-                    user_id: user.to_string(),
-                    channel_id: DM_CHANNEL.to_string(),
-                    guild_id: None,
-                },
-                answer_at: Some(answer_at.into()),
-            }),
+            speaking,
             via: None,
             surface: None,
         },
@@ -305,4 +333,140 @@ async fn a_threads_reply_is_posted_where_the_owner_spoke() {
         posts.len(),
         "nothing more posted"
     );
+}
+
+// ------------------------------------------- what a thread's place tells the model
+
+/// A core whose model keeps its requests, with voice on and bound, and the
+/// owner's DM and the lab channel private.
+fn core_keeping_requests() -> (Arc<Core>, Arc<crate::provider::FakeProvider>) {
+    let c = core();
+    let mut cfg = (*c.cfg).clone();
+    cfg.voice.enabled = true;
+    // The turn's tail carries them (the date and git block's own switch).
+    cfg.project.tail_facts = Some(true);
+    let model = Arc::new(crate::provider::FakeProvider {
+        reply: "the tide is out".into(),
+        ..Default::default()
+    });
+    let c = Core::build(super::Parts::for_tests(cfg, model.clone(), c.store.clone())).unwrap();
+    c.bind_places(vec![
+        BoundPlace {
+            target: format!("discord:dm:{OWNER}"),
+            name: "DM".into(),
+            ..Default::default()
+        },
+        BoundPlace {
+            target: format!("discord:channel:{LAB}"),
+            name: "#lab".into(),
+            private: true,
+            guild: Some("7".into()),
+            ..Default::default()
+        },
+    ]);
+    c.runner.place_rule.bind_voice(true);
+    (c, model)
+}
+
+/// What the last request's tail tells the model about the places it speaks
+/// in, and that its system blocks (the header every surface shares) say none
+/// of it.
+fn told(model: &crate::provider::FakeProvider) -> (bool, bool) {
+    let req = model.requests().pop().expect("a request");
+    let system = crate::tests_places::system_text(&req);
+    assert!(
+        !system.contains("slash commands") && !system.contains("/join"),
+        "the shared header says it: {system}"
+    );
+    let tail = serde_json::to_string(&req.messages).unwrap();
+    (tail.contains("slash commands"), tail.contains("/join"))
+}
+
+/// A turn addressed to a thread has no place of its own, but its message came
+/// from one. In the owner's DM, or in a private channel of theirs, the model is
+/// told it has a chat route and a voice channel to join, as in that place
+/// itself; from the CLI, which has neither, it is told neither. Before, the
+/// place rule read only a place string with the chat prefix, and a thread's
+/// turn had none.
+#[tokio::test]
+async fn a_thread_turn_is_told_the_chat_route_and_the_voice_channel_of_the_place_it_was_spoken_in()
+{
+    let (c, model) = core_keeping_requests();
+    make(&c, "tides");
+    let dm = format!("discord:dm:{OWNER}");
+    let r = say_in_dm(c.clone(), "tides", &dm, OWNER).await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, true), "the owner's DM");
+    let sid = r["result"]["session_id"].as_str().unwrap().to_string();
+    assert!(c.outbox.target(&sid).is_none(), "still no place of its own");
+    assert_eq!(
+        c.runner.view_of(&sid).class,
+        crate::places::PlaceClass::Private,
+        "a thread is private always"
+    );
+
+    let lab = format!("discord:channel:{LAB}");
+    let speaking = Speaking {
+        discord: DiscordOrigin {
+            user_id: OWNER.to_string(),
+            channel_id: LAB.to_string(),
+            guild_id: Some("7".into()),
+        },
+        answer_at: Some(lab),
+    };
+    let client = Client::new("discord", Surface::Discord);
+    let r = to_thread(c.clone(), "tides", client, Some(speaking)).await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, true), "a private channel of theirs");
+
+    // The same thread, spoken to from the CLI: neither.
+    let r = to_thread(c.clone(), "tides", Client::new("cli", Surface::Cli), None).await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (false, false), "the CLI has neither");
+    let r = say_in_dm(c.clone(), "tides", &dm, OWNER).await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, true), "and the DM again: back");
+}
+
+/// With no voice channel bound, a thread turn in the owner's DM is told of the
+/// chat route and not of `/join`, as the DM itself is.
+#[tokio::test]
+async fn a_thread_turn_is_offered_join_only_where_voice_is_bound() {
+    let (c, model) = core_keeping_requests();
+    c.runner.place_rule.bind_voice(false);
+    make(&c, "tides");
+    let dm = format!("discord:dm:{OWNER}");
+    let r = say_in_dm(c.clone(), "tides", &dm, OWNER).await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, false));
+}
+
+/// The control: the owner's DM itself, a turn of the place's own session. If
+/// the live turn did not tell it either, the place rule was never the whole of
+/// it.
+#[tokio::test]
+async fn a_turn_in_the_owners_dm_is_told_the_chat_route_and_the_voice_channel() {
+    let (c, model) = core_keeping_requests();
+    let rec = c.open_session(Default::default()).unwrap();
+    c.outbox
+        .bind_place(&format!("dm:{OWNER}"), &rec.session_id)
+        .unwrap();
+    let speaking = Speaking {
+        discord: DiscordOrigin {
+            user_id: OWNER.to_string(),
+            channel_id: DM_CHANNEL.to_string(),
+            guild_id: None,
+        },
+        answer_at: None,
+    };
+    let client = Client::new("discord", Surface::Discord);
+    let r = submit(
+        c.clone(),
+        (Some(&rec.session_id), None),
+        client,
+        Some(speaking),
+    )
+    .await;
+    assert!(r["error"].is_null(), "{r}");
+    assert_eq!(told(&model), (true, true));
 }

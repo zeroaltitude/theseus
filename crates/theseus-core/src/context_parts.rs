@@ -55,7 +55,7 @@ impl TurnRunner {
         parts.push(("precedence", situation::PRECEDENCE.to_string()));
         let note = self.tools.system_note_for(place);
         if !note.is_empty() {
-            let card = crate::self_card::card(&self.cfg, &self.tools, place);
+            let card = crate::self_card::card(&self.cfg, &self.tools, place.for_header());
             let note = match card.is_empty() {
                 true => note,
                 false => format!("{note}\n{card}"),

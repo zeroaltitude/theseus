@@ -6,7 +6,7 @@
 // - the live profile, a chip whose menu lists every profile and makes one live (confirmed first);
 // - up, and running;
 // - what needs you, and the disk when it runs low;
-// - the health lamps: the link, the kernel, the provider, Discord, the config, the secrets, the web UI, the binary and
+// - the health lamps: the link, the kernel, the provider, Discord, the config, the secrets, the web UI, memory search, the binary and
 //   the disk, each with its state in a word beside it (a narrow bar keeps the lamps and says the worst in words), and
 //   a press opens their card, every lamp's whole sentence;
 // - spent, with the cache's share; pause and refresh; the date and the clock.
@@ -32,7 +32,7 @@ import { useThreadBoard } from '@/lib/threadwatch'
 import { workingCount } from '@/lib/taskboard'
 import { useAsOf, type World } from '@/lib/timemachine'
 import {
-  binaryLamp, configLamp, discordLamp, diskLamp, healthSummary, kernelLamp, linkLamp, providerLamp, secretsLamp, webLamp,
+  binaryLamp, configLamp, discordLamp, diskLamp, healthSummary, kernelLamp, linkLamp, memoryLamp, providerLamp, secretsLamp, webLamp,
   type Lamp,
 } from '@/lib/healthwords'
 import type { Tone } from '@/lib/taxonomy'
@@ -79,7 +79,7 @@ function Heartbeat({ world }: { world: World | null }) {
   const spent = g ? g.costTotal : h?.cost_usd_total
   const cacheHit = usage ? usage.cache_read_input_tokens / Math.max(1, usage.cache_read_input_tokens + usage.input_tokens + usage.cache_creation_input_tokens) : 0
   const lamps = useMemo<Lamp[]>(() => [
-    linkLamp({ status, rtt }), kernelLamp(h), providerLamp(h), discordLamp(h), configLamp(h), secretsLamp(h), webLamp(h),
+    linkLamp({ status, rtt }), kernelLamp(h), providerLamp(h), discordLamp(h), configLamp(h), secretsLamp(h), webLamp(h), memoryLamp(h),
     binaryLamp(h?.binary, binaryLine(h?.binary)), diskLamp(h?.disk, diskSummary(h?.disk)),
   ], [h, status, rtt])
 
