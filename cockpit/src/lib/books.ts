@@ -21,8 +21,9 @@ export const BOOK_WORDS: Record<string, string> = {
 
 /** What this first cut is not, said once at the top of the view. */
 export const FIRST_CUT =
-  'A first cut: these are the imported episodes as the import labelled them, sorted by its book hint. ' +
-  'The compiled books, written from them, come next; nothing here is compiled, and nothing here can be changed.'
+  'These are your imported conversations, each put on a shelf by the import’s best guess at where it belongs. ' +
+  'What is on a shelf is the conversations themselves, not a written book: Theseus has not yet written the dictionary, ' +
+  'the encyclopedia and the rest from them. Nothing here can be changed.'
 
 /** A book's title as the view shows it: the sop is the SOP reference. */
 export function bookTitle(book: string): string {
