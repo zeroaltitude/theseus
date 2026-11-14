@@ -251,22 +251,25 @@ impl Core {
         if !ran.ok() {
             tracing::warn!(text, "the on-demand sync did not work");
         }
+        self.say_sync_ran(asked_in, text);
+    }
+
+    /// Where the second line goes. A sync someone asked for IN A CONVERSATION
+    /// is answered there: the tool's own result said it started, and this says
+    /// what it imported, in the same place (chat-acts-are-tools, S43-1,
+    /// `chat.import_sync`). `post_for` gives `None` for a session with no
+    /// place of its own -- the CLI's, the web UI's -- and that, and every
+    /// request that named no conversation at all, goes where approvals go,
+    /// exactly as before.
+    fn say_sync_ran(&self, asked_in: Option<&str>, text: String) {
         let body = serde_json::json!({"kind": "notice", "text": text});
-        // A sync someone asked for IN A CONVERSATION is answered there: the
-        // tool's own result said it started, and this says what it imported,
-        // in the same place (chat-acts-are-tools, S43-1, `chat.import_sync`).
-        // `post_for` gives `None` for a session with no place of its own --
-        // the CLI's, the web UI's -- and that, and every request that named no
-        // conversation at all, goes where approvals go, exactly as before.
-        let posted = match asked_in {
-            Some(sid) => self.outbox.post_for(sid, "", body.clone()),
-            None => Ok(None),
-        };
-        match posted {
-            Ok(Some(_)) => return,
-            Ok(None) => {}
-            Err(e) => tracing::warn!(error = %format!("{e:#}"),
-                "the sync's report could not be posted where it was asked for; saying it where approvals go"),
+        if let Some(sid) = asked_in {
+            match self.outbox.post_for(sid, "", body.clone()) {
+                Ok(Some(_)) => return,
+                Ok(None) => {}
+                Err(e) => tracing::warn!(error = %format!("{e:#}"),
+                    "the sync's report could not be posted where it was asked for; saying it where approvals go"),
+            }
         }
         if let Err(e) = self.outbox.to_operator(asked_in, body) {
             tracing::warn!(error = %format!("{e:#}"), "the sync's report could not be posted");
