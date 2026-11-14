@@ -154,6 +154,7 @@ pub struct Batch {
     /// span may run over a frame it skipped, and none is kept for the whole
     /// frames before a skip a read carried on from. Only the index tender skips,
     /// and it reads neither this nor `ends`.
+    pub spans: Vec<(u32, u64, u64)>,
     /// Each span's last position, in step with `spans`: which segment holds
     /// a record (the durability tender's index rows).
     pub ends: Vec<u64>,
