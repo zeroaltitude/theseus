@@ -13,13 +13,17 @@
 #
 # During a rebase or a bisect it changes nothing, and exits 0: git counts a failing post-checkout as the failure of
 # the rebase's or bisect's own checkout, which would abort it halfway and leave the tree detached with nothing to
-# finish (git 2.34).
+# finish (git 2.34). A rebase is known by its state directory, or, before that exists (the `apply` backend detaches
+# HEAD first, and `git pull --rebase` with it), by git's GIT_REFLOG_ACTION starting `rebase` or `pull`: a put-back
+# there would leave HEAD on `main` and the rebase would then commit onto `main` itself. The cost: a checkout run
+# from inside `git rebase -x '...'` inherits that variable and is let through.
 #
 # Not covered:
-#   - `git reset` and `git merge`, for which git runs no hook. In the main tree those are for the join's and the
-#     install's own updates of `main`, never for looking at another commit;
-#   - a rebase. One of `main` ends on `main`; `git rebase <upstream> <other branch>` ends on that other branch, and
-#     on git 2.34 nothing this hook prints during a rebase is shown, so the note below reaches nobody there.
+#   - `git reset` and `git merge`, for which git runs no hook, and `git checkout -B main <commit>`, which moves
+#     `main` itself and leaves the tree on it. In the main tree reset and merge are for the join's and the install's
+#     own updates of `main`, never for looking at another commit;
+#   - a rebase. One of `main` ends on `main`; `git rebase <upstream> <other branch>` can end on that other branch,
+#     and with the default backend git 2.34 shows nothing this hook prints during a rebase.
 #
 # Arguments, from git: the previous HEAD, the new HEAD, and 1 for a branch checkout (0 for a file checkout).
 [ "${3:-0}" = 1 ] || exit 0
@@ -30,13 +34,13 @@ common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
 git show-ref --verify --quiet refs/heads/main || exit 0
 [ "$(git symbolic-ref -q HEAD)" = refs/heads/main ] && exit 0
 top=$(git rev-parse --show-toplevel)
-for d in rebase-merge rebase-apply; do
-  if [ -d "$gd/$d" ]; then
-    echo "theseus: $top is the main working tree, and a rebase has moved it off main; it is left to finish." >&2
-    echo "theseus: when it is done, 'git checkout main'. Next time, rebase in a worktree of your own." >&2
-    exit 0
-  fi
-done
+case "${GIT_REFLOG_ACTION:-}" in rebase* | pull*) rebasing=1 ;; *) rebasing= ;; esac
+[ -d "$gd/rebase-merge" ] || [ -d "$gd/rebase-apply" ] && rebasing=1
+if [ -n "$rebasing" ]; then
+  echo "theseus: $top is the main working tree, and a rebase has moved it off main; it is left to finish." >&2
+  echo "theseus: when it is done, 'git checkout main'. Next time, rebase in a worktree of your own." >&2
+  exit 0
+fi
 if [ -f "$gd/BISECT_LOG" ]; then
   echo "theseus: $top is the main working tree, and a bisect has moved it off main; it is left to finish." >&2
   echo "theseus: 'git bisect reset' puts it back. Next time, bisect in a worktree of your own." >&2

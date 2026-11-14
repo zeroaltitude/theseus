@@ -124,6 +124,50 @@ class MainTreeGuard(unittest.TestCase):
         self.assertEqual(self.git("log", "-1", "--format=%s").stdout.strip(), "local")
         self.assertEqual(self.git("log", "-1", "--format=%s", "HEAD~1").stdout.strip(), "three")
 
+    def upstream_ahead(self):
+        # main = one, two, local; upstream = one, two, three, made in a lane so the main tree never moves.
+        self.git("branch", "upstream", "main")
+        self.put("other.txt", "local\n")
+        self.git("add", "other.txt")
+        self.git("commit", "-q", "-m", "local")
+        self.git("worktree", "add", "-q", self.lane, "upstream")
+        with open(os.path.join(self.lane, "notes.txt"), "w", encoding="utf-8") as f:
+            f.write("three\n")
+        self.git("commit", "-q", "-am", "three", cwd=self.lane)
+
+    def test_an_apply_backend_rebase_of_another_branch_leaves_main_alone(self):
+        # Review round 3 of issue 15: the apply backend detaches HEAD before its state directory exists, so a
+        # put-back there left HEAD on main and the rebase committed the builder's work onto main itself.
+        self.guard("install")
+        self.upstream_ahead()
+        before = self.git("rev-parse", "main").stdout.strip()
+        r = self.git("rebase", "--apply", "main", "builder", check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git("rev-parse", "main").stdout.strip(), before, "main's ref did not move")
+        self.assertNotIn("it has been put back", r.stdout + r.stderr)
+
+    def apply_rebase_takes_the_upstream(self, *how):
+        self.guard("install")
+        self.upstream_ahead()
+        r = self.git(*how, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.head(), "refs/heads/main")
+        self.assertEqual(self.git("log", "--format=%s", "-3").stdout.split(), ["local", "three", "two"])
+
+    def test_an_apply_backend_rebase_of_main_takes_the_upstream(self):
+        self.apply_rebase_takes_the_upstream("rebase", "--apply", "upstream")
+
+    def test_an_apply_backend_pull_rebase_takes_the_upstream(self):
+        # `git pull --rebase` names itself `pull` in GIT_REFLOG_ACTION, not `rebase`.
+        self.apply_rebase_takes_the_upstream("-c", "rebase.backend=apply", "pull", "-q", "--rebase", ".", "upstream")
+
+    def test_a_branch_created_at_another_commit_is_named_too(self):
+        self.guard("install")
+        r = self.git("switch", "-c", "elsewhere", self.one, check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.head(), "refs/heads/main")
+        self.assertIn("the branch is still there", r.stderr)
+
     def test_a_rebase_of_another_branch_is_not_covered(self):
         # The recorded limit (review round 2 of issue 15): the hook cannot fail a rebase without breaking it, and
         # git 2.34 shows nothing it prints there, so a rebase of another branch ends on that branch. The docs say so.

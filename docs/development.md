@@ -90,8 +90,9 @@ one with `git show <commit>:<path>`. `scripts/main-tree-guard.sh install` (run b
 that puts the main tree straight back on `main` when a checkout moves it, and fails that checkout (issue 15). No hook
 fires for `git reset` or `git merge`, so the guard does not cover them: in the main tree they are for the join's
 fast-forward and reset of `main` and the install's fast-forward, never for looking at another commit. A bisect there
-is left to finish. A rebase is not covered either: one of `main` ends on `main`, but `git rebase <upstream> <other
-branch>` ends on that branch, and git shows nothing the hook says during a rebase.
+is left to finish. Not covered either: `git checkout -B main <commit>`, which moves `main` itself, and a rebase: one of
+`main` ends on `main`, but `git rebase <upstream> <other branch>` can end on that branch, and with git's default
+backend nothing the hook says during a rebase is shown.
 
 A lane pushes only its own branch. The machine has room for only a few compiling trees at once. Each tree is many
 gigabytes, and the whole machine slows past three concurrent compiles. So a build starts only when a capacity check
