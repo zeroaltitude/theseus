@@ -11,6 +11,15 @@ export const PARTS = [['goal', 'Goal'], ['read', 'How to read it'], ['why', 'Why
 const e = (goal: string, read: string, why: string): Explainer => ({ goal, read, why })
 
 export const EXPLAINERS: Record<string, Explainer> = {
+  // ---- the simple pages (src/simple): Benchmarks
+  'simple.bench.standing': e(
+    'Say, one line a benchmark, where Theseus stands against the best harness that was measured beside it.',
+    'Each row is one benchmark. Theseus\u2019s pass rate is the share of trials it solved; the two numbers in brackets are the range the true rate is likely in, given how many trials ran. Beside it is the best other harness on the same benchmark. It says ahead or behind outright only when the two ranges do not overlap; when they overlap it says which way the rates lean and that the run does not settle it. \u201cA different model\u201d means that harness ran another model, so the row compares more than the harness.',
+    'It is the honest short answer to \u201chow good is it\u201d. A row that reads behind is where the next release should look; a row that is not settled needs more trials before anyone claims a lead or a loss.'),
+  'simple.bench.findings': e(
+    'Say in a sentence what every other published run found, where a pass rate would mislead.',
+    'Each row is a benchmark whose newest run does not support a headline pass rate: it measured something else (time, memory, recall), ran too few trials, or did not include Theseus as an arm. The words are the run\u2019s own finding, from its report, cut to three lines. When a pass rate exists but is not led with, the reason is given under it.',
+    'These runs still decide things: start-up time, recall, what survives a crash. Open a report before quoting it; the sentence here is a summary, not the measurement.'),
   // ---- the simple pages (src/simple): Ops
   'simple.ops.now': e(
     'Say in five numbers where everything stands at this moment.',

@@ -106,13 +106,17 @@ html.simple:root .md pre { background: var(--color-deck); }
 html.simple:root .md code { background: color-mix(in srgb, var(--color-ink) 7%, transparent); }
 
 /* The Ship's struck-gold headings, plain here. */
+html.simple:root .ship-title,
 html.simple:root .wordmark {
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: 15px !important;
   font-weight: 650;
+  line-height: 1.3;
   letter-spacing: 0;
   text-transform: none;
   background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
   color: var(--color-ink);
   filter: none;
 }
