@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# cloud-twin-hygiene.sh -- archive and delete every `cloud/p<N>-<slug>` branch on origin WHOSE WORK HAS LANDED,
+# matched on the landed work and not on the slug. (the factory-four worker, 2026-11-13; b7-reharvest-cloud-twin-orphan)
+#
+# WHAT WAS WRONG. depart.sh's hygiene step computed one name per landed branch -- `cb="cloud/p5-${br#p5/}"` --
+# and archived exactly that. Two things followed from matching on the SLUG:
+#   1. work re-cut during a harvest lands under a VARIANT slug (`-six`, `-quiet-take`, `-landing`, `-r2`), so
+#      `cb` named a branch that never existed and the ORIGINAL slug's cloud twin was never archived or deleted;
+#   2. the name was hardcoded to `cloud/p5-`, so once the queue moved to p6 the hygiene stopped matching
+#      anything at all.
+# Both leave a `cloud/` branch alive on origin after its work is on main. The detectors (logistics/cloud-returns.sh
+# and theseus-106-kickoff/cloud/p6-returns.sh) were taught on 2026-11-12 to SUPPRESS such a row by testing the
+# twin for ancestry of main -- which stops the false `harvest` offer, but only on a machine whose LOCAL refs
+# happen to carry the twin, because a landed twin is usually `refs/heads/p6/...` or `refs/archive/p5/...` and
+# not an origin head at all. Measured here 2026-11-13: of 31 `origin/cloud/p6-*` branches that are back, 28
+# have landed and are still on origin; 7 of those landed under a `-r2` variant slug. The suppression is doing
+# real work and the branches are still there.
+#
+# SO THIS IS THE OTHER FIX THE LINE NAMES, the one it calls the real one: match the LANDED WORK. The predicate
+# below is character-for-character the detectors' own LANDED test, which is the point -- cleanup and suppression
+# now agree by construction, so they cannot drift apart again, which is the class of bug this whole line is.
+#
+# IT ONLY EVER ACTS ON PROOF THAT THE WORK IS ON MAIN. A twin that exists but is not an ancestor changes nothing.
+# A cloud branch with no twin at all changes nothing. The branch's content is archived to a directory AND to
+# `refs/archive/cloud/<slug>` BEFORE it is deleted, exactly as depart.sh did, because the branch is its only copy.
+#
+#   cloud-twin-hygiene.sh --dry-run        print a verdict for every cloud branch; change nothing
+#   cloud-twin-hygiene.sh                  archive and delete the landed ones, up to MAX of them
+#
+# Env: REPO (default ~/projects/theseus)   the repository whose refs are read and whose origin is pushed to
+#      MAIN (default origin/main)          what "landed" is measured against; depart.sh passes its own HEAD_SHA
+#      NS   (default "p5 p6")              namespaces to sweep
+#      MAX  (default 12)                   most branches one run may delete; a bound on blast radius, not a budget
+#      ARCH (default ~/reports/theseus-105-kickoff/cloud-reports)
+# Exit 0 always unless its arguments are wrong (2). One line per branch on stdout.
+set -u
+REPO=${REPO:-$HOME/projects/theseus}
+MAIN=${MAIN:-origin/main}
+NS=${NS:-"p5 p6"}
+MAX=${MAX:-12}
+ARCH=${ARCH:-$HOME/reports/theseus-105-kickoff/cloud-reports}
+DRY=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --dry-run|-n) DRY=1; shift ;;
+    --main) MAIN=${2:?--main needs a ref}; shift 2 ;;
+    --max)  MAX=${2:?--max needs a number}; shift 2 ;;
+    *) echo "cloud-twin-hygiene.sh [--dry-run] [--main REF] [--max N]"; exit 2 ;;
+  esac
+done
+g() { git -C "$REPO" "$@"; }
+g rev-parse -q --verify "$MAIN" >/dev/null || { echo "hygiene: $MAIN is not a ref in $REPO"; exit 2; }
+
+acted=0 landed_n=0 pending_n=0 capped=0
+for ref in $(g for-each-ref --format='%(refname:short)' refs/remotes/origin/cloud/); do
+  ns=""; slug=""
+  for n in $NS; do
+    case $ref in */cloud/$n-*) ns=$n; slug=${ref#*/cloud/$n-}; break ;; esac
+  done
+  [ -n "$ns" ] || { echo "skip    $ref (not in namespaces: $NS)"; continue; }
+
+  # THE DETECTORS' OWN LANDED TEST. A twin may be an origin head, a local head or an archived ref, and it may
+  # carry a variant suffix; any one of them being an ancestor of MAIN is proof the work is on main.
+  twin=""
+  for tw in $(g for-each-ref --format='%(refname)' \
+                "refs/remotes/origin/$ns/$slug"  "refs/remotes/origin/$ns/$slug-*" \
+                "refs/heads/$ns/$slug"           "refs/heads/$ns/$slug-*" \
+                "refs/archive/$ns/$slug"         "refs/archive/$ns/$slug-*" 2>/dev/null); do
+    g merge-base --is-ancestor "$tw" "$MAIN" 2>/dev/null && { twin=$tw; break; }
+  done
+  if [ -z "$twin" ]; then
+    pending_n=$((pending_n + 1)); echo "pending $ref (no twin of its work is an ancestor of $MAIN; kept)"; continue
+  fi
+  landed_n=$((landed_n + 1))
+  variant=""; case ${twin##*/} in "$slug") ;; *) variant=" VARIANT SLUG ${twin##*/}" ;; esac
+
+  if [ "$DRY" = 1 ]; then
+    echo "WOULD  $ref -> archive to $ARCH/$slug + refs/archive/cloud/$slug, then delete on origin (landed via $twin$variant)"
+    continue
+  fi
+  if [ "$acted" -ge "$MAX" ]; then
+    capped=$((capped + 1)); echo "capped  $ref (landed via $twin, but MAX=$MAX reached this run; the next run takes it)"; continue
+  fi
+
+  # ---- archive first: the branch is the only copy of its report ------------------------------------------
+  d=$ARCH/$slug; mkdir -p "$d"
+  g show "$ref:CLOUD_TASK.md"   > "$d/CLOUD_TASK.md"   2>/dev/null || true
+  g show "$ref:CLOUD_REPORT.md" > "$d/CLOUD_REPORT.md" 2>/dev/null || true
+  g log --format='%H %G? %cd %s' --date=iso "$MAIN..$ref" > "$d/commits.txt" 2>/dev/null || true
+  echo "$(g rev-parse "$ref") ${ref#origin/} archived $(date '+%F %T') by cloud-twin-hygiene.sh (landed via $twin)" >> "$ARCH/INDEX.txt"
+  g update-ref "refs/archive/cloud/$slug" "$ref"
+  # The archive ref must actually exist before the branch goes, or a push --delete loses the only copy.
+  if ! g rev-parse -q --verify "refs/archive/cloud/$slug" >/dev/null; then
+    echo "KEPT    $ref (refs/archive/cloud/$slug did not take; NOT deleted)"; continue
+  fi
+  if g push -q origin --delete "${ref#origin/}" 2>/dev/null; then
+    acted=$((acted + 1)); echo "deleted $ref (landed via $twin$variant); archived to $d and refs/archive/cloud/$slug"
+  else
+    echo "KEPT    $ref (archived to $d and refs/archive/cloud/$slug; could not delete it on origin)"
+  fi
+done
+printf 'hygiene: %s landed, %s pending, %s deleted%s (main %s, namespaces %s%s)\n' \
+  "$landed_n" "$pending_n" "$acted" \
+  "$([ "$capped" -gt 0 ] && echo ", $capped over the cap")" \
+  "$(g rev-parse --short "$MAIN")" "$NS" "$([ "$DRY" = 1 ] && echo ', DRY RUN')"
+exit 0

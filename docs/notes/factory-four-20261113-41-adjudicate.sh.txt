@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Line 41 adjudication: every local lane and worktree of the Theseus repo -- is its HEAD reachable from any
+# origin ref, is its tree dirty, and what are its unique non-merge commits?
+# READ-ONLY. GIT_OPTIONAL_LOCKS=0 everywhere, so no lane's index is refreshed or locked and nothing is pruned.
+#
+# "Reachable from any origin/* ref" is ONE call, not one per ref:
+#   git rev-list --count <head> --not --remotes=origin
+# counts the commits in the head's history that no origin ref reaches. 0 means origin contains the head
+# entirely -- which is the question -- and it costs one walk instead of ~115 merge-base calls per lane.
+set -u
+export GIT_OPTIONAL_LOCKS=0
+R=$HOME/lanes-local/factory-four      # our own lane; shares the object store and refs with the repo
+g() { git -C "$R" "$@"; }
+
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' LANE BRANCH HEAD DIRTY UNREACHED UNIQUE_NONMERGE VERDICT
+
+g worktree list --porcelain | awk '
+  /^worktree /{wt=$2} /^HEAD /{h=$2} /^branch /{b=$2}
+  /^detached/{b="(detached)"}
+  /^$/{if(wt!=""){print wt"\t"h"\t"(b==""?"(detached)":b); wt="";h="";b=""}}
+  END{if(wt!="")print wt"\t"h"\t"(b==""?"(detached)":b)}
+' | while IFS=$'\t' read -r wt head br; do
+  [ -n "$wt" ] || continue
+  br=${br#refs/heads/}
+
+  if [ -d "$wt" ]; then
+    d=$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null | wc -l)
+  else
+    d=GONE
+  fi
+
+  if ! g cat-file -e "${head}^{commit}" 2>/dev/null; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${wt/#$HOME/~}" "$br" "${head:0:8}" "$d" '?' '?' \
+      'NEEDS A HUMAN (head unknown in this object store)'
+    continue
+  fi
+  un=$(g rev-list --count "$head" --not --remotes=origin 2>/dev/null || echo '?')
+  u=$(g rev-list --count --no-merges "origin/main..$head" 2>/dev/null || echo '?')
+
+  if [ "$un" = 0 ]; then
+    if [ "$d" = 0 ]; then v="holds nothing (origin reaches its whole history)"
+    elif [ "$d" = GONE ]; then v="holds nothing (origin reaches it; directory is gone)"
+    else v="NEEDS A HUMAN (origin has the commits, but $d tracked edits are uncommitted)"; fi
+  else
+    if [ "$d" = GONE ]; then v="NEEDS A HUMAN ($un commits no origin ref reaches; directory is gone)"
+    elif [ "$d" != 0 ]; then v="NEEDS A HUMAN (dirty: $d tracked edits, and $un commits no origin ref reaches)"
+    elif [ "$u" = 0 ]; then v="holds nothing ($un unreached commits, all merges; no unique content)"
+    else v="HOLDS REAL WORK ($u unique non-merge commits, $un unreached by origin)"; fi
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${wt/#$HOME/~}" "$br" "${head:0:8}" "$d" "$un" "$u" "$v"
+done

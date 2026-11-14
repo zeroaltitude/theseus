@@ -1,0 +1,17 @@
+[Unit]
+Description=Probe ARM reachability every 5 minutes (b7-arm-reachability-watch)
+
+[Timer]
+# The house pattern is an OnCalendar in America/Phoenix with Persistent=false and AccuracySec=1s
+# (depart.timer, precut-fleet.timer). Every five minutes, because the question this answers is "has the host
+# been down for hours", and a five-minute grain makes "unreachable since" accurate enough for a cut that fires
+# every 30 minutes while costing one ssh handshake per fire.
+OnCalendar=*-*-* *:00/5:00 America/Phoenix
+# A missed probe is not run late: a gap in reach.log is itself readable, and a backfilled probe would record
+# the wrong minute for "since when", which is the one thing this exists to get right.
+Persistent=false
+AccuracySec=1s
+Unit=arm-reach.service
+
+[Install]
+WantedBy=timers.target
