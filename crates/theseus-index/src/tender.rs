@@ -207,7 +207,10 @@ impl Shared {
         // of the index the source can see, once for the share its ranks are
         // measured against, so a source that sees a sixth of the index
         // weighs a thirty-sixth, below a lone exact match, and a whole one
-        // weighs the default. A weight the query names is its own.
+        // weighs the default. The exact match leads only while the scaled
+        // weight stays under 1, that is below about 41% coverage; above it
+        // a hit only the vectors find can lead again. A weight the query
+        // names is its own.
         if wanted.contains(&"vector") && !p.weights.contains_key("vector") {
             let covered = self.vectors.coverage();
             weights.vector *= covered * covered;

@@ -66,3 +66,34 @@ fn a_backfill_in_progress_does_not_bury_the_exact_match() {
     assert_eq!(full.weights["vector"], default);
     assert_eq!(full.hits[0].text, EXACT);
 }
+
+/// A table whose lock is held (a batch's append is what holds it, mostly
+/// during a backfill) is read by its last counts, never as covered: the
+/// share stays what it was, so the query does not get the whole weight back
+/// in the very case the weighting is for.
+#[test]
+fn a_busy_table_is_weighed_by_its_last_counts_not_as_covered() {
+    let v = VRig::new();
+    v.rig.put(&[
+        user("ses_1", "tides follow the moon"),
+        user("ses_1", "jazz improvisation follows the chord changes"),
+    ]);
+    let mut t = v.open();
+    settle_all(&mut t);
+    let rest: Vec<_> = TEXTS
+        .iter()
+        .filter(|t| !t.starts_with("tides") && !t.starts_with("jazz"))
+        .map(|t| user("ses_1", t))
+        .collect();
+    v.rig.put(&rest);
+    settle(&mut t);
+    let shared = t.shared();
+    let share = 2.0 / 12.0;
+    assert!((shared.vectors.coverage() - share).abs() < 1e-9, "read now");
+    let held = shared.vectors.hold_table();
+    assert!(
+        (shared.vectors.coverage() - share).abs() < 1e-9,
+        "the lock is held: the last counts answer, not 1.0"
+    );
+    drop(held);
+}
