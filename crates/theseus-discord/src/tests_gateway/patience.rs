@@ -53,18 +53,20 @@
 //! napping, summed over all of them. Its start is the first nap, not the rig's construction, and the test's own work
 //! between waits is not charged.
 //!
-//! Every wait of the rig goes through `Rig::until` or `Rig::until_on` except the task family's
-//! (the task family's `until` (in tests_task_threads.rs)), which has one wall-clock deadline of `TASK_WAIT` per rig, and
-//! `tests_process.rs`'s held-create wait, which keeps a `Patience` of its own. A test that builds a second rig
-//! gets a second budget.
+//! Every LONG wait of the rig goes through `Rig::until` or `Rig::until_on`, except the task family's (the family's
+//! `until`), which ends at one deadline of `TASK_WAIT` from the rig's construction, and
+//! `tests_process.rs`'s held-create wait, which keeps a `Patience` of its own. A few bounded loops of 10 s or less
+//! (`tests_process.rs`, `tests_typing.rs`, `horizon.rs`) sit outside too. A test that builds a second rig gets a
+//! second budget.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const BASE: Duration = Duration::from_secs(20);
-/// The task family's one deadline per test (`Rig::task_wait_spent`): with the 30 s connect wait it ends before the
-/// runner's 120 s kill, which 100 s per wait did not.
-pub(crate) const TASK_WAIT: Duration = Duration::from_secs(85);
+/// The task family's one deadline per rig, from the rig's construction (`Rig::task_wait_spent`): the connect wait
+/// (30 s), the bind wait and every task wait of the test all end inside it, and inside the runner's 120 s kill,
+/// with ten seconds over. 100 s per wait, from when each was called, did not.
+pub(crate) const TASK_WAIT: Duration = Duration::from_secs(110);
 const NAP: Duration = Duration::from_millis(25);
 const MAX_CREDIT: Duration = Duration::from_secs(60);
 /// What a nap may overshoot by without being called a stall: the timer's own
@@ -119,7 +121,7 @@ impl Patience {
 /// `BASE` is one that came after another had spent some. The test's own work between waits (core calls, `say`,
 /// assertions) is not charged, and nothing is charged before the first nap, so a slow start is not a red. It is
 /// per RIG: a test that builds a second one (`tests_task_home`'s restart test) has a second budget, and the waits of
-/// the task family's `until` (in tests_task_threads.rs) are bounded by the rig's own deadline instead (`Rig::task_wait_spent`).
+/// the task family's `until` are bounded by the rig's deadline instead (`Rig::task_wait_spent`).
 pub(crate) struct Budget(Mutex<Spending>);
 
 #[derive(Default)]
@@ -311,35 +313,6 @@ mod tests {
         assert_eq!(b.unstalled(), NAP, "only the nap");
     }
 
-    /// The most a rig's waits can take (its connect wait, the budget with its credit) must end before the runner's
-    /// kill, or the kill takes the test with no word of ours. The kill is `.config/nextest.toml`'s `slow-timeout`:
-    /// `period` times `terminate-after`. It counts the waits, not the test's own work between them, and one rig:
-    /// see `Budget` for the test that builds two.
-    #[test]
-    fn a_tests_waits_end_before_the_runners_kill() {
-        let cfg = include_str!("../../../../.config/nextest.toml");
-        let line = cfg
-            .lines()
-            .find(|l| l.trim_start().starts_with("slow-timeout"))
-            .expect("nextest.toml sets slow-timeout");
-        let num = |key: &str| -> u64 {
-            let at = line.find(key).unwrap_or_else(|| panic!("{key} in {line}"));
-            line[at + key.len()..]
-                .trim_start_matches([' ', '=', '"'])
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect::<String>()
-                .parse()
-                .unwrap_or_else(|_| panic!("{key} in {line}"))
-        };
-        let kill = Duration::from_secs(num("period") * num("terminate-after"));
-        let connect = Duration::from_secs(30);
-        assert!(
-            connect + BASE + MAX_CREDIT < kill,
-            "connect {connect:?} + budget {BASE:?} + credit {MAX_CREDIT:?} reaches the kill at {kill:?}"
-        );
-    }
-
     /// The panic text of a wait that gave up, from a rig whose budget `spend` has already drawn on.
     async fn timed_out(
         f: impl FnOnce(&Rig) -> bool,
@@ -409,16 +382,60 @@ mod tests {
         );
     }
 
-    /// The task family's waits end at the rig's deadline, one for the whole test, which fits under the kill.
-    #[tokio::test]
-    async fn the_task_waits_share_one_deadline_that_fits_under_the_kill() {
-        let r = Rig::start(|_| vec![], false).await;
-        assert!(!r.task_wait_spent(), "it starts at the first wait");
-        *r.task_deadline.lock().unwrap() = Some(Instant::now() - TASK_WAIT);
-        assert!(r.task_wait_spent());
+    /// The runner's kill: `.config/nextest.toml`'s `slow-timeout`, `period` times `terminate-after`.
+    fn the_runners_kill() -> Duration {
+        let cfg = include_str!("../../../../.config/nextest.toml");
+        let line = cfg
+            .lines()
+            .find(|l| l.trim_start().starts_with("slow-timeout"))
+            .expect("nextest.toml sets slow-timeout");
+        let num = |key: &str| -> u64 {
+            let at = line.find(key).unwrap_or_else(|| panic!("{key} in {line}"));
+            line[at + key.len()..]
+                .trim_start_matches([' ', '=', '"'])
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+                .parse()
+                .unwrap_or_else(|_| panic!("{key} in {line}"))
+        };
+        Duration::from_secs(num("period") * num("terminate-after"))
+    }
+
+    /// The most a rig's waits can take (its connect wait, the budget with its credit) must end before the runner's
+    /// kill, or the kill takes the test with no word of ours. It counts the waits, not the test's own work between
+    /// them, and one rig: see `Budget` for the test that builds two.
+    #[test]
+    fn a_tests_waits_end_before_the_runners_kill() {
+        let kill = the_runners_kill();
+        let connect = Duration::from_secs(30);
         assert!(
-            Duration::from_secs(30) + TASK_WAIT < Duration::from_secs(120),
-            "connect + deadline under the kill"
+            connect + BASE + MAX_CREDIT < kill,
+            "connect {connect:?} + budget {BASE:?} + credit {MAX_CREDIT:?} reaches the kill at {kill:?}"
         );
+    }
+
+    /// The task family's waits end at one deadline per rig, counted from the rig's construction, so its connect
+    /// wait and bind wait are inside it; it must end before the kill, or the family's waits (100 s each before
+    /// this) can pass it.
+    #[test]
+    fn the_task_deadline_is_inside_the_runners_kill() {
+        let kill = the_runners_kill();
+        assert!(
+            TASK_WAIT < kill,
+            "the task deadline {TASK_WAIT:?} reaches the kill at {kill:?}"
+        );
+        assert!(
+            TASK_WAIT + Duration::from_secs(5) <= kill,
+            "and leaves a margin for the message to be said"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_task_deadline_runs_from_the_rigs_construction() {
+        let mut r = Rig::start(|_| vec![], false).await;
+        assert!(!r.task_wait_spent(), "a fresh rig has its deadline ahead");
+        r.pretend_the_task_deadline_passed();
+        assert!(r.task_wait_spent());
     }
 }

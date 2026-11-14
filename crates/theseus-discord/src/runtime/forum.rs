@@ -1305,7 +1305,7 @@ mod tests {
 
     /// A refused call is tried again in a second, not in a minute, and the
     /// wait doubles only while the refusals go on. A flat minute was longer
-    /// than the 100 s every forum test waits, so one refusal under load read
+    /// than the 110 s every forum test waits, so one refusal under load read
     /// as a hang (theseus-o366s).
     #[tokio::test]
     async fn a_refused_call_is_tried_again_in_a_second_and_the_post_is_then_made() {

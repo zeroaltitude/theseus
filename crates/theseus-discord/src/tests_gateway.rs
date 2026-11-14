@@ -58,8 +58,8 @@ pub(crate) struct Rig {
     run: Vec<tokio::task::AbortHandle>,
     /// The one patience budget every `until` of this rig draws on.
     patience: Budget,
-    /// The wall-clock deadline of the task family's waits (the task family's `until` (in tests_task_threads.rs)), begun at the first of them.
-    task_deadline: std::sync::Mutex<Option<Instant>>,
+    /// When this rig was built: the task family's waits end `TASK_WAIT` after it (`Rig::task_wait_spent`).
+    began: Instant,
 }
 
 thread_local! {
@@ -135,6 +135,7 @@ impl Rig {
         more: &[String],
         tweak: impl FnOnce(&mut Config),
     ) -> Self {
+        let began = Instant::now();
         let dir = tempfile::tempdir().unwrap();
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
         if OPEN_AT_BIND.with(std::cell::Cell::get) {
@@ -167,7 +168,7 @@ impl Rig {
             core,
             run: vec![driver.abort_handle(), binding.abort_handle()],
             patience: Budget::new(),
-            task_deadline: std::sync::Mutex::new(None),
+            began,
         };
         // Each place starts fresh: its first message opens its session
         // (theseus-emqx), so a place is bound once the binding reports it.
@@ -216,16 +217,16 @@ impl Rig {
         }
     }
 
-    /// Has the task family's one deadline passed? It begins at the first call and is `TASK_WAIT` long, for the
-    /// whole test: the family's waits used to take 100 s EACH, which with the connect wait could pass the
-    /// runner's kill with no message of ours.
+    /// Has the task family's one deadline passed? It is `TASK_WAIT` from the rig's construction, so the connect
+    /// wait, the bind wait and every task wait of the test all end inside it, and inside the runner's kill. The
+    /// family's waits used to take 100 s EACH, from when each was called.
     pub(crate) fn task_wait_spent(&self) -> bool {
-        let began = *self
-            .task_deadline
-            .lock()
-            .unwrap()
-            .get_or_insert_with(Instant::now);
-        began.elapsed() >= TASK_WAIT
+        self.began.elapsed() >= TASK_WAIT
+    }
+
+    /// For the test that holds the family's `until` to this deadline: the deadline has passed.
+    pub(crate) fn pretend_the_task_deadline_passed(&mut self) {
+        self.began = Instant::now() - TASK_WAIT;
     }
 
     /// What a timed-out wait reads, surface by surface. A wait that named its surfaces gets those first, marked;

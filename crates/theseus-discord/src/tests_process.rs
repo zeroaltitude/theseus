@@ -386,8 +386,9 @@ impl Provider for AllAtOnceThenHeld {
                 });
             }
             // The wait is a `Patience` of its own (20 s of unstalled time, the
-            // budget `until` draws on per rig), not a fixed 10 s of wall clock: on a starved host the lane's first
-            // create can come later than that (b7-tests-process-oneoff-red).
+            // budget `until` draws on per rig), not a fixed 10 s of wall
+            // clock: on a starved host the lane's first create can come later
+            // than that (b7-tests-process-oneoff-red).
             let mut patience = crate::tests_gateway::patience::Patience::new();
             while !patience.spent() && !self.fake.seen().iter().any(|q| q.outcome == "held") {
                 patience.nap().await;
