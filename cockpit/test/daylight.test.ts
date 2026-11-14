@@ -85,16 +85,18 @@ test('a treemap keeps its leaf labels ivory on the deepened tiles, and maps the 
   assert.equal(day.series[0].levels[0].itemStyle.borderColor, THEME.light.hull)
 })
 
-test('night, daylight, or the system: night is the default, the system light or not; the address chooses for one page', () => {
-  // Nothing chosen: night, whatever the system says.
-  assert.equal(choiceOf(null, null), 'dark')
-  assert.equal(modeOf(choiceOf(null, null), true), 'dark')
+test('night, daylight, or the system: daylight is the default, the system light or not; the address chooses for one page', () => {
+  // Nothing chosen: daylight, whatever the system says (the owner's choice with the simple pages, 2026-11-14).
+  assert.equal(choiceOf(null, null), 'light')
+  assert.equal(modeOf(choiceOf(null, null), true), 'light')
+  assert.equal(modeOf(choiceOf(null, null), false), 'light')
   // Kept in this browser; the address's, for one page, over it; anything else is not a choice.
   assert.equal(choiceOf(null, 'system'), 'system')
   assert.equal(choiceOf('light', 'system'), 'light')
   assert.equal(choiceOf('system', 'dark'), 'system')
   assert.equal(choiceOf('noon', 'light'), 'light')
-  assert.equal(choiceOf('noon', 'dusk'), 'dark')
+  assert.equal(choiceOf('noon', 'dusk'), 'light')
+  assert.equal(choiceOf(null, 'dark'), 'dark')
   // The system's follows it.
   assert.deepEqual([modeOf('system', true), modeOf('system', false), modeOf('light', false), modeOf('dark', true)], ['light', 'dark', 'light', 'dark'])
   // The rail's button: night, daylight, the system's, night.
