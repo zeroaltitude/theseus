@@ -41,6 +41,7 @@ use serde_json::Value;
 use theseus_protocol::import_sync::{ImportSyncRecord, ImportSyncResult, SyncPeople};
 use theseus_protocol::method;
 
+use super::confirms::Act;
 use super::server::{parse, Conn, RpcFailure};
 use super::{import, Core};
 use crate::import::people;
@@ -228,6 +229,34 @@ impl Core {
         out.spent_usd = theseus_kernel::micros_to_usd(s.spent);
         out.stopped = s.stopped;
         Ok((out, s.done))
+    }
+}
+
+impl Core {
+    /// **`import.sync.request`'s own owner check, and no other**, for a caller
+    /// that is not an RPC connection: `chat.import_sync`, which judges the
+    /// operator who spoke (chat-acts-are-tools, S43-1). `Act::Import` has no
+    /// arm of its own in `judge_act`, so it falls to `places::owner_in_private`
+    /// — the CLI, the web UI, a DM with an owner, a thread's own virtual place,
+    /// or a guild channel the bindings file bound private. **No new place rule
+    /// is invented for the tool**; this is the same judgment the plan, the
+    /// record and the request have always taken, asked about the same actor the
+    /// wire would have carried.
+    pub(crate) fn import_act(&self, who: &crate::approval::Answerer) -> Result<(), String> {
+        self.judge_act(
+            who,
+            Act::Import {
+                method: method::IMPORT_SYNC_REQUEST,
+                what: "the OpenClaw sync asked for now",
+            },
+        )
+        .map_err(|e| match e.downcast::<crate::approval::Refusal>() {
+            Ok(r) => format!(
+                "the OpenClaw sync asked for now from {} does not count: {}. Nothing was started.",
+                r.who, r.why
+            ),
+            Err(e) => format!("the OpenClaw sync was not started: {e:#}"),
+        })
     }
 }
 

@@ -10,15 +10,14 @@
 //! (`policy`), what the harness loop drives (`driver`), and channel bindings
 //! (`bindings`).
 
-mod allow_in_words;
 pub(crate) mod answer;
-mod answer_in_words;
 mod ask_again;
 mod aws;
 mod bindings;
 mod books;
 mod budgets;
 mod calendar;
+mod chat_answer;
 mod cites;
 mod confirms;
 mod context;
@@ -29,6 +28,7 @@ mod question_waits;
 pub(crate) use answer::offer;
 pub(crate) use confirms::{budget_turn, expired_answer, Act, EXPIRY};
 pub(crate) use question_waits::held_past_life;
+pub(crate) use undo_allow::Taken;
 mod disk_watch;
 mod driver;
 mod exec_list;
@@ -1103,6 +1103,7 @@ impl Core {
         core.tools.thread_read.attach(&core);
         core.tools.card_observed.attach(&core);
         core.tools.self_file.attach(&core);
+        core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools
             .admission

@@ -96,9 +96,12 @@ impl ToolRuntime {
 
     fn built_for(&self, place: PlaceView, key: &Key) -> Vec<Value> {
         let offered = |name: &str| place.offered(name, &self.public_roots);
-        let mut defs = self
-            .registry
-            .definitions_of(true, |n| offered(n) && crate::tools_defer::listed(n));
+        // A chat act is never kept (chat-acts-are-tools, S43-1): a catalog is
+        // shared by every session of a place, and those three are true of ONE
+        // session at one moment. `turn::defer_step` puts in the ones that apply.
+        let mut defs = self.registry.definitions_of(true, |n| {
+            offered(n) && crate::tools_defer::listed(n) && !crate::chat_acts::conditional(n)
+        });
         jobs_tools::say_wait_cap(&mut defs, self.job_wait_max_secs);
         super::proc_cap::say_proc_cap(
             &mut defs,

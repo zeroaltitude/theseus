@@ -38,6 +38,19 @@ use theseus_protocol::work::undo::{
 };
 
 use super::confirms::Act;
+
+/// How an allowance was taken, for the row it writes (chat-acts-are-tools,
+/// S43-1). The typed routes — `undo.allow` over the wire, `theseus undo
+/// allow`, the button — take neither field, and their rows are byte for byte
+/// what they were. `chat.allow_held_call` names itself in `route` and says in
+/// `judged` what the second reading made of the operator's message: `true` at
+/// its bar, and **`false` when no judge saw it at all**, which is the fact the
+/// fail-open rule owes the ledger.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Taken<'a> {
+    pub route: Option<&'a str>,
+    pub judged: Option<bool>,
+}
 use super::projects::failure;
 use super::server::{route, Conn, RpcFailure};
 use super::Core;
@@ -104,6 +117,18 @@ impl Core {
     /// row. The call itself runs when the model proposes it again unchanged;
     /// the gate spends the allowance at 0d (`toolrun::reversible`).
     pub fn undo_allow(&self, hold: &str, who: impl Into<Answerer>) -> Result<HeldCall> {
+        self.undo_allow_taken(hold, who, Taken::default())
+    }
+
+    /// `undo_allow`, with what [`Taken`] records about HOW the allowance was
+    /// taken: the route that wrote it and what the second reading said. The
+    /// typed routes pass neither and their rows are what they always were.
+    pub(crate) fn undo_allow_taken(
+        &self,
+        hold: &str,
+        who: impl Into<Answerer>,
+        taken: Taken<'_>,
+    ) -> Result<HeldCall> {
         let who = who.into();
         let mut held = Holds::read(&self.store)?;
         let id = Self::one_hold(&held, hold)?;
@@ -132,6 +157,8 @@ impl Core {
             summary: &h.summary,
             by: &by,
             via: &via,
+            route: taken.route,
+            judged: taken.judged,
         };
         let rec = self.rec(Some(&h.session_id));
         self.store.append(&[rec.row(&fact)?, held.record()?])?;

@@ -185,6 +185,21 @@ impl Core {
     /// The second message -- what the run imported -- is posted to the
     /// operator when the child ends (`sync_ran_notice`).
     pub(crate) fn sync_request(self: &Arc<Self>, by: &str) -> ImportSyncStarted {
+        self.sync_request_for(None, by)
+    }
+
+    /// `sync_request`, saying where the ask came from so the **second** line —
+    /// what the run imported — goes back to the conversation that asked
+    /// (chat-acts-are-tools, S43-1, `chat.import_sync`). `None` is the RPC's
+    /// and the CLI's, where the notice goes where approvals go, as it always
+    /// did. The first line is the tool's own result, which the model relays in
+    /// the thread it was asked in.
+    pub(crate) fn sync_request_for(
+        self: &Arc<Self>,
+        asked_in: Option<&str>,
+        by: &str,
+    ) -> ImportSyncStarted {
+        let asked_in = asked_in.map(str::to_string);
         let now = theseus_protocol::now_unix_ms();
         match self.on_demand.claim(now) {
             // Already going: nothing is started, nothing is queued, and the
@@ -210,7 +225,7 @@ impl Core {
                 let core = self.clone();
                 tokio::spawn(async move {
                     let ran = core.on_demand.run_claimed().await;
-                    core.sync_ran_notice(&ran, &before);
+                    core.sync_ran_notice(asked_in.as_deref(), &ran, &before);
                 });
                 ImportSyncStarted {
                     started: true,
@@ -225,7 +240,7 @@ impl Core {
     /// state the run itself recorded. It goes where approvals go, which is the
     /// owner's own DM, so the thread that asked is told without this path
     /// needing a route of its own.
-    fn sync_ran_notice(&self, ran: &sync_run::Ran, before: &SyncState) {
+    fn sync_ran_notice(&self, asked_in: Option<&str>, ran: &sync_run::Ran, before: &SyncState) {
         let after: SyncState = self
             .store
             .get_meta(STATE_KEY)
@@ -236,10 +251,36 @@ impl Core {
         if !ran.ok() {
             tracing::warn!(text, "the on-demand sync did not work");
         }
-        if let Err(e) = self
-            .outbox
-            .to_operator(None, serde_json::json!({"kind": "notice", "text": text}))
-        {
+        self.say_sync_ran(asked_in, text);
+    }
+
+    /// Where the second line goes. A sync someone asked for IN A CONVERSATION
+    /// is answered there: the tool's own result said it started, and this says
+    /// what it imported, in the same place (chat-acts-are-tools, S43-1,
+    /// `chat.import_sync`). `post_for` gives `None` for a session with no
+    /// place of its own -- the CLI's, the web UI's -- and that, and every
+    /// request that named no conversation at all, goes where approvals go,
+    /// exactly as before.
+    fn say_sync_ran(&self, asked_in: Option<&str>, text: String) {
+        // The kind is written as a LITERAL at each call, not built once and
+        // passed: `outbox::tests::every_operator_call_site_is_accounted_for`
+        // sweeps this crate for operator calls and reads the kind out of the
+        // source, and a kind it cannot read makes the file a census row.
+        if let Some(sid) = asked_in {
+            match self
+                .outbox
+                .post_for(sid, "", serde_json::json!({"kind": "notice", "text": text}))
+            {
+                Ok(Some(_)) => return,
+                Ok(None) => {}
+                Err(e) => tracing::warn!(error = %format!("{e:#}"),
+                    "the sync's report could not be posted where it was asked for; saying it where approvals go"),
+            }
+        }
+        if let Err(e) = self.outbox.to_operator(
+            asked_in,
+            serde_json::json!({"kind": "notice", "text": text}),
+        ) {
             tracing::warn!(error = %format!("{e:#}"), "the sync's report could not be posted");
         }
     }

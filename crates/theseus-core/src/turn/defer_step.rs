@@ -73,6 +73,7 @@ impl TurnRunner {
     /// turn's start, before any verdict has landed, so a deep turn settles its
     /// tools at the ordinary ceiling.
     pub(super) fn defer_tools(&self, t: &mut Turn<'_>, spec: &mut RequestSpec) {
+        self.chat_acts_offered(t, spec);
         self.flows_in_scope(t, spec);
         let kind = self.place_kind(t.tc.session_id, t.tc.task.is_some());
         let ceiling = t.route.injection.as_ref().map(|b| b.admit_ceiling);
@@ -92,6 +93,40 @@ impl TurnRunner {
             .defer
             .is_some()
             .then(|| ceiling.unwrap_or(self.cfg.tools.defer.admit_ceiling));
+    }
+
+    /// **The chat acts this turn is offered** (chat-acts-are-tools, S43-1):
+    /// the tool that answers the question waiting HERE, the one that lets the
+    /// call held HERE run as it was first proposed, and the one that asks for
+    /// an import sync. None of the three is in the place's kept catalog
+    /// (`chat_acts::conditional`), because each is true of one session at one
+    /// moment; this is where the ones that apply go in, with a description
+    /// naming what is waiting or held. A turn with nothing waiting is offered
+    /// no answer tool at all.
+    ///
+    /// It also **binds the message that started this turn** to the turn, which
+    /// is the structural rule the allow tool takes: a continuation — a wake, a
+    /// task's report, Theseus's own pipeline — claims nothing and is offered
+    /// nothing, so a message the owner meant for the turn before cannot be
+    /// taken by the one after it.
+    ///
+    /// With nothing waiting, nothing held and no import configured this reads
+    /// one lock and changes nothing.
+    fn chat_acts_offered(&self, t: &Turn<'_>, spec: &mut RequestSpec) {
+        let more = self.tools.chat_acts.offers(
+            t.tc.session_id,
+            t.tc.turn_id,
+            t.tc.class,
+            t.continuation || t.self_authored,
+        );
+        if more.is_empty() {
+            return;
+        }
+        // Sorted by wire name with the rest, so the request's tool list is
+        // deterministic byte for byte (`Registry::definitions_of`'s order).
+        let mut defs: Vec<serde_json::Value> = spec.tools.iter().cloned().chain(more).collect();
+        defs.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+        spec.tools = defs.into();
     }
 
     /// A loaded flow's tool stays in the request only where the flow is

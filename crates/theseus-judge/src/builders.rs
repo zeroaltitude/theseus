@@ -56,6 +56,9 @@ pub const COMPARE_VERSION: u32 = 1;
 /// `heard.v1`'s builder (module `heard`, theseus-s3dwj).
 pub const HEARD_VERSION: u32 = 1;
 
+/// `allow_said.v1`'s builder (module `allow_said`, chat-acts-are-tools S43-1).
+pub const ALLOW_SAID_VERSION: u32 = 1;
+
 /// `same_thing.v1`'s and `two_things.v1`'s builders (module `sweep`, theseus-nzzz4).
 pub const SAME_THING_VERSION: u32 = 1;
 pub const TWO_THINGS_VERSION: u32 = 1;
@@ -445,6 +448,9 @@ pub enum Input {
     Compare(CompareInput),
     /// `heard.v1`'s (theseus-s3dwj): a short or unclear transcript in a call.
     Heard(HeardInput),
+    /// `allow_said.v1`'s (chat-acts-are-tools, S43-1): the operator's latest
+    /// message and the held call the assistant decided it means.
+    AllowSaid(AllowSaidInput),
     /// `same_thing.v1`'s (theseus-nzzz4): two categories of one kind.
     SameThing(SameThingInput),
     /// `two_things.v1`'s (theseus-nzzz4): one category and a sample of its sessions.
@@ -500,6 +506,7 @@ impl Input {
             Input::Content(_) => Builder::Content,
             Input::Delay(_) => Builder::Delay,
             Input::Precedence(_) => Builder::Precedence,
+            Input::AllowSaid(_) => Builder::AllowSaid,
         }
     }
 
@@ -524,6 +531,7 @@ impl Input {
             Builder::PeopleSeen => Input::PeopleSeen(serde_json::from_str(json)?),
             Builder::Compare => Input::Compare(serde_json::from_str(json)?),
             Builder::Heard => Input::Heard(serde_json::from_str(json)?),
+            Builder::AllowSaid => Input::AllowSaid(serde_json::from_str(json)?),
             Builder::SameThing => Input::SameThing(serde_json::from_str(json)?),
             Builder::TwoThings => Input::TwoThings(serde_json::from_str(json)?),
             Builder::SameKind => Input::SameKind(serde_json::from_str(json)?),
@@ -581,6 +589,7 @@ pub fn prepare(pack: &Pack, input: &Input, scrub: &dyn Scrub) -> Result<Prepared
         Input::PeopleSeen(i) => people::people_seen(i, cap, scrub),
         Input::Compare(i) => compare::compare(i, cap, scrub),
         Input::Heard(i) => heard::heard(i, cap, scrub),
+        Input::AllowSaid(i) => allow_said::allow_said(i, cap, scrub),
         Input::SameThing(i) => sweep::same_thing(i, cap, scrub),
         Input::TwoThings(i) => sweep::two_things(i, cap, scrub),
         Input::SameKind(i) => sweep_names::same_kind(i, cap, scrub),
@@ -787,6 +796,7 @@ pub fn loop_state(i: &LoopInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     }
 }
 
+mod allow_said;
 mod citation;
 mod compare;
 pub mod content;
@@ -802,6 +812,7 @@ mod security2;
 mod sweep;
 mod sweep_names;
 
+pub use allow_said::AllowSaidInput;
 pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
 pub use content::{

@@ -1025,14 +1025,30 @@ pub struct ToolHoldAllowed<'a> {
     pub summary: &'a str,
     pub by: &'a str,
     pub via: &'a str,
+    /// The tool route that wrote it, when a tool did (`chat.allow_held_call`,
+    /// chat-acts-are-tools S43-1); absent for the typed routes, whose rows are
+    /// unchanged.
+    pub route: Option<&'a str>,
+    /// What the `allow_said.v1` second reading made of the operator's message:
+    /// `true` at its bar, `false` when **no judge saw it** and the call stood
+    /// anyway (the deliberate fail-open). Absent for the typed routes, which
+    /// ask no second reading.
+    pub judged: Option<bool>,
 }
 
 impl Fact for ToolHoldAllowed<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::ToolHoldAllowed);
 
     fn row(&self) -> Value {
-        json!({"hold": self.hold, "tool": self.tool, "judgment": self.judgment,
-               "summary": self.summary, "by": self.by, "via": self.via})
+        let mut v = json!({"hold": self.hold, "tool": self.tool, "judgment": self.judgment,
+               "summary": self.summary, "by": self.by, "via": self.via});
+        if let Some(r) = self.route {
+            v["route"] = Value::String(r.to_string());
+        }
+        if let Some(j) = self.judged {
+            v["judged"] = Value::Bool(j);
+        }
+        v
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

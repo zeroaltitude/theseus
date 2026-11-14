@@ -963,15 +963,14 @@ impl Core {
         // The owner's explicit "seal this thread" (theseus-f2g0).
         self.seal_by_word(&p, conn, &session.session_id);
         self.expect_capture(&p, conn, &session.session_id);
-        // The owner's yes, said in words, to a question waiting here
-        // (theseus-3i6d1): answered before the turn runs, and never guessed
-        // when more than one question could be the one he means.
-        self.answer_in_words(&p, conn, &session.session_id);
-        // The owner's override of a held call, said in words (theseus-p5kln):
-        // a `reshapeable` hold makes no card, so it is no question a yes can
-        // reach; these are its own words, and like a yes they are read before
-        // the turn runs and never guessed between two holds.
-        self.allow_in_words(&p, conn, &session.session_id);
+        // What this message is, for the chat acts (chat-acts-are-tools, S43-1).
+        // **Nothing is read out of its WORDS here.** What is staged is who
+        // spoke, what they said and whether it is the owner's own typed input;
+        // the turn's offer step binds it to the turn it started, and the three
+        // tools act on it only when the model chooses to call one. This is what
+        // replaced `answer_in_words` and `allow_in_words`, which matched
+        // phrases in this exact spot and acted before the turn ran.
+        self.hear_for_chat_acts(&p, conn, &session.session_id);
         // A person's message starts its keep-warm window again (theseus-ezeg).
         let person = p.opened_from.is_none()
             && !matches!(

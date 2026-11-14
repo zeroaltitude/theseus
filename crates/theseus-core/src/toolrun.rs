@@ -38,10 +38,12 @@ pub use guarded::sandbox_for;
 use guarded::{guarded_paths, state_dir_in_use};
 pub(crate) mod batch;
 mod calls;
+mod chat_act;
 mod flow_step;
 pub(crate) use flow_step::Stepped;
 pub mod catalogs;
 mod complete;
+mod extend;
 pub mod fit;
 mod glide;
 pub(crate) mod handles;
@@ -365,6 +367,12 @@ pub struct ToolRuntime {
     /// The configured profiles, each what it runs on: a check's `profile`
     /// names one (M5 28a).
     pub profiles: BTreeMap<String, crate::session::TargetRef>,
+    /// The chat acts (chat-acts-are-tools, S43-1): the three tools the model
+    /// calls in answer to what the owner said, the core they reach, and the
+    /// messages heard at `turn.submit`. **Their definitions are never in a
+    /// place's kept catalog** (`chat_acts::conditional`): a turn's offer step
+    /// puts in only those that apply to this session now.
+    pub chat_acts: crate::chat_acts::Board,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -476,6 +484,7 @@ impl ToolRuntime {
         Self {
             misroute: Default::default(),
             catalogs: Default::default(),
+            chat_acts: Default::default(),
             registry: Registry::new(),
             // No tools to call; were one to appear, it would wait.
             policy: ToolPolicy {
@@ -1620,46 +1629,14 @@ impl ToolRuntime {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
                     .await
             }
+            // A chat act (chat-acts-are-tools, S43-1): the allow tool awaits
+            // its second reading, so all three take the async harness road.
+            Backend::Harness if crate::chat_acts::conditional(tool.name()) => {
+                self.run_chat_act(tc, correlation_id, tool.as_ref(), call)
+                    .await
+            }
             Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call, ran_at),
         }
-    }
-
-    /// `extend.propose` (M7 43a): a harness call whose trial waits on its
-    /// server, so it is awaited here, as an async tool is, and never on a
-    /// core; its result is written as any harness call's.
-    async fn run_extend(
-        &self,
-        tc: &TurnCtx<'_>,
-        correlation_id: &str,
-        tool: &dyn Tool,
-        call: &ToolUse,
-    ) -> Result<CallOutcome> {
-        Self::harness_started(tc, correlation_id, tool, call);
-        let started = theseus_protocol::now_unix_ms();
-        let t0 = Instant::now();
-        let done = crate::extend::propose(self, tc, &call.input, correlation_id).await;
-        // A trial a cancel or a stop aborted (18a): the cancel settles the
-        // call, with its verdict, and its result says so, riding as a late
-        // one does.
-        if matches!(&done, Err(e) if e == crate::extend::STOPPED) {
-            if let Some(a) = crate::cancel::after_abort(tc.kernel, correlation_id).await {
-                let (status, text, meta) = crate::cancel::aborted_result(&a);
-                let node = self.result_node(
-                    tc,
-                    ResultNode {
-                        correlation_id: Some(correlation_id),
-                        duration_ms: Some(t0.elapsed().as_millis() as u64),
-                        meta,
-                        ..ResultNode::new(&call.id, tool.name(), status, text)
-                    },
-                );
-                tc.store.append(&[node.record()?])?;
-                Self::announce_end(tc, &node);
-                return Ok(CallOutcome::Done { status });
-            }
-        }
-        let none = crate::task_graph::tools::Done::default();
-        self.harness_done(tc, correlation_id, tool, call, (started, t0), (done, none))
     }
 
     /// A tool the harness runs itself, in the turn's own task (`task.create`,
@@ -2308,6 +2285,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::thread_split::ThreadSplitTool));
         r.register(Arc::new(crate::ask::OwnerAsk));
         r.register(Arc::new(crate::project_tool::ProjectAttach));
+        crate::chat_acts::register(cfg, &mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
@@ -2410,6 +2388,7 @@ pub fn build_runtime(
         large_payload_chars: t.large_payload_chars,
         proc_sync_secs: t.proc_sync_secs,
         job_wait_max_secs: t.job_wait_max_secs,
+        chat_acts: Default::default(),
         reads: Default::default(),
         max_jobs: t.max_jobs,
         parallel_runs: t.parallel_runs.max(1),

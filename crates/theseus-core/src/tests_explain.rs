@@ -258,9 +258,15 @@ fn every_tool_agrees(core: &Core, sessions: &[(&str, &str)], open: &Path) -> usi
     unplanned.sort();
     unplanned.dedup();
     // `term.send` names a terminal `term.open` gave, which none did.
+    // `chat.import_sync` (chat-acts-are-tools, S43-1) refuses at plan time
+    // wherever `[import.openclaw] state_dir` names no directory, and this
+    // table's rig configures no import: its schema takes no arguments at all,
+    // so there is no input that makes it plan here. It is listed rather than
+    // fixtured away on purpose -- giving the shared rig an import directory to
+    // make the tool plan would change what every other row of this table sees.
     assert_eq!(
         unplanned,
-        ["term.send"],
+        ["chat.import_sync", "term.send"],
         "each tool needs an input here that its plan accepts"
     );
     compared
@@ -295,8 +301,8 @@ async fn policy_explain_agrees_with_the_gate_for_every_tool_and_place() {
     let n = every_tool_agrees(&core, &sessions, &open);
     assert_eq!(
         n,
-        4 * (rows.len() - 1),
-        "every tool but term.send, in each place"
+        4 * (rows.len() - 2),
+        "every tool but term.send and chat.import_sync, in each place"
     );
 
     // The floor and the shared place say so.
