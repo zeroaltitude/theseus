@@ -56,23 +56,16 @@ pub struct TurnCtx<'a> {
 }
 
 impl TurnCtx<'_> {
-    /// Where the turn's words go: its class and its ceiling, and what the
-    /// place tells the model beyond its tools (its chat route, its voice
-    /// channel), which the place rule reads from the place the session speaks
-    /// at, or from the place a thread's message came from (`place_under`).
-    /// Without these the turn's request never carried them, whatever the place.
+    /// Where the turn's words go: its class and its ceiling. What the place
+    /// tells the model beyond its tools (the chat route, the voice channel) is
+    /// not here: the turn's tail says it (`env_tail`), since the header is the
+    /// same bytes on every surface.
     pub fn place(&self) -> crate::ceiling::PlaceView {
-        let at = self.outbox.speaks_at(self.session_id).ok().flatten();
-        let told = self.places.rule.place_under(
-            self.places.cfg,
-            at.as_deref(),
-            self.outbox.answering(self.session_id).as_deref(),
-        );
         crate::ceiling::PlaceView {
             class: self.class,
             ceiling: self.ceiling,
-            voice: told.voice,
-            chat: told.chat,
+            voice: false,
+            chat: false,
         }
     }
 }

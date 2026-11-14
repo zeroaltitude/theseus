@@ -265,12 +265,6 @@ struct Index {
     /// place of its own (`virtual_place`); a message that came from the CLI
     /// clears it.
     shown: HashMap<String, String>,
-    /// A thread's session → the place its turn in flight was spoken in, for
-    /// what that place tells the model (its chat route, its voice channel).
-    /// Kept in memory and read for nothing else: it is no target, so no post
-    /// goes there and no ceiling follows it, and a restart loses nothing, since
-    /// each such turn names its place again.
-    answering: HashMap<String, String>,
     /// Question id → its card, until the card's settle is written.
     cards: HashMap<String, Card>,
     /// Every question that has a card post, settled or not.
@@ -769,28 +763,6 @@ impl Outbox {
             Some(t) => Ok(Some(t)),
             None => self.try_wake_target(session_id),
         }
-    }
-
-    /// A thread's turn is spoken in `place` (its message's own, `answer_at`),
-    /// or in none (the CLI, the web UI): what the place tells the model is
-    /// read from it (`PlaceRule::place_under`).
-    pub fn answering_at(&self, thread_session: &str, place: Option<&str>) {
-        let r = self.with(|ix| match place {
-            Some(p) => ix
-                .answering
-                .insert(thread_session.to_string(), p.to_string()),
-            None => ix.answering.remove(thread_session),
-        });
-        if let Err(e) = r {
-            tracing::warn!(error = %format!("{e:#}"), "a thread turn's place was not kept");
-        }
-    }
-
-    /// The place a thread's turn was last spoken in (`answering_at`).
-    pub fn answering(&self, thread_session: &str) -> Option<String> {
-        self.with(|ix| ix.answering.get(thread_session).cloned())
-            .ok()
-            .flatten()
     }
 
     /// Every thread session with the place it answers at (`show_at`): a

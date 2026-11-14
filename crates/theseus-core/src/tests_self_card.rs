@@ -216,3 +216,29 @@ fn a_thread_takes_the_chat_route_and_the_voice_channel_of_its_underlying_place()
         rule.place(&cfg, Some(DM)).chat
     );
 }
+
+/// The two sentences that depend on where a turn was spoken ride in the
+/// session's block, not in the shared header: `told` gives them in the card's
+/// order, for a place that has them and for none other, and the header's view
+/// of a place has neither.
+#[test]
+fn the_place_dependent_sentences_are_told_apart_from_the_header() {
+    let cfg = config(|_| {});
+    let rule = bound();
+    rule.bind_voice(true);
+    let dm = rule.place(&cfg, Some(DM));
+    assert_eq!(crate::self_card::told(&cfg, dm), [VOICE, CHAT]);
+    assert!(crate::self_card::told(&cfg, rule.place(&cfg, Some(LOBBY))).is_empty());
+    assert!(crate::self_card::told(&cfg, rule.place(&cfg, None)).is_empty());
+    let rt = runtime(&cfg);
+    let header = card(&cfg, &rt, dm.for_header());
+    assert!(
+        !header.contains("/trust") && !header.contains("/join"),
+        "{header}"
+    );
+    assert_eq!(
+        header,
+        card(&cfg, &rt, rule.place(&cfg, None)),
+        "the header of a private Discord place is the CLI's"
+    );
+}

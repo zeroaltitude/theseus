@@ -662,9 +662,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   and the outbox gives a virtual place's session no target (`outbox::virtual_place`), so it posts nowhere, as a CLI
   session's. What the place tells the model beyond its tools (the self card's chat route and `/join`) is read by
   `PlaceRule::place_under` from the place the session speaks at, or, for a turn addressed to a thread by name, from the
-  place its message came from (`Outbox::answering_at`, in memory, set by `turn.submit`; the class stays private and the
-  thread still has no target); `TurnCtx::place` carries those two flags into the turn's request (it set both false
-  before, for every place). `turn.submit { thread }` runs in `Core::thread_session`: the place's session, or one opened and bound on
+  turn's own `answer_at` (the place its message came from; the class stays private and the thread still has no target),
+  and told in the turn's tail (`turn/env_tail.rs`, `self_card::told`), never in the header, which is the same bytes on
+  every surface (`PlaceView::for_header`; the invariant tests of `tests_prefix`, `tests_surface`, `tests_thread_context`).
+  Before 1.0.7 no live turn carried either sentence, whatever the place. `turn.submit { thread }` runs in `Core::thread_session`: the place's session, or one opened and bound on
   first use and after the session was retired (the owner's `/new` is a retire), under the board's lock so two first
   messages open one; only an active thread takes a message. `thread.done` retires the session and leaves the card in it
   as a harness note (and in its row). Two threads are two executions and run at once, under the one daily ceiling.

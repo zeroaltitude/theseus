@@ -188,6 +188,18 @@ impl From<PlaceClass> for PlaceView {
 }
 
 impl PlaceView {
+    /// The place as the shared header reads it: without what the place tells
+    /// the model beyond its tools (the chat route, the voice channel). The
+    /// header is the same bytes on every surface of a project, so the two
+    /// sentences ride in each turn's tail instead (`self_card::told`).
+    pub fn for_header(self) -> Self {
+        Self {
+            voice: false,
+            chat: false,
+            ..self
+        }
+    }
+
     /// Whether the model here is offered the tool `name`: the place rule's
     /// set, narrowed by the ceiling (never widened).
     pub fn offered(&self, name: &str, public: &[std::path::PathBuf]) -> bool {
@@ -206,12 +218,7 @@ impl crate::turn::TurnRunner {
     pub fn view_of(&self, session_id: &str) -> PlaceView {
         let place = self.outbox.speaks_at(session_id);
         match place {
-            // A thread's turn speaks where its message came from.
-            Ok(p) => self.place_rule.place_under(
-                &self.cfg,
-                p.as_deref(),
-                self.outbox.answering(session_id).as_deref(),
-            ),
+            Ok(p) => self.place_rule.place(&self.cfg, p.as_deref()),
             Err(e) => {
                 tracing::warn!(session_id, error = %format!("{e:#}"),
                     "where a session speaks cannot be read: its turn is a shared place's");

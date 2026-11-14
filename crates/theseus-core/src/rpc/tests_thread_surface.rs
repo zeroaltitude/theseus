@@ -343,6 +343,8 @@ fn core_keeping_requests() -> (Arc<Core>, Arc<crate::provider::FakeProvider>) {
     let c = core();
     let mut cfg = (*c.cfg).clone();
     cfg.voice.enabled = true;
+    // The turn's tail carries them (the date and git block's own switch).
+    cfg.project.tail_facts = Some(true);
     let model = Arc::new(crate::provider::FakeProvider {
         reply: "the tide is out".into(),
         ..Default::default()
@@ -366,10 +368,18 @@ fn core_keeping_requests() -> (Arc<Core>, Arc<crate::provider::FakeProvider>) {
     (c, model)
 }
 
-/// What the last request tells the model about the places it speaks in.
+/// What the last request's tail tells the model about the places it speaks
+/// in, and that its system blocks (the header every surface shares) say none
+/// of it.
 fn told(model: &crate::provider::FakeProvider) -> (bool, bool) {
-    let text = crate::tests_places::system_text(&model.requests().pop().expect("a request"));
-    (text.contains("slash commands"), text.contains("/join"))
+    let req = model.requests().pop().expect("a request");
+    let system = crate::tests_places::system_text(&req);
+    assert!(
+        !system.contains("slash commands") && !system.contains("/join"),
+        "the shared header says it: {system}"
+    );
+    let tail = serde_json::to_string(&req.messages).unwrap();
+    (tail.contains("slash commands"), tail.contains("/join"))
 }
 
 /// A turn addressed to a thread has no place of its own, but its message came

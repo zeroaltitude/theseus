@@ -88,7 +88,10 @@ async fn a_late_event_for_a_turn_before_a_restart_reads_the_turn_back_first() {
     let (mut place, _mailbox) = place_for_tests(&core, &sid);
     let (lane_tx, mut lane) = mpsc::unbounded_channel();
     place.lane = lane_tx;
-    assert!(!place.renderer.knows(turn), "a renderer that never saw it start");
+    assert!(
+        !place.renderer.knows(turn),
+        "a renderer that never saw it start"
+    );
     let ended = CoreEvent::from_notification(
         "tool.ended",
         &serde_json::json!({"session_id": sid, "turn_id": turn, "tool_use_id": "u1",
@@ -98,5 +101,9 @@ async fn a_late_event_for_a_turn_before_a_restart_reads_the_turn_back_first() {
     .unwrap();
     place.handle(PlaceMsg::Event(Box::new(ended))).await;
     assert!(place.renderer.knows(turn), "read back from the session");
-    assert_eq!(helds(&mut lane), [vec![turn.to_string()]], "the lane keeps it whole");
+    assert_eq!(
+        helds(&mut lane),
+        [vec![turn.to_string()]],
+        "the lane keeps it whole"
+    );
 }

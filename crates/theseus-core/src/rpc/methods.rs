@@ -940,13 +940,6 @@ impl Core {
                 ..SessionOpenParams::default()
             })?,
         };
-        // A turn addressed to a thread speaks where its message came from: what
-        // that place tells the model (its chat route, its voice channel) is the
-        // turn's, though the thread has no place of its own.
-        if p.thread.is_some() {
-            self.outbox
-                .answering_at(&session.session_id, answer_at.as_deref());
-        }
         // "That was for the security fix": the owner moves the last message the
         // router placed, and what comes back is the turn it ran again as.
         if route {

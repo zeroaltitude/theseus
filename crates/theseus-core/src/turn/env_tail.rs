@@ -51,6 +51,18 @@ impl TurnRunner {
             text.push('\n');
             text.push_str(&line);
         }
+        // What the place tells the model of the person's own routes (the chat
+        // route, the voice channel), which the header cannot say: it is the same
+        // bytes on every surface. A turn addressed to a thread has no place of
+        // its own, so it is told those of the place its message came from.
+        let at = self.outbox.speaks_at(t.tc.session_id).ok().flatten();
+        let place = self
+            .place_rule
+            .place_under(&self.cfg, at.as_deref(), t.answer_at.as_deref());
+        for line in crate::self_card::told(&self.cfg, place) {
+            text.push('\n');
+            text.push_str(&line);
+        }
         Self::attach_hint(compiled, &text);
     }
 }
