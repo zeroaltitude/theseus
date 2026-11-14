@@ -5,7 +5,7 @@
 // and the books. Read only: no control here writes. Every filter, the tab, the page and the episode open are in the
 // address, so any view deep-links. The pure parts are lib/explorer.ts.
 import { useMemo, useState, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useLocation, useSearchParams } from 'react-router'
 import { BookOpen, ChevronDown, ChevronRight, Database, Eye, EyeOff, FileText, Layers, Library, ListTree, MessagesSquare, Pin, Search, Shapes, Telescope, X } from 'lucide-react'
 import type { Health, ImportFacet, ImportListResult, ImportSessionsResult, ImportedEpisode, NodeInfo, OntologyListResult, SessionHistoryResult } from '@protocol'
 import { useRpc } from '@/lib/rpc'
@@ -103,7 +103,7 @@ function Holdings({ go }: { go: (tab: Tab, patch?: Patch) => void }) {
       <StatTile label="topics" icon={<ListTree size={12} />} value={topics.length} format={count}
         hint={ontoTopics ? `${roots} roots · ${count(ontoTopics)} in the ontology` : `${roots} roots, from the labels · none in the ontology yet`} onClick={() => go('episodes')} />
       <StatTile label="book hints" icon={<BookOpen size={12} />} value={hinted} format={count}
-        hint="the books are not compiled yet" onClick={() => go('books')} />
+        hint="sorted history; the books are not written yet" onClick={() => go('books')} />
       <StatTile label="indexed nodes" icon={<Telescope size={12} />} value={index?.status?.nodes ?? 0} format={count}
         hint={index ? `${index.state}${index.status?.vectors ? ` · vectors ${count(index.status.vectors.vectors)} of ${count(index.status.vectors.chunks)} chunks` : ''}` : 'reading…'} onClick={() => go('search')} />
     </div>
@@ -473,8 +473,11 @@ const BOOK_WORDS: Record<string, string> = {
   register: 'tracked work',
 }
 
-/** The books, said honestly: not compiled. What is there now is the import's guess at where each episode belongs. */
+/** The books, said honestly and in plain words (the owner's question of 2026-11-14): what is there now is the import's
+ *  guess at where each episode belongs; the books Theseus would write from them are not built. */
 function Books({ go }: { go: (book: string) => void }) {
+  // Shown inside the simple pages' Memories section, the Books view is that section's other tab, not the Ship's page.
+  const booksAt = useLocation().pathname.startsWith('/memories') ? '/memories?v=books' : '/books'
   const { data } = useRpc<ImportSessionsResult>('import.sessions', { limit: 1 }, 30_000)
   const books = data?.facets.books ?? []
   const hinted = books.reduce((a, b) => a + b.count, 0)
@@ -482,8 +485,8 @@ function Books({ go }: { go: (book: string) => void }) {
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <Panel help="context.books" title="the books" icon={<BookOpen size={13} />}>
         <div className="flex flex-col gap-2 p-3 text-[12.5px] leading-relaxed text-ink-dim">
-          <p><span className="text-ink">Not compiled yet.</span> The books are typed organizations of what Theseus knows: a dictionary, an encyclopedia, a cookbook, standing procedures, a diary, a casebook, a register. Their design is theseus-lqo6; the soul migration’s stages that fill them from the imported history are theseus-0lrr.7 (curated sources) and theseus-0lrr.8 (the build, the exam, the cut-over).</p>
-          <p>Until then, recall reads the imported episodes themselves as testimony, and each episode carries the import’s guess at its book: {data ? <span className="num text-ink">{count(hinted)} of {count(data.all)}</span> : '…'} are hinted, on the right. <Link to="/books" className="text-live hover:underline">Browse them by book in the Books view →</Link></p>
+          <p><span className="text-ink">Your imported history is sorted onto seven shelves</span> (a dictionary, an encyclopedia, a cookbook, standing procedures, a diary, a casebook and a register) by the import’s best guess at where each conversation belongs: {data ? <span className="num text-ink">{count(hinted)} of {count(data.all)}</span> : '…'} have a shelf, on the right. <Link to={booksAt} className="text-live hover:underline">Browse them by book in the Books view →</Link></p>
+          <p><span className="text-ink">Theseus has not written the books themselves yet.</span> The step after this one is for it to write each book from those conversations: a real dictionary of your terms, an encyclopedia of facts, a cookbook of how-tos. Until it does, recall reads the conversations directly.</p>
         </div>
       </Panel>
       <ChartPanel id="books" help="context.hints" title="book hints · episodes a book" icon={<Library size={13} />} height={Math.max(120, books.length * 30 + 16)}
