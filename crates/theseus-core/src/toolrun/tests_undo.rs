@@ -586,6 +586,22 @@ impl Rig {
         crate::tests_m3::surface("sock#1", Surface::Cli).behind(crate::peer_proc::Behind::Owner)
     }
 
+    /// A turn over the wire through `turn.submit`, from the owner's own
+    /// terminal: the dispatch arm and everything `turn.submit` reads out of
+    /// a message BEFORE the turn runs, which is where the override in words
+    /// is read (`rpc::allow_in_words`). `Rig::turn` calls the runner
+    /// directly and reaches none of it.
+    async fn submit(&self, sid: &str, input: &str) -> Value {
+        crate::tests_m3::rpc_as(
+            &self.core,
+            Rig::owner(),
+            theseus_protocol::method::TURN_SUBMIT,
+            json!({"session_id": sid, "input": input}),
+        )
+        .await
+        .expect("turn.submit")
+    }
+
     /// `undo.allow` over the wire, as `client` (theseus-me9fc's own rig):
     /// the dispatch arm, `route`, and `judge_act`, not just the core call.
     async fn allow_as(
@@ -858,6 +874,261 @@ async fn an_allowance_does_not_admit_a_replanned_call_proposed_alone() {
     r.turn(&sid).await;
     assert_eq!(r.bytes(), NOW, "the original ran");
     assert_eq!(r.rows("tool.hold_overridden").len(), 1);
+}
+
+/// Turn one is held; turn two proposes the ORIGINAL call TWICE, byte for
+/// byte, with one allowance standing. Two calls of one turn reaching for one
+/// allowance is the shape the owner's word of 2026-11-13 is about.
+fn script_the_original_twice(path: &Path) -> Vec<Scripted> {
+    let original = json!({"path": path.to_string_lossy(), "content": NOW});
+    vec![
+        Scripted::tools("I'll replace it.", &[("c1", "fs_write", original.clone())]),
+        Scripted::text("Held; I'll re-plan it."),
+        Scripted::tools(
+            "The original, twice.",
+            &[
+                ("c2", "fs_write", original.clone()),
+                ("c3", "fs_write", original),
+            ],
+        ),
+        Scripted::text("Done."),
+    ]
+}
+
+/// **Two calls of one turn reach for one allowance, and EXACTLY ONE RUNS**
+/// (the owner, 2026-11-13 17:48, S34-2). One allowance admits one call; the
+/// other is held again, as any other reversibility hold — the same
+/// `Declined` status the repeat cap reads, the same `undo:` reason, no card,
+/// and an offer to override it again.
+///
+/// Both counts are positive, so neither half can pass against a tree that
+/// ran nothing: exactly one `tool.hold_overridden` row, and exactly one of
+/// the turn's two results NOT declined.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_calls_of_one_turn_reach_for_one_allowance_and_exactly_one_runs() {
+    let r = rig_scripted(RESHAPEABLE, 0.96, false, |_| {}, script_the_original_twice);
+    let sid = r.session();
+
+    r.turn(&sid).await;
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call: {held:?}");
+    r.allow_as(Rig::owner(), &held[0].id)
+        .await
+        .expect("the owner");
+
+    // Turn two: the same call twice, with one allowance standing.
+    r.turn(&sid).await;
+
+    let spent = r.rows("tool.hold_overridden");
+    assert_eq!(spent.len(), 1, "ONE allowance was spent: {spent:?}");
+    assert_eq!(spent[0]["hold"], held[0].id);
+
+    let results = r.results(&sid);
+    assert_eq!(results.len(), 3, "one call, then two: {results:?}");
+    let ran: Vec<&(String, String, String)> =
+        results.iter().filter(|(s, _, _)| s != "Declined").collect();
+    assert_eq!(
+        ran.len(),
+        1,
+        "EXACTLY ONE of the three calls ran: {results:?}"
+    );
+    assert_eq!(ran[0].0, "Ok", "and it ran cleanly: {ran:?}");
+    assert_eq!(
+        r.bytes(),
+        NOW,
+        "the one that ran wrote the original's bytes"
+    );
+
+    // The one that did not is an ORDINARY hold: the status the repeat cap
+    // reads, the shape's own reason, no card, and offered again.
+    let (_, text, reason) = results
+        .last()
+        .filter(|(s, _, _)| s == "Declined")
+        .or_else(|| results.get(1).filter(|(s, _, _)| s == "Declined"))
+        .expect("one of turn two's two calls was declined");
+    assert!(text.starts_with("Not run: "), "{text}");
+    assert!(
+        reason.starts_with(&format!("{HELD_REASON}: move_aside")),
+        "the same reason any hold carries: {reason}"
+    );
+    assert_eq!(
+        r.rows("tool.held").len(),
+        2,
+        "the call that found the allowance spent was HELD, and said so"
+    );
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "and still no card: a hold costs the owner no attention"
+    );
+    assert_eq!(
+        r.held().iter().filter(|h| h.allowed.is_none()).count(),
+        1,
+        "and it is offered for an override again: {:?}",
+        r.held()
+    );
+}
+
+/// **A spend the store refused holds the call too** — the second arm, and
+/// this builder's call rather than the owner's (his set leaves it to the
+/// builder). The argument is `spend_allowance`'s own: the spend lands BEFORE
+/// the call so that nothing between them can let one allowance run the call
+/// twice. A refused frame leaves the allowance reading as waiting, which is
+/// exactly the state that ordering exists to forbid; and it is the frame
+/// that carries `tool.hold_overridden`, so running on it would perform the
+/// one class of call the gate judged unrecoverable with no record that it
+/// was ever authorised.
+///
+/// The fault is the store's own (`fail_turn_frame`, theseus-l6y), armed on
+/// the holds record alone and only after the hold has been written, so the
+/// one frame it refuses is the spend's. Nothing here is `#[cfg(test)]` in
+/// the gate: the arm is driven as a bad disk drives it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spend_the_store_refused_holds_the_call_again() {
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |_| {},
+        script_original_and_replanned,
+    );
+    let sid = r.session();
+
+    r.turn(&sid).await;
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call: {held:?}");
+    r.allow_as(Rig::owner(), &held[0].id)
+        .await
+        .expect("the owner");
+
+    // The next turn frame carrying the holds record is the spend's own.
+    r.core.store.fail_turn_frame(|rows| {
+        rows.iter()
+            .any(|row| row.key.as_deref() == Some(crate::toolrun::holds::RECORD))
+    });
+    r.turn(&sid).await;
+
+    assert_eq!(r.bytes(), WAS, "the call did NOT run on an unwritten spend");
+    assert_eq!(r.beside(), None, "and the re-planned call was held as ever");
+    assert!(
+        r.rows("tool.hold_overridden").is_empty(),
+        "nothing was announced as overridden, because nothing was recorded"
+    );
+    assert!(
+        r.held().iter().any(|h| h.id == held[0].id && h.waiting()),
+        "the allowance is untouched and still waiting: {:?}",
+        r.held()
+    );
+    let results = r.results(&sid);
+    assert!(
+        results.iter().all(|(s, _, _)| s == "Declined"),
+        "every call of both turns was held: {results:?}"
+    );
+    assert!(
+        results
+            .iter()
+            .all(|(_, _, reason)| reason.starts_with(HELD_REASON)),
+        "each by an ordinary reversibility hold: {results:?}"
+    );
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "a hold makes no card, however it was reached"
+    );
+}
+
+/// Turn one holds the original; turn two is an ordinary message that says
+/// nothing about it and proposes no call; turn three is the owner's override
+/// in words, and the response it draws proposes the original again.
+fn script_held_then_asked_then_the_original(path: &Path) -> Vec<Scripted> {
+    let original = json!({"path": path.to_string_lossy(), "content": NOW});
+    vec![
+        Scripted::tools("I'll replace it.", &[("c1", "fs_write", original.clone())]),
+        Scripted::text("Held; I'll re-plan it."),
+        Scripted::text("It would lose the old bytes."),
+        Scripted::tools("The original, then.", &[("c2", "fs_write", original)]),
+        Scripted::text("Done."),
+    ]
+}
+
+/// **The chat override route, end to end through `turn.submit`.** The owner
+/// says the original was right in the conversation it was held in, and the
+/// call runs — no `undo.allow`, no id typed at a command line. That is the
+/// half of `p5kln-override-route` the owner's principle of 2026-11-12 asked
+/// for (minimise the cases where a person must drop to a command line), and
+/// until now only its WORDS had tests (`allow_in_words::tests`, pure) while
+/// the whole-core tests all took the override over the wire by id.
+///
+/// It goes through `rpc_as`, so the dispatch arm, `allow_in_words` at
+/// `turn.submit`, `Core::undo_allow` and `judge_act(Act::UndoAllow)` all run
+/// — and the turn the same message starts is what spends the allowance.
+///
+/// The ordinary message in the middle is the negative that makes the rest
+/// mean something: a turn whose words are not an override allows nothing, so
+/// the run at the end cannot be the mere passage of time.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_override_in_words_runs_the_original_through_turn_submit() {
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |_| {},
+        script_held_then_asked_then_the_original,
+    );
+    let sid = r.session();
+
+    r.turn(&sid).await;
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call: {held:?}");
+    assert!(held[0].allowed.is_none(), "nothing has allowed it yet");
+
+    // An ordinary message is no override.
+    r.submit(&sid, "What would it lose?").await;
+    assert!(
+        r.rows("tool.hold_allowed").is_empty(),
+        "an ordinary message allows nothing"
+    );
+    assert!(r.held().iter().all(|h| h.allowed.is_none()));
+
+    // The override, said in the conversation, by the owner in person.
+    r.submit(&sid, "run the original").await;
+
+    let allowed = r.rows("tool.hold_allowed");
+    assert_eq!(
+        allowed.len(),
+        1,
+        "the words wrote the allowance: {allowed:?}"
+    );
+    assert_eq!(allowed[0]["hold"], held[0].id);
+    assert_eq!(allowed[0]["tool"], "fs.write");
+
+    assert_eq!(
+        r.bytes(),
+        NOW,
+        "the ORIGINAL call ran, on words alone: no id was typed anywhere"
+    );
+    let spent = r.rows("tool.hold_overridden");
+    assert_eq!(spent.len(), 1, "one allowance spent: {spent:?}");
+    assert_eq!(spent[0]["hold"], held[0].id);
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "an override is not a question"
+    );
+}
+
+/// The three outcomes of a spend, and the one of them that admits the call.
+/// Pure, so the arm no ordinary run can stage is still stated somewhere a
+/// reader can check it against the owner's word.
+#[test]
+fn only_a_spend_this_frame_recorded_admits_the_call() {
+    use crate::toolrun::reversible::Spend;
+    assert!(Spend::Recorded.admits(), "the allowance was this call's");
+    assert!(
+        !Spend::AlreadySpent.admits(),
+        "one allowance admits ONE call (S34-2)"
+    );
+    assert!(
+        !Spend::Unwritten.admits(),
+        "a spend nothing recorded admits nothing"
+    );
 }
 
 // ---- the two facts the resolver now states, on the LIVE gate path ---------

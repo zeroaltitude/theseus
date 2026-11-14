@@ -102,6 +102,57 @@ pub(crate) enum Blocked {
     Held(Hold),
 }
 
+/// What a spend of the owner's allowance came to, and so whether the call
+/// runs. Three outcomes where the code had one answer: before 2026-11-13 the
+/// two that are not `Recorded` shared an arm whose comment said "the call
+/// runs either way".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Spend {
+    /// The allowance was this call's and this frame recorded it spent.
+    Recorded,
+    /// The allowance was read as waiting and the spend's own frame found it
+    /// already spent.
+    AlreadySpent,
+    /// The spend's frame was refused, so no record says this allowance was
+    /// consumed.
+    Unwritten,
+}
+
+impl Spend {
+    /// Whether the call runs. **Only a spend this frame RECORDED admits it.**
+    ///
+    /// `AlreadySpent` is the owner's word of 2026-11-13 17:48 (S34-2): one
+    /// allowance admits one call, so a call that finds its allowance already
+    /// spent is held again, as any other reversibility hold.
+    ///
+    /// `Unwritten` goes the same way, and the argument is
+    /// [`ToolRuntime::spend_allowance`]'s own: the spend lands BEFORE the
+    /// call precisely so that nothing between them can let one allowance run
+    /// the call twice. That ordering already declares which cost is the
+    /// cheaper one -- an allowance spent with nothing run "costs the owner
+    /// one more word", and the order it rejects is the one that could run a
+    /// call twice. A refused frame leaves exactly the state that ordering
+    /// exists to forbid: the allowance still reads as waiting, so a later
+    /// call of this session with the same bytes would find it and run too.
+    /// Running on it would reach that state through a bad disk instead of
+    /// through a crash, which is no better.
+    ///
+    /// It is also the frame that carries the `tool.hold_overridden` row. A
+    /// store that cannot take it cannot record that an irreversible call was
+    /// ever authorised, and running the one class of call the gate judged
+    /// unrecoverable with no record of its authority is the worse of the two
+    /// failures by a distance.
+    ///
+    /// The module's FAIL OPEN doctrine does not reach here: it is about a
+    /// missing VERDICT, where the ordinary order returns the product to
+    /// 1.0.4. There is a verdict here and it holds. The owner's remedy costs
+    /// him one word and is already built -- the call is offered for an
+    /// override again.
+    pub(crate) fn admits(self) -> bool {
+        matches!(self, Spend::Recorded)
+    }
+}
+
 /// A call held at point one: what the model reads, and what the record keeps
 /// so the owner can still say the original was right.
 #[derive(Debug, Clone)]
@@ -177,10 +228,21 @@ impl ToolRuntime {
         // and the input the owner was shown -- and it admits it into the
         // ORDINARY ORDER, which keeps every say it had: the override is of
         // the hold, not of the gate.
+        //
+        // ONLY A SPEND THIS FRAME RECORDED ADMITS THE CALL (the owner,
+        // 2026-11-13 17:48, S34-2). An allowance found already spent is a
+        // hold again, and so is one whose spend could not be written:
+        // [`Spend::admits`] has the argument. The hold is the ordinary one
+        // -- the same status, counted by the repeat cap, and offered for an
+        // override again -- because it is built by the same `hold_of` the
+        // no-allowance arm builds.
         if let Some(v) = verdict.as_ref().filter(|v| v.holds()) {
-            match Self::allowed_original(tc, tool, input) {
-                None => return Err(Blocked::Held(self.hold_of(tc, tool, plan, v))),
-                Some(id) => Self::spend_allowance(tc, &id, tool, plan, v),
+            let admits = match Self::allowed_original(tc, tool, input) {
+                None => false,
+                Some(id) => Self::spend_allowance(tc, &id, tool, plan, v).admits(),
+            };
+            if !admits {
+                return Err(Blocked::Held(self.hold_of(tc, tool, plan, v)));
             }
         }
         let (decision, bound) = self
@@ -270,7 +332,16 @@ impl ToolRuntime {
     /// nothing run, which costs the owner one more word; the other order
     /// would let one allowance run the call twice. One frame holds the
     /// holds' record and the `tool.hold_overridden` row.
-    fn spend_allowance(tc: &TurnCtx<'_>, id: &str, tool: &dyn Tool, plan: &Plan, v: &UndoVerdict) {
+    ///
+    /// What it came to is the caller's to read: the three outcomes are three
+    /// different things and only one of them admits the call ([`Spend`]).
+    fn spend_allowance(
+        tc: &TurnCtx<'_>,
+        id: &str,
+        tool: &dyn Tool,
+        plan: &Plan,
+        v: &UndoVerdict,
+    ) -> Spend {
         let (store, rec) = (tc.store, tc.rec());
         let fact = crate::fact::tool::ToolHoldOverridden {
             hold: id,
@@ -287,14 +358,28 @@ impl ToolRuntime {
             store.append(&[rec.row(&fact)?, held.record()?])?;
             Ok(true)
         });
+        // The three outcomes say three different things, and an operator
+        // reading a trace must be able to tell which happened: the message
+        // and the level differ, and each names what became of the call.
         match written {
-            Ok(true) => rec.announce(&fact),
-            // Another call of this turn took the same allowance first, or the
-            // write failed: the call runs either way (the allowance was read
-            // as waiting), and the row says what happened.
-            Ok(false) => tracing::info!(hold = %id, "the allowance was already spent"),
-            Err(e) => tracing::warn!(hold = %id, error = %format!("{e:#}"),
-                "the allowance was not recorded as spent"),
+            Ok(true) => {
+                rec.announce(&fact);
+                Spend::Recorded
+            }
+            // The allowance was read as waiting and the spend's own frame
+            // found it already spent. One allowance admits ONE call.
+            Ok(false) => {
+                tracing::info!(hold = %id,
+                    "the allowance was already spent: the call is held again");
+                Spend::AlreadySpent
+            }
+            // The store refused the frame, so nothing records that this
+            // allowance was consumed.
+            Err(e) => {
+                tracing::warn!(hold = %id, error = %format!("{e:#}"),
+                    "the allowance could not be recorded as spent: the call is held again");
+                Spend::Unwritten
+            }
         }
     }
 
