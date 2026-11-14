@@ -33,7 +33,12 @@ async fn reds_inside_a_night_are_one_post_and_the_cap_is_one_notice() {
         "the item is in the note"
     );
     // The third reaches the cap of three.
-    r.turn(&sid, WIRE, propose()).await;
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(
+        said.contains("the gate is red"),
+        "{said}: {:?}",
+        task_of(&r).evidence
+    );
     assert_eq!(thread_posts(&r, "self_build_red").len(), 1, "still the one");
     let notices = operator_posts(&r, "self_digest");
     assert_eq!(notices.len(), 1, "{notices:?}");

@@ -146,10 +146,21 @@ async fn an_item_being_built_stops_and_a_closed_one_is_refused() {
     assert_eq!(r.state(&building), TaskState::InProgress);
     aside(&r, &building);
     assert_eq!(r.state(&building), TaskState::WaitingHuman);
+    let place = &r.f.place;
+    assert!(
+        crate::rsi::tree::find(place, &building).is_some(),
+        "its tree is open"
+    );
     r.tick().await;
-    let stopped = r.rows("self.pipeline.ended");
-    assert_eq!(stopped.len(), 1, "its build was stopped: {stopped:?}");
-    assert_eq!(stopped[0]["item"], building.as_str());
+    assert!(
+        crate::rsi::tree::find(place, &building).is_none(),
+        "its build's tree was closed, as a dropped one's is"
+    );
+    assert_eq!(
+        r.state(&building),
+        TaskState::WaitingHuman,
+        "and it is still set aside"
+    );
     // A closed item is refused with words.
     r.grace = std::time::Duration::ZERO;
     let done = r.view().ready[0].item.clone();

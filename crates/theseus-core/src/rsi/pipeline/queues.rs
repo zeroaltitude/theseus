@@ -421,7 +421,9 @@ impl Core {
                         // A build the owner set aside stops, as a dropped one does.
                         e.session = started(t).map(|(s, _)| s).or(e.session);
                         e.live = self.live(e.execution.as_deref());
-                        if e.live {
+                        let trees = tree::find(place, &t.id).is_some()
+                            || place.targets().join(tree::slug(&t.id)).exists();
+                        if e.live || trees {
                             q.dropped.push(e.clone());
                         }
                     }

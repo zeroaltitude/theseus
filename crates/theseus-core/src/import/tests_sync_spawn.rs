@@ -26,7 +26,7 @@ fn alive(pid: u32) -> bool {
 /// A child that exits 0 inside its deadline is a run that worked, with its pid.
 #[tokio::test]
 async fn a_child_that_exits_clean_is_a_run_that_worked() {
-    let ran = run_command(sh("exit 0"), Duration::from_secs(30)).await;
+    let ran = run_command(&mut sh("exit 0"), Duration::from_secs(30)).await;
     assert!(ran.ok(), "{ran:?}");
     assert!(ran.pid > 0, "it really started: {ran:?}");
     assert_eq!(ran.why(), None);
@@ -35,7 +35,7 @@ async fn a_child_that_exits_clean_is_a_run_that_worked() {
 /// A child that exits non-zero says so, in the words the thread is told.
 #[tokio::test]
 async fn a_child_that_exits_non_zero_says_its_code() {
-    let ran = run_command(sh("exit 3"), Duration::from_secs(30)).await;
+    let ran = run_command(&mut sh("exit 3"), Duration::from_secs(30)).await;
     assert_eq!((ran.code, ran.timed_out), (Some(3), false), "{ran:?}");
     assert_eq!(ran.why().as_deref(), Some("it exited 3"));
 }
@@ -45,7 +45,7 @@ async fn a_child_that_exits_non_zero_says_its_code() {
 #[tokio::test]
 async fn a_child_past_its_deadline_is_killed_and_reaped() {
     let started = Instant::now();
-    let ran = run_command(sh("sleep 30"), Duration::from_millis(300)).await;
+    let ran = run_command(&mut sh("sleep 30"), Duration::from_millis(300)).await;
     assert!(ran.timed_out, "{ran:?}");
     assert!(!ran.ok());
     assert!(
@@ -64,8 +64,8 @@ async fn a_child_past_its_deadline_is_killed_and_reaped() {
 /// A command that cannot start is an error in words, not a panic, and has no pid.
 #[tokio::test]
 async fn a_command_that_cannot_start_is_said() {
-    let cmd = Command::new("/nonexistent/theseus-sync");
-    let ran = run_command(cmd, Duration::from_secs(30)).await;
+    let mut cmd = Command::new("/nonexistent/theseus-sync");
+    let ran = run_command(&mut cmd, Duration::from_secs(30)).await;
     assert_eq!(ran.pid, 0);
     assert!(
         ran.error

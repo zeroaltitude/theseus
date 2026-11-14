@@ -282,13 +282,16 @@ pub fn command() -> io::Result<tokio::process::Command> {
 /// Start the one command as a registered child and wait for it, up to
 /// [`DEADLINE_MS`]. Its log goes where the daemon's goes: stderr, inherited.
 pub async fn run() -> Ran {
-    match command() {
-        Ok(cmd) => run_command(cmd, std::time::Duration::from_millis(DEADLINE_MS)).await,
-        Err(e) => Ran {
-            error: Some(format!("the sync's binary could not be found: {e}")),
-            ..Ran::default()
-        },
-    }
+    let mut cmd = match command() {
+        Ok(c) => c,
+        Err(e) => {
+            return Ran {
+                error: Some(format!("the sync's binary could not be found: {e}")),
+                ..Ran::default()
+            }
+        }
+    };
+    run_command(&mut cmd, std::time::Duration::from_millis(DEADLINE_MS)).await
 }
 
 /// The spawn, the deadline and the kill of one run: [`run`]'s whole path after the command is

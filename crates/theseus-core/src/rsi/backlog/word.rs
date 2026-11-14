@@ -335,7 +335,8 @@ impl Core {
         let id = Self::backlog_item(&w, &p.item)?;
         if w.tasks[&id].state != TaskState::Failed && !aside::is_set_aside(&w.tasks[&id]) {
             return Err(BadItem(format!(
-                "{id} is {}: only a failed or set-aside item can be retried",
+                "{id} is {}: only a failed item can be retried (or one that was set aside, which \
+                 this brings back)",
                 w.tasks[&id].state.as_str()
             ))
             .into());
