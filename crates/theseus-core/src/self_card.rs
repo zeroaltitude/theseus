@@ -73,7 +73,7 @@ pub fn card(cfg: &crate::Config, tools: &ToolRuntime, place: PlaceView) -> Strin
 
 /// What the place tells the model of the person's own routes: the sentences
 /// that depend on where the turn was spoken, in the order the card puts them,
-/// for the session's own block.
+/// for each turn's tail.
 pub fn told(cfg: &crate::Config, place: PlaceView) -> Vec<String> {
     voice_line(cfg, place)
         .into_iter()

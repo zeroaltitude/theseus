@@ -1,11 +1,13 @@
 //! The renderer's held turns after a restart (issue 8): they are a view built
-//! from events and held only in memory, so a late event for a turn that ran
-//! before the restart (a background job's result, an answer to a parked call, the
-//! end of a turn that was running) found no turn, and its tool line and its
-//! text were never shown again. What a view needs lives in the durable record:
-//! the session's nodes. The first time an event names a turn this renderer never
-//! saw start, the newest turns of the session are folded back from the nodes the
-//! session stored, once, and the event is then read as any other.
+//! from events and held only in memory, so a late event for a call of a turn that
+//! ran before the restart (a background job's result, which a later turn takes
+//! in; the end of a call a stop cancelled) found no line for the call, and was
+//! never shown. What a view needs lives in the durable record: the session's
+//! nodes. The first time an event names a turn this renderer never saw start, or
+//! the start or end of a call none of its held turns has a line for, the newest
+//! turns of the session are folded back from the nodes the session stored, once,
+//! and the event is then read as any other. The rebuilt turns are ended: no turn
+//! from before a restart is running.
 //!
 //! A turn is its loops' text (an assistant message's text blocks, at its loop),
 //! and its calls: each tool call node is a line, each tool result node settles
@@ -23,10 +25,36 @@ use theseus_core::node::{Body, Node};
 use super::{LoopView, Renderer, ToolLine, ToolState, TurnView, RECENT_TURNS};
 
 impl Renderer {
-    /// Whether an event for `turn_id` should first rebuild the held turns: it
-    /// is not one this renderer holds, and they have not been rebuilt yet.
-    pub fn needs_rebuild(&self, turn_id: &str) -> bool {
-        !self.rebuilt && !self.knows(turn_id)
+    /// Whether `e` should first rebuild the held turns, which have not been
+    /// rebuilt yet: it names a turn this renderer does not hold, or it is the
+    /// start or the end of a call no held turn has a line for. That second case
+    /// is the usual one after a restart: a background job's late result, and
+    /// the end of a call a stop cancelled, name a *later* turn (the one that
+    /// took them), which the renderer saw start, while the call's line is in an
+    /// earlier turn that it did not.
+    pub fn needs_rebuild(&self, e: &theseus_protocol::Event) -> bool {
+        use theseus_protocol::Event;
+        if self.rebuilt {
+            return false;
+        }
+        if e.turn_id().is_some_and(|t| !self.knows(t)) {
+            return true;
+        }
+        let call = match e {
+            Event::ToolStarted(s) => Some(&s.tool_use_id),
+            Event::ToolEnded(t) => Some(&t.tool_use_id),
+            _ => None,
+        };
+        call.is_some_and(|c| !self.holds_call(c))
+    }
+
+    /// Whether a held turn has a line for the call `tool_use_id`.
+    fn holds_call(&self, tool_use_id: &str) -> bool {
+        self.turns.iter().any(|t| {
+            t.loops
+                .values()
+                .any(|lv| lv.tools.iter().any(|l| l.tool_use_id == tool_use_id))
+        })
     }
 
     /// Fold the newest turns of a session back from its `nodes` (oldest
@@ -102,26 +130,26 @@ fn fold(turn_id: &str, nodes: &[(u64, Node)]) -> TurnView {
                 late,
                 ..
             } => {
-                let end = ToolState::Done {
-                    status: status.as_str().to_string(),
-                    ms: duration_ms.unwrap_or(0),
-                };
                 let found = loops
                     .values_mut()
                     .flat_map(|lv| lv.tools.iter_mut())
                     .find(|l| l.tool_use_id == *tool_use_id);
                 if let Some(l) = found {
-                    l.state = end;
-                    l.late |= *late;
+                    l.state =
+                        ToolState::ended(&l.state, status.as_str(), duration_ms.unwrap_or(0), None);
+                    l.late |= *late || matches!(l.state, ToolState::Background);
                 }
             }
             _ => {}
         }
     }
+    // Ended: no turn from before a restart is running (the core resumes work as
+    // a new turn), so none is busy or the one a `/stop` stops, and a late end of
+    // one of its calls shows at once, since no loop's end is coming to carry it.
     TurnView {
         turn_id: turn_id.to_string(),
         loops,
-        ended: false,
+        ended: true,
         dirty: false,
         step_due: false,
     }
@@ -191,6 +219,16 @@ mod tests {
         )
     }
 
+    /// The event of a call's end, as the stream sends it.
+    fn ended_call(turn: &str, id: &str) -> theseus_protocol::Event {
+        theseus_protocol::Event::from_notification(
+            "tool.ended",
+            &json!({"session_id": "s", "turn_id": turn, "tool_use_id": id, "status": "ok", "duration_ms": 12}),
+        )
+        .unwrap()
+        .unwrap()
+    }
+
     /// A turn that was running when the daemon restarted: its first loop's
     /// text and one call that had not ended.
     fn before_the_restart(turn: &str) -> Vec<(u64, Node)> {
@@ -208,20 +246,23 @@ mod tests {
     #[test]
     fn a_renderer_that_restarted_reads_a_turn_back_and_shows_a_late_end_under_its_keys() {
         let mut r = Renderer::default();
-        assert!(r.needs_rebuild("t1"), "a turn it never saw start");
+        assert!(
+            r.needs_rebuild(&ended_call("t1", "u1")),
+            "a turn it never saw start"
+        );
         r.rebuild(&before_the_restart("t1"));
-        assert!(r.knows("t1") && !r.needs_rebuild("t1"));
+        assert!(r.knows("t1") && !r.needs_rebuild(&ended_call("t1", "u1")));
         assert_eq!(r.held(), ["t1"]);
         r.on_notification(
             "tool.ended",
             &json!({"turn_id": "t1", "tool_use_id": "u1", "status": "ok", "duration_ms": 12}),
         );
-        let ops = r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0}));
-        let shown: Vec<(String, String)> = upserts(&ops);
-        let text = shown.iter().find(|(k, _)| k == "t1:L0:p0");
-        assert_eq!(
-            text.map(|(_, c)| c.as_str()),
-            Some("Reading the chart now.")
+        // An ended turn's text is its reply's post, not the stream's: only the
+        // call's line is live, and it shows at the next tick.
+        let shown: Vec<(String, String)> = upserts(&r.tick());
+        assert!(
+            !shown.iter().any(|(k, _)| k == "t1:L0:p0"),
+            "the text is the reply's: {shown:?}"
         );
         let tools = shown.iter().find(|(k, _)| k == "t1:L0:tools");
         assert_eq!(
@@ -283,7 +324,10 @@ mod tests {
         let before = r.held();
         r.rebuild(&nodes);
         assert_eq!(r.held(), before, "read back once");
-        assert!(!r.needs_rebuild("t00"), "and not asked for again");
+        assert!(
+            !r.needs_rebuild(&ended_call("t00", "u9")),
+            "and not asked for again"
+        );
     }
 
     /// A turn that ended is rebuilt as the live one is: nothing of the loop's
@@ -295,5 +339,91 @@ mod tests {
         let ops = r.on_notification("turn.ended", &ended("t1", None));
         assert!(!ops.iter().any(|o| matches!(o, Op::Typing)));
         assert!(!r.busy());
+    }
+
+    /// No turn from before a restart is running: a rebuilt turn is not busy,
+    /// is not the one a `/stop` stops, and keeps no "typing…" alive.
+    #[test]
+    fn a_rebuilt_turn_is_not_running() {
+        let mut r = Renderer::default();
+        r.rebuild(&before_the_restart("t1"));
+        assert!(
+            !r.busy(),
+            "typing would be kept alive for a turn from before the restart"
+        );
+        assert!(r.running_turn().is_none());
+    }
+
+    /// A call the nodes say went to the background is rebuilt as the live
+    /// `tool.ended` makes it (waiting for its late result), a declined one as
+    /// not run: the one mapping serves both.
+    #[test]
+    fn a_background_or_declined_call_is_rebuilt_as_the_live_line() {
+        let mut nodes = before_the_restart("t1");
+        nodes.push(call("t1", 0, "u2", "b.txt"));
+        let bg = |id: &str, status| {
+            let (p, mut n) = result("t1", 0, id, 7);
+            if let Body::ToolResult { status: s, .. } = &mut n.body {
+                *s = status;
+            }
+            (p, n)
+        };
+        nodes.push(bg("u1", ResultStatus::Background));
+        nodes.push(bg("u2", ResultStatus::Declined));
+        let mut r = Renderer::default();
+        r.rebuild(&nodes);
+        let ops = r.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0}));
+        let shown = upserts(&ops);
+        let tools = shown
+            .iter()
+            .find(|(k, _)| k == "t1:L0:tools")
+            .map(|(_, c)| c.clone());
+        let live = {
+            let mut l = Renderer::default();
+            l.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t1"}));
+            for (id, path, status) in [
+                ("u1", "src/lib.rs", "background"),
+                ("u2", "b.txt", "declined"),
+            ] {
+                l.on_notification(
+                    "tool.proposed",
+                    &json!({"turn_id": "t1", "tool_use_id": id, "tool": "fs.read",
+                    "input": {"path": path}, "gate": {"result": {"gate": "allow"}}}),
+                );
+                l.on_notification("tool.ended", &json!({"turn_id": "t1", "tool_use_id": id, "status": status, "duration_ms": 7}));
+            }
+            let ops = l.on_notification("loop.ended", &json!({"turn_id": "t1", "loop_index": 0}));
+            upserts(&ops)
+                .into_iter()
+                .find(|(k, _)| k == "t1:L0:tools")
+                .map(|(_, c)| c)
+        };
+        assert_eq!(tools, live, "rebuilt and live say the same");
+        assert!(!tools.unwrap().contains('❌'));
+    }
+
+    /// The usual path after a restart: a call's late end names a later turn,
+    /// one the renderer saw start, while the call's line is in an earlier one.
+    /// The call's absence is what asks for the rebuild, and the line is then
+    /// found as a late result finds it, by the call.
+    #[test]
+    fn a_late_end_that_names_a_later_turn_finds_the_call_of_an_earlier_one() {
+        let mut nodes = before_the_restart("t1");
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t2"}));
+        let late = ended_call("t2", "u1");
+        assert!(r.needs_rebuild(&late), "no held turn has a line for u1");
+        nodes.push(assistant("t2", 0, "later"));
+        r.rebuild(&nodes);
+        assert!(!r.needs_rebuild(&late), "now one has");
+        let mut ops = r.on_event(&late);
+        ops.extend(r.tick());
+        let shown = upserts(&ops);
+        assert!(
+            shown
+                .iter()
+                .any(|(k, c)| k == "t1:L0:tools" && c.contains("12 ms")),
+            "{shown:?}"
+        );
     }
 }

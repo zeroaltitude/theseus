@@ -19,7 +19,9 @@ use super::Lane;
 use crate::runtime::route::turn_of_key;
 
 /// How many of the newest rows of `discord.message.out` a lane reads to
-/// rebuild: a few turns' messages, with room over the 905 keys a lane holds.
+/// rebuild. They are every place's, filtered here by the lane's target, so a
+/// quiet place's rows can fall out of the read when others are busy: its keys
+/// are then posted again, as before this change.
 const ROWS_READ: usize = 1000;
 
 impl Lane {

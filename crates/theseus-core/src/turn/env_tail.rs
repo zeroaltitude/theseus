@@ -1,4 +1,6 @@
-//! The date and the git state, in the messages' tail (theseus-wadu,
+//! The date and the git state, in the messages' tail, and what the place tells
+//! the model of the person's own routes (the chat route, the voice channel;
+//! issue 8, `self_card::told`) (theseus-wadu,
 //! `docs/design/project-context.md` §4). Both change within a session, so
 //! neither can sit in block 3 (the cached prefix): they ride the tail as one
 //! block after the conversation's breakpoint, through `attach_hint`, as the
@@ -33,7 +35,8 @@ pub(super) fn date_line(ms: u64) -> String {
 }
 
 impl TurnRunner {
-    /// Attach the date, and the git state where the session may have one.
+    /// Attach the date, the git state where the session may have one, and the
+    /// sentences of the place the turn was spoken in.
     pub(super) async fn env_tail(&self, t: &Turn<'_>, compiled: &mut Compiled) {
         if !self.cfg.project.tail_facts() {
             return;

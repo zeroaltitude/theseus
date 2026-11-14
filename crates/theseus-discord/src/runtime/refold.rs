@@ -8,14 +8,11 @@ use theseus_protocol::Event as CoreEvent;
 use super::{LaneMsg, Place};
 
 impl Place {
-    /// Before an event is read: if it names a turn this place's renderer does
-    /// not hold, and the held turns were never read back, read them back now
-    /// and tell the lane which turns it keeps whole.
+    /// Before an event is read: if it names a turn, or a call, this place's
+    /// renderer has no line for, and the held turns were never read back, read
+    /// them back now and tell the lane which turns it keeps whole.
     pub(super) fn rebuild_held(&mut self, e: &CoreEvent) {
-        let Some(turn) = e.turn_id() else {
-            return;
-        };
-        if matches!(e, CoreEvent::TurnStarted(_)) || !self.renderer.needs_rebuild(turn) {
+        if matches!(e, CoreEvent::TurnStarted(_)) || !self.renderer.needs_rebuild(e) {
             return;
         }
         let nodes = match self.shared.core.store.session_nodes(&self.session_id) {

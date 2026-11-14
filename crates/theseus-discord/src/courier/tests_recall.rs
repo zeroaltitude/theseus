@@ -258,7 +258,13 @@ async fn a_late_end_after_a_restart_edits_the_turns_messages_and_posts_nothing_t
     let mut renderer = Renderer::default();
     let mut again = restarted(&first);
     let stored = core.store.session_nodes("s").unwrap();
-    assert!(renderer.needs_rebuild(turn));
+    let late = theseus_protocol::Event::from_notification(
+        "tool.ended",
+        &json!({"session_id": "s", "turn_id": turn, "tool_use_id": "u1", "status": "ok", "duration_ms": 12}),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(renderer.needs_rebuild(&late));
     renderer.rebuild(&stored);
     let mut ops = renderer.on_notification(
         "tool.ended",

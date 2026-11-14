@@ -218,7 +218,7 @@ fn a_thread_takes_the_chat_route_and_the_voice_channel_of_its_underlying_place()
 }
 
 /// The two sentences that depend on where a turn was spoken ride in the
-/// session's block, not in the shared header: `told` gives them in the card's
+/// turn's tail, not in the shared header: `told` gives them in the card's
 /// order, for a place that has them and for none other, and the header's view
 /// of a place has neither.
 #[test]

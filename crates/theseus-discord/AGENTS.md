@@ -680,11 +680,17 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   them and adds the footer. A create's `discord.message.out` row goes through `Core::binding_ledger_soon`, so the
   lane's next write never waits on that row's sync.
 - **A lane that restarts finds its messages again** (issue 8): its key-to-message map is memory, so the first write of a turn's
-  key it does not hold reads the newest `discord.message.out` rows (`courier/recall.rs`; each row names the place, the key, the
-  message and, since this change, the channel) and edits the message a row names, rather than posting the key again. A row with no
-  channel (an older build's), another place's row, and a key that is not a turn's (the board) are not used. The same turn
-  submit paths that carry the speaker (a typed message, a steer, a prompt run, a thread redirect, a spoken turn) name them by id,
-  never by handle: a spoken turn several people said, or a batch of several people's messages, names no one.
+  key it does not hold reads the newest `discord.message.out` rows (`courier/recall.rs`; each row names the place, the lane's
+  `target`, the key, the message and, since this change, the channel) and edits the message a row whose `target` is this lane's
+  names, rather than posting the key again. A row with no channel or target (an older build's), another place's row (two places may
+  share a label, never a target), and a key that is not a turn's (the board) are not used. **The renderer's held turns come back too**
+  (`render/refold.rs`, `Place::rebuild_held`): the first event that names a turn, or the start or end of a call, no held turn has a
+  line for (after a restart: a background job's late result, which a later turn takes in; the end of a call a stop cancelled) reads the
+  session's newest turns back from its nodes, once, as ended turns (none from before a restart is running), their calls' lines
+  built by the same functions the live events use (`ToolLine::proposed`, `ToolState::ended`), and tells the lane the turns held, so
+  the late end edits the first run's messages. The same turn submit paths that carry the speaker (a typed message, a steer, a prompt
+  run, a thread redirect, a spoken turn) name them by id, never by handle: a spoken turn several people said, or a batch of several
+  people's messages, names no one.
 - **One lane per place is the only writer of its messages**: posts first, in order, then live progress. A create
   carries a nonce from its message's key, with `enforce_nonce`, so a retry after a crash returns the first message.
 - **A lane's maps are bounded** (theseus-celu.37, theseus-6809): `msgs`, `sent` and `sealed` keep the task board's

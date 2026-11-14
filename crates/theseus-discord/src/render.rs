@@ -255,6 +255,33 @@ struct ToolLine {
     late: bool,
 }
 
+impl ToolState {
+    /// The state a call is in once its end says `status` (`ms` long): the one
+    /// mapping the live `tool.ended` and a turn read back from its nodes
+    /// (`refold.rs`) both use. `stopped_by` names who a `/stop` ended it for.
+    fn ended(prior: &ToolState, status: &str, ms: u64, stopped_by: Option<String>) -> ToolState {
+        match (status, stopped_by) {
+            (_, Some(by)) => ToolState::Stopped { by },
+            // A stop that declined it while it waited said so already
+            // (`confirm.resolved`); its not-run result keeps that.
+            ("cancelled", None) if matches!(prior, ToolState::Stopped { .. }) => prior.clone(),
+            ("background", _) => ToolState::Background,
+            // A decline keeps saying who declined. A daemon from before
+            // theseus-8az says `denied`.
+            ("declined" | "denied", _) => match prior {
+                ToolState::Answered {
+                    approved: false, ..
+                } => prior.clone(),
+                _ => ToolState::NotRun,
+            },
+            _ => ToolState::Done {
+                status: status.to_string(),
+                ms,
+            },
+        }
+    }
+}
+
 impl ToolLine {
     /// The line of a call the gate has just judged (`gate`): its summary, the
     /// notice setting, what the broker gave it, and where it runs. An AWS
@@ -503,30 +530,12 @@ impl Renderer {
                 let ended: Vec<String> = t.scratch.iter().chain(&t.reached).cloned().collect();
                 self.update_tool(turn_id, use_id, |l| {
                     l.summary.extend(ended.iter().map(|s| format!(" · {s}")));
-                    l.state = match (status, &stopped) {
-                        (_, Some(by)) => ToolState::Stopped {
-                            by: format!("{by}{verified}"),
-                        },
-                        // A stop that declined it while it waited said so
-                        // already (`confirm.resolved`); its not-run result
-                        // keeps that.
-                        ("cancelled", None) if matches!(l.state, ToolState::Stopped { .. }) => {
-                            l.state.clone()
-                        }
-                        ("background", _) => ToolState::Background,
-                        // A decline keeps saying who declined. A daemon from
-                        // before theseus-8az says `denied`.
-                        ("declined" | "denied", _) => match &l.state {
-                            ToolState::Answered {
-                                approved: false, ..
-                            } => l.state.clone(),
-                            _ => ToolState::NotRun,
-                        },
-                        _ => ToolState::Done {
-                            status: status.to_string(),
-                            ms,
-                        },
-                    };
+                    l.state = ToolState::ended(
+                        &l.state,
+                        status,
+                        ms,
+                        stopped.as_deref().map(|by| format!("{by}{verified}")),
+                    );
                     // Its end will come back in a turn of its own, so the
                     // step's message keeps its line from here on.
                     l.late |= matches!(l.state, ToolState::Background);
