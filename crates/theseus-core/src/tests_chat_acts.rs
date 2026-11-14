@@ -719,11 +719,18 @@ async fn asking_in_his_dm_and_in_a_thread_starts_exactly_one_sync_and_says_both_
 /// is forced rather than chosen.** A question asked in THIS session would be
 /// un-listed by the next turn here (`confirm_list` drops a question once a
 /// later turn has run in its session), so the count would fall for a reason
-/// that has nothing to do with his words; and no second session can share
-/// this one's place, because `Outbox::bind_place` gives a place to ONE
-/// session. So the waiting-list assertion below is a GLOBAL one, which is the
-/// honest statement of the thesis anyway: not one of these sentences answers,
-/// or even disturbs, a question that is really waiting anywhere.
+/// that has nothing to do with his words. So the waiting-list assertion below
+/// is a GLOBAL one, which is the honest statement of the thesis anyway: not
+/// one of these sentences answers, or even disturbs, a question that is
+/// really waiting anywhere.
+///
+/// ⛔ This note used to give a second reason — that no other session can
+/// share this one's place — and that reason is FALSE and is withdrawn.
+/// `Outbox::bind_place` does give a place to one session, but `show_at` says
+/// where a session ANSWERS and any number may answer at one place;
+/// [`a_sibling_session_at_this_place_is_in_scope_and_one_elsewhere_is_not`]
+/// builds exactly that. The first reason above is sufficient on its own and
+/// is why this case keeps the setup it has.
 ///
 /// ⛔ Without that setup `waiting_before` is 0 and the waiting-list assertion
 /// is `0 == 0` — vacuous for all fourteen sentences. It was, until the r2
@@ -1146,15 +1153,20 @@ async fn the_turn_is_told_nothing_while_the_key_is_off() {
 
     // The compile step's own gate: the block is staged as the producer would
     // have staged it, and the key off still keeps it out of the request.
-    r.core.runner.yes_facts.stage(
-        &sid,
-        crate::yes_fact::render(&crate::yes_fact::Decided {
-            why: "and the model called the answer tool for the one it named".into(),
-            approved: Some("`task.close` (…aaaa1111)".into()),
-            waiting: vec!["`proc.run` (…bbbb2222)".into()],
-            next: "Do not ask for it again.".into(),
-        }),
+    let block = crate::yes_fact::render(&crate::yes_fact::Decided {
+        why: "and the model called the answer tool for the one it named".into(),
+        approved: Some("`task.close` (…aaaa1111)".into()),
+        waiting: vec!["`proc.run` (…bbbb2222)".into()],
+        next: "Do not ask for it again.".into(),
+    });
+    // The negative below is paired with this positive: what is staged really
+    // is a yes fact, by the very head `facts` looks for, so its absence from
+    // the request is the key's doing and not an empty string's.
+    assert!(
+        block.starts_with(crate::yes_fact::HEAD),
+        "a real block is staged: {block}"
     );
+    r.core.runner.yes_facts.stage(&sid, block);
     r.calls(&[]);
     say(&r, &sid, "and now?").await;
     assert!(
