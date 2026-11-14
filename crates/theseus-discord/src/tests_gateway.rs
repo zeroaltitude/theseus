@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use self::patience::Budget;
+use self::patience::{Budget, TASK_WAIT};
 
 use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
@@ -56,8 +56,10 @@ pub(crate) struct Rig {
     /// The tasks this run started (its driver and its binding), which
     /// [`Rig::stop`] aborts.
     run: Vec<tokio::task::AbortHandle>,
-    /// The one patience budget every `until` of this test draws on.
+    /// The one patience budget every `until` of this rig draws on.
     patience: Budget,
+    /// The wall-clock deadline of the task family's waits (`tests_task_threads::until`), begun at the first of them.
+    task_deadline: std::sync::Mutex<Option<Instant>>,
 }
 
 thread_local! {
@@ -165,6 +167,7 @@ impl Rig {
             core,
             run: vec![driver.abort_handle(), binding.abort_handle()],
             patience: Budget::new(),
+            task_deadline: std::sync::Mutex::new(None),
         };
         // Each place starts fresh: its first message opens its session
         // (theseus-emqx), so a place is bound once the binding reports it.
@@ -189,41 +192,69 @@ impl Rig {
         self.run.iter().for_each(tokio::task::AbortHandle::abort);
     }
 
-    /// Waits for `f`, which reads none of the surfaces in particular as far as this helper can tell, so a
-    /// timeout lists them all. A wait that knows its surface says it with [`Rig::until_on`].
+    /// Waits for `f`. This helper cannot tell which surfaces `f` reads, so a timeout lists them all and marks none
+    /// as read; a wait that knows its surface says it with [`Rig::until_on`].
     pub(crate) async fn until(&self, what: &str, f: impl Fn() -> bool) {
-        self.until_on(&[ANA_DM, LAB], what, f).await;
+        self.wait(None, what, f).await;
     }
 
-    /// Waits for `f`, which reads `channels`: a timeout lists those first, each message with the content it was
-    /// created with and the content it has now, then every other surface, then the answers. The waits of one test
-    /// share one patience budget (`Budget`).
+    /// Waits for `f`, which reads `channels`: a timeout lists those first, marked as read, then the others, each
+    /// message with the content it was created with and the content it has now, then the answers.
     pub(crate) async fn until_on(&self, channels: &[u64], what: &str, f: impl Fn() -> bool) {
+        self.wait(Some(channels), what, f).await;
+    }
+
+    /// The waits of one rig share one patience budget (`Budget`).
+    async fn wait(&self, read: Option<&[u64]>, what: &str, f: impl Fn() -> bool) {
         while !f() {
             assert!(
                 !self.patience.spent(),
                 "timed out: {what}\n{}",
-                self.surfaces(channels)
+                self.surfaces(read)
             );
             self.patience.nap().await;
         }
     }
 
-    /// What a timed-out wait reads, surface by surface: the ones the wait named, then the others, then the answers.
-    fn surfaces(&self, read: &[u64]) -> String {
+    /// Has the task family's one deadline passed? It begins at the first call and is `TASK_WAIT` long, for the
+    /// whole test: the family's waits used to take 100 s EACH, which with the connect wait could pass the
+    /// runner's kill with no message of ours.
+    pub(crate) fn task_wait_spent(&self) -> bool {
+        let began = *self
+            .task_deadline
+            .lock()
+            .unwrap()
+            .get_or_insert_with(Instant::now);
+        began.elapsed() >= TASK_WAIT
+    }
+
+    /// What a timed-out wait reads, surface by surface. A wait that named its surfaces gets those first, marked;
+    /// one that did not gets every surface and a line saying it could not say which.
+    fn surfaces(&self, read: Option<&[u64]>) -> String {
         let name = |c: u64| match c {
             LAB => "#lab".to_string(),
             ANA_DM => "the DM".to_string(),
             c => format!("channel {c}"),
         };
-        let others = [ANA_DM, LAB].into_iter().filter(|c| !read.contains(c));
+        let shown: Vec<(u64, &str)> = match read {
+            Some(read) => read
+                .iter()
+                .map(|c| (*c, " (read by this wait)"))
+                .chain(
+                    [ANA_DM, LAB]
+                        .into_iter()
+                        .filter(|c| !read.contains(c))
+                        .map(|c| (c, " (not read by this wait)")),
+                )
+                .collect(),
+            None => vec![(ANA_DM, ""), (LAB, "")],
+        };
         let mut out = String::new();
-        for (c, mark) in read
-            .iter()
-            .map(|c| (*c, "read by this wait"))
-            .chain(others.map(|c| (c, "not read by this wait")))
-        {
-            out.push_str(&format!("{} ({mark}):\n", name(c)));
+        if read.is_none() {
+            out.push_str("this wait did not say which surfaces it reads, so every one follows:\n");
+        }
+        for (c, mark) in shown {
+            out.push_str(&format!("{}{mark}:\n", name(c)));
             let msgs = self.fake.messages(c);
             if msgs.is_empty() {
                 out.push_str("  no messages\n");

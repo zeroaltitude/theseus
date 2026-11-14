@@ -120,12 +120,13 @@ pub(crate) fn start(briefs: &[&str]) -> Scripted {
 }
 
 /// A wait as long as a loaded machine needs, and shorter than nextest's
-/// 120 s, so a wait that never ends names itself (theseus-1dbb5).
+/// 120 s, so a wait that never ends names itself (theseus-1dbb5). The
+/// rig's waits share one deadline (`Rig::task_wait_spent`): 100 s each, with
+/// the connect wait, could pass the kill.
 pub(crate) async fn until(r: &Rig, what: &str, f: impl Fn() -> bool) {
-    let t0 = std::time::Instant::now();
     while !f() {
         assert!(
-            t0.elapsed() < Duration::from_secs(100),
+            !r.task_wait_spent(),
             "timed out: {what}; #lab holds {:#?}; threads {:#?}",
             r.fake.messages(LAB),
             r.fake.threads()

@@ -47,10 +47,24 @@
 //! real limit of the estimator and the first place to look if this family
 //! reddens again -- it is not a margin of safety.
 
+//! ISSUE 14: ONE BUDGET PER RIG. Everything above describes the budget of ONE wait. A test makes many, each used to
+//! start a budget of its own, and the runner's kill (120 s: nextest's `slow-timeout`) comes after at most 30 s of
+//! connecting plus one budget and its credit. `Budget` below is what a rig's waits share: the unstalled time spent
+//! napping, summed over all of them. Its start is the first nap, not the rig's construction, and the test's own work
+//! between waits is not charged.
+//!
+//! Every wait of the rig goes through `Rig::until` or `Rig::until_on` except the task family's
+//! (`tests_task_threads::until`), which has one wall-clock deadline of `TASK_WAIT` per rig, and
+//! `tests_process.rs`'s held-create wait, which keeps a `Patience` of its own. A test that builds a second rig
+//! gets a second budget.
+
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const BASE: Duration = Duration::from_secs(20);
+/// The task family's one deadline per test (`Rig::task_wait_spent`): with the 30 s connect wait it ends before the
+/// runner's 120 s kill, which 100 s per wait did not.
+pub(crate) const TASK_WAIT: Duration = Duration::from_secs(85);
 const NAP: Duration = Duration::from_millis(25);
 const MAX_CREDIT: Duration = Duration::from_secs(60);
 /// What a nap may overshoot by without being called a stall: the timer's own
@@ -96,42 +110,63 @@ impl Patience {
     }
 }
 
-/// ONE patience budget for a whole test (issue 14). Each `until` used to start a `Patience` of its own, so a test
-/// of k waits could spend k budgets, and `BASE + MAX_CREDIT` is already 80 s: two starved waits and the runner's
-/// hard kill (see `a_tests_waits_end_before_the_runners_kill`) took the test with no message of ours. The rig holds
-/// one `Budget`; every wait of the test draws on it, and it starts at the test's first wait, not at the rig's
-/// construction, so a slow start is not charged to the waits. A budget this size is not raised by sharing it: a wait
-/// that gets less than `BASE` is one that came after another had already spent some.
-pub(crate) struct Budget(Mutex<Option<Patience>>);
+/// ONE patience budget for the waits of a test's rig (issue 14). Each `until` used to start a `Patience` of its own, so
+/// a test of k waits could spend k budgets, and `BASE + MAX_CREDIT` is already 80 s: two starved waits and the
+/// runner's hard kill (`a_tests_waits_end_before_the_runners_kill`) took the test with no message of ours.
+///
+/// What it counts is the time the test spent INSIDE its waits, nap by nap, with each nap's stall credited as in
+/// `Patience`: the unstalled waiting of every `until` of the rig adds up to `BASE`, and a wait that gets less than
+/// `BASE` is one that came after another had spent some. The test's own work between waits (core calls, `say`,
+/// assertions) is not charged, and nothing is charged before the first nap, so a slow start is not a red. It is
+/// per RIG: a test that builds a second one (`tests_task_home`'s restart test) has a second budget, and the waits of
+/// `tests_task_threads::until` are bounded by the rig's own deadline instead (`Rig::task_wait_spent`).
+pub(crate) struct Budget(Mutex<Spending>);
+
+#[derive(Default)]
+struct Spending {
+    /// The time spent napping, as the clock saw it.
+    waited: Duration,
+    /// The stalls among it, credited.
+    credit: Duration,
+}
 
 impl Budget {
     pub(crate) fn new() -> Self {
-        Budget(Mutex::new(None))
+        Budget(Mutex::new(Spending::default()))
+    }
+
+    /// The unstalled time spent waiting so far: what `BASE` is measured against.
+    pub(crate) fn unstalled(&self) -> Duration {
+        let s = self.0.lock().unwrap();
+        s.waited.saturating_sub(s.credit)
     }
 
     pub(crate) fn spent(&self) -> bool {
-        self.0
-            .lock()
-            .unwrap()
-            .get_or_insert_with(Patience::new)
-            .spent()
+        self.unstalled() >= BASE
     }
 
-    /// Sleeps one nap and credits what it overslept, to the test's budget. The lock is not held across the sleep.
+    /// Charges one nap that took `slept`: all of it is waiting, and what it overslept is a stall, credited exactly
+    /// as `Patience::oversleep` credits it.
+    pub(crate) fn account(&self, slept: Duration) {
+        let mut s = self.0.lock().unwrap();
+        s.waited += slept;
+        s.credit = (s.credit + slept.saturating_sub(NAP + SLOP)).min(MAX_CREDIT);
+    }
+
+    /// Sleeps one nap and charges it. The lock is not held across the sleep.
     pub(crate) async fn nap(&self) {
         let t = Instant::now();
         tokio::time::sleep(NAP).await;
-        self.0
-            .lock()
-            .unwrap()
-            .get_or_insert_with(Patience::new)
-            .oversleep(t.elapsed());
+        self.account(t.elapsed());
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::tests_gateway::{Rig, ANA_DM};
 
     fn fresh() -> Patience {
         Patience::new()
@@ -221,37 +256,65 @@ mod tests {
     }
 
     #[test]
-    fn a_budget_is_one_for_every_wait_of_a_test() {
-        // The first wait spent 21 s of unstalled time: the budget is spent for the second wait too, where a
-        // `Patience` of its own would have started it again at 20 s.
+    fn a_budget_is_one_for_every_wait_of_a_rig() {
+        // Two waits' naps add up: 12 s of unstalled waiting in each is 24 s against one budget of 20 s, where a
+        // `Patience` of its own per wait would have been spent by neither.
         let b = Budget::new();
         assert!(!b.spent(), "a fresh budget is not spent");
-        *b.0.lock().unwrap() = Some(Patience {
-            start: Instant::now()
-                .checked_sub(Duration::from_secs(21))
-                .expect("the clock is older than 21 s"),
-            credit: Duration::ZERO,
-        });
-        assert!(b.spent(), "the first wait's spending counts");
-        assert!(b.spent(), "and the second wait's");
+        for _ in 0..300 {
+            b.account(NAP); // the first wait, unstalled: 7.5 s
+        }
+        assert!(!b.spent(), "7.5 s is under the budget");
+        for _ in 0..700 {
+            b.account(NAP); // the second wait: 17.5 s of a 20 s budget in all
+        }
+        assert!(!b.spent());
+        for _ in 0..100 {
+            b.account(NAP);
+        }
         assert!(
-            !fresh().spent(),
-            "a Patience of its own would have begun again"
+            b.spent(),
+            "the second wait inherits what the first spent: {:?}",
+            b.unstalled()
+        );
+        assert!(!fresh().spent(), "a Patience of its own begins again");
+    }
+
+    #[test]
+    fn a_stall_is_credited_to_the_budget_and_a_normal_nap_is_not() {
+        let b = Budget::new();
+        b.account(NAP + SLOP);
+        assert_eq!(
+            b.unstalled(),
+            NAP + SLOP,
+            "the timer's own granularity is waiting, not a stall"
+        );
+        let b = Budget::new();
+        b.account(Duration::from_secs(5));
+        assert!(
+            b.unstalled() <= NAP + SLOP,
+            "a 5 s nap is nearly all stall and is credited: {:?}",
+            b.unstalled()
         );
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_budget_credits_the_stalls_of_every_wait_it_serves() {
+    #[test]
+    fn the_budget_charges_the_naps_and_not_the_time_between_waits() {
         let b = Budget::new();
-        b.nap().await;
-        b.nap().await;
-        let credit = b.0.lock().unwrap().as_ref().unwrap().credit;
-        assert_eq!(credit, Duration::ZERO, "paused naps overshoot by nothing");
+        std::thread::sleep(Duration::from_millis(60)); // the test's own work, between waits
+        assert_eq!(
+            b.unstalled(),
+            Duration::ZERO,
+            "nothing is charged before a nap"
+        );
+        b.account(NAP);
+        assert_eq!(b.unstalled(), NAP, "only the nap");
     }
 
-    /// The most a test's waits can take must end before the runner's kill, or the kill takes the test with no
-    /// word of ours. The kill is `.config/nextest.toml`'s `slow-timeout`: `period` times `terminate-after`. The
-    /// rig's connect wait (30 s, in `start_over`) is the one wait outside the budget.
+    /// The most a rig's waits can take (its connect wait, the budget with its credit) must end before the runner's
+    /// kill, or the kill takes the test with no word of ours. The kill is `.config/nextest.toml`'s `slow-timeout`:
+    /// `period` times `terminate-after`. It counts the waits, not the test's own work between them, and one rig:
+    /// see `Budget` for the test that builds two.
     #[test]
     fn a_tests_waits_end_before_the_runners_kill() {
         let cfg = include_str!("../../../../.config/nextest.toml");
@@ -274,6 +337,88 @@ mod tests {
         assert!(
             connect + BASE + MAX_CREDIT < kill,
             "connect {connect:?} + budget {BASE:?} + credit {MAX_CREDIT:?} reaches the kill at {kill:?}"
+        );
+    }
+
+    /// The panic text of a wait that gave up, from a rig whose budget `spend` has already drawn on.
+    async fn timed_out(
+        f: impl FnOnce(&Rig) -> bool,
+        wait: impl FnOnce(Arc<Rig>) -> tokio::task::JoinHandle<()>,
+    ) -> String {
+        let r = Arc::new(Rig::start(|_| vec![], false).await);
+        assert!(f(&r));
+        let began = Instant::now();
+        let e = wait(r).await.expect_err("the wait gave up");
+        assert!(
+            began.elapsed() < Duration::from_secs(5),
+            "it gave up at once, with the budget spent: {:?}",
+            began.elapsed()
+        );
+        *e.into_panic()
+            .downcast::<String>()
+            .expect("an assert! message")
+    }
+
+    fn spend_the_budget(r: &Rig) -> bool {
+        for _ in 0..(BASE.as_millis() / NAP.as_millis()) {
+            r.patience.account(NAP);
+        }
+        r.patience.spent()
+    }
+
+    /// The rig's own `until_on` draws on the rig's budget: a wait that comes after 20 s of waiting has none left and
+    /// says so at once. With a `Patience` of its own per wait (the old behaviour) this wait would have napped 20 s.
+    #[tokio::test]
+    async fn a_wait_of_a_rig_that_has_spent_its_budget_gives_up_at_once() {
+        let said = timed_out(spend_the_budget, |r| {
+            tokio::spawn(async move { r.until_on(&[ANA_DM], "the second wait", || false).await })
+        })
+        .await;
+        assert!(said.starts_with("timed out: the second wait"), "{said}");
+    }
+
+    /// A timeout names the surfaces its wait reads, and one that cannot say so says that and marks none: the old
+    /// message named `#lab` first for a wait that reads the DM.
+    #[tokio::test]
+    async fn a_timeout_names_the_surfaces_the_wait_reads_or_says_it_cannot() {
+        let named = timed_out(spend_the_budget, |r| {
+            tokio::spawn(async move { r.until_on(&[ANA_DM], "named", || false).await })
+        })
+        .await;
+        assert!(named.contains("the DM (read by this wait):"), "{named}");
+        assert!(named.contains("#lab (not read by this wait):"), "{named}");
+        assert!(
+            named.find("the DM").unwrap() < named.find("#lab").unwrap(),
+            "{named}"
+        );
+        let unnamed = timed_out(spend_the_budget, |r| {
+            tokio::spawn(async move { r.until("unnamed", || false).await })
+        })
+        .await;
+        assert!(
+            unnamed.contains("this wait did not say which surfaces it reads"),
+            "{unnamed}"
+        );
+        assert!(
+            !unnamed.contains("read by this wait"),
+            "no surface is marked: {unnamed}"
+        );
+        assert!(
+            unnamed.contains("the DM:") && unnamed.contains("#lab:"),
+            "{unnamed}"
+        );
+    }
+
+    /// The task family's waits end at the rig's deadline, one for the whole test, which fits under the kill.
+    #[tokio::test]
+    async fn the_task_waits_share_one_deadline_that_fits_under_the_kill() {
+        let r = Rig::start(|_| vec![], false).await;
+        assert!(!r.task_wait_spent(), "it starts at the first wait");
+        *r.task_deadline.lock().unwrap() = Some(Instant::now() - TASK_WAIT);
+        assert!(r.task_wait_spent());
+        assert!(
+            Duration::from_secs(30) + TASK_WAIT < Duration::from_secs(120),
+            "connect + deadline under the kill"
         );
     }
 }
