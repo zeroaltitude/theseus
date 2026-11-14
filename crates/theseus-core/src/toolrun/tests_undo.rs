@@ -561,6 +561,22 @@ impl Rig {
         crate::tests_m3::surface("sock#1", Surface::Cli).behind(crate::peer_proc::Behind::Owner)
     }
 
+    /// A turn over the wire through `turn.submit`, from the owner's own
+    /// terminal: the dispatch arm and everything `turn.submit` reads out of
+    /// a message BEFORE the turn runs, which is where the override in words
+    /// is read (`rpc::allow_in_words`). `Rig::turn` calls the runner
+    /// directly and reaches none of it.
+    async fn submit(&self, sid: &str, input: &str) -> Value {
+        crate::tests_m3::rpc_as(
+            &self.core,
+            Rig::owner(),
+            theseus_protocol::method::TURN_SUBMIT,
+            json!({"session_id": sid, "input": input}),
+        )
+        .await
+        .expect("turn.submit")
+    }
+
     /// `undo.allow` over the wire, as `client` (theseus-me9fc's own rig):
     /// the dispatch arm, `route`, and `judge_act`, not just the core call.
     async fn allow_as(
@@ -991,6 +1007,85 @@ async fn a_spend_the_store_refused_holds_the_call_again() {
     assert!(
         r.rows("tool.confirm_requested").is_empty(),
         "a hold makes no card, however it was reached"
+    );
+}
+
+/// Turn one holds the original; turn two is an ordinary message that says
+/// nothing about it and proposes no call; turn three is the owner's override
+/// in words, and the response it draws proposes the original again.
+fn script_held_then_asked_then_the_original(path: &Path) -> Vec<Scripted> {
+    let original = json!({"path": path.to_string_lossy(), "content": NOW});
+    vec![
+        Scripted::tools("I'll replace it.", &[("c1", "fs_write", original.clone())]),
+        Scripted::text("Held; I'll re-plan it."),
+        Scripted::text("It would lose the old bytes."),
+        Scripted::tools("The original, then.", &[("c2", "fs_write", original)]),
+        Scripted::text("Done."),
+    ]
+}
+
+/// **The chat override route, end to end through `turn.submit`.** The owner
+/// says the original was right in the conversation it was held in, and the
+/// call runs — no `undo.allow`, no id typed at a command line. That is the
+/// half of `p5kln-override-route` the owner's principle of 2026-11-12 asked
+/// for (minimise the cases where a person must drop to a command line), and
+/// until now only its WORDS had tests (`allow_in_words::tests`, pure) while
+/// the whole-core tests all took the override over the wire by id.
+///
+/// It goes through `rpc_as`, so the dispatch arm, `allow_in_words` at
+/// `turn.submit`, `Core::undo_allow` and `judge_act(Act::UndoAllow)` all run
+/// — and the turn the same message starts is what spends the allowance.
+///
+/// The ordinary message in the middle is the negative that makes the rest
+/// mean something: a turn whose words are not an override allows nothing, so
+/// the run at the end cannot be the mere passage of time.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_override_in_words_runs_the_original_through_turn_submit() {
+    let r = rig_scripted(
+        RESHAPEABLE,
+        0.96,
+        false,
+        |_| {},
+        script_held_then_asked_then_the_original,
+    );
+    let sid = r.session();
+
+    r.turn(&sid).await;
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call: {held:?}");
+    assert!(held[0].allowed.is_none(), "nothing has allowed it yet");
+
+    // An ordinary message is no override.
+    r.submit(&sid, "What would it lose?").await;
+    assert!(
+        r.rows("tool.hold_allowed").is_empty(),
+        "an ordinary message allows nothing"
+    );
+    assert!(r.held().iter().all(|h| h.allowed.is_none()));
+
+    // The override, said in the conversation, by the owner in person.
+    r.submit(&sid, "run the original").await;
+
+    let allowed = r.rows("tool.hold_allowed");
+    assert_eq!(
+        allowed.len(),
+        1,
+        "the words wrote the allowance: {allowed:?}"
+    );
+    assert_eq!(allowed[0]["hold"], held[0].id);
+    assert_eq!(allowed[0]["tool"], "fs.write");
+
+    assert_eq!(
+        r.bytes(),
+        NOW,
+        "the ORIGINAL call ran, on words alone: no id was typed anywhere"
+    );
+    let spent = r.rows("tool.hold_overridden");
+    assert_eq!(spent.len(), 1, "one allowance spent: {spent:?}");
+    assert_eq!(spent[0]["hold"], held[0].id);
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "an override is not a question"
     );
 }
 
