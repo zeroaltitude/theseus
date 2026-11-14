@@ -1039,7 +1039,7 @@ impl Core {
             Some(stale) => {
                 let why = crate::config::renamed::renamed_profile(&stale)
                     .unwrap_or_else(|| "it is no longer configured".to_string());
-                tracing::warn!(profile = %stale, "persisted live profile not used, the config's is: {why}");
+                tracing::warn!(profile = %stale, "persisted live profile {stale:?} not used ({why}); using the config's {:?}", cfg.model.live);
                 (cfg.model.live.clone(), "config".to_string())
             }
             None => (cfg.model.live.clone(), "config".to_string()),

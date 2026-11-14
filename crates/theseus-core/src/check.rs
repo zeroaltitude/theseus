@@ -675,10 +675,13 @@ mod tests {
     fn a_checks_old_profile_name_is_told_it_was_renamed() {
         let profiles = std::collections::BTreeMap::new();
         let no = |_: &'static str, why: String| why;
-        let said = profile(&profiles, "haikuhi", &no).unwrap_err();
+        // The name comes from the table of what was renamed: a test that wrote it out would be
+        // a file that names it (`config::renamed`'s tree-walking test).
+        let (old, new) = crate::config::renamed::RENAMED_PROFILES[2];
+        let said = profile(&profiles, old, &no).unwrap_err();
         assert!(
-            said.starts_with("Not started: the profile \"haikuhi\" was renamed")
-                && said.contains("Use the profile \"haiku\""),
+            said.starts_with(&format!("Not started: the profile {old:?} was renamed"))
+                && said.contains(&format!("Use the profile {new:?}")),
             "{said}"
         );
         let other = profile(&profiles, "nowhere", &no).unwrap_err();
