@@ -1341,8 +1341,9 @@ fn big_write(r: &Rig, prompt: &str) -> String {
 }
 
 /// A job that writes past `output_mb` is killed by the kernel (`SIGXFSZ`), and
-/// that is a row, a metric and a line of its result (theseus-zupk); one under
-/// the limit leaves none.
+/// that is a row and a line of its result (theseus-zupk; the metric is counted
+/// beside them and asserted in the core's telemetry tests); one under the limit
+/// leaves none.
 #[test]
 fn a_job_that_writes_past_output_mb_leaves_a_limit_hit_row() {
     let r = limits_rig(&[("output_mb", 1)]);
@@ -1369,7 +1370,8 @@ fn a_job_that_writes_past_output_mb_leaves_a_limit_hit_row() {
 }
 
 /// A job whose scratch fills (`scratch_mb`) fails its write, and says so in the
-/// same three places; the limit it did not reach is not named.
+/// same two places. A sparse file far past the limit occupies nothing on the
+/// tmpfs, so it is no hit: the limit is the tmpfs's, not the file's size.
 #[test]
 fn a_job_that_fills_scratch_leaves_a_limit_hit_row() {
     let r = limits_rig(&[("scratch_mb", 1)]);
@@ -1383,6 +1385,17 @@ fn a_job_that_fills_scratch_leaves_a_limit_hit_row() {
     assert_eq!(
         (&rows[0]["limit"], &rows[0]["max_mb"]),
         (&json!("scratch_mb"), &json!(1))
+    );
+    let sparse = json!({"argv": ["sh", "-c", "truncate -s 10M \"$1/sparse\"", "w",
+        r.path("projects").display().to_string()], "sandbox": true});
+    let said = r
+        .turn("a sparse file", vec![("proc_run", sparse)])
+        .remove(0);
+    assert!(!said.contains("[sandbox] scratch_mb"), "{said}");
+    assert_eq!(
+        r.ledger("sandbox.limit_hit").len(),
+        1,
+        "a sparse file is no limit hit"
     );
 }
 

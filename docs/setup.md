@@ -41,14 +41,14 @@ Each step prints one line per thing it checks or does, and the commands it runs 
 3. **Install**: each of the four binaries but `theseus-sim` into `~/.local/bin` (`--prefix`), by a copy to a temporary name and a rename over the
    old one, so a running daemon keeps its image until it restarts. A binary that matches the build is left alone.
 4. **Config**: when `/etc/theseus/theseus.toml` (`--config`) does not exist, the script writes it from the
-   template: `theseusd example-config`, cut by `theseusd config --sparse` to what differs from the defaults, with
+   template: `theseusd example-config --for-this-host` (the template, with the sandbox as the default only where its own test runs a job on this machine, and the reason in the header where it does not), cut by `theseusd config --sparse` to what differs from the defaults, with
    `[tools] projects_dir` set to `~/projects` and a header that says where it came from. Every `[secrets]` entry is
    an `op://<vault>/<item>/<field>` placeholder for you to fill in, and the script asserts that before it writes:
    no secret value, and no run of characters that could be a token, is ever written. When `/etc/theseus` is
    missing, it is made once with `sudo install -d -o <you> -g <your group> -m 0750 /etc/theseus`, and the file is
    yours, mode 0640. sudo asks for your password itself; the script never sees or keeps it. **An existing config
    is never overwritten**: the script says which keys differ from the template (only yours, only the template's,
-   or another value), and never a value. A new config also asks **once** for the Jev key's reference (an `op://`
+   or another value), and never a value. The template it compares with is this host's, so a config written before the sandbox default was chosen by the host lists `[sandbox] default` as a difference where the sandbox runs; nothing is written. A new config also asks **once** for the Jev key's reference (an `op://`
    reference first, or `env:NAME`; never the value, which the script refuses to take): Theseus's judge, Jev's
    routing and rerank, is on exactly when that key resolves, and off without it. Skipping the question (an empty
    answer) removes the `jev_api_key` line and leaves the judge off, and the run says so. A run with `--yes` or no

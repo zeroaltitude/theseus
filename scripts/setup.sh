@@ -9,7 +9,7 @@
 #   3. install    each binary into the prefix (default ~/.local/bin) by copy-then-rename, so a running daemon
 #                 keeps its image until it restarts. A binary that matches the build is left alone.
 #   4. config     /etc/theseus/theseus.toml (or --config): when there is none, the template cut to what differs
-#                 from the defaults (`theseusd example-config`, then `config --sparse`), every [secrets] entry an
+#                 from the defaults (`theseusd example-config --for-this-host`, then `config --sparse`), every [secrets] entry an
 #                 op:// placeholder for you to fill in, never a value. /etc/theseus is made once with sudo, owned
 #                 by you, 0750, and the file 0640, so nothing later needs sudo. An existing config is never
 #                 overwritten: the run says which keys differ from the template instead. A new config also asks

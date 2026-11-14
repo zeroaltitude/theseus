@@ -525,8 +525,8 @@ pub fn result_lines(detail: &Value) -> String {
         .any(|(l, _)| l == "scratch_mb")
     {
         lines.push(
-            "[L1: what it wrote to scratch reached its limit ([sandbox] scratch_mb): a write \
-             past it failed]"
+            "[L1: what it wrote to scratch reached its limit ([sandbox] scratch_mb): no more can \
+             be written there]"
                 .into(),
         );
     }
@@ -742,11 +742,23 @@ impl Sandbox {
         let _ = self.telemetry.set(telemetry);
     }
 
-    /// A job that reached `limit` (`output_mb` or `scratch_mb`), counted once
-    /// as its row is written (`theseus.sandbox.limit_hits`).
-    pub fn limit_hit(&self, limit: &str) {
-        if let Some(t) = self.telemetry.get() {
-            t.record_sandbox_limit(limit);
+    /// An L1 job's result, counted once where its rows are written
+    /// (`egress::record` in a turn, `egress::announce` for a late result), and
+    /// not where health reads a launch, which any result may do again and in
+    /// any order: its start (`theseus.job.start_ms`) and each limit it
+    /// reached (`theseus.sandbox.limit_hits`). An L0 job's detail has neither.
+    pub fn counted(&self, detail: &Value) {
+        let Some(t) = self.telemetry.get() else {
+            return;
+        };
+        if let Some(us) = detail["sandbox"]["start_us"]
+            .as_u64()
+            .filter(|_| detail["sandbox"]["class"] == "l1")
+        {
+            t.record_job_start("l1", us as f64 / 1000.0);
+        }
+        for (limit, _) in crate::egress::limit_hits(detail) {
+            t.record_sandbox_limit(&limit);
         }
     }
 
@@ -817,12 +829,6 @@ impl Sandbox {
         };
         let mut last = self.last.lock().unwrap();
         if last.as_ref().is_none_or(|p| p.at_ms <= l.at_ms) {
-            // The start is measured once per job: a result read again is the
-            // same launch.
-            let newer = last.as_ref().is_none_or(|p| p.at_ms < l.at_ms);
-            if let (true, Some(ms), Some(t)) = (newer, l.start_ms, self.telemetry.get()) {
-                t.record_job_start("l1", ms);
-            }
             *last = Some(l);
         }
     }

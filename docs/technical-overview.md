@@ -56,7 +56,7 @@ and `theseusd check` names each one that comes from outside the vault.
 
 ```bash
 export OP_SERVICE_ACCOUNT_TOKEN=...           # or --op-token-file / THESEUS_OP_TOKEN_FILE
-theseusd example-config > ~/.theseus/theseus.toml   # op:// references only, no values; edit them
+theseusd example-config --for-this-host > ~/.theseus/theseus.toml   # op:// references only, no values; edit them
 #   every key has a default, so a config needs only what differs: `theseusd config --sparse` prints that cut
 export THESEUS_CONFIG=~/.theseus/theseus.toml       # the default; or a 1Password note's op:// reference
 theseusd check                                      # resolves every secret, then exits

@@ -48,6 +48,12 @@ pub struct Scratch {
     /// Files written, and their bytes.
     pub files: u64,
     pub bytes: u64,
+    /// What those files occupy on the scratch tmpfs (`st_blocks`, in bytes),
+    /// which is what the scratch limit counts: a sparse file has a size and
+    /// occupies nothing, and a small file occupies a page. Zero from a wrapper
+    /// that predates it.
+    #[serde(default)]
+    pub allocated: u64,
     /// Paths of the tree the job removed (whiteouts).
     pub removed: u64,
     /// The first 20 paths written, as the job saw them.

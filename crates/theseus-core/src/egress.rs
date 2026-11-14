@@ -255,8 +255,8 @@ pub(crate) fn announce(rec: &Rec<'_>, sandbox: &Sandbox, node: &Node) {
             limit,
             max_mb: *max_mb,
         });
-        sandbox.limit_hit(limit);
     }
+    sandbox.counted(detail);
 }
 
 /// A job's egress and limits, recorded in a turn just before its result is
@@ -287,8 +287,8 @@ pub(crate) fn record(tc: &TurnCtx<'_>, sandbox: &Sandbox, a: &Action, detail: &V
             limit,
             max_mb: *max_mb,
         });
-        sandbox.limit_hit(limit);
     }
+    sandbox.counted(detail);
 }
 
 /// What `n` bytes are, in words: `640 B`, `12.5 KB`, `3.1 MB`.

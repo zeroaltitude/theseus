@@ -40,10 +40,14 @@ exceptions = [
 
 [bans]
 # Two versions of one crate are a cost (compile time, binary size, a second copy to audit), so a duplicate must be
-# named here with who pulls the older one; a new one fails the gate. Most are one stack each: the proc-macro stack
-# (syn 1 and 2 under darling and derive_builder, in hls_m3u8 and davey), the RustCrypto 0.10 generation (digest, cipher,
-# crypto-common, block-buffer) under DAVE's stack, and rand 0.8 and sha2 0.10 under the same. Drop each entry when
-# the crate that pulls it moves (theseus-tcdl).
+# named here with who pulls the older one; a new one fails the gate. Each entry's reason lists the crates that pull
+# that older version. Some of those are our own (base64 0.22, rand 0.9, sha2 0.10 and hmac 0.12 are asked for by
+# theseus-* crates while a dependency has moved to the next one), so part of this list is ours to remove by moving
+# our own requirement; the rest is another stack's: the proc-macro crates (three copies of syn, and darling and
+# derive_builder in hls_m3u8 and davey), the RustCrypto 0.10 generation (digest, cipher, crypto-common, block-buffer)
+# under DAVE's stack, and the old tungstenite and rustls under serenity where they are in this graph. A reason names the
+# crates that pull the version in the three targets' graphs as `cargo metadata` reads them, which includes
+# development and build dependencies. Drop an entry when the crates it names move (theseus-tcdl).
 multiple-versions = "deny"
 skip = [
     { crate = "aes@0.8.4", reason = "pulled by aes-gcm, davey" },

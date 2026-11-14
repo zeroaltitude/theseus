@@ -380,20 +380,19 @@ fn reap_init(child: &mut SandboxChild) -> std::io::Result<Option<Exit>> {
 }
 
 /// The limits a job reached, as its end shows them (theseus-zupk): `output_mb`
-/// when the command was killed by `SIGXFSZ`, and `scratch_mb` when what it
-/// wrote to scratch is within a page of the limit (a full tmpfs fails a write
-/// at its size, to the page). An L1 job has no cgroup, so `pids` cannot be
-/// observed at all: a fork that failed leaves nothing at exit to read.
+/// when the command was killed by `SIGXFSZ`, and `scratch_mb` when what its
+/// writes to the workspace occupy on the scratch tmpfs has reached the limit
+/// (`Scratch.allocated`, which counts pages, not file sizes, as the tmpfs
+/// does). Not observed, and never reported: the process limit (L1 has no
+/// cgroup, and a refused fork leaves nothing at exit), and a write that filled
+/// `/tmp`, `/dev/shm` or HOME, which are not in the scratch report.
 fn limit_hits(e: &Exit, limits: &Limits) -> Vec<Value> {
     let mut hits = Vec::new();
     if e.output_capped {
         hits.push(json!({"limit": "output_mb", "max_mb": limits.output_mb}));
     }
     let scratch = limits.scratch_mb.saturating_mul(1 << 20);
-    if e.scratch
-        .as_ref()
-        .is_some_and(|s| s.bytes.saturating_add(4096) >= scratch)
-    {
+    if e.scratch.as_ref().is_some_and(|s| s.allocated >= scratch) {
         hits.push(json!({"limit": "scratch_mb", "max_mb": limits.scratch_mb}));
     }
     hits
@@ -443,14 +442,16 @@ mod tests {
 
     use super::*;
 
-    fn exit(output_capped: bool, scratch_bytes: Option<u64>) -> Exit {
+    fn exit(output_capped: bool, allocated: Option<u64>) -> Exit {
         Exit {
             code: None,
             signal: None,
             init_signal: None,
             output_capped,
-            scratch: scratch_bytes.map(|bytes| Scratch {
-                bytes,
+            scratch: allocated.map(|allocated| Scratch {
+                // A sparse file's size is beyond any limit and says nothing.
+                bytes: 10 << 20,
+                allocated,
                 ..Scratch::default()
             }),
         }
@@ -475,23 +476,23 @@ mod tests {
 
     /// A job ends having reached the limits its end shows (theseus-zupk): the
     /// file-size limit when it was killed by `SIGXFSZ`, and the scratch limit
-    /// when what it wrote there is within a page of it; nothing otherwise,
-    /// and a job that left no scratch report is not said to have hit one.
+    /// when what it wrote there occupies the whole of it, whatever the files'
+    /// sizes say; nothing otherwise, and a job that left no scratch report is
+    /// not said to have hit one.
     #[test]
     fn a_job_that_ended_at_a_limit_says_which() {
         let mb = 1 << 20;
         assert_eq!(hits(&exit(true, None)), [("output_mb".into(), 2)]);
         assert_eq!(hits(&exit(false, Some(4 * mb))), [("scratch_mb".into(), 4)]);
         assert_eq!(
-            hits(&exit(false, Some(4 * mb - 4096))),
-            [("scratch_mb".into(), 4)],
-            "a full tmpfs fails a write at its size, to the page"
-        );
-        assert_eq!(
             hits(&exit(true, Some(4 * mb))),
             [("output_mb".into(), 2), ("scratch_mb".into(), 4)]
         );
-        assert!(hits(&exit(false, Some(3 * mb))).is_empty());
+        assert!(
+            hits(&exit(false, Some(0))).is_empty(),
+            "a 10 MB sparse file occupies nothing"
+        );
+        assert!(hits(&exit(false, Some(4 * mb - 4096))).is_empty());
         assert!(hits(&exit(false, None)).is_empty());
     }
 }
