@@ -31,9 +31,21 @@
 //! starved box to wake -- its timer fires it onto whichever worker is idle,
 //! while the gateway's runnable tasks queue behind every other runnable
 //! thread. Our overshoot is therefore a lower bound on the starvation the
-//! thing we are waiting for suffers, never an upper one. That leaves this
-//! helper conservative, which is the safe direction for a test (it risks a
-//! late red, never an early green), but it is a real limit of the estimator.
+//! thing we are waiting for suffers, never an upper one.
+//!
+//! Which way that bias cuts is worth stating exactly, because it is the
+//! OPPOSITE of conservative. `spent_at` is
+//! `elapsed.saturating_sub(credit) >= BASE`, so LESS credit means the wait
+//! gives up SOONER: an under-crediting estimator risks an EARLY red -- a
+//! spurious timeout under load, which is precisely the flake this file
+//! exists to prevent. (A LATE red is what an OVER-crediting estimator would
+//! risk, and that is not the error we have.) It cannot cause an early green,
+//! and that holds for a better reason than the bias, one that does not
+//! depend on its sign at all: `until` returns ONLY when its predicate is
+//! true, and the budget governs nothing but when it panics, so no credit
+//! error in either direction can manufacture a pass. So the residual is a
+//! real limit of the estimator and the first place to look if this family
+//! reddens again -- it is not a margin of safety.
 
 use std::time::{Duration, Instant};
 
