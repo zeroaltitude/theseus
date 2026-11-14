@@ -276,14 +276,16 @@ exists, and that is never written.
   is the agents' key, a self branch can ack `test-removed` and nothing else, and independently of any key, a change
   that touches a keel **path class** stops at the owner's card (`crates/theseus-core/src/rsi/join/keel.rs`). No rule
   is exempt from the ack; every rule is the owner's to sign.
-- **Only on the owner's explicit yes.** An agent writes a `Keel:` trailer only after the owner has said yes to that
-  specific erosion, and quotes the yes in the trailer's reason.
+- **Who writes a `Keel:` trailer.** A `test-removed` ack is the agents' own: the owner allowed "a test was removed
+  or replaced" without him (2026-11-14). An agent writes it, signed with the agents' key, says why in its report, and
+  review checks it. Every other ack is the owner's: written only after he has said yes to that specific erosion,
+  quoting the yes in the trailer's reason, and signed with his key (`scripts/keel-ack.sh`).
   - A vendored crate's `allow` is still `allow-added`.
   - Any edit to the guard is still `keel-file`, even one that tightens it.
   - Without a yes, avoid the finding: restore the test rather than ask for an ack to remove it.
-- **What "his yes" has to be before an agent may write the trailer: all five, or none.** The bullet above states
-  the rule; this is the test that applies it when the hand on the keyboard is an agent. An agent may ack a finding
-  only when every one of these holds, and one failure means stop and report rather than ack:
+- **What "his yes" has to be before an agent may prepare a trailer of his class: all five, or none.** The bullet
+  above states the rule; this is the test that applies it when the hand on the keyboard is an agent. An agent may
+  prepare such an ack only when every one of these holds, and one failure means stop and report rather than ack:
   1. **A specific, dated, quotable owner utterance already in the record** — not an inference, not a stated
      default, not a prior agent's recommendation, not an assent to a bundle that happened to contain it.
   2. **It covers exactly the bytes that move.** Nothing is acked by generalising from it.
@@ -294,7 +296,9 @@ exists, and that is never written.
      the ratification up. A silent ack is a violation even when the other four hold.
 - **The hard negative, whatever the agent believes the owner said.** An agent never acks `keel-file`, `cap-raised`,
   `ceiling-raised`, `ci-loosened`, `sealed-reach` or `owner-reach`, and never adds a key to `scripts/keel-signers`: those change
-  what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them. Since the two
+  what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them, unless he says
+  in words that an agent may sign that one acknowledgement (as he did for the two-keys change itself, 2026-11-14:
+  "an agent may sign this one"), and the commit quotes it. Since the two
   classes, the guard holds the agents' key to `test-removed` whatever an agent does; until the owner's key exists,
   the bound on an agent that still holds a key listed `owner` (an older list, or the base a branch is judged by) is
   this sentence alone.
