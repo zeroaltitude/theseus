@@ -70,7 +70,7 @@ fn jev_says(says_run: f64) -> FakeJev {
 /// and `allow_said.v1` so the chat act's second reading is asked. Every other
 /// pack is off, so a count of Jev's requests counts these two alone.
 fn rig_judged(jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
-    rig_on(tempfile::tempdir().unwrap(), |c| {
+    let r = rig_on(tempfile::tempdir().unwrap(), |c| {
         c.judge.enabled = true;
         c.judge.api_base = jev.base();
         c.judge.connect_secs = 1;
@@ -89,7 +89,11 @@ fn rig_judged(jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
             .packs
             .remove(crate::chat_acts::judged::PACK);
         tweak(c);
-    })
+    });
+    // The Jev client is built lazily; a test that counts its requests must
+    // warm it first, as `toolrun::tests_undo`'s rig does.
+    crate::tests_judge::warm(&r.core);
+    r
 }
 
 /// The owner's own terminal: `places::owner_in_person` passes it, since no
@@ -152,9 +156,17 @@ fn acted(r: &Rig, sid: &str, tool: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// A file inside the rig's working root, holding [`WAS`].
+/// A file inside the rig's working root, holding [`WAS`]. The probe reads the
+/// real tree, so it has to exist before the call is judged.
 fn target(r: &Rig) -> std::path::PathBuf {
-    let dir = r.core.runner.tools.ctx.cwd.clone();
+    let dir = std::path::PathBuf::from(
+        r.core
+            .cfg
+            .tools
+            .projects_dir
+            .clone()
+            .expect("the rig sets a projects dir"),
+    );
     let p = dir.join("notes.txt");
     std::fs::write(&p, WAS).unwrap();
     p
@@ -169,7 +181,13 @@ async fn a_held_write(r: &Rig, sid: &str) -> std::path::PathBuf {
     let p = target(r);
     r.calls(&[("fs_write", write_call(&p))]);
     say(r, sid, "Replace the notes.").await;
-    assert_eq!(held(r).len(), 1, "one call is held: {:?}", held(r));
+    assert_eq!(
+        held(r).len(),
+        1,
+        "one call is held: {:?}; what the call came to was {:?}",
+        held(r),
+        acted(r, sid, "fs.write")
+    );
     assert_eq!(std::fs::read_to_string(&p).unwrap(), WAS, "it did not run");
     p
 }
