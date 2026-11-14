@@ -1,5 +1,5 @@
-//! A kind the sweep makes is named for its class (issue 9; the owner's
-//! recommendation on ask i9-remembers-2): three conversations mention one
+//! A kind the sweep makes is named for its class (issue 9): three
+//! conversations mention one
 //! country, and the sweep makes the kind `country` with the country as its
 //! entry, not a kind named after the country. When the class call fails, is
 //! over the day's money, or gives the thing itself, no kind is made that

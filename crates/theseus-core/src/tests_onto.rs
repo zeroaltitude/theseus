@@ -592,6 +592,16 @@ async fn the_operator_adds_and_retires_a_kind() {
         listed(&r.core).contains(&"topic".to_string()),
         "a live one is"
     );
+    // The name is still the table's, and the refusal says where it went
+    // (the listing no longer shows it).
+    let again = r
+        .core
+        .ontology_kind_add(&add("dataset"), "the CLI")
+        .unwrap_err();
+    assert!(
+        format!("{again:#}").contains("a retired kind is named `dataset`"),
+        "{again:#}"
+    );
 }
 
 /// `judge.latency` reads the batch's requests by day from the judgments' rows:

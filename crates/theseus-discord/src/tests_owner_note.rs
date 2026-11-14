@@ -57,8 +57,8 @@ fn every_unasked_discord_message_starts_with_a_kind_and_a_title() {
 /// Theseus is the one who flags a call (theseus-nzwa5): the notice's heading
 /// never names the small model. The detail line is the one known exception
 /// (`Jev: 95% risky`, `JudgeNoticed::line`, shared with the cockpit and the
-/// CLI), which waits on the owner (ask i9-remembers-5): the test says so,
-/// so it changes the day that line does.
+/// CLI), which the owner chose to leave as a technical detail: the test says
+/// so, so it changes the day that choice does.
 #[test]
 fn the_notice_of_a_flagged_call_says_theseus_in_its_heading() {
     let text =

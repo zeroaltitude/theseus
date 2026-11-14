@@ -28,7 +28,7 @@ timeout`, never `⚠️ Alert · ✗ Tide check failed`). `head` drops one a tit
 **Who acts (theseus-nzwa5).** The actor in a message is Theseus, never the small model that judged: a message does not
 name Jev, and `tests_owner_note::no_unasked_message_names_the_small_model` holds that for the families it builds (the
 one exception is the detail line of a flagged call, `Jev: 95% risky`, a score label the cockpit and the CLI share, which
-waits on the owner's word). The
+the owner chose to leave as a technical detail: a headline, a title or a sentence still says Theseus). The
 notice that an entry was added to the things Theseus knows about, and the question for one it is not sure of, use the
 owner's own words (`judge/onto/words.rs`, pinned word for word in `tests_onto_notice.rs`): they say what came up in
 plain words (a folder, a person, a topic), show its whole name, name the conversation by its title, and never say

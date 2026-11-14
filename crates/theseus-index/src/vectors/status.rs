@@ -72,7 +72,9 @@ impl Vectors {
     }
 
     /// The share of the index's chunks that a vector answers for, 0 to 1
-    /// (1 when no chunk has been counted), so a query weighs the vector
+    /// (1 when no chunk has been counted: only on a fresh daemon whose table
+    /// has not been read once yet, a window of one batch's append, and one
+    /// where there is nothing yet to bury), so a query weighs the vector
     /// source by what it can see of the index (theseus-pv7m). The counts are
     /// the status's own: read now when the table's lock is free, else the
     /// last read. A lock is held mostly while a backfill appends, which is

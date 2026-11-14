@@ -1,5 +1,4 @@
-//! The class call (issue 9; the owner's recommendation on ask
-//! i9-remembers-2, option A): a kind is a class of things (a country), and
+//! The class call (issue 9): a kind is a class of things (a country), and
 //! the thing that prompted it (France) is one of its entries. Jev answers
 //! only choices and scores, so it cannot write the word for a class; this is
 //! the one cheap text call that does, like the naming call (`name.rs`).
