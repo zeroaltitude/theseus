@@ -247,7 +247,9 @@ granted repository and not only the one that session is working in. So the text 
 granted is still carried; a change made after he looked is not carried into a session
 something has already tried to steer, and a change made *by* such a session is not
 carried into the clean session that opens next. Which files that sweep actually compares,
-and the one write it does not reach, are in "After a grant" below.
+and the writes it does not reach — not one write, as this line said until the fourth round
+of review, but a rule with three known cases and two further writes beside it — are in
+"After a grant" below.
 
 ### Trusted is still fenced
 
@@ -351,9 +353,14 @@ ledger row names the session whose call it moved under.
 **A repository's swept files are not all the files under its root.** They are the union
 of two sets: the files the owner's stored sighting of that repository already names, and
 — for the repository the session is actually working in — the chain from its root down
-to the session's own directory. That is every file a grant covers that anything has ever
-looked at, and it is reached without walking the repository, which would make the cost of
-an acting call scale with the size of the tree rather than with the grant.
+to the session's own directory. **Together they are still not every file a grant covers
+that anything has ever looked at**, which is what this note claimed until the fourth round
+of review. A sighting is stored per repository but taken from whichever directory the
+compiling session was in, and it replaces its predecessor — so a file the owner has read
+falls out of it the next time an ordinary clean session opens elsewhere in the same
+repository. And a granted repository no session has ever been opened in has no stored
+sighting at all. The union is reached without walking the repository, which would make the
+cost of an acting call scale with the size of the tree rather than with the grant.
 
 It errs the safe way where it is imprecise. A file that moved under such a call for an
 unrelated reason — a `git pull` in another terminal — is held too; the cost of that is

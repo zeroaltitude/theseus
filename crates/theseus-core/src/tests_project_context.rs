@@ -1581,11 +1581,11 @@ async fn the_residual_a_granted_repository_no_compile_has_opened_in_is_not_held(
 /// consults. The file was not created, and its directory has been compiled
 /// in, so both of case 1's qualifiers are false here.
 ///
-/// The eviction itself is a pre-existing defect filed for 2.0.0 (per-chain
-/// sightings produce spurious change rows). What this test adds is that it is
-/// not only noise: it is a route to **exposure**, through the writer key's
-/// swept set. Accumulating a repository's discovered paths instead of
-/// replacing them closes both.
+/// The eviction itself is a pre-existing defect, tracked as GitHub issue 16
+/// (per-chain sightings produce spurious change rows). What this test adds is
+/// that it is not only noise: it is a route to **exposure**, through the
+/// writer key's swept set. Accumulating a repository's discovered paths
+/// instead of replacing them closes both.
 ///
 /// **When someone closes it, this test fails, and that is the point.** Flip
 /// it to the containment then; do not delete it.
