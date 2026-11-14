@@ -965,10 +965,6 @@ impl Place {
     }
 }
 
-/// What a voice turn's end says aloud: its reply; with `HELD_TURN` after it
-/// when the turn waits on the operator; `FAILED_TURN` when it failed (the
-/// place says why in text); nothing when a `/stop` ended it, which a step
-/// may refuse as a failure (`StoppedAtStep`, theseus-b6vz).
 /// Who spoke a voice turn, as the core's place rule reads it: the one
 /// speaker's id in the call's channel and guild. None when several people
 /// spoke it (or none): that turn's words are not one person's, and a turn whose
@@ -985,6 +981,10 @@ pub(super) fn voice_origin(speakers: &[u64], channel: u64, guild: u64) -> Option
     })
 }
 
+/// What a voice turn's end says aloud: its reply; with `HELD_TURN` after it
+/// when the turn waits on the operator; `FAILED_TURN` when it failed (the
+/// place says why in text); nothing when a `/stop` ended it, which a step
+/// may refuse as a failure (`StoppedAtStep`, theseus-b6vz).
 fn spoken_end(r: &Result<TurnSubmitResult, crate::rpc_client::CallError>, stopped: bool) -> String {
     match r {
         _ if stopped => String::new(),
