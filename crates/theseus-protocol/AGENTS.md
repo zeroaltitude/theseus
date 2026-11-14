@@ -41,7 +41,7 @@ Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error
   sticky `past` bit, and Jev's latest read), its words (`words`, `spent_of`, `read_words`, `none_words`), and
   `forecast.calibration`'s types (`ForecastCalibrationResult::lines`, what `theseus tasks forecast` prints). Numbers only.
   `notices.rs` row 11 (`Why::PastForecast`) and `forecast_answers()` (Keep going, Stop).
-- `work/horizon.rs` (theseus-nuhsz; horizon HZ8; a submodule of `work.rs`, since lib.rs has no room): the future on the work board.
+- `work/horizon.rs` (theseus-nuhsz; horizon HZ8; a submodule of `work.rs`): the future on the work board.
   `WorkKind` gained `Routine`, `Watch` and `Project`, and `WorkView` gained `purpose`, `next_at_ms`, `series`, `paused`, `routine`,
   `watch` and `project` (every one absent from the bytes at its default, so older peers and every old fixture are unchanged).
   `Horizon` (Now, Today, Week, Later, Recurring, World, Projects), `LocalDay` (the *client's* two local midnights: this crate reads
