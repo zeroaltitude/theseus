@@ -18,7 +18,7 @@ const ASK: &str = "Tidy the notes file.";
 
 /// A rig whose route reads every message as routine work at `low` effort, on a provider that answers
 /// with `script`; the fake Jev comes back to read what it was asked.
-fn rig(script: Vec<Scripted>) -> (Rig, FakeJev) {
+fn rig_with(script: Vec<Scripted>) -> (Rig, FakeJev) {
     let jev = FakeJev::start().unwrap();
     mode(&jev, "routine_coding", 0.95);
     jev.script(
@@ -71,7 +71,7 @@ fn effort_states(jev: &FakeJev) -> Vec<Value> {
 /// scripted, `low`, whatever the turn before did: nothing is raised.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_effort_question_is_told_a_failed_turn_and_its_effort() {
-    let (rig, jev) = rig(vec![
+    let (rig, jev) = rig_with(vec![
         Scripted::Fail(ProviderError::InvalidRequest {
             status: 400,
             message: "invalid_request_error: the request was refused".into(),
@@ -102,7 +102,7 @@ async fn the_effort_question_is_told_a_failed_turn_and_its_effort() {
 /// attempt either: more effort would fix nothing and cost more.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_finished_turn_and_a_refusal_no_effort_could_address_are_not_told_as_failed() {
-    let (rig, jev) = rig(vec![Scripted::text("Tidied."), Scripted::text("Done.")]);
+    let (rig, jev) = rig_with(vec![Scripted::text("Tidied."), Scripted::text("Done.")]);
     let sid = session(&rig);
     assert!(say(&rig, &sid, ASK).await);
     assert!(say(&rig, &sid, "Try once more.").await);
@@ -111,7 +111,7 @@ async fn a_finished_turn_and_a_refusal_no_effort_could_address_are_not_told_as_f
         states[1]["previous_turn"],
         json!({"effort": "low", "failed": false})
     );
-    let (rig, jev) = rig(vec![
+    let (rig, jev) = rig_with(vec![
         Scripted::Fail(ProviderError::Auth {
             status: 401,
             message: "authentication_error: invalid x-api-key".into(),
