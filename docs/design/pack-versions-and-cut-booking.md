@@ -1,17 +1,16 @@
 # Two notes for the core crate (issue 5, 1.0.7)
 
-Moved here from `crates/theseus-core/AGENTS.md`, which takes no new prose (the owner's ruling of 2026-11-14 14:58).
+Notes for the core crate that live here, because `crates/theseus-core/AGENTS.md` takes no new prose (the owner's ruling of 2026-11-14 14:58).
 
 ## The capture pack is `directive.v2`
 
 `capture::PACK` names `directive.v2`: `directive.v1` with the `none` and `order` answers reworded so that a request for one act,
 done once, is no standing order. It is live from the day it landed (`judge::WIRED` makes the named pack live; no ladder step). v1
-stays embedded, byte for byte, its judgments under its own text. The core guide's capture entry still names `directive.v1`; read
-it as v2. The rule for any new pack version is in `docs/development.md`, under Self-improvement.
+stays embedded, byte for byte, its judgments under its own text. The core guide's capture entry names v2. The rule for any new pack version is in `docs/development.md`, under Self-improvement.
 
 ## A cut call booked from the provider's own usage events (theseus-k48c)
 
-The core guide's `/stop` entry says a cut call settles at an estimate. When the stream had already sent a usage event
+The core guide's `/stop` entry says the cut is booked from the provider's usage events when the stream had sent one; in detail: when the stream had already sent a usage event
 (`Delta::Usage`: the prompt at `message_start`, the output at a `message_delta`), `settle_cut` (`turn/settle.rs`) books the call from
 the last one instead: the prompt exactly, with the cache read and write as the provider split them, and the output as the larger of
 what it reported and the characters streamed (`split: provider_events`). The `provider.cut` row's `estimated` is false only when the
