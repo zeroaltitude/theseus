@@ -1379,3 +1379,182 @@ async fn a_writer_keyed_hold_survives_a_restart_at_notify() {
 async fn a_writer_keyed_hold_survives_a_restart_at_refuse() {
     a_writer_keyed_hold_survives_a_restart(crate::content::InjectionMode::Refuse).await;
 }
+
+// ---------------------------------------------------------------------------
+// S31-1 round 2: the three bypasses an independent review got poisoned text
+// through, rebuilt here from its report so they are the branch's own tests and
+// not a reviewer's private patch.
+//
+// The sweep the first round built asks `discover` for the session's OWN
+// repository and, inside it, only `chain(root, cwd)` -- the files of every
+// directory from the root down to the session's working directory. Everything
+// else a grant covers is invisible to it: another granted repository, and any
+// directory of its own repository that is neither an ancestor of the cwd nor
+// already in the owner's stored sighting.
+// ---------------------------------------------------------------------------
+
+/// A second repository beside the first, with its own `.git` and its own
+/// `AGENTS.md`: probe 2's target. Granted separately, so it is a repository
+/// the owner trusts and a session working in the FIRST one can still reach.
+fn second_repo(root: &Path) -> PathBuf {
+    let repo = root.join("second-repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::write(
+        repo.join("AGENTS.md"),
+        format!("The second repository's own rules. {IN_TEXT}\n"),
+    )
+    .unwrap();
+    repo.canonicalize().unwrap()
+}
+
+/// A directory beside the session's own, inside the same granted repository:
+/// probe 1's target. It is NOT an ancestor of the session's working
+/// directory, so `chain(root, cwd)` never names it.
+fn sibling_dir(repo: &Path) -> PathBuf {
+    let d = repo.join("sibling");
+    std::fs::create_dir_all(&d).unwrap();
+    d.canonicalize().unwrap()
+}
+
+/// **PROBE 1 (finding A1): one directory SIDEWAYS.** The flagged session
+/// works in the repository's nested directory and its call writes an
+/// instruction file into a *sibling* directory of the same granted
+/// repository. A clean session then opens in that sibling.
+///
+/// Nothing here needs a privilege or an unusual setting: `[project]
+/// on_change` is the shipped `notice` and `injection` is the shipped
+/// `notify`.
+#[tokio::test]
+async fn probe_a_sibling_directorys_instruction_file_is_held_too() {
+    let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let sib = sibling_dir(&repo);
+    let file = sib.join("AGENTS.md");
+    moves_the_file(&r, &here, &session, By::FileTool, &file).await;
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains(BY_THE_CALL),
+        "probe 1: nothing is frozen at notify, so the call ran and the file moved"
+    );
+
+    let clean = submit_in(&r.core, &sib, None).await;
+    assert_ne!(clean, session, "a different session, carrying nothing");
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        !block.contains(BY_THE_CALL),
+        "probe 1: a CLEAN session opening ONE DIRECTORY SIDEWAYS does not read \
+         what a flagged session's call put there:\n{block}"
+    );
+}
+
+/// **PROBE 2 (finding A2): another granted repository.** The flagged session
+/// works in granted repository A; its call writes granted repository B's
+/// `AGENTS.md`. A clean session then opens in B.
+///
+/// `discover` resolves the cwd's repository and no other, so B is not looked
+/// at however many grants the owner has given.
+#[tokio::test]
+async fn probe_another_granted_repositorys_file_is_held_too() {
+    let (r, _repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let second = second_repo(&r.root);
+    r.core.project_trust(&second, "cli").expect("both trusted");
+    // The owner has read B once, so a change to it is a change FROM something.
+    submit_in(&r.core, &second, None).await;
+
+    let file = second.join("AGENTS.md");
+    moves_the_file(&r, &here, &session, By::Program, &file).await;
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains(BY_THE_CALL),
+        "probe 2: the call ran and the second repository's file moved"
+    );
+
+    let clean = submit_in(&r.core, &second, None).await;
+    assert_ne!(clean, session, "a different session, carrying nothing");
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        !block.contains(BY_THE_CALL),
+        "probe 2: a CLEAN session opening in ANOTHER GRANTED REPOSITORY does not \
+         read what a flagged session's call put there:\n{block}"
+    );
+    assert!(
+        block.contains("injection"),
+        "probe 2: and the block says why it is not there:\n{block}"
+    );
+}
+
+/// **PROBE 3 (B1): an edit split across two calls.** Half the poisoned line
+/// per call, appended. Reported green by the review and kept because the
+/// negative space is worth as much as the holes: each call's sweep sees its
+/// own move, so the first one stores the hold and the second adds nothing it
+/// needs. A fix for probes 1 and 2 that broke this would be worse than no
+/// fix.
+#[tokio::test]
+async fn probe_an_edit_split_across_two_calls_is_held() {
+    let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let file = repo.join("AGENTS.md");
+    let at = file.display().to_string();
+    let (first, second) = BY_THE_CALL.split_at(BY_THE_CALL.len() / 2);
+    for half in [first, second] {
+        r.fake.script.lock().unwrap().push_front(Scripted::tools(
+            "Updating the project's rules.",
+            &[(
+                "tu_wrote",
+                "proc_run",
+                json!({"argv": ["sh", "-c", format!("printf '%s' '{half}' >> '{at}'")]}),
+            )],
+        ));
+        submit_in(&r.core, &here, Some(&session)).await;
+    }
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains(BY_THE_CALL),
+        "probe 3: the two halves together are the poisoned line"
+    );
+
+    let clean = submit_in(&r.core, &here, None).await;
+    assert_ne!(clean, session, "a different session, carrying nothing");
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        !block.contains(BY_THE_CALL),
+        "probe 3: a line written half by one call and half by the next is held \
+         like any other:\n{block}"
+    );
+}
+
+/// **PROBE 4: a granted repository's file that is in the owner's stored
+/// sighting but NOT on the flagged session's chain.** The owner read the
+/// repository from its nested directory; the flagged session then works at
+/// the repository ROOT, so `chain(root, cwd)` is the root's file alone and
+/// the nested file it writes is off the chain.
+///
+/// The round-1 sweep does store a hold here, but for the wrong reason and
+/// with the wrong row: the nested file is missing from its comparison
+/// altogether, so it is reported GONE rather than changed. The row is what
+/// the owner reads to decide whether to re-grant, so it has to be true.
+#[tokio::test]
+async fn probe_a_file_off_the_chain_is_reported_changed_and_not_gone() {
+    let (r, repo, _here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let nested = repo.join(IN_DIR).join("CLAUDE.md");
+    // The flagged session works at the ROOT, not in the nested directory the
+    // owner's sighting was taken from.
+    moves_the_file(&r, &repo, &session, By::FileTool, &nested).await;
+
+    let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
+    let nested_shown = nested.display().to_string();
+    let row = rows
+        .iter()
+        .find(|r| r.data["path"].as_str() == Some(nested_shown.as_str()))
+        .unwrap_or_else(|| panic!("probe 4: the file the call moved is named in a row: {rows:?}"));
+    assert_eq!(row.data["carried"], false, "probe 4: {rows:?}");
+    assert!(
+        !row.data["new"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty(),
+        "probe 4: the row says the file CHANGED, with the digest the call left, \
+         and not that it went away: {rows:?}"
+    );
+}
