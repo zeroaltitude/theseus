@@ -1,6 +1,10 @@
 //! A tool that runs inside the daemon: its deadline and its result, the file and media it reads or keeps, and what the
 //! transcript books of it.
 
+// Named here and not only through the glob: the reader rule's scan (`tests_registry`) places a `LedgerKind::` use by
+// its file's own imports.
+use theseus_protocol::LedgerKind;
+
 use super::*;
 
 impl ToolRuntime {

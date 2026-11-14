@@ -21,7 +21,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use theseus_kernel::job::{spawn_detached, WrapperArgs};
 use theseus_kernel::{Accepted, Action, Completion, Outcome, Proposal, RetryClass, Spool};
-use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
+use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, PolicyNotified};
 use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::broker::Broker;
