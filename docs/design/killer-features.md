@@ -8,12 +8,11 @@ plan. The measurements are in [Proof points](../proof.md), and how each feature 
 ## The answer first
 
 A developer asked the owner: "what's Theseus's killer feature?" In October the honest answer was a list of nine,
-most of them plans. A month of daily use has changed the answer more than it has changed the list.
+most of them plans. A month of daily use has changed the answer.
 
-**The killer feature is what Theseus does between your messages.** Most agents are something you sit in front of.
-Theseus is something you can walk away from. It keeps the work going, knows where every piece of it stands,
-remembers what you told it, asks only when it must, and is a little better in the morning than it was the night
-before. Each feature below is one part of that.
+**The killer feature is what Theseus does between your messages.** You can walk away from it. It keeps the work
+going, knows where every piece of it stands, remembers what you told it, asks only when it must, and is a little
+better in the morning than it was the night before. Each feature below is one part of that.
 
 The goal behind it has not changed: match or beat the best coding agents at coding and be as pleasant to use, then
 be far ahead on memory, personality, speed, scale and tasks at every horizon.
@@ -22,17 +21,18 @@ be far ahead on memory, personality, speed, scale and tasks at every horizon.
 |---|---|---|---|
 | 1 | **Tasks at every horizon** | "I started it on Monday, answered its one question from my phone, and it finished on Wednesday, through two upgrades." | Built, in daily use |
 | 2 | **A thread for each line of work** | "Each thing I'm working on has its own thread and its own context, and my message lands in the right one." | Built, in daily use |
-| 3 | **One memory, with receipts** | "It remembered what I decided last week in another channel, and linked the message." | Built; dates are its weak spot |
-| 4 | **Jev picks the model** | "A thank-you costs a fraction of a cent, a hard refactor gets the big model, and it tells me why." | Built, in daily use |
-| 5 | **It asks only when it matters** | "It doesn't nag. It stops for the one thing I couldn't take back." | Built; the undo question is new in 1.0.6 |
-| 6 | **It improves itself** | "It found a bug in itself overnight, fixed it, passed its own gate, and told me at breakfast." | Built; one unattended landing so far, and rough |
-| 7 | **Fast, as a contract** | "It's one small daemon that answers in milliseconds, and a commit that makes it slower doesn't land." | Built and measured |
-| 8 | **Chat is the control surface** | "I run it from Discord and from a voice call. I rarely open a terminal for it." | Built; some owner commands still need a command line |
-| 9 | **Many characters, one mind** | "Five personas with their own voices, and they all remember the same things." | Built; the automatic persona pick only records |
-| 10 | **You can ask why** | "`theseus why` shows me exactly what went into the prompt, and what was left out." | Built |
-| 11 | **Benchmarks in the loop** | "They publish where they lose." | Fast benchmarks on every commit; the long ones return at 2.x |
-| 12 | **Remote runtimes** | "The daemon on my server, the terminal on my laptop, the index on a third box." | Designed; planned for 3.0.0 |
-| 13 | **Working ahead** | "While I read its answer it had already fixed the next red test in a sandbox. One key to use it." | Designed; planned for 3.0.0 |
+| 3 | **One memory** | "It remembered what I decided last week in another channel, and linked the message." | Built; dates are its weak spot |
+| 4 | **A self-guided, expanding ontology** | "It worked out for itself who I work with and what I work on, and it files everything under them." | Built; its own filing of a live conversation only records |
+| 5 | **Jev picks the model** | "A thank-you costs a fraction of a cent, a hard refactor gets the big model, and it tells me why." | Built, in daily use |
+| 6 | **It asks only when it matters** | "It doesn't nag. It stops for the one thing I couldn't take back." | Built; the undo question is new in 1.0.6 |
+| 7 | **It improves itself** | "It found a bug in itself overnight, fixed it, passed its own gate, and told me at breakfast." | Built; one unattended landing so far, and rough |
+| 8 | **Fast, as a contract** | "It's one small daemon that answers in milliseconds, and a commit that makes it slower doesn't land." | Built and measured |
+| 9 | **Chat is the control surface** | "I run it from Discord and from a voice call. I rarely open a terminal for it." | Built; some owner commands still need a command line |
+| 10 | **Many characters, one mind** | "Five personas with their own voices, and they all remember the same things." | Built; the automatic persona pick only records |
+| 11 | **You can ask why** | "`theseus why` shows me exactly what went into the prompt, and what was left out." | Built |
+| 12 | **Benchmarks in the loop** | "They publish where they lose." | Fast benchmarks on every commit; the long ones return at 2.x |
+| 13 | **Remote runtimes** | "The daemon on my server, the terminal on my laptop, the index on a third box." | Designed; planned for 3.0.0 |
+| 14 | **Working ahead** | "While I read its answer it had already fixed the next red test in a sandbox. One key to use it." | Designed; planned for 3.0.0 |
 
 Where Theseus does **not** win yet is on [Proof points](../proof.md#where-theseus-loses), first on that page.
 
@@ -66,7 +66,7 @@ overlap in time. Recall reaches across threads when it should.
 
 **More:** [personas and threads](../features/personas-and-threads.md).
 
-## 3. One memory, with receipts
+## 3. One memory
 
 **The pitch.** One store holds every message with its time and place, and recall points at sources instead of
 copying them. So a reply can cite the message it remembers, and your history from other tools can come along on the
@@ -81,7 +81,26 @@ always meet on a large store.
 
 **More:** [memory across sessions](../features/memory-across-sessions.md).
 
-## 4. Jev picks the model
+## 4. A self-guided, expanding ontology
+
+**The pitch.** Theseus keeps its own map of the people, places and things it meets, grows it without being asked,
+and makes it part of indexed memory.
+
+**Today.** The kinds of context are data, not code: a versioned table of kinds (a channel, a project, a person, a
+topic, an event, a resource, an expertise, a culture). Entries form a tree, any entry can carry guidance, and every
+compile walks the entries a session is in and adds their guidance. Imported history arrives with its topics filed.
+A nightly sweep merges duplicates, lets a machine-made membership lapse after 30 days unless it is renewed, renames
+what has drifted, and creates and names a new kind when the same unlisted answer keeps coming up. A person is one
+record with many handles, holding what they do and own and never an opinion of them. Imported history is sorted
+into seven books (diary, encyclopedia, cookbook, procedures, casebook, register, dictionary), read from the memory
+index. The map routes context and never grants access.
+
+**Rough edges.** Jev's filing of a live conversation's topics is recorded and not yet applied. The books are the
+import's labels, browsed; books compiled from the whole graph are the next step.
+
+**More:** [the ontology's design](m4-boundaries.md#28-the-ontologys-first-slice).
+
+## 5. Jev picks the model
 
 **The pitch.** No model menu and no effort slider. A small typed judgment reads each message and chooses the model
 and how hard it should think, from one table of guidance that a person can read and review.
@@ -94,7 +113,7 @@ measured before it decides anything. If Jev is slow or down, the work goes on wi
 
 **More:** [Jev in the core](../features/jev-in-the-core.md).
 
-## 5. It asks only when it matters
+## 6. It asks only when it matters
 
 **The pitch.** Theseus is built for a machine its owner set up and trusts. It judges what content *is* and what an
 action *does*, not where either came from, and it does not build a paper wall of permissions over that.
@@ -110,10 +129,10 @@ not been measured.
 
 **More:** [it trusts its environment](../features/trusted-environment.md).
 
-## 6. It improves itself
+## 7. It improves itself
 
-**The pitch.** Most agents are a tool a person configures. Theseus keeps a ledger of everything it did and closes
-loops on itself, and it acts first and tells you afterwards.
+**The pitch.** Theseus keeps a ledger of everything it did and closes loops on itself. It acts first and tells you
+afterwards.
 
 **Today.** Each night it reads its own record, files what it finds on a backlog of its own, builds a fix in its own
 sandbox, passes the same gate as any other change, is reviewed by a different model, and lands it. In the morning
@@ -125,7 +144,7 @@ retries noisily; a limit on attempts and a place for what failed are planned.
 
 **More:** [self-improvement](../features/self-improvement.md), and [the design](rsi-plan.md).
 
-## 7. Fast, as a contract
+## 8. Fast, as a contract
 
 **The pitch.** One small Rust daemon, not a process for every terminal. The speed is written down as budgets, and
 the gate fails a commit that misses one.
@@ -138,7 +157,7 @@ critical path. Durability stays; a budget for those syncs is open work.
 
 **More:** [fast, as a contract](../features/fast-as-a-contract.md).
 
-## 8. Chat is the control surface
+## 9. Chat is the control surface
 
 **The pitch.** You should rarely need a terminal to run your agent. Discord is a full surface: a lively chat, a
 home for every task, and a voice channel.
@@ -153,7 +172,7 @@ chooses to call, is current work.
 
 **More:** [Discord](../discord.md).
 
-## 9. Many characters, one mind
+## 10. Many characters, one mind
 
 **The pitch.** Several personas, each with a name, an emoji, a voice and a character, over one memory. Switching
 between them costs nothing.
@@ -167,7 +186,7 @@ last keeps answering.
 
 **More:** [personas and threads](../features/personas-and-threads.md).
 
-## 10. You can ask why
+## 11. You can ask why
 
 **The pitch.** Every request is compiled for its turn and carries a manifest. Nothing about a turn has to be
 guessed.
@@ -178,7 +197,7 @@ tamper-evident ledger.
 
 **More:** [compiled context](../features/compiled-context.md).
 
-## 11. Benchmarks in the loop
+## 12. Benchmarks in the loop
 
 **The pitch.** Measuring is part of how a change lands, not something saved for a launch.
 
@@ -192,7 +211,7 @@ score.
 
 **More:** [Proof points](../proof.md), [the omnibus](../benchmarks/omnibus.md).
 
-## 12. Remote runtimes
+## 13. Remote runtimes
 
 **The pitch.** "The daemon runs on my server or in my cloud account, the terminal on my laptop, the index on
 another machine, and nothing local got slower."
@@ -202,7 +221,7 @@ as the local client; the listener stays local until a machine is paired.
 
 **More:** [the design](remote-runtimes.md), and [the work](https://github.com/zeroaltitude/theseus/issues/1).
 
-## 13. Working ahead
+## 14. Working ahead
 
 **The pitch.** "While I read its answer or step away, it guesses what I will ask next and does that work in a
 throwaway copy. When I come back the diff and the passing tests are there: one key to use it, one to throw it

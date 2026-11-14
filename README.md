@@ -42,8 +42,9 @@ It is built for work that outlives a conversation: the job you start on Monday a
 Wednesday, the check it runs every Friday, the fault it found in itself overnight. And it has opinions. It would
 rather tell you than ask you, remember than be told twice, and be measured than be believed.
 
-The claims on this page are measured wherever they can be, with their dates and with the places where Theseus loses. 
-Proof points are collected in **[Proof points](docs/proof.md)**, and the raw runs are in [the benchmarks](docs/benchmarks/omnibus.md).
+The claims on this page are measured wherever they can be, with their dates and with the places where Theseus
+loses. Proof points are collected in **[Proof points](docs/proof.md)**, and the raw runs are in [the
+benchmarks](docs/benchmarks/omnibus.md).
 
 It is one daemon (`theseusd`), a thin command line (`theseus`), a terminal UI, and a web cockpit the daemon serves
 itself. Linux only, by design: it is built on cgroups, namespaces, seccomp and pidfds, with no portability layer.
@@ -57,9 +58,9 @@ agent. Every section ends with a page that says how it is built, what is still r
 
 ### Work that outlives the conversation
 
-Ask for something long and it becomes a task with a context of its own: a post in Discord with a live card, a pinned
-board that moves from *working* to *needs you* to *done*, and the same task in the terminal, the cockpit and a
-voice call. When a task has a question it appears on every surface at once, and one answer (a button, a key,
+Ask for something long and it becomes a task with a context of its own: a post in Discord with a live card, a
+pinned board that moves from *working* to *needs you* to *done*, and the same task in the terminal, the cockpit and
+a voice call. When a task has a question it appears on every surface at once, and one answer (a button, a key,
 `theseus answer`, or a spoken "approve") clears it everywhere. Type into a running task and it takes your message
 at its next step. Ask to be reminded on Friday, or for something to run every morning, and that is a task too.
 
@@ -87,11 +88,11 @@ goes on without it. [Jev in the core](docs/features/jev-in-the-core.md).
 
 ### A prompt you can read
 
-Each request is compiled from the store for that turn: the standing instructions and
-personas, your context files, the guidance for the thread's topics, the conversation so far with a summary in place
-of what no longer fits, the notes recall found, and an attached project's slice at the end. Every request has a
-manifest, and `theseus why` prints it: each block, its tokens, where it came from, and what was left out and why.
-[Context compiled for each turn](docs/features/compiled-context.md).
+Each request is compiled from the store for that turn: the standing instructions and personas, your context files,
+the guidance for the thread's topics, the conversation so far with a summary in place of what no longer fits, the
+notes recall found, and an attached project's slice at the end. Every request has a manifest, and `theseus why`
+prints it: each block, its tokens, where it came from, and what was left out and why. [Context compiled for each
+turn](docs/features/compiled-context.md).
 
 ### One memory
 
@@ -99,6 +100,23 @@ Something you said last week, in another channel, about another project, comes b
 the message it came from. Bring your history from Claude Code, Codex or OpenClaw with `theseus import`, and it
 knows your past from the first day. Every persona, thread and task draws on the same memory, so nothing has to be
 told twice. [It remembers everything](docs/features/memory-across-sessions.md).
+
+### A self-guided, expanding ontology
+
+Theseus keeps its own map of the people, places and things it meets. The kinds of context are data, not code: a
+table of kinds (a channel, a project, a person, a topic, an event, a resource, an expertise, a culture) whose
+entries form a tree, and any entry can carry guidance. Each session is placed in the entries it belongs to, and
+each prompt is compiled with their guidance.
+
+The map grows by itself. Imported history arrives with its topics already filed. Each night a sweep merges
+duplicates, lets stale entries lapse, renames what has drifted, and creates and names a new kind when the same
+unlisted answer keeps coming up. New kinds and renames are in the morning note, and what the sweep does can be
+undone. A person is one record with many handles, and it holds what they do and own, never an opinion of them.
+
+The map is part of indexed memory. Imported history is sorted into seven books (a diary, an encyclopedia, a
+cookbook, procedures, a casebook, a register and a dictionary), each a different way of organizing what Theseus
+knows, and all read from the memory index. The map routes context; it never grants access. [The
+ontology](docs/design/m4-boundaries.md#28-the-ontologys-first-slice).
 
 ### It gets better while you sleep
 
@@ -127,37 +145,36 @@ What it does stop for is the thing that cannot be taken back. Before a tool acts
 could be undone. If it could, it runs. If there is a safer way to do the same work, such as keeping a copy first,
 the model is sent back to do it that way. Only what is final by its nature comes to you as a question.
 
-And the record is true. What is stored is raw and is never rewritten; secrets are swapped for their names only on
-the copies that leave the machine. [It trusts its environment and keeps a true
-record](docs/features/trusted-environment.md).
+The stored record is raw and is never rewritten; secrets are swapped for their names only on the copies that leave
+the machine. [It trusts its environment and keeps a true record](docs/features/trusted-environment.md).
 
 ### Talk to it where you are
 
-Discord is a full surface, not a place notifications go to die: a lively chat with the tool lines small and grey so
-you can tell them from the answer, a home for every task, and a voice channel where it listens, talks back and lets
-you interrupt. The terminal UI and the web cockpit show the same sessions and tasks, live. We keep shrinking the
-list of things that need a command line: approving a held action is a button or a spoken word, and trusting a
-project is a slash command. [Discord](docs/discord.md), [the command line](docs/cli.md).
+Discord is a full surface: a lively chat with the tool lines small and grey so you can tell them from the answer, a
+home for every task, and a voice channel where it listens, talks back and lets you interrupt. The terminal UI and
+the web cockpit show the same sessions and tasks, live. We keep shrinking the list of things that need a command
+line: approving a held action is a button or a spoken word, and trusting a project is a slash command.
+[Discord](docs/discord.md), [the command line](docs/cli.md).
 
 <p align="center"><img src="docs/assets/cockpit-tasks/01-tasks-page.png" alt="The cockpit's Tasks page: a New task box, one task that needs an answer with its options as buttons, two working tasks (one paused) with their spend against their limits, and the done tasks with their report lines." width="720"></p>
 
 ### A real coding agent underneath
 
 It edits, builds, tests and fixes the way a good coding agent does, with language servers as tools and each edit's
-new compiler errors in its result. Coding is the floor we hold ourselves to, not the thing that sets us apart: on
-its own model it is level with the field, in places it is behind, and [Proof
-points](docs/proof.md#a-real-coding-agent-underneath) says where. [Coding](docs/features/coding.md).
+new compiler errors in its result. Coding is the floor we hold ourselves to. On its own model it is level with the
+field, in places it is behind, and [Proof points](docs/proof.md#a-real-coding-agent-underneath) says where.
+[Coding](docs/features/coding.md).
 
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
 
 ## Benchmarks in the loop
 
-We do not save the measuring for the end. It is part of how every change lands, and it runs at two speeds.
+Measuring is part of how every change lands, and it runs at two speeds.
 
 - **Fast benchmarks on every commit.** The gate that every change must pass runs the start, restart, upgrade, job
   and turn benchmarks against written budgets: 50 ms from start to answering, 150 ms for a crash and restart, 200
   ms for a binary swap under load. A missed budget fails the commit exactly as a failed test does, and raising a
-  budget needs the owner's signed yes. Speed cannot wear away quietly.
+  budget needs the owner's signed yes.
 - **Long benchmarks on every even major version.** Odd majors build and even majors measure. On an even major the
   long benchmarks run on the build that shipped, against the field: coding on Terminal-Bench 2.0, recall across
   sessions, kill and resume, threads, and speed and memory beside other harnesses. `2.x` is the first of these.
@@ -221,7 +238,7 @@ These hold whatever the model does:
 
 Theseus is at **version 1.0.6**, runs on Linux, and has one daily user. **[The status page](docs/status.md)** says
 what works today, what is still rough and what comes next, and [Proof points](docs/proof.md) says where it loses,
-including the places it loses badly. Those pages change with every step that lands. This one tries not to.
+including the places it loses badly. Those pages change with every step that lands.
 
 **About the name.** Plutarch's ship of Theseus was kept afloat by replacing its planks one at a time as they wore
 out, until a philosopher could ask whether it was still the same ship. Theseus is built the same way: in small,
@@ -240,7 +257,7 @@ Theseus has one daily user so far, and we would like to hear from a second.
   the release it is planned for. A report that belongs with one of them is added to that list with a link back to
   yours, so one place shows everything planned for an area.
 - **Before a large pull request,** open an issue and say what you have in mind. The project is built in small,
-  reviewed, gated steps, and it is kinder to agree the shape first.
+  reviewed, gated steps, and it helps to agree on the shape first.
 
 ## Set it up
 

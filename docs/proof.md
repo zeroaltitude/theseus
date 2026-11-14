@@ -12,8 +12,6 @@ their budgets are in [the development guide](development.md#budgets-the-code-is-
 
 ## Where Theseus loses
 
-First, because it is the part most pages leave out.
-
 - **Coding against the best harnesses on another model.** On Terminal-Bench 2.0 at high effort Theseus is behind
   the harnesses running GPT-6 Astra (Codex 85.4%, OpenClaw 82.0%, against its own 78.3%), and on the 30 hardest
   tasks at top effort it solved 65.6% to Codex's 86.7% (2026-10-27).
@@ -34,7 +32,7 @@ repeated an effect in 4 of 12 (2026-10-18). With 10,000 parked sessions the idle
 
 More: [durable tasks](features/durable-tasks.md).
 
-## Fast, as a promise the build keeps
+## Fast as a testable feature
 
 Against Claude Code on the same stand-in model (2026-10-18): a ready prompt in 39 ms against 498, 10 ms of CPU a
 turn against 1,655, 70 MB idle against 360. The speed is written down as budgets — start to answering 50 ms, crash
@@ -58,7 +56,7 @@ of 177 tokens, five context files, five recalled notes with reasons, and 30 left
 
 More: [compiled context](features/compiled-context.md).
 
-## One memory, with receipts
+## One memory
 
 Over 600 scripted turns in three sessions, Theseus answered 73.1% of recall probes against 56.9% for Pi and 50.7%
 for Claude Code (2026-10-18). Two fresh seeds on the 1.0.3 build scored 68.8% and 77.8%, so about five points of
@@ -68,6 +66,11 @@ any one number is the seed (2026-10-26).
 81.8% for hosts.
 
 More: [memory across sessions](features/memory-across-sessions.md).
+
+## A self-guided, expanding ontology
+
+**Not measured yet.** The ontology's composition, its nightly sweep and the books are held by tests and are in
+daily use. Nothing has yet measured how well the map it grows matches the owner's own.
 
 ## It gets better while you sleep
 
