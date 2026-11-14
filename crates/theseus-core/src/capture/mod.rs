@@ -300,7 +300,7 @@ pub fn kept_card(line: &str) -> String {
     crate::owner_note::note(
         crate::owner_note::Kind::Fyi,
         "Kept your words as a standing record",
-        "Jev read your message as an order, a preference or a fact to keep",
+        "Theseus read your message as an order, a preference or a fact to keep",
         line,
     )
 }
@@ -310,7 +310,7 @@ pub fn ask_card(question: &str) -> String {
     crate::owner_note::note(
         crate::owner_note::Kind::Decision,
         "Keep your words as a standing record?",
-        "Jev read your message as one to keep, and asks first",
+        "Theseus read your message as one to keep, and asks first",
         question,
     )
 }

@@ -493,6 +493,8 @@ mod tests_onto_mint;
 #[cfg(test)]
 mod tests_onto_names;
 #[cfg(test)]
+mod tests_onto_notice;
+#[cfg(test)]
 mod tests_onto_other;
 #[cfg(test)]
 mod tests_onto_sweep;

@@ -92,7 +92,7 @@ fn describe(w: &Write, name_of: &dyn Fn(&str) -> Option<String>) -> String {
                 "made the kind {} from {}{}",
                 quoted(held("name")),
                 count(sessions, "session", "sessions"),
-                if named { ", named by Jev" } else { "" }
+                if named { ", named by Theseus" } else { "" }
             )
         }
         "merge" => {

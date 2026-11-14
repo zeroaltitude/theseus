@@ -293,6 +293,9 @@ pub struct Inbound {
     pub chosen: Option<String>,
     /// The turn is a task's.
     pub task: bool,
+    /// The message is Theseus's own, written by its own pipeline (a turn
+    /// whose author is `self:…`): never a person's, so never filed.
+    pub own: bool,
     /// route.v5's persona and seal inputs.
     pub persona: PersonaCtx,
     /// The message is the owner's own, in a place only the owner writes in,

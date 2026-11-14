@@ -564,6 +564,7 @@ impl Core {
                 route,
                 chosen: None,
                 task: false,
+                own: false,
                 persona: self.runner.persona_ctx(home, class),
                 // The owner's own words: `directive.v1` rides this call, and
                 // the turn says where the message was written (`Early::said`).

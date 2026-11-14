@@ -53,3 +53,16 @@ fn every_unasked_discord_message_starts_with_a_kind_and_a_title() {
         bad.join("\n")
     );
 }
+
+/// Theseus is the one who flags a call, whatever the notice's detail line
+/// says (theseus-nzwa5): its own heading never names the small model.
+#[test]
+fn the_notice_of_a_flagged_call_says_theseus_in_its_heading() {
+    let text = crate::runtime::jev_notice_text(&json!({"tool": "proc.run", "line": "95% risky",
+        "summary": "rm -r build", "judgment": "jdg_1"}));
+    assert!(
+        text.starts_with("⚠️ Alert · Theseus flagged a call that already ran: `proc.run`"),
+        "{text}"
+    );
+    assert!(!text.contains("Jev"), "{text}");
+}
