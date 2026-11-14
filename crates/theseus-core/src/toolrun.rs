@@ -996,11 +996,16 @@ impl ToolRuntime {
             return Ok((self.ask(tc, a, call, tool.name(), g)?, judged));
         }
         let (posture, class) = (g.decision.posture, g.class);
-        let acted = g.plan.class.unwrap_or(tool.class());
+        // Taken before `execute` moves the tool, not after: the writer key
+        // asks what the call WAS, and the call is over by then.
+        let acted = (
+            tool.name().to_string(),
+            g.plan.class.unwrap_or(tool.class()),
+        );
         let outcome = self
             .execute(tc, &a.correlation_id, tool, call, posture, class)
             .await?;
-        self.wrote_project(tc, tool.name(), acted);
+        self.wrote_project(tc, &acted.0, acted.1);
         Ok((outcome, judged))
     }
 
