@@ -98,6 +98,9 @@ pub(crate) struct Earlier {
     /// among them, whose wrappers are probed once after serving
     /// (`Kernel::settle_gone_jobs`, theseus-vej5).
     pub(crate) jobs: Vec<CorrelationId>,
+    /// The executions a cancel had told a call to stop when the earlier process died
+    /// (theseus-fvxh): the core answers what each left unanswered in its transcript once serving.
+    pub(crate) cancelled: Vec<ExecutionId>,
 }
 
 impl Kernel {
@@ -153,5 +156,15 @@ impl Kernel {
             }
             Ok(marked)
         })
+    }
+
+    /// The executions a cancel had stopped calls of when an earlier process died, once: the core
+    /// answers what each cancel left unanswered in its session's transcript
+    /// (`ToolRuntime::answer_after_cancel`), as its own sweep would have (theseus-fvxh).
+    pub fn take_cancelled_earlier(&self) -> Vec<ExecutionId> {
+        let mut ids = std::mem::take(&mut self.earlier_noted().cancelled);
+        ids.sort();
+        ids.dedup();
+        ids
     }
 }

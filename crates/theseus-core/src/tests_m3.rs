@@ -1617,6 +1617,8 @@ impl crate::toolrun::JobLauncher for PrintedOnly {
 
 /// Admission's queue through the whole core (theseus-4g0l).
 mod admission;
+/// A cancel the daemon died in the middle of (issue 6).
+mod cancel_recover;
 mod modes;
 /// What is left once earned autonomy and scoped grants are gone.
 mod no_grants;
