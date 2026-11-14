@@ -201,11 +201,16 @@ impl Shared {
         wanted.dedup();
         // The tender's own vector weight is for an index whose vectors are
         // made; while they are not (a first backfill, a re-embed) the few
-        // chunks that have one would outrank every exact match, so it is
-        // scaled by the share that has (theseus-pv7m). A weight the query
-        // names is its own and stands.
+        // chunks that have one fill the vector list's best ranks whatever
+        // they say, and would outrank every exact match. The weight is
+        // scaled by the coverage squared (theseus-pv7m): once for the share
+        // of the index the source can see, once for the share its ranks are
+        // measured against, so a source that sees a sixth of the index
+        // weighs a thirty-sixth, below a lone exact match, and a whole one
+        // weighs the default. A weight the query names is its own.
         if wanted.contains(&"vector") && !p.weights.contains_key("vector") {
-            weights.vector *= self.vectors.coverage();
+            let covered = self.vectors.coverage();
+            weights.vector *= covered * covered;
         }
         let mut skipped = BTreeMap::new();
         let mut vector = None;

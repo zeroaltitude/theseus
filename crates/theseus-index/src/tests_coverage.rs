@@ -19,7 +19,7 @@ fn ask(shared: &crate::tender::Shared, weights: &[(&str, f64)]) -> QueryResult {
 
 /// Two chunks have vectors and ten do not yet, among them the exact match
 /// of the query: the exact match leads, and the vector weight reported is
-/// the default's share of the coverage. Once every chunk has a vector the
+/// the default's, scaled by the coverage squared. Once every chunk has a vector the
 /// default weight is whole again, and a weight the query names is never
 /// scaled.
 #[test]
@@ -46,7 +46,8 @@ fn a_backfill_in_progress_does_not_bury_the_exact_match() {
     assert!(r.skipped.is_empty(), "{:?}", r.skipped);
     assert_eq!(r.hits[0].text, EXACT, "{:?}", r.hits);
     let default = shared.weights.vector;
-    assert!((r.weights["vector"] - default * 2.0 / 12.0).abs() < 1e-9);
+    let covered = 2.0 / 12.0;
+    assert!((r.weights["vector"] - default * covered * covered).abs() < 1e-9);
     assert_eq!(r.weights["bm25"], 1.0);
 
     // A weight the query names is its own.
