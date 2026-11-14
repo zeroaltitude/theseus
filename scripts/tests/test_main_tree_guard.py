@@ -161,7 +161,7 @@ class MainTreeGuard(unittest.TestCase):
         self.apply_rebase_takes_the_upstream("rebase", "--apply", "upstream")
 
     def test_an_apply_backend_pull_rebase_takes_the_upstream(self):
-        # `git pull --rebase` names itself `pull` in GIT_REFLOG_ACTION, not `rebase`.
+        # `git pull --rebase` writes its HEAD reflog entry as `pull ...`, not `rebase ...`.
         self.apply_rebase_takes_the_upstream("-c", "rebase.backend=apply", "pull", "-q", "--rebase", ".", "upstream")
 
     def test_a_branch_created_at_another_commit_is_named_too(self):
@@ -187,6 +187,29 @@ class MainTreeGuard(unittest.TestCase):
                            text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.head(), "refs/heads/main")
+
+    def hook_after(self, entry, env_action):
+        # HEAD moved off main under the reflog entry `entry`, with no checkout, then the installed hook run by hand
+        # as git would, with GIT_REFLOG_ACTION set to `env_action` (or unset).
+        two = self.git("rev-parse", "main").stdout.strip()
+        self.git("update-ref", "--no-deref", "-m", entry.format(one=self.one), "HEAD", self.one)
+        env = dict(self.env)
+        if env_action:
+            env["GIT_REFLOG_ACTION"] = env_action
+        return subprocess.run(["sh", os.path.join(self.main, ".git", "hooks", "post-checkout"), two, self.one, "1"],
+                              cwd=self.main, env=env, capture_output=True, text=True)
+
+    def test_the_reflog_decides_and_the_environment_does_not(self):
+        # Review round 5: where the reflog and GIT_REFLOG_ACTION agree, a hook reading either passes, so the two are
+        # set to disagree here. A hook that read the variable (round 4's) fails both halves on any git.
+        self.guard("install")
+        r = self.hook_after("rebase (start): checkout {one}", None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.head(), "", "a rebase's move is left alone")
+        self.git("checkout", "-q", "main")
+        r = self.hook_after("checkout: moving from main to {one}", "rebase")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.head(), "refs/heads/main", "a checkout's move is put back")
 
     def test_a_rebase_of_another_branch_is_not_covered(self):
         # The recorded limit (review round 2 of issue 15): the hook cannot fail a rebase without breaking it, and

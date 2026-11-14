@@ -13,13 +13,14 @@
 #
 # During a rebase or a bisect it changes nothing, and exits 0: git counts a failing post-checkout as the failure of
 # the rebase's or bisect's own checkout, which would abort it halfway and leave the tree detached with nothing to
-# finish (git 2.34; traced on 2.34 and 2.43). A rebase is known by its state directory, or, before that exists (the `apply` backend detaches
+# finish (git 2.34). A rebase is known by its state directory, or, before that exists (the `apply` backend detaches
 # HEAD first, and `git pull --rebase` with it), by the HEAD reflog entry git writes for this very move, which a rebase
 # or a pull names after itself (`rebase: checkout ...`, `pull ...: checkout ...`) where a checkout writes
-# `checkout: moving from ...`. A put-back there would leave HEAD on `main` and the rebase would then commit onto
-# `main` itself. The reflog, not GIT_REFLOG_ACTION, because git stopped exporting that variable to a rebase's own
-# checkout in 2.40. The cost: a checkout run from inside `git rebase -x '...'` is logged under the rebase's name and is
-# let through.
+# `checkout: moving from ...` (traced on git 2.34 and 2.43). A put-back there would leave HEAD on `main` and the
+# rebase would then commit onto `main` itself. The reflog, not GIT_REFLOG_ACTION, because git stopped exporting that
+# variable to a rebase's own checkout in 2.40. The costs: a checkout run from inside `git rebase -x '...'` is logged
+# under the rebase's name and is let through; and git writes the entry only while HEAD's reflog is on (the default,
+# and kept on once `logs/HEAD` exists), so with it turned off an apply-backend rebase is not recognised.
 #
 # Not covered:
 #   - `git reset` and `git merge`, for which git runs no hook, and `git checkout -B main <commit>`, which moves
