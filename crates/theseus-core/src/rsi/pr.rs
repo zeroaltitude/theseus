@@ -455,6 +455,11 @@ async fn attempt(
         a.i.item.trim()
     );
     let (head, commits, diff) = blocking(move || {
+        // Formatted first, so the gate's formatting phase never fails an attempt.
+        let body = match super::tree_fmt::format_tree(&p, &t).line() {
+            Some(line) => format!("{body}\n{line}"),
+            None => body,
+        };
         let head = tree::commit(&p, &t, &subject, &body)?;
         Ok((head, tree::commits(&p, &t)?, tree::diffstat(&p, &t)?))
     })

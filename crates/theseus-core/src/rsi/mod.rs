@@ -62,6 +62,8 @@ mod tests_budget;
 #[cfg(test)]
 mod tests_fetch_bound;
 #[cfg(test)]
+mod tests_fmt;
+#[cfg(test)]
 mod tests_identity;
 #[cfg(test)]
 mod tests_jail;
@@ -72,6 +74,7 @@ mod tests_pr;
 #[cfg(test)]
 pub(crate) mod tests_tree;
 pub mod tree;
+pub mod tree_fmt;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 

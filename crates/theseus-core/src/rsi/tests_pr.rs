@@ -1347,6 +1347,7 @@ mod own_tree_edits {
     }
 }
 
+mod formatted;
 mod infra;
 
 /// The stop check of a self build's wait reads the kill switch...
