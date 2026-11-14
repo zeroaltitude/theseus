@@ -169,3 +169,23 @@ fn a_module_path_or_a_symlink_cannot_reach_a_file_outside_the_tree() {
         .unwrap()
         .contains("pub fn sail(a: u32) -> u32 {"));
 }
+
+/// The tree's own `rustfmt.toml` is read, as `cargo fmt` reads it: a tree whose config asks for a
+/// narrower line is formatted to it.
+#[test]
+fn the_trees_own_rustfmt_config_is_read() {
+    let f = fixture();
+    let t = package(&f, "pub fn sail(first_argument: u32, second_argument: u32) -> u32 { first_argument + second_argument }\n");
+    std::fs::write(t.dir.join("rustfmt.toml"), "max_width = 40\n").unwrap();
+    let done = format_tree(&f.place, &t);
+    assert_eq!(
+        done,
+        Formatted::Fixed(vec!["src/lib.rs".into()]),
+        "{done:?}"
+    );
+    let formatted = read(&t);
+    assert!(
+        formatted.lines().all(|l| l.len() <= 40),
+        "max_width = 40 held: {formatted}"
+    );
+}

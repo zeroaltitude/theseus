@@ -17,7 +17,7 @@
 //! that file in the commit. So each changed `.rs` file is read by the daemon, formatted through
 //! **stdin** (which follows no module), and written back by the daemon only when it differs, only
 //! if it is a regular file (never a symlink) whose real path is inside the tree. `rustfmt` reads
-//! only source and its own config, which is taken from the tree's directory by `--config-path`
+//! only source and its own config, which is taken from the tree's root by `--config-path` where it has one
 //! (`rustfmt.toml`, which no option makes execute anything); it runs from a directory outside the
 //! tree, with the edition read from the tree's `Cargo.toml` as text and the toolchain main pins
 //! (`rust-toolchain.toml` at `origin/main`, read from git, never from the tree).
@@ -207,19 +207,20 @@ impl Run<'_> {
         if let Some(chan) = chan {
             c.arg(format!("+{chan}"));
         }
-        c.args([
-            "--edition",
-            &self.edition,
-            "--emit",
-            "stdout",
-            "--config-path",
-        ])
-        .arg(&self.tree.dir)
-        .current_dir(&self.place.state)
-        .env("RUSTUP_AUTO_INSTALL", "0")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        c.args(["--edition", &self.edition, "--emit", "stdout"]);
+        // The tree's own config, where it has one (`--config-path` is an error for a directory that
+        // holds none).
+        if ["rustfmt.toml", ".rustfmt.toml"]
+            .iter()
+            .any(|n| self.tree.dir.join(n).is_file())
+        {
+            c.arg("--config-path").arg(&self.tree.dir);
+        }
+        c.current_dir(&self.place.state)
+            .env("RUSTUP_AUTO_INSTALL", "0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         for (k, v) in &self.place.env {
             c.env(k, v);
         }
