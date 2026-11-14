@@ -191,8 +191,9 @@ impl Ontology {
         let refuse = |why: String| Err(Refusal::Writer { why });
         if by != Origin::Sweep {
             return refuse(format!(
-                "`{by}` may not take a category away: only the operator retires one, and only the \
-                 operator or the sweep merges one"
+                "`{by}` may not take a category away: only the operator, or the sweep for an \
+                 empty one a machine wrote, retires one, and only the operator or the sweep \
+                 merges one"
             ));
         }
         let Some(old) = self.categories.get(&c.id) else {

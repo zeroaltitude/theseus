@@ -1,9 +1,8 @@
 //! A kind the sweep makes is named for its class (issue 9): three
-//! conversations mention one
-//! country, and the sweep makes the kind `country` with the country as its
-//! entry, not a kind named after the country. When the class call fails, is
-//! over the day's money, or gives the thing itself, no kind is made that
-//! night.
+//! conversations mention one country, and the sweep makes the kind `country`
+//! with the country as its entry, not a kind named after the country. When
+//! the class call fails, is over the day's money, or gives the thing itself,
+//! no kind is made that night.
 
 use serde_json::json;
 use theseus_judge::fake::FakeJev;

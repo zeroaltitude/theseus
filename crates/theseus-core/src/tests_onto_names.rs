@@ -241,10 +241,11 @@ async fn the_sweeps_new_asks_stop_at_the_days_money() {
     assert_eq!((next.kinds, next.renamed), (1, 1));
 }
 
-/// A name Jev picked for a cluster is kept under its key when its kind does
-/// not mint that night (`2026-…` is no kind's name), as long as the ask is
-/// not asked again; a later night's cluster uses the kept pick, and asks no
-/// kind name (only its pair; theseus-e3pxa).
+/// A name Jev picked for a cluster is kept under its key, as long as the ask
+/// is not asked again, and a later night's cluster with a kept pick asks no
+/// kind name (only its pair; theseus-e3pxa). Since issue 9 the class names
+/// the kind (`2026-…` is no kind's name, but the class is), so the kept pick
+/// names none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_kind_name_answer_waits_for_its_mint() {
     let _clock = crate::test_support::pin_mid_period();
