@@ -8,9 +8,11 @@ use crate::tests::{settle, user};
 use crate::vtests::{settle_all, VRig, TEXTS};
 
 const EXACT: &str = "the web ui listens on port 7433";
+/// Words only the exact match holds, so BM25 finds it alone.
+const QUERY: &str = "listens port 7433";
 
 fn ask(shared: &crate::tender::Shared, weights: &[(&str, f64)]) -> QueryResult {
-    let mut p = QueryParams::new(EXACT);
+    let mut p = QueryParams::new(QUERY);
     p.k = 5;
     p.wait_ms = 10_000;
     p.weights = weights.iter().map(|(s, x)| (s.to_string(), *x)).collect();
