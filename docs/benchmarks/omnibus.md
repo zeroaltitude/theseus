@@ -611,5 +611,7 @@ measurement that judged it.
 | Speed | [Async: the kill -9 family at the v1 freeze](2026-10-18-async-kill-family.md) | Oct 18 |
 | Cost | [Harbor: what each harness costs to run, apart from the model](2026-10-06-harbor-efficiency-checks.md) | Oct 6 |
 | Cost | [Harbor: what each harness costs to run, apart from the model, at the stopping point](2026-10-12-harbor-efficiency.md) | Oct 12 |
+| Threads | [Threadbench: the ontology arm against its control, the development progression](2026-11-13-threadbench-onto.md) | Nov 13 |
+| Threads | [Threadbench: the ontology arm against its control, the held-out progression](2026-11-13-threadbench-onto-held-out.md) | Nov 13 |
 
 How each report is written, and the house palette every figure here uses, are in the [index](README.md).

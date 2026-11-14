@@ -1,4 +1,4 @@
-// The browse surface (theseus-sam3s): one card per benchmark above the frontier, newest first, the omnibus pinned.
+// The browse surface (theseus-sam3s): one card per benchmark above the frontier, newest first, nothing pinned (S33-1).
 // A measured benchmark shows who is on top with its trials and tasks, but only where the run supports a headline
 // (`headlineWhy`); every other card shows what its run found. The cards are `lib/benchcards.ts`.
 //

@@ -133,13 +133,23 @@ test('the untiered Terminal-Bench 2.0 run is labelled the earlier run, and sinks
   assert.ok(cards.slice(i).every((c) => c.legacy))
 })
 
-test('the omnibus stays pinned and the rest stay newest first among their kind', () => {
-  assert.equal(cards[0].id, 'omnibus')
-  const rest = cards.slice(1).filter((c) => !c.legacy)
+test('nothing is pinned: the newest card reads first, and the rest follow newest first among their kind', () => {
+  // S33-1 (the owner, Discord DM 2026-11-13 17:45, whole message: "I think newest first is great"). Newest first
+  // is the rule and no card is pinned above it; his earlier remark that the omnibus and TB2 should read first is
+  // not a standing preference to pin those two.
+  const rest = cards.filter((c) => !c.legacy)
+  assert.ok(rest.length > 10)
   for (let i = 1; i < rest.length; i++) assert.ok(rest[i - 1].asOf >= rest[i].asOf, `${rest[i - 1].id} before ${rest[i].id}`)
-  // The newest measured work reads first (the owner: Omnibus and TB2 should read first).
-  assert.equal(rest[0].id, 'terminal-bench@2.0:high')
-  // And the two suites of 2026-10-26 follow it, in their own order.
+  // The first card is whichever non-legacy card has the newest date -- asked of the data, never named here, because
+  // a named card is exactly what went stale when a newer report landed.
+  const newest = rest.reduce((a, c) => (c.asOf > a.asOf ? c : a), rest[0])
+  assert.equal(cards[0].id, newest.id)
+  assert.equal(cards[0].legacy, false)
+  // The omnibus is no longer pinned: it reads in its own date's place, not above the newest run.
+  const omni = card('omnibus')!
+  assert.ok(omni.asOf !== '', 'the omnibus carries a date to sort on')
+  assert.ok(cards.indexOf(omni) > 0, 'the omnibus sorts by date like any other card')
+  // And the two suites of 2026-10-26 read in their own order.
   assert.deepEqual(rest.filter((c) => c.asOf === '2026-10-26').map((c) => c.id), ['bughunt-rs', 'recall'])
   // Within a day a measured card always precedes a suite card.
   for (let i = 1; i < rest.length; i++) {

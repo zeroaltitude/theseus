@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="312" viewBox="0 0 720 312" role="img" aria-labelledby="t-dollars t-dollars-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-dollars">Dollars for the whole run</title>
+<desc id="t-dollars-d">What does the run cost as measured (cache always warm) and at the owner's gaps?</desc>
+<rect width="720" height="312" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Dollars for the whole run</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#d55181"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">A1o</text>
+<rect x="82.2" y="44.0" width="14" height="12" rx="3" fill="#008300"/>
+<text x="104.2" y="54.0" font-size="12" fill="#c3c2b7">A1</text>
+<line x1="168.9" y1="74.0" x2="168.9" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="267.4" y1="74.0" x2="267.4" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="366.0" y1="74.0" x2="366.0" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="464.5" y1="74.0" x2="464.5" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="563.1" y1="74.0" x2="563.1" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="661.6" y1="74.0" x2="661.6" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="158.9" y="102.0" font-size="12" fill="#ffffff" text-anchor="end">measured</text>
+<g><title>measured · A1o: $1.98</title>
+<path d="M168.9,81.0H262.2A4,4 0 0 1 266.2,85.0V93.0A4,4 0 0 1 262.2,97.0H168.9Z" fill="#d55181"/>
+</g>
+<text x="271.2" y="93.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$1.98</text>
+<g><title>measured · A1: $1.99</title>
+<path d="M168.9,99.0H263.1A4,4 0 0 1 267.1,103.0V111.0A4,4 0 0 1 263.1,115.0H168.9Z" fill="#008300"/>
+</g>
+<text x="272.1" y="111.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$1.99</text>
+<text x="158.9" y="150.0" font-size="12" fill="#ffffff" text-anchor="end">modelled, 5 min cache</text>
+<g><title>modelled, 5 min cache · A1o: $8.71</title>
+<path d="M168.9,129.0H593.9A4,4 0 0 1 597.9,133.0V141.0A4,4 0 0 1 593.9,145.0H168.9Z" fill="#d55181"/>
+</g>
+<text x="602.9" y="141.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$8.71</text>
+<g><title>modelled, 5 min cache · A1: $8.77</title>
+<path d="M168.9,147.0H597.0A4,4 0 0 1 601.0,151.0V159.0A4,4 0 0 1 597.0,163.0H168.9Z" fill="#008300"/>
+</g>
+<text x="606.0" y="159.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$8.77</text>
+<text x="158.9" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">modelled, 1 h cache</text>
+<g><title>modelled, 1 h cache · A1o: $6.97</title>
+<path d="M168.9,177.0H508.5A4,4 0 0 1 512.5,181.0V189.0A4,4 0 0 1 508.5,193.0H168.9Z" fill="#d55181"/>
+</g>
+<text x="517.5" y="189.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$6.97</text>
+<g><title>modelled, 1 h cache · A1: $6.84</title>
+<path d="M168.9,195.0H502.0A4,4 0 0 1 506.0,199.0V207.0A4,4 0 0 1 502.0,211.0H168.9Z" fill="#008300"/>
+</g>
+<text x="511.0" y="207.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">$6.84</text>
+<text x="168.9" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$0.00</text>
+<text x="267.4" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$2.00</text>
+<text x="366.0" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$4.00</text>
+<text x="464.5" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$6.00</text>
+<text x="563.1" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$8.00</text>
+<text x="661.6" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">$10.00</text>
+<line x1="168.9" y1="218.0" x2="661.6" y2="218.0" stroke="#383835" stroke-width="1"/>
+<text x="415.3" y="252.0" font-size="12" fill="#c3c2b7" text-anchor="middle">dollars</text>
+<text x="18.0" y="274.0" font-size="11" fill="#c3c2b7">Modelled: the same token breakdown, a cache miss wherever the owner's gap exceeds the TTL (th_price.py), the same</text>
+<text x="18.0" y="289.0" font-size="11" fill="#c3c2b7">for every arm.</text>
+</svg>

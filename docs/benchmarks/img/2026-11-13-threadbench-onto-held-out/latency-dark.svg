@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="274" viewBox="0 0 720 274" role="img" aria-labelledby="t-latency t-latency-d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t-latency">Wall time per message</title>
+<desc id="t-latency-d">How long does a message take, start to answer?</desc>
+<rect width="720" height="274" rx="8" fill="#1a1a19" stroke="#2c2c2a"/>
+<text x="18.0" y="32.0" font-size="15" fill="#ffffff" font-weight="600">Wall time per message</text>
+<rect x="18.0" y="44.0" width="14" height="12" rx="3" fill="#d55181"/>
+<text x="40.0" y="54.0" font-size="12" fill="#c3c2b7">A1o</text>
+<rect x="82.2" y="44.0" width="14" height="12" rx="3" fill="#008300"/>
+<text x="104.2" y="54.0" font-size="12" fill="#c3c2b7">A1</text>
+<line x1="66.0" y1="74.0" x2="66.0" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="179.9" y1="74.0" x2="179.9" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="293.8" y1="74.0" x2="293.8" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="407.7" y1="74.0" x2="407.7" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="521.7" y1="74.0" x2="521.7" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="635.6" y1="74.0" x2="635.6" y2="218.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="56.0" y="102.0" font-size="12" fill="#ffffff" text-anchor="end">mean</text>
+<g><title>mean · A1o: 5,601 ms</title>
+<path d="M66.0,81.0H317.2A4,4 0 0 1 321.2,85.0V93.0A4,4 0 0 1 317.2,97.0H66.0Z" fill="#d55181"/>
+</g>
+<text x="326.2" y="93.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">5,601 ms</text>
+<g><title>mean · A1: 5,417 ms</title>
+<path d="M66.0,99.0H308.8A4,4 0 0 1 312.8,103.0V111.0A4,4 0 0 1 308.8,115.0H66.0Z" fill="#008300"/>
+</g>
+<text x="317.8" y="111.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">5,417 ms</text>
+<text x="56.0" y="150.0" font-size="12" fill="#ffffff" text-anchor="end">p50</text>
+<g><title>p50 · A1o: 4,208 ms</title>
+<path d="M66.0,129.0H253.7A4,4 0 0 1 257.7,133.0V141.0A4,4 0 0 1 253.7,145.0H66.0Z" fill="#d55181"/>
+</g>
+<text x="262.7" y="141.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4,208 ms</text>
+<g><title>p50 · A1: 4,207 ms</title>
+<path d="M66.0,147.0H253.7A4,4 0 0 1 257.7,151.0V159.0A4,4 0 0 1 253.7,163.0H66.0Z" fill="#008300"/>
+</g>
+<text x="262.7" y="159.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">4,207 ms</text>
+<text x="56.0" y="198.0" font-size="12" fill="#ffffff" text-anchor="end">p90</text>
+<g><title>p90 · A1o: 10,285 ms</title>
+<path d="M66.0,177.0H530.7A4,4 0 0 1 534.7,181.0V189.0A4,4 0 0 1 530.7,193.0H66.0Z" fill="#d55181"/>
+</g>
+<text x="539.7" y="189.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">10,285 ms</text>
+<g><title>p90 · A1: 10,277 ms</title>
+<path d="M66.0,195.0H530.3A4,4 0 0 1 534.3,199.0V207.0A4,4 0 0 1 530.3,211.0H66.0Z" fill="#008300"/>
+</g>
+<text x="539.3" y="207.0" font-size="11" fill="#c3c2b7" style="font-variant-numeric: tabular-nums">10,277 ms</text>
+<text x="66.0" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">0</text>
+<text x="179.9" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">2,500</text>
+<text x="293.8" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">5,000</text>
+<text x="407.7" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">7,500</text>
+<text x="521.7" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">10,000</text>
+<text x="635.6" y="234.0" font-size="11" fill="#c3c2b7" text-anchor="middle" style="font-variant-numeric: tabular-nums">12,500</text>
+<line x1="66.0" y1="218.0" x2="635.6" y2="218.0" stroke="#383835" stroke-width="1"/>
+<text x="350.8" y="252.0" font-size="12" fill="#c3c2b7" text-anchor="middle">milliseconds</text>
+</svg>
