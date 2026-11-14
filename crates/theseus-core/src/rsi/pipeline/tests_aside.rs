@@ -60,7 +60,7 @@ async fn a_set_aside_item_starts_nothing_and_forbids_nothing() {
     let held = view
         .held
         .iter()
-        .find(|h| h.id == top)
+        .find(|h| h.item == top)
         .expect("it is shown as held");
     assert!(
         held.why
