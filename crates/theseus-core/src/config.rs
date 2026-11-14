@@ -640,6 +640,9 @@ fn default_job_pids_max() -> u64 {
 /// `[tools] max_jobs` (theseus-v6bd). 200 is the number the row was written
 /// against ("a configured cap refuses the 201st"), and it is far above
 /// anything a conversation does: what it stops is a runaway, not a busy day.
+/// The owner was asked on 2026-11-13 to keep 200, name another number, or
+/// take 0 and have no cap, and answered "Keep!" (S30-1): 200 is a decided
+/// default now, not only the figure the row was written against.
 /// `jobcap::OFF` (0) is no cap.
 fn default_max_jobs() -> usize {
     200
