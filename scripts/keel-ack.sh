@@ -44,7 +44,10 @@ done
 
 base=origin/main
 git rev-parse -q --verify "$base^{commit}" >/dev/null || base=main
-list=$(git show "$base:scripts/keel-signers" 2>/dev/null) || { echo "keel-ack: no scripts/keel-signers at $base" >&2; exit 3; }
+if ! list=$(git show "$base:scripts/keel-signers" 2>/dev/null); then
+  echo "keel-ack: no scripts/keel-signers at $base" >&2
+  exit 3
+fi
 owner=$(printf '%s\n' "$list" | sed 's/#.*//' | awk '$1 == "owner" { $1 = ""; sub(/^ /, ""); print; exit }')
 case $owner in
 gpg\ *) sign=(-c gpg.format=openpgp -c "user.signingkey=${owner#gpg }") ;;
@@ -55,8 +58,8 @@ ssh\ *)
   sign=(-c gpg.format=ssh -c "user.signingkey=$lit")
   ;;
 *)
-  echo "keel-ack: scripts/keel-signers at $base names no owner key yet (${owner:-no owner line}), so his acknowledgement" >&2
-  echo "keel-ack: cannot be signed. Nothing was written." >&2
+  echo "keel-ack: scripts/keel-signers at $base names no owner key yet (${owner:-no owner line})," >&2
+  echo "keel-ack: so his acknowledgement cannot be signed. Nothing was written." >&2
   exit 3
   ;;
 esac

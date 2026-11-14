@@ -21,7 +21,8 @@ keys only, never the machine's allowed-signers file.
 (`--` or ` - ` may stand for the dash; a path may be a glob). A line whose rule is not one of the rules below, whose
 path holds a space, or that is no trailer (a `Keel:` line above the message's last paragraph, which git never reads)
 is refused, saying so. An unsigned commit's trailer counts for nothing, so a
-branch can't ack itself; nor does one signed with an x509 key, or an ssh key the list does not name. The signer list is read from the base, never the head, so a branch can't list its own key.
+branch can't ack itself; nor does one signed with an x509 key, or an ssh key the list does not name. The signer list
+is read from the base, never the head, so a branch can't list its own key.
 
 The range (`THESEUS_KEEL_BASE=<rev>` or `--base` overrides its base, and the gate finds it as below in its own shell,
 then passes it as `--base` to the base's copy of this script, so a branch's copy decides neither; `--head` names a commit to judge instead of the
