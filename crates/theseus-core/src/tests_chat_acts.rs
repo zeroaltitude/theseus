@@ -488,7 +488,31 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
     say(&r, &here, "ship it").await;
 
     let out = acted(&r, &here, crate::chat_acts::ANSWER);
-    assert_eq!(out.len(), 1, "the tool ran: {out:?}");
+    assert_eq!(
+        out.len(),
+        1,
+        "the tool ran: {out:?}; chat tools in the last request: {:?}; requests {}; pending {:?}",
+        r.model
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .map(|req| req
+                .tools
+                .iter()
+                .filter_map(|t| t["name"].as_str())
+                .filter(|n| n.starts_with("chat_"))
+                .map(str::to_string)
+                .collect::<Vec<_>>())
+            .unwrap_or_default(),
+        r.model.requests.lock().unwrap().len(),
+        r.core
+            .confirm_list()
+            .unwrap()
+            .iter()
+            .map(|q| q.tool.clone())
+            .collect::<Vec<_>>()
+    );
     assert_eq!(out[0].0, "Ok", "{out:?}");
     assert!(
         out[0].1.contains("choice:0"),
