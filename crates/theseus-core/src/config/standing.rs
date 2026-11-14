@@ -7,7 +7,7 @@
 //!   one it is not (and about every order), and counts a message that says a
 //!   live record again (true). False: the pack is not asked, nothing is kept
 //!   or asked, and the records the owner added by hand stand as before.
-//!   `theseus packs rollback directive.v1` puts the pack in shadow instead,
+//!   `theseus packs rollback directive.v2` puts the pack in shadow instead,
 //!   where it still judges and records and acts on nothing.
 //! - `yes_fact`: a turn in which `chat.answer_question` answered a waiting
 //!   question carries a harness fact naming what was answered and what was NOT

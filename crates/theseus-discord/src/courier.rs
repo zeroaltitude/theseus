@@ -1638,7 +1638,7 @@ impl Lane {
                     Buttons::CardQuestion(ask, id),
                 )
             }
-            // What `directive.v1` kept, or asks about (theseus-slvl.5).
+            // What `directive.v2` kept, or asks about (theseus-slvl.5).
             "standing_card" => {
                 let (mode, id, everywhere) = crate::runtime::capture_card(body);
                 (
