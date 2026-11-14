@@ -24,8 +24,8 @@ export const EXPLAINERS: Record<string, Explainer> = {
   // ---- a session's content labels (theseus-emqbm)
   'session.unlabel': e(
     'Take one content label off one session, from the link every reply\u2019s footer carries, at any time after the label went up.',
-    'The session and the label are the address you followed, and the line under them says what that label does to the session. Nothing changes until you press Remove: the page asks once because the removal cannot be undone from here, and because removing injection lets the session act again. What happened is said in the daemon\u2019s own words, including when the label is already off.',
-    'A label a reply shows is a label the session is still carrying: it keeps the session off a model of restricted origin, and injection stops its writes, programs and sends. Taking one off is how the operator says the item that raised it was fine, and the label and its removal stay in the ledger either way.'),
+    'The session and the label are the address you followed, and the line under them says what that label does to the session. Nothing changes until you press Remove: the page asks once because the removal cannot be undone from here, and because removing injection gives up the refusal that `[content_based_security] injection = "refuse"` would otherwise apply. What happened is said in the daemon\u2019s own words, including when the label is already off.',
+    'A label a reply shows is a label the session is still carrying: it keeps the session off a model of restricted origin, and injection says something tried to steer it — the call still ran, and only `[content_based_security] injection = "refuse"` refuses its writes, programs and sends. Taking one off is how the operator says the item that raised it was fine, and the label and its removal stay in the ledger either way.'),
 
   // ---- the Agenda (theseus-p17fd)
   'agenda.week': e(
