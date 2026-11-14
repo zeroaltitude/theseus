@@ -98,13 +98,13 @@ pub(crate) fn warning_text(
         ),
         PlaceClass::Private => (
             "a place only you write in",
-            "Nothing was held. Here this should almost never happen: if it is your own question, Jev misread it.",
+            "Nothing was held. Here this should almost never happen: if it is your own question, Theseus misread it.",
         ),
     };
     crate::owner_note::note(
         crate::owner_note::Kind::Alert,
         "Someone may be after your personal details",
-        &format!("Jev read a message in {place} as {what} ({confidence:.2}):"),
+        &format!("Theseus read a message in {place} as {what} ({confidence:.2}):"),
         &format!("{}\n{after}", quoted(quote)),
     )
 }
@@ -141,7 +141,7 @@ pub(crate) fn held_text(
     crate::owner_note::note(
         crate::owner_note::Kind::Alert,
         "A reply was held to keep your personal details private",
-        &format!("Jev read a message from `{asker}` in a shared place, `{place}`, as {what} ({confidence:.2}):"),
+        &format!("Theseus read a message from `{asker}` in a shared place, `{place}`, as {what} ({confidence:.2}):"),
         &format!(
             "{}\nThe reply was held: no model was called, and the requester was told \"{HELD_REPLY}\"",
             quoted(quote)

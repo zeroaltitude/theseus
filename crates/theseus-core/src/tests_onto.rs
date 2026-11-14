@@ -568,6 +568,11 @@ async fn the_operator_adds_and_retires_a_kind() {
             Category::new(id("dataset:tides"), "tides", "ada").retired(2_000),
         )],
     );
+    let listed = |c: &Core| -> Vec<String> {
+        let all = c.ontology_list(&Default::default()).unwrap();
+        all.kinds.into_iter().map(|k| k.name).collect()
+    };
+    assert!(listed(&r.core).contains(&"dataset".to_string()), "live");
     assert!(
         r.core
             .ontology_kind_retire(&retire("dataset"), "the CLI")
@@ -578,6 +583,24 @@ async fn the_operator_adds_and_retires_a_kind() {
         kinds(&r.core.store, "ontology.kind").len(),
         2,
         "its add and its retire"
+    );
+    assert!(
+        !listed(&r.core).contains(&"dataset".to_string()),
+        "a retired kind is shown nowhere: not by the kinds listing the command and the cockpit read"
+    );
+    assert!(
+        listed(&r.core).contains(&"topic".to_string()),
+        "a live one is"
+    );
+    // The name is still the table's, and the refusal says where it went
+    // (the listing no longer shows it).
+    let again = r
+        .core
+        .ontology_kind_add(&add("dataset"), "the CLI")
+        .unwrap_err();
+    assert!(
+        format!("{again:#}").contains("a retired kind is named `dataset`"),
+        "{again:#}"
     );
 }
 

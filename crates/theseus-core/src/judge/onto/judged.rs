@@ -111,6 +111,10 @@ pub struct Mark {
     /// joins (`renamed.rs`).
     #[serde(default)]
     pub same: BTreeSet<(String, String)>,
+    /// The class the class call gave a cluster (by its key), kept so a night
+    /// that could not mint does not ask again (`class.rs`).
+    #[serde(default)]
+    pub classed: BTreeMap<String, String>,
 }
 
 /// What one call came to.

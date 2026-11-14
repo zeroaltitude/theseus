@@ -144,6 +144,7 @@ pub fn what_of(req: &ConfirmRequest, g: &Gloss) -> String {
             Some("reports") => "read an earlier run's report".into(),
             _ => "read an earlier run's gate files".into(),
         },
+        ("self.open_work", ..) => "list what is open on Theseus's own development".into(),
         ("http.fetch", ..) => match text(input, "url") {
             Some(u) => format!("fetch `{}`", short(u, 100)),
             None => "fetch a web page".into(),
@@ -179,6 +180,7 @@ pub fn risk_of(req: &ConfirmRequest) -> &'static str {
         "git.status",
         "git.show",
         "self.evidence",
+        "self.open_work",
     ]
     .contains(&t)
     {

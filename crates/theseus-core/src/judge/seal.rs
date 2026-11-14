@@ -28,6 +28,14 @@ impl JudgeService {
     }
 }
 
+/// Why Theseus proposes a seal, as the owner reads it on the card.
+pub(crate) fn reason(p: f64) -> String {
+    format!(
+        "Theseus read content that may need keeping private (an unfixed vulnerability or embargo, a \
+         legal or personnel matter, a partner's data, or a credential), p {p:.2}"
+    )
+}
+
 /// Propose sealing the thread `session` serves, if it serves one.
 fn recommend(core: &crate::Core, session: &str, p: f64) {
     let Ok(board) = core.runner.threads.all(&core.store) else {
@@ -36,11 +44,7 @@ fn recommend(core: &crate::Core, session: &str, p: f64) {
     let Some(slug) = board.of_session(session).map(|t| t.slug.clone()) else {
         return;
     };
-    let reason = format!(
-        "Jev read content that may need keeping private (an unfixed vulnerability or embargo, a \
-         legal or personnel matter, a partner's data, or a credential), p {p:.2}"
-    );
-    if let Err(e) = core.thread_recommend_seal(&slug, &reason) {
+    if let Err(e) = core.thread_recommend_seal(&slug, &reason(p)) {
         tracing::warn!(error = %format!("{e:#}"), "judge: the seal recommendation was not made");
     }
 }

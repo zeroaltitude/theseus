@@ -52,7 +52,13 @@ impl Core {
     /// or none when `memberships` is false.
     pub fn ontology_list(&self, p: &OntologyListParams) -> Result<OntologyListResult> {
         let o = self.runner.ontology.snapshot(&self.store)?;
-        let kinds = o.kinds().into_iter().map(kind_info).collect();
+        // A retired kind is shown nowhere: it takes no new entry and the table
+        // no longer lists it, so neither the command nor the cockpit prints it
+        // as if it were live.
+        let kinds = (o.kinds().into_iter())
+            .filter(|k| k.retired_ms.is_none())
+            .map(kind_info)
+            .collect();
         let counts = o.member_counts();
         let mut categories = Vec::new();
         tree(&o, &counts, None, 1, &mut categories);

@@ -80,7 +80,12 @@ impl Core {
         )?;
         let o = self.runner.ontology.snapshot(&self.store)?;
         let name = p.name.trim().to_string();
-        if o.kind(&name).is_some() {
+        if let Some(held) = o.kind(&name) {
+            if held.retired_ms.is_some() {
+                bail!(
+                    "a retired kind is named `{name}`: it is no longer listed, and `theseus ontology undo` of its retire brings it back"
+                );
+            }
             bail!("the kind `{name}` is in the table already: `theseus ontology kinds` lists them");
         }
         let assigned_by: Vec<Origin> = match p.assigned_by.is_empty() {
