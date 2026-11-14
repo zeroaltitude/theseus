@@ -55,6 +55,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("classify.v4", include_str!("../packs/classify.v4.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("directive.v1", include_str!("../packs/directive.v1.toml")),
+    ("directive.v2", include_str!("../packs/directive.v2.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
@@ -137,7 +138,7 @@ pub enum Builder {
     Security,
     /// `security.v3`'s: `security.v1`'s state, and facts computed for Jev.
     Security2,
-    /// `classify.v2`, `role.v1` and `directive.v1` share it, so they batch.
+    /// `classify.v2`, `role.v1` and `directive.v2` share it, so they batch.
     Inbound,
     /// `route.v10`'s own slice of the inbound input (theseus-h66v4.6): the message and
     /// the facts the `model` question reads, with no live tasks and no onto fields.
@@ -230,7 +231,7 @@ pub enum Action {
     /// names (`classify.v2`, theseus-rha2).
     ThreadRoute,
     /// Keeps, asks about, or notes a standing record from the owner's words
-    /// (`directive.v1`, theseus-slvl.5).
+    /// (`directive.v2`, theseus-slvl.5).
     Capture,
     /// Holds a tool call that would lose something a reshaped call would
     /// keep, and raises one whose loss no reshaping could touch

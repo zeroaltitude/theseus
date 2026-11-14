@@ -489,7 +489,7 @@ async fn jevs_thread_answer_rides_the_one_inbound_request_and_the_bands_route() 
 }
 
 /// The owner's words in a message the router places (theseus-slvl.5 on thread-route, the owner's 2026-10-15
-/// "I think that sounds right"): `directive.v1` rides the router's early call, the one request the message makes,
+/// "I think that sounds right"): `directive.v2` rides the router's early call, the one request the message makes,
 /// and the record names the message the turn wrote, in the thread's session it ran in.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message() {
@@ -500,14 +500,14 @@ async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message(
     let dm = home(c, None);
     thread_answer(&jev, "security-fix", 0.95);
     jev.script(
-        "directive.v1/kind",
+        "directive.v2/kind",
         Jev::Choice {
             option: "preference".into(),
             confidence: 0.93,
         },
     );
     jev.script(
-        "directive.v1/scope",
+        "directive.v2/scope",
         Jev::Choice {
             option: "everywhere".into(),
             confidence: 0.9,
@@ -520,7 +520,7 @@ async fn a_routed_message_is_captured_in_the_routing_call_and_names_its_message(
     let q = jev.seen()[0].body["questions"].clone();
     let ids: Vec<String> = q.as_object().unwrap().keys().cloned().collect();
     assert!(ids.contains(&"classify.v4/thread".to_string()), "{ids:?}");
-    assert!(ids.contains(&"directive.v1/kind".to_string()), "{ids:?}");
+    assert!(ids.contains(&"directive.v2/kind".to_string()), "{ids:?}");
     assert_eq!(rows(c, "thread.routed")[0].data["early"], true);
     let cap = &rows(c, "standing.captured")[0];
     let node = cap.data["node"].as_str().unwrap_or_default().to_string();

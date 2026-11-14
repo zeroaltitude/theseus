@@ -1,7 +1,7 @@
 //! Capture (theseus-slvl.5; the personality north star, theseus-slvl): the
 //! owner's words become standing records without a command.
 //!
-//! `directive.v1` rides the inbound request (`judge::inbound`, batched with
+//! `directive.v2` rides the inbound request (`judge::inbound`, batched with
 //! `classify.v1` and `role.v1`: no call of its own) for the owner's own
 //! messages in a place only the owner writes in. Its verdict is acted on here,
 //! off the turn's path, by bands (the owner's, 2026-10-13: killer OD5):
@@ -47,7 +47,7 @@ pub mod words;
 use state::State;
 
 /// The pack, by root name.
-pub const PACK: &str = "directive.v1";
+pub const PACK: &str = "directive.v2";
 
 /// The key of a kept record's `standing.captured` row: its judgment's label
 /// finds its pack there while the judge's sink has not written the judgment's
@@ -67,7 +67,7 @@ pub fn owner_alone(class: PlaceClass, place: Option<&str>) -> bool {
     class == PlaceClass::Private && place.is_none_or(|p| p.starts_with("discord:dm:"))
 }
 
-/// What the owner said, as `directive.v1`'s `kind` named it.
+/// What the owner said, as `directive.v2`'s `kind` named it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Heard {
     Nothing,
@@ -109,7 +109,7 @@ pub enum Said {
     Unsure,
 }
 
-/// `directive.v1`'s judgment, read.
+/// `directive.v2`'s judgment, read.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Verdict {
     pub heard: Heard,
@@ -121,7 +121,7 @@ pub struct Verdict {
     /// The scope answer reached the act band.
     pub sure_of_scope: bool,
     pub judgment: String,
-    /// The pack version that judged (`directive.v1`, or a learned one).
+    /// The pack version that judged (`directive.v2`, or a learned one).
     pub pack: String,
 }
 

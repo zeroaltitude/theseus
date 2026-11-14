@@ -29,7 +29,7 @@ const PRECEDENCE_V1: &str = include_str!("../fixtures/eval/precedence.v1.json");
 const DIRECTIVE_V1: &str = include_str!("../fixtures/eval/directive.v1.json");
 
 /// The packs with a labelled set.
-pub const PACKS: [&str; 10] = [
+pub const PACKS: [&str; 11] = [
     "classify.v4",
     "recall_cross.v1",
     "families.v1",
@@ -40,6 +40,7 @@ pub const PACKS: [&str; 10] = [
     "undo.v1",
     "precedence.v1",
     "directive.v1",
+    "directive.v2",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,7 +67,8 @@ pub fn set(pack: &str) -> Result<Vec<LabelledCase>> {
         "content.v4" => CONTENT_V4,
         "undo.v1" => UNDO_V1,
         "precedence.v1" => PRECEDENCE_V1,
-        "directive.v1" => DIRECTIVE_V1,
+        // v2 is measured on v1's set: the same sentences, so the two versions are scored alike.
+        "directive.v1" | "directive.v2" => DIRECTIVE_V1,
         other => bail!("no labelled set for {other} (have: {})", PACKS.join(", ")),
     };
     serde_json::from_str(text).with_context(|| format!("fixtures/eval/{pack}.json"))
@@ -124,6 +126,15 @@ mod tests {
     #[test]
     fn directive_v1s_set_holds_one_act_requests_that_expect_nothing_to_keep() {
         let cases = set("directive.v1").unwrap();
+        assert_eq!(
+            cases.iter().map(|c| &c.name).collect::<Vec<_>>(),
+            set("directive.v2")
+                .unwrap()
+                .iter()
+                .map(|c| &c.name)
+                .collect::<Vec<_>>(),
+            "directive.v2 is measured on directive.v1's sentences"
+        );
         let once: Vec<_> = cases
             .iter()
             .filter(|c| c.name.starts_with("once_"))

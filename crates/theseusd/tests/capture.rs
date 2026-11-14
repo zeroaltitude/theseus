@@ -1,4 +1,4 @@
-//! Capture in a real daemon (theseus-slvl.5): `directive.v1`, live, with the
+//! Capture in a real daemon (theseus-slvl.5): `directive.v2`, live, with the
 //! real `theseusd`, a stand-in for the Messages API, and the fake Jev with
 //! scripted verdicts. The owner types "no tables with me" in the CLI's
 //! socket (a CLI surface: the owner's own words):
@@ -67,7 +67,7 @@ impl Rig {
             j.insert("api_base".into(), base.into());
             j.insert("connect_secs".into(), 1.into());
             j.insert("total_secs".into(), 5.into());
-            // directive.v1 alone at the inbound point: its batch with the
+            // directive.v2 alone at the inbound point: its batch with the
             // other inbound packs is theseus-core's tests_capture.
             let packs = table(j, "packs");
             for p in ["classify.v4", "role.v1", "route.v10"] {
@@ -120,14 +120,14 @@ impl Rig {
 
 fn hears(jev: &FakeJev, kind: &str, confidence: f64) {
     jev.script(
-        "directive.v1/kind",
+        "directive.v2/kind",
         Scripted::Choice {
             option: kind.into(),
             confidence,
         },
     );
     jev.script(
-        "directive.v1/scope",
+        "directive.v2/scope",
         Scripted::Choice {
             option: "everywhere".into(),
             confidence: 0.9,
@@ -182,7 +182,7 @@ fn a_preference_is_kept_undone_and_counted_when_said_again() {
     // plain question is nothing to keep.
     hears(&jev, "none", 0.95);
     r.ask("What is 2 + 2?");
-    // Its `directive.v1` judgment is asked beside the turn, not before the
+    // Its `directive.v2` judgment is asked beside the turn, not before the
     // reply: re-script Jev only once the ask has reached it, or the plain
     // question is heard as the preference and kept as a second record.
     r.wait("Jev to be asked about the plain question", || {
@@ -192,7 +192,7 @@ fn a_preference_is_kept_undone_and_counted_when_said_again() {
             .filter(|s| {
                 s.body["questions"]
                     .as_object()
-                    .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v1/")))
+                    .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v2/")))
             })
             .count();
         (asked >= 2).then_some(())
@@ -263,9 +263,9 @@ fn capture_off_asks_jev_nothing() {
     let asked = jev.seen().into_iter().any(|s| {
         s.body["questions"]
             .as_object()
-            .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v1/")))
+            .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v2/")))
     });
-    assert!(!asked, "directive.v1 was asked with capture off");
+    assert!(!asked, "directive.v2 was asked with capture off");
     assert!(r.live().is_empty());
     assert!(r.rows("standing.captured").is_empty());
     r.stop(d);

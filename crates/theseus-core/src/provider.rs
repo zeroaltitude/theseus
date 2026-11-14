@@ -831,7 +831,15 @@ fn api_error_message(body: &str) -> String {
 pub enum Delta<'a> {
     Text(&'a str),
     Thinking(&'a str),
-    ToolUseStart { id: &'a str, name: &'a str },
+    ToolUseStart {
+        id: &'a str,
+        name: &'a str,
+    },
+    /// What the provider has said, in its own usage events, that the call used so
+    /// far: the prompt as it counted it (`message_start`) and the output it had
+    /// reported (`message_delta`). A call a stop cuts is booked from the last of
+    /// these (theseus-k48c); a stream that is never cut ignores them.
+    Usage(&'a Usage),
 }
 
 pub type DeltaSink<'a> = &'a mut (dyn FnMut(Delta<'_>) + Send);
@@ -1253,6 +1261,7 @@ impl Accumulator {
             StreamEvent::MessageStart { message } => {
                 if let Some(u) = message.get("usage") {
                     apply_usage(&mut out.usage, u);
+                    on_delta(Delta::Usage(&out.usage));
                 }
                 if let Some(m) = message.get("model").and_then(Value::as_str) {
                     out.model = m.to_string();
@@ -1360,6 +1369,7 @@ impl Accumulator {
                 }
                 if let Some(u) = usage {
                     apply_usage(&mut out.usage, &u);
+                    on_delta(Delta::Usage(&out.usage));
                 }
             }
             StreamEvent::MessageStop => return Ok(Flow::Stop),
@@ -1827,6 +1837,54 @@ mod tests {
         out.content = content;
         out.invalid_tool_inputs = invalid;
         (out, deltas, err)
+    }
+
+    /// theseus-k48c: a stream tells its caller what the provider says it used,
+    /// as the events arrive: the prompt at `message_start` (before any text),
+    /// the output at `message_delta`; each is the whole usage so far. A call a
+    /// stop cuts is booked from the last of them.
+    #[test]
+    fn a_stream_tells_its_caller_the_usage_as_its_events_arrive() {
+        let lines = [
+            r#"data: {"type":"message_start","message":{"model":"claude-x","usage":{"input_tokens":12,"cache_read_input_tokens":4000,"cache_creation_input_tokens":300}}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}"#,
+        ];
+        let mut out = ModelResponse::default();
+        let mut acc = Accumulator::default();
+        let mut seen: Vec<(&str, Usage)> = Vec::new();
+        let mut sink = |d: Delta<'_>| match d {
+            Delta::Usage(u) => seen.push(("usage", u.clone())),
+            Delta::Text(_) => seen.push(("text", Usage::default())),
+            _ => {}
+        };
+        for l in lines {
+            acc.apply(parse_sse_line(l).unwrap(), &mut out, &mut sink)
+                .unwrap();
+        }
+        let order: Vec<&str> = seen.iter().map(|(k, _)| *k).collect();
+        assert_eq!(
+            order,
+            ["usage", "text", "usage"],
+            "the prompt comes before the text"
+        );
+        let first = &seen[0].1;
+        assert_eq!(
+            (
+                first.input_tokens,
+                first.cache_read_input_tokens,
+                first.cache_creation_input_tokens,
+                first.output_tokens
+            ),
+            (12, 4_000, 300, 0)
+        );
+        let last = &seen[2].1;
+        assert_eq!(
+            (last.input_tokens, last.output_tokens),
+            (12, 2),
+            "the output joins the prompt"
+        );
     }
 
     #[test]

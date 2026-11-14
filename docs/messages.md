@@ -75,7 +75,7 @@ Core paths are under `crates/theseus-core/src/`, Discord's under `crates/theseus
 | Seal card | `rpc/thread_seal.rs` `seal_text` | a thread looks embargoed | DM, `seal_card` | Decision |
 | Link card | `thread_link_seen.rs` `Pair::text` | another thread's notes answered twice | DM, `link_card` | Decision |
 | Retraction card | `retract.rs` `card_text` | a retracted note reached tasks | DM, `retraction` | Decision |
-| Standing kept / ask | `capture/mod.rs` `kept_card`, `ask_card` | `directive.v1` kept the owner's words, or asks | DM, `standing_card` | FYI / Decision |
+| Standing kept / ask | `capture/mod.rs` `kept_card`, `ask_card` | `directive.v2` kept the owner's words, or asks | DM, `standing_card` | FYI / Decision |
 | Persona file missing | `turn/persona_step.rs` `missing_text` | a persona's file cannot be read | DM, `notice` | Alert |
 | Routine failed / blocked | `rpc/routines_watch.rs` `routine_note` | a routine's run failed or was blocked | place, `reminder` | Alert |
 | Routine month spent | `routine.rs` `month_spent_text` | a routine's month budget is spent | place, `notice` | Action |

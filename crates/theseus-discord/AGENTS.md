@@ -109,7 +109,7 @@ Key modules: `runtime.rs`, `courier.rs`, `render.rs`. Read by: theseusd.
   write hook), so after a restart a reply to an older card is an ordinary message. Tests: `tests_gateway/ask.rs`,
   `tests_gateway/cards.rs`, `runtime/reply/answer.rs`.
   Capture's cards (`runtime/capture_card.rs`, theseus-slvl.5): the core's `standing_card` post goes to the owner's DM
-  alone, as the seal card does (`Buttons::Standing`): a record `directive.v1` kept, with **Undo**
+  alone, as the seal card does (`Buttons::Standing`): a record `directive.v2` kept, with **Undo**
   (`standing:undo:<std id>`, `standing.revoke`), or an ask with **Keep**, **Keep everywhere** (when it would hold
   narrower) and **Not this** (`standing:<keep|everywhere|not>:<ask id>`, `standing.answer`), each as the presser with
   their `DiscordOrigin`, which the core judges. Only a Discord-origin message makes a card; the CLI and the web UI hear

@@ -9,8 +9,9 @@
 //!   `task_models` that the carried model blocks read). The persona and thread fields ride it
 //!   too, because the pack still asks `persona`, `seal` and `personal` (they were never one of the
 //!   owner's three calls, and moving them is not this row's).
-//! - **effort** (`effort.v1`): the message, the previous human message and the last reply, and
-//!   nothing else.
+//! - **effort** (`effort.v1`): the message, the previous human message and the last reply, and,
+//!   when the session's previous turn is known, how it ran (`previous_turn`: its effort and whether
+//!   it failed: the owner's "tell the small model", 2026-11-14 13:54); nothing else.
 //! - **work** (`work.v1`): the message, the live tasks and where the message came in.
 
 use serde_json::{json, Value};
@@ -22,7 +23,8 @@ use super::{
 use crate::pack::Dynamic;
 use crate::state::{clip_with, Keep, Scrub, StateBuilder};
 
-/// The keys of the `effort` slice when the message has a previous message and a reply.
+/// The keys of the `effort` slice when the message has a previous message and a reply (and no known
+/// previous turn: `previous_turn` is a fourth key when there is one).
 pub const EFFORT_STATE_KEYS: [&str; 3] = ["last_reply", "message", "previous_human_message"];
 
 /// The keys of the `work` slice when the message is in a place with live tasks.
@@ -78,6 +80,7 @@ pub fn effort(i: &InboundInput, cap: u64, scrub: &dyn Scrub) -> Prepared {
     let mut b = StateBuilder::new("effort", super::EFFORT_SLICE_VERSION, cap, scrub);
     message(&mut b, cap, i);
     recent(&mut b, cap, i);
+    route_facts::previous_turn(&mut b, i);
     Prepared {
         state: Arc::new(b.build()),
         dynamic: Dynamic::default(),

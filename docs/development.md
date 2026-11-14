@@ -519,6 +519,12 @@ build.
 Since v1, Theseus improves itself in one loop, run by its own daemon. The model does not change; the harness around it
 does. The design is [`design/rsi-plan.md`](design/rsi-plan.md); the rules are summarised here.
 
+**A new version of a judgment pack goes live on landing**, unless the owner asks for a side-by-side run (the owner,
+2026-11-14 13:56 MST, Discord message 1571267707125506159: "ship it as a new version, but put it into action
+immediately; only very rarely do we want live a/b tests"). The new version is named in `judge::WIRED` as `Live` and in
+its root's constant (`capture::PACK` for `directive.v2`, `CLASSIFY_PACK`); the old one stays embedded, its judgments
+under its own text; there is no shadow period and no ladder wait.
+
 ### What it does by itself, then tells the owner
 
 - **Every night it files its own backlog.** It reads its ledger: failed calls and turns, provider errors, invalid tool

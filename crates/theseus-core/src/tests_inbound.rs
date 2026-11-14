@@ -118,7 +118,7 @@ const INBOUND_ALONE: [&str; 27] = [
     "role.v1: shadow",
     "split.v1: shadow",
     "route.v10: off (the config's ceiling; on the ladder: live (owner: the owner's decision of 2026-10-29))",
-    "directive.v1: live",
+    "directive.v2: live",
     "onto.v1: off",
     "same_thing.v1: live",
     "two_things.v1: live",

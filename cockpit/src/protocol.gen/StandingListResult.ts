@@ -9,7 +9,7 @@ export type StandingListResult = { records: Array<StandingInfo>,
  */
 compiles: number, missing: number, 
 /**
- * The asks still open: things `directive.v1` heard and was not sure
+ * The asks still open: things `directive.v2` heard and was not sure
  * enough of to keep (or an order, which it never keeps unasked).
  */
 asks: Array<StandingAsk>, };

@@ -1738,9 +1738,14 @@ pub struct ModelCut<'a> {
     pub sent: bool,
     /// The estimated usage, which the settle booked.
     pub usage: &'a theseus_protocol::Usage,
-    /// How its input was split (theseus-3p36): `uncached`, `cache_read`, or
-    /// `cache_read_write` (`turn/cut_step.rs`).
+    /// How its input was split (theseus-3p36): `uncached`, `cache_read`,
+    /// `cache_read_write`, or `provider_events`, the provider's own count
+    /// (theseus-k48c; `turn/cut_step.rs`).
     pub split: &'a str,
+    /// The usage is an estimate, in part at least: false only when every number came from the
+    /// provider's own usage events (its prompt always does when `split` is `provider_events`; the
+    /// output is the characters streamed, estimated, when they say more than it had reported).
+    pub estimated: bool,
     pub output_chars: u64,
     /// What the settle booked, and what the call reserved.
     pub cost: Micros,
@@ -1761,7 +1766,7 @@ impl Fact for ModelCut<'_> {
             "provider": self.target.provider,
             "model": self.target.model,
             "by": self.by,
-            "estimated": true,
+            "estimated": self.estimated,
             "sent": self.sent,
             "input_tokens": self.usage.input_tokens,
             "output_tokens": self.usage.output_tokens,
@@ -1789,7 +1794,7 @@ impl Fact for ModelCut<'_> {
         say.line(
             Model,
             format!(
-                "{} was cut by a stop from {} after {}: {}, booked as an estimate of {}, and its \
+                "{} was cut by a stop from {} after {}: {}, booked at {}{}, and its \
                  reservation of {} released.",
                 self.target.model,
                 self.by,
@@ -1803,6 +1808,11 @@ impl Fact for ModelCut<'_> {
                     "nothing had been sent".to_string()
                 },
                 narrative::dollars(self.cost),
+                if self.estimated {
+                    " (an estimate)"
+                } else {
+                    " (the provider's own usage report)"
+                },
                 narrative::dollars(self.reserved_micros)
             ),
         );
@@ -1874,7 +1884,7 @@ impl Fact for TurnFailed<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::TurnFailed);
 
     fn row(&self) -> Value {
-        json!({"loops": self.loops, "reason": self.reason, "usage_so_far": self.usage, "cost_usd": self.cost_usd, "tool_calls": self.tool_calls})
+        json!({"class": self.class, "loops": self.loops, "reason": self.reason, "usage_so_far": self.usage, "cost_usd": self.cost_usd, "tool_calls": self.tool_calls})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

@@ -165,7 +165,7 @@ pub struct Early {
     pub thread: Option<ThreadWait>,
     /// `classify.v4`'s `scope` answer, when it was asked (theseus-98bz.9).
     pub scope: Option<ScopeWait>,
-    /// Where the owner's words were said, for `directive.v1` asked before
+    /// Where the owner's words were said, for `directive.v2` asked before
     /// the turn wrote its message (theseus-slvl.5 on thread-route's early
     /// judge): the turn's session and the message's node, sent at `adopt`.
     pub said: Option<tokio::sync::oneshot::Sender<(String, String)>>,
@@ -296,7 +296,7 @@ pub struct Inbound {
     /// route.v5's persona and seal inputs.
     pub persona: PersonaCtx,
     /// The message is the owner's own, in a place only the owner writes in,
-    /// and `[standing] capture` is on: `directive.v1` is asked about it.
+    /// and `[standing] capture` is on: `directive.v2` is asked about it.
     pub capture: bool,
     /// The operator's names for open and private matter (`[routing.data]`),
     /// carried to the route pack's `data` question.
@@ -729,8 +729,9 @@ impl JudgeService {
                 (true, _) => shared,
                 (false, true) => carried.for_route(&pack),
                 // The effort and the task type read their own slices of the input, which carry
-                // no onto fields and no facts.
-                (false, false) if matches!(pack.name().as_str(), EFFORT_PACK | WORK_PACK) => plain,
+                // no onto fields; the task type no facts, and the effort the previous turn's alone.
+                (false, false) if pack.name() == EFFORT_PACK => carried.for_effort(),
+                (false, false) if pack.name() == WORK_PACK => plain,
                 (false, false) => {
                     if own {
                         plain
@@ -845,12 +846,17 @@ impl JudgeService {
             .iter()
             .position(|n| n.id == msg.node_id)
             .map_or(&nodes[..], |i| &nodes[..i]);
-        input.route = Some(super::route_facts::facts_of(
+        let mut facts = super::route_facts::facts_of(
             before,
             msg.task,
             msg.restricted,
             theseus_protocol::now_unix_ms(),
-        ));
+        );
+        // How the last turn ran (theseus-8euum): the session's own ledger rows.
+        facts.previous_turn =
+            crate::routing::effort::previous::previous_turn(&self.store, &msg.session_id)
+                .map(|p| Box::new(crate::routing::effort::previous::told(p)));
+        input.route = Some(facts);
         Some(input)
     }
 
@@ -1423,14 +1429,14 @@ async fn judge_inbound(
     }
     svc.budget.settle(&today, need, spent, called, failed);
     // The owner's words, acted on once the batch has settled (theseus-slvl.5):
-    // `directive.v1` rode this request, so no call was added for it.
+    // `directive.v2` rode this request, so no call was added for it.
     capture_after(&svc, (heard, said), &judgments).await;
 }
 
-/// How long an early `directive.v1` waits for its turn to write the message.
+/// How long an early `directive.v2` waits for its turn to write the message.
 const SAID_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// The owner's words, acted on (theseus-slvl.5): the batch's `directive.v1`
+/// The owner's words, acted on (theseus-slvl.5): the batch's `directive.v2`
 /// judgment, when there is one, goes to the core.
 /// Asked early, it waits for the turn to say where the words were written,
 /// and a turn that never does (it did not run) captures nothing.

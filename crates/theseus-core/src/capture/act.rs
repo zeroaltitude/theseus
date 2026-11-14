@@ -58,7 +58,7 @@ struct Ctx<'a> {
 }
 
 impl Core {
-    /// `directive.v1`'s judgment of a message, acted on. A judgment that is
+    /// `directive.v2`'s judgment of a message, acted on. A judgment that is
     /// not live, or that names nothing, does nothing. A failure is logged and
     /// changes no turn. Blocking: it runs in the inbound point's task, off
     /// every turn's path.

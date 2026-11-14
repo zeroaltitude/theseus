@@ -85,7 +85,7 @@ impl TurnRunner {
             .any(|a| matches!(a.content, AttachmentContent::Image { .. }));
         // The owner's own words, in a place only the owner writes in: the
         // note `turn.submit` made is spent either way (theseus-slvl.5). A
-        // message the router judged early (thread-route) asked `directive.v1`
+        // message the router judged early (thread-route) asked `directive.v2`
         // in that call, by the same rule (`Core::capture_wanted`).
         let noted = self.standing.expected.take(t.tc.session_id, text);
         let capture = noted

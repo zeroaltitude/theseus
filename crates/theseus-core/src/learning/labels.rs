@@ -26,7 +26,7 @@ pub enum Truth {
 
 /// Whole-judgment words: `right` and `wrong` grade every answer's lean;
 /// `wrong role` is role.v1's "wrong role" press, and `wrong capture` the
-/// undo of a record directive.v1 kept (theseus-slvl.5), each a `wrong`; `noise` and
+/// undo of a record directive.v2 kept (theseus-slvl.5), each a `wrong`; `noise` and
 /// `useful` are kept for the ladder's rules and grade nothing.
 pub const WHOLE: [&str; 6] = [
     "right",

@@ -40,7 +40,7 @@ fn heard(r: &Rig, text: &str, band: Band, confidence: f64) -> theseus_core::capt
         said: theseus_core::capture::Said::Everywhere,
         sure_of_scope: true,
         judgment: "jdg_gateway".into(),
-        pack: "directive.v1".into(),
+        pack: "directive.v2".into(),
     };
     r.core.capture_now(&m, &v).unwrap()
 }

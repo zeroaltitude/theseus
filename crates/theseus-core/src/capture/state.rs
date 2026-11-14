@@ -40,7 +40,7 @@ pub struct Open {
     pub session: String,
 }
 
-/// A record `directive.v1` kept, and the judgment that said to.
+/// A record `directive.v2` kept, and the judgment that said to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Kept {
     pub record: String,

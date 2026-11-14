@@ -256,8 +256,13 @@ impl Walk {
             "provider.cut" => {
                 let c = float(d, "cost_usd");
                 self.book(&sid, text(d, "model").unwrap_or("?"), c);
+                // `estimated` is false only when every number came from the provider's own usage report.
+                let how = match d.get("estimated").and_then(|v| v.as_bool()) {
+                    Some(false) => "from the provider's usage report",
+                    _ => "estimated",
+                };
                 let l = format!(
-                    "model call cut ({}) after {}, {} estimated",
+                    "model call cut ({}) after {}, {} {how}",
                     text(d, "by").unwrap_or("stop"),
                     span(num(d, "elapsed_ms")),
                     usd(c)
