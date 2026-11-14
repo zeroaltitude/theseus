@@ -150,30 +150,39 @@ impl ContentItem {
     ///    positives are the expensive kind.** An ordinary `AGENTS.md` is a
     ///    dense page of imperatives aimed at a model -- the exact shape an
     ///    injection has. `Injection` raises at `Band::Act`, and the module
-    ///    note of `content.rs` is explicit about what that costs: "raising it
-    ///    wrongly freezes a session until the operator clears it, and a false
-    ///    freeze teaches the operator to ignore the control". Asked of block
-    ///    3, it would fire on the first compile in nearly every repository,
-    ///    on a session that has done nothing, before the owner's second
-    ///    message. The control would be worthless inside a week.
-    /// 3. **The containment is real, and it is `TaskBrief`'s.** A brief is
-    ///    exempt because a parent carrying `injection` is frozen and cannot
-    ///    call `task.create`, so an injection cannot launder itself into a
-    ///    child. The same freeze closes this channel: a frozen session may
-    ///    make a local read and nothing else (`policy/modes.rs`'s
-    ///    `content_refusal`, `content::local_read`), so it cannot write a
-    ///    file, and in particular cannot write an `AGENTS.md`. **Where it is
-    ///    weaker, and this is said rather than glossed:** a brief is written
-    ///    by Theseus itself, a repository by whoever wrote it; and the grant
-    ///    is given to a canonical root once and covers its files as they
-    ///    change (`project_context::trust`, "notify rather than ask"). So
-    ///    text that was never asked, or asked below the act band, can still
-    ///    be written into a granted repository's file by an unfrozen session
-    ///    at `notify` posture. Asking the injection question here would not
-    ///    close that path either -- it would answer yes on the honest files
-    ///    too. What fits that path is the tool floor, which is an open owner
-    ///    question on theseus-3i6d1's `theseus.toml` line and is **not**
-    ///    settled here.
+    ///    note of `content.rs` is explicit about what that costs: what the
+    ///    label costs a session is set by `[content_based_security]
+    ///    injection`, and at its strictest the session's calls that act are
+    ///    refused until the operator clears it, so "raising it wrongly is
+    ///    expensive in proportion, and a false alarm teaches the operator to
+    ///    ignore the control". Asked of block 3, it would fire on the first
+    ///    compile in nearly every repository, on a session that has done
+    ///    nothing, before the owner's second message. The control would be
+    ///    worthless inside a week.
+    /// 3. **The containment is real, and it no longer rests on a freeze.**
+    ///    A brief is exempt because the label *travels*: a task created by a
+    ///    session carrying `injection` starts carrying it
+    ///    (`ContentFlags::inherited`, S31-1), so an injection cannot launder
+    ///    itself into a clean child. Where a labelled parent's
+    ///    `task.create` is refused outright (`policy/modes.rs`'s
+    ///    `content_refusal`, `content::local_read`) no child is created at
+    ///    all; where it is not, the child is labelled. The channel here is
+    ///    closed the same way, by the same ruling: **a session carrying
+    ///    `injection` does not read a granted repository's instruction file
+    ///    that has CHANGED since the owner last read it** -- the new text is
+    ///    named and held until he says yes, whatever `[project] on_change`
+    ///    is set to (`project_context::change`). **Where it is weaker, and
+    ///    this is said rather than glossed:** a brief is written by Theseus
+    ///    itself, a repository by whoever wrote it; the grant is given to a
+    ///    canonical root once and covers its files as they change
+    ///    (`project_context::trust`, "notify rather than ask"); and the hold
+    ///    is keyed on the *reading* session's label, not on who wrote the
+    ///    file, which cannot be known. So text written by a session that was
+    ///    never labelled still arrives unheld. Asking the injection question
+    ///    here would not close that remainder either -- it would answer yes
+    ///    on the honest files too. What fits it is the tool floor, which is
+    ///    an open owner question on theseus-3i6d1's `theseus.toml` line and
+    ///    is **not** settled here.
     /// 4. **Asking it at the grant instead is the same question moved.** It
     ///    would let a model veto a grant the owner is making deliberately, at
     ///    the same false-positive rate, for the same reason.

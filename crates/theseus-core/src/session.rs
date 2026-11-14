@@ -311,6 +311,19 @@ impl SessionRecord {
         Self::with_id(crate::new_id("ses"), kind, label)
     }
 
+    /// Whether something in this session tried to steer it: it carries
+    /// [`crate::content::Flag::Injection`]
+    /// ([`crate::content::ContentFlags::frozen`]).
+    ///
+    /// **It reads the label and never a mode**, which is what lets a control
+    /// keyed on it behave the same whichever
+    /// `[content_based_security] injection` mode is configured (S31-1). What
+    /// a mode decides is whether the session's calls that act are refused;
+    /// that it was steered is the same fact either way.
+    pub fn flagged(&self) -> bool {
+        self.data.as_deref().is_some_and(|d| d.frozen())
+    }
+
     /// A record for a session whose id is decided elsewhere: a task's comes
     /// from the call that opens it (DD7).
     pub fn with_id(session_id: String, kind: SessionKind, label: Option<String>) -> Self {

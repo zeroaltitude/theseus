@@ -34,12 +34,20 @@
 //!   days is one row and not one a turn. `project_untrust` drops the stored
 //!   sighting, which makes `untrust` then `trust` the owner's accept.
 //!
-//! What this does not close, and cannot: text written into a granted
-//! repository's file by an unfrozen session at notify posture is never asked
-//! the `injection` question, because block 3 is assembled text and no node
-//! (`judge::content::ContentItem::of_message`). Naming the change is what
-//! gives the owner a chance to see such a write at all, which is why this
-//! half of §8 matters more than its size suggests.
+//! **A session carrying `injection` holds the change whatever the posture
+//! says** (S31-1, the owner 2026-11-13: the warning follows the content).
+//! The text of a granted repository's instruction file is assembled into
+//! block 3 and is no node (`judge::content::ContentItem::of_message`), so no
+//! label can ever be raised on it, and asking the injection question of it
+//! would answer yes on the honest files too. The remedy is not to label the
+//! text. It is to withhold a *change* to it from a session that is already
+//! labelled: `on_change` is a convenience about how much the owner wants to
+//! be asked, and a label is not something a convenience gets to wave
+//! through. The hold is `ask`'s own, reused rather than rebuilt -- the new
+//! text waits, the unchanged files are carried as before, what the owner
+//! read does not move forward, and his `untrust` then `trust` is the yes
+//! that releases it. Only the sentence in the block differs, because the
+//! reason differs.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -137,11 +145,19 @@ pub struct Observed {
     /// notice is said once; at `ask` a change that keeps waiting is already
     /// in `Seen::asked` and is not said again.
     pub fresh: Vec<Change>,
-    /// The sighting to store: none at `ask` posture with a change, which is
-    /// what makes the file keep waiting.
+    /// The sighting to store: none while a change is held, which is what
+    /// makes the file keep waiting.
     pub write: Option<Seen>,
-    /// The posture this compile read.
+    /// Whether this compile holds a change back: `ask` posture, **or** a
+    /// session carrying `injection`, which holds whatever the posture says
+    /// (S31-1). It is the decision rather than the setting, so every reader
+    /// below acts on one answer and cannot disagree about which input
+    /// produced it.
     pub ask: bool,
+    /// Whether the holder is the session's label rather than the posture.
+    /// It changes only what the block's line *says*: the hold itself is the
+    /// same hold, and `ask` above is what performs it.
+    pub flagged: bool,
 }
 
 impl Observed {
@@ -171,7 +187,14 @@ impl Observed {
             return None;
         }
         let what = names(&self.changes);
-        Some(if self.ask {
+        Some(if self.flagged {
+            format!(
+                "Project instructions changed since the owner last read them: {what}. \
+                 This session carries the `injection` label, so their new text is not \
+                 here: he grants the repository again (`theseus project untrust`, then \
+                 `theseus project trust`) once he has read it."
+            )
+        } else if self.ask {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
                  He asks to see a change before it is read, so their new text is not \
@@ -223,20 +246,31 @@ pub fn sighting(files: &ContextFiles, found: &[Found], at_ms: u64) -> Seen {
 }
 
 /// What a compile of `found` in the repository `root` sees: the sighting,
-/// what it differs from, and the posture. One keyed store read, as
-/// [`super::trust::granted`] is. Called twice in a turn -- once by
-/// [`super::block`] to name the change and withhold what the posture says,
-/// once by the turn to write the row and the state -- and deterministic on
-/// its inputs, so the block and the ledger cannot disagree.
+/// what it differs from, and whether the change is held. One keyed store
+/// read, as [`super::trust::granted`] is. Called twice in a turn -- once by
+/// [`super::block`] to name the change and withhold what is held, once by
+/// the turn to write the row and the state -- and deterministic on its
+/// inputs, so the block and the ledger cannot disagree.
+///
+/// `flagged` is whether the compiling session carries `injection`
+/// (`ContentFlags::frozen`), and it holds the change on its own (S31-1).
+/// **It is passed in, not read here, and it is read from the session's
+/// record rather than from the mode.** Passed in, because both callers must
+/// act on the *same* answer: a label landing between the block's call and
+/// the turn's would otherwise let the block withhold text the row says was
+/// carried. From the record rather than the mode, because the hold must not
+/// depend on which `[content_based_security] injection` mode happens to be
+/// configured -- that dependence is the hole S31-1 closed.
 pub fn observe(
     cfg: &crate::config::Config,
     store: &crate::store::Store,
     files: &ContextFiles,
     root: &Path,
     found: &[Found],
+    flagged: bool,
 ) -> Observed {
     let id = crate::flow::spec::repo_id(root);
-    let ask = cfg.project.on_change() == OnChange::Ask;
+    let ask = cfg.project.on_change() == OnChange::Ask || flagged;
     let at_ms = theseus_protocol::now_unix_ms();
     let now = sighting(files, found, at_ms);
     let old = Seen::read(store, &id);
@@ -282,5 +316,6 @@ pub fn observe(
         fresh,
         write,
         ask,
+        flagged,
     }
 }

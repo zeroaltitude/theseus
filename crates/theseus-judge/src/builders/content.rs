@@ -37,9 +37,11 @@ pub const TASK_BRIEF: &str = "task_brief";
 ///   else's message is `person_message` and is asked.
 /// - a task's brief, which is a parent instructing its child. It is steering by
 ///   design, so the question is a guaranteed false positive, and at the act
-///   band it would freeze every task session on its first item. Nothing is
-///   lost: a parent carrying `injection` is frozen and cannot start a task at
-///   all, and a brief quoting foreign text is still asked the other three.
+///   band it would raise on every task session's first item. Nothing is lost:
+///   the label travels instead, so a task created by a session carrying
+///   `injection` starts carrying it and an injection cannot launder itself
+///   into a clean child (`theseus_core::content::ContentFlags::inherited`,
+///   S31-1); and a brief quoting foreign text is still asked the other three.
 ///
 /// A task's REPORT is not exempt: a report reports rather than instructs, and a
 /// child that read a poisoned page can write its parent a report shaped by it.

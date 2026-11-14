@@ -1822,7 +1822,8 @@ impl TurnRunner {
         // So is the place's class (the place rule): a class that changes
         // mid-turn applies at the next turn's first loop.
         let (mut spec, unreadable) = self.request_spec(target, session.kind, t.tc.place());
-        spec.session_text = self.session_block(t.tc.dir, t.tc.place());
+        let flagged = self.session_flagged(sid); // §8's notice, read once (S31-1)
+        spec.session_text = self.session_block(t.tc.dir, t.tc.place(), flagged);
         spec.walk = self.walk(sid, t.tc.place().class);
         self.stand(t, &mut spec);
         self.thread_spec(&mut spec, sid, session.compilation_id.as_deref());
@@ -1831,7 +1832,7 @@ impl TurnRunner {
         self.defer_tools(t, &mut spec);
         self.observe_persona(t, target, &spec);
         let (project_dir, project_place) = (t.tc.dir, t.tc.place());
-        self.observe_project(t, project_dir, project_place);
+        self.observe_project(t, project_dir, project_place, flagged);
         for u in &unreadable {
             tracing::warn!(path = %u.path, error = %u.error, session_id = %sid,
                 "context file unreadable: the system block says it is missing (warned once per daemon run)");

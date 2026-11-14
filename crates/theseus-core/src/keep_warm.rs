@@ -458,7 +458,7 @@ impl TurnRunner {
             spec.effort = Some(e);
         }
         // The session's directory block, as the turn puts it (theseus-aab7).
-        spec.session_text = self.session_block(rec.dir.as_deref(), place);
+        spec.session_text = self.session_block(rec.dir.as_deref(), place, rec.flagged());
         self.thread_spec(&mut spec, sid, rec.compilation_id.as_deref());
         // The tools as the turn sends them (theseus-7m7w.2): an append keeps
         // the loaded set its compilation recorded, so the read is its prefix.

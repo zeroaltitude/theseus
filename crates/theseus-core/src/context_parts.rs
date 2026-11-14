@@ -93,7 +93,12 @@ impl TurnRunner {
             crate::context_files::withhold_shared(&mut files);
         }
         let mut spec = self.spec_of(target, kind, place, files.clone());
-        spec.session_text = self.session_block(rec.as_ref().and_then(|r| r.dir.as_deref()), place);
+        spec.session_text = self.session_block(
+            rec.as_ref().and_then(|r| r.dir.as_deref()),
+            place,
+            rec.as_ref()
+                .is_some_and(crate::session::SessionRecord::flagged),
+        );
         self.thread_spec(
             &mut spec,
             session,

@@ -17,14 +17,26 @@ impl TurnRunner {
     /// The block's half is `project_context::block`, which named the same
     /// changes in the text the model reads. Both come from one
     /// `project_context::change::observe` call on the same inputs, so they
-    /// cannot disagree. At `ask` posture what the owner read does not move
-    /// forward -- that is what makes the withheld file keep waiting instead
-    /// of arriving by itself on the next turn -- and the row says the text
-    /// was not carried.
+    /// cannot disagree -- `flagged` included, which is why the turn reads
+    /// the session's label once and hands the same answer to both rather
+    /// than each reading the record for itself. While a change is held what
+    /// the owner read does not move forward -- that is what makes the
+    /// withheld file keep waiting instead of arriving by itself on the next
+    /// turn -- and the row says the text was not carried.
+    ///
+    /// A change is held at `ask` posture, **or** when the session carries
+    /// `injection` (`flagged`, S31-1), which holds it whatever the posture
+    /// says.
     ///
     /// Nothing at all in a shared place or without tools, where block 3 is
     /// empty and no repository's file was read in the first place.
-    pub(super) fn observe_project(&self, t: &mut Turn<'_>, dir: Option<&str>, place: PlaceView) {
+    pub(super) fn observe_project(
+        &self,
+        t: &mut Turn<'_>,
+        dir: Option<&str>,
+        place: PlaceView,
+        flagged: bool,
+    ) {
         if place.class == PlaceClass::Shared || !self.tools.enabled() {
             return;
         }
@@ -42,6 +54,7 @@ impl TurnRunner {
             &self.context_files,
             root,
             &found.project,
+            flagged,
         );
         for c in &seen.fresh {
             t.record(&ProjectChanged {
