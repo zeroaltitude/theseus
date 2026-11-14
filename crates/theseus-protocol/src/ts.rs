@@ -89,6 +89,8 @@ fn declared() -> Vec<(String, bool)> {
         include_str!("job_follow.rs"),
         include_str!("nodes.rs"),
         include_str!("thread_placed.rs"),
+        include_str!("status.rs"),
+        include_str!("tighten.rs"),
     ] {
         let lines: Vec<&str> = src.lines().collect();
         for (i, l) in lines.iter().enumerate() {

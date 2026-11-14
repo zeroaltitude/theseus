@@ -9,7 +9,9 @@ Key modules: `kernel.rs`, `tx.rs`, `locks.rs`, `job.rs`, `cgroup.rs`, `children.
 ## What's here
 
 - `kernel.rs`: the transitions. `Kernel::view` and `turn_of` give a turn its view; `observe` takes the push's one
-  observer.
+  observer. Four blocks of `impl Kernel` live in `kernel/`: `reads.rs` (executions and actions by range, counts, stats),
+  `authorize.rs` (`bind_confirm`, `authorize`, `dispatch` and their helpers), `completion.rs` (`accept_completion`,
+  `mark_unknown`) and `cancel_reconcile.rs` (`cancel_execution`, `reconcile`).
 - `types.rs`: the durable objects (executions, actions, completions, budgets, wakes).
 - `locks.rs`: one writer at a time per execution (theseus-id9).
 - `tx.rs`: the kernel transaction (`Kernel::frame`, theseus-0owd): several transitions staged, then one frame.
