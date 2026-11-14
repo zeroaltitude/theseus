@@ -166,6 +166,13 @@ impl Core {
     /// `untrust` then `trust` the owner's accept of a change at
     /// `[project] on_change = "ask"`, where a changed file is named and not
     /// read until he does it.
+    ///
+    /// **The writer key's hold goes with it** (`change::Held`, S31-1), for
+    /// the same two reasons and in the same frame. It is also the whole
+    /// release route for that hold: the card that built it was told not to
+    /// invent a command surface, and the state already had a yes -- he reads
+    /// the file and grants the repository again. One route, so there is no
+    /// second one to get wrong.
     pub fn project_untrust(&self, path: &Path, who: impl Into<Answerer>) -> Result<Trusted> {
         let who = who.into();
         self.judge_act(
@@ -193,6 +200,11 @@ impl Core {
         let mut records = vec![rec.row(&fact)?, grants.record()?];
         if change::Seen::read(&self.store, &id).is_some() {
             records.push(theseus_store::NewRecord::delete_meta(&change::seen_key(
+                &id,
+            )));
+        }
+        if change::Held::read(&self.store, &id).is_some() {
+            records.push(theseus_store::NewRecord::delete_meta(&change::held_key(
                 &id,
             )));
         }

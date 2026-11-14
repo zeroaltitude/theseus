@@ -48,6 +48,37 @@
 //! read does not move forward, and his `untrust` then `trust` is the yes
 //! that releases it. Only the sentence in the block differs, because the
 //! reason differs.
+//!
+//! **There are TWO keys, and they are not the same key.**
+//!
+//! - The **reader key** is the paragraph above: `flagged`, passed in by the
+//!   compiling turn. It holds a change from the session that is *reading*
+//!   it.
+//! - The **writer key** is [`Held`] and [`wrote`]: a file that moved while a
+//!   flagged session's ACTING call ran is held **for every session**, clean
+//!   ones included, until the owner says yes.
+//!
+//! The reader key alone leaves the case the owner's ruling actually names.
+//! A flagged session EDITS the file; the next CLEAN session to open in that
+//! repository carries the new text, because *it* is not flagged and at
+//! `notice` nothing holds it. The reason the first half keyed on the reader
+//! was true of its mechanism -- a change is found by comparing a stored
+//! sighting later, and a later comparison cannot say who wrote -- but the
+//! daemon is present at the moment of every acting call, and at that moment
+//! it can compare. It is writer-keyed **without knowing who wrote**: a file
+//! that moved while a flagged session's acting call ran is treated as that
+//! call's. That covers a shell write as surely as a file tool's, which is
+//! the property that matters, and it errs the safe way on the rest -- a file
+//! that moved under such a call for an unrelated reason (a `git pull` in
+//! another terminal) is held too, and a held file is read again the moment
+//! the owner grants the repository.
+//!
+//! The writer key's hold is a **stored record**, not a daemon's memory: a
+//! restart between the write and the next session's open is not the owner's
+//! yes and must not launder it. It is dropped where the sighting is dropped,
+//! by `project_untrust`, which is what makes `untrust` then `trust` release
+//! it -- the same yes, and no new command surface for a state that already
+//! had one.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -66,6 +97,50 @@ pub const SEEN_PREFIX: &str = "project.seen.";
 /// The META key of one repository's state.
 pub fn seen_key(id: &str) -> String {
     format!("{SEEN_PREFIX}{id}")
+}
+
+/// The META key prefix of a repository whose instruction file moved under a
+/// flagged session's acting call, by `flow::spec::repo_id`.
+pub const HELD_PREFIX: &str = "project.held.";
+
+/// The META key of one repository's hold.
+pub fn held_key(id: &str) -> String {
+    format!("{HELD_PREFIX}{id}")
+}
+
+/// **The writer key's hold** (S31-1): a granted repository whose instruction
+/// file moved while a session carrying `injection` was making an acting
+/// call. Its presence holds that repository's changes out of **every**
+/// session's instruction block, whatever `[project] on_change` says and
+/// whatever `[content_based_security] injection` is set to, until the owner
+/// grants the repository again.
+///
+/// **The hold is the repository's, not a digest's.** A held file the owner
+/// then edits HIMSELF is still held: nothing here can tell his hand from
+/// another write, and the repository is what he re-reads when he re-grants.
+/// [`files`](Self::files) is therefore what the row and the block SAY, not
+/// what they test; the hold is `is_some`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Held {
+    /// The files that moved, by the path the block shows, to the digest the
+    /// call left. A file the call DELETED is not here: there is no new text
+    /// to hold, and `withheld` has never withheld an absence.
+    pub files: BTreeMap<String, String>,
+    /// The session whose acting call the files moved under. Not "who wrote":
+    /// this is the call it moved under, which is the honest claim and the
+    /// one the ledger row makes.
+    pub by: String,
+    pub at_ms: u64,
+}
+
+impl Held {
+    pub fn read(store: &crate::store::Store, id: &str) -> Option<Self> {
+        store.get_meta::<Self>(&held_key(id)).ok().flatten()
+    }
+
+    pub fn record(&self, id: &str) -> anyhow::Result<theseus_store::NewRecord> {
+        theseus_store::NewRecord::json(theseus_store::kinds::META, Some(&held_key(id)), self)
+    }
 }
 
 /// What a compile saw of a granted repository: each discovered instruction
@@ -149,15 +224,21 @@ pub struct Observed {
     /// makes the file keep waiting.
     pub write: Option<Seen>,
     /// Whether this compile holds a change back: `ask` posture, **or** a
-    /// session carrying `injection`, which holds whatever the posture says
-    /// (S31-1). It is the decision rather than the setting, so every reader
-    /// below acts on one answer and cannot disagree about which input
-    /// produced it.
+    /// session carrying `injection`, **or** a stored [`Held`] from the
+    /// writer key, each of which holds whatever the others say (S31-1). It
+    /// is the decision rather than the setting, so every reader below acts
+    /// on one answer and cannot disagree about which input produced it.
     pub ask: bool,
-    /// Whether the holder is the session's label rather than the posture.
-    /// It changes only what the block's line *says*: the hold itself is the
-    /// same hold, and `ask` above is what performs it.
+    /// Whether the holder is the *reading* session's label rather than the
+    /// posture. It changes only what the block's line *says*: the hold
+    /// itself is the same hold, and `ask` above is what performs it.
     pub flagged: bool,
+    /// The writer key's stored hold, when there is one: a file of this
+    /// repository moved under a flagged session's acting call, and is held
+    /// for every session until the owner's yes. It outranks the other two in
+    /// the line, because it is the only one that says something about a
+    /// session OTHER than the one reading.
+    pub held: Option<Held>,
 }
 
 impl Observed {
@@ -187,7 +268,16 @@ impl Observed {
             return None;
         }
         let what = names(&self.changes);
-        Some(if self.flagged {
+        Some(if let Some(h) = &self.held {
+            format!(
+                "Project instructions changed since the owner last read them: {what}. \
+                 They moved during a call of a session that carries the `injection` \
+                 label ({}), so their new text is not here for any session: he grants \
+                 the repository again (`theseus project untrust`, then `theseus project \
+                 trust`) once he has read it.",
+                h.by
+            )
+        } else if self.flagged {
             format!(
                 "Project instructions changed since the owner last read them: {what}. \
                  This session carries the `injection` label, so their new text is not \
@@ -270,7 +360,8 @@ pub fn observe(
     flagged: bool,
 ) -> Observed {
     let id = crate::flow::spec::repo_id(root);
-    let ask = cfg.project.on_change() == OnChange::Ask || flagged;
+    let held = Held::read(store, &id);
+    let ask = cfg.project.on_change() == OnChange::Ask || flagged || held.is_some();
     let at_ms = theseus_protocol::now_unix_ms();
     let now = sighting(files, found, at_ms);
     let old = Seen::read(store, &id);
@@ -317,5 +408,84 @@ pub fn observe(
         write,
         ask,
         flagged,
+        held,
     }
+}
+
+/// What a flagged session's acting call did to a granted repository's
+/// instruction files, when it moved any.
+#[derive(Debug, Clone)]
+pub struct Wrote {
+    /// The same observation the compile makes, taken at the moment of the
+    /// call: the rows to write (`fresh`) and the sighting to store
+    /// (`write`), which is `ask`'s -- what the owner read does NOT move, so
+    /// the file keeps waiting, and only what has been said about moves, so
+    /// one change is one row and not one a call.
+    pub observed: Observed,
+    /// The hold to store, which is what makes the next CLEAN session wait
+    /// too.
+    pub held: Held,
+}
+
+/// **The writer key** (S31-1). What a session carrying `injection` did to a
+/// granted repository's instruction files with the acting call that has just
+/// run in `cwd`, or `None` when it did nothing to them -- which is the
+/// overwhelmingly common answer, and the only one that costs anything less
+/// than a few digests.
+///
+/// Called after each acting call of a flagged session and nowhere else
+/// ([`crate::content::acts`] decides "acting", the same predicate the
+/// freeze reads, so the set of calls a label refuses and the set it watches
+/// cannot drift apart). The cost is the digests of the files a grant covers,
+/// which the reader's stat-based cache answers, on flagged sessions only,
+/// after acting calls only.
+///
+/// It asks [`observe`] with `flagged` true rather than building a second
+/// comparison, so the row this writes and the row a compile writes are the
+/// same row from the same code on the same inputs. What it adds is the
+/// [`Held`] record: the compile's hold ends with the session that carries
+/// the label, and this one does not.
+///
+/// **Edges, decided here rather than left implicit:**
+///
+/// - A file that moved under the call for some other reason (a `git pull` in
+///   another terminal) is held. That errs the safe way, and the cost of
+///   erring is one re-grant.
+/// - A file the call CREATED is held: a `CLAUDE.md` where there was none is
+///   the same channel as an edit, and `diff` already reports it as a change
+///   with an empty old digest.
+/// - A file the call DELETED is named in the row and held in nothing: there
+///   is no new text to withhold. Its absence is what every session gets,
+///   which is not a channel into anybody's instruction block.
+/// - A background job that writes AFTER its call has returned is not seen by
+///   that call's sweep. The next acting call of the session catches it; a
+///   clean session that opens before then does not. Said plainly because it
+///   is the one hole this leaves.
+pub fn wrote(
+    cfg: &crate::config::Config,
+    store: &crate::store::Store,
+    files: &ContextFiles,
+    cwd: &Path,
+    session: &str,
+) -> Option<Wrote> {
+    let found = super::discover(&cfg.state_dir(), cwd);
+    let root = found.root.as_deref()?;
+    if found.project.is_empty() || !super::trust::granted(store, root) {
+        return None;
+    }
+    let observed = observe(cfg, store, files, root, &found.project, true);
+    if observed.changes.is_empty() {
+        return None;
+    }
+    let held = Held {
+        files: observed
+            .changes
+            .iter()
+            .filter(|c| !c.is_gone())
+            .map(|c| (c.path.clone(), c.new.clone()))
+            .collect(),
+        by: session.to_string(),
+        at_ms: theseus_protocol::now_unix_ms(),
+    };
+    Some(Wrote { observed, held })
 }

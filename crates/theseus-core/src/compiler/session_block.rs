@@ -26,8 +26,11 @@
 //! A granted repository's file that has *changed* since the owner last read
 //! it is named here too (§8, "After a grant"), and it is named and not read
 //! at `[project] on_change = "ask"`, or when the compiling session carries
-//! `injection` -- which holds the new text whatever that setting says
-//! (S31-1). `turn/project_step.rs` is the same notice's ledger half.
+//! `injection`, or when the file moved under the acting call of a session
+//! that carried it -- the last of which holds the new text for **every**
+//! session, this one included, whether or not it carries anything (S31-1's
+//! two keys, `project_context::change`). Each holds whatever that setting
+//! says. `turn/project_step.rs` is the same notice's ledger half.
 //!
 //! This block takes **no** breakpoint (`layers::cache_layout` leaves it
 //! unmarked, whatever its size). The provider's four are the header, the
@@ -76,10 +79,16 @@ impl TurnRunner {
     /// `flagged` is whether the session carries `injection`
     /// (`SessionRecord::flagged`): a granted repository's *changed*
     /// instruction file is then named and not read, whatever `[project]
-    /// on_change` says (S31-1). Every caller passes what the session's own
-    /// record says, and the turn reads it **once** and hands the same answer
-    /// here and to `observe_project`, so the block and the ledger cannot
-    /// disagree about what was carried.
+    /// on_change` says (S31-1's reader key). Every caller passes what the
+    /// session's own record says, and the turn reads it **once** and hands
+    /// the same answer here and to `observe_project`, so the block and the
+    /// ledger cannot disagree about what was carried.
+    ///
+    /// It is **not** the only thing that holds a change. The writer key's
+    /// stored hold is read inside `project_context::change::observe`, from
+    /// the store, and needs nothing of this session: a file that moved under
+    /// a labelled session's acting call is held here for a session carrying
+    /// nothing at all, which is the case the reader key cannot see.
     pub fn session_block(&self, dir: Option<&str>, place: PlaceView, flagged: bool) -> String {
         if place.class == PlaceClass::Shared || !self.tools.enabled() {
             return String::new();

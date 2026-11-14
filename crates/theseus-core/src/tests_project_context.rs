@@ -1170,6 +1170,11 @@ async fn a_flagged_sessions_write_is_held_for_every_session(
     let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
     assert_eq!(rows.len(), 1, "{mode:?}/{by:?}: said once: {rows:?}");
     assert_eq!(rows[0].data["carried"], false, "{mode:?}/{by:?}: {rows:?}");
+    assert_eq!(
+        rows[0].data["wrote"].as_str(),
+        Some(session.as_str()),
+        "{mode:?}/{by:?}: the row names the session whose call it moved under: {rows:?}"
+    );
 }
 
 #[tokio::test]
@@ -1313,6 +1318,18 @@ async fn an_unflagged_sessions_edit_is_carried_as_before(mode: crate::content::I
     let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
     assert_eq!(rows.len(), 1, "{mode:?}: {rows:?}");
     assert_eq!(rows[0].data["carried"], true, "{mode:?}: {rows:?}");
+    assert!(
+        rows[0].data["wrote"].is_null(),
+        "{mode:?}: no session is named, because none is keyed: {rows:?}"
+    );
+    assert!(
+        crate::project_context::change::Held::read(
+            &r.core.store,
+            &crate::flow::spec::repo_id(&repo)
+        )
+        .is_none(),
+        "{mode:?}: and the writer key stored nothing"
+    );
 }
 
 #[tokio::test]
@@ -1345,6 +1362,11 @@ async fn a_writer_keyed_hold_survives_a_restart(mode: crate::content::InjectionM
     assert!(
         block.contains("injection"),
         "{mode:?}: and the new daemon says why, from the store:\n{block}"
+    );
+    assert!(
+        crate::project_context::change::Held::read(&core.store, &crate::flow::spec::repo_id(&repo))
+            .is_some_and(|h| h.by == session),
+        "{mode:?}: the stored hold still names the session whose call moved it"
     );
 }
 

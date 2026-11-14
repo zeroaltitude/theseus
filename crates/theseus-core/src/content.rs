@@ -564,6 +564,20 @@ pub fn local_read(tool: &str) -> bool {
         .any(|p| tool.starts_with(p))
 }
 
+/// Whether a call **acts**: anything that is not a local read of files and
+/// code — a write, a program, and everything that leaves this machine.
+///
+/// One function with two readers, deliberately (S31-1). [`refusal`] asks it
+/// to decide what a frozen session may not do; `project_context::change::wrote`
+/// asks it to decide after which calls a granted repository's instruction
+/// files are worth re-digesting. Those two sets must be the same set: a call
+/// that can change a file is a call the writer key must watch, and a tool
+/// added to one list and not the other would be a hole in whichever was
+/// missed.
+pub fn acts(class: ToolClass, tool: &str) -> bool {
+    !(class == ToolClass::Read && local_read(tool))
+}
+
 /// Why an `injection` label refuses this call, or `None`. Read in
 /// `ToolRuntime::refusal_at`, beside plan mode's refusal, which this follows
 /// word for word: after the whole order and the allow list, the call is
@@ -579,7 +593,7 @@ pub fn refusal(
     class: ToolClass,
     tool: &str,
 ) -> Option<String> {
-    if mode == InjectionMode::Notify || (class == ToolClass::Read && local_read(tool)) {
+    if mode == InjectionMode::Notify || !acts(class, tool) {
         return None;
     }
     let l = flags?.label(Flag::Injection)?;

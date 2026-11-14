@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use theseus_kernel::job::{spawn_detached, WrapperArgs};
 use theseus_kernel::{Accepted, Action, Completion, Outcome, Proposal, RetryClass, Spool};
 use theseus_protocol::{ConfirmRequest, GateRecord, GateResult, LedgerKind, PolicyNotified};
-use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolCtx};
+use theseus_tools::{Access, Backend, Plan, Registry, Retry, Tool, ToolClass, ToolCtx};
 
 use crate::broker::Broker;
 use crate::fact;
@@ -996,10 +996,79 @@ impl ToolRuntime {
             return Ok((self.ask(tc, a, call, tool.name(), g)?, judged));
         }
         let (posture, class) = (g.decision.posture, g.class);
+        let acted = g.plan.class.unwrap_or(tool.class());
         let outcome = self
             .execute(tc, &a.correlation_id, tool, call, posture, class)
             .await?;
+        self.wrote_project(tc, tool.name(), acted);
         Ok((outcome, judged))
+    }
+
+    /// **The writer key** (S31-1): after an ACTING call of a session carrying
+    /// `injection`, whether a granted repository's instruction file moved
+    /// under it. If one did, its new text is held out of **every** session's
+    /// instruction block until the owner grants the repository again, and the
+    /// row says whose call it moved under.
+    ///
+    /// This is where it has to be. The hold the compile performs keys on the
+    /// session that is *reading*, and a change is found there by comparing a
+    /// stored sighting later, which cannot say who wrote. **The daemon is
+    /// present at the moment of every acting call**, and at that moment the
+    /// comparison it makes is about the call that just ran. That is what
+    /// closes the case the owner's ruling names: a flagged session edits the
+    /// file and a CLEAN session opens next.
+    ///
+    /// Three gates, cheapest first, and the common path stops at the second:
+    /// the call must act ([`crate::content::acts`], the same predicate the
+    /// freeze reads), the session must carry the label (one keyed store
+    /// read), and the directory must be in a granted repository. Only then
+    /// are any digests taken.
+    ///
+    /// Nothing is recorded when nothing moved, which is the answer almost
+    /// every time.
+    fn wrote_project(&self, tc: &TurnCtx<'_>, tool: &str, class: ToolClass) {
+        if !crate::content::acts(class, tool) {
+            return;
+        }
+        let Some(core) = self.jobs.core() else { return };
+        if !core.runner.session_flagged(tc.session_id) {
+            return;
+        }
+        let cwd = self.cwd_for(tc.dir);
+        let Some(w) = crate::project_context::change::wrote(
+            &core.cfg,
+            tc.store,
+            &core.runner.context_files,
+            &cwd,
+            tc.session_id,
+        ) else {
+            return;
+        };
+        for c in &w.observed.fresh {
+            tc.record(&crate::fact::project::ProjectChanged {
+                id: &w.observed.id,
+                root: &w.observed.root,
+                path: &c.path,
+                old: &c.old,
+                new: &c.new,
+                carried: false,
+                wrote: Some(tc.session_id),
+            });
+        }
+        // The hold, and the sighting that goes with it: what the owner read
+        // does not move (so the file keeps waiting), and what has been said
+        // about does (so one change is one row and not one a call).
+        let mut records = vec![w.held.record(&w.observed.id)];
+        if let Some(seen) = &w.observed.write {
+            records.push(seen.record(&w.observed.id));
+        }
+        for r in records {
+            match r.and_then(|r| tc.store.defer(r)) {
+                Ok(()) => {}
+                Err(e) => tracing::warn!(repo = %w.observed.id, error = %e,
+                    "a granted repository's hold was not stored"),
+            }
+        }
     }
 
     /// `security.v3` at `gate` (M5 step 24): the choice to judge the call,
