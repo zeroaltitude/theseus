@@ -85,6 +85,51 @@ export function secretsLamp(h: Health | undefined): Lamp {
   return { id: 'secrets', name: 'secrets', tone: 'wait', word: s.state, detail }
 }
 
+/** Theseus's memory search, which health reports as the index process: its state in plain words, and the card in
+ *  full words: how much it holds, how far behind the log it is, whether searching by meaning is on, how often it has
+ *  had to restart, and its last problem. Ready is well; catching up or rebuilding waits; down or stalled faults. */
+export function memoryLamp(h: Health | undefined): Lamp {
+  const x = h?.index
+  const name = 'memory'
+  if (!x) return { id: 'memory', name, tone: 'idle', word: '—', detail: "Theseus's memory search: not reported" }
+  const st = x.status
+  const parts: string[] = []
+  if (st) {
+    parts.push(`${plural(st.nodes, 'note')} held`)
+    if (st.vectors) parts.push(`searching by meaning is on (${plural(st.vectors.vectors, 'vector')}${st.vectors.pending ? `, ${st.vectors.pending.toLocaleString('en-US')} still to do` : ''})`)
+    else parts.push('searching by meaning is off')
+    if (st.lag.ms > 0) parts.push(`${lagWords(st.lag.ms)} behind the latest`)
+  }
+  const restarts = x.tender?.restarts ?? 0
+  if (restarts > 0) parts.push(`restarted ${plural(restarts, 'time')}`)
+  const problem = st?.last_error ?? x.why
+  if (problem) parts.push(`last problem: ${problem}`)
+  const detail = `Theseus's memory search: ${[memoryState(x.state).sentence, ...parts].join(' · ')}`
+  const m = memoryState(x.state)
+  return { id: 'memory', name, tone: m.tone, word: m.word, detail }
+}
+
+/** How the process's own state reads to a person. A word this build does not know is shown as it came, and waits. */
+function memoryState(state: string): { word: string; tone: Tone; sentence: string } {
+  switch (state) {
+    case 'ready': return { word: 'ready', tone: 'ok', sentence: 'ready' }
+    case 'off': return { word: 'off', tone: 'idle', sentence: 'switched off' }
+    case 'starting': return { word: 'starting', tone: 'wait', sentence: 'starting' }
+    case 'backfilling': return { word: 'catching up', tone: 'wait', sentence: 'catching up on what was written before' }
+    case 'stalled': return { word: 'stalled', tone: 'fault', sentence: 'stalled' }
+    case 'down': return { word: 'down', tone: 'fault', sentence: 'not running' }
+    default: return { word: state, tone: 'wait', sentence: state }
+  }
+}
+
+/** A lag in the words a person says it in: under a minute in seconds, then minutes, then hours. */
+function lagWords(ms: number): string {
+  const s = Math.round(ms / 1000)
+  if (s < 90) return `${Math.max(1, s)} s`
+  const m = Math.round(s / 60)
+  return m < 90 ? `${m} min` : `${Math.round(m / 60)} h`
+}
+
 /** The web UI's door: a fault when any local user is served (no owner check), a wait while a dev page is let in,
  *  after a refusal, or on a build with no owner check; otherwise ok. A build with the check (theseus-3qf) always
  *  reports `refused_peer`. */

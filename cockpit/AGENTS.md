@@ -328,7 +328,7 @@ build.
   flattens a turn's trace for the flame chart and the deck's timeline; `src/lib/sessionrows.ts` gives the session deck
   its session's rows from the one copy of the ledger (theseus-kuzw).
 - The frame (theseus-hnof.5): `src/components/Heartbeat.tsx`, the heartbeat bar across every view (the profile chip
-  and its menu, UP, the health lamps with `src/lib/healthwords.ts`'s words, and the moment's "then" under the time
+  and its menu, UP, the health lamps with `src/lib/healthwords.ts`'s words (`memory` is Theseus's memory search, from health's `index` block: its state in plain words, its notes and lag, whether searching by meaning is on, its restarts and last problem; theseus-43g1), and the moment's "then" under the time
   machine); `src/lib/flow.ts` (rows a second, on the activity strip's bar); `src/lib/activity.ts` (the strip's lines
   folded, numbers aside, every line kept); `src/lib/mode.ts` and `src/lib/daylight.ts` (night, daylight, or the
   system's, night by default (theseus-001m), and each night colour's daylight step); `public/mode.js` (the mode's class

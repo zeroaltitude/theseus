@@ -2,9 +2,10 @@
 // word beside its lamp, its card in a sentence, and the bar's summary of the ones that need a look. Invented health.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   binaryLamp, configLamp, discordLamp, diskLamp, freeWords, healthSummary, kernelLamp, linkLamp, providerLamp, secretsLamp,
-  webLamp, type Lamp,
+  memoryLamp, webLamp, type Lamp,
 } from '../src/lib/healthwords.ts'
 
 type D = Record<string, any>
@@ -76,4 +77,49 @@ test('the summary names the lamps that need a look, the worst first, or says all
   const bad = healthSummary([lamp('link', 'ok', '9 ms'), lamp('web', 'wait', 'dev page'), lamp('provider', 'fault', '1 error'), lamp('disk', 'wait', '1.5 GB left')])
   assert.equal(bad.tone, 'fault')
   assert.equal(bad.words, 'provider 1 error · web dev page · disk 1.5 GB left')
+})
+
+// Theseus's memory search (theseus-43g1): health carries the index process's state, counts, lag, vectors, last error and
+// restarts; the bar shows them as a lamp named for what a person knows it as, never for the process.
+const index = (over: D = {}): any => ({
+  state: 'ready',
+  tender: { name: 'index', state: 'running', restarts: 0, adopted: false, started_at_ms: 1, last_exit_ms: 0, backoff_ms: 0 },
+  status: {
+    state: 'ready', nodes: 12400, lag: { bytes: 0, ms: 0 }, vectors: { vectors: 31000, pending: 0 }, last_error: undefined, rebuilds: 0,
+  },
+  ...over,
+})
+
+test('the memory lamp says ready, catching up, down or off in plain words, with its numbers in the card', () => {
+  const ready = memoryLamp(health({ index: index() }))
+  assert.deepEqual([ready.id, ready.name, ready.word, ready.tone], ['memory', 'memory', 'ready', 'ok'])
+  assert.equal(ready.detail, "Theseus's memory search: ready · 12,400 notes held · searching by meaning is on (31,000 vectors)")
+  const behind = memoryLamp(health({ index: index({ status: { ...index().status, lag: { bytes: 900, ms: 2400 } } }) }))
+  assert.match(behind.detail, / · 2 s behind the latest/)
+  const later = memoryLamp(health({ index: index({ status: { ...index().status, lag: { bytes: 9, ms: 600_000 } } }) }))
+  assert.match(later.detail, / · 10 min behind the latest/)
+  const catching = memoryLamp(health({ index: index({ state: 'backfilling', status: { ...index().status, state: 'backfilling', vectors: { vectors: 100, pending: 4000 } } }) }))
+  assert.deepEqual([catching.word, catching.tone], ['catching up', 'wait'])
+  assert.match(catching.detail, /searching by meaning is on \(100 vectors, 4,000 still to do\)/)
+  const down = memoryLamp(health({ index: { state: 'down', why: 'the tender exited: signal 9', tender: { ...index().tender, restarts: 3, state: 'backoff' } } }))
+  assert.deepEqual([down.word, down.tone], ['down', 'fault'])
+  assert.match(down.detail, /not running · restarted 3 times · last problem: the tender exited: signal 9/)
+  const sick = memoryLamp(health({ index: index({ status: { ...index().status, last_error: 'a frame would not read' } }) }))
+  assert.match(sick.detail, / · last problem: a frame would not read$/)
+  const off = memoryLamp(health({ index: { state: 'off' } }))
+  assert.deepEqual([off.word, off.tone, off.detail], ['off', 'idle', "Theseus's memory search: switched off"])
+  assert.deepEqual([memoryLamp(health()).word, memoryLamp(health()).tone], ['—', 'idle'])
+  assert.deepEqual([memoryLamp(health({ index: index({ state: 'strange' }) })).word, memoryLamp(health({ index: index({ state: 'strange' }) })).tone], ['strange', 'wait'])
+  assert.equal(memoryLamp(health({ index: index({ status: { ...index().status, vectors: undefined } }) })).detail.includes('searching by meaning is off'), true)
+})
+
+test('the memory lamp never names the process, and a fault in it reaches the bar\'s summary', () => {
+  for (const state of ['ready', 'backfilling', 'starting', 'stalled', 'down', 'off']) {
+    const l = memoryLamp(health({ index: index({ state }) }))
+    assert.doesNotMatch(`${l.name} ${l.word} ${l.detail}`.replace(/restarted/, ''), /index|tender/i, state)
+  }
+  const down = memoryLamp(health({ index: { state: 'down' } }))
+  assert.equal(healthSummary([linkLamp({ status: 'open', rtt: 9 }), down]).words, 'memory down')
+  const bar = readFileSync(new URL('../src/components/Heartbeat.tsx', import.meta.url), 'utf8')
+  assert.match(bar, /webLamp\(h\), memoryLamp\(h\),/, 'the bar draws it')
 })
