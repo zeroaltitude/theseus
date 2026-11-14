@@ -37,8 +37,7 @@ pub fn waiting_here(core: &Core, session: &str) -> Result<Vec<ConfirmRequest>> {
         .confirm_list()?
         .into_iter()
         .filter(|q| {
-            q.session_id == session
-                || (here.is_some() && core.outbox.target(&q.session_id) == here)
+            q.session_id == session || (here.is_some() && core.outbox.target(&q.session_id) == here)
         })
         .collect())
 }
@@ -53,8 +52,7 @@ pub fn held_here(core: &Core, session: &str) -> Result<Vec<HeldCall>> {
         .into_iter()
         .filter(|h| h.allowed.is_none())
         .filter(|h| {
-            h.session_id == session
-                || (here.is_some() && core.outbox.target(&h.session_id) == here)
+            h.session_id == session || (here.is_some() && core.outbox.target(&h.session_id) == here)
         })
         .collect())
 }
@@ -127,9 +125,11 @@ impl Board {
         #[allow(unreachable_code)]
         let (core, said) = self.standing(tc)?;
         if !said.owner_input {
-            return Err("this tool acts only on the operator's own message, from a private \
+            return Err(
+                "this tool acts only on the operator's own message, from a private \
                         place, and this turn's message is not one. Nothing was allowed."
-                .into());
+                    .into(),
+            );
         }
         let a = allow_args(input)?;
         let held = held_here(&core, tc.session_id)
@@ -181,8 +181,7 @@ impl Board {
         }
         #[allow(unreachable_code)]
         let (core, said) = self.standing(tc)?;
-        let _: super::tools::SyncArgs =
-            theseus_tools::parse(input).map_err(|e: String| e)?;
+        let _: super::tools::SyncArgs = theseus_tools::parse(input).map_err(|e: String| e)?;
         core.import_act(&said.who)?;
         let started = core.sync_request_for(Some(tc.session_id), &said.who.label);
         Ok((
@@ -206,13 +205,7 @@ impl NotOne {
     /// The refusal the model reads, naming each candidate so the next turn can
     /// ask the operator which they mean. **Nothing is ever guessed**: the rule
     /// `undo.allow` takes by id is the rule here.
-    fn said<T>(
-        self,
-        field: &str,
-        kind: &str,
-        all: &[T],
-        name: impl Fn(&T) -> String,
-    ) -> String {
+    fn said<T>(self, field: &str, kind: &str, all: &[T], name: impl Fn(&T) -> String) -> String {
         let list = |ix: &[usize]| {
             ix.iter()
                 .filter_map(|i| all.get(*i))

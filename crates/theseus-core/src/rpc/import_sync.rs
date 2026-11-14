@@ -41,8 +41,8 @@ use serde_json::Value;
 use theseus_protocol::import_sync::{ImportSyncRecord, ImportSyncResult, SyncPeople};
 use theseus_protocol::method;
 
-use super::server::{parse, Conn, RpcFailure};
 use super::confirms::Act;
+use super::server::{parse, Conn, RpcFailure};
 use super::{import, Core};
 use crate::import::people;
 use crate::import::sync::STATE_KEY;

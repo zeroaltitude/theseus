@@ -29,6 +29,7 @@
 //!   the `security` pack's brake. `security.v1` was asked beside it until
 //!   theseus-rwpbg.6 and is unwired.
 
+pub mod allow_said;
 pub mod categorize;
 pub mod citation;
 pub mod compare;
@@ -39,7 +40,6 @@ pub mod delay;
 pub mod families;
 pub mod gate;
 pub mod heard;
-pub mod allow_said;
 pub mod inbound;
 pub(crate) mod job;
 pub mod ladder;

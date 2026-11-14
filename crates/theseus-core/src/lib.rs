@@ -259,6 +259,8 @@ mod tests_activation_search;
 #[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
+mod tests_answer_in_words;
+#[cfg(test)]
 #[cfg(test)]
 mod tests_approvals;
 #[cfg(test)]
@@ -286,13 +288,11 @@ mod tests_capture;
 #[cfg(test)]
 mod tests_categorize;
 #[cfg(test)]
-mod tests_answer_in_words;
-#[cfg(test)]
-mod tests_chat_acts;
-#[cfg(test)]
 mod tests_ceilings;
 #[cfg(test)]
 mod tests_census;
+#[cfg(test)]
+mod tests_chat_acts;
 #[cfg(test)]
 mod tests_check;
 #[cfg(test)]

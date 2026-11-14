@@ -120,7 +120,9 @@ pub struct Heard {
 
 impl Heard {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Pending>> {
-        self.by_session.lock().unwrap_or_else(PoisonError::into_inner)
+        self.by_session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Stage `said` for the next turn in `session`. An unclaimed message is

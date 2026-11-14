@@ -812,8 +812,8 @@ mod security2;
 mod sweep;
 mod sweep_names;
 
-pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use allow_said::AllowSaidInput;
+pub use citation::{pair_key, CitationInput, CitedSentence, CITATION_PAIRS};
 pub use compare::{CompareInput, CompareReply};
 pub use content::{
     asks_injection, builder_version as content_builder_version, ContentInput, OPERATOR_MESSAGE,

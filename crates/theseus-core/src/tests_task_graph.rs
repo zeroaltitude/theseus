@@ -117,6 +117,18 @@ pub(crate) struct Rig {
 }
 
 pub(crate) fn rig_on(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config)) -> Rig {
+    rig_parts(dir, tweak, |_| {})
+}
+
+/// `rig_on`, with a say over the `Parts` the core is built from: a rig whose
+/// judge must really answer needs a secret board carrying `jev_api_key`, or
+/// the client is never built and no call is ever judged
+/// (`tests_chat_acts::rig_judged`).
+pub(crate) fn rig_parts(
+    dir: tempfile::TempDir,
+    tweak: impl FnOnce(&mut Config),
+    parts: impl FnOnce(&mut crate::rpc::Parts),
+) -> Rig {
     let root = dir.path().join("work");
     std::fs::create_dir_all(&root).unwrap();
     let mut cfg = Config::example();
@@ -133,7 +145,9 @@ pub(crate) fn rig_on(dir: tempfile::TempDir, tweak: impl FnOnce(&mut Config)) ->
         report: Mutex::new("Charted every buoy in the outer harbour.".into()),
         hold_tasks: std::sync::atomic::AtomicBool::new(false),
     });
-    let core = Core::build(crate::rpc::Parts::for_tests(cfg, model.clone(), store)).unwrap();
+    let mut p = crate::rpc::Parts::for_tests(cfg, model.clone(), store);
+    parts(&mut p);
+    let core = Core::build(p).unwrap();
     core.runner.place_rule.bind_one(crate::places::BoundPlace {
         target: TARGET.into(),
         name: "DM".into(),

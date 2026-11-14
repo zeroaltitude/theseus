@@ -251,10 +251,10 @@ impl Core {
         if !ran.ok() {
             tracing::warn!(text, "the on-demand sync did not work");
         }
-        if let Err(e) = self
-            .outbox
-            .to_operator(asked_in, serde_json::json!({"kind": "notice", "text": text}))
-        {
+        if let Err(e) = self.outbox.to_operator(
+            asked_in,
+            serde_json::json!({"kind": "notice", "text": text}),
+        ) {
             tracing::warn!(error = %format!("{e:#}"), "the sync's report could not be posted");
         }
     }

@@ -26,7 +26,7 @@ use crate::judge::undo::RESHAPEABLE;
 use crate::ledger::LedgerRow;
 use crate::session::SessionRecord;
 use crate::test_support::until;
-use crate::tests_task_graph::{rig_on, session, Rig};
+use crate::tests_task_graph::{rig_parts, session, Rig};
 use crate::{Config, Core};
 
 /// The Discord thread an activity thread of the owner's runs in, bound private.
@@ -70,28 +70,32 @@ fn jev_says(says_run: f64) -> FakeJev {
 /// and `allow_said.v1` so the chat act's second reading is asked. Every other
 /// pack is off, so a count of Jev's requests counts these two alone.
 fn rig_judged(jev: &FakeJev, tweak: impl FnOnce(&mut Config)) -> Rig {
-    let r = rig_on(tempfile::tempdir().unwrap(), |c| {
-        c.judge.enabled = true;
-        c.judge.api_base = jev.base();
-        c.judge.connect_secs = 1;
-        c.judge.total_secs = 3;
-        for p in crate::judge::inbound::PACKS {
-            c.judge.packs.insert((*p).into(), crate::tests_judge::off());
-        }
-        for (p, _) in crate::judge::WIRED {
-            if *p != crate::judge::undo::PACK_NAME {
+    let r = rig_parts(
+        tempfile::tempdir().unwrap(),
+        |c| {
+            c.judge.enabled = true;
+            c.judge.api_base = jev.base();
+            c.judge.connect_secs = 1;
+            c.judge.total_secs = 10;
+            for p in crate::judge::inbound::PACKS {
                 c.judge.packs.insert((*p).into(), crate::tests_judge::off());
             }
-        }
-        // ...except the one this card added, which must be ON for the
-        // defence-in-depth cases to mean anything.
-        c.judge
-            .packs
-            .remove(crate::chat_acts::judged::PACK);
-        tweak(c);
-    });
-    // The Jev client is built lazily; a test that counts its requests must
-    // warm it first, as `toolrun::tests_undo`'s rig does.
+            for (p, _) in crate::judge::WIRED {
+                if *p != crate::judge::undo::PACK_NAME {
+                    c.judge.packs.insert((*p).into(), crate::tests_judge::off());
+                }
+            }
+            // ...except the one this card added, which must be ON for the
+            // defence-in-depth cases to mean anything.
+            c.judge.packs.remove(crate::chat_acts::judged::PACK);
+            tweak(c);
+        },
+        // Without a board carrying `jev_api_key` the Jev client is never
+        // built, nothing is judged, and a call that should be HELD simply
+        // runs. That cost three red runs; it is the one thing a judged rig
+        // cannot leave to the default.
+        |p| p.secrets = crate::tests_judge::board(),
+    );
     crate::tests_judge::warm(&r.core);
     r
 }
@@ -235,7 +239,11 @@ async fn the_allow_tool_runs_the_original_once_and_its_row_names_the_tool_route(
     // The ORIGINAL call, proposed again unchanged, runs — and exactly once.
     r.calls(&[("fs_write", write_call(&p))]);
     say(&r, &sid, "Go on then.").await;
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), NOW, "the original ran");
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        NOW,
+        "the original ran"
+    );
     let spent = rows(&r, "tool.hold_overridden");
     assert_eq!(spent.len(), 1, "one allowance spent, once: {spent:?}");
     assert!(
@@ -274,7 +282,11 @@ async fn the_second_reading_refuses_a_call_his_message_did_not_ask_for() {
         "nothing was allowed"
     );
     assert!(held(&r)[0].allowed.is_none(), "the hold stands");
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), WAS, "and it never ran");
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        WAS,
+        "and it never ran"
+    );
 }
 
 /// **The same with the judge unavailable: the call STANDS, and the row says it
@@ -368,7 +380,8 @@ async fn a_refused_chat_act_leaves_the_held_calls_own_word_alone() {
         "every held call keeps the word the repeat cap counts: {again:?}"
     );
     assert_eq!(
-        crate::turn::repeat_step::MAX_REPEATS, 3,
+        crate::turn::repeat_step::MAX_REPEATS,
+        3,
         "the cap itself is untouched by this card"
     );
 }
@@ -392,11 +405,17 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
 
     let a = target(&r);
     let b = a.with_file_name("elsewhere.txt");
-    r.calls(&[("fs_write", json!({"path": b.to_string_lossy(), "content": NOW}))]);
+    r.calls(&[(
+        "fs_write",
+        json!({"path": b.to_string_lossy(), "content": NOW}),
+    )]);
     say(&r, &elsewhere, "Write the other one.").await;
     r.calls(&[("fs_write", write_call(&a))]);
     say(&r, &here, "Replace the notes.").await;
-    until("two questions wait", || r.core.confirm_list().unwrap().len() == 2).await;
+    until("two questions wait", || {
+        r.core.confirm_list().unwrap().len() == 2
+    })
+    .await;
     let waiting = r.core.confirm_list().unwrap();
     assert_eq!(waiting.len(), 2, "two questions wait: {waiting:?}");
 
@@ -488,7 +507,11 @@ fn notices(r: &Rig, target: &str) -> Vec<String> {
         .open_for(target)
         .iter()
         .filter(|a| crate::outbox::kind_of(a) == "notice")
-        .filter_map(|a| crate::outbox::body_of(a)["text"].as_str().map(str::to_string))
+        .filter_map(|a| {
+            crate::outbox::body_of(a)["text"]
+                .as_str()
+                .map(str::to_string)
+        })
         .filter(|t| t.to_lowercase().contains("sync"))
         .collect()
 }
@@ -543,7 +566,9 @@ async fn asking_in_his_dm_and_in_a_thread_starts_exactly_one_sync_and_says_both_
         say(&r, sid, "Please re-import").await;
 
         let out = acted(&r, sid, crate::chat_acts::SYNC);
-        let last = out.last().unwrap_or_else(|| panic!("no result in {what}: {out:?}"));
+        let last = out
+            .last()
+            .unwrap_or_else(|| panic!("no result in {what}: {out:?}"));
         assert_eq!(last.0, "Ok", "in {what}: {out:?}");
         assert!(
             last.1.contains("The OpenClaw sync started"),
@@ -695,7 +720,10 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
 
     let _p = a_held_write(&r, &sid).await;
     let with_hold = offered("turn_1");
-    assert!(with_hold.contains(&"chat_allow_held_call".to_string()), "{with_hold:?}");
+    assert!(
+        with_hold.contains(&"chat_allow_held_call".to_string()),
+        "{with_hold:?}"
+    );
     assert!(
         !with_hold.contains(&"chat_answer_question".to_string()),
         "no question waits: {with_hold:?}"

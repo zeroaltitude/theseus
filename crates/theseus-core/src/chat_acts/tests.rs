@@ -11,7 +11,12 @@ fn the_three_are_conditional_and_no_other_tool_is() {
         assert!(conditional(n), "{n}");
         assert!(is_chat_act_wire(&theseus_tools::wire_name(n)), "{n}");
     }
-    for n in ["fs.write", "task.create", "owner_ask", "import.sync.request"] {
+    for n in [
+        "fs.write",
+        "task.create",
+        "owner_ask",
+        "import.sync.request",
+    ] {
         assert!(!conditional(n), "{n}");
     }
 }
@@ -32,11 +37,27 @@ fn a_message_is_bound_to_the_turn_it_started_and_to_no_other() {
         heard.bound("ses_1", "turn_1").is_none(),
         "unclaimed: a tool call in a turn the offer step never ran for finds nothing"
     );
-    assert_eq!(heard.claim("ses_1", "turn_1").map(|s| s.text).as_deref(), Some("run the original"));
-    assert!(heard.bound("ses_1", "turn_1").is_some(), "bound to its own turn");
-    assert!(heard.bound("ses_1", "turn_2").is_none(), "not to another turn");
-    assert!(heard.claim("ses_1", "turn_2").is_none(), "a later turn claims nothing");
-    assert_eq!(heard.len(), 0, "and the staged message is gone, not left for a third turn");
+    assert_eq!(
+        heard.claim("ses_1", "turn_1").map(|s| s.text).as_deref(),
+        Some("run the original")
+    );
+    assert!(
+        heard.bound("ses_1", "turn_1").is_some(),
+        "bound to its own turn"
+    );
+    assert!(
+        heard.bound("ses_1", "turn_2").is_none(),
+        "not to another turn"
+    );
+    assert!(
+        heard.claim("ses_1", "turn_2").is_none(),
+        "a later turn claims nothing"
+    );
+    assert_eq!(
+        heard.len(),
+        0,
+        "and the staged message is gone, not left for a third turn"
+    );
     assert!(heard.bound("ses_1", "turn_1").is_none());
 }
 
@@ -65,7 +86,10 @@ fn the_answer_description_names_what_is_waiting() {
     ]);
     assert!(two.contains("2 questions are waiting"), "{two}");
     assert!(two.contains("ask them instead of guessing"), "{two}");
-    assert!(two.contains("by its number from 1"), "the ask's own answers: {two}");
+    assert!(
+        two.contains("by its number from 1"),
+        "the ask's own answers: {two}"
+    );
 }
 
 /// The allow tool's description states the held call and whose decision it is.
