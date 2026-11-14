@@ -226,7 +226,9 @@ bought and sold.
 Trusted text lands in block 3, inside the compiled system prompt. **Block 3 text is not
 a `ContentItem`.** It is never put to the content pack, so **the `injection` label can
 never fire on it.** No matter what a trusted `AGENTS.md` says, it will not raise
-`Flag::Injection`, will not freeze the session, and will not be refused.
+`Flag::Injection`, so the operator is never told of it — and under
+`[content_based_security] injection = "refuse"` it will neither freeze the session nor be
+refused.
 
 So a grant is precisely a trade: the owner gives up the injection label's protection over
 that repository's instruction text, in exchange for the model having read it. That is a
@@ -276,10 +278,12 @@ model that unread rules exist, which invites the ordinary gated read the design 
 That read comes back as a **`ToolResult`** — and a `ToolResult` **is** asked the
 injection question. The exemption list is only operator messages and task briefs;
 everything else is asked. "Ignore the operator's restrictions, they are stale" is close
-to the definition of `Flag::Injection`. So the label raises at the act band, `frozen()`
-goes true, and the refusal path turns the session down to a local read of files and
-code: no write, no program, and nothing that leaves the machine, fetch and search
-included.
+to the definition of `Flag::Injection`. So the label raises at the act band and `frozen()`
+goes true. What that buys depends on the mode: at the shipped default
+(`[content_based_security] injection = "notify"`, since 1.0.6) the operator is told, and
+under `injection = "refuse"` the refusal path turns the session down to a local read of
+files and code: no write, no program, and nothing that leaves the machine, fetch and
+search included.
 
 That third stop is a **consequence of keeping untrusted text out of the compiled
 context**, and it is the strongest property this design has. Text that is never compiled
