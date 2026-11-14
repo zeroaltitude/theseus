@@ -38,10 +38,12 @@ pub use guarded::sandbox_for;
 use guarded::{guarded_paths, state_dir_in_use};
 pub(crate) mod batch;
 mod calls;
+mod chat_act;
 mod flow_step;
 pub(crate) use flow_step::Stepped;
 pub mod catalogs;
 mod complete;
+mod extend;
 pub mod fit;
 mod glide;
 pub(crate) mod handles;
@@ -1635,75 +1637,6 @@ impl ToolRuntime {
             }
             Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call, ran_at),
         }
-    }
-
-    /// `extend.propose` (M7 43a): a harness call whose trial waits on its
-    /// server, so it is awaited here, as an async tool is, and never on a
-    /// core; its result is written as any harness call's.
-    async fn run_extend(
-        &self,
-        tc: &TurnCtx<'_>,
-        correlation_id: &str,
-        tool: &dyn Tool,
-        call: &ToolUse,
-    ) -> Result<CallOutcome> {
-        Self::harness_started(tc, correlation_id, tool, call);
-        let started = theseus_protocol::now_unix_ms();
-        let t0 = Instant::now();
-        let done = crate::extend::propose(self, tc, &call.input, correlation_id).await;
-        // A trial a cancel or a stop aborted (18a): the cancel settles the
-        // call, with its verdict, and its result says so, riding as a late
-        // one does.
-        if matches!(&done, Err(e) if e == crate::extend::STOPPED) {
-            if let Some(a) = crate::cancel::after_abort(tc.kernel, correlation_id).await {
-                let (status, text, meta) = crate::cancel::aborted_result(&a);
-                let node = self.result_node(
-                    tc,
-                    ResultNode {
-                        correlation_id: Some(correlation_id),
-                        duration_ms: Some(t0.elapsed().as_millis() as u64),
-                        meta,
-                        ..ResultNode::new(&call.id, tool.name(), status, text)
-                    },
-                );
-                tc.store.append(&[node.record()?])?;
-                Self::announce_end(tc, &node);
-                return Ok(CallOutcome::Done { status });
-            }
-        }
-        let none = crate::task_graph::tools::Done::default();
-        self.harness_done(tc, correlation_id, tool, call, (started, t0), (done, none))
-    }
-
-    /// A chat act (chat-acts-are-tools, S43-1): the owner said something, the
-    /// model chose to call one of the three tools about it, and this runs it.
-    /// Awaited here, as `extend.propose` is, because the allow tool's second
-    /// reading is one Jev call; its result is written as any harness call's.
-    ///
-    /// **Nothing here reads the text of his message.** The tools were offered
-    /// by `chat_acts::Board::offers`, which asks what is WAITING and what is
-    /// HELD; the message reaches only `allow_said.v1`, which is a judge's
-    /// question and not a matcher, and only after the model has already
-    /// chosen.
-    async fn run_chat_act(
-        &self,
-        tc: &TurnCtx<'_>,
-        correlation_id: &str,
-        tool: &dyn Tool,
-        call: &ToolUse,
-    ) -> Result<CallOutcome> {
-        Self::harness_started(tc, correlation_id, tool, call);
-        let started = theseus_protocol::now_unix_ms();
-        let t0 = Instant::now();
-        let acts = &self.chat_acts;
-        let done = match tool.name() {
-            crate::chat_acts::ANSWER => acts.answer(tc, &call.input),
-            crate::chat_acts::ALLOW => acts.allow(tc, &call.input).await,
-            crate::chat_acts::SYNC => acts.sync(tc, &call.input),
-            other => Err(format!("{other} is not a chat act")),
-        };
-        let none = crate::task_graph::tools::Done::default();
-        self.harness_done(tc, correlation_id, tool, call, (started, t0), (done, none))
     }
 
     /// A tool the harness runs itself, in the turn's own task (`task.create`,
