@@ -253,6 +253,11 @@ struct ToolLine {
     /// its line away (theseus-8wm): that line is the only place the late
     /// end has to land.
     late: bool,
+    /// The result nodes whose ends it has taken (`end`): a turn read back from
+    /// its nodes (`refold.rs`) takes the end that asked for the rebuild from the
+    /// store, and the live event for the same node then comes, so an end is
+    /// taken once per node.
+    ended_by: Vec<String>,
 }
 
 impl ToolState {
@@ -289,6 +294,14 @@ impl ToolLine {
     /// an end from, so a stopped call, a background one and a declined one are
     /// the same line in either.
     fn end(&mut self, t: &theseus_protocol::ToolEnded) {
+        // Once per result node: a node's end is not told twice, whichever of
+        // the rebuild and the event reaches it second.
+        if !t.node_id.is_empty() {
+            if self.ended_by.contains(&t.node_id) {
+                return;
+            }
+            self.ended_by.push(t.node_id.clone());
+        }
         let status = t.status.as_str();
         // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
         let stopped = t.stopped_by.clone().filter(|_| status == "cancelled");
@@ -340,6 +353,7 @@ impl ToolLine {
             }),
             risk: None,
             late: false,
+            ended_by: Vec::new(),
         }
     }
 }

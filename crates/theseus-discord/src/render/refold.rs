@@ -16,9 +16,11 @@
 //! (`<turn>:L<n>:p<i>`, `<turn>:L<n>:tools`) and, with the lane's own rebuild
 //! (`courier/recall.rs`), edit those messages instead of posting them again.
 //! A call that had not ended is `Proposed`: the first run's own state past that
-//! is told again by the events that follow it. What only an event told (a
-//! judge's risk score on a notified call) is not durable, and a rebuilt message
-//! does not show it.
+//! is told again by the events that follow it. What only an event told is not
+//! durable, and a rebuilt message does not show it: a judge's risk score on a
+//! notified call, who answered a question a person declined, and what a job's
+//! own start said it was given. A call that waited for an answer is not kept
+//! first in a long step, as it was live.
 
 use std::collections::BTreeMap;
 
@@ -525,5 +527,56 @@ mod tests {
             "u1 went back to running: {tools}"
         );
         assert!(tools.contains("40 ms"), "{tools}");
+    }
+
+    /// The end that asks for the rebuild is already in the store when the
+    /// rebuild reads it (the core writes a result, then announces it), and its
+    /// event then comes: an L1 job's scratch note must show once, not twice.
+    #[test]
+    fn the_end_that_starts_the_rebuild_is_applied_once() {
+        use theseus_core::fact::Fact;
+        let mut nodes = before_the_restart("t1");
+        let placeholder = {
+            let (p, mut n) = result("t1", 0, "u1", 7);
+            if let Body::ToolResult { status, .. } = &mut n.body {
+                *status = ResultStatus::Background;
+            }
+            (p, n)
+        };
+        nodes.push(placeholder);
+        nodes.push(assistant("t2", 0, "back"));
+        let late = {
+            let (p, mut n) = result("t2", 0, "u1", 40);
+            if let Body::ToolResult { meta, .. } = &mut n.body {
+                *meta = json!({"detail": {"scratch": {"summary": "wrote 2 files to scratch"}}});
+            }
+            (p, n)
+        };
+        let event = theseus_core::fact::tool::ToolEnded {
+            session_id: "s",
+            turn_id: "t2",
+            node: &late.1,
+        }
+        .event()
+        .unwrap();
+        nodes.push(late);
+        let mut r = Renderer::default();
+        r.on_notification("turn.started", &json!({"session_id": "s", "turn_id": "t2"}));
+        assert!(r.needs_rebuild(&event));
+        r.rebuild(&nodes);
+        let mut ops = r.on_event(&event);
+        ops.extend(r.tick());
+        let shown = upserts(&ops);
+        let tools = shown
+            .iter()
+            .rev()
+            .find(|(k, _)| k == "t1:L0:tools")
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        assert_eq!(
+            tools.matches("wrote 2 files to scratch").count(),
+            1,
+            "{tools}"
+        );
     }
 }
