@@ -149,8 +149,11 @@ pub struct Batch {
     pub frames: u64,
     pub bytes: u64,
     /// The bytes read, as (segment, from, to): whole frames only, so a
-    /// follower that ships segments ships these ranges.
-    pub spans: Vec<(u32, u64, u64)>,
+    /// follower that ships segments ships these ranges. A follower that skips
+    /// wrong frames ([`WalFollower::skipping_wrong`]) makes no such promise: a
+    /// span may run over a frame it skipped, and none is kept for the whole
+    /// frames before a skip a read carried on from. Only the index tender skips,
+    /// and it reads neither this nor `ends`.
     /// Each span's last position, in step with `spans`: which segment holds
     /// a record (the durability tender's index rows).
     pub ends: Vec<u64>,
@@ -480,7 +483,7 @@ impl WalFollower {
                         window[i + 6],
                         window[i + 7],
                     ]) as usize;
-                    skips.from.get_or_insert((seg, i));
+                    skips.from.get_or_insert((seg, off + i as u64));
                     skips.pending.push(Skipped {
                         segment: seg,
                         offset: off + i as u64,
@@ -549,10 +552,19 @@ impl WalFollower {
                 off += i as u64;
                 continue;
             }
-            if let (Some((from_seg, from)), false) = (skips.from, carry) {
+            if let (Some((from_seg, from_at)), false) = (skips.from, carry) {
                 skips.clear();
                 self.resync = false;
-                i = if from_seg == seg { from } else { 0 };
+                // Back to where the first skipped frame began: inside this window, or (when the
+                // skip was carried here) the offset in the segment it began at.
+                i = match (from_seg == seg, from_at >= span_from) {
+                    (true, true) => (from_at - span_from) as usize,
+                    (true, false) => {
+                        off = from_at;
+                        0
+                    }
+                    (false, _) => 0,
+                };
                 if partial.is_none() && held.is_none() {
                     partial = Some("a wrong frame waits for the frame after it");
                 }

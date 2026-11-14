@@ -192,14 +192,10 @@ impl Run<'_> {
     /// One `rustfmt` over `source` on stdin, its formatted text on stdout, from the state directory
     /// (outside every tree, so no `rust-toolchain.toml` of a tree is read).
     fn rustfmt(&self, source: &[u8]) -> Result<std::process::Output, String> {
-        if let Some(chan) = &self.toolchain {
-            let out = self.once(Some(chan), source)?;
-            // Not the rustup proxy, or the pinned toolchain is not installed: the default one.
-            if out.status.success() || !String::from_utf8_lossy(&out.stderr).contains("toolchain") {
-                return Ok(out);
-            }
-        }
-        self.once(None, source)
+        // The pinned toolchain, or the default one when main pins none. A pinned one that is not
+        // installed is a format that did not run (the gate judges the tree as it is), not a reason
+        // to guess at another by reading an error's words.
+        self.once(self.toolchain.as_deref(), source)
     }
 
     fn once(&self, chan: Option<&str>, source: &[u8]) -> Result<std::process::Output, String> {
@@ -208,14 +204,23 @@ impl Run<'_> {
             c.arg(format!("+{chan}"));
         }
         c.args(["--edition", &self.edition, "--emit", "stdout"]);
-        // The tree's own config, where it has one (`--config-path` is an error for a directory that
-        // holds none).
-        if ["rustfmt.toml", ".rustfmt.toml"]
+        // The tree's own config, where it has one, else an empty one of ours: without
+        // `--config-path` rustfmt searches the state directory's parents for a config, and the
+        // gate (which runs in the tree) would not, so the two could disagree. `--config-path` is
+        // an error for a directory that holds no config, hence the empty file.
+        let config_dir = if ["rustfmt.toml", ".rustfmt.toml"]
             .iter()
             .any(|n| self.tree.dir.join(n).is_file())
         {
-            c.arg("--config-path").arg(&self.tree.dir);
-        }
+            self.tree.dir.clone()
+        } else {
+            let empty = self.place.state.join("fmt-config");
+            std::fs::create_dir_all(&empty).map_err(|e| format!("rustfmt's config: {e}"))?;
+            std::fs::write(empty.join("rustfmt.toml"), "")
+                .map_err(|e| format!("rustfmt's config: {e}"))?;
+            empty
+        };
+        c.arg("--config-path").arg(config_dir);
         c.current_dir(&self.place.state)
             .env("RUSTUP_AUTO_INSTALL", "0")
             .stdin(Stdio::piped())

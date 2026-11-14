@@ -874,3 +874,38 @@ fn a_run_of_wrong_frames_that_fills_the_window_is_read_past() {
     assert_eq!(skipped, 2);
     assert_eq!(*f.stop(), Stop::CaughtUp);
 }
+
+/// The third review's N1: a run of wrong frames that a carried read reaches the live tail of is not
+/// skipped, and the stop names the offset the cursor is at, not one past the wrong frames.
+#[test]
+fn a_carried_skip_that_reaches_the_tail_leaves_the_stop_at_the_cursor() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    for i in 0..4 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    plant_wrong_frame(dir.path(), 1, 2);
+    plant_wrong_frame(dir.path(), 1, 3);
+    let frame = (fs::metadata(seg(dir.path(), 1)).unwrap().len() / 4) as usize;
+    let mut f = WalFollower::open(dir.path(), Cursor::start())
+        .unwrap()
+        .skipping_wrong();
+    // A budget of two frames: the first window holds frames 1 and 2, the carried one the wrong pair.
+    let b = f.read(2 * frame).unwrap();
+    assert_eq!(
+        b.records.iter().map(|r| r.position).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert!(
+        b.skipped.is_empty(),
+        "no whole frame follows them: {:?}",
+        b.skipped
+    );
+    let at = f.cursor().offset;
+    assert_eq!(at, 2 * frame as u64);
+    match f.stop() {
+        Stop::Partial { offset, .. } => assert_eq!(*offset, at, "the stop is at the cursor"),
+        other => panic!("{other:?}"),
+    }
+}
