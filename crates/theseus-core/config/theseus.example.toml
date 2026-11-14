@@ -1588,6 +1588,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # pipeline_builds = 1                     # self builds at once: the pipeline starts another only while fewer
 #                                         # build and fewer self trees are open
 # min_free_gb = 40                        # free GB the build trees' filesystem keeps, or no build starts
+# max_attempts = 3                        # tries an item gets; the try that reaches it moves the item to the failed
+#                                         # list with every reason and one notice, until your `theseus self retry`
 # [self.budget]                           # one spend account for all self-improvement (the owner's to raise)
 # branch_usd = 10.0                       # one self branch, all its loops together
 # day_usd = 30.0                          # all self-improvement, per local day

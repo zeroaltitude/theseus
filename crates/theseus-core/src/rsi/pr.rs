@@ -323,6 +323,17 @@ pub async fn propose(
              session's is \"{principal}\"."
         ));
     }
+    // An item whose tries ran out builds no more until the owner's retry (issue 6).
+    if let Ok(Some(t)) = crate::task_graph::get(&core.store, &i.item) {
+        if super::backlog::attempts::capped(&t) {
+            return Err(format!(
+                "Not run: {} has used all its tries, so Theseus stopped building it. It waits \
+                 for the owner's `{}`.",
+                i.item,
+                theseus_protocol::rsi::retry_command(&i.item)
+            ));
+        }
+    }
     // Off: no tool at all; halted, before a tree is open: nothing begins.
     let halted_now = stopped(&core);
     let Some(repo) = core.cfg.self_improve.repo.clone() else {
@@ -601,8 +612,15 @@ fn told(core: &Core, tc: &TurnCtx<'_>, a: &Attempt<'_>, run: &GateRun) {
         phase: failed_phase(&run.tail),
         report: a.report.clone(),
     };
-    told_where_it_reports(core, tc, &e, run);
-    told_on_task(core, task, &e, run);
+    // A red notice already went out for this item tonight: this one is only in the note.
+    let quiet = task
+        .as_ref()
+        .is_some_and(|t| crate::rsi::backlog::attempts::red_tonight(t));
+    let capped = told_on_task(core, task, &e, run);
+    told_where_it_reports(core, tc, &e, run, quiet);
+    if let Some(text) = capped {
+        core.stage_self_digest(&text);
+    }
     core.folded_add_ended(&e);
 }
 
@@ -635,7 +653,11 @@ fn told_where_it_reports(
     tc: &TurnCtx<'_>,
     e: &crate::rsi::backlog::Ended,
     run: &GateRun,
+    quiet: bool,
 ) {
+    if quiet && run.verdict == Verdict::Red {
+        return;
+    }
     let target = core.outbox.target(tc.session_id);
     if target.is_none() && !core.runner.place_rule.owner_dm_bound() {
         return;
@@ -679,16 +701,18 @@ fn told_on_task(
     task: Option<theseus_protocol::tasks::TaskRecord>,
     e: &crate::rsi::backlog::Ended,
     run: &GateRun,
-) {
-    let Some(mut t) = task else {
-        return;
-    };
+) -> Option<String> {
+    let mut t = task?;
     let now = theseus_protocol::now_unix_ms();
     t.version += 1;
     t.updated_at_ms = now;
     t.evidence.push(theseus_protocol::tasks::TaskEvidence {
         node: None,
-        identity: format!("gate:{}", e.verdict),
+        // A gate that could not run says nothing about the item: not a try (`backlog::attempts`).
+        identity: match run.unrunnable {
+            true => "gate:unrunnable".to_string(),
+            false => format!("gate:{}", e.verdict),
+        },
         note: Some(format!(
             "{} (exit {}, {} s)",
             e.line(),
@@ -698,10 +722,16 @@ fn told_on_task(
         by: "self-pr".into(),
         at_ms: now,
     });
+    // The try that reaches the cap marks the item and is the one notice for it.
+    let capped = (run.verdict == Verdict::Red && !run.unrunnable)
+        .then(|| core.cap_check(&mut t, now))
+        .flatten();
     let written = crate::task_graph::record(&t).and_then(|r| core.store.append(&[r]));
     if let Err(err) = written {
         tracing::warn!(error = %format!("{err:#}"), "self-pr: the item's task record was not written");
+        return None;
     }
+    capped
 }
 
 /// The keel card's words (theseus-x8b9k).

@@ -73,12 +73,17 @@
 //! written once: the META record `self.pipeline` keeps the keys of what was
 //! said, with the tick's task records and rows in one frame.
 
+pub mod main_red;
 pub(crate) mod queues;
 mod tender;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_cap;
+#[cfg(test)]
 mod tests_fetch;
+#[cfg(test)]
+mod tests_main_red;
 #[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
@@ -205,6 +210,8 @@ impl Builder for Local {
 pub struct Seams {
     pub builder: Arc<dyn Builder>,
     pub probe: Arc<dyn Probe>,
+    /// What main's own gate last said: no build starts on a red main.
+    pub main: Arc<dyn main_red::Main>,
     pub join: super::join::Seams,
     /// How long a started build counts as building before its turn begins.
     pub grace: Duration,
@@ -215,6 +222,12 @@ impl Default for Seams {
         Self {
             builder: Arc::new(Local),
             probe: Arc::new(capacity::Host),
+            // A test never reads the machine's own gate log.
+            main: if cfg!(test) {
+                Arc::new(main_red::Unrecorded)
+            } else {
+                Arc::new(main_red::Recorded::default())
+            },
             join: super::join::Seams::default(),
             grace: GRACE,
         }
@@ -523,6 +536,10 @@ impl Core {
                     "its build's turn ended with no green branch".into(),
                     now,
                 ));
+                // The try that reaches the cap is the item's one notice.
+                if let Some(text) = self.cap_check(&mut t, now) {
+                    w.told.push(text);
+                }
                 w.task(&t)?;
             }
             let session = e.session.clone().unwrap_or_default();
@@ -581,6 +598,10 @@ impl Core {
                 );
                 return (room, Some(("budget".into(), why)));
             }
+        }
+        // A red main fails every build, whatever room there is.
+        if let Some(red) = seams.main.red() {
+            return (room, Some(("main_red".into(), red.why())));
         }
         let hold = hold.map(|h: Hold| (h.name().to_string(), h.why(&room)));
         (room, hold)

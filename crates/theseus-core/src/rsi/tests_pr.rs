@@ -564,6 +564,8 @@ mod told {
         (r, sid)
     }
 
+    mod capped;
+
     fn thread_posts(r: &Rig, kind: &str) -> Vec<Value> {
         r.core
             .outbox

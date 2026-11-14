@@ -48,6 +48,7 @@
 //!
 //! What it keeps beside the tasks is one META record ([`state`]).
 
+pub(crate) mod attempts;
 mod filed;
 mod folded;
 mod graduate;
@@ -59,6 +60,8 @@ pub(crate) use read::plain_title;
 pub(crate) mod start;
 mod state;
 mod tender;
+#[cfg(test)]
+mod tests_attempts;
 pub(crate) mod tool;
 mod word;
 
@@ -248,6 +251,18 @@ struct Work {
 }
 
 impl Work {
+    /// Whether the items of `cause` have used up `cap` tries since the owner's last retry.
+    fn cause_is_capped(&self, cause: &str, cap: u32) -> bool {
+        let items: Vec<&TaskRecord> = self
+            .st
+            .items
+            .iter()
+            .filter(|(_, m)| m.cause == cause)
+            .filter_map(|(id, _)| self.tasks.get(id))
+            .collect();
+        attempts::of_cause(&items).len() >= cap as usize
+    }
+
     fn touch(&mut self, id: &str) {
         if !self.changed.iter().any(|c| c == id) {
             self.changed.push(id.to_string());
@@ -631,6 +646,37 @@ impl Work {
 
 impl Core {
     /// The backlog's tasks, by id, under its parent.
+    /// When `t` has used up `[self] max_attempts` tries (counting its cause's other items
+    /// too), mark it capped and give the one notice; none when it has tries left or was
+    /// capped already. The caller writes `t`.
+    pub(crate) fn cap_check(&self, t: &mut TaskRecord, now: u64) -> Option<String> {
+        let cap = self.cfg.self_improve.max_attempts;
+        if attempts::capped(t) {
+            return None;
+        }
+        let st = State::read(&self.store).ok()?;
+        let tasks = self.backlog_tasks(&st).ok()?;
+        // An item the backlog has no cause for (one made by hand) counts alone.
+        let cause = st.items.get(&t.id).map(|m| m.cause.clone());
+        let tries = {
+            let mut items: Vec<&TaskRecord> = st
+                .items
+                .iter()
+                .filter(|(id, m)| Some(&m.cause) == cause.as_ref() && **id != t.id)
+                .filter_map(|(id, _)| tasks.get(id))
+                .collect();
+            items.push(t);
+            attempts::of_cause(&items)
+        };
+        if tries.len() < cap as usize {
+            return None;
+        }
+        t.version += 1;
+        t.updated_at_ms = now;
+        t.evidence.push(attempts::marker(&tries, now));
+        Some(attempts::notice(&t.id, &t.title, &tries, cap))
+    }
+
     fn backlog_tasks(&self, st: &State) -> Result<BTreeMap<String, TaskRecord>> {
         let Some(parent) = &st.parent else {
             return Ok(BTreeMap::new());
@@ -728,7 +774,13 @@ impl Core {
             Some(rows) => super::infra::unjudged_items(&rows),
             None => Default::default(),
         };
-        Self::backlog_file(&mut w, &cands, &unjudged, &mut night);
+        Self::backlog_file(
+            &mut w,
+            &cands,
+            &unjudged,
+            self.cfg.self_improve.max_attempts,
+            &mut night,
+        );
         w.retire_stale("night", &mut night);
         w.rank(cfg.backlog_max_open as usize, "night", &mut night);
         self.backlog_write(&mut w)?;
@@ -796,6 +848,7 @@ impl Core {
         w: &mut Work,
         cands: &[Candidate],
         unjudged: &std::collections::HashSet<String>,
+        cap: u32,
         night: &mut Night,
     ) {
         if !cands.is_empty() {
@@ -823,6 +876,12 @@ impl Core {
                         m.cause == c.key && w.tasks.get(*id).is_some_and(|t| !t.state.is_closed())
                     })
                     .map(|(id, _)| id.clone());
+            // A cause whose items used up their tries waits for the owner's retry, not for
+            // a fresh item to start the same tries again (issue 6, condition 4).
+            if existing.is_none() && w.cause_is_capped(&c.key, cap) {
+                night.kept_out += 1;
+                continue;
+            }
             match existing {
                 Some(id) => w.add(&id, c, night),
                 None if c.obs.len() >= min_count(&c.key) => {

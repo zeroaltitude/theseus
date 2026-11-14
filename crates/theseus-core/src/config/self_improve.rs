@@ -52,6 +52,9 @@
 //! - `pipeline_builds` (theseus-pw1q.16): how many self builds run at once,
 //!   1 by default (the owner raises it); the pipeline starts another only
 //!   while fewer build and fewer self trees are open.
+//! - `max_attempts` (issue 6): how many tries an item gets (3). The try that reaches it moves
+//!   the item to the failed list with every try's reason and one notice, and it waits for
+//!   the owner's `theseus self retry`. At least 1.
 //! - `min_free_gb` (theseus-pw1q.16): the free space, in GB, the build trees'
 //!   filesystem must keep for the pipeline to start a build (40).
 
@@ -122,6 +125,9 @@ pub struct SelfImproveConfig {
     /// Free GB the build trees' filesystem keeps before a build starts.
     #[serde(default = "default_min_free_gb")]
     pub min_free_gb: u64,
+    /// Tries an item gets before it moves to the failed list (issue 6).
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: u32,
 }
 
 fn default_narrow_every_days() -> u32 {
@@ -145,6 +151,10 @@ fn default_revert_window_hours() -> u64 {
 
 fn default_pipeline_builds() -> u32 {
     1
+}
+
+fn default_max_attempts() -> u32 {
+    3
 }
 
 fn default_min_free_gb() -> u64 {
@@ -199,6 +209,7 @@ impl Default for SelfImproveConfig {
             revert_window_hours: REVERT_WINDOW_HOURS,
             pipeline_builds: default_pipeline_builds(),
             min_free_gb: default_min_free_gb(),
+            max_attempts: default_max_attempts(),
         }
     }
 }
@@ -266,6 +277,9 @@ impl SelfImproveConfig {
     /// apart from every place Theseus or a job may reach (theseus-pw1q.5),
     /// and an item's line above zero.
     pub fn validate(&self, cfg: &crate::Config) -> anyhow::Result<()> {
+        if self.max_attempts == 0 {
+            anyhow::bail!("[self] max_attempts is 0: an item needs at least one try");
+        }
         if !(self.sealed.item_usd.is_finite() && self.sealed.item_usd > 0.0) {
             anyhow::bail!(
                 "[self.sealed] item_usd must be above 0, not {}",
