@@ -9,12 +9,17 @@
 //!   or asked, and the records the owner added by hand stand as before.
 //!   `theseus packs rollback directive.v1` puts the pack in shadow instead,
 //!   where it still judges and records and acts on nothing.
-//! - `yes_fact`: the turn an owner's yes in words starts carries a harness
-//!   fact naming what that yes approved and what it did not (`yes_fact.rs`,
-//!   theseus-2yowd), in the request's tail, for that turn only. **False**: the
-//!   notice where approvals go is all that is said, as before this row. It is
-//!   a new way for the harness to be told into a turn, so it lands off until
-//!   the golden system blocks have been re-walked with it on.
+//! - `yes_fact`: a turn in which `chat.answer_question` answered a waiting
+//!   question carries a harness fact naming what was answered and what was NOT
+//!   (`yes_fact.rs`, theseus-2yowd), in the request's tail, for that turn only.
+//!   **False**: the tool's own result is all that is said. It is a way for the
+//!   harness to be told into a turn, so it stays off until the golden system
+//!   blocks have been re-walked with it on.
+//!
+//!   Its producer changed with chat-acts-are-tools (S43-1): it used to be
+//!   `rpc/answer_in_words.rs`, which matched a yes in the owner's words. There
+//!   is no such matcher now, and the key gates the same block from the tool
+//!   that replaced it.
 
 use serde::{Deserialize, Serialize};
 

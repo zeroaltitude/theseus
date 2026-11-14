@@ -1,13 +1,14 @@
 //! What the harness did with the owner's yes, told to the turn that yes
 //! starts (theseus-2yowd, row B6; the residue theseus-3i6d1 left open).
 //!
-//! The owner's yes said in words is read at `turn.submit`, before the turn
-//! runs (`rpc/answer_in_words.rs`). When it is ambiguous — more than one
-//! question waiting that it could mean — nothing is approved, and a notice
-//! says so where approvals go. But **the turn still runs**, with the word
-//! "yes" in its input and nothing *in that turn* telling the model what the
-//! harness made of it. The mechanism cannot guess; the model was not told.
-//! That is what this carries.
+//! Its producer changed with chat-acts-are-tools (S43-1). It used to be
+//! `rpc/answer_in_words.rs`, which read a yes in the owner's words before the
+//! turn ran and could not guess which question an ambiguous one meant; there
+//! is no such matcher now. It is `chat.answer_question`
+//! (`rpc/chat_answer.rs::stage_answer_fact`): the model answers the one
+//! question the owner's reply answers, and the block tells the rest of that
+//! turn what was answered and — the half that matters — what was NOT, so the
+//! turn cannot read a silence as either.
 //!
 //! **Why a staged block and not a node.** The obvious carrier is a harness
 //! note in the session (`rpc/thread_seal.rs`'s `write_harness_note`), and it
@@ -49,7 +50,7 @@ fn tokens(s: &str) -> u64 {
 
 /// What the harness made of the owner's yes: the clause that says why, what
 /// was approved, what was not and still waits, and what this turn should do
-/// about it. `rpc/answer_in_words.rs` fills one in each of its arms, so the
+/// about it. `rpc/chat_answer.rs` fills one in, so the
 /// words the notice uses and the words the turn reads come from one place.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Decided {

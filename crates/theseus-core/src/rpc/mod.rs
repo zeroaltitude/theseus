@@ -10,9 +10,7 @@
 //! (`policy`), what the harness loop drives (`driver`), and channel bindings
 //! (`bindings`).
 
-mod allow_in_words;
 pub(crate) mod answer;
-mod answer_in_words;
 mod ask_again;
 mod aws;
 mod bindings;

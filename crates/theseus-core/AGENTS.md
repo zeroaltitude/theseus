@@ -617,27 +617,43 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`not`); an undo is `standing.revoke`, which labels the judgment `wrong capture` (`capture_undone`; three in a day roll
   the pack back, and a label finds its pack in the `standing.captured` row while the sink has not written the judgment).
   `[standing] capture = false` stops all of it. Tests: `tests_capture.rs`, `capture::tests`.
-- **A yes said in words** (theseus-3i6d1; `rpc/answer_in_words.rs`; no store or pack change): a question waiting for
-  the owner is answered by its card's button, by `work.answer`, or by the owner saying yes in the conversation it was
-  asked in. Read at `turn.submit` **before the turn runs** (`rpc/methods.rs`, beside `expect_correction`,
-  `seal_by_word` and `expect_capture`) and taken through `Core::confirm_action`, the one place an answer becomes a
-  decision, so the place rule, the peer rule and `approval.refused` judge a yes in words exactly as a typed one and
-  `said_yes` comes out true with no change to `toolrun.rs`: nothing about what an answer *means* is widened, only
-  which inputs reach that call. The scope is the **place, not the session** — a yes reads every question waiting in
-  this session or in one that answers at this one's place, never another conversation's — and the surfaces are
-  `capture::owner_alone`'s (the CLI, the web UI, an owner's DM) and **not** a guild channel bound private, which the
-  typed path counts: a typed answer names its question and loose words do not, so in a room others write in a
-  stranger's yes must not become the owner's. **Ambiguity is never guessed**, the guard the owner asked for after
-  Theseus abandoned the wrong task on a bare *"Yes, you may abandon it"*: a yes resolves a question only when there
-  is exactly one it can mean; with more than one it resolves **nothing** and a notice where approvals go names each
-  and asks which. A bare yes with nothing waiting says nothing at all (the owner says yes in conversation often); one
-  naming a question that has gone is told it has gone; a question with answers to choose from is never taken by a
-  bare yes. **The residue, open on B6:** the turn the yes started still runs, with the word in its input and nothing
-  *in that turn* telling the model not to act on it — the mechanism cannot guess, but the model is not told. The
-  carrier would be a harness fact in the **turn about to start**, and a note written into a session mid-turn is
-  refused (`rpc/thread_seal.rs`'s `write_harness_note`, "a turn is running in {sid}"), which is why the notice goes
-  to the operator's own surface instead; closing it is a change to the turn's inbound path and its own piece of work.
-  Tests: `tests_answer_in_words.rs`, `rpc::answer_in_words::tests`.
+- **What the owner says in chat is acted on by a TOOL** (chat-acts-are-tools, S43-1; `chat_acts.rs`; was
+  theseus-3i6d1's `rpc/answer_in_words.rs` and theseus-p5kln's `rpc/allow_in_words.rs`, both gone). The owner,
+  2026-11-13 23:27 and 23:32 (Discord message `1571050236367995101`): *"this is NOT a matching thing -- it's a
+  surface area of tools that models can choose to call in response to the prompt and the tool list"*, and
+  *"clearly articulated tools sensitive to the question context that the model can choose to call as it judges
+  the human response."* **No code path matches a substring or a token of his message any more.** Three tools:
+  `chat.answer_question` (the question waiting here, through `Core::confirm_action_with`), `chat.allow_held_call`
+  (the held call, through `Core::undo_allow`) and `chat.import_sync` (`import.sync.request`, its own
+  `judge_act(Act::Import)` kept). The buttons, the slash commands and the CLI are untouched: this is a fourth way
+  in, and **nothing about what any of these acts MEANS is widened, only which inputs reach them**.
+  - **Context-sensitive by construction.** None of the three is in a place's kept catalog
+    (`chat_acts::conditional`, read by `toolrun/catalogs.rs`), because a catalog is shared by every session of a
+    place and these are true of one session at one moment. `turn/defer_step.rs::chat_acts_offered` puts in the
+    ones that apply, with a description naming what is waiting or what is held. Nothing waiting: no answer tool.
+  - **The structural rule.** `turn.submit` stages `chat_acts::Said` (who spoke, what they said, and whether
+    `Core::owner_input` counts it as his own typed input from a private place) and the offer step BINDS it to the
+    turn it started, as `yes_fact::Staged` binds a fact. A continuation -- a wake, a task report, the pipeline's
+    own turn -- claims nothing and is offered nothing, so a message meant for one turn cannot be taken by the
+    next; and a call made in a turn the offer step never ran for finds nothing bound and is refused.
+  - **Ambiguity is still never guessed**, the guard the owner asked for after Theseus abandoned the wrong task on
+    a bare *"Yes, you may abandon it"*: with more than one question waiting or more than one call held, a tool
+    called without naming which refuses and names each, and so does a name that could mean two.
+  - **The scope is the place, not the session**: `chat_acts::waiting_here` / `held_here`, moved whole out of the
+    two matchers, which were right about scope and wrong only about reading his words.
+  - **Defence in depth on the allow tool alone** (`chat_acts/judged.rs`, `judge/allow_said.rs`, pack
+    `allow_said.v1`, scope `judge:allow_said`): guidance first -- the owner ruled *"i'm ok with the model deciding
+    once it has been guided about this"* -- and then one Noul, *does his latest message say to run this held
+    call?* A `no` at the band refuses with a reason the model reads. **It FAILS OPEN and must stay that way**: no
+    answer, a failed call, a spent budget or the pack off all leave the model's call STANDING, and
+    `tool.hold_allowed` carries `judged: false` so the ledger says no judge saw it. A fail-closed version would
+    let a network fault remove S17-D6, the owner's standing route past a safety hold.
+  - **All three are `ToolClass::Read`**, the class `owner_ask` takes: the call acts on nothing of the world, it
+    records a decision already made. That is what `undo.v1`'s `worth_asking` reads, and for the allow tool it is
+    load-bearing -- as a `Write` it would be asked, and a `reshapeable` would hold the RELEASE of a hold.
+  - `[standing] yes_fact` still gates the harness block in the turn's tail; its producer is now the answer tool.
+  Tests: `tests_chat_acts.rs` (whole core, scripted model, fake Jev), `chat_acts::tests`,
+  `chat_acts::judged::tests`, `builders::allow_said::tests`.
 - **The task offer** (theseus-bh3t.5; no store change: a field on the reply's outbox post): `classify.v3` is `classify.v2` word for
   word and one question, `offer_task` ("work to be done later, in more than one step, that the person has not asked to start
   now"), which decides nothing and rides the one inbound request. When it answers yes at the act bar in a judgment that acts
@@ -960,8 +976,10 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   answer under the question's confirm bar. Not resolved for v1, each erring toward holding: `remote_keeps`
   (`p5kln-remote-keeps`) and `read_this_session` stay unresolved, and `posture` is empty because 0d precedes every
   layer. The owner's override of a `reshapeable` hold IS built (theseus-p5kln): `toolrun/holds.rs`, `undo.allow`,
-  `theseus undo allow`, `rpc/allow_in_words.rs` in words, `owner_in_person` gated, the original call only. Tests:
-  `toolrun/tests_undo.rs` (whole core, fake Jev), `judge/undo/tests.rs` (the mapping and the verdict, pure).
+  `theseus undo allow`, and `chat.allow_held_call` in chat (chat-acts-are-tools, S43-1: a tool the model chooses
+  to call after reading his reply, which replaced the phrase reader `rpc/allow_in_words.rs`), `owner_in_person`
+  gated, the original call only. Tests: `toolrun/tests_undo.rs` (whole core, fake Jev), `judge/undo/tests.rs`
+  (the mapping and the verdict, pure), `tests_chat_acts.rs` (the chat route).
   Plus the harness's own tools,
   `task.rs` and `wake.rs`, the web tools in `web/`, and AWS in `aws/`: the bound accounts, each key's check after
   serving (its calls fail closed until STS names the account), who signs (`session.rs`: the key until the config

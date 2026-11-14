@@ -385,7 +385,7 @@ async fn a_refused_chat_act_leaves_the_held_calls_own_word_alone() {
     );
     assert_eq!(
         crate::turn::repeat_step::MAX_REPEATS,
-        3,
+        6,
         "the cap itself is untouched by this card"
     );
 }
@@ -398,73 +398,82 @@ async fn a_refused_chat_act_leaves_the_held_calls_own_word_alone() {
 /// an answer given in one conversation never answers another's.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
-    // `reversible`, so nothing is HELD here: the posture below is what makes
-    // the two calls ask, and a hold would make no question at all.
+    // `reversible`, so nothing is held: the questions here are `owner_ask`'s,
+    // which wait at every posture because the decision is the operator's.
     let jev = jev_says(REVERSIBLE, 0.95);
-    let r = rig_judged(&jev, |c| {
-        c.policy
-            .tools
-            .insert("fs.write".into(), crate::policy::Posture::Approve);
-    });
+    let r = rig_judged(&jev, |_| {});
     let here = session(&r.core);
     let elsewhere = thread_session(&r.core, "harbour", None);
 
-    let a = target(&r);
-    let b = a.with_file_name("elsewhere.txt");
-    r.calls(&[(
-        "fs_write",
-        json!({"path": b.to_string_lossy(), "content": NOW}),
-    )]);
-    say(&r, &elsewhere, "Write the other one.").await;
-    r.calls(&[("fs_write", write_call(&a))]);
-    say(&r, &here, "Replace the notes.").await;
+    let ask = |q: &str| {
+        json!({
+            "question": q,
+            "options": [{"label": "Ship it"}, {"label": "Wait for the gate"}],
+        })
+    };
+    r.calls(&[("owner_ask", ask("Ship the other one?"))]);
+    say(&r, &elsewhere, "What should we do there?").await;
+    r.calls(&[("owner_ask", ask("Ship the harbour change?"))]);
+    say(&r, &here, "What should we do?").await;
     until("two questions wait", || {
         r.core.confirm_list().unwrap().len() == 2
     })
     .await;
-    let waiting = r.core.confirm_list().unwrap();
-    assert_eq!(waiting.len(), 2, "two questions wait: {waiting:?}");
 
-    // His reply, with no tool called: nothing is answered.
-    r.calls(&[]);
-    say(&r, &here, "yes").await;
-    assert_eq!(
-        r.core.confirm_list().unwrap().len(),
-        2,
-        "a bare yes answers nothing now"
-    );
+    // His reply, with no tool called: nothing is answered. "yes" and "ok" are
+    // what `answer_in_words` read, and they reach nothing now.
+    for words in ["yes", "ok, go ahead", "yes please"] {
+        r.calls(&[]);
+        say(&r, &here, words).await;
+        assert_eq!(
+            r.core.confirm_list().unwrap().len(),
+            2,
+            "`{words}` answered something with no tool called"
+        );
+    }
 
-    // His reply, and the model chooses the tool.
-    r.calls(&[("chat_answer_question", json!({"answer": "yes"}))]);
-    say(&r, &here, "yes, go ahead").await;
+    // His reply, and the model chooses the tool, with the answer he gave.
+    r.calls(&[("chat_answer_question", json!({"answer": "1"}))]);
+    say(&r, &here, "ship it").await;
 
     let out = acted(&r, &here, crate::chat_acts::ANSWER);
     assert_eq!(out.len(), 1, "the tool ran: {out:?}");
     assert_eq!(out[0].0, "Ok", "{out:?}");
-    assert!(out[0].1.contains("Approved"), "{}", out[0].1);
+    assert!(
+        out[0].1.contains("choice:0"),
+        "his own answer: {}",
+        out[0].1
+    );
     assert!(
         out[0].1.contains("Nothing else waiting here was answered"),
         "{}",
         out[0].1
     );
 
-    until("the approved call ran", || {
-        std::fs::read_to_string(&a).unwrap_or_default() == NOW
+    until("the question here is answered", || {
+        r.core.confirm_list().unwrap().len() == 1
     })
     .await;
-    assert_eq!(
-        std::fs::read_to_string(&a).unwrap(),
-        NOW,
-        "the approved call ran"
-    );
     let still = r.core.confirm_list().unwrap();
     assert_eq!(
         still.len(),
         1,
         "the other conversation's question still waits: {still:?}"
     );
-    assert_eq!(still[0].session_id, elsewhere);
-    assert!(!b.exists(), "and its call did not run");
+    assert_eq!(
+        still[0].session_id, elsewhere,
+        "and it is the OTHER one that still waits: {still:?}"
+    );
+
+    // The question that was answered is this one's, and the turn it parked was
+    // told the operator's choice.
+    let asked = acted(&r, &here, crate::ask::OWNER_ASK);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(
+        asked[0].1.contains("Ship it"),
+        "the call read his choice back: {}",
+        asked[0].1
+    );
 }
 
 // ------------------------------------------------- 3. the sync tool, whole

@@ -971,8 +971,6 @@ impl Core {
         // replaced `answer_in_words` and `allow_in_words`, which matched
         // phrases in this exact spot and acted before the turn ran.
         self.hear_for_chat_acts(&p, conn, &session.session_id);
-        self.answer_in_words(&p, conn, &session.session_id);
-        self.allow_in_words(&p, conn, &session.session_id);
         // A person's message starts its keep-warm window again (theseus-ezeg).
         let person = p.opened_from.is_none()
             && !matches!(
