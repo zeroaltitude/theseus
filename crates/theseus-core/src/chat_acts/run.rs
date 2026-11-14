@@ -75,12 +75,6 @@ impl Board {
 
     /// Answer the question waiting here with the answer the operator gave.
     pub(crate) fn answer(&self, tc: &TurnCtx<'_>, input: &Value) -> Done {
-        // NOT BUILT YET (the red).
-        if true {
-            let _ = (tc, input);
-            return Err("this chat act is not built yet".into());
-        }
-        #[allow(unreachable_code)]
         let (core, said) = self.standing(tc)?;
         let a = answer_args(input)?;
         let waiting = waiting_here(&core, tc.session_id)
@@ -117,12 +111,6 @@ impl Board {
     /// reached leaves the call STANDING and the ledger row records that it was
     /// not judged (see `chat_acts::judged`).
     pub(crate) async fn allow(&self, tc: &TurnCtx<'_>, input: &Value) -> Done {
-        // NOT BUILT YET (the red).
-        if true {
-            let _ = (tc, input);
-            return Err("this chat act is not built yet".into());
-        }
-        #[allow(unreachable_code)]
         let (core, said) = self.standing(tc)?;
         if !said.owner_input {
             return Err(
@@ -174,12 +162,6 @@ impl Board {
     /// is invented here, and the actor judged is the operator who spoke, never
     /// the model.
     pub(crate) fn sync(&self, tc: &TurnCtx<'_>, input: &Value) -> Done {
-        // NOT BUILT YET (the red).
-        if true {
-            let _ = (tc, input);
-            return Err("this chat act is not built yet".into());
-        }
-        #[allow(unreachable_code)]
         let (core, said) = self.standing(tc)?;
         let _: super::tools::SyncArgs = theseus_tools::parse(input).map_err(|e: String| e)?;
         core.import_act(&said.who)?;

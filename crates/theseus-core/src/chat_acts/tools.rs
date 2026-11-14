@@ -8,6 +8,22 @@
 //! All three are `Backend::Harness`: each is a verb over Theseus's own state,
 //! needing the core and not the world, and each is run by
 //! `ToolRuntime::run_chat_act`.
+//!
+//! **All three are `ToolClass::Read`, and that is deliberate** — the class
+//! `owner_ask` takes, for the reason its header gives: the call acts on
+//! nothing of the world. Each of the three RECORDS a decision the operator has
+//! already made, through a verb that keeps its own owner gate; the act that
+//! follows is judged on its own terms, with its own posture, its own place
+//! rule and its own `undo.v1` verdict. The class is what `undo.v1`'s
+//! `worth_asking` reads, and a `Write` here would be asked about every one of
+//! them — a question the pack cannot usefully answer, since none of the three
+//! names a target, a command or an address.
+//!
+//! For [`AllowHeldCall`] it is more than a saving. A `Write` here is asked, and
+//! an answer of `reshapeable` would HOLD the release of a hold: the owner's
+//! S17-D6 route past a safety hold would be removed by the safety hold itself.
+//! The call it admits is the one `undo.v1` already judged, it still runs at its
+//! own posture, and one allowance still admits exactly one call.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -180,7 +196,7 @@ impl Tool for AnswerQuestion {
         })
     }
     fn class(&self) -> ToolClass {
-        ToolClass::Write
+        ToolClass::Read
     }
     fn backend(&self) -> Backend {
         Backend::Harness
@@ -223,7 +239,7 @@ impl Tool for AllowHeldCall {
         })
     }
     fn class(&self) -> ToolClass {
-        ToolClass::Write
+        ToolClass::Read
     }
     fn backend(&self) -> Backend {
         Backend::Harness
@@ -239,9 +255,11 @@ impl Tool for AllowHeldCall {
                 Some(h) => format!("let the held call {h} run as it was first proposed"),
                 None => "let the held call run as it was first proposed".into(),
             },
-            // It is a route past a safety hold, and only the operator takes
-            // it: the gate names whose decision it is, as `owner_ask` does.
-            authority: Some("the operator's decision".into()),
+            // NOT `authority`. That is `owner_ask`'s field and it makes the
+            // gate park on a confirm AT EVERY POSTURE -- which here would ask
+            // the operator to approve carrying out the decision he has just
+            // made. The gate this call takes is `judge_act(Act::UndoAllow)`
+            // inside `Core::undo_allow`, which is his own.
             ..Default::default()
         })
     }
@@ -263,7 +281,7 @@ impl Tool for ImportSync {
         json!({"type": "object", "properties": {}, "additionalProperties": false})
     }
     fn class(&self) -> ToolClass {
-        ToolClass::Write
+        ToolClass::Read
     }
     fn backend(&self) -> Backend {
         Backend::Harness

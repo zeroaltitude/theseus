@@ -212,10 +212,7 @@ impl Board {
         class: crate::places::PlaceClass,
         continuation: bool,
     ) -> Vec<Value> {
-        // NOT BUILT YET (the red): nothing is offered, so no model can call
-        // one of the three and the matchers are still the only way in.
-        let _ = (session, turn, class, continuation);
-        if true {
+        if continuation || class != crate::places::PlaceClass::Private {
             return vec![];
         }
         let Some(core) = self.core() else {

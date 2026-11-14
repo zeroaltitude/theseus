@@ -22,7 +22,7 @@ use theseus_protocol::{method, SessionKind};
 
 use crate::approval::Surface;
 use crate::import::sync_run::Ran;
-use crate::judge::undo::RESHAPEABLE;
+use crate::judge::undo::{RESHAPEABLE, REVERSIBLE};
 use crate::ledger::LedgerRow;
 use crate::session::SessionRecord;
 use crate::test_support::until;
@@ -44,14 +44,18 @@ const HIS_SYNC: &str = "just re-import from external sessions";
 
 // ------------------------------------------------------------------ the rig
 
-/// A Jev that holds a plain write (`reshapeable`) and answers the chat acts'
-/// own second reading at `says_run`.
-fn jev_says(says_run: f64) -> FakeJev {
+/// A Jev that answers `verdict` for every call it is asked about, and the chat
+/// acts' own second reading at `says_run`.
+///
+/// The three chat acts are `ToolClass::Read` and name no target, so
+/// `UndoCall::worth_asking` never sends one to `undo.v1` at all: `verdict`
+/// reaches the ordinary calls and not them.
+fn jev_says(verdict: &str, says_run: f64) -> FakeJev {
     let jev = FakeJev::start().unwrap();
     jev.script(
         "reversible",
         Jev::Choice {
-            option: RESHAPEABLE.into(),
+            option: verdict.into(),
             confidence: 0.96,
         },
     );
@@ -209,7 +213,7 @@ async fn a_held_write(r: &Rig, sid: &str) -> std::path::PathBuf {
 /// allowed the call by itself.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_allow_tool_runs_the_original_once_and_its_row_names_the_tool_route() {
-    let jev = jev_says(0.95);
+    let jev = jev_says(RESHAPEABLE, 0.95);
     let r = rig_judged(&jev, |_| {});
     let sid = session(&r.core);
     let p = a_held_write(&r, &sid).await;
@@ -259,7 +263,7 @@ async fn the_allow_tool_runs_the_original_once_and_its_row_names_the_tool_route(
 /// allowed.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_second_reading_refuses_a_call_his_message_did_not_ask_for() {
-    let jev = jev_says(0.05);
+    let jev = jev_says(RESHAPEABLE, 0.05);
     let r = rig_judged(&jev, |_| {});
     let sid = session(&r.core);
     let p = a_held_write(&r, &sid).await;
@@ -296,7 +300,7 @@ async fn the_second_reading_refuses_a_call_his_message_did_not_ask_for() {
 /// could not be reached would let a network fault remove that capability.
 #[tokio::test(flavor = "multi_thread")]
 async fn with_the_judge_unavailable_the_call_stands_and_the_row_says_it_was_not_judged() {
-    let jev = jev_says(0.95);
+    let jev = jev_says(RESHAPEABLE, 0.95);
     let r = rig_judged(&jev, |_| {});
     let sid = session(&r.core);
     let _p = a_held_write(&r, &sid).await;
@@ -326,7 +330,7 @@ async fn with_the_judge_unavailable_the_call_stands_and_the_row_says_it_was_not_
 /// his is bound to it: the tool refuses before the judge is asked at all.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_allow_tool_refuses_in_a_turn_no_message_of_his_started() {
-    let jev = jev_says(0.95);
+    let jev = jev_says(RESHAPEABLE, 0.95);
     let r = rig_judged(&jev, |_| {});
     let sid = session(&r.core);
     let p = a_held_write(&r, &sid).await;
@@ -355,7 +359,7 @@ async fn the_allow_tool_refuses_in_a_turn_no_message_of_his_started() {
 /// model re-planning the same held call goes round unbounded again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refused_chat_act_leaves_the_held_calls_own_word_alone() {
-    let jev = jev_says(0.05);
+    let jev = jev_says(RESHAPEABLE, 0.05);
     let r = rig_judged(&jev, |_| {});
     let sid = session(&r.core);
     let p = a_held_write(&r, &sid).await;
@@ -394,7 +398,9 @@ async fn a_refused_chat_act_leaves_the_held_calls_own_word_alone() {
 /// an answer given in one conversation never answers another's.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
-    let jev = jev_says(0.95);
+    // `reversible`, so nothing is HELD here: the posture below is what makes
+    // the two calls ask, and a hold would make no question at all.
+    let jev = jev_says(REVERSIBLE, 0.95);
     let r = rig_judged(&jev, |c| {
         c.policy
             .tools
@@ -552,7 +558,7 @@ fn sync_rig(jev: &FakeJev) -> Rig {
 /// lands in the same thread rather than only where approvals go.
 #[tokio::test(flavor = "multi_thread")]
 async fn asking_in_his_dm_and_in_a_thread_starts_exactly_one_sync_and_says_both_lines() {
-    let jev = jev_says(0.95);
+    let jev = jev_says(REVERSIBLE, 0.95);
     let r = sync_rig(&jev);
     bind_private(&r, MINE);
     let dm = session(&r.core);
@@ -632,7 +638,7 @@ async fn asking_in_his_dm_and_in_a_thread_starts_exactly_one_sync_and_says_both_
 /// Nothing happens. No allowance, no answer, no sync, no notice.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_holding_an_old_trigger_phrase_does_nothing_unless_a_tool_is_called() {
-    let jev = jev_says(0.95);
+    let jev = jev_says(RESHAPEABLE, 0.95);
     let r = sync_rig(&jev);
     let sid = session(&r.core);
     let p = a_held_write(&r, &sid).await;
@@ -695,7 +701,7 @@ async fn a_message_holding_an_old_trigger_phrase_does_nothing_unless_a_tool_is_c
 /// catalog rather than in the turn.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
-    let jev = jev_says(0.95);
+    let jev = jev_says(RESHAPEABLE, 0.95);
     let r = sync_rig(&jev);
     let sid = session(&r.core);
     let acts = &r.core.runner.tools.chat_acts;
