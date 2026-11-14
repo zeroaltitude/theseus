@@ -228,7 +228,7 @@ judges the net change of the range against `main`. It reports each erosion as `p
 | `keel-file` | The guard itself, its test suite, the gate's door, or a gate phase removed |
 | `sealed-reach` | Code outside the sealed scorer's own files that names the sealed holdout sets |
 | `locked-flow` | The owner-locked Discord DM task flow changed: a golden under `crates/theseus-discord/src/golden/` edited or removed. The trailer quotes his OK for that change |
-| `owner-reach` | A change inside a function that decides who may act as the owner, or from where (the place rule's owner checks and which places count as private, `judge_act`, which surfaces and tools are the owner's alone and the free AWS reads an agent may answer, a channel's privacy, a guild's trust), or one of them gone from its file |
+| `owner-reach` | A change inside a function that decides who may act as the owner, or from where (the place rule's owner checks and which places count as private, `judge_act`, which surfaces and tools are the owner's alone and the free AWS reads an agent may answer, a channel's privacy, a guild's trust), or one of them gone from its file. It reads inside those items only: a function they call, or a new caller that goes around them, is review's to catch |
 
 **Two halves, and a brief must say which it means.** The table above mixes them, and the confusion
 has cost a gate twice.

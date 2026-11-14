@@ -121,8 +121,9 @@ The rules, by the name the report and the ack use:
                   place rule's owner checks and which places count as private, judge_act's match of acts, which
                   surfaces and tools are the owner's alone with the AWS reads an agent may answer, a channel's privacy
                   and a guild's trust), or that item gone from its file (issue 15, the owner's 5c). Whitespace alone
-                  is no finding. It sees an edit to those predicates, not a new caller that goes around them: review
-                  owns that.
+                  is no finding. It sees an edit inside those items only: not a function they call (a change to
+                  `slug_of_place`, which class_alone asks, is no finding), and not a new caller that goes around
+                  them. Review owns those.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
 Standard library only.
