@@ -41,7 +41,7 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use theseus_store::wal::{self, FrameRead};
+use theseus_store::wal::{self, FrameRead, WalError};
 use theseus_store::Record;
 
 mod wake;
@@ -157,6 +157,18 @@ pub struct Batch {
     /// Segments this read finished: a later segment exists, so nothing more
     /// is ever written to them.
     pub sealed: Vec<u32>,
+    /// Frames that checked but were wrong and were read past
+    /// ([`WalFollower::skipping_wrong`]).
+    pub skipped: Vec<Skipped>,
+}
+
+/// A frame that passed its checksum but was wrong, which a follower read past.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Skipped {
+    pub segment: u32,
+    pub offset: u64,
+    /// What was wrong with it.
+    pub reason: String,
 }
 
 impl Batch {
@@ -172,6 +184,11 @@ pub struct WalFollower {
     stop: Stop,
     /// The last segment a batch named sealed, so none is named twice.
     sealed_upto: u32,
+    /// Skip a frame that checks but is wrong, and read on past it
+    /// ([`WalFollower::skipping_wrong`]).
+    skip_wrong: bool,
+    /// A frame was just skipped, so the next may begin past the position it expected.
+    resync: bool,
 }
 
 impl WalFollower {
@@ -184,9 +201,23 @@ impl WalFollower {
             cursor,
             stop: Stop::Opened,
             sealed_upto: 0,
+            skip_wrong: false,
+            resync: false,
         };
         f.verify()?;
         Ok(f)
+    }
+
+    /// Read on past a frame that checks but is wrong (a record that does not decode, a
+    /// position out of sequence) instead of stopping at it, listing each in
+    /// [`Batch::skipped`] (issue 6). The core serves on past such a frame, so a reader that
+    /// stopped at it would stall for good where the core does not. A frame is skipped only
+    /// when a whole frame follows it, so a cursor never rests on one: it would not verify
+    /// when reopened. A reader that ships the log keeps the default, which stops.
+    #[must_use]
+    pub fn skipping_wrong(mut self) -> Self {
+        self.skip_wrong = true;
+        self
     }
 
     pub fn dir(&self) -> &Path {
@@ -374,8 +405,24 @@ impl WalFollower {
             let span_from = off;
             let mut partial = None;
             let mut held = None;
+            // Frames skipped since the last whole one, and where the first began: they count
+            // only once a whole frame follows them.
+            let mut pending: Vec<Skipped> = Vec::new();
+            let mut skip_from: Option<usize> = None;
             while i < window.len() {
-                match wal::read_frame(&window, i, seg, off, self.cursor.position + 1) {
+                // After a skipped frame the next one may begin past the position expected.
+                let mut first = self.cursor.position + 1;
+                let read = loop {
+                    match wal::read_frame(&window, i, seg, off, first) {
+                        FrameRead::Wrong(WalError::Sequence { found, .. })
+                            if self.resync && found > first =>
+                        {
+                            first = found;
+                        }
+                        other => break other,
+                    }
+                };
+                match read {
                     FrameRead::Whole { records, .. }
                         if records.last().is_some_and(|(r, _)| r.position > upto) =>
                     {
@@ -396,6 +443,9 @@ impl WalFollower {
                         });
                         self.cursor.segment = seg;
                         self.cursor.offset = off + end as u64;
+                        self.resync = false;
+                        batch.skipped.append(&mut pending);
+                        skip_from = None;
                         batch.records.extend(records.into_iter().map(|(r, _)| r));
                         batch.frames += 1;
                         batch.bytes += (end - i) as u64;
@@ -405,12 +455,45 @@ impl WalFollower {
                         partial = Some(reason);
                         break;
                     }
+                    // The frame passed its checksum, so its length is true: read past it, but
+                    // only to a whole frame that follows, never to rest on it.
+                    FrameRead::Wrong(e) if self.skip_wrong => {
+                        let end = i
+                            + wal::FRAME_HEADER
+                            + u32::from_le_bytes([
+                                window[i + 4],
+                                window[i + 5],
+                                window[i + 6],
+                                window[i + 7],
+                            ]) as usize;
+                        if end >= window.len() {
+                            skip_from.get_or_insert(i);
+                            break;
+                        }
+                        skip_from.get_or_insert(i);
+                        pending.push(Skipped {
+                            segment: seg,
+                            offset: off + i as u64,
+                            reason: e.to_string(),
+                        });
+                        self.resync = true;
+                        i = end;
+                    }
                     FrameRead::Wrong(e) => {
                         return Err(FollowError::Corrupt(format!(
                             "segment {seg}, offset {}: {e}",
                             off + i as u64
                         )))
                     }
+                }
+            }
+            // A skipped frame with no whole frame after it yet: not skipped, and the cursor
+            // stays before it, so it is read again once the frame after it is there.
+            if let Some(from) = skip_from.take() {
+                i = from;
+                self.resync = false;
+                if partial.is_none() && held.is_none() {
+                    partial = Some("a wrong frame waits for the frame after it");
                 }
             }
             if i > 0 {

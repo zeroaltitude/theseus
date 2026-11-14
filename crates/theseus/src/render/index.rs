@@ -147,6 +147,21 @@ pub fn index_status_lines(h: &theseus_protocol::index::IndexHealth) -> Vec<Line>
             fmt_bytes(s.rss_bytes)
         ),
     );
+    // A frame that checked but was wrong, skipped so the index goes on.
+    if s.frames_skipped > 0 {
+        let last = s
+            .last_frame_skipped
+            .as_deref()
+            .unwrap_or("where is not known");
+        push(
+            o,
+            Tag::Warn,
+            &format!(
+                "skipped {}: {last}",
+                plural(s.frames_skipped, "damaged frame", "damaged frames")
+            ),
+        );
+    }
     // A kept file's read text, indexed beside its node (theseus-lv2u).
     if s.files_indexed + s.files_repeated + s.files_cut + s.files_unread > 0 {
         push(
