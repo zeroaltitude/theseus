@@ -97,8 +97,11 @@ impl Tool for OpenWork {
     }
 }
 
-/// What the tool answers: the open issues, newest first, with the file's
-/// age; or the plain reason there is nothing to list.
+/// What the tool answers: the open issues by number, oldest first, with the
+/// file's age; or the plain reason there is nothing to list. The list is the
+/// repository's whole, whatever its size: the night's `max` bounds only what
+/// the self backlog takes as candidates, and this repository keeps one issue
+/// to a bucket of work.
 fn listing(cfg: &SelfIssuesConfig, now_ms: u64) -> Result<String, String> {
     if let Some(why) = cfg.refusal() {
         return Err(format!(
@@ -140,11 +143,17 @@ fn render(issues: &[Issue], cfg: &SelfIssuesConfig, read_at: u64, now_ms: u64) -
          stood then.\n",
         crate::owner_note::day(read_at)
     );
+    // A version label narrows the list, as it narrows the night's candidates:
+    // the header says so, or a count of some would read as a count of all.
+    let of = match cfg.version_label.trim() {
+        "" => repo.to_string(),
+        label => format!("{repo} labelled {label}"),
+    };
     if open.is_empty() {
-        out.push_str(&format!("No issue of {repo} was open in it.\n"));
+        out.push_str(&format!("No issue of {of} was open in it.\n"));
         return out;
     }
-    out.push_str(&format!("{} open in {repo}:\n", open.len()));
+    out.push_str(&format!("{} open in {of}:\n", open.len()));
     for i in open {
         let title = one_line(&i.title);
         let title = if title.is_empty() {
@@ -160,16 +169,22 @@ fn render(issues: &[Issue], cfg: &SelfIssuesConfig, read_at: u64, now_ms: u64) -
     out
 }
 
-/// A title on one line, cut with an ellipsis when long.
+/// A title on one line, cut at the last whole word with an ellipsis when long
+/// (a word is never cut in two, unless the title's first is longer than the
+/// limit).
 fn one_line(s: &str) -> String {
     let one = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    match one.chars().count() > TITLE_CHARS {
-        true => format!(
-            "{}…",
-            one.chars().take(TITLE_CHARS).collect::<String>().trim_end()
-        ),
-        false => one,
+    if one.chars().count() <= TITLE_CHARS {
+        return one;
     }
+    let cut: String = one.chars().take(TITLE_CHARS).collect();
+    let next_is_space = one.chars().nth(TITLE_CHARS) == Some(' ');
+    let whole = match cut.rsplit_once(' ') {
+        _ if next_is_space => cut.as_str(),
+        Some((head, _)) if !head.is_empty() => head,
+        _ => cut.as_str(),
+    };
+    format!("{}…", whole.trim_end())
 }
 
 #[cfg(test)]

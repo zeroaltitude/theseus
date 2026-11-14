@@ -64,7 +64,10 @@ fn an_old_file_says_how_old_and_the_version_label_narrows_the_list() {
     let later = theseus_protocol::now_unix_ms() + 3 * 86_400_000;
     let text = listing(&cfg, later).unwrap();
     assert!(text.contains("(3 days ago)"), "{text}");
-    assert!(text.contains("1 open in"), "{text}");
+    assert!(
+        text.contains("1 open in harbourworks/lanterns labelled 1.0.7:"),
+        "a narrowed list says so: {text}"
+    );
     assert!(text.contains("#12") && !text.contains("#7:"), "{text}");
 }
 
@@ -114,4 +117,46 @@ fn its_description_sends_a_reader_to_the_repository_and_away_from_any_other_trac
     );
     assert_eq!(t.class(), ToolClass::Read);
     assert_eq!(t.input_schema()["additionalProperties"], json!(false));
+}
+
+#[test]
+fn the_list_runs_oldest_first_and_a_long_title_is_cut_at_a_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = format!("{}extraordinarily", "word ".repeat(23));
+    let body = format!(
+        r#"[{{"number": 30, "title": "{long} tail", "state": "open"}},
+            {{"number": 3, "title": "First", "state": "open"}}]"#
+    );
+    let cfg = config(&file_with(&dir, &body), "");
+    let text = listing(&cfg, theseus_protocol::now_unix_ms()).unwrap();
+    assert!(
+        text.find("- #3: First").unwrap() < text.find("- #30:").unwrap(),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("- #30: {}… (", "word ".repeat(23).trim_end())),
+        "stops at the last whole word: {text}"
+    );
+    assert!(!text.contains("extraord"), "{text}");
+}
+
+/// The registration is the line `rsi::backlog::tool::register` carries, so
+/// this builds the runtime the chat's registry comes from: the tool is in it
+/// with the source on (whatever the loop's mode), not with it off, and a
+/// shared place is never offered it.
+#[test]
+fn the_chat_s_registry_holds_it_with_the_source_on_and_a_shared_place_never_does() {
+    use crate::places::{offered, PlaceClass};
+    use crate::secrets::SecretBoard;
+    use crate::toolrun::{build_runtime, InlineLauncher};
+    let registry = |on: bool| {
+        let mut cfg = crate::Config::example();
+        cfg.self_issues.enabled = on;
+        let board = SecretBoard::new(cfg.secrets.keys().cloned(), std::time::Instant::now());
+        build_runtime(&cfg, None, Arc::default(), Arc::new(InlineLauncher), board).unwrap()
+    };
+    assert!(registry(false).registry.get(OPEN_WORK).is_none());
+    assert!(registry(true).registry.get(OPEN_WORK).is_some());
+    assert!(offered(PlaceClass::Private, OPEN_WORK, &[]));
+    assert!(!offered(PlaceClass::Shared, OPEN_WORK, &[]));
 }
