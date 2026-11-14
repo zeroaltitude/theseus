@@ -182,3 +182,24 @@ nowhere else.
   four of sixteen cores, and 54 to 63 % for forty loops across all sixteen (a load1 of 33 to 62). `full` is a
   constant zero for the CPU system-wide. The self pipeline's CPU hold reads the five-minute load
   average a core instead, held at two (`crates/theseus-core/src/rsi/capacity.rs`, `CPU_LOAD_BUSY`: why two).
+
+## What the verdict names: the set it ran, and the commit it judged (issue 14)
+
+Two lines under the phase table say what a verdict is a verdict of, so a tail reader (`ec2.sh tail LANE gate`) needs no more.
+
+- `gate: suite set: FULL, no filter and no test left out (N tests run: …)` or `gate: suite set: PARTIAL, run under a
+  default-filter / a withheld set (…): not the full set, so not a landing's verdict`. nextest's own count is quoted, so
+  a stale filter shows in the number as well as the words. A landing's verdict comes from a FULL run on the exact tree
+  that lands (`docs/development.md`, Joins).
+- `gate: judged commit <sha>, tree clean` (or `tree edited beyond it (<digest>)`), read before the first compile.
+  `scripts/gate-judged.sh LOG [REMOTE REF]` reads the last such line in a gate's log and the remote's tip of REF: SAME
+  (exit 0), DIFFERENT (1; another commit, or a tree with edits the push does not hold) or UNKNOWN (2). Run it after a
+  push, on the log of the gate that licensed it. **It is the check for a landing's gate, run on `main` after the
+  fast-forward, on a clean tree.** A branch gate run the way `docs/development.md` prescribes (`gate.sh && git commit`)
+  judges the parent commit with the commit's edits on top, so it reads `tree edited beyond it` and the script answers
+  DIFFERENT for it, truthfully and always: do not run it for a branch push. A gate on a host whose runner writes a
+  default-filter into the tracked config reads the same way.
+- `(WARNED: script tests failed: <files>)` at the end of the verdict, with `gate: what this run WARNED of (not fatal by
+  decision): …` under the table, when the helper scripts' own tests failed. That phase stays non-fatal (the owner's
+  decision, recorded where it is made: `script_tests` in `scripts/gate.sh`), so the verdict says what it found instead
+  of reading plain `ok` over a `FAILED` line, and its row in the phase-time history reads `warned`, not `ok`.

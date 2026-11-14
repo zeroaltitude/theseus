@@ -83,7 +83,10 @@ pub(crate) async fn answered(r: &Rig, iid: &str) -> String {
         if let Some(l) = line {
             return l;
         }
-        assert!(t0.elapsed().as_secs() < 20, "no answer to {iid}");
+        assert!(
+            !r.task_wait_spent() && t0.elapsed().as_secs() < 20,
+            "no answer to {iid}"
+        );
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
 }
@@ -417,4 +420,31 @@ async fn a_shared_place_refuses_a_share_and_keeps_its_guests_rule() {
     })
     .await;
     assert!(r.posted(LAB).iter().all(|m| !m.content.contains("💬")));
+}
+
+/// `answered` ends at its rig's deadline as well as its own 20 s (issue 14): a test that calls it five times after the
+/// family's waits must not pass the runner's kill with no message of ours. With the deadline already past, an id that
+/// never answers gives up at once.
+#[tokio::test]
+async fn an_answer_that_never_comes_gives_up_at_the_rigs_deadline() {
+    let mut r = rig(vec![], |_| vec![], false).await;
+    r.pretend_the_task_deadline_passed();
+    let r = Arc::new(r);
+    let began = std::time::Instant::now();
+    let e = tokio::spawn(async move { answered(&r, "no-such-interaction").await })
+        .await
+        .expect_err("it gave up");
+    assert!(
+        began.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        began.elapsed()
+    );
+    let said = e
+        .into_panic()
+        .downcast::<String>()
+        .expect("an assert! message");
+    assert!(
+        said.starts_with("no answer to no-such-interaction"),
+        "{said}"
+    );
 }

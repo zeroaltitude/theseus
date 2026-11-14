@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use self::patience::Patience;
+use self::patience::{Budget, TASK_WAIT};
 
 use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
@@ -56,6 +56,10 @@ pub(crate) struct Rig {
     /// The tasks this run started (its driver and its binding), which
     /// [`Rig::stop`] aborts.
     run: Vec<tokio::task::AbortHandle>,
+    /// The one patience budget every `until` of this rig draws on.
+    patience: Budget,
+    /// When this rig was built: the task family's waits end `TASK_WAIT` after it (`Rig::task_wait_spent`).
+    began: Instant,
 }
 
 thread_local! {
@@ -131,6 +135,7 @@ impl Rig {
         more: &[String],
         tweak: impl FnOnce(&mut Config),
     ) -> Self {
+        let began = Instant::now();
         let dir = tempfile::tempdir().unwrap();
         let core = core_at(dir.path(), &fake, model(dir.path(), fake.clone()), tweak);
         if OPEN_AT_BIND.with(std::cell::Cell::get) {
@@ -162,6 +167,8 @@ impl Rig {
             fake,
             core,
             run: vec![driver.abort_handle(), binding.abort_handle()],
+            patience: Budget::new(),
+            began,
         };
         // Each place starts fresh: its first message opens its session
         // (theseus-emqx), so a place is bound once the binding reports it.
@@ -186,18 +193,79 @@ impl Rig {
         self.run.iter().for_each(tokio::task::AbortHandle::abort);
     }
 
+    /// Waits for `f`. This helper cannot tell which surfaces `f` reads, so a timeout lists them all and marks none
+    /// as read; a wait that knows its surface says it with [`Rig::until_on`].
     pub(crate) async fn until(&self, what: &str, f: impl Fn() -> bool) {
-        let mut patience = Patience::new();
+        self.wait(None, what, f).await;
+    }
+
+    /// Waits for `f`, which reads `channels`: a timeout lists those first, marked as read, then the others, each
+    /// message with the content it was created with and the content it has now, then the answers.
+    pub(crate) async fn until_on(&self, channels: &[u64], what: &str, f: impl Fn() -> bool) {
+        self.wait(Some(channels), what, f).await;
+    }
+
+    /// The waits of one rig share one patience budget (`Budget`).
+    async fn wait(&self, read: Option<&[u64]>, what: &str, f: impl Fn() -> bool) {
         while !f() {
             assert!(
-                !patience.spent(),
-                "timed out: {what}; #lab holds {:#?}; the DM {:#?}; answers {:#?}",
-                self.fake.messages(LAB),
-                self.fake.messages(ANA_DM),
-                self.fake.replies()
+                !self.patience.spent(),
+                "timed out: {what}\n{}",
+                self.surfaces(read)
             );
-            patience.nap().await;
+            self.patience.nap().await;
         }
+    }
+
+    /// Has the task family's one deadline passed? It is `TASK_WAIT` from the rig's construction, so the connect
+    /// wait, the bind wait and every task wait of the rig all end inside it, and inside the runner's kill (a test that
+    /// builds a second rig has a second deadline). The
+    /// family's waits used to take 100 s EACH, from when each was called.
+    pub(crate) fn task_wait_spent(&self) -> bool {
+        self.began.elapsed() >= TASK_WAIT
+    }
+
+    /// For the test that holds the family's `until` to this deadline: the deadline has passed.
+    pub(crate) fn pretend_the_task_deadline_passed(&mut self) {
+        self.began = Instant::now() - TASK_WAIT;
+    }
+
+    /// What a timed-out wait reads, surface by surface. A wait that named its surfaces gets those first, marked;
+    /// one that did not gets every surface and a line saying it could not say which.
+    fn surfaces(&self, read: Option<&[u64]>) -> String {
+        let name = |c: u64| match c {
+            LAB => "#lab".to_string(),
+            ANA_DM => "the DM".to_string(),
+            c => format!("channel {c}"),
+        };
+        let shown: Vec<(u64, &str)> = match read {
+            Some(read) => read
+                .iter()
+                .map(|c| (*c, " (read by this wait)"))
+                .chain(
+                    [ANA_DM, LAB]
+                        .into_iter()
+                        .filter(|c| !read.contains(c))
+                        .map(|c| (c, " (not read by this wait)")),
+                )
+                .collect(),
+            None => vec![(ANA_DM, ""), (LAB, "")],
+        };
+        let mut out = String::new();
+        if read.is_none() {
+            out.push_str("this wait did not say which surfaces it reads, so every one follows:\n");
+        }
+        for (c, mark) in shown {
+            out.push_str(&format!("{}{mark}:\n", name(c)));
+            let msgs = self.fake.messages(c);
+            if msgs.is_empty() {
+                out.push_str("  no messages\n");
+            }
+            for m in msgs {
+                out.push_str(&format!("  {} {}: {}\n", m.author, m.id, how_it_reads(&m)));
+            }
+        }
+        format!("{out}answers {:#?}", self.fake.replies())
     }
 
     pub(crate) fn say(&self, user: (u64, &str), channel: Option<u64>, content: &str) -> String {
@@ -267,6 +335,23 @@ impl Rig {
     fn waiting(&self) -> usize {
         self.core.confirm_list().map_or(0, |l| l.len())
     }
+}
+
+/// A message as a person reading the stand-in sees it, and as the wait that timed out may not have: the content it
+/// was CREATED with, and the content it has NOW. They differ when the binding streamed the text and edited it: a
+/// wait that reads only the create's content (`versions[0]`) waits for text that arrived as an edit, and no patience
+/// makes that true, which is how this helper once sent a diagnosis down the wrong path.
+fn how_it_reads(m: &Msg) -> String {
+    let created = &m.versions[0];
+    if m.edits == 0 && created == &m.content {
+        return format!("created and now: {created:?}");
+    }
+    format!(
+        "created with {created:?}; now {:?} ({} edits, {} versions)",
+        m.content,
+        m.edits,
+        m.versions.len()
+    )
 }
 
 /// Where the scripted write goes: outside the workspace's roots, with

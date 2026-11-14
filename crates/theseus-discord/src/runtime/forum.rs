@@ -66,9 +66,10 @@ const RETRY: Duration = Duration::from_secs(60);
 /// A call that failed once is tried again after this long, and the wait
 /// doubles with each failure in a row up to `RETRY`, as the courier's lane
 /// backs off (`courier::Lane::away`). It was a flat `RETRY` until
-/// theseus-o366s: one refused call then held a post for a minute, and every
-/// wait in the forum tests is capped at 100 s, so a single transient refusal
-/// read as a hang rather than as a retry.
+/// theseus-o366s: one refused call then held a post for a minute, and the
+/// waits of a forum test share one deadline (110 s from its rig's construction,
+/// the connect and bind waits among them), so a single transient refusal could
+/// take most of what was left and read as a hang rather than as a retry.
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 
 /// A post archives itself after a day of quiet.
@@ -1304,9 +1305,10 @@ mod tests {
     }
 
     /// A refused call is tried again in a second, not in a minute, and the
-    /// wait doubles only while the refusals go on. A flat minute was longer
-    /// than the 100 s every forum test waits, so one refusal under load read
-    /// as a hang (theseus-o366s).
+    /// wait doubles only while the refusals go on. A flat minute could take
+    /// most of the one 110 s deadline a forum test's waits share (its rig's
+    /// connect and bind waits come out of it too), so one refusal under load
+    /// read as a hang (theseus-o366s).
     #[tokio::test]
     async fn a_refused_call_is_tried_again_in_a_second_and_the_post_is_then_made() {
         use crate::runtime::voice_status::tests::view;
