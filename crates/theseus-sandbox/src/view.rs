@@ -400,10 +400,22 @@ fn pty() -> io::Result<()> {
 /// **`visible` leaves BOTH of its mask groups off — the covers and the
 /// read-only remounts — and only a view granted
 /// [`crate::Facilities::visible_proc`] gets that.** A nested L1 job cannot
-/// start below a masked `/proc`; the grant's own doc carries the measurement,
-/// what it discloses, and that **both** groups are needed (either alone
-/// leaves the job unable to start, measured on 2026-11-11: 67 of 123 with
-/// one group off, 119 with both).
+/// start below a masked `/proc`, and that is now measured rather than
+/// argued: on 2026-11-13, on two kernels (`7.0.0-1014-aws` and
+/// `6.18.54.1-microsoft-standard-WSL2`), a real nested L1 job spawned from
+/// inside this view is refused with `mounting /proc: Operation not
+/// permitted` when the grant is off, and starts and exits 0 when it is on —
+/// one tree, one session per host, the two rungs differing in this one bool.
+/// The grant's own doc carries that measurement and what it discloses.
+///
+/// **Which of the two groups does the work is unmeasured, and no build can
+/// measure it:** `visible` is a single bool, so `proc` applies both groups or
+/// neither, and there has never been a configuration with one group off. The
+/// parenthesis here until 2026-11-13 claimed a measurement of one group alone
+/// against both; that is a configuration this code cannot produce, and it
+/// read the 67 rung as this grant partly on where `crate::spec`'s and
+/// `theseus_core::sandbox::self_build`'s both read it as this grant entirely
+/// off. It is not to be put back, here or in any other comment in this file.
 ///
 /// `/sys`'s masks are NOT part of the grant and never come off: taking them
 /// off as well changed nothing — the same 119 — so `/sys/firmware`'s DMI and

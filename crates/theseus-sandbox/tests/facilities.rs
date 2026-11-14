@@ -217,10 +217,21 @@ fn nesting_grant() -> Result<(), String> {
 /// already holds a fully visible one, and our masks are locked children.
 /// Measured, that is **not** what happens: with `nesting` alone and the masks
 /// still on, a child in a new user, mount and pid namespace mounts a procfs
-/// successfully (`nested_proc: "ok"` in this probe's output). So the
-/// `mounting /proc: Operation not permitted` a real nested L1 job meets has
-/// some other cause, named in the report rather than guessed at here, and
-/// this case claims only what it can see: which masks each grant moves.
+/// successfully (`nested_proc: "ok"` in this probe's output).
+///
+/// **That measurement stands, but it is not the gate, and on 2026-11-13 the
+/// gate itself was measured.** `nested_proc` mounts a bare procfs at `/tmp`,
+/// where nothing is covered; a real init mounts at `/proc`, where the
+/// inherited locked covers are. At this very rung on 6.18 the two answers
+/// disagree — `nested_proc: "ok"` while a real nested L1 job is refused with
+/// `mounting /proc: Operation not permitted` — so this probe is **not** a
+/// valid proxy for what `visible_proc` buys. It is kernel-dependent besides,
+/// which was not recorded here: under `nesting` alone it is `ok` on 6.18 and
+/// `EPERM` on `7.0.0-1014-aws`. The cause of that refusal **is** the masks
+/// after all — measured on both kernels with the two rungs differing in one
+/// bool — and `theseus_sandbox::Facilities::visible_proc`'s own doc carries
+/// it. This case still claims only what it can see: which masks each grant
+/// moves.
 fn visible_proc_grant() -> Result<(), String> {
     let v = probe(
         Facilities {
