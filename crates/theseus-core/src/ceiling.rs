@@ -204,12 +204,14 @@ impl crate::turn::TurnRunner {
     /// With neither, the CLI's or the web UI's: private, with no ceiling.
     /// Shared when where it goes cannot be read.
     pub fn view_of(&self, session_id: &str) -> PlaceView {
-        let place = self.outbox.try_target(session_id).and_then(|t| match t {
-            Some(t) => Ok(Some(t)),
-            None => self.outbox.try_wake_target(session_id),
-        });
+        let place = self.outbox.speaks_at(session_id);
         match place {
-            Ok(p) => self.place_rule.place(&self.cfg, p.as_deref()),
+            // A thread's turn speaks where its message came from.
+            Ok(p) => self.place_rule.place_under(
+                &self.cfg,
+                p.as_deref(),
+                self.outbox.answering(session_id).as_deref(),
+            ),
             Err(e) => {
                 tracing::warn!(session_id, error = %format!("{e:#}"),
                     "where a session speaks cannot be read: its turn is a shared place's");

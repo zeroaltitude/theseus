@@ -660,7 +660,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   active ones for the router (none for a shared place). A thread is private always: `places::PlaceRule::class` classes
   `thread:*` and `discord:thread:*` private, every method is `judge_act(Act::Thread)` (the owner, from a private place),
   and the outbox gives a virtual place's session no target (`outbox::virtual_place`), so it posts nowhere, as a CLI
-  session's. `turn.submit { thread }` runs in `Core::thread_session`: the place's session, or one opened and bound on
+  session's. What the place tells the model beyond its tools (the self card's chat route and `/join`) is read by
+  `PlaceRule::place_under` from the place the session speaks at, or, for a turn addressed to a thread by name, from the
+  place its message came from (`Outbox::answering_at`, in memory, set by `turn.submit`; the class stays private and the
+  thread still has no target); `TurnCtx::place` carries those two flags into the turn's request (it set both false
+  before, for every place). `turn.submit { thread }` runs in `Core::thread_session`: the place's session, or one opened and bound on
   first use and after the session was retired (the owner's `/new` is a retire), under the board's lock so two first
   messages open one; only an active thread takes a message. `thread.done` retires the session and leaves the card in it
   as a harness note (and in its row). Two threads are two executions and run at once, under the one daily ceiling.

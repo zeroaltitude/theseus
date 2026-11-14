@@ -172,3 +172,47 @@ fn the_place_rule_offers_join_on_a_private_discord_place_only_once_voice_is_boun
     rule.bind_voice(false);
     assert!(!rule.place(&cfg, dm).voice);
 }
+
+/// A thread has no place of its own: its class is private always, and what
+/// the place tells the model (the chat route, `/join`) is the underlying
+/// place's, when the message came from a private Discord one. A shared place,
+/// the CLI, and no place add nothing.
+#[test]
+fn a_thread_takes_the_chat_route_and_the_voice_channel_of_its_underlying_place() {
+    let cfg = config(|_| {});
+    let rule = bound();
+    rule.bind_voice(true);
+    let thread = Some("thread:tides");
+    let plain = rule.place_under(&cfg, thread, None);
+    assert!(
+        !plain.chat && !plain.voice,
+        "a thread's own string has no chat prefix"
+    );
+    let over_dm = rule.place_under(&cfg, thread, Some(DM));
+    assert!(over_dm.chat && over_dm.voice, "over the owner's DM");
+    assert_eq!(
+        over_dm.class,
+        PlaceClass::Private,
+        "a thread is private always"
+    );
+    let over_lobby = rule.place_under(&cfg, thread, Some(LOBBY));
+    assert!(
+        !over_lobby.chat && !over_lobby.voice,
+        "a shared place offers neither"
+    );
+    assert_eq!(
+        over_lobby.class,
+        PlaceClass::Private,
+        "and it does not change the class"
+    );
+    // The card says so, and says nothing of either for the others.
+    let rt = runtime(&cfg);
+    assert!(card(&cfg, &rt, over_dm).ends_with(CHAT));
+    assert!(card(&cfg, &rt, over_dm).contains("/join"));
+    assert!(!card(&cfg, &rt, plain).contains("/trust"));
+    // A place that has its own string is as it was.
+    assert_eq!(
+        rule.place_under(&cfg, Some(DM), None).chat,
+        rule.place(&cfg, Some(DM)).chat
+    );
+}

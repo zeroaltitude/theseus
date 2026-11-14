@@ -267,6 +267,9 @@ impl Core {
     /// go back to the place the message came from, or nowhere for the CLI.
     fn show_thread_at(&self, tag: &ThreadTag, run_session: &SessionRecord, place: Option<&str>) {
         if tag.slug.is_some() {
+            // It answers at a place of its own now: no turn spoken to the thread
+            // by name is the place it speaks in.
+            self.outbox.answering_at(&run_session.session_id, None);
             if let Err(e) = self.outbox.show_at(&run_session.session_id, place) {
                 tracing::warn!(error = %format!("{e:#}"), "a thread's reply place was not written");
             }
