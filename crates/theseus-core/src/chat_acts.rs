@@ -24,6 +24,17 @@
 //! - [`ALLOW`] lets the held call run as it was first proposed.
 //! - [`SYNC`] asks for an import sync now.
 //!
+//! **A known limit of the answer tool, measured and not guessed.**
+//! `confirm_list` stops showing a question once a LATER turn has run in its
+//! session (`tests_chat_acts`'s probe case: three ordinary turns and the
+//! question is no longer listed, with no `action.confirm_answered` and no
+//! `confirm.resolved` row for it, so it was not answered -- only unlisted). So
+//! the answer tool is offered for a question in the turn that follows it, and
+//! not after an intervening turn in the same conversation. That is the case
+//! the route it replaced served too, since `answer_in_words` read the same
+//! list; the card's scope is the trigger and not that list, and the limit is
+//! filed rather than widened here.
+//!
 //! **Context-sensitivity is by construction, not by prose.** None of the three
 //! is in a place's kept catalog ([`conditional`] holds them out of
 //! `toolrun::catalogs`); each turn's [`Board::offers`] puts in only those that

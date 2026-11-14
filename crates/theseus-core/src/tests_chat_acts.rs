@@ -437,32 +437,31 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
             "options": [{"label": "Ship it"}, {"label": "Wait for the gate"}],
         })
     };
+
+    // A question in another conversation, which nothing here may touch.
     r.calls(&[("owner_ask", ask("Ship the other one?"))]);
     say(&r, &elsewhere, "What should we do there?").await;
-    r.calls(&[("owner_ask", ask("Ship the harbour change?"))]);
-    say(&r, &here, "What should we do?").await;
-    until("two questions wait", || {
-        r.core.confirm_list().unwrap().len() == 2
+    until("the other conversation's question waits", || {
+        !r.core.confirm_list().unwrap().is_empty()
     })
     .await;
-
-    // His reply, with no tool called: nothing is answered. "yes" and "ok" are
-    // what `answer_in_words` read, and they reach nothing now.
-    let here_q = waiting_in(&r, &here);
     let else_q = waiting_in(&r, &elsewhere);
-    assert_ne!(here_q, else_q, "two different questions");
 
     // His reply, with no tool called: nothing is ANSWERED. "yes" and "ok" are
     // what `answer_in_words` read, and they reach nothing now.
     //
-    // The measurement is the ROW, not the waiting list: a question stops being
-    // listed while a turn runs in its session, which is a fact about the list
-    // and not about the question. `action.confirm_answered` is written at the
-    // one place an answer becomes a decision, so an empty set of them is the
-    // honest statement that nobody answered anything.
+    // The measurement is the ROW, not the waiting list: `confirm_list` stops
+    // showing a question once a later turn has run in its session, which is a
+    // fact about the list and not about the answer.
+    // `action.confirm_answered` is written at the one place an answer becomes
+    // a decision, so an empty set of them is the honest statement that nobody
+    // answered anything.
+    let probe = session(&r.core);
+    r.calls(&[("owner_ask", ask("Ship the probe?"))]);
+    say(&r, &probe, "What should we do here?").await;
     for words in ["yes", "ok, go ahead", "yes please"] {
         r.calls(&[]);
-        say(&r, &here, words).await;
+        say(&r, &probe, words).await;
         let answered = answers(&r);
         assert!(
             answered.is_empty(),
@@ -470,7 +469,21 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
         );
     }
 
-    // His reply, and the model chooses the tool, with the answer he gave.
+    // A question here, and his reply in the very next turn, where the model
+    // chooses the tool and carries the answer he gave.
+    r.calls(&[("owner_ask", ask("Ship the harbour change?"))]);
+    say(&r, &here, "What should we do?").await;
+    until("the question here waits", || {
+        r.core
+            .confirm_list()
+            .unwrap()
+            .iter()
+            .any(|q| q.session_id == here)
+    })
+    .await;
+    let here_q = waiting_in(&r, &here);
+    assert_ne!(here_q, else_q, "two different questions");
+
     r.calls(&[("chat_answer_question", json!({"answer": "1"}))]);
     say(&r, &here, "ship it").await;
 
