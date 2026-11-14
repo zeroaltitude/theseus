@@ -87,8 +87,10 @@ A lane is local work beside the spine:
 
 **The main working tree stays on `main`.** Work on, test or review another commit in a worktree of your own; read
 one with `git show <commit>:<path>`. `scripts/main-tree-guard.sh install` (run by `scripts/setup.sh`) installs a hook
-that puts the main tree straight back on `main` when a checkout moves it, and fails that checkout (issue 15). Git runs
-no hook for `git reset` or `git merge`, so those are still yours to avoid there.
+that puts the main tree straight back on `main` when a checkout moves it, and fails that checkout (issue 15). No hook
+fires for `git reset` or `git merge`, so the guard does not cover them: in the main tree they are for the join's
+fast-forward and reset of `main` and the install's fast-forward, never for looking at another commit. A rebase or
+bisect there is left to finish.
 
 A lane pushes only its own branch. The machine has room for only a few compiling trees at once. Each tree is many
 gigabytes, and the whole machine slows past three concurrent compiles. So a build starts only when a capacity check

@@ -76,6 +76,7 @@ class MainTreeGuard(unittest.TestCase):
         r = self.git("switch", "-c", "scratch", check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.head(), "refs/heads/main")
+        self.assertIn("the branch is still there", r.stderr)
 
     def test_a_lane_is_left_alone(self):
         self.guard("install")
@@ -103,6 +104,49 @@ class MainTreeGuard(unittest.TestCase):
         with open(os.path.join(self.main, "other.txt"), encoding="utf-8") as f:
             self.assertEqual(f.read(), "mine, edited\n")
 
+    def test_a_rebase_of_main_in_the_main_tree_completes_on_main(self):
+        # A failing post-checkout fails the rebase's own checkout halfway (git 2.34), so `pull --rebase` with a local
+        # commit once ended detached, with no rebase left to finish. Review round 1 of issue 15 found it.
+        self.guard("install")
+        self.git("branch", "upstream", "main")
+        self.put("other.txt", "local\n")
+        self.git("add", "other.txt")
+        self.git("commit", "-q", "-m", "local")
+        self.git("worktree", "add", "-q", self.lane, "upstream")
+        self.put("notes.txt", "three\n")
+        with open(os.path.join(self.lane, "notes.txt"), "w", encoding="utf-8") as f:
+            f.write("three\n")
+        self.git("commit", "-q", "-am", "three", cwd=self.lane)
+        self.git("checkout", "-q", "--", "notes.txt")
+        r = self.git("rebase", "upstream", check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.head(), "refs/heads/main")
+        self.assertEqual(self.git("log", "-1", "--format=%s").stdout.strip(), "local")
+        self.assertEqual(self.git("log", "-1", "--format=%s", "HEAD~1").stdout.strip(), "three")
+        self.assertNotIn("theseus:", r.stderr, "a rebase of main itself is said nothing of")
+
+    def test_a_bisect_in_the_main_tree_runs_and_its_reset_ends_on_main(self):
+        self.guard("install")
+        for n in ("three", "four", "five"):
+            self.put("notes.txt", n + "\n")
+            self.git("commit", "-q", "-am", n)
+        r = self.git("bisect", "start", "main", self.one, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.head(), "", "bisecting, the tree is on a commit between")
+        self.assertIn("bisect reset", r.stderr)
+        self.assertEqual(self.git("bisect", "good", check=False).returncode, 0)
+        r = self.git("bisect", "reset", check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.head(), "refs/heads/main")
+
+    def test_install_from_a_lane_is_refused(self):
+        self.git("worktree", "add", "-q", "--detach", self.lane, "main")
+        r = subprocess.run(["bash", os.path.join(self.lane, "scripts", "main-tree-guard.sh"), "install"],
+                           cwd=self.lane, env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("linked worktree", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.main, ".git", "hooks", "post-checkout")))
+
     def test_install_is_idempotent_and_check_says_so(self):
         self.assertEqual(self.guard("check").returncode, 1)
         self.assertIn("installed (", self.guard("install").stdout)
@@ -127,7 +171,7 @@ class MainTreeGuard(unittest.TestCase):
         with open(hook, encoding="utf-8") as f:
             self.assertEqual(f.read(), "#!/bin/sh\necho theirs\n")
 
-    def test_the_installed_hook_is_a_copy_a_branch_cannot_edit(self):
+    def test_the_installed_hook_is_a_copy_a_checkout_cannot_change(self):
         self.guard("install")
         hook = os.path.join(self.main, ".git", "hooks", "post-checkout")
         self.assertFalse(os.path.islink(hook))
