@@ -46,8 +46,10 @@ test('the page is routed, on the rail second after the Ship, and in the time mac
   assert.match(src('components/Shell.tsx'), /\{ to: '\/ship', label: 'Ship', icon: Sailboat \},\n {2}\{ to: '\/ops', label: 'Ops', icon: ShipWheel \},/)
   assert.match(src('lib/navgroups.ts'), /items: \['\/ship', '\/ops',/)
   assert.match(src('lib/world.ts'), /'\/ops'/)
-  // The Ship stays the landing view (the owner's decision 2).
-  assert.match(src('main.tsx'), /\{ index: true, element: <Navigate to="\/ship" replace \/> \}/)
+  // The landing view is the simple pages' Ops (the owner's decision of 2026-11-14, which replaced decision 2's
+  // "the Ship stays the landing view"); the Ship keeps its own address, and this page keeps `/ops`.
+  assert.match(src('main.tsx'), /\{ index: true, element: <SimpleOps \/> \}/)
+  assert.match(src('main.tsx'), /\{ path: 'ship', element: wrapShip\(<Ship \/>\) \}/)
 })
 
 test('a deep link survives the queue’s first read, and the Threads lens matches its threads by slug', () => {
