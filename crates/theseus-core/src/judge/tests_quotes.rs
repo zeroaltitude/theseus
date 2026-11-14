@@ -31,6 +31,9 @@ fn rig(jev: &FakeJev) -> Rig {
     rig_with(texts(1), Some(jev), |c| {
         c.judge.packs.remove(PACK);
         c.judge.total_secs = 5;
+        // `notify` is the default since 1.0.6 (the owner's S17-D8), and this
+        // file asserts the FREEZE, so it writes the mode the freeze belongs to.
+        c.content_based_security.injection = crate::content::InjectionMode::Refuse;
     })
 }
 

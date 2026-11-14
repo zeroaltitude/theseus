@@ -88,6 +88,37 @@ fn an_unknown_key_is_refused() {
     assert!(e.contains("enabled"), "{e}");
 }
 
+/// A config that names no `[content_based_security]` table at all — the owner's, and so the shipped behaviour —
+/// leaves `injection` at `notify`: a labelled session's call runs and the operator is told. His ruling of
+/// 2026-11-12 (S17-D8): L0 is unsandboxed and default-trusted, "we return to the notify but execute situation",
+/// and Jev's classification of the content WARNS. An explicit `refuse` still freezes, for the specialised
+/// security use L1 is kept for.
+#[test]
+fn no_table_at_all_leaves_injection_at_notify() {
+    use crate::content::InjectionMode;
+    for (rest, want, why) in [
+        ("", InjectionMode::Notify, "no table at all"),
+        (
+            "[content_based_security]",
+            InjectionMode::Notify,
+            "an empty table",
+        ),
+        (
+            "[content_based_security]\ninjection = \"notify\"",
+            InjectionMode::Notify,
+            "the default written out",
+        ),
+        (
+            "[content_based_security]\ninjection = \"refuse\"",
+            InjectionMode::Refuse,
+            "refuse is not dead",
+        ),
+    ] {
+        let (c, _) = Config::parse(&doc(rest)).unwrap_or_else(|e| panic!("{why}: {e:#}"));
+        assert_eq!(c.content_based_security.injection, want, "{why}");
+    }
+}
+
 /// The keys the later rows read parse and load.
 #[test]
 fn the_keys_the_later_rows_read_parse() {

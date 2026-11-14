@@ -257,7 +257,16 @@ async fn the_dm_task_flow_is_as_the_owner_approved_it() {
         |dir| vec![(REEF, asks_to_write(dir))],
         &bindings(true, ""),
         |_| {},
-        |c| c.discord.task_home = "theseus-tasks".into(),
+        |c| {
+            c.discord.task_home = "theseus-tasks".into();
+            // The golden the owner locked holds the FREEZE's notice for the
+            // content label (`golden/dm_flow.txt`). `notify` is the shipped
+            // default since 1.0.6 (his S17-D8, 2026-11-12) and its notice reads
+            // differently, so this rig writes `refuse` and the locked file is
+            // unchanged. Whether the golden should instead show what his DM now
+            // says is his call, and needs his OK.
+            c.content_based_security.injection = theseus_core::content::InjectionMode::Refuse;
+        },
     )
     .await;
     let forum = forum_up(&r).await;

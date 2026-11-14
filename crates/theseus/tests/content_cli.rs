@@ -159,8 +159,8 @@ fn content_remove_takes_one_label_or_all_of_them() {
     assert!(
         one.contains(
             "removed injection from session ses_q7f3k2 (by the CLI) · it was raised by \
-             fetched_page from http.fetch notes.example/today · its calls that act run at \
-             their postures again\n"
+             fetched_page from http.fetch notes.example/today · its calls that act are \
+             refused by nothing now\n"
         ),
         "{one}"
     );

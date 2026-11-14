@@ -87,8 +87,10 @@ divergence from the plan. What it changes:
   push line. `theseus inspect` says which secret went in which request to which model (`request.redacted`), and
   `[privacy] redact_outbound = false` sends them as written. Nothing guesses a key's shape any more.
 - **Reading the web no longer holds the session.** The `external` marker stays on a result, and the `injection` label is
-  the one place outside text can stop a later call: a call that is not a local read of files and code is refused until
-  you remove it (`/trust`, `theseus content remove`, or the button). `[policy] external_text` and `external_programs`
+  the one place outside text could stop a later call — and since 1.0.6 it does not, by default: `[content_based_security]
+  injection = "notify"` is the shipped default, so the call runs and you are told (`/trust`, `theseus content remove`, or
+  the button clears the label). Write `injection = "refuse"` and a call that is not a local read of files and code is
+  refused until you remove it. `[policy] external_text` and `external_programs`
   are retired and a config that names one fails to load, saying so. A host an L1 call names beyond `[sandbox] egress`
   runs with a notice.
 - **Earned autonomy and scoped grants are gone** (about 6,600 lines, which could never fire under
@@ -580,8 +582,9 @@ joined since, for install #10, after that. Theseus has been feature complete (v1
   backup copy.
 - Text from outside (a page, a search, an MCP result, a mail, `gh`'s output) carries an `external` marker and is
   classified like any item: if Jev finds it trying to steer the assistant, the session carries an `injection` label,
-  and every call except a local read of files and code is refused until you remove the label (`/trust`,
-  `theseus content remove SESSION injection`, or the button on the message).
+  and you are told — nothing is refused at the shipped default (`[content_based_security] injection = "notify"`). With
+  `injection = "refuse"` every call except a local read of files and code is refused until you remove the label
+  (`/trust`, `theseus content remove SESSION injection`, or the button on the message).
 - A secret broker that hands a program, sandboxed or not, only the credentials you've granted it, never through a
   shell or a program that runs others, and never to a cloned project's git hooks.
 - Budgets in dollars, the cockpit and The Narrative, crash recovery, restore from a backup copy, and a systemd

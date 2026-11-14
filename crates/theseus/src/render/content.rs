@@ -8,10 +8,13 @@ use theseus_protocol::{LabelView, SessionInfo, UnlabelResult};
 
 use super::fmt_date;
 
-/// What a flag does to a session, in a few words.
+/// What a flag does to a session, in a few words. `injection`'s effect is the
+/// daemon's `[content_based_security] injection`, which the CLI cannot read
+/// from here, and whose default is `notify` since 1.0.6 — so the words name the
+/// mode the freeze belongs to rather than promising it.
 pub fn effect(flag: &str) -> &'static str {
     match flag {
-        "injection" => "writes, programs and sends are refused",
+        "injection" => "writes, programs and sends are refused under injection = \"refuse\"",
         "secret" | "confidential" | "personal" => "China-origin models are off",
         _ => "",
     }
@@ -85,7 +88,7 @@ pub fn unlabelled_line(r: &UnlabelResult) -> String {
         r.label.kind,
         r.label.source,
         match r.flag.as_str() {
-            "injection" => "its calls that act run at their postures again",
+            "injection" => "its calls that act are refused by nothing now",
             _ => "China-origin models are allowed again, until something else disqualifies it",
         }
     )

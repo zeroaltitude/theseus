@@ -139,7 +139,9 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`tools`**: the toollets: class, backend, what policy does with each, calls so far. `theseus tools`.
 - **`policy`**: "should have asked": make a tool ask first, undo it, or list every tool's posture and what set it.
   `theseus policy tighten proc.run`; `policy explain`.
-- **`content`**: a session's content labels: `injection` stops its calls that act, and `secret`, `confidential` and
+- **`content`**: a session's content labels: `injection` tells you something tried to steer the assistant — at the
+  shipped default (`[content_based_security] injection = "notify"`) nothing stops, and under `injection = "refuse"`
+  its calls that act are refused — and `secret`, `confidential` and
   `personal` keep it off a China-origin model, until you remove them. A sensitive word you listed, a Google result and
   Jev each raise them. `theseus content SESSION` lists them, each with its source and how to call it wrong;
   `theseus content remove SESSION FLAG` (or `--all`) removes one, and is yours alone to run. In Discord, `/trust`

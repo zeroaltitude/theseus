@@ -15,7 +15,10 @@ the design spends its complexity on. Four principles follow, and 1.0.3 is the re
 - **The session is the true record.** What is stored is raw and is never rewritten. Secrets are substituted only on
   the copies that leave the machine: the request to a model, a log line, a client's screen.
 - **A label you can remove, not a refusal you cannot.** A sensitive name, a Google result or a judged injection
-  raises a label on the item; the label gates what acts, and you can tap it away.
+  raises a label on the item, and you can tap it away. A label that keeps a conversation off a model of restricted
+  origin does that from the moment it is raised; an `injection` label, at the shipped default, only tells you
+  (`[content_based_security] injection = "notify"`) — write `injection = "refuse"` and it gates what acts until you
+  clear it.
 - **Models of other origins see only what was judged open.** A request to a model of China or unknown origin
   carries only what Jev cleared for that one request, and that floor has no off switch.
 

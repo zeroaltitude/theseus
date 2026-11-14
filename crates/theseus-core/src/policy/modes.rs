@@ -145,8 +145,9 @@ impl ToolRuntime {
 /// words the model can act on: while the session is frozen, a call is refused
 /// unless it is a local read of files and code (`content::local_read`): a
 /// write, a program, and anything that leaves the machine, a fetch or a
-/// search included. A local read, and every call in `notify` mode (the bench
-/// daemon's, `[content_based_security] injection`), never reads the session's labels.
+/// search included. A local read, and every call in `notify` mode
+/// (`[content_based_security] injection`, **the default since 1.0.6**: the call
+/// runs and the operator is told), never reads the session's labels.
 fn content_refusal(rt: &ToolRuntime, at: &At<'_>, tool: &dyn Tool, plan: &Plan) -> Option<String> {
     let class = plan.class.unwrap_or(tool.class());
     if class == ToolClass::Read && crate::content::local_read(tool.name()) {
