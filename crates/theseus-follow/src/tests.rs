@@ -682,7 +682,7 @@ fn plant_wrong_frame(dir: &Path, segment: u32, n: usize) -> u64 {
     for b in &mut bytes[count_at + 4..body.end] {
         *b = 0xFF;
     }
-    let crc = layout.crc(&bytes[body.clone()]);
+    let crc = layout.crc(&bytes[body]);
     bytes[at + 8..at + 12].copy_from_slice(&crc.to_le_bytes());
     fs::write(&path, bytes).unwrap();
     at as u64

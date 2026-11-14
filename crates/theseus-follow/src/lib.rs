@@ -177,6 +177,29 @@ impl Batch {
     }
 }
 
+/// What reading one window's frames came to: how far it got, and why it stopped short.
+struct Frames {
+    i: usize,
+    partial: Option<&'static str>,
+    held: Option<Stop>,
+}
+
+/// Frames skipped since the last whole one, and where the first began (its segment and its offset
+/// in the window): they count only once a whole frame follows them, which may be the first of the
+/// next segment.
+#[derive(Default)]
+struct Skips {
+    pending: Vec<Skipped>,
+    from: Option<(u32, usize)>,
+}
+
+impl Skips {
+    fn clear(&mut self) {
+        self.pending.clear();
+        self.from = None;
+    }
+}
+
 /// A read-only follower of the WAL in `dir` (a store's `wal/` directory).
 pub struct WalFollower {
     dir: PathBuf,
@@ -384,6 +407,99 @@ impl WalFollower {
         }
     }
 
+    /// The frames of one window, read from its start: the whole ones into the batch (the cursor
+    /// moves past each), a held one or a partial one stopping it, and a wrong one skipped when
+    /// the follower skips ([`WalFollower::skipping_wrong`]). `at` is the window's segment and
+    /// its offset in it.
+    fn read_frames(
+        &mut self,
+        window: &[u8],
+        (seg, off): (u32, u64),
+        upto: u64,
+        batch: &mut Batch,
+        skips: &mut Skips,
+    ) -> Result<Frames, FollowError> {
+        let mut out = Frames {
+            i: 0,
+            partial: None,
+            held: None,
+        };
+        while out.i < window.len() {
+            let i = out.i;
+            // After a skipped frame the next one may begin past the position expected.
+            let mut first = self.cursor.position + 1;
+            let read = loop {
+                match wal::read_frame(window, i, seg, off, first) {
+                    FrameRead::Wrong(WalError::Sequence { found, .. })
+                        if self.resync && found > first =>
+                    {
+                        first = found;
+                    }
+                    other => break other,
+                }
+            };
+            match read {
+                FrameRead::Whole { records, .. }
+                    if records.last().is_some_and(|(r, _)| r.position > upto) =>
+                {
+                    out.held = Some(Stop::held(seg, off + i as u64, &records[0].0));
+                    break;
+                }
+                FrameRead::Whole {
+                    end, crc, records, ..
+                } => {
+                    let first = records.first().map_or(0, |(r, _)| r.position);
+                    if let Some((r, _)) = records.last() {
+                        self.cursor.position = r.position;
+                    }
+                    self.cursor.last = Some(FrameMark {
+                        start: off + i as u64,
+                        first,
+                        crc,
+                    });
+                    self.cursor.segment = seg;
+                    self.cursor.offset = off + end as u64;
+                    self.resync = false;
+                    batch.skipped.append(&mut skips.pending);
+                    skips.from = None;
+                    batch.records.extend(records.into_iter().map(|(r, _)| r));
+                    batch.frames += 1;
+                    batch.bytes += (end - i) as u64;
+                    out.i = end;
+                }
+                FrameRead::Partial { reason } => {
+                    out.partial = Some(reason);
+                    break;
+                }
+                // The frame passed its checksum, so its length is true: read past it, but only
+                // to a whole frame that follows, never to rest on it.
+                FrameRead::Wrong(e) if self.skip_wrong => {
+                    let len = u32::from_le_bytes([
+                        window[i + 4],
+                        window[i + 5],
+                        window[i + 6],
+                        window[i + 7],
+                    ]) as usize;
+                    skips.from.get_or_insert((seg, i));
+                    skips.pending.push(Skipped {
+                        segment: seg,
+                        offset: off + i as u64,
+                        reason: e.to_string(),
+                    });
+                    self.resync = true;
+                    out.i = i + wal::FRAME_HEADER + len;
+                }
+                FrameRead::Wrong(e) => {
+                    return Err(FollowError::Corrupt(format!(
+                        "segment {seg}, offset {}: {e}",
+                        off + i as u64
+                    )))
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn read_into(
         &mut self,
         max_bytes: usize,
@@ -394,11 +510,7 @@ impl WalFollower {
             self.stop = Stop::CaughtUp;
             return Ok(());
         };
-        // Frames skipped since the last whole one, and where the first began (its segment and
-        // offset in the window): they count only once a whole frame follows them, which may be
-        // the first of the next segment.
-        let mut pending: Vec<Skipped> = Vec::new();
-        let mut skip_from: Option<(u32, usize)> = None;
+        let mut skips = Skips::default();
         loop {
             // Checked before this segment is read: once segment n+1 exists,
             // nothing more is written to n, so what is read of n is all of it.
@@ -407,96 +519,23 @@ impl WalFollower {
             let budget = max_bytes.saturating_sub(batch.bytes as usize);
             let (window, capped) =
                 read_window(&file, off, len, budget, (batch.is_empty(), self.skip_wrong))?;
-            let mut i = 0usize;
             let span_from = off;
-            let mut partial = None;
-            let mut held = None;
-            while i < window.len() {
-                // After a skipped frame the next one may begin past the position expected.
-                let mut first = self.cursor.position + 1;
-                let read = loop {
-                    match wal::read_frame(&window, i, seg, off, first) {
-                        FrameRead::Wrong(WalError::Sequence { found, .. })
-                            if self.resync && found > first =>
-                        {
-                            first = found;
-                        }
-                        other => break other,
-                    }
-                };
-                match read {
-                    FrameRead::Whole { records, .. }
-                        if records.last().is_some_and(|(r, _)| r.position > upto) =>
-                    {
-                        held = Some(Stop::held(seg, off + i as u64, &records[0].0));
-                        break;
-                    }
-                    FrameRead::Whole {
-                        end, crc, records, ..
-                    } => {
-                        let first = records.first().map_or(0, |(r, _)| r.position);
-                        if let Some((r, _)) = records.last() {
-                            self.cursor.position = r.position;
-                        }
-                        self.cursor.last = Some(FrameMark {
-                            start: off + i as u64,
-                            first,
-                            crc,
-                        });
-                        self.cursor.segment = seg;
-                        self.cursor.offset = off + end as u64;
-                        self.resync = false;
-                        batch.skipped.append(&mut pending);
-                        skip_from = None;
-                        batch.records.extend(records.into_iter().map(|(r, _)| r));
-                        batch.frames += 1;
-                        batch.bytes += (end - i) as u64;
-                        i = end;
-                    }
-                    FrameRead::Partial { reason } => {
-                        partial = Some(reason);
-                        break;
-                    }
-                    // The frame passed its checksum, so its length is true: read past it, but
-                    // only to a whole frame that follows, never to rest on it.
-                    FrameRead::Wrong(e) if self.skip_wrong => {
-                        let end = i
-                            + wal::FRAME_HEADER
-                            + u32::from_le_bytes([
-                                window[i + 4],
-                                window[i + 5],
-                                window[i + 6],
-                                window[i + 7],
-                            ]) as usize;
-                        skip_from.get_or_insert((seg, i));
-                        pending.push(Skipped {
-                            segment: seg,
-                            offset: off + i as u64,
-                            reason: e.to_string(),
-                        });
-                        self.resync = true;
-                        i = end;
-                    }
-                    FrameRead::Wrong(e) => {
-                        return Err(FollowError::Corrupt(format!(
-                            "segment {seg}, offset {}: {e}",
-                            off + i as u64
-                        )))
-                    }
-                }
-            }
+            let Frames {
+                mut i,
+                mut partial,
+                held,
+            } = self.read_frames(&window, (seg, off), upto, batch, &mut skips)?;
             // A skipped frame with no whole frame after it yet. When it was the last frame of a
             // sealed segment, the frame after it is the next segment's first: the skip is
             // carried there. Otherwise it is not skipped, and the cursor stays before it, so it
             // is read again once the frame after it is there.
-            let carry = skip_from.is_some()
+            let carry = skips.from.is_some()
                 && partial.is_none()
                 && held.is_none()
                 && !capped
                 && next_exists;
-            if let (Some((from_seg, from)), false) = (skip_from, carry) {
-                skip_from = None;
-                pending.clear();
+            if let (Some((from_seg, from)), false) = (skips.from, carry) {
+                skips.clear();
                 self.resync = false;
                 i = if from_seg == seg { from } else { 0 };
                 if partial.is_none() && held.is_none() {
@@ -546,7 +585,7 @@ impl WalFollower {
             off = 0;
             if batch.bytes as usize >= max_bytes {
                 // A skip carried this far has no whole frame after it in this batch.
-                pending.clear();
+                skips.clear();
                 self.resync = false;
                 self.stop = Stop::Budget;
                 return Ok(());
