@@ -844,3 +844,33 @@ fn a_budget_smaller_than_a_wrong_frame_and_its_successor_still_gets_past_it() {
     assert_eq!(skipped, 1);
     assert_eq!(*f.stop(), Stop::CaughtUp);
 }
+
+/// The second review's R2: two wrong frames back to back, read with a budget of one byte, so that
+/// each window holds only skipped frames. The follower used to meet the same window for ever
+/// (positions `[1]`, no skip, `Budget`, fifty times).
+#[test]
+fn a_run_of_wrong_frames_that_fills_the_window_is_read_past() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    for i in 0..5 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    plant_wrong_frame(dir.path(), 1, 1);
+    plant_wrong_frame(dir.path(), 1, 2);
+    let mut f = WalFollower::open(dir.path(), Cursor::start())
+        .unwrap()
+        .skipping_wrong();
+    let (mut positions, mut skipped) = (Vec::new(), 0);
+    for _ in 0..50 {
+        let b = f.read(1).unwrap();
+        positions.extend(b.records.iter().map(|r| r.position));
+        skipped += b.skipped.len();
+        if *f.stop() != Stop::Budget {
+            break;
+        }
+    }
+    assert_eq!(positions, [1, 4, 5]);
+    assert_eq!(skipped, 2);
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+}

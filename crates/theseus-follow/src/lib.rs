@@ -534,6 +534,13 @@ impl WalFollower {
                 && held.is_none()
                 && !capped
                 && next_exists;
+            // A window the budget cut that held only skipped frames to its very end: read on
+            // from where it ended, in the same segment, with the skips still pending. Without
+            // this a run of wrong frames that fills a window is met again, whole, for ever.
+            if skips.from.is_some() && partial.is_none() && held.is_none() && capped {
+                off += i as u64;
+                continue;
+            }
             if let (Some((from_seg, from)), false) = (skips.from, carry) {
                 skips.clear();
                 self.resync = false;
