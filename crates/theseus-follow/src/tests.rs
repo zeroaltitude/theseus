@@ -964,3 +964,36 @@ fn a_skip_carried_across_a_segment_and_abandoned_leaves_the_stop_at_the_cursor()
         other => panic!("{other:?}"),
     }
 }
+
+/// The fifth review's B3: a run of wrong frames longer than the budget, with the budget not ending on a frame
+/// boundary, so each window ends inside a wrong frame. The read used to abandon the skip and meet the same window
+/// for ever (positions `[1]`, no skip, `Budget`, fifty times).
+#[test]
+fn a_run_of_wrong_frames_longer_than_a_budget_that_ends_inside_one_is_read_past() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    for i in 0..8 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    for n in 1..=6 {
+        plant_wrong_frame(dir.path(), 1, n);
+    }
+    let frame = (fs::metadata(seg(dir.path(), 1)).unwrap().len() / 8) as usize;
+    let mut f = WalFollower::open(dir.path(), Cursor::start())
+        .unwrap()
+        .skipping_wrong();
+    let (mut positions, mut skipped) = (Vec::new(), 0);
+    for _ in 0..50 {
+        // Two and a half frames: every window ends inside a frame.
+        let b = f.read(frame * 5 / 2).unwrap();
+        positions.extend(b.records.iter().map(|r| r.position));
+        skipped += b.skipped.len();
+        if *f.stop() != Stop::Budget {
+            break;
+        }
+    }
+    assert_eq!(positions, [1, 8]);
+    assert_eq!(skipped, 6);
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+}

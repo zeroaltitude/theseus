@@ -538,13 +538,13 @@ impl WalFollower {
                 && held.is_none()
                 && !capped
                 && next_exists;
-            // A window the budget cut that held only skipped frames to its very end: read on
-            // from where it ended, in the same segment, with the skips still pending. Without
-            // this a run of wrong frames that fills a window is met again, whole, for ever.
-            // Only while the window made progress and the batch has room: a batch that already
-            // met its budget would read an empty window for ever.
+            // A window the budget cut that held only skipped frames up to where it ended (or up to
+            // the frame the cut went through: `capped` says the window cut the frame short, not
+            // the log): read on from there, in the same segment, with the skips still pending.
+            // Without this a run of wrong frames longer than the budget is met again, whole, for
+            // ever. Only while the window made progress and the batch has room: a batch that
+            // already met its budget would read an empty window for ever.
             if skips.from.is_some()
-                && partial.is_none()
                 && held.is_none()
                 && capped
                 && i > 0
