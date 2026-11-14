@@ -96,13 +96,15 @@ impl TurnRunner {
         // estimate: its prompt as it counted it, and the larger of the output it
         // had reported and the characters streamed (theseus-k48c).
         let (usage, split, estimated) = match (&cut.seen, cut.sent) {
+            // The prompt is the provider's, always; the booking is wholly its own only when what it
+            // had reported of the output was not less than the characters streamed say.
             (Some(seen), _) => (
                 Usage {
                     output_tokens: seen.output_tokens.max(streamed),
                     ..seen.clone()
                 },
                 cut_step::SPLIT_PROVIDER,
-                false,
+                streamed > seen.output_tokens,
             ),
             (None, true) => {
                 let (usage, split) = cut.prefix.split(cut.est_input);

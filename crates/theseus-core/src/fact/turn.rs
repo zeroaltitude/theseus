@@ -1742,7 +1742,9 @@ pub struct ModelCut<'a> {
     /// `cache_read_write`, or `provider_events`, the provider's own count
     /// (theseus-k48c; `turn/cut_step.rs`).
     pub split: &'a str,
-    /// The usage is an estimate: false when it came from the provider's own usage events.
+    /// The usage is an estimate, in part at least: false only when every number came from the
+    /// provider's own usage events (its prompt always does when `split` is `provider_events`; the
+    /// output is the characters streamed, estimated, when they say more than it had reported).
     pub estimated: bool,
     pub output_chars: u64,
     /// What the settle booked, and what the call reserved.
@@ -1809,7 +1811,7 @@ impl Fact for ModelCut<'_> {
                 if self.estimated {
                     " (an estimate)"
                 } else {
-                    " (from the provider's own usage report)"
+                    " (the provider's own usage report)"
                 },
                 narrative::dollars(self.reserved_micros)
             ),

@@ -3897,7 +3897,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   input its reservation assumed, split as the request was sent: the turn's previous call's cache at the read price,
   the rest a write when the request carried the conversation's breakpoint, `turn/cut_step.rs`, theseus-3p36; the
   output from the characters streamed), capped at its reservation, never held unknown, and a `provider.cut` row says
-  it is an estimate and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
+  whether it is an estimate (`estimated`) and its `split`. **From the provider's own usage events** (theseus-k48c): a
+  stream that had sent one (`Delta::Usage`: the prompt at `message_start`, the output at a `message_delta`) books the
+  cut from the last of them, the prompt exactly and the output as the larger of what it reported and the characters
+  streamed (`split: provider_events`; `estimated` is false only when the reported output was the larger); a cut before
+  any event, and a stream of another shape than Anthropic's, stay the estimate above. A stop that lands after the stream ended keeps the answer and runs none of its calls.
 - **A spec's tools are shared, never copied** (theseus-nsp9l.2): `RequestSpec.tools` is a `tool_set::Tools` (an `Arc` of the
   definitions, immutable; its JSON length, digest and hash state, and the sets a deferral loads, are kept with it), and
   `ToolRuntime::definitions_for` keeps each place's catalog (`toolrun/catalogs.rs`). A compile clones specs and digests
