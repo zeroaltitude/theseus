@@ -26,12 +26,12 @@ pub struct Previous {
 }
 
 /// Whether a `turn.failed` row of `class` says the attempt failed, the thing a higher effort might
-/// address. The class cannot tell a model's failed attempt from a rate limit, an overload, a timeout
-/// or a cancel, which all count; it does tell these apart, which do not: a refusal by a money limit or the day's ceiling, by the context window, a
-/// secret that did not resolve, a credential the provider refused, a turn the stop ended or one that
-/// stopped for a fault of Theseus's own: more effort fixes none of them, and costs more. Any other
-/// class counts, and so does a row from before the row carried its class (it says nothing, so it
-/// is not told apart).
+/// address. A rate limit, an overload, a timeout and a cancel count too: the class tells them
+/// apart, but the owner ruled only on the limits and the window, so they are kept. These do not
+/// count: a refusal by a money limit or the day's ceiling, by the context window, a secret that did
+/// not resolve, a credential the provider refused, a turn the stop ended or one that stopped for a
+/// fault of Theseus's own: more effort fixes none of them, and costs more. Any other class counts,
+/// and so does a row from before the row carried its class (it says nothing, so it is not told apart).
 pub fn is_attempt(class: Option<&str>) -> bool {
     const NOT: &[&str] = &[
         "over_limit",

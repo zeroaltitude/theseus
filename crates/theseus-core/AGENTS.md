@@ -597,9 +597,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the latest slot today that has come and is later than the last claimed). Tests: `tests_work_digest.rs`, `digest::tests`.
   Tests: `tests_initiative.rs`, `initiative::promise::tests`,
   `initiative::lines::tests`, the protocol's `tests_notices.rs`.
-- **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v2` (v1 kept, its judgments under its own text); no store
+- **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v1`; no store
   format: new META key `standing.capture` and new ledger kinds): the owner's words become standing records without a
-  command. `directive.v2` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
+  command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
   asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
   never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
   (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an
@@ -2332,11 +2332,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     frame, nothing wakes). A promotion's `said` names a learned version standing ahead of the one moved, where the
     move judges nowhere or only in a canary's control arm, and its rollback (`rpc/packs_ahead.rs`, theseus-nwa5):
     said, never refused. Tests: `tests_ladder.rs`, `judge::ladder::tests`.
-    **A new version of a pack goes live on landing**, unless the owner asks for a side-by-side run (the owner, 2026-11-14
-    13:56 MST, Discord message 1571267707125506159: "ship it as a new version, but put it into action immediately; only very
-    rarely do we want live a/b tests"): the new version is named in `judge::WIRED` as `Live` and in its root's constant
-    (`capture::PACK` for `directive.v2`, `CLASSIFY_PACK`), and the old one stays embedded, its judgments under its own text;
-    no shadow period and no ladder wait.
   - **The learning loop** (step 25f, theseus-0j2.12; design §2.17): `learning/propose.rs` (the run: nightly after
     the report, and `judge.learn`, the owner's act), with its pure parts in `theseus_judge::propose` (names from
     v101, the interleaved split below 200 labeled in the window, the text-only check, the threshold re-fit, the
@@ -3897,11 +3892,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   input its reservation assumed, split as the request was sent: the turn's previous call's cache at the read price,
   the rest a write when the request carried the conversation's breakpoint, `turn/cut_step.rs`, theseus-3p36; the
   output from the characters streamed), capped at its reservation, never held unknown, and a `provider.cut` row says
-  whether it is an estimate (`estimated`) and its `split`. **From the provider's own usage events** (theseus-k48c): a
-  stream that had sent one (`Delta::Usage`: the prompt at `message_start`, the output at a `message_delta`) books the
-  cut from the last of them, the prompt exactly and the output as the larger of what it reported and the characters
-  streamed (`split: provider_events`; `estimated` is false only when the reported output was the larger); a cut before
-  any event, and a stream of another shape than Anthropic's, stay the estimate above. A stop that lands after the stream ended keeps the answer and runs none of its calls.
+  it is an estimate and its `split`. A stop that lands after the stream ended keeps the answer and runs none of its calls.
 - **A spec's tools are shared, never copied** (theseus-nsp9l.2): `RequestSpec.tools` is a `tool_set::Tools` (an `Arc` of the
   definitions, immutable; its JSON length, digest and hash state, and the sets a deferral loads, are kept with it), and
   `ToolRuntime::definitions_for` keeps each place's catalog (`toolrun/catalogs.rs`). A compile clones specs and digests
