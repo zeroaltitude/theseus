@@ -225,26 +225,60 @@ impl GitCli {
     /// never inherits git's global config; the same rule serves a probe, whose
     /// answer must not depend on who is running the daemon).
     ///
-    /// AND WITH THE REPOSITORY FORBIDDEN TO NAME A COMMAND. `dir` is a tree
+    /// AND WITH THE FILESYSTEM MONITOR AND THE HOOKS PINNED. `dir` is a tree
     /// the MODEL named, and this probe runs on the gate's synchronous path
     /// for every plain write, BEFORE any gate has spoken, with the pack live
-    /// by default. So a cloned repository's own `.git/config` is attacker
-    /// input that `git` would otherwise obey: `core.fsmonitor` with a
-    /// non-boolean value is a command git RUNS to ask what changed, and
-    /// `ls-files`, `diff`, `status` and `check-ignore` all reach it. That is
-    /// execution from repository content on a path the user never chose, so
-    /// both are pinned here, on the command line, where the repository's own
-    /// file cannot outrank them.
+    /// by default. So that repository's own `.git/config` is attacker input
+    /// that `git` would otherwise obey: `core.fsmonitor` with a non-boolean
+    /// value is a command git RUNS to ask what changed, and `ls-files`,
+    /// `diff`, `status` and `check-ignore` all reach it. That is execution
+    /// from repository content on a path the user never chose, so both keys
+    /// are pinned here, on the command line, where the repository's own file
+    /// cannot outrank them.
+    ///
+    /// WHAT IS NOT CLOSED HERE: A CONTENT FILTER DRIVER. These two flags
+    /// close the monitor and the hooks, and nothing wider. A repository that
+    /// names a driver in its own tracked `.gitattributes` (`* filter=d`) and
+    /// gives that driver a command in its own config (`filter.d.clean`)
+    /// STILL gets that command run -- by `diff --quiet HEAD` and by
+    /// `status --porcelain`, which are the two invocations `input_of` makes
+    /// on EVERY call. To decide whether the working file differs from the
+    /// committed blob, git must hash the working file THROUGH the clean
+    /// filter; `--quiet` does not save it, because it short-circuits
+    /// textconv and `diff.external` but not the content hash. That was
+    /// measured through this probe, not reasoned about.
+    ///
+    /// There is no command-line close for it, which is why it is still open:
+    /// the driver NAME is the attacker's, and git has no "disable all
+    /// filters" switch to reach for. `-c core.attributesFile=/dev/null` and
+    /// `GIT_ATTR_NOSYSTEM=1` were both tried and both fail, because the
+    /// `.gitattributes` doing the naming is IN-TREE and neither of them
+    /// reaches an in-tree file. The structural answer is the one this
+    /// repository already uses elsewhere: `crates/theseus-tools/src/git.rs`
+    /// and `crates/theseus-tools/src/git_state.rs` read git with `gix` in
+    /// production, which takes config as DATA and spawns nothing. That is a
+    /// change with its own card and its own reviewer, not one to bolt on
+    /// here.
     ///
     /// THE ENVIRONMENT IS NOT ENOUGH, AND NEITHER IS `-C`. `GIT_CONFIG_GLOBAL`
     /// and `GIT_CONFIG_SYSTEM` silence the MACHINE's files; they say nothing
-    /// about the repository's own, which is the one a clone carries. And
-    /// addressing the tree with `git -C <root>` or `--git-dir` instead of
-    /// changing directory into it does not help either: git reads that
-    /// repository's config whichever way it was pointed at it. Only `-c` on
-    /// the command line, which outranks every file, closes it. `current_dir`
-    /// stays because the probe does not know the root until `rev-parse`
-    /// answers from inside the tree.
+    /// about the repository's own, which is the only one an attacker
+    /// controls. And addressing the tree with `git -C <root>` or `--git-dir`
+    /// instead of changing directory into it does not help either: git reads
+    /// that repository's config whichever way it was pointed at it. Only `-c`
+    /// on the command line, which outranks every file, closes it.
+    /// `current_dir` stays because the probe does not know the root until
+    /// `rev-parse` answers from inside the tree.
+    ///
+    /// HOW A HOSTILE `.git/config` ARRIVES, AND IT IS NOT BY CLONING. `git
+    /// clone` builds a FRESH `.git/config` and does not inherit the remote's
+    /// `core.fsmonitor` or `filter.*` keys. The tracked `.gitattributes` IS
+    /// carried, but a driver with no `filter.<d>.*` entry of its own does
+    /// nothing. The deliveries that do work are an archive extracted with
+    /// its `.git` intact, a `.git/config` written by an earlier tool call in
+    /// the same session, and a repository already sitting on the operator's
+    /// disk. Agents extract archives constantly, so this is an ordinary
+    /// exposure rather than an exotic one.
     ///
     /// Neither flag can change an answer: a filesystem monitor is a cache in
     /// front of the same facts, and none of these five invocations has a hook

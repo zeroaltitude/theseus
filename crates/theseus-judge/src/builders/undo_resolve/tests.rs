@@ -327,8 +327,10 @@ fn a_repo_that_runs_a_command(tag: &str) -> (Scratch, PathBuf) {
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
         .expect("the script is executable");
     // `core.fsmonitor` with a non-boolean value is a command git runs to ask
-    // what changed, and it lives in the repository's OWN config, so a clone
-    // carries it. `core.hooksPath` is set beside it for the same reason.
+    // what changed, and it lives in the repository's OWN config -- which a
+    // clone does NOT carry, so the delivery is an archive unpacked with its
+    // `.git` intact, a config an earlier tool call wrote, or a repository
+    // already on disk. `core.hooksPath` is set beside it for the same reason.
     git(
         s.path(),
         &["config", "core.fsmonitor", &script.to_string_lossy()],
@@ -342,13 +344,18 @@ fn a_repo_that_runs_a_command(tag: &str) -> (Scratch, PathBuf) {
 
 #[test]
 #[cfg(unix)]
-fn a_repository_cannot_run_its_own_command_through_the_probe() {
+fn a_repository_cannot_run_its_own_monitor_or_hook_through_the_probe() {
     // THE POINT OF THIS TEST. The probe addresses a tree the MODEL named, on
-    // the gate's own path, before any gate has spoken -- so whatever that
-    // tree's `.git/config` says, git must not be made to execute it. Without
+    // the gate's own path, before any gate has spoken -- so a monitor or a
+    // hook that tree's `.git/config` names must not be made to run. Without
     // the hardening flags on every invocation this fails on `tracked`'s first
-    // `ls-files`: git asks the named command what changed, and a cloned
-    // repository has just run code of its own choosing inside the daemon.
+    // `ls-files`: git asks the named command what changed, and a repository
+    // sitting on disk has just run code of its own choosing in the daemon.
+    //
+    // AND NO MORE THAN THAT CLASS. A content filter driver the tree names in
+    // its own `.gitattributes`, with a command in its own config, is STILL
+    // run by `diff` and `status`; `GitCli::git` says so and says why there is
+    // no command-line close for it. A pass here is not the class closed.
     let (s, marker) = a_repo_that_runs_a_command("hostile-config");
     let kept = s.path().join("kept.txt");
 
