@@ -96,6 +96,8 @@ mod tests_named;
 #[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
+mod tests_pause;
+#[cfg(test)]
 mod tests_stale;
 #[cfg(test)]
 mod tests_trees;
@@ -141,6 +143,9 @@ pub struct Shared {
     halt_swept: AtomicBool,
     /// Wakes the tender: a drop, a move, a halt, a night, a built branch.
     kick: Arc<tokio::sync::Notify>,
+    /// New self builds are paused (`super::pause`): memory of this process only, so a restart of
+    /// the daemon clears it.
+    pub(crate) paused: std::sync::Mutex<Option<super::pause::Pause>>,
 }
 
 impl std::fmt::Debug for Shared {
@@ -637,6 +642,10 @@ impl Core {
             cfg.pipeline_builds,
             cfg.min_free_gb,
         );
+        // A pause holds every new build, whatever room there is (`super::pause`).
+        if let Some(p) = self.self_paused() {
+            return (room, Some(("paused".into(), p.words())));
+        }
         if let Some(b) = self.runner.self_budget.view() {
             if b.day_spent_usd >= b.day_line_usd {
                 let why = format!(
