@@ -90,7 +90,10 @@ impl ToolRuntime {
                 // What has been kept about the owner, asked for (theseus-6f8t0).
                 crate::card::tool::FAMILY => self.card_observed.run(tc, &input),
                 crate::rsi::backlog::tool::FAMILY => self.self_file.run(tc, &input),
-                crate::rsi::pause_tool::FAMILY => self.self_pause.run(tc, &input),
+                // By name: its family is `self`, which `self.file` shares.
+                _ if tool.name() == crate::rsi::pause_tool::PAUSE => {
+                    self.self_pause.run(tc, &input)
+                }
                 crate::tools_defer::FAMILY => self.defer.run(tc.session_id, &input),
                 // Part of a thread, a thread of its own (theseus-vt9k).
                 crate::thread_split::FAMILY => crate::thread_split::run(tc, correlation_id, &input),

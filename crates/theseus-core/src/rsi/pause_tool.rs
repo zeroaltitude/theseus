@@ -22,8 +22,6 @@ use super::backlog::tool::{wall, Wall};
 use crate::rpc::Core;
 
 pub const PAUSE: &str = "self.pause";
-/// The dispatch family (`toolrun/inproc.rs`).
-pub const FAMILY: &str = PAUSE;
 
 /// Who a chat pause is by: a constant, not a name the model wrote (the wall leaves only the owner).
 const OWNER: &str = "the owner";
@@ -101,7 +99,7 @@ impl Tool for SelfPause {
     }
 
     fn backend(&self) -> Backend {
-        // Dispatched by family in `toolrun/inproc.rs`, which only an async tool reaches.
+        // Dispatched by name in `toolrun/inproc.rs`, which only an async tool reaches.
         Backend::Async
     }
 
