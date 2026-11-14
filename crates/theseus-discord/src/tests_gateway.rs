@@ -38,7 +38,7 @@ pub(crate) fn bindings(lab_private: bool) -> String {
 
 /// The guild: ana owns it, ben and cy are members, and `lab` is private to
 /// ana and ben, or with `open_lab` visible to everyone, cy included.
-fn guild(open_lab: bool) -> Guild {
+pub(crate) fn guild(open_lab: bool) -> Guild {
     let g = Guild::new(DEFAULT_GUILD, (ANA, "ana"))
         .member(BEN, "ben")
         .member(CY, "cy");

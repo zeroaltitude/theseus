@@ -1098,7 +1098,8 @@ const UNTIL_FAMILY: &[&str] = &[
 /// `tests_gateway::horizon`'s rig is `tests_gateway`'s own builder, which
 /// writes no `private` beside `guild_id` either, so it trusts zero guilds and
 /// has no forum to break; what makes that pair load-sensitive is its own
-/// `Rig::until`, bounded at 20 s against this module's 100 s. And theseusd's
+/// `Rig::until`, bounded by one 20 s stall-credited budget per rig against
+/// this module's one 110 s deadline per rig. And theseusd's
 /// `an_acting_call_waits_and_the_cli_approves_it` runs a daemon with
 /// `[discord] enabled = false` (its fixture's `safe_note`, which that test's
 /// own config never overrides), so it has no Discord runtime at all: **it has

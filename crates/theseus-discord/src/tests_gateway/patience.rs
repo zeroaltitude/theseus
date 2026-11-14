@@ -56,7 +56,8 @@
 //! Every LONG wait of the rig goes through `Rig::until` or `Rig::until_on`, except the task family's (the family's
 //! `until`), which ends at one deadline of `TASK_WAIT` from the rig's construction, and
 //! `tests_process.rs`'s held-create wait, which keeps a `Patience` of its own. A few bounded loops of 10 s or less
-//! (`tests_process.rs`, `tests_typing.rs`, `horizon.rs`) sit outside too. A test that builds a second rig gets a
+//! (`tests_process.rs`, `tests_typing.rs`, `horizon.rs`) sit outside too, and so does the war-room helper
+//! `answered`, which ends at its own 20 s or at the rig's deadline, whichever is first. A test that builds a second rig gets a
 //! second budget.
 
 use std::sync::Mutex;
@@ -64,8 +65,9 @@ use std::time::{Duration, Instant};
 
 const BASE: Duration = Duration::from_secs(20);
 /// The task family's one deadline per rig, from the rig's construction (`Rig::task_wait_spent`): the connect wait
-/// (30 s), the bind wait and every task wait of the test all end inside it, and inside the runner's 120 s kill,
-/// with ten seconds over. 100 s per wait, from when each was called, did not.
+/// (30 s), the bind wait (up to `BASE` + `MAX_CREDIT`) and every task wait of the rig all end inside it, and inside
+/// the runner's 120 s kill, with ten seconds over. A test that builds a second rig has a second deadline. 100 s per
+/// wait, from when each was called, did not fit.
 pub(crate) const TASK_WAIT: Duration = Duration::from_secs(110);
 const NAP: Duration = Duration::from_millis(25);
 const MAX_CREDIT: Duration = Duration::from_secs(60);
@@ -421,6 +423,10 @@ mod tests {
     #[test]
     fn the_task_deadline_is_inside_the_runners_kill() {
         let kill = the_runners_kill();
+        assert!(
+            Duration::from_secs(30) + BASE + MAX_CREDIT <= TASK_WAIT,
+            "the connect wait and the bind wait, at their longest, end inside the task deadline"
+        );
         assert!(
             TASK_WAIT < kill,
             "the task deadline {TASK_WAIT:?} reaches the kill at {kill:?}"
