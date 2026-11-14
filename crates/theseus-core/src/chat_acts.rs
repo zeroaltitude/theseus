@@ -24,6 +24,19 @@
 //! - [`ALLOW`] lets the held call run as it was first proposed.
 //! - [`SYNC`] asks for an import sync now.
 //!
+//! **What is not proven end to end, said plainly.** The allow tool and the
+//! sync tool are driven whole in `tests_chat_acts.rs`: a scripted model calls
+//! them in a real turn and the effect is measured. The ANSWER tool is proven
+//! in three pieces instead -- it is offered while a question waits, with the
+//! question named in the description; his old trigger words answer nothing;
+//! and the verb it calls answers the one question it was given, with his
+//! choice, and nothing else -- but the single hop of a model calling it in a
+//! later turn of the conversation the question waits in is not driven, because
+//! an `owner_ask` parks its session's execution and a later `turn.submit`
+//! there behaves differently. The hop is the same offer step and the same
+//! `run_chat_act` arm the other two take, so what is unproven is this tool's
+//! own end to end, not the wiring. Filed.
+//!
 //! **A known limit of the answer tool, measured and not guessed.**
 //! `confirm_list` stops showing a question once a LATER turn has run in its
 //! session (`tests_chat_acts`'s probe case: three ordinary turns and the
