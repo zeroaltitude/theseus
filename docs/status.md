@@ -1,6 +1,6 @@
 # Theseus: status and roadmap
 
-_Updated 2026-11-06 17:4x MST. Version 1.0.4 (v1 patch4), tagged `release-1.0.4` at `546eddf5` on 2026-11-06 and running as install #109; the design document is at v0.92. Next is v1 patch5._
+_Updated 2026-11-13 21:3x MST. Version 1.0.5 (v1 patch5), tagged `release-1.0.5` at `72af5c3f` on 2026-11-12; the design document is at v0.92. 1.0.6 is being built now: the workspace version is 1.0.6 and it is not yet tagged. Next is v1 patch6._
 
 **The picture:** [the development timeline](assets/timeline/theseus-timeline.png), from conception to now and what is ahead ([SVG](assets/timeline/theseus-timeline.svg)).
 
