@@ -1991,7 +1991,7 @@ impl Lane {
         self.shared.core.binding_ledger_soon(
             LedgerKind::DiscordMessageOut,
             None,
-            json!({"place": self.label, "message_id": m.id.to_string(), "channel": channel.to_string(), "part": key, "ping": ping, "held": wants && !ping,
+            json!({"place": self.label, "target": self.target, "message_id": m.id.to_string(), "channel": channel.to_string(), "part": key, "ping": ping, "held": wants && !ping,
                    "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
@@ -2200,7 +2200,7 @@ impl Lane {
                 self.shared.core.binding_ledger_soon(
                     LedgerKind::DiscordMessageOut,
                     None,
-                    json!({"place": self.label, "message_id": m.id.to_string(), "channel": channel.to_string(), "part": key, "notice": card.title,
+                    json!({"place": self.label, "target": self.target, "message_id": m.id.to_string(), "channel": channel.to_string(), "part": key, "notice": card.title,
                            "ping": ping, "held": wants && !ping}),
                 );
             }

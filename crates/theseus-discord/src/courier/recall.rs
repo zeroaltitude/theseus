@@ -3,9 +3,10 @@
 //! record, so it is rebuilt from the `discord.message.out` rows the lane's
 //! creates wrote, the first time a key is asked for and not found.
 //!
-//! A row names the place, the key (`part`), the message and, since this
-//! change, the channel it went to. A row an older build wrote has no channel
-//! and is skipped: its message cannot be edited, and the key is posted again,
+//! A row names the place, the lane's target (`discord:channel:<id>` or
+//! `discord:dm:<id>`, which is unique where a place's label is not), the key
+//! (`part`), the message and, since this change, the channel it went to. A row
+//! an older build wrote has no target or channel and is skipped: its message cannot be edited, and the key is posted again,
 //! as it was before this. Only a turn's keys are recalled (`turn_of_key`):
 //! the board and the other lane-wide keys have their own way back
 //! (`courier/board.rs`).
@@ -38,7 +39,7 @@ impl Lane {
         Some(found)
     }
 
-    /// The place's messages the rows name, key → (channel, message), the
+    /// The lane's messages the rows name, key → (channel, message), the
     /// newest row of a key winning. A read that fails finds none: the lane
     /// posts as it did, and asks again at no later miss (the read is the
     /// restart's, once).
@@ -70,7 +71,7 @@ impl Lane {
         for r in rows {
             let d = &r.data;
             let ids = (
-                d["place"].as_str() == Some(self.label.as_str()),
+                d["target"].as_str() == Some(self.target.as_str()),
                 d["part"].as_str(),
                 d["channel"].as_str().and_then(|c| c.parse::<u64>().ok()),
                 d["message_id"].as_str().and_then(|m| m.parse::<u64>().ok()),
