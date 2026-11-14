@@ -8,10 +8,35 @@ build.
 
 ## What's here
 
+- `src/simple/`: **the simple pages, the front door** (GitHub issue 17; the owner's ask of 2026-11-14). `/` is Ops
+  and four more sections sit beside it under one top bar: `/bench`, `/telemetry`, `/config`, `/memories`. The Ship and
+  every instrument page keep their addresses and their brass frame (`components/Shell.tsx`), one link away under
+  "Creative takes". The two frames are two layout routes in `main.tsx`; a page belongs to exactly one.
+  - `Shell.tsx` is the frame: the coin and wordmark (the way home), the five sections, the Ship's link, the
+    connection's dot and the look. While it is mounted <html> wears `simple`, and it returns the time machine to now:
+    these pages show the present only.
+  - `simple.css` is the plain look, by night and by day: it re-points the theme's tokens under `html.simple:root`
+    and flattens the brass classes (`.panel`, `.brass-card`, `.brass-button`, `.kbd`, the engraved titles), so every
+    component drawn inside the frame, and every popover and sheet drawn at the end of <body>, takes the look with no
+    change of its own. A new brass class needs its plain step here. Nothing in it applies on the Ship's pages.
+  - `Ops.tsx` is the one page with a body of its own: five numbers, then the lists (needs you, in flight, planned,
+    conversations, done today), and the selected one open beside them (Talk: `ops/JoinPane.tsx`; Details:
+    `ops/Inspector.tsx`). It reads the Operations page's one work set (`ops/board.ts`'s `boardRows`, `ops/queue.ts`'s
+    `queueOf`) and adds only the conversations at rest, which are `session.list`'s. Its address is `?sel=` and
+    `?pane=details`. "Planned" is the steps no one has begun (bucket `todo`), those under running work first, then
+    the scheduled and the paused columns.
+  - `Hosted.tsx` shows the Ship's own views inside the simple frame, as tabs kept in `?v=`; `Bench.tsx`,
+    `Telemetry.tsx`, `Config.tsx` and `Memories.tsx` only name which views, in what order. A hosted view is the same
+    component as on the Ship, so its panes, reads and controls cannot drift; its own query keys must not be `v`.
+  - `kit.tsx`: the page heading, the tabs, a stat. Cards are `Panel`, so every pane has its "?" and the
+    explainers test holds the simple pages too (the help id is a literal at each `Panel`).
+  - Daylight is the default look since these pages (`lib/daylight.ts`'s `choiceOf`, `public/mode.js`); the Ship
+    stays a night sea.
+
 - `compress.ts`: a Vite plugin (Node's own zlib) that writes `<file>.br` (quality 11) beside
   every built file but the fonts; theseusd embeds only those, one copy, and sends it by `Accept-Encoding` (theseus-rwpbg.5).
 
-- `src/views/`: the eighteen views. The Ship (`Ship.tsx`, the landing view at `/ship`), then `Bridge`, `Fleet`,
+- `src/views/`: the eighteen views. The Ship (`Ship.tsx`, at `/ship`; the landing view until the simple pages, 2026-11-14), then `Bridge`, `Fleet`,
   `SessionDeck`, `Actions`, `Boundaries` (the boundaries board), `Ledger`, `Money` (the money river), `Economics`,
   `Speed` (the speed wall), `Benchmarks` (below), `Policy` (`policy.explain`: each place's tools, layer by layer, and the tightenings with their undo; M7 42b), `Judgment` (Jev's judgments, M5 23b, over `judge.list` and `judge.get`, with
   `src/lib/judgment.ts`), `Systems`, `Ontology` (the kinds, the categories as closed groups one a kind with their trees inside (`groupsOf`; `<unknown>` for a kind the table lacks, theseus-7mow), guidance, and topics; people,
