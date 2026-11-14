@@ -469,50 +469,30 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
         );
     }
 
-    // A question here, and his reply in the very next turn, where the model
-    // chooses the tool and carries the answer he gave.
+    // The question waits in a SIBLING session at the same place, and he answers
+    // where its answers go. That is the scope rule, word for word -- *a task's
+    // own asks where its parent does* -- and it is the shape the feature is
+    // for: the session holding the question is parked on it, and the one he is
+    // typing in is free to run the turn the tool is called in.
+    let asked_in = session(&r.core);
     r.calls(&[("owner_ask", ask("Ship the harbour change?"))]);
-    say(&r, &here, "What should we do?").await;
-    until("the question here waits", || {
+    say(&r, &asked_in, "What should we do?").await;
+    until("the question at this place waits", || {
         r.core
             .confirm_list()
             .unwrap()
             .iter()
-            .any(|q| q.session_id == here)
+            .any(|q| q.session_id == asked_in)
     })
     .await;
-    let here_q = waiting_in(&r, &here);
+    let here_q = waiting_in(&r, &asked_in);
     assert_ne!(here_q, else_q, "two different questions");
 
     r.calls(&[("chat_answer_question", json!({"answer": "1"}))]);
     say(&r, &here, "ship it").await;
 
     let out = acted(&r, &here, crate::chat_acts::ANSWER);
-    assert_eq!(
-        out.len(),
-        1,
-        "the tool ran: {out:?}; chat tools in the last request: {:?}; requests {}; pending {:?}",
-        r.model
-            .requests
-            .lock()
-            .unwrap()
-            .last()
-            .map(|req| req
-                .tools
-                .iter()
-                .filter_map(|t| t["name"].as_str())
-                .filter(|n| n.starts_with("chat_"))
-                .map(str::to_string)
-                .collect::<Vec<_>>())
-            .unwrap_or_default(),
-        r.model.requests.lock().unwrap().len(),
-        r.core
-            .confirm_list()
-            .unwrap()
-            .iter()
-            .map(|q| q.tool.clone())
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(out.len(), 1, "the tool ran: {out:?}");
     assert_eq!(out[0].0, "Ok", "{out:?}");
     assert!(
         out[0].1.contains("choice:0"),
@@ -531,7 +511,7 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
         1,
         "exactly one question was answered: {answered:?}"
     );
-    assert_eq!(answered[0].0, here_q, "and it is THIS conversation's");
+    assert_eq!(answered[0].0, here_q, "and it is THIS place's");
     assert_ne!(
         answered[0].0, else_q,
         "the other conversation's question was not answered"
