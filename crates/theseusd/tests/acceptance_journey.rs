@@ -516,9 +516,29 @@ fn p95(sorted: &[u64]) -> u64 {
 const SUBTEXT: &str = "-# ";
 
 /// The marks a tool activity line starts with after `SUBTEXT`: one per state a call passes through
-/// (`render::step::tool_lines`), and the ellipsis of the fold line that counts the calls a message
-/// had no room for. These are what tell tool activity from a pointer now that both are subtext.
-const TOOL_MARKS: [&str; 10] = ["▫️", "⏳", "⏸️", "✅", "❌", "🚫", "⏹️", "👍", "👎", "…"];
+/// (`render::step::tool_lines`), and nothing else. Each is a `ToolState` mark that appears nowhere
+/// else in subtext, which is what lets the mark alone tell tool activity from a pointer. The fold
+/// line's ellipsis is deliberately NOT here, because it is punctuation rather than a mark: see
+/// `is_tool_fold`.
+const TOOL_MARKS: [&str; 9] = ["▫️", "⏳", "⏸️", "✅", "❌", "🚫", "⏹️", "👍", "👎"];
+
+/// The other line `render::step::tool_lines` writes: `-# … N earlier call(s)`, standing in for the
+/// calls a message had no room for, with the folded calls' notices after it when there are any
+/// (`render/step.rs:221`). It is matched by its whole shape, and must be: a bare leading `…` does
+/// not say "tool", because two production paths write subtext that begins with one and neither is
+/// tool activity -- `horizon::clip_to`'s ``-# …cut; `theseus agenda` has the rest``
+/// (`render/horizon.rs:374`) and the thinking fold's `-# … (N more characters)` tail
+/// (`render/process.rs:328`). The direction of that mistake is what makes it worth a function: a
+/// tool mark this misses fails CLOSED (the line is held to silence, the journey goes red and says
+/// so), while a notice wrongly read as tool activity fails OPEN -- it is exempted from the silent
+/// rule below and its silence quietly stops being asserted, with nothing to say it stopped.
+fn is_tool_fold(rest: &str) -> bool {
+    let Some(after) = rest.strip_prefix("… ") else {
+        return false;
+    };
+    let tail = after.trim_start_matches(|c: char| c.is_ascii_digit());
+    tail.len() < after.len() && tail.starts_with(" earlier call(s)")
+}
 
 /// Every bot message as one block, for a failure to be read against: it is the dump each of the
 /// `h9tu1 3` assertions prints, so they all show the same picture of the run.
@@ -551,7 +571,7 @@ fn kind_of(text: &str) -> &'static str {
         "failure"
     } else if text
         .strip_prefix(SUBTEXT)
-        .is_some_and(|rest| TOOL_MARKS.iter().any(|m| rest.starts_with(m)))
+        .is_some_and(|rest| TOOL_MARKS.iter().any(|m| rest.starts_with(m)) || is_tool_fold(rest))
     {
         "tool"
     } else {
@@ -1111,6 +1131,8 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
         "-# 👎 `fs.write` the survey · declined by ana",
         "-# ⏳ `shell` 🛡️ L1 · no network · a long count",
         "-# … 3 earlier call(s) · 🔔 2 notified",
+        "-# … 1 earlier call(s)",
+        "-# … 12 earlier call(s)",
     ] {
         assert_eq!(kind_of(t), "tool", "tool activity, free to ring: {t}");
     }
@@ -1128,6 +1150,16 @@ fn a_tool_line_may_ring_and_a_pointer_may_not() {
         "-# 💭 thought for 1 s",
         "-# `/cancel <task>` stops one.",
         "-# Edited in place as the tasks change.",
+        // The last two are real production strings that open with the fold line's ellipsis and are
+        // not tool activity: `horizon::clip_to` (`render/horizon.rs:374`) and the thinking fold's
+        // tail (`render/process.rs:328`). Neither can lead a message in THIS journey today -- it
+        // makes no agenda, and the fold tail always follows the `-# 💭 thinking` head -- so they are
+        // pinned here rather than measured there. They are the reason the fold line is matched by
+        // its shape and not by its `…`: were the bare ellipsis a mark again, both would be exempted
+        // from the journey's silent rule and nothing would go red to say their silence had stopped
+        // being asserted.
+        "-# …cut; `theseus agenda` has the rest",
+        "-# … (25 more characters)",
     ] {
         assert!(
             t.starts_with(SUBTEXT),
