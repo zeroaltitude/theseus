@@ -844,7 +844,9 @@ fn the_writer_keys_sweep_is_a_handful_of_digests() {
         assert!(change::wrote(&cfg, &store, &files, &root, "ses_flagged").is_empty());
     }
     let one = t0.elapsed() / n;
-    println!("writer-key sweep, 1 granted repository, 3 instruction files, unmoved: {one:?} a call");
+    println!(
+        "writer-key sweep, 1 granted repository, 3 instruction files, unmoved: {one:?} a call"
+    );
 
     // Four more granted repositories the session is NOT working in, each
     // with its own three files and its own stored sighting: the width the

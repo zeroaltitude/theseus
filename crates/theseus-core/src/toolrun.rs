@@ -1010,28 +1010,28 @@ impl ToolRuntime {
     /// instruction block until the owner grants that repository again, and
     /// the row says whose call it moved under.
     ///
-    /// This is where it has to be. The hold the compile performs keys on the
-    /// session that is *reading*, and a change is found there by comparing a
-    /// stored sighting later, which cannot say who wrote. **The daemon is
-    /// present at the moment of every acting call**, and at that moment the
-    /// comparison it makes is about the call that just ran. That is what
-    /// closes the case the owner's ruling names: a flagged session edits the
-    /// file and a CLEAN session opens next.
+    /// This is where it has to be: a later comparison of stored digests
+    /// cannot say who wrote, but the daemon is present at the moment of
+    /// every acting call. Three gates, cheapest first, and the common path
+    /// stops at the second: the call must act ([`crate::content::acts`], the
+    /// same predicate the freeze reads), the session must carry the label,
+    /// and the owner must have granted something. Only then are any digests
+    /// taken, and nothing is recorded when nothing moved -- the answer
+    /// almost every time. [`crate::project_context::change::wrote`] carries
+    /// the sweep's whole argument, including what it still does not reach.
     ///
-    /// Three gates, cheapest first, and the common path stops at the second:
-    /// the call must act ([`crate::content::acts`], the same predicate the
-    /// freeze reads), the session must carry the label (one keyed store
-    /// read), and the owner must have granted something. Only then are any
-    /// digests taken.
+    /// **Called from [`Self::execute`], which all three of its call sites go
+    /// through** -- the gate's `start`, and `resume.rs`'s `run_confirmed`
+    /// and `run_authorized`. Round 1 swept after `start` alone, so a call
+    /// reaching `Posture::Approve` ran from `resume.rs`, moved the file and
+    /// stored no hold: `undo.v1`'s `irreversible_final` raises the gate to
+    /// `approve`, and an operator who put `proc_run` or `fs.write` there --
+    /// the CAUTIOUS setting -- had the writer key off for that tool. What he
+    /// confirms on that path is a shell command, not the instruction text.
     ///
-    /// **Every granted repository is swept, not only the one the session is
-    /// working in** (round 2): a call can write one directory sideways of
-    /// its own, and it can write into a different repository the owner has
-    /// granted. [`crate::project_context::change::wrote`] carries the whole
-    /// argument, including the one case that is still not reached.
-    ///
-    /// Nothing is recorded when nothing moved, which is the answer almost
-    /// every time.
+    /// The class is the tool's own, not `g.plan.class`'s override, which
+    /// cannot change the answer: `acts` consults the class only for a tool
+    /// on the `local_read` allow-list, and no tool there sets a plan class.
     fn wrote_project(&self, tc: &TurnCtx<'_>, tool: &str, class: ToolClass) {
         if !crate::content::acts(class, tool) {
             return;
@@ -1559,19 +1559,8 @@ impl ToolRuntime {
     /// the operator approved. The broker gives it no secret whose posture is
     /// stricter (theseus-dcy).
     ///
-    /// **The sweep is here, and not at a call site, by construction** (round
-    /// 2). `execute` has three callers -- this gate's `start`, and
-    /// `resume.rs`'s `run_confirmed` and `run_authorized` -- and round 1
-    /// swept after one of them. A call that reaches `Posture::Approve` runs
-    /// from `resume.rs`, so it moved the file and stored no hold. That is
-    /// not an exotic path: `undo.v1` is on at the tool gate and
-    /// `irreversible_final` raises the gate's posture to `approve`, and an
-    /// operator who puts `proc_run` or `fs.write` at `approve` -- the
-    /// CAUTIOUS configuration -- disabled the writer key for that tool
-    /// outright. Note what the owner confirms on that path: a shell command,
-    /// not the instruction text. His confirm of a call is not his yes to new
-    /// instructions. Putting the sweep in the one function every path runs
-    /// through means a fourth call site cannot forget it.
+    /// **The writer key's sweep is here, and not at a call site, by
+    /// construction** ([`Self::wrote_project`], which carries the argument).
     async fn execute(
         &self,
         tc: &TurnCtx<'_>,
@@ -1583,19 +1572,12 @@ impl ToolRuntime {
     ) -> Result<CallOutcome> {
         // Taken before the dispatch below moves the tool, not after: the
         // writer key asks what the call WAS, and the call is over by then.
-        // The tool's own class rather than `g.plan.class`'s override, which
-        // `execute` is not given and which cannot change the answer:
-        // `content::acts` only consults the class for a tool on the
-        // `local_read` allow-list (`fs.`, `git.`, `text.`, `task.read`,
-        // `tools.find`), and no tool on that list sets a plan class --
-        // every site that sets one is an `aws.*` or a `google.*` tool.
         let acted = (tool.name().to_string(), tool.class());
         let outcome = self
             .dispatch_to_backend(tc, correlation_id, tool, call, ran_at, class)
             .await;
-        // After the call whatever became of it. A call that failed may still
-        // have moved the file before it failed, and the sweep's answer on a
-        // call that moved nothing is to store nothing.
+        // After the call whatever became of it: one that failed may still
+        // have moved the file before it failed.
         self.wrote_project(tc, &acted.0, acted.1);
         outcome
     }

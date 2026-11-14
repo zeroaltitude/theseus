@@ -1416,16 +1416,26 @@ fn sibling_dir(repo: &Path) -> PathBuf {
     d.canonicalize().unwrap()
 }
 
-/// **PROBE 1 (finding A1): one directory SIDEWAYS.** The flagged session
-/// works in the repository's nested directory and its call writes an
-/// instruction file into a *sibling* directory of the same granted
-/// repository. A clean session then opens in that sibling.
+/// **THE RESIDUAL (finding A1), pinned rather than claimed closed.** The
+/// flagged session works in the repository's nested directory and its call
+/// CREATES an instruction file in a *sibling* directory that no compile has
+/// ever discovered. A clean session then opens in that sibling and **does
+/// read the new text**.
 ///
-/// Nothing here needs a privilege or an unusual setting: `[project]
-/// on_change` is the shipped `notice` and `injection` is the shipped
-/// `notify`.
+/// This is the one of the three bypasses found in review that round 2 does
+/// NOT close, and it is asserted here in the direction the code actually
+/// goes so that the branch head is green and the hole is still impossible to
+/// miss. `change::swept` is the union of the owner's stored sighting of a
+/// granted repository and the chain from the session's own root to its own
+/// directory; a file in neither set is in no sweep. Nothing closes this
+/// without either walking a granted root on every acting call, or asking --
+/// when a compile discovers a file that is NEW -- whether a labelled session
+/// acted in that repository since the owner last read it. Neither is built.
+///
+/// **When someone closes it, this test fails, and that is the point.** Flip
+/// it to the containment then; do not delete it.
 #[tokio::test]
-async fn probe_a_sibling_directorys_instruction_file_is_held_too() {
+async fn a_brand_new_file_in_an_undiscovered_directory_is_the_residual_and_is_not_held() {
     let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let sib = sibling_dir(&repo);
     let file = sib.join("AGENTS.md");
@@ -1434,16 +1444,17 @@ async fn probe_a_sibling_directorys_instruction_file_is_held_too() {
         std::fs::read_to_string(&file)
             .unwrap()
             .contains(BY_THE_CALL),
-        "probe 1: nothing is frozen at notify, so the call ran and the file moved"
+        "nothing is frozen at notify, so the call ran and the file was created"
     );
 
     let clean = submit_in(&r.core, &sib, None).await;
     assert_ne!(clean, session, "a different session, carrying nothing");
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
-        !block.contains(BY_THE_CALL),
-        "probe 1: a CLEAN session opening ONE DIRECTORY SIDEWAYS does not read \
-         what a flagged session's call put there:\n{block}"
+        block.contains(BY_THE_CALL),
+        "THE RESIDUAL: a file created where no compile has looked is in no swept \
+         set, so a clean session opening there DOES read it. If this assertion \
+         has started failing, the hole is closed -- invert it:\n{block}"
     );
 }
 
@@ -1455,7 +1466,8 @@ async fn probe_a_sibling_directorys_instruction_file_is_held_too() {
 /// at however many grants the owner has given.
 #[tokio::test]
 async fn probe_another_granted_repositorys_file_is_held_too() {
-    let (r, _repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let (r, _repo, here, session) =
+        granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let second = second_repo(&r.root);
     r.core.project_trust(&second, "cli").expect("both trusted");
     // The owner has read B once, so a change to it is a change FROM something.
@@ -1536,7 +1548,8 @@ async fn probe_an_edit_split_across_two_calls_is_held() {
 /// the owner reads to decide whether to re-grant, so it has to be true.
 #[tokio::test]
 async fn probe_a_file_off_the_chain_is_reported_changed_and_not_gone() {
-    let (r, repo, _here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let (r, repo, _here, session) =
+        granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let nested = repo.join(IN_DIR).join("CLAUDE.md");
     // The flagged session works at the ROOT, not in the nested directory the
     // owner's sighting was taken from.
@@ -1544,17 +1557,18 @@ async fn probe_a_file_off_the_chain_is_reported_changed_and_not_gone() {
 
     let rows = crate::test_support::ledger_rows_2k(&r.core, "project.changed");
     let nested_shown = nested.display().to_string();
-    let row = rows
+    let mine: Vec<_> = rows
         .iter()
-        .find(|r| r.data["path"].as_str() == Some(nested_shown.as_str()))
-        .unwrap_or_else(|| panic!("probe 4: the file the call moved is named in a row: {rows:?}"));
-    assert_eq!(row.data["carried"], false, "probe 4: {rows:?}");
+        .filter(|r| r.data["path"].as_str() == Some(nested_shown.as_str()))
+        .collect();
     assert!(
-        !row.data["new"]
-            .as_str()
-            .unwrap_or_default()
-            .is_empty(),
-        "probe 4: the row says the file CHANGED, with the digest the call left, \
-         and not that it went away: {rows:?}"
+        !mine.is_empty(),
+        "probe 4: the file the call moved is named in a row: {rows:?}"
+    );
+    assert!(
+        mine.iter().any(|r| r.data["carried"] == false
+            && !r.data["new"].as_str().unwrap_or_default().is_empty()),
+        "probe 4: a row says the file CHANGED, with the digest the call left, and \
+         not that it went away: {mine:?}"
     );
 }
