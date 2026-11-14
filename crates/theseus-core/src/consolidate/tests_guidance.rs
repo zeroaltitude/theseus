@@ -397,11 +397,11 @@ async fn a_waiting_category_says_why() {
 /// The dream's model is route.v10's one named exception (theseus-xdi65): with
 /// `[memory] synth_profile` unset it neither asks Jev nor follows the
 /// sessions' profile, it runs Sonnet 5.5 at high effort with thinking on. The
-/// sessions last used `haikuhi` here, so a revert to "the sessions' profile"
-/// (the key's old unset meaning) sends Haiku with no effort and fails this.
+/// sessions last used `haiku` here, so a revert to "the sessions' profile"
+/// (the key's old unset meaning) sends Haiku and fails this.
 #[tokio::test]
 async fn an_unset_synth_profile_dreams_on_sonnet_at_high_effort() {
-    let r = rig(ANSWER, |c| c.model.live = "haikuhi".into());
+    let r = rig(ANSWER, |c| c.model.live = "haiku".into());
     plant(&r.core, "harbour", "jev:j-0001", 5);
     let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
     assert_eq!((done.written.len(), done.waiting), (1, 0), "{done:?}");
@@ -480,10 +480,10 @@ async fn the_cap_leaves_the_answer_room_behind_the_thinking() {
 
 /// A set key still pins the dream, whatever the exception says: the operator
 /// can move it. (The sessions last used the live `sonnet` profile and the pin
-/// is `haikuhi`, so the model sent is the pin's.)
+/// is `haiku`, so the model sent is the pin's.)
 #[tokio::test]
 async fn a_set_synth_profile_still_pins_the_dream() {
-    let r = rig(ANSWER, |c| c.memory.synth_profile = Some("haikuhi".into()));
+    let r = rig(ANSWER, |c| c.memory.synth_profile = Some("haiku".into()));
     plant(&r.core, "harbour", "jev:j-0001", 5);
     let done = r.core.dream_guidance(now_unix_ms()).await.unwrap();
     assert_eq!(done.written.len(), 1, "{done:?}");

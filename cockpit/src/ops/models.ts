@@ -1,4 +1,4 @@
-// The dock's `Models · profiles` strip grouped by model (theseus-yxkww), pure: `sonnet` and `sonnethi` are one model,
+// The dock's `Models · profiles` strip grouped by model (theseus-yxkww), pure: `sonnet` and `sonnet_high` are one model,
 // Sonnet 5.5, at two efforts, so the strip shows the model once, its effort as a sub-line, and its profiles under it.
 // The effort is what the turns really ran at: `route.decided` carries the effort each routed turn's request had. Before
 // any turn of the model is read, the sub-line is the efforts its profiles are configured at, and says so.

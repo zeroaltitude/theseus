@@ -1502,3 +1502,65 @@ fn jevs_home_is_a_guess_of_home_and_not_of_the_keywords_thread() {
         "Jev's own thread pick is still the guess: {g:?}"
     );
 }
+
+/// A fresh one-line request guessed into a thread at 137k of context cost
+/// most of a dollar even when it was refused. A guess into a thread at the
+/// large line, or past it, goes home instead, still a guess and movable; a
+/// guess below it stands; and no other way of being placed is moved, however
+/// large the thread: the message named the thread, or the owner chose it.
+#[test]
+fn a_guess_into_a_large_thread_goes_home_and_nothing_else_is_moved() {
+    let into = |how| ThreadTag {
+        slug: Some("pr-round".into()),
+        title: "pr round".into(),
+        how,
+        confidence: 0.47,
+        movable: true,
+    };
+    let guess = into(RouteHow::Guess);
+    let home = spare_large(&guess, Some(137_000)).expect("a guess into a 137k thread is spared");
+    assert_eq!(
+        (
+            home.slug.as_deref(),
+            home.title.as_str(),
+            home.how,
+            home.movable
+        ),
+        (None, "home", RouteHow::Guess, true)
+    );
+    assert_eq!(home.confidence, 0.0, "home is not the thread's score");
+    assert!(
+        spare_large(&guess, Some(LARGE_CONTEXT_TOKENS)).is_some(),
+        "the line itself is large"
+    );
+    assert!(spare_large(&guess, Some(LARGE_CONTEXT_TOKENS - 1)).is_none());
+    assert!(
+        spare_large(&guess, None).is_none(),
+        "an unknown size is not a large one"
+    );
+    for how in [
+        RouteHow::Addressed,
+        RouteHow::Reply,
+        RouteHow::Quiet,
+        RouteHow::Visible,
+        RouteHow::Asked,
+        RouteHow::NewThread,
+        RouteHow::Moved,
+    ] {
+        assert!(
+            spare_large(&into(how), Some(900_000)).is_none(),
+            "{how:?} stands"
+        );
+    }
+    let at_home = ThreadTag {
+        slug: None,
+        title: "home".into(),
+        how: RouteHow::Guess,
+        confidence: 0.2,
+        movable: true,
+    };
+    assert!(
+        spare_large(&at_home, Some(900_000)).is_none(),
+        "a guess of home has nothing to spare"
+    );
+}

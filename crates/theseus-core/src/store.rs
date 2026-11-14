@@ -333,9 +333,18 @@ type Seen = Arc<Mutex<Option<theseus_kernel::Observer>>>;
 /// failed frame leaves wait again, in front of what came since, for the next
 /// frame or the next flush. Not a method, so the flusher task holds only
 /// these three and no turn's state.
-fn write_waiting(inner: &WalStore, watcher: &Seen, pending: &Pending, rows: Vec<NewRecord>) {
+fn write_waiting(
+    inner: &WalStore,
+    watcher: &Seen,
+    pending: &Pending,
+    rows: Vec<NewRecord>,
+) -> bool {
     match inner.append(&rows) {
-        Ok(positions) => seen(watcher, &rows, &positions),
+        Ok(positions) => {
+            seen(watcher, &rows, &positions);
+            pending.recovered();
+            true
+        }
         Err(e) => {
             tracing::warn!(
                 error = %format!("{e:#}"),
@@ -343,9 +352,16 @@ fn write_waiting(inner: &WalStore, watcher: &Seen, pending: &Pending, rows: Vec<
                 "store: the rows waiting for a frame were not written; they wait for the next"
             );
             pending.give_back(rows);
+            false
         }
     }
 }
+
+/// How many flushes in a row the flusher may fail before it stops trying. A store that has
+/// failed a sync refuses every later frame, so a flusher that went on retried once a second
+/// for the life of the process, one warning each time (issue 6). It stops, says so once, and
+/// is not armed again until a frame has been written.
+pub(crate) const FLUSH_TRIES: u32 = 5;
 
 /// Hand a frame just written to the observer, if one watches.
 fn seen(seen: &Seen, records: &[NewRecord], positions: &[u64]) {
@@ -374,12 +390,16 @@ struct Pending {
     flushing: std::sync::atomic::AtomicBool,
     /// `DEFER_WITHIN` in milliseconds, which a test lowers.
     within_ms: std::sync::atomic::AtomicU64,
+    /// The flusher failed `FLUSH_TRIES` in a row and stopped: none is armed until a frame is
+    /// written, so a store that refuses every frame is not retried for the life of the process.
+    gave_up: std::sync::atomic::AtomicBool,
 }
 
 impl Default for Pending {
     fn default() -> Self {
         Self {
             rows: Mutex::default(),
+            gave_up: std::sync::atomic::AtomicBool::new(false),
             flushing: std::sync::atomic::AtomicBool::new(false),
             within_ms: std::sync::atomic::AtomicU64::new(DEFER_WITHIN.as_millis() as u64),
         }
@@ -408,6 +428,13 @@ impl Pending {
         let mut waiting = self.rows.lock().unwrap();
         rows.append(&mut waiting);
         *waiting = rows;
+    }
+
+    /// A frame was written: the store takes frames, so a flusher that gave up may be armed
+    /// again (`FLUSH_TRIES`).
+    fn recovered(&self) {
+        self.gave_up
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn within(&self) -> std::time::Duration {
@@ -461,6 +488,7 @@ impl TurnState {
         frame.extend_from_slice(records);
         match inner.append(&frame) {
             Ok(mut positions) => {
+                pending.recovered();
                 self.frames
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 // The kernel's own observer has the records its frame holds:
@@ -801,6 +829,7 @@ impl Store {
     /// One record as its own frame, now.
     fn write_now(&self, record: NewRecord) -> Result<()> {
         let positions = self.inner.append(std::slice::from_ref(&record))?;
+        self.pending.recovered();
         seen(&self.watcher, &[record], &positions);
         Ok(())
     }
@@ -812,7 +841,7 @@ impl Store {
     /// that is closing (theseus-ht8b).
     fn arm_pending(&self, rt: &tokio::runtime::Handle) {
         use std::sync::atomic::Ordering::SeqCst;
-        if self.pending.flushing.swap(true, SeqCst) {
+        if self.pending.gave_up.load(SeqCst) || self.pending.flushing.swap(true, SeqCst) {
             return;
         }
         // Only what the flush needs, never the whole handle: the task holds
@@ -823,6 +852,7 @@ impl Store {
             self.watcher.clone(),
         );
         rt.spawn(async move {
+            let mut failed = 0u32;
             loop {
                 tokio::time::sleep(pending.within()).await;
                 let rows = pending.take();
@@ -837,7 +867,21 @@ impl Store {
                 }
                 let (p, i, w) = (pending.clone(), inner.clone(), watcher.clone());
                 // The disk wait goes off the runtime's workers.
-                let _ = tokio::task::spawn_blocking(move || write_waiting(&i, &w, &p, rows)).await;
+                let wrote = tokio::task::spawn_blocking(move || write_waiting(&i, &w, &p, rows))
+                    .await
+                    .unwrap_or(false);
+                failed = if wrote { 0 } else { failed + 1 };
+                if failed >= FLUSH_TRIES {
+                    tracing::warn!(
+                        tries = failed,
+                        "store: the rows waiting for a frame could not be written {failed} times \
+                         in a row, so the flusher stopped; they wait for the next frame any \
+                         writer commits"
+                    );
+                    pending.gave_up.store(true, SeqCst);
+                    pending.flushing.store(false, SeqCst);
+                    return;
+                }
             }
         });
     }
@@ -849,7 +893,7 @@ impl Store {
     pub fn flush_waiting(&self) {
         let rows = self.pending.take();
         if !rows.is_empty() {
-            write_waiting(&self.inner, &self.watcher, &self.pending, rows);
+            let _ = write_waiting(&self.inner, &self.watcher, &self.pending, rows);
         }
     }
 
@@ -928,6 +972,7 @@ impl Store {
                 let parked = self.pending.take();
                 if parked.is_empty() {
                     let positions = self.inner.append(records)?;
+                    self.pending.recovered();
                     seen(&self.watcher, records, &positions);
                     return Ok(positions);
                 }
@@ -936,6 +981,7 @@ impl Store {
                 frame.extend_from_slice(records);
                 match self.inner.append(&frame) {
                     Ok(mut positions) => {
+                        self.pending.recovered();
                         seen(&self.watcher, &frame, &positions);
                         Ok(positions.split_off(n))
                     }
@@ -1454,6 +1500,9 @@ impl Store {
         &self.inner
     }
 }
+
+#[cfg(test)]
+mod tests_flush;
 
 #[cfg(test)]
 pub(crate) mod tests {

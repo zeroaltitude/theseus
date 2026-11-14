@@ -453,7 +453,7 @@ impl Tender {
         let engine = Engine::new(index, fields).context("opening the index's reader")?;
         let wal_dir = cfg.wal_dir();
         let follower = match WalFollower::open(&wal_dir, cursor.clone()) {
-            Ok(f) => f,
+            Ok(f) => f.skipping_wrong(),
             Err(FollowError::Rewound(why)) => {
                 tracing::warn!(%why, "index: the WAL is not the one the cursor was taken on; rebuilding");
                 writer.clear().context("clearing the index")?;
@@ -461,7 +461,9 @@ impl Tender {
                 places.clear();
                 cursor = Cursor::start();
                 why_rebuild = Some(format!("the WAL was rewound or replaced: {why}"));
-                WalFollower::open(&wal_dir, cursor.clone()).context("opening the WAL")?
+                WalFollower::open(&wal_dir, cursor.clone())
+                    .context("opening the WAL")?
+                    .skipping_wrong()
             }
             Err(e) => return Err(anyhow::Error::from(e).context("opening the WAL").into()),
         };
@@ -578,6 +580,7 @@ impl Tender {
             }
             Err(e) => return Err(e.into()),
         };
+        self.note_skipped(&batch.skipped);
         let stop = self.follower.stop().clone();
         let mut step = Step {
             stop: stop.clone(),
@@ -600,7 +603,8 @@ impl Tender {
             // Nothing of the batch counts: read it again from the cursor
             // last written.
             self.writer.rollback().ok();
-            self.follower = WalFollower::open(&self.cfg.wal_dir(), self.saved.clone())?;
+            self.follower =
+                WalFollower::open(&self.cfg.wal_dir(), self.saved.clone())?.skipping_wrong();
             return Err(e);
         }
         if step.indexed + step.removed > 0 {
@@ -626,6 +630,34 @@ impl Tender {
         }
         self.after_step(&stop);
         Ok(step)
+    }
+
+    /// Frames that passed their checksum but were wrong, which the follower read past: said in
+    /// `index.status` (and so in health), as the first and the last, with the count. The core
+    /// serves on past such a frame, so the index goes on too, and a tender that stalled for good
+    /// on one was the worse of the two (issue 6). A batch read again after a failure is counted
+    /// again; the figure is what the tender met, not how many frames the log holds.
+    fn note_skipped(&self, skipped: &[theseus_follow::Skipped]) {
+        let Some(last) = skipped.last() else {
+            return;
+        };
+        for s in skipped {
+            tracing::warn!(
+                segment = s.segment,
+                offset = s.offset,
+                reason = %s.reason,
+                "index: a frame that checks but is wrong; skipped, and the index goes on"
+            );
+        }
+        let said = format!(
+            "segment {}, offset {}: {}",
+            last.segment, last.offset, last.reason
+        );
+        let n = skipped.len() as u64;
+        self.shared.set(|s| {
+            s.frames_skipped += n;
+            s.last_frame_skipped = Some(said);
+        });
     }
 
     fn ingest(
@@ -853,7 +885,7 @@ impl Tender {
         self.shared.vectors.on_clear();
         self.places.clear();
         self.places_dirty = true;
-        self.follower = WalFollower::open(&self.cfg.wal_dir(), Cursor::start())?;
+        self.follower = WalFollower::open(&self.cfg.wal_dir(), Cursor::start())?.skipping_wrong();
         self.save()?;
         let total = wal_bytes_after(&self.cfg.wal_dir(), 0, 0);
         self.backfill = Some((Cursor::start(), total));

@@ -62,7 +62,17 @@ files_cut: number,
  * name): their node is indexed without it. A non-zero count on a store
  * with on-disk damage is the digest guard working, not a new fault.
  */
-files_unread: number, rebuilds: number, extractor: number, schema: number, rss_bytes: number, started_at_ms: number, last_commit_ms: number, last_error?: string, last_error_ms: number, 
+files_unread: number, 
+/**
+ * Frames that passed their checksum but were wrong (a record that did
+ * not decode, or a position out of sequence), which the tender skipped
+ * and read on past, as the core serves on past one.
+ */
+frames_skipped: number, 
+/**
+ * Where, and why, the last of them was skipped.
+ */
+last_frame_skipped?: string, rebuilds: number, extractor: number, schema: number, rss_bytes: number, started_at_ms: number, last_commit_ms: number, last_error?: string, last_error_ms: number, 
 /**
  * The priority queries are answered at: the socket's thread's, the
  * daemon's own (theseus-y9a3). Absent from a tender of an older build.

@@ -284,7 +284,7 @@ mod tests {
                     effort_floor_confidence = 1.1\n\
                     dear_tier_max_tokens = 0\n\
                     trivial_context_turns = 2\n\
-                    [classes.deep_coding]\nprofiles = [\"sonnethi\", \"opus\"]\n\
+                    [classes.deep_coding]\nprofiles = [\"sonnet\", \"opus\"]\n\
                     [classes.trivial]\nprofiles = [\"haiku\"]\ncn_draft = \"dsflash\"\n\
                     [task_checkpoints]\nmax_switches = 99\n";
         let c = cfg(text).unwrap();

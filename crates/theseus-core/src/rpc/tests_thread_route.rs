@@ -28,6 +28,7 @@ use crate::session::SessionRecord;
 use crate::tests_inbound::inbound_only;
 use crate::tests_judge::{rig_on, texts, Rig};
 
+mod large;
 mod title;
 
 /// The owner, and a second place of theirs.

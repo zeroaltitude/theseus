@@ -71,6 +71,24 @@ pub(super) struct Rig {
     pub(super) f: Fixture,
 }
 
+/// The three problems the rig's night files, as the ledger rows that show them.
+pub(super) fn causes() -> [(&'static str, Value); 3] {
+    [
+        (
+            "turn.failed",
+            json!({"loops": 2, "reason": "timeout: no answer", "cost_usd": 0.4}),
+        ),
+        (
+            "action.failed",
+            json!({"producer": "proc", "duration_ms": 10}),
+        ),
+        (
+            "turn.failed",
+            json!({"loops": 1, "reason": "overloaded", "cost_usd": 0.1}),
+        ),
+    ]
+}
+
 pub(super) fn rig_with(slots: u32, day_usd: f64) -> Rig {
     let f = fixture();
     let store = Store::open(&f.place.state.join("store")).unwrap();
@@ -93,20 +111,7 @@ pub(super) fn rig_with(slots: u32, day_usd: f64) -> Rig {
         .unwrap();
     // Three causes, three items, filed and ranked by a night.
     let t0 = theseus_protocol::now_unix_ms();
-    for (kind, data) in [
-        (
-            "turn.failed",
-            json!({"loops": 2, "reason": "timeout: no answer", "cost_usd": 0.4}),
-        ),
-        (
-            "action.failed",
-            json!({"producer": "proc", "duration_ms": 10}),
-        ),
-        (
-            "turn.failed",
-            json!({"loops": 1, "reason": "overloaded", "cost_usd": 0.1}),
-        ),
-    ] {
+    for (kind, data) in causes() {
         let mut row = LedgerRow::named(kind, None, None, data);
         row.at_unix_ms = t0 - HOUR;
         core.store.append_ledger(&row).unwrap();

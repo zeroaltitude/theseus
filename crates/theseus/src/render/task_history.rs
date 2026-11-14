@@ -171,8 +171,8 @@ fn indented(text: &str) -> impl Iterator<Item = String> + '_ {
 }
 
 /// A task's model, from its session's `route.decided` rows (theseus-ypnxt.9): where
-/// its brief put it (`haikuhi (task brief)`), then each move a checkpoint made, newest
-/// last (`sonnet (from haikuhi, loop 7: failing)`). Only a move that switched counts;
+/// its brief put it (`haiku_high (task brief)`), then each move a checkpoint made, newest
+/// last (`sonnet (from haiku_high, loop 7: failing)`). Only a move that switched counts;
 /// a checkpoint that left it where it was is no line. A step back down says `step down`.
 pub fn model_lines(rows: &[LedgerEntry]) -> Vec<String> {
     let mut rows: Vec<&LedgerEntry> = rows.iter().collect();
