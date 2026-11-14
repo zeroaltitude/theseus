@@ -15,6 +15,12 @@
 //!   conversation breakpoint's TTL when the request carried one (the
 //!   provider writes the whole prompt through it), and plain input when not.
 //!
+//! **When the stream had already sent a usage event** (theseus-k48c), the call is
+//! booked from it instead: the prompt as the provider counted it, exact, whatever
+//! was or was not streamed, and the output it had reported or the characters
+//! streamed, whichever is more. A model that thinks without streaming is booked
+//! its prompt even when not one character came.
+//!
 //! The settle's cap stays the call's reservation. The `provider.cut` row and
 //! the completion's detail say it is an estimate, and `split` says how.
 
@@ -26,6 +32,9 @@ pub const SPLIT_UNCACHED: &str = "uncached";
 pub const SPLIT_READ: &str = "cache_read";
 /// The previous call's prompt read from the cache, the rest written to it.
 pub const SPLIT_READ_WRITE: &str = "cache_read_write";
+/// The provider's own usage events, as the stream had them when it was cut
+/// (theseus-k48c): the prompt as it counted it, never an estimate.
+pub const SPLIT_PROVIDER: &str = "provider_events";
 
 /// What a cut call's request held of the provider's cache, as it was sent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

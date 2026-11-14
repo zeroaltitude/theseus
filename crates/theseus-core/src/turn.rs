@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -511,6 +511,10 @@ struct Cut {
     est_input: u64,
     /// What its request held of the provider's cache (theseus-3p36).
     prefix: cut_step::Prefix,
+    /// What the provider's own usage events had said when the stream was cut
+    /// (theseus-k48c): none when it had said nothing, and then the call is
+    /// booked at the estimate above.
+    seen: Option<Usage>,
 }
 
 /// Who stopped the turn `tc` runs, if a `/stop` landed during it (W1): the
