@@ -580,7 +580,7 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
 /// What every place, lane, and the gateway share.
 pub(crate) struct Shared {
     pub(crate) core: Arc<Core>,
-    rpc: Arc<RpcClient>,
+    pub(crate) rpc: Arc<RpcClient>,
     pub(crate) http: Arc<Http>,
     /// Answers interactions: no rate limiter, so a busy lane never delays a callback's deadline.
     pub(crate) interact: Http,

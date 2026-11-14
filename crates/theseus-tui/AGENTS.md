@@ -68,7 +68,7 @@ Key modules: `run.rs` (the loop), `app.rs` (no I/O), `board.rs`, `ui.rs`, and `c
   open work under it, a pending seal as a needs-you line. `T` gives the block the keys (up/down, enter folds a thread or
   opens an item's session, esc leaves). A daemon that refuses `work.watch` costs no word and no block. Tests:
   `src/tests_board_threads.rs`.
-- `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines), `src/card.rs` (a
+- `src/detail.rs` (the focused session's history and events, as the CLI's `render` lines; its newest 200 nodes first, then, when a scroll reaches the first line held, the next older page by `session.history { before }`, `Purpose::Older`, one read out at a time, within the pane's 5,000 lines: theseus-kym3; tests `tests_older.rs`), `src/card.rs` (a
   question's card), `src/notice.rs` (a re-export: the notices, their delivery and the toast are
   `theseus_client::notify`, shared with `theseus status --watch`; the TUI keeps the viewer in `app.rs`). `--notify`
   is `auto` (default: a Windows toast under WSL, OSC 9 where known, else the bell), `toast`, `bell`, `osc9`, `osc777`
