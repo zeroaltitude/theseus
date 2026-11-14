@@ -367,13 +367,37 @@ away.
 **What neither key closes**, listed in full because a design note that overstates a
 containment is worse than none:
 
-1. An instruction file **created in a directory no compile has ever discovered**. It is
-   in neither swept set, so no sweep sees it, and the first clean session to open in that
-   directory carries it. This is the one of the three bypasses found in review that is
-   still open, and it is open deliberately: closing it means walking a granted root on
-   every acting call. Closing it cheaply instead — by letting a compile that discovers a
-   *new* instruction file ask whether a labelled session acted in that repository since
-   the owner last read it — is the shape to weigh, and it is not built here.
+1. **Any instruction file that is neither in a granted repository's currently-stored
+   sighting nor on the chain from the session's own repository root to its own working
+   directory** — whether it was created or merely changed, and whether or not its
+   directory has ever been compiled in. It is in neither swept set, so no sweep sees it,
+   and the first clean session to open where it lives carries it. This is the one of the
+   three bypasses found in review that is still open, and it is open deliberately:
+   closing it means walking a granted root on every acting call.
+
+   **It is wider than "a brand-new file in a directory nobody has opened"**, which is how
+   this note stated it until the third round of review, and two of its cases are ones that
+   wording excluded. **A granted repository no session has ever been opened in:** the grant
+   stores no sighting, and the repository is not the session's own, so both halves of the
+   swept set are empty and the repository's own `AGENTS.md` — the very file the grant was
+   given for — is unswept. Nothing was created and nothing is undiscovered; the repository
+   was simply never opened. It arrives with **no "changed" notice at all**, because a
+   repository's first sighting is not a diff — which is quieter than the new-file case,
+   and that at least produces a row. **A file the owner has already read, in a directory he
+   has already worked in:** a sighting is stored per repository but taken from whichever
+   directory the compiling session was in, and it replaces its predecessor, so an ordinary
+   clean session opening elsewhere in the same repository evicts that file from it, and
+   from then on it is in neither set. Nothing adversarial causes the eviction — ordinary
+   use does.
+
+   Closing it cheaply instead — by letting a compile that discovers a *new* instruction
+   file ask whether a labelled session acted in that repository since the owner last read
+   it — is the shape to weigh, and it is not built here. That shape closes the evicted-file
+   case but **not** the never-opened-repository case: a repository with no stored sighting
+   produces no diff at all, so nothing in it is ever *new*, and "acted in that repository"
+   is the wrong key when the labelled session acted in a different granted one. The part to
+   build first is accumulating a repository's discovered paths rather than replacing them,
+   which closes the eviction and is also what makes *new* mean something.
 2. A **background job that writes after its own call has returned**. The next acting call
    of that session catches it; a clean session that opens before then does not.
 3. Text written by a session that was **never labelled at all**. What fits that is the
@@ -472,17 +496,22 @@ agent. That and a grant from chat validated as the owner are tracked as `theseus
 "After a grant" is **built** (2026-11-13, above): the change is named in the block, it is one
 `project.changed` row a file, and `[project] on_change = "ask"` turns the notice into an ask. What
 remains open under it is the live proof of (1) — a real edit to a real granted repository, seen in a
-real recompile. **The residual risk is narrower than this paragraph used to say.** It remains true
+real recompile. **The residual risk is narrower than this paragraph used to say, though not as
+narrow as §8's item 1 said until round 3.** It remains true
 that block 3 is assembled text and no node, so no content label can ever be raised on it
 (`judge/content.rs`, "A granted repository's instruction text is no item, on purpose"), and nothing
 asks the injection question of a granted file. What has changed is that the question no longer has
 to be asked to contain the write: a **swept** file of any granted repository that moves under the
 acting call of a session already carrying `injection` is held out of **every** session's block
 until the owner says yes (S31-1, the writer key), and a changed file read by a labelled session is
-held for that session (the reader key). What is left is three writes: an instruction file created
-in a directory no compile has ever discovered, which no sweep looks at; a background job whose
-write lands after its own call returned; and a write by a session that was never labelled. Closing
-the last would mean labelling block 3's project text, which is a different design; closing the
-first means either walking a granted root on every acting call, or asking — when a compile
+held for that session (the reader key). What is left is three writes: any instruction file that is
+neither in a granted repository's currently-stored sighting nor on the chain from the session's own
+repository root to its own working directory — created or merely changed, its directory compiled in
+or not, which includes a granted repository nobody has ever opened a session in and a file the owner
+has read that an ordinary compile elsewhere in the same repository evicted from the sighting; a
+background job whose write lands after its own call returned; and a write by a session that was
+never labelled. Closing the last would mean labelling block 3's project text, which is a different
+design; closing the first means either walking a granted root on every acting call, or accumulating
+a repository's discovered paths rather than replacing them and then asking — when a compile
 discovers a *new* instruction file — whether a labelled session acted in that repository since the
-owner last read it. Neither is built.
+owner last read it. Neither is built, and §8's item 1 states the two excluded cases in full.

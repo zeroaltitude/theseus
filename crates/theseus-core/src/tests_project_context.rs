@@ -1437,26 +1437,47 @@ fn sibling_dir(repo: &Path) -> PathBuf {
     d.canonicalize().unwrap()
 }
 
-/// **THE RESIDUAL (finding A1), pinned rather than claimed closed.** The
-/// flagged session works in the repository's nested directory and its call
-/// CREATES an instruction file in a *sibling* directory that no compile has
-/// ever discovered. A clean session then opens in that sibling and **does
-/// read the new text**.
+// ---------------------------------------------------------------------------
+// THE RESIDUAL (finding A1), in three cases, pinned rather than claimed
+// closed.
+//
+// The residual is NOT "a brand-new file in a directory no compile has
+// discovered". That is one case of it. The rule is: **any instruction file
+// that is neither in a granted repository's currently-stored sighting nor on
+// the chain from the session's own repository root to its own working
+// directory** -- whether it was created or merely changed, and whether or not
+// its directory has ever been compiled in. `change::swept` computes exactly
+// those two sets, and a file in neither is in no sweep.
+//
+// The three tests below are the three cases found so far. Each asserts the
+// behaviour in the direction the code actually goes, so the branch head is
+// green and the hole is impossible to miss. They share the `the_residual_`
+// prefix so that one grep finds the whole set rather than one instance of it.
+// None of them claims to be the set.
+// ---------------------------------------------------------------------------
+
+/// **The residual, case 1: a file CREATED in a directory no compile has
+/// discovered.** The flagged session works in the repository's nested
+/// directory and its call creates an instruction file in a *sibling*
+/// directory that no compile has ever discovered. A clean session then opens
+/// in that sibling and **does read the new text**.
 ///
-/// This is the one of the three bypasses found in review that round 2 does
-/// NOT close, and it is asserted here in the direction the code actually
-/// goes so that the branch head is green and the hole is still impossible to
-/// miss. `change::swept` is the union of the owner's stored sighting of a
-/// granted repository and the chain from the session's own root to its own
-/// directory; a file in neither set is in no sweep. Nothing closes this
-/// without either walking a granted root on every acting call, or asking --
-/// when a compile discovers a file that is NEW -- whether a labelled session
-/// acted in that repository since the owner last read it. Neither is built.
+/// This is the case rounds 1 and 2 found, and for a while the tree called it
+/// *the* residual; it is one of three. The other two are below, and they are
+/// the ones that wording excluded: case 2 needs no creation and no
+/// undiscovered directory at all, and case 3's file has been read by the
+/// owner in a directory a compile HAS discovered.
+///
+/// Nothing closes any of them without either walking a granted root on every
+/// acting call, or accumulating a repository's discovered paths rather than
+/// replacing them and then asking -- when a compile discovers a file that is
+/// NEW -- whether a labelled session acted in that repository since the owner
+/// last read it. Neither is built.
 ///
 /// **When someone closes it, this test fails, and that is the point.** Flip
 /// it to the containment then; do not delete it.
 #[tokio::test]
-async fn a_brand_new_file_in_an_undiscovered_directory_is_the_residual_and_is_not_held() {
+async fn the_residual_a_new_file_in_a_directory_no_compile_has_discovered_is_not_held() {
     let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
     let sib = sibling_dir(&repo);
     let file = sib.join("AGENTS.md");
@@ -1473,9 +1494,148 @@ async fn a_brand_new_file_in_an_undiscovered_directory_is_the_residual_and_is_no
     let block = session_block(&r.fake.requests().pop().unwrap());
     assert!(
         block.contains(BY_THE_CALL),
-        "THE RESIDUAL: a file created where no compile has looked is in no swept \
-         set, so a clean session opening there DOES read it. If this assertion \
-         has started failing, the hole is closed -- invert it:\n{block}"
+        "THE RESIDUAL, case 1: a file created where no compile has looked is in \
+         no swept set, so a clean session opening there DOES read it. If this \
+         assertion has started failing, the hole is closed -- invert it:\n{block}"
+    );
+}
+
+/// **The residual, case 2: a granted repository no session has ever been
+/// opened in.** The owner grants a second repository **by path, from
+/// somewhere else** -- which is how the CLI grants -- and never starts a
+/// session in it. A flagged session working in the FIRST repository then
+/// MODIFIES the second's own `AGENTS.md`, and a clean session opening there
+/// reads it.
+///
+/// `change::swept` is the stored sighting's paths plus, for the session's own
+/// repository, the chain from its root to its cwd. A granted repository
+/// nothing has compiled in has **no stored sighting at all** -- the grant
+/// stores none; `rpc::project_trust` only deletes `Seen` and `Held`, on
+/// untrust -- and it is not the session's own repository, so both halves are
+/// empty and `change::wrote` skips it.
+///
+/// **Nothing was created and nothing is undiscovered here**, which is why
+/// case 1's wording excluded this and why it needs its own test: the file is
+/// the very one the grant was given for, and the repository was simply never
+/// opened. It is also **quieter** than case 1 -- there is no "changed" notice
+/// on the block at all, because a repository's first sighting is not a diff,
+/// where case 1 at least produces a row.
+///
+/// The difference from `probe_another_granted_repositorys_file_is_held_too`,
+/// which is GREEN, is one line: that probe compiles in the second repository
+/// once before the write, so the sighting exists and the sweep has something
+/// to compare. Finding A2 is closed for a repository the owner has opened.
+///
+/// **When someone closes it, this test fails, and that is the point.** Flip
+/// it to the containment then; do not delete it.
+#[tokio::test]
+async fn the_residual_a_granted_repository_no_compile_has_opened_in_is_not_held() {
+    let (r, _repo, here, session) =
+        granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let second = second_repo(&r.root);
+    r.core.project_trust(&second, "cli").expect("both trusted");
+    // The whole of this case is the line that is NOT here: no `submit_in` in
+    // the second repository, so no session has ever been opened in it and the
+    // grant stored no sighting.
+
+    let file = second.join("AGENTS.md");
+    moves_the_file(&r, &here, &session, By::Program, &file).await;
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains(BY_THE_CALL),
+        "case 2: the call ran and MODIFIED the second repository's own AGENTS.md"
+    );
+
+    let clean = submit_in(&r.core, &second, None).await;
+    assert_ne!(clean, session, "a different session, carrying nothing");
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        block.contains(BY_THE_CALL),
+        "THE RESIDUAL, case 2: a granted repository no compile has opened in has \
+         no stored sighting and is not the session's own, so both halves of the \
+         swept set are empty and a clean session opening there DOES read what a \
+         flagged session's call put in it. If this assertion has started \
+         failing, the hole is closed -- invert it:\n{block}"
+    );
+    assert!(
+        !block.contains("changed since the owner last read them"),
+        "and it arrives with NO 'changed' notice at all, because this is the \
+         repository's first sighting and a first sighting is not a diff. That \
+         is quieter than case 1, which at least produces a row. If a notice has \
+         appeared, say so where the residual is described:\n{block}"
+    );
+}
+
+/// **The residual, case 3: a file the owner HAS read, in a directory a
+/// compile HAS discovered.** A granted repository's sighting is stored per
+/// repository but taken from whichever directory the compiling session was
+/// in, and it REPLACES its predecessor. So an ordinary clean session opening
+/// in a second directory of the same repository evicts the first directory's
+/// file from the sighting; from then on that file is in neither swept set,
+/// and a flagged session's call may modify it unheld.
+///
+/// **Nothing adversarial causes the eviction -- ordinary use does.** The
+/// owner reads the sibling's file, then works in the nested directory, and
+/// his own earlier reading has been removed from the record the sweep
+/// consults. The file was not created, and its directory has been compiled
+/// in, so both of case 1's qualifiers are false here.
+///
+/// The eviction itself is a pre-existing defect filed for 2.0.0 (per-chain
+/// sightings produce spurious change rows). What this test adds is that it is
+/// not only noise: it is a route to **exposure**, through the writer key's
+/// swept set. Accumulating a repository's discovered paths instead of
+/// replacing them closes both.
+///
+/// **When someone closes it, this test fails, and that is the point.** Flip
+/// it to the containment then; do not delete it.
+#[tokio::test]
+async fn the_residual_a_read_file_evicted_by_an_ordinary_compile_is_not_held() {
+    let (r, repo, here, session) = granted_and_flagged(crate::content::InjectionMode::Notify).await;
+    let sib = sibling_dir(&repo);
+    let file = sib.join("AGENTS.md");
+    let owner_read = format!("The sibling's own rules. {IN_TEXT}\n");
+    std::fs::write(&file, &owner_read).unwrap();
+
+    // The owner READS the sibling: a clean session opens there, so the stored
+    // sighting is taken from ITS chain and names this file.
+    let read = submit_in(&r.core, &sib, None).await;
+    assert_ne!(read, session, "the owner's own clean session");
+    let seen = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        seen.contains("The sibling's own rules"),
+        "case 3: the owner has read the sibling's file, so it IS in the \
+         sighting at this point:\n{seen}"
+    );
+
+    // The eviction, by ordinary use: a clean session opens in the nested
+    // directory of the SAME repository. The sighting is replaced with that
+    // chain, and the sibling's file is no longer in it.
+    let elsewhere = submit_in(&r.core, &here, None).await;
+    assert_ne!(
+        elsewhere, read,
+        "an ordinary later session, nothing unusual"
+    );
+
+    moves_the_file(&r, &here, &session, By::FileTool, &file).await;
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains(BY_THE_CALL),
+        "case 3: the call ran and MODIFIED a file the owner had already read"
+    );
+
+    let clean = submit_in(&r.core, &sib, None).await;
+    assert_ne!(clean, session, "a different session, carrying nothing");
+    let block = session_block(&r.fake.requests().pop().unwrap());
+    assert!(
+        block.contains(BY_THE_CALL),
+        "THE RESIDUAL, case 3: an ordinary clean session opening elsewhere in \
+         the same repository evicted this file from the stored sighting, so it \
+         is in neither swept set and a clean session opening here DOES read \
+         what a flagged session's call put in it -- a file the owner had READ, \
+         in a directory a compile HAD discovered. If this assertion has started \
+         failing, the hole is closed -- invert it:\n{block}"
     );
 }
 
