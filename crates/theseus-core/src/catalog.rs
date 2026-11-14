@@ -44,8 +44,14 @@
 //! cache read as $0.10 (0.05x of input), and the row keeps the owner's $0.20 of
 //! 2026-10-25, because $0.10 re-labels `switch_cost`'s cases and is the owner's
 //! call. The GLM Flash rows hold 1,048,576 and 131,072 where the page says 1M and
-//! 128K, an open question. Moonshot's pages moved to platform.kimi.ai and were
-//! not re-read, so the Kimi rows stand as of 2026-10-24.
+//! 128K, an open question. Moonshot's docs moved to platform.kimi.ai: its model
+//! pages and parameter reference (read 2026-11-14) agree with the Kimi rows'
+//! window, effort levels and always-on thinking, but state no output cap, and
+//! the price tables of its pricing pages are drawn by script and are not in the
+//! page text. Only `kimi-k3`'s prices are written out (its caching page), and
+//! `kimi-k3` is the previous generation, with no output price stated. So the
+//! Kimi rows' prices and caps stand as of the 2026-10-24 probe, and no row is
+//! added for `kimi-k3`.
 //!
 //! `off_peak` (theseus-9f72b) is a provider's cheaper hours (DeepSeek's: half of
 //! input, output and cache read outside 01:00 to 04:00 and 06:00 to 10:00 UTC on
@@ -956,7 +962,11 @@ fn kimi(input: f64, output: f64, served: &str) -> CatalogEntry {
         vision: true,
         pdf: false,
         tool_search: false,
-        source: format!("Moonshot AI Kimi API docs and a live probe, 2026-10-24; {served}"),
+        source: format!(
+            "Moonshot AI Kimi API docs and a live probe, 2026-10-24; window, effort levels \
+             and always-on thinking checked again against platform.kimi.ai, 2026-11-14, whose \
+             price table is not in the page text; {served}"
+        ),
         bytes_per_token: TokenRates::of("kimi-"),
         origin: ModelOrigin::Cn,
         default_effort: None,
