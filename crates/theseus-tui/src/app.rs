@@ -59,6 +59,9 @@ pub enum Purpose {
     Questions,
     /// `session.history`: the focused session's pane.
     History(String),
+    /// `session.history`'s next older page, `before` the oldest node the pane
+    /// holds (theseus-kym3).
+    Older(String),
     /// `session.history`'s newest nodes, for one an other surface wrote.
     Node {
         session: String,
@@ -795,6 +798,16 @@ impl App {
         }
     }
 
+    /// The next older page of the focused session's history came: it goes above
+    /// what the pane holds (theseus-kym3).
+    fn older_read(&mut self, sid: &str, v: Value) {
+        if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
+            if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
+                d.older_page(&h);
+            }
+        }
+    }
+
     /// An answer to one of the TUI's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
         if purpose == Purpose::SelfLog {
@@ -828,6 +841,7 @@ impl App {
                     }
                 }
             }
+            Purpose::Older(sid) => self.older_read(&sid, v),
             // The node goes in the place its `node.written` marked; a read
             // that does not find it leaves nothing behind (theseus-v6yc).
             Purpose::Node { session, node } => {
@@ -995,6 +1009,12 @@ impl App {
                 d.unmark(node);
             }
         }
+        // A page that did not come is not out: the next scroll asks again.
+        if let Purpose::Older(session) = purpose {
+            if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == *session) {
+                d.older_failed();
+            }
+        }
         let what = match purpose {
             Purpose::Snapshot => method::EXECUTIONS_WATCH,
             Purpose::Work => method::WORK_WATCH,
@@ -1003,7 +1023,9 @@ impl App {
                 self.asking_questions = false;
                 method::CONFIRM_LIST
             }
-            Purpose::History(_) | Purpose::Node { .. } => method::SESSION_HISTORY,
+            Purpose::History(_) | Purpose::Older(_) | Purpose::Node { .. } => {
+                method::SESSION_HISTORY
+            }
             Purpose::Watch => method::SESSION_WATCH,
             Purpose::Submit(_) | Purpose::SubmitTask { .. } => method::TURN_SUBMIT,
             Purpose::Inspect(_) => method::TURN_INSPECT,
@@ -1295,8 +1317,8 @@ impl App {
             KeyCode::Char('s') => self.arm(Arm::Stop),
             KeyCode::Char('S') => self.arm(Arm::StopAll),
             KeyCode::Char('c') => self.arm(Arm::Cancel),
-            KeyCode::PageUp => self.scroll(true),
-            KeyCode::PageDown => self.scroll(false),
+            KeyCode::PageUp => return self.scroll(true),
+            KeyCode::PageDown => return self.scroll(false),
             KeyCode::End => {
                 if let Some(d) = self.detail.as_mut() {
                     d.scroll = 0;
@@ -1803,21 +1825,52 @@ impl App {
     }
 
     /// Scroll the focused session's pane by most of a screen.
-    fn scroll(&mut self, up: bool) {
+    fn scroll(&mut self, up: bool) -> Vec<Effect> {
         let page = i64::from(self.height.saturating_sub(6)).max(1);
-        self.scroll_by(if up { page } else { -page });
+        self.scroll_by(if up { page } else { -page })
     }
 
     /// Scroll the focused session's pane by `rows`, up for a positive count.
+    /// A scroll that reaches the start of what the pane holds asks for the
+    /// next older page (theseus-kym3).
     fn scroll_by(&mut self, rows: i64) -> Vec<Effect> {
-        if let Some(d) = self.detail.as_mut() {
-            d.scroll = if rows > 0 {
-                d.scroll.saturating_add(rows as usize)
-            } else {
-                d.scroll.saturating_sub(rows.unsigned_abs() as usize)
-            };
-        }
-        Vec::new()
+        let (width, height) = (self.pane_width(), self.height.saturating_sub(6).max(1));
+        let Some(d) = self.detail.as_mut() else {
+            return Vec::new();
+        };
+        d.scroll = if rows > 0 {
+            d.scroll.saturating_add(rows as usize)
+        } else {
+            d.scroll.saturating_sub(rows.unsigned_abs() as usize)
+        };
+        let before = match rows > 0 {
+            true => d.older_wanted(width, usize::from(height)),
+            false => None,
+        };
+        let sid = d.session_id.clone();
+        before
+            .map(|before| {
+                call(
+                    method::SESSION_HISTORY,
+                    json!({ "session_id": sid, "before": before, "n": HISTORY_NODES }),
+                    Purpose::Older(sid),
+                )
+            })
+            .into_iter()
+            .collect()
+    }
+
+    /// The detail pane's width in columns, as `ui::draw` lays it out.
+    fn pane_width(&self) -> usize {
+        let side = match self.board.work.live {
+            true => crate::ui::work_sidebar_width(self.width),
+            false => crate::ui::sidebar_width(self.width),
+        };
+        let pane = match self.wide() {
+            true => self.width.saturating_sub(side + 1),
+            false => self.width,
+        };
+        usize::from(pane.saturating_sub(1))
     }
 
     /// Move the cursor by `by` rows, from the selected session (which keeps

@@ -27,6 +27,7 @@ mod catchup;
 mod held;
 mod offer;
 mod persona;
+mod recall;
 mod thread;
 pub(crate) mod v2;
 
@@ -316,6 +317,10 @@ pub(crate) struct Lane {
     /// `sealed` but the board's and the held turns' is here, so those others
     /// number `KEYS_KEPT` at most.
     pub touched: HashMap<String, u64>,
+    /// The messages the durable rows name (`recall.rs`), read at the first
+    /// miss of a turn's key after a start and taken from as each key is asked
+    /// for; none until then.
+    pub recalled: Option<HashMap<String, (u64, u64)>>,
     /// The turns its place's renderer holds (`LaneMsg::Held`): their keys
     /// stay out of the recency bound (theseus-6809).
     pub held_turns: Vec<String>,
@@ -385,6 +390,7 @@ impl Lane {
             sent: HashMap::new(),
             sealed: HashSet::new(),
             touched: HashMap::new(),
+            recalled: None,
             held_turns: Vec::new(),
             released: Vec::new(),
             clock: 0,
@@ -1797,10 +1803,13 @@ impl Lane {
         // A persona's text is signed (theseus-sjzm).
         let signed = self.sign(w).await;
         let w = signed.as_ref().map_or(w, |s| &s.write);
-        let known = w
+        let mut known = w
             .message
             .map(|m| (w.channel, m))
             .or_else(|| self.msgs.get(&w.key).copied());
+        if known.is_none() {
+            known = self.recall(&w.key).await;
+        }
         if let Some((c, m)) = known {
             if self.sent.get(&w.key) == Some(&w.content)
                 && matches!(w.buttons, Buttons::Keep | Buttons::V2)
@@ -1982,7 +1991,7 @@ impl Lane {
         self.shared.core.binding_ledger_soon(
             LedgerKind::DiscordMessageOut,
             None,
-            json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "ping": ping, "held": wants && !ping,
+            json!({"place": self.label, "target": self.target, "message_id": m.id.to_string(), "channel": channel.to_string(), "part": key, "ping": ping, "held": wants && !ping,
                    "chars": content.chars().count(), "buttons": matches!(buttons, Buttons::Confirm(_) | Buttons::Accept(_)),
                    "menu": matches!(buttons, Buttons::ShouldHaveAsked(_)), "mentions": mentioned}),
         );
@@ -2140,8 +2149,12 @@ impl Lane {
         let none = AllowedMentions::default();
         // Its "Should have asked" button, or none once the tool asks first.
         let comps = asked_button(card.ask.as_ref());
+        let known = match self.msgs.get(key).copied() {
+            Some(k) => Some(k),
+            None => self.recall(key).await,
+        };
         let http = &self.shared.http;
-        match self.msgs.get(key).copied() {
+        match known {
             Some((c, m)) => {
                 http.update_message(Id::new(c), Id::new(m))
                     .embeds(Some(&embeds))
@@ -2187,7 +2200,7 @@ impl Lane {
                 self.shared.core.binding_ledger_soon(
                     LedgerKind::DiscordMessageOut,
                     None,
-                    json!({"place": self.label, "message_id": m.id.to_string(), "part": key, "notice": card.title,
+                    json!({"place": self.label, "target": self.target, "message_id": m.id.to_string(), "channel": channel.to_string(), "part": key, "notice": card.title,
                            "ping": ping, "held": wants && !ping}),
                 );
             }
@@ -2311,6 +2324,8 @@ mod tests_exits;
 mod tests_late_reply;
 #[cfg(test)]
 mod tests_operator;
+#[cfg(test)]
+mod tests_recall;
 #[cfg(test)]
 mod tests_self_note;
 #[cfg(test)]

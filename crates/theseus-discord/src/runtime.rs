@@ -96,6 +96,7 @@ pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod project_trust;
 mod prompt;
 mod publish;
+mod refold;
 pub(crate) mod route;
 pub(crate) mod self_note;
 mod self_word;
@@ -580,7 +581,7 @@ async fn register_commands(http: &Http, app: Id<ApplicationMarker>, board: &Boar
 /// What every place, lane, and the gateway share.
 pub(crate) struct Shared {
     pub(crate) core: Arc<Core>,
-    rpc: Arc<RpcClient>,
+    pub(crate) rpc: Arc<RpcClient>,
     pub(crate) http: Arc<Http>,
     /// Answers interactions: no rate limiter, so a busy lane never delays a callback's deadline.
     pub(crate) interact: Http,
@@ -770,7 +771,11 @@ enum Control {
     /// Mute the voice call, or hear it again (theseus-k2sw, `runtime/voice.rs`).
     Mute(bool),
     /// Run an MCP server's prompt as the next turn (36c, `runtime/prompt.rs`).
-    Prompt(Box<theseus_protocol::mcp::McpPromptRef>),
+    /// As the presser, whose ids the handler fills in: the turn is theirs.
+    Prompt(
+        Box<theseus_protocol::mcp::McpPromptRef>,
+        Option<DiscordOrigin>,
+    ),
     /// The loaded extensions (43b, `runtime/extensions.rs`).
     Extensions,
     /// Revoke a loaded extension, as the presser.
@@ -1990,6 +1995,7 @@ impl Place {
                         _ => {}
                     }
                 }
+                self.rebuild_held(&e);
                 let mut ops = self.view.on_event(&e);
                 ops.extend(self.view.fold(self.renderer.on_event(&e)));
                 self.apply(ops);
@@ -2131,8 +2137,10 @@ impl Place {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn control(&mut self, cmd: Control, by: &str) -> String {
         match cmd {
-            Control::Prompt(r) if self.inflight || self.ready().await => self.run_prompt(*r, by),
-            Control::Prompt(_) => "No session could be opened here for the prompt.".into(),
+            Control::Prompt(r, origin) if self.inflight || self.ready().await => {
+                self.run_prompt(*r, by, origin)
+            }
+            Control::Prompt(..) => "No session could be opened here for the prompt.".into(),
             Control::Status if self.fresh => format!(
                 "No session yet here ({}): a fresh one starts with your next message.",
                 self.label
