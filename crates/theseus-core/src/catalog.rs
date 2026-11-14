@@ -43,8 +43,9 @@
 //! page's window, output cap and prices, but one: the pages give Sonnet 5.5's
 //! cache read as $0.10 (0.05x of input), and the row keeps the owner's $0.20 of
 //! 2026-10-25, because $0.10 re-labels `switch_cost`'s cases and is the owner's
-//! call. The GLM Flash rows hold 1,048,576 and 131,072 where the page says 1M and
-//! 128K, an open question. Moonshot's docs moved to platform.kimi.ai: its model
+//! call. The GLM Flash rows held 1,048,576 and 131,072 where the page says 1M and
+//! 128K; the owner chose the page's, as GLM-5.3's are (2026-11-14, chat message
+//! 1571309047377039411), and they now hold 1,000,000 and 128,000. Moonshot's docs moved to platform.kimi.ai: its model
 //! pages and parameter reference (read 2026-11-14) agree with the Kimi rows'
 //! window, effort levels and always-on thinking, but state no output cap, and
 //! the price tables of its pricing pages are drawn by script and are not in the
@@ -74,7 +75,7 @@ pub use peak::price_period_at;
 mod switch;
 pub use switch::{switch_cost, Switch, CANDIDATES as SWITCH_CANDIDATES};
 
-pub const BUILTIN_VERSION: &str = "2026-11-14.1";
+pub const BUILTIN_VERSION: &str = "2026-11-14.2";
 
 /// How a model takes (or refuses) the `thinking` request parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1207,13 +1208,22 @@ impl Catalog {
                 ..glm(1_000_000, 128_000, 1.40, 4.40, 0.26, 1.40)
             },
         );
+        let flash_source = "docs.z.ai pricing and GLM-5.3-Flash/FlashX pages, read 2026-11-14: \
+                            1M context, 128K output, text parameters consistent with GLM-5.3 \
+                            (the owner chose these over 1,048,576 and 131,072, 2026-11-14)";
         e.insert(
             "glm-5.3-flash".into(),
-            glm(1_048_576, 131_072, 0.15, 0.50, 0.03, 0.15),
+            CatalogEntry {
+                source: flash_source.into(),
+                ..glm(1_000_000, 128_000, 0.15, 0.50, 0.03, 0.15)
+            },
         );
         e.insert(
             "glm-5.3-flashx".into(),
-            glm(1_048_576, 131_072, 0.37, 1.25, 0.075, 0.37),
+            CatalogEntry {
+                source: flash_source.into(),
+                ..glm(1_000_000, 128_000, 0.37, 1.25, 0.075, 0.37)
+            },
         );
         deepseek_rows(&mut e);
         kimi_rows(&mut e);
@@ -1903,7 +1913,7 @@ mod tests {
         assert_eq!(h.bytes_per_token, TokenRates::CLAUDE);
         assert_eq!(TokenRates::of("claude-haiku-5-5"), TokenRates::CLAUDE);
         assert_eq!(image_tokens("claude-haiku-5-5", 1920, 1080), 2_691);
-        assert_eq!(c.version, "2026-11-14.1");
+        assert_eq!(c.version, "2026-11-14.2");
         // Sonnet 5.5's cache read is $0.20, as Sonnet 5's is.
         assert_eq!(
             c.get("claude-sonnet-5-5").unwrap().cache_read_per_mtok,
@@ -2241,6 +2251,28 @@ mod tests {
         assert!(f.vision && !p.vision);
         assert!(f.source.contains("V4.1-Flash-1017") && p.source.contains("V4-Pro-0813"));
         assert_eq!(TokenRates::of("deepseek-flash"), TokenRates::CLAUDE);
+    }
+
+    /// The Flash rows hold the page's "1M" and "128K", as GLM-5.3's do (owner,
+    /// 2026-11-14, chat message 1571309047377039411), and say so in their source.
+    #[test]
+    fn the_glm_flash_rows_hold_the_pages_window_and_output_cap() {
+        let c = Catalog::builtin();
+        for id in ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"] {
+            let e = c.get(id).unwrap();
+            assert_eq!(
+                (e.context_window, e.max_output_tokens),
+                (1_000_000, 128_000),
+                "{id}"
+            );
+        }
+        for id in ["glm-5.3-flash", "glm-5.3-flashx"] {
+            let s = &c.get(id).unwrap().source;
+            assert!(
+                s.contains("1M context, 128K output") && s.contains("2026-11-14"),
+                "{s}"
+            );
+        }
     }
 
     /// The GLM rows' cache writes are priced at their input (no premium, a
