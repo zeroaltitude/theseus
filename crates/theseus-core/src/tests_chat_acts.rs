@@ -145,6 +145,32 @@ fn held(r: &Rig) -> Vec<HeldCall> {
         .unwrap()
 }
 
+/// Every question answered so far, as `(correlation id, option)`. The row is
+/// written where an answer becomes a decision, so this counts answers and not
+/// questions that merely stopped being listed.
+fn answers(r: &Rig) -> Vec<(String, String)> {
+    rows(r, "action.confirm_answered")
+        .into_iter()
+        .map(|v| {
+            (
+                v["correlation_id"].as_str().unwrap_or_default().to_string(),
+                v["option"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The one question waiting in `sid`.
+fn waiting_in(r: &Rig, sid: &str) -> String {
+    let all = r.core.confirm_list().unwrap();
+    let mut here = all.iter().filter(|q| q.session_id == sid);
+    let q = here
+        .next()
+        .unwrap_or_else(|| panic!("a question waits in {sid}: {all:?}"));
+    assert!(here.next().is_none(), "exactly one waits in {sid}: {all:?}");
+    q.correlation_id.clone()
+}
+
 /// The chat acts' results in a session: `(status, text)`.
 fn acted(r: &Rig, sid: &str, tool: &str) -> Vec<(String, String)> {
     r.core
@@ -422,37 +448,25 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
 
     // His reply, with no tool called: nothing is answered. "yes" and "ok" are
     // what `answer_in_words` read, and they reach nothing now.
-    let before: Vec<String> = r
-        .core
-        .confirm_list()
-        .unwrap()
-        .into_iter()
-        .map(|q| format!("{}/{}", &q.correlation_id[4..10], &q.session_id[4..10]))
-        .collect();
+    let here_q = waiting_in(&r, &here);
+    let else_q = waiting_in(&r, &elsewhere);
+    assert_ne!(here_q, else_q, "two different questions");
+
+    // His reply, with no tool called: nothing is ANSWERED. "yes" and "ok" are
+    // what `answer_in_words` read, and they reach nothing now.
+    //
+    // The measurement is the ROW, not the waiting list: a question stops being
+    // listed while a turn runs in its session, which is a fact about the list
+    // and not about the question. `action.confirm_answered` is written at the
+    // one place an answer becomes a decision, so an empty set of them is the
+    // honest statement that nobody answered anything.
     for words in ["yes", "ok, go ahead", "yes please"] {
         r.calls(&[]);
         say(&r, &here, words).await;
-        let now: Vec<String> = r
-            .core
-            .confirm_list()
-            .unwrap()
-            .into_iter()
-            .map(|q| format!("{}/{}", &q.correlation_id[4..10], &q.session_id[4..10]))
-            .collect();
-        assert_eq!(
-            now.len(),
-            2,
-            "`{words}`: here={} else={} was {before:?} now {now:?} resolved={:?} answered={:?}",
-            &here[4..10],
-            &elsewhere[4..10],
-            rows(&r, "confirm.resolved")
-                .iter()
-                .map(|v| format!("{}:{}", v["question"], v["option"]))
-                .collect::<Vec<_>>(),
-            rows(&r, "call.answered")
-                .iter()
-                .map(|v| format!("{}:{}", v["action"], v["option"]))
-                .collect::<Vec<_>>()
+        let answered = answers(&r);
+        assert!(
+            answered.is_empty(),
+            "`{words}` answered something with no tool called: {answered:?}"
         );
     }
 
@@ -474,20 +488,18 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
         out[0].1
     );
 
-    until("the question here is answered", || {
-        r.core.confirm_list().unwrap().len() == 1
-    })
-    .await;
-    let still = r.core.confirm_list().unwrap();
+    let answered = answers(&r);
     assert_eq!(
-        still.len(),
+        answered.len(),
         1,
-        "the other conversation's question still waits: {still:?}"
+        "exactly one question was answered: {answered:?}"
     );
-    assert_eq!(
-        still[0].session_id, elsewhere,
-        "and it is the OTHER one that still waits: {still:?}"
+    assert_eq!(answered[0].0, here_q, "and it is THIS conversation's");
+    assert_ne!(
+        answered[0].0, else_q,
+        "the other conversation's question was not answered"
     );
+    assert_eq!(answered[0].1, "choice:0", "with the answer he gave");
 
     // The question that was answered is this one's, and the turn it parked was
     // told the operator's choice.
