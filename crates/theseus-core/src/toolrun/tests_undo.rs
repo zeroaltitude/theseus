@@ -835,6 +835,111 @@ async fn an_allowance_does_not_admit_a_replanned_call_proposed_alone() {
     assert_eq!(r.rows("tool.hold_overridden").len(), 1);
 }
 
+/// Turn one is held; turn two proposes the ORIGINAL call TWICE, byte for
+/// byte, with one allowance standing. Two calls of one turn reaching for one
+/// allowance is the shape the owner's word of 2026-11-13 is about.
+fn script_the_original_twice(path: &Path) -> Vec<Scripted> {
+    let original = json!({"path": path.to_string_lossy(), "content": NOW});
+    vec![
+        Scripted::tools("I'll replace it.", &[("c1", "fs_write", original.clone())]),
+        Scripted::text("Held; I'll re-plan it."),
+        Scripted::tools(
+            "The original, twice.",
+            &[
+                ("c2", "fs_write", original.clone()),
+                ("c3", "fs_write", original),
+            ],
+        ),
+        Scripted::text("Done."),
+    ]
+}
+
+/// **Two calls of one turn reach for one allowance, and EXACTLY ONE RUNS**
+/// (the owner, 2026-11-13 17:48, S34-2). One allowance admits one call; the
+/// other is held again, as any other reversibility hold — the same
+/// `Declined` status the repeat cap reads, the same `undo:` reason, no card,
+/// and an offer to override it again.
+///
+/// Both counts are positive, so neither half can pass against a tree that
+/// ran nothing: exactly one `tool.hold_overridden` row, and exactly one of
+/// the turn's two results NOT declined.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_calls_of_one_turn_reach_for_one_allowance_and_exactly_one_runs() {
+    let r = rig_scripted(RESHAPEABLE, 0.96, false, |_| {}, script_the_original_twice);
+    let sid = r.session();
+
+    r.turn(&sid).await;
+    let held = r.held();
+    assert_eq!(held.len(), 1, "one held call: {held:?}");
+    r.allow_as(Rig::owner(), &held[0].id)
+        .await
+        .expect("the owner");
+
+    // Turn two: the same call twice, with one allowance standing.
+    r.turn(&sid).await;
+
+    let spent = r.rows("tool.hold_overridden");
+    assert_eq!(spent.len(), 1, "ONE allowance was spent: {spent:?}");
+    assert_eq!(spent[0]["hold"], held[0].id);
+
+    let results = r.results(&sid);
+    assert_eq!(results.len(), 3, "one call, then two: {results:?}");
+    let ran: Vec<&(String, String, String)> =
+        results.iter().filter(|(s, _, _)| s != "Declined").collect();
+    assert_eq!(
+        ran.len(),
+        1,
+        "EXACTLY ONE of the three calls ran: {results:?}"
+    );
+    assert_eq!(ran[0].0, "Ok", "and it ran cleanly: {ran:?}");
+    assert_eq!(
+        r.bytes(),
+        NOW,
+        "the one that ran wrote the original's bytes"
+    );
+
+    // The one that did not is an ORDINARY hold: the status the repeat cap
+    // reads, the shape's own reason, no card, and offered again.
+    let (_, text, reason) = results
+        .last()
+        .filter(|(s, _, _)| s == "Declined")
+        .or_else(|| results.get(1).filter(|(s, _, _)| s == "Declined"))
+        .expect("one of turn two's two calls was declined");
+    assert!(text.starts_with("Not run: "), "{text}");
+    assert!(
+        reason.starts_with(&format!("{HELD_REASON}: move_aside")),
+        "the same reason any hold carries: {reason}"
+    );
+    assert_eq!(
+        r.rows("tool.held").len(),
+        2,
+        "the call that found the allowance spent was HELD, and said so"
+    );
+    assert!(
+        r.rows("tool.confirm_requested").is_empty(),
+        "and still no card: a hold costs the owner no attention"
+    );
+    assert_eq!(
+        r.held().iter().filter(|h| h.allowed.is_none()).count(),
+        1,
+        "and it is offered for an override again: {:?}",
+        r.held()
+    );
+}
+
+/// The three outcomes of a spend, and the one of them that admits the call.
+/// Pure, so the arm no ordinary run can stage is still stated somewhere a
+/// reader can check it against the owner's word.
+#[test]
+fn only_a_spend_this_frame_recorded_admits_the_call() {
+    use crate::toolrun::reversible::Spend;
+    assert!(Spend::Recorded.admits(), "the allowance was this call's");
+    assert!(
+        !Spend::AlreadySpent.admits(),
+        "one allowance admits ONE call (S34-2)"
+    );
+}
+
 // ---- the two facts the resolver now states, on the LIVE gate path ---------
 //
 // `p5kln-location-facts` (row B6 `theseus-2yowd`; the owner, 2026-11-13
