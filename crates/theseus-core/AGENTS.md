@@ -617,43 +617,26 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   (`not`); an undo is `standing.revoke`, which labels the judgment `wrong capture` (`capture_undone`; three in a day roll
   the pack back, and a label finds its pack in the `standing.captured` row while the sink has not written the judgment).
   `[standing] capture = false` stops all of it. Tests: `tests_capture.rs`, `capture::tests`.
-- **What the owner says in chat is acted on by a TOOL** (chat-acts-are-tools, S43-1; `chat_acts.rs`; was
-  theseus-3i6d1's `rpc/answer_in_words.rs` and theseus-p5kln's `rpc/allow_in_words.rs`, both gone). The owner,
-  2026-11-13 23:27 and 23:32 (Discord message `1571050236367995101`): *"this is NOT a matching thing -- it's a
-  surface area of tools that models can choose to call in response to the prompt and the tool list"*, and
-  *"clearly articulated tools sensitive to the question context that the model can choose to call as it judges
-  the human response."* **No code path matches a substring or a token of his message any more.** Three tools:
-  `chat.answer_question` (the question waiting here, through `Core::confirm_action_with`), `chat.allow_held_call`
-  (the held call, through `Core::undo_allow`) and `chat.import_sync` (`import.sync.request`, its own
-  `judge_act(Act::Import)` kept). The buttons, the slash commands and the CLI are untouched: this is a fourth way
-  in, and **nothing about what any of these acts MEANS is widened, only which inputs reach them**.
-  - **Context-sensitive by construction.** None of the three is in a place's kept catalog
-    (`chat_acts::conditional`, read by `toolrun/catalogs.rs`), because a catalog is shared by every session of a
-    place and these are true of one session at one moment. `turn/defer_step.rs::chat_acts_offered` puts in the
-    ones that apply, with a description naming what is waiting or what is held. Nothing waiting: no answer tool.
-  - **The structural rule.** `turn.submit` stages `chat_acts::Said` (who spoke, what they said, and whether
-    `Core::owner_input` counts it as his own typed input from a private place) and the offer step BINDS it to the
-    turn it started, as `yes_fact::Staged` binds a fact. A continuation -- a wake, a task report, the pipeline's
-    own turn -- claims nothing and is offered nothing, so a message meant for one turn cannot be taken by the
-    next; and a call made in a turn the offer step never ran for finds nothing bound and is refused.
-  - **Ambiguity is still never guessed**, the guard the owner asked for after Theseus abandoned the wrong task on
-    a bare *"Yes, you may abandon it"*: with more than one question waiting or more than one call held, a tool
-    called without naming which refuses and names each, and so does a name that could mean two.
-  - **The scope is the place, not the session**: `chat_acts::waiting_here` / `held_here`, moved whole out of the
-    two matchers, which were right about scope and wrong only about reading his words.
-  - **Defence in depth on the allow tool alone** (`chat_acts/judged.rs`, `judge/allow_said.rs`, pack
-    `allow_said.v1`, scope `judge:allow_said`): guidance first -- the owner ruled *"i'm ok with the model deciding
-    once it has been guided about this"* -- and then one Noul, *does his latest message say to run this held
-    call?* A `no` at the band refuses with a reason the model reads. **It FAILS OPEN and must stay that way**: no
-    answer, a failed call, a spent budget or the pack off all leave the model's call STANDING, and
-    `tool.hold_allowed` carries `judged: false` so the ledger says no judge saw it. A fail-closed version would
-    let a network fault remove S17-D6, the owner's standing route past a safety hold.
-  - **All three are `ToolClass::Read`**, the class `owner_ask` takes: the call acts on nothing of the world, it
-    records a decision already made. That is what `undo.v1`'s `worth_asking` reads, and for the allow tool it is
-    load-bearing -- as a `Write` it would be asked, and a `reshapeable` would hold the RELEASE of a hold.
-  - `[standing] yes_fact` still gates the harness block in the turn's tail; its producer is now the answer tool.
-  Tests: `tests_chat_acts.rs` (whole core, scripted model, fake Jev), `chat_acts::tests`,
-  `chat_acts::judged::tests`, `builders::allow_said::tests`.
+- **What the owner says in chat is acted on by a TOOL** (chat-acts-are-tools, S43-1; `chat_acts.rs`, whose header
+  carries the depth; was theseus-3i6d1's `rpc/answer_in_words.rs` and theseus-p5kln's `rpc/allow_in_words.rs`,
+  both gone). The owner, 2026-11-13 23:32, Discord message `1571050236367995101`: *"this is NOT a matching thing
+  -- it's a surface area of tools that models can choose to call in response to the prompt and the tool list"*.
+  **No code path matches a substring or a token of his message any more.** Three tools: `chat.answer_question`
+  (through `Core::confirm_action_with`), `chat.allow_held_call` (through `Core::undo_allow`) and
+  `chat.import_sync` (`import.sync.request`, its own `judge_act(Act::Import)` kept). The buttons, the slash
+  commands and the CLI are untouched: a fourth way in, and nothing about what these acts MEAN is widened, only
+  which inputs reach them. None is in a place's kept catalog (`chat_acts::conditional`); `defer_step`'s
+  `chat_acts_offered` puts in the ones whose own fact is true, with a description naming what waits or what is
+  held, and keeps that list as `Offered`, because a question is not listed by `confirm_list` while a turn runs in
+  its session. The structural rule is `chat_acts::Said`, staged at `turn.submit` and BOUND to the turn it started,
+  so a continuation is offered nothing. Ambiguity is still never guessed and the scope is still the place
+  (`waiting_here` / `held_here`, moved whole out of the matchers). The allow tool alone has a second layer,
+  `allow_said.v1` (`chat_acts/judged.rs`, scope `judge:allow_said`): guidance first, as he ruled, then one Noul,
+  and **it FAILS OPEN** -- no answer leaves the call standing and the row says `judged: false`, since a
+  fail-closed judge would let a network fault remove S17-D6. All three are `ToolClass::Read`, `owner_ask`'s class,
+  which is load-bearing for the allow tool: as a `Write` it would be asked of `undo.v1`, and a `reshapeable` would
+  hold the RELEASE of a hold. Tests: `tests_chat_acts.rs` (whole core, scripted model, fake Jev),
+  `chat_acts::tests`, `chat_acts::judged::tests`, `builders::allow_said::tests`.
 - **The task offer** (theseus-bh3t.5; no store change: a field on the reply's outbox post): `classify.v3` is `classify.v2` word for
   word and one question, `offer_task` ("work to be done later, in more than one step, that the person has not asked to start
   now"), which decides nothing and rides the one inbound request. When it answers yes at the act bar in a judgment that acts
