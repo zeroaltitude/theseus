@@ -36,6 +36,17 @@
 //! caching minimum (a 498-token prefix was not cached, a 542-token one was).
 //! It is the first model priced in tiers: see [`LongPrompt`].
 //!
+//! The 2026-11-14 sweep read each vendor's own pages on that day: the Claude
+//! models overview, pricing page and the Fable 5.2 and Sonnet 5.5 model pages
+//! (platform.claude.com); docs.z.ai's pricing, release notes and GLM pages;
+//! api-docs.deepseek.com's Models & Pricing page. Every row of those matched its
+//! page's window, output cap and prices (the GLM Flash rows' 1,048,576 and
+//! 131,072 against the page's rounded 1M and 128K aside), but one: the pages give Sonnet 5.5's
+//! cache read as $0.10 (0.05x of input), and the row keeps the owner's $0.20 of
+//! 2026-10-25, because $0.10 re-labels `switch_cost`'s cases and is his call.
+//! Moonshot's pages could not be read from a trusted host (they redirect off
+//! it), so the Kimi rows stand as of 2026-10-24.
+//!
 //! `off_peak` (theseus-9f72b) is a provider's cheaper hours (DeepSeek's: half of
 //! input, output and cache read outside 01:00 to 04:00 and 06:00 to 10:00 UTC on
 //! weekdays, [`price_period_at`]). A row's own prices stay the peak ones, which
