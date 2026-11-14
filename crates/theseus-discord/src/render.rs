@@ -283,6 +283,33 @@ impl ToolState {
 }
 
 impl ToolLine {
+    /// The call's end, as `tool.ended` says it: its state, and what an L1 job
+    /// wrote to scratch and reached, added to the summary. The one place the
+    /// live event and a turn read back from its nodes (`refold.rs`) both take
+    /// an end from, so a stopped call, a background one and a declined one are
+    /// the same line in either.
+    fn end(&mut self, t: &theseus_protocol::ToolEnded) {
+        let status = t.status.as_str();
+        // A `/stop` ended it (theseus-4uw): the stopper, not a failure.
+        let stopped = t.stopped_by.clone().filter(|_| status == "cancelled");
+        let verified = theseus_protocol::cancel::note(t.verified.as_deref());
+        self.summary.extend(
+            t.scratch
+                .iter()
+                .chain(&t.reached)
+                .map(|s| format!(" · {s}")),
+        );
+        self.state = ToolState::ended(
+            &self.state,
+            status,
+            t.duration_ms.unwrap_or(0),
+            stopped.map(|by| format!("{by}{verified}")),
+        );
+        // Its end will come back in a turn of its own, so the step's message
+        // keeps its line from here on.
+        self.late |= matches!(self.state, ToolState::Background);
+    }
+
     /// The line of a call the gate has just judged (`gate`): its summary, the
     /// notice setting, what the broker gave it, and where it runs. An AWS
     /// call's line names its operation, region, and account, from its plan
@@ -527,19 +554,7 @@ impl Renderer {
                         card: card.clone(),
                     });
                 }
-                let ended: Vec<String> = t.scratch.iter().chain(&t.reached).cloned().collect();
-                self.update_tool(turn_id, use_id, |l| {
-                    l.summary.extend(ended.iter().map(|s| format!(" · {s}")));
-                    l.state = ToolState::ended(
-                        &l.state,
-                        status,
-                        ms,
-                        stopped.as_deref().map(|by| format!("{by}{verified}")),
-                    );
-                    // Its end will come back in a turn of its own, so the
-                    // step's message keeps its line from here on.
-                    l.late |= matches!(l.state, ToolState::Background);
-                });
+                self.update_tool(turn_id, use_id, |l| l.end(t));
                 ops
             }
             // A notified call's score (M5 step 24): its tool line gains it,

@@ -16,24 +16,28 @@
 //! (`<turn>:L<n>:p<i>`, `<turn>:L<n>:tools`) and, with the lane's own rebuild
 //! (`courier/recall.rs`), edit those messages instead of posting them again.
 //! A call that had not ended is `Proposed`: the first run's own state past that
-//! is told again by the events that follow it.
+//! is told again by the events that follow it. What only an event told (a
+//! judge's risk score on a notified call) is not durable, and a rebuilt message
+//! does not show it.
 
 use std::collections::BTreeMap;
 
+use theseus_core::fact::Fact;
 use theseus_core::node::{Body, Node};
+use theseus_protocol::Event;
 
-use super::{LoopView, Renderer, ToolLine, ToolState, TurnView, RECENT_TURNS};
+use super::{LoopView, Renderer, ToolLine, TurnView, RECENT_TURNS};
 
 impl Renderer {
     /// Whether `e` should first rebuild the held turns, which have not been
     /// rebuilt yet: it names a turn this renderer does not hold, or it is the
     /// start or the end of a call no held turn has a line for. That second case
-    /// is the usual one after a restart: a background job's late result, and
-    /// the end of a call a stop cancelled, name a *later* turn (the one that
-    /// took them), which the renderer saw start, while the call's line is in an
-    /// earlier turn that it did not.
-    pub fn needs_rebuild(&self, e: &theseus_protocol::Event) -> bool {
-        use theseus_protocol::Event;
+    /// is the usual one after a restart: a background job's late result names
+    /// a *later* turn (the one that took it in), which the renderer saw start,
+    /// while the call's line is in an earlier turn that it did not. (The end of
+    /// a call a stop cancelled names the call's own turn, which it did not see
+    /// start: the first clause finds it.)
+    pub fn needs_rebuild(&self, e: &Event) -> bool {
         if self.rebuilt {
             return false;
         }
@@ -81,10 +85,38 @@ impl Renderer {
             .rev()
             .take(room)
             .collect();
-        // Newest first, each put at the front: the oldest ends up first, ahead
-        // of the turns already held.
-        for turn_id in missing {
-            let view = fold(turn_id, nodes);
+        // Newest first.
+        let mut views: Vec<TurnView> = missing.into_iter().map(|t| fold(t, nodes)).collect();
+        // Every result settles its call's line wherever that line is, as a late
+        // result does live (`update_tool` finds a line by its call): a background
+        // job's result is stored under the later turn that took it in, not under
+        // the call's own. Each is read as the live `tool.ended` reads it, from the
+        // result node (`ToolEnded::event`), so who stopped a call, what it
+        // reached, and the rest are the live line's.
+        for (_, n) in nodes {
+            if !matches!(n.body, Body::ToolResult { .. }) {
+                continue;
+            }
+            let fact = theseus_core::fact::tool::ToolEnded {
+                session_id: &n.session_id,
+                turn_id: n.turn_id.as_deref().unwrap_or(""),
+                node: n,
+            };
+            let Some(Event::ToolEnded(t)) = fact.event() else {
+                continue;
+            };
+            let line = views
+                .iter_mut()
+                .flat_map(|v| v.loops.values_mut())
+                .flat_map(|lv| lv.tools.iter_mut())
+                .find(|l| l.tool_use_id == t.tool_use_id);
+            if let Some(l) = line {
+                l.end(&t);
+            }
+        }
+        // Each put at the front: the oldest ends up first, ahead of the turns
+        // already held.
+        for view in views {
             self.turns.push_front(view);
         }
         self.drop_past_recent();
@@ -122,23 +154,6 @@ fn fold(turn_id: &str, nodes: &[(u64, Node)]) -> TurnView {
                 let mut line = ToolLine::proposed(tool_use_id, tool, input, gate);
                 line.correlation_id.clone_from(correlation_id);
                 loops.entry(li).or_default().tools.push(line);
-            }
-            Body::ToolResult {
-                tool_use_id,
-                status,
-                duration_ms,
-                late,
-                ..
-            } => {
-                let found = loops
-                    .values_mut()
-                    .flat_map(|lv| lv.tools.iter_mut())
-                    .find(|l| l.tool_use_id == *tool_use_id);
-                if let Some(l) = found {
-                    l.state =
-                        ToolState::ended(&l.state, status.as_str(), duration_ms.unwrap_or(0), None);
-                    l.late |= *late || matches!(l.state, ToolState::Background);
-                }
             }
             _ => {}
         }
@@ -425,5 +440,90 @@ mod tests {
                 .any(|(k, c)| k == "t1:L0:tools" && c.contains("12 ms")),
             "{shown:?}"
         );
+    }
+
+    /// A call the owner stopped is rebuilt as the live line says it (stopped,
+    /// by whom), not as a failure, and an L1 job's scratch and reach stay on
+    /// its line: the rebuild reads the end from the result node as the live
+    /// event does.
+    #[test]
+    fn a_stopped_call_and_a_jobs_suffixes_are_rebuilt_as_the_live_line() {
+        let mut nodes = before_the_restart("t1");
+        nodes.push(call("t1", 0, "u2", "b.txt"));
+        let end = |id: &str, status: ResultStatus, meta: serde_json::Value| {
+            let (p, mut n) = result("t1", 0, id, 7);
+            if let Body::ToolResult {
+                status: s, meta: m, ..
+            } = &mut n.body
+            {
+                *s = status;
+                *m = meta;
+            }
+            (p, n)
+        };
+        nodes.push(end(
+            "u1",
+            ResultStatus::Cancelled,
+            json!({"stopped_by": "alice"}),
+        ));
+        nodes.push(end(
+            "u2",
+            ResultStatus::Ok,
+            json!({"detail": {"scratch": {"summary": "wrote 2 files to scratch"}}}),
+        ));
+        let mut r = Renderer::default();
+        r.rebuild(&nodes);
+        r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t1", "tool_use_id": "u2", "status": "ok", "duration_ms": 7}),
+        );
+        let shown = upserts(&r.tick());
+        let tools = shown
+            .iter()
+            .find(|(k, _)| k == "t1:L0:tools")
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        assert!(tools.contains("stopped by alice"), "{tools}");
+        assert!(!tools.contains('❌'), "{tools}");
+        assert!(tools.contains("wrote 2 files to scratch"), "{tools}");
+    }
+
+    /// A background job's result taken in by a later turn before the restart is
+    /// not undone: its result is under that turn, and settles the call's line in
+    /// the earlier one, as a late result does live.
+    #[test]
+    fn a_late_result_taken_in_before_the_restart_is_not_undone() {
+        let mut nodes = before_the_restart("t1");
+        nodes.push(call("t1", 0, "u2", "b.txt"));
+        let placeholder = |id: &str| {
+            let (p, mut n) = result("t1", 0, id, 7);
+            if let Body::ToolResult { status, .. } = &mut n.body {
+                *status = ResultStatus::Background;
+            }
+            (p, n)
+        };
+        nodes.push(placeholder("u1"));
+        nodes.push(placeholder("u2"));
+        nodes.push(assistant("t2", 0, "back"));
+        nodes.push(result("t2", 0, "u1", 40));
+        let mut r = Renderer::default();
+        r.rebuild(&nodes);
+        r.on_notification(
+            "tool.ended",
+            &json!({"turn_id": "t2", "tool_use_id": "u2", "status": "ok", "duration_ms": 12}),
+        );
+        let shown = upserts(&r.tick());
+        let tools = shown
+            .iter()
+            .find(|(k, _)| k == "t1:L0:tools")
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        assert!(
+            !tools.contains(
+                "running in the background; the result will come back here\n-# ✅ `fs.read` b.txt"
+            ) && !tools.starts_with("-# ⏳ `fs.read` src/lib.rs"),
+            "u1 went back to running: {tools}"
+        );
+        assert!(tools.contains("40 ms"), "{tools}");
     }
 }
