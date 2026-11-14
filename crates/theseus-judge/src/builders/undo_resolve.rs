@@ -40,19 +40,23 @@
 //!   7. `unknown` — the probe could not tell. The pack is told to read it as
 //!      no copy, so an unreadable tree errs toward holding the call.
 //!
-//! `regenerable` IS DELIBERATELY NOT RESOLVED HERE, and that is a decision and
-//! not an omission. It means "the project's own build makes it again", and the
-//! only thing code can compute cheaply is that the repository ignores the path
-//! and its first component is a build-output name — which is a LOCATION rule,
-//! the exact thing this classifier was written to replace (`undo.v1.toml`'s
-//! header: the approve lists "were a LOCATION rule — a list of paths and argv
-//! prefixes that grows forever and is wrong about every call it has not
-//! seen"). And it errs the wrong way: a wrong `regenerable` makes a call read
-//! as reversible and lets it run, where a wrong `untracked` only holds a safe
-//! call. So an ignored file resolves to `untracked`, which is true of it as
-//! far as git is concerned, and `regenerable` reaches the state only from a
-//! caller that knows better (a build the daemon itself ran). The eval set's
-//! `regenerable` cases are unaffected: they state the word, as they always did.
+//! `regenerable` IS RESOLVED FROM A CLOSED TABLE, AND ONLY FROM ONE
+//! (`p5kln-location-facts`; the owner, 2026-11-13 11:28, who named being
+//! trivially recreatable as one of the three facts code should state). This
+//! module used to refuse the word outright, and the refusal was right about
+//! what it was aimed at: "the repository ignores the path and its first
+//! component is a build-output name" is a LOCATION rule, the exact thing this
+//! classifier was written to replace (`undo.v1.toml`'s header: the approve
+//! lists "were a LOCATION rule — a list of paths and argv prefixes that grows
+//! forever and is wrong about every call it has not seen"). What replaces the
+//! refusal is not that rule with a longer list. It is `undo_regen`'s closed
+//! three-line table, where every line requires a MANIFEST THAT IS PRESENT —
+//! the project's own statement that it builds this directory — and where the
+//! repository must ignore the path as well. Everything git ignores beside no
+//! manifest stays `untracked`, which is still the safe word, because a wrong
+//! `regenerable` makes a call read as reversible and lets it run where a wrong
+//! `untracked` only holds a safe call. The eval set's `regenerable` cases are
+//! unaffected either way: they state the word, as they always did.
 //!
 //! `remote_keeps` IS NOT RESOLVED HERE EITHER: whether a bucket is versioned or
 //! a document has revisions is an API call, which the gate's path cannot make,
@@ -60,9 +64,12 @@
 //!
 //! THE COST. `GitCli` runs up to three `git` invocations for the first target
 //! of a call and up to two for each one after it (the repository root is
-//! cached per probe). That is on the tool gate's synchronous path, so a caller
-//! holds one probe for the whole call and the pack's `on_path_p95` rollback
-//! rule (300 ms) is the number to watch once anything feeds it.
+//! cached per probe). `undo_regen` adds a fourth, `check-ignore`, **only for
+//! a target its closed table has already recognised** — which is a build
+//! directory and nothing else — so the ordinary target's cost is what it was.
+//! That is all on the tool gate's synchronous path, so a caller holds one
+//! probe for the whole call and the pack's `on_path_p95` rollback rule
+//! (300 ms) is the number to watch once anything feeds it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -99,10 +106,12 @@ pub struct Found {
     /// What the repository says.
     pub tracked: Tracked,
     /// Whether this session read these bytes and its record still holds them.
-    /// The caller answers it: the transcript is the core's, not the judge's.
+    /// The caller answers it: the record is the core's (`toolrun::reads`),
+    /// not the judge's.
     pub read_this_session: bool,
-    /// Set only by a caller that knows the project's own build makes this
-    /// again. The probe never sets it; the module header says why.
+    /// Whether the project's own build makes this again, from `undo_regen`'s
+    /// closed table. A caller may also set it, for a build the daemon itself
+    /// ran.
     pub regenerable: bool,
 }
 
@@ -192,6 +201,11 @@ pub trait Probe {
     fn exists(&mut self, path: &Path) -> bool;
     /// What the repository holding `path` says about it.
     fn tracked(&mut self, path: &Path) -> Tracked;
+    /// Whether the repository holding `path` IGNORES it. `None` when there is
+    /// no repository, or git could not tell. Asked only of a path
+    /// `undo_regen`'s table has already recognised, so an ordinary target
+    /// pays no process for it.
+    fn ignored(&mut self, path: &Path) -> Option<bool>;
     /// The root of the repository holding `dir`, and whether that repository
     /// has any uncommitted change; `(None, _)` for a directory under none.
     fn repo(&mut self, dir: &Path) -> (Option<PathBuf>, Option<bool>);
@@ -281,6 +295,28 @@ impl Probe for GitCli {
         }
     }
 
+    /// `git check-ignore -q`, which CONSULTS THE INDEX by default: a tracked
+    /// path is not reported ignored however the ignore rules read, which is
+    /// exactly the discrimination `undo_regen` wants — a committed `target/`
+    /// of fixtures is the repository's bytes, not the build's. Exit 0 is
+    /// ignored, 1 is not, and anything else (128, no repository) is `None`.
+    fn ignored(&mut self, path: &Path) -> Option<bool> {
+        let dir = path.parent().filter(|d| !d.as_os_str().is_empty())?;
+        self.root_of(dir)?;
+        let p = path.to_string_lossy().to_string();
+        let status = Self::git(dir)
+            .args(["check-ignore", "-q", "--", &p])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .ok()?;
+        match status.code() {
+            Some(0) => Some(true),
+            Some(1) => Some(false),
+            _ => None,
+        }
+    }
+
     fn repo(&mut self, dir: &Path) -> (Option<PathBuf>, Option<bool>) {
         let root = self.root_of(dir);
         let Some(root) = root else {
@@ -295,9 +331,11 @@ impl Probe for GitCli {
     }
 }
 
-/// One target resolved against the tree: the probe answers what it can, the
-/// caller supplies what only it knows (`read_this_session`, and
-/// `regenerable`).
+/// One target resolved against the tree: the probe answers what it can, and
+/// the caller supplies the one thing only it knows — `read_this_session`,
+/// which comes from the session's own read record (`toolrun::reads`), because
+/// the record is the core's and not the judge's. `regenerable` comes from
+/// `undo_regen`'s closed table.
 pub fn find(probe: &mut dyn Probe, path: &str, access: &str, read_this_session: bool) -> Found {
     let p = Path::new(path);
     Found {
@@ -306,7 +344,7 @@ pub fn find(probe: &mut dyn Probe, path: &str, access: &str, read_this_session: 
         exists: probe.exists(p),
         tracked: probe.tracked(p),
         read_this_session,
-        regenerable: false,
+        regenerable: super::undo_regen::regenerable(probe, p),
     }
 }
 

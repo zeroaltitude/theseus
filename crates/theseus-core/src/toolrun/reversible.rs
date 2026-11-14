@@ -214,8 +214,22 @@ impl ToolRuntime {
                 .sandbox
                 .l1_for(plan.argv.as_deref().unwrap_or_default(), input)
                 .is_some();
-        let call =
-            undo::state::UndoCall::of(tc.session_id, tc.turn_id, tool, plan, input, is_program, l1);
+        // What this session's own record holds (`p5kln-location-facts`): the
+        // read board, asked per target. `holds` is one `stat` and a compare,
+        // never a transcript scan, so it belongs on this path.
+        let holds = |p: &std::path::Path| self.reads.holds(tc.session_id, p);
+        let call = undo::state::UndoCall::of(
+            tc.session_id,
+            tc.turn_id,
+            tool,
+            plan,
+            input,
+            undo::state::Knows {
+                is_program,
+                l1,
+                holds: &holds,
+            },
+        );
         if !call.worth_asking() {
             return None;
         }

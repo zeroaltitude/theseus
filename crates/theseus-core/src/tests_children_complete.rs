@@ -158,6 +158,12 @@ const BARE: &[(&str, &str)] = &[
         "test-only: a hermetic git builds the fixture repository the project \
          context reads",
     ),
+    (
+        "theseus-core/src/toolrun/tests_undo.rs",
+        "test-only: a hermetic git builds the fixture repository the \
+         reversibility probe reads, so `regenerable` and the git-control \
+         words are resolved against a real tree (p5kln-location-facts)",
+    ),
     ("theseus-core/src/tests_retry.rs", "test-only"),
     ("theseus-kernel/src/job_wait.rs", "test-only: a pidfd wait"),
     ("theseus-kernel/src/spool.rs", "test-only"),

@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use crate::reads::Mark;
+use crate::reads::{Mark, Whole};
 use crate::{ToolCtx, ToolFailure};
 
 /// What a refused write says. It names the path, the re-read and the write,
@@ -26,12 +26,15 @@ pub fn stale_words(path: &Path) -> String {
 }
 
 /// A read of `path` that returned handed its bytes over: note the state the
-/// file is in now.
-pub fn noted(ctx: &ToolCtx, path: &Path) {
+/// file is in now, and whether the read was of the WHOLE file. The stale
+/// guard reads the note either way; `undo.v1`'s resolver reads only a whole
+/// one (`p5kln-location-facts`), because a window of a large file is not a
+/// copy anything could be put back from.
+pub fn noted(ctx: &ToolCtx, path: &Path, whole: Whole) {
     let (Some(r), Some(m)) = (ctx.reads.as_ref(), Mark::at(path)) else {
         return;
     };
-    r.noted(path, m);
+    r.noted(path, m, whole);
 }
 
 /// Refuse a write to `path` when this session was handed it and it has
@@ -48,8 +51,12 @@ pub fn fresh(ctx: &ToolCtx, path: &Path) -> Result<(), ToolFailure> {
 }
 
 /// This call wrote `path`: move its note on to what the file is now, so the
-/// next write of the same file is not refused by this one. Where there is no
-/// note, there is still none: a write never brings a path under the guard.
+/// next write of the same file is not refused by this one, and record that
+/// this session's own record holds those bytes. **It still does not bring the
+/// path under the stale guard**: the note a write alone makes is unguarded,
+/// so `fresh` says nothing about it and "no read, no refusal" holds. What the
+/// note gains is the second reader's word (`p5kln-location-facts`): a session
+/// rewriting a file it wrote itself destroys nothing nothing holds.
 ///
 /// **A window, left open on purpose.** `Mark::at(path)` runs here, after the
 /// caller's write has landed, so a third party's write between that write and
