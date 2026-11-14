@@ -553,9 +553,13 @@ impl WalFollower {
                 off += i as u64;
                 continue;
             }
+            // Where a stop that abandons a skip is named: at the cursor, which is where the first
+            // skipped frame began, in whatever segment that was.
+            let mut stop_at = None;
             if let (Some((from_seg, from_at)), false) = (skips.from, carry) {
                 skips.clear();
                 self.resync = false;
+                stop_at = Some((from_seg, from_at));
                 // Back to where the first skipped frame began: inside this window, or (when the
                 // skip was carried here) the offset in the segment it began at.
                 i = match (from_seg == seg, from_at >= span_from) {
@@ -588,9 +592,10 @@ impl WalFollower {
                         "segment {seg}, offset {off}: {reason}, in a segment that has a successor"
                     )));
                 } else {
+                    let (segment, offset) = stop_at.unwrap_or((seg, off));
                     self.stop = Stop::Partial {
-                        segment: seg,
-                        offset: off,
+                        segment,
+                        offset,
                         reason: reason.to_string(),
                     };
                 }
