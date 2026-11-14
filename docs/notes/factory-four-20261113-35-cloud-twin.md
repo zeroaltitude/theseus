@@ -101,7 +101,9 @@ actually *changed* — was not, and it is the harder of the two to reconstruct: 
 factory-four round-2 fixer, closing the gap the review named):
 
 - `factory-four-20261113-35-depart.sh.txt` — `~/reports/theseus-105-kickoff/logistics/depart.sh` in full,
-  byte-identical to the live file as of 2026-11-13 10:04 (md5 `903835d4d2777d13744332550d6bdcb3`).
+  byte-identical to the live file as of 2026-11-13 10:04 (md5 `903835d4d2777d13744332550d6bdcb3`) except for four
+  lines: the ARM address and account, and the local host name in the keychain path, replaced with placeholders in
+  `5ae981ff`. The md5 of this copy as it stands is `293e37bfeff81bdef022322e903310a2`.
 - `factory-four-20261113-35-depart.sh.diff.txt` — the unified diff against its house-pattern backup
   `depart.sh.bak-20261113-1005-b7-cloud-twin-hygiene`: **one hunk, 20 added lines, not one line removed.**
 
