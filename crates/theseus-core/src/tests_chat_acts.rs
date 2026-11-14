@@ -422,13 +422,30 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
 
     // His reply, with no tool called: nothing is answered. "yes" and "ok" are
     // what `answer_in_words` read, and they reach nothing now.
+    let before: Vec<String> = r
+        .core
+        .confirm_list()
+        .unwrap()
+        .into_iter()
+        .map(|q| format!("{} in {} tool {}", q.correlation_id, q.session_id, q.tool))
+        .collect();
     for words in ["yes", "ok, go ahead", "yes please"] {
         r.calls(&[]);
         say(&r, &here, words).await;
+        let now: Vec<String> = r
+            .core
+            .confirm_list()
+            .unwrap()
+            .into_iter()
+            .map(|q| format!("{} in {} tool {}", q.correlation_id, q.session_id, q.tool))
+            .collect();
         assert_eq!(
-            r.core.confirm_list().unwrap().len(),
+            now.len(),
             2,
-            "`{words}` answered something with no tool called"
+            "`{words}` answered something with no tool called; was {before:?}, now {now:?}; \
+             rows: resolved={:?} answered={:?}",
+            rows(&r, "confirm.resolved"),
+            rows(&r, "call.answered")
         );
     }
 

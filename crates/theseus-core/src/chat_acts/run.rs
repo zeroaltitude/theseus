@@ -135,7 +135,12 @@ impl Board {
                 ))
             }
             super::judged::Verdict::Yes => Some(true),
-            super::judged::Verdict::Unjudged => None,
+            // NOT `None`. `None` is the TYPED routes, which ask no second
+            // reading at all; `Some(false)` is this route saying that it asked
+            // and no judge answered. The fail-open rule owes the ledger that
+            // difference, and a row that simply omitted the field would read
+            // as `undo.allow` over the wire.
+            super::judged::Verdict::Unjudged => Some(false),
         };
         let allowed = core
             .undo_allow_taken(
