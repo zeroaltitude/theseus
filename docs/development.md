@@ -167,6 +167,7 @@ The phases run in this order, and the first failure stops the gate:
 | `keel`, `keel tests` | no | No test, budget, cap or ceiling deleted or loosened without the owner's signed ack ([The keel](#the-keel)) |
 | `fmt` | no | `cargo fmt --all -- --check` |
 | `shape` | no | No Rust file over 2,500 lines unless listed with a ceiling |
+| `status page` | no | `docs/status.md`'s version line names the workspace version and the newest release tag, and each tag's tree holds its own version (`scripts/status-page.py`) |
 | `features` | no | The shipped binaries, built alone, get the same features as in the workspace |
 | `clippy` | no | `-D warnings` over the workspace, which also holds the function budget |
 | cockpit | no | `npm run lint`, `npm test`, `npm run build` |
@@ -440,6 +441,9 @@ under `build.sh`, and "glibc or static musl").
 - **Tags** are signed and annotated, and name the version: `release-1.0.0` for v1, then `release-1.0.1` for v1 patch1,
   `release-1.0.2` for v1 patch2. GitHub lists them under Tags. The workspace version moves with them. The versioned
   binaries are kept with the commit and their sha256 checksums.
+- **The status page names the release before the tag.** The cut commit's `docs/status.md` line names the workspace
+  version and the newest tag as they are when it is written; the `status page` phase reads both back, and refuses a
+  tag whose tree holds another version. After the tag, the next join's gate is red until the page names it.
 - **Run `scripts/repro.sh`** before a release, after a toolchain bump, and after a dependency gains a build script.
 - **The cut's docs**: the spec's version line, `status.md`, the README's numbers from the cut's benchmark reports, and
   the omnibus of benchmarks.
