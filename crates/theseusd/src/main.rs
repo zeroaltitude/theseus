@@ -110,7 +110,12 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Print the annotated config template (every parameter, set or commented with its default) and exit.
-    ExampleConfig,
+    ExampleConfig {
+        /// For a new install: the same template, with the sandbox as the default only where this host can run it
+        /// (the self-test runs a job here); a line on stderr says which and why. Existing installs are untouched.
+        #[arg(long)]
+        for_this_host: bool,
+    },
     /// Load config, resolve every secret, report, and exit without serving.
     Check,
     /// Print the loaded config (TOML, secret references only, never values) and its source.
@@ -216,8 +221,13 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    if let Some(Cmd::ExampleConfig) = cli.cmd {
-        return out(Config::EXAMPLE_TOML);
+    if let Some(Cmd::ExampleConfig { for_this_host }) = cli.cmd {
+        if !for_this_host {
+            return out(Config::EXAMPLE_TOML);
+        }
+        let (template, said) = theseus_core::sandbox::new_install::this_host();
+        eprintln!("{said}");
+        return out(&template);
     }
     if let Some(Cmd::ExampleBindings) = cli.cmd {
         return out(theseus_discord::EXAMPLE_BINDINGS);

@@ -25,6 +25,7 @@
 //!   processes are capped by `RLIMIT_NPROC`, so a daemon that runs as root,
 //!   whom Linux exempts from it, gets no L1 job at all (theseus-pv6i).
 
+pub mod new_install;
 mod self_build;
 pub use self_build::{env as self_build_env, node_home, supply_chain, SelfBuild, NODE_PIN};
 

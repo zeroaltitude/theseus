@@ -500,8 +500,11 @@ THESEUSD=$PREFIX/theseusd
 step "4. config: $CONFIG"
 # The template, cut to what differs from the defaults, with the operator's projects dir: what a new config is,
 # and what an existing one is compared with. Every [secrets] entry is an op:// placeholder: asserted.
+# The template is the one for this host: the sandbox is the default only where its self-test runs a job here, and
+# the line that says which, and why, goes into the header. An existing config is compared with the same template, so
+# a config this script wrote is never reported as differing from the one it was written from.
 cut_template() { # cut_template DIR: writes DIR/template.toml, DIR/config.toml
-  "$THESEUSD" example-config >"$1/template.toml" &&
+  "$THESEUSD" example-config --for-this-host >"$1/template.toml" 2>"$1/host.err" &&
     env -u OP_SERVICE_ACCOUNT_TOKEN -u THESEUS_OP_TOKEN_FILE "$THESEUSD" --config "$1/template.toml" config --sparse \
       >"$1/sparse.toml" 2>"$1/sparse.err" || {
     say "the template did not cut: $(tail -n 3 "$1/sparse.err" | mask)"
@@ -513,6 +516,7 @@ cut_template() { # cut_template DIR: writes DIR/template.toml, DIR/config.toml
     echo "# every key. Each [secrets] entry is an op:// reference, never a value: put your own vault's in place of"
     echo "# each placeholder (op://<vault>/<item>/<field>), or, for a service you don't use, delete its line and turn"
     echo "# that part off in its own table (for Discord, [discord] enabled = false)."
+    grep '^L1, the sandbox' "$1/host.err" | sed 's/^/# /'
     awk '
       /^\[/ { intools = ($0 == "[tools]") }
       intools && /^projects_dir[[:space:]]*=/ { print "projects_dir = \"~/projects\""; next }
@@ -603,8 +607,9 @@ else
     fi
   fi
   if dry; then
-    show "$THESEUSD" example-config
+    show "$THESEUSD" example-config --for-this-host
     show "$THESEUSD" --config TEMPLATE config --sparse
+    note "the sandbox is the default (default = \"l1\") only where its self-test runs a job on this host, and l0 with the reason otherwise"
     note "the template cut to what differs from the defaults, [tools] projects_dir set to ~/projects, a header"
     note "asserted before anything is written: every [secrets] entry is an op:// placeholder, and no token-like text"
     note "then, on a terminal and without --yes, one question: the Jev key's reference (op:// or env:NAME, never the value)"
@@ -613,6 +618,7 @@ else
     work=$(mktemp -d)
     trap 'rm -rf "$work"' EXIT
     cut_template "$work" || stop_here 1 "Not set up: the config was not written (above)."
+    info "sandbox: $(grep '^L1, the sandbox' "$work/host.err" || echo 'the template did not say whether L1 runs here; the default stays l0')"
     jev=$(jev_key_answer) || jev=""
     case $jev in
     "") info "Jev: not asked. The config keeps its jev_api_key placeholder, so the judge stays off until you put the key's reference there (or pass --jev-key)" ;;
