@@ -187,7 +187,7 @@ impl Lane {
         self.shared.core.binding_ledger_soon(
             theseus_protocol::LedgerKind::DiscordMessageOut,
             None,
-            json!({"place": self.label, "message_id": id.to_string(), "part": key, "ping": ping,
+            json!({"place": self.label, "target": self.target, "message_id": id.to_string(), "channel": channel.to_string(), "part": key, "ping": ping,
                    "held": wants && !ping, "chars": v2::text_len(&comps), "buttons": true,
                    "menu": false, "mentions": mentions.iter().map(u64::to_string).collect::<Vec<_>>(),
                    "components_v2": true}),

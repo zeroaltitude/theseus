@@ -366,9 +366,19 @@ fn a_clean_stop_waits_for_a_post_in_flight_no_longer_than_its_grace() {
         let o = r.outbox();
         (o["pending"] == 0 && o["sent"].as_u64() >= Some(2)).then_some(())
     });
-    let mut again = before;
-    again.push("deduped".into());
-    assert_eq!(tries(&r, &theseus_discord::nonce(&key)), again);
+    // The lane that starts again reads the message the stream wrote back from
+    // its durable row (issue 8), so the post's final text EDITS it: nothing is
+    // sent again under the nonce, where before the retry was a second create
+    // that Discord answered with the first message (`deduped`), inside its
+    // nonce window. Still one message in the place, with the footer.
+    assert_eq!(tries(&r, &theseus_discord::nonce(&key)), before);
+    let edited = r
+        .fake
+        .seen()
+        .iter()
+        .filter(|s| s.outcome == "edited")
+        .count();
+    assert!(edited >= 1, "the final text was written by an edit");
     let got = r.replies();
     assert_eq!(got.len(), 1, "{got:?}");
 }

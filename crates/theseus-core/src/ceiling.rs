@@ -188,6 +188,18 @@ impl From<PlaceClass> for PlaceView {
 }
 
 impl PlaceView {
+    /// The place as the shared header reads it: without what the place tells
+    /// the model beyond its tools (the chat route, the voice channel). The
+    /// header is the same bytes on every surface of a project, so the two
+    /// sentences ride in each turn's tail instead (`self_card::told`).
+    pub fn for_header(self) -> Self {
+        Self {
+            voice: false,
+            chat: false,
+            ..self
+        }
+    }
+
     /// Whether the model here is offered the tool `name`: the place rule's
     /// set, narrowed by the ceiling (never widened).
     pub fn offered(&self, name: &str, public: &[std::path::PathBuf]) -> bool {
@@ -204,10 +216,7 @@ impl crate::turn::TurnRunner {
     /// With neither, the CLI's or the web UI's: private, with no ceiling.
     /// Shared when where it goes cannot be read.
     pub fn view_of(&self, session_id: &str) -> PlaceView {
-        let place = self.outbox.try_target(session_id).and_then(|t| match t {
-            Some(t) => Ok(Some(t)),
-            None => self.outbox.try_wake_target(session_id),
-        });
+        let place = self.outbox.speaks_at(session_id);
         match place {
             Ok(p) => self.place_rule.place(&self.cfg, p.as_deref()),
             Err(e) => {
