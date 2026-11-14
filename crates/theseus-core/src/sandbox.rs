@@ -860,6 +860,18 @@ pub(crate) fn the_templates_sandbox_section(s: &SandboxConfig) {
     assert!(crate::Config::example().sandbox.egress.is_empty());
 }
 
+/// `proc.run` as this host offers it (theseus-n88g.13): where L1 refuses every
+/// job (`refused`, a root daemon's), the schema carries no `sandbox` input, so
+/// a model is not asked for a tier that would only fail. Nothing else about
+/// the tool changes, and a call that names it anyway still fails and says why.
+pub fn offer(r: &mut theseus_tools::Registry, refused: Option<&str>) {
+    if refused.is_some() {
+        r.register(std::sync::Arc::new(
+            theseus_tools::proc::Run::without_sandbox(),
+        ));
+    }
+}
+
 /// `[sandbox]`'s limits as the sandbox takes them. `/tmp`, `/dev/shm`, and
 /// HOME are each capped as scratch is (17a's `tmp_mb`, no key of its own).
 fn theseus_sandbox_limits(cfg: &SandboxConfig) -> theseus_sandbox::Limits {
@@ -875,6 +887,21 @@ fn theseus_sandbox_limits(cfg: &SandboxConfig) -> theseus_sandbox::Limits {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Where L1 refuses every job, `proc.run` is not offered a `sandbox` input;
+    /// where it can run, the schema is the default one (theseus-n88g.13).
+    #[test]
+    fn proc_run_offers_the_sandbox_only_where_l1_can_run() {
+        let schema = |refused: Option<&str>| {
+            let mut r = theseus_tools::default_registry();
+            offer(&mut r, refused);
+            r.get(PROC_RUN).unwrap().input_schema()
+        };
+        assert!(schema(None)["properties"]["sandbox"].is_object());
+        let root = schema(Some("a root daemon"));
+        assert!(root["properties"]["sandbox"].is_null(), "{root}");
+        assert!(root["properties"]["argv"].is_object());
+    }
 
     /// An action as a restart finds one: dispatched, its job still running.
     fn dispatched(corr: &str, class: Class) -> theseus_kernel::Action {
