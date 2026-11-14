@@ -37,7 +37,7 @@ pub(crate) fn hermetic() -> Vec<(OsString, OsString)> {
     .collect()
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
     let o = Command::new("git")
         .arg("-C")
         .arg(dir)

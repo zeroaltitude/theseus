@@ -197,6 +197,7 @@ impl Shared {
                             author: Some(who.to_string()),
                             discord,
                             from_job: None,
+                            ..Default::default()
                         },
                     )
                     .await;
