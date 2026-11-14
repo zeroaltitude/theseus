@@ -852,6 +852,29 @@ class GateTree(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("some of the suite (a default-filter)", self.verdict(out))
 
+    def test_the_gate_says_which_set_of_tests_it_ran_under_the_table(self):
+        # Issue 14: a landing's verdict is a run of the FULL set on the exact tree that lands. One host's default-filter
+        # had left a test out of a gate that said `ok`, so the gate names the set beside the table, where the tail is.
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        under = out.split("gate: phase times, in seconds", 1)[1]
+        self.assertIn("gate: suite set: FULL, no filter and no test left out (9 tests run: 9 passed, 0 skipped)", under)
+        self.assertNotIn("PARTIAL", out)
+
+    def test_a_filtered_suite_says_it_is_not_the_full_set(self):
+        self.stale_filter()
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        under = out.split("gate: phase times, in seconds", 1)[1]
+        self.assertIn("gate: suite set: PARTIAL, run under a default-filter (9 tests run:", under)
+        self.assertIn("not a landing's verdict", under)
+        self.assertNotIn("suite set: FULL", out)
+
+    def test_a_withheld_set_says_the_suite_was_partial(self):
+        rc, out, _ = self.gate(THESEUS_VIEW_WITHHELD=self.VIEW_SET)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("suite set: PARTIAL, run under a withheld set (", out.split("gate: phase times, in seconds", 1)[1])
+
     def test_a_gate_that_could_not_take_the_lock_says_the_suite_did_not_run(self):
         # NOT A SKIP FLAG, AND THE WORST CASE OF THE CLASS (2026-11-10 15:44, the furthest any self build has
         # reached). `flock` execs this script again as the locked part, and the frozen copy it was given had no
@@ -938,6 +961,22 @@ class GateTree(unittest.TestCase):
         self.assertIn("suite filters: ACTIVE", out, "the label is live at the moment the gate dies")
         self.assertEqual("gate: FAILED in suite", self.verdict(out),
                          "the phase is `suite`; `suite filtered` is how a PASSING one is labelled in the table")
+
+
+class DefaultSet(unittest.TestCase):
+    """The default set is the full set (issue 14): the owner-journey test, which one host's filter once left out of a
+    gate that said `ok` while `main` was red on it, runs everywhere the repository's own configuration is used."""
+
+    def test_the_owner_journey_runs_in_the_default_set(self):
+        src = (REPO / "crates/theseusd/tests/acceptance_journey.rs").read_text()
+        head = src.split("fn the_owner_starts_asks_answers_joins_pauses_ends_and_finds_two_tasks()", 1)[0]
+        attrs = head.rstrip().split("\n")[-3:]
+        self.assertIn("#[test]", attrs)
+        self.assertFalse([a for a in attrs if a.startswith("#[ignore")], f"the journey is ignored: {attrs}")
+
+    def test_the_repositorys_nextest_config_filters_nothing_out_of_the_default_set(self):
+        cfg = (REPO / ".config/nextest.toml").read_text()
+        self.assertNotRegex(cfg, r"(?m)^\s*default-filter\s*=")
 
 
 class SkipRegistry(unittest.TestCase):

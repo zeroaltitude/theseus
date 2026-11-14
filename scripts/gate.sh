@@ -251,6 +251,10 @@ failed_in() {
 # (`ec2.sh tail LANE gate` is 30 lines by default, and that phase runs minutes of compiling before the end).
 # Empty when the phase did not run: every locked part, and any gate that stopped before it.
 line_pressure_said=""
+# Which set of tests the suite ran, in one line (issue 14). A landing's verdict is a run of the FULL set on the exact
+# tree that lands, so the gate says which set it ran, beside the table where a reader of the tail gets it. Set in the
+# locked part, where the suite runs, and carried back to this process in locked.rec like a stand-down.
+suite_said=""
 # WHAT THIS RUN DID NOT DO (theseus-4vsrz, B7). `gate: ok` read identically for a run that made every check and
 # one that made most of them, so a reader could not tell them apart. That cost 2026-11-10 three separate times,
 # the sharpest being a real blocking name hit a fleet gate would have shipped, because the fleet asks for
@@ -329,6 +333,7 @@ summary() {
   fi
   printf '  %-16s %5d\n' total "$total"
   [ -z "$line_pressure_said" ] || echo "gate: $line_pressure_said"
+  [ -z "$suite_said" ] || echo "gate: $suite_said"
   # A self build runs below a view that grants it a pseudo-terminal, more device nodes and the calls that build a
   # sandbox, so the 108 tests whose SUBJECT is one of those three can be run rather than left out. Two things a
   # reader of the tail is then owed, and the launcher puts both in the environment because only it knows the view:
@@ -375,6 +380,8 @@ save_locked_record() {
       # which is the lesson the `skipped` records below were added for.
       printf 'failed %s %s\n' "$((SECONDS - phase_began))" "${phase_failed_as:-$phase_now}"
     fi
+    # Which set the suite ran, for the line under the table.
+    [ -z "$suite_said" ] || printf 'said 0 %s\n' "$suite_said"
     # What the part stood down, for the gate above it: that is where the verdict line is printed, in another
     # process, so a stand-down registered in here reaches a reader only by being written down. The seconds
     # field is 0 and means nothing -- a check that did not run took no time -- and is there so every record in
@@ -654,6 +661,22 @@ suite_applied() {
     echo "gate: MISMATCH: the banner said a default-filter is ACTIVE, and nextest's summary names none applied"
   fi
 }
+# Which set the suite ran, said once, from nextest's own summary line and from whether anything filtered the run: the
+# FULL set is every test the workspace builds but the #[ignore]d ones, and a run under a default-filter or a withheld
+# set is PARTIAL and says by what. A landing takes its verdict from a FULL run of the exact tree that lands.
+suite_set() {
+  local ran why=""
+  ran="$(grep -oE '[0-9]+ tests? run: .*' "$1" | tail -1 || true)"
+  [ -n "$ran" ] || ran="no summary line from nextest"
+  [ "$phase_label" != "suite filtered" ] || why="a default-filter"
+  [ -z "$(view_withheld_set)" ] || why="${why:+$why and }a withheld set"
+  if [ -n "$why" ]; then
+    suite_said="suite set: PARTIAL, run under $why ($ran): not the full set, so not a landing's verdict"
+  else
+    suite_said="suite set: FULL, no filter and no test left out ($ran)"
+  fi
+  echo "gate: $suite_said"
+}
 suite() {
   local log="$gate_tmp/suite.log" view_e
   suite_filters
@@ -672,6 +695,7 @@ suite() {
     echo "gate: the suite above ran under a default-filter (suite filters, above): its \"skipped\" count includes the tests the filter excluded"
   fi
   suite_applied "$log"
+  suite_set "$log"
   # The gate judges its own claim before it makes it: a member of the set that appears in the run's output ran,
   # and the verdict is about to call it withheld. That is the defect this whole mechanism replaces, so it fails
   # the gate rather than printing a falsehood.
@@ -1433,6 +1457,9 @@ locked_checks() {
           ;;
         skipped)
           skip "$name"
+          ;;
+        said)
+          suite_said="$name"
           ;;
       esac
     done <"$rec"

@@ -373,6 +373,12 @@ may join together as a batch, landed with one gate.
    - If the red is in the branch, reset `main` (it was never pushed), fix the branch, and take the lock again.
    - If the red is a race in a test no branch touched, fix the race in its own commit, then land and gate the two
      together.
+   - **A landing's verdict comes from a run of the full set, on the exact tree that lands.** A gate that ran under a
+     default-filter, or with tests withheld, is evidence for a branch and never the verdict for a landing: a test the
+     filter left out can be red on `main` while that gate says `ok`, and one did, for hours. The gate says which set
+     it ran: `gate: suite set: FULL, …` or `gate: suite set: PARTIAL, run under …`, under its table and again in the
+     suite's own output. Where a landing races two hosts, it waits for the host that runs the full set and never
+     takes whichever returns first. `acceptance_journey`'s main test is in the default set of this repository.
 6. **Push before you release.** Push `main` (never forced) and confirm `origin/main` is the gated commit. Only then
    release the lock. Releasing first lets the next join's merge reach `origin` ungated. If `main` moved before the
    push, redo the dry run, the merge and the gate.
