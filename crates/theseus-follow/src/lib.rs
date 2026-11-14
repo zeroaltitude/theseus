@@ -189,12 +189,12 @@ struct Frames {
 }
 
 /// Frames skipped since the last whole one, and where the first began (its segment and its offset
-/// in the window): they count only once a whole frame follows them, which may be the first of the
+/// in that segment): they count only once a whole frame follows them, which may be the first of the
 /// next segment.
 #[derive(Default)]
 struct Skips {
     pending: Vec<Skipped>,
-    from: Option<(u32, usize)>,
+    from: Option<(u32, u64)>,
 }
 
 impl Skips {
