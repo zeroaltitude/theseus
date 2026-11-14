@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">What happens in one turn</title>
+  <desc id="d">Five planks in a row. You say something. Jev judges: what kind of message, which model and how much effort, which persona and thread, and whether an action can be undone. The context is compiled for this turn, with a manifest. The model works with tools. All of it is written down before it is attempted.</desc>
+  <rect width="960" height="300" rx="16" fill="#13314d"/>
+  <rect x="5" y="5" width="950" height="290" rx="12" fill="none" stroke="#d6a548" stroke-width="2"/>
+  <g fill="#e9c97f">
+    <circle cx="70" cy="34" r="1.8"/><circle cx="300" cy="26" r="1.5"/><circle cx="700" cy="30" r="2"/><circle cx="790" cy="24" r="1.6"/><circle cx="912" cy="44" r="1.8"/>
+  </g>
+  <text x="480" y="52" text-anchor="middle" font-size="18" fill="#e2ae4f" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">ONE TURN, PLANK BY PLANK</text>
+  <g stroke="#13314d" stroke-width="1.5">
+    <rect x="30" y="78" width="164" height="168" rx="8" fill="#efe3c8"/>
+    <rect x="214" y="78" width="164" height="168" rx="8" fill="#e2ae4f" stroke="#9c6f23"/>
+    <rect x="398" y="78" width="164" height="168" rx="8" fill="#e8dbbd"/>
+    <rect x="582" y="78" width="164" height="168" rx="8" fill="#efe3c8"/>
+    <rect x="766" y="78" width="164" height="168" rx="8" fill="#e8dbbd"/>
+  </g>
+  <g fill="none" stroke="#d6a548" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M197 162 h14 m-5 -5 l5 5 l-5 5"/>
+    <path d="M381 162 h14 m-5 -5 l5 5 l-5 5"/>
+    <path d="M565 162 h14 m-5 -5 l5 5 l-5 5"/>
+    <path d="M749 162 h14 m-5 -5 l5 5 l-5 5"/>
+  </g>
+  <g fill="#13314d" text-anchor="middle">
+    <g font-size="15" font-weight="700">
+      <text x="112" y="108">You say something</text>
+      <text x="296" y="108">Jev judges</text>
+      <text x="480" y="108">Context is compiled</text>
+      <text x="664" y="108">The model works</text>
+      <text x="848" y="108">It is written down</text>
+    </g>
+    <g font-size="12.5">
+      <text x="112" y="138">in Discord,</text>
+      <text x="112" y="156">a terminal,</text>
+      <text x="112" y="174">the cockpit,</text>
+      <text x="112" y="192">or out loud</text>
+
+      <text x="296" y="138">what kind of message?</text>
+      <text x="296" y="156">which model, what effort?</text>
+      <text x="296" y="174">which persona and thread?</text>
+      <text x="296" y="192">what does it carry?</text>
+      <text x="296" y="210">can this be undone?</text>
+
+      <text x="480" y="138">for this turn only:</text>
+      <text x="480" y="156">instructions, memory,</text>
+      <text x="480" y="174">the thread so far,</text>
+      <text x="480" y="192">and a manifest that</text>
+      <text x="480" y="210">"theseus why" prints</text>
+
+      <text x="664" y="138">with real tools:</text>
+      <text x="664" y="156">files, commands,</text>
+      <text x="664" y="174">the web, the cloud,</text>
+      <text x="664" y="192">long jobs and tasks</text>
+
+      <text x="848" y="138">every action, before</text>
+      <text x="848" y="156">it is attempted;</text>
+      <text x="848" y="174">every result, when</text>
+      <text x="848" y="192">it settles. The log</text>
+      <text x="848" y="210">is the truth.</text>
+    </g>
+  </g>
+  <text x="480" y="276" text-anchor="middle" font-size="14" fill="#efe3c8" fill-opacity="0.9">If Jev is slow or down, the work goes on without it.</text>
+</svg>

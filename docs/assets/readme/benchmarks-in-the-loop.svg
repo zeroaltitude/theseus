@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 430" width="960" height="430" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">Benchmarks in the loop</title>
+  <desc id="d">Two loops. On every commit, the gate runs fast benchmarks against written budgets, and a missed budget fails the commit. On every even major version, the long benchmarks run against the field: odd majors build, even majors measure.</desc>
+  <rect width="960" height="430" rx="16" fill="#13314d"/>
+  <rect x="5" y="5" width="950" height="420" rx="12" fill="none" stroke="#d6a548" stroke-width="2"/>
+  <g fill="#e9c97f">
+    <circle cx="60" cy="30" r="1.8"/><circle cx="420" cy="24" r="1.5"/><circle cx="700" cy="34" r="2"/><circle cx="916" cy="26" r="1.6"/>
+  </g>
+
+  <!-- every commit -->
+  <text x="40" y="50" font-size="16" fill="#e2ae4f" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">EVERY COMMIT: THE FAST BENCHMARKS</text>
+  <g stroke="#13314d" stroke-width="1.5">
+    <rect x="40" y="70" width="150" height="150" rx="8" fill="#efe3c8"/>
+    <rect x="226" y="70" width="528" height="150" rx="8" fill="#e8dbbd"/>
+    <rect x="790" y="70" width="130" height="150" rx="8" fill="#e2ae4f" stroke="#9c6f23"/>
+  </g>
+  <g fill="none" stroke="#d6a548" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M196 145 h24 m-6 -6 l6 6 l-6 6"/>
+    <path d="M760 145 h24 m-6 -6 l6 6 l-6 6"/>
+  </g>
+  <g fill="#13314d">
+    <g text-anchor="middle">
+      <text x="115" y="138" font-size="17" font-weight="700">A change</text>
+      <text x="115" y="160" font-size="13">reviewed, tested</text>
+      <text x="855" y="138" font-size="17" font-weight="700">main</text>
+      <text x="855" y="160" font-size="13">only if every</text>
+      <text x="855" y="178" font-size="13">budget held</text>
+    </g>
+    <text x="246" y="96" font-size="15" font-weight="700">The gate holds the code to written budgets</text>
+    <g font-size="13">
+      <text x="246" y="122">start to answering</text><text x="424" y="122" font-weight="700">50 ms</text>
+      <text x="246" y="142">crash and restart</text><text x="424" y="142" font-weight="700">150 ms</text>
+      <text x="246" y="162">binary swap under load</text><text x="424" y="162" font-weight="700">200 ms</text>
+      <text x="492" y="122">a sandboxed job's start</text><text x="660" y="122" font-weight="700">25 ms</text>
+      <text x="492" y="142">a session's first request</text><text x="660" y="142" font-weight="700">8,000 tokens</text>
+      <text x="492" y="162">growth of the binary</text><text x="660" y="162" font-weight="700">1 MB</text>
+    </g>
+    <text x="246" y="198" font-size="13" font-style="italic">A missed budget fails the commit, exactly as a failed test does.</text>
+  </g>
+
+  <!-- every even major -->
+  <text x="40" y="270" font-size="16" fill="#e2ae4f" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">EVERY EVEN MAJOR VERSION: THE LONG BENCHMARKS</text>
+  <path d="M60 330 q35 -16 70 0 t70 0 t70 0 t70 0 t70 0 t70 0 t70 0 t70 0 t70 0 t70 0 t70 0 t70 0" fill="none" stroke="#4a8ea3" stroke-width="3" stroke-linecap="round"/>
+  <g stroke="#13314d" stroke-width="1.5" text-anchor="middle">
+    <rect x="70" y="302" width="150" height="56" rx="28" fill="#efe3c8"/>
+    <rect x="290" y="302" width="150" height="56" rx="28" fill="#e2ae4f" stroke="#9c6f23"/>
+    <rect x="510" y="302" width="150" height="56" rx="28" fill="#efe3c8"/>
+    <rect x="730" y="302" width="150" height="56" rx="28" fill="#e2ae4f" stroke="#9c6f23"/>
+  </g>
+  <g fill="#13314d" text-anchor="middle">
+    <g font-size="16" font-weight="700">
+      <text x="145" y="328">1.x</text><text x="365" y="328">2.x</text><text x="585" y="328">3.x</text><text x="805" y="328">4.x</text>
+    </g>
+    <g font-size="13">
+      <text x="145" y="347">build</text><text x="365" y="347">measure</text><text x="585" y="347">build</text><text x="805" y="347">measure</text>
+    </g>
+  </g>
+  <g fill="#efe3c8" text-anchor="middle">
+    <text x="480" y="390" font-size="15" font-weight="600">Odd majors build. Even majors measure, against the field, on the build that shipped.</text>
+    <text x="480" y="410" font-size="13" fill-opacity="0.85">What a run finds becomes work for real use. Nothing is tuned to a score, and the losses are published.</text>
+  </g>
+</svg>
