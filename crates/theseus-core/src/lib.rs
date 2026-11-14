@@ -326,6 +326,8 @@ mod tests_content_kind;
 #[cfg(test)]
 mod tests_content_late;
 #[cfg(test)]
+mod tests_content_owner;
+#[cfg(test)]
 mod tests_content_race;
 #[cfg(test)]
 mod tests_context;

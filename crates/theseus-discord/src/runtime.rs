@@ -2091,6 +2091,8 @@ impl Place {
         // stream's, or the reply's post when the stream posted nothing.
         let anchor = batch.last().map(|m| m.message);
         let reply_turn = batch.last().and_then(|m| m.reply_turn.clone());
+        // Who spoke, for the core's place rule (`steer::speaker_of`).
+        let speaker = steer::speaker_of(&batch);
         if let Some(a) = anchor {
             let _ = self.lane.send(LaneMsg::Anchor(a.get()));
         }
@@ -2110,7 +2112,15 @@ impl Place {
             let r = rpc
                 .call::<_, TurnSubmitResult>(
                     theseus_protocol::method::TURN_SUBMIT,
-                    steer::submit_params(sid, author, input, attachments, anchor, reply_turn),
+                    steer::submit_params(
+                        sid,
+                        author,
+                        input,
+                        attachments,
+                        anchor,
+                        reply_turn,
+                        speaker,
+                    ),
                 )
                 .await
                 .map(|_| ());

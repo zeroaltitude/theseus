@@ -67,8 +67,14 @@ dir?: string,
  */
 thread?: string, 
 /**
- * Who is speaking and where the answer goes, for a `thread` turn from
- * the Discord binding (theseus-sjzm).
+ * Who is speaking, and where the answer goes for a `thread` turn
+ * (theseus-sjzm). The Discord binding sends it on **every** turn it
+ * submits, not only a thread's: the ids here are what the core's place
+ * rule reads, so a turn without them is nobody's, and the owner's own
+ * message in his own DM was classified as a stranger's text until it was
+ * carried. A claim of identity, never of authority: the core checks the
+ * id against `[places] owner` itself. `answer_at` is the thread path's
+ * alone.
  */
 speaking?: Speaking, 
 /**
