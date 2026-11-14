@@ -2,8 +2,8 @@
 // anchor to the root URL, from every view and route. Pure, with no import at all, so `node --test` runs its test
 // (`test/home.test.ts`); the components hold the anchor and hand this the presses.
 
-/** The cockpit's root URL. `main.tsx`'s index route sends it on to the Ship, so a press on the mark lands exactly
- *  where a fresh load of `/` lands. */
+/** The cockpit's root URL: the simple pages' Ops (`main.tsx`'s index route), so a press on the mark lands exactly
+ *  where a fresh load of `/` lands. The Ship is `/ship`. */
 export const HOME = '/'
 
 /** The fields of a mouse press this reads. A `MouseEvent` has them all. */

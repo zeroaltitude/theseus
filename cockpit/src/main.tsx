@@ -10,14 +10,21 @@ import { bindPush } from './lib/rpc'
 import './lib/calm'
 import { useMode } from './lib/mode'
 import { Shell } from './components/Shell'
+import { SimpleShell } from './simple/Shell'
 import { Crash, NotFound } from './components/Crash'
 import { redirectOf } from './ops/address'
 
-// Every view loads on first visit. The Ship (three.js) is the landing view; the others never pay for its bundle.
+// Every view loads on first visit. The simple pages (`src/simple/`) are the front door: `/` is Ops. The Ship
+// (three.js) and its instrument pages are one link away, in their own frame; no other view pays for its bundle.
 const loadShip = () => import('./views/Ship')
 const Ship = lazy(loadShip)
-// The landing view: its chunk starts loading at once, beside the app's own start, not after the router's redirect.
-if (/^\/(ship\/?)?$/.test(window.location.pathname)) void loadShip()
+// Arriving at the Ship, its chunk starts loading at once, beside the app's own start.
+if (/^\/ship\/?$/.test(window.location.pathname)) void loadShip()
+const SimpleOps = lazy(() => import('./simple/Ops'))
+const SimpleBench = lazy(() => import('./simple/Bench'))
+const SimpleTelemetry = lazy(() => import('./simple/Telemetry'))
+const SimpleConfig = lazy(() => import('./simple/Config'))
+const SimpleMemories = lazy(() => import('./simple/Memories'))
 const Bridge = lazy(() => import('./views/Bridge').then((m) => ({ default: m.Bridge })))
 const Fleet = lazy(() => import('./views/Fleet'))
 const SessionDeck = lazy(() => import('./views/SessionDeck'))
@@ -54,14 +61,30 @@ const wrapShip = (el: React.ReactNode) => <Suspense fallback={<div className="sh
 const router = createBrowserRouter(
   [
     {
+      // The simple pages: the five sections under one bar. Each is its own chunk (the frame's Suspense waits for it).
       path: '/',
+      element: <SimpleShell />,
+      children: [
+        {
+          errorElement: <Crash />,
+          children: [
+            { index: true, element: <SimpleOps /> },
+            { path: 'bench', element: <SimpleBench /> },
+            { path: 'telemetry', element: <SimpleTelemetry /> },
+            { path: 'config', element: <SimpleConfig /> },
+            { path: 'memories', element: <SimpleMemories /> },
+          ],
+        },
+      ],
+    },
+    {
+      // The Ship and its instrument pages, in the brass frame ("Creative takes" on the simple pages' bar).
       element: <Shell />,
       children: [
         {
           // One boundary for every view: a view that throws shows what broke, and the shell keeps running.
           errorElement: <Crash />,
           children: [
-            { index: true, element: <Navigate to="/ship" replace /> },
             { path: 'ship', element: wrapShip(<Ship />) },
             { path: 'bridge', element: wrap(<Bridge />) },
             { path: 'fleet', element: wrap(<Fleet />) },

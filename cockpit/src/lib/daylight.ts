@@ -18,16 +18,17 @@ import type { Tone } from './taxonomy'
 export type Mode = 'dark' | 'light'
 
 /** The operator's choice (theseus-001m): night, daylight, or the system's (`prefers-color-scheme`), which follows the
- *  system as it changes. Night is the default, the system light or not: the Ship stays a night sea either way. */
+ *  system as it changes. Daylight is the default, the system light or not (the owner's choice with the simple pages,
+ *  2026-11-14); the Ship stays a night sea either way. */
 export type ModeChoice = Mode | 'system'
 /** The choices in the order the rail's button steps through them: night, daylight, the system's. */
 export const CHOICES: readonly ModeChoice[] = ['dark', 'light', 'system']
 const isChoice = (x: string | null): x is ModeChoice => x === 'dark' || x === 'light' || x === 'system'
 
-/** The choice: the address's (`?mode=`, for one page), else what this browser keeps, else night. `public/mode.js`
+/** The choice: the address's (`?mode=`, for one page), else what this browser keeps, else daylight. `public/mode.js`
  *  reads the same before the first paint. */
 export function choiceOf(asked: string | null, kept: string | null): ModeChoice {
-  return isChoice(asked) ? asked : isChoice(kept) ? kept : 'dark'
+  return isChoice(asked) ? asked : isChoice(kept) ? kept : 'light'
 }
 
 /** The mode a choice draws: the system's is daylight while the system is light. */

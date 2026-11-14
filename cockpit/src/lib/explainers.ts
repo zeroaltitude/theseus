@@ -11,6 +11,45 @@ export const PARTS = [['goal', 'Goal'], ['read', 'How to read it'], ['why', 'Why
 const e = (goal: string, read: string, why: string): Explainer => ({ goal, read, why })
 
 export const EXPLAINERS: Record<string, Explainer> = {
+  // ---- the simple pages (src/simple): Benchmarks
+  'simple.bench.standing': e(
+    'Say, one line a benchmark, where Theseus stands against the best harness that was measured beside it.',
+    'Each row is one benchmark. Theseus\u2019s pass rate is the share of trials it solved; the two numbers in brackets are the range the true rate is likely in, given how many trials ran. Beside it is the best other harness on the same benchmark. It says ahead or behind outright only when the two ranges do not overlap; when they overlap it says which way the rates lean and that the run does not settle it. \u201cA different model\u201d means that harness ran another model, so the row compares more than the harness.',
+    'It is the honest short answer to \u201chow good is it\u201d. A row that reads behind is where the next release should look; a row that is not settled needs more trials before anyone claims a lead or a loss.'),
+  'simple.bench.findings': e(
+    'Say in a sentence what every other published run found, where a pass rate would mislead.',
+    'Each row is a benchmark whose newest run does not support a headline pass rate: it measured something else (time, memory, recall), ran too few trials, or did not include Theseus as an arm. The words are the run\u2019s own finding, from its report, cut to three lines. When a pass rate exists but is not led with, the reason is given under it.',
+    'These runs still decide things: start-up time, recall, what survives a crash. Open a report before quoting it; the sentence here is a summary, not the measurement.'),
+  // ---- the simple pages (src/simple): Ops
+  'simple.ops.now': e(
+    'Say in five numbers where everything stands at this moment.',
+    'Needs you counts the pieces of work that wait on you; in flight, the tasks and conversations working now; planned, the steps not yet started plus what is scheduled or paused; done today, what ended since midnight; spent today, what today\u2019s model calls cost. Each of the first four jumps to its list below.',
+    'A number that is not what you expect is the reason to look further. Needs you above zero means something is stopped until you answer it.'),
+  'simple.ops.needs': e(
+    'List everything that is waiting for you, the longest waiting first.',
+    'One row is one thing to answer: an approval, a budget question, a choice, a failure, a seal, or a piece of work that says it is blocked. Under its title are what kind it is, whose it is, and how long it has waited. Click a row to open it on the right, with its answers.',
+    'Work behind one of these does not move until you answer. Clearing this list is the most useful thing you can do on this page.'),
+  'simple.ops.flight': e(
+    'Show what Theseus is working on right now.',
+    'One row is one task, conversation or job that is running. Under its title: what it is, what it is doing at this moment, the model it runs on, and when it last changed. A small amber number means it has asked you something. Click a row to watch it and to talk to it.',
+    'If a row has not changed for a long time, or is doing something you did not expect, open it and steer it before it spends more.'),
+  'simple.ops.planned': e(
+    'Show the work that is planned and has not started: what comes after the things running now.',
+    'Next steps are the steps of a plan no one has begun, the ones that follow running work first; the line under each says what it comes after or which plan it is under. On the clock is work with a time set: wakes, routines, watches and deferred starts, soonest first. Paused is work you or Theseus put on hold.',
+    'It tells you what will happen without your asking. A step you do not want, or a wake at the wrong time, is cheaper to change here than after it runs.'),
+  'simple.ops.conversations': e(
+    'List the conversations that are open and at rest, so any of them can be picked up again.',
+    'One row is one conversation in which nothing is running right now, the one most recently active first. Under its title: the model it runs on and when it last changed. The list shows the first few; \u201cShow all\u201d opens the rest. Click a row to read it and to write to it.',
+    'This is how you start something from here: open the conversation it belongs in and say what you want. A message there starts a turn, which then shows under In flight.'),
+  'simple.ops.done': e(
+    'Show what finished today, the most recent first.',
+    'One row is one piece of work that ended since midnight, with how it ended when that was not a plain success, and when. The list shows the first few; \u201cShow all\u201d opens the rest. Click a row to read its report and its conversation.',
+    'A task that failed or was cancelled is here as well as the ones that worked. Read the report before you rely on the result.'),
+  'simple.ops.session': e(
+    'Open one piece of work whole, to watch it and to guide it.',
+    'Talk is its conversation, live, with a box to write to it: a message sent while it works steers the running turn. Anything it has asked you is answered at the top. Details holds its facts (state, model, place, spend), its controls (pause, stop, cancel, change the model or the mode) and its record. With nothing chosen, the first thing waiting on you is shown.',
+    'This is where you act. Answering, steering, pausing and stopping here are the same acts as everywhere else in Theseus, and each is written to the ledger.'),
+
   // ---- the Ship
   'ship.watch': e(
     'Answer the six questions an operator asks first: what is working, what waits for me, what is slow, what has it cost today, what went wrong, and what happened while I was away.',
@@ -535,9 +574,9 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Each proposal is one question: a short fact or preference, how many of the imported episodes it rests on, and Keep, Edit or Not this. Keep writes a standing record; Not this is remembered, so those sources are never proposed again; an unanswered one becomes Not this after a while. At most a few dozen wait at once, and the job that makes them has a daily spend line.',
     'Nothing is added without an answer, so the card holds what the owner chose; what they decline is a label for the next proposals.'),
   'context.books': e(
-    'Say honestly what state the books are in.',
-    'A note: the books (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) are not compiled yet, and how many episodes carry the import’s guess at a book.',
-    'Until they are compiled, recall reads the imported episodes themselves, not a distilled book.'),
+    'Say honestly what the books are today and what they are not yet.',
+    'A note in two parts. Today: the imported conversations are sorted onto seven shelves (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) by the import\u2019s guess, and the count says how many have a shelf. Not yet: the books Theseus would write itself from those conversations.',
+    'It keeps anyone from reading the Books view as finished books. Until Theseus writes them, recall reads the imported conversations directly, not a distilled book.'),
   'context.hints': e(
     'Show how many episodes the import hinted at each book.',
     'One bar per book, its width the number of episodes; the table says what each book holds. Click a bar to list its episodes.',
