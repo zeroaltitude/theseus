@@ -1429,3 +1429,76 @@ fn an_offered_new_thread_is_a_guess_of_home_and_not_of_the_rejected_thread() {
     let direct = guessed(Decision::OfferNew { fused: 0.95 }, &t, &close, Some(&new));
     assert_eq!(guess_of(&direct).slug, None, "{direct:?}");
 }
+
+/// **Jev answering `Home` is a guess of HOME, not of the keyword's thread**
+/// (F6 of the live freeze of 2026-11-13, the narrow half).
+///
+/// The sibling of the guard above, by the same reasoning: the judge's own
+/// answer is positive evidence that no existing thread holds the message, so
+/// the fused ranking must not hand the turn to a thread it outranks only on
+/// keywords. `fuse` keeps `OTHERS` (0.85) of a thread Jev did not pick,
+/// which is a discount and not a veto, and `guessed` then took the top
+/// non-`New` entry -- so a prefilter hit above `jev.p / 0.85` won.
+///
+/// The arrangement is the incident's own numbers, which is why they look
+/// odd: the owner's fresh request scored 0.552 on `theseus-design-oct`
+/// (a hit on the bare word "theseus"; the thread's own goal calls it an
+/// October archive, and it held 137k of context), Jev answered `home` at
+/// p 0.31, and the turn went to the archive at confidence 0.4692 --
+/// 0.552 x 0.85 exactly, the number in the `thread.routed` row. Two other
+/// threads at 0.48 make the ask a real one rather than a lone lean.
+#[test]
+fn jevs_home_is_a_guess_of_home_and_not_of_the_keywords_thread() {
+    let all = [pr_round(), security_fix()];
+    let t = refs(&all);
+    let keyword = pre_with(&[("pr-round", 0.552), ("security-fix", 0.48)]);
+    let home = Jev {
+        pick: Pick::Home,
+        p: 0.31,
+    };
+    // The premise: without the guard this is an ask, so `unsure = "guess"`
+    // is what decides it, and the ranking has a thread to fall through to.
+    let asked = decide(&t, &keyword, Some(&home), Voice::Jev, None, ON);
+    assert!(matches!(asked, Decision::Ask { .. }), "{asked:?}");
+    let ranked = fuse(&keyword, Some(&home));
+    assert_eq!(
+        ranked[0].0,
+        Choice::Thread("pr-round".into()),
+        "the keyword hit outranks the judge: {ranked:?}"
+    );
+    assert!(
+        (ranked[0].1 - 0.4692).abs() < 1e-9,
+        "the incident's own confidence: {ranked:?}"
+    );
+
+    let g = decide(&t, &keyword, Some(&home), Voice::Jev, None, GUESSING);
+    let tag = guess_of(&g);
+    assert_eq!(
+        tag.slug, None,
+        "home, as the judge answered, not the thread it outranks on a keyword: {g:?}"
+    );
+    assert_eq!(tag.title, "home", "{g:?}");
+    assert!(tag.movable, "a guess of home can still be moved: {g:?}");
+
+    // `guessed` itself, so a later caller of it is held to the same rule.
+    let direct = guessed(Decision::Ask { options: vec![] }, &t, &keyword, Some(&home));
+    assert_eq!(guess_of(&direct).slug, None, "{direct:?}");
+
+    // And the guard is Jev's answer, not a blanket "always home": Jev
+    // picking a thread still guesses that thread.
+    let picked = Jev {
+        pick: Pick::Thread("pr-round".into()),
+        p: 0.31,
+    };
+    let g = guessed(
+        Decision::Ask { options: vec![] },
+        &t,
+        &keyword,
+        Some(&picked),
+    );
+    assert_eq!(
+        guess_of(&g).slug.as_deref(),
+        Some("pr-round"),
+        "Jev's own thread pick is still the guess: {g:?}"
+    );
+}

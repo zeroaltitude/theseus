@@ -939,6 +939,125 @@ async fn trust_removes_the_injection_label_and_nothing_else() {
     assert!(flags_now().has(Flag::Secret));
 }
 
+/// **`/trust` clears the session that RAN, not only the place's** (F2b of
+/// the live freeze of 2026-11-13). A message a place routes into a thread
+/// runs in the thread's session, and the `injection` label the gate reads is
+/// that session's. `trust()` read `self.session_id` alone, so the owner was
+/// answered "this conversation carries no `injection` label" while the
+/// session that was actually frozen stayed frozen -- the one chat route he
+/// had for it addressed the wrong session, silently. The Remove button was
+/// never blind to this, because its custom id carries the session id.
+///
+/// The arrangement is the incident's: the place's own session carries no
+/// label, a thread's session that answers at this place carries it, and
+/// `outbox::show_at` is the index that ties the two -- the same one the task
+/// watch reads to adopt a routed thread's tasks (theseus-h68q6).
+#[tokio::test]
+async fn trust_clears_the_thread_session_a_turn_was_routed_into() {
+    use theseus_core::content::{ContentFlags, Flag, ItemKind, Label};
+    let d = tempfile::tempdir().unwrap();
+    let core = core_with(d.path(), theseus_core::secrets::SecretBoard::empty(), |c| {
+        c.discord.rest_proxy = Some("127.0.0.1:9".into());
+        c.places.owner = Some(vec![format!("discord:{OWNER}")]);
+    });
+    let session = |flags: Option<ContentFlags>| {
+        let mut rec = theseus_core::session::SessionRecord::new(
+            theseus_protocol::SessionKind::Conversation,
+            None,
+        );
+        rec.data = flags.map(Box::new);
+        let sid = rec.session_id.clone();
+        core.store.put_session(&sid, &rec).unwrap();
+        sid
+    };
+    let mut frozen = ContentFlags::default();
+    assert!(frozen.raise(Label {
+        flag: Flag::Injection,
+        node: Some("nod_his_own_dm".into()),
+        kind: ItemKind::PersonMessage,
+        source: "operator message".into(),
+        confidence: 0.96,
+        band: Flag::Injection.bar(),
+        at_ms: 11,
+        judgment: String::new(),
+    }));
+    // The place's own session is clean; the thread's session is the frozen
+    // one, and it answers at this place.
+    let home = session(None);
+    let thread = session(Some(frozen));
+    core.outbox.show_at(&thread, Some("discord:dm:42")).unwrap();
+    let (mut place, _rx) = place_for_tests(&core, &home);
+
+    let answer = place
+        .control(
+            Control::Trust(Some(DiscordOrigin {
+                user_id: OWNER.to_string(),
+                channel_id: "444444444444444444".into(),
+                guild_id: None,
+            })),
+            "discord:zeroaltitude",
+        )
+        .await;
+    assert_eq!(
+        answer,
+        "Removed the `injection` label (by discord:zeroaltitude): calls that act run again.",
+        "the routed thread's label is the one /trust can reach"
+    );
+    let flags_of = |sid: &str| -> ContentFlags {
+        let rec: theseus_core::session::SessionRecord =
+            core.store.get_session(sid).unwrap().unwrap();
+        rec.data.map(|b| *b).unwrap_or_default()
+    };
+    assert!(
+        !flags_of(&thread).has(Flag::Injection),
+        "the frozen session is the one cleared"
+    );
+    let removed: Vec<Value> = core
+        .store
+        .ledger_tail::<theseus_core::ledger::LedgerRow>(100_000)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, r)| r.kind == "content.removed")
+        .map(|(_, r)| r.data)
+        .collect();
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0]["flag"], "injection");
+
+    // A thread that answers at ANOTHER place is not this place's to clear.
+    let elsewhere = session(Some({
+        let mut f = ContentFlags::default();
+        assert!(f.raise(Label {
+            flag: Flag::Injection,
+            node: Some("nod_elsewhere".into()),
+            kind: ItemKind::FetchedPage,
+            source: "http.fetch notes.example/today".into(),
+            confidence: 0.93,
+            band: Flag::Injection.bar(),
+            at_ms: 12,
+            judgment: String::new(),
+        }));
+        f
+    }));
+    core.outbox
+        .show_at(&elsewhere, Some("discord:channel:99"))
+        .unwrap();
+    let answer = place
+        .control(
+            Control::Trust(Some(DiscordOrigin {
+                user_id: OWNER.to_string(),
+                channel_id: "444444444444444444".into(),
+                guild_id: None,
+            })),
+            "discord:zeroaltitude",
+        )
+        .await;
+    assert_eq!(
+        answer,
+        "This conversation carries no `injection` label, so there is nothing to remove."
+    );
+    assert!(flags_of(&elsewhere).has(Flag::Injection), "not ours");
+}
+
 /// A slash command as the gateway delivers one, from `user`, in
 /// `channel`, in `guild` (None: a DM).
 pub(super) fn slash(guild: Option<&str>, channel: u64, user: u64, command: &str) -> Interaction {

@@ -157,8 +157,9 @@ impl Fact for InvalidJson<'_> {
 }
 
 /// The toollet refused a call's input, or its place may not make it (the
-/// place rule: a reason `place: …`), so it does not run (`tool.invalid_input`,
-/// with the reason and the input).
+/// place rule: a reason `place: …`), or a content label has the session
+/// frozen (a reason `content: …`, F2a), so it does not run
+/// (`tool.invalid_input`, with the reason and the input).
 pub struct InvalidInput<'a> {
     pub tool: &'a str,
     pub call: &'a ToolUse,
@@ -174,10 +175,18 @@ impl Fact for InvalidInput<'_> {
 
     fn narrate(&self, say: &mut Say<'_>) {
         let place = format!("{}: ", crate::toolrun::PLACE_REFUSAL);
+        let content = format!("{}: ", crate::policy::modes::CONTENT_REFUSAL);
         let why = match self.reason.starts_with(&place) {
             true => "this place is shared, and the call reaches past what a shared place may",
             false if self.reason.starts_with("mode: ") => {
                 "this conversation is in plan mode, which is read-only"
+            }
+            // A content freeze reached here as `place: …` until F2a, and read
+            // as the shared-place line above; with its own word it would
+            // otherwise fall to "the input is invalid", which is no truer.
+            false if self.reason.starts_with(&content) => {
+                "this conversation is holding a content label, so only a local read of files and \
+                 code runs"
             }
             false => "the input is invalid",
         };

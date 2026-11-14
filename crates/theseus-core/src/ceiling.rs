@@ -167,6 +167,13 @@ pub struct PlaceView {
     /// channel the bindings file binds (the self card, theseus-slvl.8). Only
     /// `PlaceRule::place` knows it: a turn's own view leaves it off.
     pub voice: bool,
+    /// A private Discord place, where the owner's slash commands are the
+    /// chat route for an act (the self card, F5 of the live freeze of
+    /// 2026-11-13). Like `voice`, only `PlaceRule::place` knows it: a turn's
+    /// own view leaves it off, and the CLI's and the web UI's place never
+    /// has it, so the card does not offer a shell-less route to a surface
+    /// with no slash commands on it.
+    pub chat: bool,
 }
 
 impl From<PlaceClass> for PlaceView {
@@ -175,6 +182,7 @@ impl From<PlaceClass> for PlaceView {
             class,
             ceiling: None,
             voice: false,
+            chat: false,
         }
     }
 }
@@ -349,6 +357,7 @@ mod tests {
             class: PlaceClass::Shared,
             ceiling: Some(c),
             voice: false,
+            chat: false,
         };
         for name in ["proc.run", "aws.call", "fs.read"] {
             assert!(!shared.offered(name, &[]), "{name}");
@@ -359,6 +368,7 @@ mod tests {
             class: PlaceClass::Private,
             ceiling: Some(c),
             voice: false,
+            chat: false,
         };
         assert!(private.offered("proc.run", &[]));
         assert!(!private.offered("git.diff", &[]), "private, but not listed");

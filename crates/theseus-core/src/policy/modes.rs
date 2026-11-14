@@ -121,13 +121,38 @@ pub fn is_refusal(why: &str) -> bool {
     why.starts_with(REFUSAL)
 }
 
+/// The gate record's reason, and the result's word, for a call a content
+/// label refuses ([`content_refusal`], F2a of the live freeze of
+/// 2026-11-13): a freeze is neither a mode's refusal nor a place's, and the
+/// arm below had only those two, so the owner read `gate: deny … place: this
+/// session is holding: …` for something the place rule had no part in. It
+/// made the freeze look like a place's doing, which is why the finding
+/// before this one was read as "the gate reads holding from somewhere
+/// unreadable".
+pub const CONTENT_REFUSAL: &str = "content";
+
+/// The lead of that refusal's words. They are built in `content::refusal`,
+/// which is not ours to name a const in; `tests_content_freeze`'s
+/// `a_content_freeze_is_recorded_as_a_content_refusal_and_not_a_places`
+/// holds this copy against a real refusal's, so a reword there reds here
+/// rather than quietly restoring the `place:` prefix.
+const CONTENT_HOLD: &str = "this session is holding:";
+
+/// Whether `reason` words a content label's refusal (`content::refusal`).
+pub fn is_content_refusal(why: &str) -> bool {
+    why.starts_with(CONTENT_HOLD)
+}
+
 /// A refusal's `reason` in the gate's record: a place's is `place: …`, a
-/// mode's `mode: …`.
+/// mode's `mode: …`, a content label's `content: …`.
 pub fn refusal_reason(why: &str) -> String {
-    match is_refusal(why) {
-        true => format!("mode: {why}"),
-        false => format!("{}: {why}", crate::toolrun::PLACE_REFUSAL),
+    if is_refusal(why) {
+        return format!("mode: {why}");
     }
+    if is_content_refusal(why) {
+        return format!("{CONTENT_REFUSAL}: {why}");
+    }
+    format!("{}: {why}", crate::toolrun::PLACE_REFUSAL)
 }
 
 impl ToolRuntime {

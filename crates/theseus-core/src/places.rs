@@ -331,12 +331,16 @@ impl PlaceRule {
             bound.iter().find(|b| b.place.target == t)?.ceiling
         });
         let class = self.class_alone(cfg, target);
+        let discord =
+            class == PlaceClass::Private && target.is_some_and(|t| t.starts_with("discord:"));
         PlaceView {
             class,
             ceiling,
-            voice: class == PlaceClass::Private
-                && target.is_some_and(|t| t.starts_with("discord:"))
-                && self.voice_bound.load(std::sync::atomic::Ordering::Relaxed),
+            voice: discord && self.voice_bound.load(std::sync::atomic::Ordering::Relaxed),
+            // The slash commands need no binding call to be there: the
+            // binding registers them when it connects, so a private Discord
+            // place has them (F5).
+            chat: discord,
         }
     }
 

@@ -2266,23 +2266,29 @@ impl Place {
     /// `/trust`: the Remove press for this place's `injection` label, and nothing else. It goes through
     /// `content.unlabel` as the presser, so the core judges it as a card's press (`approval.refused` when it
     /// does not count). A session without the label is told so, and nothing is written.
+    ///
+    /// **It clears the session that ran, which is not always this place's**
+    /// (F2b of the live freeze of 2026-11-13). A message a place routes into
+    /// a thread runs in the THREAD's session, and the label the gate reads is
+    /// that session's; `/trust` read `self.session_id` alone, so the owner
+    /// whose turn had been routed was told "this conversation carries no
+    /// `injection` label" while his session stayed frozen. The Remove button
+    /// was never blind to it, because its custom id carries the session id
+    /// (`runtime/content.rs`) -- so of the two routes the product offered
+    /// him, only the button could work, and the chat route quietly addressed
+    /// the wrong session.
     async fn trust(&self, origin: Option<DiscordOrigin>, by: &str) -> String {
-        let carries = self
-            .shared
-            .session_info(&self.session_id)
-            .await
-            .is_some_and(|s| s.labels.iter().any(|l| l.flag == "injection"));
-        if !carries {
+        let Some(session_id) = self.frozen_session().await else {
             return "This conversation carries no `injection` label, so there is nothing to remove."
                 .into();
-        }
+        };
         let r = self
             .shared
             .rpc
             .call::<_, UnlabelResult>(
                 theseus_protocol::method::CONTENT_UNLABEL,
                 theseus_protocol::ContentUnlabelParams {
-                    session_id: self.session_id.clone(),
+                    session_id,
                     flag: "injection".into(),
                     author: Some(by.to_string()),
                     discord: origin,
@@ -2290,6 +2296,36 @@ impl Place {
             )
             .await;
         trust_answer(&r)
+    }
+
+    /// The session `/trust` clears: this place's own when it carries the
+    /// `injection` label, else a thread's that answers here and does
+    /// (`outbox::show_at`, the same index the task watch reads to adopt a
+    /// routed thread's tasks). The place's own comes first, and the threads
+    /// in slug order after it, so the pick is the same on every call.
+    async fn frozen_session(&self) -> Option<String> {
+        let mut threads: Vec<String> = self
+            .shared
+            .core
+            .outbox
+            .shown()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(s, target)| target == &self.target && s != &self.session_id)
+            .map(|(s, _)| s)
+            .collect();
+        threads.sort();
+        for sid in std::iter::once(self.session_id.clone()).chain(threads) {
+            let frozen = self
+                .shared
+                .session_info(&sid)
+                .await
+                .is_some_and(|s| s.labels.iter().any(|l| l.flag == "injection"));
+            if frozen {
+                return Some(sid);
+            }
+        }
+        None
     }
 
     /// `/cancel <id>` for a task (DD7), once no wake had the name.

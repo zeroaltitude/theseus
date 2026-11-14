@@ -204,6 +204,7 @@ A wake is a turn scheduled for a time; a reminder is a wake that posts a note.
 - **`project`**: long-term work with a goal and dated milestones (also `projects`). `theseus project new "Launch"
   --milestone "ship@fri"`; `project show|attach|detach`; `project trust|untrust [PATH]` and
   `project trusted` grant, take back and list a repository's own AGENTS.md and CLAUDE.md (yours to give, not from a job).
+  The same three are Discord slash commands, `/project trust|untrust|trusted`: see [discord.md](discord.md).
 - **`herdr`**: the herdr terminal workspace manager: `herdr sync` gives each session that needs you or is working a
   pane; `herdr up`, `answer`, `main`, `setup`. See [herdr.md](herdr.md).
 
