@@ -13,10 +13,13 @@
 #
 # During a rebase or a bisect it changes nothing, and exits 0: git counts a failing post-checkout as the failure of
 # the rebase's or bisect's own checkout, which would abort it halfway and leave the tree detached with nothing to
-# finish (git 2.34). A rebase is known by its state directory, or, before that exists (the `apply` backend detaches
-# HEAD first, and `git pull --rebase` with it), by git's GIT_REFLOG_ACTION starting `rebase` or `pull`: a put-back
-# there would leave HEAD on `main` and the rebase would then commit onto `main` itself. The cost: a checkout run
-# from inside `git rebase -x '...'` inherits that variable and is let through.
+# finish (git 2.34; traced on 2.34 and 2.43). A rebase is known by its state directory, or, before that exists (the `apply` backend detaches
+# HEAD first, and `git pull --rebase` with it), by the HEAD reflog entry git writes for this very move, which a rebase
+# or a pull names after itself (`rebase: checkout ...`, `pull ...: checkout ...`) where a checkout writes
+# `checkout: moving from ...`. A put-back there would leave HEAD on `main` and the rebase would then commit onto
+# `main` itself. The reflog, not GIT_REFLOG_ACTION, because git stopped exporting that variable to a rebase's own
+# checkout in 2.40. The cost: a checkout run from inside `git rebase -x '...'` is logged under the rebase's name and is
+# let through.
 #
 # Not covered:
 #   - `git reset` and `git merge`, for which git runs no hook, and `git checkout -B main <commit>`, which moves
@@ -34,7 +37,7 @@ common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
 git show-ref --verify --quiet refs/heads/main || exit 0
 [ "$(git symbolic-ref -q HEAD)" = refs/heads/main ] && exit 0
 top=$(git rev-parse --show-toplevel)
-case "${GIT_REFLOG_ACTION:-}" in rebase* | pull*) rebasing=1 ;; *) rebasing= ;; esac
+case "$(git reflog -1 --format=%gs HEAD 2>/dev/null)" in rebase* | pull*) rebasing=1 ;; *) rebasing= ;; esac
 [ -d "$gd/rebase-merge" ] || [ -d "$gd/rebase-apply" ] && rebasing=1
 if [ -n "$rebasing" ]; then
   echo "theseus: $top is the main working tree, and a rebase has moved it off main; it is left to finish." >&2

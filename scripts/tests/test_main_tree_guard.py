@@ -24,6 +24,9 @@ class MainTreeGuard(unittest.TestCase):
         self.main = os.path.join(self.tmp.name, "repo")
         self.lane = os.path.join(self.tmp.name, "lane")
         self.env = dict(os.environ, HOME=self.tmp.name, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+        # Run from inside a rebase or pull, the suite would inherit its reflog action and every checkout here would
+        # be logged under that name (review round 4).
+        self.env.pop("GIT_REFLOG_ACTION", None)
         os.makedirs(os.path.join(self.main, "scripts", "hooks"))
         # The repository under test carries the guard as the real one does: the scripts are its own files.
         for rel in ("main-tree-guard.sh", "hooks/post-checkout"):
@@ -167,6 +170,23 @@ class MainTreeGuard(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.head(), "refs/heads/main")
         self.assertIn("the branch is still there", r.stderr)
+
+    def test_a_checkout_logged_under_a_rebases_name_is_let_through_and_nothing_else(self):
+        # The signal the hook reads is the reflog entry git writes for the move. A checkout git logs under a rebase's
+        # or a pull's name (as one run by `rebase -x` is) is let through; a plain one is not, whatever the
+        # environment holds otherwise.
+        self.guard("install")
+        env = dict(self.env, GIT_REFLOG_ACTION="rebase")
+        r = subprocess.run(["git", *GIT, "checkout", "-q", self.one], cwd=self.main, env=env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.head(), "")
+        self.git("checkout", "-q", "main")
+        env = dict(self.env, GIT_REFLOG_ACTION="checkout")
+        r = subprocess.run(["git", *GIT, "checkout", "-q", self.one], cwd=self.main, env=env, capture_output=True,
+                           text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.head(), "refs/heads/main")
 
     def test_a_rebase_of_another_branch_is_not_covered(self):
         # The recorded limit (review round 2 of issue 15): the hook cannot fail a rebase without breaking it, and
