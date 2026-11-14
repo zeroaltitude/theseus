@@ -57,13 +57,7 @@ async fn a_restart_clears_a_pause() {
     let copy = crate::scratch::tempdir();
     let from = r.f.place.state.join("store");
     let to = copy.path().join("store");
-    let status = std::process::Command::new("cp")
-        .arg("-r")
-        .arg(&from)
-        .arg(&to)
-        .status()
-        .unwrap();
-    assert!(status.success());
+    copy_dir(&from, &to);
     let mut cfg = crate::Config::example();
     cfg.server.state_dir = copy.path().to_string_lossy().into_owned();
     let store = crate::store::Store::open(&to).unwrap();
@@ -91,4 +85,18 @@ fn a_pause_says_who_set_it_and_why() {
     let said = p.words();
     assert!(said.starts_with("paused by the owner at "), "{said}");
     assert!(said.contains(": benchmarks."), "{said}");
+}
+
+/// A directory copied whole, with no child process (the children census lists every file that forks one).
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
 }
