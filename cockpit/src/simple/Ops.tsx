@@ -11,7 +11,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { CalendarClock, Circle, CircleAlert, CircleCheck, CircleDollarSign, CircleDot, CircleHelp, CirclePause, CircleX, Clock, Inbox, ListTodo, Loader, Lock, MessageCircle, MessagesSquare, PencilLine, Plus, Radio, ShieldQuestion, Split, type LucideIcon } from 'lucide-react'
 import type { ConfirmRequest, SessionInfo, SessionListResult, TaskListResult } from '@protocol'
-import { useRpc } from '@/lib/rpc'
+import { useConn, useRpc } from '@/lib/rpc'
 import { useTick } from '@/lib/hooks'
 import { useHistoryRows } from '@/lib/history'
 import { useThreadBoard } from '@/lib/threadwatch'
@@ -63,6 +63,7 @@ export default function SimpleOps() {
   const { data: sl } = useRpc<SessionListResult>('session.list', undefined, 5000)
   const history = useHistoryRows()
   const asks = useRouterAsks(now)
+  const linked = useConn((s) => s.status === 'open')
 
   const views = useMemo(() => Object.values(board.views), [board.views])
   const groups = useMemo(() => Object.values(board.groups), [board.groups])
@@ -123,6 +124,7 @@ export default function SimpleOps() {
         <Stat n={cols.done.length} label="done today" onClick={() => jump('ops-done')} title="work that ended since midnight" />
         <Stat n={usd(spend.usd)} label="spent today" tone="money" title="what today's model calls cost, from the ledger" />
       </Panel>
+      {!linked && <div role="status" className="shrink-0 rounded-lg bg-wait/10 px-3 py-2 text-[12.5px] text-wait ring-1 ring-wait/30">Not connected to Theseus. What is shown is what was last read; the page reconnects by itself.</div>}
       {error && <div className="shrink-0 rounded-lg bg-fault/10 px-3 py-2 text-[12.5px] text-fault ring-1 ring-fault/30">The board could not be read: {error}</div>}
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(340px,460px)_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pb-2 pr-1">
@@ -197,7 +199,8 @@ function Planned({ next, scheduled, paused, rows, now, sel, onPick, n }: { next:
   const steps = open ? next : next.slice(0, SHORT)
   const after = (r: OpsRow): string => {
     const who = (r.carrier && rowFor(rows, r.carrier)) || (r.parent && rowFor(rows, r.parent)) || undefined
-    return who ? `${who.bucket === 'working' ? 'after' : 'under'} ${who.title}` : 'no one has taken it yet'
+    const what = r.plan ? 'a plan' : 'a step'
+    return who ? `${what} ${who.bucket === 'working' ? 'after' : 'under'} ${who.title}` : `${what} no one has taken yet`
   }
   return (
     <div id="ops-planned" className="shrink-0 scroll-mt-2">
