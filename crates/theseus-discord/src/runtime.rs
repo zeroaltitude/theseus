@@ -96,6 +96,7 @@ pub(crate) use live::PERIOD as LIVE_PERIOD;
 mod project_trust;
 mod prompt;
 mod publish;
+mod refold;
 pub(crate) mod route;
 pub(crate) mod self_note;
 mod self_word;
@@ -1994,6 +1995,7 @@ impl Place {
                         _ => {}
                     }
                 }
+                self.rebuild_held(&e);
                 let mut ops = self.view.on_event(&e);
                 ops.extend(self.view.fold(self.renderer.on_event(&e)));
                 self.apply(ops);

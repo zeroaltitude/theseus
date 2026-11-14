@@ -40,6 +40,7 @@ pub(crate) mod history;
 pub(crate) mod horizon;
 mod preview;
 pub(crate) mod process;
+mod refold;
 mod reply;
 pub(crate) mod snapshot;
 mod step;
@@ -254,6 +255,41 @@ struct ToolLine {
     late: bool,
 }
 
+impl ToolLine {
+    /// The line of a call the gate has just judged (`gate`): its summary, the
+    /// notice setting, what the broker gave it, and where it runs. An AWS
+    /// call's line names its operation, region, and account, from its plan
+    /// (row 29, C1). A turn read back from its nodes builds the same line
+    /// (`refold.rs`).
+    fn proposed(
+        tool_use_id: &str,
+        tool: &str,
+        input: &Value,
+        gate: &theseus_protocol::GateRecord,
+    ) -> Self {
+        let decision = gate.decision.as_ref();
+        let aws = gate.plan.as_ref().and_then(|pl| pl.aws.as_ref());
+        Self {
+            tool_use_id: tool_use_id.to_string(),
+            tool: tool.to_string(),
+            summary: aws.map_or_else(|| summarize(tool, input), aws_summary),
+            correlation_id: None,
+            state: ToolState::Proposed,
+            notice: decision
+                .and_then(|d| d.notify.as_ref())
+                .map(|n| n.setting.clone()),
+            granted: decision.and_then(|d| d.granted.clone()),
+            l1: (decision.and_then(|d| d.class.as_deref()) == Some("l1")).then(|| {
+                theseus_protocol::sandbox::reach(&theseus_protocol::sandbox::egress_in(
+                    &gate.proposal.policy_context,
+                ))
+            }),
+            risk: None,
+            late: false,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct LoopView {
     text: String,
@@ -302,6 +338,9 @@ pub struct Renderer {
     /// `[discord] notice_embeds`: a notified call posts its own card. Off, its
     /// tool line alone carries the notice.
     notice_embeds: bool,
+    /// The held turns were read back from the session's nodes once, as an
+    /// event for a turn this renderer never saw start asked (`refold.rs`).
+    rebuilt: bool,
 }
 
 /// Where else an approval can be answered: the owner's own surfaces, the web
@@ -405,28 +444,7 @@ impl Renderer {
                 self.tick()
             }
             Event::ToolProposed(p) => {
-                let decision = p.gate.decision.as_ref();
-                // An AWS call's line names its operation, region, and
-                // account, from its plan (row 29, C1).
-                let aws = p.gate.plan.as_ref().and_then(|pl| pl.aws.as_ref());
-                let line = ToolLine {
-                    tool_use_id: p.tool_use_id.clone(),
-                    tool: p.tool.clone(),
-                    summary: aws.map_or_else(|| summarize(&p.tool, &p.input), aws_summary),
-                    correlation_id: None,
-                    state: ToolState::Proposed,
-                    notice: decision
-                        .and_then(|d| d.notify.as_ref())
-                        .map(|n| n.setting.clone()),
-                    granted: decision.and_then(|d| d.granted.clone()),
-                    l1: (decision.and_then(|d| d.class.as_deref()) == Some("l1")).then(|| {
-                        theseus_protocol::sandbox::reach(&theseus_protocol::sandbox::egress_in(
-                            &p.gate.proposal.policy_context,
-                        ))
-                    }),
-                    risk: None,
-                    late: false,
-                };
+                let line = ToolLine::proposed(&p.tool_use_id, &p.tool, &p.input, &p.gate);
                 if let Some(t) = self.turn_mut(turn_id) {
                     let li = t.loops.keys().next_back().copied().unwrap_or(0);
                     t.loops.entry(li).or_default().tools.push(line);
