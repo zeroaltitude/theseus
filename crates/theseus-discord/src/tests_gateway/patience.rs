@@ -47,6 +47,7 @@
 //! real limit of the estimator and the first place to look if this family
 //! reddens again -- it is not a margin of safety.
 
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const BASE: Duration = Duration::from_secs(20);
@@ -92,6 +93,39 @@ impl Patience {
     /// and it is called hundreds of times inside one budget. See the header.
     fn oversleep(&mut self, slept: Duration) {
         self.credit = (self.credit + slept.saturating_sub(NAP + SLOP)).min(MAX_CREDIT);
+    }
+}
+
+/// ONE patience budget for a whole test (issue 14). Each `until` used to start a `Patience` of its own, so a test
+/// of k waits could spend k budgets, and `BASE + MAX_CREDIT` is already 80 s: two starved waits and the runner's
+/// hard kill (see `a_tests_waits_end_before_the_runners_kill`) took the test with no message of ours. The rig holds
+/// one `Budget`; every wait of the test draws on it, and it starts at the test's first wait, not at the rig's
+/// construction, so a slow start is not charged to the waits. A budget this size is not raised by sharing it: a wait
+/// that gets less than `BASE` is one that came after another had already spent some.
+pub(crate) struct Budget(Mutex<Option<Patience>>);
+
+impl Budget {
+    pub(crate) fn new() -> Self {
+        Budget(Mutex::new(None))
+    }
+
+    pub(crate) fn spent(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .get_or_insert_with(Patience::new)
+            .spent()
+    }
+
+    /// Sleeps one nap and credits what it overslept, to the test's budget. The lock is not held across the sleep.
+    pub(crate) async fn nap(&self) {
+        let t = Instant::now();
+        tokio::time::sleep(NAP).await;
+        self.0
+            .lock()
+            .unwrap()
+            .get_or_insert_with(Patience::new)
+            .oversleep(t.elapsed());
     }
 }
 
@@ -184,5 +218,62 @@ mod tests {
         }
         assert_eq!(p.credit, MAX_CREDIT);
         assert!(p.spent_at(BASE + MAX_CREDIT));
+    }
+
+    #[test]
+    fn a_budget_is_one_for_every_wait_of_a_test() {
+        // The first wait spent 21 s of unstalled time: the budget is spent for the second wait too, where a
+        // `Patience` of its own would have started it again at 20 s.
+        let b = Budget::new();
+        assert!(!b.spent(), "a fresh budget is not spent");
+        *b.0.lock().unwrap() = Some(Patience {
+            start: Instant::now()
+                .checked_sub(Duration::from_secs(21))
+                .expect("the clock is older than 21 s"),
+            credit: Duration::ZERO,
+        });
+        assert!(b.spent(), "the first wait's spending counts");
+        assert!(b.spent(), "and the second wait's");
+        assert!(
+            !fresh().spent(),
+            "a Patience of its own would have begun again"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_budget_credits_the_stalls_of_every_wait_it_serves() {
+        let b = Budget::new();
+        b.nap().await;
+        b.nap().await;
+        let credit = b.0.lock().unwrap().as_ref().unwrap().credit;
+        assert_eq!(credit, Duration::ZERO, "paused naps overshoot by nothing");
+    }
+
+    /// The most a test's waits can take must end before the runner's kill, or the kill takes the test with no
+    /// word of ours. The kill is `.config/nextest.toml`'s `slow-timeout`: `period` times `terminate-after`. The
+    /// rig's connect wait (30 s, in `start_over`) is the one wait outside the budget.
+    #[test]
+    fn a_tests_waits_end_before_the_runners_kill() {
+        let cfg = include_str!("../../../../.config/nextest.toml");
+        let line = cfg
+            .lines()
+            .find(|l| l.trim_start().starts_with("slow-timeout"))
+            .expect("nextest.toml sets slow-timeout");
+        let num = |key: &str| -> u64 {
+            let at = line.find(key).unwrap_or_else(|| panic!("{key} in {line}"));
+            line[at + key.len()..]
+                .trim_start_matches([' ', '=', '"'])
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+                .parse()
+                .unwrap_or_else(|_| panic!("{key} in {line}"))
+        };
+        let kill = Duration::from_secs(num("period") * num("terminate-after"));
+        let connect = Duration::from_secs(30);
+        assert!(
+            connect + BASE + MAX_CREDIT < kill,
+            "connect {connect:?} + budget {BASE:?} + credit {MAX_CREDIT:?} reaches the kill at {kill:?}"
+        );
     }
 }

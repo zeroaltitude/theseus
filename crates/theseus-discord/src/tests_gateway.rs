@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use self::patience::Patience;
+use self::patience::Budget;
 
 use theseus_core::policy::Posture;
 use theseus_core::provider::{FakeProvider, Provider, Scripted};
@@ -56,6 +56,8 @@ pub(crate) struct Rig {
     /// The tasks this run started (its driver and its binding), which
     /// [`Rig::stop`] aborts.
     run: Vec<tokio::task::AbortHandle>,
+    /// The one patience budget every `until` of this test draws on.
+    patience: Budget,
 }
 
 thread_local! {
@@ -162,6 +164,7 @@ impl Rig {
             fake,
             core,
             run: vec![driver.abort_handle(), binding.abort_handle()],
+            patience: Budget::new(),
         };
         // Each place starts fresh: its first message opens its session
         // (theseus-emqx), so a place is bound once the binding reports it.
@@ -186,18 +189,50 @@ impl Rig {
         self.run.iter().for_each(tokio::task::AbortHandle::abort);
     }
 
+    /// Waits for `f`, which reads none of the surfaces in particular as far as this helper can tell, so a
+    /// timeout lists them all. A wait that knows its surface says it with [`Rig::until_on`].
     pub(crate) async fn until(&self, what: &str, f: impl Fn() -> bool) {
-        let mut patience = Patience::new();
+        self.until_on(&[ANA_DM, LAB], what, f).await;
+    }
+
+    /// Waits for `f`, which reads `channels`: a timeout lists those first, each message with the content it was
+    /// created with and the content it has now, then every other surface, then the answers. The waits of one test
+    /// share one patience budget (`Budget`).
+    pub(crate) async fn until_on(&self, channels: &[u64], what: &str, f: impl Fn() -> bool) {
         while !f() {
             assert!(
-                !patience.spent(),
-                "timed out: {what}; #lab holds {:#?}; the DM {:#?}; answers {:#?}",
-                self.fake.messages(LAB),
-                self.fake.messages(ANA_DM),
-                self.fake.replies()
+                !self.patience.spent(),
+                "timed out: {what}\n{}",
+                self.surfaces(channels)
             );
-            patience.nap().await;
+            self.patience.nap().await;
         }
+    }
+
+    /// What a timed-out wait reads, surface by surface: the ones the wait named, then the others, then the answers.
+    fn surfaces(&self, read: &[u64]) -> String {
+        let name = |c: u64| match c {
+            LAB => "#lab".to_string(),
+            ANA_DM => "the DM".to_string(),
+            c => format!("channel {c}"),
+        };
+        let others = [ANA_DM, LAB].into_iter().filter(|c| !read.contains(c));
+        let mut out = String::new();
+        for (c, mark) in read
+            .iter()
+            .map(|c| (*c, "read by this wait"))
+            .chain(others.map(|c| (c, "not read by this wait")))
+        {
+            out.push_str(&format!("{} ({mark}):\n", name(c)));
+            let msgs = self.fake.messages(c);
+            if msgs.is_empty() {
+                out.push_str("  no messages\n");
+            }
+            for m in msgs {
+                out.push_str(&format!("  {} {}: {}\n", m.author, m.id, how_it_reads(&m)));
+            }
+        }
+        format!("{out}answers {:#?}", self.fake.replies())
     }
 
     pub(crate) fn say(&self, user: (u64, &str), channel: Option<u64>, content: &str) -> String {
@@ -267,6 +302,23 @@ impl Rig {
     fn waiting(&self) -> usize {
         self.core.confirm_list().map_or(0, |l| l.len())
     }
+}
+
+/// A message as a person reading the stand-in sees it, and as the wait that timed out may not have: the content it
+/// was CREATED with, and the content it has NOW. They differ when the binding streamed the text and edited it: a
+/// wait that reads only the create's content (`versions[0]`) waits for text that arrived as an edit, and no patience
+/// makes that true, which is how this helper once sent a diagnosis down the wrong path.
+fn how_it_reads(m: &Msg) -> String {
+    let created = &m.versions[0];
+    if m.edits == 0 && created == &m.content {
+        return format!("created and now: {created:?}");
+    }
+    format!(
+        "created with {created:?}; now {:?} ({} edits, {} versions)",
+        m.content,
+        m.edits,
+        m.versions.len()
+    )
 }
 
 /// Where the scripted write goes: outside the workspace's roots, with
