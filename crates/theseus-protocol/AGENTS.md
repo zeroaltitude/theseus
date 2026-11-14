@@ -3,12 +3,19 @@
 The wire types (spec §3.18): JSON-RPC 2.0 over newline-delimited JSON. Types only: no runtime, no I/O, no clock.
 Every client and the core read it, and the cockpit's TypeScript is generated from it.
 
-Key modules: `lib.rs` (the `method`, `notify`, `error_code` tables), `events.rs`, `push.rs`, `gate.rs`, `ts.rs`. Read by: every crate on the wire, and the cockpit (generated).
+Key modules: `names.rs` (the `method` and `notify` tables), `lib.rs` (the `error_code` table), `events.rs`, `push.rs`, `gate.rs`, `ts.rs`. Read by: every crate on the wire, and the cockpit (generated).
 
 ## What's here
 
-- `lib.rs`: the methods' params and results, `VERSION`, and three tables: `method` and `notify`, each one list
-  from which its `ALL` is built, and `error_code`.
+- `lib.rs`: the module list and its re-exports, `VERSION`, the JSON-RPC framing types, the `error_code` table, and the
+  params and results that have no module of their own (executions, tasks, wakes, sessions, profiles, `turn.submit`,
+  confirms, the turn's notifications).
+- `names.rs`: the `method` and `notify` tables, each one list from which its `ALL` is built (`names!`); `lib.rs`
+  re-exports both, so `theseus_protocol::method` is unchanged.
+- `status.rs`: `HealthResult` and the status structs it is made of (AWS, spool, disk, web, context files, the config's
+  copy, the start's phases, bindings, places, telemetry, the kernel, its children, the grants). The other sections of
+  health are in `health.rs`.
+- `tighten.rs`: the runtime tightening (`Tightening`, `PolicyTightenParams`, `PolicyUntightenParams`, `TightenResult`).
 - `defer.rs` (theseus-7m7w.2): `tool.defer`'s answer (`DeferListResult`: each kind of place, each tool family it loads or
   defers with the reason, its use, searches and misses, and the estimated tokens of a first request whole and as sent) and
   health's `tools:` line (`DeferHealth`).

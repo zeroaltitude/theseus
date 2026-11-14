@@ -7,7 +7,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## What's here
 
-- **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
+- **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames; its provider call,
+  its end, its catch-up and its `Target` are in `turn/model_call.rs`, `settle.rs`, `catch_up.rs` and `target.rs`), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
   and the cancel path). A turn waits for its slot in `turn/admission.rs`'s queue (theseus-4g0l): three classes (a
@@ -912,7 +913,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   or a split's value (a null one is neither, theseus-l4n39). The claim and its undo read the keys and write in one frame
   under the home session's execution lock, the lock a split's and an unsplit's frames hold, so a split lands wholly
   before or after them. Tests: `rpc/tests_home_claim.rs`, `home_claim::tests`.
-- **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch), with
+- **Tool calls**: `toolrun.rs` (every call the model makes becomes a kernel action: the gate and the dispatch; an in-process
+  tool's run is `toolrun/inproc.rs`), with
   what a turn hands it in `toolrun/turn_ctx.rs` (`TurnCtx`), the `ResultNode` a call site fills and the answers a call
   writes back in `toolrun/result_node.rs`, and a job's call in `toolrun/job.rs` (its turn waits on the job's wake, `toolrun/waits.rs`, and takes the job's
   completion with its result in one frame; Tier 7.1; a command that never started says why, `toolrun/not_started.rs`,
@@ -3385,8 +3387,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   passing command, reset only by one; a turn that has not edited (a read-only helper) is stopped at 0.85 as before, one that
   has edited and keeps opening new files is stopped at 0.95 (a build that runs is the one carve-out, below). Each is a harness node
   (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend, a stop's `condition`;
-  `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
-  is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
+  `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (`turn/checkpoint_step.rs`), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
   `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's
   online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
@@ -3566,13 +3567,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## Where the big things live
 
-- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, and `tx.rs`. Every mutating method writes
+- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs` and `kernel/`, and `tx.rs`. Every mutating method writes
   one frame.
 - **The store's WAL and index**: `crates/theseus-store/src/wal.rs`, `index.rs`, and `store.rs`.
-- **The turn loop**: `crates/theseus-core/src/turn.rs`, with `advancer.rs`; the harness loop in `harness.rs`, and
+- **The turn loop**: `crates/theseus-core/src/turn.rs` and `turn/`, with `advancer.rs`; the harness loop in `harness.rs`, and
   what it drives (continuations, the heartbeat) in `rpc/driver.rs`.
 - **The compiler**: `crates/theseus-core/src/compiler.rs` and `context_files.rs`.
-- **Tool calls**: `crates/theseus-core/src/toolrun.rs`; the gate's postures in `policy.rs`, `external.rs`, and
+- **Tool calls**: `crates/theseus-core/src/toolrun.rs` and `toolrun/`; the gate's postures in `policy.rs`, `external.rs`, and
   `broker.rs`.
 - **The RPC layer**: `crates/theseus-core/src/rpc/` (`server.rs`, `methods.rs`, `driver.rs`, `confirms.rs`).
 - **Facts**: `crates/theseus-core/src/fact/`: every ledger row, notification, narrative line, and span of the turn,
