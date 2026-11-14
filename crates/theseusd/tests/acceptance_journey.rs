@@ -509,7 +509,39 @@ fn p95(sorted: &[u64]) -> u64 {
         .unwrap_or(0)
 }
 
-/// What kind of interrupt a bot message is, by its first words.
+/// Discord's small grey subtext prefix. It used to mark incidental text and nothing else, which is
+/// why `interrupts` could read it as "created silent"; since theseus-sju2s (S24-1, every tool line
+/// small and grey) a tool activity line carries it too, so the prefix alone no longer says what a
+/// line is.
+const SUBTEXT: &str = "-# ";
+
+/// The marks a tool activity line starts with after `SUBTEXT`: one per state a call passes through
+/// (`render::step::tool_lines`), and the ellipsis of the fold line that counts the calls a message
+/// had no room for. These are what tell tool activity from a pointer now that both are subtext.
+const TOOL_MARKS: [&str; 10] = ["▫️", "⏳", "⏸️", "✅", "❌", "🚫", "⏹️", "👍", "👎", "…"];
+
+/// Every bot message as one block, for a failure to be read against: it is the dump each of the
+/// `h9tu1 3` assertions prints, so they all show the same picture of the run.
+fn dump(all: &[Msg]) -> String {
+    all.iter()
+        .map(|m| {
+            format!(
+                "#{} ch{} t{} silent={} v{}: {}",
+                m.id,
+                m.channel,
+                m.created_ms,
+                m.silent(),
+                m.versions.len(),
+                m.versions[0].chars().take(60).collect::<String>()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// What kind of interrupt a bot message is, by its first words. `"tool"` is last before the
+/// fallback on purpose: it takes only what used to fall through to `"chat"`, so what counts as a
+/// question, a finish or a failure here is exactly what counted before.
 fn kind_of(text: &str) -> &'static str {
     if text.contains('❓') {
         "question"
@@ -517,6 +549,11 @@ fn kind_of(text: &str) -> &'static str {
         "finish"
     } else if text.contains('❌') && text.contains("Task") {
         "failure"
+    } else if text
+        .strip_prefix(SUBTEXT)
+        .is_some_and(|rest| TOOL_MARKS.iter().any(|m| rest.starts_with(m)))
+    {
+        "tool"
     } else {
         "chat"
     }
@@ -835,24 +872,66 @@ impl Journey {
     }
 
     /// h9tu1 3, never more. The board, the cards, the pointers and the forum post are created
-    /// silent. Only a question, a failure and a flagged finish ring among the task paths' creates.
+    /// silent. A tool activity line is NOT one of those, although since theseus-sju2s (S24-1) it
+    /// wears the same small grey subtext: it is the step's own work, and it rings unless its place
+    /// silences `ToolLines` (`policy::pings`), which this journey's places do not (`bindings()`
+    /// sets no `silent` list). So the subtext rule below exempts tool lines by kind, and at least
+    /// one of them is asserted to ring, which keeps that exemption from going quietly vacuous.
+    /// Only a question, a failure and a flagged finish ring among the task paths' creates.
     /// The chat's own replies (the DM's turn, and what a task says in its post) ring by the owner's
-    /// choice: counted apart, never judged. The spacing of the rings in one conversation is
+    /// choice: counted apart, never judged; a ringing tool line is counted apart from those too.
+    /// The spacing of the rings in one conversation is
     /// recorded, not judged: `ping_window_secs` (the 10 s rule) is off by default and the recipe
     /// leaves it off, and when on it can hold a question silent behind a chat reply
     /// (CLOUD_REPORT.md). Returns the rings' counts and the closest two in one conversation.
-    fn interrupts(&self) -> Value {
-        let all = self.r.bot_messages();
-        for m in &all {
+    /// What is created silent, and the tool lines that are not. Returns how many tool activity
+    /// lines the journey made and how many of them rang, for the script's report.
+    fn created_silent(&self, all: &[Msg]) -> (usize, usize) {
+        for m in all {
             let t = &m.versions[0];
+            // Subtext this clause was written for: the pointers and the notices. A tool line is
+            // subtext too since theseus-sju2s, so the prefix is no longer the whole test -- the
+            // kind is (see `kind_of`), and tool activity goes on ringing as it did before that
+            // commit. Widening this back to the bare prefix is the red of 2026-11-13.
+            let incidental = t.starts_with(SUBTEXT) && kind_of(t) != "tool";
             if t.starts_with("📋 **Tasks**")
                 || t.starts_with('🧵')
-                || t.starts_with("-# ")
+                || incidental
                 || m.id == self.post().id.to_string()
             {
                 assert!(m.silent(), "h9tu1 3: created silent: {t}");
             }
         }
+        // The clause above exempts tool activity, so these two hold it honest. The first says the
+        // journey still makes tool lines at all (an exemption nothing exercises proves nothing);
+        // the second says one of them rang, which is the thing this test now decides: a tool line
+        // is allowed to ring, a pointer is not. If the daemon ever silences tool lines by default,
+        // this fails on purpose -- that is a behaviour change on a surface the owner watches, and
+        // it is to be made deliberately, not inherited from a quiet default.
+        let tools: Vec<&Msg> = all
+            .iter()
+            .filter(|m| kind_of(&m.versions[0]) == "tool")
+            .collect();
+        assert!(
+            !tools.is_empty(),
+            "h9tu1 3: the journey made no tool activity line, so the subtext exemption is \
+             untested; the bot's messages:\n{}",
+            dump(all)
+        );
+        let rang = tools.iter().filter(|m| !m.silent()).count();
+        assert!(
+            rang >= 1,
+            "h9tu1 3: every tool line was created silent; a tool line rings unless its place \
+             silences `ToolLines` (`policy::pings`) and this journey's places silence nothing; \
+             the bot's messages:\n{}",
+            dump(all)
+        );
+        (tools.len(), rang)
+    }
+
+    fn interrupts(&self) -> Value {
+        let all = self.r.bot_messages();
+        let (tool_lines, tools_rang) = self.created_silent(&all);
         let rings: Vec<&Msg> = all.iter().filter(|m| !m.silent()).collect();
         let count = |k: &str| {
             rings
@@ -870,22 +949,6 @@ impl Journey {
         // you). Which of the two lands where is a race the fast hosts flip (theseus-r8fnh),
         // so the contract held here is: each question has a card, and a silent one has a ringing
         // card of a question in its channel inside the window before it.
-        let dump = || {
-            all.iter()
-                .map(|m| {
-                    format!(
-                        "#{} ch{} t{} silent={} v{}: {}",
-                        m.id,
-                        m.channel,
-                        m.created_ms,
-                        m.silent(),
-                        m.versions.len(),
-                        m.versions[0].chars().take(60).collect::<String>()
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
         let cards: Vec<&Msg> = all
             .iter()
             .filter(|m| kind_of(&m.versions[0]) == "question")
@@ -894,7 +957,7 @@ impl Journey {
             cards.len(),
             2,
             "h9tu1 3: a card for each question; the bot's messages:\n{}",
-            dump()
+            dump(&all)
         );
         let window_ms = 30_000;
         let mut followers = 0;
@@ -909,16 +972,18 @@ impl Journey {
                 leader,
                 "h9tu1 3: a question card created silent with no ring before it in its channel; \
                  the bot's messages:\n{}",
-                dump()
+                dump(&all)
             );
             followers += 1;
         }
         assert!(
             questions >= 1 && questions + followers == 2,
             "h9tu1 3: a ring for a burst of questions; the bot's messages:\n{}",
-            dump()
+            dump(&all)
         );
         assert_eq!(finishes, 2, "h9tu1 3: a ring for each finish");
+        // A ringing tool line used to land in this list, because it had no kind of its own; it is
+        // counted in `tool_lines_rang` instead, which says the same thing more exactly.
         let chat: Vec<String> = rings
             .iter()
             .filter(|m| kind_of(&m.versions[0]) == "chat")
@@ -931,7 +996,13 @@ impl Journey {
             })
             .collect();
         let mut by_channel: std::collections::BTreeMap<&str, Vec<u64>> = Default::default();
-        for m in rings.iter().filter(|m| kind_of(&m.versions[0]) != "chat") {
+        // The judged kinds, named rather than taken as "everything that is not chat": adding the
+        // `"tool"` kind must not quietly pull tool lines into this spacing measurement, which is
+        // about the interrupts a task path makes. The set here is what `!= "chat"` meant before.
+        for m in rings
+            .iter()
+            .filter(|m| matches!(kind_of(&m.versions[0]), "question" | "finish" | "failure"))
+        {
             by_channel
                 .entry(m.channel.as_str())
                 .or_default()
@@ -942,7 +1013,7 @@ impl Journey {
             at.sort_unstable();
             closest = at.windows(2).map(|w| w[1] - w[0]).fold(closest, u64::min);
         }
-        json!({"questions": questions, "burst_followers": followers, "finishes": finishes, "closest_ms": closest, "chat": chat})
+        json!({"questions": questions, "burst_followers": followers, "finishes": finishes, "closest_ms": closest, "chat": chat, "tool_lines": tool_lines, "tool_lines_rang": tools_rang})
     }
 
     /// h9tu1 6, still fast: a plain turn stays within its frames while the run is on, and a change
@@ -1012,6 +1083,61 @@ impl Journey {
         let report = json!({"steps": steps, "ms": self.ms, "interrupts": interrupts, "fast": fast,
             "captures": self.captures});
         std::fs::write(path, report.to_string()).unwrap();
+    }
+}
+
+/// A tool activity line is allowed to ring; a pointer is not. The journey's "created silent" rule
+/// (`interrupts`) used to read Discord's subtext prefix as "incidental, so it must not ring". Since
+/// theseus-sju2s (S24-1) every tool line is subtext too, which made that rule demand silence from
+/// lines that have always rung -- the red of 2026-11-13, predicted by name in the grey-tool-lines
+/// review before it happened. The rule now exempts tool activity by kind, and this pins the line
+/// that draws it, with the renderer's own shapes on one side and the real pointers and notices on
+/// the other, so the exemption cannot be widened into "nothing in subtext ever rings" by accident.
+/// Whether tool lines *should* ring is the owner's question, not this test's; what this test holds
+/// is that the journey keeps asserting silence for what it was written to assert it for.
+#[test]
+fn a_tool_line_may_ring_and_a_pointer_may_not() {
+    // `render::step::tool_lines`, one per state a call passes through, and the fold line.
+    for t in [
+        "-# ▫️ `fs.read` the north quay survey",
+        "-# ⏳ `fs.read` the north quay survey",
+        "-# ⏸️ `fs.write` the survey · waiting for approval",
+        "-# ⏳ `shell` a long count · running in the background; the result will come back here",
+        "-# ✅ `task.create` {…} · 🔔 notified (enforcement = notify) · 4 ms",
+        "-# ❌ `fs.read` the gulls log · denied · 2 ms",
+        "-# 🚫 `fs.write` the survey · not run",
+        "-# ⏹️ `shell` a long count · stopped by ana",
+        "-# 👍 `fs.write` the survey · approved by ana",
+        "-# 👎 `fs.write` the survey · declined by ana",
+        "-# ⏳ `shell` 🛡️ L1 · no network · a long count",
+        "-# … 3 earlier call(s) · 🔔 2 notified",
+    ] {
+        assert_eq!(kind_of(t), "tool", "tool activity, free to ring: {t}");
+    }
+    // The pointers and the notices the clause was written for: subtext, and silent by construction
+    // (`index_pointer` sends them with SUPPRESS_NOTIFICATIONS, `say_to` posts them `quiet`). The
+    // first is the one this very journey makes, twice, where the DM's message reaches a task's post.
+    for t in [
+        "-# ↩ from the DM",
+        "-# This task works in <#2>.",
+        "-# This post starts nothing: its task works elsewhere, or is over.",
+        "-# This channel is your tasks' board and reports; the conversation is in the DM.",
+        "-# moved to <#2>",
+        "-# ↻ Sent again after an outage: if the same message is just above, this is a copy.",
+        "-# 2 turns · $0.01 of $5.00 · 1.2 s",
+        "-# 💭 thought for 1 s",
+        "-# `/cancel <task>` stops one.",
+        "-# Edited in place as the tasks change.",
+    ] {
+        assert!(
+            t.starts_with(SUBTEXT),
+            "the clause only ever saw subtext: {t}"
+        );
+        assert_ne!(
+            kind_of(t),
+            "tool",
+            "a pointer or a notice, which the journey still holds silent: {t}"
+        );
     }
 }
 
