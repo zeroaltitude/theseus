@@ -646,6 +646,7 @@ impl Core {
         self.runner.judge.export_to(t.clone());
         self.runner.memory.export_to(t.clone());
         self.runner.tools.stops.export_to(t.clone());
+        self.runner.tools.sandbox.export_to(t.clone());
         self.runner.tools.defer.export_to(t.clone());
         let _ = self.runner.keep_warm.telemetry.set(t.clone());
         let _ = self.gate_counter.set(t.clone());
@@ -1025,6 +1026,7 @@ impl Core {
             runner.judge.export_to(t.clone());
             runner.memory.export_to(t.clone());
             runner.tools.stops.export_to(t.clone());
+            runner.tools.sandbox.export_to(t.clone());
             runner.tools.defer.export_to(t.clone());
             let _ = runner.keep_warm.telemetry.set(t.clone());
             let _ = gate_counter.set(t.clone());

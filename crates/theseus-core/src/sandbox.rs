@@ -520,6 +520,16 @@ pub fn result_lines(detail: &Value) -> String {
         )),
     }
     lines.extend(crate::egress::lines(detail));
+    if crate::egress::limit_hits(detail)
+        .iter()
+        .any(|(l, _)| l == "scratch_mb")
+    {
+        lines.push(
+            "[L1: what it wrote to scratch reached its limit ([sandbox] scratch_mb): a write \
+             past it failed]"
+                .into(),
+        );
+    }
     if sb["output_capped"] == true {
         lines.push(
             "[L1: it wrote a file past its size limit ([sandbox] output_mb), and was stopped \
@@ -618,6 +628,9 @@ pub struct Sandbox {
     /// refusals; and the latest refusal's words.
     egress: [AtomicU64; 4],
     refused_last: Mutex<Option<String>>,
+    /// Where an L1 job's start time and the limits it reached are counted
+    /// (theseus-zupk), once the core has built its telemetry.
+    telemetry: std::sync::OnceLock<crate::telemetry::Telemetry>,
     /// The L1 jobs that run, by correlation id, for `sandbox.usage`
     /// (theseus-kpz1): listed from the launch until the call returns, or, for
     /// a job that went on in the background, until its action ends
@@ -665,6 +678,7 @@ impl Sandbox {
             started: [AtomicU64::new(0), AtomicU64::new(0)],
             egress: Default::default(),
             refused_last: Mutex::default(),
+            telemetry: std::sync::OnceLock::new(),
             running: Mutex::default(),
         }
     }
@@ -719,6 +733,20 @@ impl Sandbox {
         }
         if let Some(r) = s.refused.last() {
             *self.refused_last.lock().unwrap() = Some(r.why.clone());
+        }
+    }
+
+    /// The telemetry that counts L1's starts and limit hits, once the core
+    /// has built it.
+    pub fn export_to(&self, telemetry: crate::telemetry::Telemetry) {
+        let _ = self.telemetry.set(telemetry);
+    }
+
+    /// A job that reached `limit` (`output_mb` or `scratch_mb`), counted once
+    /// as its row is written (`theseus.sandbox.limit_hits`).
+    pub fn limit_hit(&self, limit: &str) {
+        if let Some(t) = self.telemetry.get() {
+            t.record_sandbox_limit(limit);
         }
     }
 
@@ -789,6 +817,12 @@ impl Sandbox {
         };
         let mut last = self.last.lock().unwrap();
         if last.as_ref().is_none_or(|p| p.at_ms <= l.at_ms) {
+            // The start is measured once per job: a result read again is the
+            // same launch.
+            let newer = last.as_ref().is_none_or(|p| p.at_ms < l.at_ms);
+            if let (true, Some(ms), Some(t)) = (newer, l.start_ms, self.telemetry.get()) {
+                t.record_job_start("l1", ms);
+            }
             *last = Some(l);
         }
     }

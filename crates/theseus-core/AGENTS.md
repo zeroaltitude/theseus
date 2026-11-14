@@ -1137,6 +1137,13 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   when the job reached a host beyond `[sandbox] egress`, so T1 holds the session (`via: egress`) and the node is
   untrusted, the owner's. A job that reached only listed hosts holds nothing (theseus-gyin). Its tests:
   `tests_egress.rs`, and the daemon's `tests/sandbox.rs` through a real proxy.
+  **Limits** (theseus-zupk): beside those rows, a `sandbox.limit_hit` row for each limit an L1 job's end shows it
+  reached (`detail.sandbox.limit_hits`, written by `job_l1.rs`'s `limit_hits`): `output_mb` (killed by `SIGXFSZ`) and
+  `scratch_mb` (what it wrote to scratch is within a page of the limit). The process limit cannot be observed (no
+  cgroup), and the doc says so. Counted as `theseus.sandbox.limit_hits{limit}`, and a job's start as
+  `theseus.job.start_ms{class}` (L1 only: L0's start is not measured). **A known gap, measured:** an L1 job a cancel
+  stops mid-tunnel has no `sandbox.egress` row, because the cancel writes its result before the wrapper's completion
+  is in the store (the node's `detail` is null); the row belongs where that completion is ingested.
 - **Cancellation** (M4 18a): `cancel.rs`, the one stop every path that stops running calls goes through
   (`ToolRuntime::terminate_all`: a cancel, a task's cancel, `/stop`, the disk's floor, a stop at a job's launch).
   A job's wrapper is asked to stop its tree; an async tool's task is aborted (`Stops::track`) and verified once its
