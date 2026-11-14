@@ -10,10 +10,11 @@ that release print the version before it. Both are facts the tree holds, and nei
 
 **The line it reads** is the page's first line that starts `_Updated `, and it must have this shape:
 
-    _Updated <date> [<HH:MM> <zone>]. Workspace version <X>; newest release tag `release-<Y>` (<name>) at `<sha>`, <date>. The design document is at v<D>._
+    _Updated <date> [<HH:MM> <zone>]. Workspace version <X>; newest release tag `release-<Y>` (<name>) at `<sha>`,
+    <date>. The design document is at v<D>._
 
-(the time, `11:5x` allowed, and the last sentence may be left out; nothing else may stand anywhere in the line:
-free text there is how the page went stale)
+(one line in the page, wrapped here). The time, `11:5x` allowed, and the last sentence may be left out; nothing else
+may stand anywhere in the line: free text there is how the page went stale.
 
 Everything in it can be read from the tree when the line is written, and this script reads each one back:
 
