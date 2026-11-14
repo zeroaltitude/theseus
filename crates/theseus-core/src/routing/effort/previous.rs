@@ -25,8 +25,9 @@ pub struct Previous {
     pub failed: bool,
 }
 
-/// Whether a `turn.failed` row of `class` says the attempt failed, the thing a higher effort could
-/// address. Not these: a refusal by a money limit or the day's ceiling, by the context window, a
+/// Whether a `turn.failed` row of `class` says the attempt failed, the thing a higher effort might
+/// address. The class cannot tell a model's failed attempt from a rate limit, an overload, a timeout
+/// or a cancel, which all count; it does tell these apart, which do not: a refusal by a money limit or the day's ceiling, by the context window, a
 /// secret that did not resolve, a credential the provider refused, a turn the stop ended or one that
 /// stopped for a fault of Theseus's own: more effort fixes none of them, and costs more. Any other
 /// class counts, and so does a row from before the row carried its class (it says nothing, so it
@@ -96,7 +97,7 @@ pub fn told(p: Previous) -> PreviousTurn {
 mod tests {
     use super::*;
 
-    /// A failure counts unless more effort could not address it: the money limits, the window,
+    /// A failure counts unless one of the named classes: the money limits, the window,
     /// secrets, a refused credential, a stop and Theseus's own faults do not; a provider's error and
     /// a row from before the row had a class do.
     #[test]
