@@ -47,7 +47,8 @@ pub enum ResultStatus {
     /// The tool ran and failed, or its input was invalid.
     Error,
     /// The call never ran: the operator declined it, a new message superseded
-    /// it, or its confirmation lapsed. Rows written before theseus-8az say
+    /// it, its confirmation lapsed, or a hold or a refusal (a place's, a
+    /// mode's) stopped it. Rows written before theseus-8az say
     /// `denied`.
     #[serde(alias = "denied")]
     Declined,

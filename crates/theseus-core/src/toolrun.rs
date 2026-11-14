@@ -1355,8 +1355,13 @@ impl ToolRuntime {
                 reversible::reason(h),
                 format!("Not run: {}", bad.error),
             ),
+            // A refusal (a place's, a mode's, a glide's) is the same: "Not
+            // run", so `Declined`, and the repeat cap sees a model that asks
+            // for the identical refused call again. Measured first: written as
+            // `Error` the loop ran to the end of its script
+            // (`tests_m3::modes`), because `Error` counts as a call that ran.
             (None, true) => (
-                ResultStatus::Error,
+                ResultStatus::Declined,
                 crate::policy::modes::refusal_reason(&bad.error),
                 format!("Not run: {}", bad.error),
             ),
