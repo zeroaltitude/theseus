@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="t">What happens in one turn</title>
-  <desc id="d">Five planks in a row. You say something. Jev judges: what kind of message, which model and how much effort, which persona and thread, and whether an action can be undone. The context is compiled for this turn, with a manifest. The model works with tools. All of it is written down before it is attempted.</desc>
+  <desc id="d">Five planks in a row. You say something. Jev judges: what kind of message, which model and how much effort, and which persona and thread. The context is compiled for this turn, with a manifest. The model works with tools, and each call is first asked whether it can be undone. All of it is written down before it is attempted.</desc>
   <rect width="960" height="300" rx="16" fill="#13314d"/>
   <rect x="5" y="5" width="950" height="290" rx="12" fill="none" stroke="#d6a548" stroke-width="2"/>
   <g fill="#e9c97f">
@@ -38,7 +38,6 @@
       <text x="296" y="156">which model, what effort?</text>
       <text x="296" y="174">which persona and thread?</text>
       <text x="296" y="192">what does it carry?</text>
-      <text x="296" y="210">can this be undone?</text>
 
       <text x="480" y="138">for this turn only:</text>
       <text x="480" y="156">instructions, memory,</text>
@@ -49,7 +48,8 @@
       <text x="664" y="138">with real tools:</text>
       <text x="664" y="156">files, commands,</text>
       <text x="664" y="174">the web, the cloud,</text>
-      <text x="664" y="192">long jobs and tasks</text>
+      <text x="664" y="192">long jobs and tasks.</text>
+      <text x="664" y="210" font-style="italic">First: can it be undone?</text>
 
       <text x="848" y="138">every action, before</text>
       <text x="848" y="156">it is attempted;</text>

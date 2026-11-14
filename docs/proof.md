@@ -7,8 +7,8 @@ omnibus](benchmarks/omnibus.md) lists every run and what it changed. The feature
 
 **Read the dates.** The long benchmarks are parked until the 2.x line, which is where measuring begins again, so
 the head-to-head numbers below are the last ones that were run, mostly on the v1 and 1.0.3 builds. They are not a
-claim about the build you would install today. The fast benchmarks are different: they run on every commit, and
-their budgets are in [the development guide](development.md#budgets-the-code-is-held-to).
+claim about the build you would install today. The fast benchmarks are different: they run on every change that
+lands, and their budgets are in [the development guide](development.md#budgets-the-code-is-held-to).
 
 ## Where Theseus loses
 
@@ -36,7 +36,8 @@ More: [durable tasks](features/durable-tasks.md).
 
 Against Claude Code on the same stand-in model (2026-10-18): a ready prompt in 39 ms against 498, 10 ms of CPU a
 turn against 1,655, 70 MB idle against 360. The speed is written down as budgets — start to answering 50 ms, crash
-and restart 150 ms, a binary swap under load 200 ms — and **every commit's gate fails the commit when one slips**.
+and restart 150 ms, a binary swap under load 200 ms — and **the gate a change passes to land fails it when one
+slips**.
 
 More: [fast as a contract](features/fast-as-a-contract.md).
 

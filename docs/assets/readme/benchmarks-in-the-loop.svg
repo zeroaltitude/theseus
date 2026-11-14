@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 430" width="960" height="430" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="t">Benchmarks in the loop</title>
-  <desc id="d">Two loops. On every commit, the gate runs fast benchmarks against written budgets, and a missed budget fails the commit. On every even major version, the long benchmarks run against the field: odd majors build, even majors measure.</desc>
+  <desc id="d">Two loops. Every change that lands passes a gate that runs fast benchmarks against written budgets, and a missed budget stops it. On every even major version, the long benchmarks run against the field: odd majors build, even majors measure.</desc>
   <rect width="960" height="430" rx="16" fill="#13314d"/>
   <rect x="5" y="5" width="950" height="420" rx="12" fill="none" stroke="#d6a548" stroke-width="2"/>
   <g fill="#e9c97f">
@@ -8,7 +8,7 @@
   </g>
 
   <!-- every commit -->
-  <text x="40" y="50" font-size="16" fill="#e2ae4f" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">EVERY COMMIT: THE FAST BENCHMARKS</text>
+  <text x="40" y="50" font-size="16" fill="#e2ae4f" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">EVERY CHANGE THAT LANDS: THE FAST BENCHMARKS</text>
   <g stroke="#13314d" stroke-width="1.5">
     <rect x="40" y="70" width="150" height="150" rx="8" fill="#efe3c8"/>
     <rect x="226" y="70" width="528" height="150" rx="8" fill="#e8dbbd"/>
@@ -32,10 +32,10 @@
       <text x="246" y="142">crash and restart</text><text x="424" y="142" font-weight="700">150 ms</text>
       <text x="246" y="162">binary swap under load</text><text x="424" y="162" font-weight="700">200 ms</text>
       <text x="492" y="122">a sandboxed job's start</text><text x="660" y="122" font-weight="700">25 ms</text>
-      <text x="492" y="142">a session's first request</text><text x="660" y="142" font-weight="700">8,000 tokens</text>
+      <text x="492" y="142">a task's first request</text><text x="660" y="142" font-weight="700">8,000 tokens</text>
       <text x="492" y="162">growth of the binary</text><text x="660" y="162" font-weight="700">1 MB</text>
     </g>
-    <text x="246" y="198" font-size="13" font-style="italic">A missed budget fails the commit, exactly as a failed test does.</text>
+    <text x="246" y="198" font-size="13" font-style="italic">A missed budget stops the change, exactly as a failed test does.</text>
   </g>
 
   <!-- every even major -->

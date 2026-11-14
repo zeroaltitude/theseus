@@ -22,15 +22,15 @@ be far ahead on memory, personality, speed, scale and tasks at every horizon.
 | 1 | **Tasks at every horizon** | "I started it on Monday, answered its one question from my phone, and it finished on Wednesday, through two upgrades." | Built, in daily use |
 | 2 | **A thread for each line of work** | "Each thing I'm working on has its own thread and its own context, and my message lands in the right one." | Built, in daily use |
 | 3 | **One memory** | "It remembered what I decided last week in another channel, and linked the message." | Built; dates are its weak spot |
-| 4 | **A self-guided, expanding ontology** | "It worked out for itself who I work with and what I work on, and it files everything under them." | Built; its own filing of a live conversation only records |
+| 4 | **A self-guided, expanding ontology** | "It worked out for itself who I work with and what I work on, and it files everything under them." | Built, in daily use |
 | 5 | **Jev picks the model** | "A thank-you costs a fraction of a cent, a hard refactor gets the big model, and it tells me why." | Built, in daily use |
 | 6 | **It asks only when it matters** | "It doesn't nag. It stops for the one thing I couldn't take back." | Built; the undo question is new in 1.0.6 |
 | 7 | **It improves itself** | "It found a bug in itself overnight, fixed it, passed its own gate, and told me at breakfast." | Built; one unattended landing so far, and rough |
-| 8 | **Fast, as a contract** | "It's one small daemon that answers in milliseconds, and a commit that makes it slower doesn't land." | Built and measured |
+| 8 | **Fast as a testable feature** | "It's one small daemon that answers in milliseconds, and a change that makes it slower doesn't land." | Built and measured |
 | 9 | **Chat is the control surface** | "I run it from Discord and from a voice call. I rarely open a terminal for it." | Built; some owner commands still need a command line |
 | 10 | **Many characters, one mind** | "Five personas with their own voices, and they all remember the same things." | Built; the automatic persona pick only records |
 | 11 | **You can ask why** | "`theseus why` shows me exactly what went into the prompt, and what was left out." | Built |
-| 12 | **Benchmarks in the loop** | "They publish where they lose." | Fast benchmarks on every commit; the long ones return at 2.x |
+| 12 | **Benchmarks in the loop** | "They publish where they lose." | Fast benchmarks on every change that lands; the long ones return at 2.x |
 | 13 | **Remote runtimes** | "The daemon on my server, the terminal on my laptop, the index on a third box." | Designed; planned for 3.0.0 |
 | 14 | **Working ahead** | "While I read its answer it had already fixed the next red test in a sandbox. One key to use it." | Designed; planned for 3.0.0 |
 
@@ -45,9 +45,9 @@ of thing for all of it, durable across restarts and upgrades, and visible wherev
 
 **Today.** A long ask becomes a task with a home of its own. Its question appears on every surface at once, and one
 answer clears it everywhere. You can type into a running task and it takes your message at its next step. A
-reminder is a wake that posts a note without calling a model; a routine holds one pending wake and opens a fresh
-task each time it fires, so a run's context never grows. A task with nothing to do is a record on disk, so
-thousands can wait.
+reminder is a wake: at its time it gives the conversation a turn with your note, or only posts the note if that is
+all you asked for. A routine holds one pending wake and opens a fresh task each time it fires, so a run's context
+never grows. A task with nothing to do is a record on disk, so thousands can wait.
 
 **Rough edges.** The kill-and-resume benchmark is twelve trials, and its intervals are wide.
 
@@ -73,8 +73,8 @@ copying them. So a reply can cite the message it remembers, and your history fro
 first day.
 
 **Today.** Recall runs in front of the model on every turn, with a judged order. `theseus import` brings in history
-from Claude Code, Codex and OpenClaw, and a nightly sync keeps it current. Every persona, thread and task draws on
-the same memory.
+from Claude Code, Codex and OpenClaw. OpenClaw's is kept current by a nightly sync that can also be run on demand;
+the other two are imported again by hand. Every persona, thread and task draws on the same memory.
 
 **Rough edges.** Dates are the weak kind of fact. The vector half of recall has a 250 ms deadline that it does not
 always meet on a large store.
@@ -86,17 +86,21 @@ always meet on a large store.
 **The pitch.** Theseus keeps its own map of the people, places and things it meets, grows it without being asked,
 and makes it part of indexed memory.
 
-**Today.** The kinds of context are data, not code: a versioned table of kinds (a channel, a project, a person, a
-topic, an event, a resource, an expertise, a culture). Entries form a tree, any entry can carry guidance, and every
-compile walks the entries a session is in and adds their guidance. Imported history arrives with its topics filed.
+**Today.** The kinds of context are data, not code: a versioned table of twelve kinds, from where you are (a guild,
+a channel, a thread, a project, a person) to what it is about (a topic, an event, a resource, a capability, an
+expertise, a culture, a persona). Entries form a tree, any entry can carry guidance, and in a private place every
+compile walks the entries a session is in and adds their guidance. A note that shares an entry with the
+conversation ranks higher in recall. As you talk, each private conversation is filed under the entries it fits, and
+a new entry is started when nothing fits, with a notice and an undo. An import's topics are filed with one command.
 A nightly sweep merges duplicates, lets a machine-made membership lapse after 30 days unless it is renewed, renames
 what has drifted, and creates and names a new kind when the same unlisted answer keeps coming up. A person is one
-record with many handles, holding what they do and own and never an opinion of them. Imported history is sorted
-into seven books (diary, encyclopedia, cookbook, procedures, casebook, register, dictionary), read from the memory
-index. The map routes context and never grants access.
+record with many handles, holding what they do and own. Imported history is sorted into seven books (diary,
+encyclopedia, cookbook, procedures, casebook, register, dictionary), read from the memory index. The map routes
+context and never grants access.
 
-**Rough edges.** Jev's filing of a live conversation's topics is recorded and not yet applied. The books are the
-import's labels, browsed; books compiled from the whole graph are the next step.
+**Rough edges.** The notice that announces a new entry is hard to read, and a message Theseus wrote to itself has
+been filed as if a person wrote it. The books are the import's labels, browsed; books compiled from the whole graph
+are the next step.
 
 **More:** [the ontology's design](m4-boundaries.md#28-the-ontologys-first-slice).
 
@@ -119,10 +123,9 @@ measured before it decides anything. If Jev is slow or down, the work goes on wi
 action *does*, not where either came from, and it does not build a paper wall of permissions over that.
 
 **Today.** It notifies rather than blocks. A sensitive name or something fetched from outside raises a label you
-can tap away. Before a tool acts, one question is asked: can this be undone? If it can, it runs. If there is a
-safer way to do the same work, the model is sent back to take it. Only what is final by its nature reaches you.
-Beneath the judgment is one rule no model can lower: a plain write or edit to a file that nothing else holds a copy
-of is held.
+can tap away. Before a tool acts, one question is asked: can this be undone? If there is a safer way to do the same
+work, the model is sent back to take it. What is final by its nature is raised to you. Beneath the judgment is one
+rule no model can lower: a plain write, edit or patch to a file whose current contents nothing else holds is held.
 
 **Rough edges.** The undo question is new in 1.0.6. Tests hold its behaviour; how well it judges in real use has
 not been measured.
@@ -144,13 +147,14 @@ retries noisily; a limit on attempts and a place for what failed are planned.
 
 **More:** [self-improvement](../features/self-improvement.md), and [the design](rsi-plan.md).
 
-## 8. Fast, as a contract
+## 8. Fast as a testable feature
 
-**The pitch.** One small Rust daemon, not a process for every terminal. The speed is written down as budgets, and
-the gate fails a commit that misses one.
+**The pitch.** One small Rust daemon, not a process for every terminal. The speed is written down as budgets, and a
+change that misses one does not land.
 
 **Today.** Start to answering in 50 ms, a crash and restart in 150 ms, a binary swap under load in 200 ms: each is
-a budget checked on every commit. Restarting or upgrading is something you do in the middle of a sentence.
+a budget checked on every change before it lands. Restarting or upgrading is something you do in the middle of a
+sentence.
 
 **Rough edges.** A tool call's own overhead is a few tens of milliseconds, most of it one sync to disk on the
 critical path. Durability stays; a budget for those syncs is open work.
@@ -165,7 +169,8 @@ home for every task, and a voice channel.
 **Today.** Tool lines stream into the chat, small and grey so they read apart from the answer. Every task has a
 post of its own and a board that does not scroll away. In a voice call it listens, answers, and lets you interrupt.
 It speaks first when something happens: a finished task, a question, a morning note of what it changed overnight.
-Approving a held action is a button or a spoken word, and trusting a project is a slash command.
+Answering a call that waits for your approval is a button or a spoken word, and trusting a project is a slash
+command.
 
 **Rough edges.** Some owner commands still need a command line. Moving the rest into chat, as tools the model
 chooses to call, is current work.
@@ -201,10 +206,10 @@ tamper-evident ledger.
 
 **The pitch.** Measuring is part of how a change lands, not something saved for a launch.
 
-**Today.** Fast benchmarks run in the gate on every commit, against written budgets, and a missed budget fails the
-commit. The long benchmarks run on every even major version, on the build that shipped and against the field: odd
-majors build, even majors measure. After a run, what it found becomes work aimed at real use; nothing is tuned to a
-score.
+**Today.** Fast benchmarks run in the gate that every change passes to land, against written budgets, and a missed
+budget stops the change. The long benchmarks run on every even major version, on the build that shipped and against
+the field: odd majors build, even majors measure. After a run, what it found becomes work aimed at real use;
+nothing is tuned to a score.
 
 **Rough edges.** The long benchmarks are parked until 2.x, so today's head-to-head numbers are from the v1 and
 1.0.3 builds.

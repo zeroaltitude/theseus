@@ -11,7 +11,7 @@ Five other documents go deeper, and this page links to them rather than repeatin
 - [`scripts/AGENTS.md`](../scripts/AGENTS.md): the scripts, and the gate's phases in order;
 - [`scripts/RELEASES.md`](../scripts/RELEASES.md): the pinned toolchain, the build script and the release profiles,
   the reproducibility check, the installed service, the smokes, and the build host — moved out of
-  `scripts/AGENTS.md` on 2026-11-10 (theseus-4vsrz), verbatim, to get that file back under the context loader's
+  `scripts/AGENTS.md` on 2026-11-10, verbatim, to get that file back under the context loader's
   64 KiB ceiling;
 - [`scripts/GATE.md`](../scripts/GATE.md): running the gate on a busy machine — the disk floor, the shared lock,
   the bench busy allowance, and how long it takes — moved out of the same file on the same day, the same way;
@@ -95,7 +95,7 @@ A cloud row is one piece of work done by a cloud coding session on its own branc
 named commit of `main`.
 
 - **The task is the branch's first commit**, `CLOUD_TASK.md`. It holds:
-  - the issue and the files in play;
+  - the task and the files in play;
   - the acceptance tests and the planted reverts to make;
   - where `main` is: its commit, store format, and the long-file ceilings at that commit;
   - the sibling rows of the same batch, and which files each one owns;
@@ -219,7 +219,7 @@ judges the net change of the range against `main`. It reports each erosion as `p
 | `sealed-reach` | Code outside the sealed scorer's own files that names the sealed holdout sets |
 | `locked-flow` | The owner-locked Discord DM task flow changed: a golden under `crates/theseus-discord/src/golden/` edited or removed. The trailer quotes his OK for that change |
 
-**Two halves, and a brief must say which it means (theseus-4vsrz).** The table above mixes them, and the confusion
+**Two halves, and a brief must say which it means.** The table above mixes them, and the confusion
 has cost a gate twice.
 
 - **(a) Where you edit: the guarded FILE list.** `KEEL_FILES`, `KEEL_PREFIXES` and `LOCKED_FLOW_PREFIXES` in
@@ -325,7 +325,7 @@ different model. Theseus's own branches must be reviewed on a different model.
 
 A review:
 
-- reads the diff whole, against the task and the issue's acceptance;
+- reads the diff whole, against the task and what it was meant to do;
 - reruns the row's own tests, and the touched crates' suites, on the branch merged onto today's `main`;
 - reruns the planted reverts and records each as caught or missed (Theseus's self-join does this in code, before any
   reviewer is paid);
@@ -337,7 +337,7 @@ A review:
 - writes a verdict first: `ACCEPT`, `ACCEPT WITH A JOIN FIX` (with the fix's text), or `REJECT`. The findings follow,
   and the live check to run after the install.
 
-A finding is either fixed before the join, or filed as its own issue with an owner.
+A finding is fixed before the join, or recorded as an issue.
 
 ## Joins
 
@@ -351,7 +351,7 @@ may join together as a batch, landed with one gate.
      joins would not be what was reviewed and gated, and the branch would no longer show as merged.
    - Resolve conflicts in the merge commit. Remove the cloud row's `CLOUD_TASK.md` and `CLOUD_REPORT.md` there too.
    - Anything more the join needs, such as a semantic fix the merge did not show, is a separate signed commit after it:
-     `join fix: <what> (<issue>)`.
+     `join fix: <what>`.
 3. **Regenerate, never hand-merge**: `Cargo.lock`, the generated TypeScript, and the shape marks.
 4. **Check what a clean merge can still break.** A textually clean merge has more than once quietly undone another
    branch's change. Warm the build first (build, test build, clippy), run each row's own tests on the merged tree, and
@@ -378,8 +378,7 @@ may join together as a batch, landed with one gate.
    push, redo the dry run, the merge and the gate.
 7. **Clean up.** Archive each joined branch's head (report commit included) to `refs/archive/<branch>`, then delete the
    branch, remote and local, together with its worktree and build directory.
-8. **Record.** Close the issue with the merge commit and the gate named, then install
-   ([Installing](#installing)) and write the docs commit for the step.
+8. **Record.** Install ([Installing](#installing)) and write the docs commit for the step.
 
 ## Installing
 

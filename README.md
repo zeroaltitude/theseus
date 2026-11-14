@@ -62,7 +62,8 @@ Ask for something long and it becomes a task with a context of its own: a post i
 pinned board that moves from *working* to *needs you* to *done*, and the same task in the terminal, the cockpit and
 a voice call. When a task has a question it appears on every surface at once, and one answer (a button, a key,
 `theseus answer`, or a spoken "approve") clears it everywhere. Type into a running task and it takes your message
-at its next step. Ask to be reminded on Friday, or for something to run every morning, and that is a task too.
+at its next step. Ask for something to run every morning and each run is a fresh task. Ask to be reminded on Friday
+and it sets a wake for then.
 
 A task with nothing to do is a record on disk, not a process, and a task due later sleeps until then, so you can
 hold thousands of them. Pull the plug and each one picks up where it was. [Durable
@@ -74,7 +75,7 @@ tasks](docs/features/durable-tasks.md).
 
 The prompt is ready in tens of milliseconds, the model's first words appear as it writes them, and restarting or
 upgrading the daemon is something you can do in the middle of a sentence. We wrote the speed down as budgets, and
-every commit is checked against them, so Theseus cannot get slower by accident. [Fast, as a
+every change is checked against them before it lands, so Theseus cannot get slower by accident. [Fast, as a
 contract](docs/features/fast-as-a-contract.md).
 
 ### Judgment in the loop
@@ -104,18 +105,21 @@ told twice. [It remembers everything](docs/features/memory-across-sessions.md).
 ### A self-guided, expanding ontology
 
 Theseus keeps its own map of the people, places and things it meets. The kinds of context are data, not code: a
-table of kinds (a channel, a project, a person, a topic, an event, a resource, an expertise, a culture) whose
-entries form a tree, and any entry can carry guidance. Each session is placed in the entries it belongs to, and
-each prompt is compiled with their guidance.
+table of twelve kinds, from where you are (a guild, a channel, a thread, a project, a person) to what it is about
+(a topic, an event, a resource, a capability, an expertise, a culture, a persona), whose entries form a tree, and
+any entry can carry guidance. Each session is placed in the entries it belongs to, and each prompt is compiled with
+their guidance.
 
-The map grows by itself. Imported history arrives with its topics already filed. Each night a sweep merges
-duplicates, lets stale entries lapse, renames what has drifted, and creates and names a new kind when the same
-unlisted answer keeps coming up. New kinds and renames are in the morning note, and what the sweep does can be
-undone. A person is one record with many handles, and it holds what they do and own.
+The map grows by itself. As you talk, Theseus files each private conversation under the entries it fits and starts
+a new entry when nothing fits, and tells you with a one-line undo. An import's topics are filed with one command,
+`theseus import topics`. Each night a sweep merges duplicates, lets a filing it made lapse after 30 days unless it
+is renewed, renames what has drifted, and creates and names a new kind when the same unlisted answer keeps coming
+up. New kinds and renames are in the morning note, and what the sweep does can be undone. A person is one record
+with many handles, and it holds what they do and own.
 
-The map is part of indexed memory. Imported history is sorted into seven books (a diary, an encyclopedia, a
-cookbook, procedures, a casebook, a register and a dictionary), each a different way of organizing what Theseus
-knows, and all read from the memory index. [The
+The map is part of indexed memory: a note that shares an entry with the conversation ranks higher in recall.
+Imported history is sorted into seven books (a diary, an encyclopedia, a cookbook, procedures, a casebook, a
+register and a dictionary), read from the memory index. [The
 ontology](docs/design/m4-boundaries.md#28-the-ontologys-first-slice).
 
 ### It gets better while you sleep
@@ -142,8 +146,10 @@ task it started itself, a long turn, a chain of tasks ten deep all run, and you 
 or something fetched from outside raises a label you can tap away, not a refusal you cannot.
 
 What it does stop for is the thing that cannot be taken back. Before a tool acts, Theseus asks whether the action
-could be undone. If it could, it runs. If there is a safer way to do the same work, such as keeping a copy first,
-the model is sent back to do it that way. Only what is final by its nature comes to you as a question.
+could be undone. If there is a safer way to do the same work, such as keeping a copy first, the model is sent back
+to do it that way. What is final by its nature is raised to you as a question. Under that judgment is one rule no
+model can lower: a plain write, edit or patch to a file whose current contents nothing else holds is held, whatever
+the model answered.
 
 The stored record is raw and is never rewritten; secrets are swapped for their names only on the copies that leave
 the machine. [It trusts its environment and keeps a true record](docs/features/trusted-environment.md).
@@ -153,8 +159,8 @@ the machine. [It trusts its environment and keeps a true record](docs/features/t
 Discord is a full surface: a lively chat with the tool lines small and grey so you can tell them from the answer, a
 home for every task, and a voice channel where it listens, talks back and lets you interrupt. The terminal UI and
 the web cockpit show the same sessions and tasks, live. We keep shrinking the list of things that need a command
-line: approving a held action is a button or a spoken word, and trusting a project is a slash command.
-[Discord](docs/discord.md), [the command line](docs/cli.md).
+line: answering a call that waits for your approval is a button or a spoken word, and trusting a project is a slash
+command. [Discord](docs/discord.md), [the command line](docs/cli.md).
 
 <p align="center"><img src="docs/assets/cockpit-tasks/01-tasks-page.png" alt="The cockpit's Tasks page: a New task box, one task that needs an answer with its options as buttons, two working tasks (one paused) with their spend against their limits, and the done tasks with their report lines." width="720"></p>
 
@@ -171,10 +177,10 @@ field, in places it is behind, and [Proof points](docs/proof.md#a-real-coding-ag
 
 Measuring is part of how every change lands, and it runs at two speeds.
 
-- **Fast benchmarks on every commit.** The gate that every change must pass runs the start, restart, upgrade, job
-  and turn benchmarks against written budgets: 50 ms from start to answering, 150 ms for a crash and restart, 200
-  ms for a binary swap under load. A missed budget fails the commit exactly as a failed test does, and raising a
-  budget needs the owner's signed yes.
+- **Fast benchmarks on every change that lands.** `main` moves one change at a time, and only through a gate that
+  runs the start, restart, upgrade, job and turn benchmarks against written budgets: 50 ms from start to answering,
+  150 ms for a crash and restart, 200 ms for a binary swap under load. A missed budget stops the change exactly as
+  a failed test does, and raising a budget needs the owner's signed yes.
 - **Long benchmarks on every even major version.** Odd majors build and even majors measure. On an even major the
   long benchmarks run on the build that shipped, against the field: coding on Terminal-Bench 2.0, recall across
   sessions, kill and resume, threads, and speed and memory beside other harnesses. `2.x` is the first of these.
@@ -182,7 +188,7 @@ Measuring is part of how every change lands, and it runs at two speeds.
   becomes work. Nothing is tuned to a score. The losses are published beside the wins: [Proof
   points](docs/proof.md#where-theseus-loses) opens with them.
 
-<p align="center"><img src="docs/assets/readme/benchmarks-in-the-loop.svg" alt="Two loops. On every commit the gate holds the code to written budgets, and a missed budget fails the commit. On every even major version the long benchmarks run: odd majors build, even majors measure." width="820"></p>
+<p align="center"><img src="docs/assets/readme/benchmarks-in-the-loop.svg" alt="Two loops. Every change that lands passes a gate that holds the code to written budgets, and a missed budget stops it. On every even major version the long benchmarks run: odd majors build, even majors measure." width="820"></p>
 
 ## How releases are numbered
 
@@ -204,7 +210,7 @@ one build to one machine rather than a library to the world.
 
 ## How it works
 
-<p align="center"><img src="docs/assets/readme/a-turn.svg" alt="One turn: you say something; Jev judges what kind of message it is, which model and effort, which persona and thread, and whether an action can be undone; the context is compiled for this turn with a manifest; the model works with real tools; and all of it is written down before it is attempted." width="820"></p>
+<p align="center"><img src="docs/assets/readme/a-turn.svg" alt="One turn: you say something; Jev judges what kind of message it is, which model and effort, and which persona and thread; the context is compiled for this turn with a manifest; the model works with real tools, and each call is first asked whether it can be undone; and all of it is written down before it is attempted." width="820"></p>
 
 - **One agent over one graph.** Every message, tool call, result, task and summary is a node in one store. Personas
   are views of the same agent, and tasks and threads are sessions of their own, so nothing is copied between
@@ -229,7 +235,7 @@ These hold whatever the model does:
 |---|---|---|
 | 💵 | **Money is a gate.** | Every model call reserves its worst-case cost before it runs. Limits warn you; a runaway stops. |
 | 🌐 | **A label you can remove, not a refusal you can't.** | Text that tries to steer it, a name you listed, or anything fetched from outside puts a label on the session and tells you. You remove it with one tap. |
-| ⚓ | **The only copy is not overwritten on a model's say-so.** | A plain write or edit to a file that nothing else holds a copy of is held, whatever the model answers. |
+| ⚓ | **The only copy is not overwritten on a model's say-so.** | A plain write, edit or patch to a file whose current contents nothing else holds (an untracked file, one outside a repository, or one with uncommitted changes) is held, whatever the model answers. It needs Jev's answer to act: if Jev is down, the write takes the ordinary route. |
 | 🔑 | **Its own keys are replaced on the way out.** | Every value the vault gave Theseus is replaced by its name in each request to a model and each Discord post; what is stored is never rewritten. A value of a secret the daemon no longer holds, or one a size limit cut in two, is not recognised. |
 | 📒 | **You can always ask why.** | Every turn, call, approval and dollar goes into a tamper-evident ledger, and `theseus why` reads it back. |
 | 🧱 | **A test does not quietly get weaker.** | Deleting a test, ignoring one, dropping an assertion or raising a budget fails the commit gate unless a signed commit carries the owner's quoted yes. |

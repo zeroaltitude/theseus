@@ -33,7 +33,7 @@ One line each; a crate's key modules and its readers are in its own `AGENTS.md`.
 - `theseus-tools`: Toollets: `fs.*`, `git.diff`, `git.log`, `text.diff`, and `proc.run`'s spec.
 - `theseus-files`: Files people give the model, read for it: a PDF's pages, text, and parts; Office, OpenDocument,
   EPUB, RTF, and notebooks as sections; archives; ffmpeg and tesseract when present. Each conversion runs in a
-  child with a time limit and a memory cap (theseus-c9l6).
+  child with a time limit and a memory cap.
 - `theseus-core`: The agent: config, secrets, the turn, the compiler, tool calls and the gate, the RPC server, the push, the outbox, telemetry, AWS's accounts and tools.
 - `theseus-aws-catalog`, `theseus-aws`: Every AWS operation's model, and one caller for all six protocols (the AWS design, §3.1).
 - `theseus-discord`: The Discord binding, in-process; it acts through the protocol.
@@ -96,7 +96,7 @@ Each is a requirement, with its spec section.
   dispatched thing is a WAL record with a correlation id, and its completion arrives as an event. No busy loops.
 - **The WAL and frames** (§6; Part III F2). The WAL is the truth, and every index a projection of it. A kernel method,
   or a kernel transaction (`Kernel::frame`), writes exactly one frame, and a fact lands in one frame with the rows
-  that describe it. A plain one-loop turn writes 4 frames (its admission rides its input's, theseus-2uby): `tests_m3::a_plain_turn_stays_within_its_frame_budget`
+  that describe it. A plain one-loop turn writes 4 frames (its admission rides its input's): `tests_m3::a_plain_turn_stays_within_its_frame_budget`
   holds it in the core, `bench turn` at the daemon.
 - **Append-only** (§2). The record only grows: compaction, supersession, and forgetting are new records. Payload
   erasure (§5.6) is the one receipted exception.
@@ -104,7 +104,7 @@ Each is a requirement, with its spec section.
   notification, edge kind, or label lands with what reads it, or with a marker naming the row that brings it.
   `tests_registry` in theseus-core enforces it, and the gate runs it first. A ledger kind (`LedgerKind`) is declared
   by being written; the same test fails a kind nothing writes.
-- **The store's version rule** (P5b; Part III F4a; theseus-ptx1). The store has one format number,
+- **The store's version rule** (P5b; Part III F4a). The store has one format number,
   `MANIFEST_FORMAT`. Any step that adds a field to a stored record, or changes the frame or record encoding, bumps
   it, with a reader for the old layout and a sample of it in theseus-core's `tests_layouts`, its old bytes a literal
   (Item 61). A build refuses a store newer than it knows. The number is assigned when a step lands on `main`.
@@ -120,14 +120,14 @@ Each is a requirement, with its spec section.
 - **The security posture** (§1, "Secrets"; §2, NOTIFY OVER BLOCK; §3.9; §3.19).
   - Secrets live in 1Password, named by `op://` reference: the recommended source. Where there is no vault (a
     container, CI), a `[secrets]` entry may be `env:NAME` or `file:PATH` instead, and `theseusd check` and health
-    name each such secret (theseus-n88g.1). Never print, log, or store a value.
+    name each such secret. Never print, log, or store a value.
   - The gate never refuses, and never guesses what a command does: each tool has a posture (`open`, `notify`, or
     `approve`), and the floor always asks.
-  - Approvals come from the operator, in a private place (the place rule, theseus-zmgb). The CLI refuses an answer,
+  - Approvals come from the operator, in a private place (the place rule). The CLI refuses an answer,
     an undo of a tightening, a trust, a publish, and the AWS bootstrap inside a job (its `THESEUS_SESSION`), saying
     why and that the operator runs it from their own shell. That is a speed bump, said honestly: an L0 job can strip
     its environment, or talk to the socket itself. L1, whose view hides the socket, is the boundary.
-  - The config copy acts (§3.19, amended by theseus-zmgb). A start serves from its copy of the vault's note and acts
+  - The config copy acts (§3.19, as amended). A start serves from its copy of the vault's note and acts
     on it at once when the copy is the one the daemon wrote: as the daemon writes it, it records its sha256 in the
     store. A copy edited since is not used, and that start reads the vault first. After serving, the vault is read
     once: a changed note rewrites the copy and restarts the daemon onto it; a note that changed again, one that does
@@ -150,7 +150,7 @@ Each traces to the Part III item that taught it.
   since A3), on a fresh state dir or a copy of the store, never the operator's own.
 - **Never block a runtime worker** on a sleep or a blocking wait: use tokio's timer. Compute goes to the CPU pool,
   and network waits to async tools (F3; Items 5 and 25). A wait for the disk, or for a lock held across it, goes
-  through `theseus_store::blocking`, which hands the worker's role to another thread first (theseus-vni9).
+  through `theseus_store::blocking`, which hands the worker's role to another thread first.
 - **One observer, not a publish at every site** (`Kernel::observe`, Item 33).
 - **A wait owned by the daemon** (`session.wait`), not a client's poll (Item 33).
 - **Invented names in fixtures, tests, and commits.** The repository is public (Item 16).
@@ -193,7 +193,7 @@ Each traces to the Part III item that taught it.
   test, budget, cap, ceiling or CI step fails unless a commit signed by a key in `scripts/keel-signers` carries the
   owner's `Keel:` ack; an agent writes one only on his explicit yes, quoted). A join starts main's copy of the gate
   itself. `scripts/AGENTS.md` has the rest.
-- **Commits** are signed (`git commit -S`), one per green sub-step. The subject is `area: what changed (<issue>)`,
+- **Commits** are signed (`git commit -S`), one per green sub-step. The subject is `area: what changed`,
   the area in lower case (`kernel`, `store`, `toolrun`, `cli`, `docs`, …), and the body says what changed and why, in
   plain words. A trailer names the agent, as `Co-Authored-By: Tabitha/Claude <noreply@anthropic.com>` does, or the
   pilot's `Co-Authored-By: Theseus (Claude Opus 5.5) <noreply@anthropic.com>`.
@@ -211,8 +211,8 @@ Each traces to the Part III item that taught it.
 - **Reviews are appendices.** A review of the design is answered in an appendix of the spec (Appendices A, C to F),
   and a review of the code is a design document (`docs/design/review-2.md`) whose accepted findings become steps.
 - **The config is the operator's.** It is a file, `/etc/theseus/theseus.toml` (theseusd's default when there is no
-  `~/.theseus/theseus.toml`, theseus-5aqz), or a note in a vault, and it holds only what differs from the defaults
-  (theseus-vwar), so a new key or default reaches it with the build, and only a value of the operator's own needs an
+  `~/.theseus/theseus.toml`), or a note in a vault, and it holds only what differs from the defaults,
+  so a new key or default reaches it with the build, and only a value of the operator's own needs an
   edit. Its secrets are `op://` references, never values. Every key has a default, documented in the template
   (`crates/theseus-core/config/theseus.example.toml`). The loader rejects unknown keys, and
   `example_template_uncommented_still_parses` holds the template to it.
@@ -221,7 +221,7 @@ Each traces to the Part III item that taught it.
 
 Theseus is built on one WSL2 machine, beside the operator's own running daemon and other agents' work. The rest of this
 section, the scratch daemon's rules and ports, the disk, sccache, and shell traps, is in "This machine" in
-`scripts/RELEASES.md` (it was in `scripts/AGENTS.md` until 2026-11-10, theseus-4vsrz, which moved that file's release
+`scripts/RELEASES.md` (it was in `scripts/AGENTS.md` until 2026-11-10, which moved that file's release
 half out to get back under the context loader's 64 KiB ceiling).
 
 - **The operator's daemon** runs as a bare `theseusd` on `~/.theseus`, its default socket, and web port 7433. Never
