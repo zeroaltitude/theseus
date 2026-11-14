@@ -9,14 +9,14 @@
 --- 2 owner []
 START: run this as a background task, please
 --- 3 bot []
+-# ✅ `task.create` {"arrangement":{"pieces":[{"quote":"run this as a background task, please","role":"object… · 🔔 notified (enforcement = notify) · <dur>
+[Should I have asked? (0) tighten]
+--- 4 bot []
 Started.
 -# sonnet · claude-sonnet-5-5 · 2 loops · 1 tool call · $<cost> total ($<cost> this reply) · <dur> · [inspect](<http://localhost:7433/session/<ses>/turn/<turn>>)
---- 4 bot []
+--- 5 bot []
 (a reply)
 Starting.
---- 5 bot []
-✅ `task.create` {"arrangement":{"pieces":[{"quote":"run this as a background task, please","role":"object… · 🔔 notified (enforcement = notify) · <dur>
-[Should I have asked? (0) tighten]
 --- 6 bot [silent]
 🔔 started task `task-1` · Reef-chart: chart the reef · <#<post>>
 === the task's forum post
@@ -29,9 +29,9 @@ Starting.
 --- 2 bot [silent]
 -# ↩ from the DM
 --- 3 bot []
-✅ `proc.run` sh -c echo $$ > <tmp>/gate.pid; n=0; while [ ! -f <tmp>/go ] && [ -d … · <dur>
+-# ✅ `proc.run` sh -c echo $$ > <tmp>/gate.pid; n=0; while [ ! -f <tmp>/go ] && [ -d … · <dur>
 --- 4 bot []
-✅ `fs.write` <tmp>/outside/reef.txt · <dur>
+-# ✅ `fs.write` <tmp>/outside/reef.txt · <dur>
 --- 5 bot [v2]
 ✅ **Approved** by discord:ana · task `task-1` · *Reef-chart: chart the reef* wants to **write** `outside/reef.txt` in Theseus's state folder (new file, 4 bytes)
 --- 6 bot []

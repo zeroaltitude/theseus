@@ -559,7 +559,7 @@ async fn a_changed_place_keeps_its_turn_and_its_messages() {
     let ended = || {
         r.posted(LAB)
             .iter()
-            .any(|m| m.versions[0].starts_with('⏸') && m.content.starts_with('✅'))
+            .any(|m| m.versions[0].starts_with("-# ⏸") && m.content.starts_with("-# ✅"))
     };
     r.until("the tool line is edited to its end", ended).await;
     let after = r.posted(LAB);
