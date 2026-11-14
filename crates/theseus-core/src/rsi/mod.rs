@@ -37,6 +37,10 @@
 //! learning loop's proposals, the extensions, the owner's routing
 //! corrections, consolidation's syntheses), newest first, each with what,
 //! why, its numbers and its undo. `digest.rs` makes the week's text of them.
+//!
+//! **What stops a failing loop** (the cap on tries, the rules the builder is told, formatting
+//! before the gate, no start on a red main, a tree that stays under its gate, a stale item settled,
+//! set-aside, a join that leaves no tree, the install's reap): `docs/design/self-loop-failure-handling.md`.
 
 pub mod backlog;
 pub mod budget;

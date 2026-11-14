@@ -1461,25 +1461,6 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   total) that fell is one `self.sealed.drift` row, which the backlog night files as one `sealed.drift:<family>` cause
   (`backlog/read.rs`); nothing is reverted, and a changed set is a new baseline. Tests: `rsi/sealed/tests_hold.rs`,
   `rsi/join/tests_sealed.rs`.
-- **A loop that stops itself** (issue 6 of 1.0.7; `rsi/backlog/attempts.rs`, `brief.rs`, `aside.rs`, `rsi/pipeline/main_red.rs`,
-  `stale.rs`, `rsi/tree_fmt.rs`, `rsi/tree_lease.rs`). **Tries:** an item has `attempts::MAX_ATTEMPTS` (3, a constant: the `[self]` config is
-  a keel file); a try is a `gate:red`, a `review:` rejection, or an `ended:no-branch` with no `gate:` since its `session:`
-  (read from the item's evidence, nothing stored; a gate `infra::of_attempt` calls infrastructure leaves `gate:unjudged` after its `gate:red`, which takes the try back); the try that reaches
-  the cap writes `failed:cap`, gives ONE notice (`attempts::notice`), `propose` refuses the item, and the night keeps its cause out
-  (`Work::cause_is_capped`, counted over every item of the cause since the owner's last `retried:owner`) until `self retry`. A red
-  inside 12 hours of another for the item is not posted again (`red_tonight`; the note lists it). **The rules** a builder is told
-  first are `brief::rules`; its own test run in its sandbox is not held (`own_tree::l1_in_own_tree`, called from `toolrun/order.rs`:
-  a self session, an L1 call, every place inside its own tree). **Before the gate** the attempt formats each changed `.rs` file through
-  `rustfmt` on stdin, never `cargo` (a tree's alias or toolchain file would run its code at L0) and never by path (a path follows
-  `#[path]` modules and symlinks out of the tree): the daemon writes back only regular files inside the tree, and the commit says
-  which (`tree_fmt`). **No start on a red main** (`pipeline::Seams.main`, `main_red::Recorded` reads the gate-times log the
-  revert watch reads; a hold named `main_red`; no record means nothing is known and builds start; tests use `Unrecorded`). **A tree
-  stays under its gate** (`tree_lease::Lease` taken by `tree::gate_with`; `tree::close` refuses, the tick's `clear` leaves it for a
-  later tick). **A stale in-progress item** (in no queue: `Queues::stale`) is settled as failed (`pipeline/stale.rs`). **Set aside**
-  (`aside.rs`): `self.drop` with `set_aside`: `waiting_human` plus `set-aside:owner` evidence, no remembered drop, a build under way stops;
-  `self.retry` (`theseus self bring-back`) puts it back. **A join leaves no tree** (`join/guard.rs`, asserted before each phase and at the
-  end of a pass, a failure in tests; the install's build tree is reaped by `install::reap_target` when its build fails or its
-  `self.installed` row is written, and `reap_installed_targets` clears earlier leftovers); a hold on the slots names the trees open.
 - **The self backlog** (theseus-pw1q.7; `rsi/backlog.rs` and `rsi/backlog/`): the nightly read (`backlog_night`; its
   tender, `backlog_after_serving`, runs an hour after consolidation, only with `[self] mode = "act"`) asks `rsi::gate`
   first and between its phases, reads the last day's ledger by kind (failed calls and turns, provider errors, invalid
