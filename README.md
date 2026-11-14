@@ -31,7 +31,7 @@
 
 ---
 
-## What Theseus is0
+## What Theseus is
 
 Theseus is a personal AI agent that lives on your own Linux machine as one small daemon. You talk to it in Discord,
 in a terminal, in your browser or out loud in a voice call, and it does real work with real tools: it edits code,
