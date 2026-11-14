@@ -20,7 +20,8 @@ use sha2::{Digest, Sha256};
 use crate::band::{band, Band};
 use crate::builders::{prepare, InboundInput, Input};
 use crate::builders::{
-    ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION, COMPARE_VERSION, CONTINUE_VERSION,
+    ALLOW_SAID_VERSION, ATTRIBUTION_VERSION, CATEGORIZE_VERSION, CITATION_VERSION,
+    COMPARE_VERSION, CONTINUE_VERSION,
     DELAY_VERSION, EFFORT_SLICE_VERSION, FAMILIES_VERSION, HEARD_VERSION, INBOUND_VERSION,
     LOOP_VERSION, MEMORY_VERSION, NAME_IT_VERSION, PEOPLE_SEEN_VERSION, PEOPLE_VERSION,
     PRECEDENCE_VERSION, PROBE_VERSION, RECALL_CROSS_VERSION, RERANK_VERSION, ROUTE_SLICE_VERSION,
@@ -109,6 +110,7 @@ pub fn builder_identity(pack: &Pack) -> (&'static str, u32) {
         ),
         Builder::Delay => ("delay", DELAY_VERSION),
         Builder::Undo => ("undo", UNDO_VERSION),
+        Builder::AllowSaid => ("allow_said", ALLOW_SAID_VERSION),
     }
 }
 

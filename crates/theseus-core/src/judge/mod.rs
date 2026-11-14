@@ -39,6 +39,7 @@ pub mod delay;
 pub mod families;
 pub mod gate;
 pub mod heard;
+pub mod allow_said;
 pub mod inbound;
 pub(crate) mod job;
 pub mod ladder;

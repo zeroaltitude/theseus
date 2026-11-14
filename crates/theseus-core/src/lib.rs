@@ -26,6 +26,7 @@ pub mod category_recall;
 pub mod ceiling;
 pub mod census;
 pub mod cgroup;
+pub mod chat_acts;
 pub mod check;
 pub mod commitments;
 pub mod compiler;
@@ -258,7 +259,6 @@ mod tests_activation_search;
 #[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
-mod tests_answer_in_words;
 #[cfg(test)]
 mod tests_approvals;
 #[cfg(test)]
@@ -285,6 +285,10 @@ mod tests_cancel;
 mod tests_capture;
 #[cfg(test)]
 mod tests_categorize;
+#[cfg(test)]
+mod tests_answer_in_words;
+#[cfg(test)]
+mod tests_chat_acts;
 #[cfg(test)]
 mod tests_ceilings;
 #[cfg(test)]

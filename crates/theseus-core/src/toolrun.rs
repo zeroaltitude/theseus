@@ -365,6 +365,12 @@ pub struct ToolRuntime {
     /// The configured profiles, each what it runs on: a check's `profile`
     /// names one (M5 28a).
     pub profiles: BTreeMap<String, crate::session::TargetRef>,
+    /// The chat acts (chat-acts-are-tools, S43-1): the three tools the model
+    /// calls in answer to what the owner said, the core they reach, and the
+    /// messages heard at `turn.submit`. **Their definitions are never in a
+    /// place's kept catalog** (`chat_acts::conditional`): a turn's offer step
+    /// puts in only those that apply to this session now.
+    pub chat_acts: crate::chat_acts::Board,
 }
 
 const INPROC_DEADLINE_MS: u64 = 120_000;
@@ -476,6 +482,7 @@ impl ToolRuntime {
         Self {
             misroute: Default::default(),
             catalogs: Default::default(),
+            chat_acts: Default::default(),
             registry: Registry::new(),
             // No tools to call; were one to appear, it would wait.
             policy: ToolPolicy {
@@ -1518,6 +1525,12 @@ impl ToolRuntime {
                 self.run_extend(tc, correlation_id, tool.as_ref(), call)
                     .await
             }
+            // A chat act (chat-acts-are-tools, S43-1): the allow tool awaits
+            // its second reading, so all three take the async harness road.
+            Backend::Harness if crate::chat_acts::conditional(tool.name()) => {
+                self.run_chat_act(tc, correlation_id, tool.as_ref(), call)
+                    .await
+            }
             Backend::Harness => self.run_harness(tc, correlation_id, tool.as_ref(), call, ran_at),
         }
     }
@@ -1556,6 +1569,37 @@ impl ToolRuntime {
                 return Ok(CallOutcome::Done { status });
             }
         }
+        let none = crate::task_graph::tools::Done::default();
+        self.harness_done(tc, correlation_id, tool, call, (started, t0), (done, none))
+    }
+
+    /// A chat act (chat-acts-are-tools, S43-1): the owner said something, the
+    /// model chose to call one of the three tools about it, and this runs it.
+    /// Awaited here, as `extend.propose` is, because the allow tool's second
+    /// reading is one Jev call; its result is written as any harness call's.
+    ///
+    /// **Nothing here reads the text of his message.** The tools were offered
+    /// by `chat_acts::Board::offers`, which asks what is WAITING and what is
+    /// HELD; the message reaches only `allow_said.v1`, which is a judge's
+    /// question and not a matcher, and only after the model has already
+    /// chosen.
+    async fn run_chat_act(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: &dyn Tool,
+        call: &ToolUse,
+    ) -> Result<CallOutcome> {
+        Self::harness_started(tc, correlation_id, tool, call);
+        let started = theseus_protocol::now_unix_ms();
+        let t0 = Instant::now();
+        let acts = &self.chat_acts;
+        let done = match tool.name() {
+            crate::chat_acts::ANSWER => acts.answer(tc, &call.input),
+            crate::chat_acts::ALLOW => acts.allow(tc, &call.input).await,
+            crate::chat_acts::SYNC => acts.sync(tc, &call.input),
+            other => Err(format!("{other} is not a chat act")),
+        };
         let none = crate::task_graph::tools::Done::default();
         self.harness_done(tc, correlation_id, tool, call, (started, t0), (done, none))
     }
@@ -2206,6 +2250,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::thread_split::ThreadSplitTool));
         r.register(Arc::new(crate::ask::OwnerAsk));
         r.register(Arc::new(crate::project_tool::ProjectAttach));
+        crate::chat_acts::register(&mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));
@@ -2308,6 +2353,7 @@ pub fn build_runtime(
         large_payload_chars: t.large_payload_chars,
         proc_sync_secs: t.proc_sync_secs,
         job_wait_max_secs: t.job_wait_max_secs,
+        chat_acts: Default::default(),
         reads: Default::default(),
         max_jobs: t.max_jobs,
         parallel_runs: t.parallel_runs.max(1),

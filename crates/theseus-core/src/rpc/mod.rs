@@ -14,6 +14,7 @@ mod allow_in_words;
 pub(crate) mod answer;
 mod answer_in_words;
 mod ask_again;
+mod chat_answer;
 mod aws;
 mod bindings;
 mod books;
@@ -28,6 +29,7 @@ mod inspect;
 mod question_waits;
 pub(crate) use answer::offer;
 pub(crate) use confirms::{budget_turn, expired_answer, Act, EXPIRY};
+pub(crate) use undo_allow::Taken;
 pub(crate) use question_waits::held_past_life;
 mod disk_watch;
 mod driver;
@@ -1103,6 +1105,7 @@ impl Core {
         core.tools.thread_read.attach(&core);
         core.tools.card_observed.attach(&core);
         core.tools.self_file.attach(&core);
+        core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools
             .admission

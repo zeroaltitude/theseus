@@ -96,6 +96,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("split.v1", include_str!("../packs/split.v1.toml")),
     ("delay.v1", include_str!("../packs/delay.v1.toml")),
     ("undo.v1", include_str!("../packs/undo.v1.toml")),
+    ("allow_said.v1", include_str!("../packs/allow_said.v1.toml")),
 ];
 
 /// Where a pack runs (§2.4). `probe` is the test pack's: the core never
@@ -191,6 +192,9 @@ pub enum Builder {
     /// `undo.v1`'s: one tool call, and what code found about putting back what
     /// it would change (theseus-p5kln).
     Undo,
+    /// `allow_said.v1`'s: the operator's latest message and the held call the
+    /// assistant decided it means (chat-acts-are-tools, S43-1).
+    AllowSaid,
 }
 
 /// What decides when the pack does not (§2.4's baseline column).
