@@ -14,10 +14,10 @@
 //!   plan, a pair of mined names no session shares is asked `same_kind.v1`
 //!   (`renamed.rs`); a yes at the act band joins the two names' sessions into
 //!   one cluster ([`Hints::same`]), each name an example of the kind.
-//! - **The kind's name** is a Choice among the cluster's names
-//!   (`name_it.v1`): Jev's pick at the act band names the kind
-//!   ([`Hints::named`]); `none`, a pick below the band, a single name or no
-//!   answer fall back to the most shared name, as before.
+//! - **The kind's name** is its class (`class.rs`, issue 9) when the sweep's
+//!   model part is on; with it off, the most shared name, as before. Jev's
+//!   `name_it.v1` pick ([`Hints::named`]) is still asked and kept, but names
+//!   nothing now.
 //! - **Undo** retires the kind with its category and drops the memberships
 //!   (`Ontology::undo`). A name a kind of the table already lists in
 //!   `examples` is not clustered again, an undone kind's included, so a

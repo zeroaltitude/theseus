@@ -354,8 +354,8 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   mined `other` names whose sessions add to each other's (singleton chains `a~b`, `b~c` included, and two names that are
   each a cluster) while the pair's two groups plus the names no kept yes has linked reach 3 sessions (at most 20 a run,
   largest union first) and a yes joins them (`mint::Hints::same`; a yes is kept in the mark's `same` for as long as its
-  `kind <a> <b>` ask, so a chain asked over two nights still clusters, and a kept pick follows its cluster to a new key); `name_it.v1` names a kind about to be minted from a cluster of two names or more, and `none`, a
-  pick below the act band or no answer leaves the most shared name (`Hints::named`). The night runs
+  `kind <a> <b>` ask, so a chain asked over two nights still clusters, and a kept pick follows its cluster to a new key); `name_it.v1` is still asked of a kind about to be minted, but
+  its pick (`Hints::named`) names nothing now: the class does. The night runs
   hints, then the plan, then the pair, split and rename asks (`onto_sweep_night`); `onto_sweep` alone is the plan with
   no model; once, `judge/onto/tidy.rs` retires the loop's mistaken `resource` entries; (4) `consolidate/guidance.rs`, run by the nightly consolidation tender after
   its own run (never `memory.consolidate`): one call a category of an interpreted kind a machine wrote, no guidance,
