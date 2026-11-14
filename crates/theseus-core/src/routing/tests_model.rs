@@ -109,14 +109,14 @@ fn an_option_names_a_catalog_model_and_the_profile_that_runs_it() {
     // first by name; an unusable one is passed over for a usable one.
     let mut two = five_options();
     two.insert(
-        "haikuhi".into(),
+        "haiku_high".into(),
         catalog_profile("anthropic", "claude-haiku-5-5", false),
     );
     assert_eq!(model::profile_for("haiku", &two), Some("haiku"));
     two.get_mut("haiku").unwrap().unusable = Some("key");
-    assert_eq!(model::profile_for("haiku", &two), Some("haikuhi"));
+    assert_eq!(model::profile_for("haiku", &two), Some("haiku_high"));
     two.remove("haiku");
-    two.remove("haikuhi");
+    two.remove("haiku_high");
     assert_eq!(
         model::profile_for("haiku", &two),
         None,

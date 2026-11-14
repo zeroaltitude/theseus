@@ -198,17 +198,17 @@ class Routed(unittest.TestCase):
         modes = {m: t["profiles"] for m, t in cfg["routing"]["classes"].items()}
         self.assertEqual(modes, {
             "trivial": ["haiku"], "quick": ["haiku"], "chat": [],
-            "sophisticated": ["opus", "fable"], "deep_coding": ["sonnethi", "opus"],
-            "routine_coding": ["haikuhi", "sonnet"]})
+            "sophisticated": ["opus", "fable"], "deep_coding": ["sonnet_high", "opus"],
+            "routine_coding": ["haiku_high", "sonnet"]})
         named = {p for ps in modes.values() for p in ps}
         self.assertLessEqual(named, set(cfg["profiles"]))
         self.assertEqual({n: cfg["profiles"][n]["model"] for n in tb.ROUTED_PROFILES}, {
-            "sonnet": "claude-sonnet-5-5", "sonnethi": "claude-sonnet-5-5", "opus": "claude-opus-5-5",
-            "opushi": "claude-opus-5-5", "fable": "claude-fable-5-1",
-            "haiku": "claude-haiku-5-5", "haikuhi": "claude-haiku-5-5"})
+            "sonnet": "claude-sonnet-5-5", "sonnet_high": "claude-sonnet-5-5", "opus": "claude-opus-5-5",
+            "opus_high": "claude-opus-5-5", "fable": "claude-fable-5-1",
+            "haiku": "claude-haiku-5-5", "haiku_high": "claude-haiku-5-5"})
         self.assertEqual({n: cfg["profiles"][n]["effort"] for n in tb.ROUTED_PROFILES}, {
-            "sonnet": "medium", "sonnethi": "high", "opus": "medium", "opushi": "high",
-            "fable": "high", "haiku": "low", "haikuhi": "high"})
+            "sonnet": "medium", "sonnet_high": "high", "opus": "medium", "opus_high": "high",
+            "fable": "high", "haiku": "low", "haiku_high": "high"})
         # The trial's loop cap rides every profile the router may pick.
         for name in ("bench", *tb.ROUTED_PROFILES):
             self.assertEqual(cfg["profiles"][name]["max_loops"], 50, name)
@@ -230,8 +230,8 @@ class Routed(unittest.TestCase):
 
         efforts = ef.profile_efforts(tb.PROFILE_ROUTED.read_text())
         self.assertEqual(efforts["bench"], "medium")
-        self.assertEqual((efforts["haiku"], efforts["haikuhi"]), ("low", "high"))
-        self.assertEqual((efforts["sonnet"], efforts["opus"], efforts["opushi"], efforts["fable"]),
+        self.assertEqual((efforts["haiku"], efforts["haiku_high"]), ("low", "high"))
+        self.assertEqual((efforts["sonnet"], efforts["opus"], efforts["opus_high"], efforts["fable"]),
                          ("medium", "medium", "high", "high"))
         self.assertEqual(tb.profile_effort(path=tb.PROFILE_ROUTED), "medium")
 
@@ -250,9 +250,9 @@ class Routed(unittest.TestCase):
                 "mode": "deep_coding", "confidence": 0.9, "profile": "opus", "from": "bench",
                 "detour": False, "switch": True, "late": False, "reason": "moved"}},
             {"kind": "route.decided", "position": 4, "data": {
-                "mode": "quick", "profile": "haikuhi", "from": "bench", "detour": True}},
+                "mode": "quick", "profile": "haiku_high", "from": "bench", "detour": True}},
         ]}
-        efforts = {"bench": "medium", "opus": None, "haikuhi": "high"}
+        efforts = {"bench": "medium", "opus": None, "haiku_high": "high"}
         out = ef.routed_record(rec, judge, routes, efforts)
         self.assertEqual(out["arm"], "theseus-routed")
         self.assertEqual((out["model_cost_usd"], out["cost_usd"]), (0.5, 0.502))
@@ -261,10 +261,10 @@ class Routed(unittest.TestCase):
         self.assertEqual(out["jev"]["by_pack"]["route.v2"], {"calls": 2, "cost_usd": 0.002})
         r = out["routing"]
         # Oldest first, by position; efforts from the config.
-        self.assertEqual([(t["profile"], t["effort"]) for t in r["turns"]], [("haikuhi", "high"), ("opus", None)])
+        self.assertEqual([(t["profile"], t["effort"]) for t in r["turns"]], [("haiku_high", "high"), ("opus", None)])
         self.assertEqual(r["models"], {"claude-haiku-5-5": 3, "claude-opus-5-5": 2})
         self.assertEqual((r["profiles"], r["modes"], r["acted"], r["rows_read"]),
-                         ({"haikuhi": 1, "opus": 1}, {"quick": 1, "deep_coding": 1}, 2, True))
+                         ({"haiku_high": 1, "opus": 1}, {"quick": 1, "deep_coding": 1}, 2, True))
 
     def test_an_unreadable_ledger_is_unknown_not_no_routing_and_an_unpriced_model_stays_so(self):
         import efficiency as ef

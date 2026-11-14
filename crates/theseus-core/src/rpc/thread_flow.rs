@@ -120,6 +120,7 @@ fn fresh_row(home: &str) -> RoutedRow {
         early: false,
         movable: false,
         above: None,
+        spared: None,
     }
 }
 
@@ -195,7 +196,7 @@ impl Core {
                     )
                     .await;
                 scored = pre;
-                tag
+                self.spare_large(tag, &live, &mut row)
             }
         };
         let (mut tag, run_session) = self.session_for(tag, session);
@@ -239,6 +240,29 @@ impl Core {
         };
         *session = run_session;
         Ok(Some(routing))
+    }
+
+    /// A guess the router made into a thread that holds a large context runs
+    /// at home instead, movable (`thread_route::spare_large`). The thread's
+    /// conversation is read only for a guess, so no other placement pays for
+    /// it; the row says which thread was spared and how large it was.
+    fn spare_large(&self, tag: ThreadTag, live: &[&ThreadInfo], row: &mut RoutedRow) -> ThreadTag {
+        let Some(slug) = tag.slug.as_deref().filter(|_| tag.how == RouteHow::Guess) else {
+            return tag;
+        };
+        let tokens = live
+            .iter()
+            .find(|t| t.slug == slug)
+            .and_then(|t| t.session_id.as_deref())
+            .and_then(|sid| self.store.session_nodes(sid).ok())
+            .map(|nodes| crate::judge::route_facts::est_tokens(nodes.iter().map(|(_, n)| n)));
+        match (crate::thread_route::spare_large(&tag, tokens), tokens) {
+            (Some(home), Some(tokens)) => {
+                row.spared = Some((slug.to_string(), tokens));
+                home
+            }
+            _ => tag,
+        }
     }
 
     /// What a message addresses: a thread in its own words, or the thread of

@@ -63,6 +63,10 @@ A thread Theseus should stop routing to is taken out of the router's candidate s
 `theseus thread done <slug>` — an archive thread left `active` is still a candidate, which is how a
 fresh request landed in one at 137k of context (F6).
 
+When Theseus can only guess the thread and the one it would guess holds 100,000 tokens of conversation or more, the message
+runs in the place's own conversation instead, still marked a guess with the move offered; a message that names the thread
+still goes there.
+
 ## Yours alone
 
 These the core judges as the owner's, from a private place.

@@ -107,7 +107,7 @@ mod tests {
             row("dsflash", Some("sonnet"), 0.05, 0.25, Some(100), true),
             row("dsflash", Some("sonnet"), 0.0625, 0.25, Some(112), true),
             row("dsflash", None, 0.0625, 0.0, Some(0), false),
-            row("dsflashmax", Some("sonnethi"), 0.5, 1.0, None, false),
+            row("dsflashmax", Some("sonnet_high"), 0.5, 1.0, None, false),
         ];
         let got = drafts(&rows);
         let key: Vec<_> = got
@@ -119,7 +119,7 @@ mod tests {
             [
                 ("dsflash", "none"),
                 ("dsflash", "sonnet"),
-                ("dsflashmax", "sonnethi")
+                ("dsflashmax", "sonnet_high")
             ]
         );
         let n = &got[0];

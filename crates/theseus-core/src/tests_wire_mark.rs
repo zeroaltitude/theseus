@@ -155,12 +155,25 @@ async fn profile_list_names_each_profiles_origin() {
 }
 
 /// `ProfileInfo.effort` is the effort the profile is configured at, so the
-/// cockpit can group `opus` and `opushi` as one model at two efforts before
-/// any turn has said what it ran at (theseus-yxkww); a profile with none
-/// configured says none.
+/// cockpit can group `opus` and `opus_high` (a profile of the operator's own,
+/// added here) as one model at two efforts before any turn has said what it
+/// ran at (theseus-yxkww); a profile with none configured says none.
 #[tokio::test]
 async fn profile_list_carries_each_profiles_configured_effort() {
-    let r = rig(None, 1, |_| {});
+    let r = rig(None, 1, |c| {
+        let text = format!(
+            "{}\n[profiles.opus_high]\nprovider = \"anthropic\"\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n",
+            crate::Config::EXAMPLE_TOML
+        );
+        let (mut with, _) = crate::Config::parse(&text).unwrap();
+        with.server = c.server.clone();
+        with.tools = c.tools.clone();
+        with.judge = c.judge.clone();
+        with.routing = c.routing.clone();
+        with.memory = c.memory.clone();
+        with.ontology = c.ontology.clone();
+        *c = with;
+    });
     let list = r.core.profile_list();
     let effort = |n: &str| {
         list.profiles
@@ -170,7 +183,7 @@ async fn profile_list_carries_each_profiles_configured_effort() {
             .effort
             .clone()
     };
-    assert_eq!(effort("opushi").as_deref(), Some("high"));
+    assert_eq!(effort("opus_high").as_deref(), Some("high"));
     assert_eq!(effort("haiku").as_deref(), Some("low"));
     assert_eq!(effort("sonnet"), None);
 }
