@@ -60,7 +60,7 @@ async fn the_owner_reopens_an_execution_at_its_limit_and_a_stranger_cannot() {
         "nothing changed"
     );
     assert_eq!(
-        rows(&core, &e.session_id, "approval.refused")
+        rows(&core, "approval.refused")
             .iter()
             .filter(|r| r["act"] == "execution.reopen")
             .count(),

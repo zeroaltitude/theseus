@@ -85,7 +85,7 @@ fn unanswered_calls(core: &Core, sid: &str) -> usize {
     nodes
         .iter()
         .filter(|(_, n)| match &n.body {
-            Body::ToolCall { id, .. } => !answered.contains(id),
+            Body::ToolCall { tool_use_id, .. } => !answered.contains(tool_use_id),
             _ => false,
         })
         .count()

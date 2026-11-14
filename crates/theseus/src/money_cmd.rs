@@ -1,4 +1,4 @@
-//! `theseus reopen` and `theseus spend settle|forgive` (issue 6; theseus-x3m9, theseus-cv3v): the owner's
+//! `theseus budgets reopen|settle|forgive` (issue 6; theseus-x3m9, theseus-cv3v): the owner's
 //! two words on money the kernel holds or has stopped. Each is the owner's, from their own shell: inside a
 //! job the CLI refuses them (`OPERATORS`), and the daemon refuses anyone else. Neither changes a default.
 
@@ -12,9 +12,18 @@ use theseus_protocol::money::{
 
 use crate::cmd::output;
 
-/// What `theseus spend` does.
+/// What `theseus budgets` does besides listing.
 #[derive(Debug, Subcommand)]
-pub enum SpendCmd {
+pub enum BudgetsCmd {
+    /// Reopen an execution that ended at its dollar limit: it gets the new limit, which must be above
+    /// what it has spent, and waits for your next message. The limit is its own; no default changes.
+    Reopen {
+        /// The execution's id.
+        execution: String,
+        /// Its new limit, in dollars.
+        #[arg(long, value_name = "DOLLARS")]
+        limit: f64,
+    },
     /// Settle a call whose spend is held as unknown, at what it cost (from the provider's bill): the held
     /// amount is released into that cost. Its outcome stays unknown; only the money is settled.
     Settle {
@@ -32,8 +41,17 @@ pub enum SpendCmd {
     },
 }
 
-/// `theseus reopen EXECUTION --limit DOLLARS`.
-pub async fn reopen(conn: &mut Conn, json: bool, execution: String, limit: f64) -> Result<()> {
+/// `theseus budgets`, and its subcommands.
+pub async fn run(conn: &mut Conn, json: bool, cmd: Option<BudgetsCmd>) -> Result<()> {
+    match cmd {
+        None => crate::budgets::budgets(conn, json).await,
+        Some(BudgetsCmd::Reopen { execution, limit }) => reopen(conn, json, execution, limit).await,
+        Some(other) => settle(conn, json, other).await,
+    }
+}
+
+/// `theseus budgets reopen EXECUTION --limit DOLLARS`.
+async fn reopen(conn: &mut Conn, json: bool, execution: String, limit: f64) -> Result<()> {
     let p = ExecutionReopenParams {
         execution_id: execution,
         limit_usd: limit,
@@ -54,17 +72,18 @@ pub(crate) fn reopened_words(r: &ExecutionReopenResult) -> String {
     )
 }
 
-/// `theseus spend settle|forgive`.
-pub async fn spend(conn: &mut Conn, json: bool, cmd: SpendCmd) -> Result<()> {
+/// `theseus budgets settle|forgive`.
+async fn settle(conn: &mut Conn, json: bool, cmd: BudgetsCmd) -> Result<()> {
     let p = match cmd {
-        SpendCmd::Settle { call, usd } => ActionSettleParams {
+        BudgetsCmd::Settle { call, usd } => ActionSettleParams {
             correlation_id: call,
             usd: Some(usd),
         },
-        SpendCmd::Forgive { call } => ActionSettleParams {
+        BudgetsCmd::Forgive { call } => ActionSettleParams {
             correlation_id: call,
             usd: None,
         },
+        BudgetsCmd::Reopen { .. } => unreachable!("a reopen is run by `reopen`"),
     };
     let v = conn.request(method::ACTION_SETTLE, p).await?;
     output(json, v, |r: ActionSettleResult| {
@@ -97,24 +116,32 @@ mod tests {
     #[test]
     fn the_verbs_parse() {
         let c =
-            crate::Cli::try_parse_from(["theseus", "reopen", "exe_1", "--limit", "25"]).unwrap();
-        assert!(matches!(c.cmd, Cmd::Reopen { limit, .. } if (limit - 25.0).abs() < 1e-9));
-        let c =
-            crate::Cli::try_parse_from(["theseus", "spend", "settle", "corr_1", "--usd", "0.40"])
+            crate::Cli::try_parse_from(["theseus", "budgets", "reopen", "exe_1", "--limit", "25"])
                 .unwrap();
-        assert!(
-            matches!(c.cmd, Cmd::Spend { cmd: SpendCmd::Settle { usd, .. } } if (usd - 0.4).abs() < 1e-9)
-        );
-        let c = crate::Cli::try_parse_from(["theseus", "spend", "forgive", "corr_1"]).unwrap();
         assert!(matches!(
             c.cmd,
-            Cmd::Spend {
-                cmd: SpendCmd::Forgive { .. }
+            Cmd::Budgets { cmd: Some(BudgetsCmd::Reopen { limit, .. }) } if (limit - 25.0).abs() < 1e-9
+        ));
+        let c =
+            crate::Cli::try_parse_from(["theseus", "budgets", "settle", "corr_1", "--usd", "0.40"])
+                .unwrap();
+        assert!(matches!(
+            c.cmd,
+            Cmd::Budgets { cmd: Some(BudgetsCmd::Settle { usd, .. }) } if (usd - 0.4).abs() < 1e-9
+        ));
+        let c = crate::Cli::try_parse_from(["theseus", "budgets", "forgive", "corr_1"]).unwrap();
+        assert!(matches!(
+            c.cmd,
+            Cmd::Budgets {
+                cmd: Some(BudgetsCmd::Forgive { .. })
             }
         ));
+        // The listing is still the bare command.
+        let c = crate::Cli::try_parse_from(["theseus", "budgets"]).unwrap();
+        assert!(matches!(c.cmd, Cmd::Budgets { cmd: None }));
         // A reopen needs its limit, and a settle its amount: no guessing at money.
-        assert!(crate::Cli::try_parse_from(["theseus", "reopen", "exe_1"]).is_err());
-        assert!(crate::Cli::try_parse_from(["theseus", "spend", "settle", "corr_1"]).is_err());
+        assert!(crate::Cli::try_parse_from(["theseus", "budgets", "reopen", "exe_1"]).is_err());
+        assert!(crate::Cli::try_parse_from(["theseus", "budgets", "settle", "corr_1"]).is_err());
     }
 
     #[test]

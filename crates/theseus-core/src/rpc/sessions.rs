@@ -2,7 +2,8 @@
 //! a session's state, judged as the core judges every owner's act (the
 //! owner, from a private place; `crate::succession`), and refused by the CLI
 //! inside a job. Each answers the session as `session.list` shows it. And
-//! `session.nudge`, a session's own switch of the stop nudge (theseus-fh0u).
+//! `session.nudge`, a session's own switch of the stop nudge (theseus-fh0u). And the owner's two words
+//! on money (`execution.reopen`, `action.settle`, issue 6), which `money.rs` holds.
 
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ use crate::session::SessionRecord;
 /// The methods routed here: the list, the owner's two acts, a person's
 /// first keystroke (theseus-tnky), the stop nudge's switch (theseus-fh0u),
 /// a fork (theseus-2qzx), a rewind's two (theseus-23rk), and a conversation's mode (theseus-lyxy).
-pub(super) const OWN: [&str; 9] = [
+pub(super) const OWN: [&str; 11] = [
     method::SESSION_LIST,
     method::SESSION_RETIRE,
     method::SESSION_REOPEN,
@@ -30,6 +31,8 @@ pub(super) const OWN: [&str; 9] = [
     method::FILES_CHANGES,
     method::FILES_RESTORE,
     method::SESSION_MODE,
+    method::EXECUTION_REOPEN,
+    method::ACTION_SETTLE,
 ];
 
 impl Core {
@@ -53,6 +56,7 @@ impl Core {
             method::FILES_CHANGES => route(params, |p| self.files_changes(p, conn)),
             method::FILES_RESTORE => route(params, |p| self.files_restore(p, conn)),
             method::SESSION_MODE => route(params, |p| self.session_mode(p, conn)),
+            method::EXECUTION_REOPEN | method::ACTION_SETTLE => self.rpc_money(m, params, conn),
             _ => route(params, |p| self.rpc_session_reopen(p, conn)),
         }
     }

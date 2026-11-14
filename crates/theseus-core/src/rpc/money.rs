@@ -1,7 +1,7 @@
 //! `execution.reopen` and `action.settle` (issue 6; theseus-x3m9, theseus-cv3v): the owner's two words on
 //! money the kernel holds or has stopped (`theseus_kernel::owner_money`). Each is judged as every owner's
 //! act is (the owner, from a private place or their own shell; never an agent's process), refused by the
-//! CLI inside a job, and changes no default.
+//! CLI inside a job, and changes no default. Routed with the session words (`sessions::OWN`).
 
 use serde_json::Value;
 use theseus_kernel::usd_to_micros;
@@ -14,9 +14,6 @@ use super::server::{route, Conn, RpcFailure};
 use super::Core;
 use crate::approval::Refusal;
 use crate::rpc::Act;
-
-/// The methods routed here.
-pub(super) const OWN: [&str; 2] = [method::EXECUTION_REOPEN, method::ACTION_SETTLE];
 
 impl Core {
     pub(super) fn rpc_money(

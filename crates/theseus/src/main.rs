@@ -500,29 +500,18 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
     },
-    /// Reopen an execution that ended at its dollar limit (the owner's): it gets the new limit, which
-    /// must be above what it has spent, and waits for your next message. The limit is its own; no
-    /// default changes.
-    #[command(hide = true)]
-    Reopen {
-        /// The execution's id.
-        execution: String,
-        /// Its new limit, in dollars.
-        #[arg(long, value_name = "DOLLARS")]
-        limit: f64,
-    },
-    /// Settle or forgive a call whose spend is held as unknown (the owner's): `spend settle CALL --usd N`
-    /// says what it cost, `spend forgive CALL` counts it as nothing. Each leaves one row.
-    #[command(hide = true)]
-    Spend {
-        #[command(subcommand)]
-        cmd: money_cmd::SpendCmd,
-    },
     /// Where the money is: each open session's limit and where it comes from, spent, reserved,
     /// held, available, and lifetime cost, its resets and any budget question, each task under
     /// its parent with its carve, and the totals.
+    ///
+    /// Beside it, the owner's words on money the kernel holds or has stopped: `budgets reopen
+    /// EXECUTION --limit N` (an execution that ended at its dollar limit), `budgets settle CALL --usd N`
+    /// and `budgets forgive CALL` (a call held as unknown spend). No default changes.
     #[command(hide = true)]
-    Budgets,
+    Budgets {
+        #[command(subcommand)]
+        cmd: Option<money_cmd::BudgetsCmd>,
+    },
     /// Tasks (work.watch), one line each under its conversation: a mark, its short id, its title,
     /// how long it has run and what it is doing; under one that asks, the command that answers it;
     /// a footer of counts. `--watch` keeps it current: a line for each task that starts, asks,
@@ -1532,9 +1521,7 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Health => cmd::health(c, json).await,
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Content(a) => content_cmd::run(c, json, a).await,
-        Cmd::Budgets => budgets::budgets(c, json).await,
-        Cmd::Reopen { execution, limit } => money_cmd::reopen(c, json, execution, limit).await,
-        Cmd::Spend { cmd } => money_cmd::spend(c, json, cmd).await,
+        Cmd::Budgets { cmd } => money_cmd::run(c, json, cmd).await,
         Cmd::Tasks { args, cmd } => tasks_forecast::dispatch(c, json, args, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,
