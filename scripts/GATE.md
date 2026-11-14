@@ -194,7 +194,11 @@ Two lines under the phase table say what a verdict is a verdict of, so a tail re
 - `gate: judged commit <sha>, tree clean` (or `tree edited beyond it (<digest>)`), read before the first compile.
   `scripts/gate-judged.sh LOG [REMOTE REF]` reads the last such line in a gate's log and the remote's tip of REF: SAME
   (exit 0), DIFFERENT (1; another commit, or a tree with edits the push does not hold) or UNKNOWN (2). Run it after a
-  push, on the log of the gate that licensed it.
+  push, on the log of the gate that licensed it. **It is the check for a landing's gate, run on `main` after the
+  fast-forward, on a clean tree.** A branch gate run the way `docs/development.md` prescribes (`gate.sh && git commit`)
+  judges the parent commit with the commit's edits on top, so it reads `tree edited beyond it` and the script answers
+  DIFFERENT for it, truthfully and always: do not run it for a branch push. A gate on a host whose runner writes a
+  default-filter into the tracked config reads the same way.
 - `(WARNED: script tests failed: <files>)` at the end of the verdict, with `gate: what this run WARNED of (not fatal by
   decision): …` under the table, when the helper scripts' own tests failed. That phase stays non-fatal (the owner's
   decision, recorded where it is made: `script_tests` in `scripts/gate.sh`), so the verdict says what it found instead
