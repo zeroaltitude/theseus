@@ -182,7 +182,7 @@ impl Shared {
         gone: &(dyn Fn() -> bool + Sync),
     ) -> anyhow::Result<QueryResult> {
         let t0 = Instant::now();
-        let weights = self.weights.with(&p.weights).map_err(anyhow::Error::msg)?;
+        let mut weights = self.weights.with(&p.weights).map_err(anyhow::Error::msg)?;
         let mut wanted: Vec<&str> = if p.sources.is_empty() {
             let mut v = vec!["bm25", "entity"];
             if self.vectors.mode() == "hybrid" {
@@ -199,6 +199,14 @@ impl Shared {
             );
         }
         wanted.dedup();
+        // The tender's own vector weight is for an index whose vectors are
+        // made; while they are not (a first backfill, a re-embed) the few
+        // chunks that have one would outrank every exact match, so it is
+        // scaled by the share that has (theseus-pv7m). A weight the query
+        // names is its own and stands.
+        if wanted.contains(&"vector") && !p.weights.contains_key("vector") {
+            weights.vector *= self.vectors.coverage();
+        }
         let mut skipped = BTreeMap::new();
         let mut vector = None;
         let (mut embed_ms, mut scan_ms) = (0.0, 0.0);

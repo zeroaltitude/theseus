@@ -71,6 +71,26 @@ impl Vectors {
         last.clone()
     }
 
+    /// The share of the index's chunks that a vector answers for, 0 to 1
+    /// (1 when the index holds no chunk): one pass over the rows, read now
+    /// and never cached, so a query weighs the vector source by what it can
+    /// see of the index this moment (theseus-pv7m). A table whose lock is
+    /// held is read as covered, as the status reads its last counts.
+    pub fn coverage(&self) -> f64 {
+        let Ok(t) = self.table.try_read() else {
+            return 1.0;
+        };
+        let (mut chunks, mut vectors) = (0u64, 0u64);
+        for r in t.alive() {
+            chunks += 1;
+            vectors += u64::from(r.vec().is_some());
+        }
+        match chunks {
+            0 => 1.0,
+            n => vectors as f64 / n as f64,
+        }
+    }
+
     pub fn status(&self) -> VectorStatus {
         let st = self.state.lock().unwrap();
         let model = st.model.name().to_string();
