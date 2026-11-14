@@ -111,7 +111,7 @@ each prompt is compiled with their guidance.
 The map grows by itself. Imported history arrives with its topics already filed. Each night a sweep merges
 duplicates, lets stale entries lapse, renames what has drifted, and creates and names a new kind when the same
 unlisted answer keeps coming up. New kinds and renames are in the morning note, and what the sweep does can be
-undone. A person is one record with many handles, and it holds what they do and own, never an opinion of them.
+undone. A person is one record with many handles, and it holds what they do and own.
 
 The map is part of indexed memory. Imported history is sorted into seven books (a diary, an encyclopedia, a
 cookbook, procedures, a casebook, a register and a dictionary), each a different way of organizing what Theseus
