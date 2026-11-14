@@ -123,7 +123,14 @@ class MainTreeGuard(unittest.TestCase):
         self.assertEqual(self.head(), "refs/heads/main")
         self.assertEqual(self.git("log", "-1", "--format=%s").stdout.strip(), "local")
         self.assertEqual(self.git("log", "-1", "--format=%s", "HEAD~1").stdout.strip(), "three")
-        self.assertNotIn("theseus:", r.stderr, "a rebase of main itself is said nothing of")
+
+    def test_a_rebase_of_another_branch_is_not_covered(self):
+        # The recorded limit (review round 2 of issue 15): the hook cannot fail a rebase without breaking it, and
+        # git 2.34 shows nothing it prints there, so a rebase of another branch ends on that branch. The docs say so.
+        self.guard("install")
+        r = self.git("rebase", "main", "builder", check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.head(), "refs/heads/builder")
 
     def test_a_bisect_in_the_main_tree_runs_and_its_reset_ends_on_main(self):
         self.guard("install")
