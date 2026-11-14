@@ -72,6 +72,12 @@ theseus shutdown
 
 Exit codes: `0` ok, `1` server or provider error, `2` usage, `3` cannot connect.
 
+Which certificate authorities Theseus trusts, as it stands (pinned by `crates/theseusd/tests/tls_roots.rs`):
+every HTTPS call (model providers, AWS, Google, MCP servers, the judge) trusts the bundled list only, not your
+machine's; the Discord gateway trusts the bundled list and your machine's; the voice gateway's socket trusts your
+machine's alone. So a certificate authority only your machine knows works for Discord and is refused for a model
+provider. Changing that is the owner's call.
+
 Profiles and providers: a `[profiles.<name>]` entry is provider + model + max_tokens + system; exactly
 one is **live** (`[model].live` at startup, `theseus profile use <name>` at runtime, `theseus profile release` to give it back, persisted across
 restarts, also a selector in the web UI). `theseus ask -P glm "…"` runs one turn under another
