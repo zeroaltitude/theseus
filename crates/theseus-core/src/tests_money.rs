@@ -36,6 +36,8 @@ struct Holds {
     /// What the held call's provider has said it used before it goes quiet
     /// (its `message_start`), if anything.
     said: Option<Usage>,
+    /// Characters it streams after that, before it goes quiet.
+    then: &'static str,
 }
 
 impl Provider for Holds {
@@ -51,6 +53,9 @@ impl Provider for Holds {
             if self.calls.fetch_add(1, Ordering::Relaxed) == self.hold {
                 if let Some(u) = &self.said {
                     on_delta(Delta::Usage(u));
+                }
+                if !self.then.is_empty() {
+                    on_delta(Delta::Text(self.then));
                 }
                 let _ = self.entered.send(());
                 std::future::pending::<()>().await;
@@ -184,14 +189,14 @@ impl Rig {
 /// Run a turn whose call numbered `hold` is cut by a stop; the cut's
 /// `provider.cut` row.
 async fn cut_at(hold: usize, script: Vec<Scripted>, cfg: impl FnOnce(&mut Config)) -> (Rig, Value) {
-    cut_saying(hold, script, None, cfg).await
+    cut_saying(hold, script, (None, ""), cfg).await
 }
 
 /// [`cut_at`], the held call's provider having sent `said` first.
 async fn cut_saying(
     hold: usize,
     script: Vec<Scripted>,
-    said: Option<Usage>,
+    (said, then): (Option<Usage>, &'static str),
     cfg: impl FnOnce(&mut Config),
 ) -> (Rig, Value) {
     let (tx, mut entered) = tokio::sync::mpsc::unbounded_channel();
@@ -201,6 +206,7 @@ async fn cut_saying(
         calls: AtomicUsize::new(0),
         entered: tx,
         said,
+        then,
     });
     let r = rig(provider, cfg);
     let running = tokio::spawn(turn(r.core.clone(), r.sid.clone()));
@@ -268,7 +274,7 @@ async fn a_cut_that_streamed_nothing_is_booked_from_the_providers_usage_events()
         cache_creation_input_tokens: 3_000,
         ..Usage::default()
     };
-    let (r, cut) = cut_saying(0, vec![], Some(said), |_| {}).await;
+    let (r, cut) = cut_saying(0, vec![], (Some(said), ""), |_| {}).await;
     assert_eq!(cut["split"], "provider_events", "{cut}");
     assert_eq!(cut["estimated"], false, "{cut}");
     assert_eq!(cut["output_chars"], 0, "nothing streamed: {cut}");
@@ -292,6 +298,34 @@ async fn a_cut_that_streamed_nothing_is_booked_from_the_providers_usage_events()
     assert_eq!(
         (&quiet["split"], &quiet["estimated"]),
         (&json!("uncached"), &json!(true))
+    );
+}
+
+/// The same cut, but it had streamed 400 characters (about 100 tokens) when the provider had told it
+/// only the prompt and an output of 1: the prompt is still the provider's, exactly, and the output is
+/// the characters' estimate, so the row says it is an estimate, with the prompt's split.
+#[tokio::test]
+async fn a_cut_that_streamed_more_than_the_provider_reported_is_still_an_estimate() {
+    let said = Usage {
+        input_tokens: 150,
+        output_tokens: 1,
+        cache_read_input_tokens: 6_000,
+        cache_creation_input_tokens: 3_000,
+        ..Usage::default()
+    };
+    let words = "tide ".repeat(80);
+    let words: &'static str = Box::leak(words.into_boxed_str());
+    let (_, cut) = cut_saying(0, vec![], (Some(said), words), |_| {}).await;
+    assert_eq!(cut["split"], "provider_events", "{cut}");
+    assert_eq!(cut["estimated"], true, "{cut}");
+    assert_eq!(
+        (
+            &cut["input_tokens"],
+            &cut["cache_read_input_tokens"],
+            &cut["output_tokens"]
+        ),
+        (&json!(150), &json!(6_000), &json!(100)),
+        "{cut}"
     );
 }
 
