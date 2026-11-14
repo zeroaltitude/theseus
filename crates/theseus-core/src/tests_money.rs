@@ -301,7 +301,7 @@ async fn a_cut_that_streamed_nothing_is_booked_from_the_providers_usage_events()
     );
 }
 
-/// The same cut, but it had streamed 400 characters (about 100 tokens) when the provider had told it
+/// The same cut, but it had streamed 300 characters (100 tokens at the estimate's three characters a token) when the provider had told it
 /// only the prompt and an output of 1: the prompt is still the provider's, exactly, and the output is
 /// the characters' estimate, so the row says it is an estimate, with the prompt's split.
 #[tokio::test]
@@ -313,7 +313,7 @@ async fn a_cut_that_streamed_more_than_the_provider_reported_is_still_an_estimat
         cache_creation_input_tokens: 3_000,
         ..Usage::default()
     };
-    let words = "tide ".repeat(80);
+    let words = "tid ".repeat(75);
     let words: &'static str = Box::leak(words.into_boxed_str());
     let (_, cut) = cut_saying(0, vec![], (Some(said), words), |_| {}).await;
     assert_eq!(cut["split"], "provider_events", "{cut}");
