@@ -20,11 +20,21 @@ spec.loader.exec_module(lp)
 
 # (path, function name, clippy's count)
 CALIBRATION = [
+    # Found by diffing the whole workspace at threshold 40 against clippy (issue 14, 4,012 functions clippy judged, base
+    # b8b403b7; the script then agreed on 4,004 and missed or miscounted these): an array return type hid its function
+    # (`fn faults<'a>() -> [Fault<'a>; 12]`), and `#[tokio::main]` / `#[async_trait]` async fns were counted 2 high.
+    ("crates/theseusd/tests/user_service_script.rs", "faults", 75),
+    ("crates/theseus-mcp/src/bin/theseus-mcp-fake.rs", "main", 61),
+    ("crates/theseus-mcp/examples/server.rs", "main", 55),
+    ("crates/theseus-voice/src/songbird_io.rs", "act", 51),
     ("crates/theseus-ontology/src/compose.rs", "compose", 95),
     ("crates/theseus-ontology/src/kind.rs", "interpreted_seeds", 96),
     ("crates/theseus-ontology/src/ontology.rs", "load", 96),
     ("crates/theseus-ontology/src/person.rs", "merge", 98),
-    ("crates/theseus-store/src/store.rs", "commit", 93),
+    # 93 until the function was shortened: it reads 55 now, and clippy reads 55 too (the diff of the whole workspace at
+    # threshold 40, issue 14, agreed at store.rs:1864). The stale row, not a counting bug, was the "55 against 93" that
+    # reddened this test on main and cost a round trip; the row is re-measured, not loosened.
+    ("crates/theseus-store/src/store.rs", "commit", 55),
     ("crates/theseus-follow/src/lib.rs", "read_into", 96),
     # Plain `async fn`s: clippy counts 2 more than the body alone (the script adds 2). Measured at base 85697868
     # with `too-many-lines-threshold = 85`: sync 207 of 207 exact, `#[tokio::test]` 72 of 72, plain async 85 of 85
@@ -118,6 +128,38 @@ class Walker(unittest.TestCase):
             scanned, near = lp.scan([d], threshold=100, margin=5)
             self.assertEqual(scanned, 3)
             self.assertEqual(sorted((n, name) for n, _, _, name in near), [(96, "multi"), (98, "gated"), (98, "not_gated")])
+
+
+class Rewritten(unittest.TestCase):
+    """Issue 14: the two shapes the script counted wrong against clippy on real functions."""
+
+    def scan_src(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "x.rs"), "w") as f:
+                f.write(text)
+            return lp.scan([d], threshold=100, margin=5)
+
+    def test_a_function_returning_an_array_type_is_not_taken_for_a_declaration(self):
+        body = "".join(f"    let v{i} = {i};\n" for i in range(96))
+        scanned, near = self.scan_src(f"fn arr<'a>() -> [Fault<'a>; 12] {{\n{body}    todo!()\n}}\n"
+                                      f"fn nested(x: [u8; 4]) -> [u8; 4] where [u8; 4]: Copy {{\n{body}    x\n}}\n")
+        self.assertEqual(scanned, 2, "both functions are seen")
+        self.assertEqual(sorted((n, name) for n, _, _, name in near), [(97, "arr"), (97, "nested")])
+
+    def test_a_trait_method_declaration_with_an_array_type_still_has_no_body(self):
+        scanned, near = self.scan_src("trait T {\n    fn a(&self) -> [u8; 4];\n    fn b(&self) {}\n}\n")
+        self.assertEqual(scanned, 1, "only the method with a body")
+
+    def test_tokio_main_and_async_trait_count_the_body_exactly(self):
+        body = "".join(f"    let v{i} = {i};\n" for i in range(96))
+        text = (f"#[tokio::main]\nasync fn main() {{\n{body}}}\n"
+                f"#[async_trait]\nimpl H for R {{\n    async fn act(&self) {{\n{body}    }}\n}}\n"
+                f"impl H for Q {{\n    #[async_trait]\n    async fn own(&self) {{\n{body}    }}\n}}\n"
+                f"impl P for Q {{\n    async fn plain(&self) {{\n{body}    }}\n}}\n")
+        scanned, near = self.scan_src(text)
+        self.assertEqual(scanned, 4)
+        self.assertEqual(sorted((n, name) for n, _, _, name in near),
+                         [(96, "act"), (96, "main"), (96, "own"), (98, "plain")])
 
 
 class Calibration(unittest.TestCase):
