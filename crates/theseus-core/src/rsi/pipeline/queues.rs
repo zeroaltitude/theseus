@@ -384,7 +384,12 @@ impl Core {
                     if seen.greens.iter().any(|g| g.item == t.id && g.at_ms >= at) {
                         continue;
                     }
-                    if e.live || now.saturating_sub(at) < grace.as_millis() as u64 {
+                    // A gate still runs in its tree (`tree_lease`): it is building, whatever its
+                    // execution says, and its end is not the build's end.
+                    let gating = tree::find(place, &t.id).is_some_and(|tr| {
+                        crate::rsi::tree_lease::held(&[&tr.dir, &tr.target]).is_some()
+                    });
+                    if e.live || gating || now.saturating_sub(at) < grace.as_millis() as u64 {
                         e.place = q.building.len() as u32 + 1;
                         q.building.push(e);
                     } else {

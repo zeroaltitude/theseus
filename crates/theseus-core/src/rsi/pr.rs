@@ -704,12 +704,16 @@ fn told_on_task(
 ) -> Option<String> {
     let mut t = task?;
     let now = theseus_protocol::now_unix_ms();
+    let unjudged = super::infra::of_attempt(&e.verdict, Some(run))
+        == Some(super::infra::Outcome::Infrastructure);
     t.version += 1;
     t.updated_at_ms = now;
     t.evidence.push(theseus_protocol::tasks::TaskEvidence {
         node: None,
-        // A gate that could not run says nothing about the item: not a try (`backlog::attempts`).
-        identity: match run.unrunnable {
+        // A gate that never judged the code (it could not run, a command it needs is missing, it
+        // ran for no time at all: `infra::of_attempt`) says nothing about the item, so it is
+        // not a try (`backlog::attempts`).
+        identity: match unjudged {
             true => "gate:unrunnable".to_string(),
             false => format!("gate:{}", e.verdict),
         },
@@ -723,7 +727,7 @@ fn told_on_task(
         at_ms: now,
     });
     // The try that reaches the cap marks the item and is the one notice for it.
-    let capped = (run.verdict == Verdict::Red && !run.unrunnable)
+    let capped = (run.verdict == Verdict::Red && !unjudged)
         .then(|| core.cap_check(&mut t, now))
         .flatten();
     let written = crate::task_graph::record(&t).and_then(|r| core.store.append(&[r]));

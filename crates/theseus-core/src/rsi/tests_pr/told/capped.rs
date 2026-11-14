@@ -2,6 +2,27 @@
 //! item's one notice (issue 6, conditions 4 and 5), through the whole call.
 
 use super::*;
+use crate::rsi::tests_tree::fixture_with;
+
+/// A stand-in gate that takes a moment to fail a `broken.txt` tree, as a real gate does (a gate that
+/// fails in no time is read as one that never ran: `infra::judge`), and fails a `missing.txt` tree
+/// as a missing command does, exit 127.
+const SLOW_GATE: &str = r#"#!/bin/bash
+cd "${THESEUS_GATE_ROOT:-$(dirname "$0")/..}"
+echo "stand-in gate: root $PWD"
+if [ -f broken.txt ]; then sleep 1; echo "gate: FAILED in suite"; exit 1; fi
+if [ -f missing.txt ]; then echo "gate: FAILED in suite"; exit 127; fi
+echo "gate: ok"
+"#;
+
+fn slow() -> (Rig, String) {
+    rig_with_task_on(rig_on(
+        fixture_with(SLOW_GATE),
+        SelfMode::Act,
+        Some("origin"),
+        |_| {},
+    ))
+}
 
 /// KEY: the second and third red of a night are not posted on their own account; the third
 /// reaches the cap and is the one notice, with every reason; and a fourth call is refused.
@@ -65,4 +86,23 @@ async fn reds_inside_a_night_are_one_post_and_the_cap_is_one_notice() {
         1,
         "and says nothing more"
     );
+}
+
+/// The first review's F4: a gate that never judged the code (a command it needs is missing: exit
+/// 127) is no try, and its evidence says so, so a machine missing a tool does not use up an
+/// item's tries.
+#[tokio::test]
+async fn a_gate_that_never_judged_the_code_is_no_try() {
+    let (r, sid) = slow();
+    r.open_and_edit(&sid, "missing.txt").await;
+    let said = r.turn(&sid, WIRE, propose()).await;
+    assert!(said.contains("the gate is red"), "{said}");
+    let t = task_of(&r);
+    assert!(
+        t.evidence.iter().any(|e| e.identity == "gate:unrunnable"),
+        "{:?}",
+        t.evidence
+    );
+    assert!(t.evidence.iter().all(|e| e.identity != "gate:red"));
+    assert!(crate::rsi::backlog::attempts::tries(&t, 0).is_empty());
 }

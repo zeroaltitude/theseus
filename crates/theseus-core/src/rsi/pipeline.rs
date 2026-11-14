@@ -436,6 +436,7 @@ impl Core {
         tick: &mut Tick,
     ) -> Result<()> {
         self.pipeline_reviewed(q, w)?;
+        self.pipeline_capped(q, w)?;
         self.pipeline_ended(place, q, w)?;
         self.pipeline_stale(place, q, w)?;
         for e in &q.dropped {
@@ -535,6 +536,40 @@ impl Core {
         Ok(())
     }
 
+    /// A ready item that has used up its tries, by whatever mix of red gates, rejections and
+    /// dead builds (issue 6, condition 4): failed with its reasons and one notice, before a
+    /// build starts it again. The ready queue is read before this, so its start finds the item
+    /// no longer proposed and passes it by.
+    fn pipeline_capped(&self, q: &Queues, w: &mut Write) -> Result<()> {
+        let now = theseus_protocol::now_unix_ms();
+        for e in &q.ready {
+            let Some(mut t) = crate::task_graph::get(&self.store, &e.item)? else {
+                continue;
+            };
+            if t.state != TaskState::Proposed || super::backlog::attempts::tries(&t, 0).is_empty() {
+                continue;
+            }
+            let Some(text) = self.cap_check(&mut t, now) else {
+                continue;
+            };
+            t.state = TaskState::Failed;
+            t.session = None;
+            w.task(&t)?;
+            let m = Moved::new(
+                &e.item,
+                format!("{} used up its tries and is failed", e.item),
+            )
+            .with("reason", "cap")
+            .why("every one of its tries failed");
+            w.say(
+                format!("capped:{}:{}", e.item, t.version),
+                Transition::Ended(Ended(m)),
+            )?;
+            w.told.push(text);
+        }
+        Ok(())
+    }
+
     /// Builds whose turn ended with no green branch: failed, trees deleted.
     fn pipeline_ended(&self, place: &tree::Place, q: &Queues, w: &mut Write) -> Result<()> {
         let now = theseus_protocol::now_unix_ms();
@@ -612,7 +647,7 @@ impl Core {
             }
         }
         // A red main fails every build, whatever room there is.
-        if let Some(red) = seams.main.red() {
+        if let Some(red) = seams.main.red(place) {
             return (room, Some(("main_red".into(), red.why())));
         }
         let hold = hold.map(|h: Hold| {

@@ -178,3 +178,44 @@ async fn a_gate_that_could_not_run_is_not_a_try() {
     r.tick().await;
     assert_eq!(markers(&task(&r, &a)), 0);
 }
+
+/// The first review's F3: red, red, then a review's rejection is three tries, and the item stops
+/// there. It is ready (one rejection is under the rule of two), and used to start a fourth build.
+#[tokio::test]
+async fn a_rejection_that_reaches_the_cap_stops_the_item_before_a_fourth_build() {
+    let r = rig_with(1, 30.0);
+    let top = r.view().ready[0].item.clone();
+    give(
+        &r,
+        &top,
+        &[
+            ("gate:red", "its gate ended red in suite"),
+            ("gate:red", "its gate ended red in clippy"),
+        ],
+    );
+    give(
+        &r,
+        &top,
+        &[(
+            "review:self/x-trim@abcdef012345",
+            "rejected: no test fails without the fix",
+        )],
+    );
+    assert_eq!(
+        r.state(&top),
+        TaskState::Proposed,
+        "ready, as one rejection leaves it"
+    );
+    let t = r.tick().await;
+    assert_eq!(r.state(&top), TaskState::Failed);
+    assert_eq!(markers(&task(&r, &top)), 1);
+    assert!(!t.started.contains(&top), "no fourth build: {t:?}");
+    assert!(
+        !r.fake.starts.lock().unwrap().iter().any(|(i, _)| *i == top),
+        "the builder was never asked"
+    );
+    // The next ready item starts in its slot, and the capped one says nothing again.
+    assert_eq!(t.started.len(), 1, "{t:?}");
+    r.tick().await;
+    assert_eq!(markers(&task(&r, &top)), 1, "once");
+}
