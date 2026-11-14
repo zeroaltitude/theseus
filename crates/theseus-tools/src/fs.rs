@@ -542,7 +542,10 @@ impl Tool for WriteFile {
         let before = fs::metadata(&path).ok().map(|m| m.len());
         let old = crate::change::old_text(&path);
         write_atomic(&path, a.content.as_bytes(), ctx.umask)?;
-        crate::fs_stale::wrote(ctx, &path);
+        // WHOLE: the model authored every byte of this file, so the session's
+        // own record really does hold it (`p5kln-wrote-keeps-window`). This
+        // is the one writer that may say so.
+        crate::fs_stale::wrote(ctx, &path, crate::reads::Whole::Yes);
         let name = crate::change::shown(&path, &ctx.cwd);
         let diff = (before.is_none() || old.is_some()).then(|| {
             let d = crate::change::file_diff(&name, old.as_deref(), &a.content);
@@ -681,7 +684,12 @@ impl Tool for Edit {
             None => before.replacen(a.old_string.as_str(), &a.new_string, 1),
         };
         write_atomic(&path, after.as_bytes(), ctx.umask)?;
-        crate::fs_stale::wrote(ctx, &path);
+        // NOT whole: an edit splices a region and holds no copy of the rest.
+        // If the read that preceded it was a WINDOW of a file over the cap,
+        // the record still holds only that window, and saying otherwise would
+        // let a later destructive call on this file run unheld
+        // (`p5kln-wrote-keeps-window`). The note keeps the read's own word.
+        crate::fs_stale::wrote(ctx, &path, crate::reads::Whole::No);
         let name = path.display().to_string();
         let diff = unified(&before, &after, &name, &name, 3);
         let shown = crate::change::shown(&path, &ctx.cwd);
@@ -815,7 +823,10 @@ impl Tool for Patch {
         let a: PatchArgs = parse(input).map_err(ToolFailure::new)?;
         let files = split_patch(&a.patch).map_err(ToolFailure::new)?;
         // Compute every result first; write only if all apply.
-        let mut results: Vec<(PathBuf, Option<String>, String)> = Vec::new();
+        // The fourth field is the section's own `whole` claim: a section that
+        // CREATES the file authored every byte, one that modifies it did not
+        // (`p5kln-wrote-keeps-window`).
+        let mut results: Vec<(PathBuf, Option<String>, String, crate::reads::Whole)> = Vec::new();
         let mut diffs: Vec<(String, String)> = Vec::new();
         let mut recounted = Vec::new();
         for f in &files {
@@ -871,18 +882,28 @@ impl Tool for Patch {
                 }
                 format!("+{add} -{del}")
             };
+            // A section with no `old` side CREATES the file: every byte of
+            // `applied` came from the model, so the record truly holds it. A
+            // section that modifies an existing file does not -- it splices
+            // hunks into bytes the session may only have seen a window of, so
+            // it leaves the note's word alone (`p5kln-wrote-keeps-window`).
+            let whole = match f.old.is_none() {
+                true => crate::reads::Whole::Yes,
+                false => crate::reads::Whole::No,
+            };
             results.push((
                 path,
                 if f.new.is_none() { None } else { Some(applied) },
                 stat,
+                whole,
             ));
         }
         let mut summary = Vec::new();
-        for (path, content, stat) in &results {
+        for (path, content, stat, whole) in &results {
             match content {
                 Some(c) => {
                     write_atomic(path, c.as_bytes(), ctx.umask)?;
-                    crate::fs_stale::wrote(ctx, path);
+                    crate::fs_stale::wrote(ctx, path, *whole);
                 }
                 None => fs::remove_file(path)?,
             }
@@ -900,7 +921,7 @@ impl Tool for Patch {
                 if results.len() == 1 { "" } else { "s" },
                 summary.join("\n")
             ),
-            meta: json!({"files": results.iter().map(|(p, c, s)| json!({"path": p, "stat": s, "deleted": c.is_none()})).collect::<Vec<_>>(), "diff": crate::change::meta(&crate::change::combine(&diffs))}),
+            meta: json!({"files": results.iter().map(|(p, c, s, _)| json!({"path": p, "stat": s, "deleted": c.is_none()})).collect::<Vec<_>>(), "diff": crate::change::meta(&crate::change::combine(&diffs))}),
         })
     }
 }

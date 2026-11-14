@@ -877,9 +877,13 @@ async fn a_file_this_session_wrote_reaches_the_request_as_one_the_record_holds()
     let r = rig(REVERSIBLE, 0.95, false, |_| {});
     let sid = r.session();
     // The session wrote it: exactly what `fs_stale::wrote` records after an
-    // `fs.write`, through the board the runtime binds per call.
+    // `fs.write`, through the board the runtime binds per call. `Whole::Yes`
+    // is what `fs.write` passes -- it authored every byte.
     let mark = theseus_tools::reads::Mark::at(&r.target).expect("the target's mark");
-    r.core.tools.reads.wrote(&sid, &r.target, mark);
+    r.core
+        .tools
+        .reads
+        .wrote(&sid, &r.target, mark, theseus_tools::reads::Whole::Yes);
 
     r.turn(&sid).await;
     let words = r.words_sent();
@@ -898,7 +902,10 @@ async fn a_file_changed_underneath_the_session_reaches_the_request_as_one_nothin
     let r = rig(REVERSIBLE, 0.95, false, |_| {});
     let sid = r.session();
     let mark = theseus_tools::reads::Mark::at(&r.target).expect("the target's mark");
-    r.core.tools.reads.wrote(&sid, &r.target, mark);
+    r.core
+        .tools
+        .reads
+        .wrote(&sid, &r.target, mark, theseus_tools::reads::Whole::Yes);
     // Somebody else writes it: a different length, so the mark differs
     // whatever the filesystem's mtime resolution is.
     std::fs::write(&r.target, "a third party wrote this, and it is longer\n").unwrap();

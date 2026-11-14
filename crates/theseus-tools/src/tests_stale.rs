@@ -43,10 +43,11 @@ impl Reads for Board {
         let (m, guarded) = b.get(path)?;
         guarded.then_some(*m)
     }
-    fn wrote(&self, path: &Path, mark: Mark) {
+    fn wrote(&self, path: &Path, mark: Mark, _whole: crate::reads::Whole) {
         // As the real board does: the note is made or moved on, and it is
         // unguarded unless a read had already guarded it, so a write never
-        // brings a path under the guard.
+        // brings a path under the guard. `whole` is the resolver's word and
+        // is not read on this side, as the type comment above says.
         let mut b = self.0.lock().unwrap();
         let guarded = b.get(path).is_some_and(|(_, g)| *g);
         b.insert(path.to_path_buf(), (mark, guarded));

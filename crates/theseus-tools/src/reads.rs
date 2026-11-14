@@ -113,5 +113,16 @@ pub trait Reads: Send + Sync + std::fmt::Debug {
     /// `undo.v1`'s resolver reads (`p5kln-location-facts`): a session that
     /// rewrites a file it wrote two minutes ago is not destroying anything
     /// nothing holds.
-    fn wrote(&self, path: &Path, mark: Mark);
+    ///
+    /// **`whole` is THIS WRITER'S OWN CLAIM, and only a writer that authored
+    /// every byte may pass [`Whole::Yes`]** (`p5kln-wrote-keeps-window`).
+    /// `fs.write` and a patch section that CREATES a file did author all of
+    /// them; `fs.edit` and a patch section that modifies one did not -- they
+    /// splice a region into bytes the model may never have been handed. A
+    /// writer passing `Whole::No` leaves the note's existing word alone, so a
+    /// window read of a file over the read cap STAYS a window: without this,
+    /// a one-line edit after a window read made the record claim a whole copy
+    /// it never had, and a later destructive call on that file read as
+    /// `reversible` and ran unheld.
+    fn wrote(&self, path: &Path, mark: Mark, whole: Whole);
 }

@@ -21,8 +21,12 @@
 //!     nothing for an unguarded note), because "no read, no refusal" is the
 //!     rule the owner's decision on that guard rests on.
 //!   * `whole` -- the resolver's question. Set by a read of every byte, and
-//!     by a write, because a session that wrote the file holds what it wrote.
-//!     Not set by a window of a file over the read cap.
+//!     by a write OF EVERY BYTE, because a session that wrote the whole file
+//!     holds what it wrote. Not set by a window of a file over the read cap,
+//!     and **not set by a partial write** (`fs.edit`, a patch section that
+//!     modifies a file): those splice a region into bytes the session may
+//!     never have been handed, so they leave the word exactly as they found
+//!     it ([`ReadRecords::wrote`], `p5kln-wrote-keeps-window`).
 //!
 //! **AFTER A RESTART THIS BOARD IS EMPTY, AND THAT ERRS TOWARD HOLDING.** It
 //! is in memory and nothing persists it, by design: the daemon that comes
@@ -155,13 +159,37 @@ impl ReadRecords {
     /// unguarded**, so the stale guard still says nothing about a path this
     /// session only wrote; what it carries is `whole`, because a session that
     /// wrote the bytes holds them (`p5kln-location-facts`).
-    pub fn wrote(&self, session: &str, path: &Path, mark: Mark) {
+    ///
+    /// **`whole` is the WRITER'S OWN claim, and it may only ADD to the note's
+    /// word -- never take it away** (`p5kln-wrote-keeps-window`). Both halves
+    /// of that matter:
+    ///
+    ///   * A WHOLE writer (`fs.write`, a patch section that creates the file)
+    ///     authored every byte, so the note becomes whole even where there
+    ///     was no note at all. This is the card's first bar.
+    ///   * A PARTIAL writer (`fs.edit`, a patch section that modifies a file)
+    ///     holds only the region it spliced. It must leave the existing word
+    ///     alone: whole where a whole READ had already put the bytes in the
+    ///     session's record, and **not whole where the read was a window of a
+    ///     file over the cap, or where there was no read at all**. This is
+    ///     the fix: hardcoding `true` here let a one-line `fs.edit` upgrade a
+    ///     window note to a whole one, so [`Self::holds`] answered true,
+    ///     `read_this_session` went to the pack, and a later destructive call
+    ///     read as `reversible` and RAN UNHELD on bytes nothing held. That is
+    ///     the unsafe side of the resolver's asymmetry -- a wrong "a copy
+    ///     exists" lets a call run, where a wrong "nothing holds it" only
+    ///     holds a safe one.
+    pub fn wrote(&self, session: &str, path: &Path, mark: Mark, whole: Whole) {
         let mut i = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         i.seq += 1;
         let at = i.seq;
         let b = i.boards.entry(session.to_string()).or_default();
-        let guarded = b.notes.get(path).is_some_and(|n| n.guarded);
-        b.note(at, path, mark, true);
+        let prior = b.notes.get(path).copied();
+        let guarded = prior.is_some_and(|n| n.guarded);
+        // The writer's claim ADDS to the note; a partial writer keeps what is
+        // already there and invents nothing.
+        let whole = whole.is_yes() || prior.is_some_and(|n| n.whole);
+        b.note(at, path, mark, whole);
         if let Some(n) = b.notes.get_mut(path) {
             n.guarded = guarded;
         }
@@ -256,8 +284,8 @@ impl Reads for Bound {
     fn mark_of(&self, path: &Path) -> Option<Mark> {
         self.records.mark_of(&self.session, path)
     }
-    fn wrote(&self, path: &Path, mark: Mark) {
-        self.records.wrote(&self.session, path, mark);
+    fn wrote(&self, path: &Path, mark: Mark, whole: Whole) {
+        self.records.wrote(&self.session, path, mark, whole);
     }
 }
 
@@ -326,14 +354,14 @@ mod tests {
     fn a_write_moves_a_note_on_and_brings_no_path_under_the_guard() {
         let r = ReadRecords::default();
         note_whole(&r, "ses_w", &path(1), mark(1));
-        r.wrote("ses_w", &path(1), mark(2));
+        r.wrote("ses_w", &path(1), mark(2), Whole::Yes);
         assert_eq!(r.mark_of("ses_w", &path(1)), Some(mark(2)));
         // A write to a path with no note brings it under no guard: this is
         // the rule "no read, no refusal" rests on, and it is unchanged by
         // `p5kln-location-facts`. What changed is that the write now LEAVES a
         // note, unguarded, so the resolver can read it; `mark_of` -- the
         // guard's question -- still answers nothing for it.
-        r.wrote("ses_w", &path(2), mark(3));
+        r.wrote("ses_w", &path(2), mark(3), Whole::Yes);
         assert_eq!(
             r.mark_of("ses_w", &path(2)),
             None,
@@ -423,7 +451,9 @@ mod tests {
         let r = ReadRecords::default();
         let (p, m) = s.file("made.txt", "the bytes this session wrote\n");
         assert!(!r.holds("ses_h", &p), "nothing is held before the write");
-        r.wrote("ses_h", &p, m);
+        // `Whole::Yes` is what `fs.write` passes: it authored every byte, so
+        // the note becomes whole even though there was no note at all.
+        r.wrote("ses_h", &p, m, Whole::Yes);
         assert!(r.holds("ses_h", &p));
         // And it is still not under the stale guard.
         assert_eq!(r.mark_of("ses_h", &p), None);
@@ -463,6 +493,79 @@ mod tests {
         // And a window read AFTER a whole one is the newer truth.
         r.note("ses_win", &p, m, Whole::No);
         assert!(!r.holds("ses_win", &p));
+    }
+
+    #[test]
+    fn a_partial_write_over_a_window_does_not_make_it_a_copy() {
+        // The gap the test above leaves: it only moves note -> note, and
+        // never calls `wrote` after a `Whole::No` note. That is the path a
+        // real session takes -- `fs.read` of a file over `max_read_bytes`
+        // takes the window (`fs.rs:323`, `Whole::No`), then `fs.edit`
+        // (`fs.rs:684`) or `fs.apply_patch` (`fs.rs:885`) routes to
+        // `fs_stale::wrote`. Neither of those two writers holds the file's
+        // bytes: they splice a region of bytes they never handed the model.
+        // If the write upgrades the note to `whole`, `holds` answers true,
+        // `read_this_session` is true, and the pack tells the model its own
+        // record holds bytes it only ever saw a window of -- so a later
+        // destructive call on that file reads as `reversible` and RUNS
+        // UNHELD. That is the unsafe side of the resolver's own asymmetry.
+        let s = Scratch::new("windowthenwrote");
+        let r = ReadRecords::default();
+        let (p, m) = s.file("big.txt", "only a window of this was handed over\n");
+        r.note("ses_ww", &p, m, Whole::No);
+        assert!(!r.holds("ses_ww", &p), "a window is not a copy");
+
+        // The partial write lands, and notes the file as it now is. The mark
+        // is the CURRENT one on purpose: `holds`'s staleness check passes, so
+        // `whole` is the only thing left that can decide the answer.
+        changed_underneath(
+            &p,
+            "only a window of this was handed over, and one line was spliced\n",
+        );
+        let after = Mark::at(&p).expect("the mark after the partial write");
+        r.wrote("ses_ww", &p, after, Whole::No);
+        assert!(
+            !r.holds("ses_ww", &p),
+            "a partial write over a window must not upgrade the note to whole: \
+             the session still holds only a window of a file over the read cap"
+        );
+        // The guard's word is untouched by all of this, as it always was.
+        assert_eq!(r.mark_of("ses_ww", &p), Some(after));
+    }
+
+    #[test]
+    fn a_partial_write_keeps_a_whole_reads_word_and_a_whole_write_adds_one() {
+        // The other side of the same rule, so the fix cannot be "always No":
+        // a partial writer must PRESERVE, not erase. A session that read
+        // every byte and then edits one line still holds the file -- it has
+        // the whole `before` and the splice it asked for -- so the word must
+        // survive the edit. And a WHOLE writer may add the word where no read
+        // ever put one.
+        let s = Scratch::new("keepsword");
+        let r = ReadRecords::default();
+        let (p, m) = s.file("small.txt", "every byte of this was handed over\n");
+        r.note("ses_kw", &p, m, Whole::Yes);
+        assert!(r.holds("ses_kw", &p));
+        changed_underneath(&p, "every byte of this was handed over, then edited\n");
+        let after = Mark::at(&p).expect("the mark after the edit");
+        r.wrote("ses_kw", &p, after, Whole::No);
+        assert!(
+            r.holds("ses_kw", &p),
+            "an edit after a WHOLE read must keep the record's claim"
+        );
+
+        // And `Whole::Yes` from a whole writer puts the word on a path that
+        // had only a window note: `fs.write` replaces the file outright.
+        let (q, qm) = s.file("over.txt", "a window of this was handed over\n");
+        r.note("ses_kw", &q, qm, Whole::No);
+        assert!(!r.holds("ses_kw", &q));
+        changed_underneath(&q, "fs.write replaced every byte of it\n");
+        let qafter = Mark::at(&q).expect("the mark after the whole write");
+        r.wrote("ses_kw", &q, qafter, Whole::Yes);
+        assert!(
+            r.holds("ses_kw", &q),
+            "a whole write authors every byte, window note or not"
+        );
     }
 
     #[test]
