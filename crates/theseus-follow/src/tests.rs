@@ -666,8 +666,8 @@ fn a_follower_that_read_frames_since_cut_meets_a_rewind() {
 /// Rewrite frame `n` (from 0) of segment 1 as a frame that passes its checksum and is wrong:
 /// its length kept, its one record's bytes garbage. What a core that serves past it would not
 /// stop for, and what a recovery refuses.
-fn plant_wrong_frame(dir: &Path, n: usize) -> u64 {
-    let path = seg(dir, 1);
+fn plant_wrong_frame(dir: &Path, segment: u32, n: usize) -> u64 {
+    let path = seg(dir, segment);
     let mut bytes = fs::read(&path).unwrap();
     let mut at = 0usize;
     for _ in 0..n {
@@ -698,7 +698,7 @@ fn a_frame_that_checks_but_is_wrong_is_skipped_when_asked() {
         w.append(&[row(i)]).unwrap();
     }
     drop(w);
-    let wrong_at = plant_wrong_frame(dir.path(), 1);
+    let wrong_at = plant_wrong_frame(dir.path(), 1, 1);
     let mut plain = WalFollower::open(dir.path(), Cursor::start()).unwrap();
     let err = plain.read(1 << 20).unwrap_err();
     assert!(matches!(err, FollowError::Corrupt(_)), "{err}");
@@ -741,7 +741,7 @@ fn a_wrong_frame_at_the_end_waits_for_the_frame_after_it() {
         w.append(&[row(i)]).unwrap();
     }
     drop(w);
-    plant_wrong_frame(dir.path(), 2);
+    plant_wrong_frame(dir.path(), 1, 2);
     let mut f = WalFollower::open(dir.path(), Cursor::start())
         .unwrap()
         .skipping_wrong();
@@ -757,4 +757,90 @@ fn a_wrong_frame_at_the_end_waits_for_the_frame_after_it() {
     );
     assert!(matches!(f.stop(), Stop::Partial { .. }), "{:?}", f.stop());
     assert_eq!(f.cursor().position, 2);
+}
+
+/// How many whole frames segment `n` holds.
+fn frames_in(dir: &Path, n: u32) -> usize {
+    let bytes = fs::read(seg(dir, n)).unwrap();
+    let (mut at, mut frames) = (0usize, 0usize);
+    while at + wal::FRAME_HEADER <= bytes.len() {
+        let len = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().unwrap()) as usize;
+        at += wal::FRAME_HEADER + len;
+        frames += 1;
+    }
+    frames
+}
+
+/// The first review's F9: a wrong frame that is the LAST of a segment, with the log rolled on to
+/// the next, is skipped too: the frame after it is the next segment's first.
+#[test]
+fn a_wrong_frame_ending_a_sealed_segment_is_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(200)).unwrap();
+    for i in 0..10 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    assert!(seg(dir.path(), 2).exists(), "the log rolled");
+    let last = frames_in(dir.path(), 1) - 1;
+    plant_wrong_frame(dir.path(), 1, last);
+    let mut f = WalFollower::open(dir.path(), Cursor::start())
+        .unwrap()
+        .skipping_wrong();
+    let mut positions = Vec::new();
+    let mut skipped = Vec::new();
+    for _ in 0..50 {
+        let b = f.read(1 << 20).unwrap();
+        positions.extend(b.records.iter().map(|r| r.position));
+        skipped.extend(b.skipped);
+        if *f.stop() != Stop::Budget {
+            break;
+        }
+    }
+    assert_eq!(skipped.len(), 1, "{skipped:?}");
+    assert_eq!(
+        positions.len(),
+        9,
+        "one record was in the wrong frame: {positions:?}"
+    );
+    assert_eq!(*f.stop(), Stop::CaughtUp);
+    assert_eq!(f.cursor().position, 10);
+    // A plain follower still stops at it, as a shipper must.
+    let mut plain = WalFollower::open(dir.path(), Cursor::start()).unwrap();
+    let err = loop {
+        match plain.read(1 << 20) {
+            Ok(b) => assert!(!b.is_empty(), "stopped without an error"),
+            Err(e) => break e,
+        }
+    };
+    assert!(matches!(err, FollowError::Corrupt(_)), "{err}");
+}
+
+/// The first review's F9, the other half: a budget that cuts a wrong frame off from its successor
+/// must not make the read meet the same window for ever.
+#[test]
+fn a_budget_smaller_than_a_wrong_frame_and_its_successor_still_gets_past_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let w = Wal::open(dir.path(), cfg(1 << 20)).unwrap();
+    for i in 0..4 {
+        w.append(&[row(i)]).unwrap();
+    }
+    drop(w);
+    plant_wrong_frame(dir.path(), 1, 1);
+    let mut f = WalFollower::open(dir.path(), Cursor::start())
+        .unwrap()
+        .skipping_wrong();
+    let (mut positions, mut skipped) = (Vec::new(), 0);
+    for _ in 0..50 {
+        // One byte: every read is cut to its first frame, or two where a skip needs them.
+        let b = f.read(1).unwrap();
+        positions.extend(b.records.iter().map(|r| r.position));
+        skipped += b.skipped.len();
+        if *f.stop() != Stop::Budget {
+            break;
+        }
+    }
+    assert_eq!(positions, [1, 3, 4]);
+    assert_eq!(skipped, 1);
+    assert_eq!(*f.stop(), Stop::CaughtUp);
 }

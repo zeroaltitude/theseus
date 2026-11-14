@@ -394,21 +394,23 @@ impl WalFollower {
             self.stop = Stop::CaughtUp;
             return Ok(());
         };
+        // Frames skipped since the last whole one, and where the first began (its segment and
+        // offset in the window): they count only once a whole frame follows them, which may be
+        // the first of the next segment.
+        let mut pending: Vec<Skipped> = Vec::new();
+        let mut skip_from: Option<(u32, usize)> = None;
         loop {
             // Checked before this segment is read: once segment n+1 exists,
             // nothing more is written to n, so what is read of n is all of it.
             let next_exists = wal::segment_path(&self.dir, seg + 1).exists();
             let (file, len) = self.segment(seg, off)?;
             let budget = max_bytes.saturating_sub(batch.bytes as usize);
-            let (window, capped) = read_window(&file, off, len, budget, batch.is_empty())?;
+            let (window, capped) =
+                read_window(&file, off, len, budget, (batch.is_empty(), self.skip_wrong))?;
             let mut i = 0usize;
             let span_from = off;
             let mut partial = None;
             let mut held = None;
-            // Frames skipped since the last whole one, and where the first began: they count
-            // only once a whole frame follows them.
-            let mut pending: Vec<Skipped> = Vec::new();
-            let mut skip_from: Option<usize> = None;
             while i < window.len() {
                 // After a skipped frame the next one may begin past the position expected.
                 let mut first = self.cursor.position + 1;
@@ -466,11 +468,7 @@ impl WalFollower {
                                 window[i + 6],
                                 window[i + 7],
                             ]) as usize;
-                        if end >= window.len() {
-                            skip_from.get_or_insert(i);
-                            break;
-                        }
-                        skip_from.get_or_insert(i);
+                        skip_from.get_or_insert((seg, i));
                         pending.push(Skipped {
                             segment: seg,
                             offset: off + i as u64,
@@ -487,11 +485,20 @@ impl WalFollower {
                     }
                 }
             }
-            // A skipped frame with no whole frame after it yet: not skipped, and the cursor
-            // stays before it, so it is read again once the frame after it is there.
-            if let Some(from) = skip_from.take() {
-                i = from;
+            // A skipped frame with no whole frame after it yet. When it was the last frame of a
+            // sealed segment, the frame after it is the next segment's first: the skip is
+            // carried there. Otherwise it is not skipped, and the cursor stays before it, so it
+            // is read again once the frame after it is there.
+            let carry = skip_from.is_some()
+                && partial.is_none()
+                && held.is_none()
+                && !capped
+                && next_exists;
+            if let (Some((from_seg, from)), false) = (skip_from, carry) {
+                skip_from = None;
+                pending.clear();
                 self.resync = false;
+                i = if from_seg == seg { from } else { 0 };
                 if partial.is_none() && held.is_none() {
                     partial = Some("a wrong frame waits for the frame after it");
                 }
@@ -538,6 +545,9 @@ impl WalFollower {
             seg += 1;
             off = 0;
             if batch.bytes as usize >= max_bytes {
+                // A skip carried this far has no whole frame after it in this batch.
+                pending.clear();
+                self.resync = false;
                 self.stop = Stop::Budget;
                 return Ok(());
             }
@@ -553,7 +563,7 @@ fn read_window(
     off: u64,
     len: u64,
     budget: usize,
-    whole_first: bool,
+    (whole_first, two): (bool, bool),
 ) -> io::Result<(Vec<u8>, bool)> {
     let avail = len - off;
     let mut want = avail.min(budget as u64);
@@ -569,6 +579,20 @@ fn read_window(
             let frame = wal::FRAME_HEADER as u64 + body;
             if frame <= avail {
                 want = want.max(frame);
+                // A reader that skips a wrong frame needs the frame after it in the same window
+                // (the budget must not cut a wrong frame off from its successor, or the read
+                // would meet the same window for ever).
+                let next = off + frame;
+                if two && next + wal::FRAME_HEADER as u64 <= len {
+                    file.read_exact_at(&mut header, next)?;
+                    let after = u64::from(u32::from_le_bytes([
+                        header[4], header[5], header[6], header[7],
+                    ]));
+                    let both = frame + wal::FRAME_HEADER as u64 + after;
+                    if both <= avail {
+                        want = want.max(both);
+                    }
+                }
             }
         }
     }
