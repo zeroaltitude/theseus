@@ -2160,9 +2160,14 @@ impl Config {
         &self.resolved.profiles
     }
 
-    /// A profile by name, or the error that names every configured one.
+    /// A profile by name, or the error that names every configured one. A
+    /// name Theseus once shipped that fixed an effort (`renamed::RENAMED_PROFILES`)
+    /// is told it was renamed, here, for one release.
     pub fn profile(&self, name: &str) -> anyhow::Result<&ProfileConfig> {
         self.resolved.profiles.get(name).ok_or_else(|| {
+            if let Some(said) = renamed::renamed_profile(name) {
+                return anyhow::anyhow!(said);
+            }
             anyhow::anyhow!(
                 "unknown profile {name:?}; configured: {}",
                 self.resolved

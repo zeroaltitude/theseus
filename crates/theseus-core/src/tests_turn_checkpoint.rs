@@ -96,7 +96,7 @@ pub(crate) fn checkpoints(rig: &Rig) -> Vec<Value> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_turn_asks_no_checkpoint() {
     let (rig, claude, _jev) = routed(|_| {});
-    turn(&rig.core, None, ASK, Some("haikuhi")).await;
+    turn(&rig.core, None, ASK, Some("haiku")).await;
     assert_eq!(models(&claude), ["haiku"; 9]);
     assert!(checkpoints(&rig).is_empty());
 }
@@ -106,7 +106,7 @@ async fn a_pinned_turn_asks_no_checkpoint() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ineligible_turn_pays_one_match() {
     let (rig, claude, _jev) = routed(|_| {});
-    let res = turn(&rig.core, None, ASK, Some("haikuhi")).await;
+    let res = turn(&rig.core, None, ASK, Some("haiku")).await;
     assert_eq!(models(&claude).len(), 9);
     let reads = READS.lock().unwrap()[&res.session_id];
     assert_eq!(reads, 1);
