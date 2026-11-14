@@ -196,6 +196,14 @@ fn opening_at(mode: crate::content::InjectionMode, input: Value) -> Rig {
     )
 }
 
+/// The `task.create` input a scripted model makes: a brief, and the
+/// arrangement that quotes what the operator asked for (M5 27). Without the
+/// arrangement the call is refused for a reason that has nothing to do with
+/// this row, and the task list is then empty for the wrong reason.
+fn creating() -> Value {
+    json!({"brief": "Count the boats in the north quay", "arrangement": arranged()})
+}
+
 /// Put `injection` on `session`, as a judged item that tried to steer it
 /// would. The label returned, for an assertion to compare against.
 fn label_injection(core: &std::sync::Arc<crate::Core>, session: &str) -> crate::content::Label {
@@ -231,7 +239,7 @@ fn label_injection(core: &std::sync::Arc<crate::Core>, session: &str) -> crate::
 #[tokio::test]
 async fn at_notify_a_task_of_a_labelled_session_carries_the_label() {
     use crate::content::{Flag, InjectionMode};
-    let r = opening_at(InjectionMode::Notify, json!({"brief": "Count the boats"}));
+    let r = opening_at(InjectionMode::Notify, creating());
     let parent = parent_session(&r.core);
     let raised = label_injection(&r.core, &parent);
     turn(&r.core, &parent, ASK).await;
@@ -277,16 +285,32 @@ async fn at_notify_a_task_of_a_labelled_session_carries_the_label() {
 #[tokio::test]
 async fn at_refuse_a_labelled_session_creates_no_task_at_all() {
     use crate::content::InjectionMode;
-    let r = opening_at(InjectionMode::Refuse, json!({"brief": "Count the boats"}));
+    // The control first, and it is not optional: an empty task list is met
+    // by a `task.create` that was never going to work. The same rig, the
+    // same call, no label -- a task opens.
+    let c = opening_at(InjectionMode::Refuse, creating());
+    let clean = parent_session(&c.core);
+    turn(&c.core, &clean, ASK).await;
+    crate::test_support::until("the control's task to open", || {
+        !c.core.kernel.tasks(None).unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(
+        c.core.kernel.tasks(None).unwrap().len(),
+        1,
+        "the control opens one: {}",
+        results(&c, &clean)
+    );
+
+    let r = opening_at(InjectionMode::Refuse, creating());
     let parent = parent_session(&r.core);
     label_injection(&r.core, &parent);
     turn(&r.core, &parent, ASK).await;
+    let said = results(&r, &parent);
     assert!(
         r.core.kernel.tasks(None).unwrap().is_empty(),
-        "a frozen session opened a task: {}",
-        results(&r, &parent)
+        "a frozen session opened a task: {said}"
     );
-    let said = results(&r, &parent);
     assert!(
         said.contains("theseus content remove"),
         "and the model is told why, in words it can act on: {said}"

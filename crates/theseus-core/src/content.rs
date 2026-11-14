@@ -18,8 +18,11 @@
 //!   [`Flag::Personal`] raise at the confirm band: raising one wrongly costs a
 //!   session its cheap model, which is the safe direction, and the direction
 //!   the owner's standing rule points. [`Flag::Injection`] raises only at the
-//!   act band: raising it wrongly freezes a session until the operator clears
-//!   it, and a false freeze teaches the operator to ignore the control.
+//!   act band: what it costs a session is set by
+//!   `[content_based_security] injection`, and at its strictest the session's
+//!   calls that act are refused until the operator clears the label. Raising
+//!   it wrongly is expensive in proportion, and a false alarm teaches the
+//!   operator to ignore the control.
 //! - **A name is a label source, not a tripwire.** An item that holds one of
 //!   `[privacy] sensitive_names` raises `confidential` with the word as its
 //!   source, deterministically and with no model call ([`deterministic`]); the
@@ -203,16 +206,21 @@ impl ItemKind {
     /// - [`ItemKind::TaskBrief`] — a brief is the instructions a parent session
     ///   gave its child. It is steering by nature and by design, so the
     ///   question is a guaranteed false positive, and at the act band it would
-    ///   freeze every task session on its first item. Nothing is lost: a parent
-    ///   carrying `injection` is frozen and **cannot call `task.create` at all**
-    ///   (it is not a local read), so an injection cannot launder itself into a
-    ///   child; and a brief that quotes foreign text is still asked `secret`,
+    ///   raise on every task session's first item. Nothing is lost, because
+    ///   **the label travels instead** ([`ContentFlags::inherited`], S31-1): a
+    ///   task created by a session carrying `injection` starts carrying it, so
+    ///   an injection cannot launder itself into a clean child. Where a
+    ///   labelled parent's `task.create` is refused outright no child is
+    ///   created and there is nothing to launder into; where it is not, the
+    ///   child is labelled. Either way the warning is on whatever the text
+    ///   reached. And a brief that quotes foreign text is still asked `secret`,
     ///   `confidential` and `personal`.
     ///
     /// [`ItemKind::TaskReport`] is **not** exempt. A report reports rather than
     /// instructs, so the false-positive argument does not hold, and a child that
     /// read a poisoned page can write its parent a report shaped by it — which
-    /// is a real way in, and the one the freeze does not already close.
+    /// is a real way in, and one the inheritance does not close: a label travels
+    /// from parent to child, and a report travels back.
     ///
     /// The other three questions are asked of every kind, the owner's own
     /// messages included: he can paste a key or a confidential document, and he
@@ -395,25 +403,32 @@ impl ContentFlags {
         }
     }
 
-    /// What a task (or a draft) carries from its parent at its start: the
-    /// parent's labels that keep a model of restricted origin off it
-    /// (`Flag::disqualifies_cn`), as `fork` copies them (`fork::data_through`),
-    /// so a child of a session that read a calendar is no way around the label.
-    /// Its items are its own, so nothing of the parent's judgment or removals
-    /// comes with them. `injection` stays behind: it says the parent's own
-    /// transcript tried to steer it, and a task that starts from a brief has
-    /// not read that transcript (a fork has, and copies it). None when the
-    /// parent carries no such label.
+    /// What a task (or a draft) carries from its parent at its start: **the
+    /// parent's labels**, as `fork` copies them (`fork::data_through`), so a
+    /// child of a session that read a calendar is no way around the label,
+    /// and a child of a session something tried to steer starts carrying
+    /// that warning too.
+    ///
+    /// **`injection` travels, and that is S31-1's change** (the owner,
+    /// 2026-11-13: the warning follows the content, and nothing is frozen).
+    /// It used to stay behind, on the argument that a task starts from a
+    /// brief and has not read the transcript that steered its parent. That
+    /// argument rested on a containment which holds only where a labelled
+    /// parent's `task.create` is refused outright: there, no child is
+    /// created and nothing can be laundered into one. Where the call is not
+    /// refused the parent creates a child freely, and a label that stayed
+    /// behind would hand that child the steered text with no warning on it
+    /// at all. The label travelling is what closes the path in that case,
+    /// and it costs the child nothing a `fork` does not already cost it.
+    ///
+    /// Its items are its own, so nothing of the parent's judgment or
+    /// removals comes with them: a removal spoke for what the parent held
+    /// when it was made, not for what the child goes on to read. None when
+    /// the parent carries no label.
     pub fn inherited(&self) -> Option<Box<ContentFlags>> {
-        let labels: Vec<Label> = self
-            .labels
-            .iter()
-            .filter(|l| l.flag.disqualifies_cn())
-            .cloned()
-            .collect();
-        (!labels.is_empty()).then(|| {
+        (!self.labels.is_empty()).then(|| {
             Box::new(ContentFlags {
-                labels,
+                labels: self.labels.clone(),
                 ..Default::default()
             })
         })
@@ -1703,31 +1718,48 @@ mod tests {
         }
     }
 
-    /// A task starts with the parent's labels that keep a model of restricted
-    /// origin off it, and not with `injection` (theseus-gyjyo.5): a task starts
-    /// from a brief and has not read the transcript that tried to steer its
-    /// parent, so freezing it would leave the operator a task that refuses
-    /// every call. Its items are its own, so no judgment or removal comes.
+    /// A task starts with **every** one of its parent's labels, `injection`
+    /// included (S31-1; it was all but `injection` under theseus-gyjyo.5,
+    /// whose argument was that a task starts from a brief and has not read
+    /// the transcript that steered its parent). The warning follows the
+    /// content: a child of a labelled session is labelled, so an injection
+    /// has nowhere clean to go. Its items are its own, so no judgment or
+    /// removal comes.
     #[test]
-    fn a_task_inherits_the_labels_that_keep_cn_off_and_not_injection() {
+    fn a_task_inherits_every_one_of_its_parents_labels() {
         let mut parent = ContentFlags::default();
         parent.raise(label(Flag::Secret));
         parent.raise(label(Flag::Injection));
         parent.raise(label(Flag::Personal));
         parent.remove(Flag::Personal, "x", "cli", 1);
         assert_eq!(parent.removed.len(), 1);
-        let child = parent.inherited().expect("a label that disqualifies cn");
-        assert_eq!(child.labels.len(), 1, "{:?}", child.labels);
-        assert_eq!(child.labels[0].flag, Flag::Secret);
-        assert!(
-            !child.frozen(),
-            "a task of a frozen session starts unfrozen"
+        let child = parent.inherited().expect("a parent with labels");
+        // Every one of them, and nothing else. Asserted as the whole set
+        // rather than by position: `raise` keeps the labels in `Flag::ALL`'s
+        // order, which is not the order they were raised in, and the claim
+        // here is about which labels travel and not about where they sit.
+        assert_eq!(
+            child.labels.iter().map(|l| l.flag).collect::<Vec<_>>(),
+            parent.labels.iter().map(|l| l.flag).collect::<Vec<_>>(),
+            "{:?}",
+            child.labels
         );
+        assert_eq!(child.labels.len(), 2, "{:?}", child.labels);
+        assert!(
+            child.frozen(),
+            "the warning follows the content: {:?}",
+            child.labels
+        );
+        // The removal spoke for what the parent held, not for what the child
+        // reads, so it does not come with the labels.
         assert!(child.removed.is_empty());
-        // Frozen alone, a parent gives its task nothing.
+        // `injection` alone is now enough to hand a child something: this is
+        // the exact case the old rule dropped on the floor.
         let mut only = ContentFlags::default();
         only.raise(label(Flag::Injection));
-        assert!(only.inherited().is_none());
+        let child = only.inherited().expect("injection alone travels");
+        assert!(child.frozen(), "{:?}", child.labels);
+        // A parent with nothing still gives nothing.
         assert!(ContentFlags::default().inherited().is_none());
     }
 
