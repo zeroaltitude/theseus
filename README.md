@@ -9,23 +9,23 @@
 <h1 align="center">Theseus</h1>
 
 <p align="center">
-  <strong>An AI agent that doesn't forget, doesn't drop what it was doing, and doesn't make you wait.</strong>
+  <strong>A quirky, fun, deeply opinionated harness for durable, long-horizon tasking.</strong>
 </p>
 
 <p align="center">
-  <img alt="Version 1.0.5" src="https://img.shields.io/badge/version-1.0.5-d6a548?style=flat-square">
+  <img alt="Version 1.0.6" src="https://img.shields.io/badge/version-1.0.6-d6a548?style=flat-square">
   <img alt="Rust 1.98 or later" src="https://img.shields.io/badge/rust-1.98%2B-13314d?style=flat-square">
   <img alt="Runs on Linux" src="https://img.shields.io/badge/runs%20on-Linux-13314d?style=flat-square">
   <img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-13314d?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="#what-it-does-that-the-others-dont">What sets it apart</a> ·
-  <a href="#how-the-release-numbers-work">Release numbers</a> ·
+  <a href="#what-we-care-about">What we care about</a> ·
+  <a href="#benchmarks-in-the-loop">Benchmarks in the loop</a> ·
+  <a href="docs/proof.md">Proof points</a> ·
   <a href="#set-it-up">Set it up</a> ·
-  <a href="docs/features/README.md">The features, one page each</a> ·
-  <a href="docs/status.md">Status and roadmap</a> ·
-  <a href="docs/benchmarks/omnibus.md">Benchmarks</a> ·
+  <a href="docs/status.md">Status</a> ·
+  <a href="#issues-ideas-and-questions">Issues</a> ·
   <a href="docs/spec/README.md">The design document</a>
 </p>
 
@@ -33,203 +33,193 @@
 
 ## What Theseus is
 
-Theseus is a personal AI agent that runs as a daemon on your own Linux machine. You talk to it in Discord, in a
-terminal, in your browser, or in a voice call, and it does real work with real tools: it edits code, runs commands,
-reads the web, drives AWS and Google Workspace, and keeps long jobs running in the background. It calls Anthropic's
-Claude models directly, and any model served through the same API.
+Theseus is a personal AI agent that lives on your own Linux machine as one small daemon. You talk to it in Discord,
+in a terminal, in your browser or out loud in a voice call, and it does real work with real tools: it edits code,
+runs commands, reads the web, drives AWS and Google Workspace, and keeps long jobs running in the background. It
+calls Anthropic's Claude models directly, and any model served through the same API.
 
-What makes it different from the coding agent you already have is what happens *between* your messages. Every
-action is written to a log before it is attempted, so a task survives a kill, a reboot and a binary upgrade.
-Everything you have ever said to it is one graph, so last week's decision comes back when it matters, with a link
-to the message it came from. And it is a 36-MiB Rust daemon, not a process per terminal, so the prompt is ready in
-tens of milliseconds instead of half a second.
+It is built for work that outlives a conversation: the job you start on Monday and answer from your phone on
+Wednesday, the check it runs every Friday, the fault it found in itself overnight. And it has opinions. It would
+rather tell you than ask you, remember than be told twice, and be measured than be believed.
+
+The claims on this page are measured wherever they can be, with their dates and with the places where Theseus
+loses. Proof points are collected in **[Proof points](docs/proof.md)**, and the raw runs are in [the
+benchmarks](docs/benchmarks/omnibus.md).
 
 It is one daemon (`theseusd`), a thin command line (`theseus`), a terminal UI, and a web cockpit the daemon serves
 itself. Linux only, by design: it is built on cgroups, namespaces, seccomp and pidfds, with no portability layer.
 
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
 
-## What it does that the others don't
+## What we care about
 
-Nine things. Each says what you see and how we know it works, and links to a page with the build, the measurements,
-the rough edges and what is coming. The task system is first because it is the thing we would show you first.
+These are the things we care about most. They are also what sets Theseus apart from other attempts at a personal
+agent. Every section ends with a page that says how it is built, what is still rough and what is coming.
 
-### 1. Durable tasks you can watch, answer and steer from anywhere
+### Work that outlives the conversation
 
-Ask for something long and it becomes a task with a place of its own: a Discord forum post with a live card, a
+Ask for something long and it becomes a task with a context of its own: a post in Discord with a live card, a
 pinned board that moves from *working* to *needs you* to *done*, and the same task in the terminal, the cockpit and
-a voice call. When a task has a question it appears on every surface at once, and one answer — a button, a key,
-`theseus answer`, or a spoken "approve" — clears it everywhere. Type into a running task and it takes your message
-at its next step. Pull the plug and it picks up where it was. A task with nothing to do is a record on disk, not a
-process, and a task due later sleeps until then, so you can hold thousands of them.
+a voice call. When a task has a question it appears on every surface at once, and one answer (a button, a key,
+`theseus answer`, or a spoken "approve") clears it everywhere. Type into a running task and it takes your message
+at its next step. Ask for something to run every morning and each run is a fresh task. Ask to be reminded on Friday
+and it sets a wake for then.
 
-<p align="center"><img src="docs/assets/cockpit-tasks/01-tasks-page.png" alt="The cockpit's Tasks page: a New task box, one task that needs an answer with its options as buttons, two working tasks (one paused) with their spend against their limits, and the done tasks with their report lines." width="720"></p>
+A task with nothing to do is a record on disk, not a process, and a task due later sleeps until then, so you can
+hold thousands of them. Pull the plug and each one picks up where it was. [Durable
+tasks](docs/features/durable-tasks.md).
 
-**Proof.** Killed with SIGKILL mid-task and restarted, Theseus resumed 10 of 12 trials with 0 effects done twice;
-Claude Code repeated an effect in 4 of 12 (2026-10-18). With 10,000 parked sessions the idle daemon spends 0.37% of
-one CPU and 117 MB. [The whole page](docs/features/durable-tasks.md).
+<p align="center"><img src="docs/assets/readme/one-task-every-surface.svg" alt="One task in the middle, joined to Discord, the terminal, the cockpit and a voice call. A question is asked on every surface at once and one answer clears it everywhere. The task survives a kill, a reboot and an upgrade." width="820"></p>
 
-### 2. Fast, and it is a contract rather than a boast
+### Fast as a testable feature
 
 The prompt is ready in tens of milliseconds, the model's first words appear as it writes them, and restarting or
-upgrading the daemon is something you do mid-sentence.
+upgrading the daemon is something you can do in the middle of a sentence. We wrote the speed down as budgets, and
+every change is checked against them before it lands, so Theseus cannot get slower by accident. [Fast, as a
+contract](docs/features/fast-as-a-contract.md).
 
-**Proof.** Against Claude Code on the same stand-in model (2026-10-18): a ready prompt in 39 ms against 498, 10 ms
-of CPU a turn against 1,655, 70 MB idle against 360. The speed is written down as budgets — start to answering
-50 ms, crash and restart 150 ms, a binary swap under load 200 ms — and **every commit's gate fails the commit when
-one slips**. [The whole page](docs/features/fast-as-a-contract.md).
-
-### 3. Jev in the core: small, fast judgments steer every message
+### Judgment in the loop
 
 Before the model answers, Theseus asks [TypeSafe](https://typesafe.ai)'s Jev a handful of small typed questions:
-what kind of message this is, which model should answer and at what effort, which persona speaks, which thread it
-belongs in, and what the message carries. A thank-you goes to a small model; a hard refactor to a large one.
-`theseus why` says which model a turn ran on and why. If Jev is slow or down, nothing waits on it.
+what kind of message this is, which model should answer and with how much effort, which persona speaks, which
+thread it belongs in, and what the message carries. A thank-you goes to a small model and a hard refactor to a
+large one, and `theseus why` says which, and why. Every judgment is recorded with its probabilities and can be
+replayed, so a new version of a question is measured before it decides anything. If Jev is slow or down, the work
+goes on without it. [Jev in the core](docs/features/jev-in-the-core.md).
 
-**Proof.** On all 89 tasks of Terminal-Bench 2.0 at high effort (2026-10-26), Jev ran 41 of 267 trials entirely on
-Haiku 5.5, and the run solved 78.3%. Every judgment is recorded with its probabilities and replays against the
-record, so a new version of a question is measured before it decides anything.
-[The whole page](docs/features/jev-in-the-core.md).
-
-### 4. Context compiled for each turn, not piled up
+### A prompt you can read
 
 Each request is compiled from the store for that turn: the standing instructions and personas, your context files,
 the guidance for the thread's topics, the conversation so far with a summary in place of what no longer fits, the
-notes recall found in the order Jev put them, and an attached project's slice at the end. Every request has a
-manifest, and `theseus why` prints it: each block, its tokens, where it came from, and what was left out and why.
+notes recall found, and an attached project's slice at the end. Every request has a manifest, and `theseus why`
+prints it: each block, its tokens, where it came from, and what was left out and why. [Context compiled for each
+turn](docs/features/compiled-context.md).
 
-**Proof.** Tests check the layers, that sessions and threads share their first layers byte for byte so the
-provider's cache holds, and that a project's slice survives three compactions. On the owner's daemon a `theseus why`
-listed a slice of 177 tokens, five context files, five recalled notes with reasons, and 30 left out for the budget
-(2026-10-19). [The whole page](docs/features/compiled-context.md).
-
-### 5. It remembers everything, across sessions and tools
+### One memory
 
 Something you said last week, in another channel, about another project, comes back when it matters, with a link to
 the message it came from. Bring your history from Claude Code, Codex or OpenClaw with `theseus import`, and it
-knows your past from day one.
+knows your past from the first day. Every persona, thread and task draws on the same memory, so nothing has to be
+told twice. [It remembers everything](docs/features/memory-across-sessions.md).
 
-**Proof.** Over 600 scripted turns in three sessions, Theseus answered 73.1% of recall probes against 56.9% for Pi
-and 50.7% for Claude Code (2026-10-18). Two fresh seeds on the 1.0.3 build scored 68.8% and 77.8%, so about five
-points of any one number is the seed (2026-10-26).
-[The whole page](docs/features/memory-across-sessions.md).
+### A self-guided, expanding ontology
 
-### 6. It fixes itself, and tells you afterwards
+Theseus keeps its own map of the people, places and things it meets. The kinds of context are data, not code: a
+table of twelve kinds, from where you are (a guild, a channel, a thread, a project, a person) to what it is about
+(a topic, an event, a resource, a capability, an expertise, a culture, a persona), whose entries form a tree, and
+any entry can carry guidance. Each session is placed in the entries it belongs to, and each prompt is compiled with
+their guidance.
 
-Each night it reads its own record for what went wrong and for work it keeps repeating, fixes the faults, turns a
-repeated unit of work into a tool, and in the morning says what changed, why, and what it cost. A change that makes
-things worse reverts itself. A short keel still needs your yes: loosening a test or a budget, security and
-permission changes, spending limits, and the off switch.
+The map grows by itself. As you talk, Theseus files each private conversation under the entries it fits and starts
+a new entry when nothing fits, and tells you with a one-line undo. An import's topics are filed with one command,
+`theseus import topics`. Each night a sweep merges duplicates, lets a filing it made lapse after 30 days unless it
+is renewed, renames what has drifted, and creates and names a new kind when the same unlisted answer keeps coming
+up. New kinds and renames are in the morning note, and what the sweep does can be undone. A person is one record
+with many handles, and it holds what they do and own.
 
-**Proof.** The nightly loop has been on since 2026-10-18, and in 1.0.5 **it landed a change on `main` by itself,
-unattended, for the first time**: it mined a real defect out of its own record, built the fix inside its own sandbox
-view, passed the project's full gate there (9,879 of 9,879 tests), was reviewed by a model other than the one that
-wrote it, and joined under the join lock. The fix was small and real — `fs.edit` had answered an edit whose old text
-equals its new text as invalid input, and now answers "No change made" and leaves the file alone. The keel guard
-fails any commit range that weakens a test without a signed, quoted yes, Theseus's own commits included, and the
-file that defines what a self build may reach is itself in a class that stops a self-made join for the owner's word,
-so the loop cannot widen its own view. One thing it does **not** yet have: the two commits of that merge are not
-verified by the forge — the content commit is unsigned and the merge is signed by the machine's own key — and whether
-a self-made join should carry the verified mark is an open question, not a solved one.
-[The whole page](docs/features/self-improvement.md).
+The map is part of indexed memory: a note that shares an entry with the conversation ranks higher in recall.
+Imported history is sorted into seven books (a diary, an encyclopedia, a cookbook, procedures, a casebook, a
+register and a dictionary), read from the memory index. [The
+ontology](docs/design/m4-boundaries.md#28-the-ontologys-first-slice).
 
-### 7. Many characters, one memory; separate lines of work
+### It gets better while you sleep
+
+Each night Theseus reads its own record for what went wrong and for work it keeps repeating. It fixes the faults,
+turns a repeated chore into a tool, and in the morning says what changed, why, and what it cost. It acts first and
+tells you afterwards, and a change that makes things worse reverts itself. Under the loop is a short keel that
+still needs your yes: loosening a test or a budget, security and permission changes, spending limits, and the off
+switch. [It fixes itself](docs/features/self-improvement.md).
+
+<p align="center"><img src="docs/assets/readme/self-improvement-loop.svg" alt="The nightly loop: Theseus reads its record, builds a fix in its own sandbox, passes the same gate as any change, is reviewed by a different model, lands the change and tells you. Under it is the keel: loosening a test or a budget, security and permissions, spending limits and the off switch still need your yes." width="820"></p>
+
+### Many characters, one mind
 
 Give it more than one persona: a name, an emoji, a voice, and a file that describes its character. Start a message
 with `@name` and that persona answers, in the same conversation, with the same memory. Make a thread for each thing
-you are working on, and a router places each message by the repos, branches and paths the thread holds, asking in
-one line when it cannot tell.
+you are working on, and a router places each message by the repositories, branches and paths the thread holds,
+asking in one line when it cannot tell. [Personas and threads](docs/features/personas-and-threads.md).
 
-**Proof.** Tests check that switching personas changes no byte of the cached prompt, that two threads' turns overlap
-in time, and that a thread you name always wins. On 40 scripted messages the router places at least 90% and asks
-about at most 10%. Five personas and five threads have been live on the owner's daemon since 2026-10-18.
-[The whole page](docs/features/personas-and-threads.md).
+### It trusts you, and asks only when it matters
 
-### 8. It trusts its environment and keeps a true record
+Theseus is built for a machine its owner set up and trusts, so it does not nag. It notifies rather than blocks: a
+task it started itself, a long turn, a chain of tasks ten deep all run, and you hear about them. A sensitive name
+or something fetched from outside raises a label you can tap away, not a refusal you cannot.
 
-Theseus is built for a machine its owner set up and trusts, so its guards are light and sit at the exits. It
-notifies rather than blocks: a self-started task, a long turn, a depth-ten chain of tasks all run, and you hear
-about them. The stored record is raw and is never rewritten; secrets are substituted only on the copies that leave
-the machine. A sensitive name or a web result raises a label you can tap away, not a refusal you cannot. A model of
-China origin sees only what was judged open for that one request, and that floor has no off switch.
+What it does stop for is the thing that cannot be taken back. Before a tool acts, Theseus asks whether the action
+could be undone. If there is a safer way to do the same work, such as keeping a copy first, the model is sent back
+to do it that way. What is final by its nature is raised to you as a question. Under that judgment is one rule no
+model can lower: a plain write, edit or patch to a file whose current contents nothing else holds is held, whatever
+the model answered.
 
-**Proof.** Landed in 1.0.3, in twelve reviewed rows: four removable labels on a session read by one switch, and
-6,593 lines of the old earned-autonomy machinery deleted because it never fired. The content classifier that raises
-the labels was measured at precision 0.956 at the raising bar against the previous version's 0.875, and recall 0.985
-against 0.955. [The whole page](docs/features/trusted-environment.md).
+The stored record is raw and is never rewritten; secrets are swapped for their names only on the copies that leave
+the machine. [It trusts its environment and keeps a true record](docs/features/trusted-environment.md).
 
-### 9. Coding at the level of the field, on its own model
+### Talk to it where you are
+
+Discord is a full surface: a lively chat with the tool lines small and grey so you can tell them from the answer, a
+home for every task, and a voice channel where it listens, talks back and lets you interrupt. The terminal UI and
+the web cockpit show the same sessions and tasks, live. We keep shrinking the list of things that need a command
+line: answering a call that waits for your approval is a button or a spoken word, and trusting a project is a slash
+command. [Discord](docs/discord.md), [the command line](docs/cli.md).
+
+<p align="center"><img src="docs/assets/cockpit-tasks/01-tasks-page.png" alt="The cockpit's Tasks page: a New task box, one task that needs an answer with its options as buttons, two working tasks (one paused) with their spend against their limits, and the done tasks with their report lines." width="720"></p>
+
+### A real coding agent underneath
 
 It edits, builds, tests and fixes the way a good coding agent does, with language servers as tools and each edit's
-new compiler errors in its result.
-
-**Proof, including where it loses.** On all 89 tasks of Terminal-Bench 2.0 at high effort, the frozen 1.0.3 build
-solved 78.3% of its trials (2026-10-26) — level with the harnesses on its own model: Claude Code 75.3%, OpenClaw
-74.2%, OpenHands 71.9%. It is **behind** the harnesses on GPT-6 Astra (Codex 85.4%, OpenClaw 82.0%), and on the 30
-hardest tasks at top effort it solved 65.6% to Codex's 86.7% (2026-10-27). And it was **expensive**: 1.0.3 cost 2.2
-to 2.8 times what the v1 build cost a trial, like for like, because a model refusal switched the rest of a turn to
-a fallback model. The cause was named rather than guessed at, and it is narrower now — a refused request is first
-made again on the model that refused it, and only a refusal that survives that goes to the fallback. **What the cost
-is today is not measured**: the benchmarks are parked until the 2.x line, so this paragraph's numbers are the last
-ones that were run and not a claim about the build you would install.
-[The whole page](docs/features/coding.md).
+new compiler errors in its result. Coding is the floor we hold ourselves to. On its own model it is level with the
+field, in places it is behind, and [Proof points](docs/proof.md#a-real-coding-agent-underneath) says where.
+[Coding](docs/features/coding.md).
 
 <p align="center"><img src="docs/assets/planks.svg" alt="" width="100%"></p>
 
-## How the release numbers work
+## Benchmarks in the loop
 
-Theseus numbers releases `MAJOR.MINOR.PATCH`, but the three fields are not doing the usual job, because this
-project ships one build to one machine rather than a library to the world. What they mean here:
+Measuring is part of how every change lands, and it runs at two speeds.
 
-- **The major number is the milestone.** `1` means *v1*: the feature set the design document's Part I specifies,
-  built and running. v1 was cut on 2026-10-18 at a frozen tree, with the benchmarks run against that exact build.
-  Nothing has been numbered `2` yet, and the repository does not yet record what would earn it — see "what is not
-  decided" below.
-- **The patch number is a themed release, not a bug-fix dribble.** Each `1.0.N` is a bundle of reviewed rows,
-  joined one at a time, then tagged `release-1.0.N` and built with the `release` profile (fat LTO). A patch release
-  has a *subject*, and the status page names it:
-  - **1.0.0** — v1 itself: features frozen, benchmarked, tagged.
-  - **1.0.1** — Google Workspace as tools: mail, calendar, drive, sheets and slides.
-  - **1.0.2** — voice: Deepgram Flux as the default listener, and live learning from the owner's own lines.
-  - **1.0.3** — the principles migration: trust, privacy and content rebuilt in twelve rows (feature 8 above).
-  - **1.0.4** — Jev chooses the model and its effort on every turn, and the approve lists are retired in favour of
-    a notify list and the floor.
-  - **1.0.5** — the broad feature release of the 1.x line, and the one where the self loop landed its own change
-    on `main` unattended (feature 6 above). 323 of 335 planned lines closed; tagged `release-1.0.5` on 2026-11-12,
-    with the full gate green on two hosts (9,881 and 9,884 tests, both exit 0). The twelve lines left open are
-    named in the tag rather than discovered later, and move to 1.0.6.
-  - **1.0.6** — the release being built now, planned as one GitHub issue per bucket of work, each issue tagged with
-    the release it is planned for.
-- **The minor number is unused so far.** Every release to date has been `1.0.N`; there has been no `1.1.0`. The
-  *roadmap* called "v1.1" is a planning document for the week after v1, and its work landed as patch releases, not
-  as a `1.1.0` tag.
-- **The version is one number for the whole workspace**, and the store's format is a separate one. Every crate
-  carries the release number and `theseus --version` prints it; `MANIFEST_FORMAT` moves whenever a stored record
-  changes shape, so a build refuses a store written by a newer one.
+- **Fast benchmarks on every change that lands.** `main` moves one change at a time, and only through a gate that
+  runs the start, restart, upgrade, job and turn benchmarks against written budgets: 50 ms from start to answering,
+  150 ms for a crash and restart, 200 ms for a binary swap under load. A missed budget stops the change exactly as
+  a failed test does, and raising a budget needs the owner's signed yes.
+- **Long benchmarks on every even major version.** Odd majors build and even majors measure. On an even major the
+  long benchmarks run on the build that shipped, against the field: coding on Terminal-Bench 2.0, recall across
+  sessions, kill and resume, threads, and speed and memory beside other harnesses. `2.x` is the first of these.
+- **Improve, never tune.** After a run we ask what would make Theseus better for a person using it, and that
+  becomes work. Nothing is tuned to a score. The losses are published beside the wins: [Proof
+  points](docs/proof.md#where-theseus-loses) opens with them.
 
-**What `2.0.0` and `3.0.0` are: both are decided.** **`2.0.0` is the last bugs and issues of the 1.x line** —
-not new capability, and not measurement. **Measuring is the `2.0.x` line**, which is what the 1.0.5 tag means by
-*"the benchmarks stay parked. The 2.x line is where measuring begins"*: once 2.0.0 closes out the remaining
-bugs, the benchmarking plans are populated and the project runs in a regime of benchmark-and-improve, so the
-numbers in this README get run again, against the rivals, on a build worth measuring. **`3.0.0` is the two lines
-of work that are designed, decided and unbuilt**: the daemon, the CLI and the index each on its own machine over
-mTLS ([remote runtimes](docs/design/remote-runtimes.md)), and working ahead in a sandbox on the likely next ask
-([speculation](docs/design/speculation.md)). Both are filed for that release rather than this one. Beside them
-the [north-star plan](docs/design/north-star-plan.md) names what "crush it" would mean on memory, personality,
-speed, scale and task horizons; it is a direction the numbered releases are measured against, not a release of
-its own.
-When it is decided, it lands here and on [the status page](docs/status.md).
+<p align="center"><img src="docs/assets/readme/benchmarks-in-the-loop.svg" alt="Two loops. Every change that lands passes a gate that holds the code to written budgets, and a missed budget stops it. On every even major version the long benchmarks run: odd majors build, even majors measure." width="820"></p>
+
+## How releases are numbered
+
+Theseus numbers releases `MAJOR.MINOR.PATCH`, but the fields do not do their usual jobs, because this project ships
+one build to one machine rather than a library to the world.
+
+- **The major number is the phase, and whether it is odd or even says which kind.** Odd majors build. `1` is v1:
+  the feature set that Part I of the design document specifies, built and running since 2026-10-18. Even majors
+  measure: `2` is where the long benchmarks run again. `3` is the next phase of building, and its first two pieces
+  are already designed: the daemon, the command line and the index each on its own machine ([remote
+  runtimes](docs/design/remote-runtimes.md)), and working ahead on the likely next ask
+  ([speculation](docs/design/speculation.md)).
+- **The patch number is a themed release, not a bug-fix dribble.** Each `1.0.N` has a subject, is tagged
+  `release-1.0.N`, and is built with the `release` profile. [The status page](docs/status.md) names each one's
+  subject.
+- **The minor number is unused so far.** Every release to date has been `1.0.N`.
+- **The version is one number for the whole workspace**, and the store's format is a separate one: a build refuses
+  a store written by a newer one.
 
 ## How it works
 
-- **One agent over one graph.** Every message, tool call, result, task and summary is a node in one store.
-  Personas are views of the same agent, and tasks and threads are sessions of their own, so nothing is copied
-  between agents.
+<p align="center"><img src="docs/assets/readme/a-turn.svg" alt="One turn: you say something; Jev judges what kind of message it is, which model and effort, and which persona and thread; the context is compiled for this turn with a manifest; the model works with real tools, and each call is first asked whether it can be undone; and all of it is written down before it is attempted." width="820"></p>
+
+- **One agent over one graph.** Every message, tool call, result, task and summary is a node in one store. Personas
+  are views of the same agent, and tasks and threads are sessions of their own, so nothing is copied between
+  agents.
 - **A durable kernel under the model.** Every action is written before it is attempted and its result when it
   settles, so a restart resumes and nothing runs twice. The write-ahead log of checksummed frames is the truth, and
   every index is a projection rebuilt from it.
 - **Judgment in the loop.** Small typed judgments sit inside the control loop and steer each message, recorded with
-  their probabilities and outcomes, in shadow before they act.
+  their probabilities and outcomes.
 - **Context is compiled, not piled up.** Each prompt is built from the graph for that turn, with a manifest of what
   went in and what was left out.
 - **Append-only.** The record only grows: compaction, supersession and forgetting are new records, not edits. The
@@ -244,23 +234,36 @@ These hold whatever the model does:
 | | Promise | What it means |
 |---|---|---|
 | 💵 | **Money is a gate.** | Every model call reserves its worst-case cost before it runs. Limits warn you; a runaway stops. |
-| 🌐 | **A label you can remove, not a refusal you can't.** | Text that tries to steer it, a name you listed, or anything fetched from outside puts a label on the session, and you remove it with one tap. A steering label stops what acts until you do. |
+| 🌐 | **A label you can remove, not a refusal you can't.** | Text that tries to steer it, a name you listed, or anything fetched from outside puts a label on the session and tells you. You remove it with one tap. |
+| ⚓ | **The only copy is not overwritten on a model's say-so.** | A plain write, edit or patch to a file whose current contents nothing else holds (an untracked file, one outside a repository, or one with uncommitted changes) is held, whatever the model answers. It needs Jev's answer to act: if Jev is down, the write takes the ordinary route. |
 | 🔑 | **Its own keys are replaced on the way out.** | Every value the vault gave Theseus is replaced by its name in each request to a model and each Discord post; what is stored is never rewritten. A value of a secret the daemon no longer holds, or one a size limit cut in two, is not recognised. |
 | 📒 | **You can always ask why.** | Every turn, call, approval and dollar goes into a tamper-evident ledger, and `theseus why` reads it back. |
 | 🧱 | **A test does not quietly get weaker.** | Deleting a test, ignoring one, dropping an assertion or raising a budget fails the commit gate unless a signed commit carries the owner's quoted yes. |
 
 ## Where it stands
 
-Theseus is at **version 1.0.5**, runs on Linux, and has one daily user: the broad feature release of the 1.x line,
-tagged on 2026-11-12 with the full gate green on two hosts. 1.0.6 is being built now.
-**[The status page](docs/status.md)** says what works today, what is still rough and what comes next, and
-[the benchmarks](docs/benchmarks/omnibus.md) say where it loses — including the places it loses badly. Those pages
-change with every step that lands.
+Theseus is at **version 1.0.6**, runs on Linux, and has one daily user. **[The status page](docs/status.md)** says
+what works today, what is still rough and what comes next, and [Proof points](docs/proof.md) says where it loses,
+including the places it loses badly. Those pages change with every step that lands.
 
 **About the name.** Plutarch's ship of Theseus was kept afloat by replacing its planks one at a time as they wore
 out, until a philosopher could ask whether it was still the same ship. Theseus is built the same way: in small,
 reviewed, tested steps, by AI agents working under one person's direction, each step gated and each one recorded.
 Its [design document](docs/spec/README.md) is both the specification and the record of every plank replaced.
+
+## Issues, ideas and questions
+
+Theseus has one daily user so far, and we would like to hear from a second.
+
+- **Something broke or surprised you.** Open an issue. Say what you asked for, what you expected and what happened,
+  with the output of `theseus --version`. For a turn that went wrong, `theseus why` is the most useful thing you
+  can attach; read it for anything private first.
+- **An idea, or a question about how something works.** Open an issue for that too. There is no separate forum.
+- **What happens to it.** We keep a small number of themed issues, each a checklist of related work labelled with
+  the release it is planned for. A report that belongs with one of them is added to that list with a link back to
+  yours, so one place shows everything planned for an area.
+- **Before a large pull request,** open an issue and say what you have in mind. The project is built in small,
+  reviewed, gated steps, and it helps to agree on the shape first.
 
 ## Set it up
 
@@ -291,11 +294,13 @@ Then talk to it: `theseus ask "Hello! What can you do?"`, `theseus tui`, or the 
 ## Documentation
 
 - **[docs/README.md](docs/README.md)**: where to start, and what each document is for.
-- **[The features](docs/features/README.md)**: one page per feature above — how it is built, what is measured, what
-  is rough, and what is coming.
+- **[Proof points](docs/proof.md)**: the measurements behind this page, with their dates, and where Theseus loses.
+- **[The features](docs/features/README.md)**: one page each, with how it is built, what is rough, and what is
+  coming.
+- **[The killer features](docs/design/killer-features.md)**: the short pitch for each, and where it stands.
 - **[Status and roadmap](docs/status.md)**: what works today and what comes next.
 - **[Benchmarks](docs/benchmarks/omnibus.md)**: every run, its numbers, and what it changed.
-- **[The Ship of Theseus](docs/spec/README.md)**: the design document, in chapters — specification, plan and the
+- **[The Ship of Theseus](docs/spec/README.md)**: the design document, in chapters: specification, plan and the
   as-built record.
 - **[Technical overview](docs/technical-overview.md)**: the store, the kernel, the tool loop, the protocol and the
   command line, with a command to see each part work.

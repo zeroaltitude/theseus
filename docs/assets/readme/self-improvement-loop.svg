@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360" width="960" height="360" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">The nightly loop, and the keel under it</title>
+  <desc id="d">Each night Theseus reads its own record, builds a fix in its own sandbox, passes the full gate, is reviewed by a different model, lands the change and tells you in the morning. Under the loop is the keel: loosening a test or a budget, security and permissions, spending limits and the off switch still need your yes.</desc>
+  <rect width="960" height="360" rx="16" fill="#13314d"/>
+  <rect x="5" y="5" width="950" height="350" rx="12" fill="none" stroke="#d6a548" stroke-width="2"/>
+  <g fill="#e9c97f">
+    <circle cx="64" cy="32" r="1.8"/><circle cx="250" cy="24" r="1.5"/><circle cx="716" cy="30" r="2"/><circle cx="906" cy="40" r="1.6"/>
+  </g>
+  <text x="480" y="50" text-anchor="middle" font-size="18" fill="#e2ae4f" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">WHILE YOU SLEEP</text>
+  <g stroke="#13314d" stroke-width="1.5">
+    <rect x="30" y="74" width="164" height="118" rx="8" fill="#efe3c8"/>
+    <rect x="214" y="74" width="164" height="118" rx="8" fill="#e8dbbd"/>
+    <rect x="398" y="74" width="164" height="118" rx="8" fill="#efe3c8"/>
+    <rect x="582" y="74" width="164" height="118" rx="8" fill="#e8dbbd"/>
+    <rect x="766" y="74" width="164" height="118" rx="8" fill="#e2ae4f" stroke="#9c6f23"/>
+  </g>
+  <g fill="none" stroke="#d6a548" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M197 133 h14 m-5 -5 l5 5 l-5 5"/>
+    <path d="M381 133 h14 m-5 -5 l5 5 l-5 5"/>
+    <path d="M565 133 h14 m-5 -5 l5 5 l-5 5"/>
+    <path d="M749 133 h14 m-5 -5 l5 5 l-5 5"/>
+  </g>
+  <g fill="#13314d" text-anchor="middle">
+    <g font-size="14" font-weight="700">
+      <text x="112" y="104">It reads its record</text>
+      <text x="296" y="104">It builds a fix</text>
+      <text x="480" y="104">The gate judges it</text>
+      <text x="664" y="104">Another model reviews</text>
+      <text x="848" y="104">It lands and tells you</text>
+    </g>
+    <g font-size="12.5">
+      <text x="112" y="132">what went wrong,</text>
+      <text x="112" y="150">and what it keeps</text>
+      <text x="112" y="168">doing by hand</text>
+      <text x="296" y="132">in its own sandbox,</text>
+      <text x="296" y="150">on its own branch,</text>
+      <text x="296" y="168">within a spending cap</text>
+      <text x="480" y="132">every test and every</text>
+      <text x="480" y="150">budget, the same gate</text>
+      <text x="480" y="168">as any other change</text>
+      <text x="664" y="132">not the one that</text>
+      <text x="664" y="150">wrote the change</text>
+      <text x="848" y="132">what changed, why,</text>
+      <text x="848" y="150">and what it cost;</text>
+      <text x="848" y="168">worse reverts itself</text>
+    </g>
+  </g>
+  <!-- the keel -->
+  <path d="M60 230 h840 c0 44 -40 74 -110 74 h-620 c-70 0 -110 -30 -110 -74 z" fill="#efe3c8" stroke="#d6a548" stroke-width="3"/>
+  <g text-anchor="middle" fill="#13314d">
+    <text x="480" y="258" font-size="17" font-weight="700" font-family="Georgia, 'Times New Roman', serif" letter-spacing="3">THE KEEL: THESE STILL NEED YOUR YES</text>
+    <text x="480" y="282" font-size="13.5">loosening a test or a budget · security and permissions · spending limits · the off switch</text>
+  </g>
+  <text x="480" y="334" text-anchor="middle" font-size="14" fill="#efe3c8" fill-opacity="0.9">The loop cannot widen its own reach: the file that says what it may touch is under the keel too.</text>
+</svg>
