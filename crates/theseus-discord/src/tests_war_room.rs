@@ -427,14 +427,7 @@ async fn a_shared_place_refuses_a_share_and_keeps_its_guests_rule() {
 /// never answers gives up at once.
 #[tokio::test]
 async fn an_answer_that_never_comes_gives_up_at_the_rigs_deadline() {
-    let mut r = Rig::start_tweaked(
-        |_, _| Arc::new(theseus_core::provider::FakeProvider::scripted(vec![])),
-        crate::tests_gateway::guild(true),
-        &crate::tests_gateway::bindings(false),
-        &[],
-        |_| {},
-    )
-    .await;
+    let mut r = rig(vec![], |_| vec![], false).await;
     r.pretend_the_task_deadline_passed();
     let r = Arc::new(r);
     let began = std::time::Instant::now();

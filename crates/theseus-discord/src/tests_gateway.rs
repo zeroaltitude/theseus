@@ -38,7 +38,7 @@ pub(crate) fn bindings(lab_private: bool) -> String {
 
 /// The guild: ana owns it, ben and cy are members, and `lab` is private to
 /// ana and ben, or with `open_lab` visible to everyone, cy included.
-pub(crate) fn guild(open_lab: bool) -> Guild {
+fn guild(open_lab: bool) -> Guild {
     let g = Guild::new(DEFAULT_GUILD, (ANA, "ana"))
         .member(BEN, "ben")
         .member(CY, "cy");
@@ -218,7 +218,8 @@ impl Rig {
     }
 
     /// Has the task family's one deadline passed? It is `TASK_WAIT` from the rig's construction, so the connect
-    /// wait, the bind wait and every task wait of the test all end inside it, and inside the runner's kill. The
+    /// wait, the bind wait and every task wait of the rig all end inside it, and inside the runner's kill (a test that
+    /// builds a second rig has a second deadline). The
     /// family's waits used to take 100 s EACH, from when each was called.
     pub(crate) fn task_wait_spent(&self) -> bool {
         self.began.elapsed() >= TASK_WAIT
