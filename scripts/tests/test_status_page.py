@@ -164,6 +164,16 @@ class StatusPage(unittest.TestCase):
         self.commit("1.0.6", header("1.0.6", "1.0.6", sha[:8], rest=" The design document is at v0.92. More."))
         faults, _ = self.faults()
         self.assertEqual(len(faults), 1, faults)
+        # Nor in the time's place.
+        line = header("1.0.6", "1.0.6", sha[:8]).replace(" 11:5x MST.", ", while the next patch is built now.")
+        self.commit("1.0.6", line)
+        faults, _ = self.faults()
+        self.assertEqual(len(faults), 1, faults)
+        self.assertIn("does not have the shape", faults[0])
+        # A date alone, or a whole time, is fine.
+        for when in ("", " 9:05 MST"):
+            self.commit("1.0.6", header("1.0.6", "1.0.6", sha[:8]).replace(" 11:5x MST", when))
+            self.assertEqual(self.faults(), ([], False), when)
 
     def test_before_a_tag_its_name_is_held_to_the_workspace_version(self):
         sha = self.released("1.0.6")

@@ -10,9 +10,10 @@ that release print the version before it. Both are facts the tree holds, and nei
 
 **The line it reads** is the page's first line that starts `_Updated `, and it must have this shape:
 
-    _Updated <date> <time words>. Workspace version <X>; newest release tag `release-<Y>` (<name>) at `<sha>`, <date>. The design document is at v<D>._
+    _Updated <date> [<HH:MM> <zone>]. Workspace version <X>; newest release tag `release-<Y>` (<name>) at `<sha>`, <date>. The design document is at v<D>._
 
-(the last sentence may be left out, and nothing else may follow: free text there is how the page went stale)
+(the time, `11:5x` allowed, and the last sentence may be left out; nothing else may stand anywhere in the line:
+free text there is how the page went stale)
 
 Everything in it can be read from the tree when the line is written, and this script reads each one back:
 
@@ -51,7 +52,7 @@ FRONT = "docs/spec/01-front.md"
 KNOWN_MISTAGGED = {"release-1.0.5": "1.0.4"}
 
 HEADER = re.compile(
-    r"^_Updated (?P<updated>\d{4}-\d{2}-\d{2})[^.]*\. "
+    r"^_Updated (?P<updated>\d{4}-\d{2}-\d{2})(?: \d{1,2}:[0-9x]{2} [A-Z]{2,5})?\. "
     r"Workspace version (?P<workspace>\d+\.\d+\.\d+); "
     r"newest release tag `release-(?P<tag>\d+\.\d+\.\d+)` \((?P<name>[^)]+)\) "
     r"at `(?P<sha>[0-9a-f]{8,40})`, (?P<tagged>\d{4}-\d{2}-\d{2})\."
