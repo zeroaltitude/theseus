@@ -15,7 +15,9 @@
 # The owner's key, by its line in the list:
 #   owner gpg <fingerprint>        git signs with gpg and that key
 #   owner ssh <type> <key>         git signs with ssh, the key named literally, so the ssh agent that holds it
-#                                  signs: 1Password's agent, or the operator's own
+#                                  signs, through scripts/keel-ssh-sign.sh as git's ssh program for this one
+#                                  commit: on WSL it uses Windows' ssh-keygen, which reaches 1Password's agent (its
+#                                  header says what the machine needs); elsewhere plain ssh-keygen
 #   owner none                     no key yet: nothing is written, and it says so (exit 3)
 #
 # Exit status: 0 written and signed; 1 the commit or its signature failed; 2 usage; 3 no owner key at main.
@@ -67,7 +69,8 @@ ssh\ *)
   set -- ${owner#ssh }
   # A literal key: git 2.34 reads a value starting `ssh-` as one; `key::` is newer git's form for the other types.
   case $1 in ssh-*) lit="$1 $2" ;; *) lit="key::$1 $2" ;; esac
-  sign=(-c gpg.format=ssh -c "user.signingkey=$lit")
+  program="$(cd "$(dirname "$0")" && pwd)/keel-ssh-sign.sh"
+  sign=(-c gpg.format=ssh -c "user.signingkey=$lit" -c "gpg.ssh.program=$program")
   ;;
 *)
   echo "keel-ack: scripts/keel-signers at $base names no owner key yet," >&2

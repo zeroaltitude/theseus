@@ -1938,6 +1938,13 @@ class Acks(unittest.TestCase):
             self.assertEqual(code, 2, out)
             self.assertIn(said, out)
 
+    def test_the_real_list_names_a_routine_key_and_one_owner_key(self):
+        # The repository's own list must parse, and name exactly one owner key, which only his approval can use.
+        keys = load_guard().Signers((GUARD.parent / "keel-signers").read_text())
+        self.assertEqual(list(keys.gpg.values()), ["routine"])
+        self.assertEqual([c for c, _, _ in keys.ssh], ["owner"])
+        self.assertFalse(keys.owner_placeholder)
+
     def test_a_list_holding_only_the_owner_s_place_says_so(self):
         self.classed("owner none\n")
         self.repo.commit({}, self.ACK + self.TEST_ACK, sign=self.listed)

@@ -264,12 +264,16 @@ exists, and that is never written.
 - **Two classes of key (issue 15; the owner's "yes to all!", 2026-11-14 12:15 MST).**
   - **`routine`**, the key the agents who build this repository sign with, acks `test-removed` only: a test removed
     or replaced, which review checks anyway.
-  - **`owner`** acks every rule. His key is meant to be one only his own device can use (a fingerprint, a face, a
-    touch), and he gives the signature from chat: he says yes in his DM, the agent runs `scripts/keel-ack.sh`, and
-    his device signs.
-  - **Until his key exists the list holds `owner none`, and nothing can sign his class.** A branch that needs any
-    ack but `test-removed` cannot pass the gate until then. Naming his key is a one-line change to the list
-    (`owner gpg <fingerprint>` or `owner ssh <type> <key>`), and how that first line lands is his decision.
+  - **`owner`** acks every rule. His key is an ssh key held by 1Password on his own desktop, which asks him to approve
+    each signature, in a vault the agents cannot read (named in the list on his word, 2026-11-14). He gives the
+    signature from chat: he says yes in his DM, the agent runs `scripts/keel-ack.sh`, and his approval signs. So every
+    ack but `test-removed` now needs that prompt on his screen; a prompt he did not expect is the alarm.
+  - **Signing from WSL.** Linux `ssh-keygen` inside WSL does not reach 1Password; `scripts/keel-ssh-sign.sh`, which
+    `keel-ack.sh` passes as git's ssh program for that one commit, hands the signature to Windows' own ssh-keygen.
+    The machine needs 1Password's ssh agent on, Windows' "OpenSSH Authentication Agent" service stopped, and Windows
+    OpenSSH at `C:\Windows\System32\OpenSSH`. Elsewhere it is plain `ssh-keygen` and the operator's own agent.
+  - **`owner none`** in the list means no owner key: nothing can sign his class. The guard keeps that reading, and
+    refuses `owner none` beside an owner key.
 - **What the classes enforce, and what they do not.** Against the agents that build this repository, the
   restriction to `test-removed` is now the key's, not only the brief's. Against Theseus itself, the self-improvement
   loop signs with the key `user.signingkey` names in `[self] repo` (`crates/theseus-core/src/rsi/tree.rs`); if that
@@ -295,13 +299,12 @@ exists, and that is never written.
   5. **The ack is declared, never silent.** The agent's report says that it acked, which finding, why, and hands
      the ratification up. A silent ack is a violation even when the other four hold.
 - **The hard negative, whatever the agent believes the owner said.** An agent never acks `keel-file`, `cap-raised`,
-  `ceiling-raised`, `ci-loosened`, `sealed-reach` or `owner-reach`, and never adds a key to `scripts/keel-signers`: those change
-  what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them, unless he says
-  in words that an agent may sign that one acknowledgement (as he did for the two-keys change itself, 2026-11-14:
-  "an agent may sign this one"), and the commit quotes it. Since the two
-  classes, the guard holds the agents' key to `test-removed` whatever an agent does; until the owner's key exists,
-  the bound on an agent that still holds a key listed `owner` (an older list, or the base a branch is judged by) is
-  this sentence alone.
+  `ceiling-raised`, `ci-loosened`, `sealed-reach` or `owner-reach`, and never adds a key to `scripts/keel-signers`:
+  those change what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them,
+  unless he says in words that an agent may do that one thing, and the commit quotes it (2026-11-14: "an agent may
+  sign this one", for the two-keys change's acknowledgement; "Yes that sounds good", for naming his key). Since the
+  two classes, the guard holds the agents' key to `test-removed` whatever an agent does; where a branch is judged by a
+  base whose list is older (one key, the agents', listed for everything), the bound is this sentence alone.
 - **The base's guard judges.** The gate runs the base's copy of the guard, never the branch's.
 - **The door.** A branch's `gate.sh` could drop the keel phase and then judge itself with its weakened copy. So when a
   tree's `gate.sh` differs from `main`'s, `main`'s copy runs first. A caller that trusts nothing in the tree (a join,

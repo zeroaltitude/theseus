@@ -124,7 +124,10 @@ including in a commit message, because it is stale by the next departure.
 - `keel-ack.sh`, `tests/test_keel_ack.py` (issue 15): the owner's acknowledgement given from chat. He says yes in his
   DM; the agent runs it with his words and the message id, and it writes one empty commit of `Keel:` trailers signed
   with the OWNER key `keel-signers` names at main, so his own device signs. With `owner none` it writes nothing and
-  exits 3. An agent's own `test-removed` ack is an ordinary signed commit and needs none of this.
+  exits 3. An ssh owner key signs through `keel-ssh-sign.sh` (git's ssh program for that commit only): on WSL it hands
+  the signature to Windows' ssh-keygen, which reaches 1Password (Windows paths, files copied where Windows reads
+  them, the signature copied back); elsewhere plain `ssh-keygen`. Its tests use a fake Windows program only: never
+  run anything that reaches the owner's key, since an unexpected prompt on his screen is the alarm. An agent's own `test-removed` ack is an ordinary signed commit and needs none of this.
 - `main-tree-guard.sh`, `hooks/post-checkout`, `tests/test_main_tree_guard.py` (issue 15): keeps the main working
   tree on `main`. `install`, run from the main working tree only (from a lane it would install that branch's hook),
   copies the hook into the shared hooks directory, so a later checkout does not change what runs. The hook acts only
@@ -394,9 +397,9 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   lines to fill in), and the key's class covers the rule: a `routine` key acks `test-removed` only, an `owner` key
   every rule (issue 15). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. A
   GPG signature is matched by fingerprint; an ssh one is verified against the list's own ssh keys only, never the
-  machine's `gpg.ssh.allowedSignersFile` (theseus-pw1q.18's reason for refusing ssh); an x509 one is refused. While
-  the list holds `owner none`, nothing can sign the owner's class, so a join's merge commit can carry only
-  `test-removed` trailers until his key is listed.
+  machine's `gpg.ssh.allowedSignersFile` (theseus-pw1q.18's reason for refusing ssh); an x509 one is refused. The
+  owner's key is an ssh key only his approval can use, so a join's merge commit, signed with the agents' key, carries
+  only `test-removed` trailers; any other is his, through `keel-ack.sh`.
 - **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
   came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
   (`wait_for(`, `.until(`) keeps its check.

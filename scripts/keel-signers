@@ -4,7 +4,8 @@
 #
 # One key a line, `<class> <kind> <key>`:
 #   routine  acks test-removed only (the owner, 2026-11-14): the key the agents who build this repository sign with.
-#   owner    acks every rule. `owner none` holds the owner's place until his own key exists, and nothing can sign
-#            his class meanwhile. Naming his key is one line: `owner gpg <fingerprint>` or `owner ssh <type> <key>`.
+#   owner    acks every rule: the owner's own ssh key, held where only his approval on each request can use it, named
+#            here on his word of 2026-11-14. `owner none` in its place would mean no owner key, and nothing could sign
+#            his class.
 routine gpg 7CA7E3202D474BBA01DAF25477592FB1C703882E
-owner none
+owner ssh ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJKJLnP38/9FKytUKXVuiXt2A4hwRfjT1UR7lUGmroy8
