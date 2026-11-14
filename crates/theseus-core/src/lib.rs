@@ -485,6 +485,8 @@ mod tests_one_turn;
 #[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
+mod tests_onto_class;
+#[cfg(test)]
 mod tests_onto_digest;
 #[cfg(test)]
 mod tests_onto_judged;
@@ -495,9 +497,13 @@ mod tests_onto_mint;
 #[cfg(test)]
 mod tests_onto_names;
 #[cfg(test)]
+mod tests_onto_notice;
+#[cfg(test)]
 mod tests_onto_other;
 #[cfg(test)]
 mod tests_onto_sweep;
+#[cfg(test)]
+mod tests_onto_tidy;
 #[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]

@@ -14,6 +14,12 @@
 //! Which sources apply to a kind is its row's `mined_from`; the builder asks
 //! for the sources it has been given, and every name still passes the
 //! scrubber before a state holds it.
+//!
+//! Two things are never a name (theseus-nzwa5): a path inside a private
+//! directory ([`Text::private`], Theseus's own state directory, whose build
+//! trees are not anything a person works on), and a name longer than
+//! [`NAME_CHARS`], which would be cut off in the middle and shown as if it
+//! were the whole.
 
 /// The most names a state offers.
 pub const MAX_NAMES: usize = 10;
@@ -37,6 +43,8 @@ pub struct Text<'a> {
     pub previous: Option<&'a str>,
     pub thread_title: Option<&'a str>,
     pub project_title: Option<&'a str>,
+    /// Directories whose paths name nothing: none of their paths is mined.
+    pub private: &'a [String],
 }
 
 /// Path components that name no project: layout, not content.
@@ -221,10 +229,20 @@ const STOP: &[&str] = &[
     "no",
 ];
 
-/// A name as the state shows it: one line, cut at the limit.
-fn tidy(s: &str) -> String {
+/// A name as the state shows it: one line. None when it is longer than the
+/// limit: a name cut off is not the thing's name.
+fn tidy(s: &str) -> Option<String> {
     let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    one.chars().take(NAME_CHARS).collect()
+    (one.chars().count() <= NAME_CHARS).then_some(one)
+}
+
+/// Whether `tok` is `dir` or a path inside it.
+fn inside(tok: &str, dir: &str) -> bool {
+    let dir = dir.trim_end_matches('/');
+    !dir.is_empty()
+        && tok
+            .strip_prefix(dir)
+            .is_some_and(|r| r.is_empty() || r.starts_with('/'))
 }
 
 /// A word with the punctuation round it taken off.
@@ -296,6 +314,24 @@ fn is_host(tok: &str) -> bool {
             .is_some_and(|t| TLDS.contains(&t.to_ascii_lowercase().as_str()))
 }
 
+/// What a person calls a resource's name, in a word: `link` for a URL,
+/// `website` for a host, `file` for a name with a file's extension, `folder`
+/// for a path or a single word (a repository or directory name), else
+/// `thing`. For the notices Theseus writes (theseus-nzwa5).
+pub fn resource_word(name: &str) -> &'static str {
+    if name.contains("://") {
+        "link"
+    } else if is_host(name) {
+        "website"
+    } else if has_extension(name) {
+        "file"
+    } else if name.contains('/') || !name.contains(char::is_whitespace) {
+        "folder"
+    } else {
+        "thing"
+    }
+}
+
 fn capitalised(w: &str) -> bool {
     let mut cs = w.chars();
     cs.next().is_some_and(char::is_uppercase)
@@ -343,7 +379,7 @@ fn terms(text: &str) -> Vec<String> {
 pub fn mine(text: &Text<'_>, sources: &[Source]) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     let add = |name: &str, found: &mut Vec<String>| {
-        let name = tidy(name);
+        let Some(name) = tidy(name) else { return };
         if name.is_empty() || found.len() >= MAX_NAMES {
             return;
         }
@@ -368,13 +404,14 @@ pub fn mine(text: &Text<'_>, sources: &[Source]) -> Vec<String> {
         .map(bare)
         .filter(|t| !t.is_empty())
         .collect();
+    let private = |t: &str| text.private.iter().any(|d| inside(t, d));
     if has(Source::Paths) {
         for t in &toks {
             if let Some((_, path)) = url_parts(t) {
                 if let Some(repo) = repo_of(path) {
                     add(repo, &mut found);
                 }
-            } else if is_path(t) {
+            } else if is_path(t) && !private(t) {
                 if let Some(d) = directory_of(t) {
                     add(d, &mut found);
                 }
@@ -397,7 +434,7 @@ pub fn mine(text: &Text<'_>, sources: &[Source]) -> Vec<String> {
     }
     if has(Source::Paths) {
         for t in &toks {
-            if is_path(t) {
+            if is_path(t) && !private(t) {
                 add(t, &mut found);
             }
         }
@@ -501,5 +538,41 @@ mod tests {
             &[Source::Paths]
         )
         .is_empty());
+    }
+
+    #[test]
+    fn a_path_in_a_private_directory_is_no_name() {
+        let state = vec!["/var/lib/theseus".to_string()];
+        let mined_in = |message: &str, private: &[String]| {
+            mine(
+                &Text {
+                    message,
+                    private,
+                    ..Text::default()
+                },
+                &ALL,
+            )
+        };
+        let tree = "Your tree is /var/lib/theseus/self/trees/fix-pier-7f3a on a branch";
+        assert_eq!(
+            mined_in(tree, &[]),
+            vec!["theseus", "/var/lib/theseus/self/trees/fix-pier-7f3a"],
+            "without the rule it was a name, and so was the folder above it"
+        );
+        assert!(mined_in(tree, &state).is_empty());
+        // A neighbour that only shares the spelling is not inside it.
+        assert_eq!(
+            mined_in("see /var/lib/theseus-notes/plan.md", &state),
+            vec!["theseus-notes", "/var/lib/theseus-notes/plan.md"]
+        );
+    }
+
+    #[test]
+    fn a_name_that_would_be_cut_off_is_not_used() {
+        let long = "x".repeat(NAME_CHARS + 10);
+        let got = mined(&format!("open ./{long}/notes.md and ./short/notes.md"));
+        assert_eq!(got, vec!["short", "./short/notes.md"]);
+        let edge = "y".repeat(NAME_CHARS);
+        assert_eq!(mined(&format!("open ./{edge}/a.md"))[0], edge);
     }
 }

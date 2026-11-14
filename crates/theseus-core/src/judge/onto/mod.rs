@@ -40,6 +40,7 @@ use super::JudgeService;
 use crate::node::AttachmentContent;
 use crate::rpc::Core;
 
+pub(crate) mod class;
 pub mod decide;
 pub mod digest;
 pub mod judged;
@@ -49,6 +50,8 @@ pub(crate) mod name;
 pub mod renamed;
 pub(crate) mod stage;
 pub mod sweep;
+mod tidy;
+pub(crate) mod words;
 
 pub use name::NAMES;
 
@@ -65,8 +68,9 @@ pub struct Point {
 }
 
 impl JudgeService {
-    /// Whether `onto.v1` is asked about this message: a person's, not a
-    /// task's, and the switch on, in a private place; in a shared place
+    /// Whether `onto.v1` is asked about this message: a person's (never one
+    /// Theseus wrote to itself), not a task's, and the switch on, in a
+    /// private place; in a shared place
     /// only when it carries a picture, and then only the picture's own
     /// questions (`OntoInput.shared`), which file nothing.
     pub(super) fn onto_wanted(&self, msg: &Inbound) -> bool {
@@ -74,7 +78,7 @@ impl JudgeService {
             true => true,
             false => has_picture(msg),
         };
-        !msg.task && place && self.core().is_some_and(|c| c.cfg.ontology.judge)
+        !msg.task && !msg.own && place && self.core().is_some_and(|c| c.cfg.ontology.judge)
     }
 
     /// Whether `onto.v1` goes in a request of its own (`[ontology] request`).
@@ -297,6 +301,12 @@ pub(crate) fn onto_input(core: &Core, o: &Ontology, msg: &Inbound) -> OntoInput 
         kinds,
         table,
         suggested: name::suggested(core, sid),
+        private_dirs: vec![core
+            .tools
+            .self_pr
+            .state_dir()
+            .to_string_lossy()
+            .into_owned()],
         ..OntoInput::default()
     }
 }

@@ -16,7 +16,7 @@ use theseus_protocol::now_unix_ms;
 use theseus_store::NewRecord;
 
 use super::decide::{decide, Bands, Plan, Step};
-use super::ONTO_PACK;
+use super::{words, ONTO_PACK};
 use crate::fact::{self, onto::OntoFiled};
 use crate::ontology::Staged;
 use crate::rpc::ontology_machine::{scope, Machine};
@@ -84,7 +84,7 @@ pub fn attach(core: &Core, session: &str, project: &str) {
 
 /// The card a step sends, if it sends one: a mint says so with an undo; a
 /// question asks, and writes nothing; a plain filing sends none.
-fn card(plan: &Plan, step: &Step) -> Option<serde_json::Value> {
+fn card(plan: &Plan, step: &Step, title: Option<&str>) -> Option<serde_json::Value> {
     match step {
         Step::Filed {
             kind,
@@ -94,53 +94,34 @@ fn card(plan: &Plan, step: &Step) -> Option<serde_json::Value> {
             ..
         } => Some(json!({
             "kind": "onto_card", "write": plan.judgment, "undo": true,
-            "text": minted_text(kind, &path.join(" › "), *confidence, &plan.judgment),
+            "text": words::minted_text(title, kind, path, *confidence, &plan.judgment),
         })),
         Step::Ask {
-            text,
+            kind,
+            name,
             category,
+            how,
             confidence,
-            ..
-        } => {
-            let how = category.as_ref().map_or_else(String::new, |c| {
-                format!(
-                    "\n`theseus ontology member {} +{c}` files it.",
-                    plan.session
-                )
-            });
-            Some(json!({
-                "kind": "onto_card", "write": plan.judgment, "undo": false,
-                "text": ask_text(text, *confidence, &how),
-            }))
-        }
+        } => Some(json!({
+            "kind": "onto_card", "write": plan.judgment, "undo": false,
+            "text": words::ask_text(&words::Asked {
+                title,
+                kind,
+                name: name.as_deref(),
+                known: category.is_some(),
+                how: how.as_deref(),
+                confidence: *confidence,
+            }),
+        })),
         _ => None,
     }
 }
 
-/// A mint's card (theseus-x8b9k).
-pub(crate) fn minted_text(kind: &str, path: &str, confidence: f64, write: &str) -> String {
-    crate::owner_note::note(
-        crate::owner_note::Kind::Fyi,
-        &format!("Jev started a new {kind}: {path}"),
-        &format!(
-            "Jev filed this session under it ({:.0}% sure)",
-            confidence * 100.0
-        ),
-        &format!("`theseus ontology undo {write}` takes it back."),
-    )
-}
-
-/// A question's card: Jev's own question, and the command that files it.
-pub(crate) fn ask_text(question: &str, confidence: f64, how: &str) -> String {
-    crate::owner_note::note(
-        crate::owner_note::Kind::Decision,
-        "Where does this session belong?",
-        &format!(
-            "Jev was not sure enough to file it ({:.0}% sure)",
-            confidence * 100.0
-        ),
-        &format!("{question}{how}"),
-    )
+/// The session's title as a notice quotes it: its label, else the first
+/// words of its first prompt.
+fn title_of(core: &Core, session: &str) -> Option<String> {
+    let r: crate::session::SessionRecord = core.store.get_session(session).ok().flatten()?;
+    r.label.filter(|l| !l.is_empty()).or(r.title)
 }
 
 /// Whether a judgment of the batch is one the ontology may act on: `onto.v1`'s,
@@ -182,7 +163,7 @@ pub fn stage<'a>(core: &'a Core, batch: &[Judgment]) -> Option<Pending<'a>> {
                     .scoped(&scope(&j.id)),
             );
             for step in &plan.steps {
-                if let Some(body) = card(&plan, step) {
+                if let Some(body) = card(&plan, step, title_of(core, &plan.session).as_deref()) {
                     let (post, more) = core.outbox.stage_to_operator(None, body)?;
                     rows.extend(more);
                     posts.push(post);

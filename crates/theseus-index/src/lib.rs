@@ -92,6 +92,8 @@ mod ftests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_coverage;
+#[cfg(test)]
 mod tests_files;
 #[cfg(test)]
 mod tests_gate;
