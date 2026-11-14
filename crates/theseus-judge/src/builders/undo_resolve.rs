@@ -224,14 +224,48 @@ impl GitCli {
     /// the repository and nothing of the machine (AGENTS.md, Item 7: a fixture
     /// never inherits git's global config; the same rule serves a probe, whose
     /// answer must not depend on who is running the daemon).
+    ///
+    /// AND WITH THE REPOSITORY FORBIDDEN TO NAME A COMMAND. `dir` is a tree
+    /// the MODEL named, and this probe runs on the gate's synchronous path
+    /// for every plain write, BEFORE any gate has spoken, with the pack live
+    /// by default. So a cloned repository's own `.git/config` is attacker
+    /// input that `git` would otherwise obey: `core.fsmonitor` with a
+    /// non-boolean value is a command git RUNS to ask what changed, and
+    /// `ls-files`, `diff`, `status` and `check-ignore` all reach it. That is
+    /// execution from repository content on a path the user never chose, so
+    /// both are pinned here, on the command line, where the repository's own
+    /// file cannot outrank them.
+    ///
+    /// THE ENVIRONMENT IS NOT ENOUGH, AND NEITHER IS `-C`. `GIT_CONFIG_GLOBAL`
+    /// and `GIT_CONFIG_SYSTEM` silence the MACHINE's files; they say nothing
+    /// about the repository's own, which is the one a clone carries. And
+    /// addressing the tree with `git -C <root>` or `--git-dir` instead of
+    /// changing directory into it does not help either: git reads that
+    /// repository's config whichever way it was pointed at it. Only `-c` on
+    /// the command line, which outranks every file, closes it. `current_dir`
+    /// stays because the probe does not know the root until `rev-parse`
+    /// answers from inside the tree.
+    ///
+    /// Neither flag can change an answer: a filesystem monitor is a cache in
+    /// front of the same facts, and none of these five invocations has a hook
+    /// it legitimately needs. `core.hooksPath` is defence in depth rather than
+    /// a hole observed open -- no invocation here was found to reach a hook --
+    /// and it costs nothing to deny it in advance.
     fn git(dir: &Path) -> Command {
         let mut c = Command::new("git");
         c.env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_OPTIONAL_LOCKS", "0")
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
-            .current_dir(dir);
+            .current_dir(dir)
+            .args([
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+            ]);
         c
     }
 
