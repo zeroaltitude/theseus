@@ -256,8 +256,8 @@ pub struct ThreadInput {
 mod route_facts;
 mod slices;
 pub use route_facts::{
-    route_input, PricePeriod, RestrictedModels, RouteFacts, SwitchCost, ROUTE_STATE_KEYS,
-    TASK_MODELS,
+    route_input, PreviousTurn, PricePeriod, RestrictedModels, RouteFacts, SwitchCost,
+    ROUTE_STATE_KEYS, TASK_MODELS,
 };
 pub use slices::{route as route_state, EFFORT_STATE_KEYS, WORK_STATE_KEYS};
 mod onto;

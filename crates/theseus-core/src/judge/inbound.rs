@@ -729,8 +729,9 @@ impl JudgeService {
                 (true, _) => shared,
                 (false, true) => carried.for_route(&pack),
                 // The effort and the task type read their own slices of the input, which carry
-                // no onto fields and no facts.
-                (false, false) if matches!(pack.name().as_str(), EFFORT_PACK | WORK_PACK) => plain,
+                // no onto fields; the task type no facts, and the effort the previous turn's alone.
+                (false, false) if pack.name() == EFFORT_PACK => carried.for_effort(),
+                (false, false) if pack.name() == WORK_PACK => plain,
                 (false, false) => {
                     if own {
                         plain
@@ -845,12 +846,17 @@ impl JudgeService {
             .iter()
             .position(|n| n.id == msg.node_id)
             .map_or(&nodes[..], |i| &nodes[..i]);
-        input.route = Some(super::route_facts::facts_of(
+        let mut facts = super::route_facts::facts_of(
             before,
             msg.task,
             msg.restricted,
             theseus_protocol::now_unix_ms(),
-        ));
+        );
+        // How the last turn ran (theseus-8euum): the session's own ledger rows.
+        facts.previous_turn =
+            crate::routing::effort::previous::previous_turn(&self.store, &msg.session_id)
+                .map(|p| Box::new(crate::routing::effort::previous::told(p)));
+        input.route = Some(facts);
         Some(input)
     }
 

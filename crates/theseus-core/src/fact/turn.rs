@@ -1874,7 +1874,7 @@ impl Fact for TurnFailed<'_> {
     const KIND: Option<LedgerKind> = Some(LedgerKind::TurnFailed);
 
     fn row(&self) -> Value {
-        json!({"loops": self.loops, "reason": self.reason, "usage_so_far": self.usage, "cost_usd": self.cost_usd, "tool_calls": self.tool_calls})
+        json!({"class": self.class, "loops": self.loops, "reason": self.reason, "usage_so_far": self.usage, "cost_usd": self.cost_usd, "tool_calls": self.tool_calls})
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

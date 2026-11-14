@@ -45,12 +45,13 @@ pub(crate) fn facts_of(
     RouteFacts {
         price_period: period,
         restricted_models: restricted,
-        last_reply_model: last.map(str::to_string),
+        last_reply_model: last.map(Box::from),
         task_models,
         est_tokens: Some(est),
-        current_model: last.map(str::to_string),
+        current_model: last.map(Box::from),
         switch_cost: Some(switch.cost),
         cheaper_model: switch.cheaper_model,
+        previous_turn: None,
     }
 }
 
@@ -129,6 +130,12 @@ impl Carried {
             facts,
             shared,
         }
+    }
+
+    /// What the effort pack reads: its own slice of the input, which takes the facts' `previous_turn`
+    /// and nothing else of them.
+    pub(crate) fn for_effort(&self) -> &Input {
+        &self.facts
     }
 
     /// What the route pack reads: the facts when it asks `model`.

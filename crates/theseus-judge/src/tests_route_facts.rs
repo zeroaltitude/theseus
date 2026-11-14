@@ -25,6 +25,7 @@ fn facts() -> RouteFacts {
         current_model: None,
         switch_cost: None,
         cheaper_model: None,
+        previous_turn: None,
     }
 }
 
@@ -74,6 +75,7 @@ fn the_last_reply_and_the_task_models_are_left_out_when_there_are_none() {
         current_model: None,
         switch_cost: None,
         cheaper_model: None,
+        previous_turn: None,
     });
     let (v, _, _) = state_of(i);
     assert_eq!(v["price_period"], "peak");
@@ -114,14 +116,15 @@ fn the_state_stays_under_its_cap_with_every_fact_at_its_worst() {
     i.route = Some(RouteFacts {
         price_period: PricePeriod::OffPeak,
         restricted_models: RestrictedModels::NotAllowed,
-        last_reply_model: Some("m".repeat(5_000)),
+        last_reply_model: Some("m".repeat(5_000).into()),
         task_models: (0..500)
             .map(|n| format!("{n}-{}", "model".repeat(400)))
             .collect(),
         est_tokens: Some(u64::MAX),
-        current_model: Some("m".repeat(5_000)),
+        current_model: Some("m".repeat(5_000).into()),
         switch_cost: Some(SwitchCost::CheaperToStay),
         cheaper_model: Some("c".repeat(5_000).into()),
+        previous_turn: None,
     });
     let p = by_name("route.v8").unwrap();
     assert_eq!(p.state_cap_tokens, 3000);
