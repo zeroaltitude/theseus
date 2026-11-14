@@ -133,3 +133,39 @@ fn what_the_tree_says_about_cargo_is_not_obeyed() {
     assert_eq!(read(&t), FORMATTED);
     assert!(!marker.exists(), "nothing of the tree's ran");
 }
+
+/// KEY (the second review's R1): `rustfmt` given a path follows `#[path = "…"] mod m;` and writes
+/// through a symlink, so a tree could have it rewrite a file outside it and name that file in the
+/// commit. Both are planted here; the outside file is byte for byte unchanged, the tree's own file
+/// is formatted, and the commit line holds no path outside the tree.
+#[test]
+fn a_module_path_or_a_symlink_cannot_reach_a_file_outside_the_tree() {
+    let f = fixture();
+    let outside = crate::scratch::tempdir();
+    let victim = outside.path().join("victim.rs");
+    std::fs::write(&victim, UNFORMATTED).unwrap();
+    let t = package(
+        &f,
+        &format!(
+            "#[path = \"{}\"]\nmod m;\npub fn sail( a:u32 )->u32{{a}}\n",
+            victim.display()
+        ),
+    );
+    std::os::unix::fs::symlink(&victim, t.dir.join("link.rs")).unwrap();
+    let done = format_tree(&f.place, &t);
+    assert_eq!(
+        done,
+        Formatted::Fixed(vec!["src/lib.rs".into()]),
+        "{done:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        UNFORMATTED,
+        "the file outside the tree was not touched"
+    );
+    let line = done.line().unwrap();
+    assert!(!line.contains(outside.path().to_str().unwrap()), "{line}");
+    assert!(std::fs::read_to_string(t.dir.join("src/lib.rs"))
+        .unwrap()
+        .contains("pub fn sail(a: u32) -> u32 {"));
+}

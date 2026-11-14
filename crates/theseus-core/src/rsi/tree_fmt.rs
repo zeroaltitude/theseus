@@ -6,19 +6,26 @@
 //! commit), so what the gate sees is already formatted, and an unformatted change is
 //! never an attempt.
 //!
-//! **It runs `rustfmt` itself, never `cargo`** (the first review's F1). A tree is the model's
-//! own writing, and `cargo` obeys what the tree says: a `[alias]` in its `.cargo/config.toml`
-//! takes over `cargo fmt` (it is an external subcommand), and its `rust-toolchain.toml` picks
-//! the compiler. Either would run the branch's code here at L0, before any review, with the
-//! daemon's environment, while the rule is that a self build's code runs in L1 and nowhere
-//! else. `rustfmt` only reads source and its own config (`rustfmt.toml`, found from each
-//! file), so it is run from a directory outside the tree, over the changed `.rs` files by
-//! absolute path, with the edition read from the tree's `Cargo.toml` as text and the toolchain
-//! main pins (`rust-toolchain.toml` at `origin/main`, read from git, never from the tree).
+//! **It runs `rustfmt` itself, never `cargo`** (the first review's F1), **and never lets it name
+//! a file** (the second review's R1). A tree is the model's own writing, and `cargo` obeys what the
+//! tree says: a `[alias]` in its `.cargo/config.toml` takes over `cargo fmt` (it is an external
+//! subcommand), and its `rust-toolchain.toml` picks the compiler. Either would run the branch's
+//! code here at L0, before any review, with the daemon's environment, while the rule is that a self
+//! build's code runs in L1 and nowhere else. And `rustfmt` given a file *path* follows every
+//! out-of-line module the file declares (`#[path = "/anywhere.rs"] mod m;`) and writes through a
+//! symlink, so a tree could have it rewrite any `.rs` file the daemon's user can write, and name
+//! that file in the commit. So each changed `.rs` file is read by the daemon, formatted through
+//! **stdin** (which follows no module), and written back by the daemon only when it differs, only
+//! if it is a regular file (never a symlink) whose real path is inside the tree. `rustfmt` reads
+//! only source and its own config, which is taken from the tree's directory by `--config-path`
+//! (`rustfmt.toml`, which no option makes execute anything); it runs from a directory outside the
+//! tree, with the edition read from the tree's `Cargo.toml` as text and the toolchain main pins
+//! (`rust-toolchain.toml` at `origin/main`, read from git, never from the tree).
 //!
 //! A tree that cannot be formatted (no rustfmt on the machine, a file that does not parse) is
 //! not an error: the gate judges it as before, and says so itself.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -49,50 +56,46 @@ impl Formatted {
     }
 }
 
-/// `rustfmt` over the tree's changed `.rs` files, written only when `--check` says something is
-/// unformatted. Blocking: child processes.
+/// Each changed `.rs` file of the tree, formatted through stdin and written back when it
+/// differs. Blocking: child processes.
 pub fn format_tree(p: &Place, tree: &Tree) -> Formatted {
     let files = match changed_rust_files(p, tree) {
         Ok(f) => f,
         Err(why) => return Formatted::Unavailable(why),
     };
-    if files.is_empty() {
-        return Formatted::Clean;
-    }
+    let Ok(root) = tree.dir.canonicalize() else {
+        return Formatted::Unavailable("the tree's directory could not be read".into());
+    };
     let run = Run {
         place: p,
+        tree,
         edition: edition_of(tree),
         toolchain: pinned_toolchain(p),
-        files: &files,
     };
-    let check = match run.rustfmt(true) {
-        Ok(o) => o,
-        Err(why) => return Formatted::Unavailable(why),
-    };
-    if check.status.success() {
-        return Formatted::Clean;
+    let (mut fixed, mut unreadable) = (Vec::new(), Vec::new());
+    for file in &files {
+        match run.format_file(file, &root) {
+            Ok(false) => {}
+            Ok(true) => fixed.push(rel(file, tree)),
+            Err(why) => unreadable.push(why),
+        }
     }
-    let stdout = String::from_utf8_lossy(&check.stdout).into_owned();
-    let diffs = diffs_in(&stdout, tree);
-    if diffs.is_empty() {
-        // A failure that names no diff is an error rustfmt reports (a parse error), not
-        // formatting to apply.
-        let err = String::from_utf8_lossy(&check.stderr);
-        return Formatted::Unavailable(format!(
-            "rustfmt could not read the tree: {}",
-            err.lines().next().unwrap_or("it printed nothing")
-        ));
+    match (fixed.is_empty(), unreadable.first()) {
+        (false, _) => {
+            fixed.sort();
+            Formatted::Fixed(fixed)
+        }
+        (true, Some(why)) => Formatted::Unavailable(why.clone()),
+        (true, None) => Formatted::Clean,
     }
-    match run.rustfmt(false) {
-        Ok(o) if o.status.success() => Formatted::Fixed(diffs),
-        Ok(o) => Formatted::Unavailable(format!(
-            "rustfmt failed ({})",
-            o.status
-                .code()
-                .map_or_else(|| "a signal".into(), |c| format!("exit {c}"))
-        )),
-        Err(why) => Formatted::Unavailable(why),
-    }
+}
+
+/// A file's path relative to the tree (a path git named, so always inside it).
+fn rel(file: &Path, tree: &Tree) -> String {
+    file.strip_prefix(&tree.dir)
+        .unwrap_or(file)
+        .display()
+        .to_string()
 }
 
 /// The `.rs` files the tree changes against `origin/main` (committed, edited or new), as
@@ -149,73 +152,85 @@ fn pinned_toolchain(p: &Place) -> Option<String> {
 
 struct Run<'a> {
     place: &'a Place,
+    tree: &'a Tree,
     edition: String,
     toolchain: Option<String>,
-    files: &'a [PathBuf],
 }
 
 impl Run<'_> {
-    /// One `rustfmt` over the files, from the state directory (outside every tree, so no
-    /// `rust-toolchain.toml` of a tree is read), checking or writing.
-    fn rustfmt(&self, check: bool) -> Result<std::process::Output, String> {
+    /// Format one file through stdin and write it back if it differs. Whether it changed; an
+    /// error says why it was left for the gate (a file that does not parse, rustfmt missing).
+    /// A symlink, a file outside the tree and a file that is not a regular file are never
+    /// touched, and are not an error: they are not the tree's source.
+    fn format_file(&self, file: &Path, root: &Path) -> Result<bool, String> {
+        let meta = std::fs::symlink_metadata(file)
+            .map_err(|e| format!("{}: {e}", rel(file, self.tree)))?;
+        if !meta.file_type().is_file() {
+            return Ok(false);
+        }
+        match file.canonicalize() {
+            Ok(real) if real.starts_with(root) => {}
+            _ => return Ok(false),
+        }
+        let source = std::fs::read(file).map_err(|e| format!("{}: {e}", rel(file, self.tree)))?;
+        let out = self.rustfmt(&source)?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            return Err(format!(
+                "rustfmt could not read {}: {}",
+                rel(file, self.tree),
+                err.lines().next().unwrap_or("it printed nothing")
+            ));
+        }
+        if out.stdout == source {
+            return Ok(false);
+        }
+        std::fs::write(file, &out.stdout).map_err(|e| format!("{}: {e}", rel(file, self.tree)))?;
+        Ok(true)
+    }
+
+    /// One `rustfmt` over `source` on stdin, its formatted text on stdout, from the state directory
+    /// (outside every tree, so no `rust-toolchain.toml` of a tree is read).
+    fn rustfmt(&self, source: &[u8]) -> Result<std::process::Output, String> {
         if let Some(chan) = &self.toolchain {
-            let out = self.once(Some(chan), check)?;
+            let out = self.once(Some(chan), source)?;
             // Not the rustup proxy, or the pinned toolchain is not installed: the default one.
             if out.status.success() || !String::from_utf8_lossy(&out.stderr).contains("toolchain") {
                 return Ok(out);
             }
         }
-        self.once(None, check)
+        self.once(None, source)
     }
 
-    fn once(&self, chan: Option<&str>, check: bool) -> Result<std::process::Output, String> {
+    fn once(&self, chan: Option<&str>, source: &[u8]) -> Result<std::process::Output, String> {
         let mut c = Command::new("rustfmt");
         if let Some(chan) = chan {
             c.arg(format!("+{chan}"));
         }
-        c.args(["--edition", &self.edition]);
-        if check {
-            c.arg("--check");
-        }
-        c.args(self.files)
-            .current_dir(&self.place.state)
-            .env("RUSTUP_AUTO_INSTALL", "0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        c.args([
+            "--edition",
+            &self.edition,
+            "--emit",
+            "stdout",
+            "--config-path",
+        ])
+        .arg(&self.tree.dir)
+        .current_dir(&self.place.state)
+        .env("RUSTUP_AUTO_INSTALL", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
         for (k, v) in &self.place.env {
             c.env(k, v);
         }
-        let child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
+        let mut child = children::spawn(Kind::Owned, || c.spawn(), |c| Some(c.id()))
             .map_err(|e| format!("rustfmt could not start: {e}"))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            // A write the child cut short (it refused the input) is its exit's to say.
+            let _ = stdin.write_all(source);
+        }
         child
             .wait_with_output()
             .map_err(|e| format!("rustfmt did not finish: {e}"))
     }
-}
-
-/// The files `--check` printed a `Diff in <path>:<line>` for, relative to the tree, sorted and
-/// without repeats.
-fn diffs_in(check_output: &str, tree: &Tree) -> Vec<String> {
-    let mut files: Vec<String> = check_output
-        .lines()
-        .filter_map(|l| l.strip_prefix("Diff in "))
-        .map(|l| l.trim_end_matches(':'))
-        // `path:line` (this rustfmt) or `path at line N` (older ones).
-        .filter_map(|l| {
-            l.split_once(" at line ")
-                .map(|(path, _)| path)
-                .or_else(|| l.rsplit_once(':').map(|(path, _)| path))
-        })
-        .map(|path| {
-            let path = Path::new(path);
-            path.strip_prefix(&tree.dir)
-                .unwrap_or(path)
-                .display()
-                .to_string()
-        })
-        .collect();
-    files.sort();
-    files.dedup();
-    files
 }
