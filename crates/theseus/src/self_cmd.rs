@@ -17,6 +17,8 @@ use theseus_protocol::rsi::{
 use crate::cmd::output;
 
 mod backlog;
+#[cfg(test)]
+mod tests_aside;
 
 mod branches;
 
