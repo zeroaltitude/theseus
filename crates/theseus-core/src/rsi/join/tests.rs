@@ -15,6 +15,7 @@ use theseus_protocol::rsi::{SelfHaltParams, SelfMode, SelfResumeParams};
 use theseus_protocol::tasks::{TaskRecord, TaskState};
 use theseus_protocol::SessionKind;
 
+use super::install::{self, Installer};
 use super::planted::Tests;
 use super::review::{Ask, Fut, Review, Reviewer};
 use super::{lock, Seams};
@@ -58,6 +59,38 @@ impl Provider for Says {
                 .stream_message(req, on_delta)
                 .await
         })
+    }
+}
+
+/// An installer that opens and builds its tree the way the machine's own
+/// does — [`install::built_tree`], so the tree's lifecycle under test is the
+/// real one — with a stand-in for the L1 build in place of cargo, and
+/// neither the unit nor the restart. Each build tree it was left with.
+#[derive(Default)]
+struct Builds {
+    targets: Mutex<Vec<PathBuf>>,
+}
+
+impl Installer for Builds {
+    fn start(&self, p: &Place, merge: &str) -> anyhow::Result<String> {
+        let target = install::built_tree(p, merge, &|_, t, _| {
+            // The tree is open while its build runs, and is a worktree.
+            assert!(
+                t.dir.join(".git").exists(),
+                "{} is no worktree",
+                t.dir.display()
+            );
+            // What `scripts/build.sh --profile release` leaves behind: the
+            // binaries in the build tree, which is its `CARGO_TARGET_DIR`.
+            let out = t.target.join("release");
+            std::fs::create_dir_all(&out)?;
+            for b in install::BINARIES {
+                std::fs::write(out.join(b), format!("fake {b}"))?;
+            }
+            Ok(())
+        })?;
+        self.targets.lock().unwrap().push(target);
+        Ok("theseus-self-install-stand-in".into())
     }
 }
 
@@ -438,6 +471,67 @@ async fn a_green_branch_is_reviewed_joined_signed_and_noticed_once() {
         assert!(posts[0].contains(want), "{want}: {}", posts[0]);
     }
     assert_eq!(r.rows("self.installed").len(), 1);
+}
+
+/// KEY (the owner, 2026-11-13): a join with an install leaves ZERO trees
+/// open. The install's tree was the one nothing reaped. It is named for the
+/// merge (`install-<short>`), not for a backlog item, and the pipeline's
+/// close pass walks the task records (`pipeline::queues`'s `closed`), so no
+/// item ever owns it; meanwhile `capacity::trees_open` counts every
+/// directory under `self/trees/`, so one left behind holds the single
+/// pipeline slot for good and every later start reads `hold=slots`
+/// (measured 2026-11-12: a 102 MB `install-72af5c3fd1ff` open 15h42m across
+/// two start evaluations, with nothing able to clear it).
+///
+/// Its build tree is what stays: the unit's L0 half copies the binaries out
+/// of it after this returns and across the daemon's restart, and a build
+/// tree is no open tree.
+#[tokio::test]
+async fn a_join_with_an_install_leaves_no_tree_open() {
+    let r = rig_with(SelfMode::Act, |c| c.self_improve.install = true);
+    let (branch, _) = r.seed("trim-the-sails", PROVED, SONNET);
+    let p = &r.f.place;
+    let before = git(&p.repo, &["worktree", "list"]);
+    let installs = Arc::new(Builds::default());
+    let seams = Seams {
+        installer: installs.clone(),
+        ..r.seams()
+    };
+    let pass = r.core.self_join_pass(&seams).await.unwrap();
+    let merge = r.upstream_main();
+    assert_eq!(pass.joined, [(branch, merge)], "{pass:?}");
+    // The install ran, in a tree of its own, and its build tree still holds
+    // what the unit copies in.
+    let targets = installs.targets.lock().unwrap().clone();
+    assert_eq!(targets.len(), 1, "the install ran once: {targets:?}");
+    for b in install::BINARIES {
+        let at = targets[0].join("release").join(b);
+        assert_eq!(
+            std::fs::read_to_string(&at).unwrap_or_default(),
+            format!("fake {b}"),
+            "{} is still there for the unit",
+            at.display()
+        );
+    }
+    // THE POINT: not one tree open, and no stale worktree registration left
+    // in the repository either.
+    let left: Vec<String> = std::fs::read_dir(p.trees())
+        .map(|d| {
+            d.filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        crate::rsi::capacity::trees_open(&p.trees()),
+        0,
+        "the join left a tree open, which holds the pipeline's slot: {left:?}"
+    );
+    assert_eq!(
+        git(&p.repo, &["worktree", "list"]),
+        before,
+        "no worktree registration left"
+    );
 }
 
 /// The same model building and reviewing is no independent review: refused

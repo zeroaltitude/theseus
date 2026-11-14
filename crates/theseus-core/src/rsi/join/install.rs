@@ -24,7 +24,7 @@ use super::git;
 use crate::fact::rsi_join::SelfInstalled;
 use crate::rpc::Core;
 use crate::rsi::jail::Job;
-use crate::rsi::tree::{Place, Tree};
+use crate::rsi::tree::{self, Place, Tree};
 
 /// The binaries an install swaps in (`scripts/build.sh --installed`):
 /// theseus-sim is built, never installed (theseus-rwpbg.5).
@@ -115,16 +115,56 @@ pub fn argv(unit: &str, script: &Path) -> Vec<String> {
     ]
 }
 
+/// The build an install runs in its tree: [`build`] in the machine's own,
+/// a stand-in in a test's (the tree's own lifecycle is the same either way).
+pub type Build = dyn Fn(&Place, &Tree, &str) -> Result<()> + Send + Sync;
+
+/// The install's tree, and its build tree's path: a detached worktree at
+/// `merge`, built in L1 by `build`, and **closed again as soon as the build
+/// tree holds the binaries**, so a join leaves no tree open.
+///
+/// The close is this function's own, as every other detached tree's is
+/// (`join::git`'s doc: each "is removed by `rsi::tree::close`"). The
+/// install's was the one exception, and nothing else could stand in for it:
+/// the tree is named for the merge (`install-<short>`), not for a backlog
+/// item, so the pipeline's close pass — which walks the task records
+/// (`rsi::pipeline::queues`'s `closed`) — can never own it, while
+/// `rsi::capacity::trees_open` counts every directory under `self/trees/`.
+/// One left behind therefore held the single pipeline slot for good
+/// (2026-11-12: 102 MB open 15h42m, every later start on `hold=slots`).
+/// Widening the reaper instead would have had it race this very build,
+/// which may run for [`BUILD_SILENCE`].
+///
+/// The build tree stays — the unit's L0 half ([`script`]) reads `release/`
+/// out of it after this returns and across the restart — and a build tree is
+/// no open tree, since only `self/trees/` is counted.
+///
+/// A failed build closes the tree too: its log is written to the gates dir,
+/// not into the tree, so there is nothing left in there to read.
+pub fn built_tree(p: &Place, merge: &str, build: &Build) -> Result<std::path::PathBuf> {
+    let short = &merge[..merge.len().min(12)];
+    let t = git::detached(p, "install", short, merge)?;
+    let built = build(p, &t, merge);
+    if let Err(e) = tree::close_keeping_target(p, &t) {
+        tracing::warn!(
+            tree = %t.dir.display(),
+            error = %format!("{e:#}"),
+            "self-install: the tree was not closed"
+        );
+    }
+    built?;
+    Ok(t.target)
+}
+
 /// The machine's own: a tree at the merge, the script, and its unit.
 pub struct Systemd;
 
 impl Installer for Systemd {
     fn start(&self, p: &Place, merge: &str) -> Result<String> {
         let short = &merge[..merge.len().min(12)];
-        let t = git::detached(p, "install", short, merge)?;
-        build(p, &t, merge)?;
+        let target = built_tree(p, merge, &build)?;
         let script_path = p.root().join(format!("install-{short}.sh"));
-        std::fs::write(&script_path, script(&t.target, merge))?;
+        std::fs::write(&script_path, script(&target, merge))?;
         let unit = format!("theseus-self-install-{short}");
         let a = argv(&unit, &script_path);
         let mut c = std::process::Command::new(&a[0]);
