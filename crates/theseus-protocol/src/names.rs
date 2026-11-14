@@ -229,6 +229,8 @@ pub mod method {
         SELF_HALT = "self.halt", SELF_RESUME = "self.resume", SELF_LOG = "self.log", SELF_DIGEST = "self.digest",
         SELF_BACKLOG = "self.backlog", SELF_DROP = "self.drop", SELF_MOVE = "self.move", SELF_RETRY = "self.retry", SELF_FILE = "self.file", SELF_BRANCHES = "self.branches",
         SELF_EXAMS = "self.exams", SELF_REVERT = "self.revert", SELF_PIPELINE = "self.pipeline", SELF_PATTERNS = "self.patterns",
+        /// Pause or unpause new self builds (issue 6, theseus-7glm6; `rsi::SelfPauseParams`): a state of the running daemon, cleared by its restart.
+        SELF_PAUSE = "self.pause",
         /// Narrower policies for the hand roles (theseus-pw1q.15; `rsi::SelfNarrowParams`). The owner's to apply.
         SELF_NARROW = "self.narrow",
         /// Google Workspace (`google`): the one-time consent, the revoke, and the status. The CLI's alone.

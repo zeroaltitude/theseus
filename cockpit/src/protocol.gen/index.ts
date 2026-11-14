@@ -628,6 +628,8 @@ export type * from './SelfNarrowResult';
 export type * from './SelfPatternRow';
 export type * from './SelfPatternsParams';
 export type * from './SelfPatternsResult';
+export type * from './SelfPauseParams';
+export type * from './SelfPauseResult';
 export type * from './SelfPipelineDay';
 export type * from './SelfPipelineItem';
 export type * from './SelfPipelineParams';

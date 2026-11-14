@@ -196,6 +196,8 @@ mod tests_self_mint;
 #[cfg(test)]
 mod tests_self_patterns;
 #[cfg(test)]
+mod tests_self_pause;
+#[cfg(test)]
 mod tests_session_find;
 #[cfg(test)]
 mod tests_session_states;
@@ -1103,6 +1105,7 @@ impl Core {
         core.tools.thread_read.attach(&core);
         core.tools.card_observed.attach(&core);
         core.tools.self_file.attach(&core);
+        core.tools.self_pause.attach(&core);
         core.tools.chat_acts.attach(&core);
         core.tools.jobs.attach(&core);
         core.tools

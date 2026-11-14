@@ -214,11 +214,20 @@ const NOT_ALONE: &str = "self.file files on the owner's behalf, so it is only fo
 const NOT_THIS_SESSION: &str = "self.file is not for a task's session: a task cannot file \
                                 on the owner's behalf. Report the finding, and he files it.";
 
+/// Why a session may not act for the owner in chat.
+pub(crate) enum Wall {
+    /// Not a private place the owner is alone in.
+    NotAlone,
+    /// A task's session.
+    Task,
+}
+
 /// The whole wall, read from the turn: its place's class, and whether the
-/// owner is alone in the session's place and it is not a task's.
-fn refusal(core: &Core, private: bool, session: &str) -> Option<&'static str> {
+/// owner is alone in the session's place and it is not a task's. Shared by
+/// every tool that acts as the owner in chat (`self.file`, `self.pause`).
+pub(crate) fn wall(core: &Core, private: bool, session: &str) -> Option<Wall> {
     if !private {
-        return Some(NOT_ALONE);
+        return Some(Wall::NotAlone);
     }
     // A task's session: read as a task when the record cannot be read, so a
     // failed read refuses rather than files.
@@ -230,12 +239,20 @@ fn refusal(core: &Core, private: bool, session: &str) -> Option<&'static str> {
         _ => true,
     };
     if task {
-        return Some(NOT_THIS_SESSION);
+        return Some(Wall::Task);
     }
     if !core.owner_alone_in(session) {
-        return Some(NOT_ALONE);
+        return Some(Wall::NotAlone);
     }
     None
+}
+
+/// `self.file`'s refusal, in its own words.
+fn refusal(core: &Core, private: bool, session: &str) -> Option<&'static str> {
+    wall(core, private, session).map(|w| match w {
+        Wall::NotAlone => NOT_ALONE,
+        Wall::Task => NOT_THIS_SESSION,
+    })
 }
 
 #[cfg(test)]

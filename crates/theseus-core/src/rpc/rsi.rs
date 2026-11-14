@@ -12,7 +12,7 @@ use serde_json::Value;
 use theseus_protocol::patterns::SelfPatternsParams;
 use theseus_protocol::rsi::{
     SelfBacklogParams, SelfDropParams, SelfFileParams, SelfHaltParams, SelfMoveParams,
-    SelfResumeParams, SelfRetryParams, SelfRevertParams,
+    SelfPauseParams, SelfResumeParams, SelfRetryParams, SelfRevertParams,
 };
 use theseus_protocol::{error_code, method};
 
@@ -21,7 +21,7 @@ use super::Core;
 use crate::approval::Refusal;
 
 /// The methods routed here.
-pub(super) const OWN: [&str; 15] = [
+pub(super) const OWN: [&str; 16] = [
     method::SELF_HALT,
     method::SELF_RESUME,
     method::SELF_LOG,
@@ -37,6 +37,7 @@ pub(super) const OWN: [&str; 15] = [
     method::SELF_REVERT,
     method::SELF_PIPELINE,
     method::SELF_PATTERNS,
+    method::SELF_PAUSE,
 ];
 
 impl Core {
@@ -75,6 +76,10 @@ impl Core {
             method::SELF_FILE => route(params, |p: SelfFileParams| {
                 let who = conn.answerer(p.author.clone(), p.discord.clone());
                 self.self_file(&p, &who).map_err(word_refused)
+            }),
+            method::SELF_PAUSE => route(params, |p: SelfPauseParams| {
+                let who = conn.answerer(p.author.clone(), p.discord.clone());
+                self.self_pause(&p, &who).map_err(pause_refused)
             }),
             method::SELF_BRANCHES => route(params, |p| Ok(self.self_branches(&p)?)),
             method::SELF_PIPELINE => route(params, |p| Ok(self.self_pipeline(&p)?)),
@@ -177,6 +182,21 @@ fn refused(e: anyhow::Error) -> RpcFailure {
 
 /// A refused drop or move, as the owner's acts answer one; an item that is
 /// not on the backlog is the caller's mistake; any other error is the daemon's.
+/// A refused clear of the pause: the owner's word, in the words of the pause.
+fn pause_refused(e: anyhow::Error) -> RpcFailure {
+    match e.downcast::<Refusal>() {
+        Ok(r) => RpcFailure {
+            code: error_code::REFUSED,
+            message: format!(
+                "clearing the pause from {} does not count: {}. The pause is as it was.",
+                r.who, r.why
+            ),
+            data: serde_json::json!({"who": r.who, "via": r.via, "why": r.why}),
+        },
+        Err(e) => e.into(),
+    }
+}
+
 fn word_refused(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<crate::rsi::backlog::BadItem>() {
         Ok(b) => RpcFailure::new(error_code::INVALID_PARAMS, b.to_string()),

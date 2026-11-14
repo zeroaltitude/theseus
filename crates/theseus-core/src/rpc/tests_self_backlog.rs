@@ -65,19 +65,29 @@ fn core_starting(mode: SelfMode, starts: Option<u32>, slots: u32, max_open: u32)
     core
 }
 
+/// A second core over the same store: a restart of the daemon.
+pub(super) fn acting_over(c: &Core) -> Arc<Core> {
+    Core::build(Parts::for_tests(
+        (*c.cfg).clone(),
+        Arc::new(FakeProvider::default()),
+        c.store.clone(),
+    ))
+    .unwrap()
+}
+
 /// A core that acts, with the switch released.
-fn acting(starts: u32, max_open: u32) -> Arc<Core> {
+pub(super) fn acting(starts: u32, max_open: u32) -> Arc<Core> {
     let c = core_with(SelfMode::Act, starts, max_open);
     c.self_resume(&SelfResumeParams::default(), &Answerer::from("the CLI"))
         .unwrap();
     c
 }
 
-fn cli() -> Answerer {
+pub(super) fn cli() -> Answerer {
     Answerer::from("the CLI")
 }
 
-fn stranger() -> Answerer {
+pub(super) fn stranger() -> Answerer {
     Answerer {
         label: format!("discord:{SOMEONE}"),
         surface: Surface::Discord,

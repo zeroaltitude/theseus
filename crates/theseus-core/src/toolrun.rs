@@ -357,6 +357,8 @@ pub struct ToolRuntime {
     pub card_observed: crate::card::tool::Board,
     /// `self.file` (theseus-cux0o): a person's finding, filed from a chat.
     pub self_file: crate::rsi::backlog::tool::Board,
+    /// `self.pause` (issue 6): pause the loop's new builds, from a chat.
+    pub self_pause: crate::rsi::pause_tool::Board,
     /// The deferred tools' counts and each conversation's notes (theseus-7m7w.2).
     pub defer: crate::tools_defer::Board,
     /// Projects (theseus-n5ui2): the defaults of a review and a reminder.
@@ -551,6 +553,7 @@ impl ToolRuntime {
             thread_read: Default::default(),
             card_observed: Default::default(),
             self_file: Default::default(),
+            self_pause: Default::default(),
             defer: Default::default(),
             projects: Default::default(),
             jobs: Default::default(),
@@ -1952,6 +1955,7 @@ pub fn build_runtime(
         crate::rsi::pr::register(cfg, &mut r);
         crate::rsi::evidence::register(cfg, &mut r);
         crate::rsi::backlog::tool::register(cfg, &mut r);
+        crate::rsi::pause_tool::register(cfg, &mut r);
         r.register(Arc::new(crate::tools_defer::find::FindTool));
         r
     } else {
@@ -2091,6 +2095,7 @@ pub fn build_runtime(
         thread_read: Default::default(),
         card_observed: Default::default(),
         self_file: Default::default(),
+        self_pause: Default::default(),
         defer: Default::default(),
         projects: cfg.projects.clone(),
         jobs: Default::default(),
