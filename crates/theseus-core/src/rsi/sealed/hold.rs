@@ -39,6 +39,10 @@ use crate::rpc::Core;
 pub const BEHAVIOUR: &[&str] = &[
     // Prompt and system-text assembly.
     "crates/theseus-core/src/turn.rs",
+    "crates/theseus-core/src/turn/target.rs",
+    "crates/theseus-core/src/turn/catch_up.rs",
+    "crates/theseus-core/src/turn/model_call.rs",
+    "crates/theseus-core/src/turn/settle.rs",
     "crates/theseus-core/src/turn/spec_step.rs",
     "crates/theseus-core/src/turn/standing_step.rs",
     "crates/theseus-core/src/context_files.rs",
