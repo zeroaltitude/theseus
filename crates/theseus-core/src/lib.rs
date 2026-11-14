@@ -259,7 +259,6 @@ mod tests_activation_search;
 #[cfg(test)]
 mod tests_actor;
 #[cfg(test)]
-#[cfg(test)]
 mod tests_approvals;
 #[cfg(test)]
 mod tests_arrangement;

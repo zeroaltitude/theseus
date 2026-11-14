@@ -619,23 +619,24 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   `[standing] capture = false` stops all of it. Tests: `tests_capture.rs`, `capture::tests`.
 - **What the owner says in chat is acted on by a TOOL** (chat-acts-are-tools, S43-1; `chat_acts.rs`, whose header
   carries the depth; was theseus-3i6d1's `rpc/answer_in_words.rs` and theseus-p5kln's `rpc/allow_in_words.rs`,
-  both gone). The owner, 2026-11-13 23:32, Discord message `1571050236367995101`: *"this is NOT a matching thing
-  -- it's a surface area of tools that models can choose to call in response to the prompt and the tool list"*.
-  **No code path matches a substring or a token of his message any more.** Three tools: `chat.answer_question`
-  (through `Core::confirm_action_with`), `chat.allow_held_call` (through `Core::undo_allow`) and
-  `chat.import_sync` (`import.sync.request`, its own `judge_act(Act::Import)` kept). The buttons, the slash
-  commands and the CLI are untouched: a fourth way in, and nothing about what these acts MEAN is widened, only
-  which inputs reach them. None is in a place's kept catalog (`chat_acts::conditional`); `defer_step`'s
-  `chat_acts_offered` puts in the ones whose own fact is true, with a description naming what waits or what is
-  held, and keeps that list as `Offered`, because a question is not listed by `confirm_list` while a turn runs in
-  its session. The structural rule is `chat_acts::Said`, staged at `turn.submit` and BOUND to the turn it started,
-  so a continuation is offered nothing. Ambiguity is still never guessed and the scope is still the place
-  (`waiting_here` / `held_here`, moved whole out of the matchers). The allow tool alone has a second layer,
-  `allow_said.v1` (`chat_acts/judged.rs`, scope `judge:allow_said`): guidance first, as he ruled, then one Noul,
-  and **it FAILS OPEN** -- no answer leaves the call standing and the row says `judged: false`, since a
-  fail-closed judge would let a network fault remove S17-D6. All three are `ToolClass::Read`, `owner_ask`'s class,
-  which is load-bearing for the allow tool: as a `Write` it would be asked of `undo.v1`, and a `reshapeable` would
-  hold the RELEASE of a hold. Tests: `tests_chat_acts.rs` (whole core, scripted model, fake Jev),
+  both gone; the owner, 2026-11-13 23:32, Discord message `1571050236367995101`). **No chat ACT -- answering,
+  allowing, syncing -- is reached by matching his words any more**; thread ROUTING still reads them
+  (`moved_by_words`, `thread_route::address`, `seal_by_word`): its own question. Three tools:
+  `chat.answer_question` (`Core::confirm_action_with`), `chat.allow_held_call` (`Core::undo_allow`),
+  `chat.import_sync` (`import.sync.request`, its `judge_act(Act::Import)` kept). The buttons, slash commands and
+  CLI are untouched: a fourth way in; nothing these acts MEAN is widened. None is in a place's kept catalog
+  (`chat_acts::conditional`); `defer_step`'s `chat_acts_offered` adds only those whose fact is true, kept as
+  `Offered`. `chat_acts::Said` is staged at `turn.submit`, BOUND to the turn it started, so a continuation is
+  offered nothing. **The answer tool's surface CHANGED, not lost**: `answer_in_words` took
+  `capture::owner_alone`'s, **not** a guild channel bound private (loose words do not name their question); the
+  tool takes `PlaceClass::Private`, which DOES include it: the model names the question and
+  `confirm_action_with` re-judges `judge_act(Act::Answer)`, so peer and place rules bite as for the button. The
+  allow tool alone has `allow_said.v1` (`chat_acts/judged.rs`): guidance first, then one Noul, and **it FAILS
+  OPEN** -- no answer leaves the call standing, row `judged: false`; fail-closed would let a network fault
+  remove S17-D6. All three are `ToolClass::Read`, load-bearing for the allow tool: as a `Write`, `undo.v1`'s
+  `reshapeable` would hold the RELEASE of a hold. **A named gap:** no scripted model calls
+  `chat_answer_question`, so `Board::answer`'s body is run by no test (an `owner_ask` parks its session;
+  `bind_place` gives a place to ONE session). It fails closed. Tests: `tests_chat_acts.rs`,
   `chat_acts::tests`, `chat_acts::judged::tests`, `builders::allow_said::tests`.
 - **The task offer** (theseus-bh3t.5; no store change: a field on the reply's outbox post): `classify.v3` is `classify.v2` word for
   word and one question, `offer_task` ("work to be done later, in more than one step, that the person has not asked to start

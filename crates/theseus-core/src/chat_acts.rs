@@ -16,26 +16,62 @@
 //! Three routes used to read the TEXT of his message and act on a match:
 //! `rpc/answer_in_words.rs` (a yes to a waiting question), `rpc/allow_in_words.rs`
 //! (his S17-D6 "run what was originally suggested") and, on a branch that does
-//! not land, `sync_in_words`. All three are gone. **After this module no code
-//! path acts on a substring or token match of his message.** What replaces
-//! them is three tools:
+//! not land, `sync_in_words`. All three are gone. **No chat ACT — answering,
+//! allowing, syncing — is reached by matching his words any more.**
+//!
+//! ⛔ That is the claim, and it is narrower than "no code path matches his
+//! text", which would be FALSE of this tree. Thread **routing** still reads
+//! his words and is its own question, deliberately left alone here:
+//! `thread_move.rs`'s `moved_by_words` is a prefix matcher that MOVES a
+//! session, `thread_route::address` parses a leading `#slug`, `/t slug` or
+//! `"in the <title> thread:"` and ROUTES the turn (and `has_token` scores
+//! `pre_route`), and `thread_seal.rs`'s `seal_by_word` is a whole-message
+//! equality that SEALS. `expect_correction` and `expect_capture` read his
+//! words too, but hand a hint to Jev rather than acting. None of those five
+//! is a chat act; all are pre-existing and none is touched by this module.
+//!
+//! What replaces the three routes is three tools:
 //!
 //! - [`ANSWER`] answers the question waiting here, with one of its answers.
 //! - [`ALLOW`] lets the held call run as it was first proposed.
 //! - [`SYNC`] asks for an import sync now.
 //!
-//! **What is not proven end to end, said plainly.** The allow tool and the
-//! sync tool are driven whole in `tests_chat_acts.rs`: a scripted model calls
-//! them in a real turn and the effect is measured. The ANSWER tool is proven
-//! in three pieces instead -- it is offered while a question waits, with the
-//! question named in the description; his old trigger words answer nothing;
-//! and the verb it calls answers the one question it was given, with his
-//! choice, and nothing else -- but the single hop of a model calling it in a
-//! later turn of the conversation the question waits in is not driven, because
-//! an `owner_ask` parks its session's execution and a later `turn.submit`
-//! there behaves differently. The hop is the same offer step and the same
-//! `run_chat_act` arm the other two take, so what is unproven is this tool's
-//! own end to end, not the wiring. Filed.
+//! **What is driven end to end and what is NOT, said plainly.** The allow
+//! tool and the sync tool are driven whole in `tests_chat_acts.rs`: a scripted
+//! model calls them in a real turn and the effect is measured.
+//!
+//! ⚑ **The ANSWER tool is not, and the gap is wider than "the last hop".** No
+//! scripted model calls `chat_answer_question` anywhere in the tree, so
+//! [`Board::answer`]'s own body is executed by NO test: its argument parse,
+//! its `one_of` pick over `offered.waiting`, its `kind_of` dispatch, its
+//! `stage_answer_fact` and its result strings have no coverage at all. Saying
+//! only "the last hop is undriven" would undersell that, so it is said this
+//! way instead.
+//!
+//! What IS driven for it, each against a whole core: it is offered while a
+//! question waits, with the question named in the description his model
+//! reads; his old trigger words (`yes`, `ok, go ahead`, `yes please`) answer
+//! nothing, measured on `action.confirm_answered` rows; and the verb it calls,
+//! `Core::answer_ask_act`, answers the one question it was given, with his
+//! choice, and leaves another conversation's alone.
+//!
+//! **Why it is not driven, and why the gap STAYS open here.** An `owner_ask`
+//! parks its session's execution, so a later `turn.submit` into that same
+//! session behaves differently (once it hung the case to the test timeout),
+//! and the obvious way round it -- a sibling session at the same place -- is
+//! closed, because `Outbox::bind_place` gives a place to ONE session and a
+//! second bind takes it from the first. Closing this needs a rig that can park
+//! a session and still drive a later turn into it, which is its own piece of
+//! work and is NOT attempted here. The hop is the same offer step and the same
+//! `run_chat_act` arm the other two take, so the WIRING is proven and what is
+//! unproven is this tool's own end to end.
+//!
+//! **It fails CLOSED, which is why the gap is named rather than blocking.** A
+//! broken answer tool returns an error the model reads and answers nothing; it
+//! cannot answer the WRONG question, because `one_of` refuses rather than
+//! guesses and `confirm_action_with` re-judges independently. The buttons,
+//! `work.answer` and the CLI are untouched and tested, so his own ability to
+//! answer never rested on this path.
 //!
 //! **A known limit of the answer tool, measured and not guessed.**
 //! `confirm_list` stops showing a question once a LATER turn has run in its
@@ -246,6 +282,21 @@ impl Board {
     /// `class` is where the turn's words go. A shared place is offered none of
     /// the three: a question waiting for the owner, a hold he alone may
     /// release and his own import are all private acts.
+    ///
+    /// ⛔ **For the answer tool this rule CHANGED, and the change is not a
+    /// loss — say so rather than letting a reader of main's text think it was
+    /// dropped.** `answer_in_words` took `capture::owner_alone`'s surfaces
+    /// (the CLI, the web UI, an owner's DM) and deliberately **not** a guild
+    /// channel bound private, for the reason main's `AGENTS.md` gave at
+    /// length: *a typed answer names its question and loose words do not, so
+    /// in a room others write in a stranger's yes must not become the
+    /// owner's.* `PlaceClass::Private`, the gate above, DOES include that
+    /// channel, so the surface is wider here. That reason
+    /// does not carry over: the model NAMES the question it is answering, so
+    /// this is not a loose yes, and the answer still goes through
+    /// `Core::confirm_action_with` → `judge_act(Act::Answer)`, so the peer
+    /// rule and the place rule bite on it exactly as they do on the button.
+    /// A stranger's words still answer nothing: what is judged is the owner.
     pub fn offers(
         &self,
         session: &str,

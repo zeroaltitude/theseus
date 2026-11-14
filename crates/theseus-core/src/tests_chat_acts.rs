@@ -701,19 +701,53 @@ async fn asking_in_his_dm_and_in_a_thread_starts_exactly_one_sync_and_says_both_
 ///
 /// Every sentence here is one that USED to act by itself: the owner's own
 /// recorded override sentence, the bare yes `answer_in_words` read, and the
-/// sync sentence `sync_in_words` would have read. A question is waiting, a
-/// call is held and the import is configured, so all three routes have
-/// something to act on. The model calls NOTHING.
+/// sync sentence `sync_in_words` would have read. A call is held, the import
+/// is configured and a question really is waiting, so each of the three
+/// routes has something in the world to act on. The model calls NOTHING.
 ///
 /// Nothing happens. No allowance, no answer, no sync, no notice.
+///
+/// ⛔ **The waiting question is set up in a conversation of its own, and that
+/// is forced rather than chosen.** A question asked in THIS session would be
+/// un-listed by the next turn here (`confirm_list` drops a question once a
+/// later turn has run in its session), so the count would fall for a reason
+/// that has nothing to do with his words; and no second session can share
+/// this one's place, because `Outbox::bind_place` gives a place to ONE
+/// session. So the waiting-list assertion below is a GLOBAL one, which is the
+/// honest statement of the thesis anyway: not one of these sentences answers,
+/// or even disturbs, a question that is really waiting anywhere.
+///
+/// ⛔ Without that setup `waiting_before` is 0 and the waiting-list assertion
+/// is `0 == 0` — vacuous for all fourteen sentences. It was, until the r2
+/// review measured it with a `waiting_before > 0` probe and the probe
+/// panicked. Keep an `owner_ask` ahead of the loop or this case quietly stops
+/// testing one of its five dimensions.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_holding_an_old_trigger_phrase_does_nothing_unless_a_tool_is_called() {
     let jev = jev_says(RESHAPEABLE, 0.95);
     let r = sync_rig(&jev);
     let sid = session(&r.core);
     let p = a_held_write(&r, &sid).await;
+
+    // A question that REALLY waits, so the waiting-list assertion is not
+    // `0 == 0`. In a conversation of its own, for the reason in the doc above.
+    let asked = thread_session(&r.core, "harbour", None);
+    r.calls(&[(
+        "owner_ask",
+        json!({"question": "Ship it?", "options": [{"label": "Yes"}, {"label": "No"}]}),
+    )]);
+    say(&r, &asked, "What should we do there?").await;
+    until("a question really waits", || {
+        !r.core.confirm_list().unwrap().is_empty()
+    })
+    .await;
+
     let before = r.core.on_demand.started();
     let waiting_before = r.core.confirm_list().unwrap().len();
+    assert!(
+        waiting_before > 0,
+        "the setup must leave a question waiting, or the assertion in the loop is vacuous"
+    );
 
     for words in [
         HIS_OVERRIDE,
@@ -763,12 +797,13 @@ async fn a_message_holding_an_old_trigger_phrase_does_nothing_unless_a_tool_is_c
     );
 }
 
-/// **No code path still matches his text.** The three tools are the only way
-/// in, and each is offered only where its own fact is true: the answer tool
-/// where a question waits, the allow tool where a call is held, and neither
-/// anywhere else. A model that is never offered a tool cannot call it by
-/// accident, which is the half of "not a matching thing" that lives in the
-/// catalog rather than in the turn.
+/// **No chat ACT is reached by matching his text** (thread routing still
+/// reads it and is its own question; see the module header). The three tools
+/// are the only way in, and each is offered only where its own fact is true:
+/// the answer tool where a question waits, the allow tool where a call is
+/// held, and neither anywhere else. A model that is never offered a tool
+/// cannot call it by accident, which is the half of "not a matching thing"
+/// that lives in the catalog rather than in the turn.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
     let jev = jev_says(RESHAPEABLE, 0.95);
