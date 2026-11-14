@@ -213,6 +213,19 @@ fn every_behaviour_glob_matches_a_file() {
     }
 }
 
+/// The code that moved out of `turn.rs` stays held: each of its modules is a behaviour path.
+#[test]
+fn the_turn_modules_split_from_turn_rs_are_held() {
+    for module in ["target", "catch_up", "model_call", "settle"] {
+        let path = format!("crates/theseus-core/src/turn/{module}.rs");
+        assert_eq!(
+            touches(&[path.as_str()]).as_deref(),
+            Some(path.as_str()),
+            "{path} is not held"
+        );
+    }
+}
+
 /// A rig with two items in a set `tides`, and a stand-in scorer.
 async fn rigged(main: Vec<Scores>, other: Vec<Scores>) -> (Rig, Arc<Canned>) {
     let r = rig(
