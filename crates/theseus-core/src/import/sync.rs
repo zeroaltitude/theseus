@@ -16,13 +16,27 @@
 //! - **Health** names the last run, the next one (the next
 //!   [`SYNC_MINUTE`] past `[judge] learning_hour`), and a failed or a missed
 //!   night as a warning.
+//! - **A sync on demand** (theseus-ievo3, S29-1). A decision recorded in
+//!   OpenClaw was readable here only at the next night's run, so for most of a
+//!   working day Theseus acted on yesterday's picture. `import.sync.request`
+//!   **runs a sync then and there**: the daemon starts its own
+//!   `theseus import sync --no-people` as a registered child
+//!   ([`crate::import::sync_run`]) and tells the thread it started, then what
+//!   it imported. One run at a time; a second request while one goes is
+//!   answered "already running". The people step stays nightly -- the argv
+//!   carries `--no-people` -- so no number of requests can multiply its cost.
+
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use theseus_protocol::import_sync::{
-    HealthSync, ImportSyncPlan, ImportSyncRecord, MISSED_AFTER_MS, SAMPLES, SYNC_MINUTE,
+    HealthSync, ImportSyncPlan, ImportSyncRecord, ImportSyncStarted, MISSED_AFTER_MS, SAMPLES,
+    SYNC_MINUTE,
 };
+
+use super::sync_run;
 
 use crate::learning::local_midnight;
 use crate::rpc::Core;
@@ -153,6 +167,81 @@ impl Core {
             learning_hour: cfg.judge.learning_hour,
             people_todo: state.map_or(0, |s| s.people_todo.len() as u64),
         })
+    }
+
+    /// `import.sync.request` (theseus-ievo3, S29-1): **run a sync now.**
+    ///
+    /// The owner's words, 2026-11-13 14:01:14 MST (Discord message
+    /// 1570906412190540072): *"How about when the request comes in we just
+    /// execute it"*. So this starts the run rather than recording a wish for
+    /// a poller, and answers [`ImportSyncStarted`]: that it started, or that
+    /// one was already going.
+    ///
+    /// The whole command is [`crate::import::sync_run`]'s constant and the
+    /// child is registered with the daemon's children, so the census holds.
+    /// `by` names who asked, for the daemon's log; **it reaches no argument,
+    /// no environment variable and no working directory of the child.**
+    ///
+    /// The second message -- what the run imported -- is posted to the
+    /// operator when the child ends (`sync_ran_notice`).
+    pub(crate) fn sync_request(self: &Arc<Self>, by: &str) -> ImportSyncStarted {
+        let now = theseus_protocol::now_unix_ms();
+        match self.on_demand.claim(now) {
+            // Already going: nothing is started, nothing is queued, and the
+            // answer is a different sentence -- never a quiet success.
+            sync_run::Asked::AlreadyRunning(at_ms) => {
+                tracing::info!(by, since_ms = at_ms, "a sync was asked for while one runs");
+                ImportSyncStarted {
+                    started: false,
+                    at_ms,
+                    say: sync_run::already_running_line(at_ms, now),
+                }
+            }
+            sync_run::Asked::Started(at_ms) => {
+                tracing::info!(by, "a sync was asked for: starting one");
+                // The state as it is now, so the run's own counts are the
+                // difference and not the last run's totals.
+                let before: SyncState = self
+                    .store
+                    .get_meta(STATE_KEY)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                let core = self.clone();
+                tokio::spawn(async move {
+                    let ran = core.on_demand.run_claimed().await;
+                    core.sync_ran_notice(&ran, &before);
+                });
+                ImportSyncStarted {
+                    started: true,
+                    at_ms,
+                    say: sync_run::started_line(),
+                }
+            }
+        }
+    }
+
+    /// The second message a request gets: what the run imported, read from the
+    /// state the run itself recorded. It goes where approvals go, which is the
+    /// owner's own DM, so the thread that asked is told without this path
+    /// needing a route of its own.
+    fn sync_ran_notice(&self, ran: &sync_run::Ran, before: &SyncState) {
+        let after: SyncState = self
+            .store
+            .get_meta(STATE_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let text = sync_run::finished_line(ran, before, &after);
+        if !ran.ok() {
+            tracing::warn!(text, "the on-demand sync did not work");
+        }
+        if let Err(e) = self
+            .outbox
+            .to_operator(None, serde_json::json!({"kind": "notice", "text": text}))
+        {
+            tracing::warn!(error = %format!("{e:#}"), "the sync's report could not be posted");
+        }
     }
 
     /// Health's `sync`: the last run, once one has run.

@@ -12,8 +12,23 @@
 //!   no model call) and reads the new messages of the sessions it touched for
 //!   people (a model and Jev, under `[people] sweep_usd_per_day`), and writes
 //!   the people step's spend.
+//! - **`import.sync.request`** (theseus-ievo3, S29-1): a sync now, rather than
+//!   at the next scheduled run. **It runs it.** The daemon starts
+//!   `theseus import sync --no-people` -- its own binary, a fixed argv, a
+//!   registered child -- and answers [`ImportSyncStarted`]: that it started,
+//!   or that one was already running. The owner rejected the design in which
+//!   this recorded a wish for a polling timer to find (Discord message
+//!   1570906412190540072, 2026-11-13 14:01:14 MST: *"How about when the
+//!   request comes in we just execute it"*), and there is no such timer.
+//!   What the run imported reaches the thread when it ends.
+//!   `crate::import::sync_run` in theseus-core is where the whole command
+//!   lives; nothing of it comes from the model or from the message.
 //!
-//! Both are the owner's acts, from a private place, refused inside a job.
+//! All three are the owner's acts, from a private place, refused inside a job.
+//! That is the whole of the authorisation, and it is the same rule the plan and
+//! the record have always taken (`places::owner_in_private`): the CLI, the web
+//! UI, a DM with an owner, or a channel bound private -- so a chat-originated
+//! request needs no second mechanism, only a surface that calls this method.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -155,6 +170,24 @@ pub struct HealthSync {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub warn: Option<String>,
+}
+
+/// `import.sync.request`'s answer (theseus-ievo3, S29-1): a run of its own, or
+/// the one already going. There is no third case and no "it will happen within
+/// N minutes": by the time this is read the run has started or it has not.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ImportSyncStarted {
+    /// Whether THIS request started the run. False means one was already
+    /// running and nothing new was started -- never that the request was
+    /// quietly dropped, and never that it was queued.
+    pub started: bool,
+    /// When the run that is going started, unix ms.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub at_ms: u64,
+    /// What the thread is told now, rendered: the first of the two messages a
+    /// request gets. The second, what it imported, comes when the run ends.
+    pub say: String,
 }
 
 /// `import.sync.record`'s answer.

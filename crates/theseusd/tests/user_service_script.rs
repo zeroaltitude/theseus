@@ -1521,3 +1521,69 @@ fn the_sync_timer_refuses_a_bad_word_and_a_bad_hour() {
         .1
         .contains("sync-timer install|uninstall|status"));
 }
+
+/// **No on-demand timer is installed, and one an earlier build wrote is
+/// removed** (theseus-ievo3, S29-1). The owner rejected serving a request by
+/// polling -- *"How about when the request comes in we just execute it"*
+/// (2026-11-13 14:01:14 MST, Discord message 1570906412190540072) -- so
+/// `import.sync.request` runs the sync in the daemon and there is no third
+/// unit pair. Two timers are written, not three.
+///
+/// The removal matters as much as the absence: a `theseusd-sync-ondemand`
+/// pair an earlier build of this script wrote runs a command that no longer
+/// exists, so left alone it would fail every couple of minutes for ever.
+#[test]
+fn the_sync_timer_installs_no_on_demand_pair_and_removes_an_old_one() {
+    let r = Rig::new();
+    let dir = r.home().join(".config/systemd/user");
+
+    // A pair as an earlier build of this script wrote it, marked as its own.
+    std::fs::create_dir_all(&dir).unwrap();
+    for (f, body) in [
+        (
+            "theseusd-sync-ondemand.service",
+            "# written by user-service.sh sync-timer\n[Service]\nExecStart=theseus import sync \
+             --no-people --if-requested\n",
+        ),
+        (
+            "theseusd-sync-ondemand.timer",
+            "# written by user-service.sh sync-timer\n[Timer]\nOnCalendar=*-*-* *:0/2:00\n",
+        ),
+    ] {
+        std::fs::write(dir.join(f), body).unwrap();
+    }
+
+    let (code, out) = r.run(&["sync-timer", "install"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        !dir.join("theseusd-sync-ondemand.timer").exists()
+            && !dir.join("theseusd-sync-ondemand.service").exists(),
+        "an on-demand pair an earlier build wrote is removed: {out}"
+    );
+    assert!(r
+        .at("systemctl --user disable --now theseusd-sync-ondemand.timer")
+        .is_some());
+
+    // The two that remain are the scheduled ones, untouched by this work.
+    let night = std::fs::read_to_string(dir.join("theseusd-sync.service")).unwrap();
+    assert!(night.trim_end().ends_with("import sync"), "{night}");
+    let hourly = std::fs::read_to_string(dir.join("theseusd-sync-hourly.service")).unwrap();
+    assert!(
+        hourly.trim_end().ends_with("import sync --no-people"),
+        "{hourly}"
+    );
+
+    // And the summary says the request is RUN, not served within N minutes.
+    assert!(
+        out.contains("is RUN THEN AND THERE by the daemon") && out.contains("no timer serves it"),
+        "the summary says the request runs it: {out}"
+    );
+    assert!(
+        !out.contains("is served within"),
+        "nothing promises a wait of minutes any more: {out}"
+    );
+
+    // There is no period flag left to pass.
+    let (code, out) = r.run(&["--on-demand-mins", "5", "sync-timer", "install"]);
+    assert_eq!(code, 2, "--on-demand-mins is gone: {out}");
+}

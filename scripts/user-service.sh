@@ -67,8 +67,8 @@ LINGER=unknown # yes | no | unknown | maybe (a dry run)
 HAND=0         # 1 a daemon started by hand answers on the socket; 2 maybe (a dry run)
 TOKEN_ARGS=()
 REST=()
-SYNC_HOUR=3  # --hour: the nightly sync's local hour
-SYNC_EVERY=1 # --every-hours: how often the import-only run goes (24: no second timer)
+SYNC_HOUR=3      # --hour: the nightly sync's local hour
+SYNC_EVERY=1     # --every-hours: how often the import-only run goes (24: no second timer)
 
 usage() {
   cat <<EOF
@@ -84,8 +84,8 @@ usage: $SELF [--dry-run] [--yes] [--op-token-file FILE] [--unit NAME] <command>
   uninstall   stop the service and remove its unit; your store is not touched
   sync-timer install|uninstall|status
               the OpenClaw sync, two timers beside the daemon's unit: the nightly full run
-              (`theseus import sync`) at HOUR:40 (--hour, default 3), and the import-only run
-              (`theseus import sync --no-people`) every --every-hours hours at :10
+              (`theseus import sync`) at HOUR:40 (--hour, default 3), the import-only run
+              (`theseus import sync --no-people`) every --every-hours hours at :10.
 
   --dry-run   print each command instead of running it
   --yes       answer yes to every question
@@ -718,13 +718,14 @@ unit_env() {
 
 cmd_sync_timer() {
   local sub=${REST[0]:-} base=$UNIT_NAME-sync dir=$CONFIG_HOME/systemd/user bin
-  local hbase=$UNIT_NAME-sync-hourly
+  local hbase=$UNIT_NAME-sync-hourly obase=$UNIT_NAME-sync-ondemand
   if [ ${#REST[@]} -ne 1 ]; then
     echo "$SELF: sync-timer takes install, uninstall or status" >&2
     exit 2
   fi
   local svc=$dir/$base.service tim=$dir/$base.timer
   local hsvc=$dir/$hbase.service htim=$dir/$hbase.timer
+  local osvc=$dir/$obase.service otim=$dir/$obase.timer
   case $sub in
   install)
     bin=$(command -v theseus || true)
@@ -798,24 +799,41 @@ WantedBy=timers.target"
         run rm -f "$htim" "$hsvc"
       fi
     fi
+    # The on-demand TIMER is gone (theseus-ievo3, S29-1). The owner rejected serving a request by
+    # polling: "How about when the request comes in we just execute it" (2026-11-13 14:01:14 MST,
+    # Discord message 1570906412190540072). `import.sync.request` now RUNS the sync in the daemon,
+    # through its registered child path, so there is nothing here to install. A pair an earlier
+    # build of this script wrote is removed, because its command no longer exists and the unit
+    # would fail every couple of minutes for ever.
+    if [ -f "$otim" ] && grep -q "$SYNC_MARK" "$otim" 2>/dev/null; then
+      run systemctl --user disable --now "$obase.timer" || true
+      run rm -f "$otim" "$osvc"
+    fi
     run systemctl --user daemon-reload || return 1
     run systemctl --user enable --now "$base.timer" || return 1
     if [ "$SYNC_EVERY" -lt 24 ]; then
       run systemctl --user enable --now "$hbase.timer" || return 1
     fi
-    done_say "The full sync runs every night at $(printf '%02d' "$SYNC_HOUR"):40 local, and at the next start if a night was missed: $bin import sync. $(if [ "$SYNC_EVERY" -lt 24 ]; then printf 'The import alone runs every %s h at :%02d, with no people step (its sessions wait for the night): %s import sync --no-people. ' "$SYNC_EVERY" "$IMPORT_MINUTE" "$bin"; else printf 'No import-only timer is installed (--every-hours 24). '; fi)It needs [import.openclaw] state_dir in your config; \`$SELF sync-timer status\` shows the next runs."
+    done_say "The full sync runs every night at $(printf '%02d' "$SYNC_HOUR"):40 local, and at the next start if a night was missed: $bin import sync. $(if [ "$SYNC_EVERY" -lt 24 ]; then printf 'The import alone runs every %s h at :%02d, with no people step (its sessions wait for the night): %s import sync --no-people. ' "$SYNC_EVERY" "$IMPORT_MINUTE" "$bin"; else printf 'No import-only timer is installed (--every-hours 24). '; fi)A sync somebody ASKS FOR (theseus import sync --request, or import.sync.request from the web UI or a DM) is RUN THEN AND THERE by the daemon, import only, one run at a time: no timer serves it. It needs [import.openclaw] state_dir in your config; \`$SELF sync-timer status\` shows the next runs."
     ;;
   uninstall)
     if [ -f "$tim" ] && ! grep -q "$SYNC_MARK" "$tim" 2>/dev/null; then
       say "Nothing to remove: $tim was not written by this script."
       return 0
     fi
-    if [ ! -f "$tim" ] && [ ! -f "$svc" ] && [ ! -f "$htim" ] && [ ! -f "$hsvc" ] && ! dry; then
+    if [ ! -f "$tim" ] && [ ! -f "$svc" ] && [ ! -f "$htim" ] && [ ! -f "$hsvc" ] &&
+      [ ! -f "$otim" ] && [ ! -f "$osvc" ] && ! dry; then
       say "Nothing to remove: no sync timer is installed."
       return 0
     fi
     run systemctl --user disable --now "$base.timer" || true
     run rm -f "$tim" "$svc"
+    # And a pair an earlier build of this script wrote, on the same rule (theseus-ievo3).
+    if dry || { [ -f "$otim" ] && grep -q "$SYNC_MARK" "$otim" 2>/dev/null; } ||
+      { [ ! -f "$otim" ] && [ -f "$osvc" ] && grep -q "$SYNC_MARK" "$osvc" 2>/dev/null; }; then
+      run systemctl --user disable --now "$obase.timer" || true
+      run rm -f "$otim" "$osvc"
+    fi
     # The import-only pair goes with it, but only a pair this script wrote (theseus-ievo3).
     if dry || { [ -f "$htim" ] && grep -q "$SYNC_MARK" "$htim" 2>/dev/null; } ||
       { [ ! -f "$htim" ] && [ -f "$hsvc" ] && grep -q "$SYNC_MARK" "$hsvc" 2>/dev/null; }; then
@@ -826,7 +844,7 @@ WantedBy=timers.target"
     done_say "Removed the sync timers. Your store was not touched."
     ;;
   status)
-    probe systemctl --user list-timers "$base.timer" "$hbase.timer" --no-pager || true
+    probe systemctl --user list-timers "$base.timer" "$hbase.timer" "$obase.timer" --no-pager || true
     ;;
   *)
     echo "$SELF: sync-timer takes install, uninstall or status, not $sub" >&2

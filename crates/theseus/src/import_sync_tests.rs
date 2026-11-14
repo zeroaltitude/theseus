@@ -129,3 +129,45 @@ fn a_dry_run_says_it_wrote_nothing() {
         "dry run: 2 sessions with 9 messages would be taken; nothing was written or recorded\n  main: 2 sessions, 9 messages, 1 from the archive\n"
     );
 }
+
+/// The gate on the people step (theseus-ievo3, S29-1): the people step is
+/// where the minutes and the dollars go and it stays nightly, so the daemon's
+/// own on-demand run passes `--no-people` in its fixed argv
+/// (`theseus_core::import::sync_run::ARGV`) and arrives here as an ordinary
+/// `--no-people` run. Nothing else sets it, which is the point: there is one
+/// way to skip the people step and it is the flag.
+#[test]
+fn an_on_demand_run_is_import_only_because_its_argv_says_so() {
+    assert!(!no_people(&SyncArgs::default()));
+    assert!(no_people(&SyncArgs {
+        no_people: true,
+        ..SyncArgs::default()
+    }));
+}
+
+/// What `--request` prints (theseus-ievo3, S29-1): the daemon's own sentence,
+/// unchanged, so the terminal and the thread read the same words. The CLI does
+/// not word this itself -- it cannot, since it is the daemon that knows
+/// whether a run started or one was already going.
+#[test]
+fn a_request_prints_the_daemons_own_sentence() {
+    assert_eq!(
+        request_line(&ImportSyncStarted {
+            started: true,
+            at_ms: 1_790_000_000_000,
+            say: "The OpenClaw sync started. I will say what it imported when it is done.".into(),
+        }),
+        "The OpenClaw sync started. I will say what it imported when it is done.\n"
+    );
+    assert_eq!(
+        request_line(&ImportSyncStarted {
+            started: false,
+            at_ms: 1_790_000_000_000,
+            say: "An OpenClaw sync is already running (started 2 minutes ago); nothing new was \
+                  started. I will say what it imported when it is done."
+                .into(),
+        }),
+        "An OpenClaw sync is already running (started 2 minutes ago); nothing new was started. \
+         I will say what it imported when it is done.\n"
+    );
+}

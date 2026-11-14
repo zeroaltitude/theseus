@@ -241,6 +241,7 @@ export type * from './ImportSessionsResult';
 export type * from './ImportSyncPlan';
 export type * from './ImportSyncRecord';
 export type * from './ImportSyncResult';
+export type * from './ImportSyncStarted';
 export type * from './ImportTagInfo';
 export type * from './ImportTopicsParams';
 export type * from './ImportTopicsResult';

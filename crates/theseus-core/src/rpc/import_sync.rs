@@ -1,7 +1,24 @@
-//! `import.sync.plan` and `import.sync.record` (theseus-pjmj7; `crate::import::sync`):
-//! the daemon's half of `theseus import sync`. Both are the owner's acts, from a
-//! private place (`judge_act(Act::Import)`), and the CLI refuses them inside a job
+//! `import.sync.plan`, `import.sync.record` and `import.sync.request`
+//! (theseus-pjmj7, theseus-ievo3; `crate::import::sync`): the daemon's half of
+//! `theseus import sync`. All three are the owner's acts, from a private place
+//! (`judge_act(Act::Import)`), and the CLI refuses them inside a job
 //! (`OPERATORS`).
+//!
+//! **The request IS the run** (S29-1). `import.sync.request` starts
+//! `theseus import sync --no-people` -- the daemon's own binary, through the
+//! daemon's registered child path -- and answers that it started, or that one
+//! was already running. The owner rejected the design in which it recorded a
+//! wish for a two-minute polling timer to find; that timer does not ship.
+//!
+//! **The authorisation did not widen for it.** `Act::Import` has no arm of its
+//! own in `judge_act`, so it falls to that match's `_ =>
+//! `places::owner_in_private`: the CLI, the web UI, a DM with an owner, or a
+//! channel bound private, and refused from a shared place or an agent's job.
+//! Starting a process is a new act for the daemon, but it is not a new ACTOR:
+//! this is the same gate the plan and the record have always taken, and
+//! `confirms.rs`, `places.rs` and `judge.rs` are untouched by this work.
+//! `import.sync.request` is on `mcp_server`'s `NOT_FOR_MCP`, so an agent's
+//! process cannot ask for one.
 //!
 //! The record is three steps and two frames, so a stop between them loses nothing
 //! the next run needs: the state and the run's row first (the cursor moves, the
@@ -83,6 +100,11 @@ impl Core {
             let core = self.clone();
             let plan = import::blocking(move || core.sync_plan()).await?;
             return serde_json::to_value(plan).map_err(|e| RpcFailure::invalid(e.into()));
+        }
+        if name == method::IMPORT_SYNC_REQUEST {
+            let by = self.import_judged(conn, name_of(name), "the OpenClaw sync asked for now")?;
+            let started = self.sync_request(&by);
+            return serde_json::to_value(started).map_err(|e| RpcFailure::invalid(e.into()));
         }
         let rec: ImportSyncRecord = parse(params)?;
         let by = self.import_judged(conn, name_of(name), "the OpenClaw sync's record")?;
@@ -213,6 +235,7 @@ impl Core {
 fn name_of(name: &str) -> &'static str {
     match name {
         method::IMPORT_SYNC_PLAN => method::IMPORT_SYNC_PLAN,
+        method::IMPORT_SYNC_REQUEST => method::IMPORT_SYNC_REQUEST,
         _ => method::IMPORT_SYNC_RECORD,
     }
 }

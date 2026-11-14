@@ -269,6 +269,128 @@ fn health_words_the_run_and_a_failed_or_missed_night() {
     );
 }
 
+/// **The red for the rework (theseus-ievo3, S29-1).** The owner read the
+/// design below -- a request RECORDED, served by a two-minute polling timer --
+/// and rejected its premise. His words, 2026-11-13 14:01:14 MST, Discord
+/// message 1570906412190540072: *"I still don't understand. Why is there a
+/// polling timer? I'm asking in a theseus thread to just re-import from
+/// external sessions, right? Can't it just execute it? Like I iimagine
+/// there's a once a day thing that just executes a script, or a tool, or a
+/// process. How about when the request comes in we just execute it"*
+///
+/// So: the request RUNS the sync, and answers that it started. It does not
+/// write a wish for a poller, and nothing in its answer is a time for
+/// somebody else to come back to.
+#[tokio::test]
+async fn the_request_runs_the_sync_rather_than_recording_a_wish_for_a_poller() {
+    let r = live();
+    let c = &r.core;
+    let got = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(
+        got["started"],
+        json!(true),
+        "the request started a run of its own: {got}"
+    );
+    assert!(
+        got["say"].as_str().is_some_and(|s| s.contains("started")),
+        "the thread is told it started: {got}"
+    );
+    assert!(
+        got.get("requested_ms").is_none(),
+        "nothing waits for a poller any more: {got}"
+    );
+}
+
+/// **A second request while one runs answers "already running", on the live
+/// path** (theseus-ievo3, S29-1). Driven through `import.sync.request` itself
+/// rather than through the seat in isolation, because what the owner reads is
+/// the RPC's answer: it must start no second child, must not queue, and must
+/// NOT quietly report success.
+#[tokio::test]
+async fn a_second_request_while_one_runs_is_told_and_starts_nothing() {
+    let r = live();
+    let c = &r.core;
+
+    // A run that is going and will not finish until this test lets it.
+    let go = Arc::new(tokio::sync::Notify::new());
+    let started = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    {
+        let go = go.clone();
+        let started = started.clone();
+        c.on_demand.set_runner(Arc::new(move || {
+            let go = go.clone();
+            let started = started.clone();
+            Box::pin(async move {
+                started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                go.notified().await;
+                super::sync_run::Ran {
+                    pid: 1,
+                    code: Some(0),
+                    ..super::sync_run::Ran::default()
+                }
+            })
+        }));
+    }
+
+    let first = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(first["started"], json!(true), "{first}");
+    // Let the spawned run reach the runner before asking again.
+    for _ in 0..200 {
+        if started.load(std::sync::atomic::Ordering::SeqCst) == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    let second = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(
+        second["started"],
+        json!(false),
+        "a second request does not start a second run: {second}"
+    );
+    assert_eq!(
+        second["at_ms"], first["at_ms"],
+        "and it names the RUNNING one's start, not its own"
+    );
+    let say = second["say"].as_str().unwrap_or_default();
+    assert!(
+        say.starts_with("An OpenClaw sync is already running"),
+        "it is told plainly, not answered with a success: {say}"
+    );
+    assert!(
+        say.contains("nothing new was started"),
+        "and it says so in as many words: {say}"
+    );
+    assert_eq!(
+        started.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "exactly one child, after two requests"
+    );
+    assert_eq!(c.on_demand.started(), 1, "and the seat was taken once");
+
+    // The run ends; the seat comes back and a request is served again.
+    go.notify_waiters();
+    for _ in 0..200 {
+        if c.on_demand.flight().is_none() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(c.on_demand.flight(), None, "the seat came back");
+    let third = call(c, method::IMPORT_SYNC_REQUEST, Value::Null)
+        .await
+        .unwrap();
+    assert_eq!(third["started"], json!(true), "{third}");
+    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
 /// The plan and the record are the owner's acts: a place that is not private
 /// is refused, and nothing is written.
 #[tokio::test]
@@ -277,6 +399,7 @@ async fn the_sync_is_the_owners_act_from_a_private_place() {
     let c = &r.core;
     for (m, params) in [
         (method::IMPORT_SYNC_PLAN, Value::Null),
+        (method::IMPORT_SYNC_REQUEST, Value::Null),
         (
             method::IMPORT_SYNC_RECORD,
             serde_json::to_value(ImportSyncRecord::default()).unwrap(),

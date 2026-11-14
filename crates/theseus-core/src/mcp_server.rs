@@ -403,6 +403,11 @@ mod tests {
         method::IMPORT_PEOPLE,
         method::IMPORT_SYNC_PLAN,
         method::IMPORT_SYNC_RECORD,
+        // A sync asked for now (theseus-ievo3): the owner's act, from the CLI,
+        // the web UI or a DM with an owner. An MCP client is an agent's
+        // process, and an agent that could ask for a sync could choose when
+        // the owner's own conversations enter this store.
+        method::IMPORT_SYNC_REQUEST,
         method::BENCH_HISTORY,
         method::SANDBOX_USAGE,
         method::AWS_BOOTSTRAP,
