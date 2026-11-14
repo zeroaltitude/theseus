@@ -96,11 +96,16 @@ async fn an_item_at_its_cap_fails_once_and_its_cause_waits_for_the_owner() {
     // Another tick says nothing more.
     r.tick().await;
     assert_eq!(markers(&task(&r, &b)), 1, "once");
-    // The night: the two-try cause files again, as it always did; the capped one does not.
+    // The night, with the same problems seen again: the two-try cause files again, as it
+    // always did; the capped one does not.
     let (cause_a, cause_b) = (cause_of(&ta), cause_of(&tb));
-    r.core
-        .backlog_night(theseus_protocol::now_unix_ms())
-        .unwrap();
+    let later = theseus_protocol::now_unix_ms() + 3_600_000;
+    for (kind, data) in super::tests::causes() {
+        let mut row = crate::ledger::LedgerRow::named(kind, None, None, data);
+        row.at_unix_ms = later - 1_000;
+        r.core.store.append_ledger(&row).unwrap();
+    }
+    r.core.backlog_night(later).unwrap();
     assert_eq!(items_of(&r, &cause_a).len(), 2, "the control: filed again");
     assert_eq!(
         items_of(&r, &cause_b).len(),
@@ -126,11 +131,15 @@ async fn a_build_that_died_before_its_gate_is_a_try_and_one_that_ran_a_gate_is_n
         "ended:no-branch",
         "its build's turn ended with no green branch",
     );
-    // Both had one build die with no gate, then began another.
+    // Both had a build die with no gate, then began another.
     give(&r, &a, &[died, ("session:s2", "")]);
-    give(&r, &b, &[died, ("session:s2", "")]);
+    give(
+        &r,
+        &b,
+        &[died, ("session:s2", ""), died, ("session:s3", "")],
+    );
     // `a`'s second build ran a gate that went red, so its end below is no extra try (2 in all);
-    // `b`'s ran none, so its end is the third.
+    // `b`'s third ran none, so its end is the third try.
     give(&r, &a, &[("gate:red", "its gate ended red")]);
     r.grace = Duration::ZERO;
     r.tick().await;

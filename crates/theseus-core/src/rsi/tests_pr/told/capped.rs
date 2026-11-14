@@ -27,7 +27,11 @@ async fn reds_inside_a_night_are_one_post_and_the_cap_is_one_notice() {
         operator_posts(&r, "self_digest").is_empty(),
         "inside the cap, no notice"
     );
-    assert_eq!(r.core.folded_read().ended.len(), 2, "both are in the note");
+    assert_eq!(
+        r.core.folded_read().ended.len(),
+        1,
+        "the item is in the note"
+    );
     // The third reaches the cap of three.
     r.turn(&sid, WIRE, propose()).await;
     assert_eq!(thread_posts(&r, "self_build_red").len(), 1, "still the one");

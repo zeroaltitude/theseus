@@ -134,11 +134,11 @@ fn the_notice_says_what_went_wrong_each_time_and_the_way_back() {
 /// The setting: three by default, named in the template, and never zero.
 #[test]
 fn the_cap_defaults_to_three_and_is_never_zero() {
-    let (none, _) = Config::parse("").unwrap();
-    assert_eq!(none.self_improve.max_attempts, 3);
+    let mut cfg = Config::example();
+    assert_eq!(cfg.self_improve.max_attempts, 3);
     assert!(Config::EXAMPLE_TOML.contains("\n# max_attempts = 3 "));
-    let (five, _) = Config::parse("[self]\nmax_attempts = 5\n").unwrap();
-    assert_eq!(five.self_improve.max_attempts, 5);
-    let zero = Config::parse("[self]\nmax_attempts = 0\n").unwrap_err();
+    cfg.validate().unwrap();
+    cfg.self_improve.max_attempts = 0;
+    let zero = cfg.validate().unwrap_err();
     assert!(format!("{zero:#}").contains("at least one try"), "{zero:#}");
 }

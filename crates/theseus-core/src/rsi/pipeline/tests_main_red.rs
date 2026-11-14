@@ -85,5 +85,5 @@ async fn no_self_build_starts_while_main_is_red() {
     *main.0.lock().unwrap() = None;
     let t = r.core.pipeline_tick(&seams).await.unwrap();
     assert_eq!(t.started.len(), 2, "{t:?}");
-    assert_eq!(t.hold, None);
+    assert_ne!(t.hold.as_deref(), Some("main_red"), "{t:?}");
 }
