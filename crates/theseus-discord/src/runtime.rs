@@ -770,7 +770,11 @@ enum Control {
     /// Mute the voice call, or hear it again (theseus-k2sw, `runtime/voice.rs`).
     Mute(bool),
     /// Run an MCP server's prompt as the next turn (36c, `runtime/prompt.rs`).
-    Prompt(Box<theseus_protocol::mcp::McpPromptRef>),
+    /// As the presser, whose ids the handler fills in: the turn is theirs.
+    Prompt(
+        Box<theseus_protocol::mcp::McpPromptRef>,
+        Option<DiscordOrigin>,
+    ),
     /// The loaded extensions (43b, `runtime/extensions.rs`).
     Extensions,
     /// Revoke a loaded extension, as the presser.
@@ -2131,8 +2135,10 @@ impl Place {
     #[expect(clippy::too_many_lines, reason = "shape budget: split it")]
     async fn control(&mut self, cmd: Control, by: &str) -> String {
         match cmd {
-            Control::Prompt(r) if self.inflight || self.ready().await => self.run_prompt(*r, by),
-            Control::Prompt(_) => "No session could be opened here for the prompt.".into(),
+            Control::Prompt(r, origin) if self.inflight || self.ready().await => {
+                self.run_prompt(*r, by, origin)
+            }
+            Control::Prompt(..) => "No session could be opened here for the prompt.".into(),
             Control::Status if self.fresh => format!(
                 "No session yet here ({}): a fresh one starts with your next message.",
                 self.label

@@ -967,6 +967,31 @@ async fn a_jev_notice_goes_to_the_owners_dm_and_a_press_there_labels_it() {
     );
 }
 
+/// Jev as it answered the owner on 2026-11-13: `injection` yes at the act
+/// band, the other three no. A message of a kind that is asked the question is
+/// therefore labelled, which is what makes "was not asked" mean something.
+pub(crate) fn injection_jev() -> theseus_judge::fake::FakeJev {
+    use theseus_judge::fake::{FakeJev, Scripted as Jev};
+    let jev = FakeJev::start().unwrap();
+    jev.script(
+        "injection",
+        Jev::Choice {
+            option: "yes".into(),
+            confidence: 0.96,
+        },
+    );
+    for q in ["secret", "confidential", "personal"] {
+        jev.script(
+            q,
+            Jev::Choice {
+                option: "no".into(),
+                confidence: 0.95,
+            },
+        );
+    }
+    jev
+}
+
 mod ask;
 mod calendar;
 mod card_question;

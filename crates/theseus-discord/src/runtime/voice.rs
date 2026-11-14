@@ -34,6 +34,7 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 use theseus_core::voice::{SpeechCall, SpeechKind, VoiceConfig};
 use theseus_core::Core;
+use theseus_protocol::threads::Speaking;
 use theseus_protocol::voice::VoiceStatus;
 use theseus_protocol::Event as CoreEvent;
 use theseus_protocol::{DiscordOrigin, LedgerKind, PlaceClass, TurnSubmitParams, TurnSubmitResult};
@@ -76,6 +77,8 @@ mod tests_heard;
 mod tests_judged;
 #[cfg(test)]
 mod tests_mute;
+#[cfg(test)]
+mod tests_origin;
 #[cfg(test)]
 mod tests_persona;
 #[cfg(test)]
@@ -759,7 +762,10 @@ impl Place {
         for (u, name) in t.utterances.iter().zip(&names) {
             self.say(&format!("🎙️ **{name}**: {}", u.text), None);
         }
-        let one = names.iter().all(|n| *n == names[0]);
+        // One person said it all, by id: two people may share a display name,
+        // and one person's name may change within a call.
+        let speakers: Vec<u64> = t.utterances.iter().map(|u| u.speaker.0).collect();
+        let one = speakers.iter().all(|s| *s == speakers[0]);
         let said = t
             .utterances
             .iter()
@@ -796,6 +802,16 @@ impl Place {
             c.stopped = false;
             c.early = Early::of(t.turn);
         }
+        // The core reads the owner's own words by who spoke and where: the
+        // call's channel and guild, and the one speaker's id. A turn several
+        // people spoke names no one, and is read as a person's message.
+        let speaking = voice
+            .call
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|c| c.serial == t.serial)
+            .and_then(|c| voice_origin(&speakers, c.channel, c.guild));
         let (rpc, tx, sid, shared) = (
             self.shared.rpc.clone(),
             self.tx.clone(),
@@ -820,7 +836,7 @@ impl Place {
                         reply_to: None,
                         opened_from: None,
                         thread: None,
-                        speaking: None,
+                        speaking,
                         in_reply_to: None,
                         route_at_ms: None,
                         deadline_secs: None,
@@ -953,6 +969,22 @@ impl Place {
 /// when the turn waits on the operator; `FAILED_TURN` when it failed (the
 /// place says why in text); nothing when a `/stop` ended it, which a step
 /// may refuse as a failure (`StoppedAtStep`, theseus-b6vz).
+/// Who spoke a voice turn, as the core's place rule reads it: the one
+/// speaker's id in the call's channel and guild. None when several people
+/// spoke it (or none): that turn's words are not one person's, and a turn whose
+/// speaker is unnamed is read as a person's message, the safe direction.
+pub(super) fn voice_origin(speakers: &[u64], channel: u64, guild: u64) -> Option<Speaking> {
+    let one = *speakers.first()?;
+    speakers.iter().all(|s| *s == one).then(|| Speaking {
+        discord: DiscordOrigin {
+            user_id: one.to_string(),
+            channel_id: channel.to_string(),
+            guild_id: Some(guild.to_string()),
+        },
+        answer_at: None,
+    })
+}
+
 fn spoken_end(r: &Result<TurnSubmitResult, crate::rpc_client::CallError>, stopped: bool) -> String {
     match r {
         _ if stopped => String::new(),

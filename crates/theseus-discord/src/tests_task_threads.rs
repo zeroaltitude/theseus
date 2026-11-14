@@ -1373,3 +1373,99 @@ fn the_until_family_is_exactly_the_files_that_share_its_guard() {
 
 #[path = "tests_task_react.rs"]
 mod react;
+
+// ------------------------------------------- whose words a redirected message is
+
+/// A rig of `#lab` (private, ana the owner, cy a guest the channel lists) with
+/// the real judge live against `jev`.
+async fn judged_task_rig(
+    jev: &theseus_judge::fake::FakeJev,
+    parent: Vec<Scripted>,
+    kids: impl FnOnce(&Path) -> Vec<(&'static str, Vec<Scripted>)>,
+) -> Rig {
+    let base = jev.base();
+    Rig::start_tweaked(
+        |dir, fake| placed_model(fake, parent, kids(dir)),
+        guild(),
+        &bindings(true, ""),
+        &[],
+        move |c| {
+            tweak(c);
+            c.judge.enabled = true;
+            c.judge.api_base = base;
+            c.judge.connect_secs = 1;
+            c.judge.total_secs = 10;
+            c.places.owner = Some(vec![format!("discord:{ANA}")]);
+        },
+    )
+    .await
+}
+
+/// The kind the conversation's judge was asked the message with `needle` as,
+/// once it has been asked.
+async fn kind_asked(r: &Rig, session: &str, needle: &str) -> Value {
+    let node = || {
+        r.core
+            .store
+            .session_nodes(session)
+            .unwrap()
+            .into_iter()
+            .find(|(_, n)| format!("{:?}", n.body).contains(needle))
+            .map(|(_, n)| n.id)
+    };
+    until(r, "the message is in the conversation", || node().is_some()).await;
+    let id = node().unwrap();
+    let judged = || {
+        r.ledger("content.judged")
+            .into_iter()
+            .find(|d| d["node"] == id.as_str())
+    };
+    until(r, "the message is judged", || judged().is_some()).await;
+    judged().unwrap()
+}
+
+/// A message redirected to the conversation that started an ended task is its
+/// writer's own, by id: the owner's is the operator's and is not asked the
+/// injection question, a guest's is a person's message and is. Before, the
+/// redirect named no one, so the owner's own words were asked it.
+#[tokio::test]
+async fn a_redirected_message_keeps_who_wrote_it() {
+    let jev = crate::tests_gateway::injection_jev();
+    let r = judged_task_rig(
+        &jev,
+        vec![
+            start(&[REEF]),
+            Scripted::text("Started."),
+            Scripted::text("Noted."),
+            Scripted::text("Noted again."),
+        ],
+        |_| vec![(REEF, answers("Reef charted."))],
+    )
+    .await;
+    r.say((ANA, "ana"), Some(LAB), ASK);
+    until(&r, "a thread for the task", || !threads(&r).is_empty()).await;
+    let t = threads(&r).remove(0);
+    until(&r, "the thread is renamed at the task's end", || {
+        threads(&r)[0].names.len() == 2
+    })
+    .await;
+    let parent = parent_session(&r);
+    r.say((ANA, "ana"), Some(t.id), "one more chart of the reef");
+    let row = kind_asked(&r, &parent, "one more chart of the reef").await;
+    assert_eq!(
+        row["kind"], "operator_message",
+        "the owner's own words: {row}"
+    );
+    let asked = |row: &Value| {
+        row["answers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["question"] == "injection")
+    };
+    assert!(!asked(&row), "the owner's words were asked it: {row}");
+    r.say((CY, "cy"), Some(t.id), "chart the south reef as well");
+    let row = kind_asked(&r, &parent, "chart the south reef as well").await;
+    assert_eq!(row["kind"], "person_message", "a guest's words: {row}");
+    assert!(asked(&row), "a guest's words were not asked it: {row}");
+}

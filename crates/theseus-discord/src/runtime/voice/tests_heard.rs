@@ -11,7 +11,7 @@ use theseus_voice::{CutWhy, Event, HeardAs, Over, Spoken, TurnId, Utterance};
 use tokio::sync::mpsc;
 use twilight_model::id::Id;
 
-use super::super::tests::core_scripted;
+use super::super::tests::{core_edited, core_scripted};
 use super::super::{Place, PlaceMsg};
 use super::tests::{heard, joined, place, LOUNGE, OWNER};
 use super::{pump, VoicePlace, FAILED_TURN, FRAMING};
@@ -32,7 +32,16 @@ fn lounge(dir: &std::path::Path, replies: &[&str]) -> Lounge {
 }
 
 pub(super) fn lounge_scripted(dir: &std::path::Path, script: Vec<Scripted>) -> Lounge {
-    let core = core_scripted(dir, script);
+    lounge_edited(dir, script, |_| {})
+}
+
+/// `lounge_scripted`, on a core whose config is edited first.
+pub(super) fn lounge_edited(
+    dir: &std::path::Path,
+    script: Vec<Scripted>,
+    edit: impl FnOnce(&mut theseus_core::Config),
+) -> Lounge {
+    let core = core_edited(dir, script, edit);
     let rec = theseus_core::session::SessionRecord::new(
         theseus_protocol::SessionKind::Conversation,
         None,

@@ -19,7 +19,8 @@ use serde_json::json;
 use theseus_protocol::mcp::{
     McpPromptInfo, McpPromptListParams, McpPromptListResult, McpPromptRef,
 };
-use theseus_protocol::{LedgerKind, TurnSubmitParams, TurnSubmitResult};
+use theseus_protocol::threads::Speaking;
+use theseus_protocol::{DiscordOrigin, LedgerKind, TurnSubmitParams, TurnSubmitResult};
 use tokio::sync::{mpsc, oneshot};
 use twilight_model::application::command::{
     Command, CommandOptionChoice, CommandOptionChoiceValue, CommandType,
@@ -490,7 +491,14 @@ impl Shared {
         );
         let (rtx, rrx) = oneshot::channel();
         let _ = tx.send(PlaceMsg::Control {
-            cmd: Control::Prompt(Box::new(r)),
+            cmd: Control::Prompt(
+                Box::new(r),
+                super::origin_of(
+                    i.author().map(|u| u.id.get()),
+                    i.channel.as_ref().map(|c| c.id.get()),
+                    i.guild_id,
+                ),
+            ),
             by: who,
             reply: rtx,
         });
@@ -501,10 +509,36 @@ impl Shared {
     }
 }
 
+/// The turn a prompt run makes: the prompt as its input, in `sid`, by `by`.
+/// `origin` is who ran it, by id, as a typed message names its writer (the
+/// core checks it against `[places] owner` itself).
+fn prompt_params(
+    r: McpPromptRef,
+    sid: String,
+    by: &str,
+    origin: Option<DiscordOrigin>,
+) -> TurnSubmitParams {
+    TurnSubmitParams {
+        prompt: Some(r),
+        session_id: Some(sid),
+        author: Some(by.to_string()),
+        speaking: origin.map(|discord| Speaking {
+            discord,
+            answer_at: None,
+        }),
+        ..Default::default()
+    }
+}
+
 impl Place {
     /// The place's line of turns takes the prompt, one at a time: a turn in
     /// flight keeps its place, and the prompt is not queued behind it.
-    pub(super) fn run_prompt(&mut self, r: McpPromptRef, by: &str) -> String {
+    pub(super) fn run_prompt(
+        &mut self,
+        r: McpPromptRef,
+        by: &str,
+        origin: Option<DiscordOrigin>,
+    ) -> String {
         if self.turning() {
             return "A turn is running here: let it finish, or `/stop` it, then run the prompt again.".into();
         }
@@ -516,33 +550,10 @@ impl Place {
             self.tx.clone(),
             self.session_id.clone(),
         );
-        let author = Some(by.to_string());
+        let params = prompt_params(r, sid, by, origin);
         tokio::spawn(async move {
             let res = rpc
-                .call::<_, TurnSubmitResult>(
-                    theseus_protocol::method::TURN_SUBMIT,
-                    TurnSubmitParams {
-                        surface: None,
-                        dir: None,
-                        carried: false,
-                        prompt: Some(r),
-                        session_id: Some(sid),
-                        input: String::new(),
-                        profile: None,
-                        provider: None,
-                        model: None,
-                        author,
-                        attachments: Vec::new(),
-                        reply_to: None,
-                        opened_from: None,
-                        thread: None,
-                        speaking: None,
-                        in_reply_to: None,
-                        route_at_ms: None,
-                        deadline_secs: None,
-                        via: None,
-                    },
-                )
+                .call::<_, TurnSubmitResult>(theseus_protocol::method::TURN_SUBMIT, params)
                 .await
                 .map(|_| ());
             let _ = tx.send(PlaceMsg::SubmitDone(res));
@@ -555,6 +566,34 @@ impl Place {
 mod tests {
     use super::*;
     use theseus_protocol::mcp::McpPromptArgument;
+
+    /// The turn a prompt run makes names who ran it, by id and place, as a
+    /// typed message does; the core then judges that id itself. With no id
+    /// (no one named) it names no one, and the core reads no owner.
+    #[test]
+    fn a_prompt_run_carries_who_ran_it_by_id() {
+        let r = McpPromptRef {
+            server: "fake".into(),
+            name: "greet".into(),
+            arguments: BTreeMap::new(),
+        };
+        let who = DiscordOrigin {
+            user_id: "42".into(),
+            channel_id: "43".into(),
+            guild_id: Some("44".into()),
+        };
+        let p = prompt_params(r.clone(), "ses_1".into(), "discord:wren", Some(who.clone()));
+        assert_eq!(p.session_id.as_deref(), Some("ses_1"));
+        assert_eq!(p.author.as_deref(), Some("discord:wren"));
+        assert_eq!(p.prompt, Some(r.clone()));
+        assert_eq!(p.input, "", "the prompt is the input, not text");
+        assert_eq!(
+            p.speaking.map(|s| (s.discord, s.answer_at)),
+            Some((who, None))
+        );
+        let none = prompt_params(r, "ses_1".into(), "discord:wren", None);
+        assert!(none.speaking.is_none());
+    }
 
     fn prompt(name: &str, args: &[(&str, bool)]) -> McpPromptInfo {
         let (server, p) = name.split_once('/').unwrap();
