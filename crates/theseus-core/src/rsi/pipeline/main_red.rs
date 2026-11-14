@@ -10,9 +10,12 @@
 //! gate's phase-times log (`gate-times.csv`, the one the auto-revert watch reads too): a row
 //! for the phase `total`, labelled `<branch> <git describe>`. A row counts when its commit is
 //! main's head (`refs/remotes/origin/main` of `[self] repo`, a prefix match) and it was not
-//! run on a dirty tree. The branch in the label does not matter: a gate of a detached merge,
-//! which a self-join runs, is labelled `HEAD …` and is main's own once the merge is pushed.
-//! Three consequences, each from a way the first draft was wrong on a real log:
+//! run on a dirty tree. The branch in the label does not matter: a gate run on a detached
+//! checkout of main's head is labelled `HEAD …` and counts. **What is NOT read**: a self-join's own
+//! gate, which runs in the sandbox, whose `HOME` is an empty tmpfs, so its `gate-times.csv` row is
+//! lost with it; only gates run on the owner's machine are in the log. And a tagged commit's
+//! `git describe` is the bare tag, naming no commit here, so a row for it is not read. Three
+//! consequences, each from a way the first draft was wrong on a real log:
 //!
 //! - a red row of an **old** commit says nothing once main has moved on from it;
 //! - a log with no row for main's head, or none that can be read, is nothing known, and builds

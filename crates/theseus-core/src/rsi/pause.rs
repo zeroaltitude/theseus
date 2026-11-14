@@ -11,9 +11,10 @@
 //! It is not the kill switch, which stays in the store, stops builds in flight and waits for the
 //! owner's resume. A pause is the lighter word for "not now".
 //!
-//! Setting it and clearing it are the owner's, from the command (`theseus self pause`,
-//! `unpause`) and from chat (the tool `self.pause`); the judgement and the words are in the
-//! callers (`rpc/rsi.rs`, `pause_tool.rs`), and this module is the state and its two moves.
+//! Setting it and clearing it will be the owner's, from a command (`theseus self pause`, `unpause`)
+//! and from chat (a tool the model calls). **Neither is here yet**: they add an RPC method and a tool,
+//! which wait for the hot files' split to land on main, so this module is the state and its two
+//! moves and nothing in production calls them yet.
 
 use crate::rpc::Core;
 

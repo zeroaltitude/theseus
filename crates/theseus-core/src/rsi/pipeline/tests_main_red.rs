@@ -9,7 +9,7 @@ use super::Seams;
 use crate::rsi::tree::Place;
 
 /// A log as the gate writes it: branch and describe in the label, the status as `ok` or `failed`,
-/// a lane's gate and a dirty tree's among main's, a detached merge's `HEAD`, and several commits.
+/// a lane's gate and a dirty tree's among main's, a detached checkout's `HEAD`, and several commits.
 const LOG: &str = "time,label,phase,seconds,status\n\
     2026-11-13T01:00:00+00:00,\"main release-1.4-3-g1a2b3c4\",total,120,ok\n\
     2026-11-13T02:00:00+00:00,\"main release-1.4-4-g2b3c4d5\",suite,90,failed\n\
@@ -29,8 +29,8 @@ fn the_newest_whole_gate_of_mains_head_decides() {
         red.at_ms,
         crate::wake::parse_at("2026-11-13T02:10:00+00:00").unwrap()
     );
-    // A later green gate of the same commit lifts it, whatever branch it ran on: a self-join's
-    // gate of a detached merge is labelled `HEAD`.
+    // A later green gate of the same commit lifts it, whatever branch it ran on (a gate on a
+    // detached checkout is labelled `HEAD`).
     let green =
         format!("{LOG}2026-11-13T03:00:00+00:00,\"HEAD release-1.4-4-g2b3c4d5\",total,110,ok\n");
     assert_eq!(red_in(&green, HEAD), None);

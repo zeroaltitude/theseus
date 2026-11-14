@@ -3,8 +3,8 @@
 
 use super::tests::rig_with;
 
-/// KEY: set, a tick starts nothing and says why once; cleared, the next tick starts; the night's
-/// own start is held too.
+/// KEY: set, a tick starts nothing and says why once; the backlog's own start (the night's, and
+/// the one the pipeline calls) starts nothing; cleared, they start.
 #[tokio::test]
 async fn a_pause_stops_new_builds_and_clearing_it_lets_them_start() {
     let r = rig_with(2, 30.0);
@@ -27,17 +27,20 @@ async fn a_pause_stops_new_builds_and_clearing_it_lets_them_start() {
         "{why}"
     );
     assert_eq!(r.view().room.hold.as_deref(), Some("paused"));
-    // The night's own start does nothing either.
-    let night = r
-        .core
-        .backlog_night(theseus_protocol::now_unix_ms())
-        .unwrap();
-    assert!(night.started.is_empty(), "{night:?}");
+    // Every start path goes through the backlog's start, the night's own included: while paused
+    // it starts nothing (the rig's night is told to start none, so this is the path to reach it).
+    let item = r.view().ready[0].item.clone();
+    assert!(r.core.backlog_start_item(&item).unwrap().is_none());
+    assert_eq!(r.state(&item), theseus_protocol::tasks::TaskState::Proposed);
     // Cleared: they start.
     assert!(r.core.self_pause_clear());
     assert!(!r.core.self_pause_clear(), "nothing was paused");
+    assert!(
+        r.core.backlog_start_item(&item).unwrap().is_some(),
+        "and cleared, it starts"
+    );
     let t = r.tick().await;
-    assert_eq!(t.started.len(), 2, "{t:?}");
+    assert_eq!(t.started.len(), 1, "the other slot: {t:?}");
     assert_ne!(t.hold.as_deref(), Some("paused"));
 }
 
