@@ -1460,7 +1460,7 @@ pub(crate) mod tests {
         assert_eq!(c.state.json, r.state.json);
         assert_eq!(c.state.sha256, r.state.sha256);
         // classify.v3 and the route packs ride the same request, as does
-        // directive.v1 (theseus-slvl.5): the same state, byte for byte.
+        // directive.v1 and v2 (theseus-slvl.5): the same state, byte for byte.
         let cp = crate::pack::by_name("classify.v2").unwrap();
         let (_, c3) = prepared("classify.v3");
         assert_eq!(c.state.json, c3.state.json, "classify.v3");
@@ -1470,6 +1470,7 @@ pub(crate) mod tests {
             "route.v7",
             "route.v8",
             "directive.v1",
+            "directive.v2",
         ] {
             let (rp, ro) = prepared(route);
             assert_eq!(c.state.json, ro.state.json, "{route}");

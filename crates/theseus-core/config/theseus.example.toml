@@ -1417,13 +1417,13 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # max_milestones = 32                     # the most milestones one task_create makes
 
 # ---------------------------------------------------------------- standing
-# What the owner's words become (theseus-slvl.5). `directive.v1` reads the
+# What the owner's words become (theseus-slvl.5). `directive.v2` reads the
 # owner's own messages in a private place (the CLI, the web UI, a DM), in the
 # request the other inbound packs ride: what it is sure of (a preference, a
 # fact, a correction) is kept as a standing record with a notice and an undo;
 # what it is unsure of, and every order, is asked; and a message that says a
 # live record again is counted (`theseus standing` shows the week's count).
-# `theseus packs rollback directive.v1` puts the pack back in shadow.
+# `theseus packs rollback directive.v2` puts the pack back in shadow.
 # [standing]
 # capture = true                          # false: nothing is captured, asked or counted
 # A yes said in words that the harness could not place answers nothing and says so where

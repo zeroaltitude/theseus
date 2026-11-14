@@ -287,7 +287,7 @@ fn the_restore_rows_store_is_the_same_with_the_cancel_row_selected() {
 }
 
 /// `bench turn --judge`'s every-pack arm measures a plain turn: the fake Jev answers
-/// `directive.v1` with `none`, as a real plain message's verdict reads, so the turn writes no
+/// `directive.v2` with `none`, as a real plain message's verdict reads, so the turn writes no
 /// standing capture beside its four frames (theseus-n10cv: it asked one, and the arm failed on
 /// `[ledger:standing.asked, meta:standing.capture]`). A real `theseusd`, the one beside
 /// `theseus-sim`; the bench itself fails the run when a turn's frames are not its trace's.

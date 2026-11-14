@@ -1,6 +1,6 @@
 //! `[standing]` (theseus-slvl.5): what the owner's words become.
 //!
-//! - `capture`: `directive.v1` reads the owner's own messages in a private
+//! - `capture`: `directive.v2` reads the owner's own messages in a private
 //!   place (the CLI, the web UI, an owner's DM) at the inbound point, in the
 //!   request the other inbound packs ride, and keeps a standing preference,
 //!   fact or correction it is sure of (with a notice and an undo), asks about

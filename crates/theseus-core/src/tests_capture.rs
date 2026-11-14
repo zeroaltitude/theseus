@@ -1,5 +1,5 @@
 //! Capture (theseus-slvl.5; `crate::capture`, `rpc/capture.rs`), against the
-//! fake Jev: `directive.v1` rides the inbound request with classify and role
+//! fake Jev: `directive.v2` rides the inbound request with classify and role
 //! (no call of its own), and its verdict, by band, keeps a record with a
 //! notice and an undo, asks, or does nothing; an order is always asked; a
 //! correction made twice is proposed; a message that says a record again is
@@ -66,17 +66,17 @@ async fn ask_with(core: &Arc<Core>, params: Value) -> TurnSubmitResult {
     serde_json::from_value(r.result.unwrap()).unwrap()
 }
 
-/// Script `directive.v1`: the kind it hears and how sure it is, and the scope.
+/// Script `directive.v2`: the kind it hears and how sure it is, and the scope.
 fn hears(jev: &FakeJev, kind: &str, confidence: f64, scope: (&str, f64)) {
     jev.script(
-        "directive.v1/kind",
+        "directive.v2/kind",
         Jev::Choice {
             option: kind.into(),
             confidence,
         },
     );
     jev.script(
-        "directive.v1/scope",
+        "directive.v2/scope",
         Jev::Choice {
             option: scope.0.into(),
             confidence: scope.1,
@@ -107,7 +107,7 @@ async fn list(core: &Arc<Core>) -> StandingListResult {
     serde_json::from_value(r.result.unwrap()).unwrap()
 }
 
-/// The records `directive.v1` kept, ended ones too.
+/// The records `directive.v2` kept, ended ones too.
 fn captured(core: &Core) -> Vec<theseus_protocol::StandingRecord> {
     let all = core.runner.standing.all(&core.store).unwrap();
     all.iter()
@@ -127,7 +127,7 @@ fn rig_capture(jev: &FakeJev, turns: usize) -> Rig {
     r
 }
 
-/// The batch's request: the one that holds `directive.v1`.
+/// The batch's request: the one that holds `directive.v2`.
 fn asked_directive(jev: &FakeJev) -> Vec<Value> {
     jev.seen()
         .into_iter()
@@ -135,7 +135,7 @@ fn asked_directive(jev: &FakeJev) -> Vec<Value> {
         .filter(|b| {
             b["questions"]
                 .as_object()
-                .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v1/")))
+                .is_some_and(|q| q.keys().any(|k| k.starts_with("directive.v2/")))
         })
         .collect()
 }
@@ -415,7 +415,7 @@ async fn a_shared_places_message_is_never_captured() {
         said: crate::capture::Said::Everywhere,
         sure_of_scope: true,
         judgment: "jdg_x".into(),
-        pack: "directive.v1".into(),
+        pack: "directive.v2".into(),
     };
     assert_eq!(
         r.core.capture_now(&m, &v).unwrap(),

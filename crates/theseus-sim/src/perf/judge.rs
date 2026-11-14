@@ -310,7 +310,7 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
     j.insert("total_secs".into(), 5.into());
     if arm == Arm::Loop {
         let packs = table(j, "packs")?;
-        for p in ["classify.v4", "role.v1", "route.v8", "directive.v1"] {
+        for p in ["classify.v4", "role.v1", "route.v8", "directive.v2"] {
             let mut off = toml::Table::new();
             off.insert("rung".into(), "off".into());
             packs.insert(p.into(), off.into());
@@ -321,7 +321,7 @@ pub(super) fn judged(t: &mut toml::Table, base: &str, arm: Arm) -> Result<()> {
 
 /// The fake Jev's answers: a confident `chat` for `route.v8` (a switch to
 /// chat's profile, which the bench points at the stand-in too), `none` for
-/// `directive.v1` (a plain message carries no standing order, so the turn
+/// `directive.v2` (a plain message carries no standing order, so the turn
 /// writes no capture's frames beside its own four), and the bench's `true`
 /// sure to be harmless, so no notice is posted.
 pub(super) fn scripted(jev: &FakeJev) {
@@ -333,7 +333,7 @@ pub(super) fn scripted(jev: &FakeJev) {
         },
     );
     jev.script(
-        "directive.v1/kind",
+        "directive.v2/kind",
         Scripted::Choice {
             option: "none".into(),
             confidence: 0.95,

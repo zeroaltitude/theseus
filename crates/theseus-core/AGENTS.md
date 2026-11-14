@@ -597,9 +597,9 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   the latest slot today that has come and is later than the last claimed). Tests: `tests_work_digest.rs`, `digest::tests`.
   Tests: `tests_initiative.rs`, `initiative::promise::tests`,
   `initiative::lines::tests`, the protocol's `tests_notices.rs`.
-- **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v1`; no store
+- **Capture** (theseus-slvl.5; `capture/`, `rpc/capture.rs`, `fact/capture.rs`, `config/standing.rs`; pack `directive.v2` (v1 kept, its judgments under its own text); no store
   format: new META key `standing.capture` and new ledger kinds): the owner's words become standing records without a
-  command. `directive.v1` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
+  command. `directive.v2` (live, at `inbound`) rides the batch with `classify.v1` and `role.v1` (no call of its own) and is
   asked only for a message `turn.submit` noted as the owner's own (`capture::expect::Expected`, taken at the inbound point;
   never a job's `opened_from`, an MCP client's, a prompt's, or one with files) in a place only the owner writes in
   (`capture::owner_alone`: no place, or an owner's DM) and never a task's; whether those words could answer an

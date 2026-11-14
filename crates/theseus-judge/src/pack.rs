@@ -55,6 +55,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
     ("classify.v4", include_str!("../packs/classify.v4.toml")),
     ("role.v1", include_str!("../packs/role.v1.toml")),
     ("directive.v1", include_str!("../packs/directive.v1.toml")),
+    ("directive.v2", include_str!("../packs/directive.v2.toml")),
     ("continue.v1", include_str!("../packs/continue.v1.toml")),
     ("categorize.v1", include_str!("../packs/categorize.v1.toml")),
     ("rerank.v1", include_str!("../packs/rerank.v1.toml")),
