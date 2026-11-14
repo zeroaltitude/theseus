@@ -50,6 +50,7 @@
 //! base, and main is pushed there.
 
 pub mod git;
+pub mod guard;
 pub mod install;
 pub(crate) mod joining;
 pub mod keel;
@@ -63,6 +64,8 @@ mod tender;
 pub(crate) mod tests;
 #[cfg(test)]
 mod tests_notify;
+#[cfg(test)]
+mod tests_reap;
 #[cfg(test)]
 mod tests_sealed;
 
@@ -307,6 +310,8 @@ impl Run<'_> {
     /// Before a phase: the test's hook, then the gate. A refusal writes the
     /// stop's row and says so.
     fn phase(&mut self, name: &str) -> bool {
+        // The phase before this one closed what it opened (`guard`).
+        guard::assert_closed(&self.place, &format!("before the {name} phase"), false);
         if let Some(f) = &self.seams.on_phase {
             f(name);
         }
@@ -426,6 +431,7 @@ impl Core {
                 break;
             }
         }
+        guard::assert_closed(&place, "at the end of the pass", true);
         Ok(pass)
     }
 }

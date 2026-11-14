@@ -15,10 +15,15 @@ use theseus_kernel::children::{self, Kind};
 
 use crate::rsi::tree::{self, Place, Tree};
 
+/// The name a detached tree of `what` for `branch` has under the trees and the build trees.
+pub fn slug_of(what: &str, branch: &str) -> String {
+    format!("{what}-{}", tree::slug(branch.trim_start_matches("self/")))
+}
+
 /// A detached worktree of `rev` named `<what>-<slug of branch>`, with its
 /// own build tree. One left by a crash is removed first.
 pub fn detached(p: &Place, what: &str, branch: &str, rev: &str) -> Result<Tree> {
-    let slug = format!("{what}-{}", tree::slug(branch.trim_start_matches("self/")));
+    let slug = slug_of(what, branch);
     std::fs::create_dir_all(p.trees())?;
     let trees = std::fs::canonicalize(p.trees())?;
     let dir = trees.join(&slug);

@@ -90,6 +90,8 @@ mod tests_lease;
 #[cfg(test)]
 mod tests_main_red;
 #[cfg(test)]
+mod tests_named;
+#[cfg(test)]
 mod tests_notify;
 #[cfg(test)]
 mod tests_stale;
@@ -611,7 +613,17 @@ impl Core {
         if let Some(red) = seams.main.red() {
             return (room, Some(("main_red".into(), red.why())));
         }
-        let hold = hold.map(|h: Hold| (h.name().to_string(), h.why(&room)));
+        let hold = hold.map(|h: Hold| {
+            let mut why = h.why(&room);
+            // A tree held the slot: say which, so it is a name to look for (issue 6).
+            if matches!(h, Hold::Slots) {
+                let open = capacity::trees_named(&place.trees());
+                if !open.is_empty() {
+                    why = format!("{why}; open now: {}", open.join(", "));
+                }
+            }
+            (h.name().to_string(), why)
+        });
         (room, hold)
     }
 
