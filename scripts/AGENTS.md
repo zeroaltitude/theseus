@@ -121,6 +121,10 @@ including in a commit message, because it is stale by the next departure.
   answer to a file over the ceiling is to move depth out of it (`RELEASES.md` is the worked example); **raising
   `MAX_BYTES` is not a fix** -- it spends context on every session for every file. Run it by hand as
   `python3 scripts/context-ceiling.py` for the full headroom table.
+- `main-tree-guard.sh`, `hooks/post-checkout`, `tests/test_main_tree_guard.py` (issue 15): keeps the main working
+  tree on `main`. `install` copies the hook (a copy, so a branch cannot edit what runs) into the shared hooks
+  directory; it acts only in the main working tree, never in a lane, and puts a checkout that moved it straight back,
+  failing that checkout. Run by `setup.sh` step 3; `check` says whether it is installed and current.
 - `status-page.py`, `tests/test_status_page.py` (issue 15; theseus-fly32): the gate's **`status page`** phase, HARD.
   `docs/status.md`'s first `_Updated` line has one shape (the script's docstring) and each part is read back: the
   workspace version, the newest `release-*` tag reachable from HEAD with its commit and date, and the release's name.

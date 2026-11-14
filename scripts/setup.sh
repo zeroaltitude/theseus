@@ -7,7 +7,9 @@
 #   2. build      the cockpit (npm ci, npm run build: the web UI the daemon embeds), then the five binaries (four are installed)
 #                 (scripts/build.sh --profile release, the install profile: the host's glibc).
 #   3. install    each binary into the prefix (default ~/.local/bin) by copy-then-rename, so a running daemon
-#                 keeps its image until it restarts. A binary that matches the build is left alone.
+#                 keeps its image until it restarts. A binary that matches the build is left alone. In a git
+#                 checkout, also the main-tree guard (scripts/main-tree-guard.sh), which keeps the main working
+#                 tree on `main`.
 #   4. config     /etc/theseus/theseus.toml (or --config): when there is none, the template cut to what differs
 #                 from the defaults (`theseusd example-config`, then `config --sparse`), every [secrets] entry an
 #                 op:// placeholder for you to fill in, never a value. /etc/theseus is made once with sudo, owned
@@ -495,6 +497,17 @@ else
   ok "installed $CHANGED_BINS ($same already matched): $("$PREFIX/theseusd" --version 2>/dev/null)"
 fi
 THESEUSD=$PREFIX/theseusd
+# The main working tree stays on `main` (issue 15): installs build from it, and agents once checked it out onto a
+# builder's commit twice in an evening. A hook of someone else's in the way is said, never replaced.
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  if dry; then
+    show "$ROOT/scripts/main-tree-guard.sh" install
+  elif guard=$("$ROOT/scripts/main-tree-guard.sh" install); then
+    ok "$guard"
+  else
+    warn "$guard"
+  fi
+fi
 
 # ===================================================================================================
 step "4. config: $CONFIG"

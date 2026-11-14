@@ -40,6 +40,8 @@ Each step prints one line per thing it checks or does, and the commands it runs 
    `theseus-sim`, `theseus-index`; `theseus-sim` is built for the benches and the size check, and stays in `target/`). Cargo rebuilds only what changed.
 3. **Install**: each of the four binaries but `theseus-sim` into `~/.local/bin` (`--prefix`), by a copy to a temporary name and a rename over the
    old one, so a running daemon keeps its image until it restarts. A binary that matches the build is left alone.
+   In a git checkout it also installs the main-tree guard (`scripts/main-tree-guard.sh`), a hook that keeps the main
+   working tree on `main`; a `post-checkout` hook already there that it did not write is left alone, and said.
 4. **Config**: when `/etc/theseus/theseus.toml` (`--config`) does not exist, the script writes it from the
    template: `theseusd example-config`, cut by `theseusd config --sparse` to what differs from the defaults, with
    `[tools] projects_dir` set to `~/projects` and a header that says where it came from. Every `[secrets]` entry is

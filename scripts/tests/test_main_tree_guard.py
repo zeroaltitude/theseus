@@ -1,0 +1,141 @@
+"""Tests for scripts/main-tree-guard.sh and scripts/hooks/post-checkout (issue 15: the main tree stays on main).
+
+Run: python3 -m unittest -q scripts/tests/test_main_tree_guard.py
+
+Each case builds a throwaway repository with a main working tree and a linked worktree (a lane), installs the guard
+the way an operator does, and then does what moved the real main tree on 2026-11-13: a checkout of another commit
+in the main tree.
+"""
+import os
+import subprocess
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SCRIPTS = os.path.abspath(os.path.join(HERE, ".."))
+GIT = ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false",
+       "-c", "init.defaultBranch=main", "-c", "advice.detachedHead=false"]
+
+
+class MainTreeGuard(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.main = os.path.join(self.tmp.name, "repo")
+        self.lane = os.path.join(self.tmp.name, "lane")
+        self.env = dict(os.environ, HOME=self.tmp.name, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+        os.makedirs(os.path.join(self.main, "scripts", "hooks"))
+        # The repository under test carries the guard as the real one does: the scripts are its own files.
+        for rel in ("main-tree-guard.sh", "hooks/post-checkout"):
+            with open(os.path.join(SCRIPTS, rel), encoding="utf-8") as src:
+                self.put(os.path.join("scripts", rel), src.read(), 0o755)
+        self.put("notes.txt", "one\n")
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "one")
+        self.one = self.git("rev-parse", "HEAD").stdout.strip()
+        self.put("notes.txt", "two\n")
+        self.git("commit", "-q", "-am", "two")
+        self.git("branch", "builder", self.one)
+
+    def put(self, rel, text, mode=0o644):
+        path = os.path.join(self.main, rel)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(path, mode)
+
+    def git(self, *args, cwd=None, check=True):
+        return subprocess.run(["git", *GIT, *args], cwd=cwd or self.main, env=self.env, capture_output=True,
+                              text=True, check=check)
+
+    def guard(self, *args):
+        return subprocess.run(["bash", os.path.join(self.main, "scripts", "main-tree-guard.sh"), *args],
+                              cwd=self.main, env=self.env, capture_output=True, text=True)
+
+    def head(self, cwd=None):
+        return self.git("symbolic-ref", "-q", "HEAD", cwd=cwd, check=False).stdout.strip()
+
+    def test_without_the_guard_a_checkout_moves_the_main_tree(self):
+        # The world before the fix, so the cases below prove the guard and not git.
+        self.assertEqual(self.git("checkout", "-q", self.one, check=False).returncode, 0)
+        self.assertEqual(self.head(), "")
+
+    def test_a_checkout_of_another_commit_in_the_main_tree_is_put_back_and_fails(self):
+        self.assertEqual(self.guard("install").returncode, 0)
+        for target in (self.one, self.one[:8], "builder"):
+            r = self.git("checkout", target, check=False)
+            self.assertNotEqual(r.returncode, 0, f"checkout {target} must fail: {r.stderr}")
+            self.assertEqual(self.head(), "refs/heads/main", f"after checkout {target}")
+            self.assertIn("it stays on main; it has been put back", r.stderr)
+            self.assertIn("git worktree add", r.stderr)
+            with open(os.path.join(self.main, "notes.txt"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), "two\n", "the files are main's again")
+
+    def test_a_switch_to_a_new_branch_is_put_back_too(self):
+        self.guard("install")
+        r = self.git("switch", "-c", "scratch", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.head(), "refs/heads/main")
+
+    def test_a_lane_is_left_alone(self):
+        self.guard("install")
+        self.git("worktree", "add", "-q", "--detach", self.lane, "main")
+        r = self.git("checkout", "-q", self.one, cwd=self.lane, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.lane).stdout.strip(), self.one)
+        self.assertEqual(self.head(), "refs/heads/main", "and the main tree did not move")
+
+    def test_main_itself_and_a_file_checkout_pass(self):
+        self.guard("install")
+        self.assertEqual(self.git("checkout", "-q", "main", check=False).returncode, 0)
+        self.put("notes.txt", "edited\n")
+        self.assertEqual(self.git("checkout", "-q", "--", "notes.txt", check=False).returncode, 0)
+        self.assertEqual(self.head(), "refs/heads/main")
+
+    def test_local_edits_are_carried_back(self):
+        self.guard("install")
+        self.put("other.txt", "mine\n")
+        self.git("add", "other.txt")
+        self.git("commit", "-q", "-m", "other")
+        self.put("other.txt", "mine, edited\n")
+        self.git("checkout", "-q", self.one, check=False)  # other.txt is untouched by `one`, so the edit travels
+        self.assertEqual(self.head(), "refs/heads/main")
+        with open(os.path.join(self.main, "other.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "mine, edited\n")
+
+    def test_install_is_idempotent_and_check_says_so(self):
+        self.assertEqual(self.guard("check").returncode, 1)
+        self.assertIn("installed (", self.guard("install").stdout)
+        self.assertIn("installed and current", self.guard("install").stdout)
+        r = self.guard("check")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        # An older copy of ours is replaced, and check names it older until then.
+        hook = os.path.join(self.main, ".git", "hooks", "post-checkout")
+        with open(hook, "a", encoding="utf-8") as f:
+            f.write("# an older line\n")
+        self.assertIn("older", self.guard("check").stdout)
+        self.assertEqual(self.guard("install").returncode, 0)
+        self.assertEqual(self.guard("check").returncode, 0)
+
+    def test_a_hook_of_someone_elses_is_never_replaced(self):
+        hook = os.path.join(self.main, ".git", "hooks", "post-checkout")
+        with open(hook, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\necho theirs\n")
+        r = self.guard("install")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("did not write", r.stdout)
+        with open(hook, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "#!/bin/sh\necho theirs\n")
+
+    def test_the_installed_hook_is_a_copy_a_branch_cannot_edit(self):
+        self.guard("install")
+        hook = os.path.join(self.main, ".git", "hooks", "post-checkout")
+        self.assertFalse(os.path.islink(hook))
+        self.put("scripts/hooks/post-checkout", "#!/bin/sh\nexit 0\n", 0o755)
+        r = self.git("checkout", self.one, check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.head(), "refs/heads/main")
+
+
+if __name__ == "__main__":
+    unittest.main()
