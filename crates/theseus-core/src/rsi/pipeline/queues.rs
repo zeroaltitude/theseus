@@ -16,6 +16,8 @@
 //!   theseus-o1h3f.6),
 //!   builds whose turn ended with no green branch (`ended`), dropped items
 //!   with a live build or trees (`dropped`), and joined ones (`joined`);
+//! - `stale`: in progress and in none of the queues, with no build behind it (issue 6,
+//!   condition 8); a tick settles it as failed;
 //! - and `closed`: failed or done items whose trees are still on disk, with
 //!   no green branch waiting on a review, a join or the owner (theseus-czlzg),
 //!   so a path nobody thought of (the backlog's sweep marking a build failed)
@@ -65,6 +67,8 @@ pub(crate) struct Queues {
     pub dropped: Vec<Entry>,
     pub joined: Vec<Entry>,
     pub closed: Vec<Entry>,
+    /// In progress, and in no queue above: nothing is building, reviewing or waiting on it.
+    pub stale: Vec<Entry>,
 }
 
 /// A green branch, as its row says it.
@@ -285,6 +289,35 @@ fn closed(q: &mut Queues, tasks: &[TaskRecord], place: &Place) {
     q.closed = closed;
 }
 
+/// In-progress items that no queue holds: an item shows as in progress for as long as its
+/// record says so, so one nothing builds, reviews or waits on (its build began with no record
+/// of a session, its branch conflicted with main and nothing took it back) would show as in
+/// progress for ever.
+fn stale(q: &mut Queues, tasks: &[TaskRecord]) {
+    let queued: Vec<&str> = [
+        &q.ready,
+        &q.building,
+        &q.reviewing,
+        &q.joining,
+        &q.held,
+        &q.parking,
+        &q.ended,
+        &q.dropped,
+        &q.joined,
+        &q.closed,
+    ]
+    .into_iter()
+    .flatten()
+    .map(|e| e.item.as_str())
+    .collect();
+    q.stale = tasks
+        .iter()
+        .filter(|t| t.state == TaskState::InProgress)
+        .filter(|t| !queued.contains(&t.id.as_str()))
+        .map(entry)
+        .collect();
+}
+
 impl Core {
     /// Whether an execution's turn runs, queues, or waits on the owner.
     fn live(&self, exec: Option<&str>) -> bool {
@@ -388,6 +421,7 @@ impl Core {
         }
         branches(&mut q, &seen, &by_id);
         closed(&mut q, &tasks, place);
+        stale(&mut q, &tasks);
         Ok(Some(q))
     }
 }

@@ -863,6 +863,8 @@ mod own_tree {
     use super::*;
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
 
+    mod proc_in_tree;
+
     fn held(edit: impl FnOnce(&mut Config)) -> Rig {
         rig_with(SelfMode::Act, None, |cfg| {
             // Every call waits, so a self session's soft hold is there to

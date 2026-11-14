@@ -75,17 +75,24 @@
 
 pub mod main_red;
 pub(crate) mod queues;
+mod stale;
 mod tender;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_brief;
 #[cfg(test)]
 mod tests_cap;
 #[cfg(test)]
 mod tests_fetch;
 #[cfg(test)]
+mod tests_lease;
+#[cfg(test)]
 mod tests_main_red;
 #[cfg(test)]
 mod tests_notify;
+#[cfg(test)]
+mod tests_stale;
 #[cfg(test)]
 mod tests_trees;
 mod view;
@@ -426,6 +433,7 @@ impl Core {
     ) -> Result<()> {
         self.pipeline_reviewed(q, w)?;
         self.pipeline_ended(place, q, w)?;
+        self.pipeline_stale(place, q, w)?;
         for e in &q.dropped {
             if let (Some(session), Some(exec)) = (&e.session, &e.execution) {
                 let key = format!("stopped:{}:{session}", e.item);
@@ -766,7 +774,19 @@ fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<
     // git and the disk, off the runtime's worker (theseus_store::blocking).
     let gone = theseus_store::blocking(|| -> Result<Vec<String>> {
         let mut gone = Vec::new();
-        if let Some(t) = tree::find(place, &e.item) {
+        // A gate still runs in it (the record says the item is over, the child says
+        // otherwise): leave the tree for a later tick (`tree_lease`).
+        let target = place.targets().join(tree::slug(&e.item));
+        let own = tree::find(place, &e.item);
+        let mut paths = vec![target.as_path()];
+        paths.extend(
+            own.iter()
+                .flat_map(|t| [t.dir.as_path(), t.target.as_path()]),
+        );
+        if super::tree_lease::held(&paths).is_some() {
+            return Ok(gone);
+        }
+        if let Some(t) = own {
             tree::close(place, &t)?;
             gone.push(t.dir.display().to_string());
             // A branch with no commit of its own is nothing to keep; one
@@ -776,7 +796,6 @@ fn clear(place: &tree::Place, e: &Entry, reason: &str, w: &mut Write) -> Result<
                 gone.push(format!("branch {}", t.branch));
             }
         }
-        let target = place.targets().join(tree::slug(&e.item));
         if target.exists() {
             std::fs::remove_dir_all(&target)?;
             gone.push(target.display().to_string());

@@ -49,6 +49,7 @@
 //! What it keeps beside the tasks is one META record ([`state`]).
 
 pub(crate) mod attempts;
+pub(crate) mod brief;
 mod filed;
 mod folded;
 mod graduate;
@@ -62,6 +63,8 @@ mod state;
 mod tender;
 #[cfg(test)]
 mod tests_attempts;
+#[cfg(test)]
+mod tests_brief;
 pub(crate) mod tool;
 mod word;
 

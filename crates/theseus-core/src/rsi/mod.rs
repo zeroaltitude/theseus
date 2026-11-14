@@ -68,6 +68,8 @@ mod tests_identity;
 #[cfg(test)]
 mod tests_jail;
 #[cfg(test)]
+mod tests_lease;
+#[cfg(test)]
 mod tests_narrow;
 #[cfg(test)]
 mod tests_pr;
@@ -75,6 +77,7 @@ mod tests_pr;
 pub(crate) mod tests_tree;
 pub mod tree;
 pub mod tree_fmt;
+pub mod tree_lease;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 
