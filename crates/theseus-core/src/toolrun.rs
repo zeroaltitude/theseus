@@ -996,24 +996,19 @@ impl ToolRuntime {
             return Ok((self.ask(tc, a, call, tool.name(), g)?, judged));
         }
         let (posture, class) = (g.decision.posture, g.class);
-        // Taken before `execute` moves the tool, not after: the writer key
-        // asks what the call WAS, and the call is over by then.
-        let acted = (
-            tool.name().to_string(),
-            g.plan.class.unwrap_or(tool.class()),
-        );
+        // `execute` sweeps for the writer key itself, on every one of its
+        // call sites rather than on this one.
         let outcome = self
             .execute(tc, &a.correlation_id, tool, call, posture, class)
             .await?;
-        self.wrote_project(tc, &acted.0, acted.1);
         Ok((outcome, judged))
     }
 
     /// **The writer key** (S31-1): after an ACTING call of a session carrying
-    /// `injection`, whether a granted repository's instruction file moved
+    /// `injection`, whether any granted repository's instruction file moved
     /// under it. If one did, its new text is held out of **every** session's
-    /// instruction block until the owner grants the repository again, and the
-    /// row says whose call it moved under.
+    /// instruction block until the owner grants that repository again, and
+    /// the row says whose call it moved under.
     ///
     /// This is where it has to be. The hold the compile performs keys on the
     /// session that is *reading*, and a change is found there by comparing a
@@ -1026,8 +1021,14 @@ impl ToolRuntime {
     /// Three gates, cheapest first, and the common path stops at the second:
     /// the call must act ([`crate::content::acts`], the same predicate the
     /// freeze reads), the session must carry the label (one keyed store
-    /// read), and the directory must be in a granted repository. Only then
-    /// are any digests taken.
+    /// read), and the owner must have granted something. Only then are any
+    /// digests taken.
+    ///
+    /// **Every granted repository is swept, not only the one the session is
+    /// working in** (round 2): a call can write one directory sideways of
+    /// its own, and it can write into a different repository the owner has
+    /// granted. [`crate::project_context::change::wrote`] carries the whole
+    /// argument, including the one case that is still not reached.
     ///
     /// Nothing is recorded when nothing moved, which is the answer almost
     /// every time.
@@ -1040,38 +1041,38 @@ impl ToolRuntime {
             return;
         }
         let cwd = self.cwd_for(tc.dir);
-        let Some(w) = crate::project_context::change::wrote(
+        for w in crate::project_context::change::wrote(
             &core.cfg,
             tc.store,
             &core.runner.context_files,
             &cwd,
             tc.session_id,
-        ) else {
-            return;
-        };
-        for c in &w.observed.fresh {
-            tc.record(&crate::fact::project::ProjectChanged {
-                id: &w.observed.id,
-                root: &w.observed.root,
-                path: &c.path,
-                old: &c.old,
-                new: &c.new,
-                carried: false,
-                wrote: Some(tc.session_id),
-            });
-        }
-        // The hold, and the sighting that goes with it: what the owner read
-        // does not move (so the file keeps waiting), and what has been said
-        // about does (so one change is one row and not one a call).
-        let mut records = vec![w.held.record(&w.observed.id)];
-        if let Some(seen) = &w.observed.write {
-            records.push(seen.record(&w.observed.id));
-        }
-        for r in records {
-            match r.and_then(|r| tc.store.defer(r)) {
-                Ok(()) => {}
-                Err(e) => tracing::warn!(repo = %w.observed.id, error = %e,
-                    "a granted repository's hold was not stored"),
+        ) {
+            for c in &w.observed.fresh {
+                tc.record(&crate::fact::project::ProjectChanged {
+                    id: &w.observed.id,
+                    root: &w.observed.root,
+                    path: &c.path,
+                    old: &c.old,
+                    new: &c.new,
+                    carried: false,
+                    wrote: Some(tc.session_id),
+                });
+            }
+            // The hold, and the sighting that goes with it: what the owner
+            // read does not move (so the file keeps waiting), and what has
+            // been said about does (so one change is one row and not one a
+            // call).
+            let mut records = vec![w.held.record(&w.observed.id)];
+            if let Some(seen) = &w.observed.write {
+                records.push(seen.record(&w.observed.id));
+            }
+            for r in records {
+                match r.and_then(|r| tc.store.defer(r)) {
+                    Ok(()) => {}
+                    Err(e) => tracing::warn!(repo = %w.observed.id, error = %e,
+                        "a granted repository's hold was not stored"),
+                }
             }
         }
     }
@@ -1549,13 +1550,58 @@ impl ToolRuntime {
         }
     }
 
-    /// Run a dispatched action to a result (or a background placeholder).
+    /// Run a dispatched action to a result (or a background placeholder),
+    /// and sweep for the writer key after it.
+    ///
     /// Dispatch is already durable: `plan_and_dispatch`, or `dispatch` for a
     /// call that was confirmed or authorized before a restart.
     /// `ran_at` is the posture it runs at: the gate's, or `approve` for a call
     /// the operator approved. The broker gives it no secret whose posture is
     /// stricter (theseus-dcy).
+    ///
+    /// **The sweep is here, and not at a call site, by construction** (round
+    /// 2). `execute` has three callers -- this gate's `start`, and
+    /// `resume.rs`'s `run_confirmed` and `run_authorized` -- and round 1
+    /// swept after one of them. A call that reaches `Posture::Approve` runs
+    /// from `resume.rs`, so it moved the file and stored no hold. That is
+    /// not an exotic path: `undo.v1` is on at the tool gate and
+    /// `irreversible_final` raises the gate's posture to `approve`, and an
+    /// operator who puts `proc_run` or `fs.write` at `approve` -- the
+    /// CAUTIOUS configuration -- disabled the writer key for that tool
+    /// outright. Note what the owner confirms on that path: a shell command,
+    /// not the instruction text. His confirm of a call is not his yes to new
+    /// instructions. Putting the sweep in the one function every path runs
+    /// through means a fourth call site cannot forget it.
     async fn execute(
+        &self,
+        tc: &TurnCtx<'_>,
+        correlation_id: &str,
+        tool: Arc<dyn Tool>,
+        call: &ToolUse,
+        ran_at: Posture,
+        class: sandbox::Bound,
+    ) -> Result<CallOutcome> {
+        // Taken before the dispatch below moves the tool, not after: the
+        // writer key asks what the call WAS, and the call is over by then.
+        // The tool's own class rather than `g.plan.class`'s override, which
+        // `execute` is not given and which cannot change the answer:
+        // `content::acts` only consults the class for a tool on the
+        // `local_read` allow-list (`fs.`, `git.`, `text.`, `task.read`,
+        // `tools.find`), and no tool on that list sets a plan class --
+        // every site that sets one is an `aws.*` or a `google.*` tool.
+        let acted = (tool.name().to_string(), tool.class());
+        let outcome = self
+            .dispatch_to_backend(tc, correlation_id, tool, call, ran_at, class)
+            .await;
+        // After the call whatever became of it. A call that failed may still
+        // have moved the file before it failed, and the sweep's answer on a
+        // call that moved nothing is to store nothing.
+        self.wrote_project(tc, &acted.0, acted.1);
+        outcome
+    }
+
+    /// [`Self::execute`]'s body: the call to the backend that runs it.
+    async fn dispatch_to_backend(
         &self,
         tc: &TurnCtx<'_>,
         correlation_id: &str,

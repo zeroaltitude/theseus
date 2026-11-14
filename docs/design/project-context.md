@@ -242,10 +242,12 @@ reaches, and it changed in two ways. If a session carrying `injection` compiles 
 repository whose instruction file has changed since the owner last read it, **the new
 text is named and not read until he says yes**, whatever `[project] on_change` is set to.
 And if such a file moves **while a labelled session's acting call runs**, the new text is
-held out of **every** session's block — clean ones included — until he says yes. So the
-text the owner granted is still carried; a change made after he looked is not carried
-into a session something has already tried to steer, and a change made *by* such a
-session is not carried into the clean session that opens next. See "After a grant" below.
+held out of **every** session's block — clean ones included — until he says yes, in any
+granted repository and not only the one that session is working in. So the text the owner
+granted is still carried; a change made after he looked is not carried into a session
+something has already tried to steer, and a change made *by* such a session is not
+carried into the clean session that opens next. Which files that sweep actually compares,
+and the one write it does not reach, are in "After a grant" below.
 
 ### Trusted is still fenced
 
@@ -338,23 +340,44 @@ The second key is the **writer** key, and it works without knowing who wrote. A 
 comparison of stored digests cannot say whose hand moved a file; but the daemon is
 present at the moment of every acting call, and a file that moved while a labelled
 session's acting call ran is treated as that call's. After each acting call of such a
-session — a file tool, a program, anything that is not a local read — the granted
-repositories' instruction files are compared with their stored sightings, and one that
-moved is **held for every session** until the owner grants the repository again. That
-covers a shell write as surely as `fs.write`, which is the property that matters, and
-the hold is a stored record rather than a daemon's memory, so a restart does not launder
-it. The ledger row names the session whose call it moved under.
+session — a file tool, a program, anything that is not a local read, and whether the
+call ran straight off the gate or after the operator confirmed it — **every** granted
+repository's swept files are compared with their stored sightings, and one that moved is
+**held for every session** until the owner grants that repository again. That covers a
+shell write as surely as `fs.write`, which is the property that matters, and the hold is
+a stored record rather than a daemon's memory, so a restart does not launder it. The
+ledger row names the session whose call it moved under.
+
+**A repository's swept files are not all the files under its root.** They are the union
+of two sets: the files the owner's stored sighting of that repository already names, and
+— for the repository the session is actually working in — the chain from its root down
+to the session's own directory. That is every file a grant covers that anything has ever
+looked at, and it is reached without walking the repository, which would make the cost of
+an acting call scale with the size of the tree rather than with the grant.
 
 It errs the safe way where it is imprecise. A file that moved under such a call for an
 unrelated reason — a `git pull` in another terminal — is held too; the cost of that is
-one re-grant. A file the call created is held; a file it deleted is named, and there is
-no new text to hold. A held file the owner then edits himself stays held, because nothing
-here can tell his hand from another write and the repository is what he re-reads when he
-re-grants.
+one re-grant. A file the call created is held where it is swept; a file it deleted is
+named, and there is no new text to hold. A held file the owner then edits himself stays
+held, because nothing here can tell his hand from another write and the repository is
+what he re-reads when he re-grants. A granted repository whose root is not a directory
+right now — an unmounted disk — is skipped rather than held as one whose every file went
+away.
 
-What neither key closes is text written by a session that was never labelled at all, and
-a background job that writes after its own call has returned. What fits the first is the
-tool floor, which is a separate and still-open question.
+**What neither key closes**, listed in full because a design note that overstates a
+containment is worse than none:
+
+1. An instruction file **created in a directory no compile has ever discovered**. It is
+   in neither swept set, so no sweep sees it, and the first clean session to open in that
+   directory carries it. This is the one of the three bypasses found in review that is
+   still open, and it is open deliberately: closing it means walking a granted root on
+   every acting call. Closing it cheaply instead — by letting a compile that discovers a
+   *new* instruction file ask whether a labelled session acted in that repository since
+   the owner last read it — is the shape to weigh, and it is not built here.
+2. A **background job that writes after its own call has returned**. The next acting call
+   of that session catches it; a clean session that opens before then does not.
+3. Text written by a session that was **never labelled at all**. What fits that is the
+   tool floor, which is a separate and still-open question.
 
 ### How the owner sees it
 
@@ -453,9 +476,13 @@ real recompile. **The residual risk is narrower than this paragraph used to say.
 that block 3 is assembled text and no node, so no content label can ever be raised on it
 (`judge/content.rs`, "A granted repository's instruction text is no item, on purpose"), and nothing
 asks the injection question of a granted file. What has changed is that the question no longer has
-to be asked to contain the write: a file that moves under the acting call of a session already
-carrying `injection` is held out of **every** session's block until the owner says yes (S31-1, the
-writer key), and a changed file read by a labelled session is held for that session (the reader
-key). What is left is a write by a session that was never labelled, and a background job whose
-write lands after its own call returned. Closing the first would mean labelling block 3's project
-text, which is a different design.
+to be asked to contain the write: a **swept** file of any granted repository that moves under the
+acting call of a session already carrying `injection` is held out of **every** session's block
+until the owner says yes (S31-1, the writer key), and a changed file read by a labelled session is
+held for that session (the reader key). What is left is three writes: an instruction file created
+in a directory no compile has ever discovered, which no sweep looks at; a background job whose
+write lands after its own call returned; and a write by a session that was never labelled. Closing
+the last would mean labelling block 3's project text, which is a different design; closing the
+first means either walking a granted root on every acting call, or asking — when a compile
+discovers a *new* instruction file — whether a labelled session acted in that repository since the
+owner last read it. Neither is built.

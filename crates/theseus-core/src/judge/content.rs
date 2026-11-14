@@ -173,13 +173,20 @@ impl ContentItem {
     ///      a granted repository's instruction file that has CHANGED since
     ///      the owner last read it -- the new text is named and held until
     ///      he says yes, whatever `[project] on_change` is set to;
-    ///    - the **writer** key: a file that moved while a labelled session's
-    ///      ACTING call ran is held for **every** session, clean ones
-    ///      included, until he says yes. It does not know who wrote, and
-    ///      does not need to: the daemon is present at the moment of the
-    ///      call, so the file is treated as that call's. It covers a shell
-    ///      write as surely as a file tool's, and the hold is stored, so a
-    ///      restart is not a release.
+    ///    - the **writer** key: a SWEPT file of a granted repository that
+    ///      moved while a labelled session's ACTING call ran is held for
+    ///      **every** session, clean ones included, until he says yes. It
+    ///      does not know who wrote, and does not need to: the daemon is
+    ///      present at the moment of the call, so the file is treated as
+    ///      that call's. It covers a shell write as surely as a file tool's,
+    ///      and a call the operator confirmed as surely as one that ran
+    ///      straight off the gate; every granted repository is swept, not
+    ///      only the one the session is working in; and the hold is stored,
+    ///      so a restart is not a release. **Swept** is the load-bearing
+    ///      word: it is the files of the owner's stored sighting of each
+    ///      granted repository, plus the chain from the session's own
+    ///      repository root down to its own directory -- not a walk of a
+    ///      granted root (`project_context::change::swept`).
     ///
     ///    The reader key alone would have left the case the ruling actually
     ///    names -- a labelled session edits the file and a CLEAN session
@@ -189,13 +196,16 @@ impl ContentItem {
     ///    glossed:** a brief is written by Theseus itself, a repository by
     ///    whoever wrote it; the grant is given to a canonical root once and
     ///    covers its files as they change (`project_context::trust`,
-    ///    "notify rather than ask"); and neither key reaches text written
-    ///    by a session that was never labelled at all, nor a background
-    ///    job's write that lands after its own call returned. Asking the
-    ///    injection question here would not close that remainder either --
-    ///    it would answer yes on the honest files too. What fits it is the
-    ///    tool floor, which is an open owner question on theseus-3i6d1's
-    ///    `theseus.toml` line and is **not** settled here.
+    ///    "notify rather than ask"); and three writes reach no key at all --
+    ///    an instruction file CREATED in a directory no compile has ever
+    ///    discovered (which is in neither swept set, and is the one bypass
+    ///    found in review that is still open), a background job's write that
+    ///    lands after its own call returned, and text written by a session
+    ///    that was never labelled at all. Asking the injection question here
+    ///    would not close that remainder either -- it would answer yes on
+    ///    the honest files too. What fits it is the tool floor, which is an
+    ///    open owner question on theseus-3i6d1's `theseus.toml` line and is
+    ///    **not** settled here.
     /// 4. **Asking it at the grant instead is the same question moved.** It
     ///    would let a model veto a grant the owner is making deliberately, at
     ///    the same false-positive rate, for the same reason.
