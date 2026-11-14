@@ -271,6 +271,23 @@ exists, and that is never written.
   - A vendored crate's `allow` is still `allow-added`.
   - Any edit to the guard is still `keel-file`, even one that tightens it.
   - Without a yes, avoid the finding: restore the test rather than ask for an ack to remove it.
+- **What "his yes" has to be before an agent may write the trailer: all five, or none.** The bullet above states
+  the rule; this is the test that applies it when the hand on the keyboard is an agent. An agent may ack a finding
+  only when every one of these holds, and one failure means stop and report rather than ack:
+  1. **A specific, dated, quotable owner utterance already in the record** — not an inference, not a stated
+     default, not a prior agent's recommendation, not an assent to a bundle that happened to contain it.
+  2. **It covers exactly the bytes that move.** Nothing is acked by generalising from it.
+  3. **The file moves *because* of the change he asked for, and the tree reds if it does not move.** The ack is
+     forced by his ruling, not chosen; an ack that the change could have avoided is one that should have been.
+  4. **The trailer quotes the utterance verbatim, with a dereferenceable id, and names every moving path.**
+  5. **The ack is declared, never silent.** The agent's report says that it acked, which finding, why, and hands
+     the ratification up. A silent ack is a violation even when the other four hold.
+- **The hard negative, whatever the agent believes the owner said.** An agent never acks `keel-file`,
+  `cap-raised`, `ceiling-raised`, `ci-loosened` or `sealed-reach`, and never adds a key to `scripts/keel-signers`.
+  Those change what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them.
+  `locked-flow` on a golden that his own ruling necessarily moves is the one class an agent clears this way.
+  **This is a bound on the agent, not on the rule:** the guard accepts an owner-signed ack of any rule, so the
+  restriction holds exactly as far as the agent observes it, and not one step further.
 - **The base's guard judges.** The gate runs the base's copy of the guard, never the branch's.
 - **The door.** A branch's `gate.sh` could drop the keel phase and then judge itself with its weakened copy. So when a
   tree's `gate.sh` differs from `main`'s, `main`'s copy runs first. A caller that trusts nothing in the tree (a join,
