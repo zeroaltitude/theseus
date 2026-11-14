@@ -373,6 +373,56 @@ async fn a_first_message_past_the_window_fails_at_once_without_a_retry() {
     assert!(parked_on_input(&r.core, &sid));
 }
 
+/// theseus-kucs: Z.ai's refusal of a prompt past the window names neither a
+/// count nor a maximum (the body is the one its endpoint sent on
+/// 2026-11-14, its request id invented). The turn still recompiles with a
+/// ring, by the catalog's window, calls once more and answers, and the
+/// `context.overflow` row says the provider gave no numbers. Before, only
+/// Anthropic's wording was a captured fact, and a session past a GLM window
+/// was the one thing this suite had no case for.
+#[tokio::test]
+async fn z_ais_refusal_without_numbers_rings_and_the_retry_answers() {
+    let body = r#"{"type":"error","error":{"type":"invalid_request_error","code":"1261","message":"[1261][prompt is too long][20260101000000aaaa0000000000000a]"},"request_id":"20260101000000aaaa0000000000000a"}"#;
+    let refused = ProviderError::from_status(400, body, &reqwest::header::HeaderMap::new());
+    let r = rig(vec![
+        Scripted::text("The harbor opens at dawn."),
+        Scripted::Fail(refused),
+        Scripted::text("The tide turns at four."),
+    ]);
+    let sid = session(&r.core);
+    turn(&r.core, &sid, "when does the harbor open?")
+        .await
+        .unwrap();
+    let second = turn(&r.core, &sid, "and the tide?").await.unwrap();
+    assert_eq!(second.output, "The tide turns at four.");
+
+    let reqs = r.fake.requests();
+    assert_eq!(reqs.len(), 3, "the refused call and its one retry");
+    assert!(
+        !text_of(&reqs[2]).contains("when does the harbor open?"),
+        "the ring dropped the first exchange: {:?}",
+        reqs[2].messages
+    );
+    assert_eq!(last_user_text(&reqs[2]), "and the tide?");
+    let over = rows(&r.core, "context.overflow");
+    assert_eq!(over.len(), 1, "{over:?}");
+    assert_eq!(
+        (
+            &over[0]["source"],
+            &over[0]["provider_tokens"],
+            &over[0]["provider_maximum"],
+            &over[0]["then"],
+        ),
+        (
+            &json!("refused"),
+            &Value::Null,
+            &Value::Null,
+            &json!("ring")
+        )
+    );
+    assert!(rows(&r.core, "turn.failed").is_empty());
+}
+
 /// theseus-9p88: the retry of a cut answer is cut too. The turn fails with
 /// the window's error after two calls, and none of either answer's calls
 /// ran.
