@@ -66,6 +66,14 @@ the design spends its complexity on. Four principles follow, and 1.0.3 is the re
   are on the lane.
 - Jev's content verdict is a judgment: it has called open-source work private before, which is why a label can be
   removed and why the floor underneath does not depend on it.
+- **The four content packs' header comments (`crates/theseus-judge/packs/content.v1.toml` through `v4.toml`) say
+  that raising `injection` "freezes a session until a person taps a button".** That describes one of the two
+  settings and reads as though it described both: what the label costs a session is
+  `[content_based_security] injection`'s answer, and only at `refuse` are the session's calls that act refused.
+  The comments are left as they are on purpose — **a pack is a judged artefact, and editing one means a version
+  bump and a re-evaluation of the whole labelled set, which is not a price worth paying for a comment.** They
+  are inert: nothing reads a pack's comments, and the rule itself lives in the core. The wording moves the next
+  time one of those packs is bumped for a reason of its own.
 
 ## What is coming
 

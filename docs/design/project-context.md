@@ -236,6 +236,14 @@ reasonable trade for a repository the owner wrote. It is not a reasonable trade 
 repository that merely happens to be on disk, and the default refuses it for exactly
 that reason.
 
+**One narrowing of that trade, added by S31-1.** The label can still never fire on block 3
+text, and nothing below changes that. What changed is what a *labelled session* reads: if
+the session carrying `injection` compiles a granted repository whose instruction file has
+changed since the owner last read it, **the new text is named and not read until he says
+yes**, whatever `[project] on_change` is set to. So the text the owner granted is still
+carried, and a change made after he looked is not carried into a session that something
+has already tried to steer. See "After a grant" below.
+
 ### Trusted is still fenced
 
 A grant does not make the file equal to the system prompt.
@@ -307,6 +315,22 @@ fires constantly is a card that is clicked through, which is worse security than
 notice that is read. A maintainer taking outside patches can turn it into an ask with
 one configuration line, `[project] on_change = "ask"`, which names a changed file and
 does not read it until the repository is granted again.
+
+**A session carrying `injection` holds the change whatever that line says** (S31-1). This
+is the one case where the setting does not get the last word, and the reason is narrow:
+`on_change` expresses how often the owner wants to be asked, which is a judgement about
+his own attention, and a session that something has already tried to steer is not the
+case he was thinking about when he set it. The hold is the `ask` hold exactly — the new
+text waits, the unchanged files beside it are carried as before, what he last read does
+not move forward, and `untrust` then `trust` is the yes that releases it. Only the
+sentence in the block differs, because the reason differs.
+
+The hold is keyed on the label of the session **reading** the file, not on who wrote it,
+because who wrote it cannot be known: a grant covers a canonical root's files as they
+change, and the writer may be a person, another tool, or a `git pull`. So this closes the
+case where a steered session's own edit comes back to it as an instruction, and it does
+not close the case where an unlabelled session writes the file. What fits that remainder
+is the tool floor, which is a separate and still-open question.
 
 ### How the owner sees it
 
