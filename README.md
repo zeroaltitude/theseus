@@ -115,7 +115,7 @@ undone. A person is one record with many handles, and it holds what they do and 
 
 The map is part of indexed memory. Imported history is sorted into seven books (a diary, an encyclopedia, a
 cookbook, procedures, a casebook, a register and a dictionary), each a different way of organizing what Theseus
-knows, and all read from the memory index. The map routes context; it never grants access. [The
+knows, and all read from the memory index. [The
 ontology](docs/design/m4-boundaries.md#28-the-ontologys-first-slice).
 
 ### It gets better while you sleep
