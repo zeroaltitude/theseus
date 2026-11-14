@@ -88,7 +88,7 @@ export function secretsLamp(h: Health | undefined): Lamp {
 /** Theseus's memory search, which health reports as the index process: its state in plain words, and the card in
  *  full words: how much it holds, how far behind the log it is, whether searching by meaning is on, how often it has
  *  had to restart, and its last problem. Ready is well; catching up or rebuilding waits; down or stalled faults. */
-export function memoryLamp(h: Health | undefined): Lamp {
+export function memoryLamp(h: Health | undefined, now = Date.now()): Lamp {
   const x = h?.index
   const name = 'memory'
   if (!x) return { id: 'memory', name, tone: 'idle', word: '—', detail: "Theseus's memory search: not reported" }
@@ -96,14 +96,15 @@ export function memoryLamp(h: Health | undefined): Lamp {
   const parts: string[] = []
   if (st) {
     parts.push(`${plural(st.nodes, 'note')} held`)
-    if (st.vectors) parts.push(`searching by meaning is on (${plural(st.vectors.vectors, 'vector')}${st.vectors.pending ? `, ${st.vectors.pending.toLocaleString('en-US')} still to do` : ''})`)
+    if (st.vectors) parts.push(`searching by meaning is on (${plural(st.vectors.vectors, 'piece')}${st.vectors.pending ? `, ${st.vectors.pending.toLocaleString('en-US')} still to do` : ''})`)
     else parts.push('searching by meaning is off')
     if (st.lag.ms > 0) parts.push(`${lagWords(st.lag.ms)} behind the latest`)
   }
   const restarts = x.tender?.restarts ?? 0
   if (restarts > 0) parts.push(`restarted ${plural(restarts, 'time')}`)
-  const problem = st?.last_error ?? x.why
-  if (problem) parts.push(`last problem: ${problem}`)
+  // Only what the process itself last said went wrong, with its age: `why` is the daemon's own account of why no
+  // process answers, in its own terms, and a switched-off search has nothing wrong.
+  if (st?.last_error) parts.push(`last problem${st.last_error_ms > 0 ? ` ${lagWords(Math.max(0, now - st.last_error_ms))} ago` : ''}: ${st.last_error}`)
   const detail = `Theseus's memory search: ${[memoryState(x.state).sentence, ...parts].join(' · ')}`
   const m = memoryState(x.state)
   return { id: 'memory', name, tone: m.tone, word: m.word, detail }
