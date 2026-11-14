@@ -17,8 +17,11 @@ function spy() {
 test('the root URL is the root URL, and `main.tsx` has somewhere for it to land', () => {
   assert.equal(HOME, '/')
   const main = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8')
-  // The index route is what makes `/` a real destination rather than a blank frame.
-  assert.match(main, /index: true, element: <Navigate to="\/ship" replace \/>/)
+  // The index route is what makes `/` a real destination rather than a blank frame: the simple pages' Ops, the
+  // front door since the owner made the simple pages the main page (2026-11-14); the Ship is `/ship`.
+  assert.match(main, /path: '\/',\n\s+element: <SimpleShell \/>/)
+  assert.match(main, /index: true, element: <SimpleOps \/>/)
+  assert.match(main, /\{ path: 'ship', element: wrapShip\(<Ship \/>\) \}/)
 })
 
 test('a plain press goes home and puts the page back the way a fresh load of / has it', () => {

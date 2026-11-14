@@ -7,7 +7,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## What's here
 
-- **The turn**: `turn.rs` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
+- **The turn**: `turn.rs` and `turn/` (the turn runner: one turn under a session's turn lock, its loops, its frames), `advancer.rs`
   (continue or end the turn), `harness.rs` (the harness loop, parked on its events and the heartbeat), and
   `rpc/driver.rs` (what that loop drives: the heartbeat's spool drain and reconcile, continuation turns, due wakes,
   and the cancel path). A turn waits for its slot in `turn/admission.rs`'s queue (theseus-4g0l): three classes (a
@@ -3392,8 +3392,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   passing command, reset only by one; a turn that has not edited (a read-only helper) is stopped at 0.85 as before, one that
   has edited and keeps opening new files is stopped at 0.95 (a build that runs is the one carve-out, below). Each is a harness node
   (`harness:progress`) and a `turn.progress` row (the shares, `since_pass`, `since_check`, `failing`, the times and spend, a stop's `condition`;
-  `fact/progress.rs`). The turn's state is a field of its `Checkpoints` (turn.rs
-  is at its ceiling), begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
+  `fact/progress.rs`). The turn's state is a field of its `Checkpoints`, begun at its first loop and gone with the turn. **The CPUs**: the session block names them after
   `Directory:` (`cpu/commands.rs`, `Cpus::of_commands`, read once per process): the tightest of the daemon's cgroup v2
   `cpu.max` (every ancestor's, rounded up), its `cpuset.cpus.effective`, and `available_parallelism`, with the host's
   online count when a limit applies (`CPUs available to commands: 2 (cgroup quota; the host shows 32).`); an unreadable
@@ -3573,8 +3572,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
 
 ## Where the big things live
 
-- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, and `tx.rs`. Every mutating method writes
-  one frame.
+- **Kernel transitions and frames**: `crates/theseus-kernel/src/kernel.rs`, `kernel/` and `tx.rs`. Every mutating method writes one frame.
 - **The store's WAL and index**: `crates/theseus-store/src/wal.rs`, `index.rs`, and `store.rs`.
 - **The turn loop**: `crates/theseus-core/src/turn.rs`, with `advancer.rs`; the harness loop in `harness.rs`, and
   what it drives (continuations, the heartbeat) in `rpc/driver.rs`.

@@ -13,11 +13,14 @@ import { ShipsWheel } from '@/components/ShipsWheel'
 
 export function StandingRecords() {
   const [now] = useState(Date.now)
-  const { data } = useRpc<StandingListResult>('standing.list', undefined, 10_000)
+  // `{}`, not nothing: the daemon reads this method's params as a struct and refuses a request that carries none
+  // ("invalid params"), which left this panel reading for ever (found by the owner, 2026-11-14).
+  const { data, error } = useRpc<StandingListResult>('standing.list', {}, 10_000)
   const groups = groupsOf(data?.records ?? [])
   return (
-    <Panel help="context.standing" title={<>standing · {groups.reduce((n, g) => n + g.rows.length, 0)}</>} icon={<Pin size={13} />}>
-      {!data && <Empty>reading the records…</Empty>}
+    <Panel help="context.standing" title={<>standing · {groups.reduce((n, g) => n + g.rows.length, 0)}</>} icon={<Pin size={13} />} bodyClassName="p-3">
+      {!data && !error && <Empty>reading the records…</Empty>}
+      {!data && error && <Empty>The records could not be read: {error instanceof Error ? error.message : String(error)}</Empty>}
       {data && !groups.length && <Empty>No standing records. <span className="num">theseus standing add "never push to main"</span> makes an order.</Empty>}
       {groups.map((g) => (
         <div key={g.kind} className="mb-3">
