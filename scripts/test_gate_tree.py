@@ -749,6 +749,31 @@ class GateTree(unittest.TestCase):
             self.assertLess(order.index("shape"), order.index(warn), f"`{warn}` after `shape`: {order}")
             self.assertLess(order.index(warn), order.index("clippy"), f"`{warn}` before `clippy`: {order}")
 
+    def script_test(self, name, body):
+        self.put(self.root / "scripts" / "tests" / name, "import unittest\n\nclass T(unittest.TestCase):\n"
+                 f"    def test_it(self):\n        {body}\n")
+
+    def test_a_failed_helper_script_test_is_named_in_the_verdict_and_the_history_says_warned(self):
+        # Issue 14: `script tests: FAILED (...)` printed above a plain `gate: ok`, and the history row said `ok`. The
+        # phase stays non-fatal (the owner's decision), and the verdict now says what it found.
+        self.script_test("test_bad.py", "self.fail('a helper lies')")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, "non-fatal by the owner's decision: " + out)
+        self.assertIn("script tests: FAILED (scripts/tests/test_bad.py)", out)
+        self.assertIn("(WARNED: script tests failed: scripts/tests/test_bad.py)", self.verdict(out))
+        self.assertIn("gate: what this run WARNED of (not fatal by decision): script tests failed: scripts/tests/test_bad.py",
+                      out)
+        csv = (self.home / ".cache" / "theseus" / "gate-times.csv").read_text()
+        self.assertRegex(csv, r"script_tests_warned,\d+,warned\n")
+        self.assertNotRegex(csv, r"script_tests_warned,\d+,ok\n")
+
+    def test_a_passing_helper_script_test_leaves_the_verdict_unwarned(self):
+        self.script_test("test_good.py", "self.assertTrue(True)")
+        rc, out, _ = self.gate()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("WARNED", out)
+        self.assertNotRegex((self.home / ".cache" / "theseus" / "gate-times.csv").read_text(), r",warned\n")
+
     def test_the_context_ceiling_phase_is_wired_beside_the_other_file_ceiling(self):
         """Deleting `phase "context ceiling"` from gate.sh left every other test in this file green
         (theseus-4vsrz, the ceiling review's §5.2), because the phase's own 24 cases test the script and
@@ -1244,7 +1269,7 @@ class SkipRegistry(unittest.TestCase):
             "keel_tests": 1,          # the guard and its suite are the base's
             "lifecycle_bench": 1,     # THESEUS_GATE_NO_BENCH=1
             "ran_or_skipped": 1,      # whatever the wrapped script said of itself
-            "script_tests": 1,        # scripts/tests matched no test at all
+            "script_tests": 1,        # scripts/tests matched no test at all (a failure there is a `warn`, not a stand-down)
             "scrub_added": 3,         # the flag; no scrubber on the host; nothing added to scan
             "suite_applied": 1,       # nextest says it applied a default-filter
             "suite_filters": 1,       # the banner says one is active

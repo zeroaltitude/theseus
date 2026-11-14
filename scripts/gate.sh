@@ -298,8 +298,25 @@ skipped_list() {
 # The clause the verdict lines carry, and empty when the run made every check it has. APPENDED by its callers,
 # never substituted for what they already said.
 skipped_clause() {
-  [ "${#skipped[@]}" -gt 0 ] || return 0
-  printf ' (skipped: %s)' "$(skipped_list)"
+  if [ "${#skipped[@]}" -gt 0 ]; then printf ' (skipped: %s)' "$(skipped_list)"; fi
+  # What the run warned of rides the same clause (issue 14): both verdict lines keep every word they had.
+  warned_clause
+}
+# WHAT A RUN WARNED OF (issue 14). A phase that is not fatal by decision and failed anyway (the helper scripts' own tests)
+# used to leave `gate: FAILED` text in the log above a verdict that read plain `gate: ok`. It registers here and the
+# verdict carries it, in the same place and after the stand-downs: `(skipped: ...; WARNED: script tests failed: ...)`.
+# Not a skip: the phase ran, and what it found is the news. The decision that these stay non-fatal is the owner's.
+warned=()
+warn() {
+  local s
+  for s in ${warned[@]+"${warned[@]}"}; do [ "$s" != "$1" ] || return 0; done
+  warned+=("$1")
+}
+warned_clause() {
+  local out="" s
+  [ "${#warned[@]}" -gt 0 ] || return 0
+  for s in "${warned[@]}"; do out="${out:+$out; }$s"; done
+  printf ' (WARNED: %s)' "$out"
 }
 # A phase whose own script decides whether it can run and says so on stdout (`size: skipped: no release build
 # of …`, `recall tests: skipped (no Python >= 3.11 …)`, `prompt: skipped: no …`), each exiting 0. The gate cannot
@@ -326,7 +343,7 @@ phase() {
 summary() {
   [ -z "$summary_printed" ] || return 0
   summary_printed=1
-  local status=$1 total=$((SECONDS - gate_began)) i when failed_as="${phase_failed_as:-$phase_now}"
+  local status=$1 total=$((SECONDS - gate_began)) i st when failed_as="${phase_failed_as:-$phase_now}"
   when="$(date -Iseconds)"
   echo "gate: phase times, in seconds"
   for i in "${!phase_names[@]}"; do
@@ -356,12 +373,14 @@ summary() {
   # Beside the table, where a reader of the tail gets it, and on a FAILED run too: what a run did not do is as
   # much a part of reading its result as the phases it timed.
   [ "${#skipped[@]}" -eq 0 ] || echo "gate: what this run did NOT do: $(skipped_list)"
+  [ "${#warned[@]}" -eq 0 ] || echo "gate: what this run WARNED of (not fatal by decision): $(warned_clause | sed -e 's/^ (WARNED: //' -e 's/)$//')"
   [ -z "${THESEUS_VIEW_GRANTS:-}" ] || echo "gate: the view this run had: ${THESEUS_VIEW_GRANTS}"
   mkdir -p "$(dirname "$times")" 2>/dev/null || true
   {
     [ -s "$times" ] || echo "time,label,phase,seconds,status"
     for i in "${!phase_names[@]}"; do
-      printf '%s,"%s",%s,%s,ok\n' "$when" "$label" "${phase_names[$i]// /_}" "${phase_secs[$i]}"
+      case "${phase_names[$i]}" in *" warned") st=warned ;; *) st=ok ;; esac
+      printf '%s,"%s",%s,%s,%s\n' "$when" "$label" "${phase_names[$i]// /_}" "${phase_secs[$i]}" "$st"
     done
     if [ -n "$phase_now" ]; then
       printf '%s,"%s",%s,%s,failed\n' "$when" "$label" "${failed_as// /_}" "$((SECONDS - phase_began))"
@@ -1244,6 +1263,7 @@ script_tests() {
     echo "script tests: helpers' own unit tests, so a failure here means a helper lies, not that this branch is"
     echo "script tests: over a limit. Fix it in its own change; the owner decides whether this phase becomes fatal."
     phase_label="script tests warned"
+    warn "script tests failed: ${bad[*]}"
   fi
   [ "$ran" -gt 0 ] || skip
   return 0

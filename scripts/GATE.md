@@ -195,3 +195,7 @@ Two lines under the phase table say what a verdict is a verdict of, so a tail re
   `scripts/gate-judged.sh LOG [REMOTE REF]` reads the last such line in a gate's log and the remote's tip of REF: SAME
   (exit 0), DIFFERENT (1; another commit, or a tree with edits the push does not hold) or UNKNOWN (2). Run it after a
   push, on the log of the gate that licensed it.
+- `(WARNED: script tests failed: <files>)` at the end of the verdict, with `gate: what this run WARNED of (not fatal by
+  decision): …` under the table, when the helper scripts' own tests failed. That phase stays non-fatal (the owner's
+  decision, recorded where it is made: `script_tests` in `scripts/gate.sh`), so the verdict says what it found instead
+  of reading plain `ok` over a `FAILED` line, and its row in the phase-time history reads `warned`, not `ok`.
