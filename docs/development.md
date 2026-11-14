@@ -282,8 +282,10 @@ exists, and that is never written.
   4. **The trailer quotes the utterance verbatim, with a dereferenceable id, and names every moving path.**
   5. **The ack is declared, never silent.** The agent's report says that it acked, which finding, why, and hands
      the ratification up. A silent ack is a violation even when the other four hold.
-- **The hard negative, whatever the agent believes the owner said.** An agent never acks `keel-file`,
-  `cap-raised`, `ceiling-raised`, `ci-loosened` or `sealed-reach`, and never adds a key to `scripts/keel-signers`.
+- **The hard negative, whatever the agent believes the owner said.** No rule is exempt from the ack and the guard
+  keeps no never-ack list; that is true of the guard and true of the owner, and it is not true of an agent. An
+  agent never acks `keel-file`, `cap-raised`, `ceiling-raised`, `ci-loosened` or `sealed-reach`, and never adds a
+  key to `scripts/keel-signers`.
   Those change what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them.
   `locked-flow` on a golden that his own ruling necessarily moves is the one class an agent clears this way.
   **This is a bound on the agent, not on the rule:** the guard accepts an owner-signed ack of any rule, so the
