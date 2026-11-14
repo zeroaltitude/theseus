@@ -64,6 +64,25 @@ fn count(n: usize, one: &str, many: &str) -> String {
     }
 }
 
+/// The one-time cleanup's write (`tidy.rs`): an entry the self-improvement
+/// loop's own conversations made by mistake, retired with the filings taken
+/// off it.
+fn tidy_line(w: &Write) -> String {
+    let of = |kind: &'static str| w.rows.iter().filter(move |r| r.kind == kind);
+    let gone = of("ontology.category").next();
+    let held = |field: &str| {
+        gone.and_then(|r| r.data[field].as_str())
+            .unwrap_or_default()
+    };
+    format!(
+        "retired the {} {}, made by mistake from the self-improvement loop's own messages \
+         ({} taken off it)",
+        held("kind"),
+        quoted(held("name")),
+        count(of("ontology.membership").count(), "session", "sessions")
+    )
+}
+
 /// The words of one write, from its rows. `name_of` finds a category's name
 /// by its id, as the ontology holds it now.
 fn describe(w: &Write, name_of: &dyn Fn(&str) -> Option<String>) -> String {
@@ -149,6 +168,7 @@ fn describe(w: &Write, name_of: &dyn Fn(&str) -> Option<String>) -> String {
                 quoted(held("wrote", "name"))
             )
         }
+        "tidy" => tidy_line(w),
         "decay" => {
             let dropped: usize = of("ontology.membership")
                 .map(|r| {

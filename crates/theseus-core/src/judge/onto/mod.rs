@@ -50,6 +50,7 @@ pub(crate) mod name;
 pub mod renamed;
 pub(crate) mod stage;
 pub mod sweep;
+mod tidy;
 pub(crate) mod words;
 
 pub use name::NAMES;

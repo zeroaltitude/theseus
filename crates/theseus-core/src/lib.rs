@@ -501,6 +501,8 @@ mod tests_onto_other;
 #[cfg(test)]
 mod tests_onto_sweep;
 #[cfg(test)]
+mod tests_onto_tidy;
+#[cfg(test)]
 mod tests_ontology;
 #[cfg(test)]
 mod tests_ontology_bind;

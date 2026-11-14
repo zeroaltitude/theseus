@@ -55,6 +55,8 @@ pub struct Swept {
     /// kinds took the most shared name).
     pub renamed: u64,
     pub named_kinds: u64,
+    /// The entries the one-time cleanup retired (`tidy.rs`).
+    pub tidied: u64,
     pub spent: theseus_judge::price::Micros,
     pub failed: u64,
     pub writes: Vec<String>,
@@ -103,6 +105,7 @@ impl Core {
                                 splits = s.splits,
                                 renamed = s.renamed,
                                 named_kinds = s.named_kinds,
+                                tidied = s.tidied,
                                 spent = s.spent,
                                 failed = s.failed,
                                 "ontology: the sweep ran"
@@ -163,6 +166,7 @@ impl Core {
             }
         }
         self.onto_mint(now_ms, first, hints, &mut out)?;
+        self.onto_tidy(now_ms, first + super::mint::PER_RUN, &mut out)?;
         Ok(out)
     }
 }

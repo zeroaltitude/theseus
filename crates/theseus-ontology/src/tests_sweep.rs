@@ -268,9 +268,19 @@ fn the_sweep_merges_nothing_an_operator_wrote_and_only_the_sweep_merges() {
     x.merged_into = Some(id("topic:y"));
     let e = ops.check(&Record::Category(x), SWEEP).unwrap_err();
     assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
-    // Nor retire what a machine wrote.
+    // Nor retire what a machine wrote while a session is still filed under it
+    // (an empty one it may: `the_sweep_retires_an_empty_machine_category...`),
+    // nor what the operator wrote.
+    put_all(
+        &mut ops,
+        &[list("s1", "topic", vec![entry("topic:y", JEV, 6)])],
+        OP,
+    );
     let y = ops.category(&id("topic:y")).unwrap().retired(5);
     let e = ops.check(&Record::Category(y), SWEEP).unwrap_err();
+    assert!(matches!(e, Refusal::InUse { .. }), "{e:?}");
+    let x = ops.category(&id("topic:x")).unwrap().retired(5);
+    let e = ops.check(&Record::Category(x), SWEEP).unwrap_err();
     assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
     // And a merge that changes more than merged_into is refused.
     let mut sneaky = taken;
@@ -541,4 +551,50 @@ fn an_undo_of_a_kind_the_sweep_took_away_puts_it_back_one_version_on() {
     put_all(&mut o, &undo, OP);
     let back = o.kind("workflow").unwrap();
     assert_eq!((back.version, back.retired_ms), (3, None));
+}
+
+/// The owner's yes of 2026-11-14 (issue 9): the sweep may retire an entry a
+/// machine wrote that has no guidance, once the same write has emptied every
+/// session's membership of it, and the retire changes nothing else of it. It
+/// never takes away what the operator or an import wrote, an entry that is
+/// still held, or one that has guidance, and no other machine origin retires.
+#[test]
+fn the_sweep_retires_an_empty_machine_category_but_not_a_held_or_operators_one() {
+    let mut o = Ontology::seeded();
+    put_all(
+        &mut o,
+        &[
+            Record::Category(cat("resource:tree", "tree", "jev:j-1")),
+            Record::Category(cat("resource:docs", "docs", "ada")),
+            list("s1", "resource", vec![entry("resource:tree", JEV, 6)]),
+        ],
+        OP,
+    );
+    let retire = |o: &Ontology, c: &str| o.category(&id(c)).unwrap().retired(5);
+    // Held: refused until the memberships go, in the same write.
+    let e = o
+        .check(&Record::Category(retire(&o, "resource:tree")), SWEEP)
+        .unwrap_err();
+    assert!(matches!(e, Refusal::InUse { .. }), "{e:?}");
+    let mut next = o.clone();
+    put_all(&mut next, &[list("s1", "resource", vec![])], SWEEP);
+    next.check(&Record::Category(retire(&next, "resource:tree")), SWEEP)
+        .expect("emptied, and a machine's own: the sweep may retire it");
+    // Only `retired_ms` may change.
+    let mut sneaky = retire(&next, "resource:tree");
+    sneaky.name = "renamed".into();
+    let e = next.check(&Record::Category(sneaky), SWEEP).unwrap_err();
+    assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
+    // The operator's is never the sweep's, empty or not.
+    let e = next
+        .check(&Record::Category(retire(&next, "resource:docs")), SWEEP)
+        .unwrap_err();
+    assert!(matches!(e, Refusal::Writer { .. }), "{e:?}");
+    // And no other machine origin retires.
+    for by in [JEV, Origin::Dream] {
+        let e = next
+            .check(&Record::Category(retire(&next, "resource:tree")), by)
+            .unwrap_err();
+        assert!(matches!(e, Refusal::Writer { .. }), "{by:?}: {e:?}");
+    }
 }
