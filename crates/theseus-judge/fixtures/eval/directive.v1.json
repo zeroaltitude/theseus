@@ -1,0 +1,570 @@
+[
+ {
+  "name": "once_run_tests",
+  "why": "One act, asked once: a command to run and report.",
+  "input": {
+   "message": "Run the whole test suite once and tell me which ones fail.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_resend_this_time",
+  "why": "One act, and the words 'just this one time' say it does not repeat.",
+  "input": {
+   "message": "Send me that report again, just this one time, as a PDF.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_rename_restart",
+  "why": "Two acts in a row, each once.",
+  "input": {
+   "message": "Rename the config file to theseus.toml.bak and then restart the daemon.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_delete_one_folder",
+  "why": "A deletion of one named thing, 'only that one'.",
+  "input": {
+   "message": "Delete the old build folder. Only that one, leave the others.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_push_this_time",
+  "why": "'This time' limits the permission to one push.",
+  "input": {
+   "message": "Push the branch this time without waiting for the checks.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_open_draft_pr",
+  "why": "One act: open a pull request.",
+  "input": {
+   "message": "Open a draft pull request for this change.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_email_notes",
+  "why": "One act with a deadline today.",
+  "input": {
+   "message": "Email the meeting notes to the team before noon today.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_book_room",
+  "why": "One act for one date.",
+  "input": {
+   "message": "Book the small meeting room for tomorrow at ten.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_remind_hour",
+  "why": "One reminder, once, in an hour.",
+  "input": {
+   "message": "Remind me about the invoice in an hour.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_log_lines",
+  "why": "A request for output now.",
+  "input": {
+   "message": "Print the last twenty lines of the nightly job's log.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_fix_and_commit",
+  "why": "Work to do now, ending in one commit.",
+  "input": {
+   "message": "Fix the failing test in the store crate and commit the fix.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_answer_only",
+  "why": "'For this answer' limits a style request to one reply.",
+  "input": {
+   "message": "For this one answer, skip the explanation and just give me the number.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_staging_this_deploy",
+  "why": "'For this deploy' limits the choice of account to one act.",
+  "input": {
+   "message": "Use the staging account for this deploy.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_stop_the_job",
+  "why": "One act: stop a running job.",
+  "input": {
+   "message": "Stop the running export job.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "once_every_time_inside_one_task",
+  "why": "A word like 'every' inside one task's own steps is not a rule for later.",
+  "input": {
+   "message": "Go through the twelve invoices in the folder and mark every unpaid one, then give me the list.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "none"
+  }
+ },
+ {
+  "name": "standing_order_never_push",
+  "why": "A rule on what may be done, from now on.",
+  "input": {
+   "message": "Never push to main without asking me first.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "order"
+  }
+ },
+ {
+  "name": "standing_order_ask_before_delete",
+  "why": "A rule on what may be done, from now on.",
+  "input": {
+   "message": "Always ask me before you delete anything outside the project folder.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "order"
+  }
+ },
+ {
+  "name": "standing_preference_short",
+  "why": "How answers are to be given, from now on.",
+  "input": {
+   "message": "From now on keep your answers under five lines.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "preference"
+  }
+ },
+ {
+  "name": "standing_fact_host",
+  "why": "A lasting fact about the person's setup.",
+  "input": {
+   "message": "My production host is called harbor-two.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "fact"
+  }
+ },
+ {
+  "name": "standing_correction_summaries",
+  "why": "The last reply was done the wrong way, and should change from now on.",
+  "input": {
+   "message": "No, stop reading my questions back to me before you answer. Don't do that.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "correction"
+  }
+ },
+ {
+  "name": "standing_order_for_the_place",
+  "why": "A rule whose words limit it to this place.",
+  "input": {
+   "message": "In this channel never post links to the dashboard.",
+   "author": "operator",
+   "place_kind": "discord_dm (private)",
+   "previous_human_message": "Can you check why the nightly report job was slow?",
+   "last_reply": "The job waited on a locked table for about four minutes; nothing else was slow.",
+   "minutes_since_last_message": 3,
+   "live_tasks": [],
+   "current_role": "engineer",
+   "roles": [
+    {
+     "id": "engineer",
+     "stance": "Builds and fixes: reads code, edits it, runs commands, and reports what changed."
+    },
+    {
+     "id": "researcher",
+     "stance": "Finds and weighs sources, and answers with citations; changes nothing."
+    }
+   ]
+  },
+  "expect": {
+   "kind": "order",
+   "scope": "place"
+  }
+ }
+]

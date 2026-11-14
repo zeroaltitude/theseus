@@ -124,6 +124,10 @@ impl Core {
         night: &mut Night,
         only: Option<&str>,
     ) -> Result<()> {
+        // A pause starts nothing, the night's own start included (`rsi::pause`).
+        if self.self_paused().is_some() {
+            return Ok(());
+        }
         let mut top: Vec<(u32, String)> = w
             .tasks
             .values()
@@ -185,7 +189,8 @@ impl Core {
                 });
             }
             let objective = format!(
-                "{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.{}",
+                "{}\n\n{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.{}",
+                super::brief::rules(super::attempts::MAX_ATTEMPTS),
                 t.objective,
                 tree.dir.display(),
                 tree.branch,

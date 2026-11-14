@@ -1053,10 +1053,10 @@ queue drains, so a client always hears what it lost; the Observatory's tables ke
 **Divergences:** the lane report's tables. The ring's end is min(cap / 2, 4 MiB), so a small cap keeps both ends;
 a marker sits between the ends, where fb2c had none; the provider's maximum isn't remembered past the turn.
 
-**Known gaps.** A GLM refusal is read only in Anthropic's wording (theseus-kucs). ~~Two pieces no test proves: the
+**Known gaps.** ~~A GLM refusal is read only in Anthropic's wording (theseus-kucs).~~ Z.ai's refusal was captured live on 2026-11-14 and reads as an overflow (§4.4a). ~~Two pieces no test proves: the
 guard that keeps a stopped job's raw output while its wrapper lives (theseus-667d), and the result's `held` line
 (theseus-z3de). All P3, and the last two are in lane `tidy`.~~ Both are proven in Item 37, where the `held` test
-found and fixed a wrong count; theseus-kucs is P3.
+found and fixed a wrong count.
 
 ### Item 35. The `steady` lane: a wrapper caught in its exec, a channel's order, and disk and spool on screen (theseus-mi6a, theseus-50p, theseus-51v8; 2026-10-01 17:47 to 18:39, reviewed 18:57 to 19:00; joined at bc2fdb9, aea37c3, da92475, 1970bc6; installed 19:06 at 1970bc6)
 

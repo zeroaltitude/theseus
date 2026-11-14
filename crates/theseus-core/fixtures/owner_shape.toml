@@ -117,10 +117,10 @@ shadow_limit_usd_per_day = 2.0
 [memory]
 mode = "live"
 arm = "baseline"
-summary_profile = "haikuhi"
+summary_profile = "haiku_high"
 rerank_wait_ms = 300
 synth_limit_usd_per_day = 0.5
-synth_profile = "haikuhi"
+synth_profile = "haiku_high"
 
 [lsp]
 enabled = true
@@ -140,7 +140,7 @@ effort = "low"
 max_loops = 40
 cache_ttl = "5m"
 
-[profiles.haikuhi]
+[profiles.haiku_high]
 provider = "anthropic"
 model = "claude-haiku-5-5"
 effort = "high"
@@ -148,7 +148,7 @@ thinking_display = "summarized"
 cache_ttl = "1h"
 max_loops = 40
 
-[profiles.sonnethi]
+[profiles.sonnet_high]
 provider = "anthropic"
 model = "claude-sonnet-5-5"
 effort = "high"
@@ -183,10 +183,10 @@ cn_after = "haiku"
 profiles = ["opus", "fable"]
 
 [routing.classes.deep_coding]
-profiles = ["sonnethi", "opus"]
+profiles = ["sonnet_high", "opus"]
 
 [routing.classes.routine_coding]
-profiles = ["haikuhi", "sonnet"]
+profiles = ["haiku_high", "sonnet"]
 
 [catalog."claude-opus-5-5"]
 refusal_fallback_model = "claude-opus-5"

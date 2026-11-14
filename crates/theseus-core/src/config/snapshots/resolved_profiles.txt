@@ -142,7 +142,7 @@ ProfileConfig {
         24.0,
     ),
 }
--- haikuhi
+-- haiku_high
 ProfileConfig {
     provider: "anthropic",
     model: "claude-haiku-5-5",
@@ -205,7 +205,7 @@ ProfileConfig {
         24.0,
     ),
 }
--- sonnethi
+-- sonnet_high
 ProfileConfig {
     provider: "anthropic",
     model: "claude-sonnet-5-5",
@@ -343,27 +343,6 @@ ProfileConfig {
         24.0,
     ),
 }
--- haikuhi
-ProfileConfig {
-    provider: "anthropic",
-    model: "claude-haiku-5-5",
-    max_output_tokens: None,
-    system: None,
-    effort: Some(
-        High,
-    ),
-    effort_fixed: false,
-    thinking_display: Summarized,
-    max_loops: 40,
-    on_max_loops: Notify,
-    refusal_fallbacks: true,
-    cache_ttl: Some(
-        OneHour,
-    ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
-}
 -- opus
 ProfileConfig {
     provider: "anthropic",
@@ -371,27 +350,6 @@ ProfileConfig {
     max_output_tokens: None,
     system: None,
     effort: None,
-    effort_fixed: false,
-    thinking_display: Summarized,
-    max_loops: 40,
-    on_max_loops: Notify,
-    refusal_fallbacks: true,
-    cache_ttl: Some(
-        FiveMinutes,
-    ),
-    keep_warm_hours: Some(
-        24.0,
-    ),
-}
--- opushi
-ProfileConfig {
-    provider: "anthropic",
-    model: "claude-opus-5-5",
-    max_output_tokens: None,
-    system: None,
-    effort: Some(
-        High,
-    ),
     effort_fixed: false,
     thinking_display: Summarized,
     max_loops: 40,
@@ -547,7 +505,7 @@ ProfileConfig {
         24.0,
     ),
 }
--- haikuhi
+-- haiku_high
 ProfileConfig {
     provider: "anthropic",
     model: "claude-haiku-5-5",
@@ -589,7 +547,7 @@ ProfileConfig {
         24.0,
     ),
 }
--- opushi
+-- opus_high
 ProfileConfig {
     provider: "anthropic",
     model: "claude-opus-5-5",
@@ -631,7 +589,7 @@ ProfileConfig {
         24.0,
     ),
 }
--- sonnethi
+-- sonnet_high
 ProfileConfig {
     provider: "anthropic",
     model: "claude-sonnet-5-5",

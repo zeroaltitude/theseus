@@ -17,6 +17,8 @@ use theseus_protocol::rsi::{
 use crate::cmd::output;
 
 mod backlog;
+#[cfg(test)]
+mod tests_aside;
 
 mod branches;
 
@@ -63,13 +65,23 @@ pub enum SelfCmd {
         /// The item's id, or the end of it.
         item: String,
     },
+    /// Set a backlog item aside: the owner's. Nothing starts it, and unlike a drop nothing is
+    /// forbidden (its cause is still watched); `bring-back` puts it back.
+    #[command(name = "set-aside")]
+    SetAside {
+        /// The item's id, or the end of it.
+        item: String,
+        /// Why, in a few words.
+        why: Vec<String>,
+    },
     /// Move a backlog item to a rank (1 is the top): the owner's. It keeps the rank.
     Move {
         /// The item's id, or the end of it.
         item: String,
         rank: u32,
     },
-    /// Queue a failed backlog item again: the owner's. The pipeline starts it on its next free slot.
+    /// Queue a failed or set-aside backlog item again (`bring-back`): the owner's. The pipeline starts it on its next free slot.
+    #[command(visible_alias = "bring-back")]
     Retry {
         /// The item's id, or the end of it.
         item: String,
@@ -204,6 +216,7 @@ pub async fn run(conn: &mut Conn, json: bool, cmd: SelfCmd) -> Result<()> {
         SelfCmd::Backlog { all } => backlog::list(conn, json, all).await,
         SelfCmd::Patterns { top } => patterns::run(conn, json, top).await,
         SelfCmd::Drop { item } => backlog::drop_item(conn, json, item).await,
+        SelfCmd::SetAside { item, why } => backlog::set_aside(conn, json, item, why).await,
         SelfCmd::Move { item, rank } => backlog::move_item(conn, json, item, rank).await,
         SelfCmd::Retry { item } => backlog::retry_item(conn, json, item).await,
         SelfCmd::File { finding, title } => backlog::file_item(conn, json, finding, title).await,

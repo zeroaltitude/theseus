@@ -57,6 +57,49 @@ pub async fn drop_item(conn: &mut Conn, json: bool, item: String) -> Result<()> 
     })
 }
 
+pub async fn set_aside(conn: &mut Conn, json: bool, item: String, why: Vec<String>) -> Result<()> {
+    let why = why.join(" ");
+    let p = SelfDropParams {
+        item,
+        set_aside: true,
+        why: (!why.trim().is_empty()).then_some(why),
+        from_job: theseus_client::client::job_session(),
+        ..Default::default()
+    };
+    let v = conn
+        .request(method::SELF_DROP, serde_json::to_value(&p)?)
+        .await?;
+    output(json, v, |r: SelfDropResult| {
+        println!("{}", aside_words(&r)?);
+        Ok(())
+    })
+}
+
+/// What a set-aside's answer says in words, or why it must not say it worked. A daemon older
+/// than this command reads the request as a plain drop, which forbids the item's cause for good,
+/// and answers without `set_aside`: saying "nothing is forbidden" then would be false (the first
+/// review's F6).
+pub(crate) fn aside_words(r: &SelfDropResult) -> Result<String> {
+    if !r.set_aside {
+        anyhow::bail!(
+            "the daemon is older than this command, so it DROPPED {} ({}) instead of setting it \
+             aside: its cause, {}, is now never filed again. Restart the daemon onto this build \
+             first next time",
+            r.item,
+            r.title,
+            r.cause
+        );
+    }
+    Ok(match r.changed {
+        true => format!(
+            "Set {} ({}) aside. Nothing starts it, and nothing is forbidden: its cause, {}, is \
+             still watched. `theseus self bring-back {}` puts it back.",
+            r.item, r.title, r.cause, r.item
+        ),
+        false => format!("{} ({}) was set aside already.", r.item, r.title),
+    })
+}
+
 pub async fn move_item(conn: &mut Conn, json: bool, item: String, rank: u32) -> Result<()> {
     let p = SelfMoveParams {
         item,

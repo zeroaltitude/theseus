@@ -2128,6 +2128,34 @@ mod tests {
         assert_eq!(large.overflow(), None, "the body's size is not the window");
     }
 
+    /// theseus-kucs: Z.ai's refusal of a prompt past a GLM model's window,
+    /// as its endpoint sent it on 2026-11-14 (a 1.1 million token request to
+    /// glm-5.3-flash, streaming or not; only the request id here is
+    /// invented): a 400 whose error is `invalid_request_error`, code 1261,
+    /// and a message that wraps the words in brackets and gives neither a
+    /// count nor a maximum. It is an overflow with both unknown.
+    #[test]
+    fn z_ais_refusal_of_a_prompt_past_the_window_is_an_overflow_with_no_numbers() {
+        let h = reqwest::header::HeaderMap::new();
+        let body = r#"{"type":"error","error":{"type":"invalid_request_error","code":"1261","message":"[1261][prompt is too long][20260101000000aaaa0000000000000a]"},"request_id":"20260101000000aaaa0000000000000a"}"#;
+        let e = ProviderError::from_status(400, body, &h);
+        assert_eq!(e.class(), "invalid_request");
+        assert_eq!(
+            e.overflow(),
+            Some(Overflow {
+                tokens: None,
+                maximum: None
+            })
+        );
+        // The request id's digits are not read as a count or a maximum.
+        let other = ProviderError::from_status(
+            400,
+            r#"{"type":"error","error":{"type":"invalid_request_error","code":"1210","message":"[1210][invalid parameters][20260101000000aaaa0000000000000a]"}}"#,
+            &h,
+        );
+        assert_eq!(other.overflow(), None, "another Z.ai 400 is not one");
+    }
+
     /// The property test's find (theseus-s68): a character the network cut
     /// between two chunks arrives whole, not as U+FFFDs.
     #[test]

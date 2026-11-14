@@ -102,6 +102,8 @@ mod tests_priority;
 #[cfg(test)]
 mod tests_query;
 #[cfg(test)]
+mod tests_skip;
+#[cfg(test)]
 mod tests_status;
 #[cfg(test)]
 mod tests_weights;

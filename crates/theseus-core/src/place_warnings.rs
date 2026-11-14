@@ -31,11 +31,16 @@ pub fn unbound(place: &str, name: &str, profile: &str, configured: &[String]) ->
         place: place.into(),
         name: name.into(),
         kind: UNBOUND.into(),
-        detail: format!(
-            "{name} is not bound: its ceiling names profile {profile:?}, which the config does \
-             not have (configured: {}); fix the bindings file or the config, and restart",
-            configured.join(", ")
-        ),
+        detail: match crate::config::renamed::renamed_profile(profile) {
+            Some(said) => format!(
+                "{name} is not bound: its ceiling names {said}; fix the bindings file, and restart"
+            ),
+            None => format!(
+                "{name} is not bound: its ceiling names profile {profile:?}, which the config does \
+                 not have (configured: {}); fix the bindings file or the config, and restart",
+                configured.join(", ")
+            ),
+        },
     }
 }
 
@@ -204,5 +209,25 @@ mod tests {
         let mut p = pier(0.01, None);
         p.ceiling.as_mut().unwrap().profile = Some("plain".into());
         assert!(c.place_warnings(&[p], vec![]).is_empty());
+    }
+
+    /// A ceiling that names one of the three profiles retired in 1.0.7 is told where it went; any
+    /// other name keeps the list of what is configured.
+    #[test]
+    fn a_ceiling_naming_an_old_profile_is_told_it_was_renamed() {
+        let configured = vec!["haiku".to_string(), "sonnet".to_string()];
+        let (old, new) = crate::config::renamed::RENAMED_PROFILES[1];
+        let w = unbound("discord:dm:7", "a DM", old, &configured);
+        assert_eq!(w.kind, UNBOUND);
+        assert!(
+            w.detail.contains(&format!("{old:?} was renamed"))
+                && w.detail.contains(&format!("Use the profile {new:?}")),
+            "{}",
+            w.detail
+        );
+        let w = unbound("discord:dm:7", "a DM", "nowhere", &configured);
+        assert!(w
+            .detail
+            .contains("which the config does not have (configured: haiku, sonnet)"));
     }
 }
