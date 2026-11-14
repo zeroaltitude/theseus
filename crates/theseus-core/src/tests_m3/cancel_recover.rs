@@ -194,7 +194,6 @@ async fn a_job_a_stop_reached_before_its_pid_ends_verified_by_its_launchs_stop()
     let r = rig_parts(
         vec![
             Scripted::tools("", &[("t1", "proc_run", json!({"argv": ["sleep", "60"]}))]),
-            Scripted::text("Done."),
             Scripted::text("Resumed."),
         ],
         |cfg| {

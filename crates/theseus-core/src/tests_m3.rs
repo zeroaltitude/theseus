@@ -1583,7 +1583,11 @@ async fn a_stop_during_a_jobs_launch_stops_it_once_its_pid_is_written() {
     );
     let (status, text) = results(&r.core, &res.session_id).remove(0);
     assert_eq!(status, ResultStatus::Cancelled);
-    assert!(text.starts_with("[cancelled: stopped by test]\n"), "{text}");
+    // The launch's stop has a verdict, and the call's action takes it (theseus-vn4d): the result says so.
+    assert!(
+        text.starts_with("[cancelled: stopped by test; verified: process group, "),
+        "{text}"
+    );
     assert!(!text.contains("killed"), "{text}");
 }
 

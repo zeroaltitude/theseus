@@ -43,6 +43,14 @@ impl theseus_kernel::Evidence for Evidence<'_> {
         }
         self.0.probe(action)
     }
+
+    fn stopped(&self, action: &Action) -> Option<theseus_kernel::Verdict> {
+        self.0.stopped(action)
+    }
+
+    fn stop_taken(&self, action: &Action) {
+        self.0.stop_taken(action);
+    }
 }
 
 /// A hand the reaper stopped: failed, with the reaper's reason, at the
