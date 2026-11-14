@@ -16,7 +16,8 @@ import { groupTasks, LEAD, leadRow, type IndexRow, type LeadRule, type Manifest,
 
 export const NO_METRIC = 'no comparable headline metric yet'
 
-/** The omnibus review: the one undated page, pinned first (`/benchmarks/omnibus`). */
+/** The omnibus review, the page that reads every run in one (`/benchmarks/omnibus`). It carries the README's date
+ *  for itself, and since S33-1 it takes its place in the newest-first order by that date like any other card. */
 export const OMNIBUS = 'omnibus'
 
 /** The words on the earlier, untiered run of a benchmark whose later runs are tiered. */
@@ -56,7 +57,8 @@ export interface ArmLine { arm: string; name: string; row: IndexRow; chip: strin
 
 export interface Card {
   id: string
-  /** `pinned`: the omnibus; `measured`: from the manifest; `suite`: from reports alone. */
+  /** `pinned`: the omnibus; `measured`: from the manifest; `suite`: from reports alone. Since S33-1 `pinned` says
+   *  only WHICH card this is -- it carries the "start here" badge and its ring -- and never where it reads. */
   kind: 'pinned' | 'measured' | 'suite'
   title: string
   tier: string | null
@@ -108,8 +110,9 @@ const setFor = (names: readonly string[], sets: readonly { id: string; report: s
   return null
 }
 
-/** The cards, newest first with the omnibus pinned at the top. `list` is the runs newest first; `reports` the names the build holds. */
+/** The cards, newest first with nothing pinned above that order (S33-1). `list` is the runs newest first; `reports` the names the build holds. */
 export function cardsOf(manifest: Manifest, list: readonly Run[], reports: readonly string[], rule: LeadRule = LEAD, sets: readonly { id: string; report: string }[] = []): Card[] {
+  // The omnibus is a card like the others and sorts with them below; it is not prepended (S33-1).
   const out: Card[] = []
   if (reports.includes(OMNIBUS)) {
     const o = list.find((r) => r.name === OMNIBUS)
@@ -183,8 +186,10 @@ export function cardsOf(manifest: Manifest, list: readonly Run[], reports: reado
   // Newest first, as the page promises — with two orderings inside a day, so that the most important work reads
   // first (the owner, 2026-10-27): a run from before its benchmark's tiers is history and reads last of all, and a
   // benchmark measured on the day comes before a suite that only has a report that day.
+  // Every card is in this sort, the omnibus included: newest first is the whole rule and nothing is pinned above
+  // it (S33-1, the owner, Discord DM 2026-11-13 17:45: "I think newest first is great").
   const rank = (c: Card) => (c.kind === 'measured' ? 0 : 1)
-  return [...out, ...[...measured, ...suites].sort((a, b) =>
+  return [...out, ...measured, ...suites].sort((a, b) =>
     Number(a.legacy) - Number(b.legacy) || b.asOf.localeCompare(a.asOf) || rank(a) - rank(b) ||
-    a.title.localeCompare(b.title) || (a.tier ?? '').localeCompare(b.tier ?? ''))]
+    a.title.localeCompare(b.title) || (a.tier ?? '').localeCompare(b.tier ?? ''))
 }

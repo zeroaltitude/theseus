@@ -78,10 +78,12 @@ test('every GitHub address names a report that exists, in the one shape', () => 
   assert.ok(cardsOf(manifest, list, ['omnibus']).filter((c) => c.report !== 'omnibus').every((c) => c.github === null))
 })
 
-test('the omnibus is pinned first, and a suite with no manifest row shows no numeral of its own', () => {
+test('the omnibus reads in its date’s place, and a suite with no manifest row shows no numeral of its own', () => {
   const cards = cardsOf(manifest, list, reports)
-  assert.equal(cards[0].id, 'omnibus')
-  assert.equal(cards[0].github, `${GITHUB_DOCS}omnibus.md`)
+  // S33-1: newest first is the rule and nothing is pinned above it, the omnibus included.
+  const omnibus = cards.find((c) => c.id === 'omnibus')!
+  assert.ok(cards.indexOf(omnibus) > 0, 'the omnibus is not pinned to the top')
+  assert.equal(omnibus.github, `${GITHUB_DOCS}omnibus.md`)
   const suites = cards.filter((c) => c.kind === 'suite')
   const ids = suites.map((c) => c.id)
   for (const want of ['gate-bench', 'memory-exam', 'retrieval', 'recall', 'async', 'context']) assert.ok(ids.includes(want), want)
@@ -92,8 +94,8 @@ test('the omnibus is pinned first, and a suite with no manifest row shows no num
     assert.equal(c.arms, null)
   }
   assert.ok(!NO_METRIC.match(/\d/))
-  // Newest first after the pin, the runs from before their benchmark's tiers excepted: they read last.
-  const flow = cards.slice(1).filter((c) => !c.legacy)
+  // Newest first over every card, the runs from before their benchmark's tiers excepted: they read last.
+  const flow = cards.filter((c) => !c.legacy)
   for (let i = 1; i < flow.length; i++) assert.ok(flow[i - 1].asOf >= flow[i].asOf)
 })
 
