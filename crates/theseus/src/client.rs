@@ -371,7 +371,7 @@ pub const OPERATORS: [(&str, &str); 116] = [
     (method::SESSION_RETIRE, "theseus sessions retire"),
     (method::SESSION_REOPEN, "theseus sessions reopen"),
     (method::EXECUTION_REOPEN, "theseus budgets reopen"),
-    (method::ACTION_SETTLE, "theseus budgets settle"),
+    (method::ACTION_SETTLE, "theseus budgets settle|forgive"),
     (method::EXECUTION_DISMISS, "theseus dismiss"),
     (method::TASK_RETRY, "theseus retry"),
     (method::STANDING_ADD, "theseus standing add"),

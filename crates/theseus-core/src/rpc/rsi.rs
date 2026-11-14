@@ -180,8 +180,6 @@ fn refused(e: anyhow::Error) -> RpcFailure {
     }
 }
 
-/// A refused drop or move, as the owner's acts answer one; an item that is
-/// not on the backlog is the caller's mistake; any other error is the daemon's.
 /// A refused clear of the pause: the owner's word, in the words of the pause.
 fn pause_refused(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<Refusal>() {
@@ -197,6 +195,8 @@ fn pause_refused(e: anyhow::Error) -> RpcFailure {
     }
 }
 
+/// A refused drop or move, as the owner's acts answer one; an item that is
+/// not on the backlog is the caller's mistake; any other error is the daemon's.
 fn word_refused(e: anyhow::Error) -> RpcFailure {
     match e.downcast::<crate::rsi::backlog::BadItem>() {
         Ok(b) => RpcFailure::new(error_code::INVALID_PARAMS, b.to_string()),
