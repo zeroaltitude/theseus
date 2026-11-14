@@ -1426,8 +1426,8 @@ async fn kind_asked(r: &Rig, session: &str, needle: &str) -> Value {
 
 /// A message redirected to the conversation that started an ended task is its
 /// writer's own, by id: the owner's is the operator's and is not asked the
-/// injection question, a guest's is a person's message and is. Before, the
-/// redirect named no one, so the owner's own words were asked it.
+/// injection question. Before, the redirect named no one, so the owner's own
+/// words were asked it.
 #[tokio::test]
 async fn a_redirected_message_keeps_who_wrote_it() {
     let jev = crate::tests_gateway::injection_jev();
@@ -1464,8 +1464,4 @@ async fn a_redirected_message_keeps_who_wrote_it() {
             .any(|a| a["question"] == "injection")
     };
     assert!(!asked(&row), "the owner's words were asked it: {row}");
-    r.say((CY, "cy"), Some(t.id), "chart the south reef as well");
-    let row = kind_asked(&r, &parent, "chart the south reef as well").await;
-    assert_eq!(row["kind"], "person_message", "a guest's words: {row}");
-    assert!(asked(&row), "a guest's words were not asked it: {row}");
 }

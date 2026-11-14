@@ -11,7 +11,7 @@ use theseus_voice::{CutWhy, Event, HeardAs, Over, Spoken, TurnId, Utterance};
 use tokio::sync::mpsc;
 use twilight_model::id::Id;
 
-use super::super::tests::{core_edited, core_scripted};
+use super::super::tests::core_edited;
 use super::super::{Place, PlaceMsg};
 use super::tests::{heard, joined, place, LOUNGE, OWNER};
 use super::{pump, VoicePlace, FAILED_TURN, FRAMING};
