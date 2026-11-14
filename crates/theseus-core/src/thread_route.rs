@@ -1132,9 +1132,10 @@ pub fn decide(
 /// hit must not override the judge's own answer.
 ///
 /// The broad guard this incident also argues for -- that no guess should
-/// land in a thread at 137k of context, or in one whose goal says it is an
-/// archive -- is NOT here. The router reads neither context size nor the
-/// goal, and giving it either is a 2.0.0 change with its own bench.
+/// land in a thread at 137k of context -- is not here: this function reads
+/// scores, not sizes. It is [`spare_large`], applied by the flow to the tag
+/// this function leaves. A thread whose goal says it is an archive is still
+/// not read.
 pub fn guessed(d: Decision, threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&Jev>) -> Decision {
     if matches!(d, Decision::Route(_)) {
         return d;
@@ -1166,6 +1167,32 @@ pub fn guessed(d: Decision, threads: &[&ThreadInfo], pre: &[Pre], jev: Option<&J
         _ => Choice::Home,
     };
     Decision::Route(tag(threads, &choice, RouteHow::Guess, conf, true))
+}
+
+/// A thread holds this much context or more, in tokens, and takes no guess:
+/// a fresh one-line request placed there by weak evidence costs the whole
+/// context even when the answer is a refusal (a refused request at 137k cost
+/// most of a dollar). The route pack's own "above 100K" is the same line.
+pub const LARGE_CONTEXT_TOKENS: u64 = 100_000;
+
+/// The tag a guess into a large thread becomes: the place's own conversation,
+/// still a guess and still movable, so the reply carries the ordinary move
+/// offer; only the `thread.routed` row names the thread that was spared and
+/// its size. `None`: the tag stands. Only a guess is spared. A
+/// thread the message named, a reply to it, a place it alone lists, a sure or
+/// a likely placement, and one the owner answered are the owner's or the
+/// message's own choice and are never moved. `context_tokens` is the thread's
+/// conversation as `judge::route_facts::est_tokens` counts it, or `None` when
+/// the thread has no session or its record cannot be read: unknown is not large.
+pub fn spare_large(tag: &ThreadTag, context_tokens: Option<u64>) -> Option<ThreadTag> {
+    let large = context_tokens.is_some_and(|n| n >= LARGE_CONTEXT_TOKENS);
+    (tag.how == RouteHow::Guess && tag.slug.is_some() && large).then(|| ThreadTag {
+        slug: None,
+        title: "home".into(),
+        how: RouteHow::Guess,
+        confidence: 0.0,
+        movable: true,
+    })
 }
 
 /// An offered new thread as a guess of **home**, which is the owner's own

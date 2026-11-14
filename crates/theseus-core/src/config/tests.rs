@@ -1407,7 +1407,7 @@ fn the_retired_routing_and_draft_keys_load_and_warn() {
     let text = "[secrets]\nanthropic_api_key = \"op://v/i/f\"\n\
                 [server]\ndrafts_dir = \"~/.cache/theseus/drafts\"\n\
                 [routing]\nhigh_effort_confidence = 0.40\nmax_wait_ms = 300\n\
-                [routing.classes.deep_coding]\nprofiles = [\"sonnethi\", \"opus\"]\n\
+                [routing.classes.deep_coding]\nprofiles = [\"sonnet\", \"opus\"]\n\
                 [routing.classes.trivial]\nprofiles = [\"haiku\"]\n";
     let (cfg, warnings) = Config::parse(text).unwrap();
     assert_eq!(cfg.routing.max_wait_ms, 300, "what stays still loads");

@@ -64,3 +64,8 @@ export function attachRefusal(attachments: readonly Attachment[]): string | null
   const bad = attachments.find((a) => a.not_read)
   return bad ? `${bad.name}: ${bad.not_read}` : null
 }
+
+/** The files still chosen once a send that carried `sent` has resolved: a file added while it was in flight stays. */
+export function withoutSent(chosen: readonly Attachment[], sent: readonly Attachment[]): Attachment[] {
+  return chosen.filter((a) => !sent.includes(a))
+}

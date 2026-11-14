@@ -135,6 +135,16 @@ async fn an_unknown_profile_is_refused() {
     let got = hold(&r.core, &sid, Some("no-such-profile"));
     assert!(got.refused.unwrap().contains("not a configured profile"));
     untouched(&r, &sid);
+    // One of the three names retired in 1.0.7 is told where it went; another is only unknown.
+    let (old, new) = crate::config::renamed::RENAMED_PROFILES[0];
+    let got = hold(&r.core, &sid, Some(old));
+    let said = got.refused.unwrap();
+    assert!(
+        said.contains(&format!("{old:?} was renamed"))
+            && said.contains(&format!("Use the profile {new:?}")),
+        "{said}"
+    );
+    untouched(&r, &sid);
     // An unknown session is an error, not an answer.
     let e = r
         .core

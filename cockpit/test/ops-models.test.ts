@@ -1,4 +1,4 @@
-// The dock's `Models · profiles` strip grouped by model (theseus-yxkww): `sonnet` and `sonnethi` are one model, Sonnet
+// The dock's `Models · profiles` strip grouped by model (theseus-yxkww): `sonnet` and `sonnet_high` are one model, Sonnet
 // 5.5, at two efforts, and the effort is a sub-line from what the turns really ran at (`route.decided`'s `effort_sent`
 // or `effort_ran`), or the profiles' configured efforts, said to be configured, when no turn has been read.
 import test from 'node:test'
@@ -11,10 +11,10 @@ import { groupByModel, modelLabel, routeEfforts } from '../src/ops/models.ts'
 const SONNET = 'claude-sonnet-5-5'
 const profiles = [
   { name: 'sonnet', model: SONNET, live: true, origin: 'us' },
-  { name: 'sonnethi', model: SONNET, live: false, origin: 'us', effort: 'high' },
+  { name: 'sonnet_high', model: SONNET, live: false, origin: 'us', effort: 'high' },
   { name: 'opus', model: 'claude-opus-5-5', live: false, origin: 'us' },
   { name: 'haiku', model: 'claude-haiku-5-5', live: false, origin: 'us', effort: 'low' },
-  { name: 'haikuhi', model: 'claude-haiku-5-5', live: false, origin: 'us', effort: 'high' },
+  { name: 'haiku_high', model: 'claude-haiku-5-5', live: false, origin: 'us', effort: 'high' },
   { name: 'glm', model: 'glm-5.3-flash', live: false, origin: 'cn' },
 ]
 const strip = (sessions: Array<{ profile?: string; retired?: unknown }> = [], calls: Array<{ model: string; rate?: { tokens_remaining: number; tokens_limit: number } }> = []) => modelsStrip(profiles, sessions, calls)
@@ -27,18 +27,18 @@ test('modelLabel: the model in the owner’s words, a date dropped and the versi
 })
 
 test('modelsStrip: a profile row carries the effort its profile is configured at', () => {
-  assert.deepEqual(strip().map((r) => [r.name, r.effort ?? null]), [['sonnet', null], ['sonnethi', 'high'], ['opus', null], ['haiku', 'low'], ['haikuhi', 'high'], ['glm', null]])
+  assert.deepEqual(strip().map((r) => [r.name, r.effort ?? null]), [['sonnet', null], ['sonnet_high', 'high'], ['opus', null], ['haiku', 'low'], ['haiku_high', 'high'], ['glm', null]])
 })
 
-test('groupByModel: sonnet and sonnethi are one model; its profiles stay under it, each with its sessions and live flag', () => {
-  const g = groupByModel(strip([{ profile: 'sonnet' }, { profile: 'sonnet' }, { profile: 'sonnethi' }, { profile: 'glm' }, { profile: 'sonnet', retired: {} }]), [])
+test('groupByModel: sonnet and sonnet_high are one model; its profiles stay under it, each with its sessions and live flag', () => {
+  const g = groupByModel(strip([{ profile: 'sonnet' }, { profile: 'sonnet' }, { profile: 'sonnet_high' }, { profile: 'glm' }, { profile: 'sonnet', retired: {} }]), [])
   assert.deepEqual(g.map((m) => m.label), ['Sonnet 5.5', 'Opus 5.5', 'Haiku 5.5', 'GLM 5.3 Flash'], 'one row a model, in the profile list’s order')
   const s = g[0]
   assert.equal(s.model, SONNET)
   assert.equal(s.sessions, 3, 'the sessions of every profile on it')
   assert.equal(s.live, true, 'live when any of its profiles is')
   assert.equal(s.origin, 'us')
-  assert.deepEqual(s.profiles.map((p) => [p.name, p.live, p.sessions, p.effort]), [['sonnet', true, 2, null], ['sonnethi', false, 1, 'high']], 'each profile still reachable: the click filter and the ⌥-click use its name')
+  assert.deepEqual(s.profiles.map((p) => [p.name, p.live, p.sessions, p.effort]), [['sonnet', true, 2, null], ['sonnet_high', false, 1, 'high']], 'each profile still reachable: the click filter and the ⌥-click use its name')
   assert.equal(g[3].origin, 'cn')
   assert.equal(g[1].live, false)
 })

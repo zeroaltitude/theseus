@@ -231,7 +231,7 @@ async fn a_prompt_is_refused_while_a_steered_request_runs_alone() {
         name: "greet".into(),
         arguments: Default::default(),
     };
-    let said = place.run_prompt(prompt, "discord:zeroaltitude");
+    let said = place.run_prompt(prompt, "discord:zeroaltitude", None);
     assert!(said.starts_with("A turn is running here"), "{said}");
 }
 
@@ -301,4 +301,24 @@ fn a_batch_of_two_peoples_messages_names_no_speaker() {
         "two authors in one turn name no speaker"
     );
     assert!(speaker_of(&[]).is_none(), "and an empty batch names none");
+}
+
+/// One person wrote the batch when every message has the same id: a person
+/// who changes their name between two messages is still one, and two people
+/// who share a name are two (the core reads the ids, never the handles).
+#[test]
+fn a_batch_is_one_persons_by_id_not_by_handle() {
+    let by = |handle: &str, id: u64| Inbound {
+        author: handle.into(),
+        author_id: id,
+        ..message("hello")
+    };
+    let renamed = [by("wren", 42), by("wren-new", 42)];
+    assert_eq!(
+        speaker_of(&renamed).map(|o| o.user_id),
+        Some("42".into()),
+        "one id under two handles"
+    );
+    let twins = [by("wren", 42), by("wren", 43)];
+    assert!(speaker_of(&twins).is_none(), "two ids under one handle");
 }

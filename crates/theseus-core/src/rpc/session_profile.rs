@@ -145,7 +145,12 @@ impl Core {
         let next = match p.profile.as_deref() {
             Some(name) => {
                 let mark = crate::content_wait::mark_of(&self.store, sid);
-                if let Some(why) = self.runner.profile_refusal(mark, name) {
+                // A name Theseus once shipped that no profile answers to is told where it went
+                // (decided on the config, not on the words of the refusal below).
+                let gone = (!self.cfg.all_profiles().contains_key(name))
+                    .then(|| crate::config::renamed::renamed_profile(name))
+                    .flatten();
+                if let Some(why) = gone.or_else(|| self.runner.profile_refusal(mark, name)) {
                     done.refused = Some(why);
                     return Ok(done);
                 }

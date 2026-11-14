@@ -72,7 +72,7 @@ onto the last block the conversation owns. Three things hold, and a test pins ea
 four are not exceeded; it still covers the same bytes, so nothing that was cached
 stopped being cached; and the blocks that change every turn are still outside it. What
 changed is where the fourth breakpoint is written, not what it buys. A request with
-`[project] tail_facts = false` keeps the top-level one, as every turn did before.
+`[project] tail_facts = false` keeps the top-level one, as every turn did before. (1.0.7: the same block also says, in a private Discord place, that the person has a chat route of slash commands and a voice channel to join; with the switch off none of these is said.)
 
 Git state is read through the library the git tools already use, never by shelling out,
 and it is bounded: a failure or a slow read degrades to "unknown" rather than holding

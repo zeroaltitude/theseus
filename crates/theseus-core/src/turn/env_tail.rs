@@ -1,4 +1,6 @@
-//! The date and the git state, in the messages' tail (theseus-wadu,
+//! The date and the git state, in the messages' tail, and what the place tells
+//! the model of the person's own routes (the chat route, the voice channel;
+//! issue 8, `self_card::told`) (theseus-wadu,
 //! `docs/design/project-context.md` §4). Both change within a session, so
 //! neither can sit in block 3 (the cached prefix): they ride the tail as one
 //! block after the conversation's breakpoint, through `attach_hint`, as the
@@ -33,7 +35,8 @@ pub(super) fn date_line(ms: u64) -> String {
 }
 
 impl TurnRunner {
-    /// Attach the date, and the git state where the session may have one.
+    /// Attach the date, the git state where the session may have one, and the
+    /// sentences of the place the turn was spoken in.
     pub(super) async fn env_tail(&self, t: &Turn<'_>, compiled: &mut Compiled) {
         if !self.cfg.project.tail_facts() {
             return;
@@ -48,6 +51,18 @@ impl TurnRunner {
                 Ok(Ok(l)) => l,
                 _ => "Git: unknown".to_string(),
             };
+            text.push('\n');
+            text.push_str(&line);
+        }
+        // What the place tells the model of the person's own routes (the chat
+        // route, the voice channel), which the header cannot say: it is the same
+        // bytes on every surface. A turn addressed to a thread has no place of
+        // its own, so it is told those of the place its message came from.
+        let at = self.outbox.speaks_at(t.tc.session_id).ok().flatten();
+        let place = self
+            .place_rule
+            .place_under(&self.cfg, at.as_deref(), t.answer_at.as_deref());
+        for line in crate::self_card::told(&self.cfg, place) {
             text.push('\n');
             text.push_str(&line);
         }

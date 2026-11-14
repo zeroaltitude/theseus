@@ -20,7 +20,7 @@ import { bytes } from '@/lib/figures'
 import { Transcript } from '@/components/Transcript'
 import { Empty } from '@/components/ui'
 import { composerHint, composerStep, submitOf, type ComposerState } from './composer'
-import { attachRefusal, attachmentOf } from './attach'
+import { attachRefusal, attachmentOf, withoutSent } from './attach'
 import { liveOf } from './live'
 import { transcriptTail } from './sections'
 import { MODES, modeAsk } from './menus'
@@ -71,10 +71,10 @@ export function JoinPane({ sessionId, thread, compact = false, session, focus = 
     const refused = attachRefusal(files)
     if (refused) { setError(refused); return }
     const draft = sid ? addDraft(sid, input) : null
-    const { params, clearOnOk } = submitOf({ sid, thread, input, turnProfile, steer, attachments: files })
-    setFiles([])
+    const sent = files
+    const { params, clearOnOk } = submitOf({ sid, thread, input, turnProfile, steer, attachments: sent })
     post('join', 'turn.submit', params)
-      .then(() => { if (draft != null) dropDraft(draft); if (clearOnOk && sid) setTurnProfile(sid, null); void qc.invalidateQueries({ queryKey: ['thread.show'] }) })
+      .then(() => { setFiles((was) => withoutSent(was, sent)); if (draft != null) dropDraft(draft); if (clearOnOk && sid) setTurnProfile(sid, null); void qc.invalidateQueries({ queryKey: ['thread.show'] }) })
       .catch((e: any) => { if (draft != null) failDraft(draft, e?.message ?? String(e)); else setError(e?.message ?? String(e)) })
   }
   const step = (e: Parameters<typeof composerStep>[1]) => {

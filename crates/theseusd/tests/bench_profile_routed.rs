@@ -55,12 +55,12 @@ fn the_routed_profile_loads_with_the_judge_and_the_routing_table_on() {
     let catalog = theseus_core::catalog::Catalog::builtin();
     for (name, model, effort) in [
         ("sonnet", "claude-sonnet-5-5", Some(Effort::Medium)),
-        ("sonnethi", "claude-sonnet-5-5", Some(Effort::High)),
+        ("sonnet_high", "claude-sonnet-5-5", Some(Effort::High)),
         ("opus", "claude-opus-5-5", Some(Effort::Medium)),
-        ("opushi", "claude-opus-5-5", Some(Effort::High)),
+        ("opus_high", "claude-opus-5-5", Some(Effort::High)),
         ("fable", "claude-fable-5-1", Some(Effort::High)),
         ("haiku", "claude-haiku-5-5", Some(Effort::Low)),
-        ("haikuhi", "claude-haiku-5-5", Some(Effort::High)),
+        ("haiku_high", "claude-haiku-5-5", Some(Effort::High)),
     ] {
         let p = &cfg.profiles[name];
         assert_eq!(p.model, model, "{name}");
