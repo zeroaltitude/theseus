@@ -125,6 +125,15 @@ impl ToolRuntime {
         // every later layer (web text, a place's floor) may still hold it.
         let decision =
             crate::rsi::own_tree::failing_open(self, at.session, tool, plan, bound.l1(), decision);
+        // And its L1 call in its own tree, which `failing_open` leaves out.
+        let decision = crate::rsi::own_tree::l1_in_own_tree(
+            self,
+            at.session,
+            tool,
+            plan,
+            bound.l1(),
+            decision,
+        );
         seen(Layer::Policy, &decision);
         // The conversation's mode (theseus-lyxy).
         let decision =

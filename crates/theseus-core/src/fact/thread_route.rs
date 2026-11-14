@@ -49,6 +49,10 @@ pub struct RoutedRow {
     /// The turn ran above every thread's root: the directory rule's words
     /// (`thread_route::above_every_root`), none from inside a root.
     pub above: Option<String>,
+    /// The thread a guess was kept out of because its context was large
+    /// (`thread_route::spare_large`), with that context in tokens: the turn
+    /// ran at home instead.
+    pub spared: Option<(String, u64)>,
 }
 
 /// `thread.routed`: an unaddressed message found its thread.
@@ -59,13 +63,17 @@ impl Fact for ThreadRouted<'_> {
 
     fn row(&self) -> Value {
         let r = self.0;
-        json!({
+        let mut row = json!({
             "home": r.home, "to": r.to.as_deref().unwrap_or("home"), "session": r.session,
             "how": r.how, "confidence": r.confidence, "movable": r.movable,
             "pre": r.pre.iter().map(|(s, p, h)| json!({"thread": s, "score": p, "hits": h})).collect::<Vec<_>>(),
             "jev": r.jev.as_ref().map(|j| json!({"pick": j.pick, "p": j.p, "judgment": j.judgment, "acts": j.acts})),
             "timed_out": r.timed_out, "waited_ms": r.waited_ms, "ask": r.ask, "early": r.early, "above": r.above,
-        })
+        });
+        if let Some((thread, tokens)) = &r.spared {
+            row["spared"] = json!({"thread": thread, "context_tokens": tokens});
+        }
+        row
     }
 
     fn narrate(&self, say: &mut Say<'_>) {

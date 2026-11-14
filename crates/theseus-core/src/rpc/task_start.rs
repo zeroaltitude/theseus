@@ -301,15 +301,17 @@ impl Core {
     /// The profile `name` names, as a task's model.
     fn profile_target(&self, name: &str) -> Result<TargetRef, RpcFailure> {
         self.tools.profiles.get(name).cloned().ok_or_else(|| {
-            invalid(format!(
-                "no profile is named `{name}`; configured: {}",
-                self.tools
-                    .profiles
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
+            invalid(crate::config::renamed::or_unknown(name, || {
+                format!(
+                    "no profile is named `{name}`; configured: {}",
+                    self.tools
+                        .profiles
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }))
         })
     }
 }
@@ -703,5 +705,26 @@ fn failure(e: anyhow::Error) -> RpcFailure {
             data: json!({"who": r.who, "via": r.via, "why": r.why, "method": method::TASK_START}),
         },
         Err(e) => RpcFailure::invalid(anyhow!("{e:#}")),
+    }
+}
+
+#[cfg(test)]
+mod renamed_tests {
+    use crate::tests_route::rig;
+
+    /// `task start --profile` with one of the three names retired in 1.0.7 and no profile of that name
+    /// is refused with where it went; another unknown name keeps its list of what is configured.
+    #[tokio::test]
+    async fn a_task_started_on_an_old_profile_name_is_told_it_was_renamed() {
+        let r = rig(None, 1, |_| {});
+        let (old, new) = crate::config::renamed::RENAMED_PROFILES[2];
+        let said = r.core.profile_target(old).unwrap_err().message;
+        assert!(
+            said.contains(&format!("{old:?} was renamed"))
+                && said.contains(&format!("Use the profile {new:?}")),
+            "{said}"
+        );
+        let other = r.core.profile_target("nowhere").unwrap_err().message;
+        assert!(other.contains("no profile is named `nowhere`"), "{other}");
     }
 }

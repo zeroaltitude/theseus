@@ -15,7 +15,7 @@ use theseus_protocol::rsi::{
 use theseus_protocol::tasks::{TaskEvidence, TaskRecord, TaskState};
 
 use super::state::State;
-use super::{filed, is_open, rank, Night, Work};
+use super::{aside, filed, is_open, rank, Night, Work};
 use crate::approval::Answerer;
 use crate::rpc::{Act, Core};
 
@@ -168,12 +168,27 @@ impl Core {
         let mut w = self.backlog_work()?;
         let id = Self::backlog_item(&w, &p.item)?;
         let (title, cause) = (w.tasks[&id].title.clone(), w.st.items[&id].cause.clone());
+        if p.set_aside {
+            let changed = w.set_aside_item(&id, &who.who(), p.why.as_deref())?;
+            if changed {
+                self.backlog_write(&mut w)?;
+                self.rsi.pipeline.kick();
+            }
+            return Ok(SelfDropResult {
+                item: id,
+                title,
+                cause,
+                changed,
+                set_aside: true,
+            });
+        }
         if w.tasks[&id].state.is_closed() {
             return Ok(SelfDropResult {
                 item: id,
                 title,
                 cause,
                 changed: false,
+                set_aside: false,
             });
         }
         w.drop_item(&id, &who.who(), "dropped by the owner's word", true);
@@ -184,6 +199,7 @@ impl Core {
             title,
             cause,
             changed: true,
+            set_aside: false,
         })
     }
 
@@ -317,9 +333,10 @@ impl Core {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut w = self.backlog_work()?;
         let id = Self::backlog_item(&w, &p.item)?;
-        if w.tasks[&id].state != TaskState::Failed {
+        if w.tasks[&id].state != TaskState::Failed && !aside::is_set_aside(&w.tasks[&id]) {
             return Err(BadItem(format!(
-                "{id} is {}: only a failed item can be retried",
+                "{id} is {}: only a failed item can be retried (or one that was set aside, which \
+                 this brings back)",
                 w.tasks[&id].state.as_str()
             ))
             .into());

@@ -21,6 +21,7 @@ was public (it has been private since 2026-09-30); the line under its title name
 - [stale-edit.md](stale-edit.md): the stale edit (`theseus-w2cs` sub-item 2): a read record is noted when it exists and checked when it exists, never required; the required-prior-read shape that was built, measured and rejected, and why `rsi` self-sessions made it unacceptable; where the record lives, its cap, and why a `DefaultHasher` value may not cross a process.
 - [undo-v1.md](undo-v1.md): where `undo.v1`'s verdict is consumed (row B6, `theseus-2yowd`): why the layer cannot go before `Layer::Mode`, the ask-once-consume-twice shape, and why `irreversible_final` is applied to what the gate's order returned rather than raised inside it.
 - [agent-notes-rule.md](agent-notes-rule.md): the durable-versus-run-state rule for an agent's own notes (`b4-theseus-holds-its-own-notes`, row B4): why there is a rule, the three questions the code asks and in what order, the two numbers and why they are judgement rather than measurement, the five shapes the rule gets wrong, and what the two default-off switches hold back until the owner has seen it.
+- [self-loop-failure-handling.md](self-loop-failure-handling.md): what stops the self-improvement loop's failures now (issue 6 of 1.0.7): the cap on tries, the rules the builder is told, formatting before the gate, no start on a red main, a tree that stays under its gate, a stale item settled, set-aside beside drop, a join that leaves no tree, and the install's reap; and what it does not do.
 
 And one review:
 

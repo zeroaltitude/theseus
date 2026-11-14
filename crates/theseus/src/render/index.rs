@@ -84,6 +84,16 @@ pub fn index_line(h: &theseus_protocol::index::IndexHealth) -> String {
     if s.rss_bytes > 0 {
         line.push_str(&format!(" · tender rss {}", fmt_bytes(s.rss_bytes)));
     }
+    // Frames that checked but were wrong, read past: health says so (issue 6).
+    if s.frames_skipped > 0 {
+        line.push_str(&format!(
+            " · skipped {}, the last at {}",
+            plural(s.frames_skipped, "damaged frame", "damaged frames"),
+            s.last_frame_skipped
+                .as_deref()
+                .unwrap_or("a place not known")
+        ));
+    }
     line.push_str(&why);
     line
 }
@@ -147,6 +157,21 @@ pub fn index_status_lines(h: &theseus_protocol::index::IndexHealth) -> Vec<Line>
             fmt_bytes(s.rss_bytes)
         ),
     );
+    // A frame that checked but was wrong, skipped so the index goes on.
+    if s.frames_skipped > 0 {
+        let last = s
+            .last_frame_skipped
+            .as_deref()
+            .unwrap_or("where is not known");
+        push(
+            o,
+            Tag::Warn,
+            &format!(
+                "skipped {}: {last}",
+                plural(s.frames_skipped, "damaged frame", "damaged frames")
+            ),
+        );
+    }
     // A kept file's read text, indexed beside its node (theseus-lv2u).
     if s.files_indexed + s.files_repeated + s.files_cut + s.files_unread > 0 {
         push(
@@ -282,6 +307,40 @@ mod tests {
             sources: BTreeMap::new(),
             fused: 0.5,
         }
+    }
+
+    /// A frame the tender skipped is on health's index line, where it was and why, so the person
+    /// who reads `theseus health` is told; none says nothing (the first review's F10).
+    #[test]
+    fn a_skipped_frame_is_on_the_health_line() {
+        use theseus_protocol::index::{IndexHealth, IndexStatus};
+        let mut s = IndexStatus {
+            state: "ready".into(),
+            ..IndexStatus::default()
+        };
+        let quiet = IndexHealth {
+            state: "ready".into(),
+            status: Some(s.clone()),
+            ..IndexHealth::default()
+        };
+        assert!(
+            !index_line(&quiet).contains("skipped"),
+            "{}",
+            index_line(&quiet)
+        );
+        s.frames_skipped = 2;
+        s.last_frame_skipped = Some("segment 1, offset 4096: a record did not decode".into());
+        let h = IndexHealth {
+            status: Some(s),
+            ..quiet
+        };
+        let line = index_line(&h);
+        assert!(
+            line.contains(
+                "skipped 2 damaged frames, the last at segment 1, offset 4096: a record did not decode"
+            ),
+            "{line}"
+        );
     }
 
     /// A rebuild's reason is on the health line, in the tender's own words,

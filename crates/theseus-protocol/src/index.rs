@@ -583,6 +583,15 @@ pub struct IndexStatus {
     /// with on-disk damage is the digest guard working, not a new fault.
     #[serde(default)]
     pub files_unread: u64,
+    /// Frames that passed their checksum but were wrong (a record that did
+    /// not decode, or a position out of sequence), which the tender skipped
+    /// and read on past, as the core serves on past one.
+    #[serde(default)]
+    pub frames_skipped: u64,
+    /// Where, and why, the last of them was skipped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub last_frame_skipped: Option<String>,
     pub rebuilds: u64,
     pub extractor: u32,
     pub schema: u32,

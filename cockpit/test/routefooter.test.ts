@@ -14,17 +14,17 @@ test("a turn's route line names its mode, or the correction that placed it", () 
     'routed: correction · fable (from sonnet)',
   )
   assert.equal(
-    routeLine({ mode: 'routine_coding', reason: 'verdict', from: 'fable', source: 'task brief' }, 'haikuhi'),
-    'routed: routine_coding (task brief) · haikuhi (from fable)',
+    routeLine({ mode: 'routine_coding', reason: 'verdict', from: 'fable', source: 'task brief' }, 'haiku_high'),
+    'routed: routine_coding (task brief) · haiku_high (from fable)',
   )
   assert.equal(
-    routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'haikuhi', source: 'task checkpoint: failing' }, 'sonnet'),
-    'routed: deep_coding (task checkpoint: failing) · sonnet (from haikuhi)',
+    routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'haiku_high', source: 'task checkpoint: failing' }, 'sonnet'),
+    'routed: deep_coding (task checkpoint: failing) · sonnet (from haiku_high)',
   )
   // A routed conversation turn's checkpoint (theseus-a1wvq).
   assert.equal(
-    routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'haikuhi', source: 'turn checkpoint: failing' }, 'sonnet'),
-    'routed: deep_coding (turn checkpoint: failing) · sonnet (from haikuhi)',
+    routeLine({ mode: 'deep_coding', reason: 'verdict', from: 'haiku_high', source: 'turn checkpoint: failing' }, 'sonnet'),
+    'routed: deep_coding (turn checkpoint: failing) · sonnet (from haiku_high)',
   )
 })
 

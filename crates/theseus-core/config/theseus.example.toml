@@ -156,14 +156,6 @@ model = "claude-fable-5-2"
 thinking_display = "summarized"
 max_loops = 40
 
-# Opus 5.5 at high effort, for a pin.
-[profiles.opushi]
-provider = "anthropic"
-model = "claude-opus-5-5"
-effort = "high"
-thinking_display = "summarized"
-max_loops = 40
-
 # GLM-5.3 costs more per coding task than Sonnet 5.5 ($0.34-0.47 against $0.30 a trial): a pin only.
 [profiles.glm53]
 provider = "zai"
@@ -206,14 +198,6 @@ max_loops = 40
 provider = "anthropic"
 model = "claude-haiku-5-5"
 effort = "low"
-cache_ttl = "1h"
-max_loops = 40
-
-[profiles.haikuhi]
-provider = "anthropic"
-model = "claude-haiku-5-5"
-effort = "high"
-thinking_display = "summarized"
 cache_ttl = "1h"
 max_loops = 40
 
@@ -1161,7 +1145,7 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # not fit, rings as before, and the row says why.
 # summary_profile = "session"             # a pin: "session", a key of [profiles], or "off". Unset: Jev chooses the
 #                                         # model for each summary (until the route pack that asks him is acting,
-#                                         # unset runs as "session"). A key of [profiles] such as "haikuhi" sends the
+#                                         # unset runs as "session"). A key of [profiles] such as "haiku" sends the
 #                                         # range to that profile's provider whatever the session's provider
 # assembled_budget_tokens = 4000          # the recall section a task's first compile and a compaction carry (canary and live)
 # Consolidation (step 31b): off every turn, nodes recall admits together in
@@ -1173,8 +1157,8 @@ idle_unload_mins = 10.0                   # the model unloads after this long un
 # sessions disagree wait. A key of [profiles] is the operator's choice.
 # synth_profile = "session"               # a pin: "session", or a key of [profiles]. Unset: Jev chooses the model for
 #                                         # each cluster, from US options only (until the route pack that asks him is
-#                                         # acting, unset runs as "session"). "haikuhi" (Haiku 5.5 at high effort)
-#                                         # gets about 18x the clusters of Sonnet 5.5 for the day's limit, each still
+#                                         # acting, unset runs as "session"). A profile of your own that runs Haiku 5.5 at
+#                                         # high effort gets about 18x the clusters of Sonnet 5.5 for the day's limit, each still
 #                                         # checked by citation.v1. The dream's guidance ([ontology] dream_guidance)
 #                                         # is the one site that never asks Jev: unset, it writes with Sonnet 5.5 at
 #                                         # high effort (the owner's ruling, theseus-xdi65); a set key pins it
