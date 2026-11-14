@@ -59,6 +59,13 @@ pub const RENAMED_PROFILES: &[(&str, &str)] = &[
     ("haikuhi", "haiku"),
 ];
 
+/// The words of a refusal of the profile `name`: the renamed message when `name` is one Theseus once
+/// shipped, else the site's own (`own`). Every place a person names a profile that no profile answers to
+/// says it through this, so the three old names are told where they went wherever they are typed.
+pub fn or_unknown(name: &str, own: impl FnOnce() -> String) -> String {
+    renamed_profile(name).unwrap_or_else(own)
+}
+
 /// What a lookup of the profile `name` says when it names none and was once shipped, or none.
 pub fn renamed_profile(name: &str) -> Option<String> {
     let (old, new) = RENAMED_PROFILES.iter().find(|(old, _)| *old == name)?;
@@ -233,10 +240,19 @@ mod tests {
         assert!(said.starts_with("unknown profile"), "{said}");
     }
 
+    /// A result file of `docs/benchmarks`: a dated run's report or data, and the two summaries built from the
+    /// runs (`omnibus`, `index.json`). They record what ran, under the names it ran with.
+    fn is_result(name: &str) -> bool {
+        name.starts_with(|c: char| c.is_ascii_digit())
+            || name.starts_with("omnibus.")
+            || name == "index.json"
+    }
+
     /// The files under `dir` (a path relative to the workspace root) that hold `word` as a whole word, skipping
-    /// what is built or fetched and the dated result files of past benchmark runs, which record what ran.
+    /// what is built or fetched (`target`, `node_modules`, `.git` and the cockpit's build) and the benchmark
+    /// result files (`is_result`), nothing else.
     fn naming(root: &std::path::Path, dir: &str, word: &str, found: &mut Vec<String>) {
-        let skip = ["target", "node_modules", ".git", "dist", "benchmarks"];
+        let built = ["target", "node_modules", ".git"];
         let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
             return;
         };
@@ -247,7 +263,11 @@ mod tests {
             } else {
                 format!("{dir}/{name}")
             };
-            if skip.contains(&name.as_str()) {
+            let cockpit_build = ["cockpit/dist", "crates/theseusd/cockpit/dist"];
+            if built.contains(&name.as_str())
+                || cockpit_build.contains(&at.as_str())
+                || (dir == "docs/benchmarks" && is_result(&name))
+            {
                 continue;
             }
             if e.path().is_dir() {
@@ -266,8 +286,25 @@ mod tests {
         }
     }
 
+    /// A config whose `[model] live` names one of the three, with no table of that name, does
+    /// not load, and says where the name went (the operator who follows the new template and
+    /// deletes the tables is the one this release's message is for).
+    #[test]
+    fn a_live_profile_that_is_an_old_name_with_no_table_is_told_it_was_renamed() {
+        let text = Config::EXAMPLE_TOML.replace("live = \"sonnet\"\n", "live = \"opushi\"\n");
+        let said = format!("{:#}", Config::parse(&text).unwrap_err());
+        assert!(
+            said.contains("\"opushi\" was renamed") && said.contains("Use the profile \"opus\""),
+            "{said}"
+        );
+        let other = Config::EXAMPLE_TOML.replace("live = \"sonnet\"\n", "live = \"nowhere\"\n");
+        let said = format!("{:#}", Config::parse(&other).unwrap_err());
+        assert!(said.contains("model.live = \"nowhere\" is not"), "{said}");
+    }
+
     /// No file of the tree names a profile that once fixed an effort, bar this one (the table of what was
-    /// renamed and its tests) and the dated benchmark results, which are records of what ran then.
+    /// renamed and its tests) and the benchmark result files of `docs/benchmarks` (`is_result`), which are
+    /// records of what ran then.
     #[test]
     fn no_shipped_file_names_a_retired_high_effort_profile() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

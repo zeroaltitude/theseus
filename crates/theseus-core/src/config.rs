@@ -54,7 +54,7 @@ mod self_sealed;
 pub use persona::{Initiative, PersonaConfig, PersonaView, DEFAULT_NAME};
 mod initiative;
 mod persona_settings;
-mod renamed;
+pub(crate) mod renamed;
 mod sessions;
 mod standing;
 mod threads;
@@ -1917,8 +1917,13 @@ impl Config {
         }
         if !self.all_profiles().contains_key(&self.model.live) {
             anyhow::bail!(
-                "model.live = {:?} is not the implicit \"default\" profile nor a key of [profiles]",
-                self.model.live
+                "{}",
+                renamed::or_unknown(&self.model.live, || {
+                    format!(
+                    "model.live = {:?} is not the implicit \"default\" profile nor a key of [profiles]",
+                    self.model.live
+                )
+                })
             );
         }
         limits::check_dollars(&self.kernel)?;

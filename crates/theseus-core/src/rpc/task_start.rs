@@ -301,15 +301,17 @@ impl Core {
     /// The profile `name` names, as a task's model.
     fn profile_target(&self, name: &str) -> Result<TargetRef, RpcFailure> {
         self.tools.profiles.get(name).cloned().ok_or_else(|| {
-            invalid(format!(
-                "no profile is named `{name}`; configured: {}",
-                self.tools
-                    .profiles
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
+            invalid(crate::config::renamed::or_unknown(name, || {
+                format!(
+                    "no profile is named `{name}`; configured: {}",
+                    self.tools
+                        .profiles
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }))
         })
     }
 }

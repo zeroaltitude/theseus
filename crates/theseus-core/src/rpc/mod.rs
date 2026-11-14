@@ -1037,7 +1037,9 @@ impl Core {
             Some(released) if released.is_empty() => (cfg.model.live.clone(), "config".to_string()),
             Some(name) if profiles.contains_key(&name) => (name, "runtime".to_string()),
             Some(stale) => {
-                tracing::warn!(profile = %stale, "persisted live profile no longer configured; using config");
+                let why = crate::config::renamed::renamed_profile(&stale)
+                    .unwrap_or_else(|| "it is no longer configured".to_string());
+                tracing::warn!(profile = %stale, "persisted live profile not used, the config's is: {why}");
                 (cfg.model.live.clone(), "config".to_string())
             }
             None => (cfg.model.live.clone(), "config".to_string()),
