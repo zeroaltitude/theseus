@@ -82,7 +82,11 @@ fn rig(mode: SelfMode, remote: Option<&str>) -> Rig {
 }
 
 fn rig_with(mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&mut Config)) -> Rig {
-    let f = fixture();
+    rig_on(fixture(), mode, remote, edit)
+}
+
+/// [`rig_with`] over a fixture the test made (a gate of its own).
+fn rig_on(f: Fixture, mode: SelfMode, remote: Option<&str>, edit: impl FnOnce(&mut Config)) -> Rig {
     let work = tempfile::tempdir().unwrap();
     let mut cfg = Config::example();
     cfg.server.state_dir = f.place.state.to_string_lossy().into_owned();
@@ -528,7 +532,11 @@ mod told {
     /// A rig whose item has a task of its own, bound to its thread, with the
     /// owner's DM bound as a daemon that has a Discord has it.
     fn rig_with_task() -> (Rig, String) {
-        let r = rig(SelfMode::Act, Some("origin"));
+        rig_with_task_on(rig(SelfMode::Act, Some("origin")))
+    }
+
+    /// [`rig_with_task`] over a rig the test made.
+    fn rig_with_task_on(r: Rig) -> (Rig, String) {
         let sid = r.session("self");
         let t = TaskRecord {
             id: "trim-the-sails".into(),
@@ -563,6 +571,8 @@ mod told {
         }
         (r, sid)
     }
+
+    mod capped;
 
     fn thread_posts(r: &Rig, kind: &str) -> Vec<Value> {
         r.core
@@ -860,6 +870,8 @@ fn propose() -> Value {
 mod own_tree {
     use super::*;
     use theseus_protocol::tasks::{TaskOrigin, TaskRecord, TaskState};
+
+    mod proc_in_tree;
 
     fn held(edit: impl FnOnce(&mut Config)) -> Rig {
         rig_with(SelfMode::Act, None, |cfg| {
@@ -1347,6 +1359,7 @@ mod own_tree_edits {
     }
 }
 
+mod formatted;
 mod infra;
 
 /// The stop check of a self build's wait reads the kill switch...

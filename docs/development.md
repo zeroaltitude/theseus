@@ -574,7 +574,16 @@ queue goes on.
 - `[self.budget]` sets a spend line per branch and per day, for all self-improvement together. Raising either is keel.
 - A capacity guard: a build starts only when there is a free slot, free disk, low memory pressure, and an unsaturated host (the
   five-minute load average under two runnable tasks a core; CPU *pressure* is shown, not held on: its `some` line
-  reads busy on a host with idle cores, and the system-wide `full` line is always zero).
+  reads busy on a host with idle cores, and the system-wide `full` line is always zero). A hold on the slots names
+  the trees that hold them.
+- A cap on tries: an item has three (`rsi/backlog/attempts.rs`: a red gate, a rejecting review, or a build that died
+  with no gate; a gate that never judged the code is none). The try that reaches it fails the item with every reason
+  and one notice, and it waits for `theseus self retry`. A red inside twelve hours of another for the item is not posted
+  again; the note lists it.
+- No build starts on a red main: the newest recorded whole gate of the commit main is at failed (the gate-times log). A
+  later green gate of that commit lifts it, and so does main moving on. No record means nothing is known.
+- `theseus self set-aside ITEM` stops one item and forbids nothing, where `drop` forbids its cause for good;
+  `theseus self bring-back ITEM` puts it back. Both are the owner's.
 - `theseus self revert` undoes a self-join (the gate runs on the revert) and drops its item for good.
 - Everything is visible: `theseus self log`, `self pipeline`, `self backlog` and `self branches`, a morning notice,
   and a weekly digest.

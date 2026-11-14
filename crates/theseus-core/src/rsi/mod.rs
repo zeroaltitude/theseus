@@ -37,6 +37,10 @@
 //! learning loop's proposals, the extensions, the owner's routing
 //! corrections, consolidation's syntheses), newest first, each with what,
 //! why, its numbers and its undo. `digest.rs` makes the week's text of them.
+//!
+//! **What stops a failing loop** (the cap on tries, the rules the builder is told, formatting
+//! before the gate, no start on a red main, a tree that stays under its gate, a stale item settled,
+//! set-aside, a join that leaves no tree, the install's reap): `docs/design/self-loop-failure-handling.md`.
 
 pub mod backlog;
 pub mod budget;
@@ -52,6 +56,7 @@ pub mod mine;
 pub mod mint;
 pub mod narrow;
 pub(crate) mod own_tree;
+pub mod pause;
 pub mod pipeline;
 pub mod pr;
 pub mod revert;
@@ -62,9 +67,13 @@ mod tests_budget;
 #[cfg(test)]
 mod tests_fetch_bound;
 #[cfg(test)]
+mod tests_fmt;
+#[cfg(test)]
 mod tests_identity;
 #[cfg(test)]
 mod tests_jail;
+#[cfg(test)]
+mod tests_lease;
 #[cfg(test)]
 mod tests_narrow;
 #[cfg(test)]
@@ -72,6 +81,8 @@ mod tests_pr;
 #[cfg(test)]
 pub(crate) mod tests_tree;
 pub mod tree;
+pub mod tree_fmt;
+pub mod tree_lease;
 
 use std::sync::{Mutex, PoisonError, RwLock};
 

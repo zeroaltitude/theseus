@@ -16,6 +16,8 @@
 //!   theseus-o1h3f.6),
 //!   builds whose turn ended with no green branch (`ended`), dropped items
 //!   with a live build or trees (`dropped`), and joined ones (`joined`);
+//! - `stale`: in progress and in none of the queues, with no build behind it (issue 6,
+//!   condition 8); a tick settles it as failed;
 //! - and `closed`: failed or done items whose trees are still on disk, with
 //!   no green branch waiting on a review, a join or the owner (theseus-czlzg),
 //!   so a path nobody thought of (the backlog's sweep marking a build failed)
@@ -65,6 +67,8 @@ pub(crate) struct Queues {
     pub dropped: Vec<Entry>,
     pub joined: Vec<Entry>,
     pub closed: Vec<Entry>,
+    /// In progress, and in no queue above: nothing is building, reviewing or waiting on it.
+    pub stale: Vec<Entry>,
 }
 
 /// A green branch, as its row says it.
@@ -285,7 +289,50 @@ fn closed(q: &mut Queues, tasks: &[TaskRecord], place: &Place) {
     q.closed = closed;
 }
 
+/// In-progress items that no queue holds: an item shows as in progress for as long as its
+/// record says so, so one nothing builds, reviews or waits on (its build began with no record
+/// of a session, its branch conflicted with main and nothing took it back) would show as in
+/// progress for ever.
+fn stale(q: &mut Queues, tasks: &[TaskRecord]) {
+    let queued: Vec<&str> = [
+        &q.ready,
+        &q.building,
+        &q.reviewing,
+        &q.joining,
+        &q.held,
+        &q.parking,
+        &q.ended,
+        &q.dropped,
+        &q.joined,
+        &q.closed,
+    ]
+    .into_iter()
+    .flatten()
+    .map(|e| e.item.as_str())
+    .collect();
+    q.stale = tasks
+        .iter()
+        .filter(|t| t.state == TaskState::InProgress)
+        .filter(|t| !queued.contains(&t.id.as_str()))
+        .map(entry)
+        .collect();
+}
+
 impl Core {
+    /// An item the owner set aside (`backlog::aside`): its held entry says so. Whether it still
+    /// has a build or trees to stop and close.
+    fn set_aside(&self, place: &Place, t: &TaskRecord, e: &mut Entry) -> bool {
+        if !crate::rsi::backlog::aside::is_set_aside(t) {
+            return false;
+        }
+        e.why = Some("set aside by the owner: nothing starts it until it is brought back".into());
+        e.session = started(t).map(|(s, _)| s).or(e.session.take());
+        e.live = self.live(e.execution.as_deref());
+        e.live
+            || tree::find(place, &t.id).is_some()
+            || place.targets().join(tree::slug(&t.id)).exists()
+    }
+
     /// Whether an execution's turn runs, queues, or waits on the owner.
     fn live(&self, exec: Option<&str>) -> bool {
         exec.and_then(|id| self.kernel.execution(id).ok().flatten())
@@ -351,7 +398,12 @@ impl Core {
                     if seen.greens.iter().any(|g| g.item == t.id && g.at_ms >= at) {
                         continue;
                     }
-                    if e.live || now.saturating_sub(at) < grace.as_millis() as u64 {
+                    // A gate still runs in its tree (`tree_lease`): it is building, whatever its
+                    // execution says, and its end is not the build's end.
+                    let gating = tree::find(place, &t.id).is_some_and(|tr| {
+                        crate::rsi::tree_lease::held(&[&tr.dir, &tr.target]).is_some()
+                    });
+                    if e.live || gating || now.saturating_sub(at) < grace.as_millis() as u64 {
                         e.place = q.building.len() as u32 + 1;
                         q.building.push(e);
                     } else {
@@ -380,6 +432,10 @@ impl Core {
                             })
                             .into(),
                     );
+                    if self.set_aside(place, t, &mut e) {
+                        // A build the owner set aside stops, as a dropped one does.
+                        q.dropped.push(e.clone());
+                    }
                     e.place = q.held.len() as u32 + 1;
                     q.held.push(e);
                 }
@@ -388,6 +444,7 @@ impl Core {
         }
         branches(&mut q, &seen, &by_id);
         closed(&mut q, &tasks, place);
+        stale(&mut q, &tasks);
         Ok(Some(q))
     }
 }

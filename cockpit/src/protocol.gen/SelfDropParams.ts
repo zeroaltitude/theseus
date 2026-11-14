@@ -8,4 +8,13 @@ export type SelfDropParams = { item: string, author?: string, discord?: DiscordO
 /**
  * The `THESEUS_SESSION` of the shell that sent it: a job's never counts.
  */
-from_job?: string, };
+from_job?: string, 
+/**
+ * Set the item aside instead of dropping it: nothing starts it, its cause is still
+ * filed against it, and nothing is forbidden. `self.retry` brings it back.
+ */
+set_aside: boolean, 
+/**
+ * Why, in a few words, for a set-aside.
+ */
+why?: string, };

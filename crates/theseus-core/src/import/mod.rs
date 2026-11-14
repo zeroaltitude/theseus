@@ -64,6 +64,8 @@ mod tests_sync;
 #[cfg(test)]
 mod tests_sync_run;
 #[cfg(test)]
+mod tests_sync_spawn;
+#[cfg(test)]
 mod tests_system;
 #[cfg(test)]
 mod tests_topics;
