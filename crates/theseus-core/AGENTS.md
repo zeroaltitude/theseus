@@ -339,7 +339,7 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
   that exist): (1) `kind_of_thing = other` at the act band is `Step::Other` in `decide.rs` and a step of the
   `onto.filed` row (names, confidence; no record, no card); (2) `judge/onto/mint.rs`: three distinct sessions' `other`
   rows in the last 7 days that share a folded mined name mint a kind, one category and the memberships as one write
-  (`sweep-<ms>-<n>-kind`), a name no kind can take or the table holds counted as `refused`, a name a kind lists in
+  (`sweep-<ms>-<n>-kind`; **named for its class** (issue 9; ask i9-remembers-2, option A) when the class call is part of the run: `judge/onto/class.rs`, one cheap text call a cluster, paid under `sweep_usd_per_day`, gives one lowercase word (`country`), the kind is that word and each name of the cluster (`France`) is an entry under it; a failed, over-cap or unusable call, or a word that is a name itself, makes no kind that night; with the sweep's model part off the kind is named after the thing as before), a name no kind can take or the table holds counted as `refused`, a name a kind lists in
   `examples` (an undone one too) not clustered again; (3) `judge/onto/judged.rs` (`[ontology] sweep_usd_per_day`, 1.0,
   0 turns this part off and the deterministic sweep still runs): `same_thing.v1` asks of machine pairs that look alike
   (theseus-ontology's `judged.rs`: a shared word of 4 letters or more, at most 20 a run) and merges at the act band by

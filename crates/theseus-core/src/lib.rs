@@ -483,6 +483,8 @@ mod tests_one_turn;
 #[cfg(test)]
 mod tests_onto;
 #[cfg(test)]
+mod tests_onto_class;
+#[cfg(test)]
 mod tests_onto_digest;
 #[cfg(test)]
 mod tests_onto_judged;

@@ -1,8 +1,8 @@
 //! The sweep's questions about names (theseus-63tfk.1), through a whole core
 //! and the fake Jev: a stale category is renamed by Jev's pick and undone,
 //! `other` answers under two names that mean one kind cluster and mint, the
-//! kind is named by Jev's choice or by the most shared name, and the day's
-//! money stops all three.
+//! kind is named for its class with the names as its entries (the fake class
+//! provider says `product`), and the day's money stops all three.
 
 use serde_json::json;
 use theseus_judge::fake::{FakeJev, Scripted};
@@ -11,7 +11,9 @@ use theseus_protocol::LedgerKind;
 use crate::judge::onto::judged::{Mark, MARK};
 use crate::judge::onto::renamed::stale_names;
 use crate::ledger::LedgerRow;
-use crate::tests_onto_judged::{fresh, held, id, machine, rig, session, snapshot, topic, Rig};
+use crate::tests_onto_judged::{
+    fresh, held, id, machine, rig, session, snapshot, topic, Rig, CLASS,
+};
 
 const TITLES: [&str; 6] = [
     "Plan the Ledger migration",
@@ -153,15 +155,14 @@ async fn two_other_names_jev_calls_one_kind_cluster_and_mint() {
     let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
     assert_eq!((swept.kinds, swept.failed), (1, 0), "{swept:?}");
     let o = snapshot(&r.core);
-    let kind = o
-        .kind("lantern-ledger")
-        .expect("named by the most shared name");
+    let kind = o.kind(CLASS).expect("named for its class");
     assert!(
         kind.examples.contains(&"Ledger App".to_string()),
         "{:?}",
         kind.examples
     );
-    assert_eq!(o.lists().filter(|l| l.kind == "lantern-ledger").count(), 3);
+    assert!(o.kind("lantern-ledger").is_none(), "not for the thing");
+    assert_eq!(o.lists().filter(|l| l.kind == CLASS).count(), 3);
 
     let no = rig(kind_jev(0.7), |_| {});
     plant_other(&no);
@@ -169,25 +170,29 @@ async fn two_other_names_jev_calls_one_kind_cluster_and_mint() {
     assert_eq!(swept.kinds, 0, "{swept:?}");
 }
 
+/// Jev's pick among the names no longer names the kind: the class does, and
+/// every name of the cluster is an entry under it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_minted_kind_is_named_by_jevs_choice() {
+async fn a_minted_kind_is_named_for_its_class_not_for_jevs_pick() {
     let jev = kind_jev(0.9);
     // The names are offered most shared first: `Ledger App` is the second.
     pick(&jev, "n2", 0.9);
     let r = rig(jev, |_| {});
     plant_other(&r);
     let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 0), "{swept:?}");
     let o = snapshot(&r.core);
-    assert!(o.kind("ledger-app").is_some(), "Jev's pick names the kind");
+    assert!(o.kind("ledger-app").is_none(), "Jev's pick names no kind");
     assert!(o.kind("lantern-ledger").is_none());
-    let kind = o.kind("ledger-app").unwrap();
-    assert_eq!(kind.examples[0], "Ledger App");
-    assert!(kind.examples.contains(&"Lantern Ledger".to_string()));
+    let kind = o.kind(CLASS).expect("the class names the kind");
+    assert_eq!(kind.examples[0], "Lantern Ledger", "the most shared first");
+    assert!(kind.examples.contains(&"Ledger App".to_string()));
+    let entries: Vec<_> = o.categories().filter(|c| c.kind() == CLASS).collect();
+    assert_eq!(entries.len(), 2, "each name is an entry: {entries:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn with_no_pick_the_most_shared_name_names_it() {
+async fn with_no_pick_the_class_still_names_it() {
     for (option, confidence) in [("none", 0.9), ("n2", 0.7)] {
         let jev = kind_jev(0.9);
         pick(&jev, option, confidence);
@@ -200,9 +205,10 @@ async fn with_no_pick_the_most_shared_name_names_it() {
             "{option} {swept:?}"
         );
         let o = snapshot(&r.core);
+        assert!(o.kind(CLASS).is_some(), "{option}: the class");
         assert!(
-            o.kind("lantern-ledger").is_some(),
-            "{option}: the most shared name"
+            o.kind("lantern-ledger").is_none(),
+            "{option}: not the thing"
         );
     }
 }
@@ -230,8 +236,8 @@ async fn the_sweeps_new_asks_stop_at_the_days_money() {
 
     let tomorrow = fresh() + 36 * 3_600_000;
     let next = r.core.onto_sweep_night(tomorrow).await.unwrap();
-    // The pair, the kind's name and the rename.
-    assert_eq!(r.jev.seen().len(), 3, "{next:?}");
+    // The pair, the kind's name, the rename, and the new kind's entries' pair.
+    assert_eq!(r.jev.seen().len(), 4, "{next:?}");
     assert_eq!((next.kinds, next.renamed), (1, 1));
 }
 
@@ -249,7 +255,8 @@ async fn a_kind_name_answer_waits_for_its_mint() {
     said_other(&r, "o2", &["2026 Plan"]);
     said_other(&r, "o3", &["2026 Roadmap"]);
     let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!((swept.kinds, swept.refused), (0, 1), "{swept:?}");
+    // A name that starts with a digit is no kind's name, but the class is.
+    assert_eq!((swept.kinds, swept.refused), (1, 0), "{swept:?}");
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
     assert!(mark.asked.contains_key("kind-name 2026plan"), "{mark:?}");
     assert_eq!(mark.named["2026plan"], "2026 Roadmap");
@@ -266,9 +273,13 @@ async fn a_kind_name_answer_waits_for_its_mint() {
     r.core.store.put_meta(MARK, &kept).unwrap();
     r.jev.script("same_kind", Scripted::Noul(0.9));
     let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
-    assert!(snapshot(&r.core).kind("ledger-app").is_some());
-    assert_eq!(r.jev.seen().len(), 1, "only the pair was asked");
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 0), "{swept:?}");
+    assert!(snapshot(&r.core).kind(CLASS).is_some());
+    assert_eq!(
+        r.jev.seen().len(),
+        2,
+        "the pair, and whether the new kind's entries are one thing"
+    );
 }
 
 /// The state of the fake's request for the pair `Echo Ledger`, `Foxtrot Ledger`.
@@ -306,12 +317,14 @@ async fn a_chain_asked_over_two_nights_clusters() {
         .unwrap();
     assert_eq!(two.kinds, 1, "{two:?}");
     let o = snapshot(&r.core);
-    let made = o
-        .kinds()
-        .into_iter()
-        .filter(|k| k.name.ends_with("-ledger"));
+    let made = o.kinds().into_iter().filter(|k| k.name == CLASS);
     assert_eq!(made.count(), 1);
-    assert_eq!(r.jev.seen().len(), 22, "the pair, and the kind's name");
+    assert!(o.kinds().iter().all(|k| !k.name.ends_with("-ledger")));
+    assert_eq!(
+        r.jev.seen().len(),
+        25,
+        "the pair, the kind's name, and the new kind's entries' pairs"
+    );
 }
 
 /// The chain test on a machine that says it is busy (theseus-75t4q): the sweep
@@ -369,10 +382,13 @@ async fn a_kept_pick_follows_its_cluster_to_a_new_key() {
     };
     r.core.store.put_meta(MARK, &kept).unwrap();
     let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
-    assert!(snapshot(&r.core).kind("ledger-app").is_some());
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 0), "{swept:?}");
+    assert!(snapshot(&r.core).kind(CLASS).is_some());
     let questions = r.jev.seen().len();
-    assert_eq!(questions, 3, "three pairs, no kind name");
+    assert_eq!(
+        questions, 6,
+        "three pairs, no kind name, and the new kind's entries' pairs"
+    );
 }
 
 /// A pick kept under `lanternledger` was made among `Lantern Ledger` and
@@ -419,11 +435,15 @@ async fn a_stale_kept_pick_is_dropped_and_its_cluster_asked_again() {
         )
         .unwrap();
     let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 0), "{swept:?}");
     let o = snapshot(&r.core);
-    assert!(o.kind("lantern-maps").is_some(), "Jev's pick names it");
+    assert!(o.kind(CLASS).is_some(), "the class names it");
     assert!(o.kind("ledger-app").is_none(), "the stale pick does not");
-    assert_eq!(r.jev.seen().len(), 1, "only the kind's name was asked");
+    assert_eq!(
+        r.jev.seen().len(),
+        2,
+        "the kind's name, and whether the new kind's entries are one thing"
+    );
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
     assert_ne!(
         mark.named.get("lanternledger").map(String::as_str),
@@ -493,9 +513,13 @@ async fn a_kept_none_ask_on_a_changed_cluster_is_asked_again() {
     kept_none_ask(&r, Some(&["lanternledger", "ledgerapp"]));
     list_ledger_app(&r);
     let swept = r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!((swept.kinds, swept.named_kinds), (1, 1), "{swept:?}");
-    assert!(snapshot(&r.core).kind("lantern-maps").is_some());
-    assert_eq!(r.jev.seen().len(), 1, "only the kind's name was asked");
+    assert_eq!((swept.kinds, swept.named_kinds), (1, 0), "{swept:?}");
+    assert!(snapshot(&r.core).kind(CLASS).is_some());
+    assert_eq!(
+        r.jev.seen().len(),
+        2,
+        "the kind's name, and whether the new kind's two entries are one thing"
+    );
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
     let now: std::collections::BTreeSet<String> =
         ["lanternledger", "lanternmaps"].map(String::from).into();
@@ -512,7 +536,18 @@ async fn a_kept_none_ask_on_the_same_cluster_is_not_asked_again() {
     said_other(&r, "o4", &["Lantern Maps"]);
     kept_none_ask(&r, Some(&["lanternledger", "ledgerapp", "lanternmaps"]));
     r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!(r.jev.seen().len(), 0, "no kind name was asked");
+    // Not the kind's name: the ask is kept. The new kind's entries look alike,
+    // so the sweep asks whether they are one thing, and that is all it asks.
+    let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
+    assert_eq!(
+        mark.asked
+            .keys()
+            .filter(|k| k.starts_with("kind-name"))
+            .count(),
+        1,
+        "no new kind name was asked: {mark:?}"
+    );
+    assert_eq!(r.jev.seen().len(), 2, "only the entries' pairs");
 }
 
 /// A mark written before `offered` recorded none: its ask is kept as it was
@@ -527,7 +562,11 @@ async fn an_old_mark_with_no_offered_keeps_its_none_ask() {
     kept_none_ask(&r, None);
     list_ledger_app(&r);
     r.core.onto_sweep_night(fresh()).await.unwrap();
-    assert_eq!(r.jev.seen().len(), 0, "no kind name was asked");
+    assert_eq!(
+        r.jev.seen().len(),
+        1,
+        "no kind name was asked; the new kind's entries' pair was"
+    );
     let mark: Mark = r.core.store.get_meta(MARK).unwrap().unwrap();
     assert!(
         mark.asked.contains_key("kind-name lanternledger"),

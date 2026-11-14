@@ -40,6 +40,7 @@ use super::JudgeService;
 use crate::node::AttachmentContent;
 use crate::rpc::Core;
 
+pub(crate) mod class;
 pub mod decide;
 pub mod digest;
 pub mod judged;

@@ -132,6 +132,14 @@ pub struct Hints {
     /// A pick names only a cluster that still holds it: the key outlives a
     /// cluster's shape, so a pick for a name now elsewhere is ignored.
     pub named: BTreeMap<String, String>,
+    /// The class each cluster belongs to, by the cluster's key: the one
+    /// lowercase word the class call gave (`class.rs`).
+    pub class: BTreeMap<String, String>,
+    /// Whether the class call was part of this run. When it was, a cluster
+    /// with no class makes no kind that night (a kind is a class of things,
+    /// and the thing that prompted it is an entry of it); when it was not
+    /// (the sweep's model part is off), the kind is named as it always was.
+    pub class_asked: bool,
     /// What the questions cost.
     pub spent: theseus_judge::price::Micros,
 }
@@ -330,6 +338,30 @@ pub fn plan_with(
             break;
         };
         let spelled = cluster.spelled(&names);
+        if hints.class_asked {
+            // A kind is a class of things: named for the class, with each
+            // name of the cluster an entry under it.
+            let n = plan.minted.len() + plan.refused as usize;
+            let made = hints.class.get(&cluster.key).and_then(|class| {
+                mint_class(
+                    &mut working,
+                    class,
+                    (cluster, &names),
+                    now_ms,
+                    precedence,
+                    &write(n),
+                )
+            });
+            listed.extend(cluster.folds.iter().cloned());
+            match made {
+                Some(m) => {
+                    precedence = m.precedence;
+                    plan.minted.push(m);
+                }
+                None => plan.refused += 1,
+            }
+            continue;
+        }
         let default = spelled[0].clone();
         let picked = hints
             .named
@@ -462,6 +494,91 @@ fn mint(
         records,
         sessions: sessions.len(),
         named,
+    })
+}
+
+/// A kind named for its class (`class`: country), one category for each name
+/// of the cluster (France), and each session's membership of the categories
+/// it said, applied to `working` when every record checks as the sweep's.
+fn mint_class(
+    working: &mut Ontology,
+    class: &str,
+    (cluster, names): (&Cluster<'_>, &Folds<'_>),
+    now_ms: u64,
+    precedence: u32,
+    write: &str,
+) -> Option<Minted> {
+    let by = format!("sweep:{write}");
+    let entries = cluster.spelled(names);
+    let mut examples = entries.clone();
+    examples.truncate(EXAMPLES_MAX);
+    let kind = Kind {
+        name: kind_name(class),
+        basis: Basis::Interpreted,
+        assigned_by: vec![Origin::Operator, Origin::Jev, Origin::Sweep],
+        per_session: PerSession::AtMost(3),
+        parent: None,
+        precedence: (precedence / 10 + 1) * 10,
+        rule: Rule::Chain,
+        description: format!(
+            "A kind the sweep made: {class}. {} sessions' messages were about none of the listed \
+             kinds, and these are its first entries: {}.",
+            cluster.sessions.len(),
+            examples.join(", "),
+        ),
+        version: 1,
+        added_by: by.clone(),
+        retired_ms: None,
+        examples,
+        mined_from: Vec::new(),
+    };
+    if kind.name != class || kind.check_row().is_err() || working.kind(&kind.name).is_some() {
+        return None;
+    }
+    let mut trial = working.clone();
+    trial.put(Record::Kind(kind.clone()), Origin::Sweep).ok()?;
+    let mut records = vec![Record::Kind(kind.clone())];
+    let mut ids = Vec::new();
+    for (fold, entry) in cluster.folds.iter().zip(&entries) {
+        let id = trial.mint_id(&kind.name, entry).ok()?;
+        let category = Category::new(id.clone(), entry, by.clone());
+        trial
+            .put(Record::Category(category.clone()), Origin::Sweep)
+            .ok()?;
+        records.push(Record::Category(category));
+        ids.push((fold, id));
+    }
+    for (session, confidence) in &cluster.sessions {
+        let members: Vec<Membership> = ids
+            .iter()
+            .filter(|(fold, _)| names[*fold].1.contains_key(session))
+            .take(3)
+            .map(|(_, id)| Membership {
+                category: id.clone(),
+                origin: Origin::Sweep,
+                confidence: Some(*confidence as f32),
+                as_of_ms: now_ms,
+            })
+            .collect();
+        if members.is_empty() {
+            continue;
+        }
+        let list = Record::Members(MemberList {
+            session: (*session).to_string(),
+            kind: kind.name.clone(),
+            members,
+        });
+        trial.put(list.clone(), Origin::Sweep).ok()?;
+        records.push(list);
+    }
+    *working = trial;
+    Some(Minted {
+        write: write.to_string(),
+        precedence: kind.precedence,
+        kind: kind.name,
+        records,
+        sessions: cluster.sessions.len(),
+        named: false,
     })
 }
 
