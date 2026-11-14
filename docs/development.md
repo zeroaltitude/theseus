@@ -20,31 +20,30 @@ Five other documents go deeper, and this page links to them rather than repeatin
 ## Contents
 
 1. [The shape of the work](#the-shape-of-the-work)
-2. [Tracking: Beads](#tracking-beads)
-3. [Where work happens](#where-work-happens)
-4. [Proof: what every change carries](#proof-what-every-change-carries)
-5. [The gate](#the-gate)
-6. [The keel](#the-keel)
-7. [Shape: files and functions](#shape-files-and-functions)
-8. [Review](#review)
-9. [Joins](#joins)
-10. [Installing](#installing)
-11. [Version cuts and releases](#version-cuts-and-releases)
-12. [Budgets the code is held to](#budgets-the-code-is-held-to)
-13. [The store's format](#the-stores-format)
-14. [Configuration changes](#configuration-changes)
-15. [Self-improvement](#self-improvement)
-16. [Branch hygiene](#branch-hygiene)
-17. [Benchmarks](#benchmarks)
-18. [The docs that move with the code](#the-docs-that-move-with-the-code)
-19. [Commits](#commits)
-20. [Models and roles](#models-and-roles)
+2. [Where work happens](#where-work-happens)
+3. [Proof: what every change carries](#proof-what-every-change-carries)
+4. [The gate](#the-gate)
+5. [The keel](#the-keel)
+6. [Shape: files and functions](#shape-files-and-functions)
+7. [Review](#review)
+8. [Joins](#joins)
+9. [Installing](#installing)
+10. [Version cuts and releases](#version-cuts-and-releases)
+11. [Budgets the code is held to](#budgets-the-code-is-held-to)
+12. [The store's format](#the-stores-format)
+13. [Configuration changes](#configuration-changes)
+14. [Self-improvement](#self-improvement)
+15. [Branch hygiene](#branch-hygiene)
+16. [Benchmarks](#benchmarks)
+17. [The docs that move with the code](#the-docs-that-move-with-the-code)
+18. [Commits](#commits)
+19. [Models and roles](#models-and-roles)
 
 ## The shape of the work
 
 ```text
  issue ──► branch ──► gate ──► review ──► join ──► main's gate ──► push ──► install ──► docs
- (Beads)    │          (no      │          (plain    (with the       (never
+            │          (no      │          (plain    (with the       (never
             │          benches) │          merge)    benches)        forced)
    lane, cloud row,        written review, planted
    or self branch          revert, live check
@@ -59,23 +58,6 @@ Five other documents go deeper, and this page links to them rather than repeatin
 - **The owner decides the keel; everything else acts, then tells.** Some changes need the owner's signed yes:
   deleting or loosening a test, budget or ceiling; a one-way store change; a security, policy or spend change.
   Everything else is built, gated, joined and installed, and the owner is told afterwards what changed.
-
-## Tracking: Beads
-
-The work is tracked in Beads (`bd`), with ids `theseus-<id>`. Its database is in the main checkout's `.beads/`, and
-`bd` works from any worktree.
-
-- **Every issue has an owner from the moment it is created.** An unowned issue invites two agents to start the same
-  work.
-- **Claim before you work**, with `bd update <id> --claim`. It is a compare-and-set: exit 0 means the issue is yours.
-  A nonzero exit means someone else holds it, so stop and do nothing for it.
-- **Read the notes first** (`bd show <id>`). The title is not the state: an issue can read `open` and already be done.
-- **Append to notes, never replace them**: `bd update <id> --append-notes "<text>"`. The `--notes` flag overwrites.
-- **Check the branch namespace too** before starting. A branch that already names the id means the work has begun.
-- **Ids everywhere.** Commits, briefs, Part III items and reports name their issue by id, so every artefact leads back
-  to its issue.
-- **Keep the status true**: `in_progress` while executing, `waiting_for_user` while the owner holds the issue, and
-  closed when it is done.
 
 ## Where work happens
 

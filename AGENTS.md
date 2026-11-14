@@ -170,11 +170,6 @@ Each traces to the Part III item that taught it.
 
 ## The workflow
 
-- **Beads** (`bd`) tracks the work, with issue ids `theseus-*`. Its database is in the main checkout's `.beads/`, and
-  `bd` works from any worktree. Read `bd show <id>`, notes included, before acting. Claim with
-  `bd update <id> --claim`: it is a compare-and-set, and a nonzero exit means the issue is someone else's, so stop.
-  Every issue has an owner. Add notes with `bd update <id> --append-notes "<text>"`. Commits, Part III, and briefs
-  name issues by id.
 - **The spine and the lanes.** Steps run one at a time on `main`: the spine. Independent work runs beside it in lanes:
   - a worktree at `~/projects/theseus-wt/<lane>`, on branch `lane/<lane>`;
   - with its own `CARGO_TARGET_DIR`, never the main tree's `target/` (a shared one poisons both), and a `target`
