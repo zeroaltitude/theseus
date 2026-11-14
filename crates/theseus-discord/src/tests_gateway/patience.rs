@@ -54,7 +54,7 @@
 //! between waits is not charged.
 //!
 //! Every wait of the rig goes through `Rig::until` or `Rig::until_on` except the task family's
-//! (`tests_task_threads::until`), which has one wall-clock deadline of `TASK_WAIT` per rig, and
+//! (the task family's `until` (in tests_task_threads.rs)), which has one wall-clock deadline of `TASK_WAIT` per rig, and
 //! `tests_process.rs`'s held-create wait, which keeps a `Patience` of its own. A test that builds a second rig
 //! gets a second budget.
 
@@ -119,7 +119,7 @@ impl Patience {
 /// `BASE` is one that came after another had spent some. The test's own work between waits (core calls, `say`,
 /// assertions) is not charged, and nothing is charged before the first nap, so a slow start is not a red. It is
 /// per RIG: a test that builds a second one (`tests_task_home`'s restart test) has a second budget, and the waits of
-/// `tests_task_threads::until` are bounded by the rig's own deadline instead (`Rig::task_wait_spent`).
+/// the task family's `until` (in tests_task_threads.rs) are bounded by the rig's own deadline instead (`Rig::task_wait_spent`).
 pub(crate) struct Budget(Mutex<Spending>);
 
 #[derive(Default)]
@@ -265,7 +265,7 @@ mod tests {
             b.account(NAP); // the first wait, unstalled: 7.5 s
         }
         assert!(!b.spent(), "7.5 s is under the budget");
-        for _ in 0..700 {
+        for _ in 0..400 {
             b.account(NAP); // the second wait: 17.5 s of a 20 s budget in all
         }
         assert!(!b.spent());

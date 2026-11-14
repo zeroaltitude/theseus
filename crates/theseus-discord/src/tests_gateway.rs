@@ -58,7 +58,7 @@ pub(crate) struct Rig {
     run: Vec<tokio::task::AbortHandle>,
     /// The one patience budget every `until` of this rig draws on.
     patience: Budget,
-    /// The wall-clock deadline of the task family's waits (`tests_task_threads::until`), begun at the first of them.
+    /// The wall-clock deadline of the task family's waits (the task family's `until` (in tests_task_threads.rs)), begun at the first of them.
     task_deadline: std::sync::Mutex<Option<Instant>>,
 }
 
