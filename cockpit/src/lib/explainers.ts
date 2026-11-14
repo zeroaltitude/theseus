@@ -574,9 +574,9 @@ export const EXPLAINERS: Record<string, Explainer> = {
     'Each proposal is one question: a short fact or preference, how many of the imported episodes it rests on, and Keep, Edit or Not this. Keep writes a standing record; Not this is remembered, so those sources are never proposed again; an unanswered one becomes Not this after a while. At most a few dozen wait at once, and the job that makes them has a daily spend line.',
     'Nothing is added without an answer, so the card holds what the owner chose; what they decline is a label for the next proposals.'),
   'context.books': e(
-    'Say honestly what state the books are in.',
-    'A note: the books (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) are not compiled yet, and how many episodes carry the import’s guess at a book.',
-    'Until they are compiled, recall reads the imported episodes themselves, not a distilled book.'),
+    'Say honestly what the books are today and what they are not yet.',
+    'A note in two parts. Today: the imported conversations are sorted onto seven shelves (dictionary, encyclopedia, cookbook, standing procedures, diary, casebook, register) by the import\u2019s guess, and the count says how many have a shelf. Not yet: the books Theseus would write itself from those conversations.',
+    'It keeps anyone from reading the Books view as finished books. Until Theseus writes them, recall reads the imported conversations directly, not a distilled book.'),
   'context.hints': e(
     'Show how many episodes the import hinted at each book.',
     'One bar per book, its width the number of episodes; the table says what each book holds. Click a bar to list its episodes.',
