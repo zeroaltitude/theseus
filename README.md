@@ -31,7 +31,7 @@
 
 ---
 
-## What Theseus is
+## What Theseus is0
 
 Theseus is a personal AI agent that lives on your own Linux machine as one small daemon. You talk to it in Discord,
 in a terminal, in your browser or out loud in a voice call, and it does real work with real tools: it edits code,
@@ -42,9 +42,8 @@ It is built for work that outlives a conversation: the job you start on Monday a
 Wednesday, the check it runs every Friday, the fault it found in itself overnight. And it has opinions. It would
 rather tell you than ask you, remember than be told twice, and be measured than be believed.
 
-That last one is a habit. The claims on this page are measured wherever they can be, with their dates and with the
-places where Theseus loses. We keep the numbers off this page so that it stays readable: they are collected in
-**[Proof points](docs/proof.md)**, and the raw runs are in [the benchmarks](docs/benchmarks/omnibus.md).
+The claims on this page are measured wherever they can be, with their dates and with the places where Theseus loses. 
+Proof points are collected in **[Proof points](docs/proof.md)**, and the raw runs are in [the benchmarks](docs/benchmarks/omnibus.md).
 
 It is one daemon (`theseusd`), a thin command line (`theseus`), a terminal UI, and a web cockpit the daemon serves
 itself. Linux only, by design: it is built on cgroups, namespaces, seccomp and pidfds, with no portability layer.
@@ -54,12 +53,11 @@ itself. Linux only, by design: it is built on cgroups, namespaces, seccomp and p
 ## What we care about
 
 These are the things we care about most. They are also what sets Theseus apart from other attempts at a personal
-agent, and each is a choice we would make again. Every section ends with a page that says how it is built, what is
-still rough and what is coming.
+agent. Every section ends with a page that says how it is built, what is still rough and what is coming.
 
 ### Work that outlives the conversation
 
-Ask for something long and it becomes a task with a place of its own: a post in Discord with a live card, a pinned
+Ask for something long and it becomes a task with a context of its own: a post in Discord with a live card, a pinned
 board that moves from *working* to *needs you* to *done*, and the same task in the terminal, the cockpit and a
 voice call. When a task has a question it appears on every surface at once, and one answer (a button, a key,
 `theseus answer`, or a spoken "approve") clears it everywhere. Type into a running task and it takes your message
@@ -71,7 +69,7 @@ tasks](docs/features/durable-tasks.md).
 
 <p align="center"><img src="docs/assets/readme/one-task-every-surface.svg" alt="One task in the middle, joined to Discord, the terminal, the cockpit and a voice call. A question is asked on every surface at once and one answer clears it everywhere. The task survives a kill, a reboot and an upgrade." width="820"></p>
 
-### Fast, as a promise the build keeps
+### Fast as a testable feature
 
 The prompt is ready in tens of milliseconds, the model's first words appear as it writes them, and restarting or
 upgrading the daemon is something you can do in the middle of a sentence. We wrote the speed down as budgets, and
@@ -89,13 +87,13 @@ goes on without it. [Jev in the core](docs/features/jev-in-the-core.md).
 
 ### A prompt you can read
 
-Nothing is piled up. Each request is compiled from the store for that one turn: the standing instructions and
+Each request is compiled from the store for that turn: the standing instructions and
 personas, your context files, the guidance for the thread's topics, the conversation so far with a summary in place
 of what no longer fits, the notes recall found, and an attached project's slice at the end. Every request has a
 manifest, and `theseus why` prints it: each block, its tokens, where it came from, and what was left out and why.
 [Context compiled for each turn](docs/features/compiled-context.md).
 
-### One memory, with receipts
+### One memory
 
 Something you said last week, in another channel, about another project, comes back when it matters, with a link to
 the message it came from. Bring your history from Claude Code, Codex or OpenClaw with `theseus import`, and it
