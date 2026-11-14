@@ -267,3 +267,214 @@ fn one_of<'a, T>(
         many => Err(NotOne::Which(many.to_vec())),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A held call, as [`held_here`] hands them to [`one_of`].
+    fn a_hold(id: &str, tool: &str) -> HeldCall {
+        HeldCall {
+            id: id.into(),
+            session_id: "ses_1".into(),
+            turn_id: None,
+            tool: tool.into(),
+            input: json!({"path": "/w/notes.txt"}),
+            summary: format!("{tool} notes.txt"),
+            judgment: "jdg_1".into(),
+            shape: None,
+            held_ms: 1,
+            allowed: None,
+            ran_ms: None,
+        }
+    }
+
+    /// A question waiting, as [`waiting_here`] hands them to [`one_of`].
+    fn a_question(id: &str, tool: &str) -> ConfirmRequest {
+        ConfirmRequest {
+            correlation_id: id.into(),
+            session_id: "ses_1".into(),
+            tool: tool.into(),
+            ..Default::default()
+        }
+    }
+
+    /// The hold `name` picks, or `<refused>`: [`NotOne`] carries no `Debug`,
+    /// and a case that cares which refusal it was matches on it below.
+    fn picks(all: &[HeldCall], name: Option<&str>) -> String {
+        one_of(all, name, |h| h.id.clone())
+            .map(|h| h.id.clone())
+            .unwrap_or_else(|_| "<refused>".into())
+    }
+
+    /// Two held calls, nothing to tell them apart.
+    fn two() -> [HeldCall; 2] {
+        [
+            a_hold("hld_1a2b3c4d", "fs.write"),
+            a_hold("hld_5e6f7a8b", "fs.patch"),
+        ]
+    }
+
+    /// **Nothing is ever guessed.** With two held and no name the tool
+    /// refuses and names both, so the next turn can ask which is meant; with
+    /// one held there is nothing to guess between and it is taken.
+    ///
+    /// This is S17's rule — the one that abandoned the wrong task on a bare
+    /// yes — kept for the tool that replaced the matcher.
+    #[test]
+    fn with_two_held_and_no_name_nothing_is_guessed_and_both_are_named() {
+        let two = two();
+        let said = match one_of(&two, None, |h| h.id.clone()) {
+            Ok(h) => panic!("it guessed {}", h.id),
+            Err(NotOne::Which(ix)) => {
+                assert_eq!(ix, vec![0, 1], "both are candidates");
+                NotOne::Which(ix).said("hold", "held", &two, named_hold)
+            }
+            Err(NotOne::None) => panic!("two are held"),
+            Err(NotOne::Unknown(w)) => panic!("no name was given, not `{w}`"),
+        };
+        assert!(said.contains("names all of the 2 held here"), "{said}");
+        assert!(said.contains("Nothing was done"), "{said}");
+        assert!(said.contains("ask the operator which they mean"), "{said}");
+        assert!(said.contains("hld_1a2b3c4d"), "the first is named: {said}");
+        assert!(said.contains("hld_5e6f7a8b"), "the second is named: {said}");
+
+        // One held and no name: that one. A blank name is no name.
+        let one = [a_hold("hld_1a2b3c4d", "fs.write")];
+        assert_eq!(picks(&one, None), "hld_1a2b3c4d");
+        assert_eq!(picks(&one, Some("   ")), "hld_1a2b3c4d");
+        assert_eq!(picks(&two, Some("  ")), "<refused>", "and still no guess");
+    }
+
+    /// A hold is named by its WHOLE id, or by an end of at least
+    /// [`SHORTEST_ID`] characters — `work::undo::pick`'s rule, so the tool's
+    /// vocabulary and `undo.allow`'s cannot drift. Case does not matter.
+    #[test]
+    fn a_hold_is_named_by_its_whole_id_or_by_an_end_of_four() {
+        let two = two();
+        assert_eq!(picks(&two, Some("hld_5e6f7a8b")), "hld_5e6f7a8b");
+        assert_eq!(picks(&two, Some("HLD_5E6F7A8B")), "hld_5e6f7a8b");
+        assert_eq!(
+            picks(&two, Some("3c4d")),
+            "hld_1a2b3c4d",
+            "an end of exactly SHORTEST_ID"
+        );
+        assert_eq!(
+            picks(&two, Some("1a2b3c4d")),
+            "hld_1a2b3c4d",
+            "a longer end"
+        );
+        assert_eq!(SHORTEST_ID, 4, "the floor the case above sits on");
+
+        // A whole id wins outright over an end that would match more, so the
+        // exact thing the operator named is never lost to a near miss.
+        let shadowed = [
+            a_hold("hld_aaaa1111", "fs.write"),
+            a_hold("aaaa1111", "fs.patch"),
+        ];
+        assert_eq!(picks(&shadowed, Some("aaaa1111")), "aaaa1111");
+    }
+
+    /// A name under the floor picks nothing, and **a TOOL no longer names a
+    /// hold.** The matcher read the operator's whole sentence and could take
+    /// `fs.patch` out of it; the tool is given one name by the model and
+    /// compares it against ids alone. Narrower on purpose: it refuses rather
+    /// than resolving a word that is not an id.
+    #[test]
+    fn a_name_under_the_floor_or_naming_a_tool_picks_nothing() {
+        let two = two();
+        for under in ["c4d", "4d", "d", ""] {
+            assert_eq!(picks(&two, Some(under)), "<refused>", "`{under}`");
+        }
+        match one_of(&two, Some("c4d"), |h| h.id.clone()) {
+            Err(NotOne::Unknown(w)) => assert_eq!(w, "c4d", "it is named back"),
+            Ok(h) => panic!("`c4d` picked {}", h.id),
+            Err(_) => panic!("a name under the floor is Unknown, not None or Which"),
+        }
+        let said = match one_of(&two, Some("fs.patch"), |h| h.id.clone()) {
+            Err(NotOne::Unknown(w)) => {
+                assert_eq!(w, "fs.patch");
+                NotOne::Unknown(w).said("hold", "held", &two, named_hold)
+            }
+            Ok(h) => panic!("a tool named a hold: {}", h.id),
+            Err(_) => panic!("a tool name is Unknown"),
+        };
+        assert!(
+            said.contains("`fs.patch` names nothing held here"),
+            "{said}"
+        );
+        assert!(
+            said.contains("hld_1a2b3c4d"),
+            "what is held is listed: {said}"
+        );
+        assert!(said.contains("hld_5e6f7a8b"), "{said}");
+    }
+
+    /// **An end that matches two is still ambiguous**, and naming them BOTH
+    /// in one string refuses too. Either way nothing is done and the model is
+    /// told to ask: the removed matcher's `yes to aaaa1111 and bbbb2222` is
+    /// this case, and it still refuses.
+    #[test]
+    fn a_name_that_fits_two_refuses_and_so_does_naming_both() {
+        let twins = [
+            a_hold("hld_aaaa1111", "fs.write"),
+            a_hold("hld_bbbb1111", "fs.write"),
+        ];
+        match one_of(&twins, Some("1111"), |h| h.id.clone()) {
+            Err(NotOne::Which(ix)) => assert_eq!(ix, vec![0, 1], "both ends match"),
+            Ok(h) => panic!("`1111` picked {}", h.id),
+            Err(_) => panic!("an end that fits two is Which"),
+        }
+        let said = NotOne::Which(vec![0, 1]).said("hold", "held", &twins, named_hold);
+        assert!(said.contains("names all of the 2 held here"), "{said}");
+
+        // Both named at once: not an id, so nothing is picked out of it.
+        assert_eq!(
+            picks(&twins, Some("hld_aaaa1111 and hld_bbbb1111")),
+            "<refused>"
+        );
+    }
+
+    /// **Nothing waiting and a name that matches nothing are told apart**,
+    /// over the question vocabulary — the same rule, the same code, a
+    /// correlation id instead of a hold id.
+    #[test]
+    fn nothing_waiting_and_a_name_that_matches_nothing_are_told_apart() {
+        let none: [ConfirmRequest; 0] = [];
+        let said = match one_of(&none, Some("cor_aaaa1111"), |q| q.correlation_id.clone()) {
+            Err(NotOne::None) => NotOne::None.said("question", "waiting", &none, named_question),
+            Ok(q) => panic!("nothing waits, yet {} was picked", q.correlation_id),
+            Err(_) => panic!("an empty list is None, whatever was named"),
+        };
+        assert!(
+            said.contains("Nothing is waiting in this conversation"),
+            "{said}"
+        );
+
+        let two = [
+            a_question("cor_aaaa1111", "task.close"),
+            a_question("cor_bbbb2222", "proc.run"),
+        ];
+        let pick = |n: &str| {
+            one_of(&two, Some(n), |q| q.correlation_id.clone())
+                .map(|q| q.correlation_id.clone())
+                .unwrap_or_else(|_| "<refused>".into())
+        };
+        assert_eq!(pick("cor_bbbb2222"), "cor_bbbb2222", "the whole id");
+        assert_eq!(pick("2222"), "cor_bbbb2222", "an end of four");
+        assert_eq!(pick("task.close"), "<refused>", "a tool is not an id");
+        let said = match one_of(&two, Some("cor_cccc3333"), |q| q.correlation_id.clone()) {
+            Err(NotOne::Unknown(w)) => {
+                NotOne::Unknown(w).said("question", "waiting", &two, named_question)
+            }
+            Ok(q) => panic!("{} was picked by a name nothing has", q.correlation_id),
+            Err(_) => panic!("a name nothing has is Unknown, not None"),
+        };
+        assert!(
+            said.contains("`cor_cccc3333` names nothing waiting here"),
+            "{said}"
+        );
+        assert!(said.contains("`task.close`"), "both are listed: {said}");
+        assert!(said.contains("`proc.run`"), "{said}");
+    }
+}

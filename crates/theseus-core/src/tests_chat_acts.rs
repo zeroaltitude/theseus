@@ -276,6 +276,14 @@ async fn the_allow_tool_runs_the_original_once_and_its_row_names_the_tool_route(
     );
     let spent = rows(&r, "tool.hold_overridden");
     assert_eq!(spent.len(), 1, "one allowance spent, once: {spent:?}");
+    // ⚑ And the spend names the hold the CHAT ACT allowed. Without this the
+    // case proves that an allowance was spent and not that it was this one's:
+    // the two rows are joined by nothing else.
+    assert_eq!(
+        spent[0]["hold"],
+        held(&r)[0].id,
+        "the spend names the hold the chat act allowed: {spent:?}"
+    );
     assert!(
         rows(&r, "tool.confirm_requested").is_empty(),
         "an override is not a question"
@@ -899,4 +907,283 @@ async fn a_chat_act_is_offered_only_where_its_own_fact_is_true() {
             "{n} is in the kept catalog, where it would be offered to every session of the place"
         );
     }
+}
+
+// ------------------------------- 5. the place scope, and what the turn is told
+
+/// A sibling session that answers where `sid` answers, as a task's own asks
+/// do: its parent's place, by `Outbox::show_at`.
+///
+/// ⛔ **`show_at`, not `bind_place`** — and that distinction is the whole
+/// reason this construction was thought unavailable. `bind_place` gives a
+/// place to ONE session and a second bind takes it from the first; `show_at`
+/// says where a session ANSWERS, and any number of sessions may answer at one
+/// place. The matchers' own cases used `show_at`, and the rule they proved
+/// (`chat_acts::run::waiting_here` / `held_here`, moved here whole) is
+/// unchanged, so the construction they used still works.
+fn beside(core: &Arc<Core>, sid: &str) -> String {
+    let rec = SessionRecord::new(SessionKind::Conversation, None);
+    core.store.put_session(&rec.session_id, &rec).unwrap();
+    let here = core
+        .outbox
+        .target(sid)
+        .expect("this session answers somewhere, or there is no place to share");
+    core.outbox.show_at(&rec.session_id, Some(&here)).unwrap();
+    assert_eq!(
+        core.outbox.target(&rec.session_id),
+        core.outbox.target(sid),
+        "the sibling answers where this session answers"
+    );
+    assert_ne!(rec.session_id, sid);
+    rec.session_id
+}
+
+/// A question, as the scope rules and `stage_answer_fact` take them.
+fn a_question(id: &str, tool: &str) -> theseus_protocol::ConfirmRequest {
+    theseus_protocol::ConfirmRequest {
+        correlation_id: id.into(),
+        session_id: "ses_1".into(),
+        tool: tool.into(),
+        ..Default::default()
+    }
+}
+
+/// Every model request that carried the turn's yes fact, in order: the block
+/// is found by its own head, so nothing else in a request can pass for it.
+fn facts(r: &Rig) -> Vec<String> {
+    r.model
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|q| {
+            q.messages.last()?["content"]
+                .as_array()?
+                .iter()
+                .filter_map(|b| b["text"].as_str())
+                .find(|t| t.starts_with(crate::yes_fact::HEAD))
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+/// **The POSITIVE half of the place scope.** A sibling session that answers
+/// at this one's place is in scope here — a task's own asks and its own held
+/// calls reach the owner where its parent's do — and a session at a place of
+/// its own is not.
+///
+/// Both halves matter and only the negative one had a successor when the
+/// matchers went: `waiting_here` and `held_here` moved out of
+/// `rpc/answer_in_words.rs` and `rpc/allow_in_words.rs` WHOLE, filter
+/// included, and no case on the branch had two sessions sharing a place, so
+/// `core.outbox.target(&q.session_id) == here` was reached by nothing. A rule
+/// that only ever excludes is indistinguishable from `q.session_id == session`.
+///
+/// The last act here is the whole-core half: the owner speaks in HIS
+/// conversation, the model calls the allow tool, and the call held in the
+/// SIBLING is the one allowed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sibling_session_at_this_place_is_in_scope_and_one_elsewhere_is_not() {
+    let jev = jev_says(RESHAPEABLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    let here = session(&r.core);
+    let sib_held = beside(&r.core, &here);
+    let sib_ask = beside(&r.core, &here);
+    let elsewhere = thread_session(&r.core, "harbour", None);
+
+    // A call held in one sibling, a question waiting in the other. Neither
+    // is this conversation's.
+    let p = a_held_write(&r, &sib_held).await;
+    r.calls(&[(
+        "owner_ask",
+        json!({"question": "Ship it?", "options": [{"label": "Yes"}, {"label": "No"}]}),
+    )]);
+    say(&r, &sib_ask, "What should we do there?").await;
+    until("the sibling's question waits", || {
+        !r.core.confirm_list().unwrap().is_empty()
+    })
+    .await;
+
+    // In scope HERE, by the place they share — the assertion that had no
+    // successor.
+    let mine = crate::chat_acts::held_here(&r.core, &here).unwrap();
+    assert_eq!(
+        mine.len(),
+        1,
+        "the sibling's hold is in scope here: {mine:?}"
+    );
+    assert_eq!(mine[0].session_id, sib_held, "and it is the sibling's");
+    let asked = crate::chat_acts::waiting_here(&r.core, &here).unwrap();
+    assert_eq!(
+        asked.len(),
+        1,
+        "the sibling's question is in scope here: {asked:?}"
+    );
+    assert_eq!(asked[0].session_id, sib_ask, "and it is the sibling's");
+
+    // And a session at a place of its own sees neither, which is the half
+    // that was already proven and is kept beside the new one.
+    assert!(
+        crate::chat_acts::held_here(&r.core, &elsewhere)
+            .unwrap()
+            .is_empty(),
+        "another place sees nothing held here"
+    );
+    assert!(
+        crate::chat_acts::waiting_here(&r.core, &elsewhere)
+            .unwrap()
+            .is_empty(),
+        "another place sees nothing waiting here"
+    );
+
+    // Whole core: his own conversation, his own message, the model's choice —
+    // and the SIBLING's hold is what the allowance names.
+    r.calls(&[("chat_allow_held_call", json!({}))]);
+    say(&r, &here, HIS_OVERRIDE).await;
+    let allowed = rows(&r, "tool.hold_allowed");
+    assert_eq!(allowed.len(), 1, "one allowance: {allowed:?}");
+    assert_eq!(
+        allowed[0]["hold"],
+        held(&r)[0].id,
+        "the hold allowed is the one held in the sibling: {allowed:?}"
+    );
+    assert_eq!(held(&r)[0].session_id, sib_held, "which is the sibling's");
+    assert_eq!(allowed[0]["route"], "chat.allow_held_call");
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        WAS,
+        "allowing it is not running it"
+    );
+}
+
+/// **`[standing] yes_fact` ON: the block rides exactly this turn's request,
+/// with its contents.** The producer changed with this card — it was the
+/// matcher reading a yes, it is `Core::stage_answer_fact` now — and the gate
+/// it feeds (`turn::compile_step`, `yes_fact::attach`) did not. The two cases
+/// that proved the key's whole-core behaviour went with the matcher, so this
+/// restores them against the producer that replaced it.
+///
+/// Both halves of the block are asserted, as they were before: what the
+/// answer tool answered, and what it did NOT and is still waiting — so the
+/// turn cannot read a silence as either, and an empty block could not pass.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_turn_is_told_what_was_answered_while_the_key_is_on() {
+    let jev = jev_says(REVERSIBLE, 0.95);
+    let r = rig_judged(&jev, |cfg| cfg.standing.yes_fact = true);
+    let sid = session(&r.core);
+    let took = a_question("cor_aaaa1111", "task.close");
+    let left = a_question("cor_bbbb2222", "proc.run");
+    let waiting = [took.clone(), left.clone()];
+    r.core.stage_answer_fact(
+        &sid,
+        &crate::chat_acts::named_question(&took),
+        &waiting,
+        &took,
+    );
+
+    r.calls(&[]);
+    say(&r, &sid, "and then?").await;
+
+    let carried = facts(&r);
+    assert_eq!(carried.len(), 1, "it rode exactly one request: {carried:?}");
+    let fact = &carried[0];
+    assert!(fact.contains("Approved: `task.close`"), "{fact}");
+    assert!(
+        fact.contains("NOT approved, and still waiting (1):"),
+        "the half that matters: {fact}"
+    );
+    assert!(fact.contains("`proc.run`"), "and it is named: {fact}");
+    assert!(
+        fact.contains("do not ask for it again"),
+        "and what the turn is to do: {fact}"
+    );
+
+    // The next turn in the same conversation does not carry it: the fact is
+    // true of one turn and stale the moment he answers again.
+    r.calls(&[]);
+    say(&r, &sid, "what is waiting?").await;
+    assert_eq!(
+        facts(&r).len(),
+        1,
+        "the fact rode a second turn: {:?}",
+        facts(&r)
+    );
+}
+
+/// **The key at its default (off) tells the turn nothing**, and BOTH gates
+/// are measured, not just the one that happens to be reached first.
+///
+/// `stage_answer_fact` returns early when the key is off, so staging nothing
+/// would prove only the producer's gate. The second half stages the block
+/// directly, as the producer would have, and the turn still carries nothing:
+/// that is `turn::compile_step`'s own gate at `cfg.standing.yes_fact`.
+///
+/// The paired positive is that the turn really ran and really made its
+/// request, so a run in which nothing happened at all cannot pass this.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_turn_is_told_nothing_while_the_key_is_off() {
+    let jev = jev_says(REVERSIBLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    assert!(!r.core.cfg.standing.yes_fact, "the key's default is off");
+    let sid = session(&r.core);
+    let took = a_question("cor_aaaa1111", "task.close");
+    let left = a_question("cor_bbbb2222", "proc.run");
+    r.core.stage_answer_fact(
+        &sid,
+        &crate::chat_acts::named_question(&took),
+        &[took.clone(), left],
+        &took,
+    );
+
+    r.calls(&[]);
+    say(&r, &sid, "and then?").await;
+    assert!(facts(&r).is_empty(), "{:?}", facts(&r));
+    let made = r.model.requests.lock().unwrap().len();
+    assert_eq!(
+        made, 1,
+        "the turn ran and made its request, carrying no block"
+    );
+
+    // The compile step's own gate: the block is staged as the producer would
+    // have staged it, and the key off still keeps it out of the request.
+    r.core.runner.yes_facts.stage(
+        &sid,
+        crate::yes_fact::render(&crate::yes_fact::Decided {
+            why: "and the model called the answer tool for the one it named".into(),
+            approved: Some("`task.close` (…aaaa1111)".into()),
+            waiting: vec!["`proc.run` (…bbbb2222)".into()],
+            next: "Do not ask for it again.".into(),
+        }),
+    );
+    r.calls(&[]);
+    say(&r, &sid, "and now?").await;
+    assert!(
+        facts(&r).is_empty(),
+        "the compile step attached a staged block with the key off: {:?}",
+        facts(&r)
+    );
+    assert_eq!(
+        r.model.requests.lock().unwrap().len(),
+        2,
+        "and the second turn ran too"
+    );
+}
+
+/// **The answer tool's own stale-yes refusal.** `answer_ask_act` reads the
+/// question's action out of the kernel and refuses when it is not there any
+/// more: the direct descendant of the matcher's "no longer waiting" notice,
+/// new code on this branch, and reached by nothing until now.
+///
+/// It is a refusal and not a silence, and nothing is answered by it.
+#[tokio::test(flavor = "multi_thread")]
+async fn answering_a_question_that_is_no_longer_waiting_refuses_and_answers_nothing() {
+    let jev = jev_says(REVERSIBLE, 0.95);
+    let r = rig_judged(&jev, |_| {});
+    let gone = a_question("cor_goneaway", crate::ask::OWNER_ASK);
+    let why = r
+        .core
+        .answer_ask_act(&gone, "1", None, crate::approval::Answerer::from("owner"))
+        .expect_err("a question the kernel does not hold is not answerable");
+    assert!(why.contains("no longer waiting"), "{why}");
+    assert!(answers(&r).is_empty(), "nothing was answered: {why}");
 }
