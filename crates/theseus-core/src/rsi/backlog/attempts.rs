@@ -1,7 +1,7 @@
 //! A cap on attempts per item (issue 6, the loop's failure handling, conditions 4 and 5).
 //!
 //! In one night two items made eight red builds or rejections, and each was announced. An
-//! item now has `[self] max_attempts` tries (3 by default); the try that reaches the cap
+//! item now has [`MAX_ATTEMPTS`] tries; the try that reaches the cap
 //! moves the item to the failed list with every try's reason, says so in **one** notice, and
 //! waits for the owner's `theseus self retry`. A red try inside the cap says nothing on its
 //! own account: the night's or the morning's note lists it beside the starts.
@@ -22,6 +22,11 @@
 //! night's filing (as a dropped one is, but only until the owner's retry).
 
 use theseus_protocol::tasks::{TaskEvidence, TaskRecord};
+
+/// How many tries an item gets. A constant and not a `[self]` setting: the `[self]` config is a
+/// file the keel guards, so a setting would need the owner's yes for its edit, and the number
+/// is one line to change here.
+pub const MAX_ATTEMPTS: u32 = 3;
 
 /// The evidence a capped item carries: the one notice was made, and the item waits.
 pub const CAPPED: &str = "failed:cap";

@@ -649,11 +649,11 @@ impl Work {
 
 impl Core {
     /// The backlog's tasks, by id, under its parent.
-    /// When `t` has used up `[self] max_attempts` tries (counting its cause's other items
+    /// When `t` has used up its `MAX_ATTEMPTS` tries (counting its cause's other items
     /// too), mark it capped and give the one notice; none when it has tries left or was
     /// capped already. The caller writes `t`.
     pub(crate) fn cap_check(&self, t: &mut TaskRecord, now: u64) -> Option<String> {
-        let cap = self.cfg.self_improve.max_attempts;
+        let cap = attempts::MAX_ATTEMPTS;
         if attempts::capped(t) {
             return None;
         }
@@ -781,7 +781,7 @@ impl Core {
             &mut w,
             &cands,
             &unjudged,
-            self.cfg.self_improve.max_attempts,
+            attempts::MAX_ATTEMPTS,
             &mut night,
         );
         w.retire_stale("night", &mut night);

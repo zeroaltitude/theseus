@@ -1,10 +1,11 @@
 //! A cap on attempts per item (issue 6, conditions 4 and 5): what a try is, read from the
-//! item's own evidence; the notice's words; and the setting that holds the number.
+//! item's own evidence; the notice's words; and the cap.
 
 use theseus_protocol::tasks::{TaskEvidence, TaskRecord};
 
-use super::attempts::{capped, last_retry, marker, notice, of_cause, red_tonight, tries, CAPPED};
-use crate::Config;
+use super::attempts::{
+    capped, last_retry, marker, notice, of_cause, red_tonight, tries, CAPPED, MAX_ATTEMPTS,
+};
 
 fn ev(identity: &str, note: &str, at_ms: u64) -> TaskEvidence {
     TaskEvidence {
@@ -131,14 +132,8 @@ fn the_notice_says_what_went_wrong_each_time_and_the_way_back() {
         .starts_with("failed after 3 tries: its gate ended red in suite | "));
 }
 
-/// The setting: three by default, named in the template, and never zero.
+/// The cap is three, and a try is counted against it.
 #[test]
-fn the_cap_defaults_to_three_and_is_never_zero() {
-    let mut cfg = Config::example();
-    assert_eq!(cfg.self_improve.max_attempts, 3);
-    assert!(Config::EXAMPLE_TOML.contains("\n# max_attempts = 3 "));
-    cfg.validate().unwrap();
-    cfg.self_improve.max_attempts = 0;
-    let zero = cfg.validate().unwrap_err();
-    assert!(format!("{zero:#}").contains("at least one try"), "{zero:#}");
+fn an_item_gets_three_tries() {
+    assert_eq!(MAX_ATTEMPTS, 3);
 }

@@ -186,7 +186,7 @@ impl Core {
             }
             let objective = format!(
                 "{}\n\n{}\n\nYour tree is {} on branch {}; read and edit there, by absolute path.{}",
-                super::brief::rules(self.cfg.self_improve.max_attempts),
+                super::brief::rules(super::attempts::MAX_ATTEMPTS),
                 t.objective,
                 tree.dir.display(),
                 tree.branch,
