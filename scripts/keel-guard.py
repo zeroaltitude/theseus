@@ -118,8 +118,9 @@ The rules, by the name the report and the ack use:
                   exactly this). The trailer quotes his OK for that change. A golden added is no finding: nothing
                   locked is changed by a new file.
   owner-reach     a change inside a function that decides who may act as the owner, or from where (OWNER_REACH: the
-                  place rule's owner checks, judge_act's match of acts, a channel's privacy and a guild's trust), or
-                  that function gone from its file (issue 15, the owner's 5c). Whitespace alone is no finding. It
+                  place rule's owner checks and which places count as private, judge_act's match of acts, which
+                  surfaces and tools are the owner's alone, a channel's privacy and a guild's trust), or that function
+                  gone from its file (issue 15, the owner's 5c). Whitespace alone is no finding. It
                   sees an edit to those predicates, not a new caller that goes around them: review owns that.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
@@ -1189,8 +1190,9 @@ BUDGETS = {
 # inside one widens or narrows that, and either is the owner's to sign.
 OWNER_REACH = {
     "crates/theseus-core/src/places.rs": ["owners", "owner_anywhere", "owner_in_private", "owner_in_person",
-                                          "owner_in_person_of"],
+                                          "owner_in_person_of", "class", "class_alone"],
     "crates/theseus-core/src/rpc/confirms.rs": ["judge_act"],
+    "crates/theseus-core/src/approval.rs": ["unknown", "owners_alone"],
     "crates/theseus-discord/src/bindings.rs": ["is_private", "trusted"],
 }
 
@@ -1921,16 +1923,20 @@ class Signers:
             if cls not in ("routine", "owner") or kind not in ("gpg", "ssh", "none"):
                 raise GuardError(f"{SIGNERS}:{n} at the base is not `<routine|owner> <gpg|ssh|none> <key>`: {raw!r}")
             if kind == "none":
-                self.owner_placeholder |= cls == "owner"
+                if cls != "owner":
+                    raise GuardError(f"{SIGNERS}:{n} at the base: only the owner's place may be held empty: {raw!r}")
+                self.owner_placeholder = True
             elif kind == "gpg" and len(key) == 1:
                 self.gpg[key[0].upper()] = cls
             elif kind == "ssh" and len(key) >= 2:
                 self.ssh.append((cls, key[0], key[1]))
             else:
                 raise GuardError(f"{SIGNERS}:{n} at the base names no key: {raw!r}")
+        if self.owner_placeholder and self.owner_key():
+            raise GuardError(f"{SIGNERS} at the base holds both `owner none` and an owner key: delete `owner none`")
 
     def __bool__(self):
-        return bool(self.gpg or self.ssh)
+        return bool(self.gpg or self.ssh or self.owner_placeholder)
 
     def owner_key(self):
         return "owner" in self.gpg.values() or any(c == "owner" for c, _, _ in self.ssh)

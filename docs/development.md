@@ -293,7 +293,7 @@ exists, and that is never written.
   5. **The ack is declared, never silent.** The agent's report says that it acked, which finding, why, and hands
      the ratification up. A silent ack is a violation even when the other four hold.
 - **The hard negative, whatever the agent believes the owner said.** An agent never acks `keel-file`, `cap-raised`,
-  `ceiling-raised`, `ci-loosened` or `sealed-reach`, and never adds a key to `scripts/keel-signers`: those change
+  `ceiling-raised`, `ci-loosened`, `sealed-reach` or `owner-reach`, and never adds a key to `scripts/keel-signers`: those change
   what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them. Since the two
   classes, the guard holds the agents' key to `test-removed` whatever an agent does; until the owner's key exists,
   the bound on an agent that still holds a key listed `owner` (an older list, or the base a branch is judged by) is

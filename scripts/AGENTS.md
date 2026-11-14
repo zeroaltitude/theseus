@@ -391,11 +391,12 @@ cockpit's TypeScript tests (`node:test`'s `test(...)`, its `.skip`/`.todo`/`.onl
   `~/reports/theseus-105-kickoff/logistics/fleet-gate-door-fix.md`).
 - **The ack.** A finding passes only when a commit in the range, signed by a key that `scripts/keel-signers` lists
   at the base, carries `Keel: <rule> <path>[, <path>…] — <why>` (a path may be a glob; the gate prints the exact
-  lines to fill in). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. Only a
-  GPG key's signature counts: an ssh or x509 one is refused by name even where it verifies (an ssh signature verifies
-  against whatever `gpg.ssh.allowedSignersFile` the machine names, and its SHA256 fingerprint would match a listed
-  one; theseus-pw1q.18). At a
-  join the owner's signed merge commit carries the trailers in its message.
+  lines to fill in), and the key's class covers the rule: a `routine` key acks `test-removed` only, an `owner` key
+  every rule (issue 15). An unsigned trailer, or one signed by any other key, counts for nothing and is said so. A
+  GPG signature is matched by fingerprint; an ssh one is verified against the list's own ssh keys only, never the
+  machine's `gpg.ssh.allowedSignersFile` (theseus-pw1q.18's reason for refusing ssh); an x509 one is refused. While
+  the list holds `owner none`, nothing can sign the owner's class, so a join's merge commit can carry only
+  `test-removed` trailers until his key is listed.
 - **Moved and renamed tests** are the same test: matched by name, then by body, then a test that went and one that
   came at least half alike (difflib over their words; the guard prints each pairing). An assertion made a wait
   (`wait_for(`, `.until(`) keeps its check.

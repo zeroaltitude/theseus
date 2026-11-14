@@ -1685,6 +1685,16 @@ class OwnerReach(Case):
         self.assertCaught("owner-reach", PLACES, {PLACES: REACH.split("pub fn public_tool")[0].replace(
             "pub fn owner_anywhere", "pub fn owner_somewhere")})
 
+    def test_every_watched_function_is_in_its_file(self):
+        # A rename is reported once as gone; after that the entry would be silently dead. So every name the rule
+        # watches must still resolve in the real tree.
+        guard = load_guard()
+        for path, names in guard.OWNER_REACH.items():
+            src = (GUARD.parent.parent / path).read_text()
+            for name in names:
+                with self.subTest(path=path, name=name):
+                    self.assertTrue(guard.rust_item_lines(src, "fn", name), f"fn {name} is not in {path}")
+
     def test_whitespace_alone_and_another_function_are_no_finding(self):
         self.assertClean({PLACES: sub(sub(REACH, "    Ok(None)\n", "\n        Ok(None)\n"), '"web.fetch"',
                                       '"web.search"')})
@@ -1890,6 +1900,20 @@ class Acks(unittest.TestCase):
         code, out = self.repo.guard()
         self.assertEqual(code, 2, out)
         self.assertIn("is not `<routine|owner> <gpg|ssh|none> <key>`", out)
+        # Two readers of one list must agree: an owner key beside `owner none`, or an empty routine place, is refused.
+        for bad, said in ((f"owner none\nowner gpg {self.listed}\n", "holds both `owner none` and an owner key"),
+                          ("routine none\n", "only the owner's place may be held empty")):
+            self.classed(bad, lane="lane-" + str(len(bad)))
+            code, out = self.repo.guard()
+            self.assertEqual(code, 2, out)
+            self.assertIn(said, out)
+
+    def test_a_list_holding_only_the_owner_s_place_says_so(self):
+        self.classed("owner none\n")
+        self.repo.commit({}, self.ACK + self.TEST_ACK, sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("holds the owner's place with no key yet", out)
 
     @unittest.skipIf(shutil.which("ssh-keygen") is None, "no ssh-keygen: the ssh-signed ack is not tested here")
     def test_an_ssh_key_the_list_names_acks_by_its_class_alone(self):

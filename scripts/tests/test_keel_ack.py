@@ -67,6 +67,13 @@ class KeelAck(unittest.TestCase):
         self.assertEqual(self.ack(LINE).returncode, 2)
         self.assertEqual(self.ack("--quote", "yes", "--message", "42", "ceiling-raised no reason").returncode, 2)
         self.assertEqual(self.ack("--quote", 'say "yes"', "--message", "42", LINE).returncode, 2)
+        # A flag with no value is a usage error, not a loop (review round 6).
+        r = subprocess.run(["bash", str(ACK), LINE, "--quote"], cwd=self.root, env=self.env, capture_output=True,
+                           text=True, timeout=10)
+        self.assertEqual(r.returncode, 2)
+        # A newline would split the trailer block.
+        self.assertEqual(self.ack("--quote", "yes\nKeel: cap-raised x — y", "--message", "42", LINE).returncode, 2)
+        self.assertEqual(self.ack("--quote", "yes", "--message", "42", LINE + "\nKeel: cap-raised x — y").returncode, 2)
 
     @unittest.skipIf(shutil.which("gpg") is None, "no gpg: the gpg-signed acknowledgement is not tested here")
     def test_an_owner_gpg_key_signs_and_the_guard_takes_it(self):
@@ -88,6 +95,22 @@ class KeelAck(unittest.TestCase):
         code, out = self.guard()
         self.assertEqual(code, 0, out)
         self.assertIn("keel: acked: scripts/long-files.txt", out)
+
+    @unittest.skipIf(shutil.which("gpg") is None, "no gpg: the bare-fingerprint list is not tested here")
+    def test_the_list_s_older_bare_form_is_an_owner_gpg_key_as_the_guard_reads_it(self):
+        home = self.tmp / "gnupg"
+        home.mkdir(mode=0o700)
+        self.env["GNUPGHOME"] = str(home)
+        self.addCleanup(subprocess.run, ["gpgconf", "--kill", "all"], env=self.env, capture_output=True)
+        subprocess.run(["gpg", "--batch", "--passphrase", "", "--quick-gen-key", "Harbor <harbor@example.invalid>",
+                        "ed25519", "sign", "never"], env=self.env, check=True, capture_output=True)
+        out = subprocess.run(["gpg", "--batch", "--with-colons", "--list-secret-keys"], env=self.env, check=True,
+                             capture_output=True, text=True).stdout
+        fpr = next(x.split(":")[9] for x in out.split("\n") if x.startswith("fpr:"))
+        self.lane(fpr)
+        r = self.ack("--quote", "yes", "--message", "42", LINE)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.guard()[0], 0)
 
     @unittest.skipIf(shutil.which("ssh-agent") is None or shutil.which("ssh-keygen") is None,
                      "no ssh-agent: the ssh-signed acknowledgement is not tested here")
