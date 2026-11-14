@@ -710,13 +710,7 @@ fn told_on_task(
     t.updated_at_ms = now;
     t.evidence.push(theseus_protocol::tasks::TaskEvidence {
         node: None,
-        // A gate that never judged the code (it could not run, a command it needs is missing, it
-        // ran for no time at all: `infra::of_attempt`) says nothing about the item, so it is
-        // not a try (`backlog::attempts`).
-        identity: match unjudged {
-            true => "gate:unrunnable".to_string(),
-            false => format!("gate:{}", e.verdict),
-        },
+        identity: format!("gate:{}", e.verdict),
         note: Some(format!(
             "{} (exit {}, {} s)",
             e.line(),
@@ -726,6 +720,18 @@ fn told_on_task(
         by: "self-pr".into(),
         at_ms: now,
     });
+    // A gate that never judged the code (it could not run, a command it needs is missing, it ran
+    // for no time at all: `infra::of_attempt`) says nothing about the item, so it is no try
+    // (`backlog::attempts`): its evidence is followed by one that says so.
+    if unjudged {
+        t.evidence.push(theseus_protocol::tasks::TaskEvidence {
+            node: None,
+            identity: crate::rsi::backlog::attempts::UNJUDGED.into(),
+            note: Some("the gate did not judge the code, so it is no try".into()),
+            by: "self-pr".into(),
+            at_ms: now,
+        });
+    }
     // The try that reaches the cap marks the item and is the one notice for it.
     let capped = (run.verdict == Verdict::Red && !unjudged)
         .then(|| core.cap_check(&mut t, now))

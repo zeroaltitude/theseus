@@ -85,9 +85,16 @@ fn a_tree_rustfmt_cannot_read_is_left_for_the_gate() {
 #[test]
 fn a_machine_with_no_rustfmt_leaves_the_tree_for_the_gate() {
     let mut f = fixture();
-    let nowhere = crate::scratch::tempdir();
-    f.place.env.push(("PATH".into(), nowhere.path().into()));
+    // The tree is opened with git on the path; only then is the path taken away.
     let t = package(&f, UNFORMATTED);
+    // A path with git (the changed files are listed with it) and no rustfmt.
+    let only_git = crate::scratch::tempdir();
+    let git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|d| d.join("git"))
+        .find(|g| g.is_file())
+        .expect("git is on the path");
+    std::os::unix::fs::symlink(git, only_git.path().join("git")).unwrap();
+    f.place.env.push(("PATH".into(), only_git.path().into()));
     match format_tree(&f.place, &t) {
         Formatted::Unavailable(why) => assert!(why.contains("rustfmt could not start"), "{why}"),
         other => panic!("no rustfmt means no formatting: {other:?}"),

@@ -32,6 +32,9 @@ pub const MAX_ATTEMPTS: u32 = 3;
 pub const CAPPED: &str = "failed:cap";
 /// The evidence the owner's retry leaves; tries before it no longer count.
 pub const RETRIED: &str = "retried:owner";
+/// The evidence that follows a gate's own when the gate never judged the code (`infra`): the try
+/// it would have been is taken back.
+pub const UNJUDGED: &str = "gate:unjudged";
 
 /// One try that did not end green.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +72,8 @@ pub fn tries(t: &TaskRecord, since_ms: u64) -> Vec<Try> {
     let mut out = Vec::new();
     // Whether a gate ran since the build's session began.
     let mut gated = false;
+    // Whether the evidence just before this was a `gate:red`, which an `UNJUDGED` takes back.
+    let mut after_red = false;
     for e in t.evidence.iter().filter(|e| e.at_ms > since_ms) {
         let id = e.identity.as_str();
         if id.starts_with("session:") {
@@ -76,6 +81,15 @@ pub fn tries(t: &TaskRecord, since_ms: u64) -> Vec<Try> {
         } else if id.starts_with("gate:") {
             gated = true;
         }
+        // A gate that never judged the code: the try just before it was no try.
+        if id == UNJUDGED {
+            if after_red {
+                out.pop();
+            }
+            after_red = false;
+            continue;
+        }
+        after_red = id == "gate:red";
         let why = match id {
             "gate:red" => Some(or(e, "its gate ended red")),
             "ended:no-branch" if !gated => Some(or(e, "its build ended with no green branch")),

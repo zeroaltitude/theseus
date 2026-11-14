@@ -32,6 +32,14 @@ async fn reds_inside_a_night_are_one_post_and_the_cap_is_one_notice() {
     r.open_and_edit(&sid, "broken.txt").await;
     let said = r.turn(&sid, WIRE, propose()).await;
     assert!(said.contains("the gate is red"), "{said}");
+    assert!(
+        task_of(&r)
+            .evidence
+            .iter()
+            .any(|e| e.identity == "gate:red"),
+        "a gate that takes a second is a judged red: {:?}",
+        task_of(&r).evidence
+    );
     assert_eq!(
         thread_posts(&r, "self_build_red").len(),
         1,
@@ -99,10 +107,13 @@ async fn a_gate_that_never_judged_the_code_is_no_try() {
     assert!(said.contains("the gate is red"), "{said}");
     let t = task_of(&r);
     assert!(
-        t.evidence.iter().any(|e| e.identity == "gate:unrunnable"),
+        t.evidence.iter().any(|e| e.identity == "gate:unjudged"),
         "{:?}",
         t.evidence
     );
-    assert!(t.evidence.iter().all(|e| e.identity != "gate:red"));
-    assert!(crate::rsi::backlog::attempts::tries(&t, 0).is_empty());
+    assert!(
+        crate::rsi::backlog::attempts::tries(&t, 0).is_empty(),
+        "its red is taken back: {:?}",
+        t.evidence
+    );
 }

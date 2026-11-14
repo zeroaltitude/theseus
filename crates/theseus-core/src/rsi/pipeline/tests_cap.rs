@@ -169,9 +169,21 @@ async fn a_gate_that_could_not_run_is_not_a_try() {
         &r,
         &a,
         &[
-            ("gate:unrunnable", "the machine had no room"),
-            ("gate:unrunnable", "the machine had no room"),
-            ("gate:unrunnable", "the machine had no room"),
+            ("gate:red", "its gate ended red"),
+            (
+                "gate:unjudged",
+                "the gate did not judge the code, so it is no try",
+            ),
+            ("gate:red", "its gate ended red"),
+            (
+                "gate:unjudged",
+                "the gate did not judge the code, so it is no try",
+            ),
+            ("gate:red", "its gate ended red"),
+            (
+                "gate:unjudged",
+                "the gate did not judge the code, so it is no try",
+            ),
         ],
     );
     r.grace = Duration::ZERO;
