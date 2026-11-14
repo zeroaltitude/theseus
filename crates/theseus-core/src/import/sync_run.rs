@@ -300,7 +300,7 @@ pub async fn run() -> Ran {
 /// (issue 6: that path had only ever run behind a swapped runner); [`run`] passes the one
 /// command and [`DEADLINE_MS`].
 pub(crate) async fn run_command(
-    mut cmd: tokio::process::Command,
+    cmd: &mut tokio::process::Command,
     deadline: std::time::Duration,
 ) -> Ran {
     // Registered, so the children census still holds: `Kind::Owned` is the
