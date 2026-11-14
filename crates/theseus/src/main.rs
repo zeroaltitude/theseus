@@ -51,6 +51,7 @@ mod keys;
 mod ledger_verify;
 mod mcp;
 mod mode_cmd;
+mod money_cmd;
 mod notices_cmd;
 mod onto_cmd;
 mod ontology;
@@ -498,6 +499,24 @@ enum Cmd {
         page: pages::PageArgs,
         #[command(subcommand)]
         cmd: Option<SessionsCmd>,
+    },
+    /// Reopen an execution that ended at its dollar limit (the owner's): it gets the new limit, which
+    /// must be above what it has spent, and waits for your next message. The limit is its own; no
+    /// default changes.
+    #[command(hide = true)]
+    Reopen {
+        /// The execution's id.
+        execution: String,
+        /// Its new limit, in dollars.
+        #[arg(long, value_name = "DOLLARS")]
+        limit: f64,
+    },
+    /// Settle or forgive a call whose spend is held as unknown (the owner's): `spend settle CALL --usd N`
+    /// says what it cost, `spend forgive CALL` counts it as nothing. Each leaves one row.
+    #[command(hide = true)]
+    Spend {
+        #[command(subcommand)]
+        cmd: money_cmd::SpendCmd,
     },
     /// Where the money is: each open session's limit and where it comes from, spent, reserved,
     /// held, available, and lifetime cost, its resets and any budget question, each task under
@@ -1514,6 +1533,8 @@ async fn run(cli: Cli) -> Result<()> {
         Cmd::Sessions { page, cmd } => cmd::sessions(c, json, page, cmd).await,
         Cmd::Content(a) => content_cmd::run(c, json, a).await,
         Cmd::Budgets => budgets::budgets(c, json).await,
+        Cmd::Reopen { execution, limit } => money_cmd::reopen(c, json, execution, limit).await,
+        Cmd::Spend { cmd } => money_cmd::spend(c, json, cmd).await,
         Cmd::Tasks { args, cmd } => tasks_forecast::dispatch(c, json, args, cmd).await,
         Cmd::Task { cmd } => task_start::run(c, json, cmd).await,
         Cmd::Cancel { name } => cmd::cancel(c, json, name).await,

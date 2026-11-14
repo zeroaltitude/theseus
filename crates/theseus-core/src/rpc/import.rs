@@ -60,6 +60,7 @@ pub(super) fn prefixed(name: &str) -> bool {
         || super::rsi::OWN.contains(&name)
         || super::wake_owner::OWN.contains(&name)
         || super::routines::OWN.contains(&name)
+        || super::money::OWN.contains(&name)
         || super::watch::OWN.contains(&name)
         || super::projects::OWN.contains(&name)
         || super::undo_allow::owner_in_person_method(name)
@@ -125,6 +126,9 @@ impl Core {
         }
         if super::rsi::OWN.contains(&name) {
             return self.rpc_self(name, params, conn);
+        }
+        if super::money::OWN.contains(&name) {
+            return self.rpc_money(name, params, conn);
         }
         if name.starts_with("standing.") {
             return self.rpc_standing(name, params, conn);

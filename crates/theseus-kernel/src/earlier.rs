@@ -33,7 +33,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::kernel::{Evidence, Kernel, KernelError};
-use crate::types::{micros_to_usd, Action, Budget, CorrelationId, Micros};
+use crate::types::{micros_to_usd, Action, Budget, CorrelationId, ExecutionId, Micros};
 
 /// The reason an earlier process's in-process call is marked unknown: its
 /// completion's producer is `reconciler:in_process_before_restart`.

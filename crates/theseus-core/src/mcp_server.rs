@@ -432,6 +432,8 @@ mod tests {
         method::SELF_PIPELINE,
         method::SELF_PATTERNS,
         method::SELF_PAUSE,
+        method::EXECUTION_REOPEN,
+        method::ACTION_SETTLE,
         method::SELF_NARROW,
         method::GOOGLE_AUTH_BEGIN,
         method::GOOGLE_AUTH_FINISH,

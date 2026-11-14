@@ -88,6 +88,13 @@ async fn executions(conn: &mut Conn, json: bool, page: &PageArgs) -> Result<()> 
         for e in &l.executions {
             println!("{}", render::execution_row(e).text);
         }
+        if let Some(n) = l.skipped {
+            println!(
+                "{n} execution {} could not be read and {} left out; the rest are listed.",
+                if n == 1 { "record" } else { "records" },
+                if n == 1 { "was" } else { "were" }
+            );
+        }
         print::lines(
             &mut std::io::stdout().lock(),
             &render::sessions::page_footer("executions", "sessions --state", l.older),

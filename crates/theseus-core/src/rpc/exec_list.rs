@@ -18,16 +18,17 @@ impl Core {
         &self,
         p: ExecutionListParams,
     ) -> Result<ExecutionListResult, RpcFailure> {
-        let (execs, older) = if let Some(ids) = &p.ids {
+        let (execs, older, skipped) = if let Some(ids) = &p.ids {
             let mut found = Vec::new();
             for id in ids {
                 found.extend(self.kernel.execution(id)?);
             }
-            (found, None)
+            (found, None, 0)
         } else if let Some(n) = p.n {
             self.executions_page(n.min(PAGE_MAX), p.before)?
         } else {
-            (self.kernel.executions()?, None)
+            let (all, skipped) = self.kernel.executions_readable()?;
+            (all, None, skipped)
         };
         let pending = self.pending_by_execution(&self.kernel.pending_confirms()?, None);
         let mut sessions: std::collections::HashMap<String, Option<String>> = execs
@@ -52,7 +53,11 @@ impl Core {
             info.attention = Some(crate::push::view(e, asks, parent, 0, e.updated_at_ms).attention);
             executions.push(info);
         }
-        Ok(ExecutionListResult { executions, older })
+        Ok(ExecutionListResult {
+            executions,
+            older,
+            skipped: (skipped > 0).then_some(skipped),
+        })
     }
 
     /// The newest `n` executions by birth, born before `before` when given,
@@ -63,22 +68,21 @@ impl Core {
         &self,
         n: usize,
         before: Option<u64>,
-    ) -> Result<(Vec<Execution>, Option<u64>), RpcFailure> {
+    ) -> Result<(Vec<Execution>, Option<u64>, u64), RpcFailure> {
         let Some((born, more)) = self
             .store
             .inner()
             .newest_keys(kinds::EXECUTION, before, n)?
         else {
-            let mut all = self.kernel.executions()?;
+            let (mut all, skipped) = self.kernel.executions_readable()?;
             all.sort_by_key(|e| std::cmp::Reverse(e.created_at_ms));
             all.truncate(n);
-            return Ok((all, None));
+            return Ok((all, None, skipped));
         };
         let older = born.last().map(|(b, _)| *b).filter(|_| more);
-        let execs = born
-            .iter()
-            .map(|(_, r)| self.kernel.decode_execution(&r.payload))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok((execs, older))
+        let (execs, skipped) = self.kernel.decode_executions_skipping(
+            born.iter().map(|(_, r)| (r.position, r.payload.as_slice())),
+        );
+        Ok((execs, older, skipped))
     }
 }

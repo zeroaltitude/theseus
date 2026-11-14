@@ -6,4 +6,9 @@ export type ExecutionListResult = { executions: Array<ExecutionInfo>,
  * With `n`: the `before` for the next page back while older executions
  * remain; absent at the last page, and without `n`.
  */
-older?: number, };
+older?: number, 
+/**
+ * How many execution records did not decode and were left out of this answer, which names
+ * the rest: one bad record no longer fails the whole listing (theseus-q6nt). Absent when none.
+ */
+skipped?: number, };

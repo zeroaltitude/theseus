@@ -20,6 +20,8 @@ pub mod method {
         SESSION_OPEN = "session.open", SESSION_LIST = "session.list",
         /// A session's retirement by the owner, and its undo (theseus-emqx).
         SESSION_RETIRE = "session.retire", SESSION_REOPEN = "session.reopen",
+        /// The owner's words on money (issue 6; `money`): reopen an execution that ended at its limit, settle or forgive a call held as unknown spend.
+        EXECUTION_REOPEN = "execution.reopen", ACTION_SETTLE = "action.settle",
         /// Someone began to type into a session: the daemon warms what the message will wait for (theseus-tnky).
         SESSION_TYPING = "session.typing",
         TURN_SUBMIT = "turn.submit",

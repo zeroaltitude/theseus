@@ -60,6 +60,7 @@ mod forecast;
 mod grants;
 mod judge_latency;
 mod memory_read;
+mod money;
 mod never;
 pub(crate) mod ontology;
 pub(crate) mod ontology_kinds;
@@ -155,6 +156,8 @@ mod tests_lists;
 mod tests_live_pin;
 #[cfg(test)]
 mod tests_live_release;
+#[cfg(test)]
+mod tests_money;
 #[cfg(test)]
 mod tests_named_by_reply;
 #[cfg(test)]
