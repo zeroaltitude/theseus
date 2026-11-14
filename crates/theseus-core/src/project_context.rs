@@ -406,11 +406,18 @@ fn cut_to(s: &mut String, kept: usize) {
 /// Block 3's project part for a session working in `cwd` (§3): the owner's
 /// own user-level file, then either the repository's granted text or §7's
 /// naming line. None when there is nothing to say.
+///
+/// `flagged` is whether the compiling session carries `injection`
+/// (`SessionRecord::flagged`). It holds a *changed* instruction file's new
+/// text out of the block until the owner says yes, whatever `[project]
+/// on_change` is set to (S31-1); it withholds nothing else, so a labelled
+/// session reads the files the owner granted exactly as any other does.
 pub fn block(
     cfg: &crate::config::Config,
     store: &crate::store::Store,
     files: &ContextFiles,
     cwd: &Path,
+    flagged: bool,
 ) -> Option<String> {
     let found = discover(&cfg.state_dir(), cwd);
     let granted = found
@@ -432,12 +439,13 @@ pub fn block(
         if granted {
             let budget = cfg.project.budget_bytes();
             // §8's "After a grant": what changed since the owner last read
-            // these files, and -- at `ask` posture -- which of them this
-            // compile does not read because of it. The row and the stored
-            // sighting are the turn's (`observe_project`); this is the
-            // block's half, which is where the model sees it.
+            // these files, and which of them this compile does not read
+            // because of it -- at `ask` posture, or because this session
+            // carries `injection` (S31-1). The row and the stored sighting
+            // are the turn's (`observe_project`); this is the block's half,
+            // which is where the model sees it.
             let root = found.root.as_deref().expect("a project file has a root");
-            let seen = change::observe(cfg, store, files, root, &found.project);
+            let seen = change::observe(cfg, store, files, root, &found.project, flagged);
             let carry: Vec<Found> = found
                 .project
                 .iter()

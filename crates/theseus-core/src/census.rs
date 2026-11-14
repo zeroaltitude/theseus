@@ -153,7 +153,11 @@ impl TurnRunner {
         let (kind, view, sid, mut notes) = self.census_place(rec, place_kind);
         let target = self.census_target(rec, place_kind, live)?;
         let mut spec = self.spec_of(&target, kind, view, self.peek_files(&target));
-        spec.session_text = self.session_block(rec.and_then(|r| r.dir.as_deref()), view);
+        spec.session_text = self.session_block(
+            rec.and_then(|r| r.dir.as_deref()),
+            view,
+            rec.is_some_and(SessionRecord::flagged),
+        );
         // The thread's card and tools, as a turn takes them (theseus-h4a7).
         self.thread_spec(
             &mut spec,
