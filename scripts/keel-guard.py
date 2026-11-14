@@ -119,9 +119,10 @@ The rules, by the name the report and the ack use:
                   locked is changed by a new file.
   owner-reach     a change inside a function that decides who may act as the owner, or from where (OWNER_REACH: the
                   place rule's owner checks and which places count as private, judge_act's match of acts, which
-                  surfaces and tools are the owner's alone, a channel's privacy and a guild's trust), or that function
-                  gone from its file (issue 15, the owner's 5c). Whitespace alone is no finding. It
-                  sees an edit to those predicates, not a new caller that goes around them: review owns that.
+                  surfaces and tools are the owner's alone with the AWS reads an agent may answer, a channel's privacy
+                  and a guild's trust), or that item gone from its file (issue 15, the owner's 5c). Whitespace alone
+                  is no finding. It sees an edit to those predicates, not a new caller that goes around them: review
+                  owns that.
 
 Exit status: 0 nothing unacked; 1 a finding not acked; 2 the guard could not run (no base, not a repository).
 Standard library only.
@@ -1186,25 +1187,46 @@ BUDGETS = {
                                                  ("const", "CHANNEL_TOKENS"), ("const", "HEADLESS_TOKENS")],
 }
 
-# The functions that decide who may act as the owner, or from where (the `owner-reach` rule, issue 15). A change
-# inside one widens or narrows that, and either is the owner's to sign.
+# The functions (and the one constant, `const NAME`) that decide who may act as the owner, or from where (the
+# `owner-reach` rule, issue 15). A change inside one widens or narrows that, and either is the owner's to sign.
 OWNER_REACH = {
     "crates/theseus-core/src/places.rs": ["owners", "owner_anywhere", "owner_in_private", "owner_in_person",
                                           "owner_in_person_of", "class", "class_alone"],
     "crates/theseus-core/src/rpc/confirms.rs": ["judge_act"],
-    "crates/theseus-core/src/approval.rs": ["unknown", "owners_alone"],
+    "crates/theseus-core/src/approval.rs": ["unknown", "owners_alone", "const AWS_READS"],
     "crates/theseus-discord/src/bindings.rs": ["is_private", "trusted"],
 }
 
 
+def owner_reach_items(path):
+    """(kind, name) for each item OWNER_REACH watches in `path`: `const NAME` is a constant, any other name a fn."""
+    return [tuple(n.split(" ", 1)) if n.startswith("const ") else ("fn", n) for n in OWNER_REACH[path]]
+
+
+def owner_reach_lines(src, kind, name):
+    """`rust_item_lines`, but a constant runs to the `;` outside brackets, so `[&str; 6] = [...]` is read whole."""
+    if kind != "const" or src is None:
+        return rust_item_lines(src, kind, name)
+    code = strip_rs_comments(src)
+    m = re.search(r"\bconst\s+" + name + r"\b", code)
+    if not m:
+        return []
+    depth, j = 0, m.end()
+    while j < len(code) and not (code[j] == ";" and depth == 0):
+        depth += {"[": 1, "(": 1, "{": 1, "]": -1, ")": -1, "}": -1}.get(code[j], 0)
+        j += 1
+    first = line_of(code, m.start())
+    return [(first + k, t) for k, t in enumerate(code[m.start():j + 1].split("\n"))]
+
+
 def owner_reach_rule(tree, path, out):
-    for name in OWNER_REACH[path]:
-        old = rust_item_lines(tree.old(path), "fn", name)
+    for kind, name in owner_reach_items(path):
+        old = owner_reach_lines(tree.old(path), kind, name)
         if not old:
             continue
-        new = rust_item_lines(tree.new(path), "fn", name)
+        new = owner_reach_lines(tree.new(path), kind, name)
         if not new:
-            out.append(Finding("owner-reach", path, old[0][0], f"fn {name}", "(gone from this file)"))
+            out.append(Finding("owner-reach", path, old[0][0], f"{kind} {name}", "(gone from this file)"))
             continue
         squeeze = lambda rows: [" ".join(t.split()) for _, t in rows if t.strip()]
         a, b = squeeze(old), squeeze(new)
@@ -1213,7 +1235,7 @@ def owner_reach_rule(tree, path, out):
         at = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
         rows = [r for r in new if r[1].strip()]
         line = rows[at][0] if at < len(rows) else rows[-1][0]
-        out.append(Finding("owner-reach", path, line, f"fn {name}: {a[at] if at < len(a) else '(end)'}",
+        out.append(Finding("owner-reach", path, line, f"{kind} {name}: {a[at] if at < len(a) else '(end)'}",
                            b[at] if at < len(b) else "(end)"))
 
 

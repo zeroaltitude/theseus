@@ -1689,11 +1689,40 @@ class OwnerReach(Case):
         # A rename is reported once as gone; after that the entry would be silently dead. So every name the rule
         # watches must still resolve in the real tree.
         guard = load_guard()
-        for path, names in guard.OWNER_REACH.items():
+        for path in guard.OWNER_REACH:
             src = (GUARD.parent.parent / path).read_text()
-            for name in names:
+            for kind, name in guard.owner_reach_items(path):
                 with self.subTest(path=path, name=name):
-                    self.assertTrue(guard.rust_item_lines(src, "fn", name), f"fn {name} is not in {path}")
+                    self.assertTrue(guard.owner_reach_lines(src, kind, name), f"{kind} {name} is not in {path}")
+
+    def test_the_watched_items_are_the_ones_named(self):
+        # Review round 7: removing round 6's entries left every case green. The list is pinned here, so dropping an
+        # item from the rule is a visible edit to this test, which is the guard's own file.
+        self.assertEqual(load_guard().OWNER_REACH, {
+            "crates/theseus-core/src/places.rs": ["owners", "owner_anywhere", "owner_in_private", "owner_in_person",
+                                                  "owner_in_person_of", "class", "class_alone"],
+            "crates/theseus-core/src/rpc/confirms.rs": ["judge_act"],
+            "crates/theseus-core/src/approval.rs": ["unknown", "owners_alone", "const AWS_READS"],
+            "crates/theseus-discord/src/bindings.rs": ["is_private", "trusted"],
+        })
+
+    def test_the_real_private_place_and_free_read_predicates_are_watched(self):
+        # Planted on copies of the real files: a widening of which places are private, and an AWS tool made free.
+        root = GUARD.parent.parent
+        places = (root / "crates/theseus-core/src/places.rs").read_text()
+        approval = (root / "crates/theseus-core/src/approval.rs").read_text()
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({PLACES: places, "crates/theseus-core/src/approval.rs": approval}, "the real files")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        wide = sub(places, '        let private = t.starts_with("discord:channel:")\n            && self\n',
+                   '        let private = t.starts_with("discord:channel:")\n            || self\n')
+        free = sub(approval, '    "aws.trail",\n', '    "aws.trail",\n    "aws.call",\n')
+        free = free.replace("const AWS_READS: [&str; 6]", "const AWS_READS: [&str; 7]")
+        self.repo.commit({PLACES: wide, "crates/theseus-core/src/approval.rs": free}, "widen")
+        code, out = self.findings()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, rf"{PLACES}:\d+: owner-reach: fn class_alone")
+        self.assertRegex(out, r"crates/theseus-core/src/approval.rs:\d+: owner-reach: const AWS_READS")
 
     def test_whitespace_alone_and_another_function_are_no_finding(self):
         self.assertClean({PLACES: sub(sub(REACH, "    Ok(None)\n", "\n        Ok(None)\n"), '"web.fetch"',
@@ -1864,9 +1893,10 @@ class Acks(unittest.TestCase):
         self.repo.git("checkout", "-q", "main")
         self.repo.commit({"scripts/keel-signers": f"# the keel's signers\n{signers}"}, "the classes")
         self.repo.git("checkout", "-q", "-B", lane)
+        gone = ("    #[tokio::test]\n    async fn a_zero_changes_nothing() {\n"
+                "        assert_eq!(add(7, 0), 7);\n    }\n\n")
         self.repo.commit({"scripts/long-files.txt": sub(LONG, "big.rs 3000", "big.rs 3050"),
-                          "crates/demo/src/lib.rs": sub(LIB, "    #[tokio::test]\n    async fn a_zero_changes_nothing() "
-                                                        "{\n        assert_eq!(add(7, 0), 7);\n    }\n\n", "")},
+                          "crates/demo/src/lib.rs": sub(LIB, gone, "")},
                          "remove a test, raise a ceiling")
 
     TEST_ACK = "Keel: test-removed crates/demo/src/lib.rs — folded into its neighbour\n"
