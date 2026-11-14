@@ -109,7 +109,7 @@ FLEET_TERMINATE=${DEPART_FLEET_TERMINATE:-1}
 # Read-only. It runs before the prune and its answer can only ever SUBTRACT from what the prune may remove.
 UNPUSHED_CHECK=${DEPART_UNPUSHED_CHECK:-$HERE/lane-unpushed-check.sh}
 UNPUSHED_BUDGET=${DEPART_UNPUSHED_BUDGET_S:-120}   # seconds. The ARM half is ~3 s for 10 lanes; this is slack, not a target.
-ARM_SSH_HOST=${DEPART_ARM_SSH_HOST:-zeroaltitude@192.168.1.98}   # the M1 Max, as arm.sh:36 has it
+ARM_SSH_HOST=${DEPART_ARM_SSH_HOST:-user@arm-host.example}   # the M1 Max, as arm.sh:36 has it
 # The M1 Max needs the keychain agent loaded, exactly as arm.sh:35 and lane-unpushed-check.sh:170 load it.
 # SCOPED TO A FUNCTION BODY (a subshell) on purpose: depart.sh runs its own `git push` to origin, and exporting a
 # possibly stale SSH_AUTH_SOCK into the whole script would reach that push too.
@@ -120,7 +120,7 @@ ARM_SSH_HOST=${DEPART_ARM_SSH_HOST:-zeroaltitude@192.168.1.98}   # the M1 Max, a
 # ssh reads stdin by default -- so without -n the FIRST ssh swallows the rest of the lane list and the loop ends
 # after one lane. Observed 2026-11-10 in a sandbox departure: three prunable lanes, only `simlane-clean` was ever
 # judged, which would have silently stopped ARM pruning past the first lane on every real cut.
-arm_ssh() ( [ -f "$HOME/.keychain/zeroradeons-sh" ] && . "$HOME/.keychain/zeroradeons-sh" >/dev/null 2>&1
+arm_ssh() ( [ -f "$HOME/.keychain/<this-host>-sh" ] && . "$HOME/.keychain/<this-host>-sh" >/dev/null 2>&1
            ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$ARM_SSH_HOST" "$@" )
 
 usage() { sed -n '2,40p' "$0"; }
@@ -1056,7 +1056,7 @@ if ! out=$("$ARM" send "$ARM_LANE" "$HEAD_SHA" --repo "$WT" 2>&1) || ! grep -q "
   log "gate: arm.sh send refused: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
   page arm-send "arm.sh send $ARM_LANE refused" <<EOF
 \`$ARM send $ARM_LANE $HEAD_SHA --repo $WT\` did not print \`sent $ARM_LANE: HEAD ${HEAD_SHA:0:8}\`. Nothing was run
-(a run after a refused send would gate the lane's stale head). A dirty lane: \`ssh 192.168.1.98 'cd ~/lanes/$ARM_LANE && git checkout -- .'\`;
+(a run after a refused send would gate the lane's stale head). A dirty lane: \`ssh arm-host.example 'cd ~/lanes/$ARM_LANE && git checkout -- .'\`;
 a disk floor: \`arm.sh rm\` a merged lane first.
 
 \`\`\`
@@ -1211,7 +1211,7 @@ $(printf '%s' "${unknown:-${reds:-none named}}" | sed 's/^/- /')
 Known flakes among the reds: $(comm -12 <(sort -u <<<"$reds") <(known_flakes) | paste -sd' ' || true)
 $([ -n "${FLEET_REDS:-}" ] && printf 'Fleet reds: %s\n' "$(paste -sd' ' <<<"$FLEET_REDS")")
 
-Gate log: zeroaltitude@192.168.1.98:~/lane-results/$ARM_LANE/gate.log  (\`$ARM tail $ARM_LANE gate 80\`, \`$ARM errs $ARM_LANE gate\`)
+Gate log: user@arm-host.example:~/lane-results/$ARM_LANE/gate.log  (\`$ARM tail $ARM_LANE gate 80\`, \`$ARM errs $ARM_LANE gate\`)
 $([ -n "${FLEET_V:-}" ] && printf 'Fleet log: `%s tail %s gate 80`, `%s errs %s gate` (S3, readable after the box is gone)\n' "$FLEET" "$FLEET_LANE" "$FLEET" "$FLEET_LANE")
 The integ branch $INTEG is kept in $WT (detached at origin/main now). PLAN §2 T+20 (b): the bar is 5 of 5 alone on
 the ARM reduced slot, or the cloud prefix results name the culprit; drop it, re-gate the rest, push.

@@ -10,7 +10,7 @@ Description=ARM reachability probe: one ssh attempt to the M1 Max, one line in l
 Type=oneshot
 # ssh keys come from the keychain agent arm.sh already sources; ConnectTimeout is 10 s inside the script, so a
 # dead host costs ten seconds and never blocks the timer's next fire.
-ExecStart=/usr/bin/bash /home/zeroaltitude/reports/theseus-arm-host/lane/arm-reach.sh probe
+ExecStart=/usr/bin/bash /home/user/reports/theseus-arm-host/lane/arm-reach.sh probe
 Environment=TZ=America/Phoenix
 TimeoutStartSec=60
 Nice=15

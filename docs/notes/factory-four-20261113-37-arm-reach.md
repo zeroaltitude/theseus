@@ -34,7 +34,7 @@ and never touches a lane.
 ### Three states, not two — and the third was found by running it once
 
 The first live probe answered `Permission denied (publickey,password)`, because `arm.sh` sources
-`~/.keychain/zeroradeons-sh` for its agent and this script did not. **A host that refuses a key has answered**:
+`~/.keychain/<this-host>-sh` for its agent and this script did not. **A host that refuses a key has answered**:
 it is up, listening and almost certainly healthy, and reporting it as "unreachable for three hours" would send
 a conductor hunting a dead machine that is alive. So:
 
@@ -62,11 +62,11 @@ Six fixture cases against a synthetic `reach.log` (no ssh, no host), plus one li
 | case | output |
 | --- | --- |
 | no log yet | `UNKNOWN no probe recorded yet in … (enable arm-reach.timer)` |
-| up, 3 consecutive probes | `OK ARM 192.168.1.98 reachable, up since 2026-11-13 09:41:46 MST (20 min, 3 consecutive probes)` |
-| was up, now down 4 probes | `DOWN ARM 192.168.1.98 unreachable for 20 min, since … (4 probes; rc=255 ssh: connect to host … No route to host)` |
+| up, 3 consecutive probes | `OK ARM arm-host.example reachable, up since 2026-11-13 09:41:46 MST (20 min, 3 consecutive probes)` |
+| was up, now down 4 probes | `DOWN ARM arm-host.example unreachable for 20 min, since … (4 probes; rc=255 ssh: connect to host … No route to host)` |
 | recovered after a long down | `OK … up since 2026-11-13 10:00:46 MST (1 min, 1 consecutive probes)` |
 | the timer itself died | `OK … (95 min, 1 consecutive probes) [STALE: last probe 95 min ago; is arm-reach.timer running?]` |
-| answering, refusing our key | `AUTH ARM 192.168.1.98 answering but refusing our key for 10 min, since … -- the host is UP; the ssh agent on this machine is the fault` |
+| answering, refusing our key | `AUTH ARM arm-host.example answering but refusing our key for 10 min, since … -- the host is UP; the ssh agent on this machine is the fault` |
 
 **One live probe, after sourcing the keychain: `up`, 196 ms.** The M1 Max was reachable at 2026-11-13 10:02:32
 MST. That probe cost one `echo ok` and started nothing on the host.

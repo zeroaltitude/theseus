@@ -14,13 +14,13 @@
 #
 #   arm-reach.sh probe        one attempt; appends one line to reach.log; prints that line. Exit 0 always.
 #   arm-reach.sh status       ONE line for a conductor, in conductor-liveness.sh's shape. Exit 0 always.
-#                               OK ARM 192.168.1.98 reachable, up since <stamp> (<n> consecutive probes)
-#                               DOWN ARM 192.168.1.98 unreachable for <n> min, since <stamp> (<reason>)
-#                               AUTH ARM 192.168.1.98 answering but refusing our key for <n> min, ...
+#                               OK ARM arm-host.example reachable, up since <stamp> (<n> consecutive probes)
+#                               DOWN ARM arm-host.example unreachable for <n> min, since <stamp> (<reason>)
+#                               AUTH ARM arm-host.example answering but refusing our key for <n> min, ...
 #                               UNKNOWN no probe recorded yet (enable arm-reach.timer)
 #
 # THREE STATES, NOT TWO, and the third was found by running this once. The first live probe answered
-# `Permission denied (publickey,password)` -- because arm.sh sources ~/.keychain/zeroradeons-sh for its agent
+# `Permission denied (publickey,password)` -- because arm.sh sources ~/.keychain/<this-host>-sh for its agent
 # and this script did not. A host that refuses a key has ANSWERED: it is up, listening and almost certainly
 # fine, and reporting it as "unreachable for 3 hours" would send a conductor hunting a dead machine that is
 # alive. So an auth failure is its own state (`auth`), and only a refused, timed-out or unroutable connection
@@ -35,8 +35,8 @@
 set -u
 # The agent arm.sh uses. Sourced the same way, and its failure is not fatal: a missing agent shows up as the
 # `auth` state below rather than as a silent "host is down".
-. "$HOME/.keychain/zeroradeons-sh" > /dev/null 2>&1 || true
-HOST=${ARM_REACH_HOST:-zeroaltitude@192.168.1.98}
+. "$HOME/.keychain/<this-host>-sh" > /dev/null 2>&1 || true
+HOST=${ARM_REACH_HOST:-user@arm-host.example}
 ADDR=${HOST#*@}
 LOG=${ARM_REACH_LOG:-$(cd "$(dirname "$0")" && pwd)/reach.log}
 TIMEOUT=${ARM_REACH_TIMEOUT:-10}

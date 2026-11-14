@@ -94,7 +94,7 @@ and **`origin` reaches its whole history** — `git branch -r --contains 3f278b7
 and losing it would lose nothing. Untouched, and the board's disposition is confirmed safe.
 
 **`p4w1` is DIRTY — and it is not `~/lanes/p4-w1`.** This matters and a prune driven off the local table alone
-would get it wrong. The ARM `p4w1` is a lane **on the M1 Max (192.168.1.98)**, not a worktree on this machine.
+would get it wrong. The ARM `p4w1` is a lane **on the M1 Max (arm-host.example)**, not a worktree on this machine.
 Read-only from `arm.sh status`:
 
 ```
