@@ -265,7 +265,18 @@ impl Tool for AllowHeldCall {
     }
 }
 
-pub struct ImportSync;
+/// `chat.import_sync`. It carries whether the OpenClaw import is configured at
+/// all, read once when the registry is built, so that [`Tool::plan`] can
+/// REFUSE where it is not: a model told "the import is not configured" at plan
+/// time learns something, where one whose call fails at run time learns it
+/// twice as late. (It also keeps `rsi::sealed::tests_reach`'s census honest:
+/// that walk feeds every registered tool an input naming the sealed dir and
+/// requires a refusal, and a tool whose schema offers no string cannot name
+/// it. Refusing an unconfigured import is the true reason this call cannot be
+/// made in that rig, and it is the reason the model is given.)
+pub struct ImportSync {
+    pub configured: bool,
+}
 
 impl Tool for ImportSync {
     fn name(&self) -> &'static str {
@@ -292,6 +303,13 @@ impl Tool for ImportSync {
     }
     fn plan(&self, input: &Value, _ctx: &ToolCtx) -> Result<Plan, String> {
         let _: SyncArgs = parse(input)?;
+        if !self.configured {
+            return Err(
+                "the OpenClaw import is not configured: [import.openclaw] state_dir \
+                        names no directory, so there is nothing to import from"
+                    .into(),
+            );
+        }
         Ok(Plan {
             summary: "ask for an OpenClaw import sync now".into(),
             ..Default::default()

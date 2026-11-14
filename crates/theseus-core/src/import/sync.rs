@@ -262,16 +262,25 @@ impl Core {
     /// request that named no conversation at all, goes where approvals go,
     /// exactly as before.
     fn say_sync_ran(&self, asked_in: Option<&str>, text: String) {
-        let body = serde_json::json!({"kind": "notice", "text": text});
+        // The kind is written as a LITERAL at each call, not built once and
+        // passed: `outbox::tests::every_operator_call_site_is_accounted_for`
+        // sweeps this crate for operator calls and reads the kind out of the
+        // source, and a kind it cannot read makes the file a census row.
         if let Some(sid) = asked_in {
-            match self.outbox.post_for(sid, "", body.clone()) {
+            match self
+                .outbox
+                .post_for(sid, "", serde_json::json!({"kind": "notice", "text": text}))
+            {
                 Ok(Some(_)) => return,
                 Ok(None) => {}
                 Err(e) => tracing::warn!(error = %format!("{e:#}"),
                     "the sync's report could not be posted where it was asked for; saying it where approvals go"),
             }
         }
-        if let Err(e) = self.outbox.to_operator(asked_in, body) {
+        if let Err(e) = self.outbox.to_operator(
+            asked_in,
+            serde_json::json!({"kind": "notice", "text": text}),
+        ) {
             tracing::warn!(error = %format!("{e:#}"), "the sync's report could not be posted");
         }
     }

@@ -2250,7 +2250,7 @@ pub fn build_runtime(
         r.register(Arc::new(crate::thread_split::ThreadSplitTool));
         r.register(Arc::new(crate::ask::OwnerAsk));
         r.register(Arc::new(crate::project_tool::ProjectAttach));
-        crate::chat_acts::register(&mut r);
+        crate::chat_acts::register(cfg, &mut r);
         crate::policy::modes::register(&mut r);
         r.register(Arc::new(crate::extend::Propose));
         r.register(Arc::new(crate::glide::ChannelPost));

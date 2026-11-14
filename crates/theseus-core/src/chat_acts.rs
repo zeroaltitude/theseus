@@ -368,11 +368,8 @@ impl Board {
     /// the web UI and the RPC, and it is asked again when the tool runs.
     fn sync_offer(core: &Core) -> Option<Value> {
         core.cfg.import.openclaw.state_dir.as_ref()?;
-        Some(definition(
-            SYNC,
-            tools::ImportSync.description(),
-            tools::ImportSync.input_schema(),
-        ))
+        let tool = tools::ImportSync { configured: true };
+        Some(definition(SYNC, tool.description(), tool.input_schema()))
     }
 }
 
@@ -388,8 +385,10 @@ fn definition(name: &str, description: &str, schema: Value) -> Value {
 /// Register the three with the runtime's registry: they are ordinary tools to
 /// the gate, the ledger and `tools.find`, and only their *offering* is
 /// conditional.
-pub(crate) fn register(r: &mut theseus_tools::Registry) {
+pub(crate) fn register(cfg: &crate::Config, r: &mut theseus_tools::Registry) {
     r.register(Arc::new(tools::AnswerQuestion));
     r.register(Arc::new(tools::AllowHeldCall));
-    r.register(Arc::new(tools::ImportSync));
+    r.register(Arc::new(tools::ImportSync {
+        configured: cfg.import.openclaw.state_dir.is_some(),
+    }));
 }
