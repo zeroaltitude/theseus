@@ -228,6 +228,7 @@ judges the net change of the range against `main`. It reports each erosion as `p
 | `keel-file` | The guard itself, its test suite, the gate's door, or a gate phase removed |
 | `sealed-reach` | Code outside the sealed scorer's own files that names the sealed holdout sets |
 | `locked-flow` | The owner-locked Discord DM task flow changed: a golden under `crates/theseus-discord/src/golden/` edited or removed. The trailer quotes his OK for that change |
+| `owner-reach` | A change inside a function that decides who may act as the owner, or from where (the place rule's owner checks, `judge_act`, a channel's privacy, a guild's trust), or one of them gone from its file |
 
 **Two halves, and a brief must say which it means.** The table above mixes them, and the confusion
 has cost a gate twice.
@@ -254,21 +255,27 @@ guard's own remedy text asks for there would be a false statement that the owner
 exists, and that is never written.
 
 - **The ack.** A finding passes only when a commit in the range carries a trailer
-  `Keel: <rule> <path>[, <path>…] — <why>`, and that commit is signed with a GPG key listed in `scripts/keel-signers`.
+  `Keel: <rule> <path>[, <path>…] — <why>`, signed by a key listed in `scripts/keel-signers` whose class covers
+  the rule.
   - The list is read as it is at the base, so a branch cannot list its own key.
-  - An unsigned trailer, or one signed by any other key, counts for nothing.
+  - An unsigned trailer, or one signed by a key the list does not name, counts for nothing. An ssh signature is
+    checked against the list's own ssh keys, never the machine's allowed-signers file.
   - `python3 scripts/keel-guard.py --base <main> --head HEAD --quiet` prints the exact lines to fill in.
-- **What the list enforces, and what it does not.** It holds one key, the owner's, and against Theseus itself
-  that is a real cryptographic gate: the self-improvement loop signs with the key `user.signingkey` names in
-  `[self] repo` (`crates/theseus-core/src/rsi/tree.rs`), and **so long as that key is not the one listed here —
-  which nothing in this repository enforces or tests — a self branch cannot ack its own finding**. Independently
-  of any key, a change that touches a keel **path class** stops at the owner's card, and nothing a branch writes
-  clears a path class (`crates/theseus-core/src/rsi/join/keel.rs`). Against the agents that build this
-  repository it enforces nothing, because they sign with the owner's own key and the guard would accept an ack
-  from any of them; there the control is policy rather than cryptography — the brief that authorises the change,
-  his yes quoted in the trailer's reason, and an independent review that reads both. Read neither half as the
-  other: no rule is exempt from the ack, there is no never-ack list, and `keel-file` is owner-ackable like every
-  other rule; and policy held by briefs and review is a weaker control than a key, but it is not an absent one.
+- **Two classes of key (issue 15; the owner's "yes to all!", 2026-11-14 12:15 MST).**
+  - **`routine`**, the key the agents who build this repository sign with, acks `test-removed` only: a test removed
+    or replaced, which review checks anyway.
+  - **`owner`** acks every rule. His key is meant to be one only his own device can use (a fingerprint, a face, a
+    touch), and he gives the signature from chat: he says yes in his DM, the agent runs `scripts/keel-ack.sh`, and
+    his device signs.
+  - **Until his key exists the list holds `owner none`, and nothing can sign his class.** A branch that needs any
+    ack but `test-removed` cannot pass the gate until then. Naming his key is a one-line change to the list
+    (`owner gpg <fingerprint>` or `owner ssh <type> <key>`), and how that first line lands is his decision.
+- **What the classes enforce, and what they do not.** Against the agents that build this repository, the
+  restriction to `test-removed` is now the key's, not only the brief's. Against Theseus itself, the self-improvement
+  loop signs with the key `user.signingkey` names in `[self] repo` (`crates/theseus-core/src/rsi/tree.rs`); if that
+  is the agents' key, a self branch can ack `test-removed` and nothing else, and independently of any key, a change
+  that touches a keel **path class** stops at the owner's card (`crates/theseus-core/src/rsi/join/keel.rs`). No rule
+  is exempt from the ack; every rule is the owner's to sign.
 - **Only on the owner's explicit yes.** An agent writes a `Keel:` trailer only after the owner has said yes to that
   specific erosion, and quotes the yes in the trailer's reason.
   - A vendored crate's `allow` is still `allow-added`.
@@ -285,14 +292,12 @@ exists, and that is never written.
   4. **The trailer quotes the utterance verbatim, with a dereferenceable id, and names every moving path.**
   5. **The ack is declared, never silent.** The agent's report says that it acked, which finding, why, and hands
      the ratification up. A silent ack is a violation even when the other four hold.
-- **The hard negative, whatever the agent believes the owner said.** No rule is exempt from the ack and the guard
-  keeps no never-ack list; that is true of the guard and true of the owner, and it is not true of an agent. An
-  agent never acks `keel-file`, `cap-raised`, `ceiling-raised`, `ci-loosened` or `sealed-reach`, and never adds a
-  key to `scripts/keel-signers`.
-  Those change what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them.
-  `locked-flow` on a golden that his own ruling necessarily moves is the one class an agent clears this way.
-  **This is a bound on the agent, not on the rule:** the guard accepts an owner-signed ack of any rule, so the
-  restriction holds exactly as far as the agent observes it, and not one step further.
+- **The hard negative, whatever the agent believes the owner said.** An agent never acks `keel-file`, `cap-raised`,
+  `ceiling-raised`, `ci-loosened` or `sealed-reach`, and never adds a key to `scripts/keel-signers`: those change
+  what the guard itself can see, or what Theseus may reach, and only the owner's own hand moves them. Since the two
+  classes, the guard holds the agents' key to `test-removed` whatever an agent does; until the owner's key exists,
+  the bound on an agent that still holds a key listed `owner` (an older list, or the base a branch is judged by) is
+  this sentence alone.
 - **The base's guard judges.** The gate runs the base's copy of the guard, never the branch's.
 - **The door.** A branch's `gate.sh` could drop the keel phase and then judge itself with its weakened copy. So when a
   tree's `gate.sh` differs from `main`'s, `main`'s copy runs first. A caller that trusts nothing in the tree (a join,

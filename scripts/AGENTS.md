@@ -121,6 +121,10 @@ including in a commit message, because it is stale by the next departure.
   answer to a file over the ceiling is to move depth out of it (`RELEASES.md` is the worked example); **raising
   `MAX_BYTES` is not a fix** -- it spends context on every session for every file. Run it by hand as
   `python3 scripts/context-ceiling.py` for the full headroom table.
+- `keel-ack.sh`, `tests/test_keel_ack.py` (issue 15): the owner's acknowledgement given from chat. He says yes in his
+  DM; the agent runs it with his words and the message id, and it writes one empty commit of `Keel:` trailers signed
+  with the OWNER key `keel-signers` names at main, so his own device signs. With `owner none` it writes nothing and
+  exits 3. An agent's own `test-removed` ack is an ordinary signed commit and needs none of this.
 - `main-tree-guard.sh`, `hooks/post-checkout`, `tests/test_main_tree_guard.py` (issue 15): keeps the main working
   tree on `main`. `install`, run from the main working tree only (from a lane it would install that branch's hook),
   copies the hook into the shared hooks directory, so a later checkout does not change what runs. The hook acts only
