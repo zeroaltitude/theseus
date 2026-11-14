@@ -2332,6 +2332,11 @@ Key modules: `turn.rs`, `compiler.rs`, `toolrun.rs`, `rpc/`, `config.rs`, `crash
     frame, nothing wakes). A promotion's `said` names a learned version standing ahead of the one moved, where the
     move judges nowhere or only in a canary's control arm, and its rollback (`rpc/packs_ahead.rs`, theseus-nwa5):
     said, never refused. Tests: `tests_ladder.rs`, `judge::ladder::tests`.
+    **A new version of a pack goes live on landing**, unless the owner asks for a side-by-side run (the owner, 2026-11-14
+    13:56 MST, Discord message 1571267707125506159: "ship it as a new version, but put it into action immediately; only very
+    rarely do we want live a/b tests"): the new version is named in `judge::WIRED` as `Live` and in its root's constant
+    (`capture::PACK` for `directive.v2`, `CLASSIFY_PACK`), and the old one stays embedded, its judgments under its own text;
+    no shadow period and no ladder wait.
   - **The learning loop** (step 25f, theseus-0j2.12; design §2.17): `learning/propose.rs` (the run: nightly after
     the report, and `judge.learn`, the owner's act), with its pure parts in `theseus_judge::propose` (names from
     v101, the interleaved split below 200 labeled in the window, the text-only check, the threshold re-fit, the
