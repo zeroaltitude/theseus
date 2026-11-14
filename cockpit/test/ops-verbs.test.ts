@@ -30,7 +30,7 @@ test('the reversible acts offer Undo: pause, snooze, the sticky model, reschedul
 })
 
 test('every method is one the protocol has, except the one it lacks, which the table says', () => {
-  const proto = ['lib.rs', 'ledger.rs'].map((f) => readFileSync(new URL(`../../crates/theseus-protocol/src/${f}`, import.meta.url), 'utf8')).join('\n')
+  const proto = ['lib.rs', 'names.rs', 'ledger.rs'].map((f) => readFileSync(new URL(`../../crates/theseus-protocol/src/${f}`, import.meta.url), 'utf8')).join('\n')
   const lacks: string[] = []
   // Since p2f-ops-act the daemon has job.stop, so no row lacks its method: the list is empty and a row that lacks one fails here.
   for (const v of VERBS) for (const m of v.methods) {
