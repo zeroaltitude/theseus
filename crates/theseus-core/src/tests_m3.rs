@@ -1626,6 +1626,7 @@ mod cancel_recover;
 mod modes;
 /// What is left once earned autonomy and scoped grants are gone.
 mod no_grants;
+mod pause_turn;
 /// A question's notice count ends with the question (theseus-1kw2v).
 mod question_ends;
 /// A question that waits past its life is noticed, not declined (theseus-v2dnc).

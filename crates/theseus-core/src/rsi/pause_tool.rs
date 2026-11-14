@@ -101,7 +101,8 @@ impl Tool for SelfPause {
     }
 
     fn backend(&self) -> Backend {
-        Backend::Harness
+        // Dispatched by family in `toolrun/inproc.rs`, which only an async tool reaches.
+        Backend::Async
     }
 
     fn retry(&self) -> Retry {
