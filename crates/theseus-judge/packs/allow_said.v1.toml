@@ -35,6 +35,6 @@ description = "ALLOW SAID: whether the owner's latest message says to run a held
 type = "noul"
 instructions = "A tool call was held because it could destroy something that nothing holds a copy of, and the assistant has judged that the operator's latest message tells it to run that call as it was first proposed, rather than a reshaped version. `message` is the operator's latest message, whole. `held_tool`, `held_summary` and `held_id` are the call that would run. `others_held` names the other calls held in the same conversation, if any. Does the operator's message say to run THIS held call as it was first proposed?"
 act = 0.70
-confirm = 0.50
+confirm = 0.55
 when_true = "The message tells the assistant to go ahead with the call it already proposed: \"run the original\", \"it's OK to run what was originally suggested\", \"yes, do it the way you first said\", or the same instruction naming the tool, the target or the hold. An instruction that names this call among several held, or that names only this one, counts."
 when_false = "The message does not say to run this call: it asks a question about it, agrees with something else, approves a different held call, asks for the reshaped version instead, takes the instruction back (\"not that one\", \"wait\", \"hold off\"), says nothing about any held call, or is ambiguous between two held calls so that which one is meant cannot be read from his words."
