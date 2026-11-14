@@ -410,8 +410,14 @@ fn cut_to(s: &mut String, kept: usize) {
 /// `flagged` is whether the compiling session carries `injection`
 /// (`SessionRecord::flagged`). It holds a *changed* instruction file's new
 /// text out of the block until the owner says yes, whatever `[project]
-/// on_change` is set to (S31-1); it withholds nothing else, so a labelled
-/// session reads the files the owner granted exactly as any other does.
+/// on_change` is set to (S31-1's reader key); it withholds nothing else, so
+/// a labelled session reads the files the owner granted exactly as any other
+/// does.
+///
+/// A change can also be held for a session that carries nothing, by the
+/// writer key: `change::observe` reads the stored hold a file's move under a
+/// labelled session's acting call left. That needs no argument here, because
+/// it is a fact about the repository and not about the session reading it.
 pub fn block(
     cfg: &crate::config::Config,
     store: &crate::store::Store,

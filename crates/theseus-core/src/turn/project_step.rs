@@ -26,7 +26,12 @@ impl TurnRunner {
     ///
     /// A change is held at `ask` posture, **or** when the session carries
     /// `injection` (`flagged`, S31-1), which holds it whatever the posture
-    /// says.
+    /// says, **or** when the writer key stored a hold for the repository
+    /// (`change::Held`, S31-1) -- which holds it for this session whether or
+    /// not this session carries anything, because the session it is about is
+    /// the one whose call moved the file. The row names that session, so the
+    /// ledger says whose call a withheld file waits on and not merely that
+    /// it waits.
     ///
     /// Nothing at all in a shared place or without tools, where block 3 is
     /// empty and no repository's file was read in the first place.
@@ -64,6 +69,7 @@ impl TurnRunner {
                 old: &c.old,
                 new: &c.new,
                 carried: !seen.withholds(&c.path),
+                wrote: seen.held.as_ref().map(|h| h.by.as_str()),
             });
         }
         let Some(write) = &seen.write else { return };
