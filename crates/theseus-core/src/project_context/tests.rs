@@ -695,7 +695,7 @@ fn a_file_that_moved_under_a_flagged_calls_watch_is_held_for_every_session() {
             w.held.record(&id).unwrap(),
             w.observed
                 .write
-                .clone()
+                .as_ref()
                 .expect("the sighting goes with it")
                 .record(&id)
                 .unwrap(),
