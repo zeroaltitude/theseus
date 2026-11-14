@@ -137,7 +137,11 @@ impl Detail {
     /// of their newest as the pane keeps. Rows are counted from the end, so
     /// the view does not move.
     pub fn older_page(&mut self, h: &SessionHistoryResult) {
-        self.paging = false;
+        // A page nobody is waiting for (the pane was read again since it was
+        // asked for) would be spliced above a gap: it is dropped.
+        if !std::mem::take(&mut self.paging) {
+            return;
+        }
         let mut page = Detail::new(&self.session_id);
         for n in &h.nodes {
             match render::cite::cited_node(n, &h.cites) {
@@ -160,6 +164,9 @@ impl Detail {
         };
         let added = page.lines.len() - skip;
         self.lines.splice(0..0, page.lines.drain(skip..));
+        if self.lines.len() >= KEPT {
+            self.older = None;
+        }
         for (_, q) in &mut self.places {
             *q = q.map(|q| q + added);
         }
@@ -366,6 +373,9 @@ impl Detail {
         if self.lines.len() > KEPT {
             let extra = self.lines.len() - KEPT;
             self.lines.drain(..extra);
+            // What went was the oldest held: the page before it would leave a
+            // gap, so none is asked for.
+            self.older = None;
             for (_, q) in &mut self.places {
                 *q = q.and_then(|q| q.checked_sub(extra));
             }

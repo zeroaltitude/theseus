@@ -151,3 +151,20 @@ fn a_failed_older_read_lets_the_next_scroll_ask_again() {
         "a read that failed is not a read that is out"
     );
 }
+
+/// A page nobody is waiting for (the pane was read again after it was asked
+/// for) would be spliced above a gap; it is dropped.
+#[test]
+fn an_older_page_nobody_asked_for_is_dropped() {
+    let mut app = focused(page(100, 40, Some(100)));
+    let before = lines(&app);
+    app.answered(Purpose::Older(SID.into()), Ok(page(60, 40, Some(60))));
+    assert_eq!(lines(&app), before, "no read was out");
+    // Asked, then the pane is read again, and the old answer comes after.
+    for _ in 0..12 {
+        page_up(&mut app);
+    }
+    app.answered(Purpose::History(SID.into()), Ok(page(100, 40, Some(100))));
+    app.answered(Purpose::Older(SID.into()), Ok(page(60, 40, Some(60))));
+    assert_eq!(lines(&app), before, "the late page was not spliced in");
+}

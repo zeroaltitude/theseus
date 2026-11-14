@@ -798,6 +798,16 @@ impl App {
         }
     }
 
+    /// The next older page of the focused session's history came: it goes above
+    /// what the pane holds (theseus-kym3).
+    fn older_read(&mut self, sid: &str, v: Value) {
+        if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
+            if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
+                d.older_page(&h);
+            }
+        }
+    }
+
     /// An answer to one of the TUI's requests.
     pub fn answered(&mut self, purpose: Purpose, result: Result<Value, RpcError>) -> Vec<Effect> {
         if purpose == Purpose::SelfLog {
@@ -831,13 +841,7 @@ impl App {
                     }
                 }
             }
-            Purpose::Older(sid) => {
-                if let Ok(h) = serde_json::from_value::<SessionHistoryResult>(v) {
-                    if let Some(d) = self.detail.as_mut().filter(|d| d.session_id == sid) {
-                        d.older_page(&h);
-                    }
-                }
-            }
+            Purpose::Older(sid) => self.older_read(&sid, v),
             // The node goes in the place its `node.written` marked; a read
             // that does not find it leaves nothing behind (theseus-v6yc).
             Purpose::Node { session, node } => {
