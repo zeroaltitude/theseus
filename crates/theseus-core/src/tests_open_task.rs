@@ -172,3 +172,123 @@ async fn a_task_inherits_its_parents_labels() {
         "the report changed nothing of the parent's labels"
     );
 }
+
+/// [`opening`], with `[content_based_security] injection` written out. Every
+/// test of S31-1 says which mode it is testing rather than leaning on the
+/// configured one: the whole point of the row is that the hole is closed
+/// either way, and a test that read the mode from the config could not show
+/// that.
+fn opening_at(mode: crate::content::InjectionMode, input: Value) -> Rig {
+    rig(
+        move |req| {
+            if answers_a_call(req) {
+                return Scripted::text("Started it.");
+            }
+            if last_user(req).starts_with("START") {
+                return Scripted::tools(
+                    "Starting it.",
+                    &[("t_task", "task_create", input.clone())],
+                );
+            }
+            Scripted::text("ok")
+        },
+        move |c| c.content_based_security.injection = mode,
+    )
+}
+
+/// Put `injection` on `session`, as a judged item that tried to steer it
+/// would. The label returned, for an assertion to compare against.
+fn label_injection(core: &std::sync::Arc<crate::Core>, session: &str) -> crate::content::Label {
+    use crate::content::{ContentFlags, Flag, ItemKind, Label};
+    let l = Label {
+        flag: Flag::Injection,
+        node: Some("nod_fetched".into()),
+        kind: ItemKind::FetchedPage,
+        source: "http.fetch https://elsewhere.example/page".into(),
+        confidence: 0.95,
+        band: theseus_judge::band::Band::Act,
+        at_ms: 1,
+        judgment: String::new(),
+    };
+    let mut rec: crate::session::SessionRecord = core.store.get_session(session).unwrap().unwrap();
+    let mut flags = ContentFlags::default();
+    flags.raise(l.clone());
+    rec.data = Some(Box::new(flags));
+    core.store.put_session(session, &rec).unwrap();
+    l
+}
+
+/// **S31-1 (i), at `notify`: a task created by a session carrying
+/// `injection` starts carrying it**, so the warning the operator was shown
+/// on the parent is shown on the child too (the owner, 2026-11-13: "B is
+/// fine" -- the warning follows the content, and nothing is frozen).
+///
+/// This is the laundering path the retired freeze used to close, and at
+/// `notify` the freeze does not close it: `policy/modes.rs`'s
+/// `content_refusal` returns before any label is read, so the parent **can**
+/// call `task.create`. If the label did not travel, the text that steered
+/// the parent would arrive in a child session with no warning on it at all.
+#[tokio::test]
+async fn at_notify_a_task_of_a_labelled_session_carries_the_label() {
+    use crate::content::{Flag, InjectionMode};
+    let r = opening_at(InjectionMode::Notify, json!({"brief": "Count the boats"}));
+    let parent = parent_session(&r.core);
+    let raised = label_injection(&r.core, &parent);
+    turn(&r.core, &parent, ASK).await;
+    crate::test_support::until("the task to open", || {
+        !r.core.kernel.tasks(None).unwrap().is_empty()
+    })
+    .await;
+    let tasks = r.core.kernel.tasks(None).unwrap();
+    assert_eq!(
+        tasks.len(),
+        1,
+        "at notify the call runs: {}",
+        results(&r, &parent)
+    );
+    let child: crate::session::SessionRecord = r
+        .core
+        .store
+        .get_session(&tasks[0].session_id)
+        .unwrap()
+        .unwrap();
+    let data = child.data.as_deref().expect("the child carries labels");
+    assert!(
+        data.has(Flag::Injection),
+        "the child starts carrying the parent's label: {data:?}"
+    );
+    // The label is the parent's own, source and all: the child's warning
+    // names the item that steered its parent, not a new finding of its own.
+    assert_eq!(
+        data.label(Flag::Injection).map(|l| l.source.clone()),
+        Some(raised.source),
+        "{data:?}"
+    );
+}
+
+/// **S31-1 (i), at `refuse`: behaviour as before** -- the same hole stays
+/// closed, by the other mechanism. A parent carrying `injection` is frozen,
+/// `task.create` is not a local read, so no child is created at all and
+/// there is nothing for an injection to launder itself into.
+///
+/// The pair is the claim: whichever mode is configured, an injection cannot
+/// reach an unlabelled child. At `notify` it reaches a labelled one; at
+/// `refuse` it reaches none.
+#[tokio::test]
+async fn at_refuse_a_labelled_session_creates_no_task_at_all() {
+    use crate::content::InjectionMode;
+    let r = opening_at(InjectionMode::Refuse, json!({"brief": "Count the boats"}));
+    let parent = parent_session(&r.core);
+    label_injection(&r.core, &parent);
+    turn(&r.core, &parent, ASK).await;
+    assert!(
+        r.core.kernel.tasks(None).unwrap().is_empty(),
+        "a frozen session opened a task: {}",
+        results(&r, &parent)
+    );
+    let said = results(&r, &parent);
+    assert!(
+        said.contains("theseus content remove"),
+        "and the model is told why, in words it can act on: {said}"
+    );
+}
