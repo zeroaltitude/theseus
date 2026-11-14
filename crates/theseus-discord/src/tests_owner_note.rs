@@ -54,15 +54,24 @@ fn every_unasked_discord_message_starts_with_a_kind_and_a_title() {
     );
 }
 
-/// Theseus is the one who flags a call, whatever the notice's detail line
-/// says (theseus-nzwa5): its own heading never names the small model.
+/// Theseus is the one who flags a call (theseus-nzwa5): the notice's heading
+/// never names the small model. The detail line is the one known exception
+/// (`Jev: 95% risky`, `JudgeNoticed::line`, shared with the cockpit and the
+/// CLI), which waits on the owner (ask i9-remembers-5): the test says so,
+/// so it changes the day that line does.
 #[test]
 fn the_notice_of_a_flagged_call_says_theseus_in_its_heading() {
-    let text = crate::runtime::jev_notice_text(&json!({"tool": "proc.run", "line": "95% risky",
+    let text =
+        crate::runtime::jev_notice_text(&json!({"tool": "proc.run", "line": "Jev: 95% risky",
         "summary": "rm -r build", "judgment": "jdg_1"}));
     assert!(
         text.starts_with("⚠️ Alert · Theseus flagged a call that already ran: `proc.run`"),
         "{text}"
     );
-    assert!(!text.contains("Jev"), "{text}");
+    let heading = text.lines().next().unwrap_or_default();
+    assert!(!heading.contains("Jev"), "{heading}");
+    assert!(
+        text.contains("notified after it ran: Jev: 95% risky"),
+        "the score line is the one place left that names it: {text}"
+    );
 }

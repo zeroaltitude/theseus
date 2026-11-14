@@ -75,6 +75,12 @@ fn the_kind_is_a_plain_word_and_the_name_is_whole() {
     let long = "w ".repeat(120);
     let cut = words::in_conversation(Some(&long));
     assert!(cut.ends_with("…\"") && cut.chars().count() < 100, "{cut}");
+    // The limit falls inside a long word: the notice stops at the word before.
+    let inside = format!("{}extraordinarily long", "a ".repeat(37));
+    assert_eq!(
+        words::in_conversation(Some(&inside)),
+        format!("In \"{}…\"", "a ".repeat(37).trim_end())
+    );
 }
 
 /// The question is the same words about the same thing, and says nothing was

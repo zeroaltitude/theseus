@@ -19,7 +19,14 @@ pub(crate) fn in_conversation(title: Option<&str>) -> String {
     match title.filter(|t| !t.is_empty()) {
         Some(t) if t.chars().count() > TITLE_CHARS => {
             let cut: String = t.chars().take(TITLE_CHARS).collect();
-            format!("In \"{}…\"", cut.trim_end())
+            // At the last whole word: a word is never cut in two, unless the
+            // title's first word is itself longer than the limit.
+            let whole = match (t.chars().nth(TITLE_CHARS), cut.rsplit_once(' ')) {
+                (Some(next), _) if next.is_whitespace() => cut.as_str(),
+                (_, Some((head, _))) if !head.is_empty() => head,
+                _ => cut.as_str(),
+            };
+            format!("In \"{}…\"", whole.trim_end())
         }
         Some(t) => format!("In \"{t}\""),
         None => "In a conversation with no title yet".into(),
