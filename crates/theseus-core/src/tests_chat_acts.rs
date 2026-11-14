@@ -427,7 +427,7 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
         .confirm_list()
         .unwrap()
         .into_iter()
-        .map(|q| format!("{} in {} tool {}", q.correlation_id, q.session_id, q.tool))
+        .map(|q| format!("{}/{}", &q.correlation_id[4..10], &q.session_id[4..10]))
         .collect();
     for words in ["yes", "ok, go ahead", "yes please"] {
         r.calls(&[]);
@@ -437,15 +437,22 @@ async fn the_answer_tool_answers_the_question_waiting_here_and_nothing_else() {
             .confirm_list()
             .unwrap()
             .into_iter()
-            .map(|q| format!("{} in {} tool {}", q.correlation_id, q.session_id, q.tool))
+            .map(|q| format!("{}/{}", &q.correlation_id[4..10], &q.session_id[4..10]))
             .collect();
         assert_eq!(
             now.len(),
             2,
-            "`{words}` answered something with no tool called; was {before:?}, now {now:?}; \
-             rows: resolved={:?} answered={:?}",
-            rows(&r, "confirm.resolved"),
+            "`{words}`: here={} else={} was {before:?} now {now:?} resolved={:?} answered={:?}",
+            &here[4..10],
+            &elsewhere[4..10],
+            rows(&r, "confirm.resolved")
+                .iter()
+                .map(|v| format!("{}:{}", v["question"], v["option"]))
+                .collect::<Vec<_>>(),
             rows(&r, "call.answered")
+                .iter()
+                .map(|v| format!("{}:{}", v["action"], v["option"]))
+                .collect::<Vec<_>>()
         );
     }
 
