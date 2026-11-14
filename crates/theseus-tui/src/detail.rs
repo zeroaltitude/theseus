@@ -11,6 +11,8 @@ use theseus_protocol::cite::{mark_into, Citation};
 use theseus_protocol::modes::{PlanItem, SessionMode};
 use theseus_protocol::{Event, NodeInfo, SessionHistoryResult};
 
+use crate::styled;
+
 /// The most lines the pane keeps; the oldest go first.
 const KEPT: usize = 5_000;
 
@@ -75,6 +77,12 @@ pub struct Detail {
     pub plan: Vec<PlanItem>,
     /// The newest turn the pane has seen, for `I` (theseus-mu0e6).
     pub turn: Option<String>,
+    /// `session.history`'s `older`: the `before` that reads the page ahead of
+    /// the oldest node held, none when the pane holds the session's start (or
+    /// as much as it keeps).
+    older: Option<u64>,
+    /// The older page has been asked for and has not come.
+    paging: bool,
 }
 
 impl Detail {
@@ -96,6 +104,7 @@ impl Detail {
         self.places.clear();
         self.open = false;
         self.loaded = true;
+        (self.older, self.paging) = (h.older, false);
         for n in &h.nodes {
             match render::cite::cited_node(n, &h.cites) {
                 Some((marked, notes)) => {
@@ -107,6 +116,58 @@ impl Detail {
                 None => self.node(n),
             }
         }
+    }
+
+    /// The `before` of the older page, when a scroll of `scroll` rows past a
+    /// pane of `height` rows at `width` would reach the first line held and
+    /// older history remains. It marks the page as out, so one read is asked
+    /// at a time.
+    pub fn older_wanted(&mut self, width: usize, height: usize) -> Option<u64> {
+        let before = self.older.filter(|_| !self.paging)?;
+        let want = self.scroll + height + 1;
+        let held = styled::rows_from_end(&self.lines, width, want).len();
+        if held >= want {
+            return None;
+        }
+        self.paging = true;
+        Some(before)
+    }
+
+    /// The older page came: its nodes go above the first line held, as many
+    /// of their newest as the pane keeps. Rows are counted from the end, so
+    /// the view does not move.
+    pub fn older_page(&mut self, h: &SessionHistoryResult) {
+        self.paging = false;
+        let mut page = Detail::new(&self.session_id);
+        for n in &h.nodes {
+            match render::cite::cited_node(n, &h.cites) {
+                Some((marked, notes)) => {
+                    page.node(&marked);
+                    for l in notes {
+                        page.push(l.tag, l.text);
+                    }
+                }
+                None => page.node(n),
+            }
+        }
+        page.close();
+        let room = KEPT.saturating_sub(self.lines.len());
+        let skip = page.lines.len().saturating_sub(room);
+        self.older = match skip {
+            0 => h.older,
+            // The pane keeps no more: the page's oldest lines stay unread.
+            _ => None,
+        };
+        let added = page.lines.len() - skip;
+        self.lines.splice(0..0, page.lines.drain(skip..));
+        for (_, q) in &mut self.places {
+            *q = q.map(|q| q + added);
+        }
+    }
+
+    /// The older page's read failed: the next scroll to the start asks again.
+    pub fn older_failed(&mut self) {
+        self.paging = false;
     }
 
     /// A turn this TUI sent has answered with the sources its reply cites
