@@ -22,6 +22,16 @@
 //! pack's own rule quoted: "when the answer is under the question's confirm
 //! bar, the call proceeds under the ordinary order".
 //!
+//! **THE ONE-WAY FLOOR, SINCE `p5kln-location-facts` PIECE 4** (the owner,
+//! 2026-11-13 12:22, S25-1, whose whole message was *"Yes"*). For a plain file
+//! write or edit whose resolved word says nothing holds a copy, the call is
+//! held whatever the model answers. The decision is `undo/floor.rs`, it is
+//! read in [`UndoVerdict::with_floor`], and it is ONE DIRECTION: it can turn a
+//! `reversible` answer into an ordinary hold and it can never lower one. It
+//! does not change the fail-open rule below — it acts only where the model
+//! ANSWERED the deciding question, so a judge that is off, in shadow, failed
+//! or late still leaves the call to the ordinary order.
+//!
 //! **WHAT IS NOT RESOLVED FOR v1, and why each is the safe direction.**
 //! `remote_keeps` stays `unknown` (`p5kln-remote-keeps`: it is an API call,
 //! and the gate's path has none), which the pack reads as keeping nothing, so
@@ -65,6 +75,9 @@ const PACK: &str = PACK_NAME;
 #[path = "undo/state.rs"]
 pub(crate) mod state;
 
+#[path = "undo/floor.rs"]
+pub(crate) mod floor;
+
 /// The question whose answer decides, and the one that words the hold.
 pub const VERDICT: &str = "reversible";
 pub const SHAPE: &str = "shape";
@@ -104,6 +117,12 @@ pub struct UndoVerdict {
     pub shape: Option<String>,
     /// The deciding answer's confidence.
     pub p: f64,
+    /// Whether CODE forced this hold rather than the model choosing it
+    /// (`judge/undo/floor.rs`, the owner's S25-1). It changes nothing about
+    /// the hold — same status, same reshape hint, same repeat cap, same
+    /// override route, which is the card's own condition — and is carried so
+    /// the judgment's row can say the model's answer was not what decided.
+    pub floored: bool,
 }
 
 impl UndoVerdict {
@@ -140,7 +159,52 @@ impl UndoVerdict {
             says,
             shape: shape_of(pack, j),
             p: a.band.value,
+            floored: false,
         })
+    }
+
+    /// The verdict with **the one-way floor** applied (`undo/floor.rs`; the
+    /// owner, 2026-11-13 12:22, S25-1: a plain file write whose resolved word
+    /// says nothing holds a copy is held *whatever the model answers*).
+    /// `floor` is what [`floor::forces_hold`] said about the same resolved
+    /// words the request carried.
+    ///
+    /// **ONE DIRECTION.** It can turn a `reversible` answer, or an answer the
+    /// fail-open rule would have run, into an ordinary hold. It never lowers
+    /// one: a model that said `irreversible_reshapeable` already holds, and
+    /// one that said `irreversible_final` holds MORE — that answer reaches the
+    /// owner, where a hold costs one model loop and does not — so both stand
+    /// untouched.
+    ///
+    /// **IT ACTS ONLY WHERE THE MODEL ANSWERED**, which is the whole of what
+    /// "whatever the model answers" asks for. Every arm where the pack was not
+    /// acted on at all — the judge off, the pack in shadow, the judgment
+    /// failed or skipped, the 300 ms wait missed — still fails open, because
+    /// failing closed there would make Jev a hard dependency of writing a
+    /// file, which is the property this layer's header puts out of reach. An
+    /// answer UNDER the question's confirm bar is not one of those arms: the
+    /// model answered, so the floor acts, and that is the case the eval set
+    /// calls `f4`.
+    pub fn with_floor(pack: &Pack, j: &Judgment, floor: bool) -> Option<Self> {
+        let model = Self::of(pack, j);
+        if !floor {
+            return model;
+        }
+        match model {
+            Some(v) if v.holds() || v.raises() => Some(v),
+            Some(v) => Some(Self {
+                says: Says::Reshapeable,
+                floored: true,
+                ..v
+            }),
+            None => answered(j).map(|(judgment, p)| Self {
+                judgment,
+                says: Says::Reshapeable,
+                shape: shape_of(pack, j),
+                p,
+                floored: true,
+            }),
+        }
     }
 
     /// Whether the call is held here, before `order` runs (consumption point
@@ -165,6 +229,26 @@ impl UndoVerdict {
             .find(|o| o.id == id)
             .and_then(|o| o.means.clone())
     }
+}
+
+/// The judgment's id and the deciding answer's confidence where the model
+/// ANSWERED the deciding question, whatever it answered and at whatever
+/// confidence. `None` is every arm where the pack was not acted on at all.
+///
+/// It is deliberately looser than [`UndoVerdict::of`] in one place: `of`
+/// requires the band's top to be the chosen option, because it is reading WHAT
+/// the model decided. The floor does not read what the model decided, only
+/// that it decided, so that guard would be an answer-dependent floor — which
+/// is the one thing a floor must not be.
+fn answered(j: &Judgment) -> Option<(String, f64)> {
+    if !j.actionable() || j.mode == Mode::Shadow {
+        return None;
+    }
+    let a = j.answer(VERDICT)?;
+    let Answer::Choice { .. } = &a.answer else {
+        return None;
+    };
+    Some((j.id.clone(), a.band.value))
 }
 
 /// The shape the pack chose, at or above the `shape` question's confirm bar;
@@ -214,14 +298,22 @@ impl JudgeService {
     /// the state built under the pack's cap, its blob staged for the sink,
     /// and the reservation, its frame left beside the call. `None`: nothing
     /// to send.
+    ///
+    /// The third of the tuple is **the one-way floor's answer** about this
+    /// call (`undo/floor.rs`), read from the SAME resolved words the request
+    /// carries, so what the floor saw and what the model was shown cannot
+    /// differ. It is carried through to the verdict rather than acted on here,
+    /// because the floor is one direction only and the model may still hold
+    /// more than it does.
     fn prepare_undo(
         &self,
         pack: Arc<Pack>,
         call: &state::UndoCall,
         today: &str,
-    ) -> Option<(Prepared, super::Beside)> {
+    ) -> Option<(Prepared, super::Beside, bool)> {
         let mut probe = theseus_judge::builders::GitCli::default();
         let input: UndoInput = state::input_of(call, &mut probe);
+        let floor = floor::forces_hold(call, &input);
         let scrub = ScrubWith(self.scrubber.clone());
         let state = theseus_judge::prepare(&pack, &Input::Undo(input), &scrub).ok()?;
         let blob = self.stage_blob(state.state.json.as_bytes());
@@ -242,7 +334,7 @@ impl JudgeService {
             .reserve_micros(std::slice::from_ref(&ask))
             .unwrap_or(0);
         let beside = self.reserve_beside(today, need, spend::Class::of(ask.mode))?;
-        Some((Prepared { built, ask, need }, beside))
+        Some((Prepared { built, ask, need }, beside, floor))
     }
 }
 
@@ -263,7 +355,7 @@ async fn judge_one(
         .await
         .ok()
         .flatten();
-    let Some((Prepared { built, ask, need }, beside)) = prepared else {
+    let Some((Prepared { built, ask, need }, beside, floor)) = prepared else {
         return;
     };
     let wrote = beside.spawn(&me);
@@ -282,8 +374,12 @@ async fn judge_one(
     let ms = t0.elapsed().as_millis() as u64;
     let mut tx = Some(tx);
     for j in &mut judgments {
-        let verdict = UndoVerdict::of(&pack, j);
+        let verdict = UndoVerdict::with_floor(&pack, j, floor);
         let says = verdict.as_ref().map(|v| says_str(v.says));
+        // What the MODEL said, beside what was acted on: a floored hold is
+        // the one row where those differ, and the learning ledger needs both
+        // or the pack would read as having said what code said for it.
+        let floored = verdict.as_ref().is_some_and(|v| v.floored);
         let taken = match (verdict, tx.take()) {
             (Some(v), Some(tx)) => tx.send(v).is_ok(),
             _ => false,
@@ -291,7 +387,7 @@ async fn judge_one(
         if let Some(o) = j.context.as_object_mut() {
             o.insert(
                 "undo".into(),
-                json!({"says": says, "taken": taken, "ms": ms}),
+                json!({"says": says, "taken": taken, "ms": ms, "floored": floored}),
             );
         }
         built.judge.sink().record(j);

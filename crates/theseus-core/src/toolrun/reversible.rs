@@ -45,6 +45,17 @@
 //! classifier is a net addition to a gate that still has every guard it had
 //! in 1.0.4, so failing open returns the product to the release before it,
 //! while failing closed would make Jev a hard dependency of writing a file.
+//!
+//! **THE ONE-WAY FLOOR CHANGES NONE OF THAT** (`judge/undo/floor.rs`; the
+//! owner, 2026-11-13 12:22, S25-1). It acts only where the model ANSWERED the
+//! deciding question, so every fail-open arm above is still the ordinary
+//! order. The one arm it does reach is the last of them -- an answer under the
+//! question's confirm bar -- because that IS an answer, and "held whatever the
+//! model answers" is what he said yes to. A floored hold arrives here as an
+//! ordinary `Says::Reshapeable`, so point one, the hold's words, its record,
+//! the owner's override and the repeat cap are the same code for it as for a
+//! hold the model chose; that sameness is the card's own condition and not an
+//! accident of the wiring.
 
 use serde_json::Value;
 use theseus_tools::{Backend, Plan, Tool};
@@ -303,6 +314,7 @@ impl ToolRuntime {
             shape: v.shape.as_deref(),
             p: v.p,
             summary: &plan.summary,
+            floored: v.floored,
         });
         Hold {
             why,
