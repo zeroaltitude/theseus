@@ -17,10 +17,9 @@
 //! held as it was. That is what makes this an override of the hold and not a
 //! way past the classifier.
 //!
-//! **Not in the cockpit's TypeScript.** There is no cockpit reader yet, as
-//! `flow.rs` has none: the generator's list in `ts.rs` does not name these,
-//! so `cockpit/src/protocol.gen/` is unchanged by them. A cockpit surface
-//! for the holds adds them to that list in its own commit.
+//! **In the cockpit's TypeScript** (issue 15): they are on the wire, so
+//! `ts.rs` generates them like every other wire type, though no cockpit
+//! surface reads them yet.
 //!
 //! A submodule of `work.rs` rather than a module of its own, because
 //! `lib.rs` has one line of headroom under `scripts/shape.sh`'s 2,500 and
@@ -38,6 +37,7 @@ pub const KEEP: usize = 64;
 /// repository's grant keeps (`project_context::trust::Grant`), for the same
 /// reason: an override of a safety hold is an act, and the record says whose.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Allowance {
     pub by: String,
     pub via: String,
@@ -46,15 +46,18 @@ pub struct Allowance {
 
 /// One call `undo.v1` held, as the store keeps it and a surface lists it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HeldCall {
     /// Short, and what `undo.allow` names: `hld_<8 hex>`.
     pub id: String,
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub turn_id: Option<String>,
     pub tool: String,
     /// The call's arguments as the model first proposed them. The allowance
     /// is spent only on a call whose input is these bytes.
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub input: Value,
     /// The call in one line, as the gate's plan summarised it.
     pub summary: String,
@@ -62,13 +65,16 @@ pub struct HeldCall {
     pub judgment: String,
     /// The shape the pack chose, where it chose one above its own bar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub shape: Option<String>,
     pub held_ms: u64,
     /// Set by `undo.allow`; cleared by the gate when the call runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub allowed: Option<Allowance>,
     /// When the gate spent the allowance. A hold with this set is history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub ran_ms: Option<u64>,
 }
 
@@ -92,8 +98,10 @@ impl HeldCall {
 /// `undo.list`: the held calls, newest first. With `session_id` only that
 /// conversation's.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct UndoListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub session_id: Option<String>,
     /// With this unset, only the holds no override has spent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -102,6 +110,7 @@ pub struct UndoListParams {
 
 /// `undo.list`'s answer.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct UndoListResult {
     pub held: Vec<HeldCall>,
 }
@@ -109,18 +118,22 @@ pub struct UndoListResult {
 /// `undo.allow`: let the held call `hold` run as it was first proposed. The
 /// owner's act, judged as a repository's trust is (`places::owner_in_person`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct UndoAllowParams {
     /// The hold's id, whole or its last four characters or more.
     pub hold: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub discord: Option<crate::DiscordOrigin>,
 }
 
 /// `undo.allow`'s answer: the hold as it now stands, and the words every
 /// surface shows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct UndoAllowResult {
     pub hold: HeldCall,
     pub words: String,

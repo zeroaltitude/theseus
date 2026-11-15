@@ -157,6 +157,9 @@ KEEL_FILES = (
     "crates/theseus-core/src/rsi/sealed/daemon.rs",
     "crates/theseus-core/src/rsi/sealed/runner.rs",
     "crates/theseus-core/src/rsi/sealed/relay.rs",
+    # The sealed hold's list of behaviour paths (issue 15): the list decides which branches are scored on the
+    # sealed sets, so an edit to it is the owner's like an edit to the scorer.
+    "crates/theseus-core/src/rsi/sealed/hold.rs",
     "crates/theseus-core/src/toolrun/guarded.rs",
     "crates/theseus-core/src/config/self_improve.rs",
     "crates/theseus-core/src/rsi/sealed/tests.rs",

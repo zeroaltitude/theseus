@@ -607,6 +607,14 @@ mod tests {
         assert_eq!(c, ["sealed"]);
     }
 
+    /// The hold's list of behaviour paths decides which branches are scored,
+    /// so a self branch that changes it stops at the owner's card (issue 15).
+    #[test]
+    fn the_sealed_hold_s_list_is_the_owners() {
+        let c = classes(&["crates/theseus-core/src/rsi/sealed/hold.rs"], "");
+        assert_eq!(c, ["sealed"]);
+    }
+
     #[test]
     fn the_exam_set_in_the_repository_is_the_sealed_class_too() {
         let c = classes(&["crates/theseus-exam/exam/exam-v2.toml"], "");

@@ -1427,7 +1427,7 @@ class SealedWatch(Case):
     def test_every_sealed_path_is_watched(self):
         for want in ("rsi/sealed.rs", "rsi/sealed/check.rs", "rsi/sealed/filter.rs", "rsi/sealed/daemon.rs",
                      "rsi/sealed/runner.rs", "rsi/sealed/relay.rs", "toolrun/guarded.rs", "config/self_improve.rs",
-                     "rsi/sealed/tests.rs", "rsi/sealed/tests_reach.rs"):
+                     "rsi/sealed/tests.rs", "rsi/sealed/tests_reach.rs", "rsi/sealed/hold.rs"):
             self.assertIn(self.CORE + want, self.mod.KEEL_FILES)
         self.assertEqual(self.mod.KEEL_PREFIXES, ("crates/theseus-exam/exam/",))
 
@@ -1941,6 +1941,30 @@ class Acks(unittest.TestCase):
         self.repo.commit({}, self.ACK + self.TEST_ACK, sign=self.listed)
         code, out = self.repo.guard()
         self.assertEqual(code, 0, out)
+
+    def test_the_sealed_hold_s_list_passes_only_with_the_owner_s_key(self):
+        # The list of paths a self branch may not change without the owner's card is itself the owner's (issue 15).
+        hold = "crates/theseus-core/src/rsi/sealed/hold.rs"
+        self.repo.git("checkout", "-q", "main")
+        self.repo.commit({"scripts/keel-signers": f"# the keel's signers\nroutine gpg {self.stranger}\n"
+                                                   f"owner gpg {self.listed}\n",
+                          hold: 'pub const BEHAVIOUR: &[&str] = &[\n    "src/turn.rs",\n    "src/compiler/*",\n];\n'},
+                         "the hold's list")
+        self.repo.git("checkout", "-q", "-B", "lane")
+        self.repo.commit({hold: 'pub const BEHAVIOUR: &[&str] = &[\n    "src/turn.rs",\n];\n'}, "a shorter list")
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertRegex(out, rf"{hold}:\d+: keel-file: ")
+        ack = f"ack\n\nKeel: keel-file {hold} — the list\n"
+        self.repo.commit({}, ack, sign=self.stranger)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 1, out)
+        self.assertIn("lists for the routine class: it acks only test-removed, and `keel-file` is the owner's", out)
+        self.repo.git("reset", "-q", "--hard", "HEAD~1")
+        self.repo.commit({}, ack, sign=self.listed)
+        code, out = self.repo.guard()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"keel: acked: {hold}:", out)
 
     def test_the_owner_s_place_with_no_key_passes_nothing_of_his_and_says_so(self):
         self.classed(f"routine gpg {self.listed}\nowner none\n")
